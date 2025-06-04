@@ -9,6 +9,12 @@ const (
 
 	// MemStoreKey defines the in-memory store key
 	MemStoreKey = "mem_blog"
+
+	// Unique Id for posts
+	PostKey = "Post/value/"
+
+	// Id of the latest post added to the store
+	PostCountKey = "Post/count/"
 )
 
 var (
