@@ -53,7 +53,10 @@ import (
 	ibcexported "github.com/cosmos/ibc-go/v8/modules/core/exported"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	blogmodulev1 "sparkdream/api/sparkdream/blog/module"
 	sparkdreammodulev1 "sparkdream/api/sparkdream/sparkdream/module"
+	_ "sparkdream/x/blog/module" // import for side-effects
+	blogmoduletypes "sparkdream/x/blog/types"
 	_ "sparkdream/x/sparkdream/module" // import for side-effects
 	sparkdreammoduletypes "sparkdream/x/sparkdream/types"
 	// this line is used by starport scaffolding # stargate/app/moduleImport
@@ -94,6 +97,7 @@ var (
 		circuittypes.ModuleName,
 		// chain modules
 		sparkdreammoduletypes.ModuleName,
+		blogmoduletypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	}
 
@@ -119,6 +123,7 @@ var (
 		ibcfeetypes.ModuleName,
 		// chain modules
 		sparkdreammoduletypes.ModuleName,
+		blogmoduletypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/beginBlockers
 	}
 
@@ -138,6 +143,7 @@ var (
 		ibcfeetypes.ModuleName,
 		// chain modules
 		sparkdreammoduletypes.ModuleName,
+		blogmoduletypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/endBlockers
 	}
 
@@ -296,6 +302,10 @@ var (
 			{
 				Name:   sparkdreammoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&sparkdreammodulev1.Module{}),
+			},
+			{
+				Name:   blogmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&blogmodulev1.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},
