@@ -1,27 +1,62 @@
 version: 1
 validation: sovereign
-default_denom: stake
 accounts: 
 - name: alice
-  coins:
-  - 20000token
-  - 200000000stake
+  coins: [20000000000000uspark, 2000000000udream]
 - name: bob
-  coins:
-  - 10000token
-  - 100000000stake
+  coins: [10000000000000uspark, 1000000000udream]
 client:
   openapi:
-    path: docs/static/openapi.json
+    path: docs/static/openapi.yml
 faucet:
   name: bob
-  coins:
-  - 5token
-  - 100000stake
+  coins: [1000uspark, 1000udream]
+genesis:
+  app_state:
+    bank:
+      denom_metadata:
+      - base: uspark
+        denom_units:
+        - denom: uspark
+          exponent: 0
+        - denom: spark
+          exponent: 6
+        description: The native token of Spark Dream A T E L I E R.
+        display: spark
+        name: spark
+        symbol: spark
+      - base: udream
+        denom_units:
+        - denom: udream
+          exponent: 0
+        - denom: dream
+          exponent: 6
+        description: The native staking token of Spark Dream A T E L I E R.
+        display: dream
+        name: dream
+        symbol: dream
+    crisis:
+      constant_fee:
+        denom: uspark
+    distribution:
+      params:
+        community_tax: "0.05"
+    gov:
+      deposit_params:
+        max_deposit_period: 60s
+        min_deposit:
+        - amount: "10000000"
+          denom: udream
+      voting_params:
+        voting_period: 60s
+    mint:
+      params:
+        mint_denom: uspark
+    staking:
+      params:
+        bond_denom: uspark
 validators:
 - name: alice
-  bonded: 100000000stake
-- name: validator1
-  bonded: 200000000stake
-- name: validator2
-  bonded: 100000000stake
+  bonded: 15000000000000uspark
+- name: bob
+  bonded: 5000000000000uspark
