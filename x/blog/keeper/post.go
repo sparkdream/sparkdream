@@ -28,6 +28,12 @@ func (k Keeper) SetPost(ctx context.Context, post types.Post) {
 	store.Set(GetPostIDBytes(post.Id), b)
 }
 
+func (k Keeper) RemovePost(ctx context.Context, id uint64) {
+	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
+	store := prefix.NewStore(storeAdapter, []byte(types.PostKey))
+	store.Delete(GetPostIDBytes(id))
+}
+
 func (k Keeper) GetPostCount(ctx context.Context) uint64 {
 	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
 	store := prefix.NewStore(storeAdapter, []byte{})
