@@ -22,6 +22,11 @@ service Query {
   rpc ShowPost(QueryShowPostRequest) returns (QueryShowPostResponse) {
     option (google.api.http).get = "/sparkdream/blog/v1/show_post/{id}";
   }
+
+  // ListPost Queries a list of ListPost items.
+  rpc ListPost(QueryListPostRequest) returns (QueryListPostResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_post";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -44,4 +49,15 @@ message QueryShowPostRequest {
 // QueryShowPostResponse defines the QueryShowPostResponse message.
 message QueryShowPostResponse {
   Post post = 1;
+}
+
+// QueryListPostRequest defines the QueryListPostRequest message.
+message QueryListPostRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryListPostResponse defines the QueryListPostResponse message.
+message QueryListPostResponse {
+  Post post = 1;
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
