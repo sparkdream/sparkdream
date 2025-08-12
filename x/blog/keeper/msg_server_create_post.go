@@ -12,8 +12,16 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
 	}
-
-	// TODO: Handle the message
-
-	return &types.MsgCreatePostResponse{}, nil
+	var post = types.Post{
+		Creator: msg.Creator,
+		Title:   msg.Title,
+		Body:    msg.Body,
+	}
+	id := k.AppendPost(
+		ctx,
+		post,
+	)
+	return &types.MsgCreatePostResponse{
+		Id: id,
+	}, nil
 }
