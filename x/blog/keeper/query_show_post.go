@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"sparkdream/x/blog/types"
-
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -14,7 +14,10 @@ func (q queryServer) ShowPost(ctx context.Context, req *types.QueryShowPostReque
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	post, found := q.k.GetPost(ctx, req.Id)
+	if !found {
+		return nil, sdkerrors.ErrKeyNotFound
+	}
 
-	return &types.QueryShowPostResponse{}, nil
+	return &types.QueryShowPostResponse{Post: post}, nil
 }

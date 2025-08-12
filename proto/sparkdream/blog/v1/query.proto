@@ -48,7 +48,7 @@ message QueryShowPostRequest {
 
 // QueryShowPostResponse defines the QueryShowPostResponse message.
 message QueryShowPostResponse {
-  Post post = 1;
+  Post post = 1 [(gogoproto.nullable) = false];
 }
 
 // QueryListPostRequest defines the QueryListPostRequest message.
@@ -58,6 +58,6 @@ message QueryListPostRequest {
 
 // QueryListPostResponse defines the QueryListPostResponse message.
 message QueryListPostResponse {
-  Post post = 1;
+  repeated Post post = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
