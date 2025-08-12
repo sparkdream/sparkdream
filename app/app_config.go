@@ -1,6 +1,8 @@
 package app
 
 import (
+	_ "sparkdream/x/blog/module"
+	blogmoduletypes "sparkdream/x/blog/types"
 	_ "sparkdream/x/sparkdream/module"
 	sparkdreammoduletypes "sparkdream/x/sparkdream/types"
 	"time"
@@ -127,6 +129,7 @@ var (
 						ibcexported.ModuleName,
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
+						blogmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -136,6 +139,7 @@ var (
 						group.ModuleName,
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
+						blogmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -173,6 +177,7 @@ var (
 						icatypes.ModuleName,
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
+						blogmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -272,6 +277,10 @@ var (
 			{
 				Name:   sparkdreammoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&sparkdreammoduletypes.Module{}),
+			},
+			{
+				Name:   blogmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&blogmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

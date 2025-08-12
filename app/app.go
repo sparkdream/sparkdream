@@ -46,6 +46,7 @@ import (
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
 
 	"sparkdream/docs"
+	blogmodulekeeper "sparkdream/x/blog/keeper"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
 )
 
@@ -99,6 +100,7 @@ type App struct {
 	TransferKeeper      ibctransferkeeper.Keeper
 
 	SparkdreamKeeper sparkdreammodulekeeper.Keeper
+	BlogKeeper       blogmodulekeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
@@ -179,6 +181,7 @@ func New(
 		&app.CircuitBreakerKeeper,
 		&app.ParamsKeeper,
 		&app.SparkdreamKeeper,
+		&app.BlogKeeper,
 	); err != nil {
 		panic(err)
 	}
