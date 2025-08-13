@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.sparkdream.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/sparkdream/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "sparkdream/x/sparkdream/Params";
+  option (gogoproto.equal) = true;
+}

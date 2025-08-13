@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package sparkdream.blog.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/blog/v1/params.proto";
+import "sparkdream/blog/v1/post.proto";
+
+option go_package = "sparkdream/x/blog/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/params";
+  }
+
+  // ShowPost Queries a list of ShowPost items.
+  rpc ShowPost(QueryShowPostRequest) returns (QueryShowPostResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/show_post/{id}";
+  }
+
+  // ListPost Queries a list of ListPost items.
+  rpc ListPost(QueryListPostRequest) returns (QueryListPostResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_post";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryShowPostRequest defines the QueryShowPostRequest message.
+message QueryShowPostRequest {
+  uint64 id = 1;
+}
+
+// QueryShowPostResponse defines the QueryShowPostResponse message.
+message QueryShowPostResponse {
+  Post post = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryListPostRequest defines the QueryListPostRequest message.
+message QueryListPostRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryListPostResponse defines the QueryListPostResponse message.
+message QueryListPostResponse {
+  repeated Post post = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}

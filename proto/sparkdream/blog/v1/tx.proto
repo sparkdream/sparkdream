@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package sparkdream.blog.v1;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/blog/v1/params.proto";
+
+option go_package = "sparkdream/x/blog/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // CreatePost defines the CreatePost RPC.
+  rpc CreatePost(MsgCreatePost) returns (MsgCreatePostResponse);
+
+  // UpdatePost defines the UpdatePost RPC.
+  rpc UpdatePost(MsgUpdatePost) returns (MsgUpdatePostResponse);
+
+  // DeletePost defines the DeletePost RPC.
+  rpc DeletePost(MsgDeletePost) returns (MsgDeletePostResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/blog/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless overwritten).
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgCreatePost defines the MsgCreatePost message.
+message MsgCreatePost {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string title = 2;
+  string body = 3;
+}
+
+// MsgCreatePostResponse defines the MsgCreatePostResponse message.
+message MsgCreatePostResponse {
+  uint64 id = 1;
+}
+
+// MsgUpdatePost defines the MsgUpdatePost message.
+message MsgUpdatePost {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string title = 2;
+  string body = 3;
+  uint64 id = 4;
+}
+
+// MsgUpdatePostResponse defines the MsgUpdatePostResponse message.
+message MsgUpdatePostResponse {}
+
+// MsgDeletePost defines the MsgDeletePost message.
+message MsgDeletePost {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgDeletePostResponse defines the MsgDeletePostResponse message.
+message MsgDeletePostResponse {}
