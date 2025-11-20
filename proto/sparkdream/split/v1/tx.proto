@@ -21,6 +21,9 @@ service Msg {
 
   // SpendFromCommons defines the SpendFromCommons RPC.
   rpc SpendFromCommons(MsgSpendFromCommons) returns (MsgSpendFromCommonsResponse);
+
+  // EmergencyCancelProposal defines the EmergencyCancelProposal RPC.
+  rpc EmergencyCancelProposal(MsgEmergencyCancelProposal) returns (MsgEmergencyCancelProposalResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -48,10 +51,8 @@ message MsgUpdateParamsResponse {}
 message MsgSpendFromCommons {
   option (cosmos.msg.v1.signer) = "authority";
   option (amino.name) = "sparkdream/x/split/MsgSpendFromCommons";
-
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string recipient = 2;
-
   repeated cosmos.base.v1beta1.Coin amount = 3 [
     (gogoproto.nullable) = false,
     (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
@@ -60,3 +61,14 @@ message MsgSpendFromCommons {
 
 // MsgSpendFromCommonsResponse defines the MsgSpendFromCommonsResponse message.
 message MsgSpendFromCommonsResponse {}
+
+// MsgEmergencyCancelProposal defines the MsgEmergencyCancelProposal message.
+message MsgEmergencyCancelProposal {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/split/MsgEmergencyCancelProposal";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 proposal_id = 2;
+}
+
+// MsgEmergencyCancelProposalResponse defines the MsgEmergencyCancelProposalResponse message.
+message MsgEmergencyCancelProposalResponse {}

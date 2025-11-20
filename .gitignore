@@ -3,6 +3,7 @@ vue/dist
 build/
 prod/
 release/
+test/split/proposals
 .idea/
 .vscode/
 .DS_Store

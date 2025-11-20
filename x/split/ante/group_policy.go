@@ -4,8 +4,6 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-
-	// 1. ADD IMPORT
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/group"
 	grouperrors "github.com/cosmos/cosmos-sdk/x/group/errors"
@@ -13,11 +11,11 @@ import (
 )
 
 const (
-	// 2. UPDATE CONSTANT: Use MsgSend for the signal
-	msgSendTypeURL                 = "/cosmos.bank.v1beta1.MsgSend"
-	msgSpendFromCommonsTypeURL     = "/sparkdream.split.v1.MsgSpendFromCommons"
-	msgUpdateGroupMembersTypeURL   = "/cosmos.group.v1.MsgUpdateGroupMembers"
-	msgUpdateDecisionPolicyTypeURL = "/cosmos.group.v1.MsgUpdateGroupPolicyDecisionPolicy"
+	msgSendTypeURL                    = "/cosmos.bank.v1beta1.MsgSend"
+	msgSpendFromCommonsTypeURL        = "/sparkdream.split.v1.MsgSpendFromCommons"
+	msgEmergencyCancelProposalTypeURL = "/sparkdream.split.v1.MsgEmergencyCancelProposal"
+	msgUpdateGroupMembersTypeURL      = "/cosmos.group.v1.MsgUpdateGroupMembers"
+	msgUpdateDecisionPolicyTypeURL    = "/cosmos.group.v1.MsgUpdateGroupPolicyDecisionPolicy"
 )
 
 // GroupPolicyDecorator checks if a MsgSubmitProposal is allowed for the specific Group Policy
@@ -56,24 +54,23 @@ func (ad GroupPolicyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 			return ctx, errorsmod.Wrap(err, "invalid policy metadata")
 		}
 
-		// 4. SPAM PROTECTION: Enforce Minimum Fee
-		requiredFee := sdk.NewCoins(sdk.NewInt64Coin("uspark", 5000000))
+		// 4. SPAM PROTECTION: Enforce Minimum Fee (only for Standard policy)
+		if policyInfo.Info.Metadata == "standard" {
+			requiredFee := sdk.NewCoins(sdk.NewInt64Coin("uspark", 5000000))
 
-		// Get the fee payer's provided fee from the Tx
-		feeTx, ok := tx.(sdk.FeeTx)
-		if !ok {
-			return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
-		}
+			feeTx, ok := tx.(sdk.FeeTx)
+			if !ok {
+				return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+			}
 
-		providedFee := feeTx.GetFee()
-
-		// Check if provided fee >= required fee
-		if !providedFee.IsAllGTE(requiredFee) {
-			return ctx, errorsmod.Wrapf(
-				sdkerrors.ErrInsufficientFee,
-				"Commons Council proposals require a min fee of %s, got %s",
-				requiredFee, providedFee,
-			)
+			providedFee := feeTx.GetFee()
+			if !providedFee.IsAllGTE(requiredFee) {
+				return ctx, errorsmod.Wrapf(
+					sdkerrors.ErrInsufficientFee,
+					"Commons Council proposals require a min fee of %s, got %s",
+					requiredFee, providedFee,
+				)
+			}
 		}
 
 		// 5. Apply Allowlist Logic
@@ -93,27 +90,35 @@ func (ad GroupPolicyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 			}
 		case "veto":
 			for _, innerMsg := range msgs {
-				// 3. CHECK MSG TYPE
-				if sdk.MsgTypeURL(innerMsg) != msgSendTypeURL {
-					return ctx, errorsmod.Wrapf(
-						grouperrors.ErrUnauthorized,
-						"msg type %s not allowed for 'veto' policy (only Self-Send signals allowed)",
-						sdk.MsgTypeURL(innerMsg),
-					)
+				typeURL := sdk.MsgTypeURL(innerMsg)
+
+				// OPTION A: Executive Order (Emergency Kill)
+				if typeURL == msgEmergencyCancelProposalTypeURL {
+					continue // Allowed
 				}
 
-				// 4. ENFORCE LOOPBACK (From == To)
-				// This ensures the Veto Policy isn't spending money, just signaling.
-				sendMsg, ok := innerMsg.(*banktypes.MsgSend)
-				if !ok {
-					return ctx, errorsmod.Wrap(sdkerrors.ErrInvalidType, "could not cast to MsgSend")
+				// OPTION B: Social Signal (Loopback MsgSend)
+				if typeURL == msgSendTypeURL {
+					// Enforce Loopback (From == To) to prevent spending
+					sendMsg, ok := innerMsg.(*banktypes.MsgSend)
+					if !ok {
+						return ctx, errorsmod.Wrap(sdkerrors.ErrInvalidType, "could not cast to MsgSend")
+					}
+					if sendMsg.FromAddress != sendMsg.ToAddress {
+						return ctx, errorsmod.Wrap(
+							grouperrors.ErrUnauthorized,
+							"Veto Policy can only send to itself (Loopback Signal)",
+						)
+					}
+					continue // Allowed
 				}
-				if sendMsg.FromAddress != sendMsg.ToAddress {
-					return ctx, errorsmod.Wrap(
-						grouperrors.ErrUnauthorized,
-						"Veto Policy can only send to itself (Loopback Signal)",
-					)
-				}
+
+				// If it's neither, reject it
+				return ctx, errorsmod.Wrapf(
+					grouperrors.ErrUnauthorized,
+					"msg type %s not allowed for 'veto' policy",
+					typeURL,
+				)
 			}
 		}
 	}

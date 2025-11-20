@@ -44,6 +44,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgSpendFromCommons,
 		splitsimulation.SimulateMsgSpendFromCommons(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgEmergencyCancelProposal          = "op_weight_msg_split"
+		defaultWeightMsgEmergencyCancelProposal int = 100
+	)
+
+	var weightMsgEmergencyCancelProposal int
+	simState.AppParams.GetOrGenerate(opWeightMsgEmergencyCancelProposal, &weightMsgEmergencyCancelProposal, nil,
+		func(_ *rand.Rand) {
+			weightMsgEmergencyCancelProposal = defaultWeightMsgEmergencyCancelProposal
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgEmergencyCancelProposal,
+		splitsimulation.SimulateMsgEmergencyCancelProposal(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

@@ -8,11 +8,13 @@ CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
+# Create output dir if not exists
+mkdir -p proposals
+
 # Get the Commons Council Address
 COMMONS_COUNCIL_ADDR=$($BINARY query split params --output json | jq -r '.params.commons_council_address')
 
 echo "Commons Council Address: $COMMONS_COUNCIL_ADDR"
-
 echo "--- SNAPSHOT: BOB'S BALANCE (BEFORE) ---"
 $BINARY query bank balances $BOB_ADDR
 
@@ -35,29 +37,33 @@ echo '{
       ] 
     }
   ]
-}' > msg_veto_test.json
+}' > proposals/msg_veto_test.json
 
 # --- 2. Submit Proposal ---
 echo "Submitting proposal..."
 
-# 1. Submit and capture ONLY the TxHash
-SUBMIT_RES=$($BINARY tx group submit-proposal msg_veto_test.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+# Submit and capture output
+# Added --fees to ensure it passes FeeDecorator
+SUBMIT_RES=$($BINARY tx group submit-proposal proposals/msg_veto_test.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Tx Hash: $TX_HASH"
-echo "Waiting for block inclusion..."
-sleep 6
+echo "Waiting for block inclusion (3s)..."
+sleep 3
 
-# 2. Query the Transaction to get the actual events
-echo "Querying Tx to find Proposal ID..."
+# Query Tx to find Proposal ID
 TX_RES=$($BINARY query tx $TX_HASH --output json)
-
-# 3. Extract Proposal ID
 PROPOSAL_ID=$(echo $TX_RES | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
+# Fallback lookup
 if [ -z "$PROPOSAL_ID" ] || [ "$PROPOSAL_ID" == "null" ]; then
-    # Fallback lookup
     PROPOSAL_ID=$(echo $TX_RES | jq -r '.logs[0].events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+fi
+
+if [ -z "$PROPOSAL_ID" ] || [ "$PROPOSAL_ID" == "null" ]; then
+    echo "❌ ERROR: Could not find Proposal ID. Submission might have failed."
+    echo "Tx Response: $TX_RES"
+    exit 1
 fi
 
 echo "✅ Found Proposal ID: $PROPOSAL_ID"
@@ -71,17 +77,18 @@ sleep 3
 echo "Bob voting NO_WITH_VETO..."
 $BINARY tx group vote $PROPOSAL_ID $BOB_ADDR VOTE_OPTION_NO_WITH_VETO "I do not want this" --from bob -y --chain-id $CHAIN_ID --keyring-backend test
 
-# FIX: Sleep for 65s because Policy Voting Period is 60s
-echo "Votes cast. Waiting for voting period to end (65s)..."
-sleep 65
+# OPTIMIZATION: Wait 35s. 
+# The Standard Policy (used for spending) has a 30s voting period in group_setup.sh.
+echo "Votes cast. Waiting for voting period to end (35s)..."
+sleep 35
 
 # --- 4. Attempt Execution (Trigger Tally) ---
-# Note: In x/group, status often updates "Lazily" when someone tries to Exec or Tally.
-# Even if it fails, this command forces the chain to calculate the rejection.
+# Even though it's rejected, we run 'exec' to force the state update to PROPOSAL_STATUS_REJECTED.
 echo "Attempting to execute (This triggers the Tally)..."
-$BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 
-sleep 6
+sleep 3
 
 # --- 5. Verify Rejection ---
 echo "--- CHECKING PROPOSAL STATUS ---"
@@ -92,7 +99,9 @@ if [ "$STATUS" == "PROPOSAL_STATUS_REJECTED" ]; then
   echo "✅ SUCCESS: Proposal was correctly REJECTED."
 else
   echo "❌ FAILURE: Proposal status is $STATUS (Expected PROPOSAL_STATUS_REJECTED)."
+  echo "   Tip: If status is SUBMITTED, voting period hasn't ended. If ACCEPTED, veto math is wrong."
 fi
 
+# Check that money did NOT move
 echo "--- VERIFYING BOB'S BALANCE (SHOULD BE UNCHANGED) ---"
 $BINARY query bank balances $BOB_ADDR

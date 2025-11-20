@@ -97,12 +97,12 @@ var (
 	// blocked account addresses
 	blockAccAddrs = []string{
 		authtypes.FeeCollectorName,
-		distrtypes.ModuleName,
 		minttypes.ModuleName,
 		stakingtypes.BondedPoolName,
 		stakingtypes.NotBondedPoolName,
 		nft.ModuleName,
 		// We allow the following module accounts to receive funds:
+		// distrtypes.ModuleName,
 		// govtypes.ModuleName
 	}
 

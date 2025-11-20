@@ -3,12 +3,14 @@ package keeper
 import (
 	"fmt"
 
+	"sparkdream/x/split/types"
+
 	"cosmossdk.io/collections"
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
-
-	"sparkdream/x/split/types"
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 )
 
 type Keeper struct {
@@ -24,7 +26,8 @@ type Keeper struct {
 
 	bankKeeper  types.BankKeeper
 	authKeeper  types.AuthKeeper
-	groupKeeper types.GroupKeeper
+	govKeeper   *govkeeper.Keeper
+	groupKeeper groupkeeper.Keeper
 }
 
 func NewKeeper(
@@ -35,7 +38,8 @@ func NewKeeper(
 
 	bankKeeper types.BankKeeper,
 	authKeeper types.AuthKeeper,
-	groupKeeper types.GroupKeeper,
+	govKeeper *govkeeper.Keeper,
+	groupKeeper groupkeeper.Keeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -51,6 +55,7 @@ func NewKeeper(
 
 		bankKeeper:  bankKeeper,
 		authKeeper:  authKeeper,
+		govKeeper:   govKeeper,
 		groupKeeper: groupKeeper,
 		Params:      collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 	}
