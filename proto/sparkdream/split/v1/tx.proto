@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package sparkdream.split.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/split/v1/params.proto";
+
+option go_package = "sparkdream/x/split/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // SpendFromCommons defines the SpendFromCommons RPC.
+  rpc SpendFromCommons(MsgSpendFromCommons) returns (MsgSpendFromCommonsResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/split/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless overwritten).
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgSpendFromCommons defines the MsgSpendFromCommons message.
+message MsgSpendFromCommons {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/split/MsgSpendFromCommons";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string recipient = 2;
+
+  repeated cosmos.base.v1beta1.Coin amount = 3 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+  ];
+}
+
+// MsgSpendFromCommonsResponse defines the MsgSpendFromCommonsResponse message.
+message MsgSpendFromCommonsResponse {}

@@ -2,12 +2,11 @@ version: 1
 validation: sovereign
 accounts: 
 - name: alice
-  coins: [20000000000000uspark, 2000000000udream]
+  coins: [20000000000000uspark, 20000000000000udream]
 - name: bob
-  coins: [10000000000000uspark, 1000000000udream]
-client:
-  openapi:
-    path: docs/static/openapi.yml
+  coins: [10000000000000uspark, 10000000000000udream]
+- name: carol
+  coins: [5000000000000uspark, 5000000000000udream]
 faucet:
   name: bob
   coins: [1000uspark, 1000udream]
@@ -21,7 +20,7 @@ genesis:
           exponent: 0
         - denom: spark
           exponent: 6
-        description: The native token of Spark Dream A T E L I E R.
+        description: Native token of Spark Dream A T E L I E R.
         display: spark
         name: spark
         symbol: spark
@@ -31,7 +30,7 @@ genesis:
           exponent: 0
         - denom: dream
           exponent: 6
-        description: The native staking token of Spark Dream A T E L I E R.
+        description: Native token of Spark Dream A T E L I E R.
         display: dream
         name: dream
         symbol: dream
@@ -40,18 +39,21 @@ genesis:
         denom: uspark
     distribution:
       params:
-        community_tax: "0.05"
+        community_tax: "0.15"
     gov:
       deposit_params:
         max_deposit_period: 60s
         min_deposit:
         - amount: "10000000"
-          denom: udream
+          denom: uspark
       voting_params:
         voting_period: 60s
     mint:
       params:
         mint_denom: uspark
+    split:
+      params:
+        commons_council_address: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
     staking:
       params:
         bond_denom: uspark

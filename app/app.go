@@ -25,6 +25,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/auth"
+	cosmos_ante "github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -35,6 +36,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	mintkeeper "github.com/cosmos/cosmos-sdk/x/mint/keeper"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -47,7 +49,10 @@ import (
 
 	"sparkdream/docs"
 	blogmodulekeeper "sparkdream/x/blog/keeper"
+	ecosystemmodulekeeper "sparkdream/x/ecosystem/keeper"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
+	"sparkdream/x/split/ante"
+	splitmodulekeeper "sparkdream/x/split/keeper"
 )
 
 const (
@@ -87,6 +92,7 @@ type App struct {
 	MintKeeper            mintkeeper.Keeper
 	DistrKeeper           distrkeeper.Keeper
 	GovKeeper             *govkeeper.Keeper
+	GroupKeeper           groupkeeper.Keeper
 	UpgradeKeeper         *upgradekeeper.Keeper
 	AuthzKeeper           authzkeeper.Keeper
 	ConsensusParamsKeeper consensuskeeper.Keeper
@@ -101,6 +107,8 @@ type App struct {
 
 	SparkdreamKeeper sparkdreammodulekeeper.Keeper
 	BlogKeeper       blogmodulekeeper.Keeper
+	SplitKeeper      splitmodulekeeper.Keeper
+	EcosystemKeeper  ecosystemmodulekeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
@@ -109,7 +117,7 @@ type App struct {
 
 func init() {
 
-	sdk.DefaultBondDenom = "stake"
+	sdk.DefaultBondDenom = "uspark"
 
 	var err error
 	clienthelpers.EnvPrefix = Name
@@ -175,6 +183,7 @@ func New(
 		&app.MintKeeper,
 		&app.DistrKeeper,
 		&app.GovKeeper,
+		&app.GroupKeeper,
 		&app.UpgradeKeeper,
 		&app.AuthzKeeper,
 		&app.ConsensusParamsKeeper,
@@ -182,6 +191,8 @@ func New(
 		&app.ParamsKeeper,
 		&app.SparkdreamKeeper,
 		&app.BlogKeeper,
+		&app.SplitKeeper,
+		&app.EcosystemKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -192,6 +203,37 @@ func New(
 
 	// build app
 	app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
+
+	anteOptions := cosmos_ante.HandlerOptions{
+		SignModeHandler: app.txConfig.SignModeHandler(),
+		SigGasConsumer:  cosmos_ante.DefaultSigVerificationGasConsumer,
+	}
+
+	// Manually define the standard decorators (since NewModuleAnteDecorators doesn't exist)
+	decorators := []sdk.AnteDecorator{
+		cosmos_ante.NewSetUpContextDecorator(), // outermost
+		cosmos_ante.NewExtensionOptionsDecorator(anteOptions.ExtensionOptionChecker),
+		cosmos_ante.NewValidateBasicDecorator(),
+		cosmos_ante.NewTxTimeoutHeightDecorator(),
+		cosmos_ante.NewValidateMemoDecorator(app.AuthKeeper),
+		cosmos_ante.NewConsumeGasForTxSizeDecorator(app.AuthKeeper),
+		// We pass nil for FeegrantKeeper since it's not exposed in the App struct.
+		cosmos_ante.NewDeductFeeDecorator(app.AuthKeeper, app.BankKeeper, nil, anteOptions.TxFeeChecker),
+		cosmos_ante.NewSetPubKeyDecorator(app.AuthKeeper), // Set pub key
+		cosmos_ante.NewValidateSigCountDecorator(app.AuthKeeper),
+		cosmos_ante.NewSigGasConsumeDecorator(app.AuthKeeper, anteOptions.SigGasConsumer),
+		cosmos_ante.NewSigVerificationDecorator(app.AuthKeeper, anteOptions.SignModeHandler),
+		cosmos_ante.NewIncrementSequenceDecorator(app.AuthKeeper),
+	}
+
+	// 3. Insert the group policy Decorator at the end
+	// This ensures the transaction is valid and signed before checking the allowlist
+	decorators = append(decorators, ante.NewGroupPolicyDecorator(app.GroupKeeper))
+
+	// 4. Chain them together and set
+	app.SetAnteHandler(sdk.ChainAnteDecorators(decorators...))
+
+	// -------------------------------------------------------------------------
 
 	// register legacy modules
 	if err := app.registerIBCModules(appOpts); err != nil {

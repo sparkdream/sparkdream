@@ -3,8 +3,12 @@ package app
 import (
 	_ "sparkdream/x/blog/module"
 	blogmoduletypes "sparkdream/x/blog/types"
+	_ "sparkdream/x/ecosystem/module"
+	ecosystemmoduletypes "sparkdream/x/ecosystem/types"
 	_ "sparkdream/x/sparkdream/module"
 	sparkdreammoduletypes "sparkdream/x/sparkdream/types"
+	_ "sparkdream/x/split/module"
+	splitmoduletypes "sparkdream/x/split/types"
 	"time"
 
 	runtimev1alpha1 "cosmossdk.io/api/cosmos/app/runtime/v1alpha1"
@@ -85,6 +89,8 @@ var (
 		{Account: nft.ModuleName},
 		{Account: ibctransfertypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: icatypes.ModuleName},
+		{Account: splitmoduletypes.ModuleName},
+		{Account: ecosystemmoduletypes.ModuleName, Permissions: []string{authtypes.Staking}},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -130,6 +136,8 @@ var (
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
 						blogmoduletypes.ModuleName,
+						splitmoduletypes.ModuleName,
+						ecosystemmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -140,6 +148,8 @@ var (
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
 						blogmoduletypes.ModuleName,
+						splitmoduletypes.ModuleName,
+						ecosystemmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -178,6 +188,8 @@ var (
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
 						blogmoduletypes.ModuleName,
+						splitmoduletypes.ModuleName,
+						ecosystemmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -281,6 +293,14 @@ var (
 			{
 				Name:   blogmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&blogmoduletypes.Module{}),
+			},
+			{
+				Name:   splitmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&splitmoduletypes.Module{}),
+			},
+			{
+				Name:   ecosystemmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&ecosystemmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

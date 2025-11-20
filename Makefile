@@ -103,3 +103,13 @@ govulncheck:
 	@govulncheck ./...
 
 .PHONY: govet govulncheck
+
+build:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+
+do-checksum:
+	cd build && sha256sum sparkdreamd > sparkdreamd-checksum
+
+build-with-checksum: build do-checksum
+
+.PHONY: build do-checksum build-with-checksum

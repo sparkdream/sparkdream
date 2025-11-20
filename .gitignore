@@ -1,5 +1,7 @@
 vue/node_modules
 vue/dist
+build/
+prod/
 release/
 .idea/
 .vscode/
