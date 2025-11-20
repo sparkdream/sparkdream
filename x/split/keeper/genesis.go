@@ -8,7 +8,15 @@ import (
 
 // InitGenesis initializes the module's state from a provided genesis state.
 func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) error {
-	return k.Params.Set(ctx, genState.Params)
+	// 1. Set Params
+	if err := k.Params.Set(ctx, genState.Params); err != nil {
+		panic(err)
+	}
+
+	// 2. Bootstrap the Commons Council group
+	k.BootstrapCommonsCouncil(ctx)
+
+	return nil
 }
 
 // ExportGenesis returns the module's exported genesis.

@@ -13,6 +13,7 @@ type AuthKeeper interface {
 	GetAccount(context.Context, sdk.AccAddress) sdk.AccountI // only used for simulation
 	// Methods imported from account should be defined here
 	GetModuleAddress(string) sdk.AccAddress
+	IterateAccounts(context.Context, func(sdk.AccountI) bool)
 }
 
 // BankKeeper defines the expected interface for the Bank module.
