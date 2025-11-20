@@ -1,6 +1,8 @@
 package ante
 
 import (
+	"sparkdream/x/split/keeper"
+
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -21,10 +23,14 @@ const (
 // GroupPolicyDecorator checks if a MsgSubmitProposal is allowed for the specific Group Policy
 type GroupPolicyDecorator struct {
 	groupKeeper groupkeeper.Keeper
+	splitKeeper keeper.Keeper
 }
 
-func NewGroupPolicyDecorator(gk groupkeeper.Keeper) GroupPolicyDecorator {
-	return GroupPolicyDecorator{groupKeeper: gk}
+func NewGroupPolicyDecorator(gk groupkeeper.Keeper, sk keeper.Keeper) GroupPolicyDecorator {
+	return GroupPolicyDecorator{
+		groupKeeper: gk,
+		splitKeeper: sk,
+	}
 }
 
 func (ad GroupPolicyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
@@ -54,26 +60,36 @@ func (ad GroupPolicyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 			return ctx, errorsmod.Wrap(err, "invalid policy metadata")
 		}
 
-		// 4. SPAM PROTECTION: Enforce Minimum Fee (only for Standard policy)
+		// 4. Get Stored Council Params
+		params, err := ad.splitKeeper.Params.Get(ctx)
+		if err != nil {
+			return ctx, errorsmod.Wrap(err, "failed to get params")
+		}
+
+		// 5. SPAM PROTECTION: Enforce Minimum Fee (only for Standard policy)
 		if policyInfo.Info.Metadata == "standard" {
-			requiredFee := sdk.NewCoins(sdk.NewInt64Coin("uspark", 5000000))
+			// Parse the string from params into Coins
+			// If param is empty or invalid, this returns empty coins (0 fee), which is safe fallback
+			requiredFee, _ := sdk.ParseCoinsNormalized(params.CommonsCouncilFee)
 
-			feeTx, ok := tx.(sdk.FeeTx)
-			if !ok {
-				return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
-			}
+			if !requiredFee.IsZero() {
+				feeTx, ok := tx.(sdk.FeeTx)
+				if !ok {
+					return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+				}
 
-			providedFee := feeTx.GetFee()
-			if !providedFee.IsAllGTE(requiredFee) {
-				return ctx, errorsmod.Wrapf(
-					sdkerrors.ErrInsufficientFee,
-					"Commons Council proposals require a min fee of %s, got %s",
-					requiredFee, providedFee,
-				)
+				providedFee := feeTx.GetFee()
+				if !providedFee.IsAllGTE(requiredFee) {
+					return ctx, errorsmod.Wrapf(
+						sdkerrors.ErrInsufficientFee,
+						"Commons Council proposals require a min fee of %s, got %s",
+						requiredFee, providedFee,
+					)
+				}
 			}
 		}
 
-		// 5. Apply Allowlist Logic
+		// 6. Apply Allowlist Logic
 		switch policyInfo.Info.Metadata {
 		case "standard":
 			for _, innerMsg := range msgs {

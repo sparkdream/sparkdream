@@ -12,4 +12,5 @@ message Params {
   option (amino.name) = "sparkdream/x/split/Params";
   option (gogoproto.equal) = true;
   string commons_council_address = 1;
+  string commons_council_fee = 2;
 }

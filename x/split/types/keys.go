@@ -19,6 +19,6 @@ const (
 var ParamsKey = collections.NewPrefix("p_split")
 
 var (
-	// KeyCommonsCouncilAddress is the store key for CommonsCouncilAddress
 	KeyCommonsCouncilAddress = []byte("CommonsCouncilAddress")
+	KeyCommonsCouncilFee     = []byte("CommonsCouncilFee")
 )

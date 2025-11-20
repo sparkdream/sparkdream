@@ -228,7 +228,7 @@ func New(
 
 	// 3. Insert the group policy Decorator at the end
 	// This ensures the transaction is valid and signed before checking the allowlist
-	decorators = append(decorators, ante.NewGroupPolicyDecorator(app.GroupKeeper))
+	decorators = append(decorators, ante.NewGroupPolicyDecorator(app.GroupKeeper, app.SplitKeeper))
 
 	// 4. Chain them together and set
 	app.SetAnteHandler(sdk.ChainAnteDecorators(decorators...))
