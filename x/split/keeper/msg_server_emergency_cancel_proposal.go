@@ -24,34 +24,35 @@ func (k msgServer) EmergencyCancelProposal(goCtx context.Context, msg *types.Msg
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
-	// 2. SECURITY CHECK: Verify Group Membership
-	// Instead of checking exact address match, we check if the signer belongs to the same Group ID.
+	// 2. SECURITY CHECK: Verify Authority
 
-	// A. Get Info for the "Known" Council Address (Standard Policy)
-	knownPolicy, err := k.groupKeeper.GroupPolicyInfo(ctx, &group.QueryGroupPolicyInfoRequest{
+	// Attempt to resolve the Stored Council Address as a Group Policy
+	knownPolicy, err1 := k.groupKeeper.GroupPolicyInfo(ctx, &group.QueryGroupPolicyInfoRequest{
 		Address: params.CommonsCouncilAddress,
 	})
-	if err != nil {
-		return nil, errorsmod.Wrapf(err, "invalid commons council address in params: %s", params.CommonsCouncilAddress)
-	}
 
-	// B. Get Info for the Signer (The Veto Policy)
-	signerPolicy, err := k.groupKeeper.GroupPolicyInfo(ctx, &group.QueryGroupPolicyInfoRequest{
-		Address: msg.Authority,
-	})
-	if err != nil {
-		// If signer isn't a group policy at all, reject immediately
-		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "signer %s is not a group policy", msg.Authority)
-	}
+	if err1 == nil {
+		// Scenario A: The Council is a GROUP (Normal Operation)
+		// Resolve the Signer (msg.Authority) as a Group Policy
+		signerPolicy, err2 := k.groupKeeper.GroupPolicyInfo(ctx, &group.QueryGroupPolicyInfoRequest{
+			Address: msg.Authority,
+		})
 
-	// C. Compare Group IDs
-	// If the signer belongs to the same Group ID as the configured Council, we allow it.
-	if knownPolicy.Info.GroupId != signerPolicy.Info.GroupId {
-		return nil, errorsmod.Wrapf(
-			sdkerrors.ErrUnauthorized,
-			"signer %s (Group %d) does not belong to Commons Council (Group %d)",
-			msg.Authority, signerPolicy.Info.GroupId, knownPolicy.Info.GroupId,
-		)
+		if err2 != nil {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "signer must be a group policy belonging to the council group")
+		}
+
+		// Enforce Group ID Match
+		if knownPolicy.Info.GroupId != signerPolicy.Info.GroupId {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "signer group %d != council group %d", signerPolicy.Info.GroupId, knownPolicy.Info.GroupId)
+		}
+	} else {
+		// Scenario B: The Council is a USER (Interim/Emergency Mode)
+		// If the stored address is NOT a policy, we assume it's a simple User Account.
+		// In this case, we require an Exact Match.
+		if msg.Authority != params.CommonsCouncilAddress {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "signer %s does not match council address %s", msg.Authority, params.CommonsCouncilAddress)
+		}
 	}
 
 	// 3. Get the Target Proposal

@@ -5,6 +5,7 @@ echo "--- TESTING: COMMONS COUNCIL MEMBER MANAGEMENT ---"
 # --- 0. SETUP ---
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+GROUP_ID=1
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
@@ -20,8 +21,8 @@ DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test)
 mkdir -p proposals
 
 # Discover Addresses
-STANDARD_ADDR=$($BINARY query group group-policies-by-group 1 -o json | jq -r '.group_policies[] | select(.metadata == "standard") | .address' | head -n 1 | tr -d '"')
-GROUP_ADMIN=$($BINARY query group group-info 1 --output json | jq -r '.info.admin')
+STANDARD_ADDR=$($BINARY query group group-policies-by-group $GROUP_ID -o json | jq -r '.group_policies[] | select(.metadata == "standard") | .address' | head -n 1 | tr -d '"')
+GROUP_ADMIN=$($BINARY query group group-info $GROUP_ID --output json | jq -r '.info.admin')
 
 echo "Standard Policy (Council): $STANDARD_ADDR"
 echo "Current Group Admin:       $GROUP_ADMIN"
@@ -40,7 +41,7 @@ echo "--- TEST 1: Alice attempts direct member update (Should Fail) ---"
 echo '{"members": [{"address": "'$DAVE_ADDR'", "weight": "1", "metadata": "Illegal Entry"}]}' > proposals/members_fail.json
 
 # Attempt update (Alice signing)
-OUTPUT=$($BINARY tx group update-group-members 1 proposals/members_fail.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test 2>&1)
+OUTPUT=$($BINARY tx group update-group-members $GROUP_ID proposals/members_fail.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test 2>&1)
 
 if echo "$OUTPUT" | grep -q "unauthorized"; then
     echo "✅ SUCCESS: Alice was blocked from updating members directly."
@@ -71,7 +72,7 @@ echo '{
     {
       "@type": "/cosmos.group.v1.MsgUpdateGroupMembers",
       "admin": "'$STANDARD_ADDR'",
-      "group_id": "1",
+      "group_id": "'$GROUP_ID'",
       "member_updates": [
         {"address": "'$DAVE_ADDR'", "weight": "1", "metadata": "Dave"},
         {"address": "'$CAROL_ADDR'", "weight": "0", "metadata": "Carol"}
@@ -136,7 +137,8 @@ fi
 echo "--- VERIFYING MEMBERSHIP CHANGES ---"
 
 # Query Members
-MEMBERS_JSON=$($BINARY query group group-members 1 --output json)
+MEMBERS_JSON=$($BINARY query group group-members $GROUP_ID --output json)
+echo "$MEMBERS_JSON"
 
 # Check Dave (Should exist)
 if echo "$MEMBERS_JSON" | grep -q "$DAVE_ADDR"; then
