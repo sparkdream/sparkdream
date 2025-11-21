@@ -53,7 +53,11 @@ genesis:
         expedited_voting_period: "40s"
     mint:
       params:
-        mint_denom: uspark
+        mint_denom: "uspark"
+        goal_bonded: "0.67"
+        inflation_max: "0.05"
+        inflation_min: "0.025" 
+        inflation_rate_change: "0.13"
     split:
       params:
         commons_council_address: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
