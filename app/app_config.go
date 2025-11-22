@@ -5,6 +5,8 @@ import (
 	blogmoduletypes "sparkdream/x/blog/types"
 	_ "sparkdream/x/ecosystem/module"
 	ecosystemmoduletypes "sparkdream/x/ecosystem/types"
+	_ "sparkdream/x/name/module"
+	namemoduletypes "sparkdream/x/name/types"
 	_ "sparkdream/x/sparkdream/module"
 	sparkdreammoduletypes "sparkdream/x/sparkdream/types"
 	_ "sparkdream/x/split/module"
@@ -91,6 +93,7 @@ var (
 		{Account: icatypes.ModuleName},
 		{Account: splitmoduletypes.ModuleName},
 		{Account: ecosystemmoduletypes.ModuleName, Permissions: []string{authtypes.Staking}},
+		{Account: namemoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -138,6 +141,7 @@ var (
 						blogmoduletypes.ModuleName,
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
+						namemoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -150,6 +154,7 @@ var (
 						blogmoduletypes.ModuleName,
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
+						namemoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -190,6 +195,7 @@ var (
 						blogmoduletypes.ModuleName,
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
+						namemoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -301,6 +307,10 @@ var (
 			{
 				Name:   ecosystemmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&ecosystemmoduletypes.Module{}),
+			},
+			{
+				Name:   namemoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&namemoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},
