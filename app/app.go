@@ -50,6 +50,7 @@ import (
 	"sparkdream/docs"
 	blogmodulekeeper "sparkdream/x/blog/keeper"
 	ecosystemmodulekeeper "sparkdream/x/ecosystem/keeper"
+	namemodulekeeper "sparkdream/x/name/keeper"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
 	"sparkdream/x/split/ante"
 	splitmodulekeeper "sparkdream/x/split/keeper"
@@ -109,6 +110,7 @@ type App struct {
 	BlogKeeper       blogmodulekeeper.Keeper
 	SplitKeeper      splitmodulekeeper.Keeper
 	EcosystemKeeper  ecosystemmodulekeeper.Keeper
+	NameKeeper       namemodulekeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
@@ -193,6 +195,7 @@ func New(
 		&app.BlogKeeper,
 		&app.SplitKeeper,
 		&app.EcosystemKeeper,
+		&app.NameKeeper,
 	); err != nil {
 		panic(err)
 	}

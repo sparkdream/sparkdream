@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.name.v1;
+
+option go_package = "sparkdream/x/name/types";
+
+// Dispute defines the Dispute message.
+message Dispute {
+  string name = 1;
+  string claimant = 2;
+}

@@ -1,0 +1,11 @@
+syntax = "proto3";
+package sparkdream.name.v1;
+
+option go_package = "sparkdream/x/name/types";
+
+// OwnerInfo defines the OwnerInfo message.
+message OwnerInfo {
+  string address = 1;
+  string primary_name = 2;
+  int64 last_active_time = 3;
+}

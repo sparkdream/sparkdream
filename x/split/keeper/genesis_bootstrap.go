@@ -39,6 +39,9 @@ func (k Keeper) BootstrapCommonsCouncil(ctx context.Context) {
 
 		// Determine Metadata Name from our map, or fallback
 		name, isKnown := GenesisNames[address]
+		if name == "Bob" {
+			return false
+		}
 		if !isKnown {
 			name = "Genesis Member"
 		}

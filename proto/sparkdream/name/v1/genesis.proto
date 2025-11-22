@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package sparkdream.name.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/name/v1/dispute.proto";
+import "sparkdream/name/v1/name_record.proto";
+import "sparkdream/name/v1/owner_info.proto";
+import "sparkdream/name/v1/params.proto";
+
+option go_package = "sparkdream/x/name/types";
+
+// GenesisState defines the name module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  repeated NameRecord name_records = 2 [(gogoproto.nullable) = false];
+  repeated OwnerInfo owner_infos = 3 [(gogoproto.nullable) = false];
+  repeated Dispute dispute_map = 4 [(gogoproto.nullable) = false];
+}

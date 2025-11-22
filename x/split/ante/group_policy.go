@@ -18,6 +18,7 @@ const (
 	msgEmergencyCancelProposalTypeURL = "/sparkdream.split.v1.MsgEmergencyCancelProposal"
 	msgUpdateGroupMembersTypeURL      = "/cosmos.group.v1.MsgUpdateGroupMembers"
 	msgUpdateDecisionPolicyTypeURL    = "/cosmos.group.v1.MsgUpdateGroupPolicyDecisionPolicy"
+	msgResolveNameDisputeTypeURL      = "/sparkdream.name.v1.MsgResolveDispute"
 )
 
 // GroupPolicyDecorator checks if a MsgSubmitProposal is allowed for the specific Group Policy
@@ -96,7 +97,8 @@ func (ad GroupPolicyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 				typeURL := sdk.MsgTypeURL(innerMsg)
 				if typeURL != msgSpendFromCommonsTypeURL &&
 					typeURL != msgUpdateGroupMembersTypeURL &&
-					typeURL != msgUpdateDecisionPolicyTypeURL {
+					typeURL != msgUpdateDecisionPolicyTypeURL &&
+					typeURL != msgResolveNameDisputeTypeURL {
 					return ctx, errorsmod.Wrapf(
 						grouperrors.ErrUnauthorized,
 						"msg type %s not allowed for 'standard' policy (only SpendFromCommons and UpdateGroupMembers allowed)",

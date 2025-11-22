@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package sparkdream.name.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/name/v1/dispute.proto";
+import "sparkdream/name/v1/name_record.proto";
+import "sparkdream/name/v1/params.proto";
+
+option go_package = "sparkdream/x/name/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/name/v1/params";
+  }
+
+  // Resolve Queries a list of Resolve items.
+  rpc Resolve(QueryResolveRequest) returns (QueryResolveResponse) {
+    option (google.api.http).get = "/sparkdream/name/v1/resolve/{name}";
+  }
+
+  // ReverseResolve Queries a list of ReverseResolve items.
+  rpc ReverseResolve(QueryReverseResolveRequest) returns (QueryReverseResolveResponse) {
+    option (google.api.http).get = "/sparkdream/name/v1/reverse_resolve/{address}";
+  }
+
+  // Names Queries a list of Names items.
+  rpc Names(QueryNamesRequest) returns (QueryNamesResponse) {
+    option (google.api.http).get = "/sparkdream/name/v1/names/{address}";
+  }
+
+  // ListDispute Queries a list of Dispute items.
+  rpc GetDispute(QueryGetDisputeRequest) returns (QueryGetDisputeResponse) {
+    option (google.api.http).get = "/sparkdream/name/v1/dispute/{name}";
+  }
+
+  // ListDispute defines the ListDispute RPC.
+  rpc ListDispute(QueryAllDisputeRequest) returns (QueryAllDisputeResponse) {
+    option (google.api.http).get = "/sparkdream/name/v1/dispute";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryResolveRequest defines the QueryResolveRequest message.
+message QueryResolveRequest {
+  string name = 1;
+}
+
+// QueryResolveResponse defines the QueryResolveResponse message.
+message QueryResolveResponse {
+  NameRecord name_record = 1;
+}
+
+// QueryReverseResolveRequest defines the QueryReverseResolveRequest message.
+message QueryReverseResolveRequest {
+  string address = 1;
+}
+
+// QueryReverseResolveResponse defines the QueryReverseResolveResponse message.
+message QueryReverseResolveResponse {
+  string name = 1;
+}
+
+// QueryNamesRequest defines the QueryNamesRequest message.
+message QueryNamesRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryNamesResponse defines the QueryNamesResponse message.
+message QueryNamesResponse {
+  repeated NameRecord names = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetDisputeRequest defines the QueryGetDisputeRequest message.
+message QueryGetDisputeRequest {
+  string name = 1;
+}
+
+// QueryGetDisputeResponse defines the QueryGetDisputeResponse message.
+message QueryGetDisputeResponse {
+  Dispute dispute = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllDisputeRequest defines the QueryAllDisputeRequest message.
+message QueryAllDisputeRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllDisputeResponse defines the QueryAllDisputeResponse message.
+message QueryAllDisputeResponse {
+  repeated Dispute dispute = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}

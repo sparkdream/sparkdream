@@ -1,0 +1,11 @@
+syntax = "proto3";
+package sparkdream.name.v1;
+
+option go_package = "sparkdream/x/name/types";
+
+// NameRecord defines the NameRecord message.
+message NameRecord {
+  string name = 1;
+  string owner = 2;
+  string data = 3;
+}

@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package sparkdream.name.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "sparkdream/x/name/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "sparkdream/x/name/Params";
+  option (gogoproto.equal) = true;
+  repeated string blocked_names = 1;
+  uint64 council_group_id = 2;
+  uint64 min_name_length = 3;
+  uint64 max_name_length = 4;
+  uint64 max_names_per_address = 5;
+  google.protobuf.Duration expiration_duration = 6 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  cosmos.base.v1beta1.Coin registration_fee = 7 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  cosmos.base.v1beta1.Coin dispute_fee = 8 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
