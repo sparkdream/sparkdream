@@ -2,6 +2,8 @@
 
 echo "--- TESTING NAME MODULE: REGISTRATION & PERMISSIONS ---"
 
+# Run commons/group_member_update_test.sh first!
+
 # --- 0. SETUP & CONFIG ---
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
@@ -15,10 +17,12 @@ fi
 
 # Actors
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test) # Council Member
-BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)     # Non-Member (Plebeian)
+BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)     # Council Member
+CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test) # Non-Member (Plebeian)
 
 echo "Alice (Council): $ALICE_ADDR"
-echo "Bob (Public):    $BOB_ADDR"
+echo "Bob (Council):   $BOB_ADDR"
+echo "Carol (Public):  $CAROL_ADDR"
 
 # Fetch Params
 echo "Fetching Name Params..."
@@ -28,11 +32,11 @@ FEE_AMOUNT=$($BINARY query name params -o json | jq -r '.params.registration_fee
 
 echo "Constraints: Min $MIN_LEN, Max $MAX_LEN, Fee $FEE_AMOUNT $DENOM"
 
-# --- 1. TEST: UNAUTHORIZED REGISTRATION (Bob) ---
-echo "--- CASE 1: Bob (Non-Council) tries to register 'bob' ---"
+# --- 1. TEST: UNAUTHORIZED REGISTRATION (Carol) ---
+echo "--- CASE 1: Carol (Non-Council) tries to register 'carol' ---"
 
 # 1. Submit Tx (Async)
-RES=$($BINARY tx name register-name "bob" "meta" --from bob -y --chain-id $CHAIN_ID --keyring-backend test -o json)
+RES=$($BINARY tx name register-name "carol" "meta" --from carol -y --chain-id $CHAIN_ID --keyring-backend test -o json)
 TX_HASH=$(echo $RES | jq -r '.txhash')
 
 echo "Tx Hash: $TX_HASH"
@@ -49,15 +53,15 @@ echo "Execution Code: $CODE"
 # 3. Validate Failure
 if [ "$CODE" != "0" ]; then
     if echo "$RAW_LOG" | grep -q "unauthorized"; then
-        echo "✅ SUCCESS: Bob was blocked (Unauthorized)."
+        echo "✅ SUCCESS: Carol was blocked (Unauthorized)."
     elif echo "$RAW_LOG" | grep -q "only council members"; then
-        echo "✅ SUCCESS: Bob was blocked (Council check caught it)."
+        echo "✅ SUCCESS: Carol was blocked (Council check caught it)."
     else
-        echo "✅ SUCCESS: Bob was blocked (Code $CODE)."
+        echo "✅ SUCCESS: Carol was blocked (Code $CODE)."
         echo "Log: $RAW_LOG"
     fi
 else
-    echo "❌ FAILURE: Bob successfully registered a name!"
+    echo "❌ FAILURE: Carol successfully registered a name!"
     echo "Raw Log: $RAW_LOG"
     exit 1
 fi
