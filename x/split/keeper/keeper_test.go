@@ -12,7 +12,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 
 	"sparkdream/x/split/keeper"
 	module "sparkdream/x/split/module"
@@ -45,7 +44,6 @@ func initFixture(t *testing.T) *fixture {
 		nil,
 		nil,
 		nil,
-		groupkeeper.Keeper{},
 	)
 
 	// Initialize params

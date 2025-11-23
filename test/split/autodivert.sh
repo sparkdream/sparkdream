@@ -12,7 +12,7 @@ CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
 DISTR_ADDR=$($BINARY query auth module-account distribution --output json | jq -r '.account.value.address')
 GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.value.address')
 ECOSYSTEM_ADDR=$($BINARY query auth module-account ecosystem --output json | jq -r '.account.value.address')
-COMMONS_COUNCIL_ADDR=$($BINARY query split params --output json | jq -r '.params.commons_council_address')
+COMMONS_COUNCIL_ADDR=$($BINARY query commons params --output json | jq -r '.params.commons_council_address')
 
 echo "--- TESTING AUTODIVERT: FUNDING COMMONS POOL ---"
 # Send 1000 SPARK to the Commons Pool (DISTR_ADDR)

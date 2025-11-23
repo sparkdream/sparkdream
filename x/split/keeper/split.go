@@ -16,13 +16,22 @@ func (k Keeper) SplitFunds(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	logger := sdkCtx.Logger().With("module", "x/split")
 
-	// 1. Get Parameters
-	params, err := k.GetParams(ctx)
-	if err != nil || params.CommonsCouncilAddress == "" {
+	// 1. Get Parameters from Commons Module
+	// We use the injected commonsKeeper to fetch the global council address
+	commonsParams, err := k.commonsKeeper.GetParams(ctx)
+	if err != nil {
+		// If we can't get params (e.g. store issue or not init), we log and skip splitting safely.
+		// This prevents the chain from halting.
+		logger.Error("Failed to get commons params", "err", err)
+		return nil
+	}
+
+	if commonsParams.CommonsCouncilAddress == "" {
 		// If no address is set, we return nil so funds stay in Community Pool safely.
 		return nil
 	}
-	commonsAddr, err := sdk.AccAddressFromBech32(params.CommonsCouncilAddress)
+
+	commonsAddr, err := sdk.AccAddressFromBech32(commonsParams.CommonsCouncilAddress)
 	if err != nil {
 		logger.Error("Invalid commons council address", "err", err)
 		return nil

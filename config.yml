@@ -34,6 +34,9 @@ genesis:
         display: dream
         name: dream
         symbol: dream
+    commons:
+      params:
+        commons_council_address: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
     crisis:
       constant_fee:
         denom: uspark
@@ -58,9 +61,6 @@ genesis:
         inflation_max: "0.05"
         inflation_min: "0.025" 
         inflation_rate_change: "0.13"
-    split:
-      params:
-        commons_council_address: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
     staking:
       params:
         bond_denom: uspark

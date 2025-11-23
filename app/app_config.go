@@ -3,6 +3,8 @@ package app
 import (
 	_ "sparkdream/x/blog/module"
 	blogmoduletypes "sparkdream/x/blog/types"
+	_ "sparkdream/x/commons/module"
+	commonsmoduletypes "sparkdream/x/commons/types"
 	_ "sparkdream/x/ecosystem/module"
 	ecosystemmoduletypes "sparkdream/x/ecosystem/types"
 	_ "sparkdream/x/name/module"
@@ -92,8 +94,9 @@ var (
 		{Account: ibctransfertypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: icatypes.ModuleName},
 		{Account: splitmoduletypes.ModuleName},
-		{Account: ecosystemmoduletypes.ModuleName, Permissions: []string{authtypes.Staking}},
-		{Account: namemoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
+		{Account: ecosystemmoduletypes.ModuleName},
+		{Account: namemoduletypes.ModuleName},
+		{Account: commonsmoduletypes.ModuleName},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -142,6 +145,7 @@ var (
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
+						commonsmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -155,6 +159,7 @@ var (
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
+						commonsmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -196,6 +201,7 @@ var (
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
+						commonsmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -311,6 +317,10 @@ var (
 			{
 				Name:   namemoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&namemoduletypes.Module{}),
+			},
+			{
+				Name:   commonsmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&commonsmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

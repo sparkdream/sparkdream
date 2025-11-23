@@ -49,10 +49,11 @@ import (
 
 	"sparkdream/docs"
 	blogmodulekeeper "sparkdream/x/blog/keeper"
+	"sparkdream/x/commons/ante"
+	commonsmodulekeeper "sparkdream/x/commons/keeper"
 	ecosystemmodulekeeper "sparkdream/x/ecosystem/keeper"
 	namemodulekeeper "sparkdream/x/name/keeper"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
-	"sparkdream/x/split/ante"
 	splitmodulekeeper "sparkdream/x/split/keeper"
 )
 
@@ -111,6 +112,7 @@ type App struct {
 	SplitKeeper      splitmodulekeeper.Keeper
 	EcosystemKeeper  ecosystemmodulekeeper.Keeper
 	NameKeeper       namemodulekeeper.Keeper
+	CommonsKeeper    commonsmodulekeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
@@ -196,6 +198,7 @@ func New(
 		&app.SplitKeeper,
 		&app.EcosystemKeeper,
 		&app.NameKeeper,
+		&app.CommonsKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -231,7 +234,7 @@ func New(
 
 	// 3. Insert the group policy Decorator at the end
 	// This ensures the transaction is valid and signed before checking the allowlist
-	decorators = append(decorators, ante.NewGroupPolicyDecorator(app.GroupKeeper, app.SplitKeeper))
+	decorators = append(decorators, ante.NewGroupPolicyDecorator(app.GroupKeeper, app.CommonsKeeper))
 
 	// 4. Chain them together and set
 	app.SetAnteHandler(sdk.ChainAnteDecorators(decorators...))

@@ -17,8 +17,3 @@ const (
 
 // ParamsKey is the prefix to retrieve all Params
 var ParamsKey = collections.NewPrefix("p_split")
-
-var (
-	KeyCommonsCouncilAddress = []byte("CommonsCouncilAddress")
-	KeyCommonsCouncilFee     = []byte("CommonsCouncilFee")
-)

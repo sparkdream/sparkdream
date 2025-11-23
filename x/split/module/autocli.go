@@ -28,18 +28,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					RpcMethod: "UpdateParams",
 					Skip:      true, // skipped because authority gated
 				},
-				{
-					RpcMethod:      "SpendFromCommons",
-					Use:            "spend-from-commons [recipient] [amount]",
-					Short:          "Send a spend-from-commons tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "recipient"}, {ProtoField: "amount"}},
-				},
-				{
-					RpcMethod:      "EmergencyCancelProposal",
-					Use:            "emergency-cancel-proposal [proposal-id]",
-					Short:          "Send a emergency_cancel_proposal tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}},
-				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},
 		},

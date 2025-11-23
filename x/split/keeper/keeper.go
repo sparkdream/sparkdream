@@ -9,8 +9,6 @@ import (
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
-	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 )
 
 type Keeper struct {
@@ -24,10 +22,9 @@ type Keeper struct {
 	Schema collections.Schema
 	Params collections.Item[types.Params]
 
-	bankKeeper  types.BankKeeper
-	authKeeper  types.AuthKeeper
-	govKeeper   *govkeeper.Keeper
-	groupKeeper groupkeeper.Keeper
+	authKeeper    types.AuthKeeper
+	bankKeeper    types.BankKeeper
+	commonsKeeper types.CommonsKeeper
 }
 
 func NewKeeper(
@@ -36,10 +33,9 @@ func NewKeeper(
 	addressCodec address.Codec,
 	authority []byte,
 
-	bankKeeper types.BankKeeper,
 	authKeeper types.AuthKeeper,
-	govKeeper *govkeeper.Keeper,
-	groupKeeper groupkeeper.Keeper,
+	bankKeeper types.BankKeeper,
+	commonsKeeper types.CommonsKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -53,11 +49,10 @@ func NewKeeper(
 		addressCodec: addressCodec,
 		authority:    authority,
 
-		bankKeeper:  bankKeeper,
-		authKeeper:  authKeeper,
-		govKeeper:   govKeeper,
-		groupKeeper: groupKeeper,
-		Params:      collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
+		authKeeper:    authKeeper,
+		bankKeeper:    bankKeeper,
+		commonsKeeper: commonsKeeper,
+		Params:        collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 	}
 
 	schema, err := sb.Build()
