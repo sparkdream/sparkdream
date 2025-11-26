@@ -11,9 +11,11 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
 
+	commonskeeper "sparkdream/x/commons/keeper"
 	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
 )
@@ -30,10 +32,12 @@ var (
 
 // AppModule implements the AppModule interface that defines the inter-dependent methods that modules need to implement
 type AppModule struct {
-	cdc        codec.Codec
-	keeper     keeper.Keeper
-	authKeeper types.AuthKeeper
-	bankKeeper types.BankKeeper
+	cdc           codec.Codec
+	keeper        keeper.Keeper
+	authKeeper    types.AuthKeeper
+	bankKeeper    types.BankKeeper
+	commonsKeeper commonskeeper.Keeper
+	groupKeeper   groupkeeper.Keeper
 }
 
 func NewAppModule(
@@ -41,12 +45,16 @@ func NewAppModule(
 	keeper keeper.Keeper,
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
+	commonsKeeper commonskeeper.Keeper,
+	groupKeeper groupkeeper.Keeper,
 ) AppModule {
 	return AppModule{
-		cdc:        cdc,
-		keeper:     keeper,
-		authKeeper: authKeeper,
-		bankKeeper: bankKeeper,
+		cdc:           cdc,
+		keeper:        keeper,
+		authKeeper:    authKeeper,
+		bankKeeper:    bankKeeper,
+		commonsKeeper: commonsKeeper,
+		groupKeeper:   groupKeeper,
 	}
 }
 

@@ -42,7 +42,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgSpend,
-		ecosystemsimulation.SimulateMsgSpend(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+		ecosystemsimulation.SimulateMsgSpend(am.authKeeper, am.bankKeeper, am.govKeeper, am.keeper, am.cdc, simState.TxConfig),
 	))
 
 	return operations

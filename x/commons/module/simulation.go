@@ -57,7 +57,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgEmergencyCancelProposal,
-		commonssimulation.SimulateMsgEmergencyCancelProposal(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+		commonssimulation.SimulateMsgEmergencyCancelProposal(am.authKeeper, am.bankKeeper, am.govKeeper, am.groupKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

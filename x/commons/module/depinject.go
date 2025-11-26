@@ -64,7 +64,7 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.GovKeeper,
 		in.GroupKeeper,
 	)
-	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
+	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper, in.GovKeeper, in.GroupKeeper)
 
 	return ModuleOutputs{CommonsKeeper: k, Module: m}
 }

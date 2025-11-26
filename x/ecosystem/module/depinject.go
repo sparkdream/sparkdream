@@ -62,7 +62,7 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.StakingKeeper,
 		in.GovKeeper,
 	)
-	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
+	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper, in.GovKeeper)
 
 	return ModuleOutputs{EcosystemKeeper: k, Module: m}
 }

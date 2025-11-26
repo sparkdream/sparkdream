@@ -11,6 +11,7 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
 
@@ -34,6 +35,7 @@ type AppModule struct {
 	keeper     keeper.Keeper
 	authKeeper types.AuthKeeper
 	bankKeeper types.BankKeeper
+	govKeeper  *govkeeper.Keeper
 }
 
 func NewAppModule(
@@ -41,12 +43,14 @@ func NewAppModule(
 	keeper keeper.Keeper,
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
+	govKeeper *govkeeper.Keeper,
 ) AppModule {
 	return AppModule{
 		cdc:        cdc,
 		keeper:     keeper,
 		authKeeper: authKeeper,
 		bankKeeper: bankKeeper,
+		govKeeper:  govKeeper,
 	}
 }
 
