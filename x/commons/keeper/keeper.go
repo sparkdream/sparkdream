@@ -24,10 +24,11 @@ type Keeper struct {
 	Schema collections.Schema
 	Params collections.Item[types.Params]
 
-	authKeeper  types.AuthKeeper
-	bankKeeper  types.BankKeeper
-	govKeeper   *govkeeper.Keeper
-	groupKeeper groupkeeper.Keeper
+	authKeeper        types.AuthKeeper
+	bankKeeper        types.BankKeeper
+	govKeeper         *govkeeper.Keeper
+	groupKeeper       groupkeeper.Keeper
+	PolicyPermissions collections.Map[string, types.PolicyPermissions]
 }
 
 func NewKeeper(
@@ -53,12 +54,12 @@ func NewKeeper(
 		addressCodec: addressCodec,
 		authority:    authority,
 
-		authKeeper:  authKeeper,
-		bankKeeper:  bankKeeper,
-		govKeeper:   govKeeper,
-		groupKeeper: groupKeeper,
-		Params:      collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
-	}
+		authKeeper:        authKeeper,
+		bankKeeper:        bankKeeper,
+		govKeeper:         govKeeper,
+		groupKeeper:       groupKeeper,
+		Params:            collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
+		PolicyPermissions: collections.NewMap(sb, types.PolicyPermissionsKey, "policyPermissions", collections.StringKey, codec.CollValue[types.PolicyPermissions](cdc))}
 
 	schema, err := sb.Build()
 	if err != nil {

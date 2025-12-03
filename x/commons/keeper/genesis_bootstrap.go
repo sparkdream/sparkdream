@@ -72,7 +72,6 @@ func (k Keeper) BootstrapCommonsCouncil(ctx context.Context) {
 		Metadata: "Commons Council",
 	})
 	if err != nil {
-		// If group 1 already exists (e.g. node restart without reset), log and skip
 		logger.Info("Commons Council Group creation skipped (likely exists)", "err", err)
 		return
 	}
@@ -84,7 +83,7 @@ func (k Keeper) BootstrapCommonsCouncil(ctx context.Context) {
 	policyRes, err := k.groupKeeper.CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
 		Admin:          tempAdmin,
 		GroupId:        groupID.GroupId,
-		Metadata:       "standard",
+		Metadata:       "standard", // Metadata is purely cosmetic
 		DecisionPolicy: stdPolicyAny,
 	})
 	if err != nil {
@@ -92,11 +91,31 @@ func (k Keeper) BootstrapCommonsCouncil(ctx context.Context) {
 	}
 	standardAddr := policyRes.Address
 
+	// Define Permissions for Standard Policy
+	stdPerms := types.PolicyPermissions{
+		PolicyAddress: standardAddr,
+		AllowedMessages: []string{
+			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			"/cosmos.group.v1.MsgUpdateGroupMembers",
+			"/cosmos.group.v1.MsgUpdateGroupPolicyDecisionPolicy",
+			"/sparkdream.name.v1.MsgResolveDispute",
+			// Self-Regulation: Allow them to update (restrict) their own permissions
+			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
+			// Self-Regulation: Allow them to transfer Admin rights (e.g. to x/gov)
+			"/cosmos.group.v1.MsgUpdateGroupAdmin",
+			// Allow Metadata updates (Cosmetic)
+			"/cosmos.group.v1.MsgUpdateGroupMetadata",
+		},
+	}
+	if err := k.PolicyPermissions.Set(ctx, standardAddr, stdPerms); err != nil {
+		panic(err)
+	}
+
 	// 4. Create Veto Policy (50%, 10s Voting Period)
 	vetoPolicy := group.NewPercentageDecisionPolicy("0.50", time.Second*10, 0)
 	vetoPolicyAny, _ := codectypes.NewAnyWithValue(vetoPolicy)
 
-	_, err = k.groupKeeper.CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
+	vetoRes, err := k.groupKeeper.CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
 		Admin:          tempAdmin,
 		GroupId:        groupID.GroupId,
 		Metadata:       "veto",
@@ -105,16 +124,28 @@ func (k Keeper) BootstrapCommonsCouncil(ctx context.Context) {
 	if err != nil {
 		panic(err)
 	}
+	vetoAddr := vetoRes.Address
 
-	// 5. Set Commons Module Params (The Handover)
+	// Define Permissions for Veto Policy
+	vetoPerms := types.PolicyPermissions{
+		PolicyAddress: vetoAddr,
+		AllowedMessages: []string{
+			"/sparkdream.commons.v1.MsgEmergencyCancelProposal",
+			"/cosmos.bank.v1beta1.MsgSend", // For Loopback Signal
+		},
+	}
+	if err := k.PolicyPermissions.Set(ctx, vetoAddr, vetoPerms); err != nil {
+		panic(err)
+	}
+
+	// 5. Set Commons Module Params
 	params := types.DefaultParams()
 	params.CommonsCouncilAddress = standardAddr
 	if err := k.SetParams(ctx, params); err != nil {
 		panic(err)
 	}
 
-	// 6. Secure the Group (Update Admin to Standard Policy)
-	// This prevents the tempAdmin (Alice) from adding rogue policies later.
+	// 6. Secure the Group
 	_, err = k.groupKeeper.UpdateGroupAdmin(ctx, &group.MsgUpdateGroupAdmin{
 		Admin:    tempAdmin,
 		GroupId:  groupID.GroupId,
@@ -124,5 +155,5 @@ func (k Keeper) BootstrapCommonsCouncil(ctx context.Context) {
 		panic(err)
 	}
 
-	logger.Info("BOOTSTRAP COMPLETE: Commons Council Initialized", "Address", standardAddr)
+	logger.Info("BOOTSTRAP COMPLETE: Commons Council Initialized", "Standard", standardAddr, "Veto", vetoAddr)
 }

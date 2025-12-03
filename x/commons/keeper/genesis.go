@@ -15,6 +15,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// 2. Bootstrap the Commons Council group
 	k.BootstrapCommonsCouncil(ctx)
+	for _, elem := range genState.PolicyPermissionsMap {
+		if err := k.PolicyPermissions.Set(ctx, elem.PolicyAddress, elem); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -26,6 +31,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	genesis := types.DefaultGenesis()
 	genesis.Params, err = k.Params.Get(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := k.PolicyPermissions.Walk(ctx, nil, func(_ string, val types.PolicyPermissions) (stop bool, err error) {
+		genesis.PolicyPermissionsMap = append(genesis.PolicyPermissionsMap, val)
+		return false, nil
+	}); err != nil {
 		return nil, err
 	}
 

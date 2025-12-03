@@ -26,41 +26,63 @@ func SimulateMsgRegisterName(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 
-		// 1. Select a random simulation account
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// 2. Satisfy "Council Member" constraint
-		// The MsgServer requires the signer to be a member of params.CouncilGroupId.
-		// We create a new group with our account as a member and update the params to point to it.
-		// This creates a valid "sandbox" state for the transaction to succeed.
-		members := []group.MemberRequest{
-			{
-				Address:  simAccount.Address.String(),
-				Weight:   "1",
-				Metadata: "sim member",
-			},
-		}
-
-		createGroupMsg := &group.MsgCreateGroup{
-			Admin:    simAccount.Address.String(),
-			Members:  members,
-			Metadata: "sim council for registration",
-		}
-
-		// Create the group immediately (bypassing gas/fees for setup)
-		groupRes, err := gk.CreateGroup(ctx, createGroupMsg)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to create sim group"), nil, err
-		}
-
-		// Update x/name params to use this new group
+		// 1. Get Current Params
 		params := k.GetParams(ctx)
-		params.CouncilGroupId = groupRes.GroupId
-		if err := k.SetParams(ctx, params); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to update params"), nil, err
+		var simAccount simtypes.Account
+		var found bool
+
+		// 2. ATTEMPT 1: Try to find an existing Council Member
+		if params.CouncilGroupId > 0 {
+			members, err := gk.GroupMembers(ctx, &group.QueryGroupMembersRequest{
+				GroupId: params.CouncilGroupId,
+			})
+
+			if err == nil {
+				rand.Shuffle(len(members.Members), func(i, j int) {
+					members.Members[i], members.Members[j] = members.Members[j], members.Members[i]
+				})
+
+				for _, member := range members.Members {
+					addr, _ := sdk.AccAddressFromBech32(member.Member.Address)
+					simAccount, found = simtypes.FindAccount(accs, addr)
+					if found {
+						break
+					}
+				}
+			}
 		}
 
-		// 3. Check Solvency (Registration Fee)
+		// 3. ATTEMPT 2: Fallback (God Mode)
+		if !found {
+			simAccount, _ = simtypes.RandomAcc(r, accs)
+
+			// Create a new group with this account as a member
+			members := []group.MemberRequest{
+				{
+					Address:  simAccount.Address.String(),
+					Weight:   "1",
+					Metadata: "sim member",
+				},
+			}
+
+			createGroupMsg := &group.MsgCreateGroup{
+				Admin:    simAccount.Address.String(),
+				Members:  members,
+				Metadata: "sim council for registration",
+			}
+
+			groupRes, err := gk.CreateGroup(ctx, createGroupMsg)
+			if err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to create sim group"), nil, nil
+			}
+
+			params.CouncilGroupId = groupRes.GroupId
+			if err := k.SetParams(ctx, params); err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to update params"), nil, err
+			}
+		}
+
+		// 4. Check Solvency
 		if !params.RegistrationFee.IsZero() {
 			balance := bk.SpendableCoins(ctx, simAccount.Address)
 			if balance.AmountOf(params.RegistrationFee.Denom).LT(params.RegistrationFee.Amount) {
@@ -68,7 +90,18 @@ func SimulateMsgRegisterName(
 			}
 		}
 
-		// 4. Generate Valid Name
+		// 4.5. CHECK NAME LIMIT (Updated to use GetOwnedNamesCount)
+		// We use a hard limit of 5 to match your chain's enforcement.
+		const MaxNames = 5
+
+		count, err := k.GetOwnedNamesCount(ctx, simAccount.Address)
+		if err == nil {
+			if count >= MaxNames {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "max names reached for account"), nil, nil
+			}
+		}
+
+		// 5. Generate Valid Name
 		minLen := int(params.MinNameLength)
 		if minLen <= 0 {
 			minLen = 3
@@ -81,22 +114,26 @@ func SimulateMsgRegisterName(
 		nameLen := minLen + r.Intn(maxLen-minLen+1)
 		name := strings.ToLower(simtypes.RandStringOfLength(r, nameLen))
 
-		// Avoid Blocked Names
 		for _, blocked := range params.BlockedNames {
 			if name == blocked {
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "generated blocked name"), nil, nil
 			}
 		}
 
-		// 5. Construct Message
+		// Check collision to be safe
+		_, foundName := k.GetName(ctx, name)
+		if foundName {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "name already exists"), nil, nil
+		}
+
+		// 6. Construct Message
 		msg := &types.MsgRegisterName{
 			Authority: simAccount.Address.String(),
 			Name:      name,
 			Data:      simtypes.RandStringOfLength(r, 20),
 		}
 
-		// 6. Execute Transaction
-		// We expect this to succeed now that the user is a council member.
+		// 7. Execute Transaction
 		opMsg := simulation.OperationInput{
 			R:               r,
 			App:             app,

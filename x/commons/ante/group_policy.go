@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"context"
 	"sparkdream/x/commons/keeper"
 
 	errorsmod "cosmossdk.io/errors"
@@ -9,25 +10,20 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/group"
 	grouperrors "github.com/cosmos/cosmos-sdk/x/group/errors"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 )
 
-const (
-	msgSendTypeURL                    = "/cosmos.bank.v1beta1.MsgSend"
-	msgSpendFromCommonsTypeURL        = "/sparkdream.commons.v1.MsgSpendFromCommons"
-	msgEmergencyCancelProposalTypeURL = "/sparkdream.commons.v1.MsgEmergencyCancelProposal"
-	msgUpdateGroupMembersTypeURL      = "/cosmos.group.v1.MsgUpdateGroupMembers"
-	msgUpdateDecisionPolicyTypeURL    = "/cosmos.group.v1.MsgUpdateGroupPolicyDecisionPolicy"
-	msgResolveNameDisputeTypeURL      = "/sparkdream.name.v1.MsgResolveDispute"
-)
+// Define the interface for the method we need
+type GroupKeeper interface {
+	GroupPolicyInfo(ctx context.Context, request *group.QueryGroupPolicyInfoRequest) (*group.QueryGroupPolicyInfoResponse, error)
+}
 
 // GroupPolicyDecorator checks if a MsgSubmitProposal is allowed for the specific Group Policy
 type GroupPolicyDecorator struct {
-	groupKeeper   groupkeeper.Keeper
+	groupKeeper   GroupKeeper
 	commonsKeeper keeper.Keeper
 }
 
-func NewGroupPolicyDecorator(gk groupkeeper.Keeper, ck keeper.Keeper) GroupPolicyDecorator {
+func NewGroupPolicyDecorator(gk GroupKeeper, ck keeper.Keeper) GroupPolicyDecorator {
 	return GroupPolicyDecorator{
 		groupKeeper:   gk,
 		commonsKeeper: ck,
@@ -43,104 +39,102 @@ func (ad GroupPolicyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		}
 
 		// 1. Get Policy Info
-		policyInfo, err := ad.groupKeeper.GroupPolicyInfo(ctx, &group.QueryGroupPolicyInfoRequest{
+		_, err := ad.groupKeeper.GroupPolicyInfo(ctx, &group.QueryGroupPolicyInfoRequest{
 			Address: submitMsg.GroupPolicyAddress,
 		})
 		if err != nil {
 			return ctx, errorsmod.Wrap(err, "could not get group policy info")
 		}
 
-		// 2. Check Inner Messages
+		// 2. Get Stored Permissions
+		perms, err := ad.commonsKeeper.PolicyPermissions.Get(ctx, submitMsg.GroupPolicyAddress)
+
+		// SECURITY: If no permissions are found in the DB, we REJECT.
+		if err != nil {
+			return ctx, errorsmod.Wrapf(
+				grouperrors.ErrUnauthorized,
+				"no policy permissions found for address %s",
+				submitMsg.GroupPolicyAddress,
+			)
+		}
+
+		// 3. Check Inner Messages
 		msgs, err := submitMsg.GetMsgs()
 		if err != nil {
 			return ctx, errorsmod.Wrap(err, "failed to get msgs from proposal")
 		}
 
-		// 3. Check the policy metadata
-		if policyInfo.Info.Metadata != "standard" && policyInfo.Info.Metadata != "veto" {
-			return ctx, errorsmod.Wrap(err, "invalid policy metadata")
+		for _, innerMsg := range msgs {
+			typeURL := sdk.MsgTypeURL(innerMsg)
+
+			// 3a. Check against the DB Allowlist
+			isAllowed := false
+			for _, allowedURL := range perms.AllowedMessages {
+				if typeURL == allowedURL {
+					isAllowed = true
+					break
+				}
+			}
+
+			if !isAllowed {
+				return ctx, errorsmod.Wrapf(
+					grouperrors.ErrUnauthorized,
+					"msg type %s is not in the allowlist for policy %s",
+					typeURL, submitMsg.GroupPolicyAddress,
+				)
+			}
+
+			// 3b. Special Logic Checks (e.g. Loopback for MsgSend)
+			// Even if MsgSend is allowed in the DB, we enforce it must be a self-send.
+			if typeURL == "/cosmos.bank.v1beta1.MsgSend" {
+				sendMsg, ok := innerMsg.(*banktypes.MsgSend)
+				if !ok {
+					return ctx, errorsmod.Wrap(sdkerrors.ErrInvalidType, "could not cast to MsgSend")
+				}
+				if sendMsg.FromAddress != sendMsg.ToAddress {
+					return ctx, errorsmod.Wrap(
+						grouperrors.ErrUnauthorized,
+						"Commons Council policies can only send funds to themselves (Loopback Signal)",
+					)
+				}
+			}
 		}
 
-		// 4. Get Stored Council Params
-		params, err := ad.commonsKeeper.Params.Get(ctx)
-		if err != nil {
-			return ctx, errorsmod.Wrap(err, "failed to get params")
+		// 4. SPAM PROTECTION: Enforce Minimum Fee
+		// EXEMPTION LOGIC:
+		// If a policy is allowed to perform "MsgEmergencyCancelProposal", we consider it a Veto Policy
+		// and exempt it from fees to ensure emergency actions are never blocked by lack of funds.
+		isVetoPolicy := false
+		for _, allowedMsg := range perms.AllowedMessages {
+			if allowedMsg == "/sparkdream.commons.v1.MsgEmergencyCancelProposal" {
+				isVetoPolicy = true
+				break
+			}
 		}
 
-		// 5. SPAM PROTECTION: Enforce Minimum Fee (only for Standard policy)
-		if policyInfo.Info.Metadata == "standard" {
-			// Parse the string from params into Coins
-			// If param is empty or invalid, this returns empty coins (0 fee), which is safe fallback
-			requiredFee, _ := sdk.ParseCoinsNormalized(params.CommonsCouncilFee)
+		if !isVetoPolicy {
+			// Fee enforcement for non-Veto policies
+			params, err := ad.commonsKeeper.Params.Get(ctx)
+			if err != nil {
+				return ctx, errorsmod.Wrap(err, "failed to get commons params")
+			}
+
+			requiredFee, err := sdk.ParseCoinsNormalized(params.CommonsCouncilFee)
+			if err != nil {
+				return ctx, errorsmod.Wrap(err, "invalid commons council fee param")
+			}
 
 			if !requiredFee.IsZero() {
 				feeTx, ok := tx.(sdk.FeeTx)
 				if !ok {
 					return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
 				}
-
-				providedFee := feeTx.GetFee()
-				if !providedFee.IsAllGTE(requiredFee) {
-					return ctx, errorsmod.Wrapf(
-						sdkerrors.ErrInsufficientFee,
-						"Commons Council proposals require a min fee of %s, got %s",
-						requiredFee, providedFee,
-					)
+				if !feeTx.GetFee().IsAllGTE(requiredFee) {
+					return ctx, errorsmod.Wrapf(sdkerrors.ErrInsufficientFee, "Commons Council proposals require min fee %s", requiredFee)
 				}
-			}
-		}
-
-		// 6. Apply Allowlist Logic
-		switch policyInfo.Info.Metadata {
-		case "standard":
-			for _, innerMsg := range msgs {
-				typeURL := sdk.MsgTypeURL(innerMsg)
-				if typeURL != msgSpendFromCommonsTypeURL &&
-					typeURL != msgUpdateGroupMembersTypeURL &&
-					typeURL != msgUpdateDecisionPolicyTypeURL &&
-					typeURL != msgResolveNameDisputeTypeURL {
-					return ctx, errorsmod.Wrapf(
-						grouperrors.ErrUnauthorized,
-						"msg type %s not allowed for 'standard' policy (only SpendFromCommons and UpdateGroupMembers allowed)",
-						typeURL,
-					)
-				}
-			}
-		case "veto":
-			for _, innerMsg := range msgs {
-				typeURL := sdk.MsgTypeURL(innerMsg)
-
-				// OPTION A: Executive Order (Emergency Kill)
-				if typeURL == msgEmergencyCancelProposalTypeURL {
-					continue // Allowed
-				}
-
-				// OPTION B: Social Signal (Loopback MsgSend)
-				if typeURL == msgSendTypeURL {
-					// Enforce Loopback (From == To) to prevent spending
-					sendMsg, ok := innerMsg.(*banktypes.MsgSend)
-					if !ok {
-						return ctx, errorsmod.Wrap(sdkerrors.ErrInvalidType, "could not cast to MsgSend")
-					}
-					if sendMsg.FromAddress != sendMsg.ToAddress {
-						return ctx, errorsmod.Wrap(
-							grouperrors.ErrUnauthorized,
-							"Veto Policy can only send to itself (Loopback Signal)",
-						)
-					}
-					continue // Allowed
-				}
-
-				// If it's neither, reject it
-				return ctx, errorsmod.Wrapf(
-					grouperrors.ErrUnauthorized,
-					"msg type %s not allowed for 'veto' policy",
-					typeURL,
-				)
 			}
 		}
 	}
 
-	// Continue to next decorator
 	return next(ctx, tx, simulate)
 }

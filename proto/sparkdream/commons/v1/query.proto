@@ -1,4 +1,5 @@
 syntax = "proto3";
+
 package sparkdream.commons.v1;
 
 import "amino/amino.proto";
@@ -6,6 +7,7 @@ import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/commons/v1/params.proto";
+import "sparkdream/commons/v1/policy_permissions.proto";
 
 option go_package = "sparkdream/x/commons/types";
 
@@ -14,6 +16,16 @@ service Query {
   // Parameters queries the parameters of the module.
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
     option (google.api.http).get = "/sparkdream/commons/v1/params";
+  }
+
+  // ListPolicyPermissions Queries a list of PolicyPermissions items.
+  rpc GetPolicyPermissions(QueryGetPolicyPermissionsRequest) returns (QueryGetPolicyPermissionsResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/policy_permissions/{policy_address}";
+  }
+
+  // ListPolicyPermissions defines the ListPolicyPermissions RPC.
+  rpc ListPolicyPermissions(QueryAllPolicyPermissionsRequest) returns (QueryAllPolicyPermissionsResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/policy_permissions";
   }
 }
 
@@ -27,4 +39,25 @@ message QueryParamsResponse {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+}
+
+// QueryGetPolicyPermissionsRequest defines the QueryGetPolicyPermissionsRequest message.
+message QueryGetPolicyPermissionsRequest {
+  string policy_address = 1;
+}
+
+// QueryGetPolicyPermissionsResponse defines the QueryGetPolicyPermissionsResponse message.
+message QueryGetPolicyPermissionsResponse {
+  PolicyPermissions policy_permissions = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllPolicyPermissionsRequest defines the QueryAllPolicyPermissionsRequest message.
+message QueryAllPolicyPermissionsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllPolicyPermissionsResponse defines the QueryAllPolicyPermissionsResponse message.
+message QueryAllPolicyPermissionsResponse {
+  repeated PolicyPermissions policy_permissions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

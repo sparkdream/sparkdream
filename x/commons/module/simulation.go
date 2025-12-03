@@ -19,7 +19,11 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	}
 	commonsGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
-	}
+		PolicyPermissionsMap: []types.PolicyPermissions{{
+			PolicyAddress: "0",
+		}, {
+			PolicyAddress: "1",
+		}}}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&commonsGenesis)
 }
 
@@ -58,6 +62,51 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgEmergencyCancelProposal,
 		commonssimulation.SimulateMsgEmergencyCancelProposal(am.authKeeper, am.bankKeeper, am.govKeeper, am.groupKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgCreatePolicyPermissions          = "op_weight_msg_commons"
+		defaultWeightMsgCreatePolicyPermissions int = 100
+	)
+
+	var weightMsgCreatePolicyPermissions int
+	simState.AppParams.GetOrGenerate(opWeightMsgCreatePolicyPermissions, &weightMsgCreatePolicyPermissions, nil,
+		func(_ *rand.Rand) {
+			weightMsgCreatePolicyPermissions = defaultWeightMsgCreatePolicyPermissions
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCreatePolicyPermissions,
+		commonssimulation.SimulateMsgCreatePolicyPermissions(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgUpdatePolicyPermissions          = "op_weight_msg_commons"
+		defaultWeightMsgUpdatePolicyPermissions int = 100
+	)
+
+	var weightMsgUpdatePolicyPermissions int
+	simState.AppParams.GetOrGenerate(opWeightMsgUpdatePolicyPermissions, &weightMsgUpdatePolicyPermissions, nil,
+		func(_ *rand.Rand) {
+			weightMsgUpdatePolicyPermissions = defaultWeightMsgUpdatePolicyPermissions
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUpdatePolicyPermissions,
+		commonssimulation.SimulateMsgUpdatePolicyPermissions(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgDeletePolicyPermissions          = "op_weight_msg_commons"
+		defaultWeightMsgDeletePolicyPermissions int = 100
+	)
+
+	var weightMsgDeletePolicyPermissions int
+	simState.AppParams.GetOrGenerate(opWeightMsgDeletePolicyPermissions, &weightMsgDeletePolicyPermissions, nil,
+		func(_ *rand.Rand) {
+			weightMsgDeletePolicyPermissions = defaultWeightMsgDeletePolicyPermissions
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgDeletePolicyPermissions,
+		commonssimulation.SimulateMsgDeletePolicyPermissions(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

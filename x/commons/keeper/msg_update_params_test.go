@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/commons/keeper"
@@ -13,13 +14,20 @@ func TestMsgUpdateParams(t *testing.T) {
 	f := initFixture(t)
 	ms := keeper.NewMsgServerImpl(f.keeper)
 
+	config := sdk.GetConfig()
+	config.SetBech32PrefixForAccount("sprkdrm", "sprkdrmpub")
+
+	// 1. Setup Valid Params
+	// We must override the default empty address to pass Validate()
 	params := types.DefaultParams()
+	params.CommonsCouncilAddress = "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
+	// Get the Governance Module Address (The Authority)
 	authorityStr, err := f.addressCodec.BytesToString(f.keeper.GetAuthority())
 	require.NoError(t, err)
 
-	// default params
 	testCases := []struct {
 		name      string
 		input     *types.MsgUpdateParams
@@ -36,10 +44,10 @@ func TestMsgUpdateParams(t *testing.T) {
 			expErrMsg: "invalid authority",
 		},
 		{
-			name: "send enabled param",
+			name: "valid params update",
 			input: &types.MsgUpdateParams{
 				Authority: authorityStr,
-				Params:    types.Params{},
+				Params:    params,
 			},
 			expErr: false,
 		},

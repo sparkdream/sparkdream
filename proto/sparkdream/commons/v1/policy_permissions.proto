@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.commons.v1;
+
+option go_package = "sparkdream/x/commons/types";
+
+// PolicyPermissions defines the PolicyPermissions message.
+message PolicyPermissions {
+  string policy_address = 1;
+  repeated string allowed_messages = 2;
+}

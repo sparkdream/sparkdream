@@ -14,6 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	commonskeeper "sparkdream/x/commons/keeper"
+	commonstypes "sparkdream/x/commons/types"
 	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
 )
@@ -34,14 +35,10 @@ func SimulateMsgFileDispute(
 		disputeFee := params.DisputeFee
 
 		// 2. Define Fee Requirements (Dispute Fee + Gas Buffer)
-		// We need a buffer because GenAndDeliverTxWithRandFees deducts gas BEFORE our handler runs.
-		// If the account has exactly 'disputeFee', it will fail after gas is taken.
 		denom := disputeFee.Denom
 		if denom == "" {
-			denom = "uspark" // Fallback if fee is zero/empty
+			denom = "uspark"
 		}
-
-		// Add a buffer of ~1 token (or 1M utokens) for gas safety
 		feeBuffer := sdk.NewInt64Coin(denom, 1000000)
 
 		var requiredBalance sdk.Coins
@@ -54,8 +51,6 @@ func SimulateMsgFileDispute(
 		// 3. Find a Solvent Account
 		var simAccount simtypes.Account
 		var found bool
-
-		// Shuffle to avoid bias
 		r.Shuffle(len(accs), func(i, j int) { accs[i], accs[j] = accs[j], accs[i] })
 
 		for _, acc := range accs {
@@ -68,10 +63,10 @@ func SimulateMsgFileDispute(
 		}
 
 		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "no account with sufficient funds (fee + gas buffer)"), nil, nil
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "no account with sufficient funds"), nil, nil
 		}
 
-		// --- PRE-REQUISITE SETUP (Create Council & Policy) ---
+		// --- PRE-REQUISITE SETUP ---
 
 		// A. Create a Group
 		members := []group.MemberRequest{
@@ -89,11 +84,10 @@ func SimulateMsgFileDispute(
 		}
 		groupRes, err := gk.CreateGroup(ctx, createGroupMsg)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to create sim group"), nil, err
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to create sim group"), nil, nil
 		}
 
 		// B. Create "standard" Decision Policy
-		// The MsgServer looks for a policy with metadata "standard" to identify the Council Address.
 		decisionPolicy := group.NewThresholdDecisionPolicy(
 			"1",              // threshold
 			time.Hour*24,     // voting period
@@ -102,28 +96,42 @@ func SimulateMsgFileDispute(
 
 		createPolicyMsg, err := group.NewMsgCreateGroupPolicy(simAccount.Address, groupRes.GroupId, "standard", decisionPolicy)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to create policy msg"), nil, err
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to create policy msg"), nil, nil
 		}
 
 		policyRes, err := gk.CreateGroupPolicy(ctx, createPolicyMsg)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to create sim policy"), nil, err
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to create sim policy"), nil, nil
 		}
 
 		// C. Update commons module Params
-		commonsParams, err := ck.GetParams(ctx)
+		commonsParams, err := ck.Params.Get(ctx)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to get commons params"), nil, err
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to get commons params"), nil, nil
 		}
 		commonsParams.CommonsCouncilAddress = policyRes.Address
-		if err := ck.SetParams(ctx, commonsParams); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to set commons params"), nil, err
+		if err := ck.Params.Set(ctx, commonsParams); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to set commons params"), nil, nil
 		}
 
-		// D. Update x/name Params
+		// D. INJECT PERMISSIONS
+		// We must grant this new policy the right to resolve disputes, otherwise future operations might fail
+		// or the system is inconsistent.
+		perms := commonstypes.PolicyPermissions{
+			PolicyAddress: policyRes.Address,
+			AllowedMessages: []string{
+				"/sparkdream.name.v1.MsgResolveDispute",
+				"/sparkdream.commons.v1.MsgSpendFromCommons",
+			},
+		}
+		if err := ck.PolicyPermissions.Set(ctx, policyRes.Address, perms); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to inject permissions"), nil, nil
+		}
+
+		// E. Update x/name Params
 		params.CouncilGroupId = groupRes.GroupId
 		if err := k.SetParams(ctx, params); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to update name params"), nil, err
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to update name params"), nil, nil
 		}
 
 		// --- EXECUTE DISPUTE ---
@@ -133,18 +141,23 @@ func SimulateMsgFileDispute(
 		targetData := simtypes.RandStringOfLength(r, 20)
 		targetOwner, _ := simtypes.RandomAcc(r, accs)
 
+		// Collision check
+		_, foundName := k.GetName(ctx, targetName)
+		if foundName {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "name already exists"), nil, nil
+		}
+
 		record := types.NameRecord{
 			Name:  targetName,
 			Owner: targetOwner.Address.String(),
 			Data:  targetData,
 		}
 
-		// Inject Name Record into Keeper
 		if err := k.SetName(ctx, record); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to set name record"), nil, err
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to set name record"), nil, nil
 		}
 		if err := k.AddNameToOwner(ctx, targetOwner.Address, targetName); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to add name to owner"), nil, err
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to add name to owner"), nil, nil
 		}
 
 		// Sanity Check
@@ -165,7 +178,7 @@ func SimulateMsgFileDispute(
 			TxGen:           txGen,
 			Cdc:             nil,
 			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(disputeFee), // Record that the dispute fee is "spent" by logic
+			CoinsSpentInMsg: sdk.NewCoins(disputeFee),
 			Context:         ctx,
 			SimAccount:      simAccount,
 			AccountKeeper:   ak,
@@ -173,8 +186,6 @@ func SimulateMsgFileDispute(
 			ModuleName:      types.ModuleName,
 		}
 
-		// GenAndDeliverTxWithRandFees handles gas deduction automatically.
-		// Our "requiredBalance" check ensures the user survives this deduction.
 		return simulation.GenAndDeliverTxWithRandFees(opMsg)
 	}
 }

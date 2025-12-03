@@ -1,9 +1,11 @@
 syntax = "proto3";
+
 package sparkdream.commons.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/commons/v1/params.proto";
+import "sparkdream/commons/v1/policy_permissions.proto";
 
 option go_package = "sparkdream/x/commons/types";
 
@@ -14,4 +16,5 @@ message GenesisState {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+  repeated PolicyPermissions policy_permissions_map = 2 [(gogoproto.nullable) = false];
 }

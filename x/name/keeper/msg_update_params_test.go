@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types" // <--- Import SDK
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/name/keeper"
@@ -13,13 +14,13 @@ func TestMsgUpdateParams(t *testing.T) {
 	f := initFixture(t)
 	ms := keeper.NewMsgServerImpl(f.keeper)
 
+	// Ensure the store has valid defaults first
 	params := types.DefaultParams()
-	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+	require.NoError(t, f.keeper.SetParams(sdk.UnwrapSDKContext(f.ctx), params))
 
 	authorityStr, err := f.addressCodec.BytesToString(f.keeper.GetAuthority())
 	require.NoError(t, err)
 
-	// default params
 	testCases := []struct {
 		name      string
 		input     *types.MsgUpdateParams
@@ -36,10 +37,10 @@ func TestMsgUpdateParams(t *testing.T) {
 			expErrMsg: "invalid authority",
 		},
 		{
-			name: "send enabled param",
+			name: "valid params update",
 			input: &types.MsgUpdateParams{
 				Authority: authorityStr,
-				Params:    types.Params{},
+				Params:    types.DefaultParams(),
 			},
 			expErr: false,
 		},

@@ -45,7 +45,7 @@ func initFixture(t *testing.T) *fixture {
 		encCfg.Codec,
 		addressCodec,
 		authority,
-		nil,
+		mockAuthKeeper{},
 		nil,
 		nil,
 		groupkeeper.Keeper{},
@@ -63,6 +63,26 @@ func initFixture(t *testing.T) *fixture {
 	}
 }
 
+// --- Mock Auth Keeper ---
+type mockAuthKeeper struct{}
+
+func (m mockAuthKeeper) GetModuleAddress(name string) sdk.AccAddress {
+	return authtypes.NewModuleAddress(name)
+}
+
+func (m mockAuthKeeper) AddressCodec() address.Codec {
+	return addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
+}
+
+func (m mockAuthKeeper) IterateAccounts(ctx context.Context, cb func(account sdk.AccountI) bool) {
+	// No-op for msg server tests
+}
+
+func (m mockAuthKeeper) GetAccount(ctx context.Context, addr sdk.AccAddress) sdk.AccountI {
+	// Return a dummy base account so we don't crash if something checks for existence
+	return authtypes.NewBaseAccountWithAddress(addr)
+}
+
 // --- Mock Bank Keeper ---
 type mockBankKeeperCommons struct {
 	balance map[string]sdk.Coins
@@ -78,7 +98,6 @@ func (m *mockBankKeeperCommons) SendCoins(ctx context.Context, fromAddr sdk.AccA
 }
 
 func (m *mockBankKeeperCommons) SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
-	// Minimal implementation for tests not using module accounts directly or mocking module balance separately
 	return nil
 }
 
@@ -95,7 +114,6 @@ func (m *mockBankKeeperCommons) SpendableCoins(ctx context.Context, addr sdk.Acc
 }
 
 // --- Mock Staking Keeper ---
-
 type mockStakingKeeper struct{}
 
 func (m mockStakingKeeper) TotalBondedTokens(ctx context.Context) (math.Int, error) {
@@ -112,7 +130,6 @@ func (m mockStakingKeeper) IterateDelegations(ctx context.Context, delegator sdk
 }
 
 // --- Mock Distribution Keeper ---
-
 type mockDistrKeeper struct{}
 
 func (m mockDistrKeeper) FundCommunityPool(ctx context.Context, amount sdk.Coins, sender sdk.AccAddress) error {

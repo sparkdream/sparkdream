@@ -3,26 +3,65 @@ package types_test
 import (
 	"testing"
 
-	"sparkdream/x/commons/types"
-
+	sdk "github.com/cosmos/cosmos-sdk/types" // <--- Added Import
 	"github.com/stretchr/testify/require"
+
+	"sparkdream/x/commons/types"
 )
 
 func TestGenesisState_Validate(t *testing.T) {
+	config := sdk.GetConfig()
+	config.SetBech32PrefixForAccount("sprkdrm", "sprkdrmpub")
+
+	// Sample valid address for testing (Alice's address)
+	sampleAddr := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+	sampleAddr2 := "sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y"
+
 	tests := []struct {
 		desc     string
 		genState *types.GenesisState
 		valid    bool
 	}{
 		{
-			desc:     "default is valid",
-			genState: types.DefaultGenesis(),
-			valid:    true,
+			desc: "default is valid",
+			genState: func() *types.GenesisState {
+				gs := types.DefaultGenesis()
+				gs.Params.CommonsCouncilAddress = sampleAddr
+				return gs
+			}(),
+			valid: true,
 		},
 		{
-			desc:     "valid genesis state",
-			genState: &types.GenesisState{},
-			valid:    true,
+			desc: "valid genesis state",
+			genState: &types.GenesisState{
+				Params: types.Params{
+					CommonsCouncilAddress: sampleAddr,
+					CommonsCouncilFee:     "1000stake",
+				},
+				PolicyPermissionsMap: []types.PolicyPermissions{
+					{PolicyAddress: sampleAddr},
+					{PolicyAddress: sampleAddr2},
+				},
+			},
+			valid: true,
+		},
+		{
+			desc: "duplicated policyPermissions",
+			genState: &types.GenesisState{
+				Params: types.Params{
+					CommonsCouncilAddress: sampleAddr,
+					CommonsCouncilFee:     "1000stake",
+				},
+				PolicyPermissionsMap: []types.PolicyPermissions{
+					{
+						PolicyAddress: sampleAddr,
+					},
+					{
+						PolicyAddress: sampleAddr, // Duplicate!
+					},
+				},
+			},
+			valid: false,
 		},
 	}
 	for _, tc := range tests {
