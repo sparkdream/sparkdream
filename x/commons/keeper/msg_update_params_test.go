@@ -20,7 +20,7 @@ func TestMsgUpdateParams(t *testing.T) {
 	// 1. Setup Valid Params
 	// We must override the default empty address to pass Validate()
 	params := types.DefaultParams()
-	params.CommonsCouncilAddress = "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+	params.ProposalFee = "50000000uspark"
 
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 

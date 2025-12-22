@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/commons/v1/extended_group.proto";
 import "sparkdream/commons/v1/params.proto";
 import "sparkdream/commons/v1/policy_permissions.proto";
 
@@ -26,6 +27,16 @@ service Query {
   // ListPolicyPermissions defines the ListPolicyPermissions RPC.
   rpc ListPolicyPermissions(QueryAllPolicyPermissionsRequest) returns (QueryAllPolicyPermissionsResponse) {
     option (google.api.http).get = "/sparkdream/commons/v1/policy_permissions";
+  }
+
+  // ListExtendedGroup Queries a list of ExtendedGroup items.
+  rpc GetExtendedGroup(QueryGetExtendedGroupRequest) returns (QueryGetExtendedGroupResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/extended_group/{index}";
+  }
+
+  // ListExtendedGroup defines the ListExtendedGroup RPC.
+  rpc ListExtendedGroup(QueryAllExtendedGroupRequest) returns (QueryAllExtendedGroupResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/extended_group";
   }
 }
 
@@ -59,5 +70,26 @@ message QueryAllPolicyPermissionsRequest {
 // QueryAllPolicyPermissionsResponse defines the QueryAllPolicyPermissionsResponse message.
 message QueryAllPolicyPermissionsResponse {
   repeated PolicyPermissions policy_permissions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetExtendedGroupRequest defines the QueryGetExtendedGroupRequest message.
+message QueryGetExtendedGroupRequest {
+  string index = 1;
+}
+
+// QueryGetExtendedGroupResponse defines the QueryGetExtendedGroupResponse message.
+message QueryGetExtendedGroupResponse {
+  ExtendedGroup extended_group = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllExtendedGroupRequest defines the QueryAllExtendedGroupRequest message.
+message QueryAllExtendedGroupRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllExtendedGroupResponse defines the QueryAllExtendedGroupResponse message.
+message QueryAllExtendedGroupResponse {
+  repeated ExtendedGroup extended_group = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

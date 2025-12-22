@@ -15,7 +15,6 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
 
-	commonskeeper "sparkdream/x/commons/keeper"
 	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
 )
@@ -36,7 +35,7 @@ type AppModule struct {
 	keeper        keeper.Keeper
 	authKeeper    types.AuthKeeper
 	bankKeeper    types.BankKeeper
-	commonsKeeper commonskeeper.Keeper
+	commonsKeeper types.CommonsKeeper
 	groupKeeper   groupkeeper.Keeper
 }
 
@@ -45,7 +44,7 @@ func NewAppModule(
 	keeper keeper.Keeper,
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
-	commonsKeeper commonskeeper.Keeper,
+	commonsKeeper types.CommonsKeeper,
 	groupKeeper groupkeeper.Keeper,
 ) AppModule {
 	return AppModule{

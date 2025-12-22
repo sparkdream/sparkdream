@@ -9,6 +9,11 @@ import (
 	"cosmossdk.io/collections"
 )
 
+const (
+	PolicyTypePercentage = "percentage"
+	PolicyTypeThreshold  = "threshold"
+)
+
 // GetParams gets the module parameters from the collections store.
 // If no params exist, it returns the default parameters.
 func (k Keeper) GetParams(ctx context.Context) (types.Params, error) {

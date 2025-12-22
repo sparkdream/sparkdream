@@ -85,6 +85,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Send a resolve-dispute tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "new_owner"}},
 				},
+				{
+					RpcMethod:      "UpdateName",
+					Use:            "update-name [name] [data]",
+					Short:          "Send a update-name tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "data"}},
+				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},
 		},

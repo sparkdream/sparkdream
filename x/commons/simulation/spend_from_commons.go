@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"math/rand"
+	"slices"
 
 	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -23,36 +24,44 @@ func SimulateMsgSpendFromCommons(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// 1. Get the authorized Council Address from params
-		params, err := k.GetParams(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSpendFromCommons{}), "failed to get params"), nil, nil
-		}
-		councilAddrStr := params.CommonsCouncilAddress
 
-		// 2. Find if we control this address
+		// 1. Determine the Target Permission (RBAC)
+		// We need to find an account that is allowed to send this specific message.
+		targetMsgType := sdk.MsgTypeURL(&types.MsgSpendFromCommons{})
+
 		var simAccount simtypes.Account
 		var found bool
 
-		councilAddr, err := sdk.AccAddressFromBech32(councilAddrStr)
-		if err == nil {
-			simAccount, found = simtypes.FindAccount(accs, councilAddr)
+		// 2. Search for an Authorized Account in the Sim List
+		// We iterate through available keys to see if any have been granted the specific permission.
+		// (This supports the new PolicyPermissions architecture).
+		for _, acc := range accs {
+			perms, err := k.PolicyPermissions.Get(ctx, acc.Address.String())
+			if err == nil {
+				// Check if the permission list contains the target message
+				if slices.Contains(perms.AllowedMessages, targetMsgType) {
+					simAccount = acc
+					found = true
+					break
+				}
+			}
 		}
 
-		if !found {
-			// If we can't sign as the authorized council, we pick a random account.
-			// This effectively tests the "Unauthorized" error path.
+		// 3. Fallback / Chaos Testing
+		// If we didn't find an authorized account, OR if we randomly decide to test the failure path (50% chance),
+		// we pick a random account. This ensures we test "Unauthorized" errors.
+		if !found || r.Intn(2) == 0 {
 			simAccount, _ = simtypes.RandomAcc(r, accs)
 		}
 
-		// 3. Get the commons module account balance
+		// 4. Get the commons module account balance
 		moduleAddr := ak.GetModuleAddress(types.ModuleName)
 		spendableCoins := bk.SpendableCoins(ctx, moduleAddr)
 		if spendableCoins.Empty() {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSpendFromCommons{}), "no coins in the commons pool"), nil, nil
 		}
 
-		// 4. Select a random recipient and amount
+		// 5. Select a random recipient and amount
 		recipient, _ := simtypes.RandomAcc(r, accs)
 
 		// Select a random coin and amount from the spendable coins
@@ -75,14 +84,14 @@ func SimulateMsgSpendFromCommons(
 
 		spendAmount := sdk.NewCoins(sdk.NewCoin(coin.Denom, amount))
 
-		// 5. Construct the message
+		// 6. Construct the message
 		msg := &types.MsgSpendFromCommons{
 			Authority: simAccount.Address.String(),
 			Recipient: recipient.Address.String(),
 			Amount:    spendAmount,
 		}
 
-		// 6. Construct and execute the operation
+		// 7. Construct and execute the operation
 		opMsg := simulation.OperationInput{
 			R:               r,
 			App:             app,

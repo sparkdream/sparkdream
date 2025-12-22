@@ -60,6 +60,7 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.AddressCodec,
 		authority,
 		in.BankKeeper,
+		in.CommonsKeeper,
 		in.GroupKeeper,
 	)
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper, in.CommonsKeeper, in.GroupKeeper)

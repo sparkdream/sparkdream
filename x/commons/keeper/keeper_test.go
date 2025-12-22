@@ -3,19 +3,32 @@ package keeper_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"cosmossdk.io/core/address"
+	"cosmossdk.io/log"
 	"cosmossdk.io/math"
+	"cosmossdk.io/store"
+	"cosmossdk.io/store/metrics"
 	storetypes "cosmossdk.io/store/types"
+	upgradetypes "cosmossdk.io/x/upgrade/types"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	dbm "github.com/cosmos/cosmos-db"
+	"github.com/cosmos/cosmos-sdk/codec"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
+	codectestutil "github.com/cosmos/cosmos-sdk/codec/testutil"
+	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/runtime"
-	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
+	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/cosmos/cosmos-sdk/x/group"
 	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/commons/keeper"
 	module "sparkdream/x/commons/module"
@@ -33,22 +46,48 @@ func initFixture(t *testing.T) *fixture {
 
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
 	addressCodec := addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
-	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 
-	storeService := runtime.NewKVStoreService(storeKey)
-	ctx := testutil.DefaultContextWithDB(t, storeKey, storetypes.NewTransientStoreKey("transient_test")).Ctx
+	// Define Keys
+	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
+	memStoreKey := storetypes.NewMemoryStoreKey("mem_commons")
+	groupKey := storetypes.NewKVStoreKey(group.StoreKey)
+
+	// Setup Store
+	db := dbm.NewMemDB()
+	stateStore := store.NewCommitMultiStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+	stateStore.MountStoreWithDB(storeKey, storetypes.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(memStoreKey, storetypes.StoreTypeMemory, nil)
+	stateStore.MountStoreWithDB(groupKey, storetypes.StoreTypeIAVL, db)
+	require.NoError(t, stateStore.LoadLatestVersion())
+
+	// Initialize Context with positive time
+	ctx := sdk.NewContext(stateStore, cmtproto.Header{Time: time.Now()}, false, log.NewNopLogger())
 
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
+	mockAuth := mockAuthKeeper{}
+
+	// Initialize Real Group Keeper
+	groupKeeper := groupkeeper.NewKeeper(
+		groupKey,
+		encCfg.Codec,
+		nil, // MsgRouter
+		mockAuth,
+		group.DefaultConfig(),
+	)
+
+	storeService := runtime.NewKVStoreService(storeKey)
 
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
 		addressCodec,
 		authority,
-		mockAuthKeeper{},
-		nil,
-		nil,
-		groupkeeper.Keeper{},
+		mockAuth,
+		nil, // Bank
+		nil, // Gov
+		groupKeeper,
+		mockSplitKeeper{},
+		mockUpgradeKeeper{},
 	)
 
 	// Initialize params
@@ -61,6 +100,152 @@ func initFixture(t *testing.T) *fixture {
 		keeper:       k,
 		addressCodec: addressCodec,
 	}
+}
+
+// --- Setup Helper (Used by msg_server tests) ---
+func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeeperCommons) {
+	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
+	memStoreKey := storetypes.NewMemoryStoreKey("mem_commons")
+	authKey := storetypes.NewKVStoreKey(authtypes.StoreKey)
+	groupKey := storetypes.NewKVStoreKey(group.StoreKey)
+
+	db := dbm.NewMemDB()
+	stateStore := store.NewCommitMultiStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+	stateStore.MountStoreWithDB(storeKey, storetypes.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(memStoreKey, storetypes.StoreTypeMemory, nil)
+	stateStore.MountStoreWithDB(authKey, storetypes.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(groupKey, storetypes.StoreTypeIAVL, db)
+
+	require.NoError(t, stateStore.LoadLatestVersion())
+
+	ctx := sdk.NewContext(stateStore, cmtproto.Header{Time: time.Now()}, false, log.NewNopLogger())
+
+	// Explicitly register interfaces so the codec knows about BaseAccount
+	cdcOpts := codectestutil.CodecOptions{}
+	interfaceRegistry := cdcOpts.NewInterfaceRegistry()
+
+	authtypes.RegisterInterfaces(interfaceRegistry)   // <--- Registers BaseAccount
+	group.RegisterInterfaces(interfaceRegistry)       // <--- Registers Group Types
+	cryptocodec.RegisterInterfaces(interfaceRegistry) // <--- Registers PubKeys
+	types.RegisterInterfaces(interfaceRegistry)       // <--- Registers Commons Types
+
+	cdc := codec.NewProtoCodec(interfaceRegistry)
+	addressCodec := addresscodec.NewBech32Codec("cosmos")
+	authority := sdk.AccAddress([]byte("authority"))
+
+	mockBK := &mockBankKeeperCommons{
+		balance: make(map[string]sdk.Coins),
+	}
+
+	// Initialize Real Auth Keeper
+	authKeeper := authkeeper.NewAccountKeeper(
+		cdc,
+		runtime.NewKVStoreService(authKey),
+		authtypes.ProtoBaseAccount,
+		map[string][]string{
+			types.ModuleName:    nil,
+			govtypes.ModuleName: {authtypes.Burner},
+			group.ModuleName:    nil, // Allow group module
+		},
+		addresscodec.NewBech32Codec("cosmos"),
+		"cosmos",
+		authtypes.NewModuleAddress("gov").String(),
+	)
+
+	// Initialize Real Group Keeper
+	groupKeeper := groupkeeper.NewKeeper(
+		groupKey,
+		cdc,
+		nil,
+		authKeeper,
+		group.DefaultConfig(),
+	)
+
+	storeService := runtime.NewKVStoreService(storeKey)
+
+	k := keeper.NewKeeper(
+		storeService,
+		cdc,
+		addressCodec,
+		authority,
+		authKeeper,
+		mockBK,
+		nil,
+		groupKeeper,
+		mockSplitKeeper{},
+		mockUpgradeKeeper{},
+	)
+
+	return k, ctx, mockBK
+}
+
+// --- Helper for this specific test (needs Group Keeper access) ---
+func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, groupkeeper.Keeper, sdk.AccAddress) {
+	// 1. Define Keys (Include Auth Key!)
+	key := storetypes.NewKVStoreKey(types.StoreKey)
+	memKey := storetypes.NewMemoryStoreKey("mem_commons")
+	tKey := storetypes.NewTransientStoreKey("transient_test")
+	authKey := storetypes.NewKVStoreKey(authtypes.StoreKey)
+	groupKey := storetypes.NewKVStoreKey(group.StoreKey)
+
+	db := dbm.NewMemDB()
+	stateStore := store.NewCommitMultiStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+
+	// 2. Mount Stores
+	stateStore.MountStoreWithDB(key, storetypes.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(memKey, storetypes.StoreTypeMemory, nil)
+	stateStore.MountStoreWithDB(tKey, storetypes.StoreTypeTransient, nil)
+	stateStore.MountStoreWithDB(authKey, storetypes.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(groupKey, storetypes.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(storetypes.NewKVStoreKey(govtypes.StoreKey), storetypes.StoreTypeIAVL, db)
+
+	require.NoError(t, stateStore.LoadLatestVersion())
+
+	ctx := sdk.NewContext(stateStore, cmtproto.Header{Time: time.Now()}, false, log.NewNopLogger())
+
+	// 3. Register Codec Interfaces (Fixes BaseAccount encoding error)
+	cdcOpts := codectestutil.CodecOptions{}
+	reg := cdcOpts.NewInterfaceRegistry()
+	cryptocodec.RegisterInterfaces(reg)
+	group.RegisterInterfaces(reg)
+	authtypes.RegisterInterfaces(reg)
+	cdc := codec.NewProtoCodec(reg)
+
+	// 4. Setup Real Auth Keeper
+	maccPerms := map[string][]string{
+		types.ModuleName:    nil,
+		govtypes.ModuleName: {authtypes.Burner},
+		group.ModuleName:    nil, // Allow group module
+	}
+
+	authK := authkeeper.NewAccountKeeper(
+		cdc,
+		runtime.NewKVStoreService(authKey), // Use real service
+		authtypes.ProtoBaseAccount,
+		maccPerms,
+		addresscodec.NewBech32Codec("cosmos"),
+		"cosmos",
+		authtypes.NewModuleAddress("gov").String(),
+	)
+
+	// 5. Setup Group Keeper
+	groupK := groupkeeper.NewKeeper(groupKey, cdc, nil, authK, group.DefaultConfig())
+
+	// 6. Setup Commons Keeper
+	k := keeper.NewKeeper(
+		runtime.NewKVStoreService(key),
+		cdc,
+		authK.AddressCodec(),
+		authK.GetModuleAddress("gov"),
+		authK,
+		nil,
+		nil,
+		groupK,
+		mockSplitKeeper{},
+		mockUpgradeKeeper{},
+	)
+
+	return k, ctx, groupK, k.GetModuleAddress()
 }
 
 // --- Mock Auth Keeper ---
@@ -80,7 +265,22 @@ func (m mockAuthKeeper) IterateAccounts(ctx context.Context, cb func(account sdk
 
 func (m mockAuthKeeper) GetAccount(ctx context.Context, addr sdk.AccAddress) sdk.AccountI {
 	// Return a dummy base account so we don't crash if something checks for existence
+	if addr.Empty() {
+		return nil
+	}
 	return authtypes.NewBaseAccountWithAddress(addr)
+}
+
+func (m mockAuthKeeper) NewAccount(ctx context.Context, acc sdk.AccountI) sdk.AccountI {
+	return acc
+}
+
+func (m mockAuthKeeper) RemoveAccount(ctx context.Context, acc sdk.AccountI) {
+	// No-op
+}
+
+func (m mockAuthKeeper) SetAccount(ctx context.Context, acc sdk.AccountI) {
+	// No-op
 }
 
 // --- Mock Bank Keeper ---
@@ -113,6 +313,13 @@ func (m *mockBankKeeperCommons) SpendableCoins(ctx context.Context, addr sdk.Acc
 	return m.balance[addr.String()]
 }
 
+// --- Mock Distribution Keeper ---
+type mockDistrKeeper struct{}
+
+func (m mockDistrKeeper) FundCommunityPool(ctx context.Context, amount sdk.Coins, sender sdk.AccAddress) error {
+	return nil
+}
+
 // --- Mock Staking Keeper ---
 type mockStakingKeeper struct{}
 
@@ -129,9 +336,21 @@ func (m mockStakingKeeper) IterateDelegations(ctx context.Context, delegator sdk
 	return nil
 }
 
-// --- Mock Distribution Keeper ---
-type mockDistrKeeper struct{}
+// --- Mock Split Keeper ---
+type mockSplitKeeper struct{}
 
-func (m mockDistrKeeper) FundCommunityPool(ctx context.Context, amount sdk.Coins, sender sdk.AccAddress) error {
+func (m mockSplitKeeper) SetShareByAddress(ctx context.Context, address string, weight uint64) {
+	// No-op for testing
+}
+
+// --- Mock Upgrade Keeper ---
+type mockUpgradeKeeper struct{}
+
+func (m mockUpgradeKeeper) ScheduleUpgrade(ctx context.Context, plan upgradetypes.Plan) error {
+	// We just log or return nil for unit tests.
+	// A real keeper would store the plan.
+	if plan.Name == "fail" {
+		return sdkerrors.ErrInvalidRequest
+	}
 	return nil
 }

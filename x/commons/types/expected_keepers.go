@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/core/address"
+	upgradetypes "cosmossdk.io/x/upgrade/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -28,7 +29,18 @@ type BankKeeper interface {
 	// Methods imported from bank should be defined here
 	GetAllBalances(context.Context, sdk.AccAddress) sdk.Coins
 	SendCoins(context.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
+	SendCoinsFromAccountToModule(context.Context, sdk.AccAddress, string, sdk.Coins) error
 	SendCoinsFromModuleToAccount(context.Context, string, sdk.AccAddress, sdk.Coins) error
+}
+
+// SplitKeeper defines the expected interface for the Split module.
+type SplitKeeper interface {
+	SetShareByAddress(ctx context.Context, address string, weight uint64)
+}
+
+// UpgradeKeeper defines the expected interface for the Upgrade module.
+type UpgradeKeeper interface {
+	ScheduleUpgrade(ctx context.Context, plan upgradetypes.Plan) error
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

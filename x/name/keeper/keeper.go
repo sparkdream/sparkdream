@@ -19,8 +19,9 @@ type Keeper struct {
 	authority []byte
 
 	// External Keepers
-	bankKeeper  types.BankKeeper
-	groupKeeper types.GroupKeeper
+	bankKeeper    types.BankKeeper
+	commonsKeeper types.CommonsKeeper
+	groupKeeper   types.GroupKeeper
 
 	// State Collections
 	Schema   collections.Schema
@@ -40,6 +41,7 @@ func NewKeeper(
 	addressCodec address.Codec,
 	authority []byte,
 	bankKeeper types.BankKeeper,
+	commonsKeeper types.CommonsKeeper,
 	groupKeeper types.GroupKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
@@ -49,11 +51,12 @@ func NewKeeper(
 	sb := collections.NewSchemaBuilder(storeService)
 
 	k := Keeper{
-		cdc:          cdc,
-		addressCodec: addressCodec,
-		authority:    authority,
-		bankKeeper:   bankKeeper,
-		groupKeeper:  groupKeeper,
+		cdc:           cdc,
+		addressCodec:  addressCodec,
+		authority:     authority,
+		bankKeeper:    bankKeeper,
+		commonsKeeper: commonsKeeper,
+		groupKeeper:   groupKeeper,
 
 		// Initialize Collections
 		Params:   collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),

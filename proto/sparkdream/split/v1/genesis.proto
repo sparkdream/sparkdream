@@ -1,9 +1,11 @@
 syntax = "proto3";
+
 package sparkdream.split.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/split/v1/params.proto";
+import "sparkdream/split/v1/share.proto";
 
 option go_package = "sparkdream/x/split/types";
 
@@ -14,4 +16,5 @@ message GenesisState {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+  repeated Share share_map = 2 [(gogoproto.nullable) = false];
 }

@@ -7,6 +7,8 @@ accounts:
   coins: [10000000000000uspark, 10000000000000udream]
 - name: carol
   coins: [5000000000000uspark, 5000000000000udream]
+- name: dave
+  coins: [1uspark, 1udream]
 faucet:
   name: bob
   coins: [1000uspark, 1000udream]
@@ -36,7 +38,7 @@ genesis:
         symbol: dream
     commons:
       params:
-        commons_council_address: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+        proposal_fee: "5000000uspark"
     crisis:
       constant_fee:
         denom: uspark

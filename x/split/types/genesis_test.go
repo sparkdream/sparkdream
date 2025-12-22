@@ -21,8 +21,21 @@ func TestGenesisState_Validate(t *testing.T) {
 		},
 		{
 			desc:     "valid genesis state",
-			genState: &types.GenesisState{},
+			genState: &types.GenesisState{ShareMap: []types.Share{{Address: "0"}, {Address: "1"}}},
 			valid:    true,
+		}, {
+			desc: "duplicated share",
+			genState: &types.GenesisState{
+				ShareMap: []types.Share{
+					{
+						Address: "0",
+					},
+					{
+						Address: "0",
+					},
+				},
+			},
+			valid: false,
 		},
 	}
 	for _, tc := range tests {

@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	// "google.golang.org/grpc/codes" // Removed unused
-	// "google.golang.org/grpc/status" // Removed unused
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/log"
@@ -20,7 +18,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	codectestutil "github.com/cosmos/cosmos-sdk/codec/testutil"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -120,15 +117,22 @@ func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.
 	// 7. Setup Commons Keeper
 	commonsK := keeper.NewKeeper(
 		runtime.NewKVStoreService(keys[types.StoreKey]),
-		cdc, addrCodec, authority,
-		accountKeeper, bankKeeper, govK, groupK,
+		cdc,
+		addrCodec,
+		authority,
+		accountKeeper,
+		bankKeeper,
+		govK,
+		groupK,
+		mockSplitKeeper{},
+		mockUpgradeKeeper{},
 	)
 
 	// Set Default Params
 	err = commonsK.Params.Set(ctx, types.DefaultParams())
 	require.NoError(t, err)
 
-	// Register Commons MsgServer on the router so Gov can validate MsgUpdateParams
+	// Register Commons MsgServer on the router
 	types.RegisterMsgServer(msgRouter, keeper.NewMsgServerImpl(commonsK))
 
 	return commonsK, ctx, govK, groupK, authority
@@ -136,8 +140,8 @@ func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.
 
 // --- Tests ---
 
-func TestEmergencyCancelProposal(t *testing.T) {
-	k, ctx, govK, groupK, _ := setupKeeperForCancel(t)
+func TestEmergencyCancelGovProposal(t *testing.T) {
+	k, ctx, govK, _, _ := setupKeeperForCancel(t)
 	ms := keeper.NewMsgServerImpl(k)
 
 	alice := sdk.AccAddress([]byte("alice_address_______"))
@@ -146,6 +150,7 @@ func TestEmergencyCancelProposal(t *testing.T) {
 	// Get the Governance Module Address (Must be the signer of proposal messages)
 	govModAddr := authtypes.NewModuleAddress(govtypes.ModuleName)
 
+	// Helper to create a proposal in the Voting Period
 	createProp := func(expedited bool, msgs []sdk.Msg) uint64 {
 		prop, err := govK.SubmitProposal(ctx, msgs, "", "title", "summary", alice, expedited)
 		require.NoError(t, err)
@@ -163,6 +168,7 @@ func TestEmergencyCancelProposal(t *testing.T) {
 		return prop.Id
 	}
 
+	// Message Types
 	bankMsg := &banktypes.MsgSend{
 		FromAddress: govModAddr.String(),
 		ToAddress:   bob.String(),
@@ -174,14 +180,23 @@ func TestEmergencyCancelProposal(t *testing.T) {
 		Params:    types.DefaultParams(),
 	}
 
-	t.Run("Scenario: Interim Council (User) Vetoes Proposal", func(t *testing.T) {
-		params := types.DefaultParams()
-		params.CommonsCouncilAddress = alice.String()
-		_ = k.Params.Set(ctx, params)
+	// 1. Setup Permissions for Alice
+	// Alice is granted the specific power to execute Emergency Cancel
+	cancelMsgType := sdk.MsgTypeURL(&types.MsgEmergencyCancelGovProposal{})
 
+	// The Authority MUST be the Gov Module Address because EmergencyCancel is a Restricted Message.
+	_, err := ms.CreatePolicyPermissions(ctx, &types.MsgCreatePolicyPermissions{
+		Authority:       govModAddr.String(),
+		PolicyAddress:   alice.String(),
+		AllowedMessages: []string{cancelMsgType},
+	})
+	require.NoError(t, err)
+
+	t.Run("Scenario: Authorized User (Alice) Vetoes Proposal", func(t *testing.T) {
 		propID := createProp(false, []sdk.Msg{bankMsg})
 
-		_, err := ms.EmergencyCancelProposal(ctx, &types.MsgEmergencyCancelProposal{
+		// Alice HAS the permission, so this should succeed
+		_, err := ms.EmergencyCancelGovProposal(ctx, &types.MsgEmergencyCancelGovProposal{
 			Authority:  alice.String(),
 			ProposalId: propID,
 		})
@@ -192,72 +207,27 @@ func TestEmergencyCancelProposal(t *testing.T) {
 		require.Contains(t, prop.FailedReason, "Emergency Cancel")
 	})
 
-	t.Run("Scenario: Group Policy Vetoes Proposal", func(t *testing.T) {
-		groupRes, err := groupK.CreateGroup(ctx, &group.MsgCreateGroup{
-			Admin:   alice.String(),
-			Members: []group.MemberRequest{{Address: alice.String(), Weight: "1"}},
-		})
-		require.NoError(t, err)
-		groupID := groupRes.GroupId
-
-		decisionPolicy := &group.ThresholdDecisionPolicy{
-			Threshold: "1",
-			Windows:   &group.DecisionPolicyWindows{VotingPeriod: time.Hour},
-		}
-		anyPolicy, err := codectypes.NewAnyWithValue(decisionPolicy)
-		require.NoError(t, err)
-
-		policyRes, err := groupK.CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
-			Admin:          alice.String(),
-			GroupId:        groupID,
-			DecisionPolicy: anyPolicy,
-		})
-		require.NoError(t, err)
-		policyAddr := policyRes.Address
-
-		params := types.DefaultParams()
-		params.CommonsCouncilAddress = policyAddr
-		_ = k.Params.Set(ctx, params)
-
+	t.Run("Scenario: Unauthorized User (Bob)", func(t *testing.T) {
 		propID := createProp(false, []sdk.Msg{bankMsg})
 
-		_, err = ms.EmergencyCancelProposal(ctx, &types.MsgEmergencyCancelProposal{
-			Authority:  policyAddr,
-			ProposalId: propID,
-		})
-		require.NoError(t, err)
-
-		prop, _ := govK.Proposals.Get(ctx, propID)
-		require.Equal(t, govtypesv1.StatusFailed, prop.Status)
-	})
-
-	t.Run("Scenario: Unauthorized User", func(t *testing.T) {
-		params := types.DefaultParams()
-		params.CommonsCouncilAddress = alice.String()
-		_ = k.Params.Set(ctx, params)
-
-		propID := createProp(false, []sdk.Msg{bankMsg})
-
-		_, err := ms.EmergencyCancelProposal(ctx, &types.MsgEmergencyCancelProposal{
+		// Bob does NOT have any permissions registered
+		_, err := ms.EmergencyCancelGovProposal(ctx, &types.MsgEmergencyCancelGovProposal{
 			Authority:  bob.String(),
 			ProposalId: propID,
 		})
-		require.Error(t, err)
 
-		// Use ErrorIs instead of checking gRPC codes directly
-		// because status.FromError() doesn't always unwrap SDK errors perfectly in unit tests.
-		// sdkerrors.ErrUnauthorized (Code 4) is what we expect.
+		// Expect Unauthorized Error
+		require.Error(t, err)
 		require.ErrorIs(t, err, sdkerrors.ErrUnauthorized)
 	})
 
 	t.Run("Scenario: Constitutional Protection (Expedited Commons Update)", func(t *testing.T) {
-		params := types.DefaultParams()
-		params.CommonsCouncilAddress = alice.String()
-		_ = k.Params.Set(ctx, params)
-
+		// Create an EXPEDITED proposal containing a MsgUpdateParams
 		propID := createProp(true, []sdk.Msg{dangerousMsg})
 
-		_, err := ms.EmergencyCancelProposal(ctx, &types.MsgEmergencyCancelProposal{
+		// Alice HAS the permission to cancel, BUT the proposal is Expedited + Constitutional.
+		// The Keeper should block this to protect the "Super Majority" will.
+		_, err := ms.EmergencyCancelGovProposal(ctx, &types.MsgEmergencyCancelGovProposal{
 			Authority:  alice.String(),
 			ProposalId: propID,
 		})
@@ -267,17 +237,15 @@ func TestEmergencyCancelProposal(t *testing.T) {
 	})
 
 	t.Run("Scenario: Inactive Proposal", func(t *testing.T) {
-		params := types.DefaultParams()
-		params.CommonsCouncilAddress = alice.String()
-		_ = k.Params.Set(ctx, params)
-
 		propID := createProp(false, []sdk.Msg{bankMsg})
 
+		// Manually close the proposal
 		prop, _ := govK.Proposals.Get(ctx, propID)
 		prop.Status = govtypesv1.StatusPassed
 		_ = govK.Proposals.Set(ctx, propID, prop)
 
-		_, err := ms.EmergencyCancelProposal(ctx, &types.MsgEmergencyCancelProposal{
+		// Even with permission, you can't cancel a finished proposal
+		_, err := ms.EmergencyCancelGovProposal(ctx, &types.MsgEmergencyCancelGovProposal{
 			Authority:  alice.String(),
 			ProposalId: propID,
 		})

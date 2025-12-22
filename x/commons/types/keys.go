@@ -1,6 +1,8 @@
 package types
 
-import "cosmossdk.io/collections"
+import (
+	"cosmossdk.io/collections"
+)
 
 const (
 	// ModuleName defines the module name
@@ -19,6 +21,5 @@ const (
 var ParamsKey = collections.NewPrefix("p_commons")
 
 var (
-	KeyCommonsCouncilAddress = []byte("CommonsCouncilAddress")
-	KeyCommonsCouncilFee     = []byte("CommonsCouncilFee")
+	KeyProposalFee = []byte("ProposalFee")
 )

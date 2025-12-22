@@ -1,4 +1,5 @@
 syntax = "proto3";
+
 package sparkdream.split.v1;
 
 import "amino/amino.proto";
@@ -6,6 +7,7 @@ import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/split/v1/params.proto";
+import "sparkdream/split/v1/share.proto";
 
 option go_package = "sparkdream/x/split/types";
 
@@ -14,6 +16,16 @@ service Query {
   // Parameters queries the parameters of the module.
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
     option (google.api.http).get = "/sparkdream/split/v1/params";
+  }
+
+  // ListShare Queries a list of Share items.
+  rpc GetShare(QueryGetShareRequest) returns (QueryGetShareResponse) {
+    option (google.api.http).get = "/sparkdream/split/v1/share/{address}";
+  }
+
+  // ListShare defines the ListShare RPC.
+  rpc ListShare(QueryAllShareRequest) returns (QueryAllShareResponse) {
+    option (google.api.http).get = "/sparkdream/split/v1/share";
   }
 }
 
@@ -27,4 +39,25 @@ message QueryParamsResponse {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+}
+
+// QueryGetShareRequest defines the QueryGetShareRequest message.
+message QueryGetShareRequest {
+  string address = 1;
+}
+
+// QueryGetShareResponse defines the QueryGetShareResponse message.
+message QueryGetShareResponse {
+  Share share = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllShareRequest defines the QueryAllShareRequest message.
+message QueryAllShareRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllShareResponse defines the QueryAllShareResponse message.
+message QueryAllShareResponse {
+  repeated Share share = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

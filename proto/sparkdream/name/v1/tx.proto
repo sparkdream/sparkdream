@@ -29,6 +29,9 @@ service Msg {
 
   // ResolveDispute defines the ResolveDispute RPC.
   rpc ResolveDispute(MsgResolveDispute) returns (MsgResolveDisputeResponse);
+
+  // UpdateName defines the UpdateName RPC.
+  rpc UpdateName(MsgUpdateName) returns (MsgUpdateNameResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -93,3 +96,17 @@ message MsgResolveDispute {
 
 // MsgResolveDisputeResponse defines the MsgResolveDisputeResponse message.
 message MsgResolveDisputeResponse {}
+
+// MsgUpdateName defines the MsgUpdateName message.
+message MsgUpdateName {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string name = 2;
+  string data = 3;
+}
+
+// MsgUpdateNameResponse defines the MsgUpdateNameResponse message.
+message MsgUpdateNameResponse {
+  string name = 1;
+  string owner = 2;
+}

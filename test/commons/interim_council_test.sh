@@ -1,60 +1,79 @@
 #!/bin/bash
 
-echo "--- TESTING: INTERIM COUNCIL (BOB) & REBUILD ---"
+echo "--- TESTING: INTERIM COUNCIL (DICTATOR MODE & RESTORATION) ---"
 
 # --- 0. SETUP ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROPOSAL_DIR="$SCRIPT_DIR/proposals"
+mkdir -p "$PROPOSAL_DIR"
+
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
+
 GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
+echo "Gov Address: $GOV_ADDR"
 
-mkdir -p proposals
+# --- 1. PHASE 1: INSTALL BOB AS DICTATOR ---
+echo "--- PHASE 1: INSTALLING BOB AS INTERIM DICTATOR ---"
+echo "Alice (Validator) votes to wipe Commons Council and install Bob..."
 
-# --- 1. SETUP: INSTALL BOB AS COUNCIL ---
-echo "--- PHASE 1: INSTALLING BOB AS INTERIM COUNCIL ---"
-echo "Alice votes to set Commons Council = Bob..."
-
+# Using MsgRenewGroup to wipe the slate
 echo '{
   "messages": [
     {
-      "@type": "/sparkdream.commons.v1.MsgUpdateParams",
+      "@type": "/sparkdream.commons.v1.MsgRenewGroup",
       "authority": "'$GOV_ADDR'",
-      "params": {
-        "commons_council_address": "'$BOB_ADDR'"
-      }
+      "group_name": "Commons Council",
+      "new_members": ["'$BOB_ADDR'"],
+      "new_member_weights": ["1"]
     }
   ],
   "deposit": "100000000uspark",
-  "title": "Emergency Handover to Bob",
-  "summary": "Setting Bob as interim council during restructuring.",
+  "title": "Emergency Dictator Act",
+  "summary": "Setting Bob as sole member of Commons Council.",
   "expedited": true
-}' > proposals/set_bob_council.json
+}' > "$PROPOSAL_DIR/set_bob_dictator.json"
 
 # Submit & Vote
-SUBMIT_RES=$($BINARY tx gov submit-proposal proposals/set_bob_council.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
-echo $SUBMIT_RES
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/set_bob_dictator.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
-PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
-echo "Handover Prop ID: $PROP_ID"
+# Get Prop ID
+TX_RES=$($BINARY query tx $TX_HASH --output json)
+PROP_ID=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+if [ -z "$PROP_ID" ] || [ "$PROP_ID" == "null" ]; then
+   PROP_ID=$(echo $TX_RES | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+fi
+
+echo "Dictator Prop ID: $PROP_ID"
 $BINARY tx gov vote $PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
 
-echo "Waiting for Expedited Voting (40s)..."
+echo "Waiting for Expedited Voting (45s)..."
 sleep 45
 
-# Verify Bob is Council
-CURRENT_COUNCIL=$($BINARY query commons params --output json | jq -r '.params.commons_council_address')
-if [ "$CURRENT_COUNCIL" == "$BOB_ADDR" ]; then
-    echo "✅ SUCCESS: Bob is now the Commons Council."
+# Verify Bob is Sole Member
+# 1. Get Group ID
+GROUP_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json)
+GROUP_ID=$(echo $GROUP_INFO | jq -r '.extended_group.group_id')
+POLICY_ADDR=$(echo $GROUP_INFO | jq -r '.extended_group.policy_address')
+
+# 2. Check Members
+MEMBERS_JSON=$($BINARY query group group-members $GROUP_ID --output json)
+COUNT=$(echo $MEMBERS_JSON | jq '.members | length')
+MEMBER_ADDR=$(echo $MEMBERS_JSON | jq -r '.members[0].member.address')
+
+if [ "$COUNT" == "1" ] && [ "$MEMBER_ADDR" == "$BOB_ADDR" ]; then
+    echo "✅ SUCCESS: Bob is now the sole member (Dictator)."
 else
-    echo "❌ FAILURE: Council is $CURRENT_COUNCIL"
+    echo "❌ FAILURE: Membership update failed. Count: $COUNT"
     exit 1
 fi
 
-# --- 2. ATTACK & VETO (User Veto) ---
+# --- 2. ATTACK & VETO (Dictator Veto) ---
 echo "--- PHASE 2: BOB VETOES MALICIOUS PROPOSAL ---"
 
 # Carol creates malicious proposal
@@ -70,107 +89,115 @@ echo '{
   "deposit": "50000000uspark",
   "title": "Steal Funds",
   "summary": "Trying to steal while Bob is in charge."
-}' > proposals/bad_prop_bob.json
+}' > "$PROPOSAL_DIR/bad_prop_bob.json"
 
-# Submit & Vote
-SUBMIT_RES=$($BINARY tx gov submit-proposal proposals/bad_prop_bob.json --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/bad_prop_bob.json" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 BAD_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 echo "Bad Prop ID: $BAD_PROP_ID"
 
-# Bob executes Veto directly (as a User Transaction, not Group Proposal)
-echo "Bob executes MsgEmergencyCancelProposal..."
-$BINARY tx commons emergency-cancel-proposal $BAD_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+echo "Discovering Veto Policy..."
 
+# 1. DISCOVER VETO POLICY for Commons Council
+# We look for the policy with metadata "veto" (or however you tagged it in genesis/setup)
+VETO_POLICY_ADDR=$($BINARY query group group-policies-by-group $GROUP_ID --output json | jq -r '.group_policies[] | select(.metadata == "veto") | .address' | head -n 1)
+
+if [ -z "$VETO_POLICY_ADDR" ] || [ "$VETO_POLICY_ADDR" == "null" ]; then
+    echo "❌ ERROR: Could not find Veto Policy for Group $GROUP_ID"
+    exit 1
+fi
+
+echo "Using Veto Policy: $VETO_POLICY_ADDR"
+
+# 2. Bob submits Veto via VETO Policy
+echo "Bob submits Veto via Group Proposal..."
+echo '{
+  "group_policy_address": "'$VETO_POLICY_ADDR'",
+  "proposers": ["'$BOB_ADDR'"],
+  "title": "FAST VETO",
+  "summary": "Immediate execution.",
+  "messages": [
+    {
+      "@type": "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
+      "authority": "'$VETO_POLICY_ADDR'",
+      "proposal_id": '$BAD_PROP_ID'
+    }
+  ]
+}' > "$PROPOSAL_DIR/fast_veto.json"
+
+# Submit Group Proposal
+SUBMIT_GROUP=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/fast_veto.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+GROUP_TX=$(echo $SUBMIT_GROUP | jq -r '.txhash')
+sleep 3
+
+GROUP_PROP_ID=$(echo $($BINARY query tx $GROUP_TX --output json) | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+if [ -z "$GROUP_PROP_ID" ] || [ "$GROUP_PROP_ID" == "null" ]; then
+   GROUP_PROP_ID=$(echo $($BINARY query tx $GROUP_TX --output json) | jq -r '.logs[0].events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+fi
+echo "Group Prop ID: $GROUP_PROP_ID"
+
+# Bob Votes YES (100% of weight)
+$BINARY tx group vote $GROUP_PROP_ID $BOB_ADDR VOTE_OPTION_YES "Veto" --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 3
+$BINARY tx group exec $GROUP_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test
 sleep 3
 
 # Verify Kill
 STATUS=$($BINARY query gov proposal $BAD_PROP_ID --output json | jq -r '.proposal.status')
 if [ "$STATUS" == "PROPOSAL_STATUS_FAILED" ] || [ "$STATUS" == "PROPOSAL_STATUS_REJECTED" ]; then
-    echo "✅ SUCCESS: Bob successfully vetoed the proposal as a user."
+    echo "✅ SUCCESS: Bob successfully vetoed using Veto Policy."
 else
     echo "❌ FAILURE: Proposal is still $STATUS"
     exit 1
 fi
 
-# --- 3. REBUILD: CREATE NEW GROUP ---
-echo "--- PHASE 3: BOB BUILDS THE NEW REPUBLIC ---"
+# --- 3. RESTORATION: EXPAND GROUP ---
+echo "--- PHASE 3: RESTORING THE REPUBLIC ---"
+echo "Bob (or Gov) proposes to add Alice and Carol back..."
 
-# Create Members (Bob + Alice)
-echo '{"members": [
-  {"address": "'$ALICE_ADDR'", "weight": "1", "metadata": "Alice"}, 
-  {"address": "'$BOB_ADDR'", "weight": "1", "metadata": "Bob"}
-]}' > proposals/new_members.json
-
-# Create Group 2
-echo "Creating New Group..."
-# Note: We use 'bob' as admin because he is rebuilding it
-GROUP_TX=$($BINARY tx group create-group $BOB_ADDR "New Council" proposals/new_members.json --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
-GROUP_TX_HASH=$(echo $GROUP_TX | jq -r '.txhash')
-sleep 3
-NEW_GROUP_ID=$(echo $($BINARY query tx $GROUP_TX_HASH --output json) | jq -r '.events[] | select(.type=="cosmos.group.v1.EventCreateGroup") | .attributes[] | select(.key=="group_id") | .value' | tr -d '"')
-echo "New Group ID: $NEW_GROUP_ID"
-
-# Create Policies
-echo '{"@type":"/cosmos.group.v1.PercentageDecisionPolicy", "percentage":"0.25", "windows":{"voting_period":"30s", "min_execution_period":"0s"}}' > proposals/policy_std.json
-echo '{"@type":"/cosmos.group.v1.PercentageDecisionPolicy", "percentage":"0.50", "windows":{"voting_period":"10s", "min_execution_period":"0s"}}' > proposals/policy_veto.json
-
-echo "Creating Standard Policy..."
-$BINARY tx group create-group-policy $BOB_ADDR $NEW_GROUP_ID "standard" proposals/policy_std.json --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json
-sleep 3
-
-echo "Creating Veto Policy..."
-$BINARY tx group create-group-policy $BOB_ADDR $NEW_GROUP_ID "veto" proposals/policy_veto.json --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json
-sleep 3
-
-# Discover New Standard Address
-NEW_STANDARD_ADDR=$($BINARY query group group-policies-by-group $NEW_GROUP_ID -o json | jq -r '.group_policies[] | select(.metadata == "standard") | .address' | head -n 1 | tr -d '"')
-echo "New Standard Policy: $NEW_STANDARD_ADDR"
-
-# Update Admin (Bob hands over admin of Group 2 to the Policy)
-$BINARY tx group update-group-admin $BOB_ADDR $NEW_GROUP_ID $NEW_STANDARD_ADDR --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark
-sleep 3
-
-# --- 4. RESTORATION: HANDOVER TO NEW GROUP ---
-echo "--- PHASE 4: RESTORING ORDER ---"
-echo "Bob submits Gov Proposal to set Council = New Policy..."
+# Bob cannot do this himself because MsgRenewGroup checks "isGov".
+# So we must use a Gov Proposal again.
 
 echo '{
   "messages": [
     {
-      "@type": "/sparkdream.commons.v1.MsgUpdateParams",
+      "@type": "/sparkdream.commons.v1.MsgRenewGroup",
       "authority": "'$GOV_ADDR'",
-      "params": {
-        "commons_council_address": "'$NEW_STANDARD_ADDR'"
-      }
+      "group_name": "Commons Council",
+      "new_members": ["'$ALICE_ADDR'", "'$BOB_ADDR'", "'$CAROL_ADDR'"],
+      "new_member_weights": ["1", "1", "1"]
     }
   ],
   "deposit": "100000000uspark",
-  "title": "Restore Council",
-  "summary": "Bob steps down and installs the New Council.",
+  "title": "Restore Democracy",
+  "summary": "Adding members back to the council.",
   "expedited": true
-}' > proposals/restore_council.json
+}' > "$PROPOSAL_DIR/restore_council.json"
 
 # Submit Proposal
-SUBMIT_RES=$($BINARY tx gov submit-proposal proposals/restore_council.json --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/restore_council.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 RESTORE_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+if [ -z "$RESTORE_PROP_ID" ] || [ "$RESTORE_PROP_ID" == "null" ]; then
+   RESTORE_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+fi
 
 echo "Restoration Prop ID: $RESTORE_PROP_ID"
 
-# Alice (Validator) Votes Yes to ratify
+# Alice Votes Yes to ratify
 $BINARY tx gov vote $RESTORE_PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
 
-echo "Waiting for Expedited Voting (40s)..."
+echo "Waiting for Expedited Voting (45s)..."
 sleep 45
 
 # Verify Final State
-FINAL_COUNCIL=$($BINARY query commons params --output json | jq -r '.params.commons_council_address')
+FINAL_MEMBERS=$($BINARY query group group-members $GROUP_ID --output json)
+FINAL_COUNT=$(echo $FINAL_MEMBERS | jq '.members | length')
 
-if [ "$FINAL_COUNCIL" == "$NEW_STANDARD_ADDR" ]; then
-    echo "🎉 SUCCESS: The Republic is Restored. New Council is in charge."
+if [ "$FINAL_COUNT" == "3" ]; then
+    echo "🎉 SUCCESS: The Republic is Restored. 3 Members found."
 else
-    echo "❌ FAILURE: Handover failed. Council is $FINAL_COUNCIL"
+    echo "❌ FAILURE: Restoration failed. Count: $FINAL_COUNT"
 fi

@@ -154,3 +154,33 @@ func (k Keeper) GetCouncilAddress(ctx context.Context, groupID uint64) (sdk.AccA
 
 	return nil, fmt.Errorf("council policy 'standard' not found for group %d", groupID)
 }
+
+// IsCommonsCouncilMember checks if the provided address is a member of the "Commons Council" group.
+func (k Keeper) IsCommonsCouncilMember(ctx context.Context, memberAddr string) (bool, error) {
+	// 1. Get the actual Group ID of the Commons Council from the x/commons module.
+	// NOTE: We assume k.commonsKeeper is wired to the x/commons keeper.
+	councilGroup, err := k.commonsKeeper.GetExtendedGroup(ctx, "Commons Council")
+	if err != nil {
+		// If the group isn't found, it's a critical setup error.
+		return false, errors.New("critical: failed to find Commons Council group")
+	}
+
+	// 2. Use the GroupKeeper to check if the creator is a member of that specific Group ID.
+	groupReq := &group.QueryGroupsByMemberRequest{
+		Address: memberAddr,
+	}
+	// We use the gRPC query method exposed by the GroupKeeper interface
+	groupRes, err := k.groupKeeper.GroupsByMember(ctx, groupReq)
+	if err != nil {
+		return false, err
+	}
+
+	for _, g := range groupRes.Groups {
+		// Compare the group ID of the member's groups with the Commons Council Group ID
+		if g.Id == councilGroup.GroupId {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}

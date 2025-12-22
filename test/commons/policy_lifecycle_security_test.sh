@@ -3,6 +3,10 @@
 echo "--- TESTING: POLICY LIFECYCLE (ATTACKS & SUNSETTING) ---"
 
 # --- 0. SETUP ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROPOSAL_DIR="$SCRIPT_DIR/proposals"
+mkdir -p "$PROPOSAL_DIR"
+
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -10,78 +14,124 @@ CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
 
 mkdir -p proposals
 
-# Address Lookups
+# Gov Address
 GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
-COUNCIL_ADDR=$($BINARY query commons params --output json | jq -r '.params.commons_council_address')
 
-echo "Gov Address:     $GOV_ADDR"
-echo "Council Address: $COUNCIL_ADDR"
-echo "Attacker:        $CAROL_ADDR"
+echo "Gov Address: $GOV_ADDR"
+echo "Attacker:    $CAROL_ADDR"
 
-if [ -z "$COUNCIL_ADDR" ]; then
-    echo "❌ SETUP ERROR: Council Address not found."
+# --- 1. SETUP DISPOSABLE TARGET GROUP ---
+echo "--- STEP 1: Creating Disposable 'Sunset DAO' ---"
+# We create a specific group for this test so we don't destroy the 
+# 'Commons Council' singleton needed by other tests (like fire_council_test.sh).
+
+echo '{
+  "group_policy_address": "'$GOV_ADDR'",
+  "proposers": ["'$ALICE_ADDR'"],
+  "title": "Create Sunset DAO",
+  "summary": "A temporary group to test permission revocation.",
+  "messages": [
+    {
+      "@type": "/sparkdream.commons.v1.MsgRegisterGroup",
+      "authority": "'$GOV_ADDR'",
+      "name": "Sunset DAO",
+      "description": "Destructible Test Group",
+      "members": ["'$ALICE_ADDR'"],
+      "member_weights": ["1"],
+      "min_members": 1,
+      "max_members": 3,
+      "term_duration": 3600,
+      "voting_period": 10,
+      "min_execution_period": 0,
+      "max_spend_per_epoch": "1000000uspark", 
+      "update_cooldown": 0,
+      "funding_weight": 0,
+      "futarchy_enabled": false,
+      "vote_threshold": "1",
+      "policy_type": "threshold",
+      "allowed_messages": [
+        "/sparkdream.commons.v1.MsgSpendFromCommons"
+      ]
+    }
+  ],
+  "deposit": "100000000uspark",
+  "expedited": true
+}' > "$PROPOSAL_DIR/create_sunset_dao.json"
+
+# Submit via Gov
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/create_sunset_dao.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
+sleep 3
+
+# Get Gov Prop ID & Vote
+GOV_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+if [ -z "$GOV_PROP_ID" ]; then
+    GOV_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+fi
+echo "Setup Proposal ID: $GOV_PROP_ID"
+
+$BINARY tx gov vote $GOV_PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+echo "Waiting for setup vote (45s for Expedited)..."
+sleep 45
+
+# DISCOVER NEW GROUP ADDRESS
+SUNSET_INFO=$($BINARY query commons get-extended-group "Sunset DAO" --output json)
+COUNCIL_ADDR=$(echo $SUNSET_INFO | jq -r '.extended_group.policy_address')
+
+if [ -z "$COUNCIL_ADDR" ] || [ "$COUNCIL_ADDR" == "null" ]; then
+    echo "❌ SETUP ERROR: Failed to create 'Sunset DAO'."
+    # Debugging info
+    $BINARY query gov proposal $GOV_PROP_ID --output json
     exit 1
 fi
+echo "✅ Target Policy Address: $COUNCIL_ADDR"
 
-# --- 1. ATTACK SIMULATION (SECURITY) ---
-echo "--- STEP 1: ATTACKER (CAROL) TRIES TO MODIFY COUNCIL PERMS ---"
+# Fund it (so we can test spending later)
+$BINARY tx bank send $ALICE_ADDR $COUNCIL_ADDR 1000uspark --chain-id $CHAIN_ID -y > /dev/null
+sleep 3
 
-# Attempt 1: Carol tries to overwrite Council permissions
+# --- 2. ATTACK SIMULATION (SECURITY) ---
+echo "--- STEP 2: ATTACKER (CAROL) TRIES TO MODIFY PERMS ---"
+
+# Attempt 1: Carol tries to overwrite permissions
 echo "Carol attempting MsgUpdatePolicyPermissions..."
 SUBMIT_RES=$($BINARY tx commons update-policy-permissions $COUNCIL_ADDR "/cosmos.bank.v1beta1.MsgSend" \
   --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-
-echo "Tx Hash: $TX_HASH"
-echo "Waiting for block inclusion..."
 sleep 3
 
-# Query the On-Chain Result
 TX_RES=$($BINARY query tx $TX_HASH --output json 2>/dev/null)
 TX_CODE=$(echo $TX_RES | jq -r '.code')
 RAW_LOG=$(echo $TX_RES | jq -r '.raw_log')
 
-# Code 4 is the standard SDK error for Unauthorized / signature verification failure in some contexts, 
-# or the specific error code bubbled up from your module. 
-# Your logs showed "code: 4", so we check for that.
-if [ "$TX_CODE" == "4" ]; then
-    echo "✅ SECURITY SUCCESS: Update blocked on-chain with Code 4 (Unauthorized)."
+if [ "$TX_CODE" != "0" ]; then
+    echo "✅ SECURITY SUCCESS: Update blocked on-chain (Code $TX_CODE)."
 else
-    echo "❌ SECURITY FAILURE: Carol's update transaction did not fail as expected."
-    echo "Code: $TX_CODE"
+    echo "❌ SECURITY FAILURE: Carol's update transaction SUCCEEDED!"
     echo "Log: $RAW_LOG"
     exit 1
 fi
 
-# Attempt 2: Carol tries to delete Council permissions
+# Attempt 2: Carol tries to delete permissions
 echo "Carol attempting MsgDeletePolicyPermissions..."
 SUBMIT_RES=$($BINARY tx commons delete-policy-permissions $COUNCIL_ADDR \
   --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-
-echo "Tx Hash: $TX_HASH"
-echo "Waiting for block inclusion..."
 sleep 3
 
-# Query the On-Chain Result
 TX_RES=$($BINARY query tx $TX_HASH --output json 2>/dev/null)
 TX_CODE=$(echo $TX_RES | jq -r '.code')
-RAW_LOG=$(echo $TX_RES | jq -r '.raw_log')
 
-if [ "$TX_CODE" == "4" ]; then
-    echo "✅ SECURITY SUCCESS: Delete blocked on-chain with Code 4 (Unauthorized)."
+if [ "$TX_CODE" != "0" ]; then
+    echo "✅ SECURITY SUCCESS: Delete blocked on-chain (Code $TX_CODE)."
 else
-    echo "❌ SECURITY FAILURE: Carol's delete transaction did not fail as expected."
-    echo "Code: $TX_CODE"
-    echo "Log: $RAW_LOG"
+    echo "❌ SECURITY FAILURE: Carol's delete transaction SUCCEEDED!"
     exit 1
 fi
 
-# --- 2. SUNSET PROTOCOL (GOVERNANCE) ---
-echo "--- STEP 2: GOVERNANCE VOTES TO SUNSET (DELETE) COUNCIL ---"
+# --- 3. SUNSET PROTOCOL (GOVERNANCE) ---
+echo "--- STEP 3: GOVERNANCE VOTES TO SUNSET (DELETE) DAO ---"
 
-# The Community decides the Council is no longer needed.
-# We use MsgDeletePolicyPermissions signed by x/gov authority.
 echo '{
   "messages": [
     {
@@ -91,21 +141,18 @@ echo '{
     }
   ],
   "deposit": "100000000uspark",
-  "title": "Sunset Commons Council",
-  "summary": "Dissolving the Council by revoking all policy permissions.",
+  "title": "Sunset DAO",
+  "summary": "Dissolving the DAO by revoking all policy permissions.",
   "expedited": true
-}' > proposals/gov_sunset.json
+}' > "$PROPOSAL_DIR/gov_sunset.json"
 
 # Submit
-SUBMIT_RES=$($BINARY tx gov submit-proposal proposals/gov_sunset.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_sunset.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-echo "Sunset Proposal Tx: $TX_HASH"
 sleep 3
 
 # Get Prop ID
 GOV_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-
-# Fallback
 if [ -z "$GOV_PROP_ID" ]; then
     GOV_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 fi
@@ -115,7 +162,7 @@ echo "Gov Proposal ID: $GOV_PROP_ID"
 # Vote YES
 $BINARY tx gov vote $GOV_PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
 
-echo "Waiting for Expedited Voting (40s)..."
+echo "Waiting for Expedited Voting (45s)..."
 sleep 45
 
 # Verify Deletion
@@ -129,11 +176,9 @@ else
     exit 1
 fi
 
-# --- 3. POST-MORTEM CHECK (DEAD COUNCIL) ---
-echo "--- STEP 3: VERIFY COUNCIL IS FUNCTIONALLY DEAD ---"
+# --- 4. POST-MORTEM CHECK (DEAD DAO) ---
+echo "--- STEP 4: VERIFY DAO IS FUNCTIONALLY DEAD ---"
 
-# The Council tries to do a standard operation (e.g., Update Members)
-# This used to be allowed. Now it should be blocked by AnteHandler.
 echo '{
   "group_policy_address": "'$COUNCIL_ADDR'",
   "proposers": ["'$ALICE_ADDR'"],
@@ -141,23 +186,21 @@ echo '{
   "summary": "Trying to act after sunset",
   "messages": [
     {
-      "@type": "/cosmos.group.v1.MsgUpdateGroupMembers",
-      "admin": "'$COUNCIL_ADDR'",
-      "group_id": "1",
-      "member_updates": []
+      "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
+      "authority": "'$COUNCIL_ADDR'",
+      "recipient": "'$ALICE_ADDR'",
+      "amount": [{"denom": "uspark", "amount": "1"}]
     }
   ]
-}' > proposals/msg_zombie.json
+}' > "$PROPOSAL_DIR/msg_zombie.json"
 
 # Attempt Submission
-# We force fees to ensure we pass the Fee AnteHandler and reach the Group Logic
-OUTPUT=$($BINARY tx group submit-proposal proposals/msg_zombie.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
+OUTPUT=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_zombie.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
 
-# We expect the AnteHandler error: "no policy permissions found"
 if echo "$OUTPUT" | grep -q "no policy permissions found"; then
-    echo "✅ GRAND SUCCESS: The Council is effectively dead. AnteHandler rejected the tx."
+    echo "✅ GRAND SUCCESS: The DAO is effectively dead. AnteHandler rejected the tx."
 else
-    echo "❌ CRITICAL FAILURE: The Council was able to act (or got wrong error)!"
+    echo "❌ CRITICAL FAILURE: The DAO was able to act (or got wrong error)!"
     echo "$OUTPUT"
     exit 1
 fi

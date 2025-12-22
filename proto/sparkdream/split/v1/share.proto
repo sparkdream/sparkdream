@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.split.v1;
+
+option go_package = "sparkdream/x/split/types";
+
+// Share defines the Share message.
+message Share {
+  string address = 1;
+  uint64 weight = 2;
+}

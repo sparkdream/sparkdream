@@ -12,17 +12,19 @@ import (
 
 func (k msgServer) ResolveDispute(goCtx context.Context, msg *types.MsgResolveDispute) (*types.MsgResolveDisputeResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	params := k.GetParams(ctx)
 
-	// 1. Authority Check (Must be Council)
-	councilAddr, err := k.GetCouncilAddress(ctx, params.CouncilGroupId)
+	// 1. Authority Check (Must be Council Policy Address)
+	councilGroup, err := k.commonsKeeper.GetExtendedGroup(ctx, "Commons Council")
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "council address not found")
+		// If the group isn't found, it's a critical setup error.
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "critical: failed to find Commons Council group: %s", err.Error())
 	}
 
+	councilPolicyAddrBech32 := councilGroup.PolicyAddress
+
 	// Note: msg.Authority is the signer. For a group proposal, the signer is the Group Policy Address.
-	if msg.Authority != councilAddr.String() {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "only council policy %s can resolve disputes", councilAddr)
+	if msg.Authority != councilPolicyAddrBech32 {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "only council policy %s can resolve disputes", councilPolicyAddrBech32)
 	}
 
 	// 2. Verify Payment Proof (Does the dispute exist?)
@@ -32,6 +34,7 @@ func (k msgServer) ResolveDispute(goCtx context.Context, msg *types.MsgResolveDi
 	}
 
 	// 3. Execute the Transfer
+
 	// A. Remove from old owner
 	currentOwner, found := k.GetNameOwner(ctx, msg.Name)
 	if found {

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "--- TESTING NAME MODULE: PRIMARY ALIAS ---"
+echo "--- TESTING NAME MODULE: PRIMARY ALIAS & REVERSE RESOLUTION ---"
 
 # --- 0. SETUP & CONFIG ---
 BINARY="sparkdreamd"
@@ -13,69 +13,126 @@ if ! command -v jq &> /dev/null; then
 fi
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
+BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
-# --- 1. SETUP: Ensure Alice has a name ---
-echo "Registering backup name 'alice_v2' to ensure ownership..."
+echo "Alice: $ALICE_ADDR"
+echo "Bob:   $BOB_ADDR"
 
-# Submit Tx
-RES=$($BINARY tx name register-name "alice_v2" "meta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test -o json)
-TX_HASH=$(echo $RES | jq -r '.txhash')
-sleep 3
+# --- 1. SETUP: REGISTER NAMES ---
+echo "--- STEP 1: Registration Setup ---"
 
-# Verify Execution
-QUERY_RES=$($BINARY query tx $TX_HASH -o json)
-CODE=$(echo $QUERY_RES | jq -r '.code')
+# Alice registers 'alice-alpha'
+echo "Registering 'alice-alpha'..."
+$BINARY tx name register-name "alice-alpha" "meta-alpha" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json > /dev/null
+sleep 4
+
+# Alice registers 'alice-beta'
+echo "Registering 'alice-beta'..."
+$BINARY tx name register-name "alice-beta" "meta-beta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json > /dev/null
+sleep 4
+
+# Bob registers 'bob-main'
+echo "Registering 'bob-main'..."
+$BINARY tx name register-name "bob-main" "meta-bob" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json > /dev/null
+sleep 4
+
+# --- 2. SECURITY TEST: SET UNAUTHORIZED PRIMARY ---
+echo "--- STEP 2: Security Checks (Unauthorized Set) ---"
+
+# Case A: Alice tries to set a name she doesn't own (Bob's name)
+echo "Alice attempting to set 'bob-main' (Bob's name) as primary..."
+RES=$($BINARY tx name set-primary "bob-main" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
+CODE=$(echo $RES | jq -r '.code')
 
 if [ "$CODE" != "0" ]; then
-    # It might fail if already exists, which is fine for setup, but we warn
-    echo "⚠️  Registration msg code: $CODE (Might already exist)"
+     echo "✅ SUCCESS: Alice blocked from setting 'bob-main' (Ante/CheckTx)."
 else
-    echo "✅ Name Registered."
+     # Check On-Chain result
+     TX_HASH=$(echo $RES | jq -r '.txhash')
+     sleep 4
+     QUERY_RES=$($BINARY query tx $TX_HASH --output json)
+     FINAL_CODE=$(echo $QUERY_RES | jq -r '.code')
+     RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
+
+     if [ "$FINAL_CODE" != "0" ]; then
+        if echo "$RAW_LOG" | grep -q "not owner"; then
+            echo "✅ SUCCESS: Alice blocked on-chain (Not Owner)."
+        else
+            echo "✅ SUCCESS: Alice blocked on-chain (Code $FINAL_CODE)."
+        fi
+     else
+        echo "❌ FAILURE: Alice successfully set Bob's name as her primary!"
+        exit 1
+     fi
 fi
 
-# --- 2. TEST: SET PRIMARY ---
-echo "--- CASE 1: Alice sets 'alice_v2' as Primary ---"
-
-# Submit Tx
-RES=$($BINARY tx name set-primary "alice_v2" --from alice -y --chain-id $CHAIN_ID --keyring-backend test -o json)
+# Case B: Alice tries to set a non-existent name
+echo "Alice attempting to set 'ghost-name' (Does not exist)..."
+RES=$($BINARY tx name set-primary "ghost-name" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
 TX_HASH=$(echo $RES | jq -r '.txhash')
+sleep 4
+QUERY_RES=$($BINARY query tx $TX_HASH --output json)
 
-echo "Tx Hash: $TX_HASH"
-sleep 3
-
-# Verify Execution
-QUERY_RES=$($BINARY query tx $TX_HASH -o json)
-CODE=$(echo $QUERY_RES | jq -r '.code')
-
-if [ "$CODE" != "0" ]; then
-    echo "❌ FAILURE: Failed to set primary name."
-    echo "Raw Log: $(echo $QUERY_RES | jq -r '.raw_log')"
+if [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
+    echo "✅ SUCCESS: Setting non-existent name failed."
+else
+    echo "❌ FAILURE: Setting non-existent name succeeded."
     exit 1
 fi
 
-echo "✅ Set Primary Tx Executed."
+# --- 3. FUNCTIONALITY: SET PRIMARY ---
+echo "--- STEP 3: Alice sets 'alice-alpha' as Primary ---"
 
-# --- 3. TEST: REVERSE RESOLVE ---
-echo "--- CASE 2: Reverse Resolve (Address -> Name) ---"
+RES=$($BINARY tx name set-primary "alice-alpha" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+TX_HASH=$(echo $RES | jq -r '.txhash')
+sleep 4
 
-PRIMARY_NAME=$($BINARY query name reverse-resolve $ALICE_ADDR -o json | jq -r '.name')
+QUERY_RES=$($BINARY query tx $TX_HASH --output json)
+CODE=$(echo $QUERY_RES | jq -r '.code')
 
-echo "Resolved Name: $PRIMARY_NAME"
-
-if [ "$PRIMARY_NAME" == "alice_v2" ]; then
-    echo "✅ SUCCESS: Reverse resolution worked."
-else
-    echo "❌ FAILURE: Expected 'alice_v2', got '$PRIMARY_NAME'"
+if [ "$CODE" != "0" ]; then
+    echo "❌ FAILURE: Failed to set primary."
+    echo "Log: $(echo $QUERY_RES | jq -r '.raw_log')"
     exit 1
 fi
 
-# --- 4. TEST: QUERY BY ADDRESS ---
-echo "--- CASE 3: Query All Names for Alice ---"
-NAMES_COUNT=$($BINARY query name names $ALICE_ADDR -o json | jq '.names | length')
+# Verify Reverse Resolve
+RESOLVED=$($BINARY query name reverse-resolve $ALICE_ADDR --output json | jq -r '.name')
+echo "Resolved: $RESOLVED"
+
+if [ "$RESOLVED" == "alice-alpha" ]; then
+    echo "✅ SUCCESS: Reverse resolve returns 'alice-alpha'."
+else
+    echo "❌ FAILURE: Expected 'alice-alpha', got '$RESOLVED'."
+    exit 1
+fi
+
+# --- 4. FUNCTIONALITY: UPDATE PRIMARY ---
+echo "--- STEP 4: Alice updates Primary to 'alice-beta' ---"
+
+# Alice decides to change her main alias
+RES=$($BINARY tx name set-primary "alice-beta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+TX_HASH=$(echo $RES | jq -r '.txhash')
+sleep 4
+
+# Check Resolve
+RESOLVED=$($BINARY query name reverse-resolve $ALICE_ADDR --output json | jq -r '.name')
+echo "Resolved: $RESOLVED"
+
+if [ "$RESOLVED" == "alice-beta" ]; then
+    echo "✅ SUCCESS: Primary updated to 'alice-beta'."
+else
+    echo "❌ FAILURE: Expected 'alice-beta', got '$RESOLVED'."
+    exit 1
+fi
+
+# --- 5. QUERY LIST VERIFICATION ---
+echo "--- STEP 5: Verify Name List ---"
+NAMES_COUNT=$($BINARY query name names $ALICE_ADDR --output json | jq '.names | length')
 
 echo "Alice owns $NAMES_COUNT names."
-if [ "$NAMES_COUNT" -ge 1 ]; then
-    echo "✅ SUCCESS: Found names list."
+if [ "$NAMES_COUNT" -ge 2 ]; then
+    echo "✅ SUCCESS: Found multiple names for Alice."
 else
-    echo "❌ FAILURE: No names found for Alice."
+    echo "❌ FAILURE: Name count incorrect (Expected >= 2)."
 fi

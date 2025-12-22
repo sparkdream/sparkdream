@@ -26,7 +26,6 @@ func TestGenesisState_Validate(t *testing.T) {
 			desc: "default is valid",
 			genState: func() *types.GenesisState {
 				gs := types.DefaultGenesis()
-				gs.Params.CommonsCouncilAddress = sampleAddr
 				return gs
 			}(),
 			valid: true,
@@ -35,22 +34,20 @@ func TestGenesisState_Validate(t *testing.T) {
 			desc: "valid genesis state",
 			genState: &types.GenesisState{
 				Params: types.Params{
-					CommonsCouncilAddress: sampleAddr,
-					CommonsCouncilFee:     "1000stake",
+					ProposalFee: "1000stake",
 				},
 				PolicyPermissionsMap: []types.PolicyPermissions{
 					{PolicyAddress: sampleAddr},
 					{PolicyAddress: sampleAddr2},
 				},
-			},
+				ExtendedGroupMap: []types.ExtendedGroup{{Index: "0"}, {Index: "1"}}},
 			valid: true,
 		},
 		{
 			desc: "duplicated policyPermissions",
 			genState: &types.GenesisState{
 				Params: types.Params{
-					CommonsCouncilAddress: sampleAddr,
-					CommonsCouncilFee:     "1000stake",
+					ProposalFee: "1000stake",
 				},
 				PolicyPermissionsMap: []types.PolicyPermissions{
 					{
@@ -58,6 +55,19 @@ func TestGenesisState_Validate(t *testing.T) {
 					},
 					{
 						PolicyAddress: sampleAddr, // Duplicate!
+					},
+				},
+				ExtendedGroupMap: []types.ExtendedGroup{{Index: "0"}, {Index: "1"}}},
+			valid: false,
+		}, {
+			desc: "duplicated extendedGroup",
+			genState: &types.GenesisState{
+				ExtendedGroupMap: []types.ExtendedGroup{
+					{
+						Index: "0",
+					},
+					{
+						Index: "0",
 					},
 				},
 			},

@@ -3,67 +3,74 @@ package keeper
 import (
 	"context"
 
-	"sparkdream/x/ecosystem/types"
+	"sparkdream/x/split/types"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
-// SplitFunds performs the 50/30/20 split of the community tax.
+// SplitFunds performs the dynamic split based on registered shares using Collections.
 func (k Keeper) SplitFunds(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	logger := sdkCtx.Logger().With("module", "x/split")
 
-	// 1. Get Parameters from Commons Module
-	// We use the injected commonsKeeper to fetch the global council address
-	commonsParams, err := k.commonsKeeper.GetParams(ctx)
-	if err != nil {
-		// If we can't get params (e.g. store issue or not init), we log and skip splitting safely.
-		// This prevents the chain from halting.
-		logger.Error("Failed to get commons params", "err", err)
-		return nil
-	}
-
-	if commonsParams.CommonsCouncilAddress == "" {
-		// If no address is set, we return nil so funds stay in Community Pool safely.
-		return nil
-	}
-
-	commonsAddr, err := sdk.AccAddressFromBech32(commonsParams.CommonsCouncilAddress)
-	if err != nil {
-		logger.Error("Invalid commons council address", "err", err)
-		return nil
-	}
-
-	// 2. Define Source & Destinations
-	// Source: Distribution Module (Community Pool)
+	// 1. Get Source (Community Pool)
 	sourceAddr := k.authKeeper.GetModuleAddress(distrtypes.ModuleName)
-
-	// Destinations
-	techAddr := k.authKeeper.GetModuleAddress(govtypes.ModuleName)
-	ecoAddr := k.authKeeper.GetModuleAddress(types.ModuleName)
-
-	// 3. Check Balance (The "Pot")
 	balance := k.bankKeeper.GetAllBalances(sdkCtx, sourceAddr)
 	if balance.IsZero() {
 		return nil
 	}
 
-	// 4. Calculate and Send
+	// 2. Fetch All Shares using Collections Walk
+	var allShares []types.Share
+
+	// Walk iterates over the map.
+	err := k.Share.Walk(ctx, nil, func(address string, share types.Share) (bool, error) {
+		allShares = append(allShares, share)
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(allShares) == 0 {
+		return nil
+	}
+
+	// 3. Calculate Total Weight
+	var totalWeight uint64
+	for _, share := range allShares {
+		totalWeight += share.Weight
+	}
+
+	if totalWeight == 0 {
+		return nil
+	}
+
+	// 4. Distribute Funds
 	for _, coin := range balance {
-		total := coin.Amount
+		totalAmount := coin.Amount
 
-		// Config: Commons (50%), Tech (30%), Eco (20%)
-		commonsAmt := total.MulRaw(50).QuoRaw(100)
-		techAmt := total.MulRaw(30).QuoRaw(100)
-		ecoAmt := total.Sub(commonsAmt).Sub(techAmt) // Remainder
+		// Optimization: Skip dust to save gas
+		if totalAmount.LTE(math.NewInt(int64(len(allShares)))) {
+			continue
+		}
 
-		// Execute Transfers
-		k.safeSend(sdkCtx, sourceAddr, commonsAddr, coin.Denom, commonsAmt)
-		k.safeSend(sdkCtx, sourceAddr, techAddr, coin.Denom, techAmt)
-		k.safeSend(sdkCtx, sourceAddr, ecoAddr, coin.Denom, ecoAmt)
+		for _, share := range allShares {
+			receiverAddr, err := sdk.AccAddressFromBech32(share.Address)
+			if err != nil {
+				logger.Error("Invalid receiver address in split shares", "addr", share.Address, "err", err)
+				continue
+			}
+
+			// Math: (Balance * ShareWeight) / TotalWeight
+			shareAmount := totalAmount.Mul(math.NewIntFromUint64(share.Weight)).Quo(math.NewIntFromUint64(totalWeight))
+
+			if shareAmount.IsPositive() {
+				k.safeSend(sdkCtx, sourceAddr, receiverAddr, coin.Denom, shareAmount)
+			}
+		}
 	}
 
 	return nil
@@ -75,8 +82,8 @@ func (k Keeper) safeSend(ctx sdk.Context, from, to sdk.AccAddress, denom string,
 		return
 	}
 	coins := sdk.NewCoins(sdk.NewCoin(denom, amount))
+
 	if err := k.bankKeeper.SendCoins(ctx, from, to, coins); err != nil {
-		logger := ctx.Logger().With("module", "x/split")
-		logger.Error("Split transfer failed", "to", to.String(), "amount", amount.String(), "err", err)
+		ctx.Logger().With("module", "x/split").Error("Split transfer failed", "to", to.String(), "amount", amount.String(), "err", err)
 	}
 }

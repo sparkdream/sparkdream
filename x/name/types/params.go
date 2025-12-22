@@ -18,7 +18,6 @@ func ParamKeyTable() paramtypes.KeyTable {
 // NewParams creates a new Params instance
 func NewParams(
 	blockedNames []string,
-	councilGroupId uint64,
 	minNameLength uint64,
 	maxNameLength uint64,
 	maxNamesPerAddress uint64,
@@ -28,7 +27,6 @@ func NewParams(
 ) Params {
 	return Params{
 		BlockedNames:       blockedNames,
-		CouncilGroupId:     councilGroupId,
 		MinNameLength:      minNameLength,
 		MaxNameLength:      maxNameLength,
 		MaxNamesPerAddress: maxNamesPerAddress,
@@ -42,7 +40,6 @@ func NewParams(
 func DefaultParams() Params {
 	return NewParams(
 		DefaultBlockedNames,
-		DefaultCouncilGroupId,
 		DefaultMinNameLength,
 		DefaultMaxNameLength,
 		DefaultMaxNamesPerAddress,
@@ -56,7 +53,6 @@ func DefaultParams() Params {
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyBlockedNames, &p.BlockedNames, validateBlockedNames),
-		paramtypes.NewParamSetPair(KeyCouncilGroupId, &p.CouncilGroupId, validateCouncilGroupId),
 		paramtypes.NewParamSetPair(KeyMinNameLength, &p.MinNameLength, validateMinNameLength),
 		paramtypes.NewParamSetPair(KeyMaxNameLength, &p.MaxNameLength, validateMaxNameLength),
 		paramtypes.NewParamSetPair(KeyMaxNamesPerAddress, &p.MaxNamesPerAddress, validateMaxNamesPerAddress),
@@ -69,9 +65,6 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 // Validate validates the set of params
 func (p Params) Validate() error {
 	if err := validateBlockedNames(p.BlockedNames); err != nil {
-		return err
-	}
-	if err := validateCouncilGroupId(p.CouncilGroupId); err != nil {
 		return err
 	}
 	if err := validateMinNameLength(p.MinNameLength); err != nil {
@@ -109,16 +102,6 @@ func validateBlockedNames(i interface{}) error {
 			return fmt.Errorf("blocked name cannot be empty")
 		}
 	}
-	return nil
-}
-
-func validateCouncilGroupId(i interface{}) error {
-	_, ok := i.(uint64)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-	// ID 0 is usually reserved/invalid in cosmos-sdk groups, but depends on implementation.
-	// We allow any uint64 here, logic handles errors later.
 	return nil
 }
 

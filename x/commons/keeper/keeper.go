@@ -28,7 +28,14 @@ type Keeper struct {
 	bankKeeper        types.BankKeeper
 	govKeeper         *govkeeper.Keeper
 	groupKeeper       groupkeeper.Keeper
+	splitKeeper       types.SplitKeeper
+	upgradeKeeper     types.UpgradeKeeper
 	PolicyPermissions collections.Map[string, types.PolicyPermissions]
+	ExtendedGroup     collections.Map[string, types.ExtendedGroup]
+
+	// Indexes (For Performance)
+	// Key: PolicyAddress (string) -> Value: GroupName (string)
+	PolicyToName collections.Map[string, string]
 }
 
 func NewKeeper(
@@ -41,6 +48,8 @@ func NewKeeper(
 	bankKeeper types.BankKeeper,
 	govKeeper *govkeeper.Keeper,
 	groupKeeper groupkeeper.Keeper,
+	splitKeeper types.SplitKeeper,
+	upgradeKeeper types.UpgradeKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -58,8 +67,13 @@ func NewKeeper(
 		bankKeeper:        bankKeeper,
 		govKeeper:         govKeeper,
 		groupKeeper:       groupKeeper,
+		splitKeeper:       splitKeeper,
+		upgradeKeeper:     upgradeKeeper,
 		Params:            collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
-		PolicyPermissions: collections.NewMap(sb, types.PolicyPermissionsKey, "policyPermissions", collections.StringKey, codec.CollValue[types.PolicyPermissions](cdc))}
+		PolicyPermissions: collections.NewMap(sb, types.PolicyPermissionsKey, "policyPermissions", collections.StringKey, codec.CollValue[types.PolicyPermissions](cdc)),
+		ExtendedGroup:     collections.NewMap(sb, types.ExtendedGroupKey, "extendedGroup", collections.StringKey, codec.CollValue[types.ExtendedGroup](cdc)),
+		PolicyToName:      collections.NewMap(sb, types.PolicyToNameKey, "policyToName", collections.StringKey, collections.StringValue),
+	}
 
 	schema, err := sb.Build()
 	if err != nil {
@@ -68,9 +82,4 @@ func NewKeeper(
 	k.Schema = schema
 
 	return k
-}
-
-// GetAuthority returns the module's authority.
-func (k Keeper) GetAuthority() []byte {
-	return k.authority
 }

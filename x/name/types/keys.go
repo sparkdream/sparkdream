@@ -31,7 +31,6 @@ var (
 // Parameter keys
 var (
 	KeyBlockedNames       = []byte("BlockedNames")
-	KeyCouncilGroupId     = []byte("CouncilGroupId")
 	KeyMinNameLength      = []byte("MinNameLength")
 	KeyMaxNameLength      = []byte("MaxNameLength")
 	KeyMaxNamesPerAddress = []byte("MaxNamesPerAddress")
@@ -42,7 +41,6 @@ var (
 
 // Default parameter values
 var (
-	DefaultCouncilGroupId     = uint64(1)
 	DefaultMinNameLength      = uint64(3)
 	DefaultMaxNameLength      = uint64(30)
 	DefaultMaxNamesPerAddress = uint64(5)

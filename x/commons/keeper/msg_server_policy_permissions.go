@@ -14,21 +14,53 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
+// Define messages that are too dangerous for self-administration.
+// These can ONLY be granted if the signer (Authority) is the x/gov module.
+var RestrictedMessages = map[string]bool{
+	"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal": true, // The Veto Gun
+	"/sparkdream.commons.v1.MsgUpdateParams":               true, // Changing module rules
+	"/sparkdream.commons.v1.MsgForceUpgrade":               true, // Upgrading the chain
+}
+
 func (k msgServer) isAuthorized(actor string, policyAddress string) bool {
 	// 1. SUPREME AUTHORITY: Allow x/gov module (The "Community")
-	// This allows proposals to overwrite any permission.
 	govAddress := k.authKeeper.GetModuleAddress(govtypes.ModuleName).String()
 	if actor == govAddress {
 		return true
 	}
 
 	// 2. SELF-REGULATION: Allow the Policy to edit itself
-	// This allows the Council to voluntarily drop permissions.
 	if actor == policyAddress {
 		return true
 	}
 
 	return false
+}
+
+// ValidatePermissions checks for Forbidden messages AND enforces Restricted messages
+func (k msgServer) ValidatePermissions(authority string, msgs []string) error {
+	govAddress := k.authKeeper.GetModuleAddress(govtypes.ModuleName).String()
+
+	for _, msgType := range msgs {
+		// 1. GLOBAL BAN (Forbidden)
+		// These messages can never be granted to anyone (e.g., recursive calls)
+		if types.ForbiddenMessages[msgType] {
+			return errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+				"SECURITY RISK: Message type '%s' is globally forbidden.",
+				msgType)
+		}
+
+		// 2. GOVERNANCE EXCLUSIVE (Restricted)
+		// If the message is Restricted, the Authority MUST be x/gov.
+		if RestrictedMessages[msgType] {
+			if authority != govAddress {
+				return errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+					"PERMISSION DENIED: Message '%s' is Restricted. It can only be granted by a Governance Proposal (x/gov), not by the group itself.",
+					msgType)
+			}
+		}
+	}
+	return nil
 }
 
 func (k msgServer) CreatePolicyPermissions(ctx context.Context, msg *types.MsgCreatePolicyPermissions) (*types.MsgCreatePolicyPermissionsResponse, error) {
@@ -38,6 +70,11 @@ func (k msgServer) CreatePolicyPermissions(ctx context.Context, msg *types.MsgCr
 
 	if !k.isAuthorized(msg.Authority, msg.PolicyAddress) {
 		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only x/gov or the policy itself can define permissions")
+	}
+
+	// Pass the Authority to the validation function
+	if err := k.ValidatePermissions(msg.Authority, msg.AllowedMessages); err != nil {
+		return nil, err
 	}
 
 	// Check if the value exists
@@ -69,6 +106,11 @@ func (k msgServer) UpdatePolicyPermissions(ctx context.Context, msg *types.MsgUp
 		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "unauthorized to update these permissions")
 	}
 
+	// Pass the Authority to the validation function
+	if err := k.ValidatePermissions(msg.Authority, msg.AllowedMessages); err != nil {
+		return nil, err
+	}
+
 	// Check if the value exists
 	val, err := k.PolicyPermissions.Get(ctx, msg.PolicyAddress)
 	if err != nil {
@@ -78,15 +120,16 @@ func (k msgServer) UpdatePolicyPermissions(ctx context.Context, msg *types.MsgUp
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, err.Error())
 	}
 
-	// RATCHET DOWN LOGIC
-	// If the signer is the Policy itself (Self-Regulation), it is forbidden from ADDING new permissions.
-	// It can only submit a list that is a SUBSET of the existing permissions.
-	if msg.Authority == msg.PolicyAddress {
+	// RATCHET DOWN LOGIC (Self-Regulation Check)
+	// If the signer is the Policy itself, it cannot ADD new permissions, only remove/keep existing ones.
+	// EXCEPTION: If the signer is x/gov, it can add anything (including Restricted msgs).
+	govAddress := k.authKeeper.GetModuleAddress(govtypes.ModuleName).String()
+
+	if msg.Authority != govAddress {
 		for _, newMsg := range msg.AllowedMessages {
-			// If the new message was NOT in the old list, it's an expansion of power -> REJECT.
 			if !slices.Contains(val.AllowedMessages, newMsg) {
 				return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
-					"ratchet down violation: policy cannot add new permission '%s', only remove existing ones", newMsg)
+					"ratchet down violation: policy cannot add new permission '%s', only remove existing ones. Submit a Governance Proposal to expand powers.", newMsg)
 			}
 		}
 	}

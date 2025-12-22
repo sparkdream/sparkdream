@@ -3,8 +3,6 @@ package types
 import (
 	"context"
 
-	commonstypes "sparkdream/x/commons/types"
-
 	"cosmossdk.io/core/address"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -25,11 +23,6 @@ type BankKeeper interface {
 	GetAllBalances(context.Context, sdk.AccAddress) sdk.Coins
 	SendCoins(context.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
 	SendCoinsFromModuleToAccount(context.Context, string, sdk.AccAddress, sdk.Coins) error
-}
-
-// CommonsKeeper defines the expected interface for the Commons module.
-type CommonsKeeper interface {
-	GetParams(context.Context) (commonstypes.Params, error)
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

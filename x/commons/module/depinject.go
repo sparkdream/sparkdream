@@ -13,6 +13,7 @@ import (
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
+	splitkeeper "sparkdream/x/split/keeper"
 )
 
 var _ depinject.OnePerModuleType = AppModule{}
@@ -35,10 +36,12 @@ type ModuleInputs struct {
 	Cdc          codec.Codec
 	AddressCodec address.Codec
 
-	AuthKeeper  types.AuthKeeper
-	BankKeeper  types.BankKeeper
-	GovKeeper   *govkeeper.Keeper
-	GroupKeeper groupkeeper.Keeper
+	AuthKeeper    types.AuthKeeper
+	BankKeeper    types.BankKeeper
+	GovKeeper     *govkeeper.Keeper
+	GroupKeeper   groupkeeper.Keeper
+	SplitKeeper   splitkeeper.Keeper
+	UpgradeKeeper types.UpgradeKeeper
 }
 
 type ModuleOutputs struct {
@@ -63,6 +66,8 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.BankKeeper,
 		in.GovKeeper,
 		in.GroupKeeper,
+		in.SplitKeeper,
+		in.UpgradeKeeper,
 	)
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper, in.GovKeeper, in.GroupKeeper)
 

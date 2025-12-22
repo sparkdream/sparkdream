@@ -17,6 +17,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:       "params",
 					Short:     "Shows the parameters of the module",
 				},
+				{
+					RpcMethod: "ListShare",
+					Use:       "list-share",
+					Short:     "List all share",
+				},
+				{
+					RpcMethod:      "GetShare",
+					Use:            "get-share [id]",
+					Short:          "Gets a share",
+					Alias:          []string{"show-share"},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
+				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},

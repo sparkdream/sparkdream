@@ -97,7 +97,17 @@ func SimulateMsgUpdatePolicyPermissions(
 
 		msg.Authority = simAccount.Address.String()
 		msg.PolicyAddress = policyPermissions.PolicyAddress
-		msg.AllowedMessages = policyPermissions.AllowedMessages // Keep existing or modify randomly
+
+		// Filter out RestrictedMessages.
+		// The ValidatePermissions check forbids non-gov actors (like this self-regulating policy)
+		// from including Restricted messages in the MsgUpdate payload, even if they already possess them.
+		var allowed []string
+		for _, m := range policyPermissions.AllowedMessages {
+			if !keeper.RestrictedMessages[m] {
+				allowed = append(allowed, m)
+			}
+		}
+		msg.AllowedMessages = allowed
 
 		txCtx := simulation.OperationInput{
 			R:               r,

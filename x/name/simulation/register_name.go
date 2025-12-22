@@ -3,7 +3,11 @@ package simulation
 import (
 	"math/rand"
 	"strings"
+	"time"
 
+	commonstypes "sparkdream/x/commons/types"
+
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -16,9 +20,13 @@ import (
 	"sparkdream/x/name/types"
 )
 
+// Constants used for setup
+const CouncilName = "Commons Council"
+
 func SimulateMsgRegisterName(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
+	ck types.CommonsKeeper,
 	gk groupkeeper.Keeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
@@ -30,19 +38,24 @@ func SimulateMsgRegisterName(
 		params := k.GetParams(ctx)
 		var simAccount simtypes.Account
 		var found bool
+		var councilID uint64
 
-		// 2. ATTEMPT 1: Try to find an existing Council Member
-		if params.CouncilGroupId > 0 {
-			members, err := gk.GroupMembers(ctx, &group.QueryGroupMembersRequest{
-				GroupId: params.CouncilGroupId,
-			})
+		// 2. ATTEMPT 1: Try to find an existing Council Member by looking up the group name
+		council, err := ck.GetExtendedGroup(ctx, CouncilName)
+		if err == nil {
+			councilID = council.GroupId
+
+			membersQuery := &group.QueryGroupMembersRequest{
+				GroupId: councilID,
+			}
+			membersRes, err := gk.GroupMembers(ctx, membersQuery)
 
 			if err == nil {
-				rand.Shuffle(len(members.Members), func(i, j int) {
-					members.Members[i], members.Members[j] = members.Members[j], members.Members[i]
+				rand.Shuffle(len(membersRes.Members), func(i, j int) {
+					membersRes.Members[i], membersRes.Members[j] = membersRes.Members[j], membersRes.Members[i]
 				})
 
-				for _, member := range members.Members {
+				for _, member := range membersRes.Members {
 					addr, _ := sdk.AccAddressFromBech32(member.Member.Address)
 					simAccount, found = simtypes.FindAccount(accs, addr)
 					if found {
@@ -52,11 +65,12 @@ func SimulateMsgRegisterName(
 			}
 		}
 
-		// 3. ATTEMPT 2: Fallback (God Mode)
+		// 3. ATTEMPT 2: Fallback (God Mode) - Create a new mock council if not found
 		if !found {
+			// Find a random account to be the admin
 			simAccount, _ = simtypes.RandomAcc(r, accs)
 
-			// Create a new group with this account as a member
+			// 3a. Create a new Group
 			members := []group.MemberRequest{
 				{
 					Address:  simAccount.Address.String(),
@@ -75,10 +89,32 @@ func SimulateMsgRegisterName(
 			if err != nil {
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to create sim group"), nil, nil
 			}
+			councilID = groupRes.GroupId
 
-			params.CouncilGroupId = groupRes.GroupId
-			if err := k.SetParams(ctx, params); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to update params"), nil, err
+			// 3b. Create a dummy Policy
+			decisionPolicy := group.NewThresholdDecisionPolicy(
+				"1",
+				time.Hour*24,
+				time.Duration(0),
+			)
+
+			createPolicyMsg, err := group.NewMsgCreateGroupPolicy(simAccount.Address, groupRes.GroupId, "standard", decisionPolicy)
+			if err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to create policy msg"), nil, nil
+			}
+
+			policyRes, err := gk.CreateGroupPolicy(ctx, createPolicyMsg)
+			if err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to create sim policy"), nil, nil
+			}
+
+			// 3c. Register the Extended Group under the hardcoded name in the Commons Keeper
+			mockExtendedGroup := commonstypes.ExtendedGroup{
+				GroupId:       groupRes.GroupId,
+				PolicyAddress: policyRes.Address,
+			}
+			if err := ck.SetExtendedGroup(ctx, CouncilName, mockExtendedGroup); err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to register extended group"), nil, err
 			}
 		}
 
@@ -148,6 +184,11 @@ func SimulateMsgRegisterName(
 			ModuleName:      types.ModuleName,
 		}
 
-		return simulation.GenAndDeliverTxWithRandFees(opMsg)
+		// Define explicit high fees to satisfy the AnteHandler check (5M uspark)
+		// Random fees are usually too low for the x/commons spam protection.
+		fees := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(5000000)))
+
+		// Use GenAndDeliverTx (explicit fees) instead of GenAndDeliverTxWithRandFees
+		return simulation.GenAndDeliverTx(opMsg, fees)
 	}
 }

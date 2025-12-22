@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
 
@@ -10,8 +11,9 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/group"
 )
+
+var validNameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterName) (*types.MsgRegisterNameResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
@@ -24,12 +26,15 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 		return nil, err
 	}
 
-	// 2. Validate Name (Length & Reserved)
+	// 2. Validate Name (Length, Characters & Reserved)
 	if len(name) < int(params.MinNameLength) {
 		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name too short (min %d)", params.MinNameLength)
 	}
 	if len(name) > int(params.MaxNameLength) {
 		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name too long (max %d)", params.MaxNameLength)
+	}
+	if !validNameRegex.MatchString(name) {
+		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name contains invalid characters (allowed: a-z, 0-9, -; cannot start/end with -)")
 	}
 	for _, blocked := range params.BlockedNames {
 		if name == blocked {
@@ -38,27 +43,15 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 	}
 
 	// 3. Council Membership Check (The Republic Logic)
-	// We verify membership by querying all groups the creator belongs to.
-	// Note: Ensure 'GroupsByMember' is defined in your expected_keepers.go interface.
-	groupReq := &group.QueryGroupsByMemberRequest{
-		Address: msg.Authority,
-		// Pagination can be handled if users are in >100 groups, but default is usually fine.
-	}
-	groupRes, err := k.groupKeeper.GroupsByMember(ctx, groupReq)
+	isMember, err := k.IsCommonsCouncilMember(ctx, msg.Authority)
 	if err != nil {
-		return nil, err
-	}
-
-	isMember := false
-	for _, g := range groupRes.Groups {
-		if g.Id == params.CouncilGroupId {
-			isMember = true
-			break
-		}
+		// Handle critical error (e.g., failure to find council group in commons module)
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "authorization check failed: %s", err.Error())
 	}
 
 	if !isMember {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "only council members (group %d) can register names", params.CouncilGroupId)
+		// Since we can't reliably get the Group ID here without re-querying, we use a generic unauthorized error.
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only commons council members can register names")
 	}
 
 	// 4. Check Fees

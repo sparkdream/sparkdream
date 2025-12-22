@@ -1,8 +1,12 @@
 #!/bin/bash
 
-echo "--- TESTING: CONSTITUTIONAL REMOVAL (FIRING THE COUNCIL) ---"
+echo "--- TESTING: CONSTITUTIONAL REMOVAL (FIRING THE COMMONS COUNCIL) ---"
 
 # --- 0. SETUP ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROPOSAL_DIR="$SCRIPT_DIR/proposals"
+mkdir -p "$PROPOSAL_DIR"
+
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -12,69 +16,62 @@ BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
 echo "Gov Module Address: $GOV_ADDR"
 
-# Discover Veto Policy
-VETO_POLICY_ADDR=$($BINARY query group group-policies-by-group 1 -o json | jq -r '.group_policies[] | select(.metadata == "veto") | .address' | head -n 1)
+# Discover Veto Policy for Commons Council
+# We query the Registry to get the Policy Address, then find the Veto Policy associated with that Group ID?
+# Actually, the registry stores the MAIN (Standard) Policy.
+# We need to find the Veto Policy ID.
+# Assumption: The bootstrap created 'metadata="veto"' for the veto policy.
+COMMONS_GROUP_ID=$($BINARY query commons get-extended-group "Commons Council" --output json | jq -r '.extended_group.group_id')
+VETO_POLICY_ADDR=$($BINARY query group group-policies-by-group $COMMONS_GROUP_ID --output json | jq -r '.group_policies[] | select(.metadata == "veto") | .address' | head -n 1)
+
+echo "Commons Group ID:    $COMMONS_GROUP_ID"
 echo "Veto Policy Address: $VETO_POLICY_ADDR"
 
-# Check who is currently the council
-OLD_COUNCIL=$($BINARY query commons params --output json | jq -r '.params.commons_council_address')
-echo "Current Council:     $OLD_COUNCIL"
-
-if [ "$OLD_COUNCIL" == "$BOB_ADDR" ]; then
-    echo "❌ SETUP ERROR: Bob is already the council. Reset the chain."
-    exit 1
-fi
+# Check who is currently in the council (Should be Alice/Bob/Carol from Genesis)
+# We count members.
+MEMBER_COUNT=$($BINARY query group group-members $COMMONS_GROUP_ID --output json | jq '.members | length')
+echo "Current Member Count: $MEMBER_COUNT"
 
 # --- 1. ATTACK: Validators Vote to Fire the Council ---
 echo "--- PHASE 1: THE CONSTITUTIONAL COUP ---"
-echo "Alice submits EXPEDITED proposal to change Council Address to Bob..."
+echo "Alice submits EXPEDITED proposal to WIPE membership and install Bob as Dictator..."
 
+# We use MsgRenewGroup signed by x/gov
 echo '{
   "messages": [
     {
-      "@type": "/sparkdream.commons.v1.MsgUpdateParams",
+      "@type": "/sparkdream.commons.v1.MsgRenewGroup",
       "authority": "'$GOV_ADDR'",
-      "params": {
-        "commons_council_address": "'$BOB_ADDR'"
-      }
+      "group_name": "Commons Council",
+      "new_members": ["'$BOB_ADDR'"],
+      "new_member_weights": ["1"]
     }
   ],
   "deposit": "100000000uspark", 
   "title": "FIRE THE COUNCIL",
-  "summary": "The Council has gone rogue. We are removing them immediately via Expedited Proposal.",
+  "summary": "The Council has gone rogue. We are wiping the slate via Expedited Proposal.",
   "expedited": true
-}' > proposals/fire_council.json
+}' > "$PROPOSAL_DIR/fire_council.json"
 
 # Submit EXPEDITED Proposal
-SUBMIT_RES=$($BINARY tx gov submit-proposal proposals/fire_council.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/fire_council.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Submitted Expedited Prop. Hash: $TX_HASH"
-echo "Waiting for block inclusion (3s)..."
 sleep 3
 
 # Get Gov Proposal ID
 TX_RES=$($BINARY query tx $TX_HASH --output json)
 GOV_PROP_ID=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-
-# Fallback
 if [ -z "$GOV_PROP_ID" ] || [ "$GOV_PROP_ID" == "null" ]; then
    GOV_PROP_ID=$(echo $TX_RES | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-fi
-
-if [ -z "$GOV_PROP_ID" ] || [ "$GOV_PROP_ID" == "null" ]; then
-  echo "❌ ERROR: Failed to create Gov Proposal."
-  echo "Tx Response: $TX_RES"
-  exit 1
 fi
 
 echo "⚠️  Expedited Gov Proposal ID: $GOV_PROP_ID"
 
 # ALICE VOTES YES (Super-Majority)
-echo "Alice votes YES (75% Stake)..."
+echo "Alice votes YES..."
 $BINARY tx gov vote $GOV_PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
-
-echo "Waiting for vote inclusion (3s)..."
 sleep 3
 
 # --- 2. DEFENSE: Council Tries to Veto ---
@@ -88,25 +85,21 @@ echo '{
   "summary": "Trying to kill the proposal that fires us.",
   "messages": [
     {
-      "@type": "/sparkdream.commons.v1.MsgEmergencyCancelProposal",
+      "@type": "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
       "authority": "'$VETO_POLICY_ADDR'",
       "proposal_id": '$GOV_PROP_ID'
     }
   ]
-}' > proposals/msg_fail_veto.json
+}' > "$PROPOSAL_DIR/msg_fail_veto.json"
 
 # Submit Group Proposal
-SUBMIT_GROUP_RES=$($BINARY tx group submit-proposal proposals/msg_fail_veto.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_GROUP_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_fail_veto.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 GROUP_TX_HASH=$(echo $SUBMIT_GROUP_RES | jq -r '.txhash')
-
-echo "Submitted Group Prop. Hash: $GROUP_TX_HASH"
-echo "Waiting for block inclusion (3s)..."
 sleep 3
 
 # Get Group Proposal ID
 GROUP_TX_RES=$($BINARY query tx $GROUP_TX_HASH --output json)
 GROUP_PROP_ID=$(echo $GROUP_TX_RES | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-# Fallback
 if [ -z "$GROUP_PROP_ID" ] || [ "$GROUP_PROP_ID" == "null" ]; then
    GROUP_PROP_ID=$(echo $GROUP_TX_RES | jq -r '.logs[0].events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 fi
@@ -117,29 +110,22 @@ echo "Council votes YES to Veto..."
 $BINARY tx group vote $GROUP_PROP_ID $ALICE_ADDR VOTE_OPTION_YES "Stop it" --from alice -y --chain-id $CHAIN_ID --keyring-backend test
 sleep 3
 $BINARY tx group vote $GROUP_PROP_ID $BOB_ADDR VOTE_OPTION_YES "Stop it" --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 3
 
 echo "Votes cast. Waiting for Veto voting period (12s)..."
-sleep 12
 
 # EXECUTE VETO -> THIS MUST FAIL
 echo "Attempting to Execute Veto (Expect Failure)..."
 EXEC_RES=$($BINARY tx group exec $GROUP_PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
-
-echo "Waiting for execution block (5s)..."
 sleep 5
 
 # --- 3. VERIFY VETO FAILURE ---
 echo "--- VERIFYING VETO FAILURE ---"
-
-# FIX: Check the Transaction Log, NOT the Proposal Object.
-# This works even if the proposal is pruned.
 EXEC_TX_JSON=$($BINARY query tx $EXEC_TX_HASH --output json)
 
-# We check for the specific error message we wrote in the Go code
 if echo "$EXEC_TX_JSON" | grep -q "Constitutional Protection"; then
     echo "✅ SUCCESS: The Code Exception worked!"
-    echo "   Found Error: 'Constitutional Protection' in transaction logs."
 elif echo "$EXEC_TX_JSON" | grep -q "PROPOSAL_EXECUTOR_RESULT_FAILURE"; then
      echo "✅ SUCCESS: Group Proposal logic executed but returned FAILURE."
 else
@@ -150,9 +136,8 @@ fi
 
 # --- 4. VERIFY GOV SUCCESS ---
 echo "--- WAITING FOR GOV PROPOSAL TO PASS ---"
-# Expedited Period is 40s. We have spent about 25s so far. Wait 20s more.
-echo "Waiting 20s for Expedited Voting Period to end..."
-sleep 20
+echo "Waiting 45s for Expedited Voting Period to end..."
+sleep 45
 
 echo "--- VERIFYING NEW REGIME ---"
 
@@ -160,19 +145,21 @@ echo "--- VERIFYING NEW REGIME ---"
 GOV_STATUS=$($BINARY query gov proposal $GOV_PROP_ID --output json | jq -r '.proposal.status')
 echo "Gov Prop Status: $GOV_STATUS"
 
-# Note: For Expedited proposals, if they pass, the status might move to PASSED immediately
-if [ "$GOV_STATUS" == "PROPOSAL_STATUS_PASSED" ]; then
-    echo "✅ SUCCESS: The Constitutional Coup PASSED."
-else
+if [ "$GOV_STATUS" != "PROPOSAL_STATUS_PASSED" ]; then
     echo "❌ FAILURE: Gov Proposal did not pass (Status: $GOV_STATUS)."
+    exit 1
 fi
 
-# Check Actual Params
-NEW_COUNCIL=$($BINARY query commons params --output json | jq -r '.params.commons_council_address')
-echo "New Council:     $NEW_COUNCIL"
+# Check Membership
+NEW_MEMBERS=$($BINARY query group group-members $COMMONS_GROUP_ID --output json)
+NEW_MEMBER_COUNT=$(echo $NEW_MEMBERS | jq '.members | length')
+NEW_MEMBER_ADDR=$(echo $NEW_MEMBERS | jq -r '.members[0].member.address')
 
-if [ "$NEW_COUNCIL" == "$BOB_ADDR" ]; then
-    echo "🎉 GRAND SUCCESS: The Council has been fired. Bob is the new Council."
+echo "New Member Count: $NEW_MEMBER_COUNT"
+echo "New Member Addr:  $NEW_MEMBER_ADDR"
+
+if [ "$NEW_MEMBER_COUNT" == "1" ] && [ "$NEW_MEMBER_ADDR" == "$BOB_ADDR" ]; then
+    echo "🎉 GRAND SUCCESS: The Council has been fired. Bob is the new Dictator."
 else
-    echo "❌ FAILURE: Params were not updated."
+    echo "❌ FAILURE: Membership was not updated correctly."
 fi

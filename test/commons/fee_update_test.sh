@@ -3,6 +3,10 @@
 echo "--- TESTING: DYNAMIC FEE UPDATE & SPAM PROTECTION ---"
 
 # --- 0. SETUP ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROPOSAL_DIR="$SCRIPT_DIR/proposals"
+mkdir -p "$PROPOSAL_DIR"
+
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -14,14 +18,17 @@ echo "Gov Address: $GOV_ADDR"
 
 # --- 1. SNAPSHOT CURRENT STATE ---
 PARAMS_JSON=$($BINARY query commons params --output json)
-CURRENT_FEE=$(echo $PARAMS_JSON | jq -r '.params.commons_council_fee')
-COUNCIL_ADDR=$(echo $PARAMS_JSON | jq -r '.params.commons_council_address')
+CURRENT_FEE=$(echo $PARAMS_JSON | jq -r '.params.proposal_fee')
+
+# DISCOVERY: Find a valid Council Policy Address from the Registry
+# We query the group info for "Commons Council"
+COUNCIL_ADDR=$($BINARY query commons get-extended-group "Commons Council" --output json | jq -r '.extended_group.policy_address')
 
 echo "Current Fee:     $CURRENT_FEE"
-echo "Current Council: $COUNCIL_ADDR"
+echo "Council Address: $COUNCIL_ADDR"
 
-if [ -z "$COUNCIL_ADDR" ]; then
-    echo "❌ SETUP ERROR: Council Address is empty. Run group_setup.sh first."
+if [ -z "$COUNCIL_ADDR" ] || [ "$COUNCIL_ADDR" == "null" ]; then
+    echo "❌ SETUP ERROR: Could not find 'Commons Council'. Run bootstrap first."
     exit 1
 fi
 
@@ -29,7 +36,7 @@ fi
 NEW_FEE_AMOUNT="10000000"
 NEW_FEE_STR="${NEW_FEE_AMOUNT}uspark"
 
-# Helper Function: Get Proposal ID from Tx Hash
+# Helper Function: Get Proposal ID
 get_proposal_id() {
     local tx_hash=$1
     local retries=0
@@ -58,24 +65,24 @@ get_proposal_id() {
 # --- 2. STEP 1: UPDATE FEE VIA GOVERNANCE ---
 echo "--- STEP 1: PROPOSING FEE INCREASE TO $NEW_FEE_STR ---"
 
+# Note: We only update the FEE param. The Address param is deprecated/removed from this message.
 echo '{
   "messages": [
     {
       "@type": "/sparkdream.commons.v1.MsgUpdateParams",
       "authority": "'$GOV_ADDR'",
       "params": {
-        "commons_council_address": "'$COUNCIL_ADDR'",
-        "commons_council_fee": "'$NEW_FEE_STR'"
+        "proposal_fee": "'$NEW_FEE_STR'"
       }
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "100000000uspark",
   "title": "Increase Council Spam Fee",
   "summary": "Raising the ante handler fee to 10 SPARK."
-}' > proposals/gov_fee_update.json
+}' > "$PROPOSAL_DIR/gov_fee_update.json"
 
 # Submit Gov Proposal
-SUBMIT_RES=$($BINARY tx gov submit-proposal proposals/gov_fee_update.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_fee_update.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 echo "Gov Prop Tx: $TX_HASH"
 
@@ -95,7 +102,7 @@ echo "Waiting for Gov Voting Period (60s)..."
 sleep 70
 
 # Verify Update
-UPDATED_FEE=$($BINARY query commons params --output json | jq -r '.params.commons_council_fee')
+UPDATED_FEE=$($BINARY query commons params --output json | jq -r '.params.proposal_fee')
 if [ "$UPDATED_FEE" == "$NEW_FEE_STR" ]; then
     echo "✅ SUCCESS: Fee updated to $UPDATED_FEE"
 else
@@ -107,8 +114,6 @@ fi
 echo "--- STEP 2: VERIFYING ANTEHANDLER ENFORCEMENT ---"
 
 # Create Dummy Group Proposal
-# FIX: Use MsgSpendFromCommons instead of MsgSend
-# If we use MsgSend, it would be rejected by the Whitelist check later, creating a false negative/positive result.
 echo '{
   "group_policy_address": "'$COUNCIL_ADDR'",
   "proposers": ["'$ALICE_ADDR'"],
@@ -127,11 +132,11 @@ echo '{
       ] 
     }
   ]
-}' > proposals/msg_spam_check.json
+}' > "$PROPOSAL_DIR/msg_spam_check.json"
 
 # TEST A: FAIL (Pay Old Fee)
 echo "Attempting submission with OLD FEE (5000000uspark)... (Expect Failure)"
-FAIL_OUTPUT=$($BINARY tx group submit-proposal proposals/msg_spam_check.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
+FAIL_OUTPUT=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_spam_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
 
 echo "Waiting for block inclusion (3s)..."
 sleep 3
@@ -146,7 +151,7 @@ fi
 
 # TEST B: SUCCESS (Pay New Fee)
 echo "Attempting submission with NEW FEE ($NEW_FEE_STR)... (Expect Success)"
-SUCCESS_RES=$($BINARY tx group submit-proposal proposals/msg_spam_check.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees $NEW_FEE_STR --output json)
+SUCCESS_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_spam_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees $NEW_FEE_STR --output json)
 SUCCESS_CODE=$(echo $SUCCESS_RES | jq -r '.code')
 
 echo "Waiting for block inclusion (3s)..."
@@ -169,20 +174,19 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgUpdateParams",
       "authority": "'$GOV_ADDR'",
       "params": {
-        "commons_council_address": "'$COUNCIL_ADDR'",
-        "commons_council_fee": "'$CURRENT_FEE'"
+        "proposal_fee": "'$CURRENT_FEE'"
       }
     }
   ],
   "deposit": "50000000uspark",
   "title": "Reset Council Fee",
   "summary": "Restoring default values."
-}' > proposals/gov_fee_reset.json
+}' > "$PROPOSAL_DIR/gov_fee_reset.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal proposals/gov_fee_reset.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_fee_reset.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
-echo "Waiting for block includsion..."
+echo "Waiting for block inclusion..."
 GOV_PROP_ID=$(get_proposal_id $TX_HASH)
 
 if [ -z "$GOV_PROP_ID" ]; then
@@ -198,7 +202,7 @@ echo "Waiting for Gov Voting Period (60s)..."
 sleep 70
 
 # Verify Reset
-FINAL_FEE=$($BINARY query commons params --output json | jq -r '.params.commons_council_fee')
+FINAL_FEE=$($BINARY query commons params --output json | jq -r '.params.proposal_fee')
 if [ "$FINAL_FEE" == "$CURRENT_FEE" ]; then
     echo "✅ SUCCESS: Fee reset to original value ($FINAL_FEE)."
 else

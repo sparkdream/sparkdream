@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
-	commonskeeper "sparkdream/x/commons/keeper"
 	"sparkdream/x/split/keeper"
 	"sparkdream/x/split/types"
 )
@@ -34,9 +33,8 @@ type ModuleInputs struct {
 	Cdc          codec.Codec
 	AddressCodec address.Codec
 
-	AuthKeeper    types.AuthKeeper
-	BankKeeper    types.BankKeeper
-	CommonsKeeper commonskeeper.Keeper
+	AuthKeeper types.AuthKeeper
+	BankKeeper types.BankKeeper
 }
 
 type ModuleOutputs struct {
@@ -59,7 +57,6 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		authority,
 		in.AuthKeeper,
 		in.BankKeeper,
-		in.CommonsKeeper,
 	)
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 

@@ -10,8 +10,8 @@ import (
 
 func TestGenesis(t *testing.T) {
 	genesisState := types.GenesisState{
-		Params: types.DefaultParams(),
-	}
+		Params:   types.DefaultParams(),
+		ShareMap: []types.Share{{Address: "0"}, {Address: "1"}}}
 
 	f := initFixture(t)
 	err := f.keeper.InitGenesis(f.ctx, genesisState)
@@ -21,4 +21,6 @@ func TestGenesis(t *testing.T) {
 	require.NotNil(t, got)
 
 	require.EqualExportedValues(t, genesisState.Params, got.Params)
+	require.EqualExportedValues(t, genesisState.ShareMap, got.ShareMap)
+
 }

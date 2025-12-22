@@ -3,22 +3,28 @@
 echo "--- TESTING: POLICY PERMISSIONS (RATCHET DOWN & GOV OVERRIDE) ---"
 
 # --- 0. SETUP ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROPOSAL_DIR="$SCRIPT_DIR/proposals"
+mkdir -p "$PROPOSAL_DIR"
+
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
-# Ensure proposals dir exists
 mkdir -p proposals
 
 # robust Address Lookup
 GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
-COUNCIL_ADDR=$($BINARY query commons params --output json | jq -r '.params.commons_council_address')
+
+# DISCOVER COUNCIL (Commons Council Standard Policy)
+COUNCIL_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json)
+COUNCIL_ADDR=$(echo $COUNCIL_INFO | jq -r '.extended_group.policy_address')
 
 echo "Gov Address:     $GOV_ADDR"
 echo "Council Address: $COUNCIL_ADDR"
 
-if [ -z "$COUNCIL_ADDR" ]; then
+if [ -z "$COUNCIL_ADDR" ] || [ "$COUNCIL_ADDR" == "null" ]; then
     echo "❌ SETUP ERROR: Council Address not found. Run group_setup.sh first."
     exit 1
 fi
@@ -40,8 +46,7 @@ fi
 # --- 2. SELF-REGULATION (RATCHET DOWN) ---
 echo "--- STEP 2: COUNCIL VOLUNTARILY REMOVES SPEND PERMISSION ---"
 
-# We construct a list that EXCLUDES MsgSpendFromCommons but KEEPS MsgUpdatePolicyPermissions
-# If we remove MsgUpdatePolicyPermissions, we lock ourselves out of changing perms forever (unless Gov helps).
+# We create a new list that EXCLUDES Spend but KEEPS UpdatePolicyPermissions
 echo '{
   "group_policy_address": "'$COUNCIL_ADDR'",
   "proposers": ["'$ALICE_ADDR'"],
@@ -53,20 +58,22 @@ echo '{
       "authority": "'$COUNCIL_ADDR'",
       "policy_address": "'$COUNCIL_ADDR'",
       "allowed_messages": [
-        "/cosmos.group.v1.MsgUpdateGroupMembers",
-        "/cosmos.group.v1.MsgUpdateGroupPolicyDecisionPolicy",
-        "/sparkdream.name.v1.MsgResolveDispute",
-        "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
-        "/cosmos.group.v1.MsgUpdateGroupAdmin",
-        "/cosmos.group.v1.MsgUpdateGroupMetadata"
+        "/sparkdream.commons.v1.MsgDeleteGroup",
+			  "/sparkdream.commons.v1.MsgRegisterGroup",
+			  "/sparkdream.commons.v1.MsgRenewGroup",
+			  "/sparkdream.commons.v1.MsgUpdateGroupConfig",
+			  "/sparkdream.commons.v1.MsgUpdateGroupMembers",
+			  "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
+			  "/sparkdream.name.v1.MsgResolveDispute",
+			  "/cosmos.group.v1.MsgVote"
       ]
     }
   ]
-}' > proposals/msg_ratchet_down.json
+}' > "$PROPOSAL_DIR/msg_ratchet_down.json"
 
 # Submit, Vote, Exec
 echo "Submitting Ratchet Down Proposal..."
-SUBMIT_RES=$($BINARY tx group submit-proposal proposals/msg_ratchet_down.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_ratchet_down.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
@@ -107,12 +114,12 @@ echo '{
       "amount": [{"denom": "uspark", "amount": "1"}] 
     }
   ]
-}' > proposals/msg_illegal_spend.json
+}' > "$PROPOSAL_DIR/msg_illegal_spend.json"
 
 # Attempt Submission (Should fail at AnteHandler level)
-OUTPUT=$($BINARY tx group submit-proposal proposals/msg_illegal_spend.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
+OUTPUT=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_illegal_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
 
-if echo "$OUTPUT" | grep -q "not in the allowlist"; then
+if echo "$OUTPUT" | grep -q "msg /sparkdream.commons.v1.MsgSpendFromCommons not allowed for policy"; then
     echo "✅ SUCCESS: AnteHandler blocked the Spend attempt."
 else
     echo "❌ FAILURE: Spend attempt was NOT blocked."
@@ -135,23 +142,22 @@ echo '{
       "authority": "'$COUNCIL_ADDR'",
       "policy_address": "'$COUNCIL_ADDR'",
       "allowed_messages": [
-        "/sparkdream.commons.v1.MsgSpendFromCommons",
-        "/cosmos.group.v1.MsgUpdateGroupMembers",
-        "/cosmos.group.v1.MsgUpdateGroupPolicyDecisionPolicy",
-        "/sparkdream.name.v1.MsgResolveDispute",
-        "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
-        "/cosmos.group.v1.MsgUpdateGroupAdmin",
-        "/cosmos.group.v1.MsgUpdateGroupMetadata"
+        "/sparkdream.commons.v1.MsgDeleteGroup",
+			  "/sparkdream.commons.v1.MsgRegisterGroup",
+			  "/sparkdream.commons.v1.MsgRenewGroup",
+			  "/sparkdream.commons.v1.MsgSpendFromCommons",
+			  "/sparkdream.commons.v1.MsgUpdateGroupConfig",
+			  "/sparkdream.commons.v1.MsgUpdateGroupMembers",
+			  "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
+			  "/sparkdream.name.v1.MsgResolveDispute",
+			  "/cosmos.group.v1.MsgVote"
       ]
     }
   ]
-}' > proposals/msg_sneaky_expansion.json
+}' > "$PROPOSAL_DIR/msg_sneaky_expansion.json"
 
-# 1. Submission: WILL SUCCEED
-# Why? Because "MsgUpdatePolicyPermissions" IS in the allowlist.
-# The AnteHandler says "You are allowed to TRY to update permissions."
-# The logic check happens at execution time.
-SUBMIT_RES=$($BINARY tx group submit-proposal proposals/msg_sneaky_expansion.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+# 1. Submission: WILL SUCCEED (because UpdatePolicyPermissions is allowed)
+SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_sneaky_expansion.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
@@ -164,7 +170,6 @@ echo "Waiting for voting period (35s)..."
 sleep 35
 
 # 2. Execution: MUST FAIL
-# The msg_server logic checks: if Creator == PolicyAddress, can only REMOVE items.
 echo "Executing Sneaky Expansion..."
 EXEC_RES=$($BINARY tx group exec $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
@@ -178,7 +183,7 @@ elif echo "$EXEC_LOGS" | grep -q "PROPOSAL_EXECUTOR_RESULT_FAILURE"; then
     echo "✅ SUCCESS: Proposal Execution Result = FAILURE."
 else
     echo "❌ CRITICAL FAILURE: The Council was able to expand its own permissions!"
-    echo "Raw Log: $(echo $EXEC_LOGS | jq -r '.raw_log')"
+    echo "Raw Log: $(echo $EXEC_LOGS)"
     exit 1
 fi
 
@@ -186,7 +191,6 @@ fi
 echo "--- STEP 5: GOVERNANCE RESTORES THE PERMISSION ---"
 
 # x/gov (Community) proposes to fix the permissions.
-# Gov is exempt from Ratchet Down logic.
 echo '{
   "messages": [
     {
@@ -194,13 +198,15 @@ echo '{
       "authority": "'$GOV_ADDR'", 
       "policy_address": "'$COUNCIL_ADDR'",
       "allowed_messages": [
-        "/sparkdream.commons.v1.MsgSpendFromCommons",
-        "/cosmos.group.v1.MsgUpdateGroupMembers",
-        "/cosmos.group.v1.MsgUpdateGroupPolicyDecisionPolicy",
-        "/sparkdream.name.v1.MsgResolveDispute",
-        "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
-        "/cosmos.group.v1.MsgUpdateGroupAdmin",
-        "/cosmos.group.v1.MsgUpdateGroupMetadata"
+        "/sparkdream.commons.v1.MsgDeleteGroup",
+			  "/sparkdream.commons.v1.MsgRegisterGroup",
+			  "/sparkdream.commons.v1.MsgRenewGroup",
+			  "/sparkdream.commons.v1.MsgSpendFromCommons",
+			  "/sparkdream.commons.v1.MsgUpdateGroupConfig",
+			  "/sparkdream.commons.v1.MsgUpdateGroupMembers",
+			  "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
+			  "/sparkdream.name.v1.MsgResolveDispute",
+			  "/cosmos.group.v1.MsgVote"
       ]
     }
   ],
@@ -208,22 +214,16 @@ echo '{
   "title": "Restore Spend Powers",
   "summary": "Community restores spending power to the council.",
   "expedited": true
-}' > proposals/gov_restore_perms.json
+}' > "$PROPOSAL_DIR/gov_restore_perms.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal proposals/gov_restore_perms.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 400000 --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_restore_perms.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 400000 --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 GOV_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
-if [ -z "$GOV_PROP_ID" ]; then
-    # Fallback lookup
-    GOV_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-fi
-
 if [ -z "$GOV_PROP_ID" ] || [ "$GOV_PROP_ID" == "null" ]; then
-  echo "❌ ERROR: Failed to create Gov Proposal."
-  echo "Tx Response: $SUBMIT_RES"
-  exit 1
+    # Fallback
+    GOV_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 fi
 
 echo "Gov Proposal ID: $GOV_PROP_ID"

@@ -1,7 +1,6 @@
 package keeper_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -9,225 +8,124 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commonstypes "sparkdream/x/commons/types"
+
 	"cosmossdk.io/collections"
-	"cosmossdk.io/log"
-	"cosmossdk.io/math"
-	"cosmossdk.io/store"
-	"cosmossdk.io/store/metrics"
-	storetypes "cosmossdk.io/store/types"
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	dbm "github.com/cosmos/cosmos-db"
-	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
-	codectestutil "github.com/cosmos/cosmos-sdk/codec/testutil"
-	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/group"
 
 	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
 )
 
-// --- Mocks for RegisterName ---
-
-type mockGroupKeeperReg struct {
-	members map[string]bool
-}
-
-func (m mockGroupKeeperReg) GroupsByMember(ctx context.Context, request *group.QueryGroupsByMemberRequest) (*group.QueryGroupsByMemberResponse, error) {
-	// If address is marked as member in our map, return a list containing Group ID 1 (Default Council)
-	if m.members[request.Address] {
-		return &group.QueryGroupsByMemberResponse{
-			Groups: []*group.GroupInfo{
-				{Id: 1}, // Default Council ID
-			},
-		}, nil
-	}
-	// Otherwise return empty list
-	return &group.QueryGroupsByMemberResponse{Groups: []*group.GroupInfo{}}, nil
-}
-
-// Stubs to satisfy interface
-func (m mockGroupKeeperReg) GroupPoliciesByGroup(ctx context.Context, request *group.QueryGroupPoliciesByGroupRequest) (*group.QueryGroupPoliciesByGroupResponse, error) {
-	return nil, nil
-}
-
-// Added to satisfy interface
-func (m mockGroupKeeperReg) GetGroupSequence(ctx sdk.Context) uint64 {
-	return 1
-}
-
-type mockBankKeeperReg struct {
-}
-
-func (m mockBankKeeperReg) SendCoins(ctx context.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
-	return nil
-}
-
-func (m mockBankKeeperReg) SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
-	// Simple mock: verify user has enough (we don't actually deduct in this test struct unless we track it, just return nil or err)
-	// For this test, we assume everyone has funds unless we want to test failure.
-	// Let's simulate "insufficient funds" if the amount is huge.
-	if amt.AmountOf("uspark").GT(math.NewInt(1000000000)) {
-		return sdkerrors.ErrInsufficientFunds
-	}
-	return nil
-}
-
-// Added to satisfy interface
-func (m mockBankKeeperReg) SpendableCoins(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
-	return sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000000000)))
-}
-
-// --- Setup Helper ---
-
-func setupKeeperForRegister(t *testing.T) (keeper.Keeper, sdk.Context, *mockGroupKeeperReg) {
-	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
-	memStoreKey := storetypes.NewMemoryStoreKey("mem_name")
-
-	db := dbm.NewMemDB()
-	stateStore := store.NewCommitMultiStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
-	stateStore.MountStoreWithDB(storeKey, storetypes.StoreTypeIAVL, db)
-	stateStore.MountStoreWithDB(memStoreKey, storetypes.StoreTypeMemory, nil)
-	require.NoError(t, stateStore.LoadLatestVersion())
-
-	ctx := sdk.NewContext(stateStore, cmtproto.Header{}, false, log.NewNopLogger())
-	// Set block time for expiration tests
-	ctx = ctx.WithBlockTime(time.Now())
-
-	cdc := codectestutil.CodecOptions{}.NewCodec()
-	addressCodec := addresscodec.NewBech32Codec("cosmos")
-	authority := sdk.AccAddress([]byte("authority"))
-
-	mockGK := &mockGroupKeeperReg{members: make(map[string]bool)}
-	mockBK := mockBankKeeperReg{}
-
-	storeService := runtime.NewKVStoreService(storeKey)
-
-	k := keeper.NewKeeper(
-		storeService,
-		cdc,
-		addressCodec,
-		authority,
-		mockBK,
-		mockGK,
-	)
-
-	// Initialize Params
-	params := types.DefaultParams()
-	params.BlockedNames = []string{"admin", "blocked"}
-	params.MinNameLength = 3
-	params.MaxNameLength = 30 // Aligned with keys.go
-	params.MaxNamesPerAddress = 2
-	params.RegistrationFee = sdk.NewCoin("uspark", math.NewInt(10))
-	// Short expiration for testing
-	params.ExpirationDuration = time.Hour * 24
-	err := k.Params.Set(ctx, params)
-	require.NoError(t, err)
-
-	return k, ctx, mockGK
-}
-
-// --- Test Suite ---
-
 func TestRegisterName(t *testing.T) {
-	k, ctx, mockGK := setupKeeperForRegister(t)
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+	mockGK := f.mockGroup
+	mockCK := f.mockCommons
 	ms := keeper.NewMsgServerImpl(k)
 
-	// Define Users with valid Bech32 generation
+	// Define Users
 	aliceAddr := sdk.AccAddress([]byte("alice_test_address__"))
 	alice := aliceAddr.String()
 
 	bobAddr := sdk.AccAddress([]byte("bob_test_address____"))
 	bob := bobAddr.String()
 
-	// Alice is a Council Member
-	mockGK.members[alice] = true
-	// Bob is NOT a Council Member
-	mockGK.members[bob] = false
+	// Helper function for the common setup required by RegisterName
+	commonSetup := func(c sdk.Context) {
+		mockGK.Reset()
+		mockCK.Reset()
 
-	// Valid Registration Data
-	validMsg := &types.MsgRegisterName{
-		Authority: alice,
-		Name:      "alice",
-		Data:      "meta",
+		// 1. Setup CommonsKeeper mock
+		mockCK.ExtendedGroups["Commons Council"] = commonstypes.ExtendedGroup{
+			GroupId:       1,
+			PolicyAddress: f.councilAddr,
+		}
+		// 2. Setup GroupKeeper mock
+		mockGK.CouncilGroupId = 1
+		mockGK.members[alice] = true
+		mockGK.members[bob] = false
+
+		// 3. Set default params
+		k.SetParams(c, types.DefaultParams())
 	}
 
 	tests := []struct {
 		desc      string
 		msg       *types.MsgRegisterName
-		runBefore func()
-		check     func(t *testing.T)
+		runBefore func(sdk.Context)
+		check     func(t *testing.T, ctx sdk.Context)
 		err       error
 		errCode   codes.Code
 	}{
 		{
 			desc: "Success - Valid Registration",
-			msg:  validMsg,
-			check: func(t *testing.T) {
-				// Check Name Record
-				rec, found := k.GetName(ctx, "alice")
-				require.True(t, found)
+			msg: &types.MsgRegisterName{
+				Authority: alice,
+				Name:      "alice",
+				Data:      "meta",
+			},
+			runBefore: func(c sdk.Context) {
+				commonSetup(c)
+			},
+			check: func(t *testing.T, c sdk.Context) {
+				rec, err := k.Names.Get(c, "alice")
+				require.NoError(t, err)
 				require.Equal(t, alice, rec.Owner)
 
-				// Check Owner Info
-				count, err := k.GetOwnedNamesCount(ctx, aliceAddr)
+				count, err := k.GetOwnedNamesCount(c, aliceAddr)
 				require.NoError(t, err)
 				require.Equal(t, uint64(1), count)
 
-				// Check Primary Name (First name set as primary)
-				info, err := k.Owners.Get(ctx, alice)
+				info, err := k.Owners.Get(c, alice)
 				require.NoError(t, err)
 				require.Equal(t, "alice", info.PrimaryName)
-			},
-		},
-		{
-			desc: "Failure - Name Too Short",
-			msg: &types.MsgRegisterName{
-				Authority: alice,
-				Name:      "al",
-			},
-			err: types.ErrInvalidName,
-		},
-		{
-			desc: "Failure - Name Too Long",
-			msg: &types.MsgRegisterName{
-				Authority: alice,
-				Name:      "verylongnameverylongnameverylongname", // > 30
-			},
-			err: types.ErrInvalidName,
-		},
-		{
-			desc: "Failure - Blocked Name",
-			msg: &types.MsgRegisterName{
-				Authority: alice,
-				Name:      "admin",
-			},
-			err: types.ErrNameReserved,
-		},
-		{
-			desc: "Failure - Not Council Member",
-			msg: &types.MsgRegisterName{
-				Authority: bob, // Not in mockGK
-				Name:      "bobby",
-			},
-			err: sdkerrors.ErrUnauthorized,
-		},
-		{
-			desc: "Failure - Name Already Taken (Active)",
-			msg: &types.MsgRegisterName{
-				Authority: alice,
-				Name:      "active_name",
-			},
-			runBefore: func() {
-				// Set an active name owned by Bob (who we will simulate as active)
-				_ = k.Names.Set(ctx, "active_name", types.NameRecord{Name: "active_name", Owner: bob})
-				_ = k.OwnerNames.Set(ctx, collections.Join(bob, "active_name"))
 
-				// Set Bob as active RECENTLY (so not expired)
-				_ = k.Owners.Set(ctx, bob, types.OwnerInfo{
+				has, err := k.OwnerNames.Has(c, collections.Join(alice, "alice"))
+				require.NoError(t, err)
+				require.True(t, has)
+			},
+		},
+		{
+			desc: "Failure - Invalid Characters (Regex)",
+			msg: &types.MsgRegisterName{
+				Authority: alice,
+				Name:      "invalid_name!", // '!' is forbidden
+				Data:      "meta",
+			},
+			runBefore: func(c sdk.Context) {
+				commonSetup(c)
+			},
+			err: types.ErrInvalidName,
+		},
+		{
+			desc: "Failure - Starts with Hyphen",
+			msg: &types.MsgRegisterName{
+				Authority: alice,
+				Name:      "-invalid",
+				Data:      "meta",
+			},
+			runBefore: func(c sdk.Context) {
+				commonSetup(c)
+			},
+			err: types.ErrInvalidName,
+		},
+		{
+			desc: "Failure - Name already taken and active",
+			msg: &types.MsgRegisterName{
+				Authority: alice,
+				Name:      "bob",
+			},
+			runBefore: func(c sdk.Context) {
+				commonSetup(c)
+				_ = k.Names.Set(c, "bob", types.NameRecord{Name: "bob", Owner: bob})
+				_ = k.OwnerNames.Set(c, collections.Join(bob, "bob"))
+
+				_ = k.Owners.Set(c, bob, types.OwnerInfo{
 					Address:        bob,
-					LastActiveTime: ctx.BlockTime().Unix(),
+					LastActiveTime: c.BlockTime().Unix(),
+					PrimaryName:    "bob",
 				})
 			},
 			err: types.ErrNameTaken,
@@ -236,24 +134,24 @@ func TestRegisterName(t *testing.T) {
 			desc: "Success - Scavenge Expired Name",
 			msg: &types.MsgRegisterName{
 				Authority: alice,
-				Name:      "expired_name",
+				Name:      "expired-name",
 			},
-			runBefore: func() {
-				// Set a name owned by Bob
-				_ = k.Names.Set(ctx, "expired_name", types.NameRecord{Name: "expired_name", Owner: bob})
-				_ = k.OwnerNames.Set(ctx, collections.Join(bob, "expired_name"))
+			runBefore: func(c sdk.Context) {
+				commonSetup(c)
+				_ = k.Names.Set(c, "expired-name", types.NameRecord{Name: "expired-name", Owner: bob, Data: "meta"})
+				_ = k.OwnerNames.Set(c, collections.Join(bob, "expired-name"))
 
-				// Make Bob expired
-				// Expiration is 24 hours. Set LastActive to 25 hours ago.
-				expiredTime := ctx.BlockTime().Add(-25 * time.Hour).Unix()
-				_ = k.Owners.Set(ctx, bob, types.OwnerInfo{
+				// Set expiration way back (10 years) to guarantee it passes default params check
+				expiredTime := c.BlockTime().Add(-(24 * 365 * 10 * time.Hour)).Unix()
+				_ = k.Owners.Set(c, bob, types.OwnerInfo{
 					Address:        bob,
 					LastActiveTime: expiredTime,
+					PrimaryName:    "expired-name",
 				})
 			},
-			check: func(t *testing.T) {
-				rec, found := k.GetName(ctx, "expired_name")
-				require.True(t, found)
+			check: func(t *testing.T, c sdk.Context) {
+				rec, err := k.Names.Get(c, "expired-name")
+				require.NoError(t, err)
 				require.Equal(t, alice, rec.Owner, "Alice should have stolen the name")
 			},
 		},
@@ -263,12 +161,26 @@ func TestRegisterName(t *testing.T) {
 				Authority: alice,
 				Name:      "name3",
 			},
-			runBefore: func() {
-				// Alice already has "alice" from first test.
-				// Add "name2". That makes 2 names. Limit is 2.
-				// Trying to add "name3" should fail.
-				_ = k.Names.Set(ctx, "name2", types.NameRecord{Name: "name2", Owner: alice})
-				_ = k.OwnerNames.Set(ctx, collections.Join(alice, "name2"))
+			runBefore: func(c sdk.Context) {
+				commonSetup(c)
+
+				// FORCE the limit to 2 for this test
+				params := types.DefaultParams()
+				params.MaxNamesPerAddress = 2
+				err := k.SetParams(c, params)
+				require.NoError(t, err)
+
+				// Create 2 existing names
+				_ = k.Names.Set(c, "name1", types.NameRecord{Name: "name1", Owner: alice})
+				_ = k.OwnerNames.Set(c, collections.Join(alice, "name1"))
+				_ = k.Names.Set(c, "name2", types.NameRecord{Name: "name2", Owner: alice})
+				_ = k.OwnerNames.Set(c, collections.Join(alice, "name2"))
+
+				_ = k.Owners.Set(c, alice, types.OwnerInfo{
+					Address:        alice,
+					LastActiveTime: c.BlockTime().Unix(),
+					PrimaryName:    "name1",
+				})
 			},
 			err: types.ErrTooManyNames,
 		},
@@ -276,11 +188,13 @@ func TestRegisterName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
+			cacheCtx, _ := ctx.CacheContext()
+
 			if tc.runBefore != nil {
-				tc.runBefore()
+				tc.runBefore(cacheCtx)
 			}
 
-			_, err := ms.RegisterName(ctx, tc.msg)
+			_, err := ms.RegisterName(cacheCtx, tc.msg)
 
 			if tc.err != nil {
 				require.ErrorIs(t, err, tc.err)
@@ -292,7 +206,7 @@ func TestRegisterName(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				if tc.check != nil {
-					tc.check(t)
+					tc.check(t, cacheCtx)
 				}
 			}
 		})

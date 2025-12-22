@@ -49,19 +49,19 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		commonssimulation.SimulateMsgSpendFromCommons(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
-		opWeightMsgEmergencyCancelProposal          = "op_weight_msg_commons"
-		defaultWeightMsgEmergencyCancelProposal int = 100
+		opWeightMsgEmergencyCancelGovProposal          = "op_weight_msg_commons"
+		defaultWeightMsgEmergencyCancelGovProposal int = 100
 	)
 
-	var weightMsgEmergencyCancelProposal int
-	simState.AppParams.GetOrGenerate(opWeightMsgEmergencyCancelProposal, &weightMsgEmergencyCancelProposal, nil,
+	var weightMsgEmergencyCancelGovProposal int
+	simState.AppParams.GetOrGenerate(opWeightMsgEmergencyCancelGovProposal, &weightMsgEmergencyCancelGovProposal, nil,
 		func(_ *rand.Rand) {
-			weightMsgEmergencyCancelProposal = defaultWeightMsgEmergencyCancelProposal
+			weightMsgEmergencyCancelGovProposal = defaultWeightMsgEmergencyCancelGovProposal
 		},
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgEmergencyCancelProposal,
-		commonssimulation.SimulateMsgEmergencyCancelProposal(am.authKeeper, am.bankKeeper, am.govKeeper, am.groupKeeper, am.keeper, simState.TxConfig),
+		weightMsgEmergencyCancelGovProposal,
+		commonssimulation.SimulateMsgEmergencyCancelGovProposal(am.authKeeper, am.bankKeeper, am.govKeeper, am.groupKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgCreatePolicyPermissions          = "op_weight_msg_commons"
@@ -107,6 +107,111 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgDeletePolicyPermissions,
 		commonssimulation.SimulateMsgDeletePolicyPermissions(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgRegisterGroup          = "op_weight_msg_commons"
+		defaultWeightMsgRegisterGroup int = 100
+	)
+
+	var weightMsgRegisterGroup int
+	simState.AppParams.GetOrGenerate(opWeightMsgRegisterGroup, &weightMsgRegisterGroup, nil,
+		func(_ *rand.Rand) {
+			weightMsgRegisterGroup = defaultWeightMsgRegisterGroup
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRegisterGroup,
+		commonssimulation.SimulateMsgRegisterGroup(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
+	))
+	const (
+		opWeightMsgRenewGroup          = "op_weight_msg_commons"
+		defaultWeightMsgRenewGroup int = 100
+	)
+
+	var weightMsgRenewGroup int
+	simState.AppParams.GetOrGenerate(opWeightMsgRenewGroup, &weightMsgRenewGroup, nil,
+		func(_ *rand.Rand) {
+			weightMsgRenewGroup = defaultWeightMsgRenewGroup
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRenewGroup,
+		commonssimulation.SimulateMsgRenewGroup(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgUpdateGroupMembers          = "op_weight_msg_commons"
+		defaultWeightMsgUpdateGroupMembers int = 100
+	)
+
+	var weightMsgUpdateGroupMembers int
+	simState.AppParams.GetOrGenerate(opWeightMsgUpdateGroupMembers, &weightMsgUpdateGroupMembers, nil,
+		func(_ *rand.Rand) {
+			weightMsgUpdateGroupMembers = defaultWeightMsgUpdateGroupMembers
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUpdateGroupMembers,
+		commonssimulation.SimulateMsgUpdateGroupMembers(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgUpdateGroupConfig          = "op_weight_msg_commons"
+		defaultWeightMsgUpdateGroupConfig int = 100
+	)
+
+	var weightMsgUpdateGroupConfig int
+	simState.AppParams.GetOrGenerate(opWeightMsgUpdateGroupConfig, &weightMsgUpdateGroupConfig, nil,
+		func(_ *rand.Rand) {
+			weightMsgUpdateGroupConfig = defaultWeightMsgUpdateGroupConfig
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUpdateGroupConfig,
+		commonssimulation.SimulateMsgUpdateGroupConfig(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgForceUpgrade          = "op_weight_msg_commons"
+		defaultWeightMsgForceUpgrade int = 100
+	)
+
+	var weightMsgForceUpgrade int
+	simState.AppParams.GetOrGenerate(opWeightMsgForceUpgrade, &weightMsgForceUpgrade, nil,
+		func(_ *rand.Rand) {
+			weightMsgForceUpgrade = defaultWeightMsgForceUpgrade
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgForceUpgrade,
+		commonssimulation.SimulateMsgForceUpgrade(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
+	))
+	const (
+		opWeightMsgDeleteGroup          = "op_weight_msg_commons"
+		defaultWeightMsgDeleteGroup int = 100
+	)
+
+	var weightMsgDeleteGroup int
+	simState.AppParams.GetOrGenerate(opWeightMsgDeleteGroup, &weightMsgDeleteGroup, nil,
+		func(_ *rand.Rand) {
+			weightMsgDeleteGroup = defaultWeightMsgDeleteGroup
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgDeleteGroup,
+		commonssimulation.SimulateMsgDeleteGroup(am.authKeeper, am.bankKeeper, am.groupKeeper, am.keeper, am.cdc, simState.TxConfig),
+	))
+	const (
+		opWeightMsgVetoGroupProposals          = "op_weight_msg_commons"
+		defaultWeightMsgVetoGroupProposals int = 100
+	)
+
+	var weightMsgVetoGroupProposals int
+	simState.AppParams.GetOrGenerate(opWeightMsgVetoGroupProposals, &weightMsgVetoGroupProposals, nil,
+		func(_ *rand.Rand) {
+			weightMsgVetoGroupProposals = defaultWeightMsgVetoGroupProposals
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgVetoGroupProposals,
+		commonssimulation.SimulateMsgVetoGroupProposals(am.authKeeper, am.bankKeeper, am.groupKeeper, am.keeper, am.cdc, simState.TxConfig),
 	))
 
 	return operations

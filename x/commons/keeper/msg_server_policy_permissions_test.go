@@ -1,10 +1,11 @@
 package keeper_test
 
 import (
-	"fmt"
 	"testing"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/commons/keeper"
@@ -14,32 +15,87 @@ import (
 func TestPolicyPermissionsMsgServerCreate(t *testing.T) {
 	f := initFixture(t)
 	srv := keeper.NewMsgServerImpl(f.keeper)
+	govAddr := authtypes.NewModuleAddress(govtypes.ModuleName).String()
 
-	for i := 0; i < 5; i++ {
-		// Generate a unique 32-byte string for the address to satisfy strict codecs
-		addrBytes := []byte(fmt.Sprintf("policyAddress_______________%d", i))
-		policyAddr, err := f.addressCodec.BytesToString(addrBytes)
-		require.NoError(t, err)
+	tests := []struct {
+		desc    string
+		setup   func() string // Returns the policy address to be used
+		request func(policyAddr string) *types.MsgCreatePolicyPermissions
+		err     error
+	}{
+		{
+			desc: "success - standard permissions (self-regulated)",
+			setup: func() string {
+				addrBytes := []byte("policyAddr_Standard_____")
+				addr, _ := f.addressCodec.BytesToString(addrBytes)
+				return addr
+			},
+			request: func(policyAddr string) *types.MsgCreatePolicyPermissions {
+				return &types.MsgCreatePolicyPermissions{
+					Authority:       policyAddr, // Self
+					PolicyAddress:   policyAddr,
+					AllowedMessages: []string{"/cosmos.bank.v1beta1.MsgSend"},
+				}
+			},
+			err: nil,
+		},
+		{
+			desc: "failure - restricted permission (self attempted veto)",
+			setup: func() string {
+				addrBytes := []byte("policyAddr_VetoFail_____")
+				addr, _ := f.addressCodec.BytesToString(addrBytes)
+				return addr
+			},
+			request: func(policyAddr string) *types.MsgCreatePolicyPermissions {
+				return &types.MsgCreatePolicyPermissions{
+					Authority:       policyAddr, // Self (Unauthorized for Veto)
+					PolicyAddress:   policyAddr,
+					AllowedMessages: []string{"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal"},
+				}
+			},
+			err: sdkerrors.ErrUnauthorized, // validatePermissions should catch this
+		},
+		{
+			desc: "success - restricted permission (granted by Gov)",
+			setup: func() string {
+				addrBytes := []byte("policyAddr_VetoSuccess__")
+				addr, _ := f.addressCodec.BytesToString(addrBytes)
+				return addr
+			},
+			request: func(policyAddr string) *types.MsgCreatePolicyPermissions {
+				return &types.MsgCreatePolicyPermissions{
+					Authority:       govAddr, // x/gov is signer
+					PolicyAddress:   policyAddr,
+					AllowedMessages: []string{"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal"},
+				}
+			},
+			err: nil,
+		},
+	}
 
-		// Self-Regulation: Authority must match PolicyAddress to be authorized
-		expected := &types.MsgCreatePolicyPermissions{
-			Authority:       policyAddr,
-			PolicyAddress:   policyAddr,
-			AllowedMessages: []string{"/cosmos.bank.v1beta1.MsgSend"},
-		}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			policyAddr := tc.setup()
+			msg := tc.request(policyAddr)
 
-		_, err = srv.CreatePolicyPermissions(f.ctx, expected)
-		require.NoError(t, err)
-
-		rst, err := f.keeper.PolicyPermissions.Get(f.ctx, expected.PolicyAddress)
-		require.NoError(t, err)
-		require.Equal(t, expected.PolicyAddress, rst.PolicyAddress)
+			_, err := srv.CreatePolicyPermissions(f.ctx, msg)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+			} else {
+				require.NoError(t, err)
+				// Verify state
+				rst, err := f.keeper.PolicyPermissions.Get(f.ctx, msg.PolicyAddress)
+				require.NoError(t, err)
+				require.Equal(t, msg.AllowedMessages, rst.AllowedMessages)
+			}
+		})
 	}
 }
 
 func TestPolicyPermissionsMsgServerUpdate(t *testing.T) {
 	f := initFixture(t)
 	srv := keeper.NewMsgServerImpl(f.keeper)
+	govAddr := authtypes.NewModuleAddress(govtypes.ModuleName).String()
 
 	// Setup: Create a policy first
 	addrBytes := []byte("policyAddress_______________00")
@@ -50,7 +106,7 @@ func TestPolicyPermissionsMsgServerUpdate(t *testing.T) {
 	unauthorizedAddr, err := f.addressCodec.BytesToString(unauthBytes)
 	require.NoError(t, err)
 
-	// Create initial permissions
+	// Create initial permissions (Standard)
 	initMsg := &types.MsgCreatePolicyPermissions{
 		Authority:       policyAddr,
 		PolicyAddress:   policyAddr,
@@ -73,7 +129,7 @@ func TestPolicyPermissionsMsgServerUpdate(t *testing.T) {
 			err: sdkerrors.ErrInvalidAddress,
 		},
 		{
-			desc: "unauthorized",
+			desc: "unauthorized signer",
 			request: &types.MsgUpdatePolicyPermissions{
 				Authority:     unauthorizedAddr,
 				PolicyAddress: policyAddr,
@@ -89,7 +145,7 @@ func TestPolicyPermissionsMsgServerUpdate(t *testing.T) {
 			err: sdkerrors.ErrKeyNotFound,
 		},
 		{
-			desc: "ratchet down violation (adding permissions)",
+			desc: "ratchet down violation (self adding permissions)",
 			request: &types.MsgUpdatePolicyPermissions{
 				Authority:       policyAddr,
 				PolicyAddress:   policyAddr,
@@ -98,12 +154,31 @@ func TestPolicyPermissionsMsgServerUpdate(t *testing.T) {
 			err: sdkerrors.ErrUnauthorized,
 		},
 		{
-			desc: "completed (ratchet down success - removing permissions)",
+			desc: "restricted violation (self adding veto)",
+			request: &types.MsgUpdatePolicyPermissions{
+				Authority:       policyAddr,
+				PolicyAddress:   policyAddr,
+				AllowedMessages: []string{"/msg.A", "/msg.B", "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal"},
+			},
+			err: sdkerrors.ErrUnauthorized, // Should fail either at Validation OR Ratchet Down
+		},
+		{
+			desc: "completed (ratchet down success - self removing permissions)",
 			request: &types.MsgUpdatePolicyPermissions{
 				Authority:       policyAddr,
 				PolicyAddress:   policyAddr,
 				AllowedMessages: []string{"/msg.A"}, // Removing B is allowed
 			},
+			err: nil,
+		},
+		{
+			desc: "completed (gov override - adding restricted permission)",
+			request: &types.MsgUpdatePolicyPermissions{
+				Authority:       govAddr, // Gov can add anything
+				PolicyAddress:   policyAddr,
+				AllowedMessages: []string{"/msg.A", "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal"},
+			},
+			err: nil,
 		},
 	}
 	for _, tc := range tests {

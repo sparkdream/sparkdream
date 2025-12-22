@@ -2,8 +2,11 @@ package ante
 
 import (
 	"context"
-	"sparkdream/x/commons/keeper"
 
+	"sparkdream/x/commons/keeper"
+	"sparkdream/x/commons/types"
+
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -12,9 +15,11 @@ import (
 	grouperrors "github.com/cosmos/cosmos-sdk/x/group/errors"
 )
 
-// Define the interface for the method we need
+// GroupKeeper defines the expected interface for the x/group module.
+// We added Proposal() to fetch proposal details for MsgExec checks.
 type GroupKeeper interface {
 	GroupPolicyInfo(ctx context.Context, request *group.QueryGroupPolicyInfoRequest) (*group.QueryGroupPolicyInfoResponse, error)
+	Proposal(ctx context.Context, request *group.QueryProposalRequest) (*group.QueryProposalResponse, error)
 }
 
 // GroupPolicyDecorator checks if a MsgSubmitProposal is allowed for the specific Group Policy
@@ -31,106 +36,186 @@ func NewGroupPolicyDecorator(gk GroupKeeper, ck keeper.Keeper) GroupPolicyDecora
 }
 
 func (ad GroupPolicyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	var cachedMinFee sdk.Coins
+	paramsLoaded := false
+
 	for _, msg := range tx.GetMsgs() {
-		// We only care about Group Proposals
-		submitMsg, ok := msg.(*group.MsgSubmitProposal)
-		if !ok {
-			continue
-		}
+		switch m := msg.(type) {
 
-		// 1. Get Policy Info
-		_, err := ad.groupKeeper.GroupPolicyInfo(ctx, &group.QueryGroupPolicyInfoRequest{
-			Address: submitMsg.GroupPolicyAddress,
-		})
-		if err != nil {
-			return ctx, errorsmod.Wrap(err, "could not get group policy info")
-		}
+		// ==========================================================
+		// CASE 1: NEW PROPOSAL (MsgSubmitProposal)
+		// ==========================================================
+		case *group.MsgSubmitProposal:
+			// 1. Basic Validation
+			if _, err := sdk.AccAddressFromBech32(m.GroupPolicyAddress); err != nil {
+				return ctx, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, "invalid group policy address")
+			}
 
-		// 2. Get Stored Permissions
-		perms, err := ad.commonsKeeper.PolicyPermissions.Get(ctx, submitMsg.GroupPolicyAddress)
+			// 2. Fetch Extended Group (Term Limits)
+			// We perform the O(1) Index lookup to see if this is a regulated Council.
+			groupName, err := ad.commonsKeeper.PolicyToName.Get(ctx, m.GroupPolicyAddress)
+			var extendedGroup types.ExtendedGroup
+			isRegulated := false
 
-		// SECURITY: If no permissions are found in the DB, we REJECT.
-		if err != nil {
-			return ctx, errorsmod.Wrapf(
-				grouperrors.ErrUnauthorized,
-				"no policy permissions found for address %s",
-				submitMsg.GroupPolicyAddress,
-			)
-		}
-
-		// 3. Check Inner Messages
-		msgs, err := submitMsg.GetMsgs()
-		if err != nil {
-			return ctx, errorsmod.Wrap(err, "failed to get msgs from proposal")
-		}
-
-		for _, innerMsg := range msgs {
-			typeURL := sdk.MsgTypeURL(innerMsg)
-
-			// 3a. Check against the DB Allowlist
-			isAllowed := false
-			for _, allowedURL := range perms.AllowedMessages {
-				if typeURL == allowedURL {
-					isAllowed = true
-					break
+			if err == nil {
+				// It's a registered council, fetch the full state
+				extendedGroup, err = ad.commonsKeeper.ExtendedGroup.Get(ctx, groupName)
+				if err == nil {
+					isRegulated = true
 				}
 			}
 
-			if !isAllowed {
-				return ctx, errorsmod.Wrapf(
-					grouperrors.ErrUnauthorized,
-					"msg type %s is not in the allowlist for policy %s",
-					typeURL, submitMsg.GroupPolicyAddress,
-				)
-			}
+			// 3. CHECK EXPIRATION (The "Lame Duck" Check)
+			if isRegulated {
+				// If current time > expiration, the group is FROZEN.
+				if ctx.BlockTime().Unix() > extendedGroup.CurrentTermExpiration {
+					// EXCEPTION: We allow them to propose a "RenewGroup" message to fix themselves.
+					// We must peek inside the proposal to verify.
+					msgs, err := m.GetMsgs()
+					if err != nil {
+						return ctx, err
+					}
 
-			// 3b. Special Logic Checks (e.g. Loopback for MsgSend)
-			// Even if MsgSend is allowed in the DB, we enforce it must be a self-send.
-			if typeURL == "/cosmos.bank.v1beta1.MsgSend" {
-				sendMsg, ok := innerMsg.(*banktypes.MsgSend)
-				if !ok {
-					return ctx, errorsmod.Wrap(sdkerrors.ErrInvalidType, "could not cast to MsgSend")
+					for _, inner := range msgs {
+						if sdk.MsgTypeURL(inner) != "/sparkdream.commons.v1.MsgRenewGroup" {
+							return ctx, errorsmod.Wrapf(
+								sdkerrors.ErrUnauthorized,
+								"TERM EXPIRED: Group %s expired on %d. You can only submit MsgRenewGroup proposals.",
+								extendedGroup.Index, extendedGroup.CurrentTermExpiration,
+							)
+						}
+					}
 				}
-				if sendMsg.FromAddress != sendMsg.ToAddress {
-					return ctx, errorsmod.Wrap(
-						grouperrors.ErrUnauthorized,
-						"Commons Council policies can only send funds to themselves (Loopback Signal)",
-					)
-				}
 			}
-		}
 
-		// 4. SPAM PROTECTION: Enforce Minimum Fee
-		// EXEMPTION LOGIC:
-		// If a policy is allowed to perform "MsgEmergencyCancelProposal", we consider it a Veto Policy
-		// and exempt it from fees to ensure emergency actions are never blocked by lack of funds.
-		isVetoPolicy := false
-		for _, allowedMsg := range perms.AllowedMessages {
-			if allowedMsg == "/sparkdream.commons.v1.MsgEmergencyCancelProposal" {
-				isVetoPolicy = true
-				break
-			}
-		}
-
-		if !isVetoPolicy {
-			// Fee enforcement for non-Veto policies
-			params, err := ad.commonsKeeper.Params.Get(ctx)
+			// 4. Permissions & Fees (Existing Logic)
+			// Get Stored Permissions
+			perms, err := ad.commonsKeeper.PolicyPermissions.Get(ctx, m.GroupPolicyAddress)
 			if err != nil {
-				return ctx, errorsmod.Wrap(err, "failed to get commons params")
+				return ctx, errorsmod.Wrapf(grouperrors.ErrUnauthorized, "no policy permissions found for %s", m.GroupPolicyAddress)
 			}
 
-			requiredFee, err := sdk.ParseCoinsNormalized(params.CommonsCouncilFee)
+			msgs, err := m.GetMsgs()
 			if err != nil {
-				return ctx, errorsmod.Wrap(err, "invalid commons council fee param")
+				return ctx, err
+			}
+			if len(msgs) == 0 {
+				return ctx, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "empty proposal")
 			}
 
-			if !requiredFee.IsZero() {
-				feeTx, ok := tx.(sdk.FeeTx)
-				if !ok {
-					return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+			requiresFee := false
+
+			for _, innerMsg := range msgs {
+				typeURL := sdk.MsgTypeURL(innerMsg)
+
+				// Allowlist Check
+				isAllowed := false
+				for _, allowedURL := range perms.AllowedMessages {
+					if typeURL == allowedURL {
+						isAllowed = true
+						break
+					}
 				}
-				if !feeTx.GetFee().IsAllGTE(requiredFee) {
-					return ctx, errorsmod.Wrapf(sdkerrors.ErrInsufficientFee, "Commons Council proposals require min fee %s", requiredFee)
+				if !isAllowed {
+					return ctx, errorsmod.Wrapf(grouperrors.ErrUnauthorized, "msg %s not allowed for policy %s", typeURL, m.GroupPolicyAddress)
+				}
+
+				// Loopback Check
+				if typeURL == "/cosmos.bank.v1beta1.MsgSend" {
+					sendMsg, ok := innerMsg.(*banktypes.MsgSend)
+					if !ok {
+						return ctx, errorsmod.Wrap(sdkerrors.ErrInvalidType, "could not cast MsgSend")
+					}
+					if sendMsg.FromAddress != sendMsg.ToAddress {
+						return ctx, errorsmod.Wrap(grouperrors.ErrUnauthorized, "Council policies can only send funds to themselves (Loopback)")
+					}
+				}
+
+				// Authz Check
+				if typeURL == "/cosmos.authz.v1beta1.MsgExec" {
+					return ctx, errorsmod.Wrap(grouperrors.ErrUnauthorized, "MsgExec (Authz) is forbidden")
+				}
+
+				// FEE EXEMPTIONS: Emergency Actions are free
+				// We keep MsgDeleteGroup as paid because it is also a standard administrative action.
+				if typeURL != "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal" &&
+					typeURL != "/sparkdream.commons.v1.MsgVetoGroupProposals" {
+					requiresFee = true
+				}
+			}
+
+			// Fee Deduction
+			if requiresFee {
+				if !paramsLoaded {
+					params, err := ad.commonsKeeper.Params.Get(ctx)
+					if err != nil {
+						return ctx, err
+					}
+					fee, err := sdk.ParseCoinsNormalized(params.ProposalFee)
+					if err != nil {
+						return ctx, err
+					}
+					cachedMinFee = fee
+					paramsLoaded = true
+				}
+
+				if !cachedMinFee.IsZero() {
+					feeTx, ok := tx.(sdk.FeeTx)
+					if !ok {
+						return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+					}
+					if !feeTx.GetFee().IsAllGTE(cachedMinFee) {
+						return ctx, errorsmod.Wrapf(sdkerrors.ErrInsufficientFee, "Commons Council requires min fee %s", cachedMinFee)
+					}
+				}
+			}
+
+		// ==========================================================
+		// CASE 2: EXECUTION (MsgExec)
+		// ==========================================================
+		// We must also gate execution to prevent "Zombie" groups from executing
+		// pending proposals after their term has expired.
+		case *group.MsgExec:
+			// 1. Fetch the Proposal to find the Policy Address
+			propRes, err := ad.groupKeeper.Proposal(ctx, &group.QueryProposalRequest{
+				ProposalId: m.ProposalId,
+			})
+			if err != nil {
+				return ctx, errorsmod.Wrap(err, "failed to fetch proposal for exec check")
+			}
+
+			policyAddr := propRes.Proposal.GroupPolicyAddress
+
+			// 2. Fetch Extended Group
+			groupName, err := ad.commonsKeeper.PolicyToName.Get(ctx, policyAddr)
+			if err != nil {
+				if errorsmod.IsOf(err, collections.ErrNotFound) {
+					continue // Not a regulated group, let it pass
+				}
+				return ctx, err
+			}
+
+			extendedGroup, err := ad.commonsKeeper.ExtendedGroup.Get(ctx, groupName)
+			if err != nil {
+				return ctx, err
+			}
+
+			// 3. CHECK EXPIRATION
+			if ctx.BlockTime().Unix() > extendedGroup.CurrentTermExpiration {
+				// EXCEPTION: Allow "RenewGroup" execution
+				msgs, err := propRes.Proposal.GetMsgs()
+				if err != nil {
+					return ctx, err
+				}
+
+				for _, inner := range msgs {
+					if sdk.MsgTypeURL(inner) != "/sparkdream.commons.v1.MsgRenewGroup" {
+						return ctx, errorsmod.Wrapf(
+							sdkerrors.ErrUnauthorized,
+							"TERM EXPIRED: Group %s expired on %d. Cannot execute pending proposal %d.",
+							extendedGroup.Index, extendedGroup.CurrentTermExpiration, m.ProposalId,
+						)
+					}
 				}
 			}
 		}

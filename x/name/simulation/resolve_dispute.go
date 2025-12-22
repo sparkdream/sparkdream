@@ -4,6 +4,9 @@ import (
 	"math/rand"
 	"time"
 
+	commonstypes "sparkdream/x/commons/types"
+
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -14,8 +17,6 @@ import (
 	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
-	commonskeeper "sparkdream/x/commons/keeper"
-	commonstypes "sparkdream/x/commons/types"
 	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
 )
@@ -23,7 +24,7 @@ import (
 func SimulateMsgResolveDispute(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
-	ck commonskeeper.Keeper,
+	ck types.CommonsKeeper,
 	gk groupkeeper.Keeper,
 	k keeper.Keeper,
 	cdc codec.Codec,
@@ -64,42 +65,26 @@ func SimulateMsgResolveDispute(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "failed to create sim policy"), nil, nil
 		}
 
-		// 3. Update commons module Params with the new Policy Address
-		commonsParams, err := ck.Params.Get(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "failed to get commons params"), nil, nil
-		}
-		commonsParams.CommonsCouncilAddress = policyRes.Address
-		if err := ck.Params.Set(ctx, commonsParams); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "failed to set commons params"), nil, nil
-		}
-
-		// 4. INJECT PERMISSIONS (Critical for AnteHandler)
-		// We must explicitly grant the policy permission to execute MsgResolveDispute.
+		// 3. INJECT PERMISSIONS (RBAC Setup)
+		// We explicitly grant the policy permission to execute MsgResolveDispute.
+		// This replaces the old check against CommonsCouncilAddress.
 		perms := commonstypes.PolicyPermissions{
 			PolicyAddress: policyRes.Address,
 			AllowedMessages: []string{
 				"/sparkdream.name.v1.MsgResolveDispute",
 			},
 		}
-		if err := ck.PolicyPermissions.Set(ctx, policyRes.Address, perms); err != nil {
+		if err := ck.SetPolicyPermissions(ctx, policyRes.Address, perms); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "failed to inject permissions"), nil, nil
 		}
 
-		// 5. Update Params: Make this new group the official Council
-		params := k.GetParams(ctx)
-		params.CouncilGroupId = groupRes.GroupId
-		if err := k.SetParams(ctx, params); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "failed to update params"), nil, nil
-		}
-
-		// 6. Setup Target: Find or Create a Dispute
+		// 4. Setup Target: Find or Create a Dispute
 		disputeName := simtypes.RandStringOfLength(r, 10)
 
 		// Create Name Record First (Required for resolution transfer)
 		nameRecord := types.NameRecord{
 			Name:  disputeName,
-			Owner: simAccount.Address.String(), // Current owner doesn't matter much for this sim, just needs to exist
+			Owner: simAccount.Address.String(), // Current owner doesn't matter much for this sim
 			Data:  "disputed data",
 		}
 		if err := k.SetName(ctx, nameRecord); err != nil {
@@ -115,7 +100,7 @@ func SimulateMsgResolveDispute(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "failed to set dispute"), nil, nil
 		}
 
-		// 7. Construct the Inner Message (MsgResolveDispute)
+		// 6. Construct the Inner Message (MsgResolveDispute)
 		newOwner, _ := simtypes.RandomAcc(r, accs)
 
 		resolveMsg := &types.MsgResolveDispute{
@@ -124,7 +109,7 @@ func SimulateMsgResolveDispute(
 			NewOwner:  newOwner.Address.String(),
 		}
 
-		// 8. Wrap and Execute Proposal
+		// 7. Wrap and Execute Proposal
 		anyMsg, err := codectypes.NewAnyWithValue(resolveMsg)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "failed to wrap any"), nil, nil
@@ -152,6 +137,11 @@ func SimulateMsgResolveDispute(
 			ModuleName:      types.ModuleName,
 		}
 
-		return simulation.GenAndDeliverTxWithRandFees(opMsg)
+		// Define explicit high fees to satisfy the AnteHandler check (5M uspark)
+		// Random fees are usually too low for the x/commons spam protection.
+		fees := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(5000000)))
+
+		// Use GenAndDeliverTx (explicit fees) instead of GenAndDeliverTxWithRandFees
+		return simulation.GenAndDeliverTx(opMsg, fees)
 	}
 }

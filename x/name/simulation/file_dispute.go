@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	commonstypes "sparkdream/x/commons/types"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,8 +15,6 @@ import (
 	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
-	commonskeeper "sparkdream/x/commons/keeper"
-	commonstypes "sparkdream/x/commons/types"
 	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
 )
@@ -22,7 +22,7 @@ import (
 func SimulateMsgFileDispute(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
-	ck commonskeeper.Keeper,
+	ck types.CommonsKeeper,
 	gk groupkeeper.Keeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
@@ -77,6 +77,7 @@ func SimulateMsgFileDispute(
 			},
 		}
 
+		// The group metadata for the *Group module* can remain generic
 		createGroupMsg := &group.MsgCreateGroup{
 			Admin:    simAccount.Address.String(),
 			Members:  members,
@@ -104,19 +105,20 @@ func SimulateMsgFileDispute(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to create sim policy"), nil, nil
 		}
 
-		// C. Update commons module Params
-		commonsParams, err := ck.Params.Get(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to get commons params"), nil, nil
+		// C. REGISTER EXTENDED GROUP IN COMMONS KEEPER
+		// The handler hardcodes the lookup key to "Commons Council", so we must register our sim group under this key.
+		simExtendedGroup := commonstypes.ExtendedGroup{
+			GroupId:       groupRes.GroupId,
+			PolicyAddress: policyRes.Address,
+			// Other fields are not strictly needed for this specific message handler's logic
 		}
-		commonsParams.CommonsCouncilAddress = policyRes.Address
-		if err := ck.Params.Set(ctx, commonsParams); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to set commons params"), nil, nil
+		// NOTE: Assuming Commons Keeper exposes a Set method keyed by name (Index)
+		if err := ck.SetExtendedGroup(ctx, "Commons Council", simExtendedGroup); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to register sim extended group"), nil, nil
 		}
 
-		// D. INJECT PERMISSIONS
-		// We must grant this new policy the right to resolve disputes, otherwise future operations might fail
-		// or the system is inconsistent.
+		// D. INJECT PERMISSIONS (RBAC Setup)
+		// We grant this new policy the right to resolve disputes and spend funds.
 		perms := commonstypes.PolicyPermissions{
 			PolicyAddress: policyRes.Address,
 			AllowedMessages: []string{
@@ -124,14 +126,8 @@ func SimulateMsgFileDispute(
 				"/sparkdream.commons.v1.MsgSpendFromCommons",
 			},
 		}
-		if err := ck.PolicyPermissions.Set(ctx, policyRes.Address, perms); err != nil {
+		if err := ck.SetPolicyPermissions(ctx, policyRes.Address, perms); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to inject permissions"), nil, nil
-		}
-
-		// E. Update x/name Params
-		params.CouncilGroupId = groupRes.GroupId
-		if err := k.SetParams(ctx, params); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to update name params"), nil, nil
 		}
 
 		// --- EXECUTE DISPUTE ---

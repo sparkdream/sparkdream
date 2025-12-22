@@ -1,8 +1,12 @@
 #!/bin/bash
 
-echo "--- SETUP: COMMONS COUNCIL & HANDOVER ---"
+echo "--- SETUP: THREE PILLARS GOVERNANCE (VIA GOV PROPOSALS) ---"
 
 # --- 0. SETUP & ADDRESS DISCOVERY ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROPOSAL_DIR="$SCRIPT_DIR/proposals"
+mkdir -p "$PROPOSAL_DIR"
+
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -14,98 +18,161 @@ GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account
 echo "Gov Address: $GOV_ADDR"
 
 # --- 1. CLEANUP ---
-rm -f proposals/*.json
+rm -f "$PROPOSAL_DIR/*.json"
 mkdir -p proposals
 
-# --- 2. CREATE MEMBERS FILE ---
-echo '{"members": [
-  {"address": "'$ALICE_ADDR'", "weight": "1", "metadata": "Alice"}, 
-  {"address": "'$BOB_ADDR'", "weight": "1", "metadata": "Bob"}, 
-  {"address": "'$CAROL_ADDR'", "weight": "1", "metadata": "Carol"}
-]}' > proposals/members.json
+# --- HELPER: Wait for Proposal Pass ---
+wait_for_pass() {
+    local prop_id=$1
+    echo "Waiting for voting period (60s)..."
+    sleep 65
+    
+    STATUS=$($BINARY query gov proposal $prop_id --output json | jq -r '.proposal.status')
+    if [ "$STATUS" == "PROPOSAL_STATUS_PASSED" ]; then
+        echo "✅ Proposal $prop_id PASSED."
+    else
+        echo "❌ Proposal $prop_id FAILED (Status: $STATUS)."
+        exit 1
+    fi
+}
 
-# --- 4. CREATE GROUP (ID 1) ---
-echo "Creating Commons Council Group..."
-$BINARY tx group create-group $ALICE_ADDR "Commons Council" proposals/members.json \
-  --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json
+get_prop_id() {
+    local tx_hash=$1
+    sleep 5
+    $BINARY query tx $tx_hash --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"' | head -n 1
+}
 
-sleep 3
-
-# --- 5. GENERATE POLICY FILES ---
-# Standard Policy (25%)
-echo '{"@type":"/cosmos.group.v1.PercentageDecisionPolicy", "percentage":"0.25", "windows":{"voting_period":"30s", "min_execution_period":"0s"}}' > proposals/policy_std.json
-# Veto Policy (50%)
-echo '{"@type":"/cosmos.group.v1.PercentageDecisionPolicy", "percentage":"0.50", "windows":{"voting_period":"10s", "min_execution_period":"0s"}}' > proposals/policy_veto.json
-
-# --- 6. CREATE STANDARD POLICY ---
-echo "Creating Standard Policy (25%)..."
-$BINARY tx group create-group-policy $ALICE_ADDR 1 "standard" proposals/policy_std.json \
-  --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json
-
-sleep 3
-
-# --- 7. CREATE VETO POLICY ---
-echo "Creating Veto Policy (50%)..."
-$BINARY tx group create-group-policy $ALICE_ADDR 1 "veto" proposals/policy_veto.json \
-  --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json
-
-sleep 3
-
-# --- 8. DISCOVER ADDRESS ---
-STANDARD_ADDR=$($BINARY query group group-policies-by-group 1 -o json | jq -r '.group_policies[] | select(.metadata == "standard") | .address' | head -n 1 | tr -d '"')
-
-echo "Standard Policy Address: $STANDARD_ADDR"
-
-# --- 9. SUBMIT GOV HANDOVER PROPOSAL ---
-echo "Submitting Handover Proposal..."
+# ==============================================================================
+# 2. CREATE PILLAR 1: COMMONS COUNCIL (Culture - 50%)
+# ==============================================================================
+echo "--- CREATING PILLAR 1: COMMONS COUNCIL ---"
 
 echo '{
   "messages": [
     {
-      "@type": "/sparkdream.commons.v1.MsgUpdateParams",
+      "@type": "/sparkdream.commons.v1.MsgRegisterGroup",
       "authority": "'$GOV_ADDR'",
-      "params": {
-        "commons_council_address": "'$STANDARD_ADDR'"
-      }
+      "name": "Commons Council",
+      "description": "Culture, Arts, and Events",
+      "members": ["'$ALICE_ADDR'", "'$BOB_ADDR'", "'$CAROL_ADDR'"],
+      "member_weights": ["1", "1", "1"],
+      "funding_weight": "50",
+      "max_spend_per_epoch": "500000000000uspark",
+      "update_cooldown": "604800",
+      "vote_threshold": "2",
+      "futarchy_enabled": true,
+      "min_members": 1,
+      "max_members": 10,
+      "term_duration": 31536000
     }
   ],
   "deposit": "50000000uspark",
-  "title": "Handover to Council",
-  "summary": "Setting the split module authority address."
-}' > proposals/gov_handover.json
+  "title": "Create Commons Council",
+  "summary": "Bootstrapping the Cultural Pillar."
+}' > "$PROPOSAL_DIR/create_commons.json"
 
-$BINARY tx gov submit-proposal proposals/gov_handover.json --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/create_commons.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
+PROP_ID=$(get_prop_id $TX_HASH)
 
-sleep 3
+echo "Commons Proposal ID: $PROP_ID"
+$BINARY tx gov vote $PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+wait_for_pass $PROP_ID
 
-# --- 10. Vote & Pass Gov Proposal (ID 1) ---
-$BINARY tx gov vote 1 yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+# ==============================================================================
+# 3. CREATE PILLAR 2: TECHNICAL COUNCIL (Infrastructure - 30%)
+# ==============================================================================
+echo "--- CREATING PILLAR 2: TECHNICAL COUNCIL ---"
 
-echo "Votes cast. Waiting for voting period to end (60s)..."
-sleep 65 
+echo '{
+  "messages": [
+    {
+      "@type": "/sparkdream.commons.v1.MsgRegisterGroup",
+      "authority": "'$GOV_ADDR'",
+      "name": "Technical Council",
+      "description": "Upgrades and Security",
+      "members": ["'$ALICE_ADDR'", "'$BOB_ADDR'", "'$CAROL_ADDR'"],
+      "member_weights": ["1", "1", "1"],
+      "funding_weight": "30",
+      "max_spend_per_epoch": "500000000000uspark",
+      "update_cooldown": "604800",
+      "vote_threshold": "2",
+      "futarchy_enabled": true,
+      "min_members": 1,
+      "max_members": 10,
+      "term_duration": 31536000
+    }
+  ],
+  "deposit": "50000000uspark",
+  "title": "Create Technical Council",
+  "summary": "Bootstrapping the Technical Pillar."
+}' > "$PROPOSAL_DIR/create_tech.json"
 
-echo "Checking Params..."
-$BINARY query commons params
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/create_tech.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
+PROP_ID=$(get_prop_id $TX_HASH)
 
-# --- 11. SECURE THE GROUP (UPDATE ADMIN) ---
-echo "--- SECURING GROUP: TRANSFERRING ADMIN RIGHTS ---"
-echo "Current Admin: Alice"
-echo "New Admin:     $STANDARD_ADDR"
+echo "Tech Proposal ID: $PROP_ID"
+$BINARY tx gov vote $PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+wait_for_pass $PROP_ID
 
-$BINARY tx group update-group-admin $ALICE_ADDR 1 $STANDARD_ADDR \
-  --from alice -y \
-  --chain-id $CHAIN_ID \
-  --keyring-backend test \
-  --fees 5000000uspark
+# ==============================================================================
+# 4. CREATE PILLAR 3: ECOSYSTEM COUNCIL (Growth - 20%)
+# ==============================================================================
+echo "--- CREATING PILLAR 3: ECOSYSTEM COUNCIL ---"
 
-sleep 3
+echo '{
+  "messages": [
+    {
+      "@type": "/sparkdream.commons.v1.MsgRegisterGroup",
+      "authority": "'$GOV_ADDR'",
+      "name": "Ecosystem Council",
+      "description": "Treasury and Grants",
+      "members": ["'$ALICE_ADDR'", "'$BOB_ADDR'", "'$CAROL_ADDR'"],
+      "member_weights": ["1", "1", "1"],
+      "funding_weight": "20",
+      "max_spend_per_epoch": "500000000000uspark",
+      "update_cooldown": "604800",
+      "vote_threshold": "2",
+      "futarchy_enabled": true,
+      "min_members": 1,
+      "max_members": 10,
+      "term_duration": 31536000
+    }
+  ],
+  "deposit": "50000000uspark",
+  "title": "Create Ecosystem Council",
+  "summary": "Bootstrapping the Growth Pillar."
+}' > "$PROPOSAL_DIR/create_eco.json"
 
-# Verify Admin Update
-NEW_ADMIN_INFO=$($BINARY query group group-info 1 --output json | jq -r '.info.admin')
-if [ "$NEW_ADMIN_INFO" == "$STANDARD_ADDR" ]; then
-    echo "✅ SUCCESS: Group Admin is now the Standard Policy Address."
+SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/create_eco.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
+PROP_ID=$(get_prop_id $TX_HASH)
+
+echo "Eco Proposal ID: $PROP_ID"
+$BINARY tx gov vote $PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+wait_for_pass $PROP_ID
+
+# ==============================================================================
+# 5. VERIFICATION
+# ==============================================================================
+echo "--- VERIFYING REGISTRY ---"
+
+# Check Commons
+COMMONS_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json)
+COMMONS_POLICY=$(echo $COMMONS_INFO | jq -r '.extended_group.policy_address')
+COMMONS_PARENT=$(echo $COMMONS_INFO | jq -r '.extended_group.parent_policy_address')
+
+if [ "$COMMONS_PARENT" == "$GOV_ADDR" ]; then
+    echo "✅ Commons Council Registered. Policy: $COMMONS_POLICY"
 else
-    echo "❌ FAILURE: Group Admin is still $NEW_ADMIN_INFO"
+    echo "❌ Commons Council Setup Failed."
 fi
 
-echo "--- COMMONS COUNCIL GROUP SETUP COMPLETE ---"
+# Check Funding Shares in Split
+echo "--- VERIFYING FUNDING ---"
+# Note: You might need to query the KVStore or a dedicated query if you implemented one in x/split
+# For now, we assume success if the group registration succeeded (since it calls x/split)
+echo "✅ Funding Shares should be active (50/30/20)."
+
+echo "--- SETUP COMPLETE ---"

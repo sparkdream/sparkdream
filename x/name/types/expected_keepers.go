@@ -3,6 +3,8 @@ package types
 import (
 	"context"
 
+	commonstypes "sparkdream/x/commons/types"
+
 	"cosmossdk.io/core/address"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/group"
@@ -29,6 +31,26 @@ type BankKeeper interface {
 	// Methods imported from bank should be defined here
 	SendCoins(context.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
 	SendCoinsFromAccountToModule(context.Context, sdk.AccAddress, string, sdk.Coins) error
+}
+
+// CommonsKeeper defines the expected interface for the x/commons module.
+type CommonsKeeper interface {
+	GetExtendedGroup(context.Context, string) (commonstypes.ExtendedGroup, error)
+	SetExtendedGroup(context.Context, string, commonstypes.ExtendedGroup) error
+	GetPolicyPermissions(context.Context, string) (commonstypes.PolicyPermissions, error)
+	SetPolicyPermissions(context.Context, string, commonstypes.PolicyPermissions) error
+}
+
+// ExtendedGroup is a local proxy struct for the type defined x/commons.
+type ExtendedGroup struct {
+	GroupId       uint64
+	PolicyAddress string
+}
+
+// PolicyPermissions is a local proxy struct for the type defined x/commons.
+type PolicyPermissions struct {
+	PolicyAddress   string
+	AllowedMessages []string
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.
