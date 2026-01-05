@@ -26,6 +26,7 @@ type Keeper struct {
 
 	authKeeper        types.AuthKeeper
 	bankKeeper        types.BankKeeper
+	futarchyKeeper    types.FutarchyKeeper
 	govKeeper         *govkeeper.Keeper
 	groupKeeper       groupkeeper.Keeper
 	splitKeeper       types.SplitKeeper
@@ -36,6 +37,14 @@ type Keeper struct {
 	// Indexes (For Performance)
 	// Key: PolicyAddress (string) -> Value: GroupName (string)
 	PolicyToName collections.Map[string, string]
+
+	// Maps a Futarchy Market ID -> Extended Group Name
+	// Key: MarketID (uint64) | Value: GroupName (string)
+	MarketToGroup collections.Map[uint64, string]
+
+	// Market Trigger Queue
+	// Key: (TriggerTimeUnix, GroupName) -> No Value
+	MarketTriggerQueue collections.KeySet[collections.Pair[int64, string]]
 }
 
 func NewKeeper(
@@ -46,6 +55,7 @@ func NewKeeper(
 
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
+	futarchyKeeper types.FutarchyKeeper,
 	govKeeper *govkeeper.Keeper,
 	groupKeeper groupkeeper.Keeper,
 	splitKeeper types.SplitKeeper,
@@ -65,6 +75,7 @@ func NewKeeper(
 
 		authKeeper:        authKeeper,
 		bankKeeper:        bankKeeper,
+		futarchyKeeper:    futarchyKeeper,
 		govKeeper:         govKeeper,
 		groupKeeper:       groupKeeper,
 		splitKeeper:       splitKeeper,
@@ -73,6 +84,14 @@ func NewKeeper(
 		PolicyPermissions: collections.NewMap(sb, types.PolicyPermissionsKey, "policyPermissions", collections.StringKey, codec.CollValue[types.PolicyPermissions](cdc)),
 		ExtendedGroup:     collections.NewMap(sb, types.ExtendedGroupKey, "extendedGroup", collections.StringKey, codec.CollValue[types.ExtendedGroup](cdc)),
 		PolicyToName:      collections.NewMap(sb, types.PolicyToNameKey, "policyToName", collections.StringKey, collections.StringValue),
+		MarketToGroup:     collections.NewMap(sb, types.MarketToGroupKey, "market_to_group", collections.Uint64Key, collections.StringValue),
+
+		MarketTriggerQueue: collections.NewKeySet(
+			sb,
+			types.MarketTriggerQueueKey,
+			"market_trigger_queue",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey),
+		),
 	}
 
 	schema, err := sb.Build()

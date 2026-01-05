@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"strconv"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -42,23 +43,34 @@ func SimulateMsgRegisterGroup(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to setup fake parent"), nil, err
 		}
 
-		// --- NEW: Update Index for O(1) Checks ---
+		// --- Update Index for O(1) Checks ---
 		// The updated handler checks PolicyToName.Has(signer). We must inject this index entry.
 		if err := k.PolicyToName.Set(ctx, simAccount.Address.String(), fakeParentName); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to setup fake parent index"), nil, err
 		}
 
-		// --- NEW: Fee Bypass ---
+		// --- Fee Bypass ---
 		// Disable the ProposalFee for simulation to avoid "insufficient funds" errors
 		// (Simulation accounts usually have 'stake', not 'uspark')
 		if err := k.Params.Set(ctx, types.NewParams("")); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to bypass fee"), nil, err
 		}
 
+		// --- Fund Treasury for Subsidy ---
+		// The commons module pays 1000 SPARK subsidy. We must mint this.
+		subsidy := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000000000)))
+		if err := bk.MintCoins(ctx, types.ModuleName, subsidy); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to mint subsidy"), nil, err
+		}
+
 		// 3. Generate Random Members
 		numMembers := simtypes.RandIntBetween(r, 1, 5)
 		if len(accs) < numMembers {
 			numMembers = len(accs)
+		}
+
+		if numMembers == 0 {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "no accounts available for members"), nil, nil
 		}
 
 		var members []string

@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
 
@@ -92,16 +91,6 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 		// Sum weight for futarchy calculation
 		w, _ := strconv.ParseUint(m.Weight, 10, 64)
 		totalHumanWeight += w
-	}
-
-	// Step C: Futarchy Calculation
-	if extGroup.FutarchyEnabled && extGroup.FutarchyMemberAddress != "" {
-		futarchyWeight := totalHumanWeight / 4
-		if futarchyWeight == 0 {
-			futarchyWeight = 1
-		}
-		// Set Futarchy Bot weight (overwriting any previous removal/add)
-		finalState[extGroup.FutarchyMemberAddress] = fmt.Sprintf("%d", futarchyWeight)
 	}
 
 	// Step D: Convert Map to List

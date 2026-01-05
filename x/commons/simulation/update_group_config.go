@@ -39,6 +39,11 @@ func SimulateMsgUpdateGroupConfig(
 		// Find a group where simAccount is the PARENT (Authorized to update config)
 		err := k.ExtendedGroup.Walk(ctx, nil, func(name string, g types.ExtendedGroup) (bool, error) {
 			if g.ParentPolicyAddress == simAccount.Address.String() {
+				// SKIP INVALID GROUPS
+				if g.MinMembers == 0 {
+					return false, nil
+				}
+
 				// Verify backing x/group exists
 				_, err := k.GetGroupKeeper().GroupInfo(ctx, &group.QueryGroupInfoRequest{GroupId: g.GroupId})
 				if err == nil {
@@ -100,8 +105,8 @@ func SimulateMsgUpdateGroupConfig(
 			GroupName: targetName,
 		}
 
-		// A. Update Member Bounds (50% chance)
-		if r.Intn(2) == 0 {
+		// A. Update Member Bounds (50% chance OR if group is invalid)
+		if r.Intn(2) == 0 || targetGroup.MinMembers == 0 {
 			newMin := uint64(simtypes.RandIntBetween(r, 1, 5))
 			newMax := uint64(simtypes.RandIntBetween(r, int(newMin), 10))
 			msg.MinMembers = newMin

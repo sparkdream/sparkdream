@@ -7,6 +7,8 @@ import (
 	commonsmoduletypes "sparkdream/x/commons/types"
 	_ "sparkdream/x/ecosystem/module"
 	ecosystemmoduletypes "sparkdream/x/ecosystem/types"
+	_ "sparkdream/x/futarchy/module"
+	futarchymoduletypes "sparkdream/x/futarchy/types"
 	_ "sparkdream/x/name/module"
 	namemoduletypes "sparkdream/x/name/types"
 	_ "sparkdream/x/sparkdream/module"
@@ -96,7 +98,8 @@ var (
 		{Account: splitmoduletypes.ModuleName},
 		{Account: ecosystemmoduletypes.ModuleName},
 		{Account: namemoduletypes.ModuleName},
-		{Account: commonsmoduletypes.ModuleName},
+		{Account: commonsmoduletypes.ModuleName, Permissions: []string{authtypes.Minter}},
+		{Account: futarchymoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -146,6 +149,7 @@ var (
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
 						commonsmoduletypes.ModuleName,
+						futarchymoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -160,6 +164,7 @@ var (
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
 						commonsmoduletypes.ModuleName,
+						futarchymoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -202,6 +207,7 @@ var (
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
 						commonsmoduletypes.ModuleName,
+						futarchymoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -321,6 +327,10 @@ var (
 			{
 				Name:   commonsmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&commonsmoduletypes.Module{}),
+			},
+			{
+				Name:   futarchymoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&futarchymoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

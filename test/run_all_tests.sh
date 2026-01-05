@@ -39,10 +39,11 @@ echo -e "${GREEN}STARTING SPARK DREAM INTEGRATION TEST SUITE${NC}"
 # --- PHASE 1: BOOTSTRAP & GOVERNANCE SETUP ---
 # These must run first to establish the Council authority.
 #run_test "commons/group_setup.sh"
-run_test "commons/interim_council_test.sh"
+# Note: This test is deprecated. Governance groups are now bootstrapped directly in the genesis block.
 
 # --- PHASE 2: COMMONS LIFECYCLE & LOGIC ---
 # Standard operations for the group module.
+run_test "commons/interim_council_test.sh"
 run_test "commons/group_lifecycle_test.sh"
 run_test "commons/group_member_update_test.sh"
 run_test "commons/treasury_spend.sh"
@@ -63,6 +64,14 @@ run_test "ecosystem/ecosystem_spend.sh"
 # Split Module
 run_test "split/accounts.sh"
 run_test "split/autodivert.sh"
+
+# Futarchy Module
+# Test prediction market creation, trading, and resolution
+run_test "futarchy/market_lifecycle_test.sh"
+run_test "futarchy/governance_integration_test.sh"
+run_test "futarchy/params_update_test.sh"
+run_test "futarchy/liquidity_withdrawal_test.sh"
+run_test "futarchy/emergency_cancel_test.sh"
 
 # --- PHASE 4: SECURITY & PERMISSIONS ---
 # Testing attacks and unauthorized attempts.

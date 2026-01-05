@@ -52,6 +52,8 @@ import (
 	"sparkdream/x/commons/ante"
 	commonsmodulekeeper "sparkdream/x/commons/keeper"
 	ecosystemmodulekeeper "sparkdream/x/ecosystem/keeper"
+	futarchymodulekeeper "sparkdream/x/futarchy/keeper"
+	futarchymoduletypes "sparkdream/x/futarchy/types"
 	namemodulekeeper "sparkdream/x/name/keeper"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
 	splitmodulekeeper "sparkdream/x/split/keeper"
@@ -113,6 +115,7 @@ type App struct {
 	EcosystemKeeper  ecosystemmodulekeeper.Keeper
 	NameKeeper       namemodulekeeper.Keeper
 	CommonsKeeper    commonsmodulekeeper.Keeper
+	FutarchyKeeper   futarchymodulekeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
@@ -199,9 +202,17 @@ func New(
 		&app.EcosystemKeeper,
 		&app.NameKeeper,
 		&app.CommonsKeeper,
+		&app.FutarchyKeeper,
 	); err != nil {
 		panic(err)
 	}
+
+	// We explicitly tell Futarchy to call Commons when markets resolve.
+	app.FutarchyKeeper.SetHooks(
+		futarchymoduletypes.NewMultiFutarchyHooks(
+			app.CommonsKeeper,
+		),
+	)
 
 	// add to default baseapp options
 	// enable optimistic execution

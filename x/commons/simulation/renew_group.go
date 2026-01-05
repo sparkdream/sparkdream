@@ -138,6 +138,11 @@ func SimulateMsgRenewGroup(
 			}
 		}
 
+		if newCount == 0 {
+			dummyMsg := &types.MsgRenewGroup{}
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(dummyMsg), "new member count is 0"), nil, nil
+		}
+
 		// Select unique members
 		perm := r.Perm(len(accs))
 		var newMembers []string

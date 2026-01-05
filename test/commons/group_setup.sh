@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "!!! DEPRECATED SCRIPT - Governance groups are now bootstrapped directly in the genesis block."
+
 echo "--- SETUP: THREE PILLARS GOVERNANCE (VIA GOV PROPOSALS) ---"
 
 # --- 0. SETUP & ADDRESS DISCOVERY ---

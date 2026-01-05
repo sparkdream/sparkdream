@@ -28,19 +28,25 @@ type BankKeeper interface {
 	SpendableCoins(context.Context, sdk.AccAddress) sdk.Coins
 	// Methods imported from bank should be defined here
 	GetAllBalances(context.Context, sdk.AccAddress) sdk.Coins
+	MintCoins(context.Context, string, sdk.Coins) error
 	SendCoins(context.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
 	SendCoinsFromAccountToModule(context.Context, sdk.AccAddress, string, sdk.Coins) error
 	SendCoinsFromModuleToAccount(context.Context, string, sdk.AccAddress, sdk.Coins) error
 }
 
+// FutarchyKeeper defines the expected interface for the FutarchyKeeper module.
+type FutarchyKeeper interface {
+	CreateMarketInternal(sdk.Context, sdk.AccAddress, string, string, int64, int64, sdk.Coin) (uint64, error)
+}
+
 // SplitKeeper defines the expected interface for the Split module.
 type SplitKeeper interface {
-	SetShareByAddress(ctx context.Context, address string, weight uint64)
+	SetShareByAddress(context.Context, string, uint64)
 }
 
 // UpgradeKeeper defines the expected interface for the Upgrade module.
 type UpgradeKeeper interface {
-	ScheduleUpgrade(ctx context.Context, plan upgradetypes.Plan) error
+	ScheduleUpgrade(context.Context, upgradetypes.Plan) error
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

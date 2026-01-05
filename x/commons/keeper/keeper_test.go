@@ -84,6 +84,7 @@ func initFixture(t *testing.T) *fixture {
 		authority,
 		mockAuth,
 		nil, // Bank
+		mockFutarchyKeeper{},
 		nil, // Gov
 		groupKeeper,
 		mockSplitKeeper{},
@@ -170,6 +171,7 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 		authority,
 		authKeeper,
 		mockBK,
+		mockFutarchyKeeper{},
 		nil,
 		groupKeeper,
 		mockSplitKeeper{},
@@ -239,6 +241,7 @@ func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, groupkeeper.
 		authK.GetModuleAddress("gov"),
 		authK,
 		nil,
+		mockFutarchyKeeper{},
 		nil,
 		groupK,
 		mockSplitKeeper{},
@@ -288,6 +291,14 @@ type mockBankKeeperCommons struct {
 	balance map[string]sdk.Coins
 }
 
+func (m *mockBankKeeperCommons) GetAllBalances(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
+	return m.balance[addr.String()]
+}
+
+func (m *mockBankKeeperCommons) MintCoins(ctx context.Context, moduleName string, amt sdk.Coins) error {
+	return nil
+}
+
 func (m *mockBankKeeperCommons) SendCoins(ctx context.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
 	if m.balance[fromAddr.String()].IsAllGTE(amt) {
 		m.balance[fromAddr.String()] = m.balance[fromAddr.String()].Sub(amt...)
@@ -303,10 +314,6 @@ func (m *mockBankKeeperCommons) SendCoinsFromModuleToAccount(ctx context.Context
 
 func (m *mockBankKeeperCommons) SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
 	return nil
-}
-
-func (m *mockBankKeeperCommons) GetAllBalances(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
-	return m.balance[addr.String()]
 }
 
 func (m *mockBankKeeperCommons) SpendableCoins(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
@@ -334,6 +341,13 @@ func (m mockStakingKeeper) ValidatorAddressCodec() address.Codec {
 }
 func (m mockStakingKeeper) IterateDelegations(ctx context.Context, delegator sdk.AccAddress, fn func(index int64, delegation stakingtypes.DelegationI) (stop bool)) error {
 	return nil
+}
+
+// --- Mock Futarchy Keeper ---
+type mockFutarchyKeeper struct{}
+
+func (m mockFutarchyKeeper) CreateMarketInternal(ctx sdk.Context, creator sdk.AccAddress, symbol string, question string, durationBlocks int64, redemptionBlocks int64, liquidity sdk.Coin) (uint64, error) {
+	return 0, nil
 }
 
 // --- Mock Split Keeper ---

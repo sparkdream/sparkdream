@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package sparkdream.futarchy.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/futarchy/v1/market.proto";
+import "sparkdream/futarchy/v1/params.proto";
+
+option go_package = "sparkdream/x/futarchy/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/futarchy/v1/params";
+  }
+
+  // ListMarket Queries a list of Market items.
+  rpc GetMarket(QueryGetMarketRequest) returns (QueryGetMarketResponse) {
+    option (google.api.http).get = "/sparkdream/futarchy/v1/market/{index}";
+  }
+
+  // ListMarket defines the ListMarket RPC.
+  rpc ListMarket(QueryAllMarketRequest) returns (QueryAllMarketResponse) {
+    option (google.api.http).get = "/sparkdream/futarchy/v1/market";
+  }
+
+  // GetMarketPrice queries the current price for a market outcome.
+  rpc GetMarketPrice(QueryGetMarketPriceRequest) returns (QueryGetMarketPriceResponse) {
+    option (google.api.http).get = "/sparkdream/futarchy/v1/market/{market_id}/price";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryGetMarketRequest defines the QueryGetMarketRequest message.
+message QueryGetMarketRequest {
+  uint64 index = 1;
+}
+
+// QueryGetMarketResponse defines the QueryGetMarketResponse message.
+message QueryGetMarketResponse {
+  Market market = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMarketRequest defines the QueryAllMarketRequest message.
+message QueryAllMarketRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMarketResponse defines the QueryAllMarketResponse message.
+message QueryAllMarketResponse {
+  repeated Market market = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMarketPriceRequest defines the request for market price query.
+message QueryGetMarketPriceRequest {
+  uint64 market_id = 1;
+  bool is_yes = 2;
+  string amount = 3;
+}
+
+// QueryGetMarketPriceResponse defines the response for market price query.
+message QueryGetMarketPriceResponse {
+  // Price per share in market denom
+  string price = 1;
+  // Shares received for the given amount
+  string shares_out = 2;
+}

@@ -13,6 +13,7 @@ import (
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
+	futarchykeeper "sparkdream/x/futarchy/keeper"
 	splitkeeper "sparkdream/x/split/keeper"
 )
 
@@ -36,12 +37,13 @@ type ModuleInputs struct {
 	Cdc          codec.Codec
 	AddressCodec address.Codec
 
-	AuthKeeper    types.AuthKeeper
-	BankKeeper    types.BankKeeper
-	GovKeeper     *govkeeper.Keeper
-	GroupKeeper   groupkeeper.Keeper
-	SplitKeeper   splitkeeper.Keeper
-	UpgradeKeeper types.UpgradeKeeper
+	AuthKeeper     types.AuthKeeper
+	BankKeeper     types.BankKeeper
+	FutarchyKeeper futarchykeeper.Keeper
+	GovKeeper      *govkeeper.Keeper
+	GroupKeeper    groupkeeper.Keeper
+	SplitKeeper    splitkeeper.Keeper
+	UpgradeKeeper  types.UpgradeKeeper
 }
 
 type ModuleOutputs struct {
@@ -64,6 +66,7 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		authority,
 		in.AuthKeeper,
 		in.BankKeeper,
+		in.FutarchyKeeper,
 		in.GovKeeper,
 		in.GroupKeeper,
 		in.SplitKeeper,

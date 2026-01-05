@@ -79,7 +79,6 @@ func TestRenewGroup(t *testing.T) {
 		TermDuration:          86400,
 		CurrentTermExpiration: expiredTime,
 		FutarchyEnabled:       true,
-		FutarchyMemberAddress: futarchyBot.String(),
 	}
 	require.NoError(t, k.ExtendedGroup.Set(ctx, "FutarchyGroup", futarchyGroup))
 

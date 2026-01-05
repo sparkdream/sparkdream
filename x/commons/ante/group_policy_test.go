@@ -69,6 +69,7 @@ func setupKeeper(t *testing.T) (keeper.Keeper, sdk.Context) {
 		authority,
 		nil,                  // Auth
 		nil,                  // Bank
+		nil,                  // Futarchy
 		nil,                  // Gov
 		groupkeeper.Keeper{}, // Group
 		nil,                  // Split

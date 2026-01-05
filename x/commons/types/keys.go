@@ -20,6 +20,10 @@ const (
 // ParamsKey is the prefix to retrieve all Params
 var ParamsKey = collections.NewPrefix("p_commons")
 
+var MarketToGroupKey = collections.NewPrefix("marketToGroup/value/")
+
+var MarketTriggerQueueKey = collections.NewPrefix("marketTriggerQueue/value/")
+
 var (
 	KeyProposalFee = []byte("ProposalFee")
 )

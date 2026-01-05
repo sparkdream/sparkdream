@@ -122,6 +122,7 @@ func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.
 		authority,
 		accountKeeper,
 		bankKeeper,
+		mockFutarchyKeeper{},
 		govK,
 		groupK,
 		mockSplitKeeper{},

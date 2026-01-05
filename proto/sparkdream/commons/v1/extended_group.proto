@@ -13,12 +13,11 @@ message ExtendedGroup {
   uint64 funding_weight = 6;
   string max_spend_per_epoch = 7;
   int64 update_cooldown = 8;
-  bool futarchy_enabled = 9;
-  string futarchy_member_address = 10;
-  uint64 min_members = 11;
-  uint64 max_members = 12;
-  int64 term_duration = 13;
-  int64 current_term_expiration = 14;
-  int64 activation_time = 15;
-  int64 last_parent_update = 16;
+  uint64 min_members = 9;
+  uint64 max_members = 10;
+  int64 term_duration = 11;
+  int64 current_term_expiration = 12;
+  int64 activation_time = 13;
+  int64 last_parent_update = 14;
+  bool futarchy_enabled = 15;
 }
