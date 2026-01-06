@@ -82,6 +82,10 @@ run_test "commons/unauthorized_spend_msg.sh"
 run_test "commons/unauthorized_handover.sh"
 run_test "ecosystem/ecosystem_security_test.sh"
 
+# Governance Security
+# CRITICAL: Test that inflation parameters cannot be changed via governance
+run_test "gov/inflation_immutable_test.sh"
+
 # --- PHASE 5: ADVANCED GOVERNANCE (VETOS) ---
 run_test "commons/executive_veto_test.sh"
 run_test "commons/social_veto_vote_test.sh"

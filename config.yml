@@ -61,7 +61,7 @@ genesis:
         mint_denom: "uspark"
         goal_bonded: "0.67"
         inflation_max: "0.05"
-        inflation_min: "0.025" 
+        inflation_min: "0.02"
         inflation_rate_change: "0.13"
     staking:
       params:

@@ -266,8 +266,13 @@ var (
 				Config: appconfig.WrapAny(&evidencemodulev1.Module{}),
 			},
 			{
-				Name:   minttypes.ModuleName,
-				Config: appconfig.WrapAny(&mintmodulev1.Module{}),
+				Name: minttypes.ModuleName,
+				Config: appconfig.WrapAny(&mintmodulev1.Module{
+					// SECURITY: Inflation parameters are immutable.
+					// Only chain upgrades can modify inflation_min, inflation_max, etc.
+					// Setting authority to an impossible address prevents x/gov param updates.
+					Authority: "sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe", // burn address - no private key exists
+				}),
 			},
 			{
 				Name: group.ModuleName,
