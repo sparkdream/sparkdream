@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -12,6 +13,7 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/cosmos/cosmos-sdk/x/group"
 
+	"sparkdream/testutil"
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
@@ -24,11 +26,12 @@ const (
 
 // 2. Define Initial State Template Factory
 func createInitialGroupTemplate(ctx sdk.Context, parentPolicy string) types.ExtendedGroup {
+	maxSpendPerEpoch := math.NewInt(1000)
 	return types.ExtendedGroup{
 		GroupId:               1,                                                       // Will be overwritten
 		PolicyAddress:         sdk.AccAddress([]byte("child_policy_addr___")).String(), // Will be overwritten
 		ParentPolicyAddress:   parentPolicy,
-		MaxSpendPerEpoch:      "1000uspark",
+		MaxSpendPerEpoch:      &maxSpendPerEpoch,
 		UpdateCooldown:        86400, // 1 Day
 		FutarchyEnabled:       true,  // Initial state is true
 		MinMembers:            3,
@@ -105,6 +108,9 @@ func TestUpdateGroupConfig(t *testing.T) {
 	// Helper to create the local types.BoolValue wrapper pointer for explicit tests
 	boolPtrWrapper := func(val bool) *types.BoolValue { return &types.BoolValue{Value: val} }
 
+	maxSpendPerEpoch := math.NewInt(5000)
+	negativeSpend := math.NewInt(-100)
+
 	tests := []struct {
 		desc        string
 		msg         *types.MsgUpdateGroupConfig
@@ -119,13 +125,13 @@ func TestUpdateGroupConfig(t *testing.T) {
 			msg: &types.MsgUpdateGroupConfig{
 				Authority:        parentPolicy.String(),
 				GroupName:        childGroup,
-				MaxSpendPerEpoch: "5000uspark",
+				MaxSpendPerEpoch: &maxSpendPerEpoch,
 				// FutarchyEnabled is OMITTED (nil), should remain true
 			},
 			expectErr: false,
 			checkState: func(t *testing.T) {
 				g, _ := k.ExtendedGroup.Get(ctx, childGroup)
-				require.Equal(t, "5000uspark", g.MaxSpendPerEpoch)
+				require.Equal(t, math.NewInt(5000), *g.MaxSpendPerEpoch)
 				require.Equal(t, initialGroupTemplateRef.MinMembers, g.MinMembers)
 				require.True(t, g.FutarchyEnabled) // Must remain true
 			},
@@ -156,7 +162,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			msg: &types.MsgUpdateGroupConfig{
 				Authority:          parentPolicy.String(),
 				GroupName:          childGroup,
-				VoteThreshold:      "0.67",
+				VoteThreshold:      testutil.DecPtr("0.67"),
 				PolicyType:         PolicyTypePercentage,
 				VotingPeriod:       172800, // 2 days
 				MinExecutionPeriod: 3600,   // 1 hour
@@ -189,7 +195,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			msg: &types.MsgUpdateGroupConfig{
 				Authority:          parentPolicy.String(),
 				GroupName:          childGroup,
-				VoteThreshold:      "7", // Threshold of 7 members
+				VoteThreshold:      testutil.DecPtr("7"), // Threshold of 7 members
 				PolicyType:         PolicyTypeThreshold,
 				VotingPeriod:       43200, // 12 hours
 				MinExecutionPeriod: 0,     // No min execution time
@@ -208,7 +214,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			msg: &types.MsgUpdateGroupConfig{
 				Authority:          parentPolicy.String(),
 				GroupName:          childGroup,
-				VoteThreshold:      "1",
+				VoteThreshold:      testutil.DecPtr("1"),
 				PolicyType:         "invalid", // Invalid
 				VotingPeriod:       86400,
 				MinExecutionPeriod: 0,
@@ -222,7 +228,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			msg: &types.MsgUpdateGroupConfig{
 				Authority:          parentPolicy.String(),
 				GroupName:          childGroup,
-				VoteThreshold:      "1",
+				VoteThreshold:      testutil.DecPtr("1"),
 				PolicyType:         PolicyTypeThreshold,
 				VotingPeriod:       0, // Invalid
 				MinExecutionPeriod: 0,
@@ -265,10 +271,10 @@ func TestUpdateGroupConfig(t *testing.T) {
 			msg: &types.MsgUpdateGroupConfig{
 				Authority:        parentPolicy.String(),
 				GroupName:        childGroup,
-				MaxSpendPerEpoch: "invalid-coin",
+				MaxSpendPerEpoch: &negativeSpend,
 			},
 			expectErr:   true,
-			errContains: "invalid max_spend_per_epoch",
+			errContains: "cannot be negative",
 		},
 		{
 			desc:     "Failure - Max Members < Min Members (Direct Update)",

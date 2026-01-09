@@ -39,14 +39,17 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 	// ==========================================
 
 	// A. Spend Limit
-	if msg.MaxSpendPerEpoch != "" {
-		coin, err := sdk.ParseCoinNormalized(msg.MaxSpendPerEpoch)
-		if err != nil {
-			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid max_spend_per_epoch format: %s", err)
+	if msg.MaxSpendPerEpoch != nil {
+		if msg.MaxSpendPerEpoch.IsNegative() {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch cannot be negative")
 		}
+
+		// Check if it forms a valid coin (positive)
+		coin := sdk.NewCoin("uspark", *msg.MaxSpendPerEpoch)
 		if !coin.IsValid() {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch must be valid")
 		}
+
 		group.MaxSpendPerEpoch = msg.MaxSpendPerEpoch
 	}
 
@@ -104,7 +107,7 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 	// ==========================================
 
 	// Only attempt to update the Group Policy if threshold or policy_type is provided
-	if msg.VoteThreshold != "" || msg.PolicyType != "" {
+	if msg.VoteThreshold != nil || msg.PolicyType != "" {
 		if msg.PolicyType != PolicyTypePercentage && msg.PolicyType != PolicyTypeThreshold {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid policy_type '%s'. Must be '%s' or '%s'", msg.PolicyType, PolicyTypePercentage, PolicyTypeThreshold)
 		}
@@ -119,11 +122,11 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 
 		if msg.PolicyType == PolicyTypePercentage {
 			// Percentage Policy (e.g., "0.51")
-			decisionPolicy = grouptype.NewPercentageDecisionPolicy(msg.VoteThreshold, votingPeriod, minExecutionPeriod)
+			decisionPolicy = grouptype.NewPercentageDecisionPolicy(msg.VoteThreshold.String(), votingPeriod, minExecutionPeriod)
 		} else {
 			// Threshold Policy (e.g., "3")
 			decisionPolicy = &grouptype.ThresholdDecisionPolicy{
-				Threshold: msg.VoteThreshold,
+				Threshold: msg.VoteThreshold.TruncateInt().String(),
 				Windows: &grouptype.DecisionPolicyWindows{
 					VotingPeriod:       votingPeriod,
 					MinExecutionPeriod: minExecutionPeriod,

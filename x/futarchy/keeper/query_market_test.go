@@ -10,6 +10,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"cosmossdk.io/math" // Import math package
+
 	"sparkdream/x/futarchy/keeper"
 	"sparkdream/x/futarchy/types"
 )
@@ -19,12 +21,32 @@ func createNMarket(keeper keeper.Keeper, ctx context.Context, n int) []types.Mar
 	for i := range items {
 		items[i].Index = uint64(i)
 		items[i].Symbol = strconv.Itoa(i)
-		items[i].BValue = strconv.Itoa(i)
-		items[i].MinTick = strconv.Itoa(i)
-		items[i].PoolYes = strconv.Itoa(i)
-		items[i].PoolNo = strconv.Itoa(i)
+
+		// Create math types and assign pointers
+		// 1. BValue is *math.LegacyDec
+		bVal := math.LegacyNewDec(int64(i))
+		items[i].BValue = &bVal
+
+		// 2. MinTick is *math.Int
+		minTick := math.NewInt(int64(i))
+		items[i].MinTick = &minTick
+
+		// 3. PoolYes is *math.Int
+		poolYes := math.NewInt(int64(i))
+		items[i].PoolYes = &poolYes
+
+		// 4. PoolNo is *math.Int
+		poolNo := math.NewInt(int64(i))
+		items[i].PoolNo = &poolNo
+
+		// 5. Initialize optional fields to avoid nil pointer dereferences in other logic
+		zero := math.ZeroInt()
+		items[i].InitialLiquidity = &zero
+		items[i].LiquidityWithdrawn = &zero
+
 		items[i].Status = strconv.Itoa(i)
 		items[i].Creator = strconv.Itoa(i)
+
 		_ = keeper.Market.Set(ctx, items[i].Index, items[i])
 	}
 	return items

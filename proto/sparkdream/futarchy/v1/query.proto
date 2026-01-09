@@ -71,13 +71,13 @@ message QueryAllMarketResponse {
 message QueryGetMarketPriceRequest {
   uint64 market_id = 1;
   bool is_yes = 2;
-  string amount = 3;
+  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 // QueryGetMarketPriceResponse defines the response for market price query.
 message QueryGetMarketPriceResponse {
   // Price per share in market denom
-  string price = 1;
+  string price = 1 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   // Shares received for the given amount
-  string shares_out = 2;
+  string shares_out = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }

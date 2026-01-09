@@ -108,9 +108,7 @@ func TestWithdrawLiquidity(t *testing.T) {
 				// Verify liquidity was withdrawn
 				market, err := f.keeper.Market.Get(ctx, tt.msg.MarketId)
 				require.NoError(t, err)
-				liquidityWithdrawn, ok := math.NewIntFromString(market.LiquidityWithdrawn)
-				require.True(t, ok)
-				require.True(t, liquidityWithdrawn.GT(math.ZeroInt()))
+				require.True(t, market.LiquidityWithdrawn.GT(math.ZeroInt()))
 			}
 		})
 	}
@@ -139,7 +137,7 @@ func TestWithdrawLiquidity_WithTrades(t *testing.T) {
 		Creator:  trader.String(),
 		MarketId: marketId,
 		IsYes:    true,
-		AmountIn: tradeCoin.String(),
+		AmountIn: &tradeCoin.Amount,
 	})
 	require.NoError(t, err)
 
@@ -162,14 +160,10 @@ func TestWithdrawLiquidity_WithTrades(t *testing.T) {
 	// Verify withdrawal amount is tracked
 	market, err = f.keeper.Market.Get(ctx, marketId)
 	require.NoError(t, err)
-	liquidityWithdrawn, ok := math.NewIntFromString(market.LiquidityWithdrawn)
-	require.True(t, ok)
-	require.True(t, liquidityWithdrawn.GT(math.ZeroInt()))
+	require.True(t, market.LiquidityWithdrawn.GT(math.ZeroInt()))
 
 	// Verify withdrawn amount is less than initial liquidity (because shares were minted)
-	initialLiquidity, ok := math.NewIntFromString(market.InitialLiquidity)
-	require.True(t, ok)
-	require.True(t, liquidityWithdrawn.LT(initialLiquidity))
+	require.True(t, market.LiquidityWithdrawn.LT(*market.InitialLiquidity))
 }
 
 func TestWithdrawLiquidity_NonExistentMarket(t *testing.T) {

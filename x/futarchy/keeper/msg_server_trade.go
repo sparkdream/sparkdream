@@ -35,25 +35,20 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market %d is not active (status: %s)", msg.MarketId, market.Status)
 	}
 
-	// 2. Parse Strings to LegacyDec
-	bValue, err := math.LegacyNewDecFromStr(market.BValue)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid BValue in state")
-	}
-	poolYes, err := math.LegacyNewDecFromStr(market.PoolYes)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid PoolYes in state")
-	}
-	poolNo, err := math.LegacyNewDecFromStr(market.PoolNo)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid PoolNo in state")
-	}
+	// 2. Setup Math Variables (No parsing needed)
+	// BValue is *math.LegacyDec
+	bValue := *market.BValue
 
-	// Parse Input Coin
-	amountIn, err := sdk.ParseCoinNormalized(msg.AmountIn)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidCoins, err.Error())
+	// PoolYes/PoolNo are *math.Int -> Convert to Dec for LMSR math
+	poolYes := math.LegacyNewDecFromInt(*market.PoolYes)
+	poolNo := math.LegacyNewDecFromInt(*market.PoolNo)
+
+	// Construct Coin from the Int amount and Market Denom
+	// msg.AmountIn is *math.Int, so we dereference it.
+	if msg.AmountIn == nil || msg.AmountIn.IsNegative() {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "invalid trade amount")
 	}
+	amountIn := sdk.NewCoin(market.Denom, *msg.AmountIn)
 
 	// Validate denom matches market
 	if amountIn.Denom != market.Denom {
@@ -61,9 +56,10 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 	}
 
 	// Check min_tick (Spam Protection)
-	minTick, err := math.LegacyNewDecFromStr(market.MinTick)
-	if err == nil && math.LegacyNewDecFromInt(amountIn.Amount).LT(minTick) {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Trade too small, min tick is %s", market.MinTick)
+	// MinTick is *math.Int
+	minTick := math.LegacyNewDecFromInt(*market.MinTick)
+	if math.LegacyNewDecFromInt(amountIn.Amount).LT(minTick) {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Trade too small, min tick is %s", minTick.String())
 	}
 
 	// 3. Calculate and deduct trading fee
@@ -112,7 +108,9 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 		newPoolYes = newCost.Add(bValue.Mul(lnTerm))
 		sharesOut = newPoolYes.Sub(poolYes)
 
-		market.PoolYes = newPoolYes.String()
+		// Update Market State (Convert Dec back to Int pointer)
+		val := newPoolYes.TruncateInt()
+		market.PoolYes = &val
 	} else {
 		// Solve for newNo
 		exponent := poolYes.Sub(newCost).Quo(bValue)
@@ -130,7 +128,9 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 		newPoolNo = newCost.Add(bValue.Mul(lnTerm))
 		sharesOut = newPoolNo.Sub(poolNo)
 
-		market.PoolNo = newPoolNo.String()
+		// Update Market State (Convert Dec back to Int pointer)
+		val := newPoolNo.TruncateInt()
+		market.PoolNo = &val
 	}
 
 	// 6. Transfer Funds (User -> Module)
@@ -157,7 +157,7 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 		}
 	}
 
-	// 6. Mint Conditional Tokens
+	// 8. Mint Conditional Tokens
 	// Denom format: f/{marketId}/{outcome}
 	outcomeStr := "no"
 	if msg.IsYes {
@@ -192,6 +192,6 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 	}
 
 	return &types.MsgTradeResponse{
-		SharesOut: sharesOut.String(),
+		SharesOut: &sharesInt,
 	}, nil
 }

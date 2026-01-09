@@ -60,7 +60,7 @@ message MsgCreateMarket {
   option (cosmos.msg.v1.signer) = "creator";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string symbol = 2;
-  string initial_liquidity = 3;
+  string initial_liquidity = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string question = 4;
   int64 end_block = 5;
 }
@@ -76,12 +76,12 @@ message MsgTrade {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 market_id = 2;
   bool is_yes = 3;
-  string amount_in = 4;
+  string amount_in = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 // MsgTradeResponse defines the MsgTradeResponse message.
 message MsgTradeResponse {
-  string shares_out = 1;
+  string shares_out = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 // MsgRedeem defines the MsgRedeem message.
@@ -117,5 +117,5 @@ message MsgWithdrawLiquidity {
 
 // MsgWithdrawLiquidityResponse defines the MsgWithdrawLiquidityResponse message.
 message MsgWithdrawLiquidityResponse {
-  string amount = 1;
+  string amount = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }

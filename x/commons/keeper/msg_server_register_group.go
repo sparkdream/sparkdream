@@ -87,13 +87,15 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize, "initial count %d exceeds max %d", initialCount, msg.MaxMembers)
 	}
 
-	if msg.MaxSpendPerEpoch != "" {
-		coin, err := sdk.ParseCoinNormalized(msg.MaxSpendPerEpoch)
-		if err != nil {
-			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid max_spend_per_epoch format: %s", err)
+	if msg.MaxSpendPerEpoch != nil {
+		if msg.MaxSpendPerEpoch.IsNegative() {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch cannot be negative")
 		}
-		if !coin.IsPositive() {
-			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch must be positive")
+
+		// Check if it forms a valid coin (positive)
+		coin := sdk.NewCoin("uspark", *msg.MaxSpendPerEpoch)
+		if !coin.IsValid() {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch must be valid")
 		}
 	}
 
@@ -174,10 +176,12 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	minExecutionPeriod := time.Duration(msg.MinExecutionPeriod) * time.Second
 
 	if msg.PolicyType == PolicyTypePercentage {
-		decisionPolicy = group.NewPercentageDecisionPolicy(msg.VoteThreshold, votingPeriod, minExecutionPeriod)
+		// Percentage Policy (e.g., "0.51")
+		decisionPolicy = group.NewPercentageDecisionPolicy(msg.VoteThreshold.String(), votingPeriod, minExecutionPeriod)
 	} else {
+		// Threshold Policy (e.g., "3")
 		decisionPolicy = &group.ThresholdDecisionPolicy{
-			Threshold: msg.VoteThreshold,
+			Threshold: msg.VoteThreshold.TruncateInt().String(),
 			Windows: &group.DecisionPolicyWindows{
 				VotingPeriod:       votingPeriod,
 				MinExecutionPeriod: minExecutionPeriod,

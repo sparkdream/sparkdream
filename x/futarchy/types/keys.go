@@ -37,10 +37,10 @@ var (
 
 // Default parameter values
 var (
-	DefaultMinLiquidity       = math.NewInt(100000)  // Minimum 100,000 base units for market creation
-	DefaultMaxDuration        = int64(5256000)       // ~1 year in blocks (assuming 6s blocks)
-	DefaultMinTick            = math.NewInt(1000)    // Minimum trade size of 1000 base units
-	DefaultMaxRedemptionDelay = int64(5256000)       // Maximum ~1 year redemption delay
-	DefaultTradingFeeBps      = uint64(30)           // 0.3% trading fee (30 basis points)
-	DefaultMaxLmsrExponent    = "20"                 // Maximum exponent value for LMSR to prevent overflow
+	DefaultMinLiquidity       = math.NewInt(100000) // Minimum 100,000 base units for market creation
+	DefaultMaxDuration        = int64(5256000)      // ~1 year in blocks (assuming 6s blocks)
+	DefaultMinTick            = math.NewInt(1000)   // Minimum trade size of 1000 base units
+	DefaultMaxRedemptionDelay = int64(5256000)      // Maximum ~1 year redemption delay
+	DefaultTradingFeeBps      = uint64(30)          // 0.3% trading fee (30 basis points)
+	DefaultMaxLmsrExponent    = "20"                // Maximum exponent value for LMSR to prevent overflow
 )

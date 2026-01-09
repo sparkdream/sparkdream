@@ -31,10 +31,10 @@ func SimulateMsgTrade(
 		err := k.Market.Walk(ctx, nil, func(key uint64, market types.Market) (bool, error) {
 			if market.Status == "ACTIVE" && ctx.BlockHeight() < market.EndBlock {
 				// Safety Check: BValue must be sufficient to avoid LMSR numerical instability
-				bVal, err := math.LegacyNewDecFromStr(market.BValue)
-				if err != nil {
+				if market.BValue == nil {
 					return false, nil
 				}
+				bVal := *market.BValue
 				// Require B >= 1000 to ensure standard trades don't explode the cost function
 				if bVal.LT(math.LegacyNewDec(1000)) {
 					return false, nil
@@ -60,19 +60,24 @@ func SimulateMsgTrade(
 			}
 
 			endBlock := ctx.BlockHeight() + 100
+			bVal := math.LegacyMustNewDecFromStr("1000000")
+			zeroInt := math.ZeroInt()
+			minTick := math.NewInt(1000)
 
 			targetMarket = types.Market{
-				Index:    id,
-				Creator:  simAccount.Address.String(),
-				Symbol:   "SIMTRADE",
-				Denom:    "stake", // Default sim denom
-				Question: "Will this trade succeed?",
-				EndBlock: endBlock,
-				Status:   "ACTIVE",
-				BValue:   "1000000",
-				PoolYes:  "0",
-				PoolNo:   "0",
-				MinTick:  "1000",
+				Index:              id,
+				Creator:            simAccount.Address.String(),
+				Symbol:             "SIMTRADE",
+				Denom:              "stake", // Default sim denom
+				Question:           "Will this trade succeed?",
+				EndBlock:           endBlock,
+				Status:             "ACTIVE",
+				BValue:             &bVal,
+				PoolYes:            &zeroInt,
+				PoolNo:             &zeroInt,
+				MinTick:            &minTick,
+				InitialLiquidity:   &zeroInt,
+				LiquidityWithdrawn: &zeroInt,
 			}
 
 			if err := k.Market.Set(ctx, id, targetMarket); err != nil {
@@ -109,7 +114,11 @@ func SimulateMsgTrade(
 		// 4. Construct MsgTrade
 		// Cap trade amount to avoid numerical instability in LMSR (Exp function)
 		// Safe limit: AmountIn < 10 * BValue
-		bVal, _ := math.LegacyNewDecFromStr(targetMarket.BValue)
+		if targetMarket.BValue == nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "Invalid market state"), nil, nil
+		}
+		bVal := *targetMarket.BValue
+
 		safeCap := bVal.MulInt64(10).TruncateInt()
 
 		available := balance.Amount
@@ -134,7 +143,7 @@ func SimulateMsgTrade(
 			Creator:  simAccount.Address.String(),
 			MarketId: targetMarket.Index,
 			IsYes:    r.Intn(2) == 0,
-			AmountIn: tradeCoin.String(),
+			AmountIn: &tradeCoin.Amount,
 		}
 
 		opMsg := simulation.OperationInput{

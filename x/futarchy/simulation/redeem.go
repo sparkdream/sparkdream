@@ -59,21 +59,27 @@ func SimulateMsgRedeem(
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), "Error generating market ID"), nil, err
 			}
 
+			bVal := math.LegacyMustNewDecFromStr("1000")
+			zeroInt := math.ZeroInt()
+			minTick := math.NewInt(1000)
+
 			// Create Market
 			targetMarket = types.Market{
-				Index:            id,
-				Denom:            "stake", // Default sim denom
-				Creator:          simAccount.Address.String(),
-				Symbol:           "SIM",
-				Question:         "Simulation Question",
-				EndBlock:         ctx.BlockHeight(),
-				RedemptionBlocks: 0,
-				ResolutionHeight: ctx.BlockHeight(),
-				Status:           "RESOLVED_YES",
-				BValue:           "1000",
-				PoolYes:          "0",
-				PoolNo:           "0",
-				MinTick:          "1000",
+				Index:              id,
+				Denom:              "stake", // Default sim denom
+				Creator:            simAccount.Address.String(),
+				Symbol:             "SIM",
+				Question:           "Simulation Question",
+				EndBlock:           ctx.BlockHeight(),
+				RedemptionBlocks:   0,
+				ResolutionHeight:   ctx.BlockHeight(),
+				Status:             "RESOLVED_YES",
+				BValue:             &bVal,
+				PoolYes:            &zeroInt,
+				PoolNo:             &zeroInt,
+				MinTick:            &minTick,
+				InitialLiquidity:   &zeroInt,
+				LiquidityWithdrawn: &zeroInt,
 			}
 
 			if err := k.Market.Set(ctx, id, targetMarket); err != nil {

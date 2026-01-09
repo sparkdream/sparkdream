@@ -5,6 +5,7 @@ import (
 	"time"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
@@ -52,14 +53,10 @@ func (k msgServer) SpendFromCommons(goCtx context.Context, msg *types.MsgSpendFr
 	// 5. CHECK: Rate Limit (Cap per Transaction)
 	// Note: Ideally we track "Amount Spent This Epoch", but as a baseline safety,
 	// we ensure this single transaction does not exceed the limit.
-	if extGroup.MaxSpendPerEpoch != "" {
-		limitCoin, err := sdk.ParseCoinNormalized(extGroup.MaxSpendPerEpoch)
-		if err != nil {
-			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid max spend config: %s", err)
-		}
-
+	if extGroup.MaxSpendPerEpoch != nil && extGroup.MaxSpendPerEpoch.GT(math.NewInt(0)) {
 		// Check if the request exceeds the limit
 		// We use IsAnyGT because msg.Amount is sdk.Coins (could be multiple denoms)
+		limitCoin := sdk.NewCoin("uspark", *extGroup.MaxSpendPerEpoch)
 		if !limitCoin.IsZero() && msg.Amount.IsAnyGT(sdk.NewCoins(limitCoin)) {
 			return nil, errorsmod.Wrapf(types.ErrRateLimitExceeded,
 				"spend request %s exceeds group limit of %s", msg.Amount, limitCoin)

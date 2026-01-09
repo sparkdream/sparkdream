@@ -42,7 +42,7 @@ func SimulateMsgCreateMarket(
 			Creator:          simAccount.Address.String(),
 			Symbol:           simtypes.RandStringOfLength(r, 5),
 			Question:         simtypes.RandStringOfLength(r, 20),
-			InitialLiquidity: liquidity.String(),
+			InitialLiquidity: &liquidity.Amount,
 			EndBlock:         ctx.BlockHeight() + int64(r.Intn(100)+10), // At least 10 blocks in future
 		}
 

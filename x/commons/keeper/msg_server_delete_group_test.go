@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 
+	"cosmossdk.io/math"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -50,12 +51,13 @@ func TestMsgDeleteGroup(t *testing.T) {
 
 	// 3. Register in x/commons
 	groupName := "Disposable DAO"
+	maxSpendPerEpoch := math.NewInt(100)
 	extendedGroup := types.ExtendedGroup{
 		GroupId:             childRes.GroupId,
 		PolicyAddress:       childPolicyAddr,
 		ParentPolicyAddress: parent.String(), // The Recorded Parent
 		FundingWeight:       10,
-		MaxSpendPerEpoch:    "100uspark",
+		MaxSpendPerEpoch:    &maxSpendPerEpoch,
 	}
 	require.NoError(t, k.ExtendedGroup.Set(ctx, groupName, extendedGroup))
 

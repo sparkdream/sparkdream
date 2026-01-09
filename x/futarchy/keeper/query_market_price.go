@@ -32,29 +32,24 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market %d is not active (status: %s)", req.MarketId, market.Status)
 	}
 
-	// Parse market state
-	bValue, err := math.LegacyNewDecFromStr(market.BValue)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid BValue in state")
-	}
-	poolYes, err := math.LegacyNewDecFromStr(market.PoolYes)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid PoolYes in state")
-	}
-	poolNo, err := math.LegacyNewDecFromStr(market.PoolNo)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid PoolNo in state")
-	}
+	// 1. Setup Math Variables
+	bValue := *market.BValue
 
-	// Parse amount (default to 1000 if not provided)
+	// PoolYes/PoolNo are *math.Int -> Convert to LegacyDec for LMSR logic
+	poolYes := math.LegacyNewDecFromInt(*market.PoolYes)
+	poolNo := math.LegacyNewDecFromInt(*market.PoolNo)
+
+	// 2. Parse Amount
 	var amountIn math.Int
-	if req.Amount == "" {
+
+	if req.Amount == nil || req.Amount.IsNil() {
+		// Default to 1000 if not provided (e.g., simulating a small trade)
 		amountIn = math.NewInt(1000)
 	} else {
-		var ok bool
-		amountIn, ok = math.NewIntFromString(req.Amount)
-		if !ok {
-			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "invalid amount")
+		// Dereference pointer
+		amountIn = *req.Amount
+		if amountIn.IsNegative() {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "amount cannot be negative")
 		}
 	}
 
@@ -104,8 +99,12 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 		price = math.LegacyZeroDec()
 	}
 
+	// Convert sharesOut (Dec) to Int for the response
+	sharesOutInt := sharesOut.TruncateInt()
+
+	// Return pointers to the math objects, not strings
 	return &types.QueryGetMarketPriceResponse{
-		Price:     price.String(),
-		SharesOut: sharesOut.String(),
+		Price:     &price,
+		SharesOut: &sharesOutInt,
 	}, nil
 }

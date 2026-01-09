@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"testing"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -17,12 +18,13 @@ import (
 func createNExtendedGroup(keeper keeper.Keeper, ctx context.Context, n int) []types.ExtendedGroup {
 	items := make([]types.ExtendedGroup, n)
 	for i := range items {
+		maxSpendPerEpoch := math.NewInt(int64(i))
 		items[i].Index = strconv.Itoa(i)
 		items[i].GroupId = uint64(i)
 		items[i].PolicyAddress = strconv.Itoa(i)
 		items[i].ParentPolicyAddress = strconv.Itoa(i)
 		items[i].FundingWeight = uint64(i)
-		items[i].MaxSpendPerEpoch = strconv.Itoa(i)
+		items[i].MaxSpendPerEpoch = &maxSpendPerEpoch
 		items[i].UpdateCooldown = int64(i)
 		items[i].FutarchyEnabled = true
 		items[i].MinMembers = uint64(i)

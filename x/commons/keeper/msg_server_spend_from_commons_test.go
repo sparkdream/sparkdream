@@ -37,9 +37,10 @@ func TestSpendFromCommons(t *testing.T) {
 	now := ctx.BlockTime().Unix()
 
 	// A. Valid Council (Active, 1000 limit)
+	maxSpendPerEpoch := math.NewInt(1000)
 	validGroup := types.ExtendedGroup{
 		PolicyAddress:         councilAddr.String(),
-		MaxSpendPerEpoch:      "1000uspark",
+		MaxSpendPerEpoch:      &maxSpendPerEpoch,
 		ActivationTime:        0,
 		CurrentTermExpiration: now + 3600, // Valid for 1 hour
 	}

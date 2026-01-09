@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"sparkdream/testutil"
 	"sparkdream/x/futarchy/keeper"
 	"sparkdream/x/futarchy/types"
 
@@ -28,10 +29,25 @@ func TestMsgCreateMarket(t *testing.T) {
 				Creator:          alice.String(),
 				Symbol:           "PROP-42",
 				Question:         "Will governance proposal #42 pass?",
-				InitialLiquidity: "100000uspark",
+				InitialLiquidity: testutil.IntPtr(100000),
 				EndBlock:         110, // Current height assumed 10 (initFixture default? We will check ctx)
 			},
 			expectErr: false,
+			checkState: func(t *testing.T, k keeper.Keeper, m *MockBankKeeper, ctx context.Context, res *types.MsgCreateMarketResponse) {
+				// 1. Verify Market Exists in Store
+				market, err := k.Market.Get(ctx, res.MarketId)
+				require.NoError(t, err)
+				require.Equal(t, "PROP-42", market.Symbol)
+				require.Equal(t, "ACTIVE", market.Status)
+				require.NotNil(t, market.InitialLiquidity)
+				require.True(t, math.NewInt(100000).Equal(*market.InitialLiquidity), "Initial liquidity should be 100000")
+
+				// 2. Verify Alice's Balance Deducted
+				// Alice started with 100,000 and used 100,000 for liquidity. Balance should be 0.
+				balance := m.GetBalance(ctx, alice, "uspark")
+
+				require.True(t, balance.Amount.IsZero(), "Alice's balance should be empty after creating market")
+			},
 		},
 		{
 			name: "Error - Insufficient Funds",
@@ -39,7 +55,7 @@ func TestMsgCreateMarket(t *testing.T) {
 				Creator:          alice.String(),
 				Symbol:           "BROKE",
 				Question:         "Am I broke?",
-				InitialLiquidity: "999999uspark", // More than alice has
+				InitialLiquidity: testutil.IntPtr(999999), // More than alice has
 				EndBlock:         1000,
 			},
 			expectErr: true,
@@ -50,10 +66,8 @@ func TestMsgCreateMarket(t *testing.T) {
 				Creator:          alice.String(),
 				Symbol:           "INVALID-TIME",
 				Question:         "Time travel?",
-				InitialLiquidity: "1000uspark",
-				// In test loop, we set context height. We'll set it to 10.
-				// So 10 is invalid.
-				EndBlock: 10,
+				InitialLiquidity: testutil.IntPtr(1000),
+				EndBlock:         10, // Equal to current height (10)
 			},
 			expectErr: true,
 		},
@@ -63,18 +77,41 @@ func TestMsgCreateMarket(t *testing.T) {
 				Creator:          alice.String(),
 				Symbol:           "INVALID-PAST",
 				Question:         "Past?",
-				InitialLiquidity: "1000uspark",
+				InitialLiquidity: testutil.IntPtr(1000),
 				EndBlock:         5, // 5 < 10
 			},
 			expectErr: true,
 		},
 		{
-			name: "Error - Invalid Liquidity Coin",
+			name: "Error - Invalid Liquidity Coin (Nil)",
 			msg: types.MsgCreateMarket{
 				Creator:          alice.String(),
-				Symbol:           "BAD-COIN",
-				Question:         "Bad money?",
-				InitialLiquidity: "invalid-coin-format",
+				Symbol:           "NIL-COIN",
+				Question:         "Nil money?",
+				InitialLiquidity: nil,
+				EndBlock:         1000,
+			},
+			expectErr: true,
+		},
+		{
+			name: "Error - Negative Liquidity",
+			msg: types.MsgCreateMarket{
+				Creator:          alice.String(),
+				Symbol:           "NEG-COIN",
+				Question:         "Negative money?",
+				InitialLiquidity: testutil.IntPtr(-100),
+				EndBlock:         1000,
+			},
+			expectErr: true,
+		},
+		{
+			name: "Error - Below Min Liquidity",
+			msg: types.MsgCreateMarket{
+				Creator:  alice.String(),
+				Symbol:   "TINY",
+				Question: "Too small?",
+				// Assuming default params set min liquidity > 1
+				InitialLiquidity: testutil.IntPtr(1),
 				EndBlock:         1000,
 			},
 			expectErr: true,
@@ -85,7 +122,7 @@ func TestMsgCreateMarket(t *testing.T) {
 				Creator:          "invalid-address",
 				Symbol:           "BAD-ADDR",
 				Question:         "Who am I?",
-				InitialLiquidity: "1000uspark",
+				InitialLiquidity: testutil.IntPtr(1000),
 				EndBlock:         1000,
 			},
 			expectErr: true,

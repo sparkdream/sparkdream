@@ -61,23 +61,25 @@ func (k Keeper) CreateMarketInternal(ctx sdk.Context, creator sdk.AccAddress, sy
 
 	// 4. Initialize Market
 	endBlock := ctx.BlockHeight() + durationBlocks
+	zeroInt := math.ZeroInt()
 
 	market := types.Market{
-		Index:              id,
-		Denom:              liquidity.Denom,
-		Creator:            creator.String(),
-		Symbol:             symbol,
-		Question:           question,
-		EndBlock:           endBlock,
-		RedemptionBlocks:   redemptionBlocks,
-		ResolutionHeight:   0,
-		BValue:             bValue.String(),
-		PoolYes:            "0",
-		PoolNo:             "0",
-		MinTick:            params.DefaultMinTick.String(),
+		Index:            id,
+		Denom:            liquidity.Denom,
+		Creator:          creator.String(),
+		Symbol:           symbol,
+		Question:         question,
+		EndBlock:         endBlock,
+		RedemptionBlocks: redemptionBlocks,
+		ResolutionHeight: 0,
+
+		BValue:             &bValue,
+		PoolYes:            &zeroInt,
+		PoolNo:             &zeroInt,
+		MinTick:            &params.DefaultMinTick,
 		Status:             "ACTIVE",
-		InitialLiquidity:   liquidity.Amount.String(),
-		LiquidityWithdrawn: "0",
+		InitialLiquidity:   &liquidity.Amount,
+		LiquidityWithdrawn: &zeroInt,
 	}
 
 	// 5. Save Market

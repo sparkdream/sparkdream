@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"sparkdream/testutil"
 	"sparkdream/x/futarchy/keeper"
 	"sparkdream/x/futarchy/types"
 
@@ -30,18 +31,20 @@ func TestMsgTrade(t *testing.T) {
 				Index:  1,
 				Status: "ACTIVE",
 				// b = 1000 / ln(2) ≈ 1442.69
-				BValue:   "1442.695040888963407360",
-				PoolYes:  "0",
-				PoolNo:   "0",
-				MinTick:  "10",
-				Denom:    "uspark",
-				Creator:  "creator",
-				EndBlock: 1000,
+				BValue:             testutil.DecPtr("1442.695040888963407360"),
+				PoolYes:            testutil.IntPtr(0),
+				PoolNo:             testutil.IntPtr(0),
+				MinTick:            testutil.IntPtr(10),
+				Denom:              "uspark",
+				Creator:            "creator",
+				EndBlock:           1000,
+				InitialLiquidity:   testutil.IntPtr(1000),
+				LiquidityWithdrawn: testutil.IntPtr(0),
 			},
 			msg: types.MsgTrade{
 				Creator:  alice.String(),
 				MarketId: 1,
-				AmountIn: "1000uspark",
+				AmountIn: testutil.IntPtr(1000), // Just the amount, Denom comes from Market
 				IsYes:    true,
 			},
 			expectErr: false,
@@ -53,8 +56,7 @@ func TestMsgTrade(t *testing.T) {
 
 				// 2. Verify Alice received shares
 				// SharesOut from response
-				sharesOutDec, _ := math.LegacyNewDecFromStr(res.SharesOut)
-				sharesOutInt := sharesOutDec.TruncateInt()
+				sharesOutInt := *res.SharesOut
 
 				shares := m.GetBalance(ctx, alice, "f/1/yes")
 				require.Equal(t, sharesOutInt, shares.Amount, "Alice should have received correct YES shares")
@@ -64,20 +66,22 @@ func TestMsgTrade(t *testing.T) {
 		{
 			name: "Success - Buy NO",
 			market: types.Market{
-				Index:    2,
-				Status:   "ACTIVE",
-				BValue:   "1442.695040888963407360",
-				PoolYes:  "0",
-				PoolNo:   "0",
-				MinTick:  "10",
-				Denom:    "uspark",
-				Creator:  "creator",
-				EndBlock: 1000,
+				Index:              2,
+				Status:             "ACTIVE",
+				BValue:             testutil.DecPtr("1442.695040888963407360"),
+				PoolYes:            testutil.IntPtr(0),
+				PoolNo:             testutil.IntPtr(0),
+				MinTick:            testutil.IntPtr(10),
+				Denom:              "uspark",
+				Creator:            "creator",
+				EndBlock:           1000,
+				InitialLiquidity:   testutil.IntPtr(1000),
+				LiquidityWithdrawn: testutil.IntPtr(0),
 			},
 			msg: types.MsgTrade{
 				Creator:  alice.String(),
 				MarketId: 2,
-				AmountIn: "500uspark",
+				AmountIn: testutil.IntPtr(500),
 				IsYes:    false,
 			},
 			expectErr: false,
@@ -87,8 +91,7 @@ func TestMsgTrade(t *testing.T) {
 				require.Equal(t, math.NewInt(999500), balance.Amount)
 
 				// 2. Verify Alice received NO shares
-				sharesOutDec, _ := math.LegacyNewDecFromStr(res.SharesOut)
-				sharesOutInt := sharesOutDec.TruncateInt()
+				sharesOutInt := *res.SharesOut
 
 				shares := m.GetBalance(ctx, alice, "f/2/no")
 				require.Equal(t, sharesOutInt, shares.Amount)
@@ -102,7 +105,7 @@ func TestMsgTrade(t *testing.T) {
 			msg: types.MsgTrade{
 				Creator:  alice.String(),
 				MarketId: 999, // ID doesn't exist
-				AmountIn: "1000uspark",
+				AmountIn: testutil.IntPtr(1000),
 				IsYes:    true,
 			},
 			expectErr: true,
@@ -113,17 +116,19 @@ func TestMsgTrade(t *testing.T) {
 			market: types.Market{
 				Index:   4,
 				Status:  "ACTIVE",
-				BValue:  "1000",
-				PoolYes: "0",
-				PoolNo:  "0",
+				BValue:  testutil.DecPtr("1000"),
+				PoolYes: testutil.IntPtr(0),
+				PoolNo:  testutil.IntPtr(0),
 				// Set a high MinTick to trigger error
-				MinTick: "1000000",
-				Denom:   "uspark",
+				MinTick:            testutil.IntPtr(1000000),
+				Denom:              "uspark",
+				InitialLiquidity:   testutil.IntPtr(1000),
+				LiquidityWithdrawn: testutil.IntPtr(0),
 			},
 			msg: types.MsgTrade{
 				Creator:  alice.String(),
 				MarketId: 4,
-				AmountIn: "10uspark", // 10 < 1000000
+				AmountIn: testutil.IntPtr(10), // 10 < 1000000
 				IsYes:    true,
 			},
 			expectErr: true,
@@ -132,38 +137,40 @@ func TestMsgTrade(t *testing.T) {
 		{
 			name: "Error - Market Not Active",
 			market: types.Market{
-				Index:   6,
-				Status:  "RESOLVED_YES",
-				BValue:  "1000",
-				PoolYes: "0",
-				PoolNo:  "0",
-				MinTick: "1",
-				Denom:   "uspark",
+				Index:              6,
+				Status:             "RESOLVED_YES",
+				BValue:             testutil.DecPtr("1000"),
+				PoolYes:            testutil.IntPtr(0),
+				PoolNo:             testutil.IntPtr(0),
+				MinTick:            testutil.IntPtr(1),
+				Denom:              "uspark",
+				InitialLiquidity:   testutil.IntPtr(1000),
+				LiquidityWithdrawn: testutil.IntPtr(0),
 			},
 			msg: types.MsgTrade{
 				Creator:  alice.String(),
 				MarketId: 6,
-				AmountIn: "1000uspark",
+				AmountIn: testutil.IntPtr(1000),
 				IsYes:    true,
 			},
 			expectErr: true,
 			errMsg:    "is not active",
 		},
 		{
-			name: "Error - Invalid Coin Format",
+			name: "Error - Invalid Trade Amount",
 			market: types.Market{
 				Index:   5,
 				Status:  "ACTIVE",
-				BValue:  "1000",
-				PoolYes: "0",
-				PoolNo:  "0",
-				MinTick: "1",
+				BValue:  testutil.DecPtr("1000"),
+				PoolYes: testutil.IntPtr(0),
+				PoolNo:  testutil.IntPtr(0),
+				MinTick: testutil.IntPtr(1),
 				Denom:   "uspark",
 			},
 			msg: types.MsgTrade{
 				Creator:  alice.String(),
 				MarketId: 5,
-				AmountIn: "invalid-coin",
+				AmountIn: nil,
 				IsYes:    true,
 			},
 			expectErr: true,
@@ -182,7 +189,8 @@ func TestMsgTrade(t *testing.T) {
 
 			// 2. Setup Market State
 			// Only save if the test case actually defines a valid index
-			if tc.market.Index > 0 && tc.market.BValue != "" && tc.name != "Error - Market Not Found" {
+			// Check against nil pointer for BValue to determine if market is "real" in this test struct
+			if tc.market.Index > 0 && tc.market.BValue != nil && tc.name != "Error - Market Not Found" {
 				err := f.keeper.Market.Set(ctx, tc.market.Index, tc.market)
 				require.NoError(t, err)
 			}
@@ -201,9 +209,7 @@ func TestMsgTrade(t *testing.T) {
 				require.NotNil(t, res)
 
 				// A. Verify Shares Output
-				shares, err := math.LegacyNewDecFromStr(res.SharesOut)
-				require.NoError(t, err)
-				require.True(t, shares.IsPositive(), "shares out should be positive")
+				require.True(t, res.SharesOut.IsPositive(), "shares out should be positive")
 
 				// B. Verify Market State Update
 				updatedMarket, err := f.keeper.Market.Get(ctx, tc.market.Index)
@@ -211,16 +217,16 @@ func TestMsgTrade(t *testing.T) {
 
 				if tc.msg.IsYes {
 					// Check PoolYes Increased
-					oldYes, _ := math.LegacyNewDecFromStr(tc.market.PoolYes)
-					newYes, _ := math.LegacyNewDecFromStr(updatedMarket.PoolYes)
-					require.True(t, newYes.GT(oldYes), "PoolYes should increase")
+					oldYes := tc.market.PoolYes
+					newYes := updatedMarket.PoolYes
+					require.True(t, newYes.GT(*oldYes), "PoolYes should increase")
 				} else {
 					// Check PoolNo Increased
-					oldNo, _ := math.LegacyNewDecFromStr(tc.market.PoolNo)
-					newNo, _ := math.LegacyNewDecFromStr(updatedMarket.PoolNo)
-					require.True(t, newNo.GT(oldNo), "PoolNo should increase")
+					oldNo := tc.market.PoolNo
+					newNo := updatedMarket.PoolNo
+					require.True(t, newNo.GT(*oldNo), "PoolNo should increase")
 				}
-				
+
 				// C. Custom State Checks (Balance verification)
 				if tc.checkState != nil {
 					tc.checkState(t, f.bankKeeper, f.ctx, res)

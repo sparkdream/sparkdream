@@ -8,7 +8,6 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -56,26 +55,12 @@ func (k msgServer) CancelMarket(goCtx context.Context, msg *types.MsgCancelMarke
 
 	// Refund remaining liquidity to creator
 	// Calculate how much liquidity is left in the market
-	poolYes, err := math.LegacyNewDecFromStr(market.PoolYes)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid PoolYes in state")
-	}
-	poolNo, err := math.LegacyNewDecFromStr(market.PoolNo)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid PoolNo in state")
-	}
-	initialLiquidity, ok := math.NewIntFromString(market.InitialLiquidity)
-	if !ok {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid InitialLiquidity in state")
-	}
-
 	// Total shares minted = poolYes + poolNo
-	totalShares := poolYes.Add(poolNo)
-	totalSharesInt := totalShares.TruncateInt()
+	totalShares := market.PoolYes.Add(*market.PoolNo)
 
 	// Liquidity to refund = initial_liquidity - total_shares_minted
 	// (since each share minted required 1 unit of liquidity from users)
-	liquidityToRefund := initialLiquidity.Sub(totalSharesInt)
+	liquidityToRefund := market.InitialLiquidity.Sub(totalShares)
 
 	if liquidityToRefund.IsPositive() {
 		creatorAddr, err := sdk.AccAddressFromBech32(market.Creator)

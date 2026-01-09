@@ -20,12 +20,20 @@ func TestGenesisState_Validate(t *testing.T) {
 			valid:    true,
 		},
 		{
-			desc:     "valid genesis state",
-			genState: &types.GenesisState{MarketMap: []types.Market{{Index: 0}, {Index: 1}}},
-			valid:    true,
-		}, {
+			desc: "valid genesis state",
+			// Initialize Params using DefaultParams(), otherwise MinLiquidity is 0 (invalid)
+			genState: &types.GenesisState{
+				Params:    types.DefaultParams(),
+				MarketMap: []types.Market{{Index: 0}, {Index: 1}},
+			},
+			valid: true,
+		},
+		{
 			desc: "duplicated market",
 			genState: &types.GenesisState{
+				// Params not strictly needed here because duplicate check happens first,
+				// but good practice to include them.
+				Params: types.DefaultParams(),
 				MarketMap: []types.Market{
 					{
 						Index: 0,

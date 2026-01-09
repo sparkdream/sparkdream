@@ -8,7 +8,6 @@ import (
 	"sparkdream/x/futarchy/keeper"
 
 	"cosmossdk.io/collections"
-	cosmomath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -40,8 +39,8 @@ func EndBlocker(ctx context.Context, k keeper.Keeper) error {
 		}
 
 		// 3. Resolve Market
-		poolYes, _ := cosmomath.LegacyNewDecFromStr(market.PoolYes)
-		poolNo, _ := cosmomath.LegacyNewDecFromStr(market.PoolNo)
+		poolYes := *market.PoolYes
+		poolNo := *market.PoolNo
 		resolution := "RESOLVED_INVALID"
 
 		if poolYes.IsZero() && poolNo.IsZero() {

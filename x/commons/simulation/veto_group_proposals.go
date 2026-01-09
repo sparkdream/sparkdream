@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"time"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -70,13 +71,14 @@ func SimulateMsgVetoGroupProposals(
 		// We set ParentPolicyAddress to the simAccount so it is authorized to sign the Veto message.
 		groupName := "sim_veto_target_" + simtypes.RandStringOfLength(r, 5)
 
+		maxSpendPerEpoch := math.NewInt(1000)
 		targetGroup := types.ExtendedGroup{
 			GroupId:             groupRes.GroupId,
 			PolicyAddress:       policyRes.Address,
 			ParentPolicyAddress: simAccount.Address.String(), // AUTHORIZATION PASS: SimAccount is the Parent
 			FundingWeight:       0,
 			FutarchyEnabled:     false,
-			MaxSpendPerEpoch:    "1000uspark",
+			MaxSpendPerEpoch:    &maxSpendPerEpoch,
 		}
 
 		if err := k.ExtendedGroup.Set(ctx, groupName, targetGroup); err != nil {

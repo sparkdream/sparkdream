@@ -13,6 +13,7 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
+	"sparkdream/testutil"
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
@@ -97,6 +98,7 @@ func SimulateMsgRegisterGroup(
 			threshold = fmt.Sprintf("%.2f", pVal)
 		}
 
+		maxSpendPerEpoch := math.NewInt(0)
 		msg := &types.MsgRegisterGroup{
 			Authority:          simAccount.Address.String(),
 			Name:               "sim-group-" + simtypes.RandStringOfLength(r, 5),
@@ -106,17 +108,18 @@ func SimulateMsgRegisterGroup(
 			MinMembers:         uint64(numMembers),
 			MaxMembers:         uint64(numMembers + 2),
 			TermDuration:       int64(simtypes.RandIntBetween(r, 86400, 86400*30)),
-			VoteThreshold:      threshold,
+			VoteThreshold:      testutil.DecPtr(threshold),
 			PolicyType:         policyType,
 			VotingPeriod:       int64(simtypes.RandIntBetween(r, 3600, 86400)),
 			MinExecutionPeriod: 0,
 			UpdateCooldown:     int64(simtypes.RandIntBetween(r, 0, 3600)),
 			FundingWeight:      uint64(simtypes.RandIntBetween(r, 0, 100)),
-			MaxSpendPerEpoch:   "",
+			MaxSpendPerEpoch:   &maxSpendPerEpoch,
 		}
 
 		if r.Intn(2) == 0 {
-			msg.MaxSpendPerEpoch = "1000stake"
+			maxSpendPerEpoch := math.NewInt(1000000000)
+			msg.MaxSpendPerEpoch = &maxSpendPerEpoch
 		}
 
 		// 5. Construct OperationInput (Updated for v0.53.4)

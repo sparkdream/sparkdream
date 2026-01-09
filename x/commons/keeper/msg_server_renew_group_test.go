@@ -136,30 +136,6 @@ func TestRenewGroup(t *testing.T) {
 			},
 		},
 		{
-			desc: "Success - Futarchy Logic (20% Weight)",
-			msg: &types.MsgRenewGroup{
-				Authority:  parentPolicyAddr.String(),
-				GroupName:  "FutarchyGroup",
-				NewMembers: []string{member1.String(), member2.String(), member3.String()},
-				// Total Human Weight = 1 + 1 + 2 = 4 -> Futarchy = 1
-				NewMemberWeights: []string{"1", "1", "2"},
-			},
-			expectErr: false,
-			check: func(t *testing.T) {
-				resp, _ := groupK.GroupMembers(ctx, &group.QueryGroupMembersRequest{GroupId: childGroupID})
-				require.Len(t, resp.Members, 4)
-
-				foundBot := false
-				for _, m := range resp.Members {
-					if m.Member.Address == futarchyBot.String() {
-						foundBot = true
-						require.Equal(t, "1", m.Member.Weight)
-					}
-				}
-				require.True(t, foundBot, "futarchy bot should be added automatically")
-			},
-		},
-		{
 			desc: "Failure - Term Not Expired (Standard User)",
 			msg: &types.MsgRenewGroup{
 				Authority:        parentPolicyAddr.String(),

@@ -35,31 +35,18 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market must be resolved before withdrawing liquidity (current status: %s)", market.Status)
 	}
 
-	// Parse market state
-	poolYes, err := math.LegacyNewDecFromStr(market.PoolYes)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid PoolYes in state")
-	}
-	poolNo, err := math.LegacyNewDecFromStr(market.PoolNo)
-	if err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid PoolNo in state")
-	}
-	initialLiquidity, ok := math.NewIntFromString(market.InitialLiquidity)
-	if !ok {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid InitialLiquidity in state")
-	}
-	liquidityWithdrawn, ok := math.NewIntFromString(market.LiquidityWithdrawn)
-	if !ok {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "Invalid LiquidityWithdrawn in state")
-	}
+	// Get market state
+	poolYes := *market.PoolYes
+	poolNo := *market.PoolNo
+	initialLiquidity := *market.InitialLiquidity
+	liquidityWithdrawn := *market.LiquidityWithdrawn
 
 	// Calculate total shares minted
 	totalShares := poolYes.Add(poolNo)
-	totalSharesInt := totalShares.TruncateInt()
 
 	// Calculate available liquidity
 	// Formula: initial_liquidity - total_shares_minted - already_withdrawn
-	availableLiquidity := initialLiquidity.Sub(totalSharesInt).Sub(liquidityWithdrawn)
+	availableLiquidity := initialLiquidity.Sub(totalShares).Sub(liquidityWithdrawn)
 
 	if availableLiquidity.LTE(math.ZeroInt()) {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "No liquidity available to withdraw")
@@ -67,7 +54,7 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 
 	// Update market state
 	newWithdrawn := liquidityWithdrawn.Add(availableLiquidity)
-	market.LiquidityWithdrawn = newWithdrawn.String()
+	market.LiquidityWithdrawn = &newWithdrawn
 
 	if err := k.Market.Set(ctx, msg.MarketId, market); err != nil {
 		return nil, err
@@ -95,6 +82,6 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 	)
 
 	return &types.MsgWithdrawLiquidityResponse{
-		Amount: availableLiquidity.String(),
+		Amount: &availableLiquidity,
 	}, nil
 }

@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	"sparkdream/testutil"
 	"sparkdream/x/futarchy/keeper"
 	"sparkdream/x/futarchy/types"
 
@@ -38,22 +39,18 @@ func TestGetMarketPrice(t *testing.T) {
 			req: &types.QueryGetMarketPriceRequest{
 				MarketId: marketId,
 				IsYes:    true,
-				Amount:   "",
+				Amount:   nil, // Defaults to 1000 in logic
 			},
 			expectErr: false,
 			validate: func(resp *types.QueryGetMarketPriceResponse) {
-				require.NotEmpty(t, resp.Price)
-				require.NotEmpty(t, resp.SharesOut)
+				require.NotNil(t, resp.Price)
+				require.NotNil(t, resp.SharesOut)
 
-				// Verify price is a valid decimal
-				price, err := math.LegacyNewDecFromStr(resp.Price)
-				require.NoError(t, err)
-				require.True(t, price.GT(math.LegacyZeroDec()))
+				// Verify price (already *math.LegacyDec)
+				require.True(t, resp.Price.GT(math.LegacyZeroDec()))
 
-				// Verify shares out is a valid decimal
-				shares, err := math.LegacyNewDecFromStr(resp.SharesOut)
-				require.NoError(t, err)
-				require.True(t, shares.GT(math.LegacyZeroDec()))
+				// Verify shares out (already *math.Int)
+				require.True(t, resp.SharesOut.IsPositive())
 			},
 		},
 		{
@@ -61,20 +58,15 @@ func TestGetMarketPrice(t *testing.T) {
 			req: &types.QueryGetMarketPriceRequest{
 				MarketId: marketId,
 				IsYes:    false,
-				Amount:   "",
+				Amount:   nil,
 			},
 			expectErr: false,
 			validate: func(resp *types.QueryGetMarketPriceResponse) {
-				require.NotEmpty(t, resp.Price)
-				require.NotEmpty(t, resp.SharesOut)
+				require.NotNil(t, resp.Price)
+				require.NotNil(t, resp.SharesOut)
 
-				price, err := math.LegacyNewDecFromStr(resp.Price)
-				require.NoError(t, err)
-				require.True(t, price.GT(math.LegacyZeroDec()))
-
-				shares, err := math.LegacyNewDecFromStr(resp.SharesOut)
-				require.NoError(t, err)
-				require.True(t, shares.GT(math.LegacyZeroDec()))
+				require.True(t, resp.Price.GT(math.LegacyZeroDec()))
+				require.True(t, resp.SharesOut.IsPositive())
 			},
 		},
 		{
@@ -82,34 +74,32 @@ func TestGetMarketPrice(t *testing.T) {
 			req: &types.QueryGetMarketPriceRequest{
 				MarketId: marketId,
 				IsYes:    true,
-				Amount:   "5000",
+				Amount:   testutil.IntPtr(5000),
 			},
 			expectErr: false,
 			validate: func(resp *types.QueryGetMarketPriceResponse) {
-				require.NotEmpty(t, resp.Price)
-				require.NotEmpty(t, resp.SharesOut)
+				require.NotNil(t, resp.Price)
+				require.NotNil(t, resp.SharesOut)
 
-				price, err := math.LegacyNewDecFromStr(resp.Price)
-				require.NoError(t, err)
-				require.True(t, price.GT(math.LegacyZeroDec()))
+				require.True(t, resp.Price.GT(math.LegacyZeroDec()))
 			},
 		},
 		{
-			name: "Error - Invalid amount",
+			name: "Error - Negative amount",
 			req: &types.QueryGetMarketPriceRequest{
 				MarketId: marketId,
 				IsYes:    true,
-				Amount:   "invalid",
+				Amount:   testutil.IntPtr(-100), // Negative check
 			},
 			expectErr: true,
-			errMsg:    "invalid amount",
+			errMsg:    "amount cannot be negative",
 		},
 		{
 			name: "Error - Non-existent market",
 			req: &types.QueryGetMarketPriceRequest{
 				MarketId: 9999,
 				IsYes:    true,
-				Amount:   "",
+				Amount:   nil,
 			},
 			expectErr: true,
 			errMsg:    "not found",
@@ -122,7 +112,9 @@ func TestGetMarketPrice(t *testing.T) {
 
 			if tt.expectErr {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), tt.errMsg)
+				if tt.errMsg != "" {
+					require.Contains(t, err.Error(), tt.errMsg)
+				}
 				require.Nil(t, resp)
 			} else {
 				require.NoError(t, err)
@@ -174,7 +166,7 @@ func TestGetMarketPrice_InactiveMarket(t *testing.T) {
 	resp, err := queryServer.GetMarketPrice(ctx, &types.QueryGetMarketPriceRequest{
 		MarketId: marketId,
 		IsYes:    true,
-		Amount:   "",
+		Amount:   nil,
 	})
 
 	require.Error(t, err)
@@ -202,21 +194,16 @@ func TestGetMarketPrice_LargeAmount(t *testing.T) {
 	resp, err := queryServer.GetMarketPrice(ctx, &types.QueryGetMarketPriceRequest{
 		MarketId: marketId,
 		IsYes:    true,
-		Amount:   "50000", // Large relative to liquidity
+		Amount:   testutil.IntPtr(50000), // Large relative to liquidity
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
 	// Price should be valid and positive
-	price, err := math.LegacyNewDecFromStr(resp.Price)
-	require.NoError(t, err)
-	require.True(t, price.GT(math.LegacyZeroDec()))
-
+	require.True(t, resp.Price.GT(math.LegacyZeroDec()))
 	// Shares out should be positive
-	shares, err := math.LegacyNewDecFromStr(resp.SharesOut)
-	require.NoError(t, err)
-	require.True(t, shares.GT(math.LegacyZeroDec()))
+	require.True(t, resp.SharesOut.IsPositive())
 }
 
 func TestGetMarketPrice_ComparePricesYesVsNo(t *testing.T) {
@@ -234,7 +221,7 @@ func TestGetMarketPrice_ComparePricesYesVsNo(t *testing.T) {
 	marketId, err := f.keeper.CreateMarketInternal(ctx, creator, "TEST", "Test Market", 1000, 0, liquidity)
 	require.NoError(t, err)
 
-	amount := "2000"
+	amount := testutil.IntPtr(2000)
 
 	// Get YES price
 	yesResp, err := queryServer.GetMarketPrice(ctx, &types.QueryGetMarketPriceRequest{
@@ -252,13 +239,11 @@ func TestGetMarketPrice_ComparePricesYesVsNo(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// At market initialization (50/50 probability), YES and NO prices should be equal
-	yesPrice, err := math.LegacyNewDecFromStr(yesResp.Price)
-	require.NoError(t, err)
-	noPrice, err := math.LegacyNewDecFromStr(noResp.Price)
-	require.NoError(t, err)
+	// At market initialization, prices should be equal
+	yesPrice := *yesResp.Price
+	noPrice := *noResp.Price
 
-	// Prices should be very close (allow small difference due to LMSR math)
+	// Prices should be very close
 	priceDiff := yesPrice.Sub(noPrice).Abs()
 	maxDiff := math.LegacyNewDecWithPrec(1, 2) // 0.01 tolerance
 	require.True(t, priceDiff.LTE(maxDiff), "YES and NO prices should be similar at initialization")
@@ -287,18 +272,17 @@ func TestGetMarketPrice_AfterTrade(t *testing.T) {
 	initialResp, err := queryServer.GetMarketPrice(ctx, &types.QueryGetMarketPriceRequest{
 		MarketId: marketId,
 		IsYes:    true,
-		Amount:   "1000",
+		Amount:   testutil.IntPtr(1000),
 	})
 	require.NoError(t, err)
-	initialPrice, err := math.LegacyNewDecFromStr(initialResp.Price)
-	require.NoError(t, err)
+	initialPrice := *initialResp.Price
 
 	// Make a YES trade (should increase YES price)
 	_, err = msgServer.Trade(ctx, &types.MsgTrade{
 		Creator:  trader.String(),
 		MarketId: marketId,
 		IsYes:    true,
-		AmountIn: tradeCoin.String(),
+		AmountIn: &tradeCoin.Amount,
 	})
 	require.NoError(t, err)
 
@@ -306,11 +290,10 @@ func TestGetMarketPrice_AfterTrade(t *testing.T) {
 	newResp, err := queryServer.GetMarketPrice(ctx, &types.QueryGetMarketPriceRequest{
 		MarketId: marketId,
 		IsYes:    true,
-		Amount:   "1000",
+		Amount:   testutil.IntPtr(1000),
 	})
 	require.NoError(t, err)
-	newPrice, err := math.LegacyNewDecFromStr(newResp.Price)
-	require.NoError(t, err)
+	newPrice := *newResp.Price
 
 	// YES price should have increased after buying YES shares
 	require.True(t, newPrice.GT(initialPrice), "YES price should increase after YES trade")

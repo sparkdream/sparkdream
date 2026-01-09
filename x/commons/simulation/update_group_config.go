@@ -3,8 +3,8 @@ package simulation
 import (
 	"fmt"
 	"math/rand"
-	"strconv"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -115,7 +115,10 @@ func SimulateMsgUpdateGroupConfig(
 
 		// B. Update Spend Limit (50% chance)
 		if r.Intn(2) == 0 {
-			msg.MaxSpendPerEpoch = fmt.Sprintf("%dstake", simtypes.RandIntBetween(r, 100, 10000))
+			// Generate string -> Convert to Dec -> Take Address
+			strVal := fmt.Sprintf("%dstake", simtypes.RandIntBetween(r, 100, 10000))
+			dec := math.LegacyMustNewDecFromStr(strVal)
+			msg.VoteThreshold = &dec
 		}
 
 		// C. Update Cooldown (50% chance)
@@ -134,11 +137,18 @@ func SimulateMsgUpdateGroupConfig(
 			if r.Intn(2) == 0 {
 				// Percentage
 				msg.PolicyType = keeper.PolicyTypePercentage
-				msg.VoteThreshold = fmt.Sprintf("0.%d", simtypes.RandIntBetween(r, 51, 99))
+
+				// Generate string -> Convert to Dec -> Take Address
+				strVal := fmt.Sprintf("0.%d", simtypes.RandIntBetween(r, 51, 99))
+				dec := math.LegacyMustNewDecFromStr(strVal)
+				msg.VoteThreshold = &dec
 			} else {
 				// Threshold
 				msg.PolicyType = keeper.PolicyTypeThreshold
-				msg.VoteThreshold = strconv.Itoa(simtypes.RandIntBetween(r, 1, 5))
+
+				// Generate int -> Convert to Dec -> Take Address
+				dec := math.LegacyNewDec(int64(simtypes.RandIntBetween(r, 1, 5)))
+				msg.VoteThreshold = &dec
 			}
 			msg.VotingPeriod = int64(simtypes.RandIntBetween(r, 3600, 172800))
 			msg.MinExecutionPeriod = 0

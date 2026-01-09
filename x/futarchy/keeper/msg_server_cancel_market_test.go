@@ -124,7 +124,7 @@ func TestCancelMarket_WithTrades(t *testing.T) {
 		Creator:  trader.String(),
 		MarketId: marketId,
 		IsYes:    true,
-		AmountIn: tradeCoin.String(),
+		AmountIn: &tradeCoin.Amount,
 	})
 	require.NoError(t, err)
 
