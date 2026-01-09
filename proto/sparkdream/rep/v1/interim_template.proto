@@ -1,0 +1,28 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+option go_package = "sparkdream/x/rep/types";
+
+// InterimTemplate defines the InterimTemplate message.
+message InterimTemplate {
+  string id = 1;
+  string name = 2;
+  repeated string tags = 3;
+  repeated VerificationCriteria criteria = 4;
+  string verification_guide = 5;
+}
+
+message VerificationCriteria {
+  string id = 1;
+  string question = 2;
+  CriteriaType type = 3;
+  bool required = 4;
+  string how_to_verify = 5;
+  string evidence = 6;
+}
+
+enum CriteriaType {
+  CRITERIA_TYPE_BINARY = 0;
+  CRITERIA_TYPE_SCALE = 1;
+  CRITERIA_TYPE_TEXT = 2;
+}

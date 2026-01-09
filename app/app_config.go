@@ -11,6 +11,8 @@ import (
 	futarchymoduletypes "sparkdream/x/futarchy/types"
 	_ "sparkdream/x/name/module"
 	namemoduletypes "sparkdream/x/name/types"
+	_ "sparkdream/x/rep/module"
+	repmoduletypes "sparkdream/x/rep/types"
 	_ "sparkdream/x/sparkdream/module"
 	sparkdreammoduletypes "sparkdream/x/sparkdream/types"
 	_ "sparkdream/x/split/module"
@@ -100,6 +102,7 @@ var (
 		{Account: namemoduletypes.ModuleName},
 		{Account: commonsmoduletypes.ModuleName, Permissions: []string{authtypes.Minter}},
 		{Account: futarchymoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
+		{Account: repmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -150,6 +153,7 @@ var (
 						namemoduletypes.ModuleName,
 						commonsmoduletypes.ModuleName,
 						futarchymoduletypes.ModuleName,
+						repmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -165,6 +169,7 @@ var (
 						namemoduletypes.ModuleName,
 						commonsmoduletypes.ModuleName,
 						futarchymoduletypes.ModuleName,
+						repmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -208,6 +213,7 @@ var (
 						namemoduletypes.ModuleName,
 						commonsmoduletypes.ModuleName,
 						futarchymoduletypes.ModuleName,
+						repmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -336,6 +342,10 @@ var (
 			{
 				Name:   futarchymoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&futarchymoduletypes.Module{}),
+			},
+			{
+				Name:   repmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&repmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

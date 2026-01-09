@@ -1,0 +1,61 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// Project defines the Project message.
+message Project {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  string creator = 4;
+  repeated string tags = 5;
+  ProjectCategory category = 6;
+  string council = 7;
+  
+  string approved_budget = 8 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string allocated_budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string spent_budget = 10 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string approved_spark = 11 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string spent_spark = 12 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  
+  VerificationPolicy verification_policy = 13;
+  ProjectStatus status = 14;
+  string approved_by = 15;
+  int64 approved_at = 16;
+  int64 completed_at = 17;
+}
+
+enum ProjectCategory {
+  PROJECT_CATEGORY_INFRASTRUCTURE = 0;
+  PROJECT_CATEGORY_ECOSYSTEM = 1;
+  PROJECT_CATEGORY_CREATIVE = 2;
+  PROJECT_CATEGORY_RESEARCH = 3;
+  PROJECT_CATEGORY_OPERATIONS = 4;
+}
+
+enum ProjectStatus {
+  PROJECT_STATUS_PROPOSED = 0;
+  PROJECT_STATUS_ACTIVE = 1;
+  PROJECT_STATUS_COMPLETED = 2;
+  PROJECT_STATUS_CANCELLED = 3;
+}
+
+message VerificationPolicy {
+  ReviewProcess default_review = 1;
+  bool requires_domain_rep = 2;
+  string min_verifier_reputation = 3 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  uint32 min_verifier_count = 4;
+  int64 review_period_epochs = 5;
+  int64 challenge_period_epochs = 6;
+  bool requires_creator_approval = 7;
+}
+
+enum ReviewProcess {
+  REVIEW_PROCESS_CONVICTION_ONLY = 0;
+  REVIEW_PROCESS_CREATOR_APPROVAL = 1;
+  REVIEW_PROCESS_PEER_REVIEW = 2;
+  REVIEW_PROCESS_COMMITTEE_REVIEW = 3;
+}

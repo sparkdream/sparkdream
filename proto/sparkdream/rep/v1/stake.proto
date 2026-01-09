@@ -1,0 +1,23 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// Stake defines the Stake message.
+message Stake {
+  uint64 id = 1;
+  string staker = 2;
+  StakeTargetType target_type = 3;
+  uint64 target_id = 4;
+  string amount = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  int64 created_at = 6;
+}
+
+enum StakeTargetType {
+  STAKE_TARGET_INITIATIVE = 0;
+  STAKE_TARGET_PROJECT = 1;
+  STAKE_TARGET_MEMBER = 2;
+  STAKE_TARGET_TAG = 3;
+}

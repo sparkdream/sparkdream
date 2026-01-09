@@ -1,0 +1,33 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// Challenge defines the Challenge message.
+message Challenge {
+  uint64 id = 1;
+  uint64 initiative_id = 2;
+  string challenger = 3;
+  
+  string reason = 4;
+  repeated string evidence = 5;
+  string staked_dream = 6 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  
+  bool is_anonymous = 7;
+  string payout_address = 8;
+  bytes membership_proof = 9;
+  bytes nullifier = 10;
+  
+  ChallengeStatus status = 11;
+  int64 created_at = 12;
+  int64 resolved_at = 13;
+}
+
+enum ChallengeStatus {
+  CHALLENGE_STATUS_ACTIVE = 0;
+  CHALLENGE_STATUS_IN_JURY_REVIEW = 1;
+  CHALLENGE_STATUS_UPHELD = 2;
+  CHALLENGE_STATUS_REJECTED = 3;
+}

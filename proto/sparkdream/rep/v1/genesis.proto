@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package sparkdream.rep.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/rep/v1/challenge.proto";
+import "sparkdream/rep/v1/initiative.proto";
+import "sparkdream/rep/v1/interim.proto";
+import "sparkdream/rep/v1/interim_template.proto";
+import "sparkdream/rep/v1/invitation.proto";
+import "sparkdream/rep/v1/jury_review.proto";
+import "sparkdream/rep/v1/member.proto";
+import "sparkdream/rep/v1/params.proto";
+import "sparkdream/rep/v1/project.proto";
+import "sparkdream/rep/v1/stake.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// GenesisState defines the rep module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  repeated Member member_map = 2 [(gogoproto.nullable) = false];
+  repeated Invitation invitation_list = 3 [(gogoproto.nullable) = false];
+  uint64 invitation_count = 4;
+  repeated Project project_list = 5 [(gogoproto.nullable) = false];
+  uint64 project_count = 6;
+  repeated Initiative initiative_list = 7 [(gogoproto.nullable) = false];
+  uint64 initiative_count = 8;
+  repeated Stake stake_list = 9 [(gogoproto.nullable) = false];
+  uint64 stake_count = 10;
+  repeated Challenge challenge_list = 11 [(gogoproto.nullable) = false];
+  uint64 challenge_count = 12;
+  repeated JuryReview jury_review_list = 13 [(gogoproto.nullable) = false];
+  uint64 jury_review_count = 14;
+  repeated Interim interim_list = 15 [(gogoproto.nullable) = false];
+  uint64 interim_count = 16;
+  repeated InterimTemplate interim_template_map = 17 [(gogoproto.nullable) = false];
+}

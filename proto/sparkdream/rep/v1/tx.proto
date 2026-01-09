@@ -1,0 +1,416 @@
+syntax = "proto3";
+
+package sparkdream.rep.v1;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/rep/v1/interim.proto";
+import "sparkdream/rep/v1/jury_review.proto";
+import "sparkdream/rep/v1/params.proto";
+import "sparkdream/rep/v1/project.proto";
+import "sparkdream/rep/v1/stake.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // InviteMember defines the InviteMember RPC.
+  rpc InviteMember(MsgInviteMember) returns (MsgInviteMemberResponse);
+
+  // AcceptInvitation defines the AcceptInvitation RPC.
+  rpc AcceptInvitation(MsgAcceptInvitation) returns (MsgAcceptInvitationResponse);
+
+  // TransferDream defines the TransferDream RPC.
+  rpc TransferDream(MsgTransferDream) returns (MsgTransferDreamResponse);
+
+  // CreateInterim defines the CreateInterim RPC.
+  rpc CreateInterim(MsgCreateInterim) returns (MsgCreateInterimResponse);
+
+  // AssignInterim defines the AssignInterim RPC.
+  rpc AssignInterim(MsgAssignInterim) returns (MsgAssignInterimResponse);
+
+  // SubmitInterimWork defines the SubmitInterimWork RPC.
+  rpc SubmitInterimWork(MsgSubmitInterimWork) returns (MsgSubmitInterimWorkResponse);
+
+  // ApproveInterim defines the ApproveInterim RPC.
+  rpc ApproveInterim(MsgApproveInterim) returns (MsgApproveInterimResponse);
+
+  // AbandonInterim defines the AbandonInterim RPC.
+  rpc AbandonInterim(MsgAbandonInterim) returns (MsgAbandonInterimResponse);
+
+  // CompleteInterim defines the CompleteInterim RPC.
+  rpc CompleteInterim(MsgCompleteInterim) returns (MsgCompleteInterimResponse);
+
+  // ProposeProject defines the ProposeProject RPC.
+  rpc ProposeProject(MsgProposeProject) returns (MsgProposeProjectResponse);
+
+  // ApproveProjectBudget defines the ApproveProjectBudget RPC.
+  rpc ApproveProjectBudget(MsgApproveProjectBudget) returns (MsgApproveProjectBudgetResponse);
+
+  // CancelProject defines the CancelProject RPC.
+  rpc CancelProject(MsgCancelProject) returns (MsgCancelProjectResponse);
+
+  // CreateInitiative defines the CreateInitiative RPC.
+  rpc CreateInitiative(MsgCreateInitiative) returns (MsgCreateInitiativeResponse);
+
+  // AssignInitiative defines the AssignInitiative RPC.
+  rpc AssignInitiative(MsgAssignInitiative) returns (MsgAssignInitiativeResponse);
+
+  // SubmitInitiativeWork defines the SubmitInitiativeWork RPC.
+  rpc SubmitInitiativeWork(MsgSubmitInitiativeWork) returns (MsgSubmitInitiativeWorkResponse);
+
+  // ApproveInitiative defines the ApproveInitiative RPC.
+  rpc ApproveInitiative(MsgApproveInitiative) returns (MsgApproveInitiativeResponse);
+
+  // AbandonInitiative defines the AbandonInitiative RPC.
+  rpc AbandonInitiative(MsgAbandonInitiative) returns (MsgAbandonInitiativeResponse);
+
+  // CompleteInitiative defines the CompleteInitiative RPC.
+  rpc CompleteInitiative(MsgCompleteInitiative) returns (MsgCompleteInitiativeResponse);
+
+  // CreateStake defines the CreateStake RPC.
+  rpc CreateStake(MsgStake) returns (MsgStakeResponse);
+
+  // RemoveStake defines the RemoveStake RPC.
+  rpc RemoveStake(MsgUnstake) returns (MsgUnstakeResponse);
+
+  // CreateChallenge defines the CreateChallenge RPC.
+  rpc CreateChallenge(MsgCreateChallenge) returns (MsgCreateChallengeResponse);
+
+  // RespondToChallenge defines the RespondToChallenge RPC.
+  rpc RespondToChallenge(MsgRespondToChallenge) returns (MsgRespondToChallengeResponse);
+
+  // SubmitJurorVote defines the SubmitJurorVote RPC.
+  rpc SubmitJurorVote(MsgSubmitJurorVote) returns (MsgSubmitJurorVoteResponse);
+
+  // SubmitExpertTestimony defines the SubmitExpertTestimony RPC.
+  rpc SubmitExpertTestimony(MsgSubmitExpertTestimony) returns (MsgSubmitExpertTestimonyResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/rep/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless overwritten).
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgInviteMember defines the MsgInviteMember message.
+message MsgInviteMember {
+  option (cosmos.msg.v1.signer) = "inviter";
+  string inviter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string invitee_address = 2;
+  string staked_dream = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  repeated string vouched_tags = 4;
+}
+
+// MsgInviteMemberResponse defines the MsgInviteMemberResponse message.
+message MsgInviteMemberResponse {}
+
+// MsgAcceptInvitation defines the MsgAcceptInvitation message.
+message MsgAcceptInvitation {
+  option (cosmos.msg.v1.signer) = "invitee";
+  string invitee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 invitation_id = 2;
+}
+
+// MsgAcceptInvitationResponse defines the MsgAcceptInvitationResponse message.
+message MsgAcceptInvitationResponse {}
+
+// MsgTransferDream defines the MsgTransferDream message.
+message MsgTransferDream {
+  option (cosmos.msg.v1.signer) = "sender";
+  string sender = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string recipient = 2;
+  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  uint64 purpose = 4;
+  string reference = 5;
+}
+
+// MsgTransferDreamResponse defines the MsgTransferDreamResponse message.
+message MsgTransferDreamResponse {}
+
+// MsgCreateInterim defines the MsgCreateInterim message.
+message MsgCreateInterim {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  InterimType interim_type = 2;
+  uint64 reference_id = 3;
+  string reference_type = 4;
+  InterimComplexity complexity = 5;
+  int64 deadline = 6;
+}
+
+// MsgCreateInterimResponse defines the MsgCreateInterimResponse message.
+message MsgCreateInterimResponse {}
+
+// MsgAssignInterim defines the MsgAssignInterim message.
+message MsgAssignInterim {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 interim_id = 2;
+  string assignee = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgAssignInterimResponse defines the MsgAssignInterimResponse message.
+message MsgAssignInterimResponse {}
+
+// MsgSubmitInterimWork defines the MsgSubmitInterimWork message.
+message MsgSubmitInterimWork {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 interim_id = 2;
+  string deliverable_uri = 3;
+  string comments = 4;
+}
+
+// MsgSubmitInterimWorkResponse defines the MsgSubmitInterimWorkResponse message.
+message MsgSubmitInterimWorkResponse {}
+
+// MsgApproveInterim defines the MsgApproveInterim message.
+message MsgApproveInterim {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 interim_id = 2;
+  bool approved = 3;
+  string comments = 4;
+}
+
+// MsgApproveInterimResponse defines the MsgApproveInterimResponse message.
+message MsgApproveInterimResponse {}
+
+// MsgAbandonInterim defines the MsgAbandonInterim message.
+message MsgAbandonInterim {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 interim_id = 2;
+  string reason = 3;
+}
+
+// MsgAbandonInterimResponse defines the MsgAbandonInterimResponse message.
+message MsgAbandonInterimResponse {}
+
+// MsgCompleteInterim defines the MsgCompleteInterim message.
+message MsgCompleteInterim {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 interim_id = 2;
+  string completion_notes = 3;
+}
+
+// MsgCompleteInterimResponse defines the MsgCompleteInterimResponse message.
+message MsgCompleteInterimResponse {}
+
+// MsgProposeProject defines the MsgProposeProject message.
+message MsgProposeProject {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string name = 2;
+  string description = 3;
+  repeated string tags = 4;
+  ProjectCategory category = 5;
+  string council = 6;
+  string requested_budget = 7 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string requested_spark = 8 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  repeated string deliverables = 9;
+  repeated string milestones = 10;
+}
+
+// MsgProposeProjectResponse defines the MsgProposeProjectResponse message.
+message MsgProposeProjectResponse {}
+
+// MsgApproveProjectBudget defines the MsgApproveProjectBudget message.
+message MsgApproveProjectBudget {
+  option (cosmos.msg.v1.signer) = "approver";
+  string approver = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 project_id = 2;
+  string approved_budget = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string approved_spark = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+}
+
+// MsgApproveProjectBudgetResponse defines the MsgApproveProjectBudgetResponse message.
+message MsgApproveProjectBudgetResponse {}
+
+// MsgCancelProject defines the MsgCancelProject message.
+message MsgCancelProject {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 project_id = 2;
+  string reason = 3;
+}
+
+// MsgCancelProjectResponse defines the MsgCancelProjectResponse message.
+message MsgCancelProjectResponse {}
+
+// MsgCreateInitiative defines the MsgCreateInitiative message.
+message MsgCreateInitiative {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 project_id = 2;
+  string title = 3;
+  string description = 4;
+  uint64 tier = 5;
+  uint64 category = 6;
+  string template_id = 7;
+  string budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+}
+
+// MsgCreateInitiativeResponse defines the MsgCreateInitiativeResponse message.
+message MsgCreateInitiativeResponse {}
+
+// MsgAssignInitiative defines the MsgAssignInitiative message.
+message MsgAssignInitiative {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string assignee = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgAssignInitiativeResponse defines the MsgAssignInitiativeResponse message.
+message MsgAssignInitiativeResponse {}
+
+// MsgSubmitInitiativeWork defines the MsgSubmitInitiativeWork message.
+message MsgSubmitInitiativeWork {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string deliverable_uri = 3;
+  string comments = 4;
+}
+
+// MsgSubmitInitiativeWorkResponse defines the MsgSubmitInitiativeWorkResponse message.
+message MsgSubmitInitiativeWorkResponse {}
+
+// MsgApproveInitiative defines the MsgApproveInitiative message.
+message MsgApproveInitiative {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  repeated CriteriaVote criteria_votes = 3;
+  bool approved = 4;
+  string comments = 5;
+}
+
+// MsgApproveInitiativeResponse defines the MsgApproveInitiativeResponse message.
+message MsgApproveInitiativeResponse {}
+
+// MsgAbandonInitiative defines the MsgAbandonInitiative message.
+message MsgAbandonInitiative {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string reason = 3;
+}
+
+// MsgAbandonInitiativeResponse defines the MsgAbandonInitiativeResponse message.
+message MsgAbandonInitiativeResponse {}
+
+// MsgCompleteInitiative defines the MsgCompleteInitiative message.
+message MsgCompleteInitiative {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string completion_notes = 3;
+}
+
+// MsgCompleteInitiativeResponse defines the MsgCompleteInitiativeResponse message.
+message MsgCompleteInitiativeResponse {}
+
+// MsgStake defines the MsgStake message.
+message MsgStake {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  StakeTargetType target_type = 2;
+  uint64 target_id = 3;
+  string amount = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+}
+
+// MsgStakeResponse defines the MsgStakeResponse message.
+message MsgStakeResponse {}
+
+// MsgUnstake defines the MsgUnstake message.
+message MsgUnstake {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 stake_id = 2;
+  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+}
+
+// MsgUnstakeResponse defines the MsgUnstakeResponse message.
+message MsgUnstakeResponse {}
+
+// MsgCreateChallenge defines the MsgCreateChallenge message.
+message MsgCreateChallenge {
+  option (cosmos.msg.v1.signer) = "challenger";
+  string challenger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string reason = 3;
+  repeated string evidence = 4;
+  string staked_dream = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  bool is_anonymous = 6;
+  string payout_address = 7;
+  bytes membership_proof = 8;
+  bytes nullifier = 9;
+}
+
+// MsgCreateChallengeResponse defines the MsgCreateChallengeResponse message.
+message MsgCreateChallengeResponse {}
+
+// MsgRespondToChallenge defines the MsgRespondToChallenge message.
+message MsgRespondToChallenge {
+  option (cosmos.msg.v1.signer) = "assignee";
+  string assignee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 challenge_id = 2;
+  string response = 3;
+  repeated string evidence = 4;
+}
+
+// MsgRespondToChallengeResponse defines the MsgRespondToChallengeResponse message.
+message MsgRespondToChallengeResponse {}
+
+// MsgSubmitJurorVote defines the MsgSubmitJurorVote message.
+message MsgSubmitJurorVote {
+  option (cosmos.msg.v1.signer) = "juror";
+  string juror = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_review_id = 2;
+  repeated CriteriaVote criteria_votes = 3;
+  Verdict verdict = 4;
+  string confidence = 5 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string reasoning = 6;
+}
+
+// MsgSubmitJurorVoteResponse defines the MsgSubmitJurorVoteResponse message.
+message MsgSubmitJurorVoteResponse {}
+
+// MsgSubmitExpertTestimony defines the MsgSubmitExpertTestimony message.
+message MsgSubmitExpertTestimony {
+  option (cosmos.msg.v1.signer) = "expert";
+  string expert = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_review_id = 2;
+  string opinion = 3;
+  string reasoning = 4;
+}
+
+// MsgSubmitExpertTestimonyResponse defines the MsgSubmitExpertTestimonyResponse message.
+message MsgSubmitExpertTestimonyResponse {}

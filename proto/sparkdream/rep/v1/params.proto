@@ -1,0 +1,20 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "sparkdream/x/rep/Params";
+  option (gogoproto.equal) = true;
+
+  string unstaked_decay_rate = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  int64 epoch_blocks = 2;
+}

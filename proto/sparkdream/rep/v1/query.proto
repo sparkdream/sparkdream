@@ -1,0 +1,581 @@
+syntax = "proto3";
+
+package sparkdream.rep.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/rep/v1/challenge.proto";
+import "sparkdream/rep/v1/initiative.proto";
+import "sparkdream/rep/v1/interim.proto";
+import "sparkdream/rep/v1/interim_template.proto";
+import "sparkdream/rep/v1/invitation.proto";
+import "sparkdream/rep/v1/jury_review.proto";
+import "sparkdream/rep/v1/member.proto";
+import "sparkdream/rep/v1/params.proto";
+import "sparkdream/rep/v1/project.proto";
+import "sparkdream/rep/v1/stake.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/params";
+  }
+
+  // ListMember Queries a list of Member items.
+  rpc GetMember(QueryGetMemberRequest) returns (QueryGetMemberResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member/{address}";
+  }
+
+  // ListMember defines the ListMember RPC.
+  rpc ListMember(QueryAllMemberRequest) returns (QueryAllMemberResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member";
+  }
+
+  // ListInvitation Queries a list of Invitation items.
+  rpc GetInvitation(QueryGetInvitationRequest) returns (QueryGetInvitationResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/invitation/{id}";
+  }
+
+  // ListInvitation defines the ListInvitation RPC.
+  rpc ListInvitation(QueryAllInvitationRequest) returns (QueryAllInvitationResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/invitation";
+  }
+
+  // ListProject Queries a list of Project items.
+  rpc GetProject(QueryGetProjectRequest) returns (QueryGetProjectResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/project/{id}";
+  }
+
+  // ListProject defines the ListProject RPC.
+  rpc ListProject(QueryAllProjectRequest) returns (QueryAllProjectResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/project";
+  }
+
+  // ListInitiative Queries a list of Initiative items.
+  rpc GetInitiative(QueryGetInitiativeRequest) returns (QueryGetInitiativeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/initiative/{id}";
+  }
+
+  // ListInitiative defines the ListInitiative RPC.
+  rpc ListInitiative(QueryAllInitiativeRequest) returns (QueryAllInitiativeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/initiative";
+  }
+
+  // ListStake Queries a list of Stake items.
+  rpc GetStake(QueryGetStakeRequest) returns (QueryGetStakeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/stake/{id}";
+  }
+
+  // ListStake defines the ListStake RPC.
+  rpc ListStake(QueryAllStakeRequest) returns (QueryAllStakeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/stake";
+  }
+
+  // ListChallenge Queries a list of Challenge items.
+  rpc GetChallenge(QueryGetChallengeRequest) returns (QueryGetChallengeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/challenge/{id}";
+  }
+
+  // ListChallenge defines the ListChallenge RPC.
+  rpc ListChallenge(QueryAllChallengeRequest) returns (QueryAllChallengeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/challenge";
+  }
+
+  // ListJuryReview Queries a list of JuryReview items.
+  rpc GetJuryReview(QueryGetJuryReviewRequest) returns (QueryGetJuryReviewResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/jury_review/{id}";
+  }
+
+  // ListJuryReview defines the ListJuryReview RPC.
+  rpc ListJuryReview(QueryAllJuryReviewRequest) returns (QueryAllJuryReviewResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/jury_review";
+  }
+
+  // ListInterim Queries a list of Interim items.
+  rpc GetInterim(QueryGetInterimRequest) returns (QueryGetInterimResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/interim/{id}";
+  }
+
+  // ListInterim defines the ListInterim RPC.
+  rpc ListInterim(QueryAllInterimRequest) returns (QueryAllInterimResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/interim";
+  }
+
+  // ListInterimTemplate Queries a list of InterimTemplate items.
+  rpc GetInterimTemplate(QueryGetInterimTemplateRequest) returns (QueryGetInterimTemplateResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/interim_template/{template_id}";
+  }
+
+  // ListInterimTemplate defines the ListInterimTemplate RPC.
+  rpc ListInterimTemplate(QueryAllInterimTemplateRequest) returns (QueryAllInterimTemplateResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/interim_template";
+  }
+
+  // MembersByTrustLevel Queries a list of MembersByTrustLevel items.
+  rpc MembersByTrustLevel(QueryMembersByTrustLevelRequest) returns (QueryMembersByTrustLevelResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/members_by_trust_level/{trust_level}";
+  }
+
+  // InvitationsByInviter Queries a list of InvitationsByInviter items.
+  rpc InvitationsByInviter(QueryInvitationsByInviterRequest) returns (QueryInvitationsByInviterResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/invitations_by_inviter/{inviter}";
+  }
+
+  // InterimsByAssignee Queries a list of InterimsByAssignee items.
+  rpc InterimsByAssignee(QueryInterimsByAssigneeRequest) returns (QueryInterimsByAssigneeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/interims_by_assignee/{assignee}";
+  }
+
+  // InterimsByType Queries a list of InterimsByType items.
+  rpc InterimsByType(QueryInterimsByTypeRequest) returns (QueryInterimsByTypeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/interims_by_type/{interim_type}";
+  }
+
+  // InterimsByReference Queries a list of InterimsByReference items.
+  rpc InterimsByReference(QueryInterimsByReferenceRequest) returns (QueryInterimsByReferenceResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/interims_by_reference/{reference_type}/{reference_id}";
+  }
+
+  // ProjectsByCouncil Queries a list of ProjectsByCouncil items.
+  rpc ProjectsByCouncil(QueryProjectsByCouncilRequest) returns (QueryProjectsByCouncilResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/projects_by_council/{council}";
+  }
+
+  // InitiativesByProject Queries a list of InitiativesByProject items.
+  rpc InitiativesByProject(QueryInitiativesByProjectRequest) returns (QueryInitiativesByProjectResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/initiatives_by_project/{project_id}";
+  }
+
+  // InitiativesByAssignee Queries a list of InitiativesByAssignee items.
+  rpc InitiativesByAssignee(QueryInitiativesByAssigneeRequest) returns (QueryInitiativesByAssigneeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/initiatives_by_assignee/{assignee}";
+  }
+
+  // AvailableInitiatives Queries a list of AvailableInitiatives items.
+  rpc AvailableInitiatives(QueryAvailableInitiativesRequest) returns (QueryAvailableInitiativesResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/available_initiatives";
+  }
+
+  // StakesByStaker Queries a list of StakesByStaker items.
+  rpc StakesByStaker(QueryStakesByStakerRequest) returns (QueryStakesByStakerResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/stakes_by_staker/{staker}";
+  }
+
+  // StakesByTarget Queries a list of StakesByTarget items.
+  rpc StakesByTarget(QueryStakesByTargetRequest) returns (QueryStakesByTargetResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/stakes_by_target/{target_type}/{target_id}";
+  }
+
+  // InitiativeConviction Queries a list of InitiativeConviction items.
+  rpc InitiativeConviction(QueryInitiativeConvictionRequest) returns (QueryInitiativeConvictionResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/initiative_conviction/{initiative_id}";
+  }
+
+  // ChallengesByInitiative Queries a list of ChallengesByInitiative items.
+  rpc ChallengesByInitiative(QueryChallengesByInitiativeRequest) returns (QueryChallengesByInitiativeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/challenges_by_initiative/{initiative_id}";
+  }
+
+  // Reputation Queries a list of Reputation items.
+  rpc Reputation(QueryReputationRequest) returns (QueryReputationResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/reputation/{address}/{tag}";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryGetMemberRequest defines the QueryGetMemberRequest message.
+message QueryGetMemberRequest {
+  string address = 1;
+}
+
+// QueryGetMemberResponse defines the QueryGetMemberResponse message.
+message QueryGetMemberResponse {
+  Member member = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberRequest defines the QueryAllMemberRequest message.
+message QueryAllMemberRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberResponse defines the QueryAllMemberResponse message.
+message QueryAllMemberResponse {
+  repeated Member member = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetInvitationRequest defines the QueryGetInvitationRequest message.
+message QueryGetInvitationRequest {
+  uint64 id = 1;
+}
+
+// QueryGetInvitationResponse defines the QueryGetInvitationResponse message.
+message QueryGetInvitationResponse {
+  Invitation invitation = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllInvitationRequest defines the QueryAllInvitationRequest message.
+message QueryAllInvitationRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllInvitationResponse defines the QueryAllInvitationResponse message.
+message QueryAllInvitationResponse {
+  repeated Invitation invitation = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetProjectRequest defines the QueryGetProjectRequest message.
+message QueryGetProjectRequest {
+  uint64 id = 1;
+}
+
+// QueryGetProjectResponse defines the QueryGetProjectResponse message.
+message QueryGetProjectResponse {
+  Project project = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllProjectRequest defines the QueryAllProjectRequest message.
+message QueryAllProjectRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllProjectResponse defines the QueryAllProjectResponse message.
+message QueryAllProjectResponse {
+  repeated Project project = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetInitiativeRequest defines the QueryGetInitiativeRequest message.
+message QueryGetInitiativeRequest {
+  uint64 id = 1;
+}
+
+// QueryGetInitiativeResponse defines the QueryGetInitiativeResponse message.
+message QueryGetInitiativeResponse {
+  Initiative initiative = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllInitiativeRequest defines the QueryAllInitiativeRequest message.
+message QueryAllInitiativeRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllInitiativeResponse defines the QueryAllInitiativeResponse message.
+message QueryAllInitiativeResponse {
+  repeated Initiative initiative = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetStakeRequest defines the QueryGetStakeRequest message.
+message QueryGetStakeRequest {
+  uint64 id = 1;
+}
+
+// QueryGetStakeResponse defines the QueryGetStakeResponse message.
+message QueryGetStakeResponse {
+  Stake stake = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllStakeRequest defines the QueryAllStakeRequest message.
+message QueryAllStakeRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllStakeResponse defines the QueryAllStakeResponse message.
+message QueryAllStakeResponse {
+  repeated Stake stake = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetChallengeRequest defines the QueryGetChallengeRequest message.
+message QueryGetChallengeRequest {
+  uint64 id = 1;
+}
+
+// QueryGetChallengeResponse defines the QueryGetChallengeResponse message.
+message QueryGetChallengeResponse {
+  Challenge challenge = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllChallengeRequest defines the QueryAllChallengeRequest message.
+message QueryAllChallengeRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllChallengeResponse defines the QueryAllChallengeResponse message.
+message QueryAllChallengeResponse {
+  repeated Challenge challenge = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetJuryReviewRequest defines the QueryGetJuryReviewRequest message.
+message QueryGetJuryReviewRequest {
+  uint64 id = 1;
+}
+
+// QueryGetJuryReviewResponse defines the QueryGetJuryReviewResponse message.
+message QueryGetJuryReviewResponse {
+  JuryReview jury_review = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllJuryReviewRequest defines the QueryAllJuryReviewRequest message.
+message QueryAllJuryReviewRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllJuryReviewResponse defines the QueryAllJuryReviewResponse message.
+message QueryAllJuryReviewResponse {
+  repeated JuryReview jury_review = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetInterimRequest defines the QueryGetInterimRequest message.
+message QueryGetInterimRequest {
+  uint64 id = 1;
+}
+
+// QueryGetInterimResponse defines the QueryGetInterimResponse message.
+message QueryGetInterimResponse {
+  Interim interim = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllInterimRequest defines the QueryAllInterimRequest message.
+message QueryAllInterimRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllInterimResponse defines the QueryAllInterimResponse message.
+message QueryAllInterimResponse {
+  repeated Interim interim = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetInterimTemplateRequest defines the QueryGetInterimTemplateRequest message.
+message QueryGetInterimTemplateRequest {
+  string template_id = 1;
+}
+
+// QueryGetInterimTemplateResponse defines the QueryGetInterimTemplateResponse message.
+message QueryGetInterimTemplateResponse {
+  InterimTemplate interim_template = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllInterimTemplateRequest defines the QueryAllInterimTemplateRequest message.
+message QueryAllInterimTemplateRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllInterimTemplateResponse defines the QueryAllInterimTemplateResponse message.
+message QueryAllInterimTemplateResponse {
+  repeated InterimTemplate interim_template = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryMembersByTrustLevelRequest defines the QueryMembersByTrustLevelRequest message.
+message QueryMembersByTrustLevelRequest {
+  uint64 trust_level = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryMembersByTrustLevelResponse defines the QueryMembersByTrustLevelResponse message.
+message QueryMembersByTrustLevelResponse {
+  string address = 1;
+  string dream_balance = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryInvitationsByInviterRequest defines the QueryInvitationsByInviterRequest message.
+message QueryInvitationsByInviterRequest {
+  string inviter = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryInvitationsByInviterResponse defines the QueryInvitationsByInviterResponse message.
+message QueryInvitationsByInviterResponse {
+  uint64 invitation_id = 1;
+  string invitee_address = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryInterimsByAssigneeRequest defines the QueryInterimsByAssigneeRequest message.
+message QueryInterimsByAssigneeRequest {
+  string assignee = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryInterimsByAssigneeResponse defines the QueryInterimsByAssigneeResponse message.
+message QueryInterimsByAssigneeResponse {
+  uint64 interim_id = 1;
+  uint64 interim_type = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryInterimsByTypeRequest defines the QueryInterimsByTypeRequest message.
+message QueryInterimsByTypeRequest {
+  uint64 interim_type = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryInterimsByTypeResponse defines the QueryInterimsByTypeResponse message.
+message QueryInterimsByTypeResponse {
+  uint64 interim_id = 1;
+  uint64 status = 2;
+  int64 deadline = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryInterimsByReferenceRequest defines the QueryInterimsByReferenceRequest message.
+message QueryInterimsByReferenceRequest {
+  string reference_type = 1;
+  uint64 reference_id = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryInterimsByReferenceResponse defines the QueryInterimsByReferenceResponse message.
+message QueryInterimsByReferenceResponse {
+  uint64 interim_id = 1;
+  uint64 interim_type = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryProjectsByCouncilRequest defines the QueryProjectsByCouncilRequest message.
+message QueryProjectsByCouncilRequest {
+  string council = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryProjectsByCouncilResponse defines the QueryProjectsByCouncilResponse message.
+message QueryProjectsByCouncilResponse {
+  uint64 project_id = 1;
+  string name = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryInitiativesByProjectRequest defines the QueryInitiativesByProjectRequest message.
+message QueryInitiativesByProjectRequest {
+  uint64 project_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryInitiativesByProjectResponse defines the QueryInitiativesByProjectResponse message.
+message QueryInitiativesByProjectResponse {
+  uint64 initiative_id = 1;
+  string title = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryInitiativesByAssigneeRequest defines the QueryInitiativesByAssigneeRequest message.
+message QueryInitiativesByAssigneeRequest {
+  string assignee = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryInitiativesByAssigneeResponse defines the QueryInitiativesByAssigneeResponse message.
+message QueryInitiativesByAssigneeResponse {
+  uint64 initiative_id = 1;
+  string title = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryAvailableInitiativesRequest defines the QueryAvailableInitiativesRequest message.
+message QueryAvailableInitiativesRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAvailableInitiativesResponse defines the QueryAvailableInitiativesResponse message.
+message QueryAvailableInitiativesResponse {
+  uint64 initiative_id = 1;
+  string title = 2;
+  uint64 tier = 3;
+  string budget = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+}
+
+// QueryStakesByStakerRequest defines the QueryStakesByStakerRequest message.
+message QueryStakesByStakerRequest {
+  string staker = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryStakesByStakerResponse defines the QueryStakesByStakerResponse message.
+message QueryStakesByStakerResponse {
+  uint64 stake_id = 1;
+  uint64 target_type = 2;
+  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryStakesByTargetRequest defines the QueryStakesByTargetRequest message.
+message QueryStakesByTargetRequest {
+  uint64 target_type = 1;
+  uint64 target_id = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryStakesByTargetResponse defines the QueryStakesByTargetResponse message.
+message QueryStakesByTargetResponse {
+  uint64 stake_id = 1;
+  string staker = 2;
+  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryInitiativeConvictionRequest defines the QueryInitiativeConvictionRequest message.
+message QueryInitiativeConvictionRequest {
+  uint64 initiative_id = 1;
+}
+
+// QueryInitiativeConvictionResponse defines the QueryInitiativeConvictionResponse message.
+message QueryInitiativeConvictionResponse {
+  string total_conviction = 1 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string external_conviction = 2 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string threshold = 3 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+}
+
+// QueryChallengesByInitiativeRequest defines the QueryChallengesByInitiativeRequest message.
+message QueryChallengesByInitiativeRequest {
+  uint64 initiative_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryChallengesByInitiativeResponse defines the QueryChallengesByInitiativeResponse message.
+message QueryChallengesByInitiativeResponse {
+  uint64 challenge_id = 1;
+  uint64 status = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryReputationRequest defines the QueryReputationRequest message.
+message QueryReputationRequest {
+  string address = 1;
+  string tag = 2;
+}
+
+// QueryReputationResponse defines the QueryReputationResponse message.
+message QueryReputationResponse {
+  string score = 1 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string lifetime = 2 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+}

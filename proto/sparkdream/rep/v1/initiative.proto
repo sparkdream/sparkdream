@@ -1,0 +1,71 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// Initiative defines the Initiative message.
+message Initiative {
+  uint64 id = 1;
+  uint64 project_id = 2;
+  string title = 3;
+  string description = 4;
+  repeated string tags = 5;
+  InitiativeTier tier = 6;
+  InitiativeCategory category = 7;
+  string template_id = 8;
+  
+  string budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  
+  string assignee = 10;
+  string apprentice = 11;
+  int64 assigned_at = 12;
+  
+  string deliverable_uri = 13;
+  int64 submitted_at = 14;
+  
+  string required_conviction = 15 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string current_conviction = 16 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string external_conviction = 17 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  int64 conviction_last_updated = 18;
+  
+  int64 review_period_end = 19;
+  int64 challenge_period_end = 20;
+  repeated string approvals = 21;
+  
+  InitiativeStatus status = 22;
+  int64 created_at = 23;
+  int64 completed_at = 24;
+}
+
+enum InitiativeTier {
+  INITIATIVE_TIER_APPRENTICE = 0;
+  INITIATIVE_TIER_STANDARD = 1;
+  INITIATIVE_TIER_EXPERT = 2;
+  INITIATIVE_TIER_EPIC = 3;
+}
+
+enum InitiativeCategory {
+  INITIATIVE_CATEGORY_FEATURE = 0;
+  INITIATIVE_CATEGORY_BUGFIX = 1;
+  INITIATIVE_CATEGORY_REFACTOR = 2;
+  INITIATIVE_CATEGORY_TESTING = 3;
+  INITIATIVE_CATEGORY_SECURITY = 4;
+  INITIATIVE_CATEGORY_DOCUMENTATION = 5;
+  INITIATIVE_CATEGORY_DESIGN = 6;
+  INITIATIVE_CATEGORY_RESEARCH = 7;
+  INITIATIVE_CATEGORY_REVIEW = 8;
+  INITIATIVE_CATEGORY_OTHER = 9;
+}
+
+enum InitiativeStatus {
+  INITIATIVE_STATUS_OPEN = 0;
+  INITIATIVE_STATUS_ASSIGNED = 1;
+  INITIATIVE_STATUS_SUBMITTED = 2;
+  INITIATIVE_STATUS_IN_REVIEW = 3;
+  INITIATIVE_STATUS_CHALLENGED = 4;
+  INITIATIVE_STATUS_COMPLETED = 5;
+  INITIATIVE_STATUS_REJECTED = 6;
+  INITIATIVE_STATUS_ABANDONED = 7;
+}

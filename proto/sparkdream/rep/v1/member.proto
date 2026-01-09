@@ -1,0 +1,54 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// Member defines the Member message.
+message Member {
+  string address = 1;
+  
+  // DREAM balance
+  string dream_balance = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string staked_dream = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string lifetime_earned = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string lifetime_burned = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  
+  // Reputation (current season)
+  map<string, string> reputation_scores = 6; // tag -> score as decimal string
+  
+  // Reputation (lifetime archive)
+  map<string, string> lifetime_reputation = 7;
+  
+  // Trust
+  TrustLevel trust_level = 8;
+  int64 trust_level_updated_at = 9;
+  
+  // Invitation info
+  uint32 joined_season = 10;
+  int64 joined_at = 11;
+  string invited_by = 12;
+  repeated string invitation_chain = 13; // ancestors, max 5
+  uint32 invitation_credits = 14;
+  
+  // Status
+  MemberStatus status = 15;
+  int64 zeroed_at = 16;
+  uint32 zeroed_count = 17;
+  int64 last_decay_epoch = 18;
+}
+
+enum TrustLevel {
+  TRUST_LEVEL_NEW = 0;
+  TRUST_LEVEL_PROVISIONAL = 1;
+  TRUST_LEVEL_ESTABLISHED = 2;
+  TRUST_LEVEL_TRUSTED = 3;
+  TRUST_LEVEL_CORE = 4;
+}
+
+enum MemberStatus {
+  MEMBER_STATUS_ACTIVE = 0;
+  MEMBER_STATUS_INACTIVE = 1;
+  MEMBER_STATUS_ZEROED = 2;
+}
