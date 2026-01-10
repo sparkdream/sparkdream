@@ -16,15 +16,54 @@ func TestMsgCreatePost_ValidateBasic(t *testing.T) {
 		err  error
 	}{
 		{
-			name: "invalid address",
+			name: "empty creator address",
 			msg: MsgCreatePost{
-				Creator: "invalid_address",
+				Creator: "",
+				Title:   "Valid Title",
+				Body:    "Valid body",
 			},
 			err: sdkerrors.ErrInvalidAddress,
-		}, {
-			name: "valid address",
+		},
+		{
+			name: "empty title",
 			msg: MsgCreatePost{
 				Creator: sample.AccAddress(),
+				Title:   "",
+				Body:    "Valid body",
+			},
+			err: sdkerrors.ErrInvalidRequest,
+		},
+		{
+			name: "empty body",
+			msg: MsgCreatePost{
+				Creator: sample.AccAddress(),
+				Title:   "Valid Title",
+				Body:    "",
+			},
+			err: sdkerrors.ErrInvalidRequest,
+		},
+		{
+			name: "valid message with long title",
+			msg: MsgCreatePost{
+				Creator: sample.AccAddress(),
+				Title:   string(make([]byte, 500)), // Length validation happens in keeper
+				Body:    "Valid body",
+			},
+		},
+		{
+			name: "valid message with long body",
+			msg: MsgCreatePost{
+				Creator: sample.AccAddress(),
+				Title:   "Valid Title",
+				Body:    string(make([]byte, 20000)), // Length validation happens in keeper
+			},
+		},
+		{
+			name: "valid message",
+			msg: MsgCreatePost{
+				Creator: sample.AccAddress(),
+				Title:   "Valid Title",
+				Body:    "Valid body",
 			},
 		},
 	}

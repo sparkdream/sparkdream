@@ -16,10 +16,21 @@ func NewMsgCreatePost(creator string, title string, body string) *MsgCreatePost 
 	}
 }
 
+// ValidateBasic performs basic stateless validation.
+// Note: Full validation including length constraints happens in the keeper using params.
 func (msg *MsgCreatePost) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(msg.Creator)
-	if err != nil {
-		return errorsmod.Wrapf(sdkerrors.ErrInvalidAddress, "invalid creator address (%s)", err)
+	if len(msg.Creator) == 0 {
+		return errorsmod.Wrap(sdkerrors.ErrInvalidAddress, "creator address cannot be empty")
 	}
+
+	// Basic non-empty checks - length validation happens in keeper with params
+	if len(msg.Title) == 0 {
+		return errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "title cannot be empty")
+	}
+
+	if len(msg.Body) == 0 {
+		return errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "body cannot be empty")
+	}
+
 	return nil
 }

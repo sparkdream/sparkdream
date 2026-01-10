@@ -12,7 +12,7 @@ import (
 func (k msgServer) UpdateParams(ctx context.Context, req *types.MsgUpdateParams) (*types.MsgUpdateParamsResponse, error) {
 	authority, err := k.addressCodec.StringToBytes(req.Authority)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
 	if !bytes.Equal(k.GetAuthority(), authority) {

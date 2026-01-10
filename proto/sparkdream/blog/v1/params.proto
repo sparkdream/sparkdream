@@ -10,4 +10,10 @@ option go_package = "sparkdream/x/blog/types";
 message Params {
   option (amino.name) = "sparkdream/x/blog/Params";
   option (gogoproto.equal) = true;
+
+  // Maximum length for post titles
+  uint64 max_title_length = 1;
+
+  // Maximum length for post bodies
+  uint64 max_body_length = 2;
 }
