@@ -6,6 +6,7 @@ package types
 import (
 	cosmossdk_io_math "cosmossdk.io/math"
 	fmt "fmt"
+	_ "github.com/cosmos/cosmos-proto"
 	_ "github.com/cosmos/gogoproto/gogoproto"
 	proto "github.com/cosmos/gogoproto/proto"
 	io "io"
@@ -24,6 +25,7 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
+// StakeTargetType defines the type of entity being staked on
 type StakeTargetType int32
 
 const (
@@ -55,14 +57,18 @@ func (StakeTargetType) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_309a6a0f9414eb1d, []int{0}
 }
 
-// Stake defines the Stake message.
+// Stake defines a staked DREAM position on a target.
+// Stakes earn rewards through different mechanisms depending on target type.
 type Stake struct {
-	Id         uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Staker     string                 `protobuf:"bytes,2,opt,name=staker,proto3" json:"staker,omitempty"`
-	TargetType StakeTargetType        `protobuf:"varint,3,opt,name=target_type,json=targetType,proto3,enum=sparkdream.rep.v1.StakeTargetType" json:"target_type,omitempty"`
-	TargetId   uint64                 `protobuf:"varint,4,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
-	Amount     *cosmossdk_io_math.Int `protobuf:"bytes,5,opt,name=amount,proto3,customtype=cosmossdk.io/math.Int" json:"amount,omitempty"`
-	CreatedAt  int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Id               uint64                `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Staker           string                `protobuf:"bytes,2,opt,name=staker,proto3" json:"staker,omitempty"`
+	TargetType       StakeTargetType       `protobuf:"varint,3,opt,name=target_type,json=targetType,proto3,enum=sparkdream.rep.v1.StakeTargetType" json:"target_type,omitempty"`
+	TargetId         uint64                `protobuf:"varint,4,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	TargetIdentifier string                `protobuf:"bytes,5,opt,name=target_identifier,json=targetIdentifier,proto3" json:"target_identifier,omitempty"`
+	Amount           cosmossdk_io_math.Int `protobuf:"bytes,6,opt,name=amount,proto3,customtype=cosmossdk.io/math.Int" json:"amount"`
+	CreatedAt        int64                 `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastClaimedAt    int64                 `protobuf:"varint,8,opt,name=last_claimed_at,json=lastClaimedAt,proto3" json:"last_claimed_at,omitempty"`
+	RewardDebt       cosmossdk_io_math.Int `protobuf:"bytes,9,opt,name=reward_debt,json=rewardDebt,proto3,customtype=cosmossdk.io/math.Int" json:"reward_debt"`
 }
 
 func (m *Stake) Reset()         { *m = Stake{} }
@@ -126,6 +132,13 @@ func (m *Stake) GetTargetId() uint64 {
 	return 0
 }
 
+func (m *Stake) GetTargetIdentifier() string {
+	if m != nil {
+		return m.TargetIdentifier
+	}
+	return ""
+}
+
 func (m *Stake) GetCreatedAt() int64 {
 	if m != nil {
 		return m.CreatedAt
@@ -133,38 +146,227 @@ func (m *Stake) GetCreatedAt() int64 {
 	return 0
 }
 
+func (m *Stake) GetLastClaimedAt() int64 {
+	if m != nil {
+		return m.LastClaimedAt
+	}
+	return 0
+}
+
+// MemberStakePool tracks aggregate staking on a member for O(1) reward distribution
+type MemberStakePool struct {
+	Member            string                      `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	TotalStaked       cosmossdk_io_math.Int       `protobuf:"bytes,2,opt,name=total_staked,json=totalStaked,proto3,customtype=cosmossdk.io/math.Int" json:"total_staked"`
+	PendingRevenue    cosmossdk_io_math.Int       `protobuf:"bytes,3,opt,name=pending_revenue,json=pendingRevenue,proto3,customtype=cosmossdk.io/math.Int" json:"pending_revenue"`
+	AccRewardPerShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,4,opt,name=acc_reward_per_share,json=accRewardPerShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"acc_reward_per_share"`
+	LastUpdated       int64                       `protobuf:"varint,5,opt,name=last_updated,json=lastUpdated,proto3" json:"last_updated,omitempty"`
+}
+
+func (m *MemberStakePool) Reset()         { *m = MemberStakePool{} }
+func (m *MemberStakePool) String() string { return proto.CompactTextString(m) }
+func (*MemberStakePool) ProtoMessage()    {}
+func (*MemberStakePool) Descriptor() ([]byte, []int) {
+	return fileDescriptor_309a6a0f9414eb1d, []int{1}
+}
+func (m *MemberStakePool) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MemberStakePool) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MemberStakePool.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MemberStakePool) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MemberStakePool.Merge(m, src)
+}
+func (m *MemberStakePool) XXX_Size() int {
+	return m.Size()
+}
+func (m *MemberStakePool) XXX_DiscardUnknown() {
+	xxx_messageInfo_MemberStakePool.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MemberStakePool proto.InternalMessageInfo
+
+func (m *MemberStakePool) GetMember() string {
+	if m != nil {
+		return m.Member
+	}
+	return ""
+}
+
+func (m *MemberStakePool) GetLastUpdated() int64 {
+	if m != nil {
+		return m.LastUpdated
+	}
+	return 0
+}
+
+// TagStakePool tracks aggregate staking on a tag for O(1) reward distribution
+type TagStakePool struct {
+	Tag               string                      `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
+	TotalStaked       cosmossdk_io_math.Int       `protobuf:"bytes,2,opt,name=total_staked,json=totalStaked,proto3,customtype=cosmossdk.io/math.Int" json:"total_staked"`
+	AccRewardPerShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,3,opt,name=acc_reward_per_share,json=accRewardPerShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"acc_reward_per_share"`
+	LastUpdated       int64                       `protobuf:"varint,4,opt,name=last_updated,json=lastUpdated,proto3" json:"last_updated,omitempty"`
+}
+
+func (m *TagStakePool) Reset()         { *m = TagStakePool{} }
+func (m *TagStakePool) String() string { return proto.CompactTextString(m) }
+func (*TagStakePool) ProtoMessage()    {}
+func (*TagStakePool) Descriptor() ([]byte, []int) {
+	return fileDescriptor_309a6a0f9414eb1d, []int{2}
+}
+func (m *TagStakePool) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TagStakePool) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TagStakePool.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TagStakePool) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TagStakePool.Merge(m, src)
+}
+func (m *TagStakePool) XXX_Size() int {
+	return m.Size()
+}
+func (m *TagStakePool) XXX_DiscardUnknown() {
+	xxx_messageInfo_TagStakePool.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TagStakePool proto.InternalMessageInfo
+
+func (m *TagStakePool) GetTag() string {
+	if m != nil {
+		return m.Tag
+	}
+	return ""
+}
+
+func (m *TagStakePool) GetLastUpdated() int64 {
+	if m != nil {
+		return m.LastUpdated
+	}
+	return 0
+}
+
+// ProjectStakeInfo tracks project staking totals
+type ProjectStakeInfo struct {
+	ProjectId           uint64                `protobuf:"varint,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	TotalStaked         cosmossdk_io_math.Int `protobuf:"bytes,2,opt,name=total_staked,json=totalStaked,proto3,customtype=cosmossdk.io/math.Int" json:"total_staked"`
+	CompletionBonusPool cosmossdk_io_math.Int `protobuf:"bytes,3,opt,name=completion_bonus_pool,json=completionBonusPool,proto3,customtype=cosmossdk.io/math.Int" json:"completion_bonus_pool"`
+}
+
+func (m *ProjectStakeInfo) Reset()         { *m = ProjectStakeInfo{} }
+func (m *ProjectStakeInfo) String() string { return proto.CompactTextString(m) }
+func (*ProjectStakeInfo) ProtoMessage()    {}
+func (*ProjectStakeInfo) Descriptor() ([]byte, []int) {
+	return fileDescriptor_309a6a0f9414eb1d, []int{3}
+}
+func (m *ProjectStakeInfo) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ProjectStakeInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ProjectStakeInfo.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ProjectStakeInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ProjectStakeInfo.Merge(m, src)
+}
+func (m *ProjectStakeInfo) XXX_Size() int {
+	return m.Size()
+}
+func (m *ProjectStakeInfo) XXX_DiscardUnknown() {
+	xxx_messageInfo_ProjectStakeInfo.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ProjectStakeInfo proto.InternalMessageInfo
+
+func (m *ProjectStakeInfo) GetProjectId() uint64 {
+	if m != nil {
+		return m.ProjectId
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterEnum("sparkdream.rep.v1.StakeTargetType", StakeTargetType_name, StakeTargetType_value)
 	proto.RegisterType((*Stake)(nil), "sparkdream.rep.v1.Stake")
+	proto.RegisterType((*MemberStakePool)(nil), "sparkdream.rep.v1.MemberStakePool")
+	proto.RegisterType((*TagStakePool)(nil), "sparkdream.rep.v1.TagStakePool")
+	proto.RegisterType((*ProjectStakeInfo)(nil), "sparkdream.rep.v1.ProjectStakeInfo")
 }
 
 func init() { proto.RegisterFile("sparkdream/rep/v1/stake.proto", fileDescriptor_309a6a0f9414eb1d) }
 
 var fileDescriptor_309a6a0f9414eb1d = []byte{
-	// 360 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x64, 0x91, 0xc1, 0x6e, 0xda, 0x30,
-	0x1c, 0xc6, 0xe3, 0x00, 0xd1, 0xf0, 0x24, 0x96, 0x79, 0x0c, 0xb2, 0x21, 0xb2, 0x88, 0x53, 0xb4,
-	0x43, 0x32, 0xb6, 0x27, 0x08, 0x28, 0x42, 0x59, 0x45, 0x5b, 0x19, 0xab, 0x87, 0x5e, 0x22, 0x97,
-	0x58, 0x34, 0x42, 0xc1, 0x91, 0xe3, 0xd2, 0xf2, 0x16, 0x7d, 0xac, 0x1e, 0x39, 0x56, 0x3d, 0x54,
-	0x15, 0x79, 0x91, 0x2a, 0x21, 0x6a, 0x4b, 0x7b, 0xfb, 0xfb, 0xff, 0xfb, 0xfc, 0x7d, 0x96, 0x3f,
-	0xd8, 0xcf, 0x52, 0x2a, 0x96, 0x91, 0x60, 0x34, 0x71, 0x05, 0x4b, 0xdd, 0xf5, 0xd0, 0xcd, 0x24,
-	0x5d, 0x32, 0x27, 0x15, 0x5c, 0x72, 0xf4, 0xf5, 0x15, 0x3b, 0x82, 0xa5, 0xce, 0x7a, 0xf8, 0xb3,
-	0xbd, 0xe0, 0x0b, 0x5e, 0x52, 0xb7, 0x98, 0xf6, 0xc2, 0x41, 0x0e, 0x60, 0x63, 0x56, 0x5c, 0x44,
-	0x2d, 0xa8, 0xc6, 0x91, 0x01, 0x2c, 0x60, 0xd7, 0xb1, 0x1a, 0x47, 0xa8, 0x03, 0xb5, 0xd2, 0x51,
-	0x18, 0xaa, 0x05, 0xec, 0x26, 0xae, 0x4e, 0x68, 0x0c, 0x3f, 0x4b, 0x2a, 0x16, 0x4c, 0x86, 0x72,
-	0x93, 0x32, 0xa3, 0x66, 0x01, 0xbb, 0xf5, 0x77, 0xe0, 0x7c, 0x08, 0x74, 0x4a, 0x5b, 0x52, 0x4a,
-	0xc9, 0x26, 0x65, 0x18, 0xca, 0x97, 0x19, 0xf5, 0x60, 0xb3, 0x32, 0x89, 0x23, 0xa3, 0x5e, 0x66,
-	0x7e, 0xda, 0x2f, 0x82, 0x08, 0x0d, 0xa1, 0x46, 0x13, 0x7e, 0xb5, 0x92, 0x46, 0xa3, 0x48, 0x1e,
-	0xfd, 0x78, 0x78, 0xfc, 0xf5, 0x7d, 0xce, 0xb3, 0x84, 0x67, 0x59, 0xb4, 0x74, 0x62, 0xee, 0x26,
-	0x54, 0x5e, 0x3a, 0xc1, 0x4a, 0xe2, 0x4a, 0x88, 0xfa, 0x10, 0xce, 0x05, 0xa3, 0x92, 0x45, 0x21,
-	0x95, 0x86, 0x66, 0x01, 0xbb, 0x86, 0x9b, 0xd5, 0xc6, 0x93, 0xbf, 0xaf, 0xe1, 0x97, 0x77, 0xaf,
-	0x41, 0x3d, 0xd8, 0x9d, 0x11, 0xef, 0xc8, 0x0f, 0x89, 0x87, 0x27, 0x3e, 0x09, 0x83, 0xe3, 0x80,
-	0x04, 0x1e, 0x09, 0xce, 0x7c, 0x5d, 0x41, 0x06, 0x6c, 0x1f, 0xc0, 0x53, 0x7c, 0xf2, 0xdf, 0x1f,
-	0x13, 0x1d, 0xa0, 0x2e, 0xfc, 0x76, 0x40, 0xa6, 0xfe, 0x74, 0xe4, 0x63, 0x5d, 0x45, 0x6d, 0xa8,
-	0x1f, 0x00, 0xe2, 0x4d, 0xf4, 0xda, 0xe8, 0xcf, 0xdd, 0xce, 0x04, 0xdb, 0x9d, 0x09, 0x9e, 0x76,
-	0x26, 0xb8, 0xcd, 0x4d, 0x65, 0x9b, 0x9b, 0xca, 0x7d, 0x6e, 0x2a, 0xe7, 0x9d, 0x37, 0x05, 0xde,
-	0x94, 0x15, 0x16, 0xdf, 0x99, 0x5d, 0x68, 0x65, 0x2f, 0xff, 0x9e, 0x03, 0x00, 0x00, 0xff, 0xff,
-	0x6f, 0xe3, 0x9b, 0xe2, 0xe1, 0x01, 0x00, 0x00,
+	// 692 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x54, 0xc1, 0x4e, 0xdb, 0x4c,
+	0x10, 0x8e, 0x13, 0xc8, 0x4f, 0x26, 0xfc, 0xc4, 0x2c, 0xa1, 0xb8, 0x20, 0x42, 0x9a, 0x4a, 0x55,
+	0x54, 0x44, 0x02, 0xed, 0x13, 0x24, 0x21, 0x42, 0x6e, 0x81, 0x46, 0x8e, 0xdb, 0x43, 0x2f, 0xd6,
+	0xc6, 0xbb, 0x18, 0x97, 0xd8, 0x6b, 0xad, 0x37, 0x50, 0xde, 0xa2, 0xcf, 0x52, 0xf1, 0x10, 0x1c,
+	0x11, 0xa7, 0xaa, 0x07, 0x54, 0x85, 0x53, 0xdf, 0xa2, 0xf2, 0xae, 0x81, 0x52, 0xaa, 0x4a, 0x54,
+	0xf4, 0xb6, 0xfe, 0xe6, 0x9b, 0xcf, 0x33, 0xf3, 0x8d, 0x06, 0x96, 0xe3, 0x08, 0xf3, 0x03, 0xc2,
+	0x29, 0x0e, 0x9a, 0x9c, 0x46, 0xcd, 0xc3, 0x8d, 0x66, 0x2c, 0xf0, 0x01, 0x6d, 0x44, 0x9c, 0x09,
+	0x86, 0x66, 0x6f, 0xc2, 0x0d, 0x4e, 0xa3, 0xc6, 0xe1, 0xc6, 0xe2, 0x63, 0x97, 0xc5, 0x01, 0x8b,
+	0x1d, 0x49, 0x68, 0xaa, 0x0f, 0xc5, 0x5e, 0x2c, 0x7b, 0xcc, 0x63, 0x0a, 0x4f, 0x5e, 0x0a, 0xad,
+	0x7d, 0xce, 0xc1, 0x64, 0x3f, 0xd1, 0x44, 0x33, 0x90, 0xf5, 0x89, 0xa1, 0x55, 0xb5, 0xfa, 0x84,
+	0x95, 0xf5, 0x09, 0x5a, 0x87, 0xbc, 0xfc, 0x19, 0x37, 0xb2, 0x55, 0xad, 0x5e, 0x68, 0x1b, 0xe7,
+	0x27, 0x6b, 0xe5, 0x54, 0xb1, 0x45, 0x08, 0xa7, 0x71, 0xdc, 0x17, 0xdc, 0x0f, 0x3d, 0x2b, 0xe5,
+	0xa1, 0x0e, 0x14, 0x05, 0xe6, 0x1e, 0x15, 0x8e, 0x38, 0x8e, 0xa8, 0x91, 0xab, 0x6a, 0xf5, 0x99,
+	0x17, 0xb5, 0xc6, 0x9d, 0x2a, 0x1b, 0xf2, 0x87, 0xb6, 0xa4, 0xda, 0xc7, 0x11, 0xb5, 0x40, 0x5c,
+	0xbf, 0xd1, 0x12, 0x14, 0x52, 0x11, 0x9f, 0x18, 0x13, 0xb2, 0x9a, 0x29, 0x05, 0x98, 0x04, 0xad,
+	0xc2, 0xec, 0x75, 0x90, 0x86, 0xc2, 0xdf, 0xf3, 0x29, 0x37, 0x26, 0x93, 0xf2, 0x2c, 0xfd, 0x8a,
+	0x74, 0x85, 0xa3, 0x0e, 0xe4, 0x71, 0xc0, 0x46, 0xa1, 0x30, 0xf2, 0xb2, 0x81, 0xd5, 0xd3, 0x8b,
+	0x95, 0xcc, 0xd7, 0x8b, 0x95, 0x79, 0xd5, 0x44, 0x4c, 0x0e, 0x1a, 0x3e, 0x6b, 0x06, 0x58, 0xec,
+	0x37, 0xcc, 0x50, 0x9c, 0x9f, 0xac, 0x41, 0xda, 0x9d, 0x19, 0x0a, 0x2b, 0x4d, 0x45, 0xcb, 0x00,
+	0x2e, 0xa7, 0x58, 0x50, 0xe2, 0x60, 0x61, 0xfc, 0x57, 0xd5, 0xea, 0x39, 0xab, 0x90, 0x22, 0x2d,
+	0x81, 0x9e, 0x41, 0x69, 0x88, 0x63, 0xe1, 0xb8, 0x43, 0xec, 0x07, 0x8a, 0x33, 0x25, 0x39, 0xff,
+	0x27, 0x70, 0x47, 0xa1, 0x2d, 0x81, 0xb6, 0xa1, 0xc8, 0xe9, 0x11, 0xe6, 0xc4, 0x21, 0x74, 0x20,
+	0x8c, 0xc2, 0xfd, 0x0b, 0x02, 0x95, 0xbf, 0x49, 0x07, 0xa2, 0x36, 0xce, 0x42, 0x69, 0x87, 0x06,
+	0x03, 0xca, 0xe5, 0x24, 0x7b, 0x8c, 0x0d, 0x13, 0xbb, 0x02, 0x09, 0x49, 0x0b, 0xff, 0x68, 0x97,
+	0xe2, 0xa1, 0x5d, 0x98, 0x16, 0x4c, 0xe0, 0xa1, 0x23, 0xed, 0x23, 0xa9, 0xcd, 0xf7, 0x2a, 0xaa,
+	0x28, 0x05, 0x64, 0x11, 0x04, 0xd9, 0x50, 0x8a, 0x68, 0x48, 0xfc, 0xd0, 0x73, 0x38, 0x3d, 0xa4,
+	0xe1, 0x48, 0xad, 0xc0, 0x3d, 0x25, 0x67, 0x52, 0x0d, 0x4b, 0x49, 0x20, 0x1b, 0xca, 0xd8, 0x75,
+	0x9d, 0x74, 0x7a, 0x11, 0xe5, 0x4e, 0xbc, 0x8f, 0x39, 0x95, 0xab, 0x51, 0x68, 0x3f, 0x4d, 0xa5,
+	0x97, 0xee, 0x4a, 0x6f, 0x53, 0x0f, 0xbb, 0xc7, 0x9b, 0xd4, 0xb5, 0x66, 0xb1, 0xeb, 0x5a, 0x32,
+	0xbf, 0x47, 0x79, 0x3f, 0xc9, 0x46, 0x4f, 0x60, 0x5a, 0xfa, 0x36, 0x8a, 0x48, 0xe2, 0xa4, 0xdc,
+	0xa1, 0x9c, 0x55, 0x4c, 0xb0, 0xb7, 0x0a, 0xaa, 0x7d, 0xd7, 0x60, 0xda, 0xc6, 0xde, 0xcd, 0x84,
+	0x75, 0xc8, 0x09, 0xec, 0xa9, 0xf1, 0x5a, 0xc9, 0xf3, 0x1f, 0x4c, 0xf0, 0xf7, 0xbd, 0xe6, 0x1e,
+	0xb4, 0xd7, 0x89, 0xbb, 0xbd, 0x8e, 0x35, 0xd0, 0x7b, 0x9c, 0x7d, 0xa0, 0xae, 0x90, 0xa5, 0x98,
+	0xe1, 0x1e, 0x4b, 0x56, 0x3f, 0x52, 0x98, 0x73, 0x7d, 0x18, 0x0a, 0x29, 0x62, 0x92, 0x07, 0x6f,
+	0xde, 0x81, 0x79, 0x97, 0x05, 0xd1, 0x90, 0x0a, 0x9f, 0x85, 0xce, 0x80, 0x85, 0xa3, 0xd8, 0x89,
+	0x18, 0x1b, 0xfe, 0xcd, 0x12, 0xcd, 0xdd, 0x28, 0xb5, 0x13, 0xa1, 0xc4, 0xbf, 0xe7, 0x47, 0x50,
+	0xfa, 0xe5, 0xf0, 0xa0, 0x25, 0x58, 0xe8, 0xdb, 0xad, 0xd7, 0x5d, 0xc7, 0x6e, 0x59, 0x5b, 0x5d,
+	0xdb, 0x31, 0x77, 0x4d, 0xdb, 0x6c, 0xd9, 0xe6, 0xbb, 0xae, 0x9e, 0x41, 0x06, 0x94, 0x6f, 0x05,
+	0x7b, 0xd6, 0x9b, 0x57, 0xdd, 0x8e, 0xad, 0x6b, 0x68, 0x01, 0xe6, 0x6e, 0x45, 0x76, 0xba, 0x3b,
+	0xed, 0xae, 0xa5, 0x67, 0x51, 0x19, 0xf4, 0x5b, 0x01, 0xbb, 0xb5, 0xa5, 0xe7, 0xda, 0xeb, 0xa7,
+	0xe3, 0x8a, 0x76, 0x36, 0xae, 0x68, 0xdf, 0xc6, 0x15, 0xed, 0xd3, 0x65, 0x25, 0x73, 0x76, 0x59,
+	0xc9, 0x7c, 0xb9, 0xac, 0x64, 0xde, 0x3f, 0xfa, 0xe9, 0xc0, 0x7f, 0x94, 0x27, 0x3e, 0xb9, 0x9c,
+	0xf1, 0x20, 0x2f, 0x8f, 0xf3, 0xcb, 0x1f, 0x01, 0x00, 0x00, 0xff, 0xff, 0x97, 0x49, 0xbc, 0x24,
+	0x01, 0x06, 0x00, 0x00,
 }
 
 func (m *Stake) Marshal() (dAtA []byte, err error) {
@@ -187,20 +389,40 @@ func (m *Stake) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	{
+		size := m.RewardDebt.Size()
+		i -= size
+		if _, err := m.RewardDebt.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x4a
+	if m.LastClaimedAt != 0 {
+		i = encodeVarintStake(dAtA, i, uint64(m.LastClaimedAt))
+		i--
+		dAtA[i] = 0x40
+	}
 	if m.CreatedAt != 0 {
 		i = encodeVarintStake(dAtA, i, uint64(m.CreatedAt))
 		i--
-		dAtA[i] = 0x30
+		dAtA[i] = 0x38
 	}
-	if m.Amount != nil {
-		{
-			size := m.Amount.Size()
-			i -= size
-			if _, err := m.Amount.MarshalTo(dAtA[i:]); err != nil {
-				return 0, err
-			}
-			i = encodeVarintStake(dAtA, i, uint64(size))
+	{
+		size := m.Amount.Size()
+		i -= size
+		if _, err := m.Amount.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
 		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x32
+	if len(m.TargetIdentifier) > 0 {
+		i -= len(m.TargetIdentifier)
+		copy(dAtA[i:], m.TargetIdentifier)
+		i = encodeVarintStake(dAtA, i, uint64(len(m.TargetIdentifier)))
 		i--
 		dAtA[i] = 0x2a
 	}
@@ -223,6 +445,174 @@ func (m *Stake) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	}
 	if m.Id != 0 {
 		i = encodeVarintStake(dAtA, i, uint64(m.Id))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MemberStakePool) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MemberStakePool) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MemberStakePool) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.LastUpdated != 0 {
+		i = encodeVarintStake(dAtA, i, uint64(m.LastUpdated))
+		i--
+		dAtA[i] = 0x28
+	}
+	{
+		size := m.AccRewardPerShare.Size()
+		i -= size
+		if _, err := m.AccRewardPerShare.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	{
+		size := m.PendingRevenue.Size()
+		i -= size
+		if _, err := m.PendingRevenue.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size := m.TotalStaked.Size()
+		i -= size
+		if _, err := m.TotalStaked.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if len(m.Member) > 0 {
+		i -= len(m.Member)
+		copy(dAtA[i:], m.Member)
+		i = encodeVarintStake(dAtA, i, uint64(len(m.Member)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TagStakePool) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TagStakePool) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TagStakePool) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.LastUpdated != 0 {
+		i = encodeVarintStake(dAtA, i, uint64(m.LastUpdated))
+		i--
+		dAtA[i] = 0x20
+	}
+	{
+		size := m.AccRewardPerShare.Size()
+		i -= size
+		if _, err := m.AccRewardPerShare.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size := m.TotalStaked.Size()
+		i -= size
+		if _, err := m.TotalStaked.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if len(m.Tag) > 0 {
+		i -= len(m.Tag)
+		copy(dAtA[i:], m.Tag)
+		i = encodeVarintStake(dAtA, i, uint64(len(m.Tag)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ProjectStakeInfo) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ProjectStakeInfo) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ProjectStakeInfo) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size := m.CompletionBonusPool.Size()
+		i -= size
+		if _, err := m.CompletionBonusPool.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size := m.TotalStaked.Size()
+		i -= size
+		if _, err := m.TotalStaked.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintStake(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if m.ProjectId != 0 {
+		i = encodeVarintStake(dAtA, i, uint64(m.ProjectId))
 		i--
 		dAtA[i] = 0x8
 	}
@@ -259,13 +649,78 @@ func (m *Stake) Size() (n int) {
 	if m.TargetId != 0 {
 		n += 1 + sovStake(uint64(m.TargetId))
 	}
-	if m.Amount != nil {
-		l = m.Amount.Size()
+	l = len(m.TargetIdentifier)
+	if l > 0 {
 		n += 1 + l + sovStake(uint64(l))
 	}
+	l = m.Amount.Size()
+	n += 1 + l + sovStake(uint64(l))
 	if m.CreatedAt != 0 {
 		n += 1 + sovStake(uint64(m.CreatedAt))
 	}
+	if m.LastClaimedAt != 0 {
+		n += 1 + sovStake(uint64(m.LastClaimedAt))
+	}
+	l = m.RewardDebt.Size()
+	n += 1 + l + sovStake(uint64(l))
+	return n
+}
+
+func (m *MemberStakePool) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Member)
+	if l > 0 {
+		n += 1 + l + sovStake(uint64(l))
+	}
+	l = m.TotalStaked.Size()
+	n += 1 + l + sovStake(uint64(l))
+	l = m.PendingRevenue.Size()
+	n += 1 + l + sovStake(uint64(l))
+	l = m.AccRewardPerShare.Size()
+	n += 1 + l + sovStake(uint64(l))
+	if m.LastUpdated != 0 {
+		n += 1 + sovStake(uint64(m.LastUpdated))
+	}
+	return n
+}
+
+func (m *TagStakePool) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Tag)
+	if l > 0 {
+		n += 1 + l + sovStake(uint64(l))
+	}
+	l = m.TotalStaked.Size()
+	n += 1 + l + sovStake(uint64(l))
+	l = m.AccRewardPerShare.Size()
+	n += 1 + l + sovStake(uint64(l))
+	if m.LastUpdated != 0 {
+		n += 1 + sovStake(uint64(m.LastUpdated))
+	}
+	return n
+}
+
+func (m *ProjectStakeInfo) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ProjectId != 0 {
+		n += 1 + sovStake(uint64(m.ProjectId))
+	}
+	l = m.TotalStaked.Size()
+	n += 1 + l + sovStake(uint64(l))
+	l = m.CompletionBonusPool.Size()
+	n += 1 + l + sovStake(uint64(l))
 	return n
 }
 
@@ -395,6 +850,38 @@ func (m *Stake) Unmarshal(dAtA []byte) error {
 			}
 		case 5:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TargetIdentifier", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.TargetIdentifier = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Amount", wireType)
 			}
 			var stringLen uint64
@@ -423,13 +910,11 @@ func (m *Stake) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			var v cosmossdk_io_math.Int
-			m.Amount = &v
 			if err := m.Amount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 6:
+		case 7:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CreatedAt", wireType)
 			}
@@ -448,6 +933,568 @@ func (m *Stake) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastClaimedAt", wireType)
+			}
+			m.LastClaimedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LastClaimedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RewardDebt", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.RewardDebt.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipStake(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthStake
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MemberStakePool) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowStake
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MemberStakePool: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MemberStakePool: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Member", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Member = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TotalStaked", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TotalStaked.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PendingRevenue", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.PendingRevenue.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AccRewardPerShare", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.AccRewardPerShare.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastUpdated", wireType)
+			}
+			m.LastUpdated = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LastUpdated |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipStake(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthStake
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TagStakePool) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowStake
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TagStakePool: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TagStakePool: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Tag", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Tag = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TotalStaked", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TotalStaked.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AccRewardPerShare", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.AccRewardPerShare.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastUpdated", wireType)
+			}
+			m.LastUpdated = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LastUpdated |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipStake(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthStake
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ProjectStakeInfo) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowStake
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ProjectStakeInfo: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ProjectStakeInfo: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ProjectId", wireType)
+			}
+			m.ProjectId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ProjectId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TotalStaked", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TotalStaked.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CompletionBonusPool", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowStake
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthStake
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthStake
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.CompletionBonusPool.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipStake(dAtA[iNdEx:])

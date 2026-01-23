@@ -9,11 +9,15 @@ import (
 )
 
 func (k msgServer) RespondToChallenge(ctx context.Context, msg *types.MsgRespondToChallenge) (*types.MsgRespondToChallengeResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Assignee); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+	assigneeAddr, err := k.addressCodec.StringToBytes(msg.Assignee)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid assignee address")
 	}
 
-	// TODO: Handle the message
+	// Respond to the challenge
+	if err := k.Keeper.RespondToChallenge(ctx, msg.ChallengeId, assigneeAddr, msg.Response, msg.Evidence); err != nil {
+		return nil, err
+	}
 
 	return &types.MsgRespondToChallengeResponse{}, nil
 }

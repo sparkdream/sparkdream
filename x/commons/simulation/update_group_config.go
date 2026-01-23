@@ -113,13 +113,8 @@ func SimulateMsgUpdateGroupConfig(
 			msg.MaxMembers = newMax
 		}
 
-		// B. Update Spend Limit (50% chance)
-		if r.Intn(2) == 0 {
-			// Generate string -> Convert to Dec -> Take Address
-			strVal := fmt.Sprintf("%dstake", simtypes.RandIntBetween(r, 100, 10000))
-			dec := math.LegacyMustNewDecFromStr(strVal)
-			msg.VoteThreshold = &dec
-		}
+		// NOTE: VoteThreshold updates are handled in section E below along with PolicyType,
+		// as the backend requires both to be set together.
 
 		// C. Update Cooldown (50% chance)
 		if r.Intn(2) == 0 {

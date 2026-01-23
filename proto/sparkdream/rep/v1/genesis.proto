@@ -40,4 +40,9 @@ message GenesisState {
   repeated Interim interim_list = 15 [(gogoproto.nullable) = false];
   uint64 interim_count = 16;
   repeated InterimTemplate interim_template_map = 17 [(gogoproto.nullable) = false];
+  
+  // Stake pools (for extended staking)
+  repeated MemberStakePool member_stake_pool_list = 18 [(gogoproto.nullable) = false];
+  repeated TagStakePool tag_stake_pool_list = 19 [(gogoproto.nullable) = false];
+  repeated ProjectStakeInfo project_stake_info_list = 20 [(gogoproto.nullable) = false];
 }

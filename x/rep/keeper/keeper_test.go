@@ -18,14 +18,87 @@ import (
 	"sparkdream/x/rep/types"
 )
 
-type fixture struct {
-	ctx          context.Context
-	keeper       keeper.Keeper
-	addressCodec address.Codec
+type mockCommonsKeeper struct {
+	IsCommitteeMemberFn     func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
+	GetCommitteeGroupInfoFn func(ctx context.Context, council string, committee string) (interface{}, error)
 }
 
-func initFixture(t *testing.T) *fixture {
+func (m mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
+	if m.IsCommitteeMemberFn != nil {
+		return m.IsCommitteeMemberFn(ctx, address, council, committee)
+	}
+	return false, nil
+}
+
+func (m mockCommonsKeeper) GetCommitteeGroupInfo(ctx context.Context, council string, committee string) (interface{}, error) {
+	if m.GetCommitteeGroupInfoFn != nil {
+		return m.GetCommitteeGroupInfoFn(ctx, council, committee)
+	}
+	return nil, nil
+}
+
+type fixture struct {
+	ctx           sdk.Context
+	keeper        keeper.Keeper
+	addressCodec  address.Codec
+	commonsKeeper *mockCommonsKeeper
+}
+
+// fixtureOptions allows customization of test fixture
+type fixtureOptions struct {
+	customParams        *types.Params
+	authorizationPolicy func(address sdk.AccAddress, council string, committee string) bool
+}
+
+// FixtureOption is a function that configures fixture options
+type FixtureOption func(*fixtureOptions)
+
+// WithCustomParams sets custom params for the fixture
+func WithCustomParams(params types.Params) FixtureOption {
+	return func(opts *fixtureOptions) {
+		opts.customParams = &params
+	}
+}
+
+// WithAuthorizationPolicy sets a custom authorization policy
+// The policy function receives (address, council, committee) and returns whether the address is authorized
+func WithAuthorizationPolicy(policy func(sdk.AccAddress, string, string) bool) FixtureOption {
+	return func(opts *fixtureOptions) {
+		opts.authorizationPolicy = policy
+	}
+}
+
+// AlwaysAuthorized is a convenience policy that always authorizes
+func AlwaysAuthorized(_ sdk.AccAddress, _ string, _ string) bool {
+	return true
+}
+
+// NeverAuthorized is a convenience policy that never authorizes
+func NeverAuthorized(_ sdk.AccAddress, _ string, _ string) bool {
+	return false
+}
+
+// AuthorizeAddresses is a convenience policy that authorizes only specific addresses
+func AuthorizeAddresses(authorizedAddrs ...sdk.AccAddress) func(sdk.AccAddress, string, string) bool {
+	authSet := make(map[string]bool, len(authorizedAddrs))
+	for _, addr := range authorizedAddrs {
+		authSet[addr.String()] = true
+	}
+	return func(addr sdk.AccAddress, _ string, _ string) bool {
+		return authSet[addr.String()]
+	}
+}
+
+func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 	t.Helper()
+
+	// Apply options
+	options := &fixtureOptions{
+		authorizationPolicy: AlwaysAuthorized, // Default: authorize everyone
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
 	addressCodec := addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
@@ -36,6 +109,16 @@ func initFixture(t *testing.T) *fixture {
 
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
+	// Mock CommonsKeeper with configurable authorization
+	commonsKeeper := &mockCommonsKeeper{
+		IsCommitteeMemberFn: func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
+			return options.authorizationPolicy(address, council, committee), nil
+		},
+		GetCommitteeGroupInfoFn: func(ctx context.Context, council string, committee string) (interface{}, error) {
+			return nil, nil
+		},
+	}
+
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
@@ -43,16 +126,22 @@ func initFixture(t *testing.T) *fixture {
 		authority,
 		nil,
 		nil,
+		commonsKeeper,
 	)
 
-	// Initialize params
-	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
-		t.Fatalf("failed to set params: %v", err)
+	// Initialize genesis with default values (including sequence counters starting at 1)
+	genState := types.DefaultGenesis()
+	if options.customParams != nil {
+		genState.Params = *options.customParams
+	}
+	if err := k.InitGenesis(ctx, *genState); err != nil {
+		t.Fatalf("failed to init genesis: %v", err)
 	}
 
 	return &fixture{
-		ctx:          ctx,
-		keeper:       k,
-		addressCodec: addressCodec,
+		ctx:           ctx,
+		keeper:        k,
+		addressCodec:  addressCodec,
+		commonsKeeper: commonsKeeper,
 	}
 }

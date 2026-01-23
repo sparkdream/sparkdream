@@ -1,17 +1,17 @@
 version: 1
 validation: sovereign
-accounts: 
+accounts:
 - name: alice
-  coins: [20000000000000uspark, 20000000000000udream]
+  coins: [20000000000000uspark]
 - name: bob
-  coins: [10000000000000uspark, 10000000000000udream]
+  coins: [10000000000000uspark]
 - name: carol
-  coins: [5000000000000uspark, 5000000000000udream]
+  coins: [5000000000000uspark]
 - name: dave
-  coins: [1uspark, 1udream]
+  coins: [1000000uspark]
 faucet:
   name: bob
-  coins: [1000uspark, 1000udream]
+  coins: [1000uspark]
 genesis:
   app_state:
     bank:
@@ -32,7 +32,7 @@ genesis:
           exponent: 0
         - denom: dream
           exponent: 6
-        description: Native token of Spark Dream A T E L I E R.
+        description: Internal coordination token - earned through contribution, not traded.
         display: dream
         name: dream
         symbol: dream
@@ -66,6 +66,60 @@ genesis:
     staking:
       params:
         bond_denom: uspark
+    rep:
+      params:
+        # Time - FAST for testing
+        epoch_blocks: "10"  # ~1 minute (was ~1 day)
+        season_duration_epochs: "100"  # ~100 minutes (was ~5 months)
+        # Conviction - FAST for testing + FIXED with sqrt scaling
+        conviction_half_life_epochs: "1"  # 1 epoch = ~1 minute half-life (was 7 days)
+        conviction_per_dream: "0.2"  # 0.2 with sqrt scaling (maintains 4% ratio across all budgets)
+        # Review periods - EXTRA FAST for testing
+        default_review_period_epochs: "1"  # ~1 minute (was ~1 week)
+        default_challenge_period_epochs: "1"  # ~1 minute (was ~1 week)
+        # Invitations - FAST for testing
+        invitation_accountability_epochs: "10"  # ~10 minutes (was ~5 months)
+        # Interim compensation - FAST for testing
+        interim_deadline_epochs: "3"  # ~3 minutes (was ~1 week)
+        # Interim budgets - REALISTIC for testing (in micro-DREAM)
+        simple_complexity_budget: "50000000"    # 50 DREAM (50 * 1e6 micro-DREAM)
+        standard_complexity_budget: "150000000"  # 150 DREAM (150 * 1e6 micro-DREAM)
+        complex_complexity_budget: "400000000"   # 400 DREAM (400 * 1e6 micro-DREAM)
+        expert_complexity_budget: "1000000000"   # 1000 DREAM (1000 * 1e6 micro-DREAM)
+        solo_expert_bonus_rate: "0.5"  # 50% bonus for solo experts
+        # Challenge response deadline - FAST for testing
+        challenge_response_deadline_epochs: "1"  # ~1 minute (was ~3 days)
+        # Gift rate limiting - FAST for testing
+        gift_cooldown_blocks: "5"  # ~30 seconds (was ~1 day = 14400 blocks)
+        max_gifts_per_sender_epoch: "2000000000"  # 2000 DREAM per epoch (same as production)
+        # Jury - SMALL for testing (production: 5)
+        jury_size: 3  # 3 jurors for testing (5 in production)
+        min_juror_reputation: "20"  # 20 reputation (50 in production)
+        # Trust level configuration - using defaults
+        # To modify for testing, update x/rep/types/params.go DefaultParams()
+      member_map:
+      - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
+        dream_balance: "50000000000"  # 50000 DREAM (Tier 1 founder)
+        staked_dream: "0"
+        lifetime_earned: "50000000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_CORE
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 10
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
 validators:
 - name: alice
   bonded: 15000000000000uspark

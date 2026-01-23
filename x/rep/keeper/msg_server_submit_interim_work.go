@@ -9,11 +9,15 @@ import (
 )
 
 func (k msgServer) SubmitInterimWork(ctx context.Context, msg *types.MsgSubmitInterimWork) (*types.MsgSubmitInterimWorkResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+	assigneeAddr, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid assignee address")
 	}
 
-	// TODO: Handle the message
+	// Submit work using the keeper method
+	if err := k.Keeper.SubmitInterimWork(ctx, msg.InterimId, assigneeAddr, msg.DeliverableUri, msg.Comments); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to submit interim work")
+	}
 
 	return &types.MsgSubmitInterimWorkResponse{}, nil
 }

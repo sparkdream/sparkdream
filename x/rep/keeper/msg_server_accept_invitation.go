@@ -9,11 +9,15 @@ import (
 )
 
 func (k msgServer) AcceptInvitation(ctx context.Context, msg *types.MsgAcceptInvitation) (*types.MsgAcceptInvitationResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Invitee); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+	inviteeAddr, err := k.addressCodec.StringToBytes(msg.Invitee)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid invitee address")
 	}
 
-	// TODO: Handle the message
+	// Accept invitation
+	if err := k.Keeper.AcceptInvitation(ctx, msg.InvitationId, inviteeAddr); err != nil {
+		return nil, err
+	}
 
 	return &types.MsgAcceptInvitationResponse{}, nil
 }

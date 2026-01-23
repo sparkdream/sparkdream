@@ -76,11 +76,17 @@ service Msg {
   // CompleteInitiative defines the CompleteInitiative RPC.
   rpc CompleteInitiative(MsgCompleteInitiative) returns (MsgCompleteInitiativeResponse);
 
-  // CreateStake defines the CreateStake RPC.
-  rpc CreateStake(MsgStake) returns (MsgStakeResponse);
+  // Stake defines the Stake RPC.
+  rpc Stake(MsgStake) returns (MsgStakeResponse);
 
-  // RemoveStake defines the RemoveStake RPC.
-  rpc RemoveStake(MsgUnstake) returns (MsgUnstakeResponse);
+  // Unstake defines the Unstake RPC.
+  rpc Unstake(MsgUnstake) returns (MsgUnstakeResponse);
+
+  // ClaimStakingRewards defines the ClaimStakingRewards RPC.
+  rpc ClaimStakingRewards(MsgClaimStakingRewards) returns (MsgClaimStakingRewardsResponse);
+
+  // CompoundStakingRewards defines the CompoundStakingRewards RPC.
+  rpc CompoundStakingRewards(MsgCompoundStakingRewards) returns (MsgCompoundStakingRewardsResponse);
 
   // CreateChallenge defines the CreateChallenge RPC.
   rpc CreateChallenge(MsgCreateChallenge) returns (MsgCreateChallengeResponse);
@@ -144,8 +150,14 @@ message MsgTransferDream {
   string sender = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string recipient = 2;
   string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  uint64 purpose = 4;
+  TransferPurpose purpose = 4;
   string reference = 5;
+}
+
+enum TransferPurpose {
+  TRANSFER_PURPOSE_TIP = 0;
+  TRANSFER_PURPOSE_GIFT = 1;
+  TRANSFER_PURPOSE_BOUNTY = 2;
 }
 
 // MsgTransferDreamResponse defines the MsgTransferDreamResponse message.
@@ -270,6 +282,7 @@ message MsgCreateInitiative {
   uint64 project_id = 2;
   string title = 3;
   string description = 4;
+  repeated string tags = 8;
   uint64 tier = 5;
   uint64 category = 6;
   string template_id = 7;
@@ -277,7 +290,9 @@ message MsgCreateInitiative {
 }
 
 // MsgCreateInitiativeResponse defines the MsgCreateInitiativeResponse message.
-message MsgCreateInitiativeResponse {}
+message MsgCreateInitiativeResponse {
+  uint64 initiative_id = 1;
+}
 
 // MsgAssignInitiative defines the MsgAssignInitiative message.
 message MsgAssignInitiative {
@@ -339,26 +354,57 @@ message MsgCompleteInitiativeResponse {}
 
 // MsgStake defines the MsgStake message.
 message MsgStake {
-  option (cosmos.msg.v1.signer) = "creator";
-  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  option (cosmos.msg.v1.signer) = "staker";
+  string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   StakeTargetType target_type = 2;
-  uint64 target_id = 3;
-  string amount = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  uint64 target_id = 3;             // For INITIATIVE/PROJECT
+  string target_identifier = 4;    // For MEMBER (address) or TAG (name)
+  string amount = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 // MsgStakeResponse defines the MsgStakeResponse message.
-message MsgStakeResponse {}
+message MsgStakeResponse {
+  uint64 stake_id = 1;
+}
 
 // MsgUnstake defines the MsgUnstake message.
 message MsgUnstake {
-  option (cosmos.msg.v1.signer) = "creator";
-  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  option (cosmos.msg.v1.signer) = "staker";
+  string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 stake_id = 2;
   string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 // MsgUnstakeResponse defines the MsgUnstakeResponse message.
-message MsgUnstakeResponse {}
+message MsgUnstakeResponse {
+  string returned_amount = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string reward_amount = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+}
+
+// MsgClaimStakingRewards defines the MsgClaimStakingRewards message.
+message MsgClaimStakingRewards {
+  option (cosmos.msg.v1.signer) = "staker";
+  string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 stake_id = 2;
+}
+
+// MsgClaimStakingRewardsResponse defines the MsgClaimStakingRewardsResponse message.
+message MsgClaimStakingRewardsResponse {
+  string claimed_amount = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+}
+
+// MsgCompoundStakingRewards defines the MsgCompoundStakingRewards message.
+message MsgCompoundStakingRewards {
+  option (cosmos.msg.v1.signer) = "staker";
+  string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 stake_id = 2;
+}
+
+// MsgCompoundStakingRewardsResponse defines the MsgCompoundStakingRewardsResponse message.
+message MsgCompoundStakingRewardsResponse {
+  string compounded_amount = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string new_stake_amount = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+}
 
 // MsgCreateChallenge defines the MsgCreateChallenge message.
 message MsgCreateChallenge {
@@ -396,7 +442,10 @@ message MsgSubmitJurorVote {
   uint64 jury_review_id = 2;
   repeated CriteriaVote criteria_votes = 3;
   Verdict verdict = 4;
-  string confidence = 5 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string confidence = 5 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"
+  ];
   string reasoning = 6;
 }
 

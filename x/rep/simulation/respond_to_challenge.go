@@ -20,13 +20,10 @@ func SimulateMsgRespondToChallenge(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgRespondToChallenge{
-			Assignee: simAccount.Address.String(),
-		}
-
-		// TODO: Handle the RespondToChallenge simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "RespondToChallenge simulation not implemented"), nil, nil
+		// NOTE: This operation cannot succeed in simulation because responding to a challenge
+		// triggers jury selection, which requires 7 eligible jurors to be set up with sufficient
+		// staked DREAM. This complex setup cannot be reasonably done within simulation.
+		// In a real chain environment, jurors would be available from staked members.
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRespondToChallenge{}), "skipped: requires eligible jurors"), nil, nil
 	}
 }

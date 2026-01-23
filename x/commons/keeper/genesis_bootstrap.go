@@ -6,6 +6,7 @@ import (
 	"sparkdream/x/commons/types"
 	"time"
 
+	"cosmossdk.io/math"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -105,7 +106,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgVetoGroupProposals",
 		},
 
-		MaxSpendPerEpoch: "500000000000uspark",
+		MaxSpendPerEpoch: math.NewInt(500000000000),
 		UpdateCooldown:   int64(CouncilUpdateCooldown.Seconds()),
 		FutarchyEnabled:  false,
 		MinMembers:       3,
@@ -164,7 +165,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
 			"/sparkdream.commons.v1.MsgVetoGroupProposals",
 		},
-		MaxSpendPerEpoch: "500000000000uspark",
+		MaxSpendPerEpoch: math.NewInt(500000000000),
 		UpdateCooldown:   int64(CouncilUpdateCooldown.Seconds()),
 		FutarchyEnabled:  false,
 		MinMembers:       2,
@@ -184,11 +185,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardWindow:       WindowCommittee,     // 3 Days
 		StandardMinExecution: TechOpsMinExecution, // 1 Day
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgSpendFromCommons", "/cosmos.gov.v1.MsgVote", "/sparkdream.commons.v1.MsgUpdateGroupMembers"},
-		MaxSpendPerEpoch:     "10000000000uspark",
+		MaxSpendPerEpoch:     math.NewInt(10000000000),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
-		MinMembers:           1,
-		MaxMembers:           7,
+		MinMembers:           2, // Golden share: founder + parent council oversight
+		MaxMembers:           5,
 		TermDuration:         TermDuration5Months,
 	}, founderMembers, moduleAddr)
 
@@ -202,11 +203,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardWindow:       WindowGovernance,           // 5 Days
 		StandardMinExecution: TechMembershipMinExecution, // 7 Days
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgUpdateGroupMembers"},
-		MaxSpendPerEpoch:     "0uspark",
+		MaxSpendPerEpoch:     math.NewInt(0),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
-		MinMembers:           1,
-		MaxMembers:           7,
+		MinMembers:           2, // Golden share: founder + parent council oversight
+		MaxMembers:           5,
 		TermDuration:         TermDuration5Months,
 	}, founderMembers, moduleAddr)
 
@@ -258,7 +259,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
 			"/sparkdream.commons.v1.MsgVetoGroupProposals",
 		},
-		MaxSpendPerEpoch: "500000000000uspark",
+		MaxSpendPerEpoch: math.NewInt(500000000000),
 		UpdateCooldown:   int64(CouncilUpdateCooldown.Seconds()),
 		FutarchyEnabled:  false,
 		MinMembers:       2,
@@ -278,11 +279,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardWindow:       WindowCommittee,    // 3 Days
 		StandardMinExecution: EcoOpsMinExecution, // 1 Day
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgSpendFromCommons", "/sparkdream.commons.v1.MsgUpdateGroupConfig", "/sparkdream.commons.v1.MsgUpdateGroupMembers"},
-		MaxSpendPerEpoch:     "10000000000uspark",
+		MaxSpendPerEpoch:     math.NewInt(10000000000),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
-		MinMembers:           1,
-		MaxMembers:           7,
+		MinMembers:           2, // Golden share: founder + parent council oversight
+		MaxMembers:           5,
 		TermDuration:         TermDuration5Months,
 	}, founderMembers, moduleAddr)
 
@@ -296,11 +297,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardWindow:       WindowGovernance,          // 5 Days
 		StandardMinExecution: EcoMembershipMinExecution, // 7 Days
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgUpdateGroupMembers"},
-		MaxSpendPerEpoch:     "0uspark",
+		MaxSpendPerEpoch:     math.NewInt(0),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
-		MinMembers:           1,
-		MaxMembers:           7,
+		MinMembers:           2, // Golden share: founder + parent council oversight
+		MaxMembers:           5,
 		TermDuration:         TermDuration5Months,
 	}, founderMembers, moduleAddr)
 
@@ -332,7 +333,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgVetoGroupProposals",
 		},
-		MaxSpendPerEpoch: "0uspark",
+		MaxSpendPerEpoch: math.NewInt(0),
 		UpdateCooldown:   int64(SupervisoryUpdateCooldown.Seconds()),
 		FutarchyEnabled:  false,
 		MinMembers:       2,
@@ -360,11 +361,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers", // Self-Manage
 		},
-		MaxSpendPerEpoch: "10000000000uspark",
+		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:  false,
-		MinMembers:       1,
-		MaxMembers:       7,
+		MinMembers:       2, // Golden share: founder + parent council oversight
+		MaxMembers:       5,
 		TermDuration:     TermDuration5Months,
 	}, founderMembers, moduleAddr)
 
@@ -387,11 +388,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 		},
-		MaxSpendPerEpoch: "0uspark",
+		MaxSpendPerEpoch: math.NewInt(0),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:  false,
-		MinMembers:       1,
-		MaxMembers:       7,
+		MinMembers:       2, // Golden share: founder + parent council oversight
+		MaxMembers:       5,
 		TermDuration:     TermDuration5Months,
 	}, founderMembers, moduleAddr)
 
@@ -434,7 +435,7 @@ type GroupConfig struct {
 	VetoPermissions  []string
 
 	// Custom Constraints
-	MaxSpendPerEpoch string
+	MaxSpendPerEpoch math.Int
 	UpdateCooldown   int64
 	FutarchyEnabled  bool
 	MinMembers       uint64
@@ -534,7 +535,7 @@ func (k Keeper) createExtendedGroup(ctx context.Context, cfg GroupConfig, member
 		FundingWeight:       cfg.FundingWeight,
 
 		// Use Config values
-		MaxSpendPerEpoch:      cfg.MaxSpendPerEpoch,
+		MaxSpendPerEpoch:      &cfg.MaxSpendPerEpoch,
 		UpdateCooldown:        cfg.UpdateCooldown,
 		FutarchyEnabled:       cfg.FutarchyEnabled,
 		MinMembers:            cfg.MinMembers,

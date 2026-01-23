@@ -56,6 +56,8 @@ var SupervisoryUpdateCooldown = 720 * time.Hour // 30 Days
 ////////////////////////////
 // BEGIN TESTING VALUES
 /*
+// These values are reduced to allow faster governance votes during integration testing.
+// To switch to production values, comment this section and uncomment the production section above.
 var GenesisNames = map[string]string{
 	"sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan": "Alice",
 	"sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y": "Bob",

@@ -5,8 +5,24 @@ import "fmt"
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
-		Params:    DefaultParams(),
-		MemberMap: []Member{}, InvitationList: []Invitation{}, ProjectList: []Project{}, InitiativeList: []Initiative{}, StakeList: []Stake{}, ChallengeList: []Challenge{}, JuryReviewList: []JuryReview{}, InterimList: []Interim{}, InterimTemplateMap: []InterimTemplate{}}
+		Params:             DefaultParams(),
+		MemberMap:          []Member{},
+		InvitationList:     []Invitation{},
+		InvitationCount:    1, // Start at 1 so first ID is 1 (0 is reserved for "unset")
+		ProjectList:        []Project{},
+		ProjectCount:       1,
+		InitiativeList:     []Initiative{},
+		InitiativeCount:    1,
+		StakeList:          []Stake{},
+		StakeCount:         1,
+		ChallengeList:      []Challenge{},
+		ChallengeCount:     1,
+		JuryReviewList:     []JuryReview{},
+		JuryReviewCount:    1,
+		InterimList:        []Interim{},
+		InterimCount:       1,
+		InterimTemplateMap: []InterimTemplate{},
+	}
 }
 
 // Validate performs basic genesis state validation returning an error upon any

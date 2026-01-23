@@ -20,13 +20,11 @@ func SimulateMsgSubmitExpertTestimony(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgSubmitExpertTestimony{
-			Expert: simAccount.Address.String(),
-		}
-
-		// TODO: Handle the SubmitExpertTestimony simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "SubmitExpertTestimony simulation not implemented"), nil, nil
+		// NOTE: This operation cannot succeed in simulation because expert testimony requires:
+		// 1. An active JuryReview (created when a challenge is responded to)
+		// 2. The expert must be qualified for the specific tags
+		// 3. The testimony must be submitted within the proper time window
+		// Setting up this state correctly is complex and cannot be done reliably in simulation.
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSubmitExpertTestimony{}), "skipped: requires active JuryReview"), nil, nil
 	}
 }

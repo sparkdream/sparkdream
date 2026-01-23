@@ -9,11 +9,15 @@ import (
 )
 
 func (k msgServer) ApproveInterim(ctx context.Context, msg *types.MsgApproveInterim) (*types.MsgApproveInterimResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+	approverAddr, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid approver address")
 	}
 
-	// TODO: Handle the message
+	// Approve the interim using the keeper method
+	if err := k.Keeper.ApproveInterim(ctx, msg.InterimId, approverAddr, msg.Approved, msg.Comments); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to approve interim")
+	}
 
 	return &types.MsgApproveInterimResponse{}, nil
 }

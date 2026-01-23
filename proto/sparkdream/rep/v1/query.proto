@@ -185,6 +185,26 @@ service Query {
   rpc Reputation(QueryReputationRequest) returns (QueryReputationResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/reputation/{address}/{tag}";
   }
+
+  // PendingStakeRewards queries pending rewards for a stake
+  rpc PendingStakeRewards(QueryPendingStakeRewardsRequest) returns (QueryPendingStakeRewardsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/stake/{stake_id}/pending_rewards";
+  }
+
+  // GetMemberStakePool queries a member's stake pool info
+  rpc GetMemberStakePool(QueryGetMemberStakePoolRequest) returns (QueryGetMemberStakePoolResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_stake_pool/{member}";
+  }
+
+  // GetTagStakePool queries a tag's stake pool info
+  rpc GetTagStakePool(QueryGetTagStakePoolRequest) returns (QueryGetTagStakePoolResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_stake_pool/{tag}";
+  }
+
+  // GetProjectStakeInfo queries a project's stake info
+  rpc GetProjectStakeInfo(QueryGetProjectStakeInfoRequest) returns (QueryGetProjectStakeInfoResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/project_stake_info/{project_id}";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -480,10 +500,8 @@ message QueryInitiativesByProjectRequest {
 
 // QueryInitiativesByProjectResponse defines the QueryInitiativesByProjectResponse message.
 message QueryInitiativesByProjectResponse {
-  uint64 initiative_id = 1;
-  string title = 2;
-  uint64 status = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Initiative initiatives = 1;
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryInitiativesByAssigneeRequest defines the QueryInitiativesByAssigneeRequest message.
@@ -537,10 +555,8 @@ message QueryStakesByTargetRequest {
 
 // QueryStakesByTargetResponse defines the QueryStakesByTargetResponse message.
 message QueryStakesByTargetResponse {
-  uint64 stake_id = 1;
-  string staker = 2;
-  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Stake stakes = 1;
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryInitiativeConvictionRequest defines the QueryInitiativeConvictionRequest message.
@@ -578,4 +594,52 @@ message QueryReputationRequest {
 message QueryReputationResponse {
   string score = 1 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   string lifetime = 2 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+}
+
+// QueryPendingStakeRewardsRequest defines the request for pending stake rewards
+message QueryPendingStakeRewardsRequest {
+  uint64 stake_id = 1;
+}
+
+// QueryPendingStakeRewardsResponse defines the response for pending stake rewards
+message QueryPendingStakeRewardsResponse {
+  string pending_rewards = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string stake_amount = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  StakeTargetType target_type = 3;
+}
+
+// QueryGetMemberStakePoolRequest defines the request for member stake pool
+message QueryGetMemberStakePoolRequest {
+  string member = 1;
+}
+
+// QueryGetMemberStakePoolResponse defines the response for member stake pool
+message QueryGetMemberStakePoolResponse {
+  MemberStakePool pool = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryGetTagStakePoolRequest defines the request for tag stake pool
+message QueryGetTagStakePoolRequest {
+  string tag = 1;
+}
+
+// QueryGetTagStakePoolResponse defines the response for tag stake pool
+message QueryGetTagStakePoolResponse {
+  TagStakePool pool = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryGetProjectStakeInfoRequest defines the request for project stake info
+message QueryGetProjectStakeInfoRequest {
+  uint64 project_id = 1;
+}
+
+// QueryGetProjectStakeInfoResponse defines the response for project stake info
+message QueryGetProjectStakeInfoResponse {
+  ProjectStakeInfo info = 1 [(gogoproto.nullable) = false];
 }

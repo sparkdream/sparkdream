@@ -9,11 +9,21 @@ import (
 )
 
 func (k msgServer) SubmitExpertTestimony(ctx context.Context, msg *types.MsgSubmitExpertTestimony) (*types.MsgSubmitExpertTestimonyResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Expert); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+	expertAddr, err := k.addressCodec.StringToBytes(msg.Expert)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid expert address")
 	}
 
-	// TODO: Handle the message
+	// Submit the expert testimony
+	if err := k.Keeper.SubmitExpertTestimony(
+		ctx,
+		msg.JuryReviewId,
+		expertAddr,
+		msg.Opinion,
+		msg.Reasoning,
+	); err != nil {
+		return nil, err
+	}
 
 	return &types.MsgSubmitExpertTestimonyResponse{}, nil
 }

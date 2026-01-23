@@ -257,6 +257,11 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "propose-project [name] [description] [category] [council] [requested-budget] [requested-spark]",
 					Short:          "Send a propose-project tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "description"}, {ProtoField: "category"}, {ProtoField: "council"}, {ProtoField: "requested_budget"}, {ProtoField: "requested_spark"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"tags":         {Name: "tags"},
+						"deliverables": {Name: "deliverables"},
+						"milestones":   {Name: "milestones"},
+					},
 				},
 				{
 					RpcMethod:      "ApproveProjectBudget",
@@ -275,12 +280,15 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]",
 					Short:          "Send a create-initiative tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "project_id"}, {ProtoField: "title"}, {ProtoField: "description"}, {ProtoField: "tier"}, {ProtoField: "category"}, {ProtoField: "template_id"}, {ProtoField: "budget"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"tags": {Name: "tags"},
+					},
 				},
 				{
 					RpcMethod:      "AssignInitiative",
-					Use:            "assign-initiative [initiative-id]",
+					Use:            "assign-initiative [initiative-id] [assignee]",
 					Short:          "Send a assign-initiative tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "assignee"}},
 				},
 				{
 					RpcMethod:      "SubmitInitiativeWork",
@@ -307,15 +315,15 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "completion_notes"}},
 				},
 				{
-					RpcMethod:      "CreateStake",
-					Use:            "create-stake [target-type] [target-id] [amount]",
-					Short:          "Send a create-stake tx",
+					RpcMethod:      "Stake",
+					Use:            "stake [target-type] [target-id] [amount]",
+					Short:          "Send a stake tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_type"}, {ProtoField: "target_id"}, {ProtoField: "amount"}},
 				},
 				{
-					RpcMethod:      "RemoveStake",
-					Use:            "remove-stake [stake-id] [amount]",
-					Short:          "Send a remove-stake tx",
+					RpcMethod:      "Unstake",
+					Use:            "unstake [stake-id] [amount]",
+					Short:          "Send a unstake tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "stake_id"}, {ProtoField: "amount"}},
 				},
 				{
@@ -335,6 +343,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "submit-juror-vote [jury-review-id] [verdict] [confidence] [reasoning]",
 					Short:          "Send a submit-juror-vote tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "jury_review_id"}, {ProtoField: "verdict"}, {ProtoField: "confidence"}, {ProtoField: "reasoning"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"criteria_votes": {Name: "criteria-votes"},
+					},
 				},
 				{
 					RpcMethod:      "SubmitExpertTestimony",
@@ -344,9 +355,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "AssignInterim",
-					Use:            "assign-interim [interim-id] [assignee-address]",
+					Use:            "assign-interim [interim-id] [assignee]",
 					Short:          "Send a assign-interim tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "interim_id"}, {ProtoField: "assignee_address"}},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "interim_id"}, {ProtoField: "assignee"}},
 				},
 				{
 					RpcMethod:      "SubmitInterimWork",

@@ -25,3 +25,12 @@ type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})
 	Set(context.Context, []byte, interface{})
 }
+
+// CommonsKeeper defines the expected interface for the Commons module.
+type CommonsKeeper interface {
+	// Check if an address is a member of a specific committee in a council
+	IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
+
+	// Get the group info for a committee
+	GetCommitteeGroupInfo(ctx context.Context, council string, committee string) (interface{}, error)
+}

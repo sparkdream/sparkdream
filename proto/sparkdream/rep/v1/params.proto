@@ -3,18 +3,262 @@ package sparkdream.rep.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
+import "cosmos_proto/cosmos.proto";
 
 option go_package = "sparkdream/x/rep/types";
+
+// TierConfig defines configuration for an initiative tier
+message TierConfig {
+  option (gogoproto.equal) = true;
+
+  string max_budget = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string min_reputation = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string reputation_cap = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string reward_multiplier = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// TrustLevelConfig defines thresholds for trust level progression
+message TrustLevelConfig {
+  option (gogoproto.equal) = true;
+
+  string provisional_min_rep = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint32 provisional_min_interims = 2;
+  string established_min_rep = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint32 established_min_interims = 4;
+  string trusted_min_rep = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint32 trusted_min_seasons = 6;
+  string core_min_rep = 7 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint32 core_min_seasons = 8;
+
+  // Invitation credits per trust level (max credits per season)
+  // NEW level gets 0 (cannot invite)
+  uint32 new_invitation_credits = 9;
+  uint32 provisional_invitation_credits = 10;
+  uint32 established_invitation_credits = 11;
+  uint32 trusted_invitation_credits = 12;
+  uint32 core_invitation_credits = 13;
+}
 
 // Params defines the parameters for the module.
 message Params {
   option (amino.name) = "sparkdream/x/rep/Params";
   option (gogoproto.equal) = true;
 
-  string unstaked_decay_rate = 1 [
+  // Time
+  int64 epoch_blocks = 1;
+  int64 season_duration_epochs = 2;
+
+  // DREAM economics
+  string staking_apy = 3 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false,
-    (amino.dont_omitempty) = true
+    (gogoproto.nullable) = false
   ];
-  int64 epoch_blocks = 2;
+  string unstaked_decay_rate = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string transfer_tax_rate = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string max_tip_amount = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 max_tips_per_epoch = 7;
+  string max_gift_amount = 8 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  bool gift_only_to_invitees = 9;
+
+  // Initiative rewards
+  string completer_share = 10 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string treasury_share = 11 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string min_reputation_multiplier = 12 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Initiative tiers
+  TierConfig apprentice_tier = 13 [(gogoproto.nullable) = false];
+  TierConfig standard_tier = 14 [(gogoproto.nullable) = false];
+  TierConfig expert_tier = 15 [(gogoproto.nullable) = false];
+  TierConfig epic_tier = 16 [(gogoproto.nullable) = false];
+
+  // Conviction
+  int64 conviction_half_life_epochs = 17;
+  string external_conviction_ratio = 18 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string conviction_per_dream = 19 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Review periods
+  int64 default_review_period_epochs = 20;
+  int64 default_challenge_period_epochs = 21;
+
+  // Invitations
+  string min_invitation_stake = 22 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 invitation_accountability_epochs = 23;
+  string referral_reward_rate = 24 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string invitation_cost_multiplier = 25 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Trust levels
+  TrustLevelConfig trust_level_config = 26 [(gogoproto.nullable) = false];
+
+  // Challenges
+  string min_challenge_stake = 27 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string anonymous_fee_multiplier = 28 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string challenger_reward_rate = 29 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint32 jury_size = 30;
+  string jury_super_majority = 31 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string min_juror_reputation = 32 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Interim compensation
+  string simple_complexity_budget = 33 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string standard_complexity_budget = 34 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string complex_complexity_budget = 35 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string expert_complexity_budget = 36 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string solo_expert_bonus_rate = 37 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  int64 interim_deadline_epochs = 38;
+
+  // Rate limits
+  uint32 max_active_challenges_per_committee = 39;
+  uint32 max_new_challenges_per_epoch = 40;
+  uint32 challenge_queue_max_size = 41;
+
+  // Slashing
+  string minor_slash_penalty = 42 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string moderate_slash_penalty = 43 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string severe_slash_penalty = 44 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string zeroing_slash_penalty = 45 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Extended staking
+  string project_staking_apy = 46 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string project_completion_bonus_rate = 47 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string member_stake_revenue_share = 48 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string tag_stake_revenue_share = 49 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  int64 min_stake_duration_seconds = 50;
+  bool allow_self_member_stake = 51;
+
+  // Challenge response deadline (epochs)
+  // If assignee doesn't respond within this time, challenge is auto-upheld
+  int64 challenge_response_deadline_epochs = 52;
+
+  // Gift rate limiting
+  // Cooldown period in blocks before same sender can gift same recipient again
+  int64 gift_cooldown_blocks = 53;
+  // Maximum total DREAM a sender can gift per epoch (across all recipients)
+  string max_gifts_per_sender_epoch = 54 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
+

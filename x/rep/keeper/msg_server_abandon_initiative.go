@@ -9,11 +9,16 @@ import (
 )
 
 func (k msgServer) AbandonInitiative(ctx context.Context, msg *types.MsgAbandonInitiative) (*types.MsgAbandonInitiativeResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+	creatorAddr, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
-	// TODO: Handle the message
+	// Abandon initiative (creator must be the assignee)
+	err = k.Keeper.AbandonInitiative(ctx, msg.InitiativeId, creatorAddr, msg.Reason)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to abandon initiative")
+	}
 
 	return &types.MsgAbandonInitiativeResponse{}, nil
 }

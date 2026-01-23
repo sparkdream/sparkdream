@@ -9,11 +9,32 @@ import (
 )
 
 func (k msgServer) CreateChallenge(ctx context.Context, msg *types.MsgCreateChallenge) (*types.MsgCreateChallengeResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Challenger); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+	challengerAddr, err := k.addressCodec.StringToBytes(msg.Challenger)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid challenger address")
 	}
 
-	// TODO: Handle the message
+	// Validate staked DREAM amount
+	if msg.StakedDream == nil {
+		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "staked DREAM is required")
+	}
+
+	// Create the challenge
+	_, err = k.Keeper.CreateChallenge(
+		ctx,
+		challengerAddr,
+		msg.InitiativeId,
+		msg.Reason,
+		msg.Evidence,
+		*msg.StakedDream,
+		msg.IsAnonymous,
+		msg.PayoutAddress,
+		msg.MembershipProof,
+		msg.Nullifier,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &types.MsgCreateChallengeResponse{}, nil
 }

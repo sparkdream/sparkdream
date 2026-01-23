@@ -9,11 +9,41 @@ import (
 )
 
 func (k msgServer) ApproveProjectBudget(ctx context.Context, msg *types.MsgApproveProjectBudget) (*types.MsgApproveProjectBudgetResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Approver); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+	approverAddr, err := k.addressCodec.StringToBytes(msg.Approver)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid approver address")
 	}
 
-	// TODO: Handle the message
+	// Get project to check council
+	project, err := k.GetProject(ctx, msg.ProjectId)
+	if err != nil {
+		return nil, errorsmod.Wrap(types.ErrProjectNotFound, err.Error())
+	}
+
+	// Check if approver is Operations Committee member for the project's council
+	isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, approverAddr, project.Council, "operations")
+	if err != nil {
+		return nil, errorsmod.Wrapf(err, "failed to check committee membership")
+	}
+	if !isMember {
+		return nil, errorsmod.Wrapf(
+			types.ErrUnauthorized,
+			"approver must be a member of the Operations Committee for council '%s'",
+			project.Council,
+		)
+	}
+
+	// Approve project with budget
+	err = k.ApproveProject(
+		ctx,
+		msg.ProjectId,
+		approverAddr,
+		*msg.ApprovedBudget,
+		*msg.ApprovedSpark,
+	)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to approve project")
+	}
 
 	return &types.MsgApproveProjectBudgetResponse{}, nil
 }

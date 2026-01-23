@@ -37,6 +37,19 @@ message Member {
   int64 zeroed_at = 16;
   uint32 zeroed_count = 17;
   int64 last_decay_epoch = 18;
+  uint32 tips_given_this_epoch = 19;
+  int64 last_tip_epoch = 20;
+
+  // Cached counts for performance (avoid full table scans)
+  uint32 completed_interims_count = 21;  // Incremented on interim completion
+  uint32 completed_initiatives_count = 22;  // Incremented on initiative completion
+
+  // Gift tracking for rate limiting
+  string gifts_sent_this_epoch = 23 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Total DREAM gifted this epoch
+  int64 last_gift_epoch = 24;  // Epoch when gift counter was last reset
+
+  // Invitation credit tracking for lazy seasonal reset
+  int64 last_credit_reset_season = 25;  // Season when credits were last reset to trust-level max
 }
 
 enum TrustLevel {
@@ -51,4 +64,12 @@ enum MemberStatus {
   MEMBER_STATUS_ACTIVE = 0;
   MEMBER_STATUS_INACTIVE = 1;
   MEMBER_STATUS_ZEROED = 2;
+}
+
+// GiftRecord tracks the last time a sender gifted a specific recipient
+// Used to enforce per-recipient cooldown periods
+message GiftRecord {
+  string sender = 1;
+  string recipient = 2;
+  int64 last_gift_block = 3;  // Block height when last gift was sent
 }

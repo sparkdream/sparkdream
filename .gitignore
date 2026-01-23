@@ -4,9 +4,13 @@ build/
 prod/
 release/
 test/*/proposals
+test/*/snapshots
+.test_env
 .idea/
 .vscode/
 .DS_Store
 *.dot
 *.log
 *.ign
+*.md
+*.out

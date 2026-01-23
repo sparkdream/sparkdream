@@ -23,6 +23,7 @@ message Challenge {
   ChallengeStatus status = 11;
   int64 created_at = 12;
   int64 resolved_at = 13;
+  int64 response_deadline = 14;
 }
 
 enum ChallengeStatus {

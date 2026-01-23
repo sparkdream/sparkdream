@@ -10,10 +10,13 @@ import (
 
 func (k msgServer) CompleteInitiative(ctx context.Context, msg *types.MsgCompleteInitiative) (*types.MsgCompleteInitiativeResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
-	// TODO: Handle the message
+	// Complete the initiative (handles all rewards distribution)
+	if err := k.Keeper.CompleteInitiative(ctx, msg.InitiativeId); err != nil {
+		return nil, err
+	}
 
 	return &types.MsgCompleteInitiativeResponse{}, nil
 }

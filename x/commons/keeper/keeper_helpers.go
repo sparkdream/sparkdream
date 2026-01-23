@@ -3,6 +3,8 @@ package keeper
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"sparkdream/x/commons/types"
 
@@ -11,6 +13,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/cosmos/cosmos-sdk/x/group"
 	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 )
 
@@ -107,4 +110,129 @@ func (k Keeper) DetectCycle(ctx sdk.Context, childPolicy string, parentPolicy st
 	}
 
 	return true, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "ancestry depth limit exceeded")
+}
+
+// --- Committee Helpers ---
+
+// IsCommitteeMember checks if an address is a member of a specific committee in a council
+func (k Keeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
+	// Map council and committee to actual group names used in genesis
+	// Normalize council name (handle both "technical" and "Technical Council" formats)
+	groupName := ""
+	normalizedCouncil := council
+
+	// Normalize lowercase council names
+	switch strings.ToLower(council) {
+	case "technical":
+		normalizedCouncil = "Technical Council"
+	case "ecosystem":
+		normalizedCouncil = "Ecosystem Council"
+	case "commons":
+		normalizedCouncil = "Commons Council"
+	}
+
+	switch normalizedCouncil {
+	case "Technical Council":
+		switch committee {
+		case "operations":
+			groupName = "Technical Operations Committee"
+		case "governance", "hr":
+			groupName = "Technical Governance Committee"
+		default:
+			return false, fmt.Errorf("unknown committee '%s' for council '%s'", committee, council)
+		}
+	case "Ecosystem Council":
+		switch committee {
+		case "operations":
+			groupName = "Ecosystem Operations Committee"
+		case "governance", "hr":
+			groupName = "Ecosystem Governance Committee"
+		default:
+			return false, fmt.Errorf("unknown committee '%s' for council '%s'", committee, council)
+		}
+	case "Commons Council":
+		switch committee {
+		case "operations":
+			groupName = "Commons Operations Committee"
+		case "governance", "hr":
+			groupName = "Commons Governance Committee"
+		default:
+			return false, fmt.Errorf("unknown committee '%s' for council '%s'", committee, council)
+		}
+	default:
+		// Fallback to old convention for backwards compatibility or unknown councils
+		groupName = fmt.Sprintf("%s_%s", council, committee)
+	}
+
+	// Get ExtendedGroup to find GroupID
+	extendedGroup, err := k.ExtendedGroup.Get(ctx, groupName)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return false, nil // Group doesn't exist
+		}
+		return false, err
+	}
+
+	// Check membership in x/group
+	// We iterate through members since committees are small (< 20 members)
+	iterator, err := k.groupKeeper.GroupMembers(ctx, &group.QueryGroupMembersRequest{
+		GroupId: extendedGroup.GroupId,
+	})
+	if err != nil {
+		return false, nil
+	}
+
+	for _, member := range iterator.Members {
+		if member.Member.Address == address.String() {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// GetCommitteeGroupInfo returns the group info for a committee
+func (k Keeper) GetCommitteeGroupInfo(ctx context.Context, council string, committee string) (interface{}, error) {
+	// Use the same mapping logic as IsCommitteeMember
+	groupName := ""
+
+	switch council {
+	case "Technical Council":
+		switch committee {
+		case "operations":
+			groupName = "Technical Operations Committee"
+		case "governance", "hr":
+			groupName = "Technical Governance Committee"
+		default:
+			return nil, fmt.Errorf("unknown committee '%s' for council '%s'", committee, council)
+		}
+	case "Ecosystem Council":
+		switch committee {
+		case "operations":
+			groupName = "Ecosystem Operations Committee"
+		case "governance", "hr":
+			groupName = "Ecosystem Governance Committee"
+		default:
+			return nil, fmt.Errorf("unknown committee '%s' for council '%s'", committee, council)
+		}
+	case "Commons Council":
+		switch committee {
+		case "operations":
+			groupName = "Commons Operations Committee"
+		case "governance", "hr":
+			groupName = "Commons Governance Committee"
+		default:
+			return nil, fmt.Errorf("unknown committee '%s' for council '%s'", committee, council)
+		}
+	default:
+		// Fallback to old convention for backwards compatibility
+		groupName = fmt.Sprintf("%s_%s", council, committee)
+	}
+
+	extendedGroup, err := k.ExtendedGroup.Get(ctx, groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return extendedGroup, nil
 }

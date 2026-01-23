@@ -24,9 +24,10 @@ func createNStake(keeper keeper.Keeper, ctx context.Context, n int) []types.Stak
 		items[i].Staker = strconv.Itoa(i)
 		items[i].TargetType = types.StakeTargetType(i)
 		items[i].TargetId = uint64(i)
-		amount := math.NewInt(int64(i))
-		items[i].Amount = &amount
+		items[i].Amount = math.NewInt(int64(i))
 		items[i].CreatedAt = int64(i)
+		items[i].LastClaimedAt = 0
+		items[i].RewardDebt = math.ZeroInt()
 		_ = keeper.Stake.Set(ctx, iu, items[i])
 		_ = keeper.StakeSeq.Set(ctx, iu)
 	}

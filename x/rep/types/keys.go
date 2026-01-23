@@ -52,3 +52,48 @@ var (
 	InterimKey      = collections.NewPrefix("interim/value/")
 	InterimCountKey = collections.NewPrefix("interim/count/")
 )
+
+var (
+	UsedNullifierKey = collections.NewPrefix("usednullifier/")
+)
+
+var (
+	// GiftRecordKey: (sender, recipient) -> GiftRecord
+	// Tracks last gift timestamp for cooldown enforcement
+	GiftRecordKey = collections.NewPrefix("giftrecord/")
+)
+
+// Secondary indexes for efficient lookups
+var (
+	// InitiativesByStatus: status -> []initiativeID
+	// Enables O(1) lookup of initiatives by status instead of full table scan
+	InitiativesByStatusKey = collections.NewPrefix("initiative/by_status/")
+
+	// InterimsByStatus: status -> []interimID
+	// Enables O(1) lookup of interims by status instead of full table scan
+	InterimsByStatusKey = collections.NewPrefix("interim/by_status/")
+
+	// JuryReviewsByVerdict: verdict -> []reviewID
+	// Enables O(1) lookup of jury reviews by verdict instead of full table scan
+	JuryReviewsByVerdictKey = collections.NewPrefix("juryreview/by_verdict/")
+
+	// StakesByTarget: (targetType, targetID) -> []stakeID
+	// Enables O(1) lookup of stakes for a specific initiative/project/member
+	StakesByTargetKey = collections.NewPrefix("stake/by_target/")
+
+	// ChallengesByStatus: status -> []challengeID
+	// Enables O(1) lookup of challenges by status instead of full table scan
+	ChallengesByStatusKey = collections.NewPrefix("challenge/by_status/")
+)
+
+// Extended staking pool keys
+var (
+	// MemberStakePoolKey: member address -> MemberStakePool
+	MemberStakePoolKey = collections.NewPrefix("stake/member_pool/")
+
+	// TagStakePoolKey: tag name -> TagStakePool
+	TagStakePoolKey = collections.NewPrefix("stake/tag_pool/")
+
+	// ProjectStakeInfoKey: project ID -> ProjectStakeInfo
+	ProjectStakeInfoKey = collections.NewPrefix("stake/project_info/")
+)

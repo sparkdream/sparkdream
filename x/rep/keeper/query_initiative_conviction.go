@@ -14,7 +14,26 @@ func (q queryServer) InitiativeConviction(ctx context.Context, req *types.QueryI
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	// Get the initiative
+	initiative, err := q.k.Initiative.Get(ctx, req.InitiativeId)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, "initiative not found")
+	}
 
-	return &types.QueryInitiativeConvictionResponse{}, nil
+	// Update conviction lazily before returning
+	if err := q.k.UpdateInitiativeConvictionLazy(ctx, req.InitiativeId); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	// Re-fetch initiative after conviction update
+	initiative, err = q.k.Initiative.Get(ctx, req.InitiativeId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &types.QueryInitiativeConvictionResponse{
+		TotalConviction:    initiative.CurrentConviction,
+		ExternalConviction: initiative.ExternalConviction,
+		Threshold:          initiative.RequiredConviction,
+	}, nil
 }

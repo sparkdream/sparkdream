@@ -20,13 +20,11 @@ func SimulateMsgApproveInterim(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgApproveInterim{
-			Creator: simAccount.Address.String(),
-		}
-
-		// TODO: Handle the ApproveInterim simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ApproveInterim simulation not implemented"), nil, nil
+		// NOTE: This operation cannot succeed in simulation because the approver
+		// must be a member of the Operations Committee, which requires external
+		// x/group governance setup that cannot be done within simulation.
+		// Rather than failing the simulation, we return a NoOp and skip this message.
+		// In a real chain environment, committee membership would be established via x/group.
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInterim{}), "skipped: requires committee membership"), nil, nil
 	}
 }

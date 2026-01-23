@@ -1,23 +1,87 @@
 syntax = "proto3";
 package sparkdream.rep.v1;
 
+import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/rep/types";
 
-// Stake defines the Stake message.
+// Stake defines a staked DREAM position on a target.
+// Stakes earn rewards through different mechanisms depending on target type.
 message Stake {
   uint64 id = 1;
-  string staker = 2;
+  string staker = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   StakeTargetType target_type = 3;
-  uint64 target_id = 4;
-  string amount = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  int64 created_at = 6;
+  uint64 target_id = 4;              // For INITIATIVE/PROJECT: the entity ID
+  string target_identifier = 5;      // For MEMBER: address; For TAG: tag name
+  string amount = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 created_at = 7;
+  int64 last_claimed_at = 8;         // Last reward claim timestamp (lazy calculation)
+  string reward_debt = 9 [           // MasterChef accounting for member/tag staking
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
+// StakeTargetType defines the type of entity being staked on
 enum StakeTargetType {
-  STAKE_TARGET_INITIATIVE = 0;
-  STAKE_TARGET_PROJECT = 1;
-  STAKE_TARGET_MEMBER = 2;
-  STAKE_TARGET_TAG = 3;
+  STAKE_TARGET_INITIATIVE = 0;  // Conviction voting, rewards on completion
+  STAKE_TARGET_PROJECT = 1;     // APY while active, bonus on completion
+  STAKE_TARGET_MEMBER = 2;      // Revenue share from member's earnings
+  STAKE_TARGET_TAG = 3;         // Revenue share from tagged initiatives
+}
+
+// MemberStakePool tracks aggregate staking on a member for O(1) reward distribution
+message MemberStakePool {
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string total_staked = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string pending_revenue = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string acc_reward_per_share = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  int64 last_updated = 5;
+}
+
+// TagStakePool tracks aggregate staking on a tag for O(1) reward distribution
+message TagStakePool {
+  string tag = 1;
+  string total_staked = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string acc_reward_per_share = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  int64 last_updated = 4;
+}
+
+// ProjectStakeInfo tracks project staking totals
+message ProjectStakeInfo {
+  uint64 project_id = 1;
+  string total_staked = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string completion_bonus_pool = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
