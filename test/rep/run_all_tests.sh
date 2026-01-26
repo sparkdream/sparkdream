@@ -375,14 +375,15 @@ if [ "$RUN_SETUP" = true ]; then
         echo "========================================================================="
         echo ""
 
-        if [ ! -f "$SCRIPT_DIR/snapshot_datadir.sh" ]; then
-            echo "❌ snapshot_datadir.sh not found"
+        SNAPSHOT_SCRIPT="$SCRIPT_DIR/../snapshot_datadir.sh"
+        if [ ! -f "$SNAPSHOT_SCRIPT" ]; then
+            echo "❌ snapshot_datadir.sh not found at $SNAPSHOT_SCRIPT"
             echo "   Cannot save chain state"
             exit 1
         fi
 
         echo "Saving chain state to 'post-setup' snapshot..."
-        bash "$SCRIPT_DIR/snapshot_datadir.sh" post-setup
+        bash "$SNAPSHOT_SCRIPT" post-setup "$SCRIPT_DIR/snapshots"
         SAVE_EXIT_CODE=$?
 
         if [ $SAVE_EXIT_CODE -ne 0 ]; then

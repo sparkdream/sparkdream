@@ -19,15 +19,26 @@ echo "--- STEP 1: ALICE CREATES MARKET WITH LIQUIDITY ---"
 CURRENT_HEIGHT=$($BINARY status | jq -r '.sync_info.latest_block_height')
 END_BLOCK=$((CURRENT_HEIGHT + 50))
 
+# Get current min_liquidity (in case params were updated)
+MIN_LIQ=$($BINARY query futarchy params -o json | jq -r '.params.min_liquidity')
+if [ -z "$MIN_LIQ" ] || [ "$MIN_LIQ" == "null" ]; then
+    MIN_LIQ="200000"
+fi
+# Use at least 200000 for this test
+if [ "$MIN_LIQ" -lt "200000" ]; then
+    MIN_LIQ="200000"
+fi
+
 # Record Alice's initial balance
 ALICE_INITIAL_BALANCE=$($BINARY query bank balance $ALICE_ADDR uspark --output json | jq -r '.balance.amount')
 echo "Alice initial balance: $ALICE_INITIAL_BALANCE uspark"
 
+# CLI syntax: create-market [symbol] [initial-liquidity] [question] [end-block]
 CREATE_RES=$($BINARY tx futarchy create-market \
   "WITHDRAW-TEST" \
+  "$MIN_LIQ" \
   "Market for testing liquidity withdrawal" \
-  "200000uspark" \
-  --end-block $END_BLOCK \
+  $END_BLOCK \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -38,8 +49,9 @@ CREATE_RES=$($BINARY tx futarchy create-market \
 TX_HASH=$(echo $CREATE_RES | jq -r '.txhash')
 sleep 3
 
+# Event type is "market_created"
 MARKET_ID=$($BINARY query tx $TX_HASH --output json | \
-  jq -r '.events[] | select(.type=="sparkdream.futarchy.v1.EventMarketCreated") | .attributes[] | select(.key=="market_id") | .value' | \
+  jq -r '.events[] | select(.type=="market_created") | .attributes[] | select(.key=="market_id") | .value' | \
   tr -d '"')
 
 if [ -z "$MARKET_ID" ] || [ "$MARKET_ID" == "null" ]; then
@@ -52,10 +64,11 @@ echo "✅ Market created with ID: $MARKET_ID (200000 uspark liquidity provided)"
 # --- 2. BOB TRADES ON MARKET ---
 echo "--- STEP 2: BOB TRADES ON THE MARKET ---"
 
+# Note: amount is a plain number (uspark implied)
 TRADE_RES=$($BINARY tx futarchy trade \
   $MARKET_ID \
   true \
-  "15000uspark" \
+  "15000" \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -152,9 +165,9 @@ WITHDRAW_RES=$($BINARY tx futarchy withdraw-liquidity \
 WITHDRAW_TX_HASH=$(echo $WITHDRAW_RES | jq -r '.txhash')
 sleep 3
 
-# Verify withdrawal event
+# Verify withdrawal event (event type is "liquidity_withdrawn")
 WITHDRAW_EVENT=$($BINARY query tx $WITHDRAW_TX_HASH --output json | \
-  jq -r '.events[] | select(.type=="sparkdream.futarchy.v1.EventLiquidityWithdrawn")')
+  jq -r '.events[] | select(.type=="liquidity_withdrawn")')
 
 if [ -z "$WITHDRAW_EVENT" ]; then
     echo "⚠️  Warning: Withdrawal event not found (may still have succeeded)"

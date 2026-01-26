@@ -52,11 +52,12 @@ CURRENT_HEIGHT=$($BINARY status | jq -r '.sync_info.latest_block_height')
 END_BLOCK=$((CURRENT_HEIGHT + 100))
 
 # Use exactly the minimum liquidity
+# CLI syntax: create-market [symbol] [initial-liquidity] [question] [end-block]
 CREATE_RES=$($BINARY tx futarchy create-market \
   "PARAMS-TEST" \
+  "${INITIAL_MIN_LIQ}" \
   "Testing parameter constraints" \
-  "${INITIAL_MIN_LIQ}uspark" \
-  --end-block $END_BLOCK \
+  $END_BLOCK \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -187,9 +188,9 @@ END_BLOCK=$((CURRENT_HEIGHT + 100))
 # Try to create with old minimum (should fail now)
 LOW_LIQ_ATTEMPT=$($BINARY tx futarchy create-market \
   "LOW-LIQ" \
+  "${INITIAL_MIN_LIQ}" \
   "This should fail" \
-  "${INITIAL_MIN_LIQ}uspark" \
-  --end-block $END_BLOCK \
+  $END_BLOCK \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -209,9 +210,9 @@ echo "--- STEP 8: CREATE MARKET WITH NEW MINIMUM LIQUIDITY ---"
 
 CREATE_NEW_RES=$($BINARY tx futarchy create-market \
   "NEW-PARAMS" \
+  "${NEW_MIN_LIQ}" \
   "Market with updated parameters" \
-  "${NEW_MIN_LIQ}uspark" \
-  --end-block $END_BLOCK \
+  $END_BLOCK \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -222,8 +223,9 @@ CREATE_NEW_RES=$($BINARY tx futarchy create-market \
 NEW_TX_HASH=$(echo $CREATE_NEW_RES | jq -r '.txhash')
 sleep 3
 
+# Event type is "market_created"
 NEW_MARKET_ID=$($BINARY query tx $NEW_TX_HASH --output json | \
-  jq -r '.events[] | select(.type=="sparkdream.futarchy.v1.EventMarketCreated") | .attributes[] | select(.key=="market_id") | .value' | \
+  jq -r '.events[] | select(.type=="market_created") | .attributes[] | select(.key=="market_id") | .value' | \
   tr -d '"')
 
 if [ -z "$NEW_MARKET_ID" ] || [ "$NEW_MARKET_ID" == "null" ]; then
@@ -239,10 +241,11 @@ echo "--- STEP 9: VERIFY HIGHER TRADING FEE IS APPLIED ---"
 # Trade and check if fee is deducted correctly
 ALICE_BALANCE_BEFORE=$($BINARY query bank balance $ALICE_ADDR uspark --output json | jq -r '.balance.amount')
 
+# Note: amount is a plain number (uspark implied)
 TRADE_RES=$($BINARY tx futarchy trade \
   $NEW_MARKET_ID \
   true \
-  "10000uspark" \
+  "10000" \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \

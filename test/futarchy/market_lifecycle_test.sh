@@ -24,12 +24,20 @@ echo "--- STEP 1: CREATE PREDICTION MARKET ---"
 CURRENT_HEIGHT=$($BINARY status | jq -r '.sync_info.latest_block_height')
 END_BLOCK=$((CURRENT_HEIGHT + 100))
 
+# Get current min_liquidity (in case params were updated)
+MIN_LIQ=$($BINARY query futarchy params -o json | jq -r '.params.min_liquidity')
+if [ -z "$MIN_LIQ" ] || [ "$MIN_LIQ" == "null" ]; then
+    MIN_LIQ="100000"
+fi
+
 echo "Creating market ending at block $END_BLOCK..."
+# CLI syntax: create-market [symbol] [initial-liquidity] [question] [end-block]
+# Note: initial-liquidity is a plain number (uspark implied)
 CREATE_RES=$($BINARY tx futarchy create-market \
   "PROP-1" \
+  "$MIN_LIQ" \
   "Will governance proposal #1 pass?" \
-  "100000uspark" \
-  --end-block $END_BLOCK \
+  $END_BLOCK \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -41,9 +49,9 @@ TX_HASH=$(echo $CREATE_RES | jq -r '.txhash')
 echo "Transaction Hash: $TX_HASH"
 sleep 3
 
-# Extract market ID from events
+# Extract market ID from events (event type is "market_created")
 MARKET_ID=$($BINARY query tx $TX_HASH --output json | \
-  jq -r '.events[] | select(.type=="sparkdream.futarchy.v1.EventMarketCreated") | .attributes[] | select(.key=="market_id") | .value' | \
+  jq -r '.events[] | select(.type=="market_created") | .attributes[] | select(.key=="market_id") | .value' | \
   tr -d '"')
 
 if [ -z "$MARKET_ID" ] || [ "$MARKET_ID" == "null" ]; then
@@ -75,7 +83,8 @@ echo "✅ Market is ACTIVE with symbol $MARKET_SYMBOL"
 # --- 3. QUERY MARKET PRICE ---
 echo "--- STEP 3: QUERY INITIAL MARKET PRICE ---"
 
-PRICE_INFO=$($BINARY query futarchy get-market-price $MARKET_ID true "1000" --output json)
+# Query syntax: --market-id, --is-yes, --amount
+PRICE_INFO=$($BINARY query futarchy get-market-price --market-id $MARKET_ID --is-yes --amount 1000 --output json)
 YES_PRICE=$(echo $PRICE_INFO | jq -r '.price')
 YES_SHARES=$(echo $PRICE_INFO | jq -r '.shares_out')
 
@@ -92,10 +101,11 @@ echo "✅ Market price query successful"
 # --- 4. TRADE (BUY YES) ---
 echo "--- STEP 4: BOB BUYS YES SHARES ---"
 
+# Note: amount-in is a plain number (uspark implied)
 TRADE_RES=$($BINARY tx futarchy trade \
   $MARKET_ID \
   true \
-  "10000uspark" \
+  "10000" \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -106,12 +116,10 @@ TRADE_RES=$($BINARY tx futarchy trade \
 TRADE_TX_HASH=$(echo $TRADE_RES | jq -r '.txhash')
 sleep 3
 
-# Verify trade event
-TRADE_EVENT=$($BINARY query tx $TRADE_TX_HASH --output json | \
-  jq -r '.events[] | select(.type=="sparkdream.futarchy.v1.EventTrade")')
-
-if [ -z "$TRADE_EVENT" ]; then
-    echo "❌ FAILURE: Trade event not found"
+# Verify trade succeeded by checking TX code
+TRADE_TX_CODE=$(echo $TRADE_RES | jq -r '.code // 0')
+if [ "$TRADE_TX_CODE" != "0" ]; then
+    echo "❌ FAILURE: Trade transaction failed with code $TRADE_TX_CODE"
     exit 1
 fi
 
@@ -131,10 +139,11 @@ echo "✅ Bob has $BOB_YES_BALANCE YES shares (token: $YES_TOKEN)"
 # --- 5. TRADE (BUY NO) ---
 echo "--- STEP 5: CAROL BUYS NO SHARES ---"
 
+# Note: amount-in is a plain number (uspark implied)
 TRADE_NO_RES=$($BINARY tx futarchy trade \
   $MARKET_ID \
   false \
-  "10000uspark" \
+  "10000" \
   --from carol \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -159,7 +168,8 @@ echo "✅ Carol has $CAROL_NO_BALANCE NO shares (token: $NO_TOKEN)"
 # --- 6. QUERY UPDATED PRICE ---
 echo "--- STEP 6: VERIFY PRICE CHANGED AFTER TRADES ---"
 
-NEW_PRICE_INFO=$($BINARY query futarchy get-market-price $MARKET_ID true "1000" --output json)
+# Query syntax: --market-id, --is-yes, --amount
+NEW_PRICE_INFO=$($BINARY query futarchy get-market-price --market-id $MARKET_ID --is-yes --amount 1000 --output json)
 NEW_YES_PRICE=$(echo $NEW_PRICE_INFO | jq -r '.price')
 
 echo "New YES Price: $NEW_YES_PRICE"

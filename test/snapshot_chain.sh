@@ -5,9 +5,11 @@ echo "Snapshot: Exporting Chain State"
 echo "=========================================="
 echo ""
 
-SNAPSHOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/snapshots"
+# Usage: snapshot_chain.sh [snapshot_name] [output_dir]
+# If output_dir not provided, uses test/snapshots
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SNAPSHOT_NAME="${1:-test_setup_$TIMESTAMP}"
+SNAPSHOT_DIR="${2:-$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/snapshots}"
 SNAPSHOT_PATH="$SNAPSHOT_DIR/$SNAPSHOT_NAME"
 
 # Create snapshots directory

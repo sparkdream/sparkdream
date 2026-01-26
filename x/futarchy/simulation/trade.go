@@ -119,7 +119,11 @@ func SimulateMsgTrade(
 		}
 		bVal := *targetMarket.BValue
 
-		safeCap := bVal.MulInt64(10).TruncateInt()
+		// More conservative cap: limit to 1% of BValue to avoid depleting liquidity
+		safeCap := bVal.QuoInt64(100).TruncateInt()
+		if safeCap.LT(math.NewInt(1100)) {
+			safeCap = math.NewInt(1100) // Minimum viable trade
+		}
 
 		available := balance.Amount
 		maxAmt := available.Quo(math.NewInt(2))

@@ -30,11 +30,18 @@ echo "--- STEP 1: CREATE A MARKET TO BE CANCELLED ---"
 CURRENT_HEIGHT=$($BINARY status | jq -r '.sync_info.latest_block_height')
 END_BLOCK=$((CURRENT_HEIGHT + 500))
 
+# Get current min_liquidity (in case params were updated)
+MIN_LIQ=$($BINARY query futarchy params -o json | jq -r '.params.min_liquidity')
+if [ -z "$MIN_LIQ" ] || [ "$MIN_LIQ" == "null" ]; then
+    MIN_LIQ="200000"
+fi
+
+# CLI syntax: create-market [symbol] [initial-liquidity] [question] [end-block]
 CREATE_RES=$($BINARY tx futarchy create-market \
   "EMERGENCY-TEST" \
+  "$MIN_LIQ" \
   "Market to be cancelled for emergency testing" \
-  "100000uspark" \
-  --end-block $END_BLOCK \
+  $END_BLOCK \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -45,8 +52,9 @@ CREATE_RES=$($BINARY tx futarchy create-market \
 TX_HASH=$(echo $CREATE_RES | jq -r '.txhash')
 sleep 3
 
+# Event type is "market_created"
 MARKET_ID=$($BINARY query tx $TX_HASH --output json | \
-  jq -r '.events[] | select(.type=="sparkdream.futarchy.v1.EventMarketCreated") | .attributes[] | select(.key=="market_id") | .value' | \
+  jq -r '.events[] | select(.type=="market_created") | .attributes[] | select(.key=="market_id") | .value' | \
   tr -d '"')
 
 if [ -z "$MARKET_ID" ] || [ "$MARKET_ID" == "null" ]; then
@@ -59,10 +67,11 @@ echo "✅ Market created with ID: $MARKET_ID"
 # --- 2. ADD SOME TRADING ACTIVITY ---
 echo "--- STEP 2: BOB TRADES ON THE MARKET ---"
 
+# Note: amount is a plain number (uspark implied)
 TRADE_RES=$($BINARY tx futarchy trade \
   $MARKET_ID \
   true \
-  "10000uspark" \
+  "10000" \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -229,10 +238,11 @@ echo "✅ Market resolved at block height: $RESOLUTION_HEIGHT"
 # --- 10. VERIFY TRADING IS DISABLED ---
 echo "--- STEP 10: VERIFY TRADING ON CANCELLED MARKET FAILS ---"
 
+# Note: amount is a plain number (uspark implied)
 TRADE_ATTEMPT=$($BINARY tx futarchy trade \
   $MARKET_ID \
   true \
-  "1000uspark" \
+  "1000" \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \

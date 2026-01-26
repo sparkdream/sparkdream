@@ -5,9 +5,11 @@ echo "Snapshot: Copying Chain Data Directory"
 echo "=========================================="
 echo ""
 
-SNAPSHOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/snapshots"
+# Usage: snapshot_datadir.sh [snapshot_name] [output_dir]
+# If output_dir not provided, uses test/snapshots
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SNAPSHOT_NAME="${1:-datadir_$TIMESTAMP}"
+SNAPSHOT_DIR="${2:-$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/snapshots}"
 SNAPSHOT_PATH="$SNAPSHOT_DIR/$SNAPSHOT_NAME"
 
 # Create snapshots directory
@@ -44,18 +46,11 @@ cat > "$SNAPSHOT_PATH/metadata.json" <<EOF
   "snapshot_name": "$SNAPSHOT_NAME",
   "timestamp": "$TIMESTAMP",
   "block_height": "$BLOCK_HEIGHT",
-  "description": "Chain data directory after test account setup",
-  "data_path": "$SNAPSHOT_PATH/sparkdream_data",
-  "notes": "Includes: 7 test accounts with DREAM, test project, jurors with reputation"
+  "description": "Chain data directory snapshot",
+  "data_path": "$SNAPSHOT_PATH/sparkdream_data"
 }
 EOF
 echo "  ✅ Metadata saved"
-
-# Save current test environment variables
-if [ -f "$( dirname "${BASH_SOURCE[0]}" )/.test_env" ]; then
-    cp "$( dirname "${BASH_SOURCE[0]}" )/.test_env" "$SNAPSHOT_PATH/test_env.bak"
-    echo "  ✅ Test environment variables saved"
-fi
 
 # Get data directory size
 DIR_SIZE=$(du -sh "$SNAPSHOT_PATH/sparkdream_data" | cut -f1)
@@ -95,12 +90,6 @@ else
     exit 1
 fi
 
-# Restore test environment (if exists)
-if [ -f "$SCRIPT_DIR/test_env.bak" ]; then
-    cp "$SCRIPT_DIR/test_env.bak" "$( cd "$( dirname "${BASH_SOURCE[0]}" )" && cd ../.. && pwd )/test/rep/.test_env"
-    echo "  ✅ Test environment restored"
-fi
-
 echo ""
 echo "✅ Snapshot restored successfully!"
 echo ""
@@ -121,12 +110,6 @@ RESTORE_SCRIPT
 
 chmod +x "$SNAPSHOT_PATH/restore.sh"
 echo "  ✅ Restore script created"
-
-# Restart the chain
-echo ""
-echo "→ Restarting chain..."
-cd "$(dirname "${BASH_SOURCE[0]}")/../.." && ignite chain serve --skip-proto > /tmp/chain_after_snapshot.log 2>&1 &
-sleep 5
 
 echo ""
 echo "=========================================="

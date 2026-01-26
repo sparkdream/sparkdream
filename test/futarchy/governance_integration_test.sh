@@ -38,12 +38,23 @@ echo "--- STEP 1: CREATE MARKET FOR GOVERNANCE PROPOSAL OUTCOME ---"
 CURRENT_HEIGHT=$($BINARY status | jq -r '.sync_info.latest_block_height')
 END_BLOCK=$((CURRENT_HEIGHT + 80))
 
+# Get current min_liquidity (in case params were updated)
+MIN_LIQ=$($BINARY query futarchy params -o json | jq -r '.params.min_liquidity')
+if [ -z "$MIN_LIQ" ] || [ "$MIN_LIQ" == "null" ]; then
+    MIN_LIQ="150000"
+fi
+# Use at least 150000 for this test
+if [ "$MIN_LIQ" -lt "150000" ]; then
+    MIN_LIQ="150000"
+fi
+
 # Create a market predicting whether a specific governance proposal will pass
+# CLI syntax: create-market [symbol] [initial-liquidity] [question] [end-block]
 CREATE_RES=$($BINARY tx futarchy create-market \
   "GOV-PROP-42" \
+  "$MIN_LIQ" \
   "Will governance proposal #42 pass?" \
-  "150000uspark" \
-  --end-block $END_BLOCK \
+  $END_BLOCK \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -54,8 +65,9 @@ CREATE_RES=$($BINARY tx futarchy create-market \
 TX_HASH=$(echo $CREATE_RES | jq -r '.txhash')
 sleep 3
 
+# Event type is "market_created"
 MARKET_ID=$($BINARY query tx $TX_HASH --output json | \
-  jq -r '.events[] | select(.type=="sparkdream.futarchy.v1.EventMarketCreated") | .attributes[] | select(.key=="market_id") | .value' | \
+  jq -r '.events[] | select(.type=="market_created") | .attributes[] | select(.key=="market_id") | .value' | \
   tr -d '"')
 
 if [ -z "$MARKET_ID" ] || [ "$MARKET_ID" == "null" ]; then
@@ -69,11 +81,12 @@ echo "✅ Governance prediction market created with ID: $MARKET_ID"
 echo "--- STEP 2: MULTIPLE PARTICIPANTS TRADE ON OUTCOME ---"
 
 # Alice bets YES (thinks proposal will pass)
+# Note: amount is a plain number (uspark implied)
 echo "Alice bets YES on proposal passing..."
 $BINARY tx futarchy trade \
   $MARKET_ID \
   true \
-  "20000uspark" \
+  "20000" \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -88,7 +101,7 @@ echo "Bob bets YES on proposal passing..."
 $BINARY tx futarchy trade \
   $MARKET_ID \
   true \
-  "15000uspark" \
+  "15000" \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -103,7 +116,7 @@ echo "Carol bets NO on proposal passing..."
 $BINARY tx futarchy trade \
   $MARKET_ID \
   false \
-  "10000uspark" \
+  "10000" \
   --from carol \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -118,11 +131,11 @@ echo "✅ Multiple traders participated in governance prediction market"
 # --- 3. QUERY MARKET SENTIMENT ---
 echo "--- STEP 3: ANALYZE MARKET SENTIMENT ---"
 
-# Query price to see market belief
-YES_PRICE_INFO=$($BINARY query futarchy get-market-price $MARKET_ID true "1000" --output json)
+# Query price to see market belief (using flags: --market-id, --is-yes/--is-no, --amount)
+YES_PRICE_INFO=$($BINARY query futarchy get-market-price --market-id $MARKET_ID --is-yes --amount 1000 --output json)
 YES_PRICE=$(echo $YES_PRICE_INFO | jq -r '.price')
 
-NO_PRICE_INFO=$($BINARY query futarchy get-market-price $MARKET_ID false "1000" --output json)
+NO_PRICE_INFO=$($BINARY query futarchy get-market-price --market-id $MARKET_ID --amount 1000 --output json)
 NO_PRICE=$(echo $NO_PRICE_INFO | jq -r '.price')
 
 echo ""
