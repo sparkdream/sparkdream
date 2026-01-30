@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package sparkdream.season.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/season/v1/achievement.proto";
+import "sparkdream/season/v1/display_name_appeal_stake.proto";
+import "sparkdream/season/v1/display_name_moderation.proto";
+import "sparkdream/season/v1/display_name_report_stake.proto";
+import "sparkdream/season/v1/epoch_xp_tracker.proto";
+import "sparkdream/season/v1/forum_xp_cooldown.proto";
+import "sparkdream/season/v1/guild.proto";
+import "sparkdream/season/v1/guild_invite.proto";
+import "sparkdream/season/v1/guild_membership.proto";
+import "sparkdream/season/v1/member_profile.proto";
+import "sparkdream/season/v1/member_quest_progress.proto";
+import "sparkdream/season/v1/member_registration.proto";
+import "sparkdream/season/v1/member_season_snapshot.proto";
+import "sparkdream/season/v1/next_season_info.proto";
+import "sparkdream/season/v1/params.proto";
+import "sparkdream/season/v1/quest.proto";
+import "sparkdream/season/v1/season.proto";
+import "sparkdream/season/v1/season_snapshot.proto";
+import "sparkdream/season/v1/season_title_eligibility.proto";
+import "sparkdream/season/v1/season_transition_state.proto";
+import "sparkdream/season/v1/title.proto";
+import "sparkdream/season/v1/transition_recovery_state.proto";
+import "sparkdream/season/v1/vote_xp_record.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// GenesisState defines the season module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  Season season = 2;
+  SeasonTransitionState season_transition_state = 3;
+  TransitionRecoveryState transition_recovery_state = 4;
+  NextSeasonInfo next_season_info = 5;
+  repeated SeasonSnapshot season_snapshot_map = 6 [(gogoproto.nullable) = false];
+  repeated MemberSeasonSnapshot member_season_snapshot_map = 7 [(gogoproto.nullable) = false];
+  repeated MemberProfile member_profile_map = 8 [(gogoproto.nullable) = false];
+  repeated MemberRegistration member_registration_map = 9 [(gogoproto.nullable) = false];
+  repeated Achievement achievement_map = 10 [(gogoproto.nullable) = false];
+  repeated Title title_map = 11 [(gogoproto.nullable) = false];
+  repeated SeasonTitleEligibility season_title_eligibility_map = 12 [(gogoproto.nullable) = false];
+  repeated Guild guild_list = 13 [(gogoproto.nullable) = false];
+  uint64 guild_count = 14;
+  repeated GuildMembership guild_membership_map = 15 [(gogoproto.nullable) = false];
+  repeated GuildInvite guild_invite_map = 16 [(gogoproto.nullable) = false];
+  repeated Quest quest_map = 17 [(gogoproto.nullable) = false];
+  repeated MemberQuestProgress member_quest_progress_map = 18 [(gogoproto.nullable) = false];
+  repeated EpochXpTracker epoch_xp_tracker_map = 19 [(gogoproto.nullable) = false];
+  repeated VoteXpRecord vote_xp_record_map = 20 [(gogoproto.nullable) = false];
+  repeated ForumXpCooldown forum_xp_cooldown_map = 21 [(gogoproto.nullable) = false];
+  repeated DisplayNameModeration display_name_moderation_map = 22 [(gogoproto.nullable) = false];
+  repeated DisplayNameReportStake display_name_report_stake_map = 23 [(gogoproto.nullable) = false];
+  repeated DisplayNameAppealStake display_name_appeal_stake_map = 24 [(gogoproto.nullable) = false];
+}

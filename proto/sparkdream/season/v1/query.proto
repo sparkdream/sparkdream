@@ -1,0 +1,1069 @@
+syntax = "proto3";
+
+package sparkdream.season.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/season/v1/achievement.proto";
+import "sparkdream/season/v1/display_name_appeal_stake.proto";
+import "sparkdream/season/v1/display_name_moderation.proto";
+import "sparkdream/season/v1/display_name_report_stake.proto";
+import "sparkdream/season/v1/epoch_xp_tracker.proto";
+import "sparkdream/season/v1/forum_xp_cooldown.proto";
+import "sparkdream/season/v1/guild.proto";
+import "sparkdream/season/v1/guild_invite.proto";
+import "sparkdream/season/v1/guild_membership.proto";
+import "sparkdream/season/v1/member_profile.proto";
+import "sparkdream/season/v1/member_quest_progress.proto";
+import "sparkdream/season/v1/member_registration.proto";
+import "sparkdream/season/v1/member_season_snapshot.proto";
+import "sparkdream/season/v1/next_season_info.proto";
+import "sparkdream/season/v1/params.proto";
+import "sparkdream/season/v1/quest.proto";
+import "sparkdream/season/v1/season.proto";
+import "sparkdream/season/v1/season_snapshot.proto";
+import "sparkdream/season/v1/season_title_eligibility.proto";
+import "sparkdream/season/v1/season_transition_state.proto";
+import "sparkdream/season/v1/title.proto";
+import "sparkdream/season/v1/transition_recovery_state.proto";
+import "sparkdream/season/v1/vote_xp_record.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/params";
+  }
+
+  // Queries a Season by index.
+  rpc GetSeason(QueryGetSeasonRequest) returns (QueryGetSeasonResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/season";
+  }
+
+  // Queries a SeasonTransitionState by index.
+  rpc GetSeasonTransitionState(QueryGetSeasonTransitionStateRequest) returns (QueryGetSeasonTransitionStateResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/season_transition_state";
+  }
+
+  // Queries a TransitionRecoveryState by index.
+  rpc GetTransitionRecoveryState(QueryGetTransitionRecoveryStateRequest) returns (QueryGetTransitionRecoveryStateResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/transition_recovery_state";
+  }
+
+  // Queries a NextSeasonInfo by index.
+  rpc GetNextSeasonInfo(QueryGetNextSeasonInfoRequest) returns (QueryGetNextSeasonInfoResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/next_season_info";
+  }
+
+  // ListSeasonSnapshot Queries a list of SeasonSnapshot items.
+  rpc GetSeasonSnapshot(QueryGetSeasonSnapshotRequest) returns (QueryGetSeasonSnapshotResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/season_snapshot/{season}";
+  }
+
+  // ListSeasonSnapshot defines the ListSeasonSnapshot RPC.
+  rpc ListSeasonSnapshot(QueryAllSeasonSnapshotRequest) returns (QueryAllSeasonSnapshotResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/season_snapshot";
+  }
+
+  // ListMemberSeasonSnapshot Queries a list of MemberSeasonSnapshot items.
+  rpc GetMemberSeasonSnapshot(QueryGetMemberSeasonSnapshotRequest) returns (QueryGetMemberSeasonSnapshotResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_season_snapshot/{season_address}";
+  }
+
+  // ListMemberSeasonSnapshot defines the ListMemberSeasonSnapshot RPC.
+  rpc ListMemberSeasonSnapshot(QueryAllMemberSeasonSnapshotRequest) returns (QueryAllMemberSeasonSnapshotResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_season_snapshot";
+  }
+
+  // ListMemberProfile Queries a list of MemberProfile items.
+  rpc GetMemberProfile(QueryGetMemberProfileRequest) returns (QueryGetMemberProfileResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_profile/{address}";
+  }
+
+  // ListMemberProfile defines the ListMemberProfile RPC.
+  rpc ListMemberProfile(QueryAllMemberProfileRequest) returns (QueryAllMemberProfileResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_profile";
+  }
+
+  // ListMemberRegistration Queries a list of MemberRegistration items.
+  rpc GetMemberRegistration(QueryGetMemberRegistrationRequest) returns (QueryGetMemberRegistrationResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_registration/{member}";
+  }
+
+  // ListMemberRegistration defines the ListMemberRegistration RPC.
+  rpc ListMemberRegistration(QueryAllMemberRegistrationRequest) returns (QueryAllMemberRegistrationResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_registration";
+  }
+
+  // ListAchievement Queries a list of Achievement items.
+  rpc GetAchievement(QueryGetAchievementRequest) returns (QueryGetAchievementResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/achievement/{achievement_id}";
+  }
+
+  // ListAchievement defines the ListAchievement RPC.
+  rpc ListAchievement(QueryAllAchievementRequest) returns (QueryAllAchievementResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/achievement";
+  }
+
+  // ListTitle Queries a list of Title items.
+  rpc GetTitle(QueryGetTitleRequest) returns (QueryGetTitleResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/title/{title_id}";
+  }
+
+  // ListTitle defines the ListTitle RPC.
+  rpc ListTitle(QueryAllTitleRequest) returns (QueryAllTitleResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/title";
+  }
+
+  // ListSeasonTitleEligibility Queries a list of SeasonTitleEligibility items.
+  rpc GetSeasonTitleEligibility(QueryGetSeasonTitleEligibilityRequest) returns (QueryGetSeasonTitleEligibilityResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/season_title_eligibility/{title_season}";
+  }
+
+  // ListSeasonTitleEligibility defines the ListSeasonTitleEligibility RPC.
+  rpc ListSeasonTitleEligibility(QueryAllSeasonTitleEligibilityRequest) returns (QueryAllSeasonTitleEligibilityResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/season_title_eligibility";
+  }
+
+  // ListGuild Queries a list of Guild items.
+  rpc GetGuild(QueryGetGuildRequest) returns (QueryGetGuildResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild/{id}";
+  }
+
+  // ListGuild defines the ListGuild RPC.
+  rpc ListGuild(QueryAllGuildRequest) returns (QueryAllGuildResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild";
+  }
+
+  // ListGuildMembership Queries a list of GuildMembership items.
+  rpc GetGuildMembership(QueryGetGuildMembershipRequest) returns (QueryGetGuildMembershipResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild_membership/{member}";
+  }
+
+  // ListGuildMembership defines the ListGuildMembership RPC.
+  rpc ListGuildMembership(QueryAllGuildMembershipRequest) returns (QueryAllGuildMembershipResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild_membership";
+  }
+
+  // ListGuildInvite Queries a list of GuildInvite items.
+  rpc GetGuildInvite(QueryGetGuildInviteRequest) returns (QueryGetGuildInviteResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild_invite/{guild_invitee}";
+  }
+
+  // ListGuildInvite defines the ListGuildInvite RPC.
+  rpc ListGuildInvite(QueryAllGuildInviteRequest) returns (QueryAllGuildInviteResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild_invite";
+  }
+
+  // ListQuest Queries a list of Quest items.
+  rpc GetQuest(QueryGetQuestRequest) returns (QueryGetQuestResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/quest/{quest_id}";
+  }
+
+  // ListQuest defines the ListQuest RPC.
+  rpc ListQuest(QueryAllQuestRequest) returns (QueryAllQuestResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/quest";
+  }
+
+  // ListMemberQuestProgress Queries a list of MemberQuestProgress items.
+  rpc GetMemberQuestProgress(QueryGetMemberQuestProgressRequest) returns (QueryGetMemberQuestProgressResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_quest_progress/{member_quest}";
+  }
+
+  // ListMemberQuestProgress defines the ListMemberQuestProgress RPC.
+  rpc ListMemberQuestProgress(QueryAllMemberQuestProgressRequest) returns (QueryAllMemberQuestProgressResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_quest_progress";
+  }
+
+  // ListEpochXpTracker Queries a list of EpochXpTracker items.
+  rpc GetEpochXpTracker(QueryGetEpochXpTrackerRequest) returns (QueryGetEpochXpTrackerResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/epoch_xp_tracker/{member_epoch}";
+  }
+
+  // ListEpochXpTracker defines the ListEpochXpTracker RPC.
+  rpc ListEpochXpTracker(QueryAllEpochXpTrackerRequest) returns (QueryAllEpochXpTrackerResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/epoch_xp_tracker";
+  }
+
+  // ListVoteXpRecord Queries a list of VoteXpRecord items.
+  rpc GetVoteXpRecord(QueryGetVoteXpRecordRequest) returns (QueryGetVoteXpRecordResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/vote_xp_record/{season_member_proposal}";
+  }
+
+  // ListVoteXpRecord defines the ListVoteXpRecord RPC.
+  rpc ListVoteXpRecord(QueryAllVoteXpRecordRequest) returns (QueryAllVoteXpRecordResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/vote_xp_record";
+  }
+
+  // ListForumXpCooldown Queries a list of ForumXpCooldown items.
+  rpc GetForumXpCooldown(QueryGetForumXpCooldownRequest) returns (QueryGetForumXpCooldownResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/forum_xp_cooldown/{beneficiary_actor}";
+  }
+
+  // ListForumXpCooldown defines the ListForumXpCooldown RPC.
+  rpc ListForumXpCooldown(QueryAllForumXpCooldownRequest) returns (QueryAllForumXpCooldownResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/forum_xp_cooldown";
+  }
+
+  // ListDisplayNameModeration Queries a list of DisplayNameModeration items.
+  rpc GetDisplayNameModeration(QueryGetDisplayNameModerationRequest) returns (QueryGetDisplayNameModerationResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/display_name_moderation/{member}";
+  }
+
+  // ListDisplayNameModeration defines the ListDisplayNameModeration RPC.
+  rpc ListDisplayNameModeration(QueryAllDisplayNameModerationRequest) returns (QueryAllDisplayNameModerationResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/display_name_moderation";
+  }
+
+  // ListDisplayNameReportStake Queries a list of DisplayNameReportStake items.
+  rpc GetDisplayNameReportStake(QueryGetDisplayNameReportStakeRequest) returns (QueryGetDisplayNameReportStakeResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/display_name_report_stake/{challenge_id}";
+  }
+
+  // ListDisplayNameReportStake defines the ListDisplayNameReportStake RPC.
+  rpc ListDisplayNameReportStake(QueryAllDisplayNameReportStakeRequest) returns (QueryAllDisplayNameReportStakeResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/display_name_report_stake";
+  }
+
+  // ListDisplayNameAppealStake Queries a list of DisplayNameAppealStake items.
+  rpc GetDisplayNameAppealStake(QueryGetDisplayNameAppealStakeRequest) returns (QueryGetDisplayNameAppealStakeResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/display_name_appeal_stake/{challenge_id}";
+  }
+
+  // ListDisplayNameAppealStake defines the ListDisplayNameAppealStake RPC.
+  rpc ListDisplayNameAppealStake(QueryAllDisplayNameAppealStakeRequest) returns (QueryAllDisplayNameAppealStakeResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/display_name_appeal_stake";
+  }
+
+  // CurrentSeason Queries a list of CurrentSeason items.
+  rpc CurrentSeason(QueryCurrentSeasonRequest) returns (QueryCurrentSeasonResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/current_season";
+  }
+
+  // SeasonByNumber Queries a list of SeasonByNumber items.
+  rpc SeasonByNumber(QuerySeasonByNumberRequest) returns (QuerySeasonByNumberResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/season_by_number/{number}";
+  }
+
+  // SeasonStats Queries a list of SeasonStats items.
+  rpc SeasonStats(QuerySeasonStatsRequest) returns (QuerySeasonStatsResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/season_stats/{season}";
+  }
+
+  // MemberByDisplayName Queries a list of MemberByDisplayName items.
+  rpc MemberByDisplayName(QueryMemberByDisplayNameRequest) returns (QueryMemberByDisplayNameResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_by_display_name/{display_name}";
+  }
+
+  // MemberSeasonHistory Queries a list of MemberSeasonHistory items.
+  rpc MemberSeasonHistory(QueryMemberSeasonHistoryRequest) returns (QueryMemberSeasonHistoryResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_season_history/{address}";
+  }
+
+  // MemberXpHistory Queries a list of MemberXpHistory items.
+  rpc MemberXpHistory(QueryMemberXpHistoryRequest) returns (QueryMemberXpHistoryResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_xp_history/{address}/{season}/{epochs_back}";
+  }
+
+  // Achievements Queries a list of Achievements items.
+  rpc Achievements(QueryAchievementsRequest) returns (QueryAchievementsResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/achievements";
+  }
+
+  // MemberAchievements Queries a list of MemberAchievements items.
+  rpc MemberAchievements(QueryMemberAchievementsRequest) returns (QueryMemberAchievementsResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_achievements/{address}";
+  }
+
+  // Titles Queries a list of Titles items.
+  rpc Titles(QueryTitlesRequest) returns (QueryTitlesResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/titles";
+  }
+
+  // MemberTitles Queries a list of MemberTitles items.
+  rpc MemberTitles(QueryMemberTitlesRequest) returns (QueryMemberTitlesResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_titles/{address}";
+  }
+
+  // GuildById Queries a list of GuildById items.
+  rpc GuildById(QueryGuildByIdRequest) returns (QueryGuildByIdResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild_by_id/{guild_id}";
+  }
+
+  // GuildsList Queries a list of GuildsList items.
+  rpc GuildsList(QueryGuildsListRequest) returns (QueryGuildsListResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guilds_list";
+  }
+
+  // GuildsByFounder Queries a list of GuildsByFounder items.
+  rpc GuildsByFounder(QueryGuildsByFounderRequest) returns (QueryGuildsByFounderResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guilds_by_founder/{founder}/{include_dissolved}";
+  }
+
+  // GuildMembers Queries a list of GuildMembers items.
+  rpc GuildMembers(QueryGuildMembersRequest) returns (QueryGuildMembersResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild_members/{guild_id}";
+  }
+
+  // MemberGuild Queries a list of MemberGuild items.
+  rpc MemberGuild(QueryMemberGuildRequest) returns (QueryMemberGuildResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_guild/{member}";
+  }
+
+  // GuildInvites Queries a list of GuildInvites items.
+  rpc GuildInvites(QueryGuildInvitesRequest) returns (QueryGuildInvitesResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/guild_invites/{guild_id}";
+  }
+
+  // MemberGuildInvites Queries a list of MemberGuildInvites items.
+  rpc MemberGuildInvites(QueryMemberGuildInvitesRequest) returns (QueryMemberGuildInvitesResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_guild_invites/{member}";
+  }
+
+  // QuestsList Queries a list of QuestsList items.
+  rpc QuestsList(QueryQuestsListRequest) returns (QueryQuestsListResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/quests_list";
+  }
+
+  // QuestById Queries a list of QuestById items.
+  rpc QuestById(QueryQuestByIdRequest) returns (QueryQuestByIdResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/quest_by_id/{quest_id}";
+  }
+
+  // QuestChain Queries a list of QuestChain items.
+  rpc QuestChain(QueryQuestChainRequest) returns (QueryQuestChainResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/quest_chain/{quest_chain}";
+  }
+
+  // MemberQuestStatus Queries a list of MemberQuestStatus items.
+  rpc MemberQuestStatus(QueryMemberQuestStatusRequest) returns (QueryMemberQuestStatusResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/member_quest_status/{member}/{quest_id}";
+  }
+
+  // AvailableQuests Queries a list of AvailableQuests items.
+  rpc AvailableQuests(QueryAvailableQuestsRequest) returns (QueryAvailableQuestsResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/available_quests/{member}";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryGetSeasonRequest defines the QueryGetSeasonRequest message.
+message QueryGetSeasonRequest {}
+
+// QueryGetSeasonResponse defines the QueryGetSeasonResponse message.
+message QueryGetSeasonResponse {
+  Season season = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryGetSeasonTransitionStateRequest defines the QueryGetSeasonTransitionStateRequest message.
+message QueryGetSeasonTransitionStateRequest {}
+
+// QueryGetSeasonTransitionStateResponse defines the QueryGetSeasonTransitionStateResponse message.
+message QueryGetSeasonTransitionStateResponse {
+  SeasonTransitionState season_transition_state = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryGetTransitionRecoveryStateRequest defines the QueryGetTransitionRecoveryStateRequest message.
+message QueryGetTransitionRecoveryStateRequest {}
+
+// QueryGetTransitionRecoveryStateResponse defines the QueryGetTransitionRecoveryStateResponse message.
+message QueryGetTransitionRecoveryStateResponse {
+  TransitionRecoveryState transition_recovery_state = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryGetNextSeasonInfoRequest defines the QueryGetNextSeasonInfoRequest message.
+message QueryGetNextSeasonInfoRequest {}
+
+// QueryGetNextSeasonInfoResponse defines the QueryGetNextSeasonInfoResponse message.
+message QueryGetNextSeasonInfoResponse {
+  NextSeasonInfo next_season_info = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryGetSeasonSnapshotRequest defines the QueryGetSeasonSnapshotRequest message.
+message QueryGetSeasonSnapshotRequest {
+  uint64 season = 1;
+}
+
+// QueryGetSeasonSnapshotResponse defines the QueryGetSeasonSnapshotResponse message.
+message QueryGetSeasonSnapshotResponse {
+  SeasonSnapshot season_snapshot = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllSeasonSnapshotRequest defines the QueryAllSeasonSnapshotRequest message.
+message QueryAllSeasonSnapshotRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllSeasonSnapshotResponse defines the QueryAllSeasonSnapshotResponse message.
+message QueryAllSeasonSnapshotResponse {
+  repeated SeasonSnapshot season_snapshot = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMemberSeasonSnapshotRequest defines the QueryGetMemberSeasonSnapshotRequest message.
+message QueryGetMemberSeasonSnapshotRequest {
+  string season_address = 1;
+}
+
+// QueryGetMemberSeasonSnapshotResponse defines the QueryGetMemberSeasonSnapshotResponse message.
+message QueryGetMemberSeasonSnapshotResponse {
+  MemberSeasonSnapshot member_season_snapshot = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberSeasonSnapshotRequest defines the QueryAllMemberSeasonSnapshotRequest message.
+message QueryAllMemberSeasonSnapshotRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberSeasonSnapshotResponse defines the QueryAllMemberSeasonSnapshotResponse message.
+message QueryAllMemberSeasonSnapshotResponse {
+  repeated MemberSeasonSnapshot member_season_snapshot = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMemberProfileRequest defines the QueryGetMemberProfileRequest message.
+message QueryGetMemberProfileRequest {
+  string address = 1;
+}
+
+// QueryGetMemberProfileResponse defines the QueryGetMemberProfileResponse message.
+message QueryGetMemberProfileResponse {
+  MemberProfile member_profile = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberProfileRequest defines the QueryAllMemberProfileRequest message.
+message QueryAllMemberProfileRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberProfileResponse defines the QueryAllMemberProfileResponse message.
+message QueryAllMemberProfileResponse {
+  repeated MemberProfile member_profile = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMemberRegistrationRequest defines the QueryGetMemberRegistrationRequest message.
+message QueryGetMemberRegistrationRequest {
+  string member = 1;
+}
+
+// QueryGetMemberRegistrationResponse defines the QueryGetMemberRegistrationResponse message.
+message QueryGetMemberRegistrationResponse {
+  MemberRegistration member_registration = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberRegistrationRequest defines the QueryAllMemberRegistrationRequest message.
+message QueryAllMemberRegistrationRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberRegistrationResponse defines the QueryAllMemberRegistrationResponse message.
+message QueryAllMemberRegistrationResponse {
+  repeated MemberRegistration member_registration = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetAchievementRequest defines the QueryGetAchievementRequest message.
+message QueryGetAchievementRequest {
+  string achievement_id = 1;
+}
+
+// QueryGetAchievementResponse defines the QueryGetAchievementResponse message.
+message QueryGetAchievementResponse {
+  Achievement achievement = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllAchievementRequest defines the QueryAllAchievementRequest message.
+message QueryAllAchievementRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllAchievementResponse defines the QueryAllAchievementResponse message.
+message QueryAllAchievementResponse {
+  repeated Achievement achievement = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetTitleRequest defines the QueryGetTitleRequest message.
+message QueryGetTitleRequest {
+  string title_id = 1;
+}
+
+// QueryGetTitleResponse defines the QueryGetTitleResponse message.
+message QueryGetTitleResponse {
+  Title title = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTitleRequest defines the QueryAllTitleRequest message.
+message QueryAllTitleRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTitleResponse defines the QueryAllTitleResponse message.
+message QueryAllTitleResponse {
+  repeated Title title = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetSeasonTitleEligibilityRequest defines the QueryGetSeasonTitleEligibilityRequest message.
+message QueryGetSeasonTitleEligibilityRequest {
+  uint64 title_season = 1;
+}
+
+// QueryGetSeasonTitleEligibilityResponse defines the QueryGetSeasonTitleEligibilityResponse message.
+message QueryGetSeasonTitleEligibilityResponse {
+  SeasonTitleEligibility season_title_eligibility = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllSeasonTitleEligibilityRequest defines the QueryAllSeasonTitleEligibilityRequest message.
+message QueryAllSeasonTitleEligibilityRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllSeasonTitleEligibilityResponse defines the QueryAllSeasonTitleEligibilityResponse message.
+message QueryAllSeasonTitleEligibilityResponse {
+  repeated SeasonTitleEligibility season_title_eligibility = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetGuildRequest defines the QueryGetGuildRequest message.
+message QueryGetGuildRequest {
+  uint64 id = 1;
+}
+
+// QueryGetGuildResponse defines the QueryGetGuildResponse message.
+message QueryGetGuildResponse {
+  Guild guild = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllGuildRequest defines the QueryAllGuildRequest message.
+message QueryAllGuildRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllGuildResponse defines the QueryAllGuildResponse message.
+message QueryAllGuildResponse {
+  repeated Guild guild = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetGuildMembershipRequest defines the QueryGetGuildMembershipRequest message.
+message QueryGetGuildMembershipRequest {
+  string member = 1;
+}
+
+// QueryGetGuildMembershipResponse defines the QueryGetGuildMembershipResponse message.
+message QueryGetGuildMembershipResponse {
+  GuildMembership guild_membership = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllGuildMembershipRequest defines the QueryAllGuildMembershipRequest message.
+message QueryAllGuildMembershipRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllGuildMembershipResponse defines the QueryAllGuildMembershipResponse message.
+message QueryAllGuildMembershipResponse {
+  repeated GuildMembership guild_membership = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetGuildInviteRequest defines the QueryGetGuildInviteRequest message.
+message QueryGetGuildInviteRequest {
+  string guild_invitee = 1;
+}
+
+// QueryGetGuildInviteResponse defines the QueryGetGuildInviteResponse message.
+message QueryGetGuildInviteResponse {
+  GuildInvite guild_invite = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllGuildInviteRequest defines the QueryAllGuildInviteRequest message.
+message QueryAllGuildInviteRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllGuildInviteResponse defines the QueryAllGuildInviteResponse message.
+message QueryAllGuildInviteResponse {
+  repeated GuildInvite guild_invite = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetQuestRequest defines the QueryGetQuestRequest message.
+message QueryGetQuestRequest {
+  string quest_id = 1;
+}
+
+// QueryGetQuestResponse defines the QueryGetQuestResponse message.
+message QueryGetQuestResponse {
+  Quest quest = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllQuestRequest defines the QueryAllQuestRequest message.
+message QueryAllQuestRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllQuestResponse defines the QueryAllQuestResponse message.
+message QueryAllQuestResponse {
+  repeated Quest quest = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMemberQuestProgressRequest defines the QueryGetMemberQuestProgressRequest message.
+message QueryGetMemberQuestProgressRequest {
+  string member_quest = 1;
+}
+
+// QueryGetMemberQuestProgressResponse defines the QueryGetMemberQuestProgressResponse message.
+message QueryGetMemberQuestProgressResponse {
+  MemberQuestProgress member_quest_progress = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberQuestProgressRequest defines the QueryAllMemberQuestProgressRequest message.
+message QueryAllMemberQuestProgressRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberQuestProgressResponse defines the QueryAllMemberQuestProgressResponse message.
+message QueryAllMemberQuestProgressResponse {
+  repeated MemberQuestProgress member_quest_progress = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetEpochXpTrackerRequest defines the QueryGetEpochXpTrackerRequest message.
+message QueryGetEpochXpTrackerRequest {
+  string member_epoch = 1;
+}
+
+// QueryGetEpochXpTrackerResponse defines the QueryGetEpochXpTrackerResponse message.
+message QueryGetEpochXpTrackerResponse {
+  EpochXpTracker epoch_xp_tracker = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllEpochXpTrackerRequest defines the QueryAllEpochXpTrackerRequest message.
+message QueryAllEpochXpTrackerRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllEpochXpTrackerResponse defines the QueryAllEpochXpTrackerResponse message.
+message QueryAllEpochXpTrackerResponse {
+  repeated EpochXpTracker epoch_xp_tracker = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetVoteXpRecordRequest defines the QueryGetVoteXpRecordRequest message.
+message QueryGetVoteXpRecordRequest {
+  string season_member_proposal = 1;
+}
+
+// QueryGetVoteXpRecordResponse defines the QueryGetVoteXpRecordResponse message.
+message QueryGetVoteXpRecordResponse {
+  VoteXpRecord vote_xp_record = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllVoteXpRecordRequest defines the QueryAllVoteXpRecordRequest message.
+message QueryAllVoteXpRecordRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllVoteXpRecordResponse defines the QueryAllVoteXpRecordResponse message.
+message QueryAllVoteXpRecordResponse {
+  repeated VoteXpRecord vote_xp_record = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetForumXpCooldownRequest defines the QueryGetForumXpCooldownRequest message.
+message QueryGetForumXpCooldownRequest {
+  string beneficiary_actor = 1;
+}
+
+// QueryGetForumXpCooldownResponse defines the QueryGetForumXpCooldownResponse message.
+message QueryGetForumXpCooldownResponse {
+  ForumXpCooldown forum_xp_cooldown = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllForumXpCooldownRequest defines the QueryAllForumXpCooldownRequest message.
+message QueryAllForumXpCooldownRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllForumXpCooldownResponse defines the QueryAllForumXpCooldownResponse message.
+message QueryAllForumXpCooldownResponse {
+  repeated ForumXpCooldown forum_xp_cooldown = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetDisplayNameModerationRequest defines the QueryGetDisplayNameModerationRequest message.
+message QueryGetDisplayNameModerationRequest {
+  string member = 1;
+}
+
+// QueryGetDisplayNameModerationResponse defines the QueryGetDisplayNameModerationResponse message.
+message QueryGetDisplayNameModerationResponse {
+  DisplayNameModeration display_name_moderation = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllDisplayNameModerationRequest defines the QueryAllDisplayNameModerationRequest message.
+message QueryAllDisplayNameModerationRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllDisplayNameModerationResponse defines the QueryAllDisplayNameModerationResponse message.
+message QueryAllDisplayNameModerationResponse {
+  repeated DisplayNameModeration display_name_moderation = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetDisplayNameReportStakeRequest defines the QueryGetDisplayNameReportStakeRequest message.
+message QueryGetDisplayNameReportStakeRequest {
+  string challenge_id = 1;
+}
+
+// QueryGetDisplayNameReportStakeResponse defines the QueryGetDisplayNameReportStakeResponse message.
+message QueryGetDisplayNameReportStakeResponse {
+  DisplayNameReportStake display_name_report_stake = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllDisplayNameReportStakeRequest defines the QueryAllDisplayNameReportStakeRequest message.
+message QueryAllDisplayNameReportStakeRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllDisplayNameReportStakeResponse defines the QueryAllDisplayNameReportStakeResponse message.
+message QueryAllDisplayNameReportStakeResponse {
+  repeated DisplayNameReportStake display_name_report_stake = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetDisplayNameAppealStakeRequest defines the QueryGetDisplayNameAppealStakeRequest message.
+message QueryGetDisplayNameAppealStakeRequest {
+  string challenge_id = 1;
+}
+
+// QueryGetDisplayNameAppealStakeResponse defines the QueryGetDisplayNameAppealStakeResponse message.
+message QueryGetDisplayNameAppealStakeResponse {
+  DisplayNameAppealStake display_name_appeal_stake = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllDisplayNameAppealStakeRequest defines the QueryAllDisplayNameAppealStakeRequest message.
+message QueryAllDisplayNameAppealStakeRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllDisplayNameAppealStakeResponse defines the QueryAllDisplayNameAppealStakeResponse message.
+message QueryAllDisplayNameAppealStakeResponse {
+  repeated DisplayNameAppealStake display_name_appeal_stake = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryCurrentSeasonRequest defines the QueryCurrentSeasonRequest message.
+message QueryCurrentSeasonRequest {}
+
+// QueryCurrentSeasonResponse defines the QueryCurrentSeasonResponse message.
+message QueryCurrentSeasonResponse {
+  uint64 number = 1;
+  string name = 2;
+  string theme = 3;
+  int64 start_block = 4;
+  int64 end_block = 5;
+  uint64 status = 6;
+}
+
+// QuerySeasonByNumberRequest defines the QuerySeasonByNumberRequest message.
+message QuerySeasonByNumberRequest {
+  uint64 number = 1;
+}
+
+// QuerySeasonByNumberResponse defines the QuerySeasonByNumberResponse message.
+message QuerySeasonByNumberResponse {
+  string name = 1;
+  string theme = 2;
+  int64 start_block = 3;
+  int64 end_block = 4;
+  uint64 status = 5;
+}
+
+// QuerySeasonStatsRequest defines the QuerySeasonStatsRequest message.
+message QuerySeasonStatsRequest {
+  uint64 season = 1;
+}
+
+// QuerySeasonStatsResponse defines the QuerySeasonStatsResponse message.
+message QuerySeasonStatsResponse {
+  uint64 total_xp_earned = 1;
+  uint64 active_members = 2;
+  uint64 initiatives_completed = 3;
+  uint64 guilds_active = 4;
+  uint64 quests_completed = 5;
+  int64 blocks_remaining = 6;
+}
+
+// QueryMemberByDisplayNameRequest defines the QueryMemberByDisplayNameRequest message.
+message QueryMemberByDisplayNameRequest {
+  string display_name = 1;
+}
+
+// QueryMemberByDisplayNameResponse defines the QueryMemberByDisplayNameResponse message.
+message QueryMemberByDisplayNameResponse {
+  string address = 1;
+  string username = 2;
+  uint64 season_xp = 3;
+}
+
+// QueryMemberSeasonHistoryRequest defines the QueryMemberSeasonHistoryRequest message.
+message QueryMemberSeasonHistoryRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryMemberSeasonHistoryResponse defines the QueryMemberSeasonHistoryResponse message.
+message QueryMemberSeasonHistoryResponse {
+  uint64 season = 1;
+  uint64 xp_earned = 2;
+  uint64 level = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryMemberXpHistoryRequest defines the QueryMemberXpHistoryRequest message.
+message QueryMemberXpHistoryRequest {
+  string address = 1;
+  uint64 season = 2;
+  uint64 epochs_back = 3;
+}
+
+// QueryMemberXpHistoryResponse defines the QueryMemberXpHistoryResponse message.
+message QueryMemberXpHistoryResponse {
+  int64 epoch = 1;
+  uint64 xp_earned = 2;
+  uint64 cumulative_xp = 3;
+}
+
+// QueryAchievementsRequest defines the QueryAchievementsRequest message.
+message QueryAchievementsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAchievementsResponse defines the QueryAchievementsResponse message.
+message QueryAchievementsResponse {
+  string id = 1;
+  string name = 2;
+  uint64 rarity = 3;
+  uint64 xp_reward = 4;
+  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+}
+
+// QueryMemberAchievementsRequest defines the QueryMemberAchievementsRequest message.
+message QueryMemberAchievementsRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryMemberAchievementsResponse defines the QueryMemberAchievementsResponse message.
+message QueryMemberAchievementsResponse {
+  string achievement_id = 1;
+  int64 earned_at = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryTitlesRequest defines the QueryTitlesRequest message.
+message QueryTitlesRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryTitlesResponse defines the QueryTitlesResponse message.
+message QueryTitlesResponse {
+  string id = 1;
+  string name = 2;
+  uint64 rarity = 3;
+  bool seasonal = 4;
+  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+}
+
+// QueryMemberTitlesRequest defines the QueryMemberTitlesRequest message.
+message QueryMemberTitlesRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryMemberTitlesResponse defines the QueryMemberTitlesResponse message.
+message QueryMemberTitlesResponse {
+  string title_id = 1;
+  int64 unlocked_at = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryGuildByIdRequest defines the QueryGuildByIdRequest message.
+message QueryGuildByIdRequest {
+  uint64 guild_id = 1;
+}
+
+// QueryGuildByIdResponse defines the QueryGuildByIdResponse message.
+message QueryGuildByIdResponse {
+  string name = 1;
+  string description = 2;
+  string founder = 3;
+  bool invite_only = 4;
+  uint64 status = 5;
+}
+
+// QueryGuildsListRequest defines the QueryGuildsListRequest message.
+message QueryGuildsListRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryGuildsListResponse defines the QueryGuildsListResponse message.
+message QueryGuildsListResponse {
+  uint64 id = 1;
+  string name = 2;
+  string founder = 3;
+  uint64 status = 4;
+  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+}
+
+// QueryGuildsByFounderRequest defines the QueryGuildsByFounderRequest message.
+message QueryGuildsByFounderRequest {
+  string founder = 1;
+  bool include_dissolved = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryGuildsByFounderResponse defines the QueryGuildsByFounderResponse message.
+message QueryGuildsByFounderResponse {
+  uint64 id = 1;
+  string name = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryGuildMembersRequest defines the QueryGuildMembersRequest message.
+message QueryGuildMembersRequest {
+  uint64 guild_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryGuildMembersResponse defines the QueryGuildMembersResponse message.
+message QueryGuildMembersResponse {
+  string member = 1;
+  int64 joined_epoch = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryMemberGuildRequest defines the QueryMemberGuildRequest message.
+message QueryMemberGuildRequest {
+  string member = 1;
+}
+
+// QueryMemberGuildResponse defines the QueryMemberGuildResponse message.
+message QueryMemberGuildResponse {
+  uint64 guild_id = 1;
+  int64 joined_epoch = 2;
+}
+
+// QueryGuildInvitesRequest defines the QueryGuildInvitesRequest message.
+message QueryGuildInvitesRequest {
+  uint64 guild_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryGuildInvitesResponse defines the QueryGuildInvitesResponse message.
+message QueryGuildInvitesResponse {
+  string invitee = 1;
+  string inviter = 2;
+  int64 expires_epoch = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryMemberGuildInvitesRequest defines the QueryMemberGuildInvitesRequest message.
+message QueryMemberGuildInvitesRequest {
+  string member = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryMemberGuildInvitesResponse defines the QueryMemberGuildInvitesResponse message.
+message QueryMemberGuildInvitesResponse {
+  uint64 guild_id = 1;
+  string guild_name = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryQuestsListRequest defines the QueryQuestsListRequest message.
+message QueryQuestsListRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryQuestsListResponse defines the QueryQuestsListResponse message.
+message QueryQuestsListResponse {
+  string id = 1;
+  string name = 2;
+  uint64 xp_reward = 3;
+  bool active = 4;
+  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+}
+
+// QueryQuestByIdRequest defines the QueryQuestByIdRequest message.
+message QueryQuestByIdRequest {
+  string quest_id = 1;
+}
+
+// QueryQuestByIdResponse defines the QueryQuestByIdResponse message.
+message QueryQuestByIdResponse {
+  string name = 1;
+  string description = 2;
+  uint64 xp_reward = 3;
+  bool active = 4;
+  uint64 min_level = 5;
+}
+
+// QueryQuestChainRequest defines the QueryQuestChainRequest message.
+message QueryQuestChainRequest {
+  string quest_chain = 1;
+}
+
+// QueryQuestChainResponse defines the QueryQuestChainResponse message.
+message QueryQuestChainResponse {
+  string quest_id = 1;
+  string name = 2;
+  string prerequisite_quest = 3;
+}
+
+// QueryMemberQuestStatusRequest defines the QueryMemberQuestStatusRequest message.
+message QueryMemberQuestStatusRequest {
+  string member = 1;
+  string quest_id = 2;
+}
+
+// QueryMemberQuestStatusResponse defines the QueryMemberQuestStatusResponse message.
+message QueryMemberQuestStatusResponse {
+  bool completed = 1;
+  int64 completed_block = 2;
+}
+
+// QueryAvailableQuestsRequest defines the QueryAvailableQuestsRequest message.
+message QueryAvailableQuestsRequest {
+  string member = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryAvailableQuestsResponse defines the QueryAvailableQuestsResponse message.
+message QueryAvailableQuestsResponse {
+  string id = 1;
+  string name = 2;
+  uint64 xp_reward = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}

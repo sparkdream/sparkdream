@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// EpochXpTracker defines the EpochXpTracker message.
+message EpochXpTracker {
+  string member_epoch = 1;
+  uint64 vote_xp_earned = 2;
+  uint64 forum_xp_earned = 3;
+  uint64 quest_xp_earned = 4;
+  uint64 other_xp_earned = 5;
+}

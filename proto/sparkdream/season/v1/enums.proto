@@ -1,0 +1,69 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// SeasonStatus represents the current state of a season.
+enum SeasonStatus {
+  SEASON_STATUS_UNSPECIFIED = 0;
+  SEASON_STATUS_ACTIVE = 1;
+  SEASON_STATUS_ENDING = 2;
+  SEASON_STATUS_MAINTENANCE = 3;
+  SEASON_STATUS_COMPLETED = 4;
+}
+
+// Rarity represents the rarity level of achievements and titles.
+enum Rarity {
+  RARITY_UNSPECIFIED = 0;
+  RARITY_COMMON = 1;
+  RARITY_UNCOMMON = 2;
+  RARITY_RARE = 3;
+  RARITY_EPIC = 4;
+  RARITY_LEGENDARY = 5;
+  RARITY_UNIQUE = 6;
+}
+
+// RequirementType defines the type of requirement for achievements and titles.
+enum RequirementType {
+  REQUIREMENT_TYPE_UNSPECIFIED = 0;
+  REQUIREMENT_TYPE_INITIATIVES_COMPLETED = 1;
+  REQUIREMENT_TYPE_REPUTATION_EARNED = 2;
+  REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL = 3;
+  REQUIREMENT_TYPE_CHALLENGES_WON = 4;
+  REQUIREMENT_TYPE_JURY_DUTY = 5;
+  REQUIREMENT_TYPE_SEASONS_ACTIVE = 6;
+  REQUIREMENT_TYPE_VOTES_CAST = 7;
+  REQUIREMENT_TYPE_FORUM_HELPFUL = 8;
+  REQUIREMENT_TYPE_TOP_XP = 9;
+  REQUIREMENT_TYPE_MIN_LEVEL = 10;
+  REQUIREMENT_TYPE_ACHIEVEMENT_COUNT = 11;
+}
+
+// GuildStatus represents the current state of a guild.
+enum GuildStatus {
+  GUILD_STATUS_UNSPECIFIED = 0;
+  GUILD_STATUS_ACTIVE = 1;
+  GUILD_STATUS_FROZEN = 2;
+  GUILD_STATUS_DISSOLVED = 3;
+}
+
+// QuestObjectiveType defines the type of quest objective.
+enum QuestObjectiveType {
+  QUEST_OBJECTIVE_TYPE_UNSPECIFIED = 0;
+  QUEST_OBJECTIVE_TYPE_VOTES_CAST = 1;
+  QUEST_OBJECTIVE_TYPE_FORUM_HELPFUL = 2;
+  QUEST_OBJECTIVE_TYPE_INVITEE_MILESTONE = 3;
+  QUEST_OBJECTIVE_TYPE_INITIATIVES_COMPLETED = 4;
+}
+
+// TransitionPhase represents the current phase of a season transition.
+enum TransitionPhase {
+  TRANSITION_PHASE_UNSPECIFIED = 0;
+  TRANSITION_PHASE_SNAPSHOT = 1;
+  TRANSITION_PHASE_ARCHIVE_REPUTATION = 2;
+  TRANSITION_PHASE_RESET_REPUTATION = 3;
+  TRANSITION_PHASE_RESET_XP = 4;
+  TRANSITION_PHASE_TITLES = 5;
+  TRANSITION_PHASE_CLEANUP = 6;
+  TRANSITION_PHASE_COMPLETE = 7;
+}

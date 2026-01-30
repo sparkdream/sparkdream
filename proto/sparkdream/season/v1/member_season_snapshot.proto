@@ -1,0 +1,33 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// MemberSeasonSnapshot stores a member's state at the end of a season.
+message MemberSeasonSnapshot {
+  // Composite key: season/address
+  string season_address = 1;
+
+  // Final DREAM balance at season end
+  string final_dream_balance = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Final reputation scores by tag
+  map<string, string> final_reputation = 3;
+
+  // Number of initiatives completed during the season
+  uint64 initiatives_completed = 4;
+
+  // Total XP earned during the season
+  uint64 xp_earned = 5;
+
+  // Level achieved at season end
+  uint64 season_level = 6;
+
+  // Achievements earned during this season
+  repeated string achievements_earned = 7;
+}

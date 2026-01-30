@@ -1,0 +1,22 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// MemberQuestProgress tracks a member's progress on a quest.
+message MemberQuestProgress {
+  // Composite key: member/quest_id
+  string member_quest = 1;
+
+  // Whether the quest is completed
+  bool completed = 2;
+
+  // Block when the quest was completed
+  int64 completed_block = 3;
+
+  // Block of the last attempt
+  int64 last_attempt_block = 4;
+
+  // Progress on each objective (parallel array with quest objectives)
+  repeated uint64 objective_progress = 5;
+}

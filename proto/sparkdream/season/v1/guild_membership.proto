@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// GuildMembership defines the GuildMembership message.
+message GuildMembership {
+  string member = 1;
+  uint64 guild_id = 2;
+  int64 joined_epoch = 3;
+  int64 left_epoch = 4;
+  uint64 guilds_joined_this_season = 5;
+}

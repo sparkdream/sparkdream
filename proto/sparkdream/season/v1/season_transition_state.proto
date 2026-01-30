@@ -1,0 +1,27 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "sparkdream/season/v1/enums.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// SeasonTransitionState tracks the progress of a season transition.
+message SeasonTransitionState {
+  // Current transition phase
+  TransitionPhase phase = 1;
+
+  // Number of items processed in current phase
+  uint64 processed_count = 2;
+
+  // Total items to process in current phase
+  uint64 total_count = 3;
+
+  // Last processed item identifier
+  string last_processed = 4;
+
+  // Block when transition started
+  int64 transition_start = 5;
+
+  // Whether the chain is in maintenance mode
+  bool maintenance_mode = 6;
+}

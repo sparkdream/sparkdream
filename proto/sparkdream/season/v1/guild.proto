@@ -1,0 +1,36 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "sparkdream/season/v1/enums.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// Guild represents a member-created social group.
+message Guild {
+  // Auto-incremented guild ID
+  uint64 id = 1;
+
+  // Guild name (unique)
+  string name = 2;
+
+  // Guild description
+  string description = 3;
+
+  // Founder address
+  string founder = 4;
+
+  // Block when the guild was created
+  int64 created_block = 5;
+
+  // Whether the guild is invite-only
+  bool invite_only = 6;
+
+  // Guild status (active, frozen, dissolved)
+  GuildStatus status = 7;
+
+  // Guild officers (can invite and kick members)
+  repeated string officers = 8;
+
+  // Pending invites (member addresses)
+  repeated string pending_invites = 9;
+}

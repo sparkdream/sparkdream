@@ -1,0 +1,24 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "sparkdream/season/v1/enums.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// TransitionRecoveryState tracks recovery from failed season transitions.
+message TransitionRecoveryState {
+  // Block of the last recovery attempt
+  int64 last_attempt_block = 1;
+
+  // Phase where the transition failed
+  TransitionPhase failed_phase = 2;
+
+  // Number of consecutive failures
+  uint64 failure_count = 3;
+
+  // Error message from last failure
+  string last_error = 4;
+
+  // Whether recovery mode is active
+  bool recovery_mode = 5;
+}

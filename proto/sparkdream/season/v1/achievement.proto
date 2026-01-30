@@ -1,0 +1,30 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "sparkdream/season/v1/enums.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// Achievement defines an achievement that can be earned by members.
+message Achievement {
+  // Unique achievement ID
+  string achievement_id = 1;
+
+  // Achievement name
+  string name = 2;
+
+  // Achievement description
+  string description = 3;
+
+  // Rarity level
+  Rarity rarity = 4;
+
+  // XP reward for earning this achievement
+  uint64 xp_reward = 5;
+
+  // Type of requirement to earn this achievement
+  RequirementType requirement_type = 6;
+
+  // Threshold value for the requirement
+  uint64 requirement_threshold = 7;
+}

@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// SeasonSnapshot defines the SeasonSnapshot message.
+message SeasonSnapshot {
+  uint64 season = 1;
+  int64 snapshot_block = 2;
+}

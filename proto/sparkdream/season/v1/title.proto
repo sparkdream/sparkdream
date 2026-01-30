@@ -1,0 +1,33 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "sparkdream/season/v1/enums.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// Title defines a title that can be displayed by members.
+message Title {
+  // Unique title ID
+  string title_id = 1;
+
+  // Title name (displayed to users)
+  string name = 2;
+
+  // Title description
+  string description = 3;
+
+  // Rarity level
+  Rarity rarity = 4;
+
+  // Type of requirement to unlock this title
+  RequirementType requirement_type = 5;
+
+  // Threshold value for the requirement
+  uint64 requirement_threshold = 6;
+
+  // Season requirement (0 = any season)
+  uint64 requirement_season = 7;
+
+  // Whether this is a seasonal title that expires
+  bool seasonal = 8;
+}

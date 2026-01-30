@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// NextSeasonInfo defines the NextSeasonInfo message.
+message NextSeasonInfo {
+  string name = 1;
+  string theme = 2;
+}

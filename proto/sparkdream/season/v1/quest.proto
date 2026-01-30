@@ -1,0 +1,66 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "sparkdream/season/v1/enums.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// QuestObjective defines a single objective within a quest.
+message QuestObjective {
+  // Description of the objective
+  string description = 1;
+
+  // Type of objective
+  QuestObjectiveType type = 2;
+
+  // Target value to complete the objective
+  uint64 target = 3;
+}
+
+// Quest defines a gamification quest that members can complete for XP.
+message Quest {
+  // Unique quest ID
+  string quest_id = 1;
+
+  // Quest name
+  string name = 2;
+
+  // Quest description
+  string description = 3;
+
+  // XP reward for completing the quest
+  uint64 xp_reward = 4;
+
+  // Whether the quest can be repeated
+  bool repeatable = 5;
+
+  // Cooldown in epochs before quest can be repeated
+  uint64 cooldown_epochs = 6;
+
+  // Season this quest is available in (0 = all seasons)
+  uint64 season = 7;
+
+  // Block when the quest becomes available
+  int64 start_block = 8;
+
+  // Block when the quest expires
+  int64 end_block = 9;
+
+  // Whether the quest is currently active
+  bool active = 10;
+
+  // Minimum level required to start the quest
+  uint64 min_level = 11;
+
+  // Achievement required to start the quest
+  string required_achievement = 12;
+
+  // Quest that must be completed first
+  string prerequisite_quest = 13;
+
+  // Quest chain ID (for grouping related quests)
+  string quest_chain = 14;
+
+  // Quest objectives
+  repeated QuestObjective objectives = 15;
+}

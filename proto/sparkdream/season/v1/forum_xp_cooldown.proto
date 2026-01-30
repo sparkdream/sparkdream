@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// ForumXpCooldown defines the ForumXpCooldown message.
+message ForumXpCooldown {
+  string beneficiary_actor = 1;
+  int64 last_granted_epoch = 2;
+}

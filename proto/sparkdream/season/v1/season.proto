@@ -1,0 +1,36 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "sparkdream/season/v1/enums.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// Season represents the current or historical season state.
+message Season {
+  // Season number (1-indexed)
+  uint64 number = 1;
+
+  // Season name
+  string name = 2;
+
+  // Season theme
+  string theme = 3;
+
+  // Block when the season started
+  int64 start_block = 4;
+
+  // Block when the season ends (may be extended)
+  int64 end_block = 5;
+
+  // Current season status
+  SeasonStatus status = 6;
+
+  // Number of times the season has been extended
+  uint64 extensions_count = 7;
+
+  // Total epochs added by extensions
+  uint64 total_extension_epochs = 8;
+
+  // Original end block before any extensions
+  int64 original_end_block = 9;
+}

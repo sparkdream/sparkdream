@@ -1,0 +1,16 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// DisplayNameModeration defines the DisplayNameModeration message.
+message DisplayNameModeration {
+  string member = 1;
+  string rejected_name = 2;
+  string reason = 3;
+  int64 moderated_at = 4;
+  bool active = 5;
+  string appeal_challenge_id = 6;
+  int64 appealed_at = 7;
+  bool appeal_succeeded = 8;
+}

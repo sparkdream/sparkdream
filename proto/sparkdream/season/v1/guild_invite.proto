@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// GuildInvite defines the GuildInvite message.
+message GuildInvite {
+  string guild_invitee = 1;
+  string inviter = 2;
+  int64 created_epoch = 3;
+  int64 expires_epoch = 4;
+}

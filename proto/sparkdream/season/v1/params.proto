@@ -1,0 +1,131 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "sparkdream/x/season/Params";
+  option (gogoproto.equal) = true;
+
+  // Epoch configuration
+  int64 epoch_blocks = 1;
+
+  // Season timing
+  int64 season_duration_epochs = 2;
+  int64 season_transition_epochs = 3;
+
+  // XP rewards
+  uint64 xp_vote_cast = 4;
+  uint64 xp_proposal_created = 5;
+  uint64 xp_forum_reply_received = 6;
+  uint64 xp_forum_marked_helpful = 7;
+  uint64 xp_invitee_first_initiative = 8;
+  uint64 xp_invitee_established = 9;
+
+  // XP caps
+  uint32 max_vote_xp_per_epoch = 10;
+  uint64 max_forum_xp_per_epoch = 11;
+  uint64 max_xp_per_epoch = 12;
+
+  // Levels
+  repeated uint64 level_thresholds = 13;
+
+  // Reputation reset
+  string baseline_reputation = 14 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Guilds
+  uint32 min_guild_members = 15;
+  uint32 max_guild_members = 16;
+  uint32 max_guild_officers = 17;
+  string guild_creation_cost = 18 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint64 guild_hop_cooldown_epochs = 19;
+  uint32 max_guilds_per_season = 20;
+  uint64 min_guild_age_epochs = 21;
+  uint32 max_pending_invites = 22;
+
+  // Display names
+  uint32 display_name_min_length = 23;
+  uint32 display_name_max_length = 24;
+  uint64 display_name_change_cooldown_epochs = 25;
+
+  // Season transitions
+  uint64 max_transition_epochs = 26;
+  uint32 transition_batch_size = 27;
+
+  // Season extensions
+  uint32 max_season_extensions = 28;
+  uint64 max_extension_epochs = 29;
+
+  // Guild content limits
+  uint32 guild_description_max_length = 30;
+  uint64 guild_invite_ttl_epochs = 31;
+
+  // Quests
+  uint32 max_quest_objectives = 32;
+
+  // Historical data management
+  uint32 snapshot_retention_seasons = 33;
+  uint32 epoch_tracker_retention_epochs = 34;
+  uint32 vote_xp_record_retention_seasons = 35;
+  uint32 forum_cooldown_retention_epochs = 36;
+
+  // Forum XP anti-gaming
+  uint64 forum_xp_min_account_age_epochs = 37;
+  uint64 forum_xp_reciprocal_cooldown_epochs = 38;
+  uint64 forum_xp_self_reply_cooldown_epochs = 39;
+
+  // Transition recovery
+  uint32 transition_grace_period = 40;
+  uint64 max_quest_xp_reward = 41;
+
+  // Usernames
+  uint32 username_min_length = 42;
+  uint32 username_max_length = 43;
+  uint64 username_change_cooldown_epochs = 44;
+  string username_cost_dream = 45 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Transition max retries
+  uint32 transition_max_retries = 46;
+
+  // Quest limits
+  uint32 max_active_quests_per_member = 47;
+
+  // Display name moderation
+  string display_name_report_stake_dream = 48 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Title management
+  uint32 max_displayable_titles = 49;
+
+  // Guild invite cleanup
+  uint32 invite_cleanup_interval_blocks = 50;
+  uint32 invite_cleanup_batch_size = 51;
+
+  // Quest validation
+  uint32 max_objective_description_length = 52;
+
+  // Display name appeal
+  string display_name_appeal_stake_dream = 53 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint64 display_name_appeal_period_blocks = 54;
+
+  // Archived titles
+  uint32 max_archived_titles = 55;
+}

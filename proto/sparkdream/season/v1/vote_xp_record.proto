@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// VoteXpRecord defines the VoteXpRecord message.
+message VoteXpRecord {
+  string season_member_proposal = 1;
+  int64 granted_block = 2;
+}

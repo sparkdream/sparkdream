@@ -1,0 +1,21 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// DisplayNameAppealStake stores an appellant's stake for a display name appeal.
+message DisplayNameAppealStake {
+  // Challenge ID
+  string challenge_id = 1;
+
+  // Appellant address
+  string appellant = 2;
+
+  // Amount staked
+  string amount = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

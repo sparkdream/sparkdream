@@ -1,0 +1,28 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// TitleGrant represents a title and its eligible recipients for a season.
+message TitleGrant {
+  // Title ID
+  string title_id = 1;
+
+  // Title name
+  string title_name = 2;
+
+  // Members eligible for this title
+  repeated string eligible_members = 3;
+}
+
+// SeasonTitleEligibility tracks title grants for a season.
+message SeasonTitleEligibility {
+  // Key: season number
+  uint64 title_season = 1;
+
+  // Season number
+  uint64 season = 2;
+
+  // Title grants for this season
+  repeated TitleGrant grants = 3;
+}

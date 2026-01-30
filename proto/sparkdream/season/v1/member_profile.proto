@@ -1,0 +1,64 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// MemberProfile stores gamification data for a member.
+message MemberProfile {
+  // Member address (key)
+  string address = 1;
+
+  // Display name (free-form, can be changed with cooldown)
+  string display_name = 2;
+
+  // Username (unique, costs DREAM to set)
+  string username = 3;
+
+  // Currently displayed title ID
+  string display_title = 4;
+
+  // Current season XP
+  uint64 season_xp = 5;
+
+  // Current season level
+  uint64 season_level = 6;
+
+  // Lifetime XP accumulated across all seasons
+  uint64 lifetime_xp = 7;
+
+  // Current guild ID (0 = no guild)
+  uint64 guild_id = 8;
+
+  // Epoch when display name was last changed
+  int64 last_display_name_change_epoch = 9;
+
+  // Epoch when username was last changed
+  int64 last_username_change_epoch = 10;
+
+  // Number of challenges won
+  uint64 challenges_won = 11;
+
+  // Number of jury duties completed
+  uint64 jury_duties_completed = 12;
+
+  // Number of votes cast
+  uint64 votes_cast = 13;
+
+  // Number of forum posts marked helpful
+  uint64 forum_helpful_count = 14;
+
+  // Number of successful invitations
+  uint64 invitations_successful = 15;
+
+  // Epoch of last activity
+  int64 last_active_epoch = 16;
+
+  // Unlocked titles (available to display)
+  repeated string unlocked_titles = 17;
+
+  // Earned achievements
+  repeated string achievements = 18;
+
+  // Archived seasonal titles from past seasons
+  repeated string archived_titles = 19;
+}

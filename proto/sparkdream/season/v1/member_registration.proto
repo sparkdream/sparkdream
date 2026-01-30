@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// MemberRegistration defines the MemberRegistration message.
+message MemberRegistration {
+  string member = 1;
+  int64 registered_epoch = 2;
+}
