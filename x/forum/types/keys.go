@@ -42,3 +42,9 @@ var (
 	GovActionAppealKey      = collections.NewPrefix("govactionappeal/value/")
 	GovActionAppealCountKey = collections.NewPrefix("govactionappeal/count/")
 )
+
+// Sequence keys for auto-incrementing IDs
+var (
+	PostSeqKey     = collections.NewPrefix("post/seq/")
+	CategorySeqKey = collections.NewPrefix("category/seq/")
+)

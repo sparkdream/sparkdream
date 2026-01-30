@@ -24,7 +24,9 @@ type Keeper struct {
 
 	bankKeeper            types.BankKeeper
 	Post                  collections.Map[uint64, types.Post]
+	PostSeq               collections.Sequence
 	Category              collections.Map[uint64, types.Category]
+	CategorySeq           collections.Sequence
 	Tag                   collections.Map[string, types.Tag]
 	ReservedTag           collections.Map[string, types.ReservedTag]
 	UserRateLimit         collections.Map[string, types.UserRateLimit]
@@ -75,10 +77,23 @@ func NewKeeper(
 		addressCodec: addressCodec,
 		authority:    authority,
 
-		bankKeeper: bankKeeper,
-		Params:     collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
-		Post:       collections.NewMap(sb, types.PostKey, "post", collections.Uint64Key, codec.CollValue[types.Post](cdc)), Category: collections.NewMap(sb, types.CategoryKey, "category", collections.Uint64Key, codec.CollValue[types.Category](cdc)), Tag: collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[types.Tag](cdc)), ReservedTag: collections.NewMap(sb, types.ReservedTagKey, "reservedTag", collections.StringKey, codec.CollValue[types.ReservedTag](cdc)), UserRateLimit: collections.NewMap(sb, types.UserRateLimitKey, "userRateLimit", collections.StringKey, codec.CollValue[types.UserRateLimit](cdc)), UserReactionLimit: collections.NewMap(sb, types.UserReactionLimitKey, "userReactionLimit", collections.StringKey, codec.CollValue[types.UserReactionLimit](cdc)), SentinelActivity: collections.NewMap(sb, types.SentinelActivityKey, "sentinelActivity", collections.StringKey, codec.CollValue[types.SentinelActivity](cdc)), HideRecord: collections.NewMap(sb, types.HideRecordKey, "hideRecord", collections.Uint64Key, codec.CollValue[types.HideRecord](cdc)), ThreadLockRecord: collections.NewMap(sb, types.ThreadLockRecordKey, "threadLockRecord", collections.Uint64Key, codec.CollValue[types.ThreadLockRecord](cdc)), ThreadMoveRecord: collections.NewMap(sb, types.ThreadMoveRecordKey, "threadMoveRecord", collections.Uint64Key, codec.CollValue[types.ThreadMoveRecord](cdc)), PostFlag: collections.NewMap(sb, types.PostFlagKey, "postFlag", collections.Uint64Key, codec.CollValue[types.PostFlag](cdc)), Bounty: collections.NewMap(sb, types.BountyKey, "bounty", collections.Uint64Key, codec.CollValue[types.Bounty](cdc)),
-		BountySeq:         collections.NewSequence(sb, types.BountyCountKey, "bountySequence"),
+		bankKeeper:  bankKeeper,
+		Params:      collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
+		Post:        collections.NewMap(sb, types.PostKey, "post", collections.Uint64Key, codec.CollValue[types.Post](cdc)),
+		PostSeq:     collections.NewSequence(sb, types.PostSeqKey, "postSequence"),
+		Category:    collections.NewMap(sb, types.CategoryKey, "category", collections.Uint64Key, codec.CollValue[types.Category](cdc)),
+		CategorySeq: collections.NewSequence(sb, types.CategorySeqKey, "categorySequence"),
+		Tag:              collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[types.Tag](cdc)),
+		ReservedTag:      collections.NewMap(sb, types.ReservedTagKey, "reservedTag", collections.StringKey, codec.CollValue[types.ReservedTag](cdc)),
+		UserRateLimit:    collections.NewMap(sb, types.UserRateLimitKey, "userRateLimit", collections.StringKey, codec.CollValue[types.UserRateLimit](cdc)),
+		UserReactionLimit: collections.NewMap(sb, types.UserReactionLimitKey, "userReactionLimit", collections.StringKey, codec.CollValue[types.UserReactionLimit](cdc)),
+		SentinelActivity: collections.NewMap(sb, types.SentinelActivityKey, "sentinelActivity", collections.StringKey, codec.CollValue[types.SentinelActivity](cdc)),
+		HideRecord:       collections.NewMap(sb, types.HideRecordKey, "hideRecord", collections.Uint64Key, codec.CollValue[types.HideRecord](cdc)),
+		ThreadLockRecord: collections.NewMap(sb, types.ThreadLockRecordKey, "threadLockRecord", collections.Uint64Key, codec.CollValue[types.ThreadLockRecord](cdc)),
+		ThreadMoveRecord: collections.NewMap(sb, types.ThreadMoveRecordKey, "threadMoveRecord", collections.Uint64Key, codec.CollValue[types.ThreadMoveRecord](cdc)),
+		PostFlag:         collections.NewMap(sb, types.PostFlagKey, "postFlag", collections.Uint64Key, codec.CollValue[types.PostFlag](cdc)),
+		Bounty:           collections.NewMap(sb, types.BountyKey, "bounty", collections.Uint64Key, codec.CollValue[types.Bounty](cdc)),
+		BountySeq:        collections.NewSequence(sb, types.BountyCountKey, "bountySequence"),
 		TagBudget:         collections.NewMap(sb, types.TagBudgetKey, "tagBudget", collections.Uint64Key, codec.CollValue[types.TagBudget](cdc)),
 		TagBudgetSeq:      collections.NewSequence(sb, types.TagBudgetCountKey, "tagBudgetSequence"),
 		TagBudgetAward:    collections.NewMap(sb, types.TagBudgetAwardKey, "tagBudgetAward", collections.Uint64Key, codec.CollValue[types.TagBudgetAward](cdc)),
