@@ -22,7 +22,8 @@ type Keeper struct {
 	Schema collections.Schema
 	Params collections.Item[types.Params]
 
-	bankKeeper            types.BankKeeper
+	bankKeeper types.BankKeeper
+	repKeeper  types.RepKeeper
 	Post                  collections.Map[uint64, types.Post]
 	PostSeq               collections.Sequence
 	Category              collections.Map[uint64, types.Category]
@@ -62,8 +63,8 @@ func NewKeeper(
 	cdc codec.Codec,
 	addressCodec address.Codec,
 	authority []byte,
-
 	bankKeeper types.BankKeeper,
+	repKeeper types.RepKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -76,8 +77,8 @@ func NewKeeper(
 		cdc:          cdc,
 		addressCodec: addressCodec,
 		authority:    authority,
-
-		bankKeeper:  bankKeeper,
+		bankKeeper:   bankKeeper,
+		repKeeper:    repKeeper,
 		Params:      collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Post:        collections.NewMap(sb, types.PostKey, "post", collections.Uint64Key, codec.CollValue[types.Post](cdc)),
 		PostSeq:     collections.NewSequence(sb, types.PostSeqKey, "postSequence"),

@@ -35,7 +35,12 @@ func (k msgServer) TopUpTagBudget(ctx context.Context, msg *types.MsgTopUpTagBud
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid top up amount")
 	}
 
-	// TODO: Transfer SPARK from creator to module (escrow)
+	// Transfer SPARK from creator to module (escrow)
+	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+	topUpCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, topUpAmount))
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, topUpCoins); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to escrow top up funds")
+	}
 
 	// Update pool balance
 	poolBalance, _ := math.NewIntFromString(budget.PoolBalance)

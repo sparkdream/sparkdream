@@ -19,7 +19,14 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check bounties_enabled param
+	// Check bounties_enabled param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if !params.BountiesEnabled {
+		return nil, types.ErrBountiesDisabled
+	}
 
 	// Load thread (root post)
 	post, err := k.Post.Get(ctx, msg.ThreadId)
@@ -71,7 +78,12 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 			"max duration is %d seconds", types.DefaultMaxBountyDuration)
 	}
 
-	// TODO: Transfer SPARK from creator to module (escrow)
+	// Transfer SPARK from creator to module (escrow)
+	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+	escrowCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, amount))
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, escrowCoins); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to escrow bounty funds")
+	}
 
 	// Generate bounty ID
 	bountyID, err := k.BountySeq.Next(ctx)

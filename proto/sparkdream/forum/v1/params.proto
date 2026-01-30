@@ -2,6 +2,7 @@ syntax = "proto3";
 package sparkdream.forum.v1;
 
 import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/forum/types";
@@ -10,4 +11,67 @@ option go_package = "sparkdream/x/forum/types";
 message Params {
   option (amino.name) = "sparkdream/x/forum/Params";
   option (gogoproto.equal) = true;
+
+  // forum_paused stops all new posts when true
+  bool forum_paused = 1;
+
+  // moderation_paused stops all moderation actions when true
+  bool moderation_paused = 2;
+
+  // bounties_enabled allows bounty creation when true
+  bool bounties_enabled = 3;
+
+  // reactions_enabled allows upvotes/downvotes when true
+  bool reactions_enabled = 4;
+
+  // appeals_paused stops all appeals when true
+  bool appeals_paused = 5;
+
+  // editing_enabled allows post editing when true
+  bool editing_enabled = 6;
+
+  // spam_tax charged to non-members for posting
+  cosmos.base.v1beta1.Coin spam_tax = 7 [(gogoproto.nullable) = false];
+
+  // reaction_spam_tax charged to non-members for reactions
+  cosmos.base.v1beta1.Coin reaction_spam_tax = 8 [(gogoproto.nullable) = false];
+
+  // flag_spam_tax charged to non-members for flagging
+  cosmos.base.v1beta1.Coin flag_spam_tax = 9 [(gogoproto.nullable) = false];
+
+  // downvote_deposit burned when downvoting
+  cosmos.base.v1beta1.Coin downvote_deposit = 10 [(gogoproto.nullable) = false];
+
+  // appeal_fee charged for appeals
+  cosmos.base.v1beta1.Coin appeal_fee = 11 [(gogoproto.nullable) = false];
+
+  // lock_appeal_fee charged for thread lock appeals
+  cosmos.base.v1beta1.Coin lock_appeal_fee = 12 [(gogoproto.nullable) = false];
+
+  // move_appeal_fee charged for thread move appeals
+  cosmos.base.v1beta1.Coin move_appeal_fee = 13 [(gogoproto.nullable) = false];
+
+  // edit_fee charged for edits past grace period
+  cosmos.base.v1beta1.Coin edit_fee = 14 [(gogoproto.nullable) = false];
+
+  // bounty_cancellation_fee_percent percentage of bounty taken on cancellation (0-100)
+  uint64 bounty_cancellation_fee_percent = 15;
+
+  // max_content_size in bytes
+  uint64 max_content_size = 16;
+
+  // daily_post_limit per user
+  uint64 daily_post_limit = 17;
+
+  // max_reply_depth for thread nesting
+  uint32 max_reply_depth = 18;
+
+  // edit_grace_period in seconds (no fee during this time)
+  int64 edit_grace_period = 19;
+
+  // edit_max_window in seconds (cannot edit after this time)
+  int64 edit_max_window = 20;
+
+  // max_follows_per_day per user
+  uint64 max_follows_per_day = 21;
 }

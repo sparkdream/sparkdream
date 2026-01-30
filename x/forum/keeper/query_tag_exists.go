@@ -14,7 +14,22 @@ func (q queryServer) TagExists(ctx context.Context, req *types.QueryTagExistsReq
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	if req.TagName == "" {
+		return nil, status.Error(codes.InvalidArgument, "tag name required")
+	}
 
-	return &types.QueryTagExistsResponse{}, nil
+	// Try to get the tag
+	tag, err := q.k.Tag.Get(ctx, req.TagName)
+	if err != nil {
+		// Tag doesn't exist
+		return &types.QueryTagExistsResponse{
+			Exists:         false,
+			ExpirationTime: 0,
+		}, nil
+	}
+
+	return &types.QueryTagExistsResponse{
+		Exists:         true,
+		ExpirationTime: tag.ExpirationIndex,
+	}, nil
 }

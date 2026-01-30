@@ -87,7 +87,11 @@ func TestUpdateTrustLevel_ProvisionalToEstablished(t *testing.T) {
 }
 
 func TestUpdateTrustLevel_EstablishedToTrusted(t *testing.T) {
-	fixture := initFixture(t)
+	// Use custom params with TrustedMinSeasons=0 to test reputation-only upgrades
+	// (The implementation also requires season requirements when TrustedMinSeasons > 0)
+	customParams := types.DefaultParams()
+	customParams.TrustLevelConfig.TrustedMinSeasons = 0
+	fixture := initFixture(t, WithCustomParams(customParams))
 	k := fixture.keeper
 	ctx := fixture.ctx
 
@@ -95,7 +99,6 @@ func TestUpdateTrustLevel_EstablishedToTrusted(t *testing.T) {
 	params, _ := k.Params.Get(ctx)
 
 	// Setup: Member at ESTABLISHED level with insufficient reputation to reach TRUSTED
-	// TrustedMinRep in testing mode is 100, so we give them less than that
 	insufficientRep := params.TrustLevelConfig.TrustedMinRep.Sub(math.LegacyOneDec()) // Just under the threshold
 	k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),

@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	"sparkdream/x/forum/types"
 
@@ -14,7 +15,26 @@ func (q queryServer) IsFollowingThread(ctx context.Context, req *types.QueryIsFo
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	if req.ThreadId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "thread_id required")
+	}
+	if req.User == "" {
+		return nil, status.Error(codes.InvalidArgument, "user address required")
+	}
 
-	return &types.QueryIsFollowingThreadResponse{}, nil
+	// Check if the follow record exists
+	key := fmt.Sprintf("%d:%s", req.ThreadId, req.User)
+	follow, err := q.k.ThreadFollow.Get(ctx, key)
+	if err != nil {
+		// Not following
+		return &types.QueryIsFollowingThreadResponse{
+			IsFollowing: false,
+			FollowedAt:  0,
+		}, nil
+	}
+
+	return &types.QueryIsFollowingThreadResponse{
+		IsFollowing: true,
+		FollowedAt:  follow.FollowedAt,
+	}, nil
 }

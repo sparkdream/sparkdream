@@ -39,6 +39,12 @@ func (k msgServer) SetForumPaused(ctx context.Context, msg *types.MsgSetForumPau
 		status = "unpaused"
 	}
 
+	// Update ForumPaused in params
+	params.ForumPaused = msg.Paused
+	if err := k.Params.Set(ctx, params); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update params")
+	}
+
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"forum_paused_status_changed",
@@ -47,9 +53,6 @@ func (k msgServer) SetForumPaused(ctx context.Context, msg *types.MsgSetForumPau
 			sdk.NewAttribute("changed_by", msg.Creator),
 		),
 	)
-
-	// TODO: Update params when ForumPaused field is added
-	_ = params
 
 	return &types.MsgSetForumPausedResponse{}, nil
 }

@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -91,7 +92,18 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 
 	bounty.Awards = append(bounty.Awards, award)
 
-	// TODO: Transfer SPARK from escrow to recipient
+	// Transfer SPARK from escrow to recipient
+	awardAmount, ok := math.NewIntFromString(award.Amount)
+	if ok && awardAmount.IsPositive() {
+		recipientAddr, _ := sdk.AccAddressFromBech32(reply.Author)
+		awardCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, awardAmount))
+		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipientAddr, awardCoins); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to transfer bounty award")
+		}
+	}
+
+	// Mark bounty as awarded
+	bounty.Status = types.BountyStatus_BOUNTY_STATUS_AWARDED
 
 	if err := k.Bounty.Set(ctx, bountyID, bounty); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update bounty")

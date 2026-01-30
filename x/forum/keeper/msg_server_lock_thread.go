@@ -19,7 +19,14 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check forum_paused param
+	// Check forum_paused param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if params.ForumPaused {
+		return nil, types.ErrForumPaused
+	}
 
 	// Load post
 	post, err := k.Post.Get(ctx, msg.RootId)
@@ -42,7 +49,9 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 
 	if !isGovAuthority {
 		// Check moderation_paused for sentinels
-		// TODO: Check moderation_paused param
+		if params.ModerationPaused {
+			return nil, types.ErrModerationPaused
+		}
 
 		// Sentinel locking has higher requirements
 		repTier := k.GetRepTier(ctx, msg.Creator)

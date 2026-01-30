@@ -51,8 +51,10 @@ func (k msgServer) BondSentinel(ctx context.Context, msg *types.MsgBondSentinel)
 		return nil, errorsmod.Wrapf(types.ErrDemotionCooldown, "cannot bond until %d", sentinelActivity.DemotionCooldownUntil)
 	}
 
-	// TODO: Transfer DREAM from user to module (stub - actual transfer via x/rep)
-	// k.TransferDREAM(ctx, msg.Creator, moduleAddr, bondAmount)
+	// Transfer DREAM from user to module (stub - actual transfer via x/rep)
+	if err := k.TransferDREAM(ctx, msg.Creator, k.GetModuleAddress(), bondAmount); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to transfer DREAM bond")
+	}
 
 	// Update bond
 	currentBond, _ := math.NewIntFromString(sentinelActivity.CurrentBond)

@@ -21,7 +21,14 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check forum_paused param
+	// Check forum_paused param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if params.ForumPaused {
+		return nil, types.ErrForumPaused
+	}
 
 	// Load root post
 	rootPost, err := k.Post.Get(ctx, msg.RootId)

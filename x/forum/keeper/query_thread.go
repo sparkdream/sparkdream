@@ -14,7 +14,21 @@ func (q queryServer) Thread(ctx context.Context, req *types.QueryThreadRequest) 
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	// Get the root post
+	rootPost, err := q.k.Post.Get(ctx, req.RootId)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, "thread not found")
+	}
 
-	return &types.QueryThreadResponse{}, nil
+	// Verify it's a root post
+	if rootPost.ParentId != 0 {
+		return nil, status.Error(codes.InvalidArgument, "not a root post")
+	}
+
+	return &types.QueryThreadResponse{
+		PostId:   rootPost.PostId,
+		Author:   rootPost.Author,
+		ParentId: rootPost.ParentId,
+		Depth:    rootPost.Depth,
+	}, nil
 }

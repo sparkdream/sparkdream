@@ -35,7 +35,12 @@ func (k msgServer) WithdrawTagBudget(ctx context.Context, msg *types.MsgWithdraw
 		return nil, errorsmod.Wrap(types.ErrTagBudgetInsufficient, "budget pool is empty")
 	}
 
-	// TODO: Transfer SPARK from module back to group account
+	// Transfer SPARK from module back to group account
+	groupAddr, _ := sdk.AccAddressFromBech32(budget.GroupAccount)
+	withdrawCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, remainingBalance))
+	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, groupAddr, withdrawCoins); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to withdraw tag budget funds")
+	}
 
 	// Deactivate and zero out the budget
 	budget.Active = false

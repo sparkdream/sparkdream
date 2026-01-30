@@ -19,7 +19,14 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check appeals_paused param
+	// Check appeals_paused param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if params.AppealsPaused {
+		return nil, types.ErrAppealsPaused
+	}
 
 	// Load post
 	post, err := k.Post.Get(ctx, msg.PostId)
@@ -53,7 +60,13 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 			"must wait until %d to appeal", cooldownEnd)
 	}
 
-	// TODO: Charge appeal_fee to appellant and escrow it
+	// Charge appeal_fee to appellant and escrow it
+	if params.AppealFee.IsPositive() {
+		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.AppealFee)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to charge appeal fee")
+		}
+	}
 
 	// Create appeal initiative in x/rep (stub)
 	payload, _ := json.Marshal(map[string]interface{}{

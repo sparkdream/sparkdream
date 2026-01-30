@@ -58,19 +58,28 @@ func (k msgServer) ReportTag(ctx context.Context, msg *types.MsgReportTag) (*typ
 		}
 
 		existingReport.Reporters = append(existingReport.Reporters, msg.Creator)
-		// TODO: Add bond to total
+		// Add bond to total - transfer DREAM from reporter to escrow
+		reportBond := types.DefaultTagReportBond
+		if err := k.TransferDREAM(ctx, msg.Creator, k.GetModuleAddress(), reportBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to transfer tag report bond")
+		}
 		existingBond, _ := math.NewIntFromString(existingReport.TotalBond)
-		newBond := existingBond.Add(math.NewInt(10)) // nominal bond
+		newBond := existingBond.Add(reportBond)
 		existingReport.TotalBond = newBond.String()
 
 		if err := k.TagReport.Set(ctx, msg.TagName, existingReport); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update tag report")
 		}
 	} else {
-		// Create new report
+		// Create new report - transfer DREAM from reporter to escrow
+		reportBond := types.DefaultTagReportBond
+		if err := k.TransferDREAM(ctx, msg.Creator, k.GetModuleAddress(), reportBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to transfer tag report bond")
+		}
+
 		report := types.TagReport{
 			TagName:       msg.TagName,
-			TotalBond:     "10", // TODO: Use proper bond from reporter
+			TotalBond:     reportBond.String(),
 			FirstReportAt: now,
 			UnderReview:   false,
 			Reporters:     []string{msg.Creator},

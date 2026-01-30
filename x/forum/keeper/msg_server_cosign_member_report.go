@@ -52,7 +52,10 @@ func (k msgServer) CosignMemberReport(ctx context.Context, msg *types.MsgCosignM
 		return nil, errorsmod.Wrap(types.ErrMaxReportersReached, "maximum reporters reached")
 	}
 
-	// TODO: Transfer DREAM bond from cosigner to escrow
+	// Transfer DREAM bond from cosigner to escrow (stub - actual transfer via x/rep)
+	if err := k.TransferDREAM(ctx, msg.Creator, k.GetModuleAddress(), sentinelBond); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to transfer DREAM bond to escrow")
+	}
 
 	// Add cosigner
 	report.Reporters = append(report.Reporters, msg.Creator)

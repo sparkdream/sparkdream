@@ -40,7 +40,12 @@ func (k msgServer) IncreaseBounty(ctx context.Context, msg *types.MsgIncreaseBou
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid increase amount")
 	}
 
-	// TODO: Transfer additional SPARK from creator to module (escrow)
+	// Transfer additional SPARK from creator to module (escrow)
+	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+	addCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, addAmount))
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, addCoins); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to escrow additional bounty funds")
+	}
 
 	// Update bounty amount
 	currentAmount, _ := math.NewIntFromString(bounty.Amount)

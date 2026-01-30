@@ -36,7 +36,10 @@ func (k msgServer) FollowThread(ctx context.Context, msg *types.MsgFollowThread)
 		return nil, types.ErrAlreadyFollowing
 	}
 
-	// TODO: Check follow rate limit when params are fully implemented
+	// Check follow rate limit
+	if err := k.checkAndUpdateFollowLimit(ctx, msg.Creator, now); err != nil {
+		return nil, err
+	}
 
 	// Create follow record
 	follow := types.ThreadFollow{
@@ -73,4 +76,50 @@ func (k msgServer) FollowThread(ctx context.Context, msg *types.MsgFollowThread)
 	)
 
 	return &types.MsgFollowThreadResponse{}, nil
+}
+
+// checkAndUpdateFollowLimit checks and updates the follow rate limit for a user.
+func (k msgServer) checkAndUpdateFollowLimit(ctx context.Context, addr string, now int64) error {
+	// Use a separate key for follow limit (prefix with "follow_")
+	limitKey := "follow_" + addr
+
+	reactionLimit, err := k.UserReactionLimit.Get(ctx, limitKey)
+	if err != nil {
+		// Create new follow limit record
+		reactionLimit = types.UserReactionLimit{
+			UserAddress:      addr,
+			CurrentDayCount:  0,
+			PreviousDayCount: 0,
+			CurrentDayStart:  now,
+		}
+	}
+
+	// Day rotation (24h window)
+	const dayDuration int64 = 86400
+	if now-reactionLimit.CurrentDayStart >= dayDuration {
+		reactionLimit.PreviousDayCount = reactionLimit.CurrentDayCount
+		reactionLimit.CurrentDayCount = 0
+		reactionLimit.CurrentDayStart = now
+	}
+
+	// Calculate effective count using sliding window approximation
+	var overlapRatio float64
+	elapsed := now - reactionLimit.CurrentDayStart
+	if elapsed < dayDuration {
+		overlapRatio = float64(dayDuration-elapsed) / float64(dayDuration)
+	}
+	effectiveCount := float64(reactionLimit.CurrentDayCount) + float64(reactionLimit.PreviousDayCount)*overlapRatio
+
+	if effectiveCount >= float64(types.DefaultMaxFollowsPerDay) {
+		return types.ErrFollowLimitExceeded
+	}
+
+	// Update follow limit
+	reactionLimit.CurrentDayCount++
+
+	if err := k.UserReactionLimit.Set(ctx, limitKey, reactionLimit); err != nil {
+		return errorsmod.Wrap(err, "failed to update follow limit")
+	}
+
+	return nil
 }

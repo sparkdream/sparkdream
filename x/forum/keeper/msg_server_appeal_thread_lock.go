@@ -19,7 +19,14 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check appeals_paused param
+	// Check appeals_paused param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if params.AppealsPaused {
+		return nil, types.ErrAppealsPaused
+	}
 
 	// Load post
 	post, err := k.Post.Get(ctx, msg.RootId)
@@ -57,7 +64,13 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 			"must wait until %d to appeal", cooldownEnd)
 	}
 
-	// TODO: Charge lock_appeal_fee to appellant and escrow it
+	// Charge lock_appeal_fee to appellant and escrow it
+	if params.LockAppealFee.IsPositive() {
+		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.LockAppealFee)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to charge lock appeal fee")
+		}
+	}
 
 	// Create appeal initiative in x/rep (stub)
 	payload, _ := json.Marshal(map[string]interface{}{

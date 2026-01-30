@@ -39,6 +39,12 @@ func (k msgServer) SetModerationPaused(ctx context.Context, msg *types.MsgSetMod
 		status = "unpaused"
 	}
 
+	// Update ModerationPaused in params
+	params.ModerationPaused = msg.Paused
+	if err := k.Params.Set(ctx, params); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update params")
+	}
+
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"moderation_paused_status_changed",
@@ -47,9 +53,6 @@ func (k msgServer) SetModerationPaused(ctx context.Context, msg *types.MsgSetMod
 			sdk.NewAttribute("changed_by", msg.Creator),
 		),
 	)
-
-	// TODO: Update params when ModerationPaused field is added
-	_ = params
 
 	return &types.MsgSetModerationPausedResponse{}, nil
 }

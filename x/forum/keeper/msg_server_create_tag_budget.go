@@ -60,7 +60,12 @@ func (k msgServer) CreateTagBudget(ctx context.Context, msg *types.MsgCreateTagB
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid initial pool amount")
 	}
 
-	// TODO: Transfer SPARK from group to module (escrow)
+	// Transfer SPARK from group to module (escrow)
+	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+	escrowCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, initialPool))
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, escrowCoins); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to escrow tag budget funds")
+	}
 
 	// Generate budget ID
 	budgetID, err := k.TagBudgetSeq.Next(ctx)

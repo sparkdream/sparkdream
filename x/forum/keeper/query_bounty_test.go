@@ -25,7 +25,7 @@ func createNBounty(keeper keeper.Keeper, ctx context.Context, n int) []types.Bou
 		items[i].Amount = strconv.Itoa(i)
 		items[i].CreatedAt = int64(i)
 		items[i].ExpiresAt = int64(i)
-		items[i].Status = uint64(i)
+		items[i].Status = types.BountyStatus(i)
 		items[i].ModerationSuspendedAt = int64(i)
 		items[i].TimeRemainingAtSuspension = int64(i)
 		_ = keeper.Bounty.Set(ctx, iu, items[i])

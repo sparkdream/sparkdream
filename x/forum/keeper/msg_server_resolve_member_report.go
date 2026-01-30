@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -45,9 +46,17 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 
 	// Validate action
 	action := types.GovActionType(msg.Action)
+	// Parse total bond amount
+	totalBond, _ := math.NewIntFromString(report.TotalBond)
+	if report.TotalBond == "" {
+		totalBond = math.ZeroInt()
+	}
+
 	if action == types.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED {
-		// Dismissing the report
-		// TODO: Refund bonds to reporters
+		// Dismissing the report - refund bonds to reporters
+		if err := k.RefundBonds(ctx, report.Reporters, totalBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
+		}
 	} else {
 		// Taking action
 		switch action {
@@ -85,15 +94,30 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 				return nil, errorsmod.Wrap(err, "failed to store warning")
 			}
 
-			// TODO: Slash bonds from reporters and award to warned member
+			// Warning only - slash bonds from reporters and award to warned member
+			// (reporter was wrong to escalate to this level)
+			if err := k.TransferDREAM(ctx, k.GetModuleAddress(), msg.Member, totalBond); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to award bonds to warned member")
+			}
 
 		case types.GovActionType_GOV_ACTION_TYPE_DEMOTION:
-			// TODO: Demote member via x/rep
-		case types.GovActionType_GOV_ACTION_TYPE_ZEROING:
-			// TODO: Zero member via x/rep
-		}
+			// Demote member via x/rep (stub)
+			if err := k.DemoteMember(ctx, msg.Member, msg.Reason); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to demote member")
+			}
+			// Reporters were correct - burn a portion of bond as processing fee
+			// and return remainder (stub implementation burns nothing)
 
-		// TODO: Slash bonds and distribute to treasury/rewards
+		case types.GovActionType_GOV_ACTION_TYPE_ZEROING:
+			// Zero member via x/rep (stub)
+			if err := k.ZeroMember(ctx, msg.Member, msg.Reason); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to zero member")
+			}
+			// Reporters were correct - return full bonds
+			if err := k.RefundBonds(ctx, report.Reporters, totalBond); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
+			}
+		}
 	}
 
 	// Mark as resolved

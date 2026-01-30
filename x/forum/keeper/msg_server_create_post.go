@@ -22,8 +22,14 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check forum_paused and new_posts_paused params once params are fully implemented
-	// For now, proceed without pause checks
+	// Check forum_paused param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if params.ForumPaused {
+		return nil, types.ErrForumPaused
+	}
 
 	// Validate category exists
 	category, err := k.Category.Get(ctx, msg.CategoryId)
@@ -102,7 +108,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	var expirationTime int64
 	if !isMember {
 		expirationTime = now + types.DefaultEphemeralTTL
-		// TODO: Charge spam tax to non-members
+		// Charge spam tax to non-members
+		if params.SpamTax.IsPositive() {
+			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.SpamTax)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to charge spam tax")
+			}
+		}
 	}
 
 	// Create post

@@ -22,7 +22,14 @@ func (k msgServer) UnarchiveThread(ctx context.Context, msg *types.MsgUnarchiveT
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check forum_paused param
+	// Check forum_paused param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if params.ForumPaused {
+		return nil, types.ErrForumPaused
+	}
 
 	// Load archived thread
 	archivedThread, err := k.ArchivedThread.Get(ctx, msg.RootId)

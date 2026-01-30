@@ -50,7 +50,10 @@ func (k msgServer) ReportMember(ctx context.Context, msg *types.MsgReportMember)
 		action = types.GovActionType_GOV_ACTION_TYPE_WARNING
 	}
 
-	// TODO: Transfer DREAM bond from reporter to escrow
+	// Transfer DREAM bond from reporter to escrow (stub - actual transfer via x/rep)
+	if err := k.TransferDREAM(ctx, msg.Creator, k.GetModuleAddress(), sentinelBond); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to transfer DREAM bond to escrow")
+	}
 
 	// Create member report
 	report := types.MemberReport{

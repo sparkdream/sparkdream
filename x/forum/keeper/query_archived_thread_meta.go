@@ -14,7 +14,19 @@ func (q queryServer) ArchivedThreadMeta(ctx context.Context, req *types.QueryArc
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	if req.RootId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "root_id required")
+	}
 
-	return &types.QueryArchivedThreadMetaResponse{}, nil
+	// Get the archived thread
+	archive, err := q.k.ArchivedThread.Get(ctx, req.RootId)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, "archived thread not found")
+	}
+
+	return &types.QueryArchivedThreadMetaResponse{
+		RootId:     archive.RootId,
+		PostCount:  archive.PostCount,
+		ArchivedAt: archive.ArchivedAt,
+	}, nil
 }

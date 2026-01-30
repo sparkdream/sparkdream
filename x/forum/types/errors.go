@@ -161,8 +161,9 @@ var (
 	ErrAlreadyDisputed         = errors.Register(ModuleName, 1910, "pin is already disputed")
 
 	// Follow errors (1950-1999)
-	ErrAlreadyFollowing = errors.Register(ModuleName, 1950, "already following this thread")
-	ErrNotFollowing     = errors.Register(ModuleName, 1951, "not following this thread")
+	ErrAlreadyFollowing   = errors.Register(ModuleName, 1950, "already following this thread")
+	ErrNotFollowing       = errors.Register(ModuleName, 1951, "not following this thread")
+	ErrCannotVoteOwnPost  = errors.Register(ModuleName, 1952, "cannot vote on your own post")
 
 	// Report errors (2000-2049)
 	ErrReportNotFound       = errors.Register(ModuleName, 2000, "report not found")

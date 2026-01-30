@@ -18,7 +18,14 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check editing_enabled param once params are fully implemented
+	// Check editing_enabled param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if !params.EditingEnabled {
+		return nil, types.ErrEditingDisabled
+	}
 
 	// Load post
 	post, err := k.Post.Get(ctx, msg.PostId)
@@ -55,10 +62,13 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
 	}
 
-	// TODO: Charge edit fee if past grace period
-	// if editAge > types.DefaultEditGracePeriod {
-	//     // Charge edit_fee
-	// }
+	// Charge edit fee if past grace period
+	if editAge > params.EditGracePeriod && params.EditFee.IsPositive() {
+		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.EditFee)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to charge edit fee")
+		}
+	}
 
 	// Update post
 	post.Content = msg.NewContent

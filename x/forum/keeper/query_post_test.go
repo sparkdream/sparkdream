@@ -25,7 +25,7 @@ func createNPost(keeper keeper.Keeper, ctx context.Context, n int) []types.Post 
 		items[i].Content = strconv.Itoa(i)
 		items[i].CreatedAt = int64(i)
 		items[i].ExpirationTime = int64(i)
-		items[i].Status = uint64(i)
+		items[i].Status = types.PostStatus(i)
 		items[i].HiddenBy = strconv.Itoa(i)
 		items[i].HiddenAt = int64(i)
 		items[i].Pinned = true

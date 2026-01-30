@@ -18,7 +18,14 @@ func (k msgServer) DownvotePost(ctx context.Context, msg *types.MsgDownvotePost)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check reactions_enabled param
+	// Check reactions_enabled param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if !params.ReactionsEnabled {
+		return nil, types.ErrReactionsDisabled
+	}
 
 	// Load post
 	post, err := k.Post.Get(ctx, msg.PostId)
@@ -36,13 +43,29 @@ func (k msgServer) DownvotePost(ctx context.Context, msg *types.MsgDownvotePost)
 		return nil, types.ErrPostArchived
 	}
 
+	// Cannot vote on your own post
+	if post.Author == msg.Creator {
+		return nil, types.ErrCannotVoteOwnPost
+	}
+
 	// Check downvote rate limit (separate from upvote limit)
 	if err := k.checkAndUpdateDownvoteLimit(ctx, msg.Creator, now); err != nil {
 		return nil, err
 	}
 
-	// TODO: Burn downvote_deposit from creator
+	// Burn downvote_deposit from creator
 	// Downvotes require a SPARK deposit that is burned immediately (no refund)
+	if params.DownvoteDeposit.IsPositive() {
+		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+		burnCoins := sdk.NewCoins(params.DownvoteDeposit)
+		// First transfer to module, then burn
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, burnCoins); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to collect downvote deposit")
+		}
+		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, burnCoins); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to burn downvote deposit")
+		}
+	}
 
 	// Increment downvote count (counter-only system - no individual vote tracking)
 	post.DownvoteCount++

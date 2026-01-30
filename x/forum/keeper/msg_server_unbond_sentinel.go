@@ -60,8 +60,10 @@ func (k msgServer) UnbondSentinel(ctx context.Context, msg *types.MsgUnbondSenti
 			availableBond.String(), committedBond.String())
 	}
 
-	// TODO: Transfer DREAM from module back to user (stub - actual transfer via x/rep)
-	// k.TransferDREAM(ctx, moduleAddr, msg.Creator, unbondAmount)
+	// Transfer DREAM from module back to user (stub - actual transfer via x/rep)
+	if err := k.TransferDREAM(ctx, k.GetModuleAddress(), msg.Creator, unbondAmount); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to transfer DREAM back to user")
+	}
 
 	// Update bond
 	newBond := currentBond.Sub(unbondAmount)

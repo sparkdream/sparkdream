@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -51,28 +52,72 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 		return nil, errorsmod.Wrap(types.ErrTagNotFound, fmt.Sprintf("tag %s not found", msg.TagName))
 	}
 
+	// Parse total bond amount
+	totalBond, _ := math.NewIntFromString(report.TotalBond)
+	if report.TotalBond == "" {
+		totalBond = math.ZeroInt()
+	}
+
 	// Process based on action
 	// 0 = dismiss, 1 = remove tag, 2 = reserve tag
 	switch msg.Action {
 	case 0:
-		// Dismiss - no action on tag
-		// TODO: Refund bonds to reporters
+		// Dismiss - no action on tag, refund bonds to reporters
+		if err := k.RefundBonds(ctx, report.Reporters, totalBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
+		}
 
 	case 1:
 		// Remove tag
 		if err := k.Tag.Remove(ctx, tagKey); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to remove tag")
 		}
-		// TODO: Update posts that use this tag
-		// TODO: Slash bonds from tag creator
+
+		// Update posts that use this tag by iterating and removing the tag reference
+		postIter, iterErr := k.Post.Iterate(ctx, nil)
+		if iterErr == nil {
+			defer postIter.Close()
+			for ; postIter.Valid(); postIter.Next() {
+				post, _ := postIter.Value()
+				// Check if post uses this tag
+				for i, t := range post.Tags {
+					if t == msg.TagName {
+						// Remove tag from post
+						post.Tags = append(post.Tags[:i], post.Tags[i+1:]...)
+						_ = k.Post.Set(ctx, post.PostId, post)
+						break
+					}
+				}
+			}
+		}
+
+		// Note: Tag proto doesn't currently have a Creator field
+		// In future, could slash bonds from tag creator here
+
+		// Refund bonds to reporters (they were correct)
+		if err := k.RefundBonds(ctx, report.Reporters, totalBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
+		}
 
 	case 2:
-		// Reserve tag - in current schema we can't mark as reserved
-		// For now, we just leave the tag as-is and note the resolution
-		// TODO: Add reserved fields to Tag proto if needed
-		_ = foundTag
-		_ = msg.ReserveAuthority
-		_ = msg.ReserveMembersCanUse
+		// Reserve tag - create a ReservedTag entry
+		reservedTag := types.ReservedTag{
+			Name:          msg.TagName,
+			Authority:     msg.ReserveAuthority,
+			MembersCanUse: msg.ReserveMembersCanUse,
+		}
+		if err := k.ReservedTag.Set(ctx, msg.TagName, reservedTag); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to create reserved tag")
+		}
+
+		// Note: Tag proto doesn't have a Reserved field
+		// The ReservedTag collection tracks which tags are reserved
+		_ = foundTag // Tag is now managed via ReservedTag collection
+
+		// Refund bonds to reporters
+		if err := k.RefundBonds(ctx, report.Reporters, totalBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
+		}
 	}
 
 	// Delete the report

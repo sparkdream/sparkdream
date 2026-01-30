@@ -23,7 +23,7 @@ func createNHideRecord(keeper keeper.Keeper, ctx context.Context, n int) []types
 		items[i].SentinelBondSnapshot = strconv.Itoa(i)
 		items[i].SentinelBackingSnapshot = strconv.Itoa(i)
 		items[i].CommittedAmount = strconv.Itoa(i)
-		items[i].ReasonCode = uint64(i)
+		items[i].ReasonCode = types.ModerationReason(i)
 		items[i].ReasonText = strconv.Itoa(i)
 		_ = keeper.HideRecord.Set(ctx, items[i].PostId, items[i])
 	}

@@ -18,7 +18,14 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check reactions_enabled param
+	// Check reactions_enabled param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if !params.ReactionsEnabled {
+		return nil, types.ErrReactionsDisabled
+	}
 
 	// Load post
 	post, err := k.Post.Get(ctx, msg.PostId)
@@ -36,6 +43,11 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 		return nil, types.ErrPostArchived
 	}
 
+	// Cannot vote on your own post
+	if post.Author == msg.Creator {
+		return nil, types.ErrCannotVoteOwnPost
+	}
+
 	// Check and update reaction rate limit
 	if err := k.checkAndUpdateReactionLimit(ctx, msg.Creator, now); err != nil {
 		return nil, err
@@ -44,7 +56,13 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 	// Check membership for spam tax
 	isMember := k.IsMember(ctx, msg.Creator)
 	if !isMember {
-		// TODO: Charge reaction_spam_tax to non-members
+		// Charge reaction_spam_tax to non-members
+		if params.ReactionSpamTax.IsPositive() {
+			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.ReactionSpamTax)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to charge reaction spam tax")
+			}
+		}
 	}
 
 	// Increment upvote count (counter-only system - no individual vote tracking)

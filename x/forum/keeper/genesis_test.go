@@ -10,17 +10,37 @@ import (
 
 func TestGenesis(t *testing.T) {
 	genesisState := types.GenesisState{
-		Params:  types.DefaultParams(),
-		PostMap: []types.Post{{PostId: 0}, {PostId: 1}}, CategoryMap: []types.Category{{CategoryId: 0}, {CategoryId: 1}}, TagMap: []types.Tag{{Name: "0"}, {Name: "1"}}, TagMap: []types.Tag{{Name: "0"}, {Name: "1"}}, ReservedTagMap: []types.ReservedTag{{Name: "0"}, {Name: "1"}}, ReservedTagMap: []types.ReservedTag{{Name: "0"}, {Name: "1"}}, UserRateLimitMap: []types.UserRateLimit{{UserAddress: "0"}, {UserAddress: "1"}}, UserReactionLimitMap: []types.UserReactionLimit{{UserAddress: "0"}, {UserAddress: "1"}}, SentinelActivityMap: []types.SentinelActivity{{Address: "0"}, {Address: "1"}}, HideRecordMap: []types.HideRecord{{PostId: 0}, {PostId: 1}}, ThreadLockRecordMap: []types.ThreadLockRecord{{RootId: 0}, {RootId: 1}}, ThreadMoveRecordMap: []types.ThreadMoveRecord{{RootId: 0}, {RootId: 1}}, PostFlagMap: []types.PostFlag{{PostId: 0}, {PostId: 1}}, BountyList: []types.Bounty{{Id: 0}, {Id: 1}},
-		BountyCount:         2,
-		TagBudgetList:       []types.TagBudget{{Id: 0}, {Id: 1}},
-		TagBudgetCount:      2,
-		TagBudgetAwardList:  []types.TagBudgetAward{{Id: 0}, {Id: 1}},
-		TagBudgetAwardCount: 2,
-		ThreadMetadataMap:   []types.ThreadMetadata{{ThreadId: 0}, {ThreadId: 1}}, ThreadFollowMap: []types.ThreadFollow{{Follower: "0"}, {Follower: "1"}}, ThreadFollowCountMap: []types.ThreadFollowCount{{ThreadId: 0}, {ThreadId: 1}}, ArchivedThreadMap: []types.ArchivedThread{{RootId: 0}, {RootId: 1}}, ArchiveMetadataMap: []types.ArchiveMetadata{{RootId: 0}, {RootId: 1}}, TagReportMap: []types.TagReport{{TagName: "0"}, {TagName: "1"}}, MemberSalvationStatusMap: []types.MemberSalvationStatus{{Address: "0"}, {Address: "1"}}, JuryParticipationMap: []types.JuryParticipation{{Juror: "0"}, {Juror: "1"}}, MemberReportMap: []types.MemberReport{{Member: "0"}, {Member: "1"}}, MemberWarningList: []types.MemberWarning{{Id: 0}, {Id: 1}},
-		MemberWarningCount:  2,
-		GovActionAppealList:  []types.GovActionAppeal{{Id: 0}, {Id: 1}},
-		GovActionAppealCount: 2,
+		Params:                   types.DefaultParams(),
+		PostMap:                  []types.Post{{PostId: 0}, {PostId: 1}},
+		CategoryMap:             []types.Category{{CategoryId: 0}, {CategoryId: 1}},
+		TagMap:                   []types.Tag{{Name: "tag0"}, {Name: "tag1"}},
+		ReservedTagMap:          []types.ReservedTag{{Name: "reserved0"}, {Name: "reserved1"}},
+		UserRateLimitMap:        []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
+		UserReactionLimitMap:   []types.UserReactionLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
+		SentinelActivityMap:    []types.SentinelActivity{{Address: "sentinel0"}, {Address: "sentinel1"}},
+		HideRecordMap:           []types.HideRecord{{PostId: 0}, {PostId: 1}},
+		ThreadLockRecordMap:    []types.ThreadLockRecord{{RootId: 0}, {RootId: 1}},
+		ThreadMoveRecordMap:    []types.ThreadMoveRecord{{RootId: 0}, {RootId: 1}},
+		PostFlagMap:             []types.PostFlag{{PostId: 0}, {PostId: 1}},
+		BountyList:              []types.Bounty{{Id: 0}, {Id: 1}},
+		BountyCount:             2,
+		TagBudgetList:           []types.TagBudget{{Id: 0}, {Id: 1}},
+		TagBudgetCount:          2,
+		TagBudgetAwardList:     []types.TagBudgetAward{{Id: 0}, {Id: 1}},
+		TagBudgetAwardCount:    2,
+		ThreadMetadataMap:       []types.ThreadMetadata{{ThreadId: 0}, {ThreadId: 1}},
+		ThreadFollowMap:         []types.ThreadFollow{{Follower: "follower0"}, {Follower: "follower1"}},
+		ThreadFollowCountMap:   []types.ThreadFollowCount{{ThreadId: 0}, {ThreadId: 1}},
+		ArchivedThreadMap:       []types.ArchivedThread{{RootId: 0}, {RootId: 1}},
+		ArchiveMetadataMap:     []types.ArchiveMetadata{{RootId: 0}, {RootId: 1}},
+		TagReportMap:            []types.TagReport{{TagName: "report0"}, {TagName: "report1"}},
+		MemberSalvationStatusMap: []types.MemberSalvationStatus{{Address: "member0"}, {Address: "member1"}},
+		JuryParticipationMap:   []types.JuryParticipation{{Juror: "juror0"}, {Juror: "juror1"}},
+		MemberReportMap:        []types.MemberReport{{Member: "member0"}, {Member: "member1"}},
+		MemberWarningList:      []types.MemberWarning{{Id: 0}, {Id: 1}},
+		MemberWarningCount:     2,
+		GovActionAppealList:    []types.GovActionAppeal{{Id: 0}, {Id: 1}},
+		GovActionAppealCount:   2,
 	}
 	f := initFixture(t)
 	err := f.keeper.InitGenesis(f.ctx, genesisState)
@@ -33,8 +53,6 @@ func TestGenesis(t *testing.T) {
 	require.EqualExportedValues(t, genesisState.PostMap, got.PostMap)
 	require.EqualExportedValues(t, genesisState.CategoryMap, got.CategoryMap)
 	require.EqualExportedValues(t, genesisState.TagMap, got.TagMap)
-	require.EqualExportedValues(t, genesisState.TagMap, got.TagMap)
-	require.EqualExportedValues(t, genesisState.ReservedTagMap, got.ReservedTagMap)
 	require.EqualExportedValues(t, genesisState.ReservedTagMap, got.ReservedTagMap)
 	require.EqualExportedValues(t, genesisState.UserRateLimitMap, got.UserRateLimitMap)
 	require.EqualExportedValues(t, genesisState.UserReactionLimitMap, got.UserReactionLimitMap)
@@ -62,5 +80,4 @@ func TestGenesis(t *testing.T) {
 	require.Equal(t, genesisState.MemberWarningCount, got.MemberWarningCount)
 	require.EqualExportedValues(t, genesisState.GovActionAppealList, got.GovActionAppealList)
 	require.Equal(t, genesisState.GovActionAppealCount, got.GovActionAppealCount)
-
 }

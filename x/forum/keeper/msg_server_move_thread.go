@@ -18,7 +18,14 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check forum_paused param
+	// Check forum_paused param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if params.ForumPaused {
+		return nil, types.ErrForumPaused
+	}
 
 	// Load post
 	post, err := k.Post.Get(ctx, msg.RootId)
@@ -48,7 +55,10 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 	isGovAuthority := k.IsGovAuthority(ctx, msg.Creator)
 
 	if !isGovAuthority {
-		// TODO: Check moderation_paused param
+		// Check moderation_paused param for sentinels
+		if params.ModerationPaused {
+			return nil, types.ErrModerationPaused
+		}
 
 		// Sentinels cannot move threads with reserved tags
 		for _, tag := range post.Tags {

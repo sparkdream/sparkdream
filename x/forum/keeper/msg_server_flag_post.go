@@ -66,6 +66,12 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 		return nil, types.ErrMaxFlaggersReached
 	}
 
+	// Get params
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+
 	// Determine flag weight based on membership
 	isMember := k.IsMember(ctx, msg.Creator)
 	var weight uint64
@@ -73,7 +79,13 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 		weight = types.DefaultMemberFlagWeight
 	} else {
 		weight = types.DefaultNonmemberFlagWeight
-		// TODO: Charge flag_spam_tax to non-members
+		// Charge flag_spam_tax to non-members
+		if params.FlagSpamTax.IsPositive() {
+			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.FlagSpamTax)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to charge flag spam tax")
+			}
+		}
 	}
 
 	// Add flagger

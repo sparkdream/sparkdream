@@ -19,7 +19,14 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// TODO: Check moderation_paused param
+	// Check moderation_paused param
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	if params.ModerationPaused {
+		return nil, types.ErrModerationPaused
+	}
 
 	// Validate reason code
 	reasonCode := types.ModerationReason(msg.ReasonCode)

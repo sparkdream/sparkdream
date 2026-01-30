@@ -19,10 +19,10 @@ func createNMemberReport(keeper keeper.Keeper, ctx context.Context, n int) []typ
 	for i := range items {
 		items[i].Member = strconv.Itoa(i)
 		items[i].Reason = strconv.Itoa(i)
-		items[i].RecommendedAction = uint64(i)
+		items[i].RecommendedAction = types.GovActionType(i)
 		items[i].TotalBond = strconv.Itoa(i)
 		items[i].CreatedAt = int64(i)
-		items[i].Status = uint64(i)
+		items[i].Status = types.MemberReportStatus(i)
 		items[i].Defense = strconv.Itoa(i)
 		items[i].DefenseSubmittedAt = int64(i)
 		_ = keeper.MemberReport.Set(ctx, items[i].Member, items[i])

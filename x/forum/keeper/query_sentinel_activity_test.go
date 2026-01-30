@@ -28,7 +28,7 @@ func createNSentinelActivity(keeper keeper.Keeper, ctx context.Context, n int) [
 		items[i].CumulativeRewards = strconv.Itoa(i)
 		items[i].OverturnCooldownUntil = int64(i)
 		items[i].ConsecutiveOverturns = uint64(i)
-		items[i].BondStatus = uint64(i)
+		items[i].BondStatus = types.SentinelBondStatus(i)
 		items[i].CurrentBond = strconv.Itoa(i)
 		items[i].TotalCommittedBond = strconv.Itoa(i)
 		items[i].PendingHideCount = uint64(i)

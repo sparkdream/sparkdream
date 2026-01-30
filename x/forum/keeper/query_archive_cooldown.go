@@ -5,6 +5,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -14,7 +15,30 @@ func (q queryServer) ArchiveCooldown(ctx context.Context, req *types.QueryArchiv
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	if req.RootId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "root_id required")
+	}
 
-	return &types.QueryArchiveCooldownResponse{}, nil
+	// Get the archive metadata
+	metadata, err := q.k.ArchiveMetadata.Get(ctx, req.RootId)
+	if err != nil {
+		// No metadata means no cooldown
+		return &types.QueryArchiveCooldownResponse{
+			InCooldown:   false,
+			CooldownEnds: 0,
+		}, nil
+	}
+
+	// Calculate cooldown end
+	cooldownEnds := metadata.LastArchivedAt + types.DefaultArchiveCooldown
+
+	// Check if still in cooldown
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	now := sdkCtx.BlockTime().Unix()
+	inCooldown := now < cooldownEnds
+
+	return &types.QueryArchiveCooldownResponse{
+		InCooldown:   inCooldown,
+		CooldownEnds: cooldownEnds,
+	}, nil
 }

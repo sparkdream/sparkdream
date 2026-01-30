@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -38,7 +39,42 @@ func (k msgServer) CancelBounty(ctx context.Context, msg *types.MsgCancelBounty)
 		return nil, errorsmod.Wrap(types.ErrBountyAlreadyAwarded, "cannot cancel bounty with existing awards")
 	}
 
-	// TODO: Refund SPARK from escrow to creator (minus cancellation fee)
+	// Refund SPARK from escrow to creator (minus cancellation fee)
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+
+	bountyAmount, ok := math.NewIntFromString(bounty.Amount)
+	if !ok {
+		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid bounty amount")
+	}
+
+	// Calculate cancellation fee
+	feePercent := params.BountyCancellationFeePercent
+	if feePercent > 100 {
+		feePercent = 100
+	}
+	cancellationFee := bountyAmount.Mul(math.NewInt(int64(feePercent))).Quo(math.NewInt(100))
+	refundAmount := bountyAmount.Sub(cancellationFee)
+
+	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+
+	// Refund to creator (minus fee)
+	if refundAmount.IsPositive() {
+		refundCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, refundAmount))
+		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, creatorAddr, refundCoins); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to refund bounty")
+		}
+	}
+
+	// Burn the cancellation fee
+	if cancellationFee.IsPositive() {
+		feeCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, cancellationFee))
+		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, feeCoins); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to burn cancellation fee")
+		}
+	}
 
 	// Update bounty status
 	bounty.Status = types.BountyStatus_BOUNTY_STATUS_CANCELLED

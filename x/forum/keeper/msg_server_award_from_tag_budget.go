@@ -100,7 +100,12 @@ func (k msgServer) AwardFromTagBudget(ctx context.Context, msg *types.MsgAwardFr
 		return nil, errorsmod.Wrap(err, "failed to store tag budget award")
 	}
 
-	// TODO: Transfer SPARK from module to recipient
+	// Transfer SPARK from module to recipient
+	recipientAddr, _ := sdk.AccAddressFromBech32(post.Author)
+	awardCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, awardAmount))
+	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipientAddr, awardCoins); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to transfer award funds")
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
