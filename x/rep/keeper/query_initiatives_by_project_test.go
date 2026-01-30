@@ -17,8 +17,8 @@ import (
 func createInitiativeForProject(k keeper.Keeper, ctx context.Context, id uint64, projectID uint64, status types.InitiativeStatus) types.Initiative {
 	amount := math.NewInt(1000000)
 	initiative := types.Initiative{
-		Id:         id,
-		ProjectId:  projectID,
+		Id:          id,
+		ProjectId:   projectID,
 		Title:       "Initiative " + strconv.FormatUint(id, 10),
 		Description: "Description for initiative " + strconv.FormatUint(id, 10),
 		Tier:        types.InitiativeTier_INITIATIVE_TIER_STANDARD,
@@ -63,13 +63,13 @@ func TestInitiativesByProject(t *testing.T) {
 				createInitiativeForProject(f.keeper, f.ctx, 2, 2, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 			},
 			projectID: 99,
-			wantErr:    nil,
+			wantErr:   nil,
 		},
 		{
 			name:      "EmptyResponseWhenNoInitiativesExist",
 			setup:     func(f *fixture) {},
 			projectID: 1,
-			wantErr:    nil,
+			wantErr:   nil,
 		},
 		{
 			name: "ReturnsInitiativeWithCompletedStatus",
@@ -86,7 +86,7 @@ func TestInitiativesByProject(t *testing.T) {
 			name:      "InvalidRequestNil",
 			setup:     func(f *fixture) {},
 			projectID: 0,
-			wantErr:    status.Error(codes.InvalidArgument, "invalid request"),
+			wantErr:   status.Error(codes.InvalidArgument, "invalid request"),
 		},
 	}
 

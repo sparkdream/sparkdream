@@ -1,0 +1,19 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+import "sparkdream/forum/v1/types.proto";
+
+option go_package = "sparkdream/x/forum/types";
+
+// ThreadMetadata defines the ThreadMetadata message.
+message ThreadMetadata {
+  uint64 thread_id = 1;
+  uint64 accepted_reply_id = 2;
+  string accepted_by = 3;
+  int64 accepted_at = 4;
+  uint64 proposed_reply_id = 5;
+  string proposed_by = 6;
+  int64 proposed_at = 7;
+  repeated uint64 pinned_reply_ids = 10;
+  repeated PinnedReplyRecord pinned_records = 11;
+}

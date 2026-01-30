@@ -52,6 +52,7 @@ import (
 	"sparkdream/x/commons/ante"
 	commonsmodulekeeper "sparkdream/x/commons/keeper"
 	ecosystemmodulekeeper "sparkdream/x/ecosystem/keeper"
+	forummodulekeeper "sparkdream/x/forum/keeper"
 	futarchymodulekeeper "sparkdream/x/futarchy/keeper"
 	futarchymoduletypes "sparkdream/x/futarchy/types"
 	namemodulekeeper "sparkdream/x/name/keeper"
@@ -121,7 +122,8 @@ type App struct {
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
-	sm *module.SimulationManager
+	sm          *module.SimulationManager
+	ForumKeeper forummodulekeeper.Keeper
 }
 
 func init() {
@@ -206,6 +208,7 @@ func New(
 		&app.CommonsKeeper,
 		&app.FutarchyKeeper,
 		&app.RepKeeper,
+		&app.ForumKeeper,
 	); err != nil {
 		panic(err)
 	}

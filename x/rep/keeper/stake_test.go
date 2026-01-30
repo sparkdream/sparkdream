@@ -514,7 +514,7 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 				return types.Stake{
 					Id:        1,
 					Staker:    staker.String(),
-					Amount: math.ZeroInt(),
+					Amount:    math.ZeroInt(),
 					CreatedAt: sdk.UnwrapSDKContext(ctx).BlockTime().Unix(),
 				}
 			},
@@ -532,7 +532,7 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 				return types.Stake{
 					Id:        1,
 					Staker:    staker.String(),
-					Amount: math.NewInt(1000),
+					Amount:    math.NewInt(1000),
 					CreatedAt: sdk.UnwrapSDKContext(ctx).BlockTime().Unix() + 3600, // 1 hour in future
 				}
 			},
@@ -551,7 +551,7 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 				return types.Stake{
 					Id:        1,
 					Staker:    staker.String(),
-					Amount: largeAmount,
+					Amount:    largeAmount,
 					CreatedAt: sdk.UnwrapSDKContext(ctx).BlockTime().Unix(),
 				}
 			},
@@ -569,7 +569,7 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 				return types.Stake{
 					Id:        1,
 					Staker:    staker.String(),
-					Amount: math.NewInt(1000),
+					Amount:    math.NewInt(1000),
 					CreatedAt: sdk.UnwrapSDKContext(ctx).BlockTime().Unix(),
 				}
 			},

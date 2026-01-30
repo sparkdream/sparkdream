@@ -1,0 +1,1418 @@
+syntax = "proto3";
+
+package sparkdream.forum.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/forum/v1/archive_metadata.proto";
+import "sparkdream/forum/v1/archived_thread.proto";
+import "sparkdream/forum/v1/bounty.proto";
+import "sparkdream/forum/v1/category.proto";
+import "sparkdream/forum/v1/hide_record.proto";
+import "sparkdream/forum/v1/gov_action_appeal.proto";
+import "sparkdream/forum/v1/jury_participation.proto";
+import "sparkdream/forum/v1/member_report.proto";
+import "sparkdream/forum/v1/member_salvation_status.proto";
+import "sparkdream/forum/v1/member_warning.proto";
+import "sparkdream/forum/v1/params.proto";
+import "sparkdream/forum/v1/post.proto";
+import "sparkdream/forum/v1/post_flag.proto";
+import "sparkdream/forum/v1/reserved_tag.proto";
+import "sparkdream/forum/v1/sentinel_activity.proto";
+import "sparkdream/forum/v1/tag.proto";
+import "sparkdream/forum/v1/tag_budget.proto";
+import "sparkdream/forum/v1/tag_budget_award.proto";
+import "sparkdream/forum/v1/tag_report.proto";
+import "sparkdream/forum/v1/thread_follow.proto";
+import "sparkdream/forum/v1/thread_follow_count.proto";
+import "sparkdream/forum/v1/thread_lock_record.proto";
+import "sparkdream/forum/v1/thread_metadata.proto";
+import "sparkdream/forum/v1/thread_move_record.proto";
+import "sparkdream/forum/v1/user_rate_limit.proto";
+import "sparkdream/forum/v1/user_reaction_limit.proto";
+
+option go_package = "sparkdream/x/forum/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/params";
+  }
+
+  // ListPost Queries a list of Post items.
+  rpc GetPost(QueryGetPostRequest) returns (QueryGetPostResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post/{post_id}";
+  }
+
+  // ListPost defines the ListPost RPC.
+  rpc ListPost(QueryAllPostRequest) returns (QueryAllPostResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post";
+  }
+
+  // ListCategory Queries a list of Category items.
+  rpc GetCategory(QueryGetCategoryRequest) returns (QueryGetCategoryResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/category/{category_id}";
+  }
+
+  // ListCategory defines the ListCategory RPC.
+  rpc ListCategory(QueryAllCategoryRequest) returns (QueryAllCategoryResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/category";
+  }
+
+  // ListTag Queries a list of Tag items.
+  rpc GetTag(QueryGetTagRequest) returns (QueryGetTagResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag/{name}";
+  }
+
+  // ListTag defines the ListTag RPC.
+  rpc ListTag(QueryAllTagRequest) returns (QueryAllTagResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag";
+  }
+
+  // ListReservedTag Queries a list of ReservedTag items.
+  rpc GetReservedTag(QueryGetReservedTagRequest) returns (QueryGetReservedTagResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/reserved_tag/{name}";
+  }
+
+  // ListReservedTag defines the ListReservedTag RPC.
+  rpc ListReservedTag(QueryAllReservedTagRequest) returns (QueryAllReservedTagResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/reserved_tag";
+  }
+
+  // ListUserRateLimit Queries a list of UserRateLimit items.
+  rpc GetUserRateLimit(QueryGetUserRateLimitRequest) returns (QueryGetUserRateLimitResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/user_rate_limit/{user_address}";
+  }
+
+  // ListUserRateLimit defines the ListUserRateLimit RPC.
+  rpc ListUserRateLimit(QueryAllUserRateLimitRequest) returns (QueryAllUserRateLimitResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/user_rate_limit";
+  }
+
+  // ListUserReactionLimit Queries a list of UserReactionLimit items.
+  rpc GetUserReactionLimit(QueryGetUserReactionLimitRequest) returns (QueryGetUserReactionLimitResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/user_reaction_limit/{user_address}";
+  }
+
+  // ListUserReactionLimit defines the ListUserReactionLimit RPC.
+  rpc ListUserReactionLimit(QueryAllUserReactionLimitRequest) returns (QueryAllUserReactionLimitResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/user_reaction_limit";
+  }
+
+  // ListSentinelActivity Queries a list of SentinelActivity items.
+  rpc GetSentinelActivity(QueryGetSentinelActivityRequest) returns (QueryGetSentinelActivityResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/sentinel_activity/{address}";
+  }
+
+  // ListSentinelActivity defines the ListSentinelActivity RPC.
+  rpc ListSentinelActivity(QueryAllSentinelActivityRequest) returns (QueryAllSentinelActivityResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/sentinel_activity";
+  }
+
+  // ListHideRecord Queries a list of HideRecord items.
+  rpc GetHideRecord(QueryGetHideRecordRequest) returns (QueryGetHideRecordResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/hide_record/{post_id}";
+  }
+
+  // ListHideRecord defines the ListHideRecord RPC.
+  rpc ListHideRecord(QueryAllHideRecordRequest) returns (QueryAllHideRecordResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/hide_record";
+  }
+
+  // ListThreadLockRecord Queries a list of ThreadLockRecord items.
+  rpc GetThreadLockRecord(QueryGetThreadLockRecordRequest) returns (QueryGetThreadLockRecordResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_lock_record/{root_id}";
+  }
+
+  // ListThreadLockRecord defines the ListThreadLockRecord RPC.
+  rpc ListThreadLockRecord(QueryAllThreadLockRecordRequest) returns (QueryAllThreadLockRecordResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_lock_record";
+  }
+
+  // ListThreadMoveRecord Queries a list of ThreadMoveRecord items.
+  rpc GetThreadMoveRecord(QueryGetThreadMoveRecordRequest) returns (QueryGetThreadMoveRecordResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_move_record/{root_id}";
+  }
+
+  // ListThreadMoveRecord defines the ListThreadMoveRecord RPC.
+  rpc ListThreadMoveRecord(QueryAllThreadMoveRecordRequest) returns (QueryAllThreadMoveRecordResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_move_record";
+  }
+
+  // ListPostFlag Queries a list of PostFlag items.
+  rpc GetPostFlag(QueryGetPostFlagRequest) returns (QueryGetPostFlagResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post_flag/{post_id}";
+  }
+
+  // ListPostFlag defines the ListPostFlag RPC.
+  rpc ListPostFlag(QueryAllPostFlagRequest) returns (QueryAllPostFlagResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post_flag";
+  }
+
+  // ListBounty Queries a list of Bounty items.
+  rpc GetBounty(QueryGetBountyRequest) returns (QueryGetBountyResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/bounty/{id}";
+  }
+
+  // ListBounty defines the ListBounty RPC.
+  rpc ListBounty(QueryAllBountyRequest) returns (QueryAllBountyResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/bounty";
+  }
+
+  // ListTagBudget Queries a list of TagBudget items.
+  rpc GetTagBudget(QueryGetTagBudgetRequest) returns (QueryGetTagBudgetResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_budget/{id}";
+  }
+
+  // ListTagBudget defines the ListTagBudget RPC.
+  rpc ListTagBudget(QueryAllTagBudgetRequest) returns (QueryAllTagBudgetResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_budget";
+  }
+
+  // ListTagBudgetAward Queries a list of TagBudgetAward items.
+  rpc GetTagBudgetAward(QueryGetTagBudgetAwardRequest) returns (QueryGetTagBudgetAwardResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_budget_award/{id}";
+  }
+
+  // ListTagBudgetAward defines the ListTagBudgetAward RPC.
+  rpc ListTagBudgetAward(QueryAllTagBudgetAwardRequest) returns (QueryAllTagBudgetAwardResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_budget_award";
+  }
+
+  // ListThreadMetadata Queries a list of ThreadMetadata items.
+  rpc GetThreadMetadata(QueryGetThreadMetadataRequest) returns (QueryGetThreadMetadataResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_metadata/{thread_id}";
+  }
+
+  // ListThreadMetadata defines the ListThreadMetadata RPC.
+  rpc ListThreadMetadata(QueryAllThreadMetadataRequest) returns (QueryAllThreadMetadataResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_metadata";
+  }
+
+  // ListThreadFollow Queries a list of ThreadFollow items.
+  rpc GetThreadFollow(QueryGetThreadFollowRequest) returns (QueryGetThreadFollowResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_follow/{follower}";
+  }
+
+  // ListThreadFollow defines the ListThreadFollow RPC.
+  rpc ListThreadFollow(QueryAllThreadFollowRequest) returns (QueryAllThreadFollowResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_follow";
+  }
+
+  // ListThreadFollowCount Queries a list of ThreadFollowCount items.
+  rpc GetThreadFollowCount(QueryGetThreadFollowCountRequest) returns (QueryGetThreadFollowCountResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_follow_count/{thread_id}";
+  }
+
+  // ListThreadFollowCount defines the ListThreadFollowCount RPC.
+  rpc ListThreadFollowCount(QueryAllThreadFollowCountRequest) returns (QueryAllThreadFollowCountResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_follow_count";
+  }
+
+  // ListArchivedThread Queries a list of ArchivedThread items.
+  rpc GetArchivedThread(QueryGetArchivedThreadRequest) returns (QueryGetArchivedThreadResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/archived_thread/{root_id}";
+  }
+
+  // ListArchivedThread defines the ListArchivedThread RPC.
+  rpc ListArchivedThread(QueryAllArchivedThreadRequest) returns (QueryAllArchivedThreadResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/archived_thread";
+  }
+
+  // ListArchiveMetadata Queries a list of ArchiveMetadata items.
+  rpc GetArchiveMetadata(QueryGetArchiveMetadataRequest) returns (QueryGetArchiveMetadataResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/archive_metadata/{root_id}";
+  }
+
+  // ListArchiveMetadata defines the ListArchiveMetadata RPC.
+  rpc ListArchiveMetadata(QueryAllArchiveMetadataRequest) returns (QueryAllArchiveMetadataResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/archive_metadata";
+  }
+
+  // ListTagReport Queries a list of TagReport items.
+  rpc GetTagReport(QueryGetTagReportRequest) returns (QueryGetTagReportResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_report/{tag_name}";
+  }
+
+  // ListTagReport defines the ListTagReport RPC.
+  rpc ListTagReport(QueryAllTagReportRequest) returns (QueryAllTagReportResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_report";
+  }
+
+  // ListMemberSalvationStatus Queries a list of MemberSalvationStatus items.
+  rpc GetMemberSalvationStatus(QueryGetMemberSalvationStatusRequest) returns (QueryGetMemberSalvationStatusResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_salvation_status/{address}";
+  }
+
+  // ListMemberSalvationStatus defines the ListMemberSalvationStatus RPC.
+  rpc ListMemberSalvationStatus(QueryAllMemberSalvationStatusRequest) returns (QueryAllMemberSalvationStatusResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_salvation_status";
+  }
+
+  // ListJuryParticipation Queries a list of JuryParticipation items.
+  rpc GetJuryParticipation(QueryGetJuryParticipationRequest) returns (QueryGetJuryParticipationResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/jury_participation/{juror}";
+  }
+
+  // ListJuryParticipation defines the ListJuryParticipation RPC.
+  rpc ListJuryParticipation(QueryAllJuryParticipationRequest) returns (QueryAllJuryParticipationResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/jury_participation";
+  }
+
+  // ListMemberReport Queries a list of MemberReport items.
+  rpc GetMemberReport(QueryGetMemberReportRequest) returns (QueryGetMemberReportResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_report/{member}";
+  }
+
+  // ListMemberReport defines the ListMemberReport RPC.
+  rpc ListMemberReport(QueryAllMemberReportRequest) returns (QueryAllMemberReportResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_report";
+  }
+
+  // ListMemberWarning Queries a list of MemberWarning items.
+  rpc GetMemberWarning(QueryGetMemberWarningRequest) returns (QueryGetMemberWarningResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_warning/{id}";
+  }
+
+  // ListMemberWarning defines the ListMemberWarning RPC.
+  rpc ListMemberWarning(QueryAllMemberWarningRequest) returns (QueryAllMemberWarningResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_warning";
+  }
+
+  // ListGovActionAppeal Queries a list of GovActionAppeal items.
+  rpc GetGovActionAppeal(QueryGetGovActionAppealRequest) returns (QueryGetGovActionAppealResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/gov_action_appeal/{id}";
+  }
+
+  // ListGovActionAppeal defines the ListGovActionAppeal RPC.
+  rpc ListGovActionAppeal(QueryAllGovActionAppealRequest) returns (QueryAllGovActionAppealResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/gov_action_appeal";
+  }
+
+  // Posts Queries a list of Posts items.
+  rpc Posts(QueryPostsRequest) returns (QueryPostsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/posts/{category_id}/{status}";
+  }
+
+  // Thread Queries a list of Thread items.
+  rpc Thread(QueryThreadRequest) returns (QueryThreadResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread/{root_id}";
+  }
+
+  // Categories Queries a list of Categories items.
+  rpc Categories(QueryCategoriesRequest) returns (QueryCategoriesResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/categories";
+  }
+
+  // UserPosts Queries a list of UserPosts items.
+  rpc UserPosts(QueryUserPostsRequest) returns (QueryUserPostsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/user_posts/{author}";
+  }
+
+  // SentinelStatus Queries a list of SentinelStatus items.
+  rpc SentinelStatus(QuerySentinelStatusRequest) returns (QuerySentinelStatusResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/sentinel_status/{address}";
+  }
+
+  // SentinelBondCommitment Queries a list of SentinelBondCommitment items.
+  rpc SentinelBondCommitment(QuerySentinelBondCommitmentRequest) returns (QuerySentinelBondCommitmentResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/sentinel_bond_commitment/{address}";
+  }
+
+  // ArchivedThreadMeta Queries a list of ArchivedThreadMeta items.
+  rpc ArchivedThreadMeta(QueryArchivedThreadMetaRequest) returns (QueryArchivedThreadMetaResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/archived_thread_meta/{root_id}";
+  }
+
+  // ArchivedThreads Queries a list of ArchivedThreads items.
+  rpc ArchivedThreads(QueryArchivedThreadsRequest) returns (QueryArchivedThreadsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/archived_threads";
+  }
+
+  // ArchiveCooldown Queries a list of ArchiveCooldown items.
+  rpc ArchiveCooldown(QueryArchiveCooldownRequest) returns (QueryArchiveCooldownResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/archive_cooldown/{root_id}";
+  }
+
+  // TagExists Queries a list of TagExists items.
+  rpc TagExists(QueryTagExistsRequest) returns (QueryTagExistsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_exists/{tag_name}";
+  }
+
+  // TagReports Queries a list of TagReports items.
+  rpc TagReports(QueryTagReportsRequest) returns (QueryTagReportsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_reports";
+  }
+
+  // ForumStatus Queries a list of ForumStatus items.
+  rpc ForumStatus(QueryForumStatusRequest) returns (QueryForumStatusResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/forum_status";
+  }
+
+  // AppealCooldown Queries a list of AppealCooldown items.
+  rpc AppealCooldown(QueryAppealCooldownRequest) returns (QueryAppealCooldownResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/appeal_cooldown/{post_id}";
+  }
+
+  // MemberReports Queries a list of MemberReports items.
+  rpc MemberReports(QueryMemberReportsRequest) returns (QueryMemberReportsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_reports";
+  }
+
+  // MemberWarnings Queries a list of MemberWarnings items.
+  rpc MemberWarnings(QueryMemberWarningsRequest) returns (QueryMemberWarningsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_warnings/{member}";
+  }
+
+  // MemberStanding Queries a list of MemberStanding items.
+  rpc MemberStanding(QueryMemberStandingRequest) returns (QueryMemberStandingResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/member_standing/{member}";
+  }
+
+  // PinnedPosts Queries a list of PinnedPosts items.
+  rpc PinnedPosts(QueryPinnedPostsRequest) returns (QueryPinnedPostsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/pinned_posts/{category_id}";
+  }
+
+  // LockedThreads Queries a list of LockedThreads items.
+  rpc LockedThreads(QueryLockedThreadsRequest) returns (QueryLockedThreadsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/locked_threads";
+  }
+
+  // ThreadLockStatus Queries a list of ThreadLockStatus items.
+  rpc ThreadLockStatus(QueryThreadLockStatusRequest) returns (QueryThreadLockStatusResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_lock_status/{root_id}";
+  }
+
+  // TopPosts Queries a list of TopPosts items.
+  rpc TopPosts(QueryTopPostsRequest) returns (QueryTopPostsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/top_posts/{category_id}/{time_range}";
+  }
+
+  // ThreadFollowers Queries a list of ThreadFollowers items.
+  rpc ThreadFollowers(QueryThreadFollowersRequest) returns (QueryThreadFollowersResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/thread_followers/{thread_id}";
+  }
+
+  // UserFollowedThreads Queries a list of UserFollowedThreads items.
+  rpc UserFollowedThreads(QueryUserFollowedThreadsRequest) returns (QueryUserFollowedThreadsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/user_followed_threads/{user}";
+  }
+
+  // IsFollowingThread Queries a list of IsFollowingThread items.
+  rpc IsFollowingThread(QueryIsFollowingThreadRequest) returns (QueryIsFollowingThreadResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/is_following_thread/{thread_id}/{user}";
+  }
+
+  // BountyByThread Queries a list of BountyByThread items.
+  rpc BountyByThread(QueryBountyByThreadRequest) returns (QueryBountyByThreadResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/bounty_by_thread/{thread_id}";
+  }
+
+  // ActiveBounties Queries a list of ActiveBounties items.
+  rpc ActiveBounties(QueryActiveBountiesRequest) returns (QueryActiveBountiesResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/active_bounties";
+  }
+
+  // UserBounties Queries a list of UserBounties items.
+  rpc UserBounties(QueryUserBountiesRequest) returns (QueryUserBountiesResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/user_bounties/{user}";
+  }
+
+  // BountyExpiringSoon Queries a list of BountyExpiringSoon items.
+  rpc BountyExpiringSoon(QueryBountyExpiringSoonRequest) returns (QueryBountyExpiringSoonResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/bounty_expiring_soon/{within_seconds}";
+  }
+
+  // TagBudgetByTag Queries a list of TagBudgetByTag items.
+  rpc TagBudgetByTag(QueryTagBudgetByTagRequest) returns (QueryTagBudgetByTagResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_budget_by_tag/{tag}";
+  }
+
+  // TagBudgets Queries a list of TagBudgets items.
+  rpc TagBudgets(QueryTagBudgetsRequest) returns (QueryTagBudgetsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_budgets";
+  }
+
+  // TagBudgetAwards Queries a list of TagBudgetAwards items.
+  rpc TagBudgetAwards(QueryTagBudgetAwardsRequest) returns (QueryTagBudgetAwardsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/tag_budget_awards/{budget_id}";
+  }
+
+  // PostFlags Queries a list of PostFlags items.
+  rpc PostFlags(QueryPostFlagsRequest) returns (QueryPostFlagsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post_flags/{post_id}";
+  }
+
+  // FlagReviewQueue Queries a list of FlagReviewQueue items.
+  rpc FlagReviewQueue(QueryFlagReviewQueueRequest) returns (QueryFlagReviewQueueResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/flag_review_queue";
+  }
+
+  // GovActionAppeals Queries a list of GovActionAppeals items.
+  rpc GovActionAppeals(QueryGovActionAppealsRequest) returns (QueryGovActionAppealsResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/gov_action_appeals";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryGetPostRequest defines the QueryGetPostRequest message.
+message QueryGetPostRequest {
+  uint64 post_id = 1;
+}
+
+// QueryGetPostResponse defines the QueryGetPostResponse message.
+message QueryGetPostResponse {
+  Post post = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllPostRequest defines the QueryAllPostRequest message.
+message QueryAllPostRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllPostResponse defines the QueryAllPostResponse message.
+message QueryAllPostResponse {
+  repeated Post post = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetCategoryRequest defines the QueryGetCategoryRequest message.
+message QueryGetCategoryRequest {
+  uint64 category_id = 1;
+}
+
+// QueryGetCategoryResponse defines the QueryGetCategoryResponse message.
+message QueryGetCategoryResponse {
+  Category category = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllCategoryRequest defines the QueryAllCategoryRequest message.
+message QueryAllCategoryRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllCategoryResponse defines the QueryAllCategoryResponse message.
+message QueryAllCategoryResponse {
+  repeated Category category = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetTagRequest defines the QueryGetTagRequest message.
+message QueryGetTagRequest {
+  string name = 1;
+}
+
+// QueryGetTagResponse defines the QueryGetTagResponse message.
+message QueryGetTagResponse {
+  Tag tag = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTagRequest defines the QueryAllTagRequest message.
+message QueryAllTagRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTagResponse defines the QueryAllTagResponse message.
+message QueryAllTagResponse {
+  repeated Tag tag = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetReservedTagRequest defines the QueryGetReservedTagRequest message.
+message QueryGetReservedTagRequest {
+  string name = 1;
+}
+
+// QueryGetReservedTagResponse defines the QueryGetReservedTagResponse message.
+message QueryGetReservedTagResponse {
+  ReservedTag reserved_tag = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllReservedTagRequest defines the QueryAllReservedTagRequest message.
+message QueryAllReservedTagRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllReservedTagResponse defines the QueryAllReservedTagResponse message.
+message QueryAllReservedTagResponse {
+  repeated ReservedTag reserved_tag = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetUserRateLimitRequest defines the QueryGetUserRateLimitRequest message.
+message QueryGetUserRateLimitRequest {
+  string user_address = 1;
+}
+
+// QueryGetUserRateLimitResponse defines the QueryGetUserRateLimitResponse message.
+message QueryGetUserRateLimitResponse {
+  UserRateLimit user_rate_limit = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllUserRateLimitRequest defines the QueryAllUserRateLimitRequest message.
+message QueryAllUserRateLimitRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllUserRateLimitResponse defines the QueryAllUserRateLimitResponse message.
+message QueryAllUserRateLimitResponse {
+  repeated UserRateLimit user_rate_limit = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetUserReactionLimitRequest defines the QueryGetUserReactionLimitRequest message.
+message QueryGetUserReactionLimitRequest {
+  string user_address = 1;
+}
+
+// QueryGetUserReactionLimitResponse defines the QueryGetUserReactionLimitResponse message.
+message QueryGetUserReactionLimitResponse {
+  UserReactionLimit user_reaction_limit = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllUserReactionLimitRequest defines the QueryAllUserReactionLimitRequest message.
+message QueryAllUserReactionLimitRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllUserReactionLimitResponse defines the QueryAllUserReactionLimitResponse message.
+message QueryAllUserReactionLimitResponse {
+  repeated UserReactionLimit user_reaction_limit = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetSentinelActivityRequest defines the QueryGetSentinelActivityRequest message.
+message QueryGetSentinelActivityRequest {
+  string address = 1;
+}
+
+// QueryGetSentinelActivityResponse defines the QueryGetSentinelActivityResponse message.
+message QueryGetSentinelActivityResponse {
+  SentinelActivity sentinel_activity = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllSentinelActivityRequest defines the QueryAllSentinelActivityRequest message.
+message QueryAllSentinelActivityRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllSentinelActivityResponse defines the QueryAllSentinelActivityResponse message.
+message QueryAllSentinelActivityResponse {
+  repeated SentinelActivity sentinel_activity = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetHideRecordRequest defines the QueryGetHideRecordRequest message.
+message QueryGetHideRecordRequest {
+  uint64 post_id = 1;
+}
+
+// QueryGetHideRecordResponse defines the QueryGetHideRecordResponse message.
+message QueryGetHideRecordResponse {
+  HideRecord hide_record = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllHideRecordRequest defines the QueryAllHideRecordRequest message.
+message QueryAllHideRecordRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllHideRecordResponse defines the QueryAllHideRecordResponse message.
+message QueryAllHideRecordResponse {
+  repeated HideRecord hide_record = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetThreadLockRecordRequest defines the QueryGetThreadLockRecordRequest message.
+message QueryGetThreadLockRecordRequest {
+  uint64 root_id = 1;
+}
+
+// QueryGetThreadLockRecordResponse defines the QueryGetThreadLockRecordResponse message.
+message QueryGetThreadLockRecordResponse {
+  ThreadLockRecord thread_lock_record = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllThreadLockRecordRequest defines the QueryAllThreadLockRecordRequest message.
+message QueryAllThreadLockRecordRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllThreadLockRecordResponse defines the QueryAllThreadLockRecordResponse message.
+message QueryAllThreadLockRecordResponse {
+  repeated ThreadLockRecord thread_lock_record = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetThreadMoveRecordRequest defines the QueryGetThreadMoveRecordRequest message.
+message QueryGetThreadMoveRecordRequest {
+  uint64 root_id = 1;
+}
+
+// QueryGetThreadMoveRecordResponse defines the QueryGetThreadMoveRecordResponse message.
+message QueryGetThreadMoveRecordResponse {
+  ThreadMoveRecord thread_move_record = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllThreadMoveRecordRequest defines the QueryAllThreadMoveRecordRequest message.
+message QueryAllThreadMoveRecordRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllThreadMoveRecordResponse defines the QueryAllThreadMoveRecordResponse message.
+message QueryAllThreadMoveRecordResponse {
+  repeated ThreadMoveRecord thread_move_record = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetPostFlagRequest defines the QueryGetPostFlagRequest message.
+message QueryGetPostFlagRequest {
+  uint64 post_id = 1;
+}
+
+// QueryGetPostFlagResponse defines the QueryGetPostFlagResponse message.
+message QueryGetPostFlagResponse {
+  PostFlag post_flag = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllPostFlagRequest defines the QueryAllPostFlagRequest message.
+message QueryAllPostFlagRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllPostFlagResponse defines the QueryAllPostFlagResponse message.
+message QueryAllPostFlagResponse {
+  repeated PostFlag post_flag = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetBountyRequest defines the QueryGetBountyRequest message.
+message QueryGetBountyRequest {
+  uint64 id = 1;
+}
+
+// QueryGetBountyResponse defines the QueryGetBountyResponse message.
+message QueryGetBountyResponse {
+  Bounty bounty = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllBountyRequest defines the QueryAllBountyRequest message.
+message QueryAllBountyRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllBountyResponse defines the QueryAllBountyResponse message.
+message QueryAllBountyResponse {
+  repeated Bounty bounty = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetTagBudgetRequest defines the QueryGetTagBudgetRequest message.
+message QueryGetTagBudgetRequest {
+  uint64 id = 1;
+}
+
+// QueryGetTagBudgetResponse defines the QueryGetTagBudgetResponse message.
+message QueryGetTagBudgetResponse {
+  TagBudget tag_budget = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTagBudgetRequest defines the QueryAllTagBudgetRequest message.
+message QueryAllTagBudgetRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTagBudgetResponse defines the QueryAllTagBudgetResponse message.
+message QueryAllTagBudgetResponse {
+  repeated TagBudget tag_budget = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetTagBudgetAwardRequest defines the QueryGetTagBudgetAwardRequest message.
+message QueryGetTagBudgetAwardRequest {
+  uint64 id = 1;
+}
+
+// QueryGetTagBudgetAwardResponse defines the QueryGetTagBudgetAwardResponse message.
+message QueryGetTagBudgetAwardResponse {
+  TagBudgetAward tag_budget_award = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTagBudgetAwardRequest defines the QueryAllTagBudgetAwardRequest message.
+message QueryAllTagBudgetAwardRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTagBudgetAwardResponse defines the QueryAllTagBudgetAwardResponse message.
+message QueryAllTagBudgetAwardResponse {
+  repeated TagBudgetAward tag_budget_award = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetThreadMetadataRequest defines the QueryGetThreadMetadataRequest message.
+message QueryGetThreadMetadataRequest {
+  uint64 thread_id = 1;
+}
+
+// QueryGetThreadMetadataResponse defines the QueryGetThreadMetadataResponse message.
+message QueryGetThreadMetadataResponse {
+  ThreadMetadata thread_metadata = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllThreadMetadataRequest defines the QueryAllThreadMetadataRequest message.
+message QueryAllThreadMetadataRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllThreadMetadataResponse defines the QueryAllThreadMetadataResponse message.
+message QueryAllThreadMetadataResponse {
+  repeated ThreadMetadata thread_metadata = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetThreadFollowRequest defines the QueryGetThreadFollowRequest message.
+message QueryGetThreadFollowRequest {
+  string follower = 1;
+}
+
+// QueryGetThreadFollowResponse defines the QueryGetThreadFollowResponse message.
+message QueryGetThreadFollowResponse {
+  ThreadFollow thread_follow = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllThreadFollowRequest defines the QueryAllThreadFollowRequest message.
+message QueryAllThreadFollowRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllThreadFollowResponse defines the QueryAllThreadFollowResponse message.
+message QueryAllThreadFollowResponse {
+  repeated ThreadFollow thread_follow = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetThreadFollowCountRequest defines the QueryGetThreadFollowCountRequest message.
+message QueryGetThreadFollowCountRequest {
+  uint64 thread_id = 1;
+}
+
+// QueryGetThreadFollowCountResponse defines the QueryGetThreadFollowCountResponse message.
+message QueryGetThreadFollowCountResponse {
+  ThreadFollowCount thread_follow_count = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllThreadFollowCountRequest defines the QueryAllThreadFollowCountRequest message.
+message QueryAllThreadFollowCountRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllThreadFollowCountResponse defines the QueryAllThreadFollowCountResponse message.
+message QueryAllThreadFollowCountResponse {
+  repeated ThreadFollowCount thread_follow_count = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetArchivedThreadRequest defines the QueryGetArchivedThreadRequest message.
+message QueryGetArchivedThreadRequest {
+  uint64 root_id = 1;
+}
+
+// QueryGetArchivedThreadResponse defines the QueryGetArchivedThreadResponse message.
+message QueryGetArchivedThreadResponse {
+  ArchivedThread archived_thread = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllArchivedThreadRequest defines the QueryAllArchivedThreadRequest message.
+message QueryAllArchivedThreadRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllArchivedThreadResponse defines the QueryAllArchivedThreadResponse message.
+message QueryAllArchivedThreadResponse {
+  repeated ArchivedThread archived_thread = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetArchiveMetadataRequest defines the QueryGetArchiveMetadataRequest message.
+message QueryGetArchiveMetadataRequest {
+  uint64 root_id = 1;
+}
+
+// QueryGetArchiveMetadataResponse defines the QueryGetArchiveMetadataResponse message.
+message QueryGetArchiveMetadataResponse {
+  ArchiveMetadata archive_metadata = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllArchiveMetadataRequest defines the QueryAllArchiveMetadataRequest message.
+message QueryAllArchiveMetadataRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllArchiveMetadataResponse defines the QueryAllArchiveMetadataResponse message.
+message QueryAllArchiveMetadataResponse {
+  repeated ArchiveMetadata archive_metadata = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetTagReportRequest defines the QueryGetTagReportRequest message.
+message QueryGetTagReportRequest {
+  string tag_name = 1;
+}
+
+// QueryGetTagReportResponse defines the QueryGetTagReportResponse message.
+message QueryGetTagReportResponse {
+  TagReport tag_report = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTagReportRequest defines the QueryAllTagReportRequest message.
+message QueryAllTagReportRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTagReportResponse defines the QueryAllTagReportResponse message.
+message QueryAllTagReportResponse {
+  repeated TagReport tag_report = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMemberSalvationStatusRequest defines the QueryGetMemberSalvationStatusRequest message.
+message QueryGetMemberSalvationStatusRequest {
+  string address = 1;
+}
+
+// QueryGetMemberSalvationStatusResponse defines the QueryGetMemberSalvationStatusResponse message.
+message QueryGetMemberSalvationStatusResponse {
+  MemberSalvationStatus member_salvation_status = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberSalvationStatusRequest defines the QueryAllMemberSalvationStatusRequest message.
+message QueryAllMemberSalvationStatusRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberSalvationStatusResponse defines the QueryAllMemberSalvationStatusResponse message.
+message QueryAllMemberSalvationStatusResponse {
+  repeated MemberSalvationStatus member_salvation_status = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetJuryParticipationRequest defines the QueryGetJuryParticipationRequest message.
+message QueryGetJuryParticipationRequest {
+  string juror = 1;
+}
+
+// QueryGetJuryParticipationResponse defines the QueryGetJuryParticipationResponse message.
+message QueryGetJuryParticipationResponse {
+  JuryParticipation jury_participation = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllJuryParticipationRequest defines the QueryAllJuryParticipationRequest message.
+message QueryAllJuryParticipationRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllJuryParticipationResponse defines the QueryAllJuryParticipationResponse message.
+message QueryAllJuryParticipationResponse {
+  repeated JuryParticipation jury_participation = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMemberReportRequest defines the QueryGetMemberReportRequest message.
+message QueryGetMemberReportRequest {
+  string member = 1;
+}
+
+// QueryGetMemberReportResponse defines the QueryGetMemberReportResponse message.
+message QueryGetMemberReportResponse {
+  MemberReport member_report = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberReportRequest defines the QueryAllMemberReportRequest message.
+message QueryAllMemberReportRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberReportResponse defines the QueryAllMemberReportResponse message.
+message QueryAllMemberReportResponse {
+  repeated MemberReport member_report = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMemberWarningRequest defines the QueryGetMemberWarningRequest message.
+message QueryGetMemberWarningRequest {
+  uint64 id = 1;
+}
+
+// QueryGetMemberWarningResponse defines the QueryGetMemberWarningResponse message.
+message QueryGetMemberWarningResponse {
+  MemberWarning member_warning = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberWarningRequest defines the QueryAllMemberWarningRequest message.
+message QueryAllMemberWarningRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberWarningResponse defines the QueryAllMemberWarningResponse message.
+message QueryAllMemberWarningResponse {
+  repeated MemberWarning member_warning = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetGovActionAppealRequest defines the QueryGetGovActionAppealRequest message.
+message QueryGetGovActionAppealRequest {
+  uint64 id = 1;
+}
+
+// QueryGetGovActionAppealResponse defines the QueryGetGovActionAppealResponse message.
+message QueryGetGovActionAppealResponse {
+  GovActionAppeal gov_action_appeal = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllGovActionAppealRequest defines the QueryAllGovActionAppealRequest message.
+message QueryAllGovActionAppealRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllGovActionAppealResponse defines the QueryAllGovActionAppealResponse message.
+message QueryAllGovActionAppealResponse {
+  repeated GovActionAppeal gov_action_appeal = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryPostsRequest defines the QueryPostsRequest message.
+message QueryPostsRequest {
+  uint64 category_id = 1;
+  uint64 status = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryPostsResponse defines the QueryPostsResponse message.
+message QueryPostsResponse {
+  uint64 post_id = 1;
+  string author = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryThreadRequest defines the QueryThreadRequest message.
+message QueryThreadRequest {
+  uint64 root_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryThreadResponse defines the QueryThreadResponse message.
+message QueryThreadResponse {
+  uint64 post_id = 1;
+  string author = 2;
+  uint64 parent_id = 3;
+  uint64 depth = 4;
+  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+}
+
+// QueryCategoriesRequest defines the QueryCategoriesRequest message.
+message QueryCategoriesRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryCategoriesResponse defines the QueryCategoriesResponse message.
+message QueryCategoriesResponse {
+  uint64 category_id = 1;
+  string title = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryUserPostsRequest defines the QueryUserPostsRequest message.
+message QueryUserPostsRequest {
+  string author = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryUserPostsResponse defines the QueryUserPostsResponse message.
+message QueryUserPostsResponse {
+  uint64 post_id = 1;
+  uint64 category_id = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QuerySentinelStatusRequest defines the QuerySentinelStatusRequest message.
+message QuerySentinelStatusRequest {
+  string address = 1;
+}
+
+// QuerySentinelStatusResponse defines the QuerySentinelStatusResponse message.
+message QuerySentinelStatusResponse {
+  string address = 1;
+  uint64 bond_status = 2;
+  string current_bond = 3;
+  string accuracy_rate = 4;
+}
+
+// QuerySentinelBondCommitmentRequest defines the QuerySentinelBondCommitmentRequest message.
+message QuerySentinelBondCommitmentRequest {
+  string address = 1;
+}
+
+// QuerySentinelBondCommitmentResponse defines the QuerySentinelBondCommitmentResponse message.
+message QuerySentinelBondCommitmentResponse {
+  string current_bond = 1;
+  string total_committed_bond = 2;
+  string available_bond = 3;
+}
+
+// QueryArchivedThreadMetaRequest defines the QueryArchivedThreadMetaRequest message.
+message QueryArchivedThreadMetaRequest {
+  uint64 root_id = 1;
+}
+
+// QueryArchivedThreadMetaResponse defines the QueryArchivedThreadMetaResponse message.
+message QueryArchivedThreadMetaResponse {
+  uint64 root_id = 1;
+  uint64 post_count = 2;
+  int64 archived_at = 3;
+}
+
+// QueryArchivedThreadsRequest defines the QueryArchivedThreadsRequest message.
+message QueryArchivedThreadsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryArchivedThreadsResponse defines the QueryArchivedThreadsResponse message.
+message QueryArchivedThreadsResponse {
+  uint64 root_id = 1;
+  uint64 post_count = 2;
+  int64 archived_at = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryArchiveCooldownRequest defines the QueryArchiveCooldownRequest message.
+message QueryArchiveCooldownRequest {
+  uint64 root_id = 1;
+}
+
+// QueryArchiveCooldownResponse defines the QueryArchiveCooldownResponse message.
+message QueryArchiveCooldownResponse {
+  bool in_cooldown = 1;
+  int64 cooldown_ends = 2;
+}
+
+// QueryTagExistsRequest defines the QueryTagExistsRequest message.
+message QueryTagExistsRequest {
+  string tag_name = 1;
+}
+
+// QueryTagExistsResponse defines the QueryTagExistsResponse message.
+message QueryTagExistsResponse {
+  bool exists = 1;
+  int64 expiration_time = 2;
+}
+
+// QueryTagReportsRequest defines the QueryTagReportsRequest message.
+message QueryTagReportsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryTagReportsResponse defines the QueryTagReportsResponse message.
+message QueryTagReportsResponse {
+  string tag_name = 1;
+  bool under_review = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryForumStatusRequest defines the QueryForumStatusRequest message.
+message QueryForumStatusRequest {}
+
+// QueryForumStatusResponse defines the QueryForumStatusResponse message.
+message QueryForumStatusResponse {
+  bool forum_paused = 1;
+  bool moderation_paused = 2;
+  int64 current_epoch = 3;
+}
+
+// QueryAppealCooldownRequest defines the QueryAppealCooldownRequest message.
+message QueryAppealCooldownRequest {
+  uint64 post_id = 1;
+}
+
+// QueryAppealCooldownResponse defines the QueryAppealCooldownResponse message.
+message QueryAppealCooldownResponse {
+  bool in_cooldown = 1;
+  int64 cooldown_ends = 2;
+}
+
+// QueryMemberReportsRequest defines the QueryMemberReportsRequest message.
+message QueryMemberReportsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryMemberReportsResponse defines the QueryMemberReportsResponse message.
+message QueryMemberReportsResponse {
+  string member = 1;
+  uint64 status = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryMemberWarningsRequest defines the QueryMemberWarningsRequest message.
+message QueryMemberWarningsRequest {
+  string member = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryMemberWarningsResponse defines the QueryMemberWarningsResponse message.
+message QueryMemberWarningsResponse {
+  uint64 warning_number = 1;
+  string reason = 2;
+  int64 issued_at = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryMemberStandingRequest defines the QueryMemberStandingRequest message.
+message QueryMemberStandingRequest {
+  string member = 1;
+}
+
+// QueryMemberStandingResponse defines the QueryMemberStandingResponse message.
+message QueryMemberStandingResponse {
+  uint64 warning_count = 1;
+  bool active_report = 2;
+  uint64 trust_tier = 3;
+}
+
+// QueryPinnedPostsRequest defines the QueryPinnedPostsRequest message.
+message QueryPinnedPostsRequest {
+  uint64 category_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryPinnedPostsResponse defines the QueryPinnedPostsResponse message.
+message QueryPinnedPostsResponse {
+  uint64 post_id = 1;
+  uint64 priority = 2;
+  string pinned_by = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryLockedThreadsRequest defines the QueryLockedThreadsRequest message.
+message QueryLockedThreadsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryLockedThreadsResponse defines the QueryLockedThreadsResponse message.
+message QueryLockedThreadsResponse {
+  uint64 root_id = 1;
+  string locked_by = 2;
+  int64 locked_at = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryThreadLockStatusRequest defines the QueryThreadLockStatusRequest message.
+message QueryThreadLockStatusRequest {
+  uint64 root_id = 1;
+}
+
+// QueryThreadLockStatusResponse defines the QueryThreadLockStatusResponse message.
+message QueryThreadLockStatusResponse {
+  bool locked = 1;
+  string locked_by = 2;
+  string reason = 3;
+  bool is_sentinel_lock = 4;
+}
+
+// QueryTopPostsRequest defines the QueryTopPostsRequest message.
+message QueryTopPostsRequest {
+  uint64 category_id = 1;
+  int64 time_range = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryTopPostsResponse defines the QueryTopPostsResponse message.
+message QueryTopPostsResponse {
+  uint64 post_id = 1;
+  uint64 upvote_count = 2;
+  uint64 downvote_count = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryThreadFollowersRequest defines the QueryThreadFollowersRequest message.
+message QueryThreadFollowersRequest {
+  uint64 thread_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryThreadFollowersResponse defines the QueryThreadFollowersResponse message.
+message QueryThreadFollowersResponse {
+  string follower = 1;
+  int64 followed_at = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryUserFollowedThreadsRequest defines the QueryUserFollowedThreadsRequest message.
+message QueryUserFollowedThreadsRequest {
+  string user = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryUserFollowedThreadsResponse defines the QueryUserFollowedThreadsResponse message.
+message QueryUserFollowedThreadsResponse {
+  uint64 thread_id = 1;
+  int64 followed_at = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryIsFollowingThreadRequest defines the QueryIsFollowingThreadRequest message.
+message QueryIsFollowingThreadRequest {
+  uint64 thread_id = 1;
+  string user = 2;
+}
+
+// QueryIsFollowingThreadResponse defines the QueryIsFollowingThreadResponse message.
+message QueryIsFollowingThreadResponse {
+  bool is_following = 1;
+  int64 followed_at = 2;
+}
+
+// QueryBountyByThreadRequest defines the QueryBountyByThreadRequest message.
+message QueryBountyByThreadRequest {
+  uint64 thread_id = 1;
+}
+
+// QueryBountyByThreadResponse defines the QueryBountyByThreadResponse message.
+message QueryBountyByThreadResponse {
+  uint64 bounty_id = 1;
+  string amount = 2;
+  uint64 status = 3;
+  int64 expires_at = 4;
+}
+
+// QueryActiveBountiesRequest defines the QueryActiveBountiesRequest message.
+message QueryActiveBountiesRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryActiveBountiesResponse defines the QueryActiveBountiesResponse message.
+message QueryActiveBountiesResponse {
+  uint64 bounty_id = 1;
+  uint64 thread_id = 2;
+  string amount = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryUserBountiesRequest defines the QueryUserBountiesRequest message.
+message QueryUserBountiesRequest {
+  string user = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryUserBountiesResponse defines the QueryUserBountiesResponse message.
+message QueryUserBountiesResponse {
+  uint64 bounty_id = 1;
+  uint64 thread_id = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryBountyExpiringSoonRequest defines the QueryBountyExpiringSoonRequest message.
+message QueryBountyExpiringSoonRequest {
+  int64 within_seconds = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryBountyExpiringSoonResponse defines the QueryBountyExpiringSoonResponse message.
+message QueryBountyExpiringSoonResponse {
+  uint64 bounty_id = 1;
+  uint64 thread_id = 2;
+  int64 expires_at = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryTagBudgetByTagRequest defines the QueryTagBudgetByTagRequest message.
+message QueryTagBudgetByTagRequest {
+  string tag = 1;
+}
+
+// QueryTagBudgetByTagResponse defines the QueryTagBudgetByTagResponse message.
+message QueryTagBudgetByTagResponse {
+  uint64 budget_id = 1;
+  string pool_balance = 2;
+  bool active = 3;
+}
+
+// QueryTagBudgetsRequest defines the QueryTagBudgetsRequest message.
+message QueryTagBudgetsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryTagBudgetsResponse defines the QueryTagBudgetsResponse message.
+message QueryTagBudgetsResponse {
+  uint64 budget_id = 1;
+  string tag = 2;
+  string pool_balance = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryTagBudgetAwardsRequest defines the QueryTagBudgetAwardsRequest message.
+message QueryTagBudgetAwardsRequest {
+  uint64 budget_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryTagBudgetAwardsResponse defines the QueryTagBudgetAwardsResponse message.
+message QueryTagBudgetAwardsResponse {
+  uint64 post_id = 1;
+  string recipient = 2;
+  string amount = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryPostFlagsRequest defines the QueryPostFlagsRequest message.
+message QueryPostFlagsRequest {
+  uint64 post_id = 1;
+}
+
+// QueryPostFlagsResponse defines the QueryPostFlagsResponse message.
+message QueryPostFlagsResponse {
+  string total_weight = 1;
+  bool in_review_queue = 2;
+  uint64 flagger_count = 3;
+}
+
+// QueryFlagReviewQueueRequest defines the QueryFlagReviewQueueRequest message.
+message QueryFlagReviewQueueRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryFlagReviewQueueResponse defines the QueryFlagReviewQueueResponse message.
+message QueryFlagReviewQueueResponse {
+  uint64 post_id = 1;
+  string total_weight = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryGovActionAppealsRequest defines the QueryGovActionAppealsRequest message.
+message QueryGovActionAppealsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryGovActionAppealsResponse defines the QueryGovActionAppealsResponse message.
+message QueryGovActionAppealsResponse {
+  uint64 appeal_id = 1;
+  uint64 action_type = 2;
+  uint64 status = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}

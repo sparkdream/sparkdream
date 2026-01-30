@@ -1,0 +1,11 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// ThreadFollow defines the ThreadFollow message.
+message ThreadFollow {
+  string follower = 1;
+  uint64 thread_id = 2;
+  int64 followed_at = 3;
+}

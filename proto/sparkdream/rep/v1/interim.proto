@@ -9,24 +9,24 @@ option go_package = "sparkdream/x/rep/types";
 message Interim {
   uint64 id = 1;
   InterimType type = 2;
-  
+
   // Who is responsible
   repeated string assignees = 3;
   string committee = 4; // optional - for committee-level interims
-  
+
   // Reference to related entity
   uint64 reference_id = 5; // JuryReview ID, Project ID, etc.
   string reference_type = 6; // "jury_review", "project", "contribution", etc.
-  
+
   // Compensation
   InterimComplexity complexity = 7;
   string budget = 8 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  
+
   // Timing
   int64 deadline = 9;
   int64 created_at = 10;
   int64 completed_at = 11;
-  
+
   // Status
   InterimStatus status = 12;
   string completion_notes = 13;
@@ -37,16 +37,16 @@ enum InterimType {
   INTERIM_TYPE_JURY_DUTY = 0;
   INTERIM_TYPE_EXPERT_TESTIMONY = 1;
   INTERIM_TYPE_DISPUTE_MEDIATION = 2;
-  
+
   // Administrative reviews
   INTERIM_TYPE_PROJECT_APPROVAL = 3;
   INTERIM_TYPE_BUDGET_REVIEW = 4;
   INTERIM_TYPE_CONTRIBUTION_REVIEW = 5;
   INTERIM_TYPE_EXCEPTION_REQUEST = 6;
-  
+
   // Verification
   INTERIM_TYPE_TRANCHE_VERIFICATION = 7;
-  
+
   // Future extensibility
   INTERIM_TYPE_AUDIT = 8;
   INTERIM_TYPE_MODERATION = 9;
@@ -56,11 +56,11 @@ enum InterimType {
 }
 
 enum InterimComplexity {
-  INTERIM_COMPLEXITY_SIMPLE = 0;    // ~50 DREAM
-  INTERIM_COMPLEXITY_STANDARD = 1;  // ~150 DREAM
-  INTERIM_COMPLEXITY_COMPLEX = 2;   // ~400 DREAM
-  INTERIM_COMPLEXITY_EXPERT = 3;    // ~1000 DREAM
-  INTERIM_COMPLEXITY_EPIC = 4;      // ~2500 DREAM (for critical disputes)
+  INTERIM_COMPLEXITY_SIMPLE = 0; // ~50 DREAM
+  INTERIM_COMPLEXITY_STANDARD = 1; // ~150 DREAM
+  INTERIM_COMPLEXITY_COMPLEX = 2; // ~400 DREAM
+  INTERIM_COMPLEXITY_EXPERT = 3; // ~1000 DREAM
+  INTERIM_COMPLEXITY_EPIC = 4; // ~2500 DREAM (for critical disputes)
 }
 
 enum InterimStatus {

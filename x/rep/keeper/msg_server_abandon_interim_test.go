@@ -16,7 +16,7 @@ func TestMsgServerAbandonInterim(t *testing.T) {
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
 		_, err := ms.AbandonInterim(f.ctx, &types.MsgAbandonInterim{
-			Creator:  "invalid-address",
+			Creator:   "invalid-address",
 			InterimId: 1,
 			Reason:    "Test",
 		})
@@ -34,7 +34,7 @@ func TestMsgServerAbandonInterim(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = ms.AbandonInterim(f.ctx, &types.MsgAbandonInterim{
-			Creator:  assigneeStr,
+			Creator:   assigneeStr,
 			InterimId: 99999,
 			Reason:    "Test",
 		})
@@ -72,7 +72,7 @@ func TestMsgServerAbandonInterim(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = ms.AbandonInterim(ctx, &types.MsgAbandonInterim{
-			Creator:  otherStr,
+			Creator:   otherStr,
 			InterimId: interimID,
 			Reason:    "Test",
 		})
@@ -106,7 +106,7 @@ func TestMsgServerAbandonInterim(t *testing.T) {
 
 		// Abandon interim
 		_, err = ms.AbandonInterim(ctx, &types.MsgAbandonInterim{
-			Creator:  assigneeStr,
+			Creator:   assigneeStr,
 			InterimId: interimID,
 			Reason:    "No longer needed",
 		})

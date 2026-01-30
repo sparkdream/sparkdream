@@ -1,0 +1,18 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+import "sparkdream/forum/v1/types.proto";
+
+option go_package = "sparkdream/x/forum/types";
+
+// PostFlag defines the PostFlag message.
+message PostFlag {
+  uint64 post_id = 1;
+  string total_weight = 2;
+  int64 first_flag_at = 3;
+  int64 last_flag_at = 4;
+  bool in_review_queue = 5;
+  repeated string flaggers = 10;
+  repeated FlagRecord flag_records = 11;
+  map<int32, uint64> reason_counts = 12;
+}

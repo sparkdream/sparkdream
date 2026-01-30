@@ -17,8 +17,8 @@ import (
 func createInitiativeForAssignee(k keeper.Keeper, ctx context.Context, id uint64, assignee string, status types.InitiativeStatus) types.Initiative {
 	amount := math.NewInt(1000000)
 	initiative := types.Initiative{
-		Id:         id,
-		ProjectId:  id,
+		Id:          id,
+		ProjectId:   id,
 		Title:       "Initiative " + strconv.FormatUint(id, 10),
 		Description: "Description for initiative " + strconv.FormatUint(id, 10),
 		Tier:        types.InitiativeTier_INITIATIVE_TIER_STANDARD,
@@ -63,13 +63,13 @@ func TestInitiativesByAssignee(t *testing.T) {
 				createInitiativeForAssignee(f.keeper, f.ctx, 2, "assignee2", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 			},
 			assignee: "nonexistent",
-			wantErr:   nil,
+			wantErr:  nil,
 		},
 		{
 			name:     "EmptyResponseWhenNoInitiativesExist",
 			setup:    func(f *fixture) {},
 			assignee: "assignee1",
-			wantErr:   nil,
+			wantErr:  nil,
 		},
 		{
 			name: "ReturnsInitiativeWithSubmittedStatus",
@@ -86,7 +86,7 @@ func TestInitiativesByAssignee(t *testing.T) {
 			name:     "InvalidRequestNil",
 			setup:    func(f *fixture) {},
 			assignee: "",
-			wantErr:   status.Error(codes.InvalidArgument, "invalid request"),
+			wantErr:  status.Error(codes.InvalidArgument, "invalid request"),
 		},
 	}
 

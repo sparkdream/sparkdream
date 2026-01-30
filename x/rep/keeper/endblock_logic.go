@@ -71,12 +71,12 @@ func (k Keeper) ApplyDecay(ctx context.Context) error {
 // This is the OPTIMAL design for gas efficiency and scalability.
 //
 // Reward distribution uses event-driven and lazy calculation patterns:
-// - Initiative/Project stakes: Calculated lazily on claim (CalculateStakingReward, getPendingProjectRewards)
-//   Gas cost: O(1) per claim instead of O(all_stakes) per epoch
-// - Member stakes: Updated when member earns DREAM (AccumulateMemberStakeRevenue in CompleteInitiative)
-//   Gas cost: O(stakers_on_member) per revenue event instead of O(all_stakes) per epoch
-// - Tag stakes: Updated when initiative completes (AccumulateTagStakeRevenue in CompleteInitiative)
-//   Gas cost: O(stakers_on_tags) per completion instead of O(all_stakes) per epoch
+//   - Initiative/Project stakes: Calculated lazily on claim (CalculateStakingReward, getPendingProjectRewards)
+//     Gas cost: O(1) per claim instead of O(all_stakes) per epoch
+//   - Member stakes: Updated when member earns DREAM (AccumulateMemberStakeRevenue in CompleteInitiative)
+//     Gas cost: O(stakers_on_member) per revenue event instead of O(all_stakes) per epoch
+//   - Tag stakes: Updated when initiative completes (AccumulateTagStakeRevenue in CompleteInitiative)
+//     Gas cost: O(stakers_on_tags) per completion instead of O(all_stakes) per epoch
 //
 // Periodic distribution would be LESS efficient and provide no benefit to stakers.
 func (k Keeper) DistributeEpochStakingRewards(ctx context.Context) error {

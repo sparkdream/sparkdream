@@ -1,0 +1,10 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// ThreadFollowCount defines the ThreadFollowCount message.
+message ThreadFollowCount {
+  uint64 thread_id = 1;
+  uint64 follower_count = 2;
+}

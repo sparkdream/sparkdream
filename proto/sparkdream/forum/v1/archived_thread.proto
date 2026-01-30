@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// ArchivedThread defines the ArchivedThread message.
+message ArchivedThread {
+  uint64 root_id = 1;
+  int64 archived_at = 2;
+  uint64 post_count = 3;
+  int64 last_unarchived_at = 4;
+  bytes compressed_data = 10;
+}

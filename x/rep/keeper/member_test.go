@@ -39,14 +39,14 @@ func TestUpdateTrustLevel_NewToProvisional(t *testing.T) {
 	params, _ := k.Params.Get(ctx)
 	minRep := params.TrustLevelConfig.ProvisionalMinRep
 	k.Member.Set(ctx, member.String(), types.Member{
-		Address:                  member.String(),
-		DreamBalance:             PtrInt(math.ZeroInt()),
-		StakedDream:              PtrInt(math.ZeroInt()),
-		LifetimeEarned:           PtrInt(math.ZeroInt()),
-		LifetimeBurned:           PtrInt(math.ZeroInt()),
-		ReputationScores:         map[string]string{"backend": minRep.String()},
-		TrustLevel:               types.TrustLevel_TRUST_LEVEL_NEW,
-		CompletedInterimsCount:   params.TrustLevelConfig.ProvisionalMinInterims, // Use cached count
+		Address:                member.String(),
+		DreamBalance:           PtrInt(math.ZeroInt()),
+		StakedDream:            PtrInt(math.ZeroInt()),
+		LifetimeEarned:         PtrInt(math.ZeroInt()),
+		LifetimeBurned:         PtrInt(math.ZeroInt()),
+		ReputationScores:       map[string]string{"backend": minRep.String()},
+		TrustLevel:             types.TrustLevel_TRUST_LEVEL_NEW,
+		CompletedInterimsCount: params.TrustLevelConfig.ProvisionalMinInterims, // Use cached count
 	})
 
 	// Test: Should upgrade to PROVISIONAL

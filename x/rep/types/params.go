@@ -20,7 +20,7 @@ func DefaultParams() Params {
 		TransferTaxRate:    math.LegacyNewDecWithPrec(3, 2),  // 3%
 		MaxTipAmount:       math.NewInt(100000000),           // 100 DREAM (100 * 1e6 micro-DREAM)
 		MaxTipsPerEpoch:    10,
-		MaxGiftAmount:      math.NewInt(500000000),           // 500 DREAM (500 * 1e6 micro-DREAM)
+		MaxGiftAmount:      math.NewInt(500000000), // 500 DREAM (500 * 1e6 micro-DREAM)
 		GiftOnlyToInvitees: true,
 
 		// Initiative rewards
@@ -30,19 +30,19 @@ func DefaultParams() Params {
 
 		// Initiative tiers (MaxBudget in micro-DREAM: 1 DREAM = 1,000,000 micro-DREAM)
 		ApprenticeTier: TierConfig{
-			MaxBudget:        math.NewInt(100000000),   // 100 DREAM
+			MaxBudget:        math.NewInt(100000000), // 100 DREAM
 			MinReputation:    math.LegacyZeroDec(),
 			ReputationCap:    math.LegacyNewDec(25),
 			RewardMultiplier: math.LegacyNewDecWithPrec(50, 2), // 0.5x
 		},
 		StandardTier: TierConfig{
-			MaxBudget:        math.NewInt(500000000),   // 500 DREAM
+			MaxBudget:        math.NewInt(500000000), // 500 DREAM
 			MinReputation:    math.LegacyNewDec(25),
 			ReputationCap:    math.LegacyNewDec(100),
 			RewardMultiplier: math.LegacyOneDec(), // 1.0x
 		},
 		ExpertTier: TierConfig{
-			MaxBudget:        math.NewInt(2000000000),  // 2000 DREAM
+			MaxBudget:        math.NewInt(2000000000), // 2000 DREAM
 			MinReputation:    math.LegacyNewDec(100),
 			ReputationCap:    math.LegacyNewDec(500),
 			RewardMultiplier: math.LegacyNewDecWithPrec(150, 2), // 1.5x
@@ -60,7 +60,7 @@ func DefaultParams() Params {
 		//          actual_conviction = sqrt(total_stakes × time × rep)
 		// This maintains constant ~4% stake-to-budget ratio across ALL budget sizes
 		// Example: 100 DREAM → need 4 DREAM, 10K DREAM → need 400 DREAM
-		ConvictionHalfLifeEpochs: 7,                                 // 7 epochs = 7 days half-life
+		ConvictionHalfLifeEpochs: 7,                                // 7 epochs = 7 days half-life
 		ExternalConvictionRatio:  math.LegacyNewDecWithPrec(50, 2), // 50%
 		ConvictionPerDream:       math.LegacyNewDecWithPrec(20, 2), // 0.2 (sqrt scaling)
 
@@ -90,12 +90,12 @@ func DefaultParams() Params {
 		MinJurorReputation:     math.LegacyNewDec(50),
 
 		// Interim compensation - PRODUCTION values (in micro-DREAM: 1 DREAM = 1e6 micro-DREAM)
-		SimpleComplexityBudget:   math.NewInt(50000000),   // 50 DREAM
-		StandardComplexityBudget: math.NewInt(150000000),  // 150 DREAM
-		ComplexComplexityBudget:  math.NewInt(400000000),  // 400 DREAM
-		ExpertComplexityBudget:   math.NewInt(1000000000), // 1000 DREAM
+		SimpleComplexityBudget:   math.NewInt(50000000),            // 50 DREAM
+		StandardComplexityBudget: math.NewInt(150000000),           // 150 DREAM
+		ComplexComplexityBudget:  math.NewInt(400000000),           // 400 DREAM
+		ExpertComplexityBudget:   math.NewInt(1000000000),          // 1000 DREAM
 		SoloExpertBonusRate:      math.LegacyNewDecWithPrec(50, 2), // 50%
-		InterimDeadlineEpochs:    7,                                 // 7 epochs = ~1 week
+		InterimDeadlineEpochs:    7,                                // 7 epochs = ~1 week
 
 		// Rate limits
 		MaxActiveChallengesPerCommittee: 3,

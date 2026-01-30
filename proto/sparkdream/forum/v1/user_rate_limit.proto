@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// UserRateLimit defines the UserRateLimit message.
+message UserRateLimit {
+  string user_address = 1;
+  uint64 current_epoch_count = 2;
+  uint64 previous_epoch_count = 3;
+  int64 current_epoch_start = 4;
+  int64 last_post_time = 5;
+}

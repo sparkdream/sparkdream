@@ -17,16 +17,16 @@ import (
 func createChallengeForInitiative(k keeper.Keeper, ctx context.Context, id uint64, initiativeID uint64, status types.ChallengeStatus) types.Challenge {
 	amount := math.NewInt(1000000)
 	challenge := types.Challenge{
-		Id:           id,
+		Id:            id,
 		InitiativeId:  initiativeID,
-		Challenger:   "challenger" + strconv.FormatUint(id, 10),
-		Reason:       "Test challenge",
-		StakedDream:  &amount,
-		IsAnonymous:  true,
+		Challenger:    "challenger" + strconv.FormatUint(id, 10),
+		Reason:        "Test challenge",
+		StakedDream:   &amount,
+		IsAnonymous:   true,
 		PayoutAddress: "sprkdr" + strconv.FormatUint(id, 10) + "address",
-		Status:       status,
-		CreatedAt:    1000,
-		ResolvedAt:   0,
+		Status:        status,
+		CreatedAt:     1000,
+		ResolvedAt:    0,
 	}
 	_ = k.Challenge.Set(ctx, id, challenge)
 	_ = k.ChallengeSeq.Set(ctx, id)
@@ -35,12 +35,12 @@ func createChallengeForInitiative(k keeper.Keeper, ctx context.Context, id uint6
 
 func TestChallengesByInitiative(t *testing.T) {
 	tests := []struct {
-		name         string
-		setup        func(*fixture)
-		initiativeID uint64
+		name            string
+		setup           func(*fixture)
+		initiativeID    uint64
 		wantChallengeID uint64
-		wantStatus   uint64
-		wantErr      error
+		wantStatus      uint64
+		wantErr         error
 	}{
 		{
 			name: "ReturnsFirstChallengeForInitiative",
@@ -49,9 +49,9 @@ func TestChallengesByInitiative(t *testing.T) {
 				createChallengeForInitiative(f.keeper, f.ctx, 2, 2, types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE)
 				createChallengeForInitiative(f.keeper, f.ctx, 3, 1, types.ChallengeStatus_CHALLENGE_STATUS_UPHELD)
 			},
-			initiativeID:     1,
-			wantChallengeID:   1,
-			wantStatus:       uint64(types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE),
+			initiativeID:    1,
+			wantChallengeID: 1,
+			wantStatus:      uint64(types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE),
 		},
 		{
 			name: "EmptyResponseWhenNoChallengesForInitiative",
@@ -60,13 +60,13 @@ func TestChallengesByInitiative(t *testing.T) {
 				createChallengeForInitiative(f.keeper, f.ctx, 2, 2, types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE)
 			},
 			initiativeID: 3,
-			wantErr:     nil,
+			wantErr:      nil,
 		},
 		{
-			name:  "EmptyResponseWhenNoChallengesExist",
-			setup: func(f *fixture) {},
+			name:         "EmptyResponseWhenNoChallengesExist",
+			setup:        func(f *fixture) {},
 			initiativeID: 1,
-			wantErr:     nil,
+			wantErr:      nil,
 		},
 		{
 			name: "ReturnsChallengeWithUpheldStatus",
@@ -74,14 +74,14 @@ func TestChallengesByInitiative(t *testing.T) {
 				createChallengeForInitiative(f.keeper, f.ctx, 1, 5, types.ChallengeStatus_CHALLENGE_STATUS_UPHELD)
 				createChallengeForInitiative(f.keeper, f.ctx, 2, 5, types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE)
 			},
-			initiativeID:     5,
-			wantChallengeID:   1,
-			wantStatus:       uint64(types.ChallengeStatus_CHALLENGE_STATUS_UPHELD),
+			initiativeID:    5,
+			wantChallengeID: 1,
+			wantStatus:      uint64(types.ChallengeStatus_CHALLENGE_STATUS_UPHELD),
 		},
 		{
 			name:         "InvalidRequestNil",
 			setup:        func(f *fixture) {},
-			initiativeID:  0,
+			initiativeID: 0,
 			wantErr:      status.Error(codes.InvalidArgument, "invalid request"),
 		},
 	}

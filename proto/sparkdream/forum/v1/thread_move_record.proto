@@ -1,0 +1,18 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// ThreadMoveRecord defines the ThreadMoveRecord message.
+message ThreadMoveRecord {
+  uint64 root_id = 1;
+  string sentinel = 2;
+  uint64 original_category_id = 3;
+  uint64 new_category_id = 4;
+  int64 moved_at = 5;
+  string sentinel_bond_snapshot = 6;
+  string sentinel_backing_snapshot = 7;
+  string move_reason = 8;
+  bool appeal_pending = 9;
+  uint64 initiative_id = 10;
+}

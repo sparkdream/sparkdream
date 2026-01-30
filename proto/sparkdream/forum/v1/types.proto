@@ -1,0 +1,138 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+import "cosmos_proto/cosmos.proto";
+
+option go_package = "sparkdream/x/forum/types";
+
+// PostStatus represents the status of a post.
+enum PostStatus {
+  POST_STATUS_UNSPECIFIED = 0;
+  POST_STATUS_ACTIVE = 1;
+  POST_STATUS_HIDDEN = 2;
+  POST_STATUS_DELETED = 3;
+  POST_STATUS_ARCHIVED = 4;
+}
+
+// SentinelBondStatus represents the bond status of a sentinel.
+enum SentinelBondStatus {
+  SENTINEL_BOND_STATUS_UNSPECIFIED = 0;
+  SENTINEL_BOND_STATUS_NORMAL = 1;
+  SENTINEL_BOND_STATUS_RECOVERY = 2;
+  SENTINEL_BOND_STATUS_DEMOTED = 3;
+}
+
+// BountyStatus represents the status of a bounty.
+enum BountyStatus {
+  BOUNTY_STATUS_UNSPECIFIED = 0;
+  BOUNTY_STATUS_ACTIVE = 1;
+  BOUNTY_STATUS_AWARDED = 2;
+  BOUNTY_STATUS_EXPIRED = 3;
+  BOUNTY_STATUS_CANCELLED = 4;
+  BOUNTY_STATUS_MODERATION_PENDING = 5;
+}
+
+// ModerationReason represents the reason for moderation action.
+enum ModerationReason {
+  MODERATION_REASON_UNSPECIFIED = 0;
+  MODERATION_REASON_SPAM = 1;
+  MODERATION_REASON_HARASSMENT = 2;
+  MODERATION_REASON_MISINFORMATION = 3;
+  MODERATION_REASON_OFF_TOPIC = 4;
+  MODERATION_REASON_LOW_QUALITY = 5;
+  MODERATION_REASON_INAPPROPRIATE = 6;
+  MODERATION_REASON_IMPERSONATION = 7;
+  MODERATION_REASON_POLICY_VIOLATION = 8;
+  MODERATION_REASON_DUPLICATE = 9;
+  MODERATION_REASON_SCAM = 10;
+  MODERATION_REASON_OTHER = 11;
+}
+
+// ModerationActionType represents the type of moderation action.
+enum ModerationActionType {
+  MODERATION_ACTION_UNSPECIFIED = 0;
+  MODERATION_ACTION_HIDE = 1;
+  MODERATION_ACTION_UNHIDE = 2;
+  MODERATION_ACTION_LOCK = 3;
+  MODERATION_ACTION_UNLOCK = 4;
+  MODERATION_ACTION_MOVE = 5;
+  MODERATION_ACTION_PIN = 6;
+  MODERATION_ACTION_UNPIN = 7;
+  MODERATION_ACTION_DELETE = 8;
+  MODERATION_ACTION_FLAG_DISMISSED = 9;
+  MODERATION_ACTION_APPEAL_FILED = 10;
+  MODERATION_ACTION_APPEAL_UPHELD = 11;
+  MODERATION_ACTION_APPEAL_REJECTED = 12;
+  MODERATION_ACTION_APPEAL_TIMEOUT = 13;
+  MODERATION_ACTION_ARCHIVE = 14;
+  MODERATION_ACTION_UNARCHIVE = 15;
+}
+
+// ModerationSource represents the source of moderation action.
+enum ModerationSource {
+  MODERATION_SOURCE_UNSPECIFIED = 0;
+  MODERATION_SOURCE_SENTINEL = 1;
+  MODERATION_SOURCE_GOV_COMMITTEE = 2;
+  MODERATION_SOURCE_SYSTEM = 3;
+  MODERATION_SOURCE_APPEAL_JURY = 4;
+  MODERATION_SOURCE_AUTHOR = 5;
+}
+
+// GovActionType represents the type of governance action.
+enum GovActionType {
+  GOV_ACTION_TYPE_UNSPECIFIED = 0;
+  GOV_ACTION_TYPE_WARNING = 1;
+  GOV_ACTION_TYPE_DEMOTION = 2;
+  GOV_ACTION_TYPE_ZEROING = 3;
+  GOV_ACTION_TYPE_TAG_REMOVAL = 4;
+  GOV_ACTION_TYPE_FORUM_PAUSE = 5;
+  GOV_ACTION_TYPE_THREAD_LOCK = 6;
+  GOV_ACTION_TYPE_THREAD_MOVE = 7;
+}
+
+// MemberReportStatus represents the status of a member report.
+enum MemberReportStatus {
+  MEMBER_REPORT_STATUS_UNSPECIFIED = 0;
+  MEMBER_REPORT_STATUS_PENDING = 1;
+  MEMBER_REPORT_STATUS_ESCALATED = 2;
+  MEMBER_REPORT_STATUS_RESOLVED = 3;
+  MEMBER_REPORT_STATUS_META_APPEALED = 4;
+}
+
+// GovAppealStatus represents the status of a governance appeal.
+enum GovAppealStatus {
+  GOV_APPEAL_STATUS_UNSPECIFIED = 0;
+  GOV_APPEAL_STATUS_PENDING = 1;
+  GOV_APPEAL_STATUS_UPHELD = 2;
+  GOV_APPEAL_STATUS_OVERTURNED = 3;
+  GOV_APPEAL_STATUS_TIMEOUT = 4;
+}
+
+// FlagRecord represents a single flag on a post.
+message FlagRecord {
+  string flagger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  ModerationReason reason_code = 2;
+  string reason_text = 3;
+  int64 flagged_at = 4;
+  uint64 weight = 5;
+}
+
+// BountyAward represents an award given from a bounty.
+message BountyAward {
+  uint64 post_id = 1;
+  string recipient = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string amount = 3;
+  string reason = 4;
+  int64 awarded_at = 5;
+  uint32 rank = 6;
+}
+
+// PinnedReplyRecord represents a pinned reply in a thread.
+message PinnedReplyRecord {
+  uint64 post_id = 1;
+  string pinned_by = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 pinned_at = 3;
+  bool is_sentinel_pin = 4;
+  bool disputed = 5;
+  uint64 initiative_id = 6;
+}

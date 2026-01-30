@@ -1,0 +1,66 @@
+package keeper_test
+
+import (
+	"testing"
+
+	"sparkdream/x/forum/types"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestGenesis(t *testing.T) {
+	genesisState := types.GenesisState{
+		Params:  types.DefaultParams(),
+		PostMap: []types.Post{{PostId: 0}, {PostId: 1}}, CategoryMap: []types.Category{{CategoryId: 0}, {CategoryId: 1}}, TagMap: []types.Tag{{Name: "0"}, {Name: "1"}}, TagMap: []types.Tag{{Name: "0"}, {Name: "1"}}, ReservedTagMap: []types.ReservedTag{{Name: "0"}, {Name: "1"}}, ReservedTagMap: []types.ReservedTag{{Name: "0"}, {Name: "1"}}, UserRateLimitMap: []types.UserRateLimit{{UserAddress: "0"}, {UserAddress: "1"}}, UserReactionLimitMap: []types.UserReactionLimit{{UserAddress: "0"}, {UserAddress: "1"}}, SentinelActivityMap: []types.SentinelActivity{{Address: "0"}, {Address: "1"}}, HideRecordMap: []types.HideRecord{{PostId: 0}, {PostId: 1}}, ThreadLockRecordMap: []types.ThreadLockRecord{{RootId: 0}, {RootId: 1}}, ThreadMoveRecordMap: []types.ThreadMoveRecord{{RootId: 0}, {RootId: 1}}, PostFlagMap: []types.PostFlag{{PostId: 0}, {PostId: 1}}, BountyList: []types.Bounty{{Id: 0}, {Id: 1}},
+		BountyCount:         2,
+		TagBudgetList:       []types.TagBudget{{Id: 0}, {Id: 1}},
+		TagBudgetCount:      2,
+		TagBudgetAwardList:  []types.TagBudgetAward{{Id: 0}, {Id: 1}},
+		TagBudgetAwardCount: 2,
+		ThreadMetadataMap:   []types.ThreadMetadata{{ThreadId: 0}, {ThreadId: 1}}, ThreadFollowMap: []types.ThreadFollow{{Follower: "0"}, {Follower: "1"}}, ThreadFollowCountMap: []types.ThreadFollowCount{{ThreadId: 0}, {ThreadId: 1}}, ArchivedThreadMap: []types.ArchivedThread{{RootId: 0}, {RootId: 1}}, ArchiveMetadataMap: []types.ArchiveMetadata{{RootId: 0}, {RootId: 1}}, TagReportMap: []types.TagReport{{TagName: "0"}, {TagName: "1"}}, MemberSalvationStatusMap: []types.MemberSalvationStatus{{Address: "0"}, {Address: "1"}}, JuryParticipationMap: []types.JuryParticipation{{Juror: "0"}, {Juror: "1"}}, MemberReportMap: []types.MemberReport{{Member: "0"}, {Member: "1"}}, MemberWarningList: []types.MemberWarning{{Id: 0}, {Id: 1}},
+		MemberWarningCount:  2,
+		GovActionAppealList:  []types.GovActionAppeal{{Id: 0}, {Id: 1}},
+		GovActionAppealCount: 2,
+	}
+	f := initFixture(t)
+	err := f.keeper.InitGenesis(f.ctx, genesisState)
+	require.NoError(t, err)
+	got, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	require.EqualExportedValues(t, genesisState.Params, got.Params)
+	require.EqualExportedValues(t, genesisState.PostMap, got.PostMap)
+	require.EqualExportedValues(t, genesisState.CategoryMap, got.CategoryMap)
+	require.EqualExportedValues(t, genesisState.TagMap, got.TagMap)
+	require.EqualExportedValues(t, genesisState.TagMap, got.TagMap)
+	require.EqualExportedValues(t, genesisState.ReservedTagMap, got.ReservedTagMap)
+	require.EqualExportedValues(t, genesisState.ReservedTagMap, got.ReservedTagMap)
+	require.EqualExportedValues(t, genesisState.UserRateLimitMap, got.UserRateLimitMap)
+	require.EqualExportedValues(t, genesisState.UserReactionLimitMap, got.UserReactionLimitMap)
+	require.EqualExportedValues(t, genesisState.SentinelActivityMap, got.SentinelActivityMap)
+	require.EqualExportedValues(t, genesisState.HideRecordMap, got.HideRecordMap)
+	require.EqualExportedValues(t, genesisState.ThreadLockRecordMap, got.ThreadLockRecordMap)
+	require.EqualExportedValues(t, genesisState.ThreadMoveRecordMap, got.ThreadMoveRecordMap)
+	require.EqualExportedValues(t, genesisState.PostFlagMap, got.PostFlagMap)
+	require.EqualExportedValues(t, genesisState.BountyList, got.BountyList)
+	require.Equal(t, genesisState.BountyCount, got.BountyCount)
+	require.EqualExportedValues(t, genesisState.TagBudgetList, got.TagBudgetList)
+	require.Equal(t, genesisState.TagBudgetCount, got.TagBudgetCount)
+	require.EqualExportedValues(t, genesisState.TagBudgetAwardList, got.TagBudgetAwardList)
+	require.Equal(t, genesisState.TagBudgetAwardCount, got.TagBudgetAwardCount)
+	require.EqualExportedValues(t, genesisState.ThreadMetadataMap, got.ThreadMetadataMap)
+	require.EqualExportedValues(t, genesisState.ThreadFollowMap, got.ThreadFollowMap)
+	require.EqualExportedValues(t, genesisState.ThreadFollowCountMap, got.ThreadFollowCountMap)
+	require.EqualExportedValues(t, genesisState.ArchivedThreadMap, got.ArchivedThreadMap)
+	require.EqualExportedValues(t, genesisState.ArchiveMetadataMap, got.ArchiveMetadataMap)
+	require.EqualExportedValues(t, genesisState.TagReportMap, got.TagReportMap)
+	require.EqualExportedValues(t, genesisState.MemberSalvationStatusMap, got.MemberSalvationStatusMap)
+	require.EqualExportedValues(t, genesisState.JuryParticipationMap, got.JuryParticipationMap)
+	require.EqualExportedValues(t, genesisState.MemberReportMap, got.MemberReportMap)
+	require.EqualExportedValues(t, genesisState.MemberWarningList, got.MemberWarningList)
+	require.Equal(t, genesisState.MemberWarningCount, got.MemberWarningCount)
+	require.EqualExportedValues(t, genesisState.GovActionAppealList, got.GovActionAppealList)
+	require.Equal(t, genesisState.GovActionAppealCount, got.GovActionAppealCount)
+
+}

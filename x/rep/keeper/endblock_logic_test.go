@@ -192,12 +192,12 @@ func TestApplyDecay(t *testing.T) {
 	for _, name := range members {
 		addr := sdk.AccAddress([]byte(name))
 		k.Member.Set(ctx, addr.String(), types.Member{
-			Address:         addr.String(),
-			DreamBalance:    PtrInt(math.NewInt(1000)),
-			StakedDream:     PtrInt(math.NewInt(0)),
-			LifetimeEarned:  PtrInt(math.ZeroInt()),
-			LifetimeBurned:  PtrInt(math.ZeroInt()),
-			LastDecayEpoch:  0,
+			Address:        addr.String(),
+			DreamBalance:   PtrInt(math.NewInt(1000)),
+			StakedDream:    PtrInt(math.NewInt(0)),
+			LifetimeEarned: PtrInt(math.ZeroInt()),
+			LifetimeBurned: PtrInt(math.ZeroInt()),
+			LastDecayEpoch: 0,
 		})
 	}
 
@@ -243,25 +243,25 @@ func TestApplyDecay_MixedStakingLevels(t *testing.T) {
 
 	// Create members with different staking levels
 	testCases := []struct {
-		name           string
-		totalBalance   math.Int
-		stakedBalance  math.Int
+		name            string
+		totalBalance    math.Int
+		stakedBalance   math.Int
 		expectedBalance math.Int
 	}{
-		{"all_staked", math.NewInt(1000), math.NewInt(1000), math.NewInt(1000)},    // No decay
-		{"half_staked", math.NewInt(1000), math.NewInt(500), math.NewInt(995)},     // 500 decays to 495
-		{"none_staked", math.NewInt(1000), math.NewInt(0), math.NewInt(990)},       // All decays
+		{"all_staked", math.NewInt(1000), math.NewInt(1000), math.NewInt(1000)}, // No decay
+		{"half_staked", math.NewInt(1000), math.NewInt(500), math.NewInt(995)},  // 500 decays to 495
+		{"none_staked", math.NewInt(1000), math.NewInt(0), math.NewInt(990)},    // All decays
 	}
 
 	for _, tc := range testCases {
 		addr := sdk.AccAddress([]byte(tc.name))
 		k.Member.Set(ctx, addr.String(), types.Member{
-			Address:         addr.String(),
-			DreamBalance:    PtrInt(tc.totalBalance),
-			StakedDream:     PtrInt(tc.stakedBalance),
-			LifetimeEarned:  PtrInt(math.ZeroInt()),
-			LifetimeBurned:  PtrInt(math.ZeroInt()),
-			LastDecayEpoch:  0,
+			Address:        addr.String(),
+			DreamBalance:   PtrInt(tc.totalBalance),
+			StakedDream:    PtrInt(tc.stakedBalance),
+			LifetimeEarned: PtrInt(math.ZeroInt()),
+			LifetimeBurned: PtrInt(math.ZeroInt()),
+			LastDecayEpoch: 0,
 		})
 	}
 
@@ -459,9 +459,9 @@ func TestApplyDecay_PreservesOtherFields(t *testing.T) {
 
 	// Verify only balance and lifetime burned changed
 	member, _ := k.Member.Get(ctx, addr.String())
-	require.Equal(t, math.NewInt(990).String(), member.DreamBalance.String()) // Decayed
+	require.Equal(t, math.NewInt(990).String(), member.DreamBalance.String())   // Decayed
 	require.Equal(t, math.NewInt(110).String(), member.LifetimeBurned.String()) // Increased
-	require.Equal(t, int64(1), member.LastDecayEpoch) // Updated
+	require.Equal(t, int64(1), member.LastDecayEpoch)                           // Updated
 
 	// Everything else preserved
 	require.Equal(t, math.NewInt(5000).String(), member.LifetimeEarned.String())

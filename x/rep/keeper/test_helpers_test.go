@@ -14,32 +14,32 @@ import (
 // Test constants to replace magic numbers throughout tests
 const (
 	// Common amounts
-	TestDreamAmount     = int64(1000)
-	TestBudgetAmount    = int64(10000)
-	TestRewardAmount    = int64(100)
-	TestStakeAmount     = int64(500)
-	TestLargeAmount     = int64(100000)
-	TestSmallAmount     = int64(10)
-	TestMinimumStake    = int64(100)
-	TestTipAmount       = int64(50)
-	TestGiftAmount      = int64(200)
+	TestDreamAmount  = int64(1000)
+	TestBudgetAmount = int64(10000)
+	TestRewardAmount = int64(100)
+	TestStakeAmount  = int64(500)
+	TestLargeAmount  = int64(100000)
+	TestSmallAmount  = int64(10)
+	TestMinimumStake = int64(100)
+	TestTipAmount    = int64(50)
+	TestGiftAmount   = int64(200)
 
 	// Common strings
-	TestTagBackend      = "backend"
-	TestTagFrontend     = "frontend"
-	TestTagDesign       = "design"
-	TestProjectName     = "Test Project"
-	TestProjectDesc     = "Test project description"
-	TestInitiativeName  = "Test Initiative"
-	TestInitiativeDesc  = "Test initiative description"
-	TestCouncilTech     = "technical"
-	TestCouncilEco      = "ecosystem"
+	TestTagBackend     = "backend"
+	TestTagFrontend    = "frontend"
+	TestTagDesign      = "design"
+	TestProjectName    = "Test Project"
+	TestProjectDesc    = "Test project description"
+	TestInitiativeName = "Test Initiative"
+	TestInitiativeDesc = "Test initiative description"
+	TestCouncilTech    = "technical"
+	TestCouncilEco     = "ecosystem"
 
 	// Common reputation values
-	TestReputationHigh   = "500.0"
-	TestReputationMid    = "250.0"
-	TestReputationLow    = "50.0"
-	TestReputationZero   = "0.0"
+	TestReputationHigh = "500.0"
+	TestReputationMid  = "250.0"
+	TestReputationLow  = "50.0"
+	TestReputationZero = "0.0"
 
 	// Trust levels - use the actual enum values
 	TrustLevelNew         = types.TrustLevel_TRUST_LEVEL_NEW
@@ -129,16 +129,16 @@ func SetupMemberWithDream(t *testing.T, k *keeper.Keeper, ctx sdk.Context, addr 
 
 // ProjectSetupConfig provides flexible configuration for project creation
 type ProjectSetupConfig struct {
-	Creator     sdk.AccAddress
-	Name        string
-	Description string
-	Tags        []string
-	Category    types.ProjectCategory
-	Council     string
-	Budget      int64
-	MaxPerInit  int64
+	Creator       sdk.AccAddress
+	Name          string
+	Description   string
+	Tags          []string
+	Category      types.ProjectCategory
+	Council       string
+	Budget        int64
+	MaxPerInit    int64
 	ShouldApprove bool
-	Approver    sdk.AccAddress
+	Approver      sdk.AccAddress
 }
 
 // DefaultProjectConfig returns a basic project configuration

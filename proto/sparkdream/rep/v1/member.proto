@@ -8,30 +8,30 @@ option go_package = "sparkdream/x/rep/types";
 // Member defines the Member message.
 message Member {
   string address = 1;
-  
+
   // DREAM balance
   string dream_balance = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string staked_dream = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string lifetime_earned = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string lifetime_burned = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  
+
   // Reputation (current season)
   map<string, string> reputation_scores = 6; // tag -> score as decimal string
-  
+
   // Reputation (lifetime archive)
   map<string, string> lifetime_reputation = 7;
-  
+
   // Trust
   TrustLevel trust_level = 8;
   int64 trust_level_updated_at = 9;
-  
+
   // Invitation info
   uint32 joined_season = 10;
   int64 joined_at = 11;
   string invited_by = 12;
   repeated string invitation_chain = 13; // ancestors, max 5
   uint32 invitation_credits = 14;
-  
+
   // Status
   MemberStatus status = 15;
   int64 zeroed_at = 16;
@@ -41,15 +41,15 @@ message Member {
   int64 last_tip_epoch = 20;
 
   // Cached counts for performance (avoid full table scans)
-  uint32 completed_interims_count = 21;  // Incremented on interim completion
-  uint32 completed_initiatives_count = 22;  // Incremented on initiative completion
+  uint32 completed_interims_count = 21; // Incremented on interim completion
+  uint32 completed_initiatives_count = 22; // Incremented on initiative completion
 
   // Gift tracking for rate limiting
-  string gifts_sent_this_epoch = 23 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Total DREAM gifted this epoch
-  int64 last_gift_epoch = 24;  // Epoch when gift counter was last reset
+  string gifts_sent_this_epoch = 23 [(gogoproto.customtype) = "cosmossdk.io/math.Int"]; // Total DREAM gifted this epoch
+  int64 last_gift_epoch = 24; // Epoch when gift counter was last reset
 
   // Invitation credit tracking for lazy seasonal reset
-  int64 last_credit_reset_season = 25;  // Season when credits were last reset to trust-level max
+  int64 last_credit_reset_season = 25; // Season when credits were last reset to trust-level max
 }
 
 enum TrustLevel {
@@ -71,5 +71,5 @@ enum MemberStatus {
 message GiftRecord {
   string sender = 1;
   string recipient = 2;
-  int64 last_gift_block = 3;  // Block height when last gift was sent
+  int64 last_gift_block = 3; // Block height when last gift was sent
 }

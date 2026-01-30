@@ -1,0 +1,16 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// ThreadLockRecord defines the ThreadLockRecord message.
+message ThreadLockRecord {
+  uint64 root_id = 1;
+  string sentinel = 2;
+  int64 locked_at = 3;
+  string sentinel_bond_snapshot = 4;
+  string sentinel_backing_snapshot = 5;
+  string lock_reason = 6;
+  bool appeal_pending = 7;
+  uint64 initiative_id = 8;
+}

@@ -1,0 +1,15 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// TagBudget defines the TagBudget message.
+message TagBudget {
+  uint64 id = 1;
+  string group_account = 2;
+  string tag = 3;
+  string pool_balance = 4;
+  bool members_only = 5;
+  int64 created_at = 6;
+  bool active = 7;
+}

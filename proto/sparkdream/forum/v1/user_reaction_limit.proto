@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// UserReactionLimit defines the UserReactionLimit message.
+message UserReactionLimit {
+  string user_address = 1;
+  uint64 current_day_count = 2;
+  uint64 previous_day_count = 3;
+  int64 current_day_start = 4;
+}

@@ -15,25 +15,25 @@ message Initiative {
   InitiativeTier tier = 6;
   InitiativeCategory category = 7;
   string template_id = 8;
-  
+
   string budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  
+
   string assignee = 10;
   string apprentice = 11;
   int64 assigned_at = 12;
-  
+
   string deliverable_uri = 13;
   int64 submitted_at = 14;
-  
+
   string required_conviction = 15 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   string current_conviction = 16 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   string external_conviction = 17 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   int64 conviction_last_updated = 18;
-  
+
   int64 review_period_end = 19;
   int64 challenge_period_end = 20;
   repeated string approvals = 21;
-  
+
   InitiativeStatus status = 22;
   int64 created_at = 23;
   int64 completed_at = 24;

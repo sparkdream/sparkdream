@@ -1,0 +1,35 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+import "sparkdream/forum/v1/types.proto";
+
+option go_package = "sparkdream/x/forum/types";
+
+// Post defines the Post message.
+message Post {
+  uint64 post_id = 1;
+  uint64 category_id = 2;
+  uint64 root_id = 3;
+  uint64 parent_id = 4;
+  string author = 5;
+  string content = 6;
+  int64 created_at = 7;
+  int64 expiration_time = 8;
+  PostStatus status = 9;
+  string hidden_by = 10;
+  int64 hidden_at = 11;
+  bool pinned = 12;
+  string pinned_by = 13;
+  int64 pinned_at = 14;
+  uint64 pin_priority = 15;
+  bool locked = 16;
+  string locked_by = 17;
+  int64 locked_at = 18;
+  string lock_reason = 19;
+  uint64 upvote_count = 20;
+  uint64 downvote_count = 21;
+  uint64 depth = 22;
+  bool edited = 23;
+  int64 edited_at = 24;
+  repeated string tags = 30;
+}

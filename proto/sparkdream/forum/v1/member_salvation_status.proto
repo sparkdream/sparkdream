@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// MemberSalvationStatus defines the MemberSalvationStatus message.
+message MemberSalvationStatus {
+  string address = 1;
+  int64 member_since = 2;
+  bool can_salvage = 3;
+  uint64 epoch_salvations = 4;
+  int64 epoch_start = 5;
+}

@@ -10,15 +10,15 @@ message Invitation {
   uint64 id = 1;
   string inviter = 2;
   string invitee_address = 3;
-  
+
   string staked_dream = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   repeated string vouched_tags = 5;
-  
+
   int64 accountability_end = 6;
   string referral_rate = 7 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   int64 referral_end = 8;
   string referral_earned = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  
+
   InvitationStatus status = 10;
   int64 created_at = 11;
   int64 accepted_at = 12;

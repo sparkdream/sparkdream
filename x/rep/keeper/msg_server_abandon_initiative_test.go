@@ -17,9 +17,9 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
 		_, err := ms.AbandonInitiative(f.ctx, &types.MsgAbandonInitiative{
-			Creator:     "invalid-address",
+			Creator:      "invalid-address",
 			InitiativeId: 1,
-			Reason:      "Test",
+			Reason:       "Test",
 		})
 
 		require.Error(t, err)
@@ -35,9 +35,9 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = ms.AbandonInitiative(f.ctx, &types.MsgAbandonInitiative{
-			Creator:     assigneeStr,
+			Creator:      assigneeStr,
 			InitiativeId: 99999,
-			Reason:      "Test",
+			Reason:       "Test",
 		})
 
 		require.Error(t, err)
@@ -75,9 +75,9 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = ms.AbandonInitiative(ctx, &types.MsgAbandonInitiative{
-			Creator:     otherUserStr,
+			Creator:      otherUserStr,
 			InitiativeId: initID,
-			Reason:      "Test",
+			Reason:       "Test",
 		})
 
 		require.Error(t, err)
@@ -119,9 +119,9 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 
 		// Abandon the initiative
 		_, err = ms.AbandonInitiative(ctx, &types.MsgAbandonInitiative{
-			Creator:     assigneeStr,
+			Creator:      assigneeStr,
 			InitiativeId: initID,
-			Reason:      "No longer needed",
+			Reason:       "No longer needed",
 		})
 		require.NoError(t, err)
 

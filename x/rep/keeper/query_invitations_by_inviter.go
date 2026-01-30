@@ -29,9 +29,9 @@ func (q queryServer) InvitationsByInviter(ctx context.Context, req *types.QueryI
 
 	if foundInvitation != nil {
 		return &types.QueryInvitationsByInviterResponse{
-			InvitationId:    foundInvitation.Id,
-			InviteeAddress:  foundInvitation.InviteeAddress,
-			Status:          uint64(foundInvitation.Status),
+			InvitationId:   foundInvitation.Id,
+			InviteeAddress: foundInvitation.InviteeAddress,
+			Status:         uint64(foundInvitation.Status),
 		}, nil
 	}
 

@@ -3,8 +3,9 @@ package keeper
 import (
 	"context"
 
-	"cosmossdk.io/collections"
 	"sparkdream/x/rep/types"
+
+	"cosmossdk.io/collections"
 )
 
 // Index maintenance functions for secondary indexes.

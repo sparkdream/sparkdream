@@ -1,0 +1,46 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+import "sparkdream/forum/v1/types.proto";
+
+option go_package = "sparkdream/x/forum/types";
+
+// SentinelActivity defines the SentinelActivity message.
+message SentinelActivity {
+  string address = 1;
+  uint64 total_hides = 2;
+  uint64 upheld_hides = 3;
+  uint64 overturned_hides = 4;
+  uint64 unchallenged_hides = 5;
+  uint64 epoch_hides = 6;
+  uint64 epoch_appeals_resolved = 7;
+  int64 last_reward_epoch = 8;
+  string cumulative_rewards = 9;
+  int64 overturn_cooldown_until = 10;
+  uint64 consecutive_overturns = 11;
+  SentinelBondStatus bond_status = 12;
+  string current_bond = 13;
+  string total_committed_bond = 14;
+  uint64 pending_hide_count = 15;
+  uint64 consecutive_upheld = 16;
+  int64 demotion_cooldown_until = 17;
+  uint64 epoch_appeals_filed = 18;
+  uint64 total_locks = 19;
+  uint64 upheld_locks = 20;
+  uint64 overturned_locks = 21;
+  uint64 epoch_locks = 22;
+  uint64 total_moves = 23;
+  uint64 upheld_moves = 24;
+  uint64 overturned_moves = 25;
+  uint64 epoch_moves = 26;
+  uint64 total_pins = 27;
+  uint64 upheld_pins = 28;
+  uint64 overturned_pins = 29;
+  uint64 epoch_pins = 30;
+  uint64 total_proposals = 31;
+  uint64 confirmed_proposals = 32;
+  uint64 rejected_proposals = 33;
+  uint64 epoch_curations = 34;
+  int64 last_active_epoch = 35;
+  uint64 consecutive_inactive_epochs = 36;
+}

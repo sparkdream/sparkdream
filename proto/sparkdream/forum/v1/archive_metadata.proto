@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+option go_package = "sparkdream/x/forum/types";
+
+// ArchiveMetadata defines the ArchiveMetadata message.
+message ArchiveMetadata {
+  uint64 root_id = 1;
+  uint64 archive_count = 2;
+  int64 first_archived_at = 3;
+  int64 last_archived_at = 4;
+  bool hr_override_required = 5;
+}

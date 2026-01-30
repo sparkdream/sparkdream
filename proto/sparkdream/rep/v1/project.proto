@@ -14,13 +14,13 @@ message Project {
   repeated string tags = 5;
   ProjectCategory category = 6;
   string council = 7;
-  
+
   string approved_budget = 8 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string allocated_budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string spent_budget = 10 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string approved_spark = 11 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string spent_spark = 12 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  
+
   VerificationPolicy verification_policy = 13;
   ProjectStatus status = 14;
   string approved_by = 15;

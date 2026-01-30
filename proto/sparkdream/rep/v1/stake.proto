@@ -12,16 +12,16 @@ message Stake {
   uint64 id = 1;
   string staker = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   StakeTargetType target_type = 3;
-  uint64 target_id = 4;              // For INITIATIVE/PROJECT: the entity ID
-  string target_identifier = 5;      // For MEMBER: address; For TAG: tag name
+  uint64 target_id = 4; // For INITIATIVE/PROJECT: the entity ID
+  string target_identifier = 5; // For MEMBER: address; For TAG: tag name
   string amount = 6 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
   int64 created_at = 7;
-  int64 last_claimed_at = 8;         // Last reward claim timestamp (lazy calculation)
-  string reward_debt = 9 [           // MasterChef accounting for member/tag staking
+  int64 last_claimed_at = 8; // Last reward claim timestamp (lazy calculation)
+  string reward_debt = 9 [ // MasterChef accounting for member/tag staking
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -30,10 +30,10 @@ message Stake {
 
 // StakeTargetType defines the type of entity being staked on
 enum StakeTargetType {
-  STAKE_TARGET_INITIATIVE = 0;  // Conviction voting, rewards on completion
-  STAKE_TARGET_PROJECT = 1;     // APY while active, bonus on completion
-  STAKE_TARGET_MEMBER = 2;      // Revenue share from member's earnings
-  STAKE_TARGET_TAG = 3;         // Revenue share from tagged initiatives
+  STAKE_TARGET_INITIATIVE = 0; // Conviction voting, rewards on completion
+  STAKE_TARGET_PROJECT = 1; // APY while active, bonus on completion
+  STAKE_TARGET_MEMBER = 2; // Revenue share from member's earnings
+  STAKE_TARGET_TAG = 3; // Revenue share from tagged initiatives
 }
 
 // MemberStakePool tracks aggregate staking on a member for O(1) reward distribution

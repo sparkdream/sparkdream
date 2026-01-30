@@ -1,0 +1,20 @@
+syntax = "proto3";
+package sparkdream.forum.v1;
+
+import "sparkdream/forum/v1/types.proto";
+
+option go_package = "sparkdream/x/forum/types";
+
+// Bounty defines the Bounty message.
+message Bounty {
+  uint64 id = 1;
+  string creator = 2;
+  uint64 thread_id = 3;
+  string amount = 4;
+  int64 created_at = 5;
+  int64 expires_at = 6;
+  BountyStatus status = 7;
+  int64 moderation_suspended_at = 8;
+  int64 time_remaining_at_suspension = 9;
+  repeated BountyAward awards = 20;
+}

@@ -71,11 +71,11 @@ func TestApplyPendingDecay(t *testing.T) {
 
 	// Create member with balance
 	member := types.Member{
-		Address:         sdk.AccAddress([]byte("test")).String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
-		LastDecayEpoch:  0,
+		Address:        sdk.AccAddress([]byte("test")).String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		LastDecayEpoch: 0,
 	}
 
 	// Move to epoch 1
@@ -107,11 +107,11 @@ func TestApplyPendingDecay_MultipleEpochs(t *testing.T) {
 
 	// Create member
 	member := types.Member{
-		Address:         sdk.AccAddress([]byte("test")).String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
-		LastDecayEpoch:  0,
+		Address:        sdk.AccAddress([]byte("test")).String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		LastDecayEpoch: 0,
 	}
 
 	// Move to epoch 3 (skip 3 epochs)
@@ -138,11 +138,11 @@ func TestApplyPendingDecay_WithStakedBalance(t *testing.T) {
 
 	// Create member with 1000 total, 600 staked, 400 unstaked
 	member := types.Member{
-		Address:         sdk.AccAddress([]byte("test")).String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(600)),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
-		LastDecayEpoch:  0,
+		Address:        sdk.AccAddress([]byte("test")).String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(600)),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		LastDecayEpoch: 0,
 	}
 
 	// Move to epoch 1
@@ -175,11 +175,11 @@ func TestApplyPendingDecay_NoDecayWhenUpToDate(t *testing.T) {
 
 	initialBalance := math.NewInt(1000)
 	member := types.Member{
-		Address:         sdk.AccAddress([]byte("test")).String(),
-		DreamBalance:    PtrInt(initialBalance),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
-		LastDecayEpoch:  5,
+		Address:        sdk.AccAddress([]byte("test")).String(),
+		DreamBalance:   PtrInt(initialBalance),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		LastDecayEpoch: 5,
 	}
 
 	// Set current epoch to 5 (same as LastDecayEpoch)
@@ -206,12 +206,12 @@ func TestGetBalance(t *testing.T) {
 	// Create member
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
-		LastDecayEpoch:  0,
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		LastDecayEpoch: 0,
 	})
 
 	// Move to epoch 1
@@ -258,12 +258,12 @@ func TestMintDREAM(t *testing.T) {
 	// Create member
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.NewInt(50)),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
-		LastDecayEpoch:  0,
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.NewInt(50)),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		LastDecayEpoch: 0,
 	})
 
 	// Mint 500 DREAM
@@ -304,11 +304,11 @@ func TestMintDREAM_InvalidAmount(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Test zero amount
@@ -343,12 +343,12 @@ func TestMintDREAM_AppliesDecayFirst(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
-		LastDecayEpoch:  0,
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		LastDecayEpoch: 0,
 	})
 
 	// Move to epoch 1
@@ -379,12 +379,12 @@ func TestBurnDREAM(t *testing.T) {
 	// Create member
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.NewInt(50)),
-		LastDecayEpoch:  0,
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.NewInt(50)),
+		LastDecayEpoch: 0,
 	})
 
 	// Burn 300 DREAM
@@ -423,11 +423,11 @@ func TestBurnDREAM_InsufficientBalance(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Try to burn more than balance
@@ -449,11 +449,11 @@ func TestBurnDREAM_InvalidAmount(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Test zero
@@ -475,11 +475,11 @@ func TestLockDREAM(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(200)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(200)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Lock 300 DREAM
@@ -518,11 +518,11 @@ func TestLockDREAM_InsufficientUnlocked(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(700)), // 300 unlocked
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(700)), // 300 unlocked
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Try to lock 500 (only 300 available)
@@ -539,11 +539,11 @@ func TestUnlockDREAM(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(600)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(600)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Unlock 200 DREAM
@@ -580,11 +580,11 @@ func TestUnlockDREAM_InsufficientStaked(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
-		Address:         addr.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(300)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(300)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Try to unlock more than staked
@@ -604,21 +604,21 @@ func TestTransferDREAM_Tip(t *testing.T) {
 
 	// Create members
 	k.Member.Set(ctx, sender.String(), types.Member{
-		Address:             sender.String(),
-		DreamBalance:        PtrInt(math.NewInt(1000)),
-		StakedDream:         PtrInt(math.NewInt(0)),
-		LifetimeEarned:      PtrInt(math.ZeroInt()),
-		LifetimeBurned:      PtrInt(math.ZeroInt()),
-		TipsGivenThisEpoch:  0,
-		LastTipEpoch:        0,
+		Address:            sender.String(),
+		DreamBalance:       PtrInt(math.NewInt(1000)),
+		StakedDream:        PtrInt(math.NewInt(0)),
+		LifetimeEarned:     PtrInt(math.ZeroInt()),
+		LifetimeBurned:     PtrInt(math.ZeroInt()),
+		TipsGivenThisEpoch: 0,
+		LastTipEpoch:       0,
 	})
 
 	k.Member.Set(ctx, recipient.String(), types.Member{
-		Address:         recipient.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        recipient.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Transfer 50 DREAM as tip
@@ -654,19 +654,19 @@ func TestTransferDREAM_ExceedsMaxTip(t *testing.T) {
 	recipient := sdk.AccAddress([]byte("recipient"))
 
 	k.Member.Set(ctx, sender.String(), types.Member{
-		Address:         sender.String(),
-		DreamBalance:    PtrInt(math.NewInt(10000)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        sender.String(),
+		DreamBalance:   PtrInt(math.NewInt(10000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	k.Member.Set(ctx, recipient.String(), types.Member{
-		Address:         recipient.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        recipient.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Get max tip amount
@@ -691,21 +691,21 @@ func TestTransferDREAM_ExceedsTipsPerEpoch(t *testing.T) {
 	currentEpoch, _ := k.GetCurrentEpoch(ctx)
 
 	k.Member.Set(ctx, sender.String(), types.Member{
-		Address:             sender.String(),
-		DreamBalance:        PtrInt(math.NewInt(10000)),
-		StakedDream:         PtrInt(math.NewInt(0)),
-		LifetimeEarned:      PtrInt(math.ZeroInt()),
-		LifetimeBurned:      PtrInt(math.ZeroInt()),
-		TipsGivenThisEpoch:  params.MaxTipsPerEpoch, // Already at max
-		LastTipEpoch:        currentEpoch,
+		Address:            sender.String(),
+		DreamBalance:       PtrInt(math.NewInt(10000)),
+		StakedDream:        PtrInt(math.NewInt(0)),
+		LifetimeEarned:     PtrInt(math.ZeroInt()),
+		LifetimeBurned:     PtrInt(math.ZeroInt()),
+		TipsGivenThisEpoch: params.MaxTipsPerEpoch, // Already at max
+		LastTipEpoch:       currentEpoch,
 	})
 
 	k.Member.Set(ctx, recipient.String(), types.Member{
-		Address:         recipient.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        recipient.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Try one more tip
@@ -724,20 +724,20 @@ func TestTransferDREAM_Gift(t *testing.T) {
 	recipient := sdk.AccAddress([]byte("recipient"))
 
 	k.Member.Set(ctx, sender.String(), types.Member{
-		Address:         sender.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        sender.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	k.Member.Set(ctx, recipient.String(), types.Member{
-		Address:         recipient.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
-		InvitedBy:       sender.String(), // Invited by sender
+		Address:        recipient.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		InvitedBy:      sender.String(), // Invited by sender
 	})
 
 	// Transfer as gift
@@ -759,11 +759,11 @@ func TestTransferDREAM_CannotTransferToSelf(t *testing.T) {
 	sender := sdk.AccAddress([]byte("sender"))
 
 	k.Member.Set(ctx, sender.String(), types.Member{
-		Address:         sender.String(),
-		DreamBalance:    PtrInt(math.NewInt(1000)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        sender.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Try to transfer to self
@@ -782,19 +782,19 @@ func TestTransferDREAM_InsufficientBalance(t *testing.T) {
 	recipient := sdk.AccAddress([]byte("recipient"))
 
 	k.Member.Set(ctx, sender.String(), types.Member{
-		Address:         sender.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        sender.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	k.Member.Set(ctx, recipient.String(), types.Member{
-		Address:         recipient.String(),
-		DreamBalance:    PtrInt(math.NewInt(100)),
-		StakedDream:     PtrInt(math.NewInt(0)),
-		LifetimeEarned:  PtrInt(math.ZeroInt()),
-		LifetimeBurned:  PtrInt(math.ZeroInt()),
+		Address:        recipient.String(),
+		DreamBalance:   PtrInt(math.NewInt(100)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
 	// Try to transfer more than balance (use BOUNTY to avoid tip limit check)

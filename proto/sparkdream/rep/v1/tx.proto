@@ -357,8 +357,8 @@ message MsgStake {
   option (cosmos.msg.v1.signer) = "staker";
   string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   StakeTargetType target_type = 2;
-  uint64 target_id = 3;             // For INITIATIVE/PROJECT
-  string target_identifier = 4;    // For MEMBER (address) or TAG (name)
+  uint64 target_id = 3; // For INITIATIVE/PROJECT
+  string target_identifier = 4; // For MEMBER (address) or TAG (name)
   string amount = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 

@@ -10,16 +10,16 @@ message JuryReview {
   uint64 id = 1;
   uint64 challenge_id = 2;
   uint64 initiative_id = 3;
-  
+
   repeated string jurors = 4;
   uint32 required_votes = 5;
   repeated string expert_witnesses = 6;
   repeated ExpertTestimony testimonies = 7;
-  
+
   string review_deliverable = 8;
   string challenger_claim = 9;
   string assignee_response = 10;
-  
+
   repeated JurorVote votes = 11;
   int64 deadline = 12;
   Verdict verdict = 13;

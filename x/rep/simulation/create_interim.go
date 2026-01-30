@@ -29,11 +29,11 @@ func SimulateMsgCreateInterim(
 
 		// Generate interim details
 		interimType := randomInterimType(r)
-		
+
 		// Determine reference based on type
 		var referenceID uint64
 		var referenceType string
-		
+
 		// For simplicity, use project approval or expert testimony
 		if interimType == types.InterimType_INTERIM_TYPE_PROJECT_APPROVAL {
 			referenceType = "project"
