@@ -30,7 +30,7 @@ func createNQuest(keeper keeper.Keeper, ctx context.Context, n int) []types.Ques
 		items[i].MinLevel = uint64(i)
 		items[i].RequiredAchievement = strconv.Itoa(i)
 		items[i].PrerequisiteQuest = strconv.Itoa(i)
-		items[i].ChainId = strconv.Itoa(i)
+		items[i].QuestChain = strconv.Itoa(i)
 		_ = keeper.Quest.Set(ctx, items[i].QuestId, items[i])
 	}
 	return items

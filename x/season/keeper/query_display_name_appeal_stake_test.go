@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"testing"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -19,7 +20,7 @@ func createNDisplayNameAppealStake(keeper keeper.Keeper, ctx context.Context, n 
 	for i := range items {
 		items[i].ChallengeId = strconv.Itoa(i)
 		items[i].Appellant = strconv.Itoa(i)
-		items[i].Amount = strconv.Itoa(i)
+		items[i].Amount = math.NewInt(int64(i))
 		_ = keeper.DisplayNameAppealStake.Set(ctx, items[i].ChallengeId, items[i])
 	}
 	return items

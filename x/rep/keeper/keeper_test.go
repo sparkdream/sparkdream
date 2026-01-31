@@ -16,6 +16,7 @@ import (
 	"sparkdream/x/rep/keeper"
 	module "sparkdream/x/rep/module"
 	"sparkdream/x/rep/types"
+	seasontypes "sparkdream/x/season/types"
 )
 
 type mockCommonsKeeper struct {
@@ -37,17 +38,31 @@ func (m mockCommonsKeeper) GetCommitteeGroupInfo(ctx context.Context, council st
 	return nil, nil
 }
 
+type mockSeasonKeeper struct {
+	GetCurrentSeasonFn func(ctx context.Context) (seasontypes.Season, error)
+}
+
+func (m mockSeasonKeeper) GetCurrentSeason(ctx context.Context) (seasontypes.Season, error) {
+	if m.GetCurrentSeasonFn != nil {
+		return m.GetCurrentSeasonFn(ctx)
+	}
+	// Default: return season 1
+	return seasontypes.Season{Number: 1}, nil
+}
+
 type fixture struct {
 	ctx           sdk.Context
 	keeper        keeper.Keeper
 	addressCodec  address.Codec
 	commonsKeeper *mockCommonsKeeper
+	seasonKeeper  *mockSeasonKeeper
 }
 
 // fixtureOptions allows customization of test fixture
 type fixtureOptions struct {
 	customParams        *types.Params
 	authorizationPolicy func(address sdk.AccAddress, council string, committee string) bool
+	seasonNumber        uint64
 }
 
 // FixtureOption is a function that configures fixture options
@@ -65,6 +80,13 @@ func WithCustomParams(params types.Params) FixtureOption {
 func WithAuthorizationPolicy(policy func(sdk.AccAddress, string, string) bool) FixtureOption {
 	return func(opts *fixtureOptions) {
 		opts.authorizationPolicy = policy
+	}
+}
+
+// WithSeasonNumber sets the current season number for the mock
+func WithSeasonNumber(season uint64) FixtureOption {
+	return func(opts *fixtureOptions) {
+		opts.seasonNumber = season
 	}
 }
 
@@ -95,6 +117,7 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 	// Apply options
 	options := &fixtureOptions{
 		authorizationPolicy: AlwaysAuthorized, // Default: authorize everyone
+		seasonNumber:        0,                // Default: season 0 (matches default LastCreditResetSeason)
 	}
 	for _, opt := range opts {
 		opt(options)
@@ -119,6 +142,13 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		},
 	}
 
+	// Mock SeasonKeeper with configurable season number
+	seasonKeeper := &mockSeasonKeeper{
+		GetCurrentSeasonFn: func(ctx context.Context) (seasontypes.Season, error) {
+			return seasontypes.Season{Number: options.seasonNumber}, nil
+		},
+	}
+
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
@@ -127,6 +157,7 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		nil,
 		nil,
 		commonsKeeper,
+		seasonKeeper,
 	)
 
 	// Initialize genesis with default values (including sequence counters starting at 1)
@@ -143,5 +174,6 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		keeper:        k,
 		addressCodec:  addressCodec,
 		commonsKeeper: commonsKeeper,
+		seasonKeeper:  seasonKeeper,
 	}
 }

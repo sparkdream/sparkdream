@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/rep/types"
+	seasontypes "sparkdream/x/season/types"
 )
 
 func TestCreateInvitation(t *testing.T) {
@@ -305,12 +307,12 @@ func TestReferralRewardAutomatic(t *testing.T) {
 // TestCreateInvitation_LazyCreditsReset verifies that invitation credits are lazily
 // reset when a member tries to invite in a new season.
 func TestCreateInvitation_LazyCreditsReset(t *testing.T) {
-	fixture := initFixture(t)
+	// Start with season 0
+	fixture := initFixture(t, WithSeasonNumber(0))
 	k := fixture.keeper
 	ctx := fixture.ctx
 
 	params, _ := k.Params.Get(ctx)
-	blocksPerSeason := params.EpochBlocks * params.SeasonDurationEpochs
 
 	// Setup: Create inviter member with 0 credits (used up), last reset at season 0
 	inviter := sdk.AccAddress([]byte("inviter"))
@@ -334,23 +336,25 @@ func TestCreateInvitation_LazyCreditsReset(t *testing.T) {
 	_, err := k.CreateInvitation(ctx, inviter, invitee, stakedAmount, tags)
 	require.ErrorIs(t, err, types.ErrNoInvitationCredits)
 
-	// Move to season 1
-	testCtx := ctx.WithBlockHeight(blocksPerSeason)
+	// Change mock to return season 1
+	fixture.seasonKeeper.GetCurrentSeasonFn = func(ctx context.Context) (seasontypes.Season, error) {
+		return seasontypes.Season{Number: 1}, nil
+	}
 
 	// Test at season 1: Should succeed (credits lazily reset)
-	invitationID, err := k.CreateInvitation(testCtx, inviter, invitee, stakedAmount, tags)
+	invitationID, err := k.CreateInvitation(ctx, inviter, invitee, stakedAmount, tags)
 	require.NoError(t, err)
 	require.NotZero(t, invitationID)
 
 	// Verify invitation was created
-	invitation, err := k.Invitation.Get(testCtx, invitationID)
+	invitation, err := k.Invitation.Get(ctx, invitationID)
 	require.NoError(t, err)
 	require.Equal(t, inviter.String(), invitation.Inviter)
 	require.Equal(t, invitee.String(), invitation.InviteeAddress)
 
 	// Verify credits were reset then decremented
 	// ESTABLISHED has 3 credits per season, so after using 1, should have 2 left
-	inviterMember, err := k.Member.Get(testCtx, inviter.String())
+	inviterMember, err := k.Member.Get(ctx, inviter.String())
 	require.NoError(t, err)
 	require.Equal(t, params.TrustLevelConfig.EstablishedInvitationCredits-1, inviterMember.InvitationCredits)
 	require.Equal(t, int64(1), inviterMember.LastCreditResetSeason)
@@ -359,7 +363,8 @@ func TestCreateInvitation_LazyCreditsReset(t *testing.T) {
 // TestCreateInvitation_NoResetSameSeason verifies that credits are NOT reset
 // if the member has already been reset this season.
 func TestCreateInvitation_NoResetSameSeason(t *testing.T) {
-	fixture := initFixture(t)
+	// Use season 0 so member's LastCreditResetSeason=0 does NOT trigger reset
+	fixture := initFixture(t, WithSeasonNumber(0))
 	k := fixture.keeper
 	ctx := fixture.ctx
 
@@ -381,16 +386,13 @@ func TestCreateInvitation_NoResetSameSeason(t *testing.T) {
 	stakedAmount := math.NewInt(100)
 	tags := []string{"backend"}
 
-	// Stay at season 0 (block 1)
-	testCtx := ctx.WithBlockHeight(1)
-
-	// Test: Should succeed with existing credits (no reset)
-	invitationID, err := k.CreateInvitation(testCtx, inviter, invitee, stakedAmount, tags)
+	// Test: Should succeed with existing credits (no reset since current season 0 == last reset season 0)
+	invitationID, err := k.CreateInvitation(ctx, inviter, invitee, stakedAmount, tags)
 	require.NoError(t, err)
 	require.NotZero(t, invitationID)
 
 	// Verify credits decremented from 2 to 1 (not reset to 10 for CORE)
-	inviterMember, err := k.Member.Get(testCtx, inviter.String())
+	inviterMember, err := k.Member.Get(ctx, inviter.String())
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), inviterMember.InvitationCredits)
 	require.Equal(t, int64(0), inviterMember.LastCreditResetSeason) // Still season 0

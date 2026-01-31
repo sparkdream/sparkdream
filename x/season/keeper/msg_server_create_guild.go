@@ -62,17 +62,22 @@ func (k msgServer) CreateGuild(ctx context.Context, msg *types.MsgCreateGuild) (
 		return nil, types.ErrMaxGuildsPerSeason
 	}
 
-	// TODO: Burn DREAM cost via x/rep integration
-	// k.repKeeper.BurnDREAM(ctx, msg.Creator, params.GuildCreationCost)
+	// Burn DREAM cost via x/rep integration
+	if err := k.BurnDREAM(ctx, msg.Creator, params.GuildCreationCost.Uint64()); err != nil {
+		return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to burn DREAM for guild creation")
+	}
 
-	// TODO: Reserve guild name via x/name integration
-	// k.nameKeeper.ReserveName(ctx, msg.Name, NameTypeGuild, msg.Creator)
+	// Reserve guild name via x/name integration
+	if err := k.ReserveName(ctx, msg.Name, "guild", msg.Creator); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to reserve guild name")
+	}
 
-	// Get next guild ID
-	guildID, err := k.GuildSeq.Next(ctx)
+	// Get next guild ID (add 1 because 0 means "no guild")
+	seqVal, err := k.GuildSeq.Next(ctx)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get next guild ID")
 	}
+	guildID := seqVal + 1
 
 	// Create the guild
 	guild := types.Guild{

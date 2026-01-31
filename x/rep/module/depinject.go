@@ -12,6 +12,7 @@ import (
 	commonskeeper "sparkdream/x/commons/keeper"
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
+	seasonkeeper "sparkdream/x/season/keeper"
 )
 
 var _ depinject.OnePerModuleType = AppModule{}
@@ -37,6 +38,7 @@ type ModuleInputs struct {
 	AuthKeeper    types.AuthKeeper
 	BankKeeper    types.BankKeeper
 	CommonsKeeper commonskeeper.Keeper
+	SeasonKeeper  seasonkeeper.Keeper
 }
 
 type ModuleOutputs struct {
@@ -60,6 +62,7 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.AuthKeeper,
 		in.BankKeeper,
 		in.CommonsKeeper,
+		in.SeasonKeeper,
 	)
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 

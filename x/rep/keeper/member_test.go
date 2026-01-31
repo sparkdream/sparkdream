@@ -263,59 +263,36 @@ func TestUpdateTrustLevel_GrantsInvitationCredits(t *testing.T) {
 }
 
 func TestGetCurrentSeason(t *testing.T) {
-	fixture := initFixture(t)
-	k := fixture.keeper
-	ctx := fixture.ctx
-
-	params, _ := k.Params.Get(ctx)
-	blocksPerSeason := params.EpochBlocks * params.SeasonDurationEpochs
-
+	// Test that GetCurrentSeason properly delegates to the season keeper
 	testCases := []struct {
 		name           string
-		blockHeight    int64
+		seasonNumber   uint64
 		expectedSeason int64
 	}{
 		{
-			name:           "Block 0 is season 0",
-			blockHeight:    0,
+			name:           "Season 0",
+			seasonNumber:   0,
 			expectedSeason: 0,
 		},
 		{
-			name:           "Block 1 is season 0",
-			blockHeight:    1,
-			expectedSeason: 0,
-		},
-		{
-			name:           "Block at half season is season 0",
-			blockHeight:    blocksPerSeason / 2,
-			expectedSeason: 0,
-		},
-		{
-			name:           "Last block of season 0",
-			blockHeight:    blocksPerSeason - 1,
-			expectedSeason: 0,
-		},
-		{
-			name:           "First block of season 1",
-			blockHeight:    blocksPerSeason,
+			name:           "Season 1",
+			seasonNumber:   1,
 			expectedSeason: 1,
 		},
 		{
-			name:           "Middle of season 1",
-			blockHeight:    blocksPerSeason + blocksPerSeason/2,
-			expectedSeason: 1,
-		},
-		{
-			name:           "First block of season 2",
-			blockHeight:    blocksPerSeason * 2,
-			expectedSeason: 2,
+			name:           "Season 5",
+			seasonNumber:   5,
+			expectedSeason: 5,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testCtx := ctx.WithBlockHeight(tc.blockHeight)
-			season, err := k.GetCurrentSeason(testCtx)
+			fixture := initFixture(t, WithSeasonNumber(tc.seasonNumber))
+			k := fixture.keeper
+			ctx := fixture.ctx
+
+			season, err := k.GetCurrentSeason(ctx)
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedSeason, season)
 		})
@@ -323,13 +300,13 @@ func TestGetCurrentSeason(t *testing.T) {
 }
 
 func TestEnsureInvitationCreditsReset_NewSeason(t *testing.T) {
-	fixture := initFixture(t)
+	// Use season 1 so member's LastCreditResetSeason=0 triggers reset
+	fixture := initFixture(t, WithSeasonNumber(1))
 	k := fixture.keeper
 	ctx := fixture.ctx
 
 	member := sdk.AccAddress([]byte("member"))
 	params, _ := k.Params.Get(ctx)
-	blocksPerSeason := params.EpochBlocks * params.SeasonDurationEpochs
 
 	// Setup: Member at PROVISIONAL level with 0 credits, last reset at season 0
 	k.Member.Set(ctx, member.String(), types.Member{
@@ -343,22 +320,20 @@ func TestEnsureInvitationCreditsReset_NewSeason(t *testing.T) {
 		LastCreditResetSeason: 0, // Last reset at season 0
 	})
 
-	// Move to season 1
-	testCtx := ctx.WithBlockHeight(blocksPerSeason)
-
-	// Test: Should reset credits
-	reset, err := k.EnsureInvitationCreditsReset(testCtx, member.String())
+	// Test: Should reset credits (current season 1 > last reset season 0)
+	reset, err := k.EnsureInvitationCreditsReset(ctx, member.String())
 	require.NoError(t, err)
 	require.True(t, reset, "should have reset credits")
 
 	// Verify credits were reset to PROVISIONAL max
-	m, _ := k.Member.Get(testCtx, member.String())
+	m, _ := k.Member.Get(ctx, member.String())
 	require.Equal(t, params.TrustLevelConfig.ProvisionalInvitationCredits, m.InvitationCredits)
 	require.Equal(t, int64(1), m.LastCreditResetSeason)
 }
 
 func TestEnsureInvitationCreditsReset_SameSeason(t *testing.T) {
-	fixture := initFixture(t)
+	// Use season 0 so member's LastCreditResetSeason=0 does NOT trigger reset
+	fixture := initFixture(t, WithSeasonNumber(0))
 	k := fixture.keeper
 	ctx := fixture.ctx
 
@@ -376,28 +351,25 @@ func TestEnsureInvitationCreditsReset_SameSeason(t *testing.T) {
 		LastCreditResetSeason: 0, // Already reset at season 0
 	})
 
-	// Stay at season 0
-	testCtx := ctx.WithBlockHeight(1)
-
-	// Test: Should NOT reset credits (same season)
-	reset, err := k.EnsureInvitationCreditsReset(testCtx, member.String())
+	// Test: Should NOT reset credits (current season 0 == last reset season 0)
+	reset, err := k.EnsureInvitationCreditsReset(ctx, member.String())
 	require.NoError(t, err)
 	require.False(t, reset, "should not reset credits in same season")
 
 	// Verify credits unchanged
-	m, _ := k.Member.Get(testCtx, member.String())
+	m, _ := k.Member.Get(ctx, member.String())
 	require.Equal(t, uint32(5), m.InvitationCredits)
 	require.Equal(t, int64(0), m.LastCreditResetSeason)
 }
 
 func TestEnsureInvitationCreditsReset_MultipleSeasons(t *testing.T) {
-	fixture := initFixture(t)
+	// Use season 5 so member's LastCreditResetSeason=0 triggers reset
+	fixture := initFixture(t, WithSeasonNumber(5))
 	k := fixture.keeper
 	ctx := fixture.ctx
 
 	member := sdk.AccAddress([]byte("member"))
 	params, _ := k.Params.Get(ctx)
-	blocksPerSeason := params.EpochBlocks * params.SeasonDurationEpochs
 
 	// Setup: Member last reset at season 0, now at season 5
 	k.Member.Set(ctx, member.String(), types.Member{
@@ -411,15 +383,12 @@ func TestEnsureInvitationCreditsReset_MultipleSeasons(t *testing.T) {
 		LastCreditResetSeason: 0, // Last reset at season 0
 	})
 
-	// Move to season 5
-	testCtx := ctx.WithBlockHeight(blocksPerSeason * 5)
-
-	// Test: Should reset to current season
-	reset, err := k.EnsureInvitationCreditsReset(testCtx, member.String())
+	// Test: Should reset to current season (5 > 0)
+	reset, err := k.EnsureInvitationCreditsReset(ctx, member.String())
 	require.NoError(t, err)
 	require.True(t, reset)
 
-	m, _ := k.Member.Get(testCtx, member.String())
+	m, _ := k.Member.Get(ctx, member.String())
 	require.Equal(t, params.TrustLevelConfig.EstablishedInvitationCredits, m.InvitationCredits)
 	require.Equal(t, int64(5), m.LastCreditResetSeason)
 }

@@ -151,27 +151,13 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 	return nil
 }
 
-// GetCurrentSeason calculates the current season from block height.
-// Season = blockHeight / (epochBlocks * seasonDurationEpochs)
+// GetCurrentSeason returns the current season number from the x/season module.
 func (k Keeper) GetCurrentSeason(ctx context.Context) (int64, error) {
-	params, err := k.Params.Get(ctx)
+	season, err := k.seasonKeeper.GetCurrentSeason(ctx)
 	if err != nil {
 		return 0, err
 	}
-
-	if params.EpochBlocks <= 0 || params.SeasonDurationEpochs <= 0 {
-		return 0, nil
-	}
-
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	currentBlock := sdkCtx.BlockHeight()
-	blocksPerSeason := params.EpochBlocks * params.SeasonDurationEpochs
-
-	if blocksPerSeason <= 0 {
-		return 0, nil
-	}
-
-	return currentBlock / blocksPerSeason, nil
+	return int64(season.Number), nil
 }
 
 // EnsureInvitationCreditsReset lazily resets invitation credits if we're in a new season.

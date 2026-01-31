@@ -14,7 +14,25 @@ func (q queryServer) MemberTitles(ctx context.Context, req *types.QueryMemberTit
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	if req.Address == "" {
+		return nil, status.Error(codes.InvalidArgument, "member address required")
+	}
 
-	return &types.QueryMemberTitlesResponse{}, nil
+	// Get member's profile to access their titles
+	profile, err := q.k.MemberProfile.Get(ctx, req.Address)
+	if err != nil {
+		return &types.QueryMemberTitlesResponse{}, nil
+	}
+
+	// Return first unlocked title if available
+	if len(profile.UnlockedTitles) == 0 {
+		return &types.QueryMemberTitlesResponse{}, nil
+	}
+
+	firstTitleId := profile.UnlockedTitles[0]
+
+	return &types.QueryMemberTitlesResponse{
+		TitleId:    firstTitleId,
+		UnlockedAt: 0, // Unlock timestamp not tracked in MemberProfile
+	}, nil
 }

@@ -25,7 +25,7 @@ func createNGuild(keeper keeper.Keeper, ctx context.Context, n int) []types.Guil
 		items[i].Founder = strconv.Itoa(i)
 		items[i].CreatedBlock = int64(i)
 		items[i].InviteOnly = true
-		items[i].Status = uint64(i)
+		items[i].Status = types.GuildStatus(i)
 		_ = keeper.Guild.Set(ctx, iu, items[i])
 		_ = keeper.GuildSeq.Set(ctx, iu)
 	}

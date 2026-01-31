@@ -14,7 +14,20 @@ func (q queryServer) QuestById(ctx context.Context, req *types.QueryQuestByIdReq
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	if req.QuestId == "" {
+		return nil, status.Error(codes.InvalidArgument, "quest_id required")
+	}
 
-	return &types.QueryQuestByIdResponse{}, nil
+	quest, err := q.k.Quest.Get(ctx, req.QuestId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "quest %s not found", req.QuestId)
+	}
+
+	return &types.QueryQuestByIdResponse{
+		Name:        quest.Name,
+		Description: quest.Description,
+		XpReward:    quest.XpReward,
+		Active:      quest.Active,
+		MinLevel:    quest.MinLevel,
+	}, nil
 }

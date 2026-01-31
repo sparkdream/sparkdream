@@ -14,7 +14,16 @@ func (q queryServer) GuildById(ctx context.Context, req *types.QueryGuildByIdReq
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	guild, err := q.k.Guild.Get(ctx, req.GuildId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "guild %d not found", req.GuildId)
+	}
 
-	return &types.QueryGuildByIdResponse{}, nil
+	return &types.QueryGuildByIdResponse{
+		Name:        guild.Name,
+		Description: guild.Description,
+		Founder:     guild.Founder,
+		InviteOnly:  guild.InviteOnly,
+		Status:      uint64(guild.Status),
+	}, nil
 }

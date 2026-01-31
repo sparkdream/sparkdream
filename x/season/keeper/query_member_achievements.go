@@ -14,7 +14,24 @@ func (q queryServer) MemberAchievements(ctx context.Context, req *types.QueryMem
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	if req.Address == "" {
+		return nil, status.Error(codes.InvalidArgument, "member address required")
+	}
 
-	return &types.QueryMemberAchievementsResponse{}, nil
+	// Get member's profile to access their achievements
+	profile, err := q.k.MemberProfile.Get(ctx, req.Address)
+	if err != nil {
+		return &types.QueryMemberAchievementsResponse{}, nil
+	}
+
+	// Return first achievement if available
+	if len(profile.Achievements) == 0 {
+		return &types.QueryMemberAchievementsResponse{}, nil
+	}
+
+	firstAchievementId := profile.Achievements[0]
+
+	return &types.QueryMemberAchievementsResponse{
+		AchievementId: firstAchievementId,
+	}, nil
 }

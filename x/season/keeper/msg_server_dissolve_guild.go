@@ -82,8 +82,11 @@ func (k msgServer) DissolveGuild(ctx context.Context, msg *types.MsgDissolveGuil
 		return nil, errorsmod.Wrap(err, "failed to update guild")
 	}
 
-	// TODO: Release guild name via x/name
-	// k.nameKeeper.ReleaseName(ctx, guild.Name)
+	// Release guild name via x/name integration
+	if err := k.ReleaseName(ctx, guild.Name, guild.Founder); err != nil {
+		// Log but don't fail - guild is already dissolved
+		sdkCtx.Logger().Error("failed to release guild name", "name", guild.Name, "error", err)
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

@@ -1360,6 +1360,9 @@ func TestApproveInterim_UnauthorizedApprover(t *testing.T) {
 		},
 	}
 
+	// Mock SeasonKeeper
+	seasonKeeper := &mockSeasonKeeper{}
+
 	testKeeper := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
@@ -1368,6 +1371,7 @@ func TestApproveInterim_UnauthorizedApprover(t *testing.T) {
 		nil,
 		nil,
 		commonsKeeper,
+		seasonKeeper,
 	)
 
 	// Initialize params

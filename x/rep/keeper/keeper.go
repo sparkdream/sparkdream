@@ -25,6 +25,7 @@ type Keeper struct {
 	authKeeper      types.AuthKeeper
 	bankKeeper      types.BankKeeper
 	commonsKeeper   types.CommonsKeeper
+	seasonKeeper    types.SeasonKeeper
 	Member          collections.Map[string, types.Member]
 	InvitationSeq   collections.Sequence
 	Invitation      collections.Map[uint64, types.Invitation]
@@ -69,6 +70,7 @@ func NewKeeper(
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
 	commonsKeeper types.CommonsKeeper,
+	seasonKeeper types.SeasonKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -85,6 +87,7 @@ func NewKeeper(
 		authKeeper:      authKeeper,
 		bankKeeper:      bankKeeper,
 		commonsKeeper:   commonsKeeper,
+		seasonKeeper:    seasonKeeper,
 		Params:          collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Member:          collections.NewMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc)),
 		Invitation:      collections.NewMap(sb, types.InvitationKey, "invitation", collections.Uint64Key, codec.CollValue[types.Invitation](cdc)),

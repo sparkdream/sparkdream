@@ -14,7 +14,29 @@ func (q queryServer) MemberGuild(ctx context.Context, req *types.QueryMemberGuil
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// TODO: Process the query
+	if req.Member == "" {
+		return nil, status.Error(codes.InvalidArgument, "member address required")
+	}
 
-	return &types.QueryMemberGuildResponse{}, nil
+	membership, err := q.k.GuildMembership.Get(ctx, req.Member)
+	if err != nil {
+		// Member not in any guild
+		return &types.QueryMemberGuildResponse{
+			GuildId:     0,
+			JoinedEpoch: 0,
+		}, nil
+	}
+
+	// Check if membership is still active (LeftEpoch == 0)
+	if membership.LeftEpoch != 0 {
+		return &types.QueryMemberGuildResponse{
+			GuildId:     0,
+			JoinedEpoch: 0,
+		}, nil
+	}
+
+	return &types.QueryMemberGuildResponse{
+		GuildId:     membership.GuildId,
+		JoinedEpoch: membership.JoinedEpoch,
+	}, nil
 }

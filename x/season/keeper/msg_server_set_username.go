@@ -64,16 +64,23 @@ func (k msgServer) SetUsername(ctx context.Context, msg *types.MsgSetUsername) (
 		}
 	}
 
-	// TODO: Charge DREAM cost via x/rep integration
-	// k.repKeeper.BurnDREAM(ctx, msg.Creator, params.UsernameCostDream)
-
-	// TODO: Reserve username via x/name integration
-	// k.nameKeeper.ReserveName(ctx, username, NameTypeUsername, msg.Creator)
+	// Charge DREAM cost via x/rep integration
+	if err := k.BurnDREAM(ctx, msg.Creator, params.UsernameCostDream.Uint64()); err != nil {
+		return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to burn DREAM for username")
+	}
 
 	// Release old username if set
-	// if profile.Username != "" {
-	//     k.nameKeeper.ReleaseName(ctx, profile.Username)
-	// }
+	if profile.Username != "" {
+		if err := k.ReleaseName(ctx, profile.Username, msg.Creator); err != nil {
+			// Log but continue - old name release is not critical
+			sdkCtx.Logger().Warn("failed to release old username", "username", profile.Username, "error", err)
+		}
+	}
+
+	// Reserve new username via x/name integration
+	if err := k.ReserveName(ctx, username, "username", msg.Creator); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to reserve username")
+	}
 
 	oldUsername := profile.Username
 	profile.Username = username

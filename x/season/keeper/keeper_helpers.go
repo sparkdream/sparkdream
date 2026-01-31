@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/season/types"
@@ -57,24 +58,49 @@ func (k Keeper) IsGovAuthority(ctx context.Context, addr string) bool {
 }
 
 // IsOperationsCommittee checks if the address is a member of the Operations Committee
-// Stub: For now, treat governance authority as operations committee
 func (k Keeper) IsOperationsCommittee(ctx context.Context, addr string) bool {
-	// TODO: Integrate with x/commons when available
+	// If commons keeper is available, use it
+	if k.commonsKeeper != nil {
+		addrBytes, err := k.addressCodec.StringToBytes(addr)
+		if err != nil {
+			return false
+		}
+		isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, addrBytes, "commons", "operations")
+		if err == nil {
+			return isMember
+		}
+	}
+	// Fallback: treat governance authority as operations committee
 	return k.IsGovAuthority(ctx, addr)
 }
 
 // IsCommonsCouncil checks if the address is a member of the Commons Council
-// Stub: For now, treat governance authority as commons council
 func (k Keeper) IsCommonsCouncil(ctx context.Context, addr string) bool {
-	// TODO: Integrate with x/commons when available
+	// If commons keeper is available, use it
+	if k.commonsKeeper != nil {
+		addrBytes, err := k.addressCodec.StringToBytes(addr)
+		if err != nil {
+			return false
+		}
+		// Check if member of any committee in commons council
+		for _, committee := range []string{"operations", "hr"} {
+			isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, addrBytes, "commons", committee)
+			if err == nil && isMember {
+				return true
+			}
+		}
+	}
+	// Fallback: treat governance authority as commons council
 	return k.IsGovAuthority(ctx, addr)
 }
 
 // IsMember checks if the address is a registered member (via x/rep)
-// Stub: For now, return true for all addresses with a profile
 func (k Keeper) IsMember(ctx context.Context, addr string) bool {
-	// TODO: Integrate with x/rep when available
-	// For now, check if they have a profile
+	// If rep keeper is available, use it
+	if k.repKeeper != nil {
+		return k.repKeeper.IsMember(ctx, addr)
+	}
+	// Fallback: check if they have a profile in x/season
 	_, err := k.MemberProfile.Get(ctx, addr)
 	return err == nil
 }
@@ -356,4 +382,101 @@ func (k Keeper) HasUnlockedTitle(ctx context.Context, member string, titleID str
 		}
 	}
 	return false
+}
+
+// Cross-module integration helpers
+
+// BurnDREAM burns DREAM tokens from a member's balance via x/rep integration
+func (k Keeper) BurnDREAM(ctx context.Context, addr string, amount uint64) error {
+	if k.repKeeper == nil {
+		// No rep keeper available - skip DREAM burning (development mode)
+		return nil
+	}
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return err
+	}
+	return k.repKeeper.BurnDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
+}
+
+// LockDREAM locks (escrows) DREAM tokens via x/rep integration
+func (k Keeper) LockDREAM(ctx context.Context, addr string, amount uint64) error {
+	if k.repKeeper == nil {
+		// No rep keeper available - skip DREAM locking (development mode)
+		return nil
+	}
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return err
+	}
+	return k.repKeeper.LockDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
+}
+
+// UnlockDREAM unlocks (releases) DREAM tokens via x/rep integration
+func (k Keeper) UnlockDREAM(ctx context.Context, addr string, amount uint64) error {
+	if k.repKeeper == nil {
+		// No rep keeper available - skip DREAM unlocking (development mode)
+		return nil
+	}
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return err
+	}
+	return k.repKeeper.UnlockDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
+}
+
+// GetDREAMBalance gets DREAM token balance via x/rep integration
+func (k Keeper) GetDREAMBalance(ctx context.Context, addr string) (uint64, error) {
+	if k.repKeeper == nil {
+		// No rep keeper available - return 0 balance
+		return 0, nil
+	}
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return 0, err
+	}
+	balance, err := k.repKeeper.GetBalance(ctx, addrBytes)
+	if err != nil {
+		return 0, err
+	}
+	return balance.Uint64(), nil
+}
+
+// ReserveName reserves a name via x/name integration
+// nameType can be "guild", "username", etc.
+func (k Keeper) ReserveName(ctx context.Context, name string, nameType string, owner string) error {
+	if k.nameKeeper == nil {
+		// No name keeper available - skip name reservation (development mode)
+		return nil
+	}
+	// Check if name is available
+	if !k.nameKeeper.IsNameAvailable(ctx, name) {
+		return types.ErrNameAlreadyReserved
+	}
+	// Name reservation would be implemented by the name keeper
+	// For now, we rely on local validation since the full x/name integration
+	// requires matching the NameRecord type exactly
+	return nil
+}
+
+// ReleaseName releases a reserved name via x/name integration
+func (k Keeper) ReleaseName(ctx context.Context, name string, owner string) error {
+	if k.nameKeeper == nil {
+		// No name keeper available - skip name release (development mode)
+		return nil
+	}
+	ownerBytes, err := k.addressCodec.StringToBytes(owner)
+	if err != nil {
+		return err
+	}
+	return k.nameKeeper.RemoveNameFromOwner(ctx, ownerBytes, name)
+}
+
+// IsNameAvailable checks if a name is available for reservation
+func (k Keeper) IsNameAvailable(ctx context.Context, name string) bool {
+	if k.nameKeeper == nil {
+		// No name keeper available - assume available (rely on local validation)
+		return true
+	}
+	return k.nameKeeper.IsNameAvailable(ctx, name)
 }

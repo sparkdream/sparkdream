@@ -35,6 +35,11 @@ type ModuleInputs struct {
 
 	AuthKeeper types.AuthKeeper
 	BankKeeper types.BankKeeper
+
+	// Optional cross-module keepers (nil if modules not available)
+	RepKeeper     types.RepKeeper     `optional:"true"`
+	NameKeeper    types.NameKeeper    `optional:"true"`
+	CommonsKeeper types.CommonsKeeper `optional:"true"`
 }
 
 type ModuleOutputs struct {
@@ -56,6 +61,9 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.AddressCodec,
 		authority,
 		in.BankKeeper,
+		in.RepKeeper,
+		in.NameKeeper,
+		in.CommonsKeeper,
 	)
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 

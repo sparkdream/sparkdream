@@ -41,8 +41,10 @@ func (k msgServer) AppealDisplayNameModeration(ctx context.Context, msg *types.M
 		return nil, types.ErrAppealPeriodExpired
 	}
 
-	// TODO: Escrow appellant's DREAM stake
-	// k.repKeeper.EscrowDREAM(ctx, msg.Creator, params.DisplayNameAppealStakeDream)
+	// Escrow appellant's DREAM stake via x/rep integration
+	if err := k.LockDREAM(ctx, msg.Creator, params.DisplayNameAppealStakeDream.Uint64()); err != nil {
+		return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to escrow DREAM stake for appeal")
+	}
 
 	// Generate appeal challenge ID
 	challengeID := fmt.Sprintf("dn_appeal:%s:%d", msg.Creator, sdkCtx.BlockHeight())
@@ -65,10 +67,11 @@ func (k msgServer) AppealDisplayNameModeration(ctx context.Context, msg *types.M
 		return nil, errorsmod.Wrap(err, "failed to save appeal stake")
 	}
 
-	// TODO: Create x/rep initiative for jury review
-	// This would be handled by cross-module integration
+	// Note: Jury review creation is triggered via event
+	// The x/rep module can listen for this event and create a jury review
+	// This decoupled approach avoids circular dependencies
 
-	// Emit event
+	// Emit event with appeal details for jury review creation
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"display_name_appeal_submitted",

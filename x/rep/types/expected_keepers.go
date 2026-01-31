@@ -5,6 +5,8 @@ import (
 
 	"cosmossdk.io/core/address"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	seasontypes "sparkdream/x/season/types"
 )
 
 // AuthKeeper defines the expected interface for the Auth module.
@@ -33,4 +35,10 @@ type CommonsKeeper interface {
 
 	// Get the group info for a committee
 	GetCommitteeGroupInfo(ctx context.Context, council string, committee string) (interface{}, error)
+}
+
+// SeasonKeeper defines the expected interface for the Season module.
+type SeasonKeeper interface {
+	// GetCurrentSeason returns the current season state
+	GetCurrentSeason(ctx context.Context) (seasontypes.Season, error)
 }

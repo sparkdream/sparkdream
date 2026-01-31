@@ -20,9 +20,9 @@ func createNAchievement(keeper keeper.Keeper, ctx context.Context, n int) []type
 		items[i].AchievementId = strconv.Itoa(i)
 		items[i].Name = strconv.Itoa(i)
 		items[i].Description = strconv.Itoa(i)
-		items[i].Rarity = uint64(i)
+		items[i].Rarity = types.Rarity(i)
 		items[i].XpReward = uint64(i)
-		items[i].RequirementType = uint64(i)
+		items[i].RequirementType = types.RequirementType(i)
 		items[i].RequirementThreshold = uint64(i)
 		_ = keeper.Achievement.Set(ctx, items[i].AchievementId, items[i])
 	}

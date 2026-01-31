@@ -47,8 +47,10 @@ func (k msgServer) ReportDisplayName(ctx context.Context, msg *types.MsgReportDi
 	// Get params for stake amount
 	params, _ := k.Params.Get(ctx)
 
-	// TODO: Escrow reporter's DREAM stake
-	// k.repKeeper.EscrowDREAM(ctx, msg.Creator, params.DisplayNameReportStakeDream)
+	// Escrow reporter's DREAM stake via x/rep integration
+	if err := k.LockDREAM(ctx, msg.Creator, params.DisplayNameReportStakeDream.Uint64()); err != nil {
+		return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to escrow DREAM stake for report")
+	}
 
 	// Generate challenge ID
 	challengeID := fmt.Sprintf("dn:%s:%d", msg.Target, sdkCtx.BlockHeight())

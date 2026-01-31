@@ -172,10 +172,14 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 		return types.ErrMemberNotFound
 	}
 
-	// Get current time and epoch
+	// Get current time, epoch, and season
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentTime := sdkCtx.BlockTime().Unix()
 	currentEpoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return err
+	}
+	currentSeason, err := k.GetCurrentSeason(ctx)
 	if err != nil {
 		return err
 	}
@@ -198,7 +202,7 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 		LifetimeReputation:  make(map[string]string),
 		TrustLevel:          types.TrustLevel_TRUST_LEVEL_NEW,
 		TrustLevelUpdatedAt: currentTime,
-		JoinedSeason:        0, // TODO: Get from x/season when implemented
+		JoinedSeason:        uint32(currentSeason),
 		JoinedAt:            currentTime,
 		InvitedBy:           invitation.Inviter,
 		InvitationChain:     invitationChain,

@@ -105,4 +105,10 @@ var (
 	// Achievement errors (1210-1219)
 	ErrAchievementNotFound      = errors.Register(ModuleName, 1210, "achievement not found")
 	ErrAchievementAlreadyEarned = errors.Register(ModuleName, 1211, "achievement already earned")
+
+	// Cross-module integration errors (1220-1229)
+	ErrNameAlreadyReserved    = errors.Register(ModuleName, 1220, "name is already reserved")
+	ErrInsufficientDREAM      = errors.Register(ModuleName, 1221, "insufficient DREAM balance")
+	ErrDREAMOperationFailed   = errors.Register(ModuleName, 1222, "DREAM operation failed")
+	ErrNameOperationFailed    = errors.Register(ModuleName, 1223, "name operation failed")
 )

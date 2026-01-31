@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"testing"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -18,7 +19,7 @@ func createNMemberSeasonSnapshot(keeper keeper.Keeper, ctx context.Context, n in
 	items := make([]types.MemberSeasonSnapshot, n)
 	for i := range items {
 		items[i].SeasonAddress = strconv.Itoa(i)
-		items[i].FinalDreamBalance = strconv.Itoa(i)
+		items[i].FinalDreamBalance = math.NewInt(int64(i))
 		items[i].InitiativesCompleted = uint64(i)
 		items[i].XpEarned = uint64(i)
 		items[i].SeasonLevel = uint64(i)
