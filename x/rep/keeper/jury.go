@@ -513,3 +513,61 @@ func (k Keeper) GetJuryReview(ctx context.Context, juryReviewID uint64) (types.J
 	}
 	return found, nil
 }
+
+// CreateAppealInitiative creates a special initiative for jury-based appeal resolution.
+// This is used by other modules (e.g., x/forum) to create appeals that require jury review.
+// initiativeType: type of appeal (e.g., "moderation_appeal", "sentinel_appeal")
+// payload: JSON-encoded appeal data containing case details
+// deadline: block height by which the appeal must be resolved
+// Returns the appeal (initiative) ID or error.
+func (k Keeper) CreateAppealInitiative(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get params: %w", err)
+	}
+
+	// Get next appeal ID (using JuryReview sequence since appeals are jury-resolved)
+	appealID, err := k.JuryReviewSeq.Next(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get next appeal ID: %w", err)
+	}
+
+	// Create a special jury review for the appeal
+	// Appeals don't have an initiative or challenge, so we use 0 for those fields
+	juryReview := types.JuryReview{
+		Id:                appealID,
+		ChallengeId:       0, // No challenge - this is an external appeal
+		InitiativeId:      0, // No initiative - this is an external appeal
+		Jurors:            []string{},
+		RequiredVotes:     uint32(params.JurySize),
+		ExpertWitnesses:   []string{},
+		Testimonies:       []*types.ExpertTestimony{},
+		ReviewDeliverable: string(payload), // Store appeal payload
+		ChallengerClaim:   initiativeType,  // Store appeal type
+		AssigneeResponse:  "",
+		Votes:             []*types.JurorVote{},
+		Deadline:          deadline,
+		Verdict:           types.Verdict_VERDICT_PENDING,
+	}
+
+	// For appeals, we'll select jurors when voting begins (deferred jury selection)
+	// This allows time for the appeal to be reviewed before jury is selected
+
+	// Save jury review
+	if err := k.JuryReview.Set(ctx, juryReview.Id, juryReview); err != nil {
+		return 0, fmt.Errorf("failed to save appeal jury review: %w", err)
+	}
+
+	// Emit event
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"appeal_initiative_created",
+			sdk.NewAttribute("appeal_id", fmt.Sprintf("%d", appealID)),
+			sdk.NewAttribute("type", initiativeType),
+			sdk.NewAttribute("deadline", fmt.Sprintf("%d", deadline)),
+		),
+	)
+
+	return appealID, nil
+}

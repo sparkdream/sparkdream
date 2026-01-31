@@ -601,7 +601,6 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 }
 
 func TestStakeRewards(t *testing.T) {
-	// t.Skip("PayStakeRewards not yet implemented - TODO: implement stake rewards distribution mechanism")
 	fixture := initFixture(t)
 	k := fixture.keeper
 	ctx := fixture.ctx

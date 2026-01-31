@@ -236,3 +236,56 @@ func (k Keeper) GetCommitteeGroupInfo(ctx context.Context, council string, commi
 
 	return extendedGroup, nil
 }
+
+// --- Group Policy Helpers (for cross-module integration) ---
+
+// IsGroupPolicyMember checks if a member address is part of the group associated with
+// a given policy address. This method is used by other modules (e.g., x/forum) to verify
+// group membership via the policy address.
+func (k Keeper) IsGroupPolicyMember(ctx context.Context, policyAddr string, memberAddr string) (bool, error) {
+	// Look up the group name from the policy address
+	groupName, err := k.PolicyToName.Get(ctx, policyAddr)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return false, nil // Unknown policy address
+		}
+		return false, err
+	}
+
+	// Get the ExtendedGroup to find the GroupID
+	extendedGroup, err := k.ExtendedGroup.Get(ctx, groupName)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return false, nil // Group doesn't exist
+		}
+		return false, err
+	}
+
+	// Query group members from x/group module
+	iterator, err := k.groupKeeper.GroupMembers(ctx, &group.QueryGroupMembersRequest{
+		GroupId: extendedGroup.GroupId,
+	})
+	if err != nil {
+		return false, nil // Can't query members, treat as not a member
+	}
+
+	// Check if the member address is in the group
+	for _, member := range iterator.Members {
+		if member.Member.Address == memberAddr {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// IsGroupPolicyAddress checks if a given address is a valid group policy address.
+// This is used by other modules to verify that an address represents a group.
+func (k Keeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
+	// Check if the address exists in the PolicyToName index
+	_, err := k.PolicyToName.Get(ctx, addr)
+	if err != nil {
+		return false
+	}
+	return true
+}

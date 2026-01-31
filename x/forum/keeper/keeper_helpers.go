@@ -3,6 +3,7 @@ package keeper
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -113,22 +114,38 @@ func (k Keeper) GetSentinelBacking(ctx context.Context, addr string) math.Int {
 	return balance
 }
 
-// IsGroupMember checks if addr is a member of the group identified by groupAddr.
-// TODO: Integrate with x/commons when available.
+// IsGroupMember checks if addr is a member of the group identified by groupAddr (policy address).
+// Integrates with x/commons to verify group membership via policy address.
 func (k Keeper) IsGroupMember(ctx context.Context, groupAddr, addr string) bool {
-	return true // Stub until x/commons integration
+	if k.commonsKeeper == nil {
+		return true // Fallback: permissive mode when x/commons not wired
+	}
+	isMember, err := k.commonsKeeper.IsGroupPolicyMember(ctx, groupAddr, addr)
+	if err != nil {
+		return false
+	}
+	return isMember
 }
 
-// IsGroupAccount checks if the given address is a valid group account.
-// TODO: Integrate with x/commons when available.
+// IsGroupAccount checks if the given address is a valid group policy account.
+// Integrates with x/commons to verify the address is a known group policy.
 func (k Keeper) IsGroupAccount(ctx context.Context, addr string) bool {
-	return true // Stub until x/commons integration
+	if k.commonsKeeper == nil {
+		return true // Fallback: permissive mode when x/commons not wired
+	}
+	return k.commonsKeeper.IsGroupPolicyAddress(ctx, addr)
 }
 
-// CreateAppealInitiative creates an x/rep initiative for jury resolution.
-// TODO: Integrate with x/rep initiative system when appeals are implemented.
+// CreateAppealInitiative creates an x/rep initiative for jury-based appeal resolution.
+// initiativeType: type of appeal ("moderation_appeal", "sentinel_appeal", etc.)
+// payload: JSON-encoded appeal data containing case details
+// deadline: block height by which the appeal must be resolved
+// Returns the initiative ID or error.
 func (k Keeper) CreateAppealInitiative(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error) {
-	return 1, nil // Stub until initiative appeal integration
+	if k.repKeeper == nil {
+		return 0, fmt.Errorf("x/rep keeper not available for appeal creation")
+	}
+	return k.repKeeper.CreateAppealInitiative(ctx, initiativeType, payload, deadline)
 }
 
 // SlashSentinelBond slashes DREAM from a sentinel's staked balance via x/rep.

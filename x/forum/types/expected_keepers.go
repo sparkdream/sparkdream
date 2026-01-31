@@ -17,6 +17,17 @@ type AuthKeeper interface {
 	// Methods imported from account should be defined here
 }
 
+// CommonsKeeper defines the expected interface for the Commons module.
+// Used for group membership and policy verification.
+type CommonsKeeper interface {
+	// IsGroupPolicyMember checks if an address is a member of a group via its policy address.
+	// The policyAddr is the group policy account address.
+	IsGroupPolicyMember(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
+
+	// IsGroupPolicyAddress checks if the given address is a valid group policy address.
+	IsGroupPolicyAddress(ctx context.Context, addr string) bool
+}
+
 // BankKeeper defines the expected interface for the Bank module.
 type BankKeeper interface {
 	SpendableCoins(context.Context, sdk.AccAddress) sdk.Coins
@@ -56,4 +67,12 @@ type RepKeeper interface {
 	ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error
 	DemoteMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error
 	SlashReputation(ctx context.Context, memberAddr sdk.AccAddress, penaltyRate math.LegacyDec, tags []string, reason string) error
+
+	// Appeal initiatives
+	// CreateAppealInitiative creates a special initiative for jury-based appeal resolution.
+	// initiativeType: type of appeal ("moderation_appeal", "sentinel_appeal", etc.)
+	// payload: JSON-encoded appeal data
+	// deadline: block height by which the appeal must be resolved
+	// Returns the initiative ID or error.
+	CreateAppealInitiative(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
 }
