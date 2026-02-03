@@ -152,7 +152,11 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 }
 
 // GetCurrentSeason returns the current season number from the x/season module.
+// Returns 0 if the season keeper is not available (optional dependency).
 func (k Keeper) GetCurrentSeason(ctx context.Context) (int64, error) {
+	if k.seasonKeeper == nil {
+		return 0, nil // Fallback when x/season not wired
+	}
 	season, err := k.seasonKeeper.GetCurrentSeason(ctx)
 	if err != nil {
 		return 0, err

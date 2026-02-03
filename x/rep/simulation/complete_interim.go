@@ -30,14 +30,31 @@ func SimulateMsgCompleteInterim(
 		// Find or create an in-progress interim
 		interim, interimID, err := findInterim(r, ctx, k, types.InterimStatus_INTERIM_STATUS_IN_PROGRESS)
 		if err != nil || interim == nil {
-			// Create a new interim and set to IN_PROGRESS
+			// Create a new interim with this member as assignee and set to IN_PROGRESS
 			interimID, err = createInterim(ctx, k, r, member)
 			if err != nil {
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCompleteInterim{}), "failed to create interim"), nil, nil
 			}
 			interimObj, _ := k.Interim.Get(ctx, interimID)
 			interimObj.Status = types.InterimStatus_INTERIM_STATUS_IN_PROGRESS
+			// Ensure member is an assignee
+			if len(interimObj.Assignees) == 0 {
+				interimObj.Assignees = []string{member.Address}
+			}
 			_ = k.Interim.Set(ctx, interimID, interimObj)
+			interim = &interimObj
+		}
+
+		// Verify member is an assignee
+		isAssignee := false
+		for _, assignee := range interim.Assignees {
+			if assignee == member.Address {
+				isAssignee = true
+				break
+			}
+		}
+		if !isAssignee {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCompleteInterim{}), "member not an assignee"), nil, nil
 		}
 
 		msg := &types.MsgCompleteInterim{

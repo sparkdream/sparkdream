@@ -29,6 +29,15 @@ func SimulateMsgTransferDream(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "failed to get/create sender with DREAM"), nil, nil
 		}
 
+		// Pre-validation: check if sender has exceeded tips per epoch limit
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			params = types.DefaultParams()
+		}
+		if sender.TipsGivenThisEpoch >= params.MaxTipsPerEpoch {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "exceeded max tips per epoch"), nil, nil
+		}
+
 		// Get or create a recipient (different from sender)
 		recipient, _, err := getOrCreateMember(r, ctx, k, accs)
 		if err != nil {
@@ -45,18 +54,10 @@ func SimulateMsgTransferDream(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "unable to find different recipient"), nil, nil
 		}
 
-		// Determine transfer purpose and amount based on limits
+		// Use TIP transfers only (gifts have cooldown requirements that are complex to simulate)
 		// Tips: max 100 DREAM
-		// Gifts: max 500 DREAM (for invitees)
 		purpose := types.TransferPurpose_TRANSFER_PURPOSE_TIP
 		maxTransfer := math.NewInt(100)
-
-		// Randomly choose between tip and gift
-		// Gifts are only allowed to invitees, so check the invitation relationship
-		if r.Intn(2) == 0 && recipient.InvitedBy == sender.Address {
-			purpose = types.TransferPurpose_TRANSFER_PURPOSE_GIFT
-			maxTransfer = math.NewInt(500)
-		}
 
 		// Calculate transfer amount
 		if (*sender.DreamBalance).LT(maxTransfer) {
@@ -66,7 +67,14 @@ func SimulateMsgTransferDream(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "insufficient balance for transfer"), nil, nil
 		}
 
-		transferAmount := math.NewInt(int64(r.Intn(int(maxTransfer.Sub(minAmount).Int64()))) + minAmount.Int64())
+		// Calculate transfer amount (handle case where maxTransfer == minAmount)
+		var transferAmount math.Int
+		rangeVal := maxTransfer.Sub(minAmount).Int64()
+		if rangeVal <= 0 {
+			transferAmount = minAmount
+		} else {
+			transferAmount = math.NewInt(int64(r.Intn(int(rangeVal))) + minAmount.Int64())
+		}
 
 		msg := &types.MsgTransferDream{
 			Sender:    sender.Address,

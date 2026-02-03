@@ -56,7 +56,12 @@ func IsAffiliated(initiative types.Initiative, addr string) bool {
 }
 
 // IsOperationsCommittee checks if an address is a member of the Operations committee
+// Returns false if commonsKeeper is not available (optional dependency).
 func (k Keeper) IsOperationsCommittee(ctx context.Context, address sdk.AccAddress) bool {
+	if k.commonsKeeper == nil {
+		return false // Fallback when x/commons not wired
+	}
+
 	// Check Technical Council -> Operations Committee
 	isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, address, "technical", "operations")
 	if err == nil && isMember {
@@ -73,7 +78,12 @@ func (k Keeper) IsOperationsCommittee(ctx context.Context, address sdk.AccAddres
 }
 
 // IsHRCommittee checks if an address is a member of the HR committee
+// Returns false if commonsKeeper is not available (optional dependency).
 func (k Keeper) IsHRCommittee(ctx context.Context, address sdk.AccAddress) bool {
+	if k.commonsKeeper == nil {
+		return false // Fallback when x/commons not wired
+	}
+
 	// Check Commons Council -> HR Committee
 	isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, address, "commons", "hr")
 	if err == nil && isMember {

@@ -35,11 +35,26 @@ func SimulateMsgCreateInitiative(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "failed to get/create project"), nil, nil
 		}
 
+		// Check project's remaining budget (ApprovedBudget - AllocatedBudget)
+		project, err := k.GetProject(sdk.UnwrapSDKContext(ctx), projectID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "failed to get project"), nil, nil
+		}
+		approvedBudget := project.ApprovedBudget
+		allocatedBudget := project.AllocatedBudget
+		if approvedBudget == nil || allocatedBudget == nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "budget not set"), nil, nil
+		}
+		availableBudget := approvedBudget.Sub(*allocatedBudget)
+		if availableBudget.IsZero() || availableBudget.IsNegative() {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "no remaining budget"), nil, nil
+		}
+
 		// Generate initiative details
 		tier := randomInitiativeTier(r)
 		category := randomInitiativeCategory(r)
 
-		// Budget based on tier
+		// Budget based on tier, but capped by available budget
 		var budget math.Int
 		switch tier {
 		case types.InitiativeTier_INITIATIVE_TIER_APPRENTICE:
@@ -50,6 +65,14 @@ func SimulateMsgCreateInitiative(
 			budget = math.NewInt(int64(r.Intn(2000) + 1500)) // 1500-3500
 		case types.InitiativeTier_INITIATIVE_TIER_EPIC:
 			budget = math.NewInt(int64(r.Intn(4000) + 3500)) // 3500-7500
+		}
+
+		// Cap budget to available budget
+		if budget.GT(availableBudget) {
+			if availableBudget.LT(math.NewInt(100)) {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "insufficient remaining budget"), nil, nil
+			}
+			budget = availableBudget
 		}
 
 		msg := &types.MsgCreateInitiative{

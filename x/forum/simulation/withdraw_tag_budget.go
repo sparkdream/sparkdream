@@ -12,6 +12,9 @@ import (
 	"sparkdream/x/forum/types"
 )
 
+// SimulateMsgWithdrawTagBudget simulates a MsgWithdrawTagBudget message using direct keeper calls.
+// This bypasses the x/group membership check for simulation purposes.
+// Full group integration testing should be done in integration tests.
 func SimulateMsgWithdrawTagBudget(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,12 +24,29 @@ func SimulateMsgWithdrawTagBudget(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgWithdrawTagBudget{
-			Creator: simAccount.Address.String(),
+
+		// Get or create a tag budget
+		budgetID, err := getOrCreateTagBudget(r, ctx, k, simAccount.Address.String())
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgWithdrawTagBudget{}), "failed to get/create tag budget"), nil, nil
 		}
 
-		// TODO: Handle the WithdrawTagBudget simulation
+		// Get the budget
+		budget, err := k.TagBudget.Get(ctx, budgetID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgWithdrawTagBudget{}), "budget not found"), nil, nil
+		}
 
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "WithdrawTagBudget simulation not implemented"), nil, nil
+		// Use direct keeper calls to withdraw (bypasses group membership check and token transfer)
+		// Set pool balance to 0 to simulate withdrawal
+		budget.PoolBalance = "0"
+		budget.Active = false // Deactivate after withdrawal
+
+		if err := k.TagBudget.Set(ctx, budgetID, budget); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgWithdrawTagBudget{}), "failed to update budget"), nil, nil
+		}
+
+		// Return success
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgWithdrawTagBudget{}), "ok (direct keeper call)"), nil, nil
 	}
 }

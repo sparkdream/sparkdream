@@ -36,6 +36,13 @@ func SimulateMsgResolveDispute(
 		// 1. Setup Actor: Pick a random account to be the Council Member
 		simAccount, _ := simtypes.RandomAcc(r, accs)
 
+		// Check solvency for explicit fees (5M uspark)
+		explicitFees := math.NewInt(5000000)
+		balance := bk.SpendableCoins(ctx, simAccount.Address)
+		if balance.AmountOf("uspark").LT(explicitFees) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "insufficient funds for gas"), nil, nil
+		}
+
 		// 2. Setup Infrastructure: Create a Group & Policy controlled by this actor
 		members := []group.MemberRequest{
 			{Address: simAccount.Address.String(), Weight: "1", Metadata: "sim member"},

@@ -17,8 +17,23 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	for i, acc := range simState.Accounts {
 		accs[i] = acc.Address.String()
 	}
+
+	// Create initial Season (required by x/rep and other modules)
+	initialSeason := &types.Season{
+		Number:               1,
+		Name:                 "Genesis Season",
+		Theme:                "Beginning",
+		StartBlock:           1,
+		EndBlock:             1000000, // Far future for simulation
+		Status:               types.SeasonStatus_SEASON_STATUS_ACTIVE,
+		ExtensionsCount:      0,
+		TotalExtensionEpochs: 0,
+		OriginalEndBlock:     1000000,
+	}
+
 	seasonGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
+		Season: initialSeason,
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&seasonGenesis)
 }

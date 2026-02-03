@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -23,20 +24,27 @@ func SimulateMsgCreateMarket(
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
 
-		// 1. Check for spendable coins to determine InitialLiquidity
+		// 1. Check for spendable uspark coins (market creation uses uspark specifically)
 		spendable := bk.SpendableCoins(ctx, simAccount.Address)
-		if spendable.Empty() {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "No spendable coins"), nil, nil
+		usparkBalance := spendable.AmountOf("uspark")
+		if usparkBalance.IsZero() {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "No uspark balance"), nil, nil
 		}
 
-		// 2. Select a random coin for liquidity, ensuring we leave some for fees
-		// We'll take a small fraction to be safe
-		coin := spendable[r.Intn(len(spendable))]
-		amount := coin.Amount.QuoRaw(10) // Use 10% of available balance
-		if amount.IsZero() {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "Balance too low for liquidity"), nil, nil
+		// 2. Ensure enough balance for liquidity + fees
+		// Minimum liquidity required is 100000, need at least 3x for fees buffer
+		minLiquidity := math.NewInt(100000)
+		minBalance := minLiquidity.MulRaw(3) // Need 3x min liquidity to have buffer for fees
+		if usparkBalance.LT(minBalance) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "Balance too low for market creation"), nil, nil
 		}
-		liquidity := sdk.NewCoin(coin.Denom, amount)
+		// Use 10% of available balance for liquidity, leaving 90% for fees
+		// This is more conservative to avoid fee calculation issues
+		amount := usparkBalance.QuoRaw(10)
+		if amount.LT(minLiquidity) {
+			amount = minLiquidity
+		}
+		liquidity := sdk.NewCoin("uspark", amount)
 
 		msg := &types.MsgCreateMarket{
 			Creator:          simAccount.Address.String(),

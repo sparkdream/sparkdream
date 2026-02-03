@@ -12,6 +12,9 @@ import (
 	"sparkdream/x/forum/types"
 )
 
+// SimulateMsgResolveTagReport simulates a MsgResolveTagReport message using direct keeper calls.
+// This bypasses the authority requirement for simulation purposes.
+// Full governance integration testing should be done in integration tests.
 func SimulateMsgResolveTagReport(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,12 +24,27 @@ func SimulateMsgResolveTagReport(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgResolveTagReport{
-			Creator: simAccount.Address.String(),
+
+		// Get or create a tag
+		tagName, err := getOrCreateTag(r, ctx, k)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "failed to get/create tag"), nil, nil
 		}
 
-		// TODO: Handle the ResolveTagReport simulation
+		// Get or create a tag report for this tag
+		err = getOrCreateTagReport(r, ctx, k, tagName, simAccount.Address.String())
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "failed to get/create tag report"), nil, nil
+		}
 
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ResolveTagReport simulation not implemented"), nil, nil
+		// Use direct keeper calls to resolve the report (bypasses authority check)
+		// Simply remove the tag report to mark it as resolved
+		// Tag type doesn't have Reserved/Banned fields so we just clean up the report
+		if err := k.TagReport.Remove(ctx, tagName); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "failed to remove report"), nil, nil
+		}
+
+		// Return success
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "ok (direct keeper call)"), nil, nil
 	}
 }

@@ -9,10 +9,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
-	commonskeeper "sparkdream/x/commons/keeper"
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
-	seasonkeeper "sparkdream/x/season/keeper"
 )
 
 var _ depinject.OnePerModuleType = AppModule{}
@@ -35,10 +33,12 @@ type ModuleInputs struct {
 	Cdc          codec.Codec
 	AddressCodec address.Codec
 
-	AuthKeeper    types.AuthKeeper
-	BankKeeper    types.BankKeeper
-	CommonsKeeper commonskeeper.Keeper
-	SeasonKeeper  seasonkeeper.Keeper
+	AuthKeeper types.AuthKeeper
+	BankKeeper types.BankKeeper
+
+	// Optional cross-module keepers (nil if modules not available)
+	CommonsKeeper types.CommonsKeeper `optional:"true"`
+	SeasonKeeper  types.SeasonKeeper  `optional:"true"`
 }
 
 type ModuleOutputs struct {

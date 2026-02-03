@@ -12,6 +12,9 @@ import (
 	"sparkdream/x/forum/types"
 )
 
+// SimulateMsgUnpinPost simulates a MsgUnpinPost message using direct keeper calls.
+// This bypasses the governance authority requirement for simulation purposes.
+// Full authority testing should be done in integration tests.
 func SimulateMsgUnpinPost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,12 +24,25 @@ func SimulateMsgUnpinPost(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgUnpinPost{
-			Creator: simAccount.Address.String(),
+
+		// Get or create a pinned post
+		postID, err := getOrCreatePinnedPost(r, ctx, k, simAccount.Address.String())
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinPost{}), "failed to get/create pinned post"), nil, nil
 		}
 
-		// TODO: Handle the UnpinPost simulation
+		// Use direct keeper calls to unpin the post
+		post, err := k.Post.Get(ctx, postID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinPost{}), "failed to get post"), nil, nil
+		}
 
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "UnpinPost simulation not implemented"), nil, nil
+		post.Pinned = false
+		if err := k.Post.Set(ctx, postID, post); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinPost{}), "failed to unpin post"), nil, nil
+		}
+
+		// Return success
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinPost{}), "ok (direct keeper call)"), nil, nil
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
@@ -21,12 +22,36 @@ func SimulateMsgSetDisplayName(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgSetDisplayName{
-			Creator: simAccount.Address.String(),
+
+		// Ensure profile exists
+		if err := getOrCreateMemberProfile(r, ctx, k, simAccount.Address.String()); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetDisplayName{}), "failed to create profile"), nil, nil
 		}
 
-		// TODO: Handle the SetDisplayName simulation
+		// Check if display name is currently moderated
+		_, err := k.DisplayNameModeration.Get(ctx, simAccount.Address.String())
+		if err == nil {
+			// There's an active moderation record, can't change display name
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetDisplayName{}), "display name is moderated"), nil, nil
+		}
 
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "SetDisplayName simulation not implemented"), nil, nil
+		msg := &types.MsgSetDisplayName{
+			Creator: simAccount.Address.String(),
+			Name:    randomDisplayName(r),
+		}
+
+		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
+			R:               r,
+			App:             app,
+			TxGen:           txGen,
+			Cdc:             nil,
+			Msg:             msg,
+			CoinsSpentInMsg: sdk.NewCoins(),
+			Context:         ctx,
+			SimAccount:      simAccount,
+			AccountKeeper:   ak,
+			Bankkeeper:      bk,
+			ModuleName:      types.ModuleName,
+		})
 	}
 }

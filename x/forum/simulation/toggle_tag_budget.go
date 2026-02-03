@@ -12,6 +12,9 @@ import (
 	"sparkdream/x/forum/types"
 )
 
+// SimulateMsgToggleTagBudget simulates a MsgToggleTagBudget message using direct keeper calls.
+// This bypasses authority checks for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgToggleTagBudget(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,12 +24,27 @@ func SimulateMsgToggleTagBudget(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgToggleTagBudget{
-			Creator: simAccount.Address.String(),
+
+		// Get or create a tag budget
+		budgetID, err := getOrCreateTagBudget(r, ctx, k, simAccount.Address.String())
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgToggleTagBudget{}), "failed to get/create tag budget"), nil, nil
 		}
 
-		// TODO: Handle the ToggleTagBudget simulation
+		// Use direct keeper calls to toggle tag budget (bypasses authority check)
+		budget, err := k.TagBudget.Get(ctx, budgetID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgToggleTagBudget{}), "tag budget not found"), nil, nil
+		}
 
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ToggleTagBudget simulation not implemented"), nil, nil
+		// Toggle the active state
+		budget.Active = !budget.Active
+
+		if err := k.TagBudget.Set(ctx, budgetID, budget); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgToggleTagBudget{}), "failed to toggle tag budget"), nil, nil
+		}
+
+		// Return success
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgToggleTagBudget{}), "ok (direct keeper call)"), nil, nil
 	}
 }

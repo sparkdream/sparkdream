@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"fmt"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -12,6 +13,9 @@ import (
 	"sparkdream/x/season/types"
 )
 
+// SimulateMsgSetNextSeasonInfo simulates a MsgSetNextSeasonInfo message using direct keeper calls.
+// This bypasses the governance authority requirement for simulation purposes.
+// Full authority testing should be done in integration tests.
 func SimulateMsgSetNextSeasonInfo(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -20,13 +24,27 @@ func SimulateMsgSetNextSeasonInfo(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgSetNextSeasonInfo{
-			Authority: simAccount.Address.String(),
+		// Get the current season to determine the next season number
+		season, err := k.Season.Get(ctx)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetNextSeasonInfo{}), "no active season"), nil, nil
 		}
 
-		// TODO: Handle the SetNextSeasonInfo simulation
+		// Generate random season info
+		themes := []string{"Discovery", "Adventure", "Innovation", "Unity", "Challenge", "Growth"}
+		theme := themes[r.Intn(len(themes))]
 
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "SetNextSeasonInfo simulation not implemented"), nil, nil
+		nextSeasonInfo := types.NextSeasonInfo{
+			Name:  fmt.Sprintf("Season %d", season.Number+1),
+			Theme: theme,
+		}
+
+		// Save the next season info using direct keeper call
+		if err := k.NextSeasonInfo.Set(ctx, nextSeasonInfo); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetNextSeasonInfo{}), "failed to set next season info"), nil, nil
+		}
+
+		// Return success
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetNextSeasonInfo{}), "ok (direct keeper call)"), nil, nil
 	}
 }

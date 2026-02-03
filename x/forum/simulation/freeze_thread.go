@@ -12,6 +12,9 @@ import (
 	"sparkdream/x/forum/types"
 )
 
+// SimulateMsgFreezeThread simulates a MsgFreezeThread message using direct keeper calls.
+// This bypasses the governance authority requirement for simulation purposes.
+// Full authority testing should be done in integration tests.
 func SimulateMsgFreezeThread(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,12 +24,33 @@ func SimulateMsgFreezeThread(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgFreezeThread{
-			Creator: simAccount.Address.String(),
+
+		// Find an unlocked root post to freeze
+		_, rootID, err := findUnlockedRootPost(r, ctx, k)
+		if err != nil {
+			// Create one
+			rootID, err = getOrCreateRootPost(r, ctx, k, simAccount.Address.String())
+			if err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFreezeThread{}), "failed to get/create root post"), nil, nil
+			}
 		}
 
-		// TODO: Handle the FreezeThread simulation
+		// Get the post as value type
+		rootPost, err := k.Post.Get(ctx, rootID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFreezeThread{}), "failed to get post"), nil, nil
+		}
 
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "FreezeThread simulation not implemented"), nil, nil
+		// Use direct keeper calls to freeze the thread
+		// Since there's no FROZEN status, use ARCHIVED to simulate freeze
+		rootPost.Status = types.PostStatus_POST_STATUS_ARCHIVED
+		rootPost.Locked = true
+		rootPost.LockReason = "Thread frozen by governance"
+		if err := k.Post.Set(ctx, rootID, rootPost); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFreezeThread{}), "failed to freeze thread"), nil, nil
+		}
+
+		// Return success
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFreezeThread{}), "ok (direct keeper call)"), nil, nil
 	}
 }

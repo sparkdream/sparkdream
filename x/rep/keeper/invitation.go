@@ -372,6 +372,11 @@ func (k Keeper) CalculateReferralReward(ctx context.Context, invitee sdk.AccAddr
 		return nil // Referral period has ended
 	}
 
+	// Check if ReferralRate is set
+	if invitation.ReferralRate == nil || invitation.ReferralRate.IsZero() {
+		return nil // No referral rate configured
+	}
+
 	// Calculate referral reward (based on ReferralRewardRate param)
 	referralReward := invitation.ReferralRate.MulInt(earnedAmount).TruncateInt()
 
@@ -390,7 +395,12 @@ func (k Keeper) CalculateReferralReward(ctx context.Context, invitee sdk.AccAddr
 	}
 
 	// Update invitation record
-	*invitation.ReferralEarned = invitation.ReferralEarned.Add(referralReward)
+	if invitation.ReferralEarned != nil {
+		newEarned := invitation.ReferralEarned.Add(referralReward)
+		invitation.ReferralEarned = &newEarned
+	} else {
+		invitation.ReferralEarned = &referralReward
+	}
 	if err := k.Invitation.Set(ctx, invitation.Id, *invitation); err != nil {
 		return err
 	}

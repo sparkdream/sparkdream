@@ -7,10 +7,11 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// AwardBounty marks a bounty as awarded (simplified - actual award happens via AssignBountyToReply)
+// AwardBounty finalizes a bounty by transferring escrowed funds to recipients and marking it as awarded
 func (k msgServer) AwardBounty(ctx context.Context, msg *types.MsgAwardBounty) (*types.MsgAwardBountyResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
@@ -37,6 +38,22 @@ func (k msgServer) AwardBounty(ctx context.Context, msg *types.MsgAwardBounty) (
 	// Check bounty has awards
 	if len(bounty.Awards) == 0 {
 		return nil, errorsmod.Wrap(types.ErrBountyNotActive, "no awards assigned yet - use AssignBountyToReply first")
+	}
+
+	// Transfer escrowed funds to each award recipient
+	for _, award := range bounty.Awards {
+		awardAmount, ok := math.NewIntFromString(award.Amount)
+		if !ok || !awardAmount.IsPositive() {
+			continue
+		}
+		recipientAddr, err := sdk.AccAddressFromBech32(award.Recipient)
+		if err != nil {
+			return nil, errorsmod.Wrapf(err, "invalid recipient address for award to post %d", award.PostId)
+		}
+		awardCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, awardAmount))
+		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipientAddr, awardCoins); err != nil {
+			return nil, errorsmod.Wrapf(err, "failed to transfer bounty award to %s", award.Recipient)
+		}
 	}
 
 	// Mark bounty as awarded

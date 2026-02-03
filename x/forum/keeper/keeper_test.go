@@ -18,6 +18,7 @@ import (
 	"sparkdream/x/forum/keeper"
 	module "sparkdream/x/forum/module"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 // Test addresses - generated dynamically with valid checksums
@@ -120,6 +121,81 @@ func (m *mockBankKeeper) MintCoins(ctx context.Context, moduleName string, amt s
 	return nil
 }
 
+// mockRepKeeper implements types.RepKeeper for testing
+type mockRepKeeper struct {
+	CreateAppealInitiativeFn func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
+	nextInitiativeID         uint64
+}
+
+func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	return nil
+}
+
+func (m *mockRepKeeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	return nil
+}
+
+func (m *mockRepKeeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	return nil
+}
+
+func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	return nil
+}
+
+func (m *mockRepKeeper) GetBalance(ctx context.Context, addr sdk.AccAddress) (math.Int, error) {
+	return math.NewInt(1000000), nil
+}
+
+func (m *mockRepKeeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddress, amount math.Int, purpose reptypes.TransferPurpose) error {
+	return nil
+}
+
+func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool {
+	return true
+}
+
+func (m *mockRepKeeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
+	return true
+}
+
+func (m *mockRepKeeper) GetMember(ctx context.Context, addr sdk.AccAddress) (reptypes.Member, error) {
+	// Return a member with sufficient StakedDream for sentinel operations
+	staked := math.NewInt(5000)
+	return reptypes.Member{
+		StakedDream: &staked,
+		TrustLevel:  reptypes.TrustLevel_TRUST_LEVEL_TRUSTED,
+	}, nil
+}
+
+func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
+	return reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED, nil
+}
+
+func (m *mockRepKeeper) GetReputationTier(ctx context.Context, addr sdk.AccAddress) (uint64, error) {
+	return 5, nil // Return high tier to allow sentinel operations
+}
+
+func (m *mockRepKeeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error {
+	return nil
+}
+
+func (m *mockRepKeeper) DemoteMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error {
+	return nil
+}
+
+func (m *mockRepKeeper) SlashReputation(ctx context.Context, memberAddr sdk.AccAddress, penaltyRate math.LegacyDec, tags []string, reason string) error {
+	return nil
+}
+
+func (m *mockRepKeeper) CreateAppealInitiative(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error) {
+	if m.CreateAppealInitiativeFn != nil {
+		return m.CreateAppealInitiativeFn(ctx, initiativeType, payload, deadline)
+	}
+	m.nextInitiativeID++
+	return m.nextInitiativeID, nil
+}
+
 func initFixture(t *testing.T) *fixture {
 	t.Helper()
 
@@ -133,14 +209,16 @@ func initFixture(t *testing.T) *fixture {
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
 	bankKeeper := &mockBankKeeper{}
+	repKeeper := &mockRepKeeper{}
 
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
 		addressCodec,
-		authority,
+		authority.Bytes(),
 		bankKeeper,
-		nil, // repKeeper - nil uses fallback stubs for testing
+		repKeeper,
+		nil, // commonsKeeper - nil uses fallback stubs for testing
 	)
 
 	// Initialize params

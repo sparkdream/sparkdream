@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"fmt"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -12,6 +13,9 @@ import (
 	"sparkdream/x/forum/types"
 )
 
+// SimulateMsgCreateCategory simulates a MsgCreateCategory message using direct keeper calls.
+// This bypasses the governance authority requirement for simulation purposes.
+// Full authority testing should be done in integration tests.
 func SimulateMsgCreateCategory(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -20,13 +24,25 @@ func SimulateMsgCreateCategory(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgCreateCategory{
-			Creator: simAccount.Address.String(),
+		// Use direct keeper calls to create category (bypasses authority check)
+		categoryID, err := k.CategorySeq.Next(ctx)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateCategory{}), "failed to get category ID"), nil, nil
 		}
 
-		// TODO: Handle the CreateCategory simulation
+		category := types.Category{
+			CategoryId:       categoryID,
+			Title:            fmt.Sprintf("Category-%d", r.Intn(10000)),
+			Description:      "Simulation generated category",
+			MembersOnlyWrite: r.Intn(2) == 0,
+			AdminOnlyWrite:   false,
+		}
 
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "CreateCategory simulation not implemented"), nil, nil
+		if err := k.Category.Set(ctx, categoryID, category); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateCategory{}), "failed to create category"), nil, nil
+		}
+
+		// Return success
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateCategory{}), "ok (direct keeper call)"), nil, nil
 	}
 }

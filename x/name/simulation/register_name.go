@@ -118,12 +118,15 @@ func SimulateMsgRegisterName(
 			}
 		}
 
-		// 4. Check Solvency
-		if !params.RegistrationFee.IsZero() {
-			balance := bk.SpendableCoins(ctx, simAccount.Address)
-			if balance.AmountOf(params.RegistrationFee.Denom).LT(params.RegistrationFee.Amount) {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "insufficient funds for reg fee"), nil, nil
-			}
+		// 4. Check Solvency (registration fee + explicit gas fees of 5M uspark)
+		explicitFees := math.NewInt(5000000)
+		totalRequired := explicitFees
+		if !params.RegistrationFee.IsZero() && params.RegistrationFee.Denom == "uspark" {
+			totalRequired = totalRequired.Add(params.RegistrationFee.Amount)
+		}
+		balance := bk.SpendableCoins(ctx, simAccount.Address)
+		if balance.AmountOf("uspark").LT(totalRequired) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "insufficient funds for reg fee + gas"), nil, nil
 		}
 
 		// 4.5. CHECK NAME LIMIT (Updated to use GetOwnedNamesCount)

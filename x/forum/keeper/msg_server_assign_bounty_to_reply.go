@@ -80,11 +80,28 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 		return nil, errorsmod.Wrap(types.ErrNotReplyInThread, "cannot award bounty to thread root post")
 	}
 
-	// Create award (using full remaining amount for simplicity)
+	// Calculate remaining bounty amount (total - already assigned)
+	totalAmount, ok := math.NewIntFromString(bounty.Amount)
+	if !ok {
+		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid bounty amount")
+	}
+	assignedAmount := math.ZeroInt()
+	for _, a := range bounty.Awards {
+		awardAmt, ok := math.NewIntFromString(a.Amount)
+		if ok {
+			assignedAmount = assignedAmount.Add(awardAmt)
+		}
+	}
+	remainingAmount := totalAmount.Sub(assignedAmount)
+	if !remainingAmount.IsPositive() {
+		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "no remaining bounty funds to assign")
+	}
+
+	// Create award with remaining amount
 	award := &types.BountyAward{
 		PostId:    msg.ReplyId,
 		Recipient: reply.Author,
-		Amount:    bounty.Amount, // Full amount - would split in production
+		Amount:    remainingAmount.String(),
 		Reason:    msg.Reason,
 		AwardedAt: now,
 		Rank:      uint32(len(bounty.Awards) + 1),
@@ -92,18 +109,9 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 
 	bounty.Awards = append(bounty.Awards, award)
 
-	// Transfer SPARK from escrow to recipient
-	awardAmount, ok := math.NewIntFromString(award.Amount)
-	if ok && awardAmount.IsPositive() {
-		recipientAddr, _ := sdk.AccAddressFromBech32(reply.Author)
-		awardCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, awardAmount))
-		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipientAddr, awardCoins); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to transfer bounty award")
-		}
-	}
-
-	// Mark bounty as awarded
-	bounty.Status = types.BountyStatus_BOUNTY_STATUS_AWARDED
+	// Note: Funds are NOT transferred here - they remain in escrow until AwardBounty is called
+	// This allows the bounty creator to assign multiple awards before finalizing
+	// The bounty remains ACTIVE so more awards can be assigned (up to max winners)
 
 	if err := k.Bounty.Set(ctx, bountyID, bounty); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update bounty")
@@ -117,7 +125,7 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", msg.ThreadId)),
 			sdk.NewAttribute("reply_id", fmt.Sprintf("%d", msg.ReplyId)),
 			sdk.NewAttribute("recipient", reply.Author),
-			sdk.NewAttribute("amount", bounty.Amount),
+			sdk.NewAttribute("amount", award.Amount),
 			sdk.NewAttribute("reason", msg.Reason),
 		),
 	)

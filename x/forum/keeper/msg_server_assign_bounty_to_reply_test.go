@@ -122,10 +122,10 @@ func TestAssignBountyToReply(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, resp)
 
-				// Verify bounty was awarded
+				// Verify award was added but status remains ACTIVE (finalized via AwardBounty)
 				b, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)
 				require.NoError(t, err)
-				require.Equal(t, types.BountyStatus_BOUNTY_STATUS_AWARDED, b.Status)
+				require.Equal(t, types.BountyStatus_BOUNTY_STATUS_ACTIVE, b.Status)
 				require.Len(t, b.Awards, 1)
 				require.Equal(t, reply.PostId, b.Awards[0].PostId)
 				require.Equal(t, testCreator2, b.Awards[0].Recipient)
@@ -159,7 +159,7 @@ func TestAssignBountyTransfer(t *testing.T) {
 	// Create an active bounty
 	bounty := f.createTestBounty(t, testCreator, thread.PostId, "100000000")
 
-	// Assign bounty
+	// Assign bounty - funds are NOT transferred here, they stay escrowed
 	_, err := f.msgServer.AssignBountyToReply(f.ctx, &types.MsgAssignBountyToReply{
 		Creator:  testCreator,
 		ThreadId: thread.PostId,
@@ -168,9 +168,24 @@ func TestAssignBountyTransfer(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify transfer happened
+	// Verify no transfer happened yet (funds stay escrowed until AwardBounty)
+	require.Nil(t, transferredTo)
+
+	// Now finalize the bounty with AwardBounty
+	_, err = f.msgServer.AwardBounty(f.ctx, &types.MsgAwardBounty{
+		Creator:  testCreator,
+		BountyId: bounty.Id,
+	})
+	require.NoError(t, err)
+
+	// Verify transfer happened after AwardBounty
 	require.NotNil(t, transferredTo)
 	require.Equal(t, bounty.Amount, transferredAmount.AmountOf(types.DefaultFeeDenom).String())
+
+	// Verify bounty is now marked as awarded
+	b, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)
+	require.NoError(t, err)
+	require.Equal(t, types.BountyStatus_BOUNTY_STATUS_AWARDED, b.Status)
 }
 
 func TestAssignBountyExpired(t *testing.T) {

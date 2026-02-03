@@ -29,12 +29,10 @@ func SimulateMsgInviteMember(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteMember{}), "failed to get/create inviter with DREAM"), nil, nil
 		}
 
-		// Ensure inviter has invitation credits
+		// Inviter must already have invitation credits
+		// (We can't reliably grant them here as the change won't be visible to the tx delivery context)
 		if inviterMember.InvitationCredits == 0 {
-			inviterMember.InvitationCredits = uint32(r.Intn(3) + 1) // Grant 1-3 credits
-			if err := k.Member.Set(ctx, inviterMember.Address, *inviterMember); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteMember{}), "failed to update inviter credits"), nil, nil
-			}
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteMember{}), "inviter has no invitation credits"), nil, nil
 		}
 
 		// Get or create an invitee (different from inviter, not a member, no pending invitation)
