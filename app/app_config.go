@@ -10,6 +10,8 @@ import (
 	_ "sparkdream/x/forum/module"
 	forummoduletypes "sparkdream/x/forum/types"
 	_ "sparkdream/x/futarchy/module"
+	_ "sparkdream/x/season/module"
+	seasonmoduletypes "sparkdream/x/season/types"
 	futarchymoduletypes "sparkdream/x/futarchy/types"
 	_ "sparkdream/x/name/module"
 	namemoduletypes "sparkdream/x/name/types"
@@ -106,7 +108,8 @@ var (
 		{Account: futarchymoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: repmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
-		{Account: forummoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}}
+		{Account: forummoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
+		{Account: seasonmoduletypes.ModuleName}}
 
 	// blocked account addresses
 	blockAccAddrs = []string{
@@ -157,6 +160,7 @@ var (
 						futarchymoduletypes.ModuleName,
 						repmoduletypes.ModuleName,
 						forummoduletypes.ModuleName,
+						seasonmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -174,6 +178,7 @@ var (
 						futarchymoduletypes.ModuleName,
 						repmoduletypes.ModuleName,
 						forummoduletypes.ModuleName,
+						seasonmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -219,6 +224,7 @@ var (
 						futarchymoduletypes.ModuleName,
 						repmoduletypes.ModuleName,
 						forummoduletypes.ModuleName,
+						seasonmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -355,6 +361,10 @@ var (
 			{
 				Name:   forummoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&forummoduletypes.Module{}),
+			},
+			{
+				Name:   seasonmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&seasonmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

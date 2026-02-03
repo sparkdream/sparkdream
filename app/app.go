@@ -57,6 +57,7 @@ import (
 	futarchymoduletypes "sparkdream/x/futarchy/types"
 	namemodulekeeper "sparkdream/x/name/keeper"
 	repmodulekeeper "sparkdream/x/rep/keeper"
+	seasonmodulekeeper "sparkdream/x/season/keeper"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
 	splitmodulekeeper "sparkdream/x/split/keeper"
 )
@@ -119,6 +120,7 @@ type App struct {
 	CommonsKeeper    commonsmodulekeeper.Keeper
 	FutarchyKeeper   futarchymodulekeeper.Keeper
 	RepKeeper        repmodulekeeper.Keeper
+	SeasonKeeper     seasonmodulekeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
@@ -209,6 +211,7 @@ func New(
 		&app.FutarchyKeeper,
 		&app.RepKeeper,
 		&app.ForumKeeper,
+		&app.SeasonKeeper,
 	); err != nil {
 		panic(err)
 	}
