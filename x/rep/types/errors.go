@@ -59,12 +59,12 @@ var (
 	ErrInvalidRequest = errors.Register(ModuleName, 1600, "invalid request")
 
 	// Challenge errors
-	ErrChallengeNotFound    = errors.Register(ModuleName, 1701, "challenge not found")
-	ErrChallengeNotPending  = errors.Register(ModuleName, 1702, "challenge is not pending")
-	ErrNotChallengeParty    = errors.Register(ModuleName, 1703, "not a party to this challenge")
+	ErrChallengeNotFound   = errors.Register(ModuleName, 1701, "challenge not found")
+	ErrChallengeNotPending = errors.Register(ModuleName, 1702, "challenge is not pending")
+	ErrNotChallengeParty   = errors.Register(ModuleName, 1703, "not a party to this challenge")
 
 	// Member status errors
-	ErrMemberAlreadyZeroed  = errors.Register(ModuleName, 1801, "member is already zeroed")
-	ErrMemberNotActive      = errors.Register(ModuleName, 1802, "member is not active")
-	ErrCannotZeroCore       = errors.Register(ModuleName, 1803, "cannot zero a core member without governance vote")
+	ErrMemberAlreadyZeroed = errors.Register(ModuleName, 1801, "member is already zeroed")
+	ErrMemberNotActive     = errors.Register(ModuleName, 1802, "member is not active")
+	ErrCannotZeroCore      = errors.Register(ModuleName, 1803, "cannot zero a core member without governance vote")
 )

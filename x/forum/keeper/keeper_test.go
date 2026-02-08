@@ -23,15 +23,15 @@ import (
 
 // Test addresses - generated dynamically with valid checksums
 var (
-	testCreatorAddr  sdk.AccAddress
-	testCreator      string
-	testCreator2Addr sdk.AccAddress
-	testCreator2     string
-	testSentinelAddr sdk.AccAddress
-	testSentinel     string
+	testCreatorAddr   sdk.AccAddress
+	testCreator       string
+	testCreator2Addr  sdk.AccAddress
+	testCreator2      string
+	testSentinelAddr  sdk.AccAddress
+	testSentinel      string
 	testAuthorityAddr sdk.AccAddress
-	testAuthority    string
-	testAddrCodec    address.Codec
+	testAuthority     string
+	testAddrCodec     address.Codec
 )
 
 func init() {

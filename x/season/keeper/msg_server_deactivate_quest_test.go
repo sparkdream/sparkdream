@@ -24,7 +24,7 @@ func TestMsgServerDeactivateQuest(t *testing.T) {
 		require.Contains(t, err.Error(), "invalid authority address")
 	})
 
-	t.Run("not operations committee", func(t *testing.T) {
+	t.Run("not authorized", func(t *testing.T) {
 		f := initFixture(t)
 		ctx := sdk.UnwrapSDKContext(f.ctx)
 		k := f.keeper
@@ -41,7 +41,7 @@ func TestMsgServerDeactivateQuest(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, types.ErrNotOperationsCommittee)
+		require.ErrorIs(t, err, types.ErrNotAuthorized)
 	})
 
 	t.Run("quest not found", func(t *testing.T) {

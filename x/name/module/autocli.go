@@ -75,15 +75,21 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "FileDispute",
-					Use:            "file-dispute [name]",
+					Use:            "file-dispute [name] [reason]",
 					Short:          "Send a file-dispute tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "reason"}},
+				},
+				{
+					RpcMethod:      "ContestDispute",
+					Use:            "contest-dispute [name] [reason]",
+					Short:          "Send a contest-dispute tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "reason"}},
 				},
 				{
 					RpcMethod:      "ResolveDispute",
-					Use:            "resolve-dispute [name] [new-owner]",
+					Use:            "resolve-dispute [name] [new-owner] [transfer-approved]",
 					Short:          "Send a resolve-dispute tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "new_owner"}},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "new_owner"}, {ProtoField: "transfer_approved"}},
 				},
 				{
 					RpcMethod:      "UpdateName",

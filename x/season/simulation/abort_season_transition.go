@@ -41,7 +41,7 @@ func SimulateMsgAbortSeasonTransition(
 			transitionState.Phase = types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT
 			transitionState.TransitionStart = ctx.BlockHeight()
 			transitionState.ProcessedCount = 0
-			transitionState.TotalCount = 100 // Simulated total
+			transitionState.TotalCount = 100        // Simulated total
 			transitionState.MaintenanceMode = false // Don't enable maintenance mode in simulation
 			if err := k.SeasonTransitionState.Set(ctx, transitionState); err != nil {
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbortSeasonTransition{}), "failed to create transition"), nil, nil

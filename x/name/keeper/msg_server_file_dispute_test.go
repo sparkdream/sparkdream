@@ -6,160 +6,127 @@ import (
 	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
 
-	commonstypes "sparkdream/x/commons/types"
-
-	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/stretchr/testify/require"
-)
-
-// Mock External Types from x/commons
-const CommonsCouncilName = "Commons Council"
-
-var (
-	// Valid addresses for testing
-	ClaimantAddr      = sdk.AccAddress([]byte("claimant_address____")).String()
-	CouncilPolicyAddr = sdk.AccAddress([]byte("council_policy_addr_"))
-	DisputeFee        = sdk.NewCoin("uspark", math.NewInt(1000))
 )
 
 func TestFileDispute(t *testing.T) {
 	f := initFixture(t)
 	ms := keeper.NewMsgServerImpl(f.keeper)
 
+	// Test addresses
+	claimantAddr := sdk.AccAddress([]byte("claimant_address____"))
+	claimant := claimantAddr.String()
+	ownerAddr := sdk.AccAddress([]byte("owner_address_______"))
+	owner := ownerAddr.String()
+
 	tests := []struct {
-		name          string
-		msg           *types.MsgFileDispute
-		setup         func()
-		expectPass    bool
-		expectErrCode *errorsmod.Error
+		name       string
+		msg        *types.MsgFileDispute
+		setup      func()
+		expectPass bool
+		expectErr  string
+		check      func(t *testing.T, ctx sdk.Context)
 	}{
 		{
-			name: "Success - Transfer Fee to Council",
+			name: "Success - DREAM stake locked and dispute created",
 			msg: &types.MsgFileDispute{
-				Authority: ClaimantAddr,
+				Authority: claimant,
 				Name:      "alice",
+				Reason:    "I registered this first",
 			},
 			setup: func() {
-				// 1. Reset Mock state via fixture
-				f.mockBank.Reset()
-				f.mockCommons.Reset()
-
-				// 2. Setup specific state
-				f.keeper.SetParams(f.ctx, types.Params{DisputeFee: DisputeFee})
-				f.mockCommons.ExtendedGroups[CommonsCouncilName] = commonstypes.ExtendedGroup{
-					PolicyAddress: CouncilPolicyAddr.String(),
-				}
+				f.mockRep.Reset()
+				// Create name record owned by someone else
+				f.keeper.SetName(f.ctx, types.NameRecord{Name: "alice", Owner: owner})
+				f.keeper.AddNameToOwner(f.ctx, ownerAddr, "alice")
 			},
 			expectPass: true,
-		},
-		{
-			name: "Success - Zero Fee (Transfer Skipped)",
-			msg: &types.MsgFileDispute{
-				Authority: ClaimantAddr,
-				Name:      "bob",
-			},
-			setup: func() {
-				f.mockBank.Reset()
-				f.mockCommons.Reset()
+			check: func(t *testing.T, ctx sdk.Context) {
+				// Verify DREAM was locked
+				locked := f.mockRep.LockedDREAM[claimant]
+				require.True(t, locked.Equal(types.DefaultDisputeStakeDream), "Expected %s DREAM locked, got %s", types.DefaultDisputeStakeDream, locked)
 
-				f.keeper.SetParams(f.ctx, types.Params{DisputeFee: sdk.NewCoin(DisputeFee.Denom, math.ZeroInt())})
-				f.mockCommons.ExtendedGroups[CommonsCouncilName] = commonstypes.ExtendedGroup{
-					PolicyAddress: CouncilPolicyAddr.String(),
-				}
+				// Verify dispute record
+				dispute, found := f.keeper.GetDispute(ctx, "alice")
+				require.True(t, found)
+				require.Equal(t, "alice", dispute.Name)
+				require.Equal(t, claimant, dispute.Claimant)
+				require.True(t, dispute.Active)
+				require.True(t, dispute.StakeAmount.Equal(types.DefaultDisputeStakeDream))
+				require.Empty(t, dispute.ContestChallengeId)
 			},
-			expectPass: true,
 		},
 		{
-			name: "Failure - Insufficient Funds (Bank Error)",
+			name: "Failure - Name not found",
 			msg: &types.MsgFileDispute{
-				Authority: ClaimantAddr,
-				Name:      "carol",
+				Authority: claimant,
+				Name:      "nonexistent",
+				Reason:    "test",
 			},
 			setup: func() {
-				f.mockBank.Reset()
-				f.mockCommons.Reset()
-
-				f.keeper.SetParams(f.ctx, types.Params{DisputeFee: DisputeFee})
-				f.mockCommons.ExtendedGroups[CommonsCouncilName] = commonstypes.ExtendedGroup{
-					PolicyAddress: CouncilPolicyAddr.String(),
-				}
-				f.mockBank.sendErr = sdkerrors.ErrInsufficientFunds
-			},
-			expectPass:    false,
-			expectErrCode: sdkerrors.ErrInsufficientFunds,
-		},
-		{
-			name: "Failure - Council Group Not Found",
-			msg: &types.MsgFileDispute{
-				Authority: ClaimantAddr,
-				Name:      "dave",
-			},
-			setup: func() {
-				f.mockBank.Reset()
-				f.mockCommons.Reset()
-				f.keeper.SetParams(f.ctx, types.Params{DisputeFee: DisputeFee})
-				// Intentionally do NOT add the group to mockCK
-			},
-			expectPass:    false,
-			expectErrCode: sdkerrors.ErrInvalidRequest,
-		},
-		{
-			name: "Failure - Invalid Policy Address Format",
-			msg: &types.MsgFileDispute{
-				Authority: ClaimantAddr,
-				Name:      "eve",
-			},
-			setup: func() {
-				f.mockBank.Reset()
-				f.mockCommons.Reset()
-				f.keeper.SetParams(f.ctx, types.Params{DisputeFee: DisputeFee})
-
-				f.mockCommons.ExtendedGroups[CommonsCouncilName] = commonstypes.ExtendedGroup{
-					PolicyAddress: "invalid_bech32_address",
-				}
+				f.mockRep.Reset()
 			},
 			expectPass: false,
-			// Use the sentinel error directly.
-			// The loop logic below specifically checks for the "invalid policy address..." string
-			// when this specific error code is present.
-			expectErrCode: sdkerrors.ErrInvalidAddress,
+			expectErr:  "name not found",
+		},
+		{
+			name: "Failure - Active dispute already exists",
+			msg: &types.MsgFileDispute{
+				Authority: claimant,
+				Name:      "bob",
+				Reason:    "test",
+			},
+			setup: func() {
+				f.mockRep.Reset()
+				f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner})
+				f.keeper.AddNameToOwner(f.ctx, ownerAddr, "bob")
+				// Create existing active dispute
+				f.keeper.SetDispute(f.ctx, types.Dispute{
+					Name:        "bob",
+					Claimant:    claimant,
+					Active:      true,
+					StakeAmount: math.NewInt(50),
+				})
+			},
+			expectPass: false,
+			expectErr:  "active dispute already exists",
+		},
+		{
+			name: "Failure - DREAM lock fails (insufficient DREAM)",
+			msg: &types.MsgFileDispute{
+				Authority: claimant,
+				Name:      "carol",
+				Reason:    "test",
+			},
+			setup: func() {
+				f.mockRep.Reset()
+				f.keeper.SetName(f.ctx, types.NameRecord{Name: "carol", Owner: owner})
+				f.keeper.AddNameToOwner(f.ctx, ownerAddr, "carol")
+				f.mockRep.lockErr = types.ErrDREAMOperationFailed
+			},
+			expectPass: false,
+			expectErr:  "DREAM token operation failed",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setup()
-
-			// Use cache context to prevent KVStore state leaking between tests
 			cacheCtx, _ := f.ctx.CacheContext()
 
 			_, err := ms.FileDispute(cacheCtx, tc.msg)
 
 			if tc.expectPass {
 				require.NoError(t, err)
-
-				// Verify fee transfer check
-				currentParams := f.keeper.GetParams(cacheCtx)
-				if !currentParams.DisputeFee.IsZero() {
-					transferKey := ClaimantAddr + "|" + CouncilPolicyAddr.String()
-
-					coins, found := f.mockBank.SentCoins[transferKey]
-					require.True(t, found, "Expected fee transfer to council policy address")
-					require.True(t, coins.Equal(sdk.NewCoins(currentParams.DisputeFee)), "Fee amount mismatch")
+				if tc.check != nil {
+					tc.check(t, cacheCtx)
 				}
-
 			} else {
 				require.Error(t, err)
-				if tc.expectErrCode != nil {
-					// This logic allows using *errorsmod.Error for the Is() check
-					if tc.expectErrCode.Is(sdkerrors.ErrInvalidAddress) {
-						require.Contains(t, err.Error(), "invalid policy address stored for Commons Council")
-					} else {
-						require.ErrorIs(t, err, tc.expectErrCode)
-					}
+				if tc.expectErr != "" {
+					require.Contains(t, err.Error(), tc.expectErr)
 				}
 			}
 		})

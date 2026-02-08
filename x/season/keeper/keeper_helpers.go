@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/season/types"
@@ -72,6 +71,39 @@ func (k Keeper) IsOperationsCommittee(ctx context.Context, addr string) bool {
 	}
 	// Fallback: treat governance authority as operations committee
 	return k.IsGovAuthority(ctx, addr)
+}
+
+// IsAuthorizedForGamification checks if the address is authorized to manage
+// achievements, titles, and quests. Authorization is granted to:
+// 1. Commons Council policy address (council proposals)
+// 2. Commons Operations Committee members (direct action)
+func (k Keeper) IsAuthorizedForGamification(ctx context.Context, addr string) bool {
+	// Check if it's the governance authority (fallback)
+	if k.IsGovAuthority(ctx, addr) {
+		return true
+	}
+
+	if k.commonsKeeper == nil {
+		return false
+	}
+
+	// Check if sender is the Commons Council policy address
+	councilGroup, err := k.commonsKeeper.GetExtendedGroup(ctx, "Commons Council")
+	if err == nil && councilGroup.PolicyAddress == addr {
+		return true
+	}
+
+	// Check if member of Commons Operations Committee
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return false
+	}
+	isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, addrBytes, "commons", "operations")
+	if err == nil && isMember {
+		return true
+	}
+
+	return false
 }
 
 // IsCommonsCouncil checks if the address is a member of the Commons Council
@@ -386,43 +418,19 @@ func (k Keeper) HasUnlockedTitle(ctx context.Context, member string, titleID str
 
 // Cross-module integration helpers
 
-// BurnDREAM burns DREAM tokens from a member's balance via x/rep integration
+// BurnDREAM burns DREAM tokens from a member's balance via shared dreamutil.Ops.
 func (k Keeper) BurnDREAM(ctx context.Context, addr string, amount uint64) error {
-	if k.repKeeper == nil {
-		// No rep keeper available - skip DREAM burning (development mode)
-		return nil
-	}
-	addrBytes, err := k.addressCodec.StringToBytes(addr)
-	if err != nil {
-		return err
-	}
-	return k.repKeeper.BurnDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
+	return k.dreamOps.Burn(ctx, addr, amount)
 }
 
-// LockDREAM locks (escrows) DREAM tokens via x/rep integration
+// LockDREAM locks (escrows) DREAM tokens via shared dreamutil.Ops.
 func (k Keeper) LockDREAM(ctx context.Context, addr string, amount uint64) error {
-	if k.repKeeper == nil {
-		// No rep keeper available - skip DREAM locking (development mode)
-		return nil
-	}
-	addrBytes, err := k.addressCodec.StringToBytes(addr)
-	if err != nil {
-		return err
-	}
-	return k.repKeeper.LockDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
+	return k.dreamOps.Lock(ctx, addr, amount)
 }
 
-// UnlockDREAM unlocks (releases) DREAM tokens via x/rep integration
+// UnlockDREAM unlocks (releases) DREAM tokens via shared dreamutil.Ops.
 func (k Keeper) UnlockDREAM(ctx context.Context, addr string, amount uint64) error {
-	if k.repKeeper == nil {
-		// No rep keeper available - skip DREAM unlocking (development mode)
-		return nil
-	}
-	addrBytes, err := k.addressCodec.StringToBytes(addr)
-	if err != nil {
-		return err
-	}
-	return k.repKeeper.UnlockDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
+	return k.dreamOps.Unlock(ctx, addr, amount)
 }
 
 // GetDREAMBalance gets DREAM token balance via x/rep integration

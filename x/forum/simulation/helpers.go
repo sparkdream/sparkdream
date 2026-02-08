@@ -591,7 +591,7 @@ func getOrCreateBounty(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creator s
 	}
 
 	now := ctx.BlockTime().Unix()
-	duration := int64(86400 * (r.Intn(30) + 7)) // 7-37 days
+	duration := int64(86400 * (r.Intn(30) + 7))  // 7-37 days
 	amount := fmt.Sprintf("%d", r.Intn(900)+100) // 100-1000
 
 	newBounty := types.Bounty{
@@ -1194,11 +1194,11 @@ func getOrCreatePinnedReplyWithMetadata(r *rand.Rand, ctx sdk.Context, k keeper.
 
 	// Add the pinned record (sentinel pin, not disputed)
 	pinnedRecord := &types.PinnedReplyRecord{
-		PostId:       replyID,
-		PinnedBy:     author, // Sentinel who pinned
-		PinnedAt:     ctx.BlockTime().Unix(),
-		IsSentinelPin: true,  // Sentinel pin (can be disputed)
-		Disputed:     false,
+		PostId:        replyID,
+		PinnedBy:      author, // Sentinel who pinned
+		PinnedAt:      ctx.BlockTime().Unix(),
+		IsSentinelPin: true, // Sentinel pin (can be disputed)
+		Disputed:      false,
 	}
 	metadata.PinnedRecords = append(metadata.PinnedRecords, pinnedRecord)
 	if err := k.ThreadMetadata.Set(ctx, threadID, metadata); err != nil {

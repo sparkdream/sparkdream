@@ -30,7 +30,7 @@ func TestQueryTitles(t *testing.T) {
 		resp, err := qs.Titles(ctx, &types.QueryTitlesRequest{})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Empty(t, resp.Id)
+		require.Empty(t, resp.Titles)
 	})
 
 	t.Run("list with titles", func(t *testing.T) {
@@ -46,8 +46,9 @@ func TestQueryTitles(t *testing.T) {
 
 		resp, err := qs.Titles(ctx, &types.QueryTitlesRequest{})
 		require.NoError(t, err)
-		require.Equal(t, "explorer", resp.Id)
-		require.Equal(t, "Explorer", resp.Name)
-		require.Equal(t, uint64(types.Rarity_RARITY_UNCOMMON), resp.Rarity)
+		require.Len(t, resp.Titles, 1)
+		require.Equal(t, "explorer", resp.Titles[0].TitleId)
+		require.Equal(t, "Explorer", resp.Titles[0].Name)
+		require.Equal(t, types.Rarity_RARITY_UNCOMMON, resp.Titles[0].Rarity)
 	})
 }

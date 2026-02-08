@@ -30,25 +30,10 @@ func SimulateMsgFileDispute(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 
-		// 1. Get Params early
-		params := k.GetParams(ctx)
-		disputeFee := params.DisputeFee
+		// 1. Find a Solvent Account (gas buffer only — DREAM staking is handled by x/rep)
+		feeBuffer := sdk.NewInt64Coin("uspark", 1000000)
+		requiredBalance := sdk.NewCoins(feeBuffer)
 
-		// 2. Define Fee Requirements (Dispute Fee + Gas Buffer)
-		denom := disputeFee.Denom
-		if denom == "" {
-			denom = "uspark"
-		}
-		feeBuffer := sdk.NewInt64Coin(denom, 1000000)
-
-		var requiredBalance sdk.Coins
-		if !disputeFee.IsZero() {
-			requiredBalance = sdk.NewCoins(disputeFee).Add(feeBuffer)
-		} else {
-			requiredBalance = sdk.NewCoins(feeBuffer)
-		}
-
-		// 3. Find a Solvent Account
 		var simAccount simtypes.Account
 		var found bool
 		r.Shuffle(len(accs), func(i, j int) { accs[i], accs[j] = accs[j], accs[i] })
@@ -77,7 +62,6 @@ func SimulateMsgFileDispute(
 			},
 		}
 
-		// The group metadata for the *Group module* can remain generic
 		createGroupMsg := &group.MsgCreateGroup{
 			Admin:    simAccount.Address.String(),
 			Members:  members,
@@ -106,19 +90,15 @@ func SimulateMsgFileDispute(
 		}
 
 		// C. REGISTER EXTENDED GROUP IN COMMONS KEEPER
-		// The handler hardcodes the lookup key to "Commons Council", so we must register our sim group under this key.
 		simExtendedGroup := commonstypes.ExtendedGroup{
 			GroupId:       groupRes.GroupId,
 			PolicyAddress: policyRes.Address,
-			// Other fields are not strictly needed for this specific message handler's logic
 		}
-		// NOTE: Assuming Commons Keeper exposes a Set method keyed by name (Index)
 		if err := ck.SetExtendedGroup(ctx, "Commons Council", simExtendedGroup); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFileDispute{}), "failed to register sim extended group"), nil, nil
 		}
 
 		// D. INJECT PERMISSIONS (RBAC Setup)
-		// We grant this new policy the right to resolve disputes and spend funds.
 		perms := commonstypes.PolicyPermissions{
 			PolicyAddress: policyRes.Address,
 			AllowedMessages: []string{
@@ -165,16 +145,17 @@ func SimulateMsgFileDispute(
 		msg := &types.MsgFileDispute{
 			Authority: simAccount.Address.String(),
 			Name:      targetName,
+			Reason:    "simulation dispute reason",
 		}
 
-		// 5. Deliver Transaction
+		// 5. Deliver Transaction (no SPARK coins spent — DREAM staking is internal)
 		opMsg := simulation.OperationInput{
 			R:               r,
 			App:             app,
 			TxGen:           txGen,
 			Cdc:             nil,
 			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(disputeFee),
+			CoinsSpentInMsg: sdk.NewCoins(),
 			Context:         ctx,
 			SimAccount:      simAccount,
 			AccountKeeper:   ak,

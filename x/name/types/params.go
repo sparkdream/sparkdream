@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
@@ -23,16 +24,20 @@ func NewParams(
 	maxNamesPerAddress uint64,
 	expirationDuration time.Duration,
 	registrationFee sdk.Coin,
-	disputeFee sdk.Coin,
+	disputeStakeDream math.Int,
+	disputeTimeoutBlocks uint64,
+	contestStakeDream math.Int,
 ) Params {
 	return Params{
-		BlockedNames:       blockedNames,
-		MinNameLength:      minNameLength,
-		MaxNameLength:      maxNameLength,
-		MaxNamesPerAddress: maxNamesPerAddress,
-		ExpirationDuration: expirationDuration,
-		RegistrationFee:    registrationFee,
-		DisputeFee:         disputeFee,
+		BlockedNames:         blockedNames,
+		MinNameLength:        minNameLength,
+		MaxNameLength:        maxNameLength,
+		MaxNamesPerAddress:   maxNamesPerAddress,
+		ExpirationDuration:   expirationDuration,
+		RegistrationFee:      registrationFee,
+		DisputeStakeDream:    disputeStakeDream,
+		DisputeTimeoutBlocks: disputeTimeoutBlocks,
+		ContestStakeDream:    contestStakeDream,
 	}
 }
 
@@ -45,7 +50,9 @@ func DefaultParams() Params {
 		DefaultMaxNamesPerAddress,
 		DefaultExpirationDuration,
 		DefaultRegistrationFee,
-		DefaultDisputeFee,
+		DefaultDisputeStakeDream,
+		DefaultDisputeTimeoutBlocks,
+		DefaultContestStakeDream,
 	)
 }
 
@@ -58,7 +65,6 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyMaxNamesPerAddress, &p.MaxNamesPerAddress, validateMaxNamesPerAddress),
 		paramtypes.NewParamSetPair(KeyExpirationDuration, &p.ExpirationDuration, validateExpirationDuration),
 		paramtypes.NewParamSetPair(KeyRegistrationFee, &p.RegistrationFee, validateRegistrationFee),
-		paramtypes.NewParamSetPair(KeyDisputeFee, &p.DisputeFee, validateDisputeFee),
 	}
 }
 
@@ -82,8 +88,11 @@ func (p Params) Validate() error {
 	if err := validateRegistrationFee(p.RegistrationFee); err != nil {
 		return err
 	}
-	if err := validateDisputeFee(p.DisputeFee); err != nil {
-		return err
+	if p.DisputeStakeDream.IsNegative() {
+		return fmt.Errorf("dispute stake must be non-negative")
+	}
+	if p.ContestStakeDream.IsNegative() {
+		return fmt.Errorf("contest stake must be non-negative")
 	}
 
 	return nil
@@ -96,7 +105,6 @@ func validateBlockedNames(i interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-	// Optional: Check for duplicates or empty strings if desired
 	for _, name := range v {
 		if len(name) == 0 {
 			return fmt.Errorf("blocked name cannot be empty")
@@ -156,17 +164,6 @@ func validateRegistrationFee(i interface{}) error {
 	}
 	if !v.IsValid() {
 		return fmt.Errorf("invalid registration fee coin: %s", v)
-	}
-	return nil
-}
-
-func validateDisputeFee(i interface{}) error {
-	v, ok := i.(sdk.Coin)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-	if !v.IsValid() {
-		return fmt.Errorf("invalid dispute fee coin: %s", v)
 	}
 	return nil
 }

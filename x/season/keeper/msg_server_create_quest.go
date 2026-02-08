@@ -11,7 +11,7 @@ import (
 )
 
 // CreateQuest creates a new quest.
-// Only Operations Committee can create quests.
+// Authorized: Commons Council policy address or Commons Operations Committee members.
 func (k msgServer) CreateQuest(ctx context.Context, msg *types.MsgCreateQuest) (*types.MsgCreateQuestResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
@@ -19,9 +19,9 @@ func (k msgServer) CreateQuest(ctx context.Context, msg *types.MsgCreateQuest) (
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check authority (Operations Committee or governance)
-	if !k.IsOperationsCommittee(ctx, msg.Authority) {
-		return nil, types.ErrNotOperationsCommittee
+	// Check authority (Commons Council or Operations Committee)
+	if !k.IsAuthorizedForGamification(ctx, msg.Authority) {
+		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "sender not authorized for gamification management")
 	}
 
 	// Validate quest ID is not empty

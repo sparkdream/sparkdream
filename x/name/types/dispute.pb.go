@@ -4,7 +4,10 @@
 package types
 
 import (
+	cosmossdk_io_math "cosmossdk.io/math"
 	fmt "fmt"
+	_ "github.com/cosmos/cosmos-proto"
+	_ "github.com/cosmos/gogoproto/gogoproto"
 	proto "github.com/cosmos/gogoproto/proto"
 	io "io"
 	math "math"
@@ -22,10 +25,16 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// Dispute defines the Dispute message.
+// Dispute defines a name ownership dispute with DREAM staking.
 type Dispute struct {
-	Name     string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Claimant string `protobuf:"bytes,2,opt,name=claimant,proto3" json:"claimant,omitempty"`
+	Name               string                `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Claimant           string                `protobuf:"bytes,2,opt,name=claimant,proto3" json:"claimant,omitempty"`
+	FiledAt            int64                 `protobuf:"varint,3,opt,name=filed_at,json=filedAt,proto3" json:"filed_at,omitempty"`
+	StakeAmount        cosmossdk_io_math.Int `protobuf:"bytes,4,opt,name=stake_amount,json=stakeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"stake_amount"`
+	Active             bool                  `protobuf:"varint,5,opt,name=active,proto3" json:"active,omitempty"`
+	ContestChallengeId string                `protobuf:"bytes,6,opt,name=contest_challenge_id,json=contestChallengeId,proto3" json:"contest_challenge_id,omitempty"`
+	ContestedAt        int64                 `protobuf:"varint,7,opt,name=contested_at,json=contestedAt,proto3" json:"contested_at,omitempty"`
+	ContestSucceeded   bool                  `protobuf:"varint,8,opt,name=contest_succeeded,json=contestSucceeded,proto3" json:"contest_succeeded,omitempty"`
 }
 
 func (m *Dispute) Reset()         { *m = Dispute{} }
@@ -75,24 +84,186 @@ func (m *Dispute) GetClaimant() string {
 	return ""
 }
 
+func (m *Dispute) GetFiledAt() int64 {
+	if m != nil {
+		return m.FiledAt
+	}
+	return 0
+}
+
+func (m *Dispute) GetActive() bool {
+	if m != nil {
+		return m.Active
+	}
+	return false
+}
+
+func (m *Dispute) GetContestChallengeId() string {
+	if m != nil {
+		return m.ContestChallengeId
+	}
+	return ""
+}
+
+func (m *Dispute) GetContestedAt() int64 {
+	if m != nil {
+		return m.ContestedAt
+	}
+	return 0
+}
+
+func (m *Dispute) GetContestSucceeded() bool {
+	if m != nil {
+		return m.ContestSucceeded
+	}
+	return false
+}
+
+// DisputeStake tracks the claimant's DREAM stake for a name dispute.
+type DisputeStake struct {
+	ChallengeId string                `protobuf:"bytes,1,opt,name=challenge_id,json=challengeId,proto3" json:"challenge_id,omitempty"`
+	Staker      string                `protobuf:"bytes,2,opt,name=staker,proto3" json:"staker,omitempty"`
+	Amount      cosmossdk_io_math.Int `protobuf:"bytes,3,opt,name=amount,proto3,customtype=cosmossdk.io/math.Int" json:"amount"`
+}
+
+func (m *DisputeStake) Reset()         { *m = DisputeStake{} }
+func (m *DisputeStake) String() string { return proto.CompactTextString(m) }
+func (*DisputeStake) ProtoMessage()    {}
+func (*DisputeStake) Descriptor() ([]byte, []int) {
+	return fileDescriptor_b041135427df8060, []int{1}
+}
+func (m *DisputeStake) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DisputeStake) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DisputeStake.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DisputeStake) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DisputeStake.Merge(m, src)
+}
+func (m *DisputeStake) XXX_Size() int {
+	return m.Size()
+}
+func (m *DisputeStake) XXX_DiscardUnknown() {
+	xxx_messageInfo_DisputeStake.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DisputeStake proto.InternalMessageInfo
+
+func (m *DisputeStake) GetChallengeId() string {
+	if m != nil {
+		return m.ChallengeId
+	}
+	return ""
+}
+
+func (m *DisputeStake) GetStaker() string {
+	if m != nil {
+		return m.Staker
+	}
+	return ""
+}
+
+// ContestStake tracks the owner's DREAM stake when contesting a dispute.
+type ContestStake struct {
+	ChallengeId string                `protobuf:"bytes,1,opt,name=challenge_id,json=challengeId,proto3" json:"challenge_id,omitempty"`
+	Owner       string                `protobuf:"bytes,2,opt,name=owner,proto3" json:"owner,omitempty"`
+	Amount      cosmossdk_io_math.Int `protobuf:"bytes,3,opt,name=amount,proto3,customtype=cosmossdk.io/math.Int" json:"amount"`
+}
+
+func (m *ContestStake) Reset()         { *m = ContestStake{} }
+func (m *ContestStake) String() string { return proto.CompactTextString(m) }
+func (*ContestStake) ProtoMessage()    {}
+func (*ContestStake) Descriptor() ([]byte, []int) {
+	return fileDescriptor_b041135427df8060, []int{2}
+}
+func (m *ContestStake) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ContestStake) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ContestStake.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ContestStake) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContestStake.Merge(m, src)
+}
+func (m *ContestStake) XXX_Size() int {
+	return m.Size()
+}
+func (m *ContestStake) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContestStake.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContestStake proto.InternalMessageInfo
+
+func (m *ContestStake) GetChallengeId() string {
+	if m != nil {
+		return m.ChallengeId
+	}
+	return ""
+}
+
+func (m *ContestStake) GetOwner() string {
+	if m != nil {
+		return m.Owner
+	}
+	return ""
+}
+
 func init() {
 	proto.RegisterType((*Dispute)(nil), "sparkdream.name.v1.Dispute")
+	proto.RegisterType((*DisputeStake)(nil), "sparkdream.name.v1.DisputeStake")
+	proto.RegisterType((*ContestStake)(nil), "sparkdream.name.v1.ContestStake")
 }
 
 func init() { proto.RegisterFile("sparkdream/name/v1/dispute.proto", fileDescriptor_b041135427df8060) }
 
 var fileDescriptor_b041135427df8060 = []byte{
-	// 153 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x52, 0x28, 0x2e, 0x48, 0x2c,
-	0xca, 0x4e, 0x29, 0x4a, 0x4d, 0xcc, 0xd5, 0xcf, 0x4b, 0xcc, 0x4d, 0xd5, 0x2f, 0x33, 0xd4, 0x4f,
-	0xc9, 0x2c, 0x2e, 0x28, 0x2d, 0x49, 0xd5, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x12, 0x42, 0xa8,
-	0xd0, 0x03, 0xa9, 0xd0, 0x2b, 0x33, 0x54, 0xb2, 0xe4, 0x62, 0x77, 0x81, 0x28, 0x12, 0x12, 0xe2,
-	0x62, 0x01, 0x89, 0x4a, 0x30, 0x2a, 0x30, 0x6a, 0x70, 0x06, 0x81, 0xd9, 0x42, 0x52, 0x5c, 0x1c,
-	0xc9, 0x39, 0x89, 0x99, 0xb9, 0x89, 0x79, 0x25, 0x12, 0x4c, 0x60, 0x71, 0x38, 0xdf, 0xc9, 0xf0,
-	0xc4, 0x23, 0x39, 0xc6, 0x0b, 0x8f, 0xe4, 0x18, 0x1f, 0x3c, 0x92, 0x63, 0x9c, 0xf0, 0x58, 0x8e,
-	0xe1, 0xc2, 0x63, 0x39, 0x86, 0x1b, 0x8f, 0xe5, 0x18, 0xa2, 0xc4, 0x91, 0x9c, 0x52, 0x01, 0x71,
-	0x4c, 0x49, 0x65, 0x41, 0x6a, 0x71, 0x12, 0x1b, 0xd8, 0x21, 0xc6, 0x80, 0x00, 0x00, 0x00, 0xff,
-	0xff, 0x47, 0x70, 0x94, 0xd8, 0xac, 0x00, 0x00, 0x00,
+	// 418 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x92, 0x3f, 0x8f, 0xd3, 0x30,
+	0x18, 0xc6, 0xeb, 0xeb, 0x5d, 0x1a, 0xde, 0x66, 0x00, 0xab, 0x1c, 0xb9, 0x0e, 0xb9, 0xd0, 0xa9,
+	0xd2, 0x89, 0x84, 0x8a, 0x4f, 0xd0, 0x2b, 0x4b, 0x17, 0x86, 0xdc, 0xc6, 0x12, 0x19, 0xdb, 0xf4,
+	0xa2, 0x26, 0x76, 0x14, 0xbb, 0x05, 0xbe, 0x03, 0x42, 0x7c, 0x18, 0x66, 0xe6, 0x1b, 0x4f, 0x4c,
+	0x88, 0xa1, 0x42, 0xed, 0x17, 0x41, 0xb1, 0xdd, 0xd2, 0x11, 0xa4, 0xdb, 0xf2, 0x3c, 0xef, 0x1f,
+	0xff, 0xf2, 0xe8, 0x85, 0x58, 0xd5, 0xa4, 0x59, 0xb2, 0x86, 0x93, 0x2a, 0x15, 0xa4, 0xe2, 0xe9,
+	0x7a, 0x92, 0xb2, 0x42, 0xd5, 0x2b, 0xcd, 0x93, 0xba, 0x91, 0x5a, 0x62, 0xfc, 0xb7, 0x23, 0x69,
+	0x3b, 0x92, 0xf5, 0x64, 0x78, 0x41, 0xa5, 0xaa, 0xa4, 0xca, 0x4d, 0x47, 0x6a, 0x85, 0x6d, 0x1f,
+	0x0e, 0x16, 0x72, 0x21, 0xad, 0xdf, 0x7e, 0x59, 0x77, 0xf4, 0xfd, 0x04, 0x7a, 0xaf, 0xed, 0x5a,
+	0x8c, 0xe1, 0xb4, 0xdd, 0x13, 0xa2, 0x18, 0x8d, 0x1f, 0x65, 0xe6, 0x1b, 0x0f, 0xc1, 0xa7, 0x25,
+	0x29, 0x2a, 0x22, 0x74, 0x78, 0x62, 0xfc, 0x83, 0xc6, 0x17, 0xe0, 0xbf, 0x2f, 0x4a, 0xce, 0x72,
+	0xa2, 0xc3, 0x6e, 0x8c, 0xc6, 0xdd, 0xac, 0x67, 0xf4, 0x54, 0xe3, 0x37, 0x10, 0x28, 0x4d, 0x96,
+	0x3c, 0x27, 0x95, 0x5c, 0x09, 0x1d, 0x9e, 0xb6, 0xa3, 0xd7, 0x57, 0x77, 0x9b, 0xcb, 0xce, 0xaf,
+	0xcd, 0xe5, 0x53, 0x0b, 0xa6, 0xd8, 0x32, 0x29, 0x64, 0x5a, 0x11, 0x7d, 0x9b, 0xcc, 0x85, 0xfe,
+	0xf1, 0xed, 0x05, 0x38, 0xe2, 0xb9, 0xd0, 0x59, 0xdf, 0x2c, 0x98, 0x9a, 0x79, 0x7c, 0x0e, 0x1e,
+	0xa1, 0xba, 0x58, 0xf3, 0xf0, 0x2c, 0x46, 0x63, 0x3f, 0x73, 0x0a, 0xbf, 0x84, 0x01, 0x95, 0x42,
+	0x73, 0xa5, 0x73, 0x7a, 0x4b, 0xca, 0x92, 0x8b, 0x05, 0xcf, 0x0b, 0x16, 0x7a, 0x06, 0x15, 0xbb,
+	0xda, 0x6c, 0x5f, 0x9a, 0x33, 0xfc, 0x1c, 0x02, 0xe7, 0x5a, 0xf0, 0x9e, 0x01, 0xef, 0x1f, 0xbc,
+	0xa9, 0xc6, 0x57, 0xf0, 0x64, 0xbf, 0x54, 0xad, 0x28, 0xe5, 0x9c, 0x71, 0x16, 0xfa, 0xe6, 0xdd,
+	0xc7, 0xae, 0x70, 0xb3, 0xf7, 0x47, 0x5f, 0x10, 0x04, 0x2e, 0xc0, 0x9b, 0x16, 0xd8, 0x3c, 0x70,
+	0x8c, 0x62, 0xd3, 0xec, 0xd3, 0x23, 0x86, 0x73, 0xf0, 0xcc, 0xcf, 0x35, 0x2e, 0x52, 0xa7, 0xf0,
+	0x0c, 0x3c, 0x97, 0x57, 0xf7, 0xff, 0xf3, 0x72, 0xa3, 0xa3, 0xcf, 0x08, 0x82, 0x99, 0xa3, 0xfc,
+	0x57, 0xa0, 0x01, 0x9c, 0xc9, 0x0f, 0xe2, 0xc0, 0x63, 0xc5, 0x83, 0xe0, 0x5c, 0x4f, 0xee, 0xb6,
+	0x11, 0xba, 0xdf, 0x46, 0xe8, 0xf7, 0x36, 0x42, 0x5f, 0x77, 0x51, 0xe7, 0x7e, 0x17, 0x75, 0x7e,
+	0xee, 0xa2, 0xce, 0xdb, 0x67, 0x47, 0x17, 0xfe, 0xd1, 0xde, 0xb8, 0xfe, 0x54, 0x73, 0xf5, 0xce,
+	0x33, 0xa7, 0xf9, 0xea, 0x4f, 0x00, 0x00, 0x00, 0xff, 0xff, 0x52, 0x2d, 0xed, 0x6b, 0x03, 0x03,
+	0x00, 0x00,
 }
 
 func (m *Dispute) Marshal() (dAtA []byte, err error) {
@@ -115,6 +286,53 @@ func (m *Dispute) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.ContestSucceeded {
+		i--
+		if m.ContestSucceeded {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x40
+	}
+	if m.ContestedAt != 0 {
+		i = encodeVarintDispute(dAtA, i, uint64(m.ContestedAt))
+		i--
+		dAtA[i] = 0x38
+	}
+	if len(m.ContestChallengeId) > 0 {
+		i -= len(m.ContestChallengeId)
+		copy(dAtA[i:], m.ContestChallengeId)
+		i = encodeVarintDispute(dAtA, i, uint64(len(m.ContestChallengeId)))
+		i--
+		dAtA[i] = 0x32
+	}
+	if m.Active {
+		i--
+		if m.Active {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x28
+	}
+	{
+		size := m.StakeAmount.Size()
+		i -= size
+		if _, err := m.StakeAmount.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintDispute(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	if m.FiledAt != 0 {
+		i = encodeVarintDispute(dAtA, i, uint64(m.FiledAt))
+		i--
+		dAtA[i] = 0x18
+	}
 	if len(m.Claimant) > 0 {
 		i -= len(m.Claimant)
 		copy(dAtA[i:], m.Claimant)
@@ -126,6 +344,100 @@ func (m *Dispute) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.Name)
 		copy(dAtA[i:], m.Name)
 		i = encodeVarintDispute(dAtA, i, uint64(len(m.Name)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DisputeStake) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DisputeStake) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DisputeStake) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size := m.Amount.Size()
+		i -= size
+		if _, err := m.Amount.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintDispute(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	if len(m.Staker) > 0 {
+		i -= len(m.Staker)
+		copy(dAtA[i:], m.Staker)
+		i = encodeVarintDispute(dAtA, i, uint64(len(m.Staker)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.ChallengeId) > 0 {
+		i -= len(m.ChallengeId)
+		copy(dAtA[i:], m.ChallengeId)
+		i = encodeVarintDispute(dAtA, i, uint64(len(m.ChallengeId)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ContestStake) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ContestStake) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ContestStake) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size := m.Amount.Size()
+		i -= size
+		if _, err := m.Amount.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintDispute(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	if len(m.Owner) > 0 {
+		i -= len(m.Owner)
+		copy(dAtA[i:], m.Owner)
+		i = encodeVarintDispute(dAtA, i, uint64(len(m.Owner)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.ChallengeId) > 0 {
+		i -= len(m.ChallengeId)
+		copy(dAtA[i:], m.ChallengeId)
+		i = encodeVarintDispute(dAtA, i, uint64(len(m.ChallengeId)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -157,6 +469,62 @@ func (m *Dispute) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovDispute(uint64(l))
 	}
+	if m.FiledAt != 0 {
+		n += 1 + sovDispute(uint64(m.FiledAt))
+	}
+	l = m.StakeAmount.Size()
+	n += 1 + l + sovDispute(uint64(l))
+	if m.Active {
+		n += 2
+	}
+	l = len(m.ContestChallengeId)
+	if l > 0 {
+		n += 1 + l + sovDispute(uint64(l))
+	}
+	if m.ContestedAt != 0 {
+		n += 1 + sovDispute(uint64(m.ContestedAt))
+	}
+	if m.ContestSucceeded {
+		n += 2
+	}
+	return n
+}
+
+func (m *DisputeStake) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ChallengeId)
+	if l > 0 {
+		n += 1 + l + sovDispute(uint64(l))
+	}
+	l = len(m.Staker)
+	if l > 0 {
+		n += 1 + l + sovDispute(uint64(l))
+	}
+	l = m.Amount.Size()
+	n += 1 + l + sovDispute(uint64(l))
+	return n
+}
+
+func (m *ContestStake) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ChallengeId)
+	if l > 0 {
+		n += 1 + l + sovDispute(uint64(l))
+	}
+	l = len(m.Owner)
+	if l > 0 {
+		n += 1 + l + sovDispute(uint64(l))
+	}
+	l = m.Amount.Size()
+	n += 1 + l + sovDispute(uint64(l))
 	return n
 }
 
@@ -258,6 +626,446 @@ func (m *Dispute) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.Claimant = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FiledAt", wireType)
+			}
+			m.FiledAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.FiledAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StakeAmount", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDispute
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.StakeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Active", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Active = bool(v != 0)
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContestChallengeId", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDispute
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContestChallengeId = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContestedAt", wireType)
+			}
+			m.ContestedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ContestedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContestSucceeded", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.ContestSucceeded = bool(v != 0)
+		default:
+			iNdEx = preIndex
+			skippy, err := skipDispute(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DisputeStake) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowDispute
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: DisputeStake: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: DisputeStake: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ChallengeId", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDispute
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ChallengeId = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Staker", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDispute
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Staker = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Amount", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDispute
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Amount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipDispute(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ContestStake) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowDispute
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ContestStake: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ContestStake: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ChallengeId", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDispute
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ChallengeId = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Owner", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDispute
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Owner = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Amount", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDispute
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDispute
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDispute
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Amount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

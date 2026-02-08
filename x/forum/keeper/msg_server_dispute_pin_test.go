@@ -46,9 +46,9 @@ func TestMsgDisputePin(t *testing.T) {
 			ThreadId: thread.PostId,
 			PinnedRecords: []*types.PinnedReplyRecord{
 				{
-					PostId:       100,
-					PinnedBy:     testSentinel,
-					PinnedAt:     now,
+					PostId:        100,
+					PinnedBy:      testSentinel,
+					PinnedAt:      now,
 					IsSentinelPin: true,
 				},
 			},
@@ -97,9 +97,9 @@ func TestMsgDisputePin(t *testing.T) {
 			ThreadId: thread.PostId,
 			PinnedRecords: []*types.PinnedReplyRecord{
 				{
-					PostId:       100,
-					PinnedBy:     testSentinel,
-					PinnedAt:     now,
+					PostId:        100,
+					PinnedBy:      testSentinel,
+					PinnedAt:      now,
 					IsSentinelPin: false, // Gov pin
 				},
 			},

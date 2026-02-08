@@ -70,7 +70,7 @@ func (k msgServer) UnbondSentinel(ctx context.Context, msg *types.MsgUnbondSenti
 	sentinelActivity.CurrentBond = newBond.String()
 
 	// Update bond status
-	minBond := math.NewInt(1000) // DefaultMinSentinelBond
+	minBond := math.NewInt(1000)          // DefaultMinSentinelBond
 	demotionThreshold := math.NewInt(500) // DefaultSentinelDemotionThreshold
 
 	if newBond.GTE(minBond) {

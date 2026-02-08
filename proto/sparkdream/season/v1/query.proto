@@ -861,11 +861,8 @@ message QueryAchievementsRequest {
 
 // QueryAchievementsResponse defines the QueryAchievementsResponse message.
 message QueryAchievementsResponse {
-  string id = 1;
-  string name = 2;
-  uint64 rarity = 3;
-  uint64 xp_reward = 4;
-  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+  repeated Achievement achievements = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryMemberAchievementsRequest defines the QueryMemberAchievementsRequest message.
@@ -888,11 +885,8 @@ message QueryTitlesRequest {
 
 // QueryTitlesResponse defines the QueryTitlesResponse message.
 message QueryTitlesResponse {
-  string id = 1;
-  string name = 2;
-  uint64 rarity = 3;
-  bool seasonal = 4;
-  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+  repeated Title titles = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryMemberTitlesRequest defines the QueryMemberTitlesRequest message.

@@ -274,13 +274,13 @@ func getOrCreateGuild(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, founder st
 	}
 
 	guild := types.Guild{
-		Id:          guildID,
-		Name:        randomGuildName(r),
-		Description: "A simulation generated guild",
-		Founder:     founder,
-		InviteOnly:  r.Intn(2) == 1,
+		Id:           guildID,
+		Name:         randomGuildName(r),
+		Description:  "A simulation generated guild",
+		Founder:      founder,
+		InviteOnly:   r.Intn(2) == 1,
 		CreatedBlock: ctx.BlockHeight(),
-		Status:      types.GuildStatus_GUILD_STATUS_ACTIVE,
+		Status:       types.GuildStatus_GUILD_STATUS_ACTIVE,
 	}
 
 	if err := k.Guild.Set(ctx, guildID, guild); err != nil {
@@ -471,6 +471,54 @@ func randomQuestId(r *rand.Rand) string {
 // randomTitleId generates a random title ID
 func randomTitleId(r *rand.Rand) string {
 	return fmt.Sprintf("title_%d", r.Intn(100))
+}
+
+// randomAchievementId generates a random achievement ID
+func randomAchievementId(r *rand.Rand) string {
+	return fmt.Sprintf("achievement_%d", r.Intn(100))
+}
+
+// findAchievement returns a random achievement from state
+func findAchievement(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Achievement, string, error) {
+	var achievements []struct {
+		id          string
+		achievement types.Achievement
+	}
+	err := k.Achievement.Walk(ctx, nil, func(id string, achievement types.Achievement) (bool, error) {
+		achievements = append(achievements, struct {
+			id          string
+			achievement types.Achievement
+		}{id, achievement})
+		return false, nil
+	})
+	if err != nil || len(achievements) == 0 {
+		return nil, "", err
+	}
+	selected := achievements[r.Intn(len(achievements))]
+	return &selected.achievement, selected.id, nil
+}
+
+// getOrCreateAchievement returns an existing achievement or creates one
+func getOrCreateAchievement(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (string, error) {
+	// Try to find existing achievement
+	_, achievementID, err := findAchievement(r, ctx, k)
+	if err == nil && achievementID != "" {
+		return achievementID, nil
+	}
+
+	// Create new achievement
+	achievementID = randomAchievementId(r)
+	achievement := types.Achievement{
+		AchievementId:        achievementID,
+		Name:                 fmt.Sprintf("Achievement %s", achievementID),
+		Description:          "A simulation generated achievement",
+		Rarity:               types.Rarity(r.Intn(6) + 1),
+		XpReward:             uint64(50 + r.Intn(200)),
+		RequirementType:      types.RequirementType(r.Intn(8) + 1),
+		RequirementThreshold: uint64(1 + r.Intn(10)),
+	}
+
+	return achievementID, k.Achievement.Set(ctx, achievementID, achievement)
 }
 
 // getAccountForAddress finds a simulation account for the given address

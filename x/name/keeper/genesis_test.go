@@ -3,6 +3,8 @@ package keeper_test
 import (
 	"testing"
 
+	"cosmossdk.io/math"
+
 	"sparkdream/x/name/types"
 
 	"github.com/stretchr/testify/require"
@@ -26,8 +28,8 @@ func TestGenesis(t *testing.T) {
 
 		// Fix: Use valid Dispute fields (Name, Claimant) instead of 'Index'
 		DisputeMap: []types.Dispute{
-			{Name: "alice", Claimant: "cosmos1bob"},
-			{Name: "bob", Claimant: "cosmos1charlie"},
+			{Name: "alice", Claimant: "cosmos1bob", StakeAmount: math.ZeroInt()},
+			{Name: "bob", Claimant: "cosmos1charlie", StakeAmount: math.ZeroInt()},
 		},
 	}
 

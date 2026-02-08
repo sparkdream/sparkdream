@@ -70,13 +70,13 @@ func (k msgServer) DisputePin(ctx context.Context, msg *types.MsgDisputePin) (*t
 
 	// Create appeal initiative
 	payload := map[string]interface{}{
-		"type":       "pin_dispute",
-		"thread_id":  msg.ThreadId,
-		"reply_id":   msg.ReplyId,
-		"pinned_by":  foundRecord.PinnedBy,
-		"pinned_at":  foundRecord.PinnedAt,
+		"type":        "pin_dispute",
+		"thread_id":   msg.ThreadId,
+		"reply_id":    msg.ReplyId,
+		"pinned_by":   foundRecord.PinnedBy,
+		"pinned_at":   foundRecord.PinnedAt,
 		"disputed_by": msg.Creator,
-		"reason":     msg.Reason,
+		"reason":      msg.Reason,
 	}
 	payloadBytes, _ := json.Marshal(payload)
 

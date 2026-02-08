@@ -29,18 +29,8 @@ func (q queryServer) Titles(ctx context.Context, req *types.QueryTitlesRequest) 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if len(titles) == 0 {
-		return &types.QueryTitlesResponse{
-			Pagination: pageRes,
-		}, nil
-	}
-
-	firstTitle := titles[0]
 	return &types.QueryTitlesResponse{
-		Id:         firstTitle.TitleId,
-		Name:       firstTitle.Name,
-		Rarity:     uint64(firstTitle.Rarity),
-		Seasonal:   firstTitle.Seasonal,
+		Titles:     titles,
 		Pagination: pageRes,
 	}, nil
 }

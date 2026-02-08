@@ -20,15 +20,15 @@ func TestZeroMember(t *testing.T) {
 
 	// Setup: Active member with DREAM balance and reputation
 	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
-		Address:          memberAddr.String(),
-		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
-		DreamBalance:     PtrInt(math.NewInt(1000)),
-		StakedDream:      PtrInt(math.NewInt(500)),
-		LifetimeEarned:   PtrInt(math.NewInt(1500)),
-		LifetimeBurned:   PtrInt(math.NewInt(0)),
-		ReputationScores: map[string]string{"backend": "100.0", "frontend": "50.0"},
-		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
-		InvitationCredits: 5,
+		Address:            memberAddr.String(),
+		Status:             types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:       PtrInt(math.NewInt(1000)),
+		StakedDream:        PtrInt(math.NewInt(500)),
+		LifetimeEarned:     PtrInt(math.NewInt(1500)),
+		LifetimeBurned:     PtrInt(math.NewInt(0)),
+		ReputationScores:   map[string]string{"backend": "100.0", "frontend": "50.0"},
+		TrustLevel:         types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		InvitationCredits:  5,
 		TipsGivenThisEpoch: 3,
 		GiftsSentThisEpoch: PtrInt(math.NewInt(100)),
 	})
@@ -99,14 +99,14 @@ func TestZeroMember_AlreadyZeroed(t *testing.T) {
 
 	// Setup: Already zeroed member
 	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
-		Address:      memberAddr.String(),
-		Status:       types.MemberStatus_MEMBER_STATUS_ZEROED,
-		DreamBalance: PtrInt(math.ZeroInt()),
-		StakedDream:  PtrInt(math.ZeroInt()),
+		Address:        memberAddr.String(),
+		Status:         types.MemberStatus_MEMBER_STATUS_ZEROED,
+		DreamBalance:   PtrInt(math.ZeroInt()),
+		StakedDream:    PtrInt(math.ZeroInt()),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		TrustLevel:   types.TrustLevel_TRUST_LEVEL_NEW,
-		ZeroedCount:  1,
+		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
+		ZeroedCount:    1,
 	})
 	require.NoError(t, err)
 
@@ -213,13 +213,13 @@ func TestSlashReputation_NotActive(t *testing.T) {
 
 	// Setup: Inactive (zeroed) member
 	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
-		Address:      memberAddr.String(),
-		Status:       types.MemberStatus_MEMBER_STATUS_ZEROED,
-		DreamBalance: PtrInt(math.ZeroInt()),
-		StakedDream:  PtrInt(math.ZeroInt()),
+		Address:        memberAddr.String(),
+		Status:         types.MemberStatus_MEMBER_STATUS_ZEROED,
+		DreamBalance:   PtrInt(math.ZeroInt()),
+		StakedDream:    PtrInt(math.ZeroInt()),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		TrustLevel:   types.TrustLevel_TRUST_LEVEL_NEW,
+		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
 	})
 	require.NoError(t, err)
 
@@ -310,13 +310,13 @@ func TestIsMember(t *testing.T) {
 
 	// Setup: Create a member
 	err := k.Member.Set(ctx, existingMemberAddr.String(), types.Member{
-		Address:      existingMemberAddr.String(),
-		Status:       types.MemberStatus_MEMBER_STATUS_ACTIVE,
-		DreamBalance: PtrInt(math.ZeroInt()),
-		StakedDream:  PtrInt(math.ZeroInt()),
+		Address:        existingMemberAddr.String(),
+		Status:         types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:   PtrInt(math.ZeroInt()),
+		StakedDream:    PtrInt(math.ZeroInt()),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		TrustLevel:   types.TrustLevel_TRUST_LEVEL_NEW,
+		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
 	})
 	require.NoError(t, err)
 
@@ -341,25 +341,25 @@ func TestIsActiveMember(t *testing.T) {
 
 	// Setup: Active member
 	err := k.Member.Set(ctx, activeMemberAddr.String(), types.Member{
-		Address:      activeMemberAddr.String(),
-		Status:       types.MemberStatus_MEMBER_STATUS_ACTIVE,
-		DreamBalance: PtrInt(math.ZeroInt()),
-		StakedDream:  PtrInt(math.ZeroInt()),
+		Address:        activeMemberAddr.String(),
+		Status:         types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:   PtrInt(math.ZeroInt()),
+		StakedDream:    PtrInt(math.ZeroInt()),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		TrustLevel:   types.TrustLevel_TRUST_LEVEL_NEW,
+		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
 	})
 	require.NoError(t, err)
 
 	// Setup: Zeroed member
 	err = k.Member.Set(ctx, zeroedMemberAddr.String(), types.Member{
-		Address:      zeroedMemberAddr.String(),
-		Status:       types.MemberStatus_MEMBER_STATUS_ZEROED,
-		DreamBalance: PtrInt(math.ZeroInt()),
-		StakedDream:  PtrInt(math.ZeroInt()),
+		Address:        zeroedMemberAddr.String(),
+		Status:         types.MemberStatus_MEMBER_STATUS_ZEROED,
+		DreamBalance:   PtrInt(math.ZeroInt()),
+		StakedDream:    PtrInt(math.ZeroInt()),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		TrustLevel:   types.TrustLevel_TRUST_LEVEL_NEW,
+		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
 	})
 	require.NoError(t, err)
 
@@ -383,8 +383,8 @@ func TestGetTrustLevel(t *testing.T) {
 	ctx := fixture.ctx
 
 	testCases := []struct {
-		name          string
-		trustLevel    types.TrustLevel
+		name       string
+		trustLevel types.TrustLevel
 	}{
 		{"NEW trust level", types.TrustLevel_TRUST_LEVEL_NEW},
 		{"PROVISIONAL trust level", types.TrustLevel_TRUST_LEVEL_PROVISIONAL},
@@ -399,13 +399,13 @@ func TestGetTrustLevel(t *testing.T) {
 
 			// Setup: Create member with specific trust level
 			err := k.Member.Set(ctx, memberAddr.String(), types.Member{
-				Address:      memberAddr.String(),
-				Status:       types.MemberStatus_MEMBER_STATUS_ACTIVE,
-				DreamBalance: PtrInt(math.ZeroInt()),
-				StakedDream:  PtrInt(math.ZeroInt()),
+				Address:        memberAddr.String(),
+				Status:         types.MemberStatus_MEMBER_STATUS_ACTIVE,
+				DreamBalance:   PtrInt(math.ZeroInt()),
+				StakedDream:    PtrInt(math.ZeroInt()),
 				LifetimeEarned: PtrInt(math.ZeroInt()),
 				LifetimeBurned: PtrInt(math.ZeroInt()),
-				TrustLevel:   tc.trustLevel,
+				TrustLevel:     tc.trustLevel,
 			})
 			require.NoError(t, err)
 
@@ -437,9 +437,9 @@ func TestGetReputationTier(t *testing.T) {
 	ctx := fixture.ctx
 
 	testCases := []struct {
-		name           string
+		name             string
 		reputationScores map[string]string
-		expectedTier   uint64
+		expectedTier     uint64
 	}{
 		{
 			name:             "Tier 0: < 10 rep",
@@ -474,7 +474,7 @@ func TestGetReputationTier(t *testing.T) {
 		{
 			name:             "Multiple tags add up",
 			reputationScores: map[string]string{"backend": "300.0", "frontend": "300.0"}, // Total: 600
-			expectedTier:     4, // 500-999
+			expectedTier:     4,                                                          // 500-999
 		},
 	}
 
@@ -541,4 +541,3 @@ func TestGetReputationTier_EmptyReputation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), tier)
 }
-

@@ -29,18 +29,8 @@ func (q queryServer) Achievements(ctx context.Context, req *types.QueryAchieveme
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if len(achievements) == 0 {
-		return &types.QueryAchievementsResponse{
-			Pagination: pageRes,
-		}, nil
-	}
-
-	firstAchievement := achievements[0]
 	return &types.QueryAchievementsResponse{
-		Id:         firstAchievement.AchievementId,
-		Name:       firstAchievement.Name,
-		Rarity:     uint64(firstAchievement.Rarity),
-		XpReward:   firstAchievement.XpReward,
-		Pagination: pageRes,
+		Achievements: achievements,
+		Pagination:   pageRes,
 	}, nil
 }

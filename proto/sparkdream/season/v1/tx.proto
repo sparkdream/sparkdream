@@ -104,6 +104,26 @@ service Msg {
 
   // AppealDisplayNameModeration defines the AppealDisplayNameModeration RPC.
   rpc AppealDisplayNameModeration(MsgAppealDisplayNameModeration) returns (MsgAppealDisplayNameModerationResponse);
+
+  // Achievement management (Commons Council / Operations Committee)
+  rpc CreateAchievement(MsgCreateAchievement) returns (MsgCreateAchievementResponse);
+  rpc UpdateAchievement(MsgUpdateAchievement) returns (MsgUpdateAchievementResponse);
+  rpc DeleteAchievement(MsgDeleteAchievement) returns (MsgDeleteAchievementResponse);
+
+  // Title management (Commons Council / Operations Committee)
+  rpc CreateTitle(MsgCreateTitle) returns (MsgCreateTitleResponse);
+  rpc UpdateTitle(MsgUpdateTitle) returns (MsgUpdateTitleResponse);
+  rpc DeleteTitle(MsgDeleteTitle) returns (MsgDeleteTitleResponse);
+
+  // UpdateQuest allows updating quest details (Commons Council / Operations Committee)
+  rpc UpdateQuest(MsgUpdateQuest) returns (MsgUpdateQuestResponse);
+
+  // ResolveDisplayNameAppeal defines the ResolveDisplayNameAppeal RPC.
+  rpc ResolveDisplayNameAppeal(MsgResolveDisplayNameAppeal) returns (MsgResolveDisplayNameAppealResponse);
+
+  // ResolveUnappealedModeration resolves a display name moderation where the appeal period
+  // expired without an appeal being filed. The report is upheld and the reporter's stake is returned.
+  rpc ResolveUnappealedModeration(MsgResolveUnappealedModeration) returns (MsgResolveUnappealedModerationResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -459,3 +479,164 @@ message MsgAppealDisplayNameModeration {
 
 // MsgAppealDisplayNameModerationResponse defines the MsgAppealDisplayNameModerationResponse message.
 message MsgAppealDisplayNameModerationResponse {}
+
+// ============================================================================
+// Achievement Management Messages
+// ============================================================================
+// MsgCreateAchievement creates a new achievement.
+// Authorized: Commons Council or Commons Operations Committee
+message MsgCreateAchievement {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgCreateAchievement";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string achievement_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 rarity = 5; // Rarity enum value
+  uint64 xp_reward = 6;
+  uint32 requirement_type = 7; // RequirementType enum value
+  uint64 requirement_threshold = 8;
+}
+
+// MsgCreateAchievementResponse is the response for MsgCreateAchievement.
+message MsgCreateAchievementResponse {}
+
+// MsgUpdateAchievement updates an existing achievement.
+// Authorized: Commons Council or Commons Operations Committee
+message MsgUpdateAchievement {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgUpdateAchievement";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string achievement_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 rarity = 5;
+  uint64 xp_reward = 6;
+  uint32 requirement_type = 7;
+  uint64 requirement_threshold = 8;
+}
+
+// MsgUpdateAchievementResponse is the response for MsgUpdateAchievement.
+message MsgUpdateAchievementResponse {}
+
+// MsgDeleteAchievement deletes an achievement.
+// Authorized: Commons Council or Commons Operations Committee
+message MsgDeleteAchievement {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgDeleteAchievement";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string achievement_id = 2;
+}
+
+// MsgDeleteAchievementResponse is the response for MsgDeleteAchievement.
+message MsgDeleteAchievementResponse {}
+
+// ============================================================================
+// Title Management Messages
+// ============================================================================
+// MsgCreateTitle creates a new title.
+// Authorized: Commons Council or Commons Operations Committee
+message MsgCreateTitle {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgCreateTitle";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string title_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 rarity = 5; // Rarity enum value
+  uint32 requirement_type = 6; // RequirementType enum value
+  uint64 requirement_threshold = 7;
+  uint64 requirement_season = 8; // 0 = any season
+  bool seasonal = 9; // Whether this title expires
+}
+
+// MsgCreateTitleResponse is the response for MsgCreateTitle.
+message MsgCreateTitleResponse {}
+
+// MsgUpdateTitle updates an existing title.
+// Authorized: Commons Council or Commons Operations Committee
+message MsgUpdateTitle {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgUpdateTitle";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string title_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 rarity = 5;
+  uint32 requirement_type = 6;
+  uint64 requirement_threshold = 7;
+  uint64 requirement_season = 8;
+  bool seasonal = 9;
+}
+
+// MsgUpdateTitleResponse is the response for MsgUpdateTitle.
+message MsgUpdateTitleResponse {}
+
+// MsgDeleteTitle deletes a title.
+// Authorized: Commons Council or Commons Operations Committee
+message MsgDeleteTitle {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgDeleteTitle";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string title_id = 2;
+}
+
+// MsgDeleteTitleResponse is the response for MsgDeleteTitle.
+message MsgDeleteTitleResponse {}
+
+// ============================================================================
+// Quest Update Message
+// ============================================================================
+// MsgUpdateQuest updates an existing quest.
+// Authorized: Commons Council or Commons Operations Committee
+message MsgUpdateQuest {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgUpdateQuest";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string quest_id = 2;
+  string name = 3;
+  string description = 4;
+  uint64 xp_reward = 5;
+  bool repeatable = 6;
+  uint64 cooldown_epochs = 7;
+  uint64 season = 8;
+  int64 start_block = 9;
+  int64 end_block = 10;
+  uint64 min_level = 11;
+  string required_achievement = 12;
+  string prerequisite_quest = 13;
+  string quest_chain = 14;
+  bool active = 15;
+}
+
+// MsgUpdateQuestResponse is the response for MsgUpdateQuest.
+message MsgUpdateQuestResponse {}
+
+// MsgResolveDisplayNameAppeal resolves a display name appeal.
+// Authorized: Commons Council, Operations Committee, or governance authority.
+message MsgResolveDisplayNameAppeal {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgResolveDisplayNameAppeal";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string member = 2;
+  bool appeal_succeeded = 3;
+}
+
+// MsgResolveDisplayNameAppealResponse defines the MsgResolveDisplayNameAppealResponse message.
+message MsgResolveDisplayNameAppealResponse {}
+
+// MsgResolveUnappealedModeration resolves a display name moderation where the appeal period
+// expired without an appeal. The report is upheld, the reporter's DREAM stake is returned,
+// and the display name stays cleared.
+// Authorized: Commons Council, Operations Committee, or governance authority.
+message MsgResolveUnappealedModeration {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/season/MsgResolveUnappealedModeration";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string member = 2;
+}
+
+// MsgResolveUnappealedModerationResponse defines the response for MsgResolveUnappealedModeration.
+message MsgResolveUnappealedModerationResponse {}

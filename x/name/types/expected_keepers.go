@@ -6,6 +6,7 @@ import (
 	commonstypes "sparkdream/x/commons/types"
 
 	"cosmossdk.io/core/address"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/group"
 )
@@ -51,6 +52,13 @@ type ExtendedGroup struct {
 type PolicyPermissions struct {
 	PolicyAddress   string
 	AllowedMessages []string
+}
+
+// RepKeeper defines the expected interface for the x/rep module (DREAM token operations).
+type RepKeeper interface {
+	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

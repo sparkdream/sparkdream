@@ -4,6 +4,7 @@ package sparkdream.name.v1;
 
 import "amino/amino.proto";
 import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
 
@@ -25,8 +26,18 @@ message Params {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
-  cosmos.base.v1beta1.Coin dispute_fee = 7 [
-    (gogoproto.nullable) = false,
-    (amino.dont_omitempty) = true
+  // DREAM tokens staked by claimant when filing a dispute (default 50)
+  string dispute_stake_dream = 7 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Blocks before an uncontested dispute auto-resolves (~7 days = 100800)
+  uint64 dispute_timeout_blocks = 8;
+  // DREAM tokens staked by owner when contesting a dispute (default 100)
+  string contest_stake_dream = 9 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
   ];
 }

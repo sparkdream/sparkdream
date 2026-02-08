@@ -126,10 +126,10 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 	if err != nil {
 		// New metadata
 		archiveMetadata = types.ArchiveMetadata{
-			RootId:           msg.RootId,
-			ArchiveCount:     0,
-			FirstArchivedAt:  now,
-			LastArchivedAt:   now,
+			RootId:             msg.RootId,
+			ArchiveCount:       0,
+			FirstArchivedAt:    now,
+			LastArchivedAt:     now,
 			HrOverrideRequired: false,
 		}
 	}

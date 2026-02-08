@@ -30,7 +30,7 @@ func TestQueryAchievements(t *testing.T) {
 		resp, err := qs.Achievements(ctx, &types.QueryAchievementsRequest{})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Empty(t, resp.Id)
+		require.Empty(t, resp.Achievements)
 	})
 
 	t.Run("list with achievements", func(t *testing.T) {
@@ -47,9 +47,10 @@ func TestQueryAchievements(t *testing.T) {
 
 		resp, err := qs.Achievements(ctx, &types.QueryAchievementsRequest{})
 		require.NoError(t, err)
-		require.Equal(t, "first_win", resp.Id)
-		require.Equal(t, "First Victory", resp.Name)
-		require.Equal(t, uint64(types.Rarity_RARITY_COMMON), resp.Rarity)
-		require.Equal(t, uint64(50), resp.XpReward)
+		require.Len(t, resp.Achievements, 1)
+		require.Equal(t, "first_win", resp.Achievements[0].AchievementId)
+		require.Equal(t, "First Victory", resp.Achievements[0].Name)
+		require.Equal(t, types.Rarity_RARITY_COMMON, resp.Achievements[0].Rarity)
+		require.Equal(t, uint64(50), resp.Achievements[0].XpReward)
 	})
 }

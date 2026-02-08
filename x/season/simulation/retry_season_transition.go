@@ -70,7 +70,7 @@ func SimulateMsgRetrySeasonTransition(
 
 		// Update recovery state
 		recoveryState.LastAttemptBlock = ctx.BlockHeight()
-		recoveryState.FailureCount++ // Increment attempt count
+		recoveryState.FailureCount++       // Increment attempt count
 		recoveryState.RecoveryMode = false // Turn off recovery mode (we're retrying)
 
 		if err := k.TransitionRecoveryState.Set(ctx, recoveryState); err != nil {

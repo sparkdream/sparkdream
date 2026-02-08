@@ -35,10 +35,10 @@ func (q queryServer) SeasonByNumber(ctx context.Context, req *types.QuerySeasonB
 	// SeasonSnapshot only contains Season and SnapshotBlock
 	// For historical seasons, we return limited information
 	return &types.QuerySeasonByNumberResponse{
-		Name:       "",                                               // Not stored in snapshot
-		Theme:      "",                                               // Not stored in snapshot
-		StartBlock: 0,                                                // Not stored in snapshot
-		EndBlock:   snapshot.SnapshotBlock,                           // Use snapshot block as end
+		Name:       "",                                                 // Not stored in snapshot
+		Theme:      "",                                                 // Not stored in snapshot
+		StartBlock: 0,                                                  // Not stored in snapshot
+		EndBlock:   snapshot.SnapshotBlock,                             // Use snapshot block as end
 		Status:     uint64(types.SeasonStatus_SEASON_STATUS_COMPLETED), // Historical = completed
 	}, nil
 }

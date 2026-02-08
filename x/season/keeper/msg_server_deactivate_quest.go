@@ -11,7 +11,7 @@ import (
 
 // DeactivateQuest deactivates a quest so it can no longer be started.
 // Members with in-progress quests can still complete them.
-// Only Operations Committee can deactivate quests.
+// Authorized: Commons Council policy address or Commons Operations Committee members.
 func (k msgServer) DeactivateQuest(ctx context.Context, msg *types.MsgDeactivateQuest) (*types.MsgDeactivateQuestResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
@@ -19,9 +19,9 @@ func (k msgServer) DeactivateQuest(ctx context.Context, msg *types.MsgDeactivate
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check authority (Operations Committee or governance)
-	if !k.IsOperationsCommittee(ctx, msg.Authority) {
-		return nil, types.ErrNotOperationsCommittee
+	// Check authority (Commons Council or Operations Committee)
+	if !k.IsAuthorizedForGamification(ctx, msg.Authority) {
+		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "sender not authorized for gamification management")
 	}
 
 	// Get the quest

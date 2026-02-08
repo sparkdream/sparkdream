@@ -54,6 +54,7 @@ run_test "commons/fee_update_test.sh"
 
 # Name Module
 # Registration must happen before Primary/Disputes
+run_test "name/setup_test_accounts.sh"
 run_test "name/name_registration_test.sh"
 run_test "name/primary_name_test.sh"
 run_test "name/dispute_resolution_test.sh" 

@@ -90,11 +90,11 @@ func (k msgServer) JoinGuild(ctx context.Context, msg *types.MsgJoinGuild) (*typ
 
 	// Create/update membership record
 	newMembership := types.GuildMembership{
-		Member:                  msg.Creator,
-		GuildId:                 msg.GuildId,
-		JoinedEpoch:             currentEpoch,
-		LeftEpoch:               0,
-		GuildsJoinedThisSeason:  1,
+		Member:                 msg.Creator,
+		GuildId:                msg.GuildId,
+		JoinedEpoch:            currentEpoch,
+		LeftEpoch:              0,
+		GuildsJoinedThisSeason: 1,
 	}
 	if err == nil {
 		newMembership.GuildsJoinedThisSeason = membership.GuildsJoinedThisSeason + 1

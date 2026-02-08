@@ -41,4 +41,6 @@ type CommonsKeeper interface {
 type SeasonKeeper interface {
 	// GetCurrentSeason returns the current season state
 	GetCurrentSeason(ctx context.Context) (seasontypes.Season, error)
+	// ResolveDisplayNameAppealInternal resolves a display name appeal after jury verdict
+	ResolveDisplayNameAppealInternal(ctx context.Context, member string, appealSucceeded bool) error
 }

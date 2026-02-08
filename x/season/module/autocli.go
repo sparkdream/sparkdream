@@ -596,6 +596,63 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Send a appeal-display-name-moderation tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "appeal_reason"}},
 				},
+				// Achievement management (Commons Council / Operations Committee)
+				{
+					RpcMethod:      "CreateAchievement",
+					Use:            "create-achievement [achievement-id] [name] [description] [rarity] [xp-reward] [requirement-type] [requirement-threshold]",
+					Short:          "Create a new achievement (Commons Council / Operations Committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "achievement_id"}, {ProtoField: "name"}, {ProtoField: "description"}, {ProtoField: "rarity"}, {ProtoField: "xp_reward"}, {ProtoField: "requirement_type"}, {ProtoField: "requirement_threshold"}},
+				},
+				{
+					RpcMethod:      "UpdateAchievement",
+					Use:            "update-achievement [achievement-id] [name] [description] [rarity] [xp-reward] [requirement-type] [requirement-threshold]",
+					Short:          "Update an existing achievement (Commons Council / Operations Committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "achievement_id"}, {ProtoField: "name"}, {ProtoField: "description"}, {ProtoField: "rarity"}, {ProtoField: "xp_reward"}, {ProtoField: "requirement_type"}, {ProtoField: "requirement_threshold"}},
+				},
+				{
+					RpcMethod:      "DeleteAchievement",
+					Use:            "delete-achievement [achievement-id]",
+					Short:          "Delete an achievement (Commons Council / Operations Committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "achievement_id"}},
+				},
+				// Title management (Commons Council / Operations Committee)
+				{
+					RpcMethod:      "CreateTitle",
+					Use:            "create-title [title-id] [name] [description] [rarity] [requirement-type] [requirement-threshold] [requirement-season] [seasonal]",
+					Short:          "Create a new title (Commons Council / Operations Committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title_id"}, {ProtoField: "name"}, {ProtoField: "description"}, {ProtoField: "rarity"}, {ProtoField: "requirement_type"}, {ProtoField: "requirement_threshold"}, {ProtoField: "requirement_season"}, {ProtoField: "seasonal"}},
+				},
+				{
+					RpcMethod:      "UpdateTitle",
+					Use:            "update-title [title-id] [name] [description] [rarity] [requirement-type] [requirement-threshold] [requirement-season] [seasonal]",
+					Short:          "Update an existing title (Commons Council / Operations Committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title_id"}, {ProtoField: "name"}, {ProtoField: "description"}, {ProtoField: "rarity"}, {ProtoField: "requirement_type"}, {ProtoField: "requirement_threshold"}, {ProtoField: "requirement_season"}, {ProtoField: "seasonal"}},
+				},
+				{
+					RpcMethod:      "DeleteTitle",
+					Use:            "delete-title [title-id]",
+					Short:          "Delete a title (Commons Council / Operations Committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title_id"}},
+				},
+				// Quest update (Commons Council / Operations Committee)
+				{
+					RpcMethod:      "UpdateQuest",
+					Use:            "update-quest [quest-id] [name] [description] [xp-reward] [repeatable] [cooldown-epochs] [season] [start-block] [end-block] [min-level] [required-achievement] [prerequisite-quest] [quest-chain] [active]",
+					Short:          "Update an existing quest (Commons Council / Operations Committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "quest_id"}, {ProtoField: "name"}, {ProtoField: "description"}, {ProtoField: "xp_reward"}, {ProtoField: "repeatable"}, {ProtoField: "cooldown_epochs"}, {ProtoField: "season"}, {ProtoField: "start_block"}, {ProtoField: "end_block"}, {ProtoField: "min_level"}, {ProtoField: "required_achievement"}, {ProtoField: "prerequisite_quest"}, {ProtoField: "quest_chain"}, {ProtoField: "active"}},
+				},
+				{
+					RpcMethod:      "ResolveDisplayNameAppeal",
+					Use:            "resolve-display-name-appeal [member] [appeal-succeeded]",
+					Short:          "Resolve a display name appeal (governance/committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}, {ProtoField: "appeal_succeeded"}},
+				},
+				{
+					RpcMethod:      "ResolveUnappealedModeration",
+					Use:            "resolve-unappealed-moderation [member]",
+					Short:          "Resolve an unappealed display name moderation after appeal period expires",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
+				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},
 		},

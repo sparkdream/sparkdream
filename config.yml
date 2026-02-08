@@ -66,6 +66,80 @@ genesis:
     staking:
       params:
         bond_denom: uspark
+    season:
+      season:
+        number: 1
+        name: "Genesis Season"
+        theme: "The Beginning"
+        start_block: 1
+        end_block: 1001  # epoch_blocks * season_duration_epochs (100 * 10) + start_block
+        status: SEASON_STATUS_ACTIVE
+        extensions_count: 0
+        total_extension_epochs: 0
+        original_end_block: 1001
+      params:
+        epoch_blocks: "100"  # ~100 blocks per epoch (short for testing)
+        season_duration_epochs: "10"  # 10 epochs per season (short for testing)
+        transition_batch_size: "1"  # 1 member per block per phase (slow for abort/skip testing)
+        transition_grace_period: "10"  # 10 blocks grace after abort (short for testing)
+        display_name_appeal_period_blocks: "20"  # ~20 seconds (short for testing; default 100800)
+      member_profile_map:
+      # Alice - High level founder with multiple achievements and titles
+      - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
+        display_name: "Alice"
+        username: "alice"
+        display_title: "veteran"
+        season_xp: 5000
+        lifetime_xp: 5000
+        season_level: 8  # sqrt(5000/100) ≈ 7.07 → level 8
+        unlocked_titles:
+        - "newcomer"
+        - "veteran"
+        - "rising_star"
+        achievements:
+        - "first_step"
+        - "voice_heard"
+        - "contributor"
+        invitations_successful: 5
+        challenges_won: 2
+        jury_duties_completed: 3
+        votes_cast: 15
+        forum_helpful_count: 50
+      # Bob - Mid level with some achievements
+      - address: sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y  # bob
+        display_name: "Bob"
+        username: "bob"
+        display_title: "newcomer"
+        season_xp: 1500
+        lifetime_xp: 1500
+        season_level: 4  # sqrt(1500/100) ≈ 3.87 → level 4
+        unlocked_titles:
+        - "newcomer"
+        achievements:
+        - "first_step"
+        - "voice_heard"
+        invitations_successful: 2
+        challenges_won: 0
+        jury_duties_completed: 1
+        votes_cast: 5
+        forum_helpful_count: 15
+      # Carol - New member, minimal progress
+      - address: sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz  # carol
+        display_name: "Carol"
+        username: "carol"
+        display_title: ""
+        season_xp: 300
+        lifetime_xp: 300
+        season_level: 2  # sqrt(300/100) ≈ 1.73 → level 2
+        unlocked_titles:
+        - "newcomer"
+        achievements:
+        - "voice_heard"
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 2
+        forum_helpful_count: 5
     rep:
       params:
         # Time - FAST for testing

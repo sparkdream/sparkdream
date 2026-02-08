@@ -31,6 +31,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
+
+	// Bootstrap sample titles and achievements only if none provided in genesis
+	// This allows custom genesis states to fully control achievements/titles
+	if len(genState.AchievementMap) == 0 && len(genState.TitleMap) == 0 {
+		k.BootstrapTitlesAndAchievements(ctx)
+	}
+
 	for _, elem := range genState.SeasonSnapshotMap {
 		if err := k.SeasonSnapshot.Set(ctx, elem.Season, elem); err != nil {
 			return err

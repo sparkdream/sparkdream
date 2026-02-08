@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"testing"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -21,6 +22,7 @@ func createNDispute(keeper keeper.Keeper, ctx context.Context, n int) []types.Di
 		// We use the iteration number to generate unique names
 		items[i].Name = strconv.Itoa(i)
 		items[i].Claimant = strconv.Itoa(i)
+		items[i].StakeAmount = math.ZeroInt()
 
 		_ = keeper.Disputes.Set(ctx, items[i].Name, items[i])
 	}

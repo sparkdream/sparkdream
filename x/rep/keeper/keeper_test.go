@@ -50,6 +50,10 @@ func (m mockSeasonKeeper) GetCurrentSeason(ctx context.Context) (seasontypes.Sea
 	return seasontypes.Season{Number: 1}, nil
 }
 
+func (m mockSeasonKeeper) ResolveDisplayNameAppealInternal(ctx context.Context, member string, appealSucceeded bool) error {
+	return nil
+}
+
 type fixture struct {
 	ctx           sdk.Context
 	keeper        keeper.Keeper

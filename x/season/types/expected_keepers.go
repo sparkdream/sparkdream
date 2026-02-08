@@ -3,6 +3,8 @@ package types
 import (
 	"context"
 
+	commonstypes "sparkdream/x/commons/types"
+
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -39,6 +41,17 @@ type RepKeeper interface {
 	// Membership verification
 	IsMember(ctx context.Context, addr string) bool
 	GetMember(ctx context.Context, addr string) (interface{}, error)
+
+	// Reputation operations for season transitions
+	// GetReputationScores returns all reputation scores for a member (tag -> score string)
+	GetReputationScores(ctx context.Context, addr string) (map[string]string, error)
+
+	// ArchiveSeasonalReputation archives the member's seasonal reputation to lifetime
+	// and resets the seasonal scores. Returns the archived reputation scores.
+	ArchiveSeasonalReputation(ctx context.Context, addr string) (map[string]string, error)
+
+	// GetCompletedInitiativesCount returns the cached count of completed initiatives for a member
+	GetCompletedInitiativesCount(ctx context.Context, addr string) (uint64, error)
 }
 
 // NameKeeper defines the expected interface for the x/name module.
@@ -54,8 +67,11 @@ type NameKeeper interface {
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.
-// This enables cross-module integration for committee membership checks.
+// This enables cross-module integration for committee membership checks and council lookups.
 type CommonsKeeper interface {
 	// Committee membership checks
 	IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
+
+	// GetExtendedGroup retrieves a group by name (e.g., "Commons Council")
+	GetExtendedGroup(ctx context.Context, name string) (commonstypes.ExtendedGroup, error)
 }

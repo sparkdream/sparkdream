@@ -151,10 +151,10 @@ func (k msgServer) checkAndUpdateFlagLimit(ctx context.Context, addr string, now
 	if err != nil {
 		// Create new flag limit record
 		reactionLimit = types.UserReactionLimit{
-			UserAddress:       addr,
-			CurrentDayCount:   0,
-			PreviousDayCount:  0,
-			CurrentDayStart:   now,
+			UserAddress:      addr,
+			CurrentDayCount:  0,
+			PreviousDayCount: 0,
+			CurrentDayStart:  now,
 		}
 	}
 

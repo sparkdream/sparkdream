@@ -8,6 +8,7 @@ import (
 	storetypes "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
 
+	"sparkdream/lib/dreamutil"
 	"sparkdream/x/name/types"
 )
 
@@ -22,6 +23,10 @@ type Keeper struct {
 	bankKeeper    types.BankKeeper
 	commonsKeeper types.CommonsKeeper
 	groupKeeper   types.GroupKeeper
+	repKeeper     types.RepKeeper
+
+	// Shared DREAM token operations (delegates to repKeeper)
+	dreamOps dreamutil.Ops
 
 	// State Collections
 	Schema   collections.Schema
@@ -33,6 +38,10 @@ type Keeper struct {
 	// Secondary Index: (OwnerAddress, Name) -> Empty
 	// This allows efficient iteration of names owned by a specific address.
 	OwnerNames collections.KeySet[collections.Pair[string, string]]
+
+	// Dispute stake tracking
+	DisputeStakes collections.Map[string, types.DisputeStake] // Key: challenge_id
+	ContestStakes collections.Map[string, types.ContestStake] // Key: challenge_id
 }
 
 func NewKeeper(
@@ -43,6 +52,7 @@ func NewKeeper(
 	bankKeeper types.BankKeeper,
 	commonsKeeper types.CommonsKeeper,
 	groupKeeper types.GroupKeeper,
+	repKeeper types.RepKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -57,6 +67,7 @@ func NewKeeper(
 		bankKeeper:    bankKeeper,
 		commonsKeeper: commonsKeeper,
 		groupKeeper:   groupKeeper,
+		repKeeper:     repKeeper,
 
 		// Initialize Collections
 		Params:   collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
@@ -71,6 +82,10 @@ func NewKeeper(
 			"owner_names",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 		),
+
+		// Dispute stake tracking
+		DisputeStakes: collections.NewMap(sb, types.KeyDisputeStakes, "dispute_stakes", collections.StringKey, codec.CollValue[types.DisputeStake](cdc)),
+		ContestStakes: collections.NewMap(sb, types.KeyContestStakes, "contest_stakes", collections.StringKey, codec.CollValue[types.ContestStake](cdc)),
 	}
 
 	schema, err := sb.Build()
@@ -78,6 +93,9 @@ func NewKeeper(
 		panic(err)
 	}
 	k.Schema = schema
+
+	// Initialize shared DREAM operations (after schema build)
+	k.dreamOps = dreamutil.NewOps(repKeeper, addressCodec)
 
 	return k
 }

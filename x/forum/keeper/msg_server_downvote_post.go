@@ -96,10 +96,10 @@ func (k msgServer) checkAndUpdateDownvoteLimit(ctx context.Context, addr string,
 	if err != nil {
 		// Create new downvote limit record
 		reactionLimit = types.UserReactionLimit{
-			UserAddress:       addr,
-			CurrentDayCount:   0,
-			PreviousDayCount:  0,
-			CurrentDayStart:   now,
+			UserAddress:      addr,
+			CurrentDayCount:  0,
+			PreviousDayCount: 0,
+			CurrentDayStart:  now,
 		}
 	}
 

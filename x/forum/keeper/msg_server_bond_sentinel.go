@@ -40,9 +40,9 @@ func (k msgServer) BondSentinel(ctx context.Context, msg *types.MsgBondSentinel)
 	if err != nil {
 		// New sentinel
 		sentinelActivity = types.SentinelActivity{
-			Address:       msg.Creator,
-			CurrentBond:   "0",
-			BondStatus:    types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
+			Address:     msg.Creator,
+			CurrentBond: "0",
+			BondStatus:  types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
 		}
 	}
 

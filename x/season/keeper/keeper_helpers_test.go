@@ -463,3 +463,71 @@ func TestCrossModuleHelpers(t *testing.T) {
 		require.True(t, available, "should return true when name keeper is nil")
 	})
 }
+
+func TestIsAuthorizedForGamification(t *testing.T) {
+	t.Run("returns true for governance authority", func(t *testing.T) {
+		f := initFixture(t)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		k := f.keeper
+
+		authorityAddr, err := f.addressCodec.BytesToString(k.GetAuthority())
+		require.NoError(t, err)
+		require.True(t, k.IsAuthorizedForGamification(ctx, authorityAddr))
+	})
+
+	t.Run("returns false for random address without commons keeper", func(t *testing.T) {
+		f := initFixture(t)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		k := f.keeper
+
+		randomAddr := TestAddrMember1
+		addrStr, _ := f.addressCodec.BytesToString(randomAddr)
+		require.False(t, k.IsAuthorizedForGamification(ctx, addrStr))
+	})
+
+	t.Run("returns true for operations committee member", func(t *testing.T) {
+		committeeAddr := TestAddrMember1
+		committeeAddrStr := committeeAddr.String()
+
+		mockCommons := newMockCommonsKeeper(committeeAddrStr)
+		f := initFixtureWithCommons(t, mockCommons)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		k := f.keeper
+
+		addrStr, _ := f.addressCodec.BytesToString(committeeAddr)
+		require.True(t, k.IsAuthorizedForGamification(ctx, addrStr))
+	})
+
+	t.Run("returns false for non-committee member with commons keeper", func(t *testing.T) {
+		// Create mock that authorizes a different address
+		authorizedAddr := TestAddrMember1
+		mockCommons := newMockCommonsKeeper(authorizedAddr.String())
+		f := initFixtureWithCommons(t, mockCommons)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		k := f.keeper
+
+		// Try with a different, unauthorized address
+		unauthorizedAddr := TestAddrMember2
+		addrStr, _ := f.addressCodec.BytesToString(unauthorizedAddr)
+		require.False(t, k.IsAuthorizedForGamification(ctx, addrStr))
+	})
+
+	t.Run("returns true for commons council policy address", func(t *testing.T) {
+		councilPolicyAddr := TestAddrCouncilPolicy
+		mockCommons := newMockCommonsKeeperWithCouncil(councilPolicyAddr.String())
+		f := initFixtureWithCommons(t, mockCommons)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		k := f.keeper
+
+		addrStr, _ := f.addressCodec.BytesToString(councilPolicyAddr)
+		require.True(t, k.IsAuthorizedForGamification(ctx, addrStr))
+	})
+
+	t.Run("returns false for invalid address", func(t *testing.T) {
+		f := initFixture(t)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		k := f.keeper
+
+		require.False(t, k.IsAuthorizedForGamification(ctx, "invalid-address"))
+	})
+}

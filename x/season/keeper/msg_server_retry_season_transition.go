@@ -11,7 +11,7 @@ import (
 )
 
 // RetrySeasonTransition retries the current phase of a failed transition.
-// Only governance can retry a transition that's in recovery mode.
+// Authorized: Commons Council policy address or Commons Operations Committee members.
 func (k msgServer) RetrySeasonTransition(ctx context.Context, msg *types.MsgRetrySeasonTransition) (*types.MsgRetrySeasonTransitionResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
@@ -19,9 +19,9 @@ func (k msgServer) RetrySeasonTransition(ctx context.Context, msg *types.MsgRetr
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check authority (governance only)
-	if !k.IsGovAuthority(ctx, msg.Authority) {
-		return nil, types.ErrNotGovAuthority
+	// Check authority (Commons Council or Operations Committee)
+	if !k.IsAuthorizedForGamification(ctx, msg.Authority) {
+		return nil, types.ErrNotAuthorized
 	}
 
 	// Get transition state

@@ -36,6 +36,7 @@ type fixture struct {
 	mockBank     *MockBankKeeper
 	mockCommons  *MockCommonsKeeper
 	mockGroup    *MockGroupKeeperReg
+	mockRep      *MockRepKeeper
 	councilAddr  string
 }
 
@@ -65,6 +66,7 @@ func initFixture(t *testing.T) *fixture {
 	mockBK := NewMockBankKeeper()
 	mockGK := &MockGroupKeeperReg{members: make(map[string]bool)}
 	mockCK := NewMockCommonsKeeper()
+	mockRK := NewMockRepKeeper()
 
 	storeService := runtime.NewKVStoreService(storeKey)
 
@@ -76,6 +78,7 @@ func initFixture(t *testing.T) *fixture {
 		mockBK, // BankKeeper
 		mockCK, // CommonsKeeper
 		mockGK, // GroupKeeper
+		mockRK, // RepKeeper
 	)
 
 	// Initialize Params
@@ -89,6 +92,7 @@ func initFixture(t *testing.T) *fixture {
 		mockBank:     mockBK,
 		mockCommons:  mockCK,
 		mockGroup:    mockGK,
+		mockRep:      mockRK,
 		councilAddr:  councilAddrStr,
 	}
 }
@@ -215,4 +219,70 @@ func (m *MockBankKeeper) SpendableCoins(ctx context.Context, addr sdk.AccAddress
 		return sdk.NewCoins(sdk.NewCoin("uspark", amount))
 	}
 	return sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000000000)))
+}
+
+// MockRepKeeper implements the RepKeeper interface for DREAM token operations.
+type MockRepKeeper struct {
+	LockedDREAM   map[string]math.Int // addr -> total locked
+	UnlockedDREAM map[string]math.Int // addr -> total unlocked
+	BurnedDREAM   map[string]math.Int // addr -> total burned
+	lockErr       error
+	unlockErr     error
+	burnErr       error
+}
+
+func NewMockRepKeeper() *MockRepKeeper {
+	return &MockRepKeeper{
+		LockedDREAM:   make(map[string]math.Int),
+		UnlockedDREAM: make(map[string]math.Int),
+		BurnedDREAM:   make(map[string]math.Int),
+	}
+}
+
+func (m *MockRepKeeper) Reset() {
+	m.LockedDREAM = make(map[string]math.Int)
+	m.UnlockedDREAM = make(map[string]math.Int)
+	m.BurnedDREAM = make(map[string]math.Int)
+	m.lockErr = nil
+	m.unlockErr = nil
+	m.burnErr = nil
+}
+
+func (m *MockRepKeeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if m.lockErr != nil {
+		return m.lockErr
+	}
+	key := addr.String()
+	current, ok := m.LockedDREAM[key]
+	if !ok {
+		current = math.ZeroInt()
+	}
+	m.LockedDREAM[key] = current.Add(amount)
+	return nil
+}
+
+func (m *MockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if m.unlockErr != nil {
+		return m.unlockErr
+	}
+	key := addr.String()
+	current, ok := m.UnlockedDREAM[key]
+	if !ok {
+		current = math.ZeroInt()
+	}
+	m.UnlockedDREAM[key] = current.Add(amount)
+	return nil
+}
+
+func (m *MockRepKeeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if m.burnErr != nil {
+		return m.burnErr
+	}
+	key := addr.String()
+	current, ok := m.BurnedDREAM[key]
+	if !ok {
+		current = math.ZeroInt()
+	}
+	m.BurnedDREAM[key] = current.Add(amount)
+	return nil
 }

@@ -13,9 +13,9 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 
 	t.Run("invalid creator address", func(t *testing.T) {
 		msg := &types.MsgIncreaseBounty{
-			Creator:  "invalid",
-			BountyId: 1,
-			AdditionalAmount:   "100000",
+			Creator:          "invalid",
+			BountyId:         1,
+			AdditionalAmount: "100000",
 		}
 		_, err := f.msgServer.IncreaseBounty(f.ctx, msg)
 		require.Error(t, err)
@@ -24,9 +24,9 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 
 	t.Run("bounty not found", func(t *testing.T) {
 		msg := &types.MsgIncreaseBounty{
-			Creator:  testCreator,
-			BountyId: 999,
-			AdditionalAmount:   "100000",
+			Creator:          testCreator,
+			BountyId:         999,
+			AdditionalAmount: "100000",
 		}
 		_, err := f.msgServer.IncreaseBounty(f.ctx, msg)
 		require.Error(t, err)
@@ -38,9 +38,9 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 		bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
 
 		msg := &types.MsgIncreaseBounty{
-			Creator:  testCreator2,
-			BountyId: bounty.Id,
-			AdditionalAmount:   "100000",
+			Creator:          testCreator2,
+			BountyId:         bounty.Id,
+			AdditionalAmount: "100000",
 		}
 		_, err := f.msgServer.IncreaseBounty(f.ctx, msg)
 		require.Error(t, err)
@@ -54,9 +54,9 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
 
 		msg := &types.MsgIncreaseBounty{
-			Creator:  testCreator,
-			BountyId: bounty.Id,
-			AdditionalAmount:   "100000",
+			Creator:          testCreator,
+			BountyId:         bounty.Id,
+			AdditionalAmount: "100000",
 		}
 		_, err := f.msgServer.IncreaseBounty(f.ctx, msg)
 		require.Error(t, err)
@@ -68,9 +68,9 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 		bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
 
 		msg := &types.MsgIncreaseBounty{
-			Creator:  testCreator,
-			BountyId: bounty.Id,
-			AdditionalAmount:   "invalid",
+			Creator:          testCreator,
+			BountyId:         bounty.Id,
+			AdditionalAmount: "invalid",
 		}
 		_, err := f.msgServer.IncreaseBounty(f.ctx, msg)
 		require.Error(t, err)
@@ -82,9 +82,9 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 		bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
 
 		msg := &types.MsgIncreaseBounty{
-			Creator:  testCreator,
-			BountyId: bounty.Id,
-			AdditionalAmount:   "500000",
+			Creator:          testCreator,
+			BountyId:         bounty.Id,
+			AdditionalAmount: "500000",
 		}
 		_, err := f.msgServer.IncreaseBounty(f.ctx, msg)
 		require.NoError(t, err)

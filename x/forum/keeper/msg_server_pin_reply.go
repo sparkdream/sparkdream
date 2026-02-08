@@ -79,12 +79,12 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 
 	// Create pinned record
 	record := &types.PinnedReplyRecord{
-		PostId:       msg.ReplyId,
-		PinnedBy:     msg.Creator,
-		PinnedAt:     now,
+		PostId:        msg.ReplyId,
+		PinnedBy:      msg.Creator,
+		PinnedAt:      now,
 		IsSentinelPin: !isGov,
-		Disputed:     false,
-		InitiativeId: 0,
+		Disputed:      false,
+		InitiativeId:  0,
 	}
 
 	metadata.PinnedReplyIds = append(metadata.PinnedReplyIds, msg.ReplyId)

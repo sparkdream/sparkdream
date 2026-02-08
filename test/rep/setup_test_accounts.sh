@@ -18,6 +18,12 @@ ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 echo "Genesis member (Alice): $ALICE_ADDR"
 echo ""
 
+# Delete stale .test_env so it is regenerated from the current keyring
+if [ -f "$SCRIPT_DIR/.test_env" ]; then
+    echo "Removing stale .test_env (will be regenerated at end of setup)..."
+    rm -f "$SCRIPT_DIR/.test_env"
+fi
+
 # ========================================================================
 # Helper Functions
 # ========================================================================

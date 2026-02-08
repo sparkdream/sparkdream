@@ -11,7 +11,7 @@ import (
 )
 
 // AbortSeasonTransition aborts a stuck season transition.
-// Only governance can abort a transition.
+// Authorized: Commons Council policy address or Commons Operations Committee members.
 // Can only abort before critical phases (reputation archival/reset).
 func (k msgServer) AbortSeasonTransition(ctx context.Context, msg *types.MsgAbortSeasonTransition) (*types.MsgAbortSeasonTransitionResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
@@ -20,9 +20,9 @@ func (k msgServer) AbortSeasonTransition(ctx context.Context, msg *types.MsgAbor
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check authority (governance only)
-	if !k.IsGovAuthority(ctx, msg.Authority) {
-		return nil, types.ErrNotGovAuthority
+	// Check authority (Commons Council or Operations Committee)
+	if !k.IsAuthorizedForGamification(ctx, msg.Authority) {
+		return nil, types.ErrNotAuthorized
 	}
 
 	// Get transition state

@@ -13,27 +13,28 @@ import (
 
 // Test constants
 const (
-	TestDisplayName    = "TestUser"
-	TestUsername       = "testuser"
-	TestGuildName      = "Test Guild"
-	TestGuildDesc      = "A test guild for unit testing"
-	TestDisplayName2   = "AnotherUser"
-	TestUsername2      = "anotheruser"
-	TestGuildName2     = "Another Guild"
-	TestReportReason   = "Inappropriate name"
-	TestAppealReason   = "Name is not inappropriate"
+	TestDisplayName  = "TestUser"
+	TestUsername     = "testuser"
+	TestGuildName    = "Test Guild"
+	TestGuildDesc    = "A test guild for unit testing"
+	TestDisplayName2 = "AnotherUser"
+	TestUsername2    = "anotheruser"
+	TestGuildName2   = "Another Guild"
+	TestReportReason = "Inappropriate name"
+	TestAppealReason = "Name is not inappropriate"
 )
 
 // Test addresses
 var (
-	TestAddrCreator  = sdk.AccAddress([]byte("creator_________"))
-	TestAddrMember1  = sdk.AccAddress([]byte("member1_________"))
-	TestAddrMember2  = sdk.AccAddress([]byte("member2_________"))
-	TestAddrMember3  = sdk.AccAddress([]byte("member3_________"))
-	TestAddrReporter = sdk.AccAddress([]byte("reporter________"))
-	TestAddrTarget   = sdk.AccAddress([]byte("target__________"))
-	TestAddrFounder  = sdk.AccAddress([]byte("founder_________"))
-	TestAddrOfficer  = sdk.AccAddress([]byte("officer_________"))
+	TestAddrCreator       = sdk.AccAddress([]byte("creator_________"))
+	TestAddrMember1       = sdk.AccAddress([]byte("member1_________"))
+	TestAddrMember2       = sdk.AccAddress([]byte("member2_________"))
+	TestAddrMember3       = sdk.AccAddress([]byte("member3_________"))
+	TestAddrReporter      = sdk.AccAddress([]byte("reporter________"))
+	TestAddrTarget        = sdk.AccAddress([]byte("target__________"))
+	TestAddrFounder       = sdk.AccAddress([]byte("founder_________"))
+	TestAddrOfficer       = sdk.AccAddress([]byte("officer_________"))
+	TestAddrCouncilPolicy = sdk.AccAddress([]byte("council_policy__"))
 )
 
 // SetupMemberProfile creates a member profile for testing
@@ -244,11 +245,11 @@ func SetupDefaultSeason(t *testing.T, k keeper.Keeper, ctx sdk.Context) {
 	t.Helper()
 
 	season := types.Season{
-		Number:    1,
-		Name:      "Test Season",
+		Number:     1,
+		Name:       "Test Season",
 		StartBlock: 0,
 		EndBlock:   100000,
-		Status:    types.SeasonStatus_SEASON_STATUS_ACTIVE,
+		Status:     types.SeasonStatus_SEASON_STATUS_ACTIVE,
 	}
 	err := k.Season.Set(ctx, season)
 	require.NoError(t, err, "failed to setup default season")

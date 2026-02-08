@@ -28,6 +28,10 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgContestDispute{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgResolveDispute{},
 	)
 

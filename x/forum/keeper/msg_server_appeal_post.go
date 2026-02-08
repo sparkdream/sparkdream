@@ -70,11 +70,11 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 
 	// Create appeal initiative in x/rep (stub)
 	payload, _ := json.Marshal(map[string]interface{}{
-		"post_id":       msg.PostId,
-		"sentinel_addr": hideRecord.Sentinel,
+		"post_id":        msg.PostId,
+		"sentinel_addr":  hideRecord.Sentinel,
 		"appellant_addr": msg.Creator,
-		"reason_code":   hideRecord.ReasonCode,
-		"reason_text":   hideRecord.ReasonText,
+		"reason_code":    hideRecord.ReasonCode,
+		"reason_text":    hideRecord.ReasonText,
 	})
 
 	deadline := now + types.DefaultAppealDeadline

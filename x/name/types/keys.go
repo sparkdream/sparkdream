@@ -21,11 +21,13 @@ const (
 
 // Collections Prefixes
 var (
-	ParamsKey     = collections.NewPrefix("p_name")
-	KeyNames      = collections.NewPrefix("names")
-	KeyOwners     = collections.NewPrefix("owners")
-	KeyDisputes   = collections.NewPrefix("disputes")
-	KeyOwnerNames = collections.NewPrefix("owner_names")
+	ParamsKey        = collections.NewPrefix("p_name")
+	KeyNames         = collections.NewPrefix("names")
+	KeyOwners        = collections.NewPrefix("owners")
+	KeyDisputes      = collections.NewPrefix("disputes")
+	KeyOwnerNames    = collections.NewPrefix("owner_names")
+	KeyDisputeStakes = collections.NewPrefix("dispute_stakes")
+	KeyContestStakes = collections.NewPrefix("contest_stakes")
 )
 
 // Parameter keys
@@ -36,17 +38,18 @@ var (
 	KeyMaxNamesPerAddress = []byte("MaxNamesPerAddress")
 	KeyRegistrationFee    = []byte("RegistrationFee")
 	KeyExpirationDuration = []byte("ExpirationDuration")
-	KeyDisputeFee         = []byte("DisputeFee")
 )
 
 // Default parameter values
 var (
-	DefaultMinNameLength      = uint64(3)
-	DefaultMaxNameLength      = uint64(30)
-	DefaultMaxNamesPerAddress = uint64(5)
-	DefaultRegistrationFee    = sdk.NewCoin("uspark", math.NewInt(10000000))  // 10 SPARK
-	DefaultExpirationDuration = time.Hour * 24 * 365                          // 1 Year
-	DefaultDisputeFee         = sdk.NewCoin("uspark", math.NewInt(500000000)) // 500 SPARK
+	DefaultMinNameLength        = uint64(3)
+	DefaultMaxNameLength        = uint64(30)
+	DefaultMaxNamesPerAddress   = uint64(5)
+	DefaultRegistrationFee      = sdk.NewCoin("uspark", math.NewInt(10000000)) // 10 SPARK
+	DefaultExpirationDuration   = time.Hour * 24 * 365                         // 1 Year
+	DefaultDisputeStakeDream    = math.NewInt(50)                              // 50 DREAM (aligned with x/season report stake)
+	DefaultDisputeTimeoutBlocks = uint64(100800)                               // ~7 days in blocks (aligned with x/season appeal period)
+	DefaultContestStakeDream    = math.NewInt(100)                             // 100 DREAM (aligned with x/season appeal stake)
 )
 
 // DefaultBlockedNames includes critical system names and project-specific reserved terms

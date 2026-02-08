@@ -26,7 +26,7 @@ func TestMsgServerCreateQuest(t *testing.T) {
 		require.Contains(t, err.Error(), "invalid authority address")
 	})
 
-	t.Run("not operations committee", func(t *testing.T) {
+	t.Run("not authorized", func(t *testing.T) {
 		f := initFixture(t)
 		ctx := sdk.UnwrapSDKContext(f.ctx)
 		ms := keeper.NewMsgServerImpl(f.keeper)
@@ -42,7 +42,7 @@ func TestMsgServerCreateQuest(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, types.ErrNotOperationsCommittee)
+		require.ErrorIs(t, err, types.ErrNotAuthorized)
 	})
 
 	t.Run("empty quest id", func(t *testing.T) {

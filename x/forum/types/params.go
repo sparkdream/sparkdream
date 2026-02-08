@@ -14,11 +14,11 @@ const DefaultFeeDenom = "uspark"
 // Default parameter values
 const (
 	// Content limits
-	DefaultMaxContentSize  = uint64(10240) // 10KB
-	DefaultMaxTagsPerPost  = uint64(5)
-	DefaultMaxReplyDepth   = uint32(10)
-	DefaultMaxTagLength    = uint64(32)
-	DefaultMaxTotalTags    = uint64(10000)
+	DefaultMaxContentSize = uint64(10240) // 10KB
+	DefaultMaxTagsPerPost = uint64(5)
+	DefaultMaxReplyDepth  = uint32(10)
+	DefaultMaxTagLength   = uint64(32)
+	DefaultMaxTotalTags   = uint64(10000)
 
 	// Rate limits
 	DefaultDailyPostLimit      = uint64(50)
@@ -76,8 +76,8 @@ const (
 	DefaultMaxPinnedRepliesPerThread = uint64(3)
 
 	// Bounty limits
-	DefaultMaxBountyWinners              = uint64(5)
-	DefaultBountyCancellationFeePercent  = uint64(10) // 10%
+	DefaultMaxBountyWinners             = uint64(5)
+	DefaultBountyCancellationFeePercent = uint64(10) // 10%
 
 	// Flag settings
 	DefaultFlagReviewThreshold = uint64(5)
@@ -101,15 +101,15 @@ const (
 
 // Default fee amounts
 var (
-	DefaultSpamTaxAmount         = math.NewInt(1000000)   // 1 SPARK
-	DefaultReactionSpamTaxAmount = math.NewInt(100000)    // 0.1 SPARK
-	DefaultFlagSpamTaxAmount     = math.NewInt(100000)    // 0.1 SPARK
-	DefaultDownvoteDepositAmount = math.NewInt(50000)     // 0.05 SPARK
-	DefaultAppealFeeAmount       = math.NewInt(5000000)   // 5 SPARK
-	DefaultLockAppealFeeAmount   = math.NewInt(5000000)   // 5 SPARK
-	DefaultMoveAppealFeeAmount   = math.NewInt(5000000)   // 5 SPARK
-	DefaultEditFeeAmount         = math.NewInt(10000)     // 0.01 SPARK
-	DefaultTagReportBond         = math.NewInt(10)        // 10 DREAM
+	DefaultSpamTaxAmount         = math.NewInt(1000000) // 1 SPARK
+	DefaultReactionSpamTaxAmount = math.NewInt(100000)  // 0.1 SPARK
+	DefaultFlagSpamTaxAmount     = math.NewInt(100000)  // 0.1 SPARK
+	DefaultDownvoteDepositAmount = math.NewInt(50000)   // 0.05 SPARK
+	DefaultAppealFeeAmount       = math.NewInt(5000000) // 5 SPARK
+	DefaultLockAppealFeeAmount   = math.NewInt(5000000) // 5 SPARK
+	DefaultMoveAppealFeeAmount   = math.NewInt(5000000) // 5 SPARK
+	DefaultEditFeeAmount         = math.NewInt(10000)   // 0.01 SPARK
+	DefaultTagReportBond         = math.NewInt(10)      // 10 DREAM
 )
 
 // NewParams creates a new Params instance.

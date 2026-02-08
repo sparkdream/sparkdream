@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"context"
-	"fmt"
 
 	"sparkdream/x/season/types"
 
@@ -12,7 +11,7 @@ import (
 
 // SkipTransitionPhase skips the current phase of a transition.
 // Emergency action - cannot skip critical phases (reputation archival/reset).
-// Only governance can skip a phase.
+// Authorized: Commons Council policy address or Commons Operations Committee members.
 func (k msgServer) SkipTransitionPhase(ctx context.Context, msg *types.MsgSkipTransitionPhase) (*types.MsgSkipTransitionPhaseResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
@@ -20,9 +19,9 @@ func (k msgServer) SkipTransitionPhase(ctx context.Context, msg *types.MsgSkipTr
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check authority (governance only)
-	if !k.IsGovAuthority(ctx, msg.Authority) {
-		return nil, types.ErrNotGovAuthority
+	// Check authority (Commons Council or Operations Committee)
+	if !k.IsAuthorizedForGamification(ctx, msg.Authority) {
+		return nil, types.ErrNotAuthorized
 	}
 
 	// Get transition state
@@ -74,7 +73,7 @@ func (k msgServer) SkipTransitionPhase(ctx context.Context, msg *types.MsgSkipTr
 			sdk.NewAttribute("skipped_phase", skippedPhase.String()),
 			sdk.NewAttribute("new_phase", state.Phase.String()),
 			sdk.NewAttribute("skipped_by", msg.Authority),
-			sdk.NewAttribute("reason", fmt.Sprintf("emergency skip by governance")),
+			sdk.NewAttribute("reason", "emergency skip by authorized operator"),
 		),
 	)
 
