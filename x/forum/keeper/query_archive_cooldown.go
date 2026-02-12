@@ -30,7 +30,15 @@ func (q queryServer) ArchiveCooldown(ctx context.Context, req *types.QueryArchiv
 	}
 
 	// Calculate cooldown end
-	cooldownEnds := metadata.LastArchivedAt + types.DefaultArchiveCooldown
+	params, err := q.k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	archiveCooldown := params.ArchiveCooldown
+	if archiveCooldown == 0 {
+		archiveCooldown = types.DefaultArchiveCooldown
+	}
+	cooldownEnds := metadata.LastArchivedAt + archiveCooldown
 
 	// Check if still in cooldown
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

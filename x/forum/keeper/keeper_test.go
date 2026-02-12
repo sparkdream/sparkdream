@@ -196,6 +196,77 @@ func (m *mockRepKeeper) CreateAppealInitiative(ctx context.Context, initiativeTy
 	return m.nextInitiativeID, nil
 }
 
+// mockCommonsKeeper implements types.CommonsKeeper for testing
+type mockCommonsKeeper struct {
+	IsGroupPolicyMemberFn  func(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
+	IsGroupPolicyAddressFn func(ctx context.Context, addr string) bool
+	IsCouncilAuthorizedFn  func(ctx context.Context, addr string, council string, committee string) bool
+}
+
+func (m *mockCommonsKeeper) IsGroupPolicyMember(ctx context.Context, policyAddr string, memberAddr string) (bool, error) {
+	if m.IsGroupPolicyMemberFn != nil {
+		return m.IsGroupPolicyMemberFn(ctx, policyAddr, memberAddr)
+	}
+	return false, nil
+}
+
+func (m *mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
+	if m.IsGroupPolicyAddressFn != nil {
+		return m.IsGroupPolicyAddressFn(ctx, addr)
+	}
+	return false
+}
+
+func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+	if m.IsCouncilAuthorizedFn != nil {
+		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
+	}
+	return false
+}
+
+func initFixtureWithCommons(t *testing.T, commonsKeeper types.CommonsKeeper) *fixture {
+	t.Helper()
+
+	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+	addressCodec := addresscodec.NewBech32Codec("cosmos")
+	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
+
+	storeService := runtime.NewKVStoreService(storeKey)
+	ctx := testutil.DefaultContextWithDB(t, storeKey, storetypes.NewTransientStoreKey("transient_test")).Ctx
+
+	authority := authtypes.NewModuleAddress(types.GovModuleName)
+
+	bankKeeper := &mockBankKeeper{}
+	repKeeper := &mockRepKeeper{}
+
+	k := keeper.NewKeeper(
+		storeService,
+		encCfg.Codec,
+		addressCodec,
+		authority.Bytes(),
+		bankKeeper,
+		repKeeper,
+		commonsKeeper,
+	)
+
+	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
+		t.Fatalf("failed to set params: %v", err)
+	}
+
+	_, _ = k.PostSeq.Next(ctx)
+	_, _ = k.CategorySeq.Next(ctx)
+	_, _ = k.BountySeq.Next(ctx)
+	_, _ = k.TagBudgetSeq.Next(ctx)
+
+	return &fixture{
+		ctx:          ctx,
+		keeper:       k,
+		addressCodec: addressCodec,
+		msgServer:    keeper.NewMsgServerImpl(k),
+		bankKeeper:   bankKeeper,
+	}
+}
+
 func initFixture(t *testing.T) *fixture {
 	t.Helper()
 

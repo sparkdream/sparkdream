@@ -136,6 +136,12 @@ func NewParams() Params {
 		EditGracePeriod:              DefaultEditGracePeriod,
 		EditMaxWindow:                DefaultEditMaxWindow,
 		MaxFollowsPerDay:             DefaultMaxFollowsPerDay,
+		ArchiveThreshold:             DefaultArchiveThreshold,
+		UnarchiveCooldown:            DefaultUnarchiveCooldown,
+		ArchiveCooldown:              DefaultArchiveCooldown,
+		HideAppealCooldown:           DefaultHideAppealCooldown,
+		LockAppealCooldown:           DefaultLockAppealCooldown,
+		MoveAppealCooldown:           DefaultMoveAppealCooldown,
 	}
 }
 

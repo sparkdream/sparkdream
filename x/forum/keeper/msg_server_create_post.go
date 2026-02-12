@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"sparkdream/x/forum/types"
 
@@ -13,6 +14,53 @@ import (
 
 // tagPattern validates tag format: alphanumeric and hyphens only
 var tagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
+
+// validatePostTags validates a list of tags for use on a post and updates tag metadata.
+func (k msgServer) validatePostTags(ctx context.Context, tags []string, now int64) error {
+	if uint64(len(tags)) > types.DefaultMaxTagsPerPost {
+		return errorsmod.Wrapf(types.ErrTagLimitExceeded, "max %d tags per post", types.DefaultMaxTagsPerPost)
+	}
+
+	seen := make(map[string]bool, len(tags))
+	for _, tagName := range tags {
+		// Check for duplicates
+		if seen[tagName] {
+			return errorsmod.Wrapf(types.ErrInvalidTag, "duplicate tag: %s", tagName)
+		}
+		seen[tagName] = true
+
+		// Check length
+		if uint64(len(tagName)) > types.DefaultMaxTagLength {
+			return errorsmod.Wrapf(types.ErrMaxTagLength, "tag %q exceeds max length %d", tagName, types.DefaultMaxTagLength)
+		}
+
+		// Check format
+		if !tagPattern.MatchString(tagName) {
+			return errorsmod.Wrapf(types.ErrInvalidTag, "tag %q does not match required format", tagName)
+		}
+
+		// Check tag exists
+		tag, err := k.Tag.Get(ctx, tagName)
+		if err != nil {
+			return errorsmod.Wrapf(types.ErrTagNotFound, "tag %q not found", tagName)
+		}
+
+		// Check tag is not reserved
+		_, err = k.ReservedTag.Get(ctx, tagName)
+		if err == nil {
+			return errorsmod.Wrapf(types.ErrReservedTag, "tag %q is reserved", tagName)
+		}
+
+		// Update tag usage metadata
+		tag.UsageCount++
+		tag.LastUsedAt = now
+		if err := k.Tag.Set(ctx, tagName, tag); err != nil {
+			return errorsmod.Wrap(err, "failed to update tag metadata")
+		}
+	}
+
+	return nil
+}
 
 func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*types.MsgCreatePostResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
@@ -39,12 +87,12 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 
 	// Check category write permissions
 	isMember := k.IsMember(ctx, msg.Creator)
-	isGovAuthority := k.IsGovAuthority(ctx, msg.Creator)
+	isAuthorized := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
-	if category.AdminOnlyWrite && !isGovAuthority {
+	if category.AdminOnlyWrite && !isAuthorized {
 		return nil, types.ErrAdminOnlyWrite
 	}
-	if category.MembersOnlyWrite && !isMember && !isGovAuthority {
+	if category.MembersOnlyWrite && !isMember && !isAuthorized {
 		return nil, types.ErrMembersOnlyWrite
 	}
 
@@ -93,6 +141,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
 	}
 
+	// Validate tags
+	if len(msg.Tags) > 0 {
+		if err := k.validatePostTags(ctx, msg.Tags, now); err != nil {
+			return nil, err
+		}
+	}
+
 	// Check rate limit
 	if err := k.checkAndUpdateRateLimit(ctx, msg.Creator, now); err != nil {
 		return nil, err
@@ -129,6 +184,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		ExpirationTime: expirationTime,
 		Status:         types.PostStatus_POST_STATUS_ACTIVE,
 		Depth:          depth,
+		Tags:           msg.Tags,
 	}
 
 	// Store post
@@ -154,6 +210,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 			sdk.NewAttribute("parent_id", fmt.Sprintf("%d", msg.ParentId)),
 			sdk.NewAttribute("author", msg.Creator),
 			sdk.NewAttribute("is_ephemeral", fmt.Sprintf("%t", expirationTime > 0)),
+			sdk.NewAttribute("tags", strings.Join(msg.Tags, ",")),
 		),
 	)
 

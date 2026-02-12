@@ -23,7 +23,7 @@ func (q queryServer) IsFollowingThread(ctx context.Context, req *types.QueryIsFo
 	}
 
 	// Check if the follow record exists
-	key := fmt.Sprintf("%d:%s", req.ThreadId, req.User)
+	key := fmt.Sprintf("%s:%d", req.User, req.ThreadId)
 	follow, err := q.k.ThreadFollow.Get(ctx, key)
 	if err != nil {
 		// Not following

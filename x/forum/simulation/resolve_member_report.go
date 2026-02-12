@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgResolveMemberReport simulates a MsgResolveMemberReport message using direct keeper calls.
-// This bypasses the authority requirement for simulation purposes.
-// Full governance integration testing should be done in integration tests.
+// This bypasses the operations committee requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgResolveMemberReport(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -49,7 +49,7 @@ func SimulateMsgResolveMemberReport(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveMemberReport{}), "failed to get/create member report"), nil, nil
 		}
 
-		// Use direct keeper calls to resolve the report (bypasses authority check)
+		// Use direct keeper calls to resolve the report (bypasses operations committee check)
 		report, err := k.MemberReport.Get(ctx, reported.Address.String())
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveMemberReport{}), "report not found"), nil, nil

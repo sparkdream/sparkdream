@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgFreezeThread simulates a MsgFreezeThread message using direct keeper calls.
-// This bypasses the governance authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// This bypasses the operations committee requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgFreezeThread(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -45,7 +45,7 @@ func SimulateMsgFreezeThread(
 		// Since there's no FROZEN status, use ARCHIVED to simulate freeze
 		rootPost.Status = types.PostStatus_POST_STATUS_ARCHIVED
 		rootPost.Locked = true
-		rootPost.LockReason = "Thread frozen by governance"
+		rootPost.LockReason = "Thread frozen by operations committee"
 		if err := k.Post.Set(ctx, rootID, rootPost); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgFreezeThread{}), "failed to freeze thread"), nil, nil
 		}

@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ func TestMsgServerCreateCategory(t *testing.T) {
 		require.Contains(t, err.Error(), "invalid creator address")
 	})
 
-	t.Run("not governance authority", func(t *testing.T) {
+	t.Run("not authorized", func(t *testing.T) {
 		msg := &types.MsgCreateCategory{
 			Creator:     testCreator,
 			Title:       "Test Category",
@@ -33,7 +34,25 @@ func TestMsgServerCreateCategory(t *testing.T) {
 		}
 		_, err := f.msgServer.CreateCategory(f.ctx, msg)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "only governance authority can create categories")
+		require.Contains(t, err.Error(), "only governance, council, or operations committee can create categories")
+	})
+
+	t.Run("operations committee member can create category", func(t *testing.T) {
+		committeeAddr := testCreator2
+		mock := &mockCommonsKeeper{
+			IsCouncilAuthorizedFn: func(ctx context.Context, addr string, council string, committee string) bool {
+				return addr == committeeAddr && council == "commons" && committee == "operations"
+			},
+		}
+		fWithCommons := initFixtureWithCommons(t, mock)
+
+		msg := &types.MsgCreateCategory{
+			Creator:     committeeAddr,
+			Title:       "Operations Category",
+			Description: "Created by operations committee",
+		}
+		_, err := fWithCommons.msgServer.CreateCategory(fWithCommons.ctx, msg)
+		require.NoError(t, err)
 	})
 
 	t.Run("empty title", func(t *testing.T) {

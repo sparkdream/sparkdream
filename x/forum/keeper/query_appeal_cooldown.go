@@ -29,8 +29,14 @@ func (q queryServer) AppealCooldown(ctx context.Context, req *types.QueryAppealC
 		}, nil
 	}
 
+	// Load params for configurable cooldown
+	params, err := q.k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+
 	// Calculate cooldown end
-	cooldownEnds := hideRecord.HiddenAt + types.DefaultHideAppealCooldown
+	cooldownEnds := hideRecord.HiddenAt + params.HideAppealCooldown
 
 	// Check if still in cooldown
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

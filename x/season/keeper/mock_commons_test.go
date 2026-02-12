@@ -14,6 +14,8 @@ type mockCommonsKeeper struct {
 	IsCommitteeMemberFn func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 	// GetExtendedGroupFn can be set to control group lookups (e.g., Commons Council)
 	GetExtendedGroupFn func(ctx context.Context, name string) (commonstypes.ExtendedGroup, error)
+	// IsCouncilAuthorizedFn can be set to control council authorization checks
+	IsCouncilAuthorizedFn func(ctx context.Context, addr string, council string, committee string) bool
 }
 
 func (m *mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
@@ -28,6 +30,13 @@ func (m *mockCommonsKeeper) GetExtendedGroup(ctx context.Context, name string) (
 		return m.GetExtendedGroupFn(ctx, name)
 	}
 	return commonstypes.ExtendedGroup{}, nil
+}
+
+func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+	if m.IsCouncilAuthorizedFn != nil {
+		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
+	}
+	return false
 }
 
 // newMockCommonsKeeper creates a mock that allows the specified addresses to manage gamification
@@ -48,6 +57,9 @@ func newMockCommonsKeeper(authorizedAddresses ...string) *mockCommonsKeeper {
 				Index:         name,
 				PolicyAddress: "", // No special policy address unless set
 			}, nil
+		},
+		IsCouncilAuthorizedFn: func(ctx context.Context, addr string, council string, committee string) bool {
+			return authorizedSet[addr]
 		},
 	}
 }
@@ -71,6 +83,12 @@ func newMockCommonsKeeperWithCouncil(councilPolicyAddr string, authorizedAddress
 				}, nil
 			}
 			return commonstypes.ExtendedGroup{Index: name}, nil
+		},
+		IsCouncilAuthorizedFn: func(ctx context.Context, addr string, council string, committee string) bool {
+			if addr == councilPolicyAddr {
+				return true
+			}
+			return authorizedSet[addr]
 		},
 	}
 }

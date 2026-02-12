@@ -14,7 +14,7 @@ import (
 )
 
 // SimulateMsgMoveThread simulates a MsgMoveThread message using direct keeper calls.
-// This bypasses authority and sentinel checks for simulation purposes.
+// This bypasses operations committee and sentinel checks for simulation purposes.
 // Full integration testing should be done in integration tests.
 func SimulateMsgMoveThread(
 	ak types.AuthKeeper,
@@ -32,7 +32,7 @@ func SimulateMsgMoveThread(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgMoveThread{}), "failed to get/create root post"), nil, nil
 		}
 
-		// Use direct keeper calls to move thread (bypasses authority check)
+		// Use direct keeper calls to move thread (bypasses operations committee check)
 		post, err := k.Post.Get(ctx, rootID)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgMoveThread{}), "post not found"), nil, nil

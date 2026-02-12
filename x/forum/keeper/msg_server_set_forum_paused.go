@@ -18,9 +18,9 @@ func (k msgServer) SetForumPaused(ctx context.Context, msg *types.MsgSetForumPau
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Only governance authority can pause/unpause
-	if !k.IsGovAuthority(ctx, msg.Creator) {
-		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance authority can pause/unpause the forum")
+	// Only governance, council, or operations committee can pause/unpause
+	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance, council, or operations committee can pause/unpause the forum")
 	}
 
 	// Load current params

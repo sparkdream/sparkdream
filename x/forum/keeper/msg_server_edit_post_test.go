@@ -142,3 +142,118 @@ func TestMsgServerEditPost(t *testing.T) {
 		f.keeper.Params.Set(f.ctx, types.DefaultParams())
 	})
 }
+
+func TestMsgServerEditPostTags(t *testing.T) {
+	f := initFixture(t)
+
+	// Create tags in the store
+	f.createTestTag(t, "golang")
+	f.createTestTag(t, "cosmos-sdk")
+	f.createTestTag(t, "testing")
+
+	t.Run("successful edit with tags", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		msg := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: "Updated content with tags",
+			Tags:       []string{"golang", "cosmos-sdk"},
+		}
+		_, err := f.msgServer.EditPost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Verify tags are stored
+		updatedPost, err := f.keeper.Post.Get(f.ctx, post.PostId)
+		require.NoError(t, err)
+		require.Equal(t, []string{"golang", "cosmos-sdk"}, updatedPost.Tags)
+		require.True(t, updatedPost.Edited)
+	})
+
+	t.Run("edit replaces tags", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		// First edit: set tags
+		msg := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: "Content v1",
+			Tags:       []string{"golang"},
+		}
+		_, err := f.msgServer.EditPost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Second edit: replace tags
+		msg2 := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: "Content v2",
+			Tags:       []string{"cosmos-sdk", "testing"},
+		}
+		_, err = f.msgServer.EditPost(f.ctx, msg2)
+		require.NoError(t, err)
+
+		updatedPost, err := f.keeper.Post.Get(f.ctx, post.PostId)
+		require.NoError(t, err)
+		require.Equal(t, []string{"cosmos-sdk", "testing"}, updatedPost.Tags)
+	})
+
+	t.Run("edit clears tags with empty list", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		// Set tags first
+		msg := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: "Content with tags",
+			Tags:       []string{"golang"},
+		}
+		_, err := f.msgServer.EditPost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Clear tags by sending empty list
+		msg2 := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: "Content without tags",
+		}
+		_, err = f.msgServer.EditPost(f.ctx, msg2)
+		require.NoError(t, err)
+
+		updatedPost, err := f.keeper.Post.Get(f.ctx, post.PostId)
+		require.NoError(t, err)
+		require.Empty(t, updatedPost.Tags)
+	})
+
+	t.Run("edit with nonexistent tag fails", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		msg := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: "Updated content",
+			Tags:       []string{"nonexistent-tag"},
+		}
+		_, err := f.msgServer.EditPost(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tag not found")
+	})
+
+	t.Run("edit with too many tags fails", func(t *testing.T) {
+		f.createTestTag(t, "alpha")
+		f.createTestTag(t, "beta")
+		f.createTestTag(t, "gamma")
+
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		msg := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: "Updated content",
+			Tags:       []string{"golang", "cosmos-sdk", "testing", "alpha", "beta", "gamma"},
+		}
+		_, err := f.msgServer.EditPost(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tag limit exceeded")
+	})
+}

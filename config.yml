@@ -194,6 +194,63 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
+    forum:
+      params:
+        # Archive timing - FAST for testing
+        archive_threshold: "5"       # 5 seconds (was 30 days = 2592000)
+        unarchive_cooldown: "5"      # 5 seconds (was 1 day = 86400)
+        archive_cooldown: "5"        # 5 seconds (was 30 days = 2592000)
+        hide_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
+        lock_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
+        move_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
+      tag_map:
+      # Three main councils
+      - name: "commons-council"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "technical-council"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "ecosystem-council"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      # Six committees (ops + gov per council)
+      - name: "commons-ops-committee"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "commons-gov-committee"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "technical-ops-committee"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "technical-gov-committee"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "ecosystem-ops-committee"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "ecosystem-gov-committee"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
 validators:
 - name: alice
   bonded: 15000000000000uspark

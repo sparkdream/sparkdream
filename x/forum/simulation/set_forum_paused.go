@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgSetForumPaused simulates a MsgSetForumPaused message using direct keeper calls.
-// This bypasses the governance authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// This bypasses the operations committee requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 // NOTE: We always set paused=false to avoid breaking other simulations.
 func SimulateMsgSetForumPaused(
 	ak types.AuthKeeper,

@@ -43,9 +43,13 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 
 	// Check thread is inactive (use CreatedAt as proxy for last activity)
 	// In production, would track last reply time
-	if now-rootPost.CreatedAt < types.DefaultArchiveThreshold {
+	archiveThreshold := params.ArchiveThreshold
+	if archiveThreshold == 0 {
+		archiveThreshold = types.DefaultArchiveThreshold
+	}
+	if now-rootPost.CreatedAt < archiveThreshold {
 		return nil, errorsmod.Wrapf(types.ErrThreadNotInactive,
-			"thread must be inactive for %d seconds", types.DefaultArchiveThreshold)
+			"thread must be inactive for %d seconds", archiveThreshold)
 	}
 
 	// Check archive cooldown (from previous unarchive)
@@ -53,8 +57,8 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 	if err == nil {
 		// Check archive cycle limit
 		if archiveMetadata.ArchiveCount >= types.DefaultMaxArchiveCycles {
-			// Only governance authority can archive after cycle limit
-			if !k.IsGovAuthority(ctx, msg.Creator) {
+			// Only operations committee can archive after cycle limit
+			if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
 				return nil, types.ErrArchiveCycleLimit
 			}
 		}

@@ -51,8 +51,8 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 
 	originalCategoryId := post.CategoryId
 
-	// Check if sender is governance authority or sentinel
-	isGovAuthority := k.IsGovAuthority(ctx, msg.Creator)
+	// Check if sender is operations committee or sentinel
+	isGovAuthority := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	if !isGovAuthority {
 		// Check moderation_paused param for sentinels

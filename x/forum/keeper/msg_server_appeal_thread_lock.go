@@ -58,7 +58,7 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 	}
 
 	// Check appeal cooldown
-	cooldownEnd := lockRecord.LockedAt + types.DefaultLockAppealCooldown
+	cooldownEnd := lockRecord.LockedAt + params.LockAppealCooldown
 	if now < cooldownEnd {
 		return nil, errorsmod.Wrapf(types.ErrAppealCooldown,
 			"must wait until %d to appeal", cooldownEnd)

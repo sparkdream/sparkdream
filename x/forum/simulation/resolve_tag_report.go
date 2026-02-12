@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgResolveTagReport simulates a MsgResolveTagReport message using direct keeper calls.
-// This bypasses the authority requirement for simulation purposes.
-// Full governance integration testing should be done in integration tests.
+// This bypasses the operations committee requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgResolveTagReport(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -37,7 +37,7 @@ func SimulateMsgResolveTagReport(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "failed to get/create tag report"), nil, nil
 		}
 
-		// Use direct keeper calls to resolve the report (bypasses authority check)
+		// Use direct keeper calls to resolve the report (bypasses operations committee check)
 		// Simply remove the tag report to mark it as resolved
 		// Tag type doesn't have Reserved/Banned fields so we just clean up the report
 		if err := k.TagReport.Remove(ctx, tagName); err != nil {

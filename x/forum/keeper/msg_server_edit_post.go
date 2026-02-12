@@ -62,6 +62,13 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
 	}
 
+	// Validate tags (if provided, replace all tags; empty list clears tags)
+	if len(msg.Tags) > 0 {
+		if err := k.validatePostTags(ctx, msg.Tags, now); err != nil {
+			return nil, err
+		}
+	}
+
 	// Charge edit fee if past grace period
 	if editAge > params.EditGracePeriod && params.EditFee.IsPositive() {
 		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
@@ -72,6 +79,7 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 
 	// Update post
 	post.Content = msg.NewContent
+	post.Tags = msg.Tags
 	post.Edited = true
 	post.EditedAt = now
 

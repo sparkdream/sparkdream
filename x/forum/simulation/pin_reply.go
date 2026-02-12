@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgPinReply simulates a MsgPinReply message using direct keeper calls.
-// This bypasses the authority/sentinel requirement for simulation purposes.
-// Full x/rep integration testing should be done in integration tests.
+// This bypasses the operations committee/sentinel requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgPinReply(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -37,7 +37,7 @@ func SimulateMsgPinReply(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPinReply{}), "failed to get/create reply"), nil, nil
 		}
 
-		// Use direct keeper calls to pin the reply (bypasses authority/sentinel check)
+		// Use direct keeper calls to pin the reply (bypasses operations committee/sentinel check)
 		reply, err := k.Post.Get(ctx, replyID)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPinReply{}), "failed to get reply"), nil, nil

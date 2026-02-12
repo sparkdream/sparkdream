@@ -104,6 +104,128 @@ func TestCreatePost(t *testing.T) {
 	}
 }
 
+func TestCreatePostWithTags(t *testing.T) {
+	f := initFixture(t)
+
+	cat := f.createTestCategory(t, "General")
+
+	// Create some tags in the store
+	f.createTestTag(t, "golang")
+	f.createTestTag(t, "cosmos-sdk")
+	f.createTestTag(t, "testing")
+	f.createTestTag(t, "alpha")
+	f.createTestTag(t, "beta")
+	f.createTestTag(t, "gamma")
+
+	t.Run("successful post with tags", func(t *testing.T) {
+		// Peek at the next post ID before creating
+		nextID, _ := f.keeper.PostSeq.Peek(f.ctx)
+
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Post with tags",
+			Tags:       []string{"golang", "cosmos-sdk"},
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Verify tags are stored on the post
+		post, err := f.keeper.Post.Get(f.ctx, nextID)
+		require.NoError(t, err)
+		require.Equal(t, []string{"golang", "cosmos-sdk"}, post.Tags)
+
+		// Verify tag usage metadata was updated
+		tag, err := f.keeper.Tag.Get(f.ctx, "golang")
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), tag.UsageCount)
+	})
+
+	t.Run("successful post without tags", func(t *testing.T) {
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Post without tags",
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+	})
+
+	t.Run("tag not found", func(t *testing.T) {
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Post with missing tag",
+			Tags:       []string{"nonexistent-tag"},
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tag not found")
+	})
+
+	t.Run("invalid tag format", func(t *testing.T) {
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Post with bad tag",
+			Tags:       []string{"UPPERCASE"},
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid tag format")
+	})
+
+	t.Run("too many tags", func(t *testing.T) {
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Post with too many tags",
+			Tags:       []string{"golang", "cosmos-sdk", "testing", "alpha", "beta", "gamma"},
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tag limit exceeded")
+	})
+
+	t.Run("duplicate tags", func(t *testing.T) {
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Post with duplicate tags",
+			Tags:       []string{"golang", "golang"},
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "duplicate tag")
+	})
+
+	t.Run("reserved tag rejected", func(t *testing.T) {
+		// Create a reserved tag
+		f.createTestTag(t, "official")
+		_ = f.keeper.ReservedTag.Set(f.ctx, "official", types.ReservedTag{
+			Name:      "official",
+			Authority: testAuthority,
+		})
+
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Post with reserved tag",
+			Tags:       []string{"official"},
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tag is reserved")
+	})
+}
+
 func TestCreatePostReply(t *testing.T) {
 	f := initFixture(t)
 

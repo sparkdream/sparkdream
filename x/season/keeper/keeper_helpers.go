@@ -74,36 +74,19 @@ func (k Keeper) IsOperationsCommittee(ctx context.Context, addr string) bool {
 }
 
 // IsAuthorizedForGamification checks if the address is authorized to manage
-// achievements, titles, and quests. Authorization is granted to:
-// 1. Commons Council policy address (council proposals)
-// 2. Commons Operations Committee members (direct action)
+// achievements, titles, and quests. Delegates to x/commons IsCouncilAuthorized.
+// Authorization is granted to:
+// 1. Governance module authority (x/gov)
+// 2. Commons Council policy address (council proposals)
+// 3. Commons Operations Committee members (direct action)
 func (k Keeper) IsAuthorizedForGamification(ctx context.Context, addr string) bool {
-	// Check if it's the governance authority (fallback)
 	if k.IsGovAuthority(ctx, addr) {
 		return true
 	}
-
 	if k.commonsKeeper == nil {
 		return false
 	}
-
-	// Check if sender is the Commons Council policy address
-	councilGroup, err := k.commonsKeeper.GetExtendedGroup(ctx, "Commons Council")
-	if err == nil && councilGroup.PolicyAddress == addr {
-		return true
-	}
-
-	// Check if member of Commons Operations Committee
-	addrBytes, err := k.addressCodec.StringToBytes(addr)
-	if err != nil {
-		return false
-	}
-	isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, addrBytes, "commons", "operations")
-	if err == nil && isMember {
-		return true
-	}
-
-	return false
+	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, "commons", "operations")
 }
 
 // IsCommonsCouncil checks if the address is a member of the Commons Council

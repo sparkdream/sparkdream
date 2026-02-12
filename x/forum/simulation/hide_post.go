@@ -13,7 +13,7 @@ import (
 )
 
 // SimulateMsgHidePost simulates a MsgHidePost message using direct keeper calls.
-// This bypasses authority/sentinel requirements for simulation purposes.
+// This bypasses operations committee/sentinel requirements for simulation purposes.
 // Full integration testing should be done in integration tests.
 func SimulateMsgHidePost(
 	ak types.AuthKeeper,
@@ -32,7 +32,7 @@ func SimulateMsgHidePost(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgHidePost{}), "failed to create post"), nil, nil
 		}
 
-		// Use direct keeper calls to hide post (bypasses authority/sentinel checks)
+		// Use direct keeper calls to hide post (bypasses operations committee/sentinel checks)
 		post, err := k.Post.Get(ctx, postID)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgHidePost{}), "failed to get post"), nil, nil

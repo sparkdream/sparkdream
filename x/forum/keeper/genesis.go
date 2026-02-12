@@ -154,7 +154,34 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	return k.Params.Set(ctx, genState.Params)
+	if err := k.Params.Set(ctx, genState.Params); err != nil {
+		return err
+	}
+
+	// Prime PostSeq and CategorySeq to start at 1 if not already advanced.
+	// ID 0 is reserved (PostId=0 conflicts with ParentId=0 meaning "no parent",
+	// and CategoryId=0 is confusing as a valid category).
+	postSeqVal, err := k.PostSeq.Peek(ctx)
+	if err != nil {
+		return err
+	}
+	if postSeqVal == 0 && len(genState.PostMap) == 0 {
+		if _, err := k.PostSeq.Next(ctx); err != nil {
+			return err
+		}
+	}
+
+	catSeqVal, err := k.CategorySeq.Peek(ctx)
+	if err != nil {
+		return err
+	}
+	if catSeqVal == 0 && len(genState.CategoryMap) == 0 {
+		if _, err := k.CategorySeq.Next(ctx); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // ExportGenesis returns the module's exported genesis.

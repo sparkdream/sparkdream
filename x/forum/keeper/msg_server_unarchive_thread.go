@@ -38,9 +38,13 @@ func (k msgServer) UnarchiveThread(ctx context.Context, msg *types.MsgUnarchiveT
 	}
 
 	// Check unarchive cooldown
-	if now-archivedThread.ArchivedAt < types.DefaultUnarchiveCooldown {
+	unarchiveCooldown := params.UnarchiveCooldown
+	if unarchiveCooldown == 0 {
+		unarchiveCooldown = types.DefaultUnarchiveCooldown
+	}
+	if now-archivedThread.ArchivedAt < unarchiveCooldown {
 		return nil, errorsmod.Wrapf(types.ErrUnarchiveCooldown,
-			"must wait %d seconds after archive before unarchiving", types.DefaultUnarchiveCooldown)
+			"must wait %d seconds after archive before unarchiving", unarchiveCooldown)
 	}
 
 	// Decompress data

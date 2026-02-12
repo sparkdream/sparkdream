@@ -54,7 +54,7 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 	}
 
 	// Check appeal cooldown
-	cooldownEnd := hideRecord.HiddenAt + types.DefaultHideAppealCooldown
+	cooldownEnd := hideRecord.HiddenAt + params.HideAppealCooldown
 	if now < cooldownEnd {
 		return nil, errorsmod.Wrapf(types.ErrAppealCooldown,
 			"must wait until %d to appeal", cooldownEnd)

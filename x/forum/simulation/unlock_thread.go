@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgUnlockThread simulates a MsgUnlockThread message using direct keeper calls.
-// This bypasses the governance authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// This bypasses the operations committee requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgUnlockThread(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,

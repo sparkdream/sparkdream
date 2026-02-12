@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +26,56 @@ func (k Keeper) GetAuthority() []byte {
 func (k Keeper) GetAuthorityString() string {
 	addr, _ := k.addressCodec.BytesToString(k.authority)
 	return addr
+}
+
+// normalizeCouncilName converts short council names to their full form.
+// e.g. "commons" → "Commons Council", "technical" → "Technical Council"
+func normalizeCouncilName(council string) string {
+	switch strings.ToLower(council) {
+	case "technical":
+		return "Technical Council"
+	case "ecosystem":
+		return "Ecosystem Council"
+	case "commons":
+		return "Commons Council"
+	default:
+		return council
+	}
+}
+
+// IsCouncilAuthorized checks if the given address is authorized to act on behalf
+// of a council/committee. Authorization is granted to (checked in order):
+//  1. The governance module authority (x/gov)
+//  2. The council's group policy address (council proposals)
+//  3. A member of the specified committee within the council
+//
+// Parameters:
+//   - addr: bech32 address string to check
+//   - council: short council name ("commons", "technical", "ecosystem")
+//   - committee: committee name ("operations", "governance", "hr")
+func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+	// 1. Check governance authority
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return false
+	}
+	if bytes.Equal(k.authority, addrBytes) {
+		return true
+	}
+
+	// 2. Check council policy address
+	councilGroup, err := k.ExtendedGroup.Get(ctx, normalizeCouncilName(council))
+	if err == nil && councilGroup.PolicyAddress == addr {
+		return true
+	}
+
+	// 3. Check committee membership
+	isMember, err := k.IsCommitteeMember(ctx, sdk.AccAddress(addrBytes), council, committee)
+	if err == nil && isMember {
+		return true
+	}
+
+	return false
 }
 
 // GetGroupKeeper exposes the internal groupKeeper for simulation/testing purposes
@@ -117,19 +168,8 @@ func (k Keeper) DetectCycle(ctx sdk.Context, childPolicy string, parentPolicy st
 // IsCommitteeMember checks if an address is a member of a specific committee in a council
 func (k Keeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
 	// Map council and committee to actual group names used in genesis
-	// Normalize council name (handle both "technical" and "Technical Council" formats)
 	groupName := ""
-	normalizedCouncil := council
-
-	// Normalize lowercase council names
-	switch strings.ToLower(council) {
-	case "technical":
-		normalizedCouncil = "Technical Council"
-	case "ecosystem":
-		normalizedCouncil = "Ecosystem Council"
-	case "commons":
-		normalizedCouncil = "Commons Council"
-	}
+	normalizedCouncil := normalizeCouncilName(council)
 
 	switch normalizedCouncil {
 	case "Technical Council":
@@ -196,7 +236,7 @@ func (k Keeper) GetCommitteeGroupInfo(ctx context.Context, council string, commi
 	// Use the same mapping logic as IsCommitteeMember
 	groupName := ""
 
-	switch council {
+	switch normalizeCouncilName(council) {
 	case "Technical Council":
 		switch committee {
 		case "operations":

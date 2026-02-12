@@ -53,7 +53,7 @@ func (k msgServer) AppealThreadMove(ctx context.Context, msg *types.MsgAppealThr
 	}
 
 	// Check appeal cooldown
-	cooldownEnd := moveRecord.MovedAt + types.DefaultMoveAppealCooldown
+	cooldownEnd := moveRecord.MovedAt + params.MoveAppealCooldown
 	if now < cooldownEnd {
 		return nil, errorsmod.Wrapf(types.ErrAppealCooldown,
 			"must wait until %d to appeal", cooldownEnd)

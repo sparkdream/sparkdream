@@ -29,8 +29,8 @@ func (k msgServer) UnlockThread(ctx context.Context, msg *types.MsgUnlockThread)
 		return nil, types.ErrThreadNotLocked
 	}
 
-	// Check if sender is governance authority
-	isGovAuthority := k.IsGovAuthority(ctx, msg.Creator)
+	// Check if sender is operations committee
+	isGovAuthority := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	if !isGovAuthority {
 		// Sentinel can only unlock threads they locked

@@ -26,6 +26,11 @@ type CommonsKeeper interface {
 
 	// IsGroupPolicyAddress checks if the given address is a valid group policy address.
 	IsGroupPolicyAddress(ctx context.Context, addr string) bool
+
+	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
+	// or committee membership. council: "commons"/"technical"/"ecosystem",
+	// committee: "operations"/"governance"/"hr".
+	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
 }
 
 // BankKeeper defines the expected interface for the Bank module.

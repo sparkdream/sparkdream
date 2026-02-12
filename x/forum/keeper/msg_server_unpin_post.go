@@ -19,9 +19,9 @@ func (k msgServer) UnpinPost(ctx context.Context, msg *types.MsgUnpinPost) (*typ
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Only governance authority can unpin root posts
-	if !k.IsGovAuthority(ctx, msg.Creator) {
-		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance authority can unpin posts")
+	// Only governance, council, or operations committee can unpin root posts
+	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance, council, or operations committee can unpin posts")
 	}
 
 	// Load post

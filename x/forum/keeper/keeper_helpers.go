@@ -136,6 +136,17 @@ func (k Keeper) IsGroupAccount(ctx context.Context, addr string) bool {
 	return k.commonsKeeper.IsGroupPolicyAddress(ctx, addr)
 }
 
+// IsCouncilAuthorized checks if the address is authorized via governance authority,
+// council policy address, or committee membership.
+// Delegates to x/commons IsCouncilAuthorized when available.
+// Falls back to IsGovAuthority when x/commons is not wired.
+func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+	if k.commonsKeeper == nil {
+		return k.IsGovAuthority(ctx, addr)
+	}
+	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
+}
+
 // CreateAppealInitiative creates an x/rep initiative for jury-based appeal resolution.
 // initiativeType: type of appeal ("moderation_appeal", "sentinel_appeal", etc.)
 // payload: JSON-encoded appeal data containing case details

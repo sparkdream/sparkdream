@@ -13,7 +13,7 @@ import (
 )
 
 // SimulateMsgToggleTagBudget simulates a MsgToggleTagBudget message using direct keeper calls.
-// This bypasses authority checks for simulation purposes.
+// This bypasses operations committee checks for simulation purposes.
 // Full integration testing should be done in integration tests.
 func SimulateMsgToggleTagBudget(
 	ak types.AuthKeeper,
@@ -31,7 +31,7 @@ func SimulateMsgToggleTagBudget(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgToggleTagBudget{}), "failed to get/create tag budget"), nil, nil
 		}
 
-		// Use direct keeper calls to toggle tag budget (bypasses authority check)
+		// Use direct keeper calls to toggle tag budget (bypasses operations committee check)
 		budget, err := k.TagBudget.Get(ctx, budgetID)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgToggleTagBudget{}), "tag budget not found"), nil, nil

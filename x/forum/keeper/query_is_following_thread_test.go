@@ -57,7 +57,7 @@ func TestQueryIsFollowingThread(t *testing.T) {
 		now := f.sdkCtx().BlockTime().Unix()
 
 		// Create thread follow (key format: "address:threadId")
-		followKey := fmt.Sprintf("%d:%s", post.PostId, testCreator2)
+		followKey := fmt.Sprintf("%s:%d", testCreator2, post.PostId)
 		follow := types.ThreadFollow{
 			ThreadId:   post.PostId,
 			Follower:   testCreator2,

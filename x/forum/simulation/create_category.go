@@ -14,8 +14,8 @@ import (
 )
 
 // SimulateMsgCreateCategory simulates a MsgCreateCategory message using direct keeper calls.
-// This bypasses the governance authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// This bypasses the operations committee requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgCreateCategory(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -24,7 +24,7 @@ func SimulateMsgCreateCategory(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Use direct keeper calls to create category (bypasses authority check)
+		// Use direct keeper calls to create category (bypasses operations committee check)
 		categoryID, err := k.CategorySeq.Next(ctx)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateCategory{}), "failed to get category ID"), nil, nil

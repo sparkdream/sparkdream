@@ -20,11 +20,11 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	isGov := k.IsGovAuthority(ctx, msg.Creator)
+	isGov := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 	isSentinel := k.GetRepTier(ctx, msg.Creator) >= 3 && k.GetSentinelBond(ctx, msg.Creator).GTE(types.DefaultMinSentinelBond)
 
 	if !isGov && !isSentinel {
-		return nil, errorsmod.Wrap(types.ErrNotSentinel, "only governance authority or qualified sentinels can pin replies")
+		return nil, errorsmod.Wrap(types.ErrNotSentinel, "only operations committee or qualified sentinels can pin replies")
 	}
 
 	// Load thread root

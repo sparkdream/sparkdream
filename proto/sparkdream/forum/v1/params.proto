@@ -74,4 +74,22 @@ message Params {
 
   // max_follows_per_day per user
   uint64 max_follows_per_day = 21;
+
+  // archive_threshold in seconds (thread must be inactive this long before archiving)
+  int64 archive_threshold = 22;
+
+  // unarchive_cooldown in seconds (must wait this long after archive before unarchiving)
+  int64 unarchive_cooldown = 23;
+
+  // archive_cooldown in seconds (must wait this long after unarchive before re-archiving)
+  int64 archive_cooldown = 24;
+
+  // hide_appeal_cooldown in seconds (must wait this long after hide before appeal)
+  int64 hide_appeal_cooldown = 25;
+
+  // lock_appeal_cooldown in seconds (must wait this long after lock before appeal)
+  int64 lock_appeal_cooldown = 26;
+
+  // move_appeal_cooldown in seconds (must wait this long after move before appeal)
+  int64 move_appeal_cooldown = 27;
 }

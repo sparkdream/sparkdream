@@ -20,9 +20,9 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// Only governance authority can resolve
-	if !k.IsGovAuthority(ctx, msg.Creator) {
-		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance authority can resolve member reports")
+	// Only governance, council, or operations committee can resolve
+	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance, council, or operations committee can resolve member reports")
 	}
 
 	// Load report

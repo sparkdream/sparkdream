@@ -20,9 +20,9 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// Only governance authority can pin root posts
-	if !k.IsGovAuthority(ctx, msg.Creator) {
-		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance authority can pin posts")
+	// Only governance, council, or operations committee can pin root posts
+	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance, council, or operations committee can pin posts")
 	}
 
 	// Load post

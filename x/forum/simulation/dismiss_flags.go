@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgDismissFlags simulates a MsgDismissFlags message using direct keeper calls.
-// This bypasses the authority/sentinel requirement for simulation purposes.
-// Full governance integration testing should be done in integration tests.
+// This bypasses the operations committee/sentinel requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgDismissFlags(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -41,7 +41,7 @@ func SimulateMsgDismissFlags(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDismissFlags{}), "failed to create flag record"), nil, nil
 		}
 
-		// Use direct keeper calls to dismiss flags (bypasses authority check)
+		// Use direct keeper calls to dismiss flags (bypasses operations committee check)
 		// Simply remove the flag record
 		if err := k.PostFlag.Remove(ctx, postID); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDismissFlags{}), "failed to remove flags"), nil, nil

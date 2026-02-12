@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgLockThread simulates a MsgLockThread message using direct keeper calls.
-// This bypasses the authority/sentinel requirements for simulation purposes.
-// Full authority testing should be done in integration tests.
+// This bypasses the operations committee/sentinel requirements for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgLockThread(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,

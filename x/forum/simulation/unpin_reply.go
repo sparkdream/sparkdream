@@ -13,8 +13,8 @@ import (
 )
 
 // SimulateMsgUnpinReply simulates a MsgUnpinReply message using direct keeper calls.
-// This bypasses the authority/sentinel requirement for simulation purposes.
-// Full governance integration testing should be done in integration tests.
+// This bypasses the operations committee/sentinel requirement for simulation purposes.
+// Full integration testing should be done in integration tests.
 func SimulateMsgUnpinReply(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -31,7 +31,7 @@ func SimulateMsgUnpinReply(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinReply{}), "failed to get/create pinned reply"), nil, nil
 		}
 
-		// Use direct keeper calls to unpin the reply (bypasses authority check)
+		// Use direct keeper calls to unpin the reply (bypasses operations committee check)
 		reply, err := k.Post.Get(ctx, replyID)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinReply{}), "reply not found"), nil, nil

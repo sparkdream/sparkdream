@@ -567,14 +567,14 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "CreatePost",
-					Use:            "create-post [category-id] [parent-id] [content]",
+					Use:            "create-post [category-id] [parent-id] [content] [--tags tags]",
 					Short:          "Send a create-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}, {ProtoField: "parent_id"}, {ProtoField: "content"}},
 				},
 				{
 					RpcMethod:      "EditPost",
-					Use:            "edit-post [post-id] [new-content]",
-					Short:          "Send a edit-post tx",
+					Use:            "edit-post [post-id] [new-content] [--tags tags]",
+					Short:          "Send an edit-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "new_content"}},
 				},
 				{

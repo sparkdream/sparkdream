@@ -15,9 +15,9 @@ func (k msgServer) CreateCategory(ctx context.Context, msg *types.MsgCreateCateg
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
-	// Only governance authority can create categories
-	if !k.IsGovAuthority(ctx, msg.Creator) {
-		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only governance authority can create categories")
+	// Only governance, council, or operations committee can create categories
+	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only governance, council, or operations committee can create categories")
 	}
 
 	// Validate title and description

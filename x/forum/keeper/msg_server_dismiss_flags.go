@@ -15,15 +15,15 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
-	// Only sentinels or governance authority can dismiss flags
-	isGovAuthority := k.IsGovAuthority(ctx, msg.Creator)
+	// Only sentinels or operations committee can dismiss flags
+	isGovAuthority := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	// Check if sender is a sentinel
 	sentinelActivity, err := k.SentinelActivity.Get(ctx, msg.Creator)
 	isSentinel := err == nil && sentinelActivity.CurrentBond != "" && sentinelActivity.BondStatus != types.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED
 
 	if !isGovAuthority && !isSentinel {
-		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only sentinels or governance authority can dismiss flags")
+		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only sentinels or operations committee can dismiss flags")
 	}
 
 	// Load flag record
