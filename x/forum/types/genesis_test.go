@@ -22,6 +22,7 @@ func TestGenesisState_Validate(t *testing.T) {
 		{
 			desc: "valid genesis state",
 			genState: &types.GenesisState{
+				Params:           types.DefaultParams(),
 				PostMap:          []types.Post{{PostId: 0}, {PostId: 1}},
 				CategoryMap:      []types.Category{{CategoryId: 0}, {CategoryId: 1}},
 				TagMap:           []types.Tag{{Name: "tag0"}, {Name: "tag1"}},

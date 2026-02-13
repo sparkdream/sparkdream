@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -414,5 +416,207 @@ func TestCreatePostStorageFee(t *testing.T) {
 		_, err := f.msgServer.CreatePost(f.ctx, msg)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to charge storage fee")
+	})
+}
+
+func TestCreatePostEphemeralTTL(t *testing.T) {
+	t.Run("non-member post uses EphemeralTtl from params", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		now := int64(1000000)
+		ctx := f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+		f.ctx = ctx
+
+		// Make testCreator a non-member
+		f.repKeeper.IsMemberFn = func(_ context.Context, _ sdk.AccAddress) bool {
+			return false
+		}
+
+		// Set custom TTL
+		params := types.DefaultParams()
+		params.EphemeralTtl = 3600 // 1 hour
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+		nextID, _ := f.keeper.PostSeq.Peek(f.ctx)
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Non-member post with custom TTL",
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		post, err := f.keeper.Post.Get(f.ctx, nextID)
+		require.NoError(t, err)
+		require.Equal(t, now+3600, post.ExpirationTime)
+	})
+
+	t.Run("non-member post uses default EphemeralTtl", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		now := int64(1000000)
+		ctx := f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+		f.ctx = ctx
+
+		// Make testCreator a non-member
+		f.repKeeper.IsMemberFn = func(_ context.Context, _ sdk.AccAddress) bool {
+			return false
+		}
+
+		nextID, _ := f.keeper.PostSeq.Peek(f.ctx)
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Non-member post with default TTL",
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		post, err := f.keeper.Post.Get(f.ctx, nextID)
+		require.NoError(t, err)
+		require.Equal(t, now+types.DefaultEphemeralTTL, post.ExpirationTime)
+	})
+
+	t.Run("member post has no expiration", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		now := int64(1000000)
+		ctx := f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+		f.ctx = ctx
+
+		nextID, _ := f.keeper.PostSeq.Peek(f.ctx)
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Member post - no expiration",
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		post, err := f.keeper.Post.Get(f.ctx, nextID)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), post.ExpirationTime)
+	})
+}
+
+func TestCreatePostExpirationQueue(t *testing.T) {
+	t.Run("non-member post is enqueued in ExpirationQueue", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		now := int64(1000000)
+		ctx := f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+		f.ctx = ctx
+
+		f.repKeeper.IsMemberFn = func(_ context.Context, _ sdk.AccAddress) bool {
+			return false
+		}
+
+		nextID, _ := f.keeper.PostSeq.Peek(f.ctx)
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Ephemeral post for queue test",
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Verify the post was enqueued
+		expectedExpiration := now + types.DefaultEphemeralTTL
+		has, err := f.keeper.ExpirationQueue.Has(f.ctx, collections.Join(expectedExpiration, nextID))
+		require.NoError(t, err)
+		require.True(t, has, "ephemeral post should be in ExpirationQueue")
+	})
+
+	t.Run("member post is NOT enqueued in ExpirationQueue", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		now := int64(1000000)
+		ctx := f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+		f.ctx = ctx
+
+		nextID, _ := f.keeper.PostSeq.Peek(f.ctx)
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Member post - no queue entry",
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Verify no queue entries exist for this post
+		found := false
+		_ = f.keeper.ExpirationQueue.Walk(f.ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+			if key.K2() == nextID {
+				found = true
+				return true, nil
+			}
+			return false, nil
+		})
+		require.False(t, found, "member post should NOT be in ExpirationQueue")
+	})
+
+	t.Run("salvation removes post from ExpirationQueue", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		now := int64(1000000)
+		ctx := f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+		f.ctx = ctx
+
+		// Create an ephemeral root post (non-member)
+		ephPostID, err := f.keeper.PostSeq.Next(f.ctx)
+		require.NoError(t, err)
+
+		expirationTime := now + types.DefaultEphemeralTTL
+		ephPost := types.Post{
+			PostId:         ephPostID,
+			CategoryId:     cat.CategoryId,
+			Author:         testCreator2,
+			Content:        "Ephemeral root post",
+			CreatedAt:      now,
+			ExpirationTime: expirationTime,
+			Status:         types.PostStatus_POST_STATUS_ACTIVE,
+		}
+		require.NoError(t, f.keeper.Post.Set(f.ctx, ephPostID, ephPost))
+		require.NoError(t, f.keeper.ExpirationQueue.Set(f.ctx, collections.Join(expirationTime, ephPostID)))
+
+		// Set member since long ago so salvation is allowed
+		require.NoError(t, f.keeper.MemberSalvationStatus.Set(f.ctx, testCreator, types.MemberSalvationStatus{
+			Address:         testCreator,
+			MemberSince:     now - 999999,
+			CanSalvage:      true,
+			EpochSalvations: 0,
+			EpochStart:      now,
+		}))
+
+		// Member replies to ephemeral post — triggers salvation
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   ephPostID,
+			Content:    "Member reply that triggers salvation",
+		}
+		_, err = f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// The ephemeral parent should have been salvaged (ExpirationTime = 0)
+		savedPost, err := f.keeper.Post.Get(f.ctx, ephPostID)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), savedPost.ExpirationTime, "salvaged post should have ExpirationTime=0")
+
+		// The queue entry should be removed
+		has, err := f.keeper.ExpirationQueue.Has(f.ctx, collections.Join(expirationTime, ephPostID))
+		require.NoError(t, err)
+		require.False(t, has, "salvaged post should be removed from ExpirationQueue")
 	})
 }

@@ -145,6 +145,7 @@ func NewParams() Params {
 		MoveAppealCooldown:           DefaultMoveAppealCooldown,
 		CostPerByte:                  sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
 		CostPerByteExempt:           false,
+		EphemeralTtl:                DefaultEphemeralTTL,
 	}
 }
 
@@ -155,11 +156,11 @@ func DefaultParams() Params {
 
 // Validate validates the set of params.
 func (p Params) Validate() error {
-	if p.CostPerByte.Amount.IsNil() {
-		return nil
-	}
-	if p.CostPerByte.IsNegative() {
+	if !p.CostPerByte.Amount.IsNil() && p.CostPerByte.IsNegative() {
 		return fmt.Errorf("cost_per_byte cannot be negative: %s", p.CostPerByte)
+	}
+	if p.EphemeralTtl <= 0 {
+		return fmt.Errorf("ephemeral_ttl must be positive: %d", p.EphemeralTtl)
 	}
 	return nil
 }

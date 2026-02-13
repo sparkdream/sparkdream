@@ -98,4 +98,7 @@ message Params {
 
   // cost_per_byte_exempt when true, disables cost_per_byte fee collection
   bool cost_per_byte_exempt = 29;
+
+  // ephemeral_ttl in seconds (TTL for non-member posts, default 86400 = 24h)
+  int64 ephemeral_ttl = 30;
 }

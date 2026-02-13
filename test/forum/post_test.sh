@@ -131,6 +131,34 @@ echo "Category ID:  $TEST_CATEGORY_ID"
 echo ""
 
 # ========================================================================
+# PART 0b: VERIFY PARAMS INCLUDE ephemeral_ttl
+# ========================================================================
+echo "--- PART 0b: VERIFY PARAMS INCLUDE ephemeral_ttl ---"
+
+PARAMS=$($BINARY query forum params --output json 2>&1)
+
+if echo "$PARAMS" | grep -q "error"; then
+    echo "  Failed to query forum params"
+    PARAMS_CHECK_RESULT="FAIL"
+else
+    EPHEMERAL_TTL=$(echo "$PARAMS" | jq -r '.params.ephemeral_ttl // "0"')
+    echo "  ephemeral_ttl: $EPHEMERAL_TTL"
+
+    if [ "$EPHEMERAL_TTL" == "86400" ]; then
+        echo "  ephemeral_ttl matches default (86400s / 24h)"
+        PARAMS_CHECK_RESULT="PASS"
+    elif [ "$EPHEMERAL_TTL" -gt 0 ] 2>/dev/null; then
+        echo "  ephemeral_ttl is positive ($EPHEMERAL_TTL)"
+        PARAMS_CHECK_RESULT="PASS"
+    else
+        echo "  ERROR: ephemeral_ttl is missing or zero"
+        PARAMS_CHECK_RESULT="FAIL"
+    fi
+fi
+
+echo ""
+
+# ========================================================================
 # PART 1: LIST EXISTING POSTS
 # ========================================================================
 echo "--- PART 1: LIST EXISTING POSTS ---"
@@ -747,6 +775,105 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
 else
     echo "  Could not create post for deletion test"
     DELETE_POST_RESULT="FAIL"
+fi
+
+echo ""
+
+# ========================================================================
+# PART 19: EPHEMERAL POST PRUNING (NON-MEMBER POST EXPIRES VIA ENDBLOCKER)
+# ========================================================================
+echo "--- PART 19: EPHEMERAL POST PRUNING ---"
+
+# dave is a genesis account with SPARK but is NOT an x/rep member,
+# so his posts are ephemeral (expiration_time = now + ephemeral_ttl).
+# config.yml sets ephemeral_ttl to 15 seconds for testing.
+
+DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test 2>/dev/null)
+
+if [ -z "$DAVE_ADDR" ]; then
+    echo "  dave key not found in keyring, skipping pruning test"
+    EPHEMERAL_PRUNE_RESULT="FAIL"
+else
+    echo "  dave (non-member): $DAVE_ADDR"
+
+    # Verify dave is NOT a member
+    DAVE_MEMBER=$($BINARY query rep get-member $DAVE_ADDR --output json 2>&1)
+    if echo "$DAVE_MEMBER" | grep -q "not found"; then
+        echo "  Confirmed: dave is NOT an x/rep member (good)"
+    else
+        echo "  WARNING: dave IS a member — posts will be permanent, not ephemeral"
+        echo "  Test may not work as expected"
+    fi
+
+    # Create an ephemeral post from dave
+    EPHEMERAL_CONTENT="Ephemeral post from non-member dave - should be pruned after TTL"
+
+    echo "  Creating ephemeral post from dave..."
+    TX_RES=$($BINARY tx forum create-post \
+        "$TEST_CATEGORY_ID" \
+        "0" \
+        "$EPHEMERAL_CONTENT" \
+        --from dave \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000uspark \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        EPHEMERAL_POST_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
+        IS_EPHEMERAL=$(extract_event_value "$TX_RESULT" "post_created" "is_ephemeral")
+
+        if [ -z "$EPHEMERAL_POST_ID" ] || [ "$EPHEMERAL_POST_ID" == "null" ]; then
+            # Fallback: query the latest post
+            POSTS=$($BINARY query forum list-post --output json 2>&1)
+            EPHEMERAL_POST_ID=$(echo "$POSTS" | jq -r '.post[-1].post_id // empty')
+        fi
+
+        echo "  Ephemeral post created (ID: $EPHEMERAL_POST_ID, is_ephemeral: $IS_EPHEMERAL)"
+
+        # Verify the post exists and has an expiration_time
+        POST_INFO=$($BINARY query forum get-post $EPHEMERAL_POST_ID --output json 2>&1)
+        EXPIRATION=$(echo "$POST_INFO" | jq -r '.post.expiration_time // "0"')
+        echo "  Post expiration_time: $EXPIRATION"
+
+        if [ "$EXPIRATION" == "0" ] || [ -z "$EXPIRATION" ]; then
+            echo "  ERROR: Post has no expiration_time (should be ephemeral)"
+            EPHEMERAL_PRUNE_RESULT="FAIL"
+        else
+            echo "  Waiting for TTL to expire and EndBlocker to prune..."
+            echo "  (ephemeral_ttl=15s, waiting 25s for blocks to advance past expiration)"
+            sleep 25
+
+            # Query the post - it should be gone (pruned by EndBlocker)
+            POST_AFTER=$($BINARY query forum get-post $EPHEMERAL_POST_ID --output json 2>&1)
+
+            if echo "$POST_AFTER" | grep -qi "not found\|does not exist\|error"; then
+                echo "  Post $EPHEMERAL_POST_ID was pruned by EndBlocker (correct)"
+                EPHEMERAL_PRUNE_RESULT="PASS"
+            else
+                # Post still exists - check if it might need more time
+                POST_STATUS=$(echo "$POST_AFTER" | jq -r '.post.status // "unknown"')
+                CURRENT_EXP=$(echo "$POST_AFTER" | jq -r '.post.expiration_time // "0"')
+                echo "  Post still exists (status: $POST_STATUS, expiration: $CURRENT_EXP)"
+                echo "  Waiting another 15s..."
+                sleep 15
+
+                POST_RETRY=$($BINARY query forum get-post $EPHEMERAL_POST_ID --output json 2>&1)
+                if echo "$POST_RETRY" | grep -qi "not found\|does not exist\|error"; then
+                    echo "  Post $EPHEMERAL_POST_ID was pruned on second check (correct)"
+                    EPHEMERAL_PRUNE_RESULT="PASS"
+                else
+                    echo "  ERROR: Post $EPHEMERAL_POST_ID still exists after TTL!"
+                    EPHEMERAL_PRUNE_RESULT="FAIL"
+                fi
+            fi
+        fi
+    else
+        echo "  Failed to create ephemeral post from dave"
+        echo "  (dave may not have enough SPARK for spam_tax + storage fee)"
+        EPHEMERAL_PRUNE_RESULT="FAIL"
+    fi
 fi
 
 echo ""
@@ -1676,6 +1803,7 @@ echo "  POST TEST SUMMARY"
 echo "========================================================================"
 echo ""
 echo "  --- Happy Path ---"
+echo "  Params ephemeral_ttl:      $PARAMS_CHECK_RESULT"
 echo "  List posts:                $LIST_POSTS_RESULT"
 echo "  Create thread:             $CREATE_THREAD_RESULT"
 echo "  Query post details:        $QUERY_POST_RESULT"
@@ -1694,6 +1822,7 @@ echo "  Posts by category:         $POSTS_BY_CAT_RESULT"
 echo "  User posts:                $USER_POSTS_RESULT"
 echo "  Top posts:                 $TOP_POSTS_RESULT"
 echo "  Delete post:               $DELETE_POST_RESULT"
+echo "  Ephemeral post pruning:    $EPHEMERAL_PRUNE_RESULT"
 echo ""
 echo "  --- Negative Path ---"
 echo "  Bad category:              $NEG_BAD_CATEGORY_RESULT"
@@ -1723,12 +1852,14 @@ FAIL_COUNT=0
 TOTAL_COUNT=0
 
 for RESULT in \
+    "$PARAMS_CHECK_RESULT" \
     "$LIST_POSTS_RESULT" "$CREATE_THREAD_RESULT" "$QUERY_POST_RESULT" \
     "$CREATE_REPLY_RESULT" "$EDIT_POST_RESULT" "$UPVOTE_RESULT" \
     "$DOWNVOTE_RESULT" "$FOLLOW_RESULT" "$FOLLOW_COUNT_RESULT" \
     "$FOLLOWERS_LIST_RESULT" "$USER_FOLLOWED_RESULT" "$UNFOLLOW_RESULT" \
     "$MARK_ACCEPTED_RESULT" "$POSTS_COUNT_RESULT" "$POSTS_BY_CAT_RESULT" \
     "$USER_POSTS_RESULT" "$TOP_POSTS_RESULT" "$DELETE_POST_RESULT" \
+    "$EPHEMERAL_PRUNE_RESULT" \
     "$NEG_BAD_CATEGORY_RESULT" "$NEG_EMPTY_CONTENT_RESULT" \
     "$NEG_LARGE_CONTENT_RESULT" "$NEG_BAD_PARENT_RESULT" \
     "$NEG_EDIT_NONAUTHOR_RESULT" "$NEG_EDIT_NONEXISTENT_RESULT" \

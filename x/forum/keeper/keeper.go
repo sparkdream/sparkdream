@@ -56,6 +56,7 @@ type Keeper struct {
 	MemberWarning         collections.Map[uint64, types.MemberWarning]
 	GovActionAppealSeq    collections.Sequence
 	GovActionAppeal       collections.Map[uint64, types.GovActionAppeal]
+	ExpirationQueue       collections.KeySet[collections.Pair[int64, uint64]]
 }
 
 func NewKeeper(
@@ -105,6 +106,12 @@ func NewKeeper(
 		MemberWarningSeq:   collections.NewSequence(sb, types.MemberWarningCountKey, "memberWarningSequence"),
 		GovActionAppeal:    collections.NewMap(sb, types.GovActionAppealKey, "govActionAppeal", collections.Uint64Key, codec.CollValue[types.GovActionAppeal](cdc)),
 		GovActionAppealSeq: collections.NewSequence(sb, types.GovActionAppealCountKey, "govActionAppealSequence"),
+		ExpirationQueue: collections.NewKeySet(
+			sb,
+			types.ExpirationQueueKey,
+			"expiration_queue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
 	}
 	schema, err := sb.Build()
 	if err != nil {

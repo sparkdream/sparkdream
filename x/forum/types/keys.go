@@ -48,3 +48,6 @@ var (
 	PostSeqKey     = collections.NewPrefix("post/seq/")
 	CategorySeqKey = collections.NewPrefix("category/seq/")
 )
+
+// ExpirationQueueKey is the prefix for the ephemeral post expiration queue
+var ExpirationQueueKey = collections.NewPrefix("expiration_queue/")

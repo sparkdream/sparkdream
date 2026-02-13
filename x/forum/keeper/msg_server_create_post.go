@@ -8,6 +8,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -178,7 +179,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	// Determine expiration (member = permanent, non-member = ephemeral)
 	var expirationTime int64
 	if !isMember {
-		expirationTime = now + types.DefaultEphemeralTTL
+		expirationTime = now + params.EphemeralTtl
 		// Charge spam tax to non-members
 		if params.SpamTax.IsPositive() {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
@@ -207,6 +208,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	// Store post
 	if err := k.Post.Set(ctx, postID, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store post")
+	}
+
+	// Enqueue ephemeral post for pruning
+	if expirationTime > 0 {
+		if err := k.ExpirationQueue.Set(ctx, collections.Join(expirationTime, postID)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to enqueue post for expiration")
+		}
 	}
 
 	// Handle salvation for ephemeral parent posts
@@ -366,7 +374,10 @@ func (k msgServer) salvageAncestors(ctx context.Context, memberAddr string, pare
 				break
 			}
 
-			// Salvage: make permanent
+			// Salvage: make permanent — remove from expiration queue
+			if err := k.ExpirationQueue.Remove(ctx, collections.Join(post.ExpirationTime, post.PostId)); err != nil {
+				sdkCtx.Logger().Info("failed to remove from expiration queue", "post_id", post.PostId, "error", err)
+			}
 			post.ExpirationTime = 0
 			if err := k.Post.Set(ctx, post.PostId, post); err != nil {
 				return errorsmod.Wrap(err, "failed to salvage post")

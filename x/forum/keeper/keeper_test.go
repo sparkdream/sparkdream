@@ -59,6 +59,7 @@ type fixture struct {
 	addressCodec address.Codec
 	msgServer    types.MsgServer
 	bankKeeper   *mockBankKeeper
+	repKeeper    *mockRepKeeper
 }
 
 // mockBankKeeper implements types.BankKeeper for testing
@@ -147,6 +148,7 @@ func (m *mockBankKeeper) MintCoins(ctx context.Context, moduleName string, amt s
 // mockRepKeeper implements types.RepKeeper for testing
 type mockRepKeeper struct {
 	CreateAppealInitiativeFn func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
+	IsMemberFn               func(ctx context.Context, addr sdk.AccAddress) bool
 	nextInitiativeID         uint64
 }
 
@@ -175,6 +177,9 @@ func (m *mockRepKeeper) TransferDREAM(ctx context.Context, sender, recipient sdk
 }
 
 func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool {
+	if m.IsMemberFn != nil {
+		return m.IsMemberFn(ctx, addr)
+	}
 	return true
 }
 
@@ -287,6 +292,7 @@ func initFixtureWithCommons(t *testing.T, commonsKeeper types.CommonsKeeper) *fi
 		addressCodec: addressCodec,
 		msgServer:    keeper.NewMsgServerImpl(k),
 		bankKeeper:   bankKeeper,
+		repKeeper:    repKeeper,
 	}
 }
 
@@ -333,6 +339,7 @@ func initFixture(t *testing.T) *fixture {
 		addressCodec: addressCodec,
 		msgServer:    keeper.NewMsgServerImpl(k),
 		bankKeeper:   bankKeeper,
+		repKeeper:    repKeeper,
 	}
 }
 
