@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/blog/types"
 
 	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -49,11 +50,31 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 			"body exceeds maximum length of %d characters", params.MaxBodyLength)
 	}
 
+	// Charge cost_per_byte storage delta fee on size increase (burned)
+	if !params.CostPerByteExempt && params.CostPerByte.IsPositive() {
+		oldBytes := int64(len(val.Title)) + int64(len(val.Body))
+		newBytes := int64(len(msg.Title)) + int64(len(msg.Body))
+		if newBytes > oldBytes {
+			deltaFee := sdk.NewCoin(params.CostPerByte.Denom,
+				params.CostPerByte.Amount.MulRaw(newBytes-oldBytes))
+			if deltaFee.IsPositive() {
+				creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+				if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(deltaFee)); err != nil {
+					return nil, errorsmod.Wrap(err, "failed to charge storage delta fee")
+				}
+				if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(deltaFee)); err != nil {
+					return nil, errorsmod.Wrap(err, "failed to burn storage delta fee")
+				}
+			}
+		}
+	}
+
 	var post = types.Post{
-		Creator: msg.Creator,
-		Id:      msg.Id,
-		Title:   msg.Title,
-		Body:    msg.Body,
+		Creator:     msg.Creator,
+		Id:          msg.Id,
+		Title:       msg.Title,
+		Body:        msg.Body,
+		ContentType: msg.ContentType,
 	}
 
 	k.SetPost(ctx, post)

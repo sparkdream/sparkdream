@@ -1,12 +1,8 @@
 package keeper
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 
 	"sparkdream/x/forum/types"
 
@@ -31,60 +27,60 @@ func (k msgServer) UnarchiveThread(ctx context.Context, msg *types.MsgUnarchiveT
 		return nil, types.ErrForumPaused
 	}
 
-	// Load archived thread
-	archivedThread, err := k.ArchivedThread.Get(ctx, msg.RootId)
+	// Load root post
+	rootPost, err := k.Post.Get(ctx, msg.RootId)
 	if err != nil {
-		return nil, errorsmod.Wrap(types.ErrArchivedThreadNotFound, fmt.Sprintf("archived thread %d not found", msg.RootId))
+		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("thread %d not found", msg.RootId))
+	}
+
+	// Check this is a root post and it's archived
+	if rootPost.ParentId != 0 {
+		return nil, types.ErrNotRootPost
+	}
+	if rootPost.Status != types.PostStatus_POST_STATUS_ARCHIVED {
+		return nil, errorsmod.Wrap(types.ErrArchivedThreadNotFound, fmt.Sprintf("thread %d is not archived", msg.RootId))
 	}
 
 	// Check unarchive cooldown
-	unarchiveCooldown := params.UnarchiveCooldown
-	if unarchiveCooldown == 0 {
-		unarchiveCooldown = types.DefaultUnarchiveCooldown
-	}
-	if now-archivedThread.ArchivedAt < unarchiveCooldown {
-		return nil, errorsmod.Wrapf(types.ErrUnarchiveCooldown,
-			"must wait %d seconds after archive before unarchiving", unarchiveCooldown)
-	}
-
-	// Decompress data
-	gzReader, err := gzip.NewReader(bytes.NewReader(archivedThread.CompressedData))
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to create gzip reader")
-	}
-	defer gzReader.Close()
-
-	decompressedData, err := io.ReadAll(gzReader)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to decompress data")
-	}
-
-	// Deserialize posts
-	var posts []types.Post
-	if err := json.Unmarshal(decompressedData, &posts); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to deserialize posts")
-	}
-
-	// Restore individual posts
-	for _, post := range posts {
-		if err := k.Post.Set(ctx, post.PostId, post); err != nil {
-			return nil, errorsmod.Wrapf(err, "failed to restore post %d", post.PostId)
+	archiveMetadata, err := k.ArchiveMetadata.Get(ctx, msg.RootId)
+	if err == nil {
+		unarchiveCooldown := params.UnarchiveCooldown
+		if unarchiveCooldown == 0 {
+			unarchiveCooldown = types.DefaultUnarchiveCooldown
+		}
+		if now-archiveMetadata.LastArchivedAt < unarchiveCooldown {
+			return nil, errorsmod.Wrapf(types.ErrUnarchiveCooldown,
+				"must wait %d seconds after archive before unarchiving", unarchiveCooldown)
 		}
 	}
 
-	// Archive metadata is preserved for history tracking
-	// archive_count tracks total archives and persists even after unarchive
-
-	// Update archived thread record (track last unarchive)
-	archivedThread.LastUnarchivedAt = now
-
-	// Remove archived thread record
-	if err := k.ArchivedThread.Remove(ctx, msg.RootId); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to remove archived thread record")
+	// Restore root post status
+	rootPost.Status = types.PostStatus_POST_STATUS_ACTIVE
+	if err := k.Post.Set(ctx, msg.RootId, rootPost); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update root post status")
 	}
 
-	// The archive_cooldown is set on the individual posts or tracked separately
-	// to prevent immediate re-archiving
+	// Restore all thread posts
+	postCount := uint64(1) // count root post
+	iter, err := k.Post.Iterate(ctx, nil)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to iterate posts")
+	}
+	defer iter.Close()
+
+	for ; iter.Valid(); iter.Next() {
+		post, err := iter.Value()
+		if err != nil {
+			continue
+		}
+		if post.RootId == msg.RootId && post.PostId != msg.RootId && post.Status == types.PostStatus_POST_STATUS_ARCHIVED {
+			post.Status = types.PostStatus_POST_STATUS_ACTIVE
+			if err := k.Post.Set(ctx, post.PostId, post); err != nil {
+				sdkCtx.Logger().Error("failed to unarchive post", "post_id", post.PostId, "error", err)
+			}
+			postCount++
+		}
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -92,7 +88,7 @@ func (k msgServer) UnarchiveThread(ctx context.Context, msg *types.MsgUnarchiveT
 			"thread_unarchived",
 			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", msg.RootId)),
 			sdk.NewAttribute("unarchived_by", msg.Creator),
-			sdk.NewAttribute("post_count", fmt.Sprintf("%d", len(posts))),
+			sdk.NewAttribute("post_count", fmt.Sprintf("%d", postCount)),
 		),
 	)
 

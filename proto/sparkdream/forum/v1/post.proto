@@ -1,6 +1,7 @@
 syntax = "proto3";
 package sparkdream.forum.v1;
 
+import "sparkdream/common/v1/content_type.proto";
 import "sparkdream/forum/v1/types.proto";
 
 option go_package = "sparkdream/x/forum/types";
@@ -32,4 +33,5 @@ message Post {
   bool edited = 23;
   int64 edited_at = 24;
   repeated string tags = 30;
+  sparkdream.common.v1.ContentType content_type = 31;
 }

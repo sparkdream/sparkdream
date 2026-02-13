@@ -62,6 +62,25 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
 	}
 
+	// Charge cost_per_byte storage delta fee (applies to all posters, burned)
+	if !params.CostPerByteExempt && params.CostPerByte.IsPositive() {
+		oldBytes := int64(len(post.Content))
+		newBytes := int64(len(msg.NewContent))
+		if newBytes > oldBytes {
+			deltaFee := sdk.NewCoin(params.CostPerByte.Denom,
+				params.CostPerByte.Amount.MulRaw(newBytes-oldBytes))
+			if deltaFee.IsPositive() {
+				creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+				if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(deltaFee)); err != nil {
+					return nil, errorsmod.Wrap(err, "failed to charge storage delta fee")
+				}
+				if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(deltaFee)); err != nil {
+					return nil, errorsmod.Wrap(err, "failed to burn storage delta fee")
+				}
+			}
+		}
+	}
+
 	// Validate tags (if provided, replace all tags; empty list clears tags)
 	if len(msg.Tags) > 0 {
 		if err := k.validatePostTags(ctx, msg.Tags, now); err != nil {
@@ -79,6 +98,7 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 
 	// Update post
 	post.Content = msg.NewContent
+	post.ContentType = msg.ContentType
 	post.Tags = msg.Tags
 	post.Edited = true
 	post.EditedAt = now

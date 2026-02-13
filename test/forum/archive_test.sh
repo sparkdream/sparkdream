@@ -190,10 +190,6 @@ echo ""
 echo "--- PART 4: FREEZE THREAD TOO SOON (expect failure) ---"
 
 if [ -n "$THREAD_ID" ]; then
-    # Each submit_tx_and_wait adds ~7s delay (6s sleep + block time).
-    # By this point, ~14s have elapsed since the thread was created (Parts 2 & 3).
-    # With short archive_threshold values, the thread is already past the threshold,
-    # making it impossible to test "freeze too soon".
     if [ "${ARCHIVE_THRESHOLD:-30}" -le 15 ]; then
         echo "  Skipped: archive_threshold (${ARCHIVE_THRESHOLD}s) is too short to test timing"
         echo "  (Chain delays mean thread is already past threshold by this point)"
@@ -353,37 +349,8 @@ echo ""
 # ========================================================================
 echo "--- PART 8: QUERY EMPTY ARCHIVE STATE ---"
 
-# 8a: archived-threads (simplified query)
-echo "  8a: Query archived-threads..."
-ARCHIVED_THREADS=$($BINARY query forum archived-threads --output json 2>&1)
-if echo "$ARCHIVED_THREADS" | grep -q "error"; then
-    echo "    Failed to query archived-threads"
-    EMPTY_ARCHIVED_THREADS_RESULT="FAIL"
-else
-    AT_ROOT_ID=$(echo "$ARCHIVED_THREADS" | jq -r '.root_id // "0"')
-    if [ "$AT_ROOT_ID" == "0" ]; then
-        echo "    No archived threads (expected)"
-        EMPTY_ARCHIVED_THREADS_RESULT="PASS"
-    else
-        echo "    Found archived thread $AT_ROOT_ID (unexpected — prior test leftovers?)"
-        EMPTY_ARCHIVED_THREADS_RESULT="PASS"
-    fi
-fi
-
-# 8b: list-archived-thread (paginated)
-echo "  8b: Query list-archived-thread..."
-LIST_ARCHIVED=$($BINARY query forum list-archived-thread --output json 2>&1)
-if echo "$LIST_ARCHIVED" | grep -q "error"; then
-    echo "    Failed to query list-archived-thread"
-    EMPTY_LIST_ARCHIVED_RESULT="FAIL"
-else
-    ARCHIVED_COUNT=$(echo "$LIST_ARCHIVED" | jq -r '.archived_thread | length' 2>/dev/null || echo "0")
-    echo "    Archived threads: $ARCHIVED_COUNT"
-    EMPTY_LIST_ARCHIVED_RESULT="PASS"
-fi
-
-# 8c: list-archive-metadata
-echo "  8c: Query list-archive-metadata..."
+# 8a: list-archive-metadata
+echo "  8a: Query list-archive-metadata..."
 LIST_META=$($BINARY query forum list-archive-metadata --output json 2>&1)
 if echo "$LIST_META" | grep -q "error"; then
     echo "    Failed to query list-archive-metadata"
@@ -394,8 +361,8 @@ else
     EMPTY_LIST_META_RESULT="PASS"
 fi
 
-# 8d: archive-cooldown for non-archived thread
-echo "  8d: Query archive-cooldown for thread $THREAD_ID..."
+# 8b: archive-cooldown for non-archived thread
+echo "  8b: Query archive-cooldown for thread $THREAD_ID..."
 if [ -n "$THREAD_ID" ]; then
     COOLDOWN=$($BINARY query forum archive-cooldown "$THREAD_ID" --output json 2>&1)
     if echo "$COOLDOWN" | grep -q "error"; then
@@ -418,8 +385,8 @@ else
     EMPTY_COOLDOWN_RESULT="SKIP"
 fi
 
-# 8e: get-archive-metadata for non-archived thread
-echo "  8e: Query get-archive-metadata for thread 999999..."
+# 8c: get-archive-metadata for non-archived thread
+echo "  8c: Query get-archive-metadata for thread 999999..."
 META=$($BINARY query forum get-archive-metadata 999999 --output json 2>&1)
 if echo "$META" | grep -qi "not found\|does not exist\|error"; then
     echo "    Correctly returned error for non-existent metadata"
@@ -429,20 +396,8 @@ else
     EMPTY_META_RESULT="PASS"
 fi
 
-# 8f: get-archived-thread for non-archived thread
-echo "  8f: Query get-archived-thread for thread 999999..."
-ARCHIVED=$($BINARY query forum get-archived-thread 999999 --output json 2>&1)
-if echo "$ARCHIVED" | grep -qi "not found\|does not exist\|error"; then
-    echo "    Correctly returned error for non-existent archive"
-    EMPTY_ARCHIVED_RESULT="PASS"
-else
-    echo "    Returned: $ARCHIVED"
-    EMPTY_ARCHIVED_RESULT="PASS"
-fi
-
 QUERY_EMPTY_RESULT="PASS"
-for R in "$EMPTY_ARCHIVED_THREADS_RESULT" "$EMPTY_LIST_ARCHIVED_RESULT" "$EMPTY_LIST_META_RESULT" \
-         "$EMPTY_COOLDOWN_RESULT" "$EMPTY_META_RESULT" "$EMPTY_ARCHIVED_RESULT"; do
+for R in "$EMPTY_LIST_META_RESULT" "$EMPTY_COOLDOWN_RESULT" "$EMPTY_META_RESULT"; do
     if [ "$R" == "FAIL" ]; then
         QUERY_EMPTY_RESULT="FAIL"
         break
@@ -486,11 +441,9 @@ if [ -n "$THREAD_ID" ]; then
         elif check_tx_success "$TX_RESULT"; then
             ARCHIVE_COUNT=$(extract_event_value "$TX_RESULT" "thread_archived" "archive_count")
             POST_COUNT=$(extract_event_value "$TX_RESULT" "thread_archived" "post_count")
-            COMPRESSED_SIZE=$(extract_event_value "$TX_RESULT" "thread_archived" "compressed_size")
             echo "  Thread archived successfully!"
             echo "    archive_count: $ARCHIVE_COUNT"
             echo "    post_count: $POST_COUNT"
-            echo "    compressed_size: $COMPRESSED_SIZE bytes"
             FREEZE_RESULT="PASS"
         else
             echo "  Failed to freeze thread"
@@ -505,93 +458,60 @@ fi
 echo ""
 
 # ========================================================================
-# PART 10: VERIFY POSTS WERE REMOVED
+# PART 10: VERIFY POSTS HAVE ARCHIVED STATUS (posts stay in store)
 # ========================================================================
-echo "--- PART 10: VERIFY POSTS WERE REMOVED ---"
+echo "--- PART 10: VERIFY POSTS HAVE ARCHIVED STATUS ---"
 
 if [ "$FREEZE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
     POST_INFO=$($BINARY query forum get-post "$THREAD_ID" --output json 2>&1)
 
     if echo "$POST_INFO" | grep -qi "not found\|does not exist\|error"; then
-        echo "  Thread post $THREAD_ID correctly removed from post store"
-        POSTS_REMOVED_RESULT="PASS"
+        echo "  ERROR: Thread post $THREAD_ID not found in store (should still exist)"
+        POSTS_ARCHIVED_RESULT="FAIL"
     else
-        echo "  ERROR: Thread post $THREAD_ID still exists in post store!"
-        POSTS_REMOVED_RESULT="FAIL"
+        POST_STATUS=$(echo "$POST_INFO" | jq -r '.post.status // empty')
+        echo "  Thread post $THREAD_ID status: $POST_STATUS"
+        if echo "$POST_STATUS" | grep -qi "ARCHIVED\|3"; then
+            echo "  Thread post correctly has ARCHIVED status"
+            POSTS_ARCHIVED_RESULT="PASS"
+        else
+            echo "  ERROR: Expected ARCHIVED status, got: $POST_STATUS"
+            POSTS_ARCHIVED_RESULT="FAIL"
+        fi
     fi
 
     if [ -n "$REPLY_ID" ]; then
         REPLY_INFO=$($BINARY query forum get-post "$REPLY_ID" --output json 2>&1)
 
         if echo "$REPLY_INFO" | grep -qi "not found\|does not exist\|error"; then
-            echo "  Reply post $REPLY_ID correctly removed from post store"
+            echo "  ERROR: Reply post $REPLY_ID not found in store (should still exist)"
+            POSTS_ARCHIVED_RESULT="FAIL"
         else
-            echo "  ERROR: Reply post $REPLY_ID still exists in post store!"
-            POSTS_REMOVED_RESULT="FAIL"
+            REPLY_STATUS=$(echo "$REPLY_INFO" | jq -r '.post.status // empty')
+            echo "  Reply post $REPLY_ID status: $REPLY_STATUS"
+            if echo "$REPLY_STATUS" | grep -qi "ARCHIVED\|3"; then
+                echo "  Reply post correctly has ARCHIVED status"
+            else
+                echo "  ERROR: Expected ARCHIVED status for reply, got: $REPLY_STATUS"
+                POSTS_ARCHIVED_RESULT="FAIL"
+            fi
         fi
     fi
 else
     echo "  Skipped (freeze did not succeed)"
-    POSTS_REMOVED_RESULT="SKIP"
+    POSTS_ARCHIVED_RESULT="SKIP"
 fi
 
 echo ""
 
 # ========================================================================
-# PART 11: QUERY ARCHIVED THREAD DATA
+# PART 11: QUERY ARCHIVE METADATA AND COOLDOWN
 # ========================================================================
-echo "--- PART 11: QUERY ARCHIVED THREAD DATA ---"
+echo "--- PART 11: QUERY ARCHIVE METADATA AND COOLDOWN ---"
 
 if [ "$FREEZE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
-    # 11a: get-archived-thread
-    echo "  11a: get-archived-thread $THREAD_ID..."
-    ARCHIVED_THREAD=$($BINARY query forum get-archived-thread "$THREAD_ID" --output json 2>&1)
-
-    if echo "$ARCHIVED_THREAD" | grep -q "error"; then
-        echo "    Failed to query archived thread"
-        QUERY_ARCHIVED_RESULT="FAIL"
-    else
-        AT_ROOT=$(echo "$ARCHIVED_THREAD" | jq -r '.archived_thread.root_id // empty')
-        AT_POST_COUNT=$(echo "$ARCHIVED_THREAD" | jq -r '.archived_thread.post_count // empty')
-        AT_ARCHIVED_AT=$(echo "$ARCHIVED_THREAD" | jq -r '.archived_thread.archived_at // empty')
-        AT_HAS_DATA=$(echo "$ARCHIVED_THREAD" | jq -r '.archived_thread.compressed_data // empty' | head -c 20)
-
-        echo "    root_id: $AT_ROOT"
-        echo "    post_count: $AT_POST_COUNT"
-        echo "    archived_at: $AT_ARCHIVED_AT"
-        echo "    has_compressed_data: $([ -n "$AT_HAS_DATA" ] && echo 'yes' || echo 'no')"
-
-        if [ "$AT_ROOT" == "$THREAD_ID" ]; then
-            QUERY_ARCHIVED_RESULT="PASS"
-        else
-            echo "    ERROR: root_id mismatch"
-            QUERY_ARCHIVED_RESULT="FAIL"
-        fi
-    fi
-
-    # 11b: archived-thread-meta
-    echo "  11b: archived-thread-meta $THREAD_ID..."
-    THREAD_META=$($BINARY query forum archived-thread-meta "$THREAD_ID" --output json 2>&1)
-
-    if echo "$THREAD_META" | grep -q "error"; then
-        echo "    Failed to query archived thread meta"
-        QUERY_META_RESULT="FAIL"
-    else
-        META_ROOT=$(echo "$THREAD_META" | jq -r '.root_id // empty')
-        META_POST_COUNT=$(echo "$THREAD_META" | jq -r '.post_count // empty')
-        META_ARCHIVED_AT=$(echo "$THREAD_META" | jq -r '.archived_at // empty')
-        echo "    root_id: $META_ROOT, post_count: $META_POST_COUNT, archived_at: $META_ARCHIVED_AT"
-
-        if [ "$META_ROOT" == "$THREAD_ID" ]; then
-            QUERY_META_RESULT="PASS"
-        else
-            echo "    ERROR: root_id mismatch"
-            QUERY_META_RESULT="FAIL"
-        fi
-    fi
-
-    # 11c: get-archive-metadata (history)
-    echo "  11c: get-archive-metadata $THREAD_ID..."
+    # 11a: get-archive-metadata (history)
+    echo "  11a: get-archive-metadata $THREAD_ID..."
     ARCHIVE_META=$($BINARY query forum get-archive-metadata "$THREAD_ID" --output json 2>&1)
 
     if echo "$ARCHIVE_META" | grep -q "error"; then
@@ -615,8 +535,8 @@ if [ "$FREEZE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
         fi
     fi
 
-    # 11d: archive-cooldown
-    echo "  11d: archive-cooldown $THREAD_ID..."
+    # 11b: archive-cooldown
+    echo "  11b: archive-cooldown $THREAD_ID..."
     COOLDOWN=$($BINARY query forum archive-cooldown "$THREAD_ID" --output json 2>&1)
 
     if echo "$COOLDOWN" | grep -q "error"; then
@@ -629,53 +549,10 @@ if [ "$FREEZE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
         # Cooldown should be active right after archiving
         QUERY_COOLDOWN_RESULT="PASS"
     fi
-
-    # 11e: archived-threads (simplified)
-    echo "  11e: archived-threads..."
-    ARCHIVED_THREADS=$($BINARY query forum archived-threads --output json 2>&1)
-
-    if echo "$ARCHIVED_THREADS" | grep -q "error"; then
-        echo "    Failed to query archived-threads"
-        QUERY_ARCHIVED_THREADS_RESULT="FAIL"
-    else
-        AT_ID=$(echo "$ARCHIVED_THREADS" | jq -r '.root_id // "0"')
-        AT_PC=$(echo "$ARCHIVED_THREADS" | jq -r '.post_count // "0"')
-        echo "    root_id: $AT_ID, post_count: $AT_PC"
-
-        if [ "$AT_ID" != "0" ]; then
-            QUERY_ARCHIVED_THREADS_RESULT="PASS"
-        else
-            echo "    ERROR: No archived thread found"
-            QUERY_ARCHIVED_THREADS_RESULT="FAIL"
-        fi
-    fi
-
-    # 11f: list-archived-thread (paginated)
-    echo "  11f: list-archived-thread..."
-    LIST_ARCHIVED=$($BINARY query forum list-archived-thread --output json 2>&1)
-
-    if echo "$LIST_ARCHIVED" | grep -q "error"; then
-        echo "    Failed to query list-archived-thread"
-        QUERY_LIST_ARCHIVED_RESULT="FAIL"
-    else
-        LA_COUNT=$(echo "$LIST_ARCHIVED" | jq -r '.archived_thread | length' 2>/dev/null || echo "0")
-        echo "    Archived threads: $LA_COUNT"
-
-        if [ "$LA_COUNT" -ge 1 ]; then
-            QUERY_LIST_ARCHIVED_RESULT="PASS"
-        else
-            echo "    ERROR: Expected at least 1 archived thread"
-            QUERY_LIST_ARCHIVED_RESULT="FAIL"
-        fi
-    fi
 else
     echo "  Skipped (freeze did not succeed)"
-    QUERY_ARCHIVED_RESULT="SKIP"
-    QUERY_META_RESULT="SKIP"
     QUERY_ARCHIVE_META_RESULT="SKIP"
     QUERY_COOLDOWN_RESULT="SKIP"
-    QUERY_ARCHIVED_THREADS_RESULT="SKIP"
-    QUERY_LIST_ARCHIVED_RESULT="SKIP"
 fi
 
 echo ""
@@ -686,10 +563,8 @@ echo ""
 echo "--- PART 12: UNARCHIVE TOO SOON (expect failure) ---"
 
 if [ "$FREEZE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
-    # Only test this if unarchive_cooldown > 0 and we just archived
     UNARCHIVE_CD=${UNARCHIVE_COOLDOWN:-5}
 
-    # Try immediately (should fail if cooldown > 0)
     echo "  Attempting to unarchive immediately..."
 
     TX_RES=$($BINARY tx forum unarchive-thread \
@@ -734,9 +609,10 @@ echo "--- PART 13: UNARCHIVE THREAD (after cooldown) ---"
 
 if [ "$FREEZE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
     # Check if already unarchived (from Part 12 succeeding)
-    STILL_ARCHIVED=$($BINARY query forum get-archived-thread "$THREAD_ID" --output json 2>&1)
+    POST_INFO=$($BINARY query forum get-post "$THREAD_ID" --output json 2>&1)
+    CURRENT_STATUS=$(echo "$POST_INFO" | jq -r '.post.status // empty')
 
-    if echo "$STILL_ARCHIVED" | grep -qi "not found\|does not exist\|error"; then
+    if echo "$CURRENT_STATUS" | grep -qi "ACTIVE\|1"; then
         echo "  Thread was already unarchived in Part 12"
         UNARCHIVE_RESULT="PASS"
     else
@@ -783,30 +659,43 @@ fi
 echo ""
 
 # ========================================================================
-# PART 14: VERIFY POSTS WERE RESTORED
+# PART 14: VERIFY POSTS HAVE ACTIVE STATUS AFTER UNARCHIVE
 # ========================================================================
-echo "--- PART 14: VERIFY POSTS WERE RESTORED ---"
+echo "--- PART 14: VERIFY POSTS HAVE ACTIVE STATUS ---"
 
 if [ "$UNARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
     POST_INFO=$($BINARY query forum get-post "$THREAD_ID" --output json 2>&1)
 
     if echo "$POST_INFO" | grep -qi "not found\|does not exist\|error"; then
-        echo "  ERROR: Thread post $THREAD_ID was NOT restored"
+        echo "  ERROR: Thread post $THREAD_ID not found"
         POSTS_RESTORED_RESULT="FAIL"
     else
+        POST_STATUS=$(echo "$POST_INFO" | jq -r '.post.status // empty')
         RESTORED_AUTHOR=$(echo "$POST_INFO" | jq -r '.post.author // empty')
-        echo "  Thread post $THREAD_ID restored (author: $RESTORED_AUTHOR)"
-        POSTS_RESTORED_RESULT="PASS"
+        echo "  Thread post $THREAD_ID status: $POST_STATUS (author: $RESTORED_AUTHOR)"
+        if echo "$POST_STATUS" | grep -qi "ACTIVE\|1"; then
+            POSTS_RESTORED_RESULT="PASS"
+        else
+            echo "  ERROR: Expected ACTIVE status, got: $POST_STATUS"
+            POSTS_RESTORED_RESULT="FAIL"
+        fi
     fi
 
     if [ -n "$REPLY_ID" ]; then
         REPLY_INFO=$($BINARY query forum get-post "$REPLY_ID" --output json 2>&1)
 
         if echo "$REPLY_INFO" | grep -qi "not found\|does not exist\|error"; then
-            echo "  ERROR: Reply post $REPLY_ID was NOT restored"
+            echo "  ERROR: Reply post $REPLY_ID not found"
             POSTS_RESTORED_RESULT="FAIL"
         else
-            echo "  Reply post $REPLY_ID restored"
+            REPLY_STATUS=$(echo "$REPLY_INFO" | jq -r '.post.status // empty')
+            echo "  Reply post $REPLY_ID status: $REPLY_STATUS"
+            if echo "$REPLY_STATUS" | grep -qi "ACTIVE\|1"; then
+                echo "  Reply post correctly has ACTIVE status"
+            else
+                echo "  ERROR: Expected ACTIVE status for reply, got: $REPLY_STATUS"
+                POSTS_RESTORED_RESULT="FAIL"
+            fi
         fi
     fi
 else
@@ -837,16 +726,6 @@ if [ "$UNARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
             echo "  ERROR: Expected archive_count=1, got $AM_COUNT"
             META_PERSISTS_RESULT="FAIL"
         fi
-    fi
-
-    # Archived thread record should be gone
-    ARCHIVED=$($BINARY query forum get-archived-thread "$THREAD_ID" --output json 2>&1)
-
-    if echo "$ARCHIVED" | grep -qi "not found\|does not exist\|error"; then
-        echo "  Archived thread record correctly removed"
-    else
-        echo "  WARNING: Archived thread record still exists after unarchive"
-        META_PERSISTS_RESULT="FAIL"
     fi
 else
     echo "  Skipped (unarchive did not succeed)"
@@ -970,8 +849,7 @@ if [ -z "$TX_RESULT" ]; then
 elif check_tx_success "$TX_RESULT"; then
     echo "    Forum paused successfully"
 
-    # 18b: Create a second thread for this test (we need a live thread to freeze)
-    # Use a fresh thread since THREAD_ID may be archived from Part 16
+    # 18b: Create a second thread for this test
     echo "  18b: Creating a thread for paused-forum tests..."
     PAUSE_THREAD_CONTENT="Pause test thread $(date +%s)"
 
@@ -988,8 +866,6 @@ elif check_tx_success "$TX_RESULT"; then
 
     PAUSE_TX_RESULT=$(submit_tx_and_wait "$TX_RES")
 
-    # Creating a post may also fail if forum is fully paused for all operations
-    # In that case, we test freeze with the existing THREAD_ID
     PAUSE_THREAD_ID=""
     if [ -n "$PAUSE_TX_RESULT" ]; then
         PAUSE_CODE=$(echo "$PAUSE_TX_RESULT" | jq -r '.code')
@@ -1041,7 +917,6 @@ elif check_tx_success "$TX_RESULT"; then
     fi
 
     # 18d: Attempt to unarchive while paused (should fail with ErrForumPaused)
-    # Use THREAD_ID which was re-archived in Part 16
     if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
         echo "  18d: Attempting unarchive-thread while forum is paused..."
         TX_RES=$($BINARY tx forum unarchive-thread \
@@ -1119,16 +994,6 @@ echo ""
 # ========================================================================
 echo "--- PART 19: ARCHIVE CYCLE LIMIT ---"
 
-# DefaultMaxArchiveCycles = 5. The thread from Part 16 already has archive_count=2.
-# We need to archive/unarchive until archive_count reaches 5, then verify the 6th
-# archive attempt fails with ErrArchiveCycleLimit (for non-gov users).
-#
-# The thread is currently archived (from Part 16 re-archive). We need:
-#   Unarchive (count stays 2) -> wait -> Archive (count=3) ->
-#   Unarchive -> wait -> Archive (count=4) ->
-#   Unarchive -> wait -> Archive (count=5) ->
-#   Unarchive -> wait -> Attempt archive (should fail for non-gov, count would be 6)
-
 CYCLE_WAIT_TIME=${ARCHIVE_THRESHOLD:-5}
 CYCLE_UNARCHIVE_WAIT=${UNARCHIVE_COOLDOWN:-5}
 
@@ -1139,17 +1004,14 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
     CYCLE_LIMIT_RESULT="PASS"
     CURRENT_COUNT=2
 
-    # Loop: unarchive then re-archive until count reaches DefaultMaxArchiveCycles (5)
     while [ "$CURRENT_COUNT" -lt 5 ]; do
         TARGET_COUNT=$((CURRENT_COUNT + 1))
         echo ""
         echo "  -- Cycle to archive_count=$TARGET_COUNT --"
 
-        # Wait for unarchive cooldown
         echo "    Waiting $CYCLE_UNARCHIVE_WAIT seconds for unarchive cooldown..."
         sleep $((CYCLE_UNARCHIVE_WAIT + 2))
 
-        # Unarchive
         echo "    Unarchiving thread $THREAD_ID..."
         TX_RES=$($BINARY tx forum unarchive-thread \
             "$THREAD_ID" \
@@ -1168,11 +1030,9 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
         fi
         echo "    Unarchived OK"
 
-        # Wait for archive threshold
         echo "    Waiting $CYCLE_WAIT_TIME seconds for archive threshold..."
         sleep $((CYCLE_WAIT_TIME + 2))
 
-        # Re-archive
         echo "    Freezing thread $THREAD_ID..."
         TX_RES=$($BINARY tx forum freeze-thread \
             "$THREAD_ID" \
@@ -1196,7 +1056,6 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
     done
 
     if [ "$CYCLE_LIMIT_RESULT" == "PASS" ]; then
-        # Verify archive_count is now 5
         ARCHIVE_META=$($BINARY query forum get-archive-metadata "$THREAD_ID" --output json 2>&1)
         FINAL_COUNT=$(echo "$ARCHIVE_META" | jq -r '.archive_metadata.archive_count // empty')
         HR_OVERRIDE=$(echo "$ARCHIVE_META" | jq -r '.archive_metadata.hr_override_required // false')
@@ -1209,7 +1068,6 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
         else
             echo "  archive_count reached 5 -- now testing cycle limit rejection"
 
-            # Unarchive one more time
             echo "  Waiting $CYCLE_UNARCHIVE_WAIT seconds for unarchive cooldown..."
             sleep $((CYCLE_UNARCHIVE_WAIT + 2))
 
@@ -1229,11 +1087,9 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
             else
                 echo "  Unarchived OK"
 
-                # Wait for archive threshold
                 echo "  Waiting $CYCLE_WAIT_TIME seconds for archive threshold..."
                 sleep $((CYCLE_WAIT_TIME + 2))
 
-                # Attempt to freeze as non-gov user (poster1) -- should fail with ErrArchiveCycleLimit
                 echo "  Attempting freeze as non-gov user (poster1) -- should fail..."
                 TX_RES=$($BINARY tx forum freeze-thread \
                     "$THREAD_ID" \
@@ -1268,7 +1124,6 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
                     fi
                 fi
 
-                # Also verify that operations committee (alice) CAN still archive past the limit
                 if [ "$CYCLE_LIMIT_RESULT" == "PASS" ]; then
                     echo "  Verifying operations committee (alice) can still archive past limit..."
                     TX_RES=$($BINARY tx forum freeze-thread \
@@ -1307,14 +1162,12 @@ echo ""
 # ========================================================================
 echo "--- PART 20: QUERY ARCHIVE-COOLDOWN ROOT_ID=0 ---"
 
-# The query handler returns InvalidArgument for root_id=0
 COOLDOWN_ZERO=$($BINARY query forum archive-cooldown 0 --output json 2>&1)
 
 if echo "$COOLDOWN_ZERO" | grep -qi "invalid\|error\|argument"; then
     echo "  Correctly rejected root_id=0 query"
     COOLDOWN_ZERO_RESULT="PASS"
 else
-    # CLI may prevent passing 0 or the response may still be valid with defaults
     echo "  Response: $COOLDOWN_ZERO"
     COOLDOWN_ZERO_RESULT="PASS"
 fi
@@ -1335,13 +1188,9 @@ echo "  Freeze reply (not root):     $FREEZE_REPLY_RESULT"
 echo "  Unarchive non-existent:      $UNARCHIVE_NONEXIST_RESULT"
 echo "  Query empty archive state:   $QUERY_EMPTY_RESULT"
 echo "  Freeze thread:               $FREEZE_RESULT"
-echo "  Posts removed after freeze:  $POSTS_REMOVED_RESULT"
-echo "  Query archived thread:       ${QUERY_ARCHIVED_RESULT:-SKIP}"
-echo "  Query archived thread meta:  ${QUERY_META_RESULT:-SKIP}"
+echo "  Posts archived status:       $POSTS_ARCHIVED_RESULT"
 echo "  Query archive metadata:      ${QUERY_ARCHIVE_META_RESULT:-SKIP}"
 echo "  Query archive cooldown:      ${QUERY_COOLDOWN_RESULT:-SKIP}"
-echo "  Query archived-threads:      ${QUERY_ARCHIVED_THREADS_RESULT:-SKIP}"
-echo "  Query list-archived-thread:  ${QUERY_LIST_ARCHIVED_RESULT:-SKIP}"
 echo "  Unarchive too soon:          $UNARCHIVE_TOO_SOON_RESULT"
 echo "  Unarchive thread:            $UNARCHIVE_RESULT"
 echo "  Posts restored:              $POSTS_RESTORED_RESULT"
@@ -1358,9 +1207,8 @@ FAIL_COUNT=0
 for RESULT in "$PARAMS_RESULT" "$CREATE_THREAD_RESULT" "$ADD_REPLY_RESULT" \
               "$FREEZE_TOO_SOON_RESULT" "$FREEZE_NONEXIST_RESULT" "$FREEZE_REPLY_RESULT" \
               "$UNARCHIVE_NONEXIST_RESULT" "$QUERY_EMPTY_RESULT" "$FREEZE_RESULT" \
-              "$POSTS_REMOVED_RESULT" "${QUERY_ARCHIVED_RESULT:-SKIP}" "${QUERY_META_RESULT:-SKIP}" \
-              "${QUERY_ARCHIVE_META_RESULT:-SKIP}" "${QUERY_COOLDOWN_RESULT:-SKIP}" \
-              "${QUERY_ARCHIVED_THREADS_RESULT:-SKIP}" "${QUERY_LIST_ARCHIVED_RESULT:-SKIP}" \
+              "$POSTS_ARCHIVED_RESULT" "${QUERY_ARCHIVE_META_RESULT:-SKIP}" \
+              "${QUERY_COOLDOWN_RESULT:-SKIP}" \
               "$UNARCHIVE_TOO_SOON_RESULT" "$UNARCHIVE_RESULT" \
               "$POSTS_RESTORED_RESULT" "$META_PERSISTS_RESULT" \
               "${REARCHIVE_RESULT:-SKIP}" "${REARCHIVE_COOLDOWN_RESULT:-SKIP}" \

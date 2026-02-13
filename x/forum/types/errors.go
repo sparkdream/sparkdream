@@ -110,9 +110,7 @@ var (
 	ErrUnarchiveCooldown                    = errors.Register(ModuleName, 1702, "unarchive cooldown not yet passed")
 	ErrArchiveCycleLimit                    = errors.Register(ModuleName, 1703, "archive cycle limit reached, requires governance approval")
 	ErrArchivedThreadNotFound               = errors.Register(ModuleName, 1704, "archived thread not found")
-	ErrThreadTooLarge                       = errors.Register(ModuleName, 1705, "thread too large to archive")
 	ErrCannotArchiveThreadWithPendingAppeal = errors.Register(ModuleName, 1706, "cannot archive thread with pending appeal")
-	ErrThreadAlreadyArchived                = errors.Register(ModuleName, 1707, "thread is already archived")
 
 	// Bounty errors (1750-1799)
 	ErrBountyNotFound        = errors.Register(ModuleName, 1750, "bounty not found")

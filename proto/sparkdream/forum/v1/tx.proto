@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "cosmos/msg/v1/msg.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/common/v1/content_type.proto";
 import "sparkdream/forum/v1/params.proto";
 
 option go_package = "sparkdream/x/forum/types";
@@ -205,6 +206,7 @@ message MsgCreatePost {
   uint64 parent_id = 3;
   string content = 4;
   repeated string tags = 5;
+  sparkdream.common.v1.ContentType content_type = 6;
 }
 
 // MsgCreatePostResponse defines the MsgCreatePostResponse message.
@@ -217,6 +219,7 @@ message MsgEditPost {
   uint64 post_id = 2;
   string new_content = 3;
   repeated string tags = 4;
+  sparkdream.common.v1.ContentType content_type = 5;
 }
 
 // MsgEditPostResponse defines the MsgEditPostResponse message.

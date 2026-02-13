@@ -7,7 +7,6 @@ import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
-import "sparkdream/forum/v1/archived_thread.proto";
 import "sparkdream/forum/v1/bounty.proto";
 import "sparkdream/forum/v1/category.proto";
 import "sparkdream/forum/v1/gov_action_appeal.proto";
@@ -212,16 +211,6 @@ service Query {
     option (google.api.http).get = "/sparkdream/forum/v1/thread_follow_count";
   }
 
-  // ListArchivedThread Queries a list of ArchivedThread items.
-  rpc GetArchivedThread(QueryGetArchivedThreadRequest) returns (QueryGetArchivedThreadResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/archived_thread/{root_id}";
-  }
-
-  // ListArchivedThread defines the ListArchivedThread RPC.
-  rpc ListArchivedThread(QueryAllArchivedThreadRequest) returns (QueryAllArchivedThreadResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/archived_thread";
-  }
-
   // ListArchiveMetadata Queries a list of ArchiveMetadata items.
   rpc GetArchiveMetadata(QueryGetArchiveMetadataRequest) returns (QueryGetArchiveMetadataResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/archive_metadata/{root_id}";
@@ -320,16 +309,6 @@ service Query {
   // SentinelBondCommitment Queries a list of SentinelBondCommitment items.
   rpc SentinelBondCommitment(QuerySentinelBondCommitmentRequest) returns (QuerySentinelBondCommitmentResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/sentinel_bond_commitment/{address}";
-  }
-
-  // ArchivedThreadMeta Queries a list of ArchivedThreadMeta items.
-  rpc ArchivedThreadMeta(QueryArchivedThreadMetaRequest) returns (QueryArchivedThreadMetaResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/archived_thread_meta/{root_id}";
-  }
-
-  // ArchivedThreads Queries a list of ArchivedThreads items.
-  rpc ArchivedThreads(QueryArchivedThreadsRequest) returns (QueryArchivedThreadsResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/archived_threads";
   }
 
   // ArchiveCooldown Queries a list of ArchiveCooldown items.
@@ -827,27 +806,6 @@ message QueryAllThreadFollowCountResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-// QueryGetArchivedThreadRequest defines the QueryGetArchivedThreadRequest message.
-message QueryGetArchivedThreadRequest {
-  uint64 root_id = 1;
-}
-
-// QueryGetArchivedThreadResponse defines the QueryGetArchivedThreadResponse message.
-message QueryGetArchivedThreadResponse {
-  ArchivedThread archived_thread = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAllArchivedThreadRequest defines the QueryAllArchivedThreadRequest message.
-message QueryAllArchivedThreadRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryAllArchivedThreadResponse defines the QueryAllArchivedThreadResponse message.
-message QueryAllArchivedThreadResponse {
-  repeated ArchivedThread archived_thread = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
 // QueryGetArchiveMetadataRequest defines the QueryGetArchiveMetadataRequest message.
 message QueryGetArchiveMetadataRequest {
   uint64 root_id = 1;
@@ -1074,31 +1032,6 @@ message QuerySentinelBondCommitmentResponse {
   string current_bond = 1;
   string total_committed_bond = 2;
   string available_bond = 3;
-}
-
-// QueryArchivedThreadMetaRequest defines the QueryArchivedThreadMetaRequest message.
-message QueryArchivedThreadMetaRequest {
-  uint64 root_id = 1;
-}
-
-// QueryArchivedThreadMetaResponse defines the QueryArchivedThreadMetaResponse message.
-message QueryArchivedThreadMetaResponse {
-  uint64 root_id = 1;
-  uint64 post_count = 2;
-  int64 archived_at = 3;
-}
-
-// QueryArchivedThreadsRequest defines the QueryArchivedThreadsRequest message.
-message QueryArchivedThreadsRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryArchivedThreadsResponse defines the QueryArchivedThreadsResponse message.
-message QueryArchivedThreadsResponse {
-  uint64 root_id = 1;
-  uint64 post_count = 2;
-  int64 archived_at = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
 }
 
 // QueryArchiveCooldownRequest defines the QueryArchiveCooldownRequest message.

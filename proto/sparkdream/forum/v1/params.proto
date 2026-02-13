@@ -92,4 +92,10 @@ message Params {
 
   // move_appeal_cooldown in seconds (must wait this long after move before appeal)
   int64 move_appeal_cooldown = 27;
+
+  // cost_per_byte charged for on-chain content storage (applies to all posts, burned)
+  cosmos.base.v1beta1.Coin cost_per_byte = 28 [(gogoproto.nullable) = false];
+
+  // cost_per_byte_exempt when true, disables cost_per_byte fee collection
+  bool cost_per_byte_exempt = 29;
 }

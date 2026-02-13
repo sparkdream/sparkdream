@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -16,9 +17,10 @@ import (
 	"sparkdream/x/blog/keeper"
 	module "sparkdream/x/blog/module"
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 )
 
-func setupMsgServerForUpdate(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context) {
+func setupMsgServerForUpdate(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context, *mockBankKeeper) {
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
 	addressCodec := addresscodec.NewBech32Codec("sprkdrm")
 
@@ -30,11 +32,14 @@ func setupMsgServerForUpdate(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 	// Use gov module account as authority
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
+	bankKeeper := &mockBankKeeper{}
+
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
 		addressCodec,
 		authority,
+		bankKeeper,
 	)
 
 	// Initialize params
@@ -42,11 +47,11 @@ func setupMsgServerForUpdate(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 		t.Fatalf("failed to set params: %v", err)
 	}
 
-	return k, keeper.NewMsgServerImpl(k), ctx
+	return k, keeper.NewMsgServerImpl(k), ctx, bankKeeper
 }
 
 func TestUpdatePost(t *testing.T) {
-	k, msgServer, ctx := setupMsgServerForUpdate(t)
+	k, msgServer, ctx, _ := setupMsgServerForUpdate(t)
 
 	creator1 := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
 	creator2 := "sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y"
@@ -226,7 +231,7 @@ func TestUpdatePost(t *testing.T) {
 }
 
 func TestUpdatePostOwnership(t *testing.T) {
-	k, msgServer, ctx := setupMsgServerForUpdate(t)
+	k, msgServer, ctx, _ := setupMsgServerForUpdate(t)
 
 	creator1 := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
 	creator2 := "sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y"
@@ -292,7 +297,7 @@ func TestUpdatePostOwnership(t *testing.T) {
 }
 
 func TestUpdatePostMultipleTimes(t *testing.T) {
-	k, msgServer, ctx := setupMsgServerForUpdate(t)
+	k, msgServer, ctx, _ := setupMsgServerForUpdate(t)
 
 	creator := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
 
@@ -343,8 +348,45 @@ func TestUpdatePostMultipleTimes(t *testing.T) {
 	require.Equal(t, postID, finalPost.Id)
 }
 
+func TestUpdatePostContentType(t *testing.T) {
+	k, msgServer, ctx, _ := setupMsgServerForUpdate(t)
+
+	creator := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+
+	// Create a post with TEXT content type
+	createResp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
+		Creator:     creator,
+		Title:       "Original",
+		Body:        "Original body",
+		ContentType: commontypes.ContentType_CONTENT_TYPE_TEXT,
+	})
+	require.NoError(t, err)
+
+	// Verify initial content type
+	post, found := k.GetPost(ctx, createResp.Id)
+	require.True(t, found)
+	require.Equal(t, commontypes.ContentType_CONTENT_TYPE_TEXT, post.ContentType)
+
+	// Update to MARKDOWN
+	_, err = msgServer.UpdatePost(ctx, &types.MsgUpdatePost{
+		Creator:     creator,
+		Id:          createResp.Id,
+		Title:       "Updated",
+		Body:        "# Updated body",
+		ContentType: commontypes.ContentType_CONTENT_TYPE_MARKDOWN,
+	})
+	require.NoError(t, err)
+
+	// Verify updated content type
+	post, found = k.GetPost(ctx, createResp.Id)
+	require.True(t, found)
+	require.Equal(t, commontypes.ContentType_CONTENT_TYPE_MARKDOWN, post.ContentType)
+	require.Equal(t, "Updated", post.Title)
+	require.Equal(t, "# Updated body", post.Body)
+}
+
 func TestUpdateDeletedPost(t *testing.T) {
-	_, msgServer, ctx := setupMsgServerForUpdate(t)
+	_, msgServer, ctx, _ := setupMsgServerForUpdate(t)
 
 	creator := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
 
@@ -376,4 +418,71 @@ func TestUpdateDeletedPost(t *testing.T) {
 	_, err = msgServer.UpdatePost(ctx, updateMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "doesn't exist")
+}
+
+func TestUpdatePostStorageDeltaFee(t *testing.T) {
+	t.Run("delta fee charged on size increase", func(t *testing.T) {
+		_, msgServer, ctx, bk := setupMsgServerForUpdate(t)
+
+		creator := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+
+		// Create a post (this will trigger storage fees too)
+		createResp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
+			Creator: creator,
+			Title:   "Hi",     // 2 bytes
+			Body:    "World",  // 5 bytes = 7 total
+		})
+		require.NoError(t, err)
+
+		// Reset bank keeper call tracking
+		bk.SendCoinsFromAccountToModuleCalls = nil
+		bk.BurnCoinsCalls = nil
+
+		// Update with larger content
+		_, err = msgServer.UpdatePost(ctx, &types.MsgUpdatePost{
+			Creator: creator,
+			Id:      createResp.Id,
+			Title:   "Hello",            // 5 bytes
+			Body:    "World Updated!",   // 14 bytes = 19 total, delta = 19 - 7 = 12
+		})
+		require.NoError(t, err)
+
+		// Delta = 12 bytes * 100 uspark = 1200 uspark
+		require.Len(t, bk.SendCoinsFromAccountToModuleCalls, 1)
+		expectedFee := sdk.NewCoin("uspark", math.NewInt(1200))
+		require.Equal(t, sdk.NewCoins(expectedFee), bk.SendCoinsFromAccountToModuleCalls[0].Amt)
+		require.Len(t, bk.BurnCoinsCalls, 1)
+		require.Equal(t, sdk.NewCoins(expectedFee), bk.BurnCoinsCalls[0].Amt)
+	})
+
+	t.Run("no fee on size decrease or same size", func(t *testing.T) {
+		_, msgServer, ctx, bk := setupMsgServerForUpdate(t)
+
+		creator := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+
+		// Create a post with larger content
+		createResp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
+			Creator: creator,
+			Title:   "Hello World",       // 11 bytes
+			Body:    "This is a long body", // 19 bytes = 30 total
+		})
+		require.NoError(t, err)
+
+		// Reset bank keeper call tracking
+		bk.SendCoinsFromAccountToModuleCalls = nil
+		bk.BurnCoinsCalls = nil
+
+		// Update with smaller content
+		_, err = msgServer.UpdatePost(ctx, &types.MsgUpdatePost{
+			Creator: creator,
+			Id:      createResp.Id,
+			Title:   "Hi",   // 2 bytes
+			Body:    "Short", // 5 bytes = 7 total (smaller)
+		})
+		require.NoError(t, err)
+
+		// No delta fee should be charged
+		require.Len(t, bk.SendCoinsFromAccountToModuleCalls, 0)
+		require.Len(t, bk.BurnCoinsCalls, 0)
+	})
 }

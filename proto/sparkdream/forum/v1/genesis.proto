@@ -5,7 +5,6 @@ package sparkdream.forum.v1;
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
-import "sparkdream/forum/v1/archived_thread.proto";
 import "sparkdream/forum/v1/bounty.proto";
 import "sparkdream/forum/v1/category.proto";
 import "sparkdream/forum/v1/gov_action_appeal.proto";
@@ -60,7 +59,6 @@ message GenesisState {
   repeated ThreadMetadata thread_metadata_map = 19 [(gogoproto.nullable) = false];
   repeated ThreadFollow thread_follow_map = 20 [(gogoproto.nullable) = false];
   repeated ThreadFollowCount thread_follow_count_map = 21 [(gogoproto.nullable) = false];
-  repeated ArchivedThread archived_thread_map = 22 [(gogoproto.nullable) = false];
   repeated ArchiveMetadata archive_metadata_map = 23 [(gogoproto.nullable) = false];
   repeated TagReport tag_report_map = 24 [(gogoproto.nullable) = false];
   repeated MemberSalvationStatus member_salvation_status_map = 25 [(gogoproto.nullable) = false];

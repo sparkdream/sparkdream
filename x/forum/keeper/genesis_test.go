@@ -31,7 +31,6 @@ func TestGenesis(t *testing.T) {
 		ThreadMetadataMap:        []types.ThreadMetadata{{ThreadId: 0}, {ThreadId: 1}},
 		ThreadFollowMap:          []types.ThreadFollow{{Follower: "follower0"}, {Follower: "follower1"}},
 		ThreadFollowCountMap:     []types.ThreadFollowCount{{ThreadId: 0}, {ThreadId: 1}},
-		ArchivedThreadMap:        []types.ArchivedThread{{RootId: 0}, {RootId: 1}},
 		ArchiveMetadataMap:       []types.ArchiveMetadata{{RootId: 0}, {RootId: 1}},
 		TagReportMap:             []types.TagReport{{TagName: "report0"}, {TagName: "report1"}},
 		MemberSalvationStatusMap: []types.MemberSalvationStatus{{Address: "member0"}, {Address: "member1"}},
@@ -70,7 +69,6 @@ func TestGenesis(t *testing.T) {
 	require.EqualExportedValues(t, genesisState.ThreadMetadataMap, got.ThreadMetadataMap)
 	require.EqualExportedValues(t, genesisState.ThreadFollowMap, got.ThreadFollowMap)
 	require.EqualExportedValues(t, genesisState.ThreadFollowCountMap, got.ThreadFollowCountMap)
-	require.EqualExportedValues(t, genesisState.ArchivedThreadMap, got.ArchivedThreadMap)
 	require.EqualExportedValues(t, genesisState.ArchiveMetadataMap, got.ArchiveMetadataMap)
 	require.EqualExportedValues(t, genesisState.TagReportMap, got.TagReportMap)
 	require.EqualExportedValues(t, genesisState.MemberSalvationStatusMap, got.MemberSalvationStatusMap)

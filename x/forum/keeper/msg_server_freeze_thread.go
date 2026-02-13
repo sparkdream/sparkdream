@@ -1,10 +1,7 @@
 package keeper
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"sparkdream/x/forum/types"
@@ -41,8 +38,12 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 		return nil, types.ErrNotRootPost
 	}
 
+	// Check thread is not already archived
+	if rootPost.Status == types.PostStatus_POST_STATUS_ARCHIVED {
+		return nil, types.ErrPostArchived
+	}
+
 	// Check thread is inactive (use CreatedAt as proxy for last activity)
-	// In production, would track last reply time
 	archiveThreshold := params.ArchiveThreshold
 	if archiveThreshold == 0 {
 		archiveThreshold = types.DefaultArchiveThreshold
@@ -75,12 +76,14 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 		return nil, types.ErrCannotArchiveThreadWithPendingAppeal
 	}
 
-	// Collect all posts in thread
-	var threadPosts []types.Post
-	threadPosts = append(threadPosts, rootPost)
+	// Set archived status on root post
+	rootPost.Status = types.PostStatus_POST_STATUS_ARCHIVED
+	if err := k.Post.Set(ctx, msg.RootId, rootPost); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update root post status")
+	}
 
-	// Iterate through all posts to find descendants
-	// This is a simplified approach - in production would use proper indexing
+	// Set archived status on all thread posts
+	postCount := uint64(1) // count root post
 	iter, err := k.Post.Iterate(ctx, nil)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to iterate posts")
@@ -93,41 +96,16 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 			continue
 		}
 		if post.RootId == msg.RootId && post.PostId != msg.RootId {
-			threadPosts = append(threadPosts, post)
+			post.Status = types.PostStatus_POST_STATUS_ARCHIVED
+			if err := k.Post.Set(ctx, post.PostId, post); err != nil {
+				sdkCtx.Logger().Error("failed to archive post", "post_id", post.PostId, "error", err)
+			}
+			postCount++
 		}
 	}
 
-	// Check post count limit
-	if uint64(len(threadPosts)) > types.DefaultMaxArchivePostCount {
-		return nil, errorsmod.Wrapf(types.ErrThreadTooLarge,
-			"thread has %d posts, max is %d", len(threadPosts), types.DefaultMaxArchivePostCount)
-	}
-
-	// Serialize posts to JSON
-	postsData, err := json.Marshal(threadPosts)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to serialize posts")
-	}
-
-	// Compress with gzip
-	var buf bytes.Buffer
-	gzWriter := gzip.NewWriter(&buf)
-	_, err = gzWriter.Write(postsData)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to compress posts")
-	}
-	gzWriter.Close()
-
-	compressedData := buf.Bytes()
-
-	// Check compressed size limit
-	if uint64(len(compressedData)) > types.DefaultMaxArchiveSizeBytes {
-		return nil, errorsmod.Wrapf(types.ErrThreadTooLarge,
-			"compressed size %d bytes exceeds max %d bytes", len(compressedData), types.DefaultMaxArchiveSizeBytes)
-	}
-
 	// Update or create archive metadata
-	if err != nil {
+	if archiveMetadata.RootId == 0 {
 		// New metadata
 		archiveMetadata = types.ArchiveMetadata{
 			RootId:             msg.RootId,
@@ -147,34 +125,13 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 		return nil, errorsmod.Wrap(err, "failed to store archive metadata")
 	}
 
-	// Create archived thread record
-	archivedThread := types.ArchivedThread{
-		RootId:         msg.RootId,
-		CompressedData: compressedData,
-		ArchivedAt:     now,
-		PostCount:      uint64(len(threadPosts)),
-	}
-
-	if err := k.ArchivedThread.Set(ctx, msg.RootId, archivedThread); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to store archived thread")
-	}
-
-	// Delete individual posts
-	for _, post := range threadPosts {
-		if err := k.Post.Remove(ctx, post.PostId); err != nil {
-			// Log error but continue - partial deletion is handled by having the archive
-			sdkCtx.Logger().Error("failed to remove post during archive", "post_id", post.PostId, "error", err)
-		}
-	}
-
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"thread_archived",
 			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", msg.RootId)),
 			sdk.NewAttribute("archived_by", msg.Creator),
-			sdk.NewAttribute("post_count", fmt.Sprintf("%d", len(threadPosts))),
-			sdk.NewAttribute("compressed_size", fmt.Sprintf("%d", len(compressedData))),
+			sdk.NewAttribute("post_count", fmt.Sprintf("%d", postCount)),
 			sdk.NewAttribute("archive_count", fmt.Sprintf("%d", archiveMetadata.ArchiveCount)),
 		),
 	)

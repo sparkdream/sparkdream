@@ -1,6 +1,8 @@
 syntax = "proto3";
 package sparkdream.blog.v1;
 
+import "sparkdream/common/v1/content_type.proto";
+
 option go_package = "sparkdream/x/blog/types";
 
 // Post defines the Post message.
@@ -9,4 +11,5 @@ message Post {
   string body = 2;
   string creator = 3;
   uint64 id = 4;
+  sparkdream.common.v1.ContentType content_type = 5;
 }

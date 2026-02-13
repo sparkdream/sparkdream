@@ -105,11 +105,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
-	for _, elem := range genState.ArchivedThreadMap {
-		if err := k.ArchivedThread.Set(ctx, elem.RootId, elem); err != nil {
-			return err
-		}
-	}
 	for _, elem := range genState.ArchiveMetadataMap {
 		if err := k.ArchiveMetadata.Set(ctx, elem.RootId, elem); err != nil {
 			return err
@@ -309,12 +304,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	if err := k.ThreadFollowCount.Walk(ctx, nil, func(_ uint64, val types.ThreadFollowCount) (stop bool, err error) {
 		genesis.ThreadFollowCountMap = append(genesis.ThreadFollowCountMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := k.ArchivedThread.Walk(ctx, nil, func(_ uint64, val types.ArchivedThread) (stop bool, err error) {
-		genesis.ArchivedThreadMap = append(genesis.ArchivedThreadMap, val)
 		return false, nil
 	}); err != nil {
 		return nil, err

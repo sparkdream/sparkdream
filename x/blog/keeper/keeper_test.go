@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cosmossdk.io/core/address"
+	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -18,10 +19,62 @@ import (
 	"sparkdream/x/blog/types"
 )
 
+// mockBankKeeper implements types.BankKeeper for testing
+type mockBankKeeper struct {
+	SpendableCoinsFn               func(ctx context.Context, addr sdk.AccAddress) sdk.Coins
+	SendCoinsFromAccountToModuleFn func(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
+	BurnCoinsFn                    func(ctx context.Context, moduleName string, amt sdk.Coins) error
+	// Track calls for assertion
+	SendCoinsFromAccountToModuleCalls []sendCoinsCall
+	BurnCoinsCalls                    []burnCoinsCall
+}
+
+type sendCoinsCall struct {
+	SenderAddr      sdk.AccAddress
+	RecipientModule string
+	Amt             sdk.Coins
+}
+
+type burnCoinsCall struct {
+	ModuleName string
+	Amt        sdk.Coins
+}
+
+func (m *mockBankKeeper) SpendableCoins(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
+	if m.SpendableCoinsFn != nil {
+		return m.SpendableCoinsFn(ctx, addr)
+	}
+	return sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000000000)))
+}
+
+func (m *mockBankKeeper) SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
+	m.SendCoinsFromAccountToModuleCalls = append(m.SendCoinsFromAccountToModuleCalls, sendCoinsCall{
+		SenderAddr:      senderAddr,
+		RecipientModule: recipientModule,
+		Amt:             amt,
+	})
+	if m.SendCoinsFromAccountToModuleFn != nil {
+		return m.SendCoinsFromAccountToModuleFn(ctx, senderAddr, recipientModule, amt)
+	}
+	return nil
+}
+
+func (m *mockBankKeeper) BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error {
+	m.BurnCoinsCalls = append(m.BurnCoinsCalls, burnCoinsCall{
+		ModuleName: moduleName,
+		Amt:        amt,
+	})
+	if m.BurnCoinsFn != nil {
+		return m.BurnCoinsFn(ctx, moduleName, amt)
+	}
+	return nil
+}
+
 type fixture struct {
 	ctx          context.Context
 	keeper       keeper.Keeper
 	addressCodec address.Codec
+	bankKeeper   *mockBankKeeper
 }
 
 func initFixture(t *testing.T) *fixture {
@@ -36,11 +89,14 @@ func initFixture(t *testing.T) *fixture {
 
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
+	bankKeeper := &mockBankKeeper{}
+
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
 		addressCodec,
 		authority,
+		bankKeeper,
 	)
 
 	// Initialize params
@@ -52,5 +108,6 @@ func initFixture(t *testing.T) *fixture {
 		ctx:          ctx,
 		keeper:       k,
 		addressCodec: addressCodec,
+		bankKeeper:   bankKeeper,
 	}
 }

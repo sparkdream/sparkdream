@@ -44,15 +44,21 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "CreatePost",
-					Use:            "create-post [title] [body]",
+					Use:            "create-post [title] [body] --content-type [type]",
 					Short:          "Send a create-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title"}, {ProtoField: "body"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"content_type": {Name: "content-type", Usage: "content type hint (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+					},
 				},
 				{
 					RpcMethod:      "UpdatePost",
-					Use:            "update-post [title] [body] [id]",
+					Use:            "update-post [title] [body] [id] --content-type [type]",
 					Short:          "Send a update-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title"}, {ProtoField: "body"}, {ProtoField: "id"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"content_type": {Name: "content-type", Usage: "content type hint (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+					},
 				},
 				{
 					RpcMethod:      "DeletePost",

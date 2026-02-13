@@ -2,8 +2,11 @@ package keeper_test
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"testing"
 
+	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -16,9 +19,10 @@ import (
 	"sparkdream/x/blog/keeper"
 	module "sparkdream/x/blog/module"
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 )
 
-func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context) {
+func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context, *mockBankKeeper) {
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
 	addressCodec := addresscodec.NewBech32Codec("sprkdrm")
 
@@ -30,11 +34,14 @@ func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context) 
 	// Use gov module account as authority
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
+	bankKeeper := &mockBankKeeper{}
+
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
 		addressCodec,
 		authority,
+		bankKeeper,
 	)
 
 	// Initialize params
@@ -42,11 +49,11 @@ func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context) 
 		t.Fatalf("failed to set params: %v", err)
 	}
 
-	return k, keeper.NewMsgServerImpl(k), ctx
+	return k, keeper.NewMsgServerImpl(k), ctx, bankKeeper
 }
 
 func TestCreatePost(t *testing.T) {
-	k, msgServer, ctx := setupMsgServer(t)
+	k, msgServer, ctx, _ := setupMsgServer(t)
 
 	tests := []struct {
 		name        string
@@ -155,8 +162,113 @@ func TestCreatePost(t *testing.T) {
 	}
 }
 
+func TestCreatePostContentType(t *testing.T) {
+	k, msgServer, ctx, _ := setupMsgServer(t)
+
+	tests := []struct {
+		name        string
+		contentType commontypes.ContentType
+	}{
+		{"default (unspecified)", commontypes.ContentType_CONTENT_TYPE_UNSPECIFIED},
+		{"plain text", commontypes.ContentType_CONTENT_TYPE_TEXT},
+		{"markdown", commontypes.ContentType_CONTENT_TYPE_MARKDOWN},
+		{"gzip", commontypes.ContentType_CONTENT_TYPE_GZIP},
+		{"ipfs", commontypes.ContentType_CONTENT_TYPE_IPFS},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
+				Creator:     "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+				Title:       "Content Type Test",
+				Body:        "Test body",
+				ContentType: tt.contentType,
+			})
+			require.NoError(t, err)
+
+			post, found := k.GetPost(ctx, resp.Id)
+			require.True(t, found)
+			require.Equal(t, tt.contentType, post.ContentType)
+		})
+	}
+}
+
+func TestCreatePostStorageFee(t *testing.T) {
+	t.Run("storage fee charged on create", func(t *testing.T) {
+		_, msgServer, ctx, bk := setupMsgServer(t)
+
+		msg := &types.MsgCreatePost{
+			Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+			Title:   "Hello",     // 5 bytes
+			Body:    "World!!!!", // 9 bytes = 14 total
+		}
+		_, err := msgServer.CreatePost(ctx, msg)
+		require.NoError(t, err)
+
+		// Default cost_per_byte = 100 uspark/byte, total = 14 * 100 = 1400 uspark
+		require.Len(t, bk.SendCoinsFromAccountToModuleCalls, 1)
+		expectedFee := sdk.NewCoin("uspark", math.NewInt(1400))
+		require.Equal(t, sdk.NewCoins(expectedFee), bk.SendCoinsFromAccountToModuleCalls[0].Amt)
+		require.Len(t, bk.BurnCoinsCalls, 1)
+		require.Equal(t, sdk.NewCoins(expectedFee), bk.BurnCoinsCalls[0].Amt)
+	})
+
+	t.Run("storage fee exempt skips charging", func(t *testing.T) {
+		k, msgServer, ctx, bk := setupMsgServer(t)
+
+		params, _ := k.Params.Get(ctx)
+		params.CostPerByteExempt = true
+		k.Params.Set(ctx, params)
+
+		msg := &types.MsgCreatePost{
+			Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+			Title:   "Hello",
+			Body:    "World",
+		}
+		_, err := msgServer.CreatePost(ctx, msg)
+		require.NoError(t, err)
+		require.Len(t, bk.SendCoinsFromAccountToModuleCalls, 0)
+		require.Len(t, bk.BurnCoinsCalls, 0)
+	})
+
+	t.Run("zero cost_per_byte skips charging", func(t *testing.T) {
+		k, msgServer, ctx, bk := setupMsgServer(t)
+
+		params, _ := k.Params.Get(ctx)
+		params.CostPerByte = sdk.NewCoin("uspark", math.NewInt(0))
+		k.Params.Set(ctx, params)
+
+		msg := &types.MsgCreatePost{
+			Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+			Title:   "Hello",
+			Body:    "World",
+		}
+		_, err := msgServer.CreatePost(ctx, msg)
+		require.NoError(t, err)
+		require.Len(t, bk.SendCoinsFromAccountToModuleCalls, 0)
+		require.Len(t, bk.BurnCoinsCalls, 0)
+	})
+
+	t.Run("insufficient funds returns error", func(t *testing.T) {
+		_, msgServer, ctx, bk := setupMsgServer(t)
+
+		bk.SendCoinsFromAccountToModuleFn = func(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
+			return fmt.Errorf("insufficient funds")
+		}
+
+		msg := &types.MsgCreatePost{
+			Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+			Title:   "Hello",
+			Body:    "World",
+		}
+		_, err := msgServer.CreatePost(ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to charge storage fee")
+	})
+}
+
 func TestCreatePostIDIncrement(t *testing.T) {
-	_, msgServer, ctx := setupMsgServer(t)
+	_, msgServer, ctx, _ := setupMsgServer(t)
 
 	validMsg := &types.MsgCreatePost{
 		Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",

@@ -222,18 +222,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "thread_id"}},
 				},
 				{
-					RpcMethod: "ListArchivedThread",
-					Use:       "list-archived-thread",
-					Short:     "List all archived-thread",
-				},
-				{
-					RpcMethod:      "GetArchivedThread",
-					Use:            "get-archived-thread [id]",
-					Short:          "Gets a archived-thread",
-					Alias:          []string{"show-archived-thread"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "root_id"}},
-				},
-				{
 					RpcMethod: "ListArchiveMetadata",
 					Use:       "list-archive-metadata",
 					Short:     "List all archive-metadata",
@@ -357,20 +345,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "sentinel-bond-commitment [address]",
 					Short:          "Query sentinel-bond-commitment",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
-				},
-
-				{
-					RpcMethod:      "ArchivedThreadMeta",
-					Use:            "archived-thread-meta [root-id]",
-					Short:          "Query archived-thread-meta",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "root_id"}},
-				},
-
-				{
-					RpcMethod:      "ArchivedThreads",
-					Use:            "archived-threads ",
-					Short:          "Query archived-threads",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 
 				{
@@ -567,15 +541,21 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "CreatePost",
-					Use:            "create-post [category-id] [parent-id] [content] [--tags tags]",
+					Use:            "create-post [category-id] [parent-id] [content] [--tags tags] [--content-type type]",
 					Short:          "Send a create-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}, {ProtoField: "parent_id"}, {ProtoField: "content"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"content_type": {Name: "content-type", Usage: "content type hint (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+					},
 				},
 				{
 					RpcMethod:      "EditPost",
-					Use:            "edit-post [post-id] [new-content] [--tags tags]",
+					Use:            "edit-post [post-id] [new-content] [--tags tags] [--content-type type]",
 					Short:          "Send an edit-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "new_content"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"content_type": {Name: "content-type", Usage: "content type hint (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+					},
 				},
 				{
 					RpcMethod:      "DeletePost",

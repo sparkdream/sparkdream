@@ -141,6 +141,22 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
 	}
 
+	// Charge cost_per_byte storage fee (applies to all posters, burned)
+	if !params.CostPerByteExempt && params.CostPerByte.IsPositive() {
+		contentBytes := int64(len(msg.Content))
+		storageFee := sdk.NewCoin(params.CostPerByte.Denom,
+			params.CostPerByte.Amount.MulRaw(contentBytes))
+		if storageFee.IsPositive() {
+			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(storageFee)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to charge storage fee")
+			}
+			if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(storageFee)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to burn storage fee")
+			}
+		}
+	}
+
 	// Validate tags
 	if len(msg.Tags) > 0 {
 		if err := k.validatePostTags(ctx, msg.Tags, now); err != nil {
@@ -185,6 +201,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		Status:         types.PostStatus_POST_STATUS_ACTIVE,
 		Depth:          depth,
 		Tags:           msg.Tags,
+		ContentType:    msg.ContentType,
 	}
 
 	// Store post

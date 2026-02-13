@@ -355,24 +355,26 @@ func findMemberReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status typ
 	return &selected.report, selected.member, nil
 }
 
-// findArchivedThread returns a random archived thread
-func findArchivedThread(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.ArchivedThread, uint64, error) {
-	var archives []struct {
-		id      uint64
-		archive types.ArchivedThread
+// findArchivedRootPost returns a random root post with ARCHIVED status
+func findArchivedRootPost(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Post, uint64, error) {
+	var posts []struct {
+		id   uint64
+		post types.Post
 	}
-	err := k.ArchivedThread.Walk(ctx, nil, func(id uint64, archive types.ArchivedThread) (bool, error) {
-		archives = append(archives, struct {
-			id      uint64
-			archive types.ArchivedThread
-		}{id, archive})
+	err := k.Post.Walk(ctx, nil, func(id uint64, post types.Post) (bool, error) {
+		if post.ParentId == 0 && post.Status == types.PostStatus_POST_STATUS_ARCHIVED {
+			posts = append(posts, struct {
+				id   uint64
+				post types.Post
+			}{id, post})
+		}
 		return false, nil
 	})
-	if err != nil || len(archives) == 0 {
+	if err != nil || len(posts) == 0 {
 		return nil, 0, err
 	}
-	selected := archives[r.Intn(len(archives))]
-	return &selected.archive, selected.id, nil
+	selected := posts[r.Intn(len(posts))]
+	return &selected.post, selected.id, nil
 }
 
 // findThreadFollow returns a random thread follow
@@ -1233,26 +1235,25 @@ func findPostWithTag(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, tag string)
 	return &selected.post, selected.id, nil
 }
 
-// getOrCreateArchivedThread returns an existing archived thread or creates one
+// getOrCreateArchivedThread returns an existing archived root post or creates one
 func getOrCreateArchivedThread(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, author string) (uint64, error) {
-	// Try to find existing archived thread
-	archive, archiveID, err := findArchivedThread(r, ctx, k)
-	if err == nil && archive != nil {
-		return archiveID, nil
+	// Try to find existing archived root post
+	post, postID, err := findArchivedRootPost(r, ctx, k)
+	if err == nil && post != nil {
+		return postID, nil
 	}
 
-	// Create a root post and archive it
-	postID, err := getOrCreateRootPost(r, ctx, k, author)
+	// Create a root post and set its status to archived
+	postID, err = getOrCreateRootPost(r, ctx, k, author)
 	if err != nil {
 		return 0, err
 	}
 
-	now := ctx.BlockTime().Unix()
-	archivedThread := types.ArchivedThread{
-		RootId:     postID,
-		ArchivedAt: now,
-		PostCount:  1,
+	existingPost, err := k.Post.Get(ctx, postID)
+	if err != nil {
+		return 0, err
 	}
 
-	return postID, k.ArchivedThread.Set(ctx, postID, archivedThread)
+	existingPost.Status = types.PostStatus_POST_STATUS_ARCHIVED
+	return postID, k.Post.Set(ctx, postID, existingPost)
 }

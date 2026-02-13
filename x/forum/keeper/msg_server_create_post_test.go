@@ -1,10 +1,15 @@
 package keeper_test
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -226,6 +231,42 @@ func TestCreatePostWithTags(t *testing.T) {
 	})
 }
 
+func TestCreatePostContentType(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+
+	tests := []struct {
+		name        string
+		contentType commontypes.ContentType
+	}{
+		{"default (unspecified)", commontypes.ContentType_CONTENT_TYPE_UNSPECIFIED},
+		{"plain text", commontypes.ContentType_CONTENT_TYPE_TEXT},
+		{"markdown", commontypes.ContentType_CONTENT_TYPE_MARKDOWN},
+		{"gzip", commontypes.ContentType_CONTENT_TYPE_GZIP},
+		{"ipfs", commontypes.ContentType_CONTENT_TYPE_IPFS},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nextID, _ := f.keeper.PostSeq.Peek(f.ctx)
+
+			msg := &types.MsgCreatePost{
+				Creator:     testCreator,
+				CategoryId:  cat.CategoryId,
+				ParentId:    0,
+				Content:     "Content type test",
+				ContentType: tt.contentType,
+			}
+			_, err := f.msgServer.CreatePost(f.ctx, msg)
+			require.NoError(t, err)
+
+			post, err := f.keeper.Post.Get(f.ctx, nextID)
+			require.NoError(t, err)
+			require.Equal(t, tt.contentType, post.ContentType)
+		})
+	}
+}
+
 func TestCreatePostReply(t *testing.T) {
 	f := initFixture(t)
 
@@ -302,4 +343,76 @@ func TestCreatePostReply(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreatePostStorageFee(t *testing.T) {
+	t.Run("storage fee charged to members", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		// Reset bank keeper tracking
+		f.bankKeeper.SendCoinsFromAccountToModuleCalls = nil
+		f.bankKeeper.BurnCoinsCalls = nil
+
+		content := "Hello World!" // 12 bytes
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    content,
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Default cost_per_byte = 100 uspark/byte, total = 12 * 100 = 1200 uspark
+		expectedFee := sdk.NewCoin("uspark", math.NewInt(int64(len(content))*100))
+		require.GreaterOrEqual(t, len(f.bankKeeper.SendCoinsFromAccountToModuleCalls), 1)
+		require.Equal(t, sdk.NewCoins(expectedFee), f.bankKeeper.SendCoinsFromAccountToModuleCalls[0].Amt)
+		require.GreaterOrEqual(t, len(f.bankKeeper.BurnCoinsCalls), 1)
+		require.Equal(t, sdk.NewCoins(expectedFee), f.bankKeeper.BurnCoinsCalls[0].Amt)
+	})
+
+	t.Run("cost_per_byte_exempt disables storage fee", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		params := types.DefaultParams()
+		params.CostPerByteExempt = true
+		f.keeper.Params.Set(f.ctx, params)
+
+		f.bankKeeper.SendCoinsFromAccountToModuleCalls = nil
+		f.bankKeeper.BurnCoinsCalls = nil
+
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Test content",
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// No storage fee should be charged (exempt)
+		// Members don't pay spam_tax either, so no bank calls at all
+		require.Len(t, f.bankKeeper.SendCoinsFromAccountToModuleCalls, 0)
+	})
+
+	t.Run("insufficient funds returns error", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		f.bankKeeper.SendCoinsFromAccountToModuleFn = func(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
+			return fmt.Errorf("insufficient funds")
+		}
+
+		msg := &types.MsgCreatePost{
+			Creator:    testCreator,
+			CategoryId: cat.CategoryId,
+			ParentId:   0,
+			Content:    "Test content",
+		}
+		_, err := f.msgServer.CreatePost(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to charge storage fee")
+	})
 }

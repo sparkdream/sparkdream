@@ -6,6 +6,7 @@ import (
 	"sparkdream/x/blog/types"
 
 	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -39,10 +40,27 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 			"body exceeds maximum length of %d characters", params.MaxBodyLength)
 	}
 
+	// Charge cost_per_byte storage fee (applies to all posts, burned)
+	if !params.CostPerByteExempt && params.CostPerByte.IsPositive() {
+		contentBytes := int64(len(msg.Title)) + int64(len(msg.Body))
+		storageFee := sdk.NewCoin(params.CostPerByte.Denom,
+			params.CostPerByte.Amount.MulRaw(contentBytes))
+		if storageFee.IsPositive() {
+			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(storageFee)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to charge storage fee")
+			}
+			if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(storageFee)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to burn storage fee")
+			}
+		}
+	}
+
 	var post = types.Post{
-		Creator: msg.Creator,
-		Title:   msg.Title,
-		Body:    msg.Body,
+		Creator:     msg.Creator,
+		Title:       msg.Title,
+		Body:        msg.Body,
+		ContentType: msg.ContentType,
 	}
 	id := k.AppendPost(
 		ctx,

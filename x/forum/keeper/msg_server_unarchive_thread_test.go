@@ -1,9 +1,6 @@
 package keeper_test
 
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -41,10 +38,22 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		f.keeper.Params.Set(f.ctx, types.DefaultParams())
 	})
 
-	t.Run("archived thread not found", func(t *testing.T) {
+	t.Run("thread not found", func(t *testing.T) {
 		msg := &types.MsgUnarchiveThread{
 			Creator: testCreator,
 			RootId:  999,
+		}
+		_, err := f.msgServer.UnarchiveThread(f.ctx, msg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("thread not archived", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		msg := &types.MsgUnarchiveThread{
+			Creator: testCreator,
+			RootId:  post.PostId,
 		}
 		_, err := f.msgServer.UnarchiveThread(f.ctx, msg)
 		require.Error(t, err)
@@ -55,14 +64,18 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		now := f.sdkCtx().BlockTime().Unix()
 
-		// Create archived thread with recent archive time
-		archived := types.ArchivedThread{
+		// Set post status to ARCHIVED
+		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
+		p.Status = types.PostStatus_POST_STATUS_ARCHIVED
+		f.keeper.Post.Set(f.ctx, post.PostId, p)
+
+		// Create archive metadata with recent archive time
+		meta := types.ArchiveMetadata{
 			RootId:         post.PostId,
-			ArchivedAt:     now, // Just archived
-			PostCount:      1,
-			CompressedData: []byte{},
+			ArchiveCount:   1,
+			LastArchivedAt: now, // Just archived
 		}
-		f.keeper.ArchivedThread.Set(f.ctx, post.PostId, archived)
+		f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, meta)
 
 		msg := &types.MsgUnarchiveThread{
 			Creator: testCreator,
@@ -77,25 +90,18 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		now := f.sdkCtx().BlockTime().Unix()
 
-		// Create compressed posts data
-		posts := []types.Post{post}
-		jsonData, _ := json.Marshal(posts)
-		var buf bytes.Buffer
-		gz := gzip.NewWriter(&buf)
-		gz.Write(jsonData)
-		gz.Close()
+		// Set post status to ARCHIVED
+		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
+		p.Status = types.PostStatus_POST_STATUS_ARCHIVED
+		f.keeper.Post.Set(f.ctx, post.PostId, p)
 
-		// Create archived thread (old enough to unarchive)
-		archived := types.ArchivedThread{
+		// Create archive metadata (old enough to unarchive)
+		meta := types.ArchiveMetadata{
 			RootId:         post.PostId,
-			ArchivedAt:     now - types.DefaultUnarchiveCooldown - 1, // Cooldown passed
-			PostCount:      1,
-			CompressedData: buf.Bytes(),
+			ArchiveCount:   1,
+			LastArchivedAt: now - types.DefaultUnarchiveCooldown - 1,
 		}
-		f.keeper.ArchivedThread.Set(f.ctx, post.PostId, archived)
-
-		// Delete the original post to simulate archived state
-		f.keeper.Post.Remove(f.ctx, post.PostId)
+		f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, meta)
 
 		msg := &types.MsgUnarchiveThread{
 			Creator: testCreator,
@@ -104,13 +110,46 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		_, err := f.msgServer.UnarchiveThread(f.ctx, msg)
 		require.NoError(t, err)
 
-		// Verify post was restored
+		// Verify post status was restored
 		restoredPost, err := f.keeper.Post.Get(f.ctx, post.PostId)
 		require.NoError(t, err)
-		require.Equal(t, post.Author, restoredPost.Author)
+		require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, restoredPost.Status)
+	})
 
-		// Verify archived thread record was removed
-		_, err = f.keeper.ArchivedThread.Get(f.ctx, post.PostId)
-		require.Error(t, err)
+	t.Run("successful unarchive with replies", func(t *testing.T) {
+		cat := f.createTestCategory(t, "UnarchiveReplies")
+		root := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		reply1 := f.createTestPost(t, testCreator2, root.PostId, cat.CategoryId)
+		reply2 := f.createTestPost(t, testSentinel, root.PostId, cat.CategoryId)
+		now := f.sdkCtx().BlockTime().Unix()
+
+		// Set all posts to ARCHIVED status
+		for _, id := range []uint64{root.PostId, reply1.PostId, reply2.PostId} {
+			p, _ := f.keeper.Post.Get(f.ctx, id)
+			p.Status = types.PostStatus_POST_STATUS_ARCHIVED
+			f.keeper.Post.Set(f.ctx, id, p)
+		}
+
+		// Create archive metadata (old enough)
+		meta := types.ArchiveMetadata{
+			RootId:         root.PostId,
+			ArchiveCount:   1,
+			LastArchivedAt: now - types.DefaultUnarchiveCooldown - 1,
+		}
+		f.keeper.ArchiveMetadata.Set(f.ctx, root.PostId, meta)
+
+		msg := &types.MsgUnarchiveThread{
+			Creator: testCreator,
+			RootId:  root.PostId,
+		}
+		_, err := f.msgServer.UnarchiveThread(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Verify all posts restored to ACTIVE
+		for _, id := range []uint64{root.PostId, reply1.PostId, reply2.PostId} {
+			p, err := f.keeper.Post.Get(f.ctx, id)
+			require.NoError(t, err)
+			require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, p.Status)
+		}
 	})
 }

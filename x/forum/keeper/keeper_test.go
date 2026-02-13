@@ -70,6 +70,20 @@ type mockBankKeeper struct {
 	SendCoinsFromModuleToModuleFn  func(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error
 	BurnCoinsFn                    func(ctx context.Context, moduleName string, amt sdk.Coins) error
 	MintCoinsFn                    func(ctx context.Context, moduleName string, amt sdk.Coins) error
+	// Track calls for assertion
+	SendCoinsFromAccountToModuleCalls []forumSendCoinsCall
+	BurnCoinsCalls                    []forumBurnCoinsCall
+}
+
+type forumSendCoinsCall struct {
+	SenderAddr      sdk.AccAddress
+	RecipientModule string
+	Amt             sdk.Coins
+}
+
+type forumBurnCoinsCall struct {
+	ModuleName string
+	Amt        sdk.Coins
 }
 
 func (m *mockBankKeeper) SpendableCoins(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
@@ -87,6 +101,11 @@ func (m *mockBankKeeper) SendCoins(ctx context.Context, fromAddr, toAddr sdk.Acc
 }
 
 func (m *mockBankKeeper) SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
+	m.SendCoinsFromAccountToModuleCalls = append(m.SendCoinsFromAccountToModuleCalls, forumSendCoinsCall{
+		SenderAddr:      senderAddr,
+		RecipientModule: recipientModule,
+		Amt:             amt,
+	})
 	if m.SendCoinsFromAccountToModuleFn != nil {
 		return m.SendCoinsFromAccountToModuleFn(ctx, senderAddr, recipientModule, amt)
 	}
@@ -108,6 +127,10 @@ func (m *mockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, sender
 }
 
 func (m *mockBankKeeper) BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error {
+	m.BurnCoinsCalls = append(m.BurnCoinsCalls, forumBurnCoinsCall{
+		ModuleName: moduleName,
+		Amt:        amt,
+	})
 	if m.BurnCoinsFn != nil {
 		return m.BurnCoinsFn(ctx, moduleName, amt)
 	}

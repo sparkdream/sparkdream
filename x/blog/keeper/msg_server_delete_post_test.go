@@ -29,11 +29,14 @@ func setupMsgServerForDelete(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 	// Use gov module account as authority
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
+	bankKeeper := &mockBankKeeper{}
+
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
 		addressCodec,
 		authority,
+		bankKeeper,
 	)
 
 	// Initialize params

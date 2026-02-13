@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -66,10 +68,8 @@ const (
 	DefaultMinSentinelBondAmount    = int64(500)    // 500 DREAM
 
 	// Archive limits
-	DefaultMaxArchivePostCount = uint64(500)
-	DefaultMaxArchiveSizeBytes = uint64(1048576) // 1MB
-	DefaultMaxArchiveCycles    = uint64(5)
-	DefaultMaxSalvationDepth   = uint64(10)
+	DefaultMaxArchiveCycles  = uint64(5)
+	DefaultMaxSalvationDepth = uint64(10)
 
 	// Pin limits
 	DefaultMaxPinnedPerCategory      = uint64(5)
@@ -110,6 +110,7 @@ var (
 	DefaultMoveAppealFeeAmount   = math.NewInt(5000000) // 5 SPARK
 	DefaultEditFeeAmount         = math.NewInt(10000)   // 0.01 SPARK
 	DefaultTagReportBond         = math.NewInt(10)      // 10 DREAM
+	DefaultCostPerByteAmount     = math.NewInt(100)     // 100 uspark/byte (~1 SPARK for 10KB)
 )
 
 // NewParams creates a new Params instance.
@@ -142,6 +143,8 @@ func NewParams() Params {
 		HideAppealCooldown:           DefaultHideAppealCooldown,
 		LockAppealCooldown:           DefaultLockAppealCooldown,
 		MoveAppealCooldown:           DefaultMoveAppealCooldown,
+		CostPerByte:                  sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
+		CostPerByteExempt:           false,
 	}
 }
 
@@ -152,6 +155,12 @@ func DefaultParams() Params {
 
 // Validate validates the set of params.
 func (p Params) Validate() error {
+	if p.CostPerByte.Amount.IsNil() {
+		return nil
+	}
+	if p.CostPerByte.IsNegative() {
+		return fmt.Errorf("cost_per_byte cannot be negative: %s", p.CostPerByte)
+	}
 	return nil
 }
 

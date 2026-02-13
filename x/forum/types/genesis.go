@@ -6,7 +6,7 @@ import "fmt"
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params:  DefaultParams(),
-		PostMap: []Post{}, CategoryMap: []Category{}, TagMap: []Tag{}, ReservedTagMap: []ReservedTag{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, TagBudgetList: []TagBudget{}, TagBudgetAwardList: []TagBudgetAward{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchivedThreadMap: []ArchivedThread{}, ArchiveMetadataMap: []ArchiveMetadata{}, TagReportMap: []TagReport{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
+		PostMap: []Post{}, CategoryMap: []Category{}, TagMap: []Tag{}, ReservedTagMap: []ReservedTag{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, TagBudgetList: []TagBudget{}, TagBudgetAwardList: []TagBudgetAward{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchiveMetadataMap: []ArchiveMetadata{}, TagReportMap: []TagReport{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
 }
 
 // Validate performs basic genesis state validation returning an error upon any
@@ -170,15 +170,6 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated index for threadFollowCount")
 		}
 		threadFollowCountIndexMap[index] = struct{}{}
-	}
-	archivedThreadIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.ArchivedThreadMap {
-		index := fmt.Sprint(elem.RootId)
-		if _, ok := archivedThreadIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for archivedThread")
-		}
-		archivedThreadIndexMap[index] = struct{}{}
 	}
 	archiveMetadataIndexMap := make(map[string]struct{})
 

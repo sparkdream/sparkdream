@@ -171,24 +171,19 @@ echo "--- PART 3: QUERY ARCHIVED THREADS ---"
 
 PART3_RESULT="FAIL"
 
-ARCHIVED=$($BINARY query forum archived-threads --output json 2>&1)
-
-if echo "$ARCHIVED" | grep -q "error"; then
-    # Try list version
-    ARCHIVED=$($BINARY query forum list-archived-thread --output json 2>&1)
-fi
+ARCHIVED=$($BINARY query forum list-archive-metadata --output json 2>&1)
 
 if echo "$ARCHIVED" | grep -q "error"; then
     echo "  Failed to query archived threads"
 else
-    ARCHIVE_COUNT=$(echo "$ARCHIVED" | jq -r '.archived_thread | length // .threads | length // 0' 2>/dev/null)
+    ARCHIVE_COUNT=$(echo "$ARCHIVED" | jq -r '.archive_metadata | length // 0' 2>/dev/null)
     echo "  Total archived threads: $ARCHIVE_COUNT"
     PART3_RESULT="PASS"
 
     if [ "$ARCHIVE_COUNT" -gt 0 ]; then
         echo ""
         echo "  Archived Threads:"
-        echo "$ARCHIVED" | jq -r '.archived_thread[:5] // .threads[:5] | .[] | "    - ID \(.id // .thread_id): archived at \(.archived_at)"' 2>/dev/null
+        echo "$ARCHIVED" | jq -r '.archive_metadata[:5] | .[] | "    - Root ID \(.root_id): archived \(.archive_count) time(s), last at \(.last_archived_at)"' 2>/dev/null
     fi
 fi
 

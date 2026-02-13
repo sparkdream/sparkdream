@@ -3,6 +3,8 @@ package keeper_test
 import (
 	"testing"
 
+	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/forum/types"
@@ -255,5 +257,60 @@ func TestMsgServerEditPostTags(t *testing.T) {
 		_, err := f.msgServer.EditPost(f.ctx, msg)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "tag limit exceeded")
+	})
+}
+
+func TestEditPostStorageDeltaFee(t *testing.T) {
+	t.Run("edit size increase charges delta", func(t *testing.T) {
+		f := initFixture(t)
+
+		// Create a post with known content
+		post := f.createTestPost(t, testCreator, 0, 0)
+		oldContent := post.Content // "Test content" = 12 bytes
+
+		// Reset bank keeper tracking
+		f.bankKeeper.SendCoinsFromAccountToModuleCalls = nil
+		f.bankKeeper.BurnCoinsCalls = nil
+
+		newContent := "This is much longer content now!" // 32 bytes, delta = 32 - 12 = 20
+		msg := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: newContent,
+		}
+		_, err := f.msgServer.EditPost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// Delta = (32 - 12) * 100 = 2000 uspark
+		delta := int64(len(newContent)) - int64(len(oldContent))
+		expectedFee := sdk.NewCoin("uspark", math.NewInt(delta*100))
+		require.GreaterOrEqual(t, len(f.bankKeeper.SendCoinsFromAccountToModuleCalls), 1)
+		require.Equal(t, sdk.NewCoins(expectedFee), f.bankKeeper.SendCoinsFromAccountToModuleCalls[0].Amt)
+		require.GreaterOrEqual(t, len(f.bankKeeper.BurnCoinsCalls), 1)
+		require.Equal(t, sdk.NewCoins(expectedFee), f.bankKeeper.BurnCoinsCalls[0].Amt)
+	})
+
+	t.Run("edit size decrease charges nothing", func(t *testing.T) {
+		f := initFixture(t)
+
+		// Create a post with known content
+		post := f.createTestPost(t, testCreator, 0, 0)
+		// Default "Test content" = 12 bytes
+
+		// Reset bank keeper tracking
+		f.bankKeeper.SendCoinsFromAccountToModuleCalls = nil
+		f.bankKeeper.BurnCoinsCalls = nil
+
+		msg := &types.MsgEditPost{
+			Creator:    testCreator,
+			PostId:     post.PostId,
+			NewContent: "Short", // 5 bytes < 12 bytes
+		}
+		_, err := f.msgServer.EditPost(f.ctx, msg)
+		require.NoError(t, err)
+
+		// No delta fee should be charged (size decreased)
+		require.Len(t, f.bankKeeper.SendCoinsFromAccountToModuleCalls, 0)
+		require.Len(t, f.bankKeeper.BurnCoinsCalls, 0)
 	})
 }

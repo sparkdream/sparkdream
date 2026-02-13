@@ -105,11 +105,11 @@ func TestFreezeThread(t *testing.T) {
 			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
 			p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 			p.ParentId = 0
+			p.Status = types.PostStatus_POST_STATUS_ACTIVE
 			p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
 			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
 
-			// Remove archived thread if exists
-			_ = f.keeper.ArchivedThread.Remove(f.ctx, thread.PostId)
+			// Remove archive metadata if exists
 			_ = f.keeper.ArchiveMetadata.Remove(f.ctx, thread.PostId)
 
 			if tt.setup != nil {
@@ -125,20 +125,15 @@ func TestFreezeThread(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, resp)
 
-				// Verify archived thread was created
-				archived, err := f.keeper.ArchivedThread.Get(f.ctx, thread.PostId)
+				// Verify root post status is ARCHIVED
+				post, err := f.keeper.Post.Get(f.ctx, thread.PostId)
 				require.NoError(t, err)
-				require.Equal(t, thread.PostId, archived.RootId)
-				require.NotEmpty(t, archived.CompressedData)
+				require.Equal(t, types.PostStatus_POST_STATUS_ARCHIVED, post.Status)
 
 				// Verify archive metadata was created
 				meta, err := f.keeper.ArchiveMetadata.Get(f.ctx, thread.PostId)
 				require.NoError(t, err)
 				require.Equal(t, uint64(1), meta.ArchiveCount)
-
-				// Verify original post was removed
-				_, err = f.keeper.Post.Get(f.ctx, thread.PostId)
-				require.Error(t, err) // Post should be deleted
 			}
 		})
 	}
@@ -168,18 +163,18 @@ func TestFreezeThreadWithReplies(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	// Verify all posts were removed
-	_, err = f.keeper.Post.Get(f.ctx, thread.PostId)
-	require.Error(t, err)
-	_, err = f.keeper.Post.Get(f.ctx, reply1.PostId)
-	require.Error(t, err)
-	_, err = f.keeper.Post.Get(f.ctx, reply2.PostId)
-	require.Error(t, err)
-
-	// Verify archive includes all posts
-	archived, err := f.keeper.ArchivedThread.Get(f.ctx, thread.PostId)
+	// Verify all posts have ARCHIVED status (posts stay in store)
+	rootPost, err := f.keeper.Post.Get(f.ctx, thread.PostId)
 	require.NoError(t, err)
-	require.Equal(t, uint64(3), archived.PostCount) // Thread + 2 replies
+	require.Equal(t, types.PostStatus_POST_STATUS_ARCHIVED, rootPost.Status)
+
+	r1, err := f.keeper.Post.Get(f.ctx, reply1.PostId)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_ARCHIVED, r1.Status)
+
+	r2, err := f.keeper.Post.Get(f.ctx, reply2.PostId)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_ARCHIVED, r2.Status)
 }
 
 func TestFreezeThreadWithPendingAppeal(t *testing.T) {
@@ -211,6 +206,28 @@ func TestFreezeThreadWithPendingAppeal(t *testing.T) {
 	require.Contains(t, err.Error(), "pending appeal")
 }
 
+func TestFreezeThreadAlreadyArchived(t *testing.T) {
+	f := initFixture(t)
+
+	// Create a category and thread
+	cat := f.createTestCategory(t, "General")
+	thread := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+
+	// Set the post status to ARCHIVED
+	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
+	p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
+	p.Status = types.PostStatus_POST_STATUS_ARCHIVED
+	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+
+	// Try to archive again - should fail
+	_, err := f.msgServer.FreezeThread(f.ctx, &types.MsgFreezeThread{
+		Creator: testCreator,
+		RootId:  thread.PostId,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "archived")
+}
+
 func TestUnarchiveThread(t *testing.T) {
 	f := initFixture(t)
 
@@ -230,14 +247,15 @@ func TestUnarchiveThread(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify it's archived
-	_, err = f.keeper.Post.Get(f.ctx, thread.PostId)
-	require.Error(t, err)
+	// Verify it's archived (status flag, post still exists)
+	archivedPost, err := f.keeper.Post.Get(f.ctx, thread.PostId)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_ARCHIVED, archivedPost.Status)
 
-	// Update archived time to be past cooldown
-	archived, _ := f.keeper.ArchivedThread.Get(f.ctx, thread.PostId)
-	archived.ArchivedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultUnarchiveCooldown - 1
-	_ = f.keeper.ArchivedThread.Set(f.ctx, thread.PostId, archived)
+	// Update archive metadata time to be past cooldown
+	meta, _ := f.keeper.ArchiveMetadata.Get(f.ctx, thread.PostId)
+	meta.LastArchivedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultUnarchiveCooldown - 1
+	_ = f.keeper.ArchiveMetadata.Set(f.ctx, thread.PostId, meta)
 
 	// Unarchive
 	_, err = f.msgServer.UnarchiveThread(f.ctx, &types.MsgUnarchiveThread{
@@ -246,14 +264,11 @@ func TestUnarchiveThread(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify post was restored
+	// Verify post status was restored to ACTIVE
 	restored, err := f.keeper.Post.Get(f.ctx, thread.PostId)
 	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, restored.Status)
 	require.Equal(t, testCreator, restored.Author)
-
-	// Verify archived thread record was removed
-	_, err = f.keeper.ArchivedThread.Get(f.ctx, thread.PostId)
-	require.Error(t, err)
 }
 
 func TestUnarchiveThreadCooldown(t *testing.T) {

@@ -355,6 +355,7 @@ echo ""
 # ========================================================================
 echo "--- PART 1: CREATE TAG BUDGET ---"
 
+RESULT_CREATE="FAIL"
 BUDGET_AMOUNT="1000000"
 
 echo "Creating tag budget for tag: $TAG_NAME (amount: $BUDGET_AMOUNT)"
@@ -391,16 +392,20 @@ if submit_and_exec_group_proposal "$PROPOSAL_FILE"; then
         fi
     fi
     echo "  Tag budget created: $TAG_BUDGET_ID"
+    RESULT_CREATE="PASS"
 else
     echo "  Failed to create tag budget"
 fi
 
+echo "  Result: $RESULT_CREATE"
 echo ""
 
 # ========================================================================
 # PART 2: QUERY TAG BUDGET
 # ========================================================================
 echo "--- PART 2: QUERY TAG BUDGET ---"
+
+RESULT_QUERY="FAIL"
 
 if [ -n "$TAG_BUDGET_ID" ]; then
     BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
@@ -418,17 +423,21 @@ if [ -n "$TAG_BUDGET_ID" ]; then
         echo "    Balance: $(echo "$BUDGET_INFO" | jq -r '.tag_budget.pool_balance // "N/A"')"
         echo "    Active: $(echo "$BUDGET_INFO" | jq -r '.tag_budget.active // "N/A"')"
         echo "    Group Account: $(echo "$BUDGET_INFO" | jq -r '.tag_budget.group_account // "N/A"')"
+        RESULT_QUERY="PASS"
     fi
 else
     echo "  No tag budget ID available"
 fi
 
+echo "  Result: $RESULT_QUERY"
 echo ""
 
 # ========================================================================
 # PART 3: LIST TAG BUDGETS
 # ========================================================================
 echo "--- PART 3: LIST TAG BUDGETS ---"
+
+RESULT_LIST="FAIL"
 
 TAG_BUDGETS=$($BINARY query forum list-tag-budget --output json 2>&1)
 
@@ -437,6 +446,7 @@ if echo "$TAG_BUDGETS" | grep -q "error"; then
 else
     BUDGET_COUNT=$(echo "$TAG_BUDGETS" | jq -r '(.tag_budget | length) // 0' 2>/dev/null)
     echo "  Total tag budgets: $BUDGET_COUNT"
+    RESULT_LIST="PASS"
 
     if [ "$BUDGET_COUNT" -gt 0 ] 2>/dev/null; then
         echo ""
@@ -446,12 +456,15 @@ else
     fi
 fi
 
+echo "  Result: $RESULT_LIST"
 echo ""
 
 # ========================================================================
 # PART 4: TOP UP TAG BUDGET (alice directly - she's a group member)
 # ========================================================================
 echo "--- PART 4: TOP UP TAG BUDGET ---"
+
+RESULT_TOPUP="FAIL"
 
 if [ -n "$TAG_BUDGET_ID" ]; then
     TOPUP_AMOUNT="500000"
@@ -481,6 +494,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Tag budget topped up successfully"
+            RESULT_TOPUP="PASS"
 
             # Verify new balance
             BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
@@ -494,12 +508,15 @@ else
     echo "  No tag budget ID available"
 fi
 
+echo "  Result: $RESULT_TOPUP"
 echo ""
 
 # ========================================================================
 # PART 5: TOGGLE TAG BUDGET (Deactivate) - via group proposal
 # ========================================================================
 echo "--- PART 5: TOGGLE TAG BUDGET (Deactivate) ---"
+
+RESULT_DEACTIVATE="FAIL"
 
 if [ -n "$TAG_BUDGET_ID" ]; then
     echo "Deactivating tag budget: $TAG_BUDGET_ID (via group proposal)"
@@ -528,6 +545,7 @@ EOF
         BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         STATUS=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.active // false')
         echo "  Active status: $STATUS"
+        RESULT_DEACTIVATE="PASS"
     else
         echo "  Failed to toggle tag budget"
     fi
@@ -535,12 +553,15 @@ else
     echo "  No tag budget ID available"
 fi
 
+echo "  Result: $RESULT_DEACTIVATE"
 echo ""
 
 # ========================================================================
 # PART 6: TOGGLE TAG BUDGET (Reactivate) - via group proposal
 # ========================================================================
 echo "--- PART 6: TOGGLE TAG BUDGET (Reactivate) ---"
+
+RESULT_REACTIVATE="FAIL"
 
 if [ -n "$TAG_BUDGET_ID" ]; then
     echo "Reactivating tag budget: $TAG_BUDGET_ID (via group proposal)"
@@ -569,6 +590,7 @@ EOF
         BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         STATUS=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.active // "N/A"')
         echo "  Active status: $STATUS"
+        RESULT_REACTIVATE="PASS"
     else
         echo "  Failed to toggle tag budget"
     fi
@@ -576,6 +598,7 @@ else
     echo "  No tag budget ID available"
 fi
 
+echo "  Result: $RESULT_REACTIVATE"
 echo ""
 
 # ========================================================================
@@ -729,6 +752,8 @@ echo ""
 # ========================================================================
 echo "--- PART 8: WITHDRAW FROM TAG BUDGET ---"
 
+RESULT_WITHDRAW="FAIL"
+
 if [ -n "$TAG_BUDGET_ID" ]; then
     echo "Withdrawing from tag budget: $TAG_BUDGET_ID (full withdrawal via group proposal)"
 
@@ -755,6 +780,7 @@ EOF
         BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         NEW_BALANCE=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.pool_balance // "N/A"')
         echo "  Remaining budget balance: $NEW_BALANCE"
+        RESULT_WITHDRAW="PASS"
     else
         echo "  Failed to withdraw from tag budget"
     fi
@@ -762,6 +788,7 @@ else
     echo "  No tag budget ID available"
 fi
 
+echo "  Result: $RESULT_WITHDRAW"
 echo ""
 
 # ========================================================================
@@ -769,6 +796,7 @@ echo ""
 # ========================================================================
 echo "--- PART 9: CREATE SECOND TAG BUDGET ---"
 
+RESULT_CREATE2="FAIL"
 BUDGET_AMOUNT2="2000000"
 
 echo "Creating second tag budget for tag: $TAG_NAME2 (amount: $BUDGET_AMOUNT2)"
@@ -804,16 +832,20 @@ if submit_and_exec_group_proposal "$PROPOSAL_FILE"; then
         fi
     fi
     echo "  Second tag budget created: $TAG_BUDGET_ID_2"
+    RESULT_CREATE2="PASS"
 else
     echo "  Failed to create second tag budget"
 fi
 
+echo "  Result: $RESULT_CREATE2"
 echo ""
 
 # ========================================================================
 # PART 10: QUERY TAG BUDGETS BY CREATOR
 # ========================================================================
 echo "--- PART 10: QUERY TAG BUDGETS BY CREATOR ---"
+
+RESULT_QUERY_CREATOR="FAIL"
 
 # Note: No dedicated tag-budgets-by-creator query. Use list-tag-budget and filter.
 CREATOR_BUDGETS=$($BINARY query forum list-tag-budget --output json 2>&1)
@@ -823,6 +855,7 @@ if echo "$CREATOR_BUDGETS" | grep -q "error"; then
 else
     BUDGET_COUNT=$(echo "$CREATOR_BUDGETS" | jq -r "[.tag_budget[] | select(.group_account==\"$GROUP_POLICY_ADDR\")] | length" 2>/dev/null)
     echo "  Budgets by group account ($GROUP_POLICY_ADDR): $BUDGET_COUNT"
+    RESULT_QUERY_CREATOR="PASS"
 
     if [ "$BUDGET_COUNT" -gt 0 ] 2>/dev/null; then
         echo ""
@@ -831,12 +864,15 @@ else
     fi
 fi
 
+echo "  Result: $RESULT_QUERY_CREATOR"
 echo ""
 
 # ========================================================================
 # PART 11: QUERY ACTIVE TAG BUDGETS
 # ========================================================================
 echo "--- PART 11: QUERY ACTIVE TAG BUDGETS ---"
+
+RESULT_QUERY_ACTIVE="FAIL"
 
 # Note: No dedicated active-tag-budgets query. Use list-tag-budget and filter.
 ACTIVE_BUDGETS=$($BINARY query forum list-tag-budget --output json 2>&1)
@@ -846,6 +882,7 @@ if echo "$ACTIVE_BUDGETS" | grep -q "error"; then
 else
     BUDGET_COUNT=$(echo "$ACTIVE_BUDGETS" | jq -r '[.tag_budget[] | select(.active==true)] | length' 2>/dev/null)
     echo "  Active tag budgets: $BUDGET_COUNT"
+    RESULT_QUERY_ACTIVE="PASS"
 
     if [ "$BUDGET_COUNT" -gt 0 ] 2>/dev/null; then
         echo ""
@@ -854,6 +891,7 @@ else
     fi
 fi
 
+echo "  Result: $RESULT_QUERY_ACTIVE"
 echo ""
 
 # ========================================================================
@@ -1757,16 +1795,18 @@ echo ""
 echo "--- TAG BUDGET TEST SUMMARY ---"
 echo ""
 echo "  --- Happy Path ---"
-echo "  Create tag budget:              Tested (PART 1)"
-echo "  Query tag budget:               Tested (PART 2)"
-echo "  List tag budgets:               Tested (PART 3)"
-echo "  Top up tag budget:              Tested (PART 4)"
-echo "  Toggle tag budget:              Tested (PART 5-6)"
+echo "  Create tag budget:              $RESULT_CREATE (PART 1)"
+echo "  Query tag budget:               $RESULT_QUERY (PART 2)"
+echo "  List tag budgets:               $RESULT_LIST (PART 3)"
+echo "  Top up tag budget:              $RESULT_TOPUP (PART 4)"
+echo "  Toggle deactivate:              $RESULT_DEACTIVATE (PART 5)"
+echo "  Toggle reactivate:              $RESULT_REACTIVATE (PART 6)"
 echo "  Award from tag budget:          $RESULT_AWARD (PART 7)"
 echo "  Edit post tags and verify:      $RESULT_EDIT_TAGS (PART 7b)"
-echo "  Withdraw from tag budget:       Tested (PART 8)"
-echo "  Query by creator:               Tested (PART 10)"
-echo "  Query active budgets:           Tested (PART 11)"
+echo "  Withdraw from tag budget:       $RESULT_WITHDRAW (PART 8)"
+echo "  Create second budget:           $RESULT_CREATE2 (PART 9)"
+echo "  Query by creator:               $RESULT_QUERY_CREATOR (PART 10)"
+echo "  Query active budgets:           $RESULT_QUERY_ACTIVE (PART 11)"
 echo ""
 echo "  --- Error Cases ---"
 echo "  CreateTagBudget errors:         $RESULT_CREATE_ERR (PART 12)"
@@ -1789,7 +1829,7 @@ echo "  Tag queries:                    $RESULT_TAG_QUERIES (PART 24)"
 echo ""
 
 FAIL_COUNT=0
-ALL_RESULTS=("$RESULT_AWARD" "$RESULT_EDIT_TAGS" "$RESULT_CREATE_ERR" "$RESULT_TOGGLE_ERR" "$RESULT_TOPUP_ERR" "$RESULT_WITHDRAW_ERR" "$RESULT_AWARD_ERR" "$RESULT_REPORT_TAG" "$RESULT_REPORT_TAG_ERR" "$RESULT_QUERY_TAG_REPORT" "$RESULT_RESOLVE_DISMISS" "$RESULT_RESOLVE_REMOVE" "$RESULT_RESOLVE_RESERVE" "$RESULT_RESOLVE_ERR" "$RESULT_TAG_QUERIES")
+ALL_RESULTS=("$RESULT_CREATE" "$RESULT_QUERY" "$RESULT_LIST" "$RESULT_TOPUP" "$RESULT_DEACTIVATE" "$RESULT_REACTIVATE" "$RESULT_AWARD" "$RESULT_EDIT_TAGS" "$RESULT_WITHDRAW" "$RESULT_CREATE2" "$RESULT_QUERY_CREATOR" "$RESULT_QUERY_ACTIVE" "$RESULT_CREATE_ERR" "$RESULT_TOGGLE_ERR" "$RESULT_TOPUP_ERR" "$RESULT_WITHDRAW_ERR" "$RESULT_AWARD_ERR" "$RESULT_REPORT_TAG" "$RESULT_REPORT_TAG_ERR" "$RESULT_QUERY_TAG_REPORT" "$RESULT_RESOLVE_DISMISS" "$RESULT_RESOLVE_REMOVE" "$RESULT_RESOLVE_RESERVE" "$RESULT_RESOLVE_ERR" "$RESULT_TAG_QUERIES")
 for R in "${ALL_RESULTS[@]}"; do
     if [ "$R" == "FAIL" ]; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
