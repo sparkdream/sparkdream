@@ -2,6 +2,8 @@
 
 On-chain provenance for archived Spark Dream blockchain files. Each entry documents an archive file's cryptographic hash recorded on Ethereum and its permanent storage location(s) on Arweave.
 
+**Note:** Ethereum transaction [0xc3d90a32c2aa8ad2ab7597e89f0a1ae52374ed88febc917f535229b928669a5d](https://etherscan.io/tx/0xc3d90a32c2aa8ad2ab7597e89f0a1ae52374ed88febc917f535229b928669a5d) contains the Arweave wallet address ([4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q](https://viewblock.io/arweave/address/4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q)) used to store the Spark Dream blockchain archived files. The wallet address can be deduced from the transaction's hex input data `0x34694645543055666d3058303830354e34753578376c3958614a48716e683934364f674f53365347783651`.
+
 ---
 
 ## sparkdream1.tgz
@@ -41,3 +43,16 @@ On-chain provenance for archived Spark Dream blockchain files. Each entry docume
 | **Arweave Wallet** | [4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q](https://viewblock.io/arweave/address/4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q) |
 | **Arweave Copy 1** | [9AudIp6XRjOPuFhNg1O6FSOvt7ekhzypneb6-8Q2VZk](https://arweave.net/9AudIp6XRjOPuFhNg1O6FSOvt7ekhzypneb6-8Q2VZk) |
 | **Arweave Copy 2** | [ktAYLQrWkbIhvbRLfXwxplTuQtf4HRktbwWtoDsPy1c](https://arweave.net/ktAYLQrWkbIhvbRLfXwxplTuQtf4HRktbwWtoDsPy1c) |
+
+---
+
+## sparkdream4.tgz
+
+| Field | Value |
+|---|---|
+| **Date** | 2026-02-15 21:46:59 UTC |
+| **Git Hash** | 0412fcf3b51af638edce225cec2eca6314c4a7b4 |
+| **Ethereum Tx** | [0x8c3a35163480789cdbf69063f5f2cf20954cdb8984ad5acfbe97ed1d3540c654](https://etherscan.io/tx/0x8c3a35163480789cdbf69063f5f2cf20954cdb8984ad5acfbe97ed1d3540c654) |
+| **SHA-256** | `0x7dda8a56934b3989513b0df4c63dbcb206ee2031c5b62912343e1fe522215a01` |
+| **Arweave Wallet** | [4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q](https://viewblock.io/arweave/address/4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q) |
+| **Arweave Copy 1** | [EtqMakSWBA_Cg9IyNeodesRRUieE9aMuPGx-icXE4RE](https://arweave.net/EtqMakSWBA_Cg9IyNeodesRRUieE9aMuPGx-icXE4RE) |
