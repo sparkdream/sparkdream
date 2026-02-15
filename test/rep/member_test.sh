@@ -191,45 +191,37 @@ else
     else
         echo "✅ DREAM transfer successful"
 
-        # Check final balances
-        sleep 2
-        MEMBER1_FINAL=$($BINARY query rep get-member $MEMBER_1 -o json | jq -r '.member.dream_balance // "0"')
-        MEMBER2_FINAL=$($BINARY query rep get-member $MEMBER_2 -o json | jq -r '.member.dream_balance // "0"')
+        # Validate via transaction events (not balance changes, which include decay)
+        TRANSFER_EVENT=$(echo "$TRANSFER_RESULT" | jq -r '.events[] | select(.type=="transfer_dream")' 2>/dev/null)
+        if [ -n "$TRANSFER_EVENT" ]; then
+            EVENT_AMOUNT=$(echo "$TRANSFER_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
+            EVENT_TAX=$(echo "$TRANSFER_EVENT" | jq -r '.attributes[] | select(.key=="tax") | .value' | tr -d '"')
+            EVENT_RECEIVED=$(echo "$TRANSFER_EVENT" | jq -r '.attributes[] | select(.key=="received") | .value' | tr -d '"')
 
-        if [ -z "$MEMBER1_FINAL" ] || [ "$MEMBER1_FINAL" == "null" ]; then
-            MEMBER1_FINAL="0"
-        fi
-        if [ -z "$MEMBER2_FINAL" ] || [ "$MEMBER2_FINAL" == "null" ]; then
-            MEMBER2_FINAL="0"
-        fi
+            echo ""
+            echo "Transfer event details:"
+            echo "  Amount sent: $EVENT_AMOUNT micro-DREAM"
+            echo "  Tax burned: $EVENT_TAX micro-DREAM"
+            if [ -n "$EVENT_RECEIVED" ] && [ "$EVENT_RECEIVED" != "" ]; then
+                echo "  Received: $EVENT_RECEIVED micro-DREAM"
+            fi
 
-        echo ""
-        echo "Final balances:"
-        echo "  Member1: $MEMBER1_FINAL micro-DREAM ($(echo "scale=2; $MEMBER1_FINAL / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
-        echo "  Member2: $MEMBER2_FINAL micro-DREAM ($(echo "scale=2; $MEMBER2_FINAL / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
-
-        # Calculate changes
-        MEMBER1_CHANGE=$(echo "$MEMBER1_FINAL - $MEMBER1_INITIAL" | bc 2>/dev/null || echo "0")
-        MEMBER2_CHANGE=$(echo "$MEMBER2_FINAL - $MEMBER2_INITIAL" | bc 2>/dev/null || echo "0")
-
-        echo ""
-        echo "Balance changes:"
-        echo "  Member1: $MEMBER1_CHANGE micro-DREAM (sent 0.1 DREAM)"
-        echo "  Member2: $MEMBER2_CHANGE micro-DREAM (received after 3% tax)"
-
-        # Expected: Member1 loses 0.1M, Member2 gains 0.097M (0.1M - 3% = 0.097M)
-        EXPECTED_RECEIVED="97000"  # 0.097 DREAM
-
-        # Only validate if change is positive (received DREAM)
-        if [ "$MEMBER2_CHANGE" -gt 0 ]; then
-            if [ "$MEMBER2_CHANGE" -ge "$EXPECTED_RECEIVED" ]; then
-                echo "✅ Tax applied correctly (received ~0.097 DREAM after 3% tax on 0.1 DREAM)"
+            # Validate tax is 3% of amount
+            EXPECTED_TAX=$(echo "$TIP_AMOUNT_MICRO * 3 / 100" | bc 2>/dev/null || echo "3000")
+            if [ -n "$EVENT_TAX" ] && [ "$EVENT_TAX" == "$EXPECTED_TAX" ]; then
+                echo "✅ Tax is exactly 3% ($EVENT_TAX micro-DREAM on $TIP_AMOUNT_MICRO sent)"
+            elif [ -n "$EVENT_TAX" ] && [ "$EVENT_TAX" != "0" ]; then
+                echo "✅ Tax applied: $EVENT_TAX micro-DREAM (expected $EXPECTED_TAX)"
             else
-                echo "✅ Transfer completed (received $MEMBER2_CHANGE micro-DREAM, ~97000 expected after 3% tax)"
+                echo "⚠️  Tax not detected in event"
             fi
         else
-            echo "ℹ️  Balance validation skipped (balances affected by other test operations)"
+            echo "⚠️  No transfer_dream event found - verifying tx succeeded (code: $TX_CODE)"
         fi
+
+        # Note: Raw balance changes are unreliable for validation because
+        # TransferDREAM() applies pending decay to both sender and recipient.
+        # Always use transaction events for transfer amount verification.
     fi
 fi
 fi

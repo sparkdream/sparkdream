@@ -19,6 +19,10 @@ service Msg {
   // parameters. The authority defaults to the x/gov module account.
   rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
 
+  // UpdateOperationalParams defines an operation for updating the module's
+  // operational parameters. Authorized for Commons Council Operations Committee.
+  rpc UpdateOperationalParams(MsgUpdateOperationalParams) returns (MsgUpdateOperationalParamsResponse);
+
   // CreateCategory defines the CreateCategory RPC.
   rpc CreateCategory(MsgCreateCategory) returns (MsgCreateCategoryResponse);
 
@@ -184,6 +188,29 @@ message MsgUpdateParams {
 // MsgUpdateParamsResponse defines the response structure for executing a
 // MsgUpdateParams message.
 message MsgUpdateParamsResponse {}
+
+// MsgUpdateOperationalParams is the Msg/UpdateOperationalParams request type.
+// Authorized: Commons Council Operations Committee (via IsCouncilAuthorized).
+message MsgUpdateOperationalParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/forum/MsgUpdateOperationalParams";
+
+  // authority is the address authorized to update operational params.
+  // Can be: governance authority, Commons Council policy address,
+  // or Commons Operations Committee member.
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // operational_params defines the operational parameters to update.
+  // NOTE: All operational parameters must be supplied.
+  ForumOperationalParams operational_params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateOperationalParamsResponse defines the response structure for executing a
+// MsgUpdateOperationalParams message.
+message MsgUpdateOperationalParamsResponse {}
 
 // MsgCreateCategory defines the MsgCreateCategory message.
 message MsgCreateCategory {

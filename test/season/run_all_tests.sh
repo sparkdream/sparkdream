@@ -21,6 +21,7 @@ RUN_QUEST_TEST=true
 RUN_SEASON_TEST=true
 RUN_MODERATION_TEST=true
 RUN_XP_TRACKING_TEST=true
+RUN_OPERATIONAL_PARAMS_TEST=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -61,6 +62,10 @@ while [[ $# -gt 0 ]]; do
             RUN_XP_TRACKING_TEST=false
             shift
             ;;
+        --no-operational-params)
+            RUN_OPERATIONAL_PARAMS_TEST=false
+            shift
+            ;;
         --only-setup)
             RUN_PROFILE_TEST=false
             RUN_GUILD_TEST=false
@@ -69,6 +74,7 @@ while [[ $# -gt 0 ]]; do
             RUN_SEASON_TEST=false
             RUN_MODERATION_TEST=false
             RUN_XP_TRACKING_TEST=false
+            RUN_OPERATIONAL_PARAMS_TEST=false
             shift
             ;;
         --save-setup)
@@ -81,6 +87,7 @@ while [[ $# -gt 0 ]]; do
             RUN_SEASON_TEST=false
             RUN_MODERATION_TEST=false
             RUN_XP_TRACKING_TEST=false
+            RUN_OPERATIONAL_PARAMS_TEST=false
             shift
             ;;
         --restore-setup)
@@ -96,6 +103,7 @@ while [[ $# -gt 0 ]]; do
             RUN_SEASON_TEST=false
             RUN_MODERATION_TEST=false
             RUN_XP_TRACKING_TEST=false
+            RUN_OPERATIONAL_PARAMS_TEST=false
             shift
             ;;
         --help)
@@ -110,6 +118,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-season         Skip season_test.sh"
             echo "  --no-moderation     Skip display_name_moderation_test.sh"
             echo "  --no-xp-tracking    Skip xp_tracking_test.sh"
+            echo "  --no-operational-params  Skip operational_params_test.sh"
             echo "  --only-setup        Run only setup (skip all tests)"
             echo "  --save-setup        Run setup, save chain state, then exit"
             echo "  --restore-setup     Restore saved setup state, then run tests"
@@ -281,7 +290,8 @@ echo "  4. Guild advanced test:       $([ "$RUN_GUILD_ADVANCED_TEST" = true ] &&
 echo "  5. Quest test:                $([ "$RUN_QUEST_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  6. Display name moderation:   $([ "$RUN_MODERATION_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  7. XP tracking test:          $([ "$RUN_XP_TRACKING_TEST" = true ] && echo "YES" || echo "SKIP")"
-echo "  8. Season test (last):        $([ "$RUN_SEASON_TEST" = true ] && echo "YES" || echo "SKIP")"
+echo "  8. Operational params test:   $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "YES" || echo "SKIP")"
+echo "  9. Season test (last):        $([ "$RUN_SEASON_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo ""
 
 if [ "$SAVE_SETUP" != true ] && [ "$RESTORE_SETUP" != true ]; then
@@ -553,11 +563,38 @@ else
 fi
 
 # ========================================================================
-# Step 8: Season Test (runs LAST - needs to wait for season transition)
+# Step 8: Operational Params Test
+# ========================================================================
+if [ "$RUN_OPERATIONAL_PARAMS_TEST" = true ]; then
+    echo "========================================================================="
+    echo "STEP 8: OPERATIONAL PARAMS TEST"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/operational_params_test.sh"
+    OPERATIONAL_PARAMS_EXIT_CODE=$?
+
+    echo ""
+    if [ $OPERATIONAL_PARAMS_EXIT_CODE -eq 0 ]; then
+        echo "Operational params test completed"
+    else
+        echo "Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+else
+    echo "========================================================================="
+    echo "STEP 8: OPERATIONAL PARAMS TEST (SKIPPED)"
+    echo "========================================================================="
+    echo ""
+fi
+
+# ========================================================================
+# Step 9: Season Test (runs LAST - needs to wait for season transition)
 # ========================================================================
 if [ "$RUN_SEASON_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 8: SEASON TEST (transition testing)"
+    echo "STEP 9: SEASON TEST (transition testing)"
     echo "========================================================================="
     echo ""
 
@@ -574,7 +611,7 @@ if [ "$RUN_SEASON_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 8: SEASON TEST (SKIPPED)"
+    echo "STEP 9: SEASON TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
@@ -594,6 +631,7 @@ echo "  Guild Advanced Test:    $([ "$RUN_GUILD_ADVANCED_TEST" = true ] && ([ $G
 echo "  Quest Test:             $([ "$RUN_QUEST_TEST" = true ] && ([ $QUEST_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Moderation Test:        $([ "$RUN_MODERATION_TEST" = true ] && ([ $MODERATION_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  XP Tracking Test:       $([ "$RUN_XP_TRACKING_TEST" = true ] && ([ $XP_TRACKING_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
+echo "  Op Params Test:         $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Season Test:            $([ "$RUN_SEASON_TEST" = true ] && ([ $SEASON_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo ""
 echo "========================================================================="

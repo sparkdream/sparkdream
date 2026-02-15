@@ -45,7 +45,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 	}
 
 	// Check if sender is operations committee or sentinel
-	isGovAuthority := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	if !isGovAuthority {
 		// Check moderation_paused for sentinels

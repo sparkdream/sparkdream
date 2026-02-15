@@ -208,6 +208,13 @@ fi
 # --- 8. CREATE MARKET WITH NEW MINIMUM ---
 echo "--- STEP 8: CREATE MARKET WITH NEW MINIMUM LIQUIDITY ---"
 
+# Wait for any pending tx from step 7 to be processed
+sleep 6
+
+# Recompute END_BLOCK from current height
+CURRENT_HEIGHT=$($BINARY status | jq -r '.sync_info.latest_block_height')
+END_BLOCK=$((CURRENT_HEIGHT + 100))
+
 CREATE_NEW_RES=$($BINARY tx futarchy create-market \
   "NEW-PARAMS" \
   "${NEW_MIN_LIQ}" \
@@ -221,7 +228,12 @@ CREATE_NEW_RES=$($BINARY tx futarchy create-market \
   --output json)
 
 NEW_TX_HASH=$(echo $CREATE_NEW_RES | jq -r '.txhash')
-sleep 3
+if [ -z "$NEW_TX_HASH" ] || [ "$NEW_TX_HASH" == "null" ]; then
+    echo "❌ FAILURE: create-market tx did not return a txhash"
+    echo "$CREATE_NEW_RES"
+    exit 1
+fi
+sleep 6
 
 # Event type is "market_created"
 NEW_MARKET_ID=$($BINARY query tx $NEW_TX_HASH --output json | \

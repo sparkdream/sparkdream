@@ -191,29 +191,7 @@ CURRENT_OWNER=$(echo "$RESOLVE_RES" | jq -r '.name_record.owner')
 
 assert_equals "'$CONTEST_NAME' owned by Alice" "$ALICE_ADDR" "$CURRENT_OWNER"
 
-# Register "zenith" for Alice (for challenger-wins contested dispute test)
-TX_RES=$($BINARY tx name register-name "$CHALLENGER_WINS_NAME" "Challenger Wins Test" \
-    --from alice -y \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    if check_tx_success "$TX_RESULT"; then
-        echo "  Name '$CHALLENGER_WINS_NAME' registered by Alice"
-    else
-        echo "  Registration skipped (name may already exist)"
-    fi
-fi
-
-RESOLVE_RES=$($BINARY query name resolve "$CHALLENGER_WINS_NAME" --output json 2>&1)
-CURRENT_OWNER=$(echo "$RESOLVE_RES" | jq -r '.name_record.owner')
-
-assert_equals "'$CHALLENGER_WINS_NAME' owned by Alice" "$ALICE_ADDR" "$CURRENT_OWNER"
+# NOTE: 'zenith' registration is deferred to after Part 5 (phoenix transfer frees a name slot)
 
 echo ""
 
@@ -351,6 +329,7 @@ TX_RES=$($BINARY tx group exec $PROPOSAL_ID \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000000uspark \
+    --gas 2000000 \
     --output json 2>&1)
 
 if submit_and_wait "$TX_RES" "proposal exec"; then
@@ -532,6 +511,7 @@ EOF
             --chain-id $CHAIN_ID \
             --keyring-backend test \
             --fees 5000000uspark \
+            --gas 2000000 \
             --output json 2>&1)
 
         if submit_and_wait "$TX_RES" "contest proposal exec"; then
@@ -585,7 +565,32 @@ echo "--- PART 9: CONTESTED DISPUTE -- Challenger Wins ---"
 
 PART9_READY=true
 
-# Verify Alice still owns the challenger-wins name
+# Register 'zenith' for Alice now (deferred from Part 1 because Alice had 5 names;
+# phoenix was transferred to claimant in Part 5, freeing a slot)
+echo "  Registering '$CHALLENGER_WINS_NAME' for Alice (slot freed after phoenix transfer)..."
+TX_RES=$($BINARY tx name register-name "$CHALLENGER_WINS_NAME" "Challenger Wins Test" \
+    --from alice -y \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000uspark \
+    --output json 2>&1)
+
+TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+    sleep 6
+    TX_RESULT=$(wait_for_tx $TXHASH)
+    if check_tx_success "$TX_RESULT"; then
+        echo "  Name '$CHALLENGER_WINS_NAME' registered by Alice"
+    else
+        echo "  Registration failed"
+        PART9_READY=false
+    fi
+else
+    echo "  Registration failed (no txhash)"
+    PART9_READY=false
+fi
+
+# Verify Alice owns the challenger-wins name
 RESOLVE_RES=$($BINARY query name resolve "$CHALLENGER_WINS_NAME" --output json 2>&1)
 CURRENT_OWNER=$(echo "$RESOLVE_RES" | jq -r '.name_record.owner')
 if [ "$CURRENT_OWNER" != "$ALICE_ADDR" ]; then
@@ -723,6 +728,7 @@ EOF
             --chain-id $CHAIN_ID \
             --keyring-backend test \
             --fees 5000000uspark \
+            --gas 2000000 \
             --output json 2>&1)
 
         if submit_and_wait "$TX_RES" "challenger-wins proposal exec"; then

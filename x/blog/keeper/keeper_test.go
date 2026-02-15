@@ -97,6 +97,7 @@ func initFixture(t *testing.T) *fixture {
 		addressCodec,
 		authority,
 		bankKeeper,
+		nil, // commonsKeeper (optional)
 	)
 
 	// Initialize params

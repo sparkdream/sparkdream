@@ -128,7 +128,7 @@ sleep 4
 
 echo "Votes cast. Attempting Execution..."
 
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 4
 
@@ -205,7 +205,7 @@ sleep 4
 
 # Execute
 echo "Executing Cleanup..."
-EXEC_RES=$($BINARY tx group exec $CLEANUP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $CLEANUP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 4
 

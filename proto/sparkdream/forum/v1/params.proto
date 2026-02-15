@@ -102,3 +102,47 @@ message Params {
   // ephemeral_ttl in seconds (TTL for non-member posts, default 86400 = 24h)
   int64 ephemeral_ttl = 30;
 }
+
+// ForumOperationalParams defines the operational parameters that can be updated
+// by the Commons Council Operations Committee without a full governance proposal.
+// Governance-only fields (forum_paused, moderation_paused, appeals_paused) are
+// excluded and can only be changed via MsgUpdateParams.
+message ForumOperationalParams {
+  option (amino.name) = "sparkdream/x/forum/ForumOperationalParams";
+  option (gogoproto.equal) = true;
+
+  // Feature toggles
+  bool bounties_enabled = 1;
+  bool reactions_enabled = 2;
+  bool editing_enabled = 3;
+
+  // Fees
+  cosmos.base.v1beta1.Coin spam_tax = 4 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin reaction_spam_tax = 5 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin flag_spam_tax = 6 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin downvote_deposit = 7 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin appeal_fee = 8 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin lock_appeal_fee = 9 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin move_appeal_fee = 10 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin edit_fee = 11 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin cost_per_byte = 12 [(gogoproto.nullable) = false];
+  bool cost_per_byte_exempt = 13;
+
+  // Limits
+  uint64 max_content_size = 14;
+  uint64 daily_post_limit = 15;
+  uint32 max_reply_depth = 16;
+  uint64 max_follows_per_day = 17;
+  uint64 bounty_cancellation_fee_percent = 18;
+
+  // Time windows
+  int64 edit_grace_period = 19;
+  int64 edit_max_window = 20;
+  int64 archive_threshold = 21;
+  int64 unarchive_cooldown = 22;
+  int64 archive_cooldown = 23;
+  int64 hide_appeal_cooldown = 24;
+  int64 lock_appeal_cooldown = 25;
+  int64 move_appeal_cooldown = 26;
+  int64 ephemeral_ttl = 27;
+}

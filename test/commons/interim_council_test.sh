@@ -140,7 +140,7 @@ echo "Group Prop ID: $GROUP_PROP_ID"
 # Bob Votes YES (100% of weight)
 $BINARY tx group vote $GROUP_PROP_ID $BOB_ADDR VOTE_OPTION_YES "Veto" --from bob -y --chain-id $CHAIN_ID --keyring-backend test
 sleep 3
-$BINARY tx group exec $GROUP_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+$BINARY tx group exec $GROUP_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000
 sleep 3
 
 # Verify Kill

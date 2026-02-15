@@ -80,7 +80,7 @@ echo "Votes cast. Attempting Execution..."
 # No wait needed for Commons Council in testing environment
 
 # --- 5. EXECUTE ---
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 
 echo "Waiting for execution block..."

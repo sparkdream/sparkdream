@@ -20,7 +20,7 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// Only governance, council, or operations committee can resolve
-	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+	if !k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
 		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance, council, or operations committee can resolve tag reports")
 	}
 

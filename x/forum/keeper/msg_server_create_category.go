@@ -16,7 +16,7 @@ func (k msgServer) CreateCategory(ctx context.Context, msg *types.MsgCreateCateg
 	}
 
 	// Only governance, council, or operations committee can create categories
-	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+	if !k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only governance, council, or operations committee can create categories")
 	}
 

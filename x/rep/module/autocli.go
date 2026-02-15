@@ -235,6 +235,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Skip:      true, // skipped because authority gated
 				},
 				{
+					RpcMethod: "UpdateOperationalParams",
+					Skip:      true, // skipped because authority gated
+				},
+				{
 					RpcMethod:      "InviteMember",
 					Use:            "invite-member [invitee-address] [staked-dream]",
 					Short:          "Send a invite-member tx",

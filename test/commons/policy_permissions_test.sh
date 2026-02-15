@@ -86,7 +86,7 @@ echo "Waiting for voting period (35s)..."
 sleep 35
 
 echo "Executing Ratchet Down..."
-$BINARY tx group exec $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json > /dev/null
+$BINARY tx group exec $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json > /dev/null
 sleep 3
 
 # Verify Removal
@@ -171,7 +171,7 @@ sleep 35
 
 # 2. Execution: MUST FAIL
 echo "Executing Sneaky Expansion..."
-EXEC_RES=$($BINARY tx group exec $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 3
 

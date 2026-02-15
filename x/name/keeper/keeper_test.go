@@ -147,6 +147,10 @@ func (m *MockCommonsKeeper) SetPolicyPermissions(ctx context.Context, policyAddr
 	return nil
 }
 
+func (m *MockCommonsKeeper) IsCouncilAuthorized(_ context.Context, _ string, _ string, _ string) bool {
+	return false
+}
+
 // MockGroupKeeperReg
 type MockGroupKeeperReg struct {
 	members        map[string]bool

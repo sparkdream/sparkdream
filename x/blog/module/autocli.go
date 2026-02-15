@@ -43,6 +43,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Skip:      true, // skipped because authority gated
 				},
 				{
+					RpcMethod: "UpdateOperationalParams",
+					Skip:      true, // skipped because council-gated
+				},
+				{
 					RpcMethod:      "CreatePost",
 					Use:            "create-post [title] [body] --content-type [type]",
 					Short:          "Send a create-post tx",

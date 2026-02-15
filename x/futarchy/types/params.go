@@ -61,6 +61,48 @@ func (p Params) Validate() error {
 	return nil
 }
 
+// DefaultFutarchyOperationalParams returns FutarchyOperationalParams with defaults
+// matching the existing Params defaults for the 3 operational fields.
+func DefaultFutarchyOperationalParams() FutarchyOperationalParams {
+	return FutarchyOperationalParams{
+		TradingFeeBps:      DefaultTradingFeeBps,
+		MaxDuration:        DefaultMaxDuration,
+		MaxRedemptionDelay: DefaultMaxRedemptionDelay,
+	}
+}
+
+// Validate validates the operational params.
+func (op FutarchyOperationalParams) Validate() error {
+	if err := validateTradingFeeBps(op.TradingFeeBps); err != nil {
+		return err
+	}
+	if err := validateMaxDuration(op.MaxDuration); err != nil {
+		return err
+	}
+	if err := validateMaxRedemptionDelay(op.MaxRedemptionDelay); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ApplyOperationalParams copies the 3 operational fields from op,
+// preserving MinLiquidity, DefaultMinTick, MaxLmsrExponent.
+func (p Params) ApplyOperationalParams(op FutarchyOperationalParams) Params {
+	p.TradingFeeBps = op.TradingFeeBps
+	p.MaxDuration = op.MaxDuration
+	p.MaxRedemptionDelay = op.MaxRedemptionDelay
+	return p
+}
+
+// ExtractOperationalParams extracts the operational fields from the full params.
+func (p Params) ExtractOperationalParams() FutarchyOperationalParams {
+	return FutarchyOperationalParams{
+		TradingFeeBps:      p.TradingFeeBps,
+		MaxDuration:        p.MaxDuration,
+		MaxRedemptionDelay: p.MaxRedemptionDelay,
+	}
+}
+
 // Validation Functions ------------------------------------------------------
 
 func validateMinLiquidity(i interface{}) error {

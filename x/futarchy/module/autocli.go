@@ -41,6 +41,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Skip:      true, // skipped because authority gated
 				},
 				{
+					RpcMethod: "UpdateOperationalParams",
+					Skip:      true, // skipped because council-gated
+				},
+				{
 					RpcMethod:      "CreateMarket",
 					Use:            "create-market [symbol] [initial-liquidity] [question] [end-block]",
 					Short:          "Send a create_market tx",

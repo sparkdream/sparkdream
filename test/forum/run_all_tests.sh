@@ -37,6 +37,7 @@ RUN_TAG_BUDGET=true
 RUN_APPEALS=true
 RUN_ADVANCED=true
 RUN_ARCHIVE=true
+RUN_OPERATIONAL_PARAMS=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -72,6 +73,9 @@ for arg in "$@"; do
         --no-archive)
             RUN_ARCHIVE=false
             ;;
+        --no-operational-params)
+            RUN_OPERATIONAL_PARAMS=false
+            ;;
         --only-setup)
             RUN_POST=false
             RUN_CATEGORY=false
@@ -82,6 +86,7 @@ for arg in "$@"; do
             RUN_APPEALS=false
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
+            RUN_OPERATIONAL_PARAMS=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -95,6 +100,7 @@ for arg in "$@"; do
             RUN_APPEALS=false
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
+            RUN_OPERATIONAL_PARAMS=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -110,6 +116,7 @@ for arg in "$@"; do
             RUN_APPEALS=false
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
+            RUN_OPERATIONAL_PARAMS=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -125,6 +132,7 @@ for arg in "$@"; do
             echo "  --no-appeals     Skip appeals tests"
             echo "  --no-advanced    Skip advanced tests"
             echo "  --no-archive     Skip archive tests"
+            echo "  --no-operational-params  Skip operational params tests"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -439,6 +447,14 @@ if [ "$RUN_ARCHIVE" = true ]; then
     run_test "Archive Tests" "archive_test.sh"
 else
     echo "Skipping archive tests (--no-archive)"
+    echo ""
+fi
+
+# Operational params tests
+if [ "$RUN_OPERATIONAL_PARAMS" = true ]; then
+    run_test "Operational Params Tests" "operational_params_test.sh"
+else
+    echo "Skipping operational params tests (--no-operational-params)"
     echo ""
 fi
 

@@ -186,7 +186,7 @@ echo "Waiting for Commons voting/execution..."
 sleep 5
 
 # Execute Commons Proposal -> Casts Vote on Tech Proposal
-SUBMIT_RES=$($BINARY tx group exec $COMMONS_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx group exec $COMMONS_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 echo "Commons Execution Result: $SUBMIT_RES"
 
 # --- 5. FINALIZE & VERIFY ---
@@ -197,7 +197,7 @@ echo "--- STEP 5: Verify Upgrade Approval ---"
 # 1. Triggers the tally update (flipping status to ACCEPTED).
 # 2. Checks the Timelock (verifying the Security Delay is active).
 echo "Attempting Execution (triggers tally & checks timelock)..."
-EXEC_RES=$($BINARY tx group exec $TECH_PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $TECH_PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 3
 

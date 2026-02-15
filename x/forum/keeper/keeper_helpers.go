@@ -140,7 +140,7 @@ func (k Keeper) IsGroupAccount(ctx context.Context, addr string) bool {
 // council policy address, or committee membership.
 // Delegates to x/commons IsCouncilAuthorized when available.
 // Falls back to IsGovAuthority when x/commons is not wired.
-func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
 	if k.commonsKeeper == nil {
 		return k.IsGovAuthority(ctx, addr)
 	}

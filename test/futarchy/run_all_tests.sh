@@ -19,6 +19,7 @@ RUN_GOVERNANCE_INTEGRATION_TEST=true
 RUN_PARAMS_UPDATE_TEST=true
 RUN_LIQUIDITY_WITHDRAWAL_TEST=true
 RUN_EMERGENCY_CANCEL_TEST=true
+RUN_OPERATIONAL_PARAMS_TEST=true
 RESET_CHAIN=false
 SAVE_SETUP=false
 RESTORE_SETUP=false
@@ -52,6 +53,10 @@ while [[ $# -gt 0 ]]; do
             RUN_EMERGENCY_CANCEL_TEST=false
             shift
             ;;
+        --no-operational-params)
+            RUN_OPERATIONAL_PARAMS_TEST=false
+            shift
+            ;;
         --reset-chain)
             RESET_CHAIN=true
             shift
@@ -64,6 +69,7 @@ while [[ $# -gt 0 ]]; do
             RUN_PARAMS_UPDATE_TEST=false
             RUN_LIQUIDITY_WITHDRAWAL_TEST=false
             RUN_EMERGENCY_CANCEL_TEST=false
+            RUN_OPERATIONAL_PARAMS_TEST=false
             shift
             ;;
         --restore-setup)
@@ -77,6 +83,7 @@ while [[ $# -gt 0 ]]; do
             RUN_PARAMS_UPDATE_TEST=false
             RUN_LIQUIDITY_WITHDRAWAL_TEST=false
             RUN_EMERGENCY_CANCEL_TEST=false
+            RUN_OPERATIONAL_PARAMS_TEST=false
             shift
             ;;
         --help)
@@ -89,6 +96,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-params-update            Skip params_update_test.sh"
             echo "  --no-liquidity-withdrawal     Skip liquidity_withdrawal_test.sh"
             echo "  --no-emergency-cancel         Skip emergency_cancel_test.sh"
+            echo "  --no-operational-params       Skip operational_params_test.sh"
             echo "  --no-tests                    Skip all tests (use with --restore-setup)"
             echo "  --reset-chain                 Reset chain before running tests"
             echo "  --save-setup                  Run setup, save chain state, then exit"
@@ -277,6 +285,7 @@ echo "  2. Governance integration test:   $([ "$RUN_GOVERNANCE_INTEGRATION_TEST"
 echo "  3. Params update test:            $([ "$RUN_PARAMS_UPDATE_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  4. Liquidity withdrawal test:     $([ "$RUN_LIQUIDITY_WITHDRAWAL_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  5. Emergency cancel test:         $([ "$RUN_EMERGENCY_CANCEL_TEST" = true ] && echo "YES" || echo "SKIP")"
+echo "  6. Operational params test:       $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo ""
 
 if [ "$SAVE_SETUP" != true ] && [ "$RESTORE_SETUP" != true ]; then
@@ -470,6 +479,33 @@ else
 fi
 
 # ========================================================================
+# Step 6: Operational Params Test
+# ========================================================================
+if [ "$RUN_OPERATIONAL_PARAMS_TEST" = true ]; then
+    echo "========================================================================="
+    echo "TEST 6: OPERATIONAL PARAMS TEST"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/operational_params_test.sh"
+    OPERATIONAL_PARAMS_EXIT_CODE=$?
+
+    echo ""
+    if [ $OPERATIONAL_PARAMS_EXIT_CODE -eq 0 ]; then
+        echo "  Operational params test completed"
+    else
+        echo "  Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+else
+    echo "========================================================================="
+    echo "TEST 6: OPERATIONAL PARAMS TEST (SKIPPED)"
+    echo "========================================================================="
+    echo ""
+fi
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo "========================================================================="
@@ -482,6 +518,7 @@ echo "  Governance Integration:  $([ "$RUN_GOVERNANCE_INTEGRATION_TEST" = true ]
 echo "  Params Update:           $([ "$RUN_PARAMS_UPDATE_TEST" = true ] && ([ ${PARAMS_UPDATE_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Liquidity Withdrawal:    $([ "$RUN_LIQUIDITY_WITHDRAWAL_TEST" = true ] && ([ ${LIQUIDITY_WITHDRAWAL_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Emergency Cancel:        $([ "$RUN_EMERGENCY_CANCEL_TEST" = true ] && ([ ${EMERGENCY_CANCEL_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
+echo "  Operational Params:      $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo ""
 echo "========================================================================="
 echo "  TEST SUITE EXECUTION COMPLETED"

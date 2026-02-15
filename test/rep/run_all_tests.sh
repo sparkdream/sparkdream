@@ -24,6 +24,7 @@ RUN_STAKING_TEST=true
 RUN_COMPLEX_TEST=true
 RUN_EDGE_CASES_TEST=true
 RUN_ENDBLOCKER_TEST=true
+RUN_OPERATIONAL_PARAMS_TEST=true
 FUND_ALICE=true
 RESET_CHAIN=false
 SAVE_SETUP=false
@@ -78,6 +79,10 @@ while [[ $# -gt 0 ]]; do
             RUN_ENDBLOCKER_TEST=false
             shift
             ;;
+        --no-operational-params)
+            RUN_OPERATIONAL_PARAMS_TEST=false
+            shift
+            ;;
         --no-funding)
             FUND_ALICE=false
             shift
@@ -99,6 +104,7 @@ while [[ $# -gt 0 ]]; do
             RUN_COMPLEX_TEST=false
             RUN_EDGE_CASES_TEST=false
             RUN_ENDBLOCKER_TEST=false
+            RUN_OPERATIONAL_PARAMS_TEST=false
             shift
             ;;
         --restore-setup)
@@ -117,6 +123,7 @@ while [[ $# -gt 0 ]]; do
             RUN_COMPLEX_TEST=false
             RUN_EDGE_CASES_TEST=false
             RUN_ENDBLOCKER_TEST=false
+            RUN_OPERATIONAL_PARAMS_TEST=false
             shift
             ;;
         --help)
@@ -134,6 +141,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-complex     Skip complex_scenarios_test.sh"
             echo "  --no-edge-cases  Skip edge_cases_test.sh"
             echo "  --no-endblocker  Skip endblocker_test.sh"
+            echo "  --no-operational-params  Skip operational_params_test.sh"
             echo "  --no-funding     Skip funding Alice with extra DREAM"
             echo "  --no-tests       Skip all tests (use with --restore-setup for manual testing)"
             echo "  --reset-chain    Reset chain before running tests (requires manual restart)"
@@ -334,6 +342,7 @@ echo "  9. Challenge test:           $([ "$RUN_CHALLENGE_TEST" = true ] && echo 
 echo " 10. Complex scenarios test:   $([ "$RUN_COMPLEX_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo " 11. Edge cases test:          $([ "$RUN_EDGE_CASES_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo " 12. EndBlocker test:          $([ "$RUN_ENDBLOCKER_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo " 13. Operational params test:  $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo ""
 
 if [ "$SAVE_SETUP" != true ] && [ "$RESTORE_SETUP" != true ]; then
@@ -826,6 +835,33 @@ else
 fi
 
 # ========================================================================
+# Step 13: Run Operational Params Test
+# ========================================================================
+if [ "$RUN_OPERATIONAL_PARAMS_TEST" = true ]; then
+    echo "========================================================================="
+    echo "STEP 13: OPERATIONAL PARAMS TEST"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/operational_params_test.sh"
+    OPERATIONAL_PARAMS_EXIT_CODE=$?
+
+    echo ""
+    if [ $OPERATIONAL_PARAMS_EXIT_CODE -eq 0 ]; then
+        echo "✅ Operational params test completed"
+    else
+        echo "⚠️  Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+else
+    echo "========================================================================="
+    echo "STEP 13: OPERATIONAL PARAMS TEST (SKIPPED)"
+    echo "========================================================================="
+    echo ""
+fi
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo "========================================================================="
@@ -845,6 +881,7 @@ echo "  Challenge Test:     $([ "$RUN_CHALLENGE_TEST" = true ] && ([ $CHALLENGE_
 echo "  Complex Test:       $([ "$RUN_COMPLEX_TEST" = true ] && ([ $COMPLEX_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  Edge Cases Test:    $([ "$RUN_EDGE_CASES_TEST" = true ] && ([ $EDGE_CASES_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  EndBlocker Test:    $([ "$RUN_ENDBLOCKER_TEST" = true ] && ([ $ENDBLOCKER_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
+echo "  Op Params Test:    $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo ""
 
 # Final Alice balance

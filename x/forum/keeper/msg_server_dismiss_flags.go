@@ -16,7 +16,7 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 	}
 
 	// Only sentinels or operations committee can dismiss flags
-	isGovAuthority := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	// Check if sender is a sentinel
 	sentinelActivity, err := k.SentinelActivity.Get(ctx, msg.Creator)

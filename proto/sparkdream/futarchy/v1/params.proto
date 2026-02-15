@@ -35,3 +35,21 @@ message Params {
   // Maximum allowed exponent value for LMSR calculations (for numerical stability)
   string max_lmsr_exponent = 6;
 }
+
+// FutarchyOperationalParams defines the operational parameters that can be updated
+// by the Commons Council Operations Committee without a full governance proposal.
+// Governance-only fields (min_liquidity, default_min_tick, max_lmsr_exponent) are
+// excluded and can only be changed via MsgUpdateParams.
+message FutarchyOperationalParams {
+  option (amino.name) = "sparkdream/x/futarchy/FutarchyOperationalParams";
+  option (gogoproto.equal) = true;
+
+  // Trading fee in basis points (e.g., 30 = 0.3%)
+  uint64 trading_fee_bps = 1;
+
+  // Maximum market duration in blocks
+  int64 max_duration = 2;
+
+  // Maximum redemption delay in blocks
+  int64 max_redemption_delay = 3;
+}

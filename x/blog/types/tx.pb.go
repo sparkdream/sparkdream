@@ -125,6 +125,103 @@ func (m *MsgUpdateParamsResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgUpdateParamsResponse proto.InternalMessageInfo
 
+// MsgUpdateOperationalParams is the Msg/UpdateOperationalParams request type.
+// Authorized: Commons Council Operations Committee (via IsCouncilAuthorized).
+type MsgUpdateOperationalParams struct {
+	// authority is the address authorized to update operational params.
+	// Can be: governance authority, Commons Council policy address,
+	// or Commons Operations Committee member.
+	Authority string `protobuf:"bytes,1,opt,name=authority,proto3" json:"authority,omitempty"`
+	// operational_params defines the operational parameters to update.
+	// NOTE: All operational parameters must be supplied.
+	OperationalParams BlogOperationalParams `protobuf:"bytes,2,opt,name=operational_params,json=operationalParams,proto3" json:"operational_params"`
+}
+
+func (m *MsgUpdateOperationalParams) Reset()         { *m = MsgUpdateOperationalParams{} }
+func (m *MsgUpdateOperationalParams) String() string { return proto.CompactTextString(m) }
+func (*MsgUpdateOperationalParams) ProtoMessage()    {}
+func (*MsgUpdateOperationalParams) Descriptor() ([]byte, []int) {
+	return fileDescriptor_8e4b86c95d7a71cc, []int{2}
+}
+func (m *MsgUpdateOperationalParams) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgUpdateOperationalParams) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgUpdateOperationalParams.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgUpdateOperationalParams) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgUpdateOperationalParams.Merge(m, src)
+}
+func (m *MsgUpdateOperationalParams) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgUpdateOperationalParams) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgUpdateOperationalParams.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgUpdateOperationalParams proto.InternalMessageInfo
+
+func (m *MsgUpdateOperationalParams) GetAuthority() string {
+	if m != nil {
+		return m.Authority
+	}
+	return ""
+}
+
+func (m *MsgUpdateOperationalParams) GetOperationalParams() BlogOperationalParams {
+	if m != nil {
+		return m.OperationalParams
+	}
+	return BlogOperationalParams{}
+}
+
+// MsgUpdateOperationalParamsResponse defines the response structure for executing a
+// MsgUpdateOperationalParams message.
+type MsgUpdateOperationalParamsResponse struct {
+}
+
+func (m *MsgUpdateOperationalParamsResponse) Reset()         { *m = MsgUpdateOperationalParamsResponse{} }
+func (m *MsgUpdateOperationalParamsResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgUpdateOperationalParamsResponse) ProtoMessage()    {}
+func (*MsgUpdateOperationalParamsResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_8e4b86c95d7a71cc, []int{3}
+}
+func (m *MsgUpdateOperationalParamsResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgUpdateOperationalParamsResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgUpdateOperationalParamsResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgUpdateOperationalParamsResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgUpdateOperationalParamsResponse.Merge(m, src)
+}
+func (m *MsgUpdateOperationalParamsResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgUpdateOperationalParamsResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgUpdateOperationalParamsResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgUpdateOperationalParamsResponse proto.InternalMessageInfo
+
 // MsgCreatePost defines the MsgCreatePost message.
 type MsgCreatePost struct {
 	Creator     string            `protobuf:"bytes,1,opt,name=creator,proto3" json:"creator,omitempty"`
@@ -137,7 +234,7 @@ func (m *MsgCreatePost) Reset()         { *m = MsgCreatePost{} }
 func (m *MsgCreatePost) String() string { return proto.CompactTextString(m) }
 func (*MsgCreatePost) ProtoMessage()    {}
 func (*MsgCreatePost) Descriptor() ([]byte, []int) {
-	return fileDescriptor_8e4b86c95d7a71cc, []int{2}
+	return fileDescriptor_8e4b86c95d7a71cc, []int{4}
 }
 func (m *MsgCreatePost) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -203,7 +300,7 @@ func (m *MsgCreatePostResponse) Reset()         { *m = MsgCreatePostResponse{} }
 func (m *MsgCreatePostResponse) String() string { return proto.CompactTextString(m) }
 func (*MsgCreatePostResponse) ProtoMessage()    {}
 func (*MsgCreatePostResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_8e4b86c95d7a71cc, []int{3}
+	return fileDescriptor_8e4b86c95d7a71cc, []int{5}
 }
 func (m *MsgCreatePostResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -252,7 +349,7 @@ func (m *MsgUpdatePost) Reset()         { *m = MsgUpdatePost{} }
 func (m *MsgUpdatePost) String() string { return proto.CompactTextString(m) }
 func (*MsgUpdatePost) ProtoMessage()    {}
 func (*MsgUpdatePost) Descriptor() ([]byte, []int) {
-	return fileDescriptor_8e4b86c95d7a71cc, []int{4}
+	return fileDescriptor_8e4b86c95d7a71cc, []int{6}
 }
 func (m *MsgUpdatePost) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -324,7 +421,7 @@ func (m *MsgUpdatePostResponse) Reset()         { *m = MsgUpdatePostResponse{} }
 func (m *MsgUpdatePostResponse) String() string { return proto.CompactTextString(m) }
 func (*MsgUpdatePostResponse) ProtoMessage()    {}
 func (*MsgUpdatePostResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_8e4b86c95d7a71cc, []int{5}
+	return fileDescriptor_8e4b86c95d7a71cc, []int{7}
 }
 func (m *MsgUpdatePostResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -363,7 +460,7 @@ func (m *MsgDeletePost) Reset()         { *m = MsgDeletePost{} }
 func (m *MsgDeletePost) String() string { return proto.CompactTextString(m) }
 func (*MsgDeletePost) ProtoMessage()    {}
 func (*MsgDeletePost) Descriptor() ([]byte, []int) {
-	return fileDescriptor_8e4b86c95d7a71cc, []int{6}
+	return fileDescriptor_8e4b86c95d7a71cc, []int{8}
 }
 func (m *MsgDeletePost) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -414,7 +511,7 @@ func (m *MsgDeletePostResponse) Reset()         { *m = MsgDeletePostResponse{} }
 func (m *MsgDeletePostResponse) String() string { return proto.CompactTextString(m) }
 func (*MsgDeletePostResponse) ProtoMessage()    {}
 func (*MsgDeletePostResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_8e4b86c95d7a71cc, []int{7}
+	return fileDescriptor_8e4b86c95d7a71cc, []int{9}
 }
 func (m *MsgDeletePostResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -446,6 +543,8 @@ var xxx_messageInfo_MsgDeletePostResponse proto.InternalMessageInfo
 func init() {
 	proto.RegisterType((*MsgUpdateParams)(nil), "sparkdream.blog.v1.MsgUpdateParams")
 	proto.RegisterType((*MsgUpdateParamsResponse)(nil), "sparkdream.blog.v1.MsgUpdateParamsResponse")
+	proto.RegisterType((*MsgUpdateOperationalParams)(nil), "sparkdream.blog.v1.MsgUpdateOperationalParams")
+	proto.RegisterType((*MsgUpdateOperationalParamsResponse)(nil), "sparkdream.blog.v1.MsgUpdateOperationalParamsResponse")
 	proto.RegisterType((*MsgCreatePost)(nil), "sparkdream.blog.v1.MsgCreatePost")
 	proto.RegisterType((*MsgCreatePostResponse)(nil), "sparkdream.blog.v1.MsgCreatePostResponse")
 	proto.RegisterType((*MsgUpdatePost)(nil), "sparkdream.blog.v1.MsgUpdatePost")
@@ -457,42 +556,47 @@ func init() {
 func init() { proto.RegisterFile("sparkdream/blog/v1/tx.proto", fileDescriptor_8e4b86c95d7a71cc) }
 
 var fileDescriptor_8e4b86c95d7a71cc = []byte{
-	// 557 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x94, 0xbf, 0x6f, 0xd3, 0x40,
-	0x14, 0xc7, 0x73, 0xf9, 0x51, 0x94, 0x6b, 0x28, 0xe2, 0x14, 0x14, 0xd7, 0x48, 0x6e, 0x62, 0x86,
-	0x86, 0x20, 0x6c, 0x25, 0x20, 0x86, 0x4a, 0x0c, 0xa4, 0x5d, 0x23, 0x21, 0x03, 0x4b, 0x97, 0xe2,
-	0xd8, 0x27, 0x63, 0x11, 0xfb, 0x2c, 0xdf, 0x51, 0x35, 0x1b, 0xea, 0xc8, 0xc4, 0x9f, 0xc1, 0x98,
-	0x81, 0x19, 0x89, 0xad, 0x63, 0x61, 0x62, 0x42, 0x28, 0x19, 0xf2, 0x6f, 0xa0, 0xbb, 0xb3, 0x6b,
-	0x37, 0x3f, 0x5a, 0x24, 0xd4, 0x25, 0xf2, 0xbb, 0xf7, 0xbd, 0xf7, 0xde, 0xe7, 0xbd, 0x97, 0x83,
-	0xf7, 0x69, 0x64, 0xc7, 0xef, 0xdd, 0x18, 0xdb, 0x81, 0x39, 0x1c, 0x11, 0xcf, 0x3c, 0xee, 0x9a,
-	0xec, 0xc4, 0x88, 0x62, 0xc2, 0x08, 0x42, 0x99, 0xd3, 0xe0, 0x4e, 0xe3, 0xb8, 0xab, 0xde, 0xb5,
-	0x03, 0x3f, 0x24, 0xa6, 0xf8, 0x95, 0x32, 0xb5, 0xe1, 0x10, 0x1a, 0x10, 0x6a, 0x06, 0x54, 0x5c,
-	0x0f, 0xa8, 0x97, 0x38, 0xb6, 0xa5, 0xe3, 0x48, 0x58, 0xa6, 0x34, 0x12, 0x57, 0xdd, 0x23, 0x1e,
-	0x91, 0xe7, 0xfc, 0x2b, 0x39, 0xdd, 0x59, 0x51, 0x4d, 0x64, 0xc7, 0x76, 0x90, 0x5e, 0xdb, 0xcd,
-	0x09, 0x1c, 0x12, 0x04, 0x24, 0xe4, 0x12, 0x87, 0x84, 0x0c, 0x87, 0xec, 0x88, 0x8d, 0x23, 0x2c,
-	0x85, 0xfa, 0x37, 0x00, 0xef, 0x0c, 0xa8, 0xf7, 0x26, 0x72, 0x6d, 0x86, 0x5f, 0x8a, 0x10, 0xe8,
-	0x19, 0xac, 0xda, 0x1f, 0xd8, 0x3b, 0x12, 0xfb, 0x6c, 0xac, 0x80, 0x26, 0x68, 0x57, 0xfb, 0xca,
-	0xcf, 0xaf, 0x8f, 0xeb, 0x49, 0x61, 0x2f, 0x5c, 0x37, 0xc6, 0x94, 0xbe, 0x62, 0xb1, 0x1f, 0x7a,
-	0x56, 0x26, 0x45, 0xcf, 0xe1, 0x86, 0x2c, 0x42, 0x29, 0x36, 0x41, 0x7b, 0xb3, 0xa7, 0x1a, 0xcb,
-	0x7d, 0x31, 0x64, 0x8e, 0x7e, 0xf5, 0xec, 0xf7, 0x4e, 0xe1, 0xcb, 0x7c, 0xd2, 0x01, 0x56, 0x72,
-	0x69, 0xef, 0xe9, 0xe9, 0x7c, 0xd2, 0xc9, 0xc2, 0x7d, 0x9a, 0x4f, 0x3a, 0xad, 0x1c, 0xc6, 0x89,
-	0x24, 0x5d, 0x28, 0x56, 0xdf, 0x86, 0x8d, 0x85, 0x23, 0x0b, 0xd3, 0x88, 0x84, 0x14, 0xeb, 0xdf,
-	0x01, 0xbc, 0x3d, 0xa0, 0xde, 0x7e, 0x8c, 0xb9, 0x8f, 0x50, 0x86, 0x7a, 0xf0, 0x96, 0xc3, 0x2d,
-	0x12, 0x5f, 0xcb, 0x95, 0x0a, 0x51, 0x1d, 0x56, 0x98, 0xcf, 0x46, 0x58, 0x40, 0x55, 0x2d, 0x69,
-	0x20, 0x04, 0xcb, 0x43, 0xe2, 0x8e, 0x95, 0x92, 0x38, 0x14, 0xdf, 0xe8, 0x00, 0xd6, 0xf2, 0x1d,
-	0x56, 0x2a, 0x4d, 0xd0, 0xde, 0xea, 0xb5, 0xf2, 0x5d, 0x90, 0xb3, 0xe0, 0x7d, 0xd8, 0x97, 0xca,
-	0xd7, 0xe3, 0x08, 0x5b, 0x9b, 0x4e, 0x66, 0xec, 0xd5, 0x78, 0x1b, 0xd2, 0xec, 0xfa, 0x2e, 0xbc,
-	0x77, 0x09, 0x21, 0x85, 0x43, 0x5b, 0xb0, 0xe8, 0xbb, 0x82, 0xa2, 0x6c, 0x15, 0x7d, 0x57, 0xff,
-	0x21, 0x61, 0x93, 0x46, 0xdc, 0x3c, 0xac, 0xcc, 0x5f, 0x4e, 0xf3, 0xdf, 0x08, 0x7c, 0x43, 0xc0,
-	0x67, 0x48, 0x17, 0x93, 0xb5, 0x05, 0xeb, 0x01, 0x1e, 0xe1, 0xff, 0x60, 0x95, 0x04, 0xc5, 0x94,
-	0x60, 0x65, 0xee, 0x2c, 0x45, 0x9a, 0xbb, 0x77, 0x5a, 0x82, 0xa5, 0x01, 0xf5, 0xd0, 0x5b, 0x58,
-	0xbb, 0xf4, 0xaf, 0x79, 0xb0, 0x6a, 0xdb, 0x17, 0x56, 0x53, 0x7d, 0xf4, 0x0f, 0xa2, 0x8b, 0x11,
-	0x1f, 0x42, 0x98, 0xdb, 0xdd, 0xd6, 0x9a, 0xab, 0x99, 0x44, 0x7d, 0x78, 0xad, 0x24, 0x1f, 0x3b,
-	0xb7, 0x2a, 0xad, 0xab, 0xcb, 0xba, 0x2a, 0xf6, 0xf2, 0x74, 0x78, 0xec, 0xdc, 0x68, 0xd6, 0xc5,
-	0xce, 0x24, 0x6b, 0x63, 0x2f, 0x77, 0x5f, 0xad, 0x7c, 0xe4, 0x6f, 0x46, 0xbf, 0x7b, 0x36, 0xd5,
-	0xc0, 0xf9, 0x54, 0x03, 0x7f, 0xa6, 0x1a, 0xf8, 0x3c, 0xd3, 0x0a, 0xe7, 0x33, 0xad, 0xf0, 0x6b,
-	0xa6, 0x15, 0x0e, 0x1b, 0xcb, 0x4f, 0x06, 0xdf, 0x47, 0x3a, 0xdc, 0x10, 0x0f, 0xde, 0x93, 0xbf,
-	0x01, 0x00, 0x00, 0xff, 0xff, 0xe8, 0x10, 0x59, 0x0c, 0xca, 0x05, 0x00, 0x00,
+	// 635 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x55, 0xb1, 0x6f, 0xd3, 0x4e,
+	0x14, 0xce, 0xa5, 0x69, 0x7f, 0xca, 0x35, 0xbf, 0xa2, 0x9e, 0x82, 0x92, 0x1a, 0xc9, 0x4d, 0x0c,
+	0x52, 0xd3, 0x00, 0xb6, 0x12, 0x50, 0x87, 0x48, 0x08, 0x91, 0x76, 0x8d, 0x40, 0x06, 0x96, 0x2e,
+	0xc1, 0xb1, 0x4f, 0xc6, 0x22, 0xf6, 0x59, 0xbe, 0xa3, 0x6a, 0x36, 0x60, 0x60, 0x60, 0xe2, 0xcf,
+	0x60, 0xcc, 0xc0, 0x8c, 0xc4, 0xd6, 0xb1, 0x30, 0x31, 0x21, 0x94, 0x0c, 0xf9, 0x1f, 0x98, 0x90,
+	0x7d, 0x76, 0xec, 0xc4, 0x49, 0x0a, 0xaa, 0xba, 0x44, 0x7e, 0xf7, 0x3e, 0x7f, 0xef, 0x7d, 0x9f,
+	0xdf, 0xbb, 0xc0, 0x1b, 0xd4, 0xd5, 0xbc, 0x57, 0x86, 0x87, 0x35, 0x5b, 0xe9, 0xf5, 0x89, 0xa9,
+	0x9c, 0x34, 0x14, 0x76, 0x2a, 0xbb, 0x1e, 0x61, 0x04, 0xa1, 0x38, 0x29, 0xfb, 0x49, 0xf9, 0xa4,
+	0x21, 0x6c, 0x6b, 0xb6, 0xe5, 0x10, 0x25, 0xf8, 0xe5, 0x30, 0xa1, 0xa4, 0x13, 0x6a, 0x13, 0xaa,
+	0xd8, 0x34, 0x78, 0xdd, 0xa6, 0x66, 0x98, 0xd8, 0xe1, 0x89, 0x6e, 0x10, 0x29, 0x3c, 0x08, 0x53,
+	0x45, 0x93, 0x98, 0x84, 0x9f, 0xfb, 0x4f, 0xe1, 0xe9, 0xee, 0x82, 0x6e, 0x5c, 0xcd, 0xd3, 0xec,
+	0xe8, 0xb5, 0xbd, 0x04, 0x40, 0x27, 0xb6, 0x4d, 0x1c, 0x1f, 0xa2, 0x13, 0x87, 0x61, 0x87, 0x75,
+	0xd9, 0xc0, 0xc5, 0x1c, 0x28, 0x7d, 0x01, 0xf0, 0x5a, 0x87, 0x9a, 0xcf, 0x5d, 0x43, 0x63, 0xf8,
+	0x49, 0x40, 0x81, 0x0e, 0x60, 0x5e, 0x7b, 0xcd, 0x5e, 0x12, 0xcf, 0x62, 0x83, 0x32, 0xa8, 0x80,
+	0x5a, 0xbe, 0x5d, 0xfe, 0xfe, 0xf9, 0x6e, 0x31, 0x6c, 0xec, 0x91, 0x61, 0x78, 0x98, 0xd2, 0xa7,
+	0xcc, 0xb3, 0x1c, 0x53, 0x8d, 0xa1, 0xe8, 0x01, 0xdc, 0xe0, 0x4d, 0x94, 0xb3, 0x15, 0x50, 0xdb,
+	0x6c, 0x0a, 0x72, 0xda, 0x17, 0x99, 0xd7, 0x68, 0xe7, 0xcf, 0x7e, 0xee, 0x66, 0x3e, 0x4d, 0x86,
+	0x75, 0xa0, 0x86, 0x2f, 0xb5, 0xee, 0xbf, 0x9b, 0x0c, 0xeb, 0x31, 0xdd, 0x87, 0xc9, 0xb0, 0x5e,
+	0x4d, 0xc8, 0x38, 0xe5, 0x4a, 0xe7, 0x9a, 0x95, 0x76, 0x60, 0x69, 0xee, 0x48, 0xc5, 0xd4, 0x25,
+	0x0e, 0xc5, 0xd2, 0x6f, 0x00, 0x85, 0x69, 0xee, 0xb1, 0x8b, 0x3d, 0x8d, 0x59, 0xc4, 0xd1, 0xfa,
+	0x97, 0x94, 0xa9, 0x43, 0x44, 0x62, 0xb2, 0xee, 0x8c, 0xe4, 0xfd, 0x45, 0x92, 0xdb, 0x7d, 0x62,
+	0xa6, 0xca, 0x27, 0x1d, 0xd8, 0x26, 0xf3, 0xd9, 0xd6, 0xc3, 0xb4, 0x19, 0x77, 0x56, 0x98, 0x91,
+	0xa2, 0x97, 0x6e, 0x41, 0x69, 0x79, 0x76, 0x6a, 0xd1, 0x57, 0x00, 0xff, 0xef, 0x50, 0xf3, 0xd0,
+	0xc3, 0xbe, 0x7d, 0x84, 0x32, 0xd4, 0x84, 0xff, 0xe9, 0x7e, 0x44, 0xbc, 0x0b, 0x3d, 0x89, 0x80,
+	0xa8, 0x08, 0xd7, 0x99, 0xc5, 0xfa, 0x38, 0x30, 0x21, 0xaf, 0xf2, 0x00, 0x21, 0x98, 0xeb, 0x11,
+	0x63, 0x50, 0x5e, 0x0b, 0x0e, 0x83, 0x67, 0x74, 0x04, 0x0b, 0xc9, 0x21, 0x2c, 0xaf, 0x57, 0x40,
+	0x6d, 0xab, 0x59, 0x4d, 0xba, 0xc6, 0xc7, 0xd5, 0xf7, 0xed, 0x90, 0x23, 0x9f, 0x0d, 0x5c, 0xac,
+	0x6e, 0xea, 0x71, 0xd0, 0x2a, 0xf8, 0xe6, 0x44, 0xd5, 0xa5, 0x3d, 0x78, 0x7d, 0x46, 0x42, 0x24,
+	0x0e, 0x6d, 0xc1, 0xac, 0x65, 0x04, 0x2a, 0x72, 0x6a, 0xd6, 0x32, 0xa4, 0x6f, 0x5c, 0x6c, 0x38,
+	0x2b, 0x57, 0x2f, 0x96, 0xd7, 0xcf, 0x45, 0xf5, 0xaf, 0x44, 0x7c, 0x29, 0x10, 0x1f, 0x4b, 0x9a,
+	0x7e, 0x59, 0x2d, 0xd0, 0x7a, 0x84, 0xfb, 0xf8, 0x12, 0x5a, 0xb9, 0x82, 0x6c, 0xa4, 0x60, 0x61,
+	0xed, 0xb8, 0x44, 0x54, 0xbb, 0xf9, 0x3e, 0x07, 0xd7, 0x3a, 0xd4, 0x44, 0x2f, 0x60, 0x61, 0xe6,
+	0x62, 0xb9, 0xb9, 0x68, 0x3b, 0xe6, 0xb6, 0x57, 0xb8, 0xfd, 0x17, 0xa0, 0xe9, 0x27, 0x7e, 0x0b,
+	0x60, 0x69, 0xd9, 0x7e, 0xcb, 0x2b, 0x89, 0x52, 0x78, 0xe1, 0xe0, 0xdf, 0xf0, 0xd3, 0x1e, 0x8e,
+	0x21, 0x4c, 0xec, 0x4f, 0x75, 0x09, 0x4b, 0x0c, 0x11, 0xf6, 0x2f, 0x84, 0x24, 0xb9, 0x13, 0xe3,
+	0x5a, 0x5d, 0x6d, 0xcd, 0x2a, 0xee, 0xf4, 0x84, 0xf8, 0xdc, 0x89, 0xf1, 0x58, 0xc6, 0x1d, 0x43,
+	0x96, 0x72, 0xa7, 0x27, 0x40, 0x58, 0x7f, 0xe3, 0x5f, 0x6c, 0xed, 0xc6, 0xd9, 0x48, 0x04, 0xe7,
+	0x23, 0x11, 0xfc, 0x1a, 0x89, 0xe0, 0xe3, 0x58, 0xcc, 0x9c, 0x8f, 0xc5, 0xcc, 0x8f, 0xb1, 0x98,
+	0x39, 0x2e, 0xa5, 0x2f, 0x33, 0x7f, 0x27, 0x68, 0x6f, 0x23, 0xf8, 0x5f, 0xba, 0xf7, 0x27, 0x00,
+	0x00, 0xff, 0xff, 0x73, 0x71, 0x86, 0xb9, 0x71, 0x07, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -510,6 +614,9 @@ type MsgClient interface {
 	// UpdateParams defines a (governance) operation for updating the module
 	// parameters. The authority defaults to the x/gov module account.
 	UpdateParams(ctx context.Context, in *MsgUpdateParams, opts ...grpc.CallOption) (*MsgUpdateParamsResponse, error)
+	// UpdateOperationalParams defines an operation for updating the module's
+	// operational parameters. Authorized for Commons Council Operations Committee.
+	UpdateOperationalParams(ctx context.Context, in *MsgUpdateOperationalParams, opts ...grpc.CallOption) (*MsgUpdateOperationalParamsResponse, error)
 	// CreatePost defines the CreatePost RPC.
 	CreatePost(ctx context.Context, in *MsgCreatePost, opts ...grpc.CallOption) (*MsgCreatePostResponse, error)
 	// UpdatePost defines the UpdatePost RPC.
@@ -529,6 +636,15 @@ func NewMsgClient(cc grpc1.ClientConn) MsgClient {
 func (c *msgClient) UpdateParams(ctx context.Context, in *MsgUpdateParams, opts ...grpc.CallOption) (*MsgUpdateParamsResponse, error) {
 	out := new(MsgUpdateParamsResponse)
 	err := c.cc.Invoke(ctx, "/sparkdream.blog.v1.Msg/UpdateParams", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *msgClient) UpdateOperationalParams(ctx context.Context, in *MsgUpdateOperationalParams, opts ...grpc.CallOption) (*MsgUpdateOperationalParamsResponse, error) {
+	out := new(MsgUpdateOperationalParamsResponse)
+	err := c.cc.Invoke(ctx, "/sparkdream.blog.v1.Msg/UpdateOperationalParams", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -567,6 +683,9 @@ type MsgServer interface {
 	// UpdateParams defines a (governance) operation for updating the module
 	// parameters. The authority defaults to the x/gov module account.
 	UpdateParams(context.Context, *MsgUpdateParams) (*MsgUpdateParamsResponse, error)
+	// UpdateOperationalParams defines an operation for updating the module's
+	// operational parameters. Authorized for Commons Council Operations Committee.
+	UpdateOperationalParams(context.Context, *MsgUpdateOperationalParams) (*MsgUpdateOperationalParamsResponse, error)
 	// CreatePost defines the CreatePost RPC.
 	CreatePost(context.Context, *MsgCreatePost) (*MsgCreatePostResponse, error)
 	// UpdatePost defines the UpdatePost RPC.
@@ -581,6 +700,9 @@ type UnimplementedMsgServer struct {
 
 func (*UnimplementedMsgServer) UpdateParams(ctx context.Context, req *MsgUpdateParams) (*MsgUpdateParamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateParams not implemented")
+}
+func (*UnimplementedMsgServer) UpdateOperationalParams(ctx context.Context, req *MsgUpdateOperationalParams) (*MsgUpdateOperationalParamsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateOperationalParams not implemented")
 }
 func (*UnimplementedMsgServer) CreatePost(ctx context.Context, req *MsgCreatePost) (*MsgCreatePostResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreatePost not implemented")
@@ -610,6 +732,24 @@ func _Msg_UpdateParams_Handler(srv interface{}, ctx context.Context, dec func(in
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MsgServer).UpdateParams(ctx, req.(*MsgUpdateParams))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_UpdateOperationalParams_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgUpdateOperationalParams)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).UpdateOperationalParams(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/sparkdream.blog.v1.Msg/UpdateOperationalParams",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).UpdateOperationalParams(ctx, req.(*MsgUpdateOperationalParams))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -676,6 +816,10 @@ var _Msg_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateParams",
 			Handler:    _Msg_UpdateParams_Handler,
+		},
+		{
+			MethodName: "UpdateOperationalParams",
+			Handler:    _Msg_UpdateOperationalParams_Handler,
 		},
 		{
 			MethodName: "CreatePost",
@@ -750,6 +894,69 @@ func (m *MsgUpdateParamsResponse) MarshalTo(dAtA []byte) (int, error) {
 }
 
 func (m *MsgUpdateParamsResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgUpdateOperationalParams) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgUpdateOperationalParams) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgUpdateOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.OperationalParams.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintTx(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if len(m.Authority) > 0 {
+		i -= len(m.Authority)
+		copy(dAtA[i:], m.Authority)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Authority)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgUpdateOperationalParamsResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgUpdateOperationalParamsResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgUpdateOperationalParamsResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1004,6 +1211,30 @@ func (m *MsgUpdateParamsResponse) Size() (n int) {
 	return n
 }
 
+func (m *MsgUpdateOperationalParams) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Authority)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	l = m.OperationalParams.Size()
+	n += 1 + l + sovTx(uint64(l))
+	return n
+}
+
+func (m *MsgUpdateOperationalParamsResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	return n
+}
+
 func (m *MsgCreatePost) Size() (n int) {
 	if m == nil {
 		return 0
@@ -1249,6 +1480,171 @@ func (m *MsgUpdateParamsResponse) Unmarshal(dAtA []byte) error {
 		}
 		if fieldNum <= 0 {
 			return fmt.Errorf("proto: MsgUpdateParamsResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgUpdateOperationalParams) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgUpdateOperationalParams: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgUpdateOperationalParams: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Authority", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Authority = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field OperationalParams", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.OperationalParams.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgUpdateOperationalParamsResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgUpdateOperationalParamsResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgUpdateOperationalParamsResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:

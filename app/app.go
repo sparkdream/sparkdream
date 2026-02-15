@@ -216,6 +216,9 @@ func New(
 		panic(err)
 	}
 
+	// Wire CommonsKeeper into Futarchy after depinject to break cyclic dependency.
+	app.FutarchyKeeper.SetCommonsKeeper(app.CommonsKeeper)
+
 	// We explicitly tell Futarchy to call Commons when markets resolve.
 	app.FutarchyKeeper.SetHooks(
 		futarchymoduletypes.NewMultiFutarchyHooks(

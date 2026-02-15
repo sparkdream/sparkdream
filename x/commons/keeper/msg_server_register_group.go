@@ -264,10 +264,11 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		return nil, errorsmod.Wrap(err, "failed to set policy index")
 	}
 
-	// AUTOMATION: Start the Confidence Engine
-	// 1. Create the first market immediately (Baseline Check)
-	if err := k.TriggerGovernanceMarket(ctx, msg.Name); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to create initial governance market")
+	// AUTOMATION: Start the Confidence Engine (only if futarchy is enabled)
+	if msg.FutarchyEnabled {
+		if err := k.TriggerGovernanceMarket(ctx, msg.Name); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to create initial governance market")
+		}
 	}
 
 	return &types.MsgRegisterGroupResponse{}, nil

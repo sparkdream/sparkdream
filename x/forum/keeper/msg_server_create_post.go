@@ -88,7 +88,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 
 	// Check category write permissions
 	isMember := k.IsMember(ctx, msg.Creator)
-	isAuthorized := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+	isAuthorized := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	if category.AdminOnlyWrite && !isAuthorized {
 		return nil, types.ErrAdminOnlyWrite

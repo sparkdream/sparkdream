@@ -20,7 +20,7 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	isGov := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+	isGov := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 	isSentinel := k.GetRepTier(ctx, msg.Creator) >= 3 && k.GetSentinelBond(ctx, msg.Creator).GTE(types.DefaultMinSentinelBond)
 
 	if !isGov && !isSentinel {

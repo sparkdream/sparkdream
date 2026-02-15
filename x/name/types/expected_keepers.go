@@ -40,6 +40,9 @@ type CommonsKeeper interface {
 	SetExtendedGroup(context.Context, string, commonstypes.ExtendedGroup) error
 	GetPolicyPermissions(context.Context, string) (commonstypes.PolicyPermissions, error)
 	SetPolicyPermissions(context.Context, string, commonstypes.PolicyPermissions) error
+	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
+	// or committee membership.
+	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
 }
 
 // ExtendedGroup is a local proxy struct for the type defined x/commons.

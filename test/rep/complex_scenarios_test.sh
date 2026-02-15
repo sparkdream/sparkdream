@@ -781,53 +781,87 @@ if [ -n "$TXHASH" ]; then
         -y > /dev/null 2>&1
     sleep 3
 
-    $BINARY tx rep complete-initiative "$REFERRAL_INIT_ID" "Completed for referral test" \
+    COMPLETE_RES=$($BINARY tx rep complete-initiative "$REFERRAL_INIT_ID" "Completed for referral test" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 5000uspark \
-        -y > /dev/null 2>&1
+        -y \
+        --output json 2>&1)
     sleep 3
 
-    echo "Initiative completed"
+    # Validate via transaction events instead of balance comparison (balance changes include decay)
+    COMPLETE_TX=$(echo "$COMPLETE_RES" | jq -r '.txhash // empty')
+    if [ -n "$COMPLETE_TX" ]; then
+        TX_DETAIL=$($BINARY query tx "$COMPLETE_TX" --output json 2>/dev/null)
+        TX_CODE=$(echo "$TX_DETAIL" | jq -r '.code // 99')
+
+        if [ "$TX_CODE" == "0" ]; then
+            echo "✅ Initiative completed successfully"
+
+            # Check for DREAM minting event (initiative completion reward)
+            MINT_EVENT=$(echo "$TX_DETAIL" | jq -r '.events[] | select(.type=="mint_dream")' 2>/dev/null)
+            if [ -n "$MINT_EVENT" ]; then
+                MINT_AMOUNT=$(echo "$MINT_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
+                MINT_RECIPIENT=$(echo "$MINT_EVENT" | jq -r '.attributes[] | select(.key=="recipient") | .value' | tr -d '"')
+                echo "  DREAM minted: $MINT_AMOUNT to ${MINT_RECIPIENT:0:20}..."
+            fi
+
+            # Check for referral reward event
+            REFERRAL_EVENT=$(echo "$TX_DETAIL" | jq -r '.events[] | select(.type=="referral_reward")' 2>/dev/null)
+            if [ -n "$REFERRAL_EVENT" ]; then
+                REF_AMOUNT=$(echo "$REFERRAL_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
+                REF_INVITER=$(echo "$REFERRAL_EVENT" | jq -r '.attributes[] | select(.key=="inviter") | .value' | tr -d '"')
+                echo "  ✅ Referral reward: $REF_AMOUNT to ${REF_INVITER:0:20}..."
+            else
+                echo "  ℹ️  No referral_reward event (referral may be tracked differently)"
+            fi
+        else
+            echo "⚠️  Complete tx failed (code: $TX_CODE)"
+        fi
+    else
+        echo "Initiative completed (no txhash to verify)"
+    fi
 fi
 
-# Get balances after
+# Show final balances for informational purposes (note: includes decay)
 ALICE_BALANCE_AFTER=$(get_dream_balance_micro "$ALICE_ADDR")
 ASSIGNEE_BALANCE_AFTER=$(get_dream_balance_micro "$ASSIGNEE_ADDR")
 
 echo ""
-echo "Final balances (micro-DREAM):"
+echo "Final balances (micro-DREAM) - NOTE: includes accumulated decay:"
 echo "  Alice:    $ALICE_BALANCE_AFTER"
 echo "  Assignee: $ASSIGNEE_BALANCE_AFTER"
+echo "  (Raw balance changes are unreliable due to lazy decay application)"
 echo ""
 
-# Calculate changes
-ALICE_CHANGE=$(echo "$ALICE_BALANCE_AFTER - $ALICE_BALANCE_BEFORE" | bc 2>/dev/null || echo "0")
-ASSIGNEE_CHANGE=$(echo "$ASSIGNEE_BALANCE_AFTER - $ASSIGNEE_BALANCE_BEFORE" | bc 2>/dev/null || echo "0")
-
-echo "Balance changes:"
-echo "  Alice:    $ALICE_CHANGE micro-DREAM ($(echo "scale=6; $ALICE_CHANGE / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
-echo "  Assignee: $ASSIGNEE_CHANGE micro-DREAM ($(echo "scale=6; $ASSIGNEE_CHANGE / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
-echo ""
-
-# Check invitation for referral_earned
+# Check invitation for referral_earned using list-invitation and filter
+# Note: invitations-by-inviter returns flat fields, not an array.
+# Use list-invitation to get all invitations and filter by inviter.
 echo "Checking invitation records for referral tracking..."
-INVITATIONS=$($BINARY query rep invitations-by-inviter "$ALICE_ADDR" --output json 2>/dev/null)
-if [ -n "$INVITATIONS" ]; then
-    # Handle null/empty invitations array gracefully
-    ASSIGNEE_INV=$(echo "$INVITATIONS" | jq -r "(.invitations // [])[] | select(.invitee_address==\"$ASSIGNEE_ADDR\")" 2>/dev/null)
+ALL_INVITATIONS=$($BINARY query rep list-invitation --output json 2>/dev/null)
+if [ -n "$ALL_INVITATIONS" ]; then
+    # Proto field is "invitation" (singular repeated), not "invitations"
+    ASSIGNEE_INV=$(echo "$ALL_INVITATIONS" | jq -r "(.invitation // [])[] | select(.invitee_address==\"$ASSIGNEE_ADDR\")" 2>/dev/null)
     if [ -n "$ASSIGNEE_INV" ] && [ "$ASSIGNEE_INV" != "null" ]; then
         REF_EARNED=$(echo "$ASSIGNEE_INV" | jq -r '.referral_earned // "0"')
         REF_RATE=$(echo "$ASSIGNEE_INV" | jq -r '.referral_rate // "0"')
         REF_END=$(echo "$ASSIGNEE_INV" | jq -r '.referral_end // "0"')
+        INV_INVITER=$(echo "$ASSIGNEE_INV" | jq -r '.inviter_address // "unknown"')
 
-        echo "  Alice's invitation to assignee:"
+        echo "  Invitation to assignee found:"
+        echo "    - Inviter: ${INV_INVITER:0:20}..."
         echo "    - Referral rate: $REF_RATE (5%)"
         echo "    - Referral earned: $REF_EARNED micro-DREAM"
         echo "    - Referral end: $REF_END"
+
+        if [ -n "$REF_EARNED" ] && [ "$REF_EARNED" != "0" ] && [ "$REF_EARNED" != "null" ]; then
+            echo "    ✅ Referral earnings recorded"
+        else
+            echo "    ℹ️  No referral earnings yet (may be credited on next query)"
+        fi
     else
-        echo "  No invitation record found for assignee"
+        echo "  No invitation record found for assignee in list-invitation"
     fi
 fi
 
@@ -1003,8 +1037,12 @@ sleep 1
 # Worker1 stakes from initiative assignee
 $BINARY tx rep assign-initiative "$COMP_ID" "${WORKER_ADDRS[0]}" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "200" --from worker1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "200" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
+
+# Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
+echo "Waiting 15 seconds for conviction to accrue..."
+sleep 15
 
 # Query conviction
 CONVICTION=$($BINARY query rep initiative-conviction "$COMP_ID" --output json)
@@ -1026,15 +1064,17 @@ echo "  - External = 300 + 500 = 800"
 echo "  - Total = 300 + 500 + 200 = 1000"
 echo "  - External ratio = 800 / 1000 = 80%"
 
-if [ -n "$EXTERNAL" ] && [ "$EXTERNAL" != "0" ]; then
-    TOTAL_INT=$((CURRENT))
-    if [ $TOTAL_INT -gt 0 ]; then
-        EXTERNAL_RATIO=$((EXTERNAL * 100 / TOTAL_INT))
+if [ -n "$CURRENT" ] && [ "$CURRENT" != "0" ]; then
+    echo "  ✅ Conviction is non-zero ($CURRENT) - time-weighting working correctly"
+    if [ -n "$EXTERNAL" ] && [ "$EXTERNAL" != "0" ]; then
+        EXTERNAL_RATIO=$((EXTERNAL * 100 / CURRENT))
         echo "  External ratio: $EXTERNAL_RATIO%"
         if [ $EXTERNAL_RATIO -ge 50 ]; then
             echo "  ✅ External conviction >= 50% requirement met"
         fi
     fi
+else
+    echo "  ⚠️  Conviction still 0 (may need more time or epoch to pass)"
 fi
 
 # ========================================================================
@@ -1084,9 +1124,10 @@ for i in "${!CHALLENGE_INITS[@]}"; do
     INIT_ID=${CHALLENGE_INITS[$i]}
     WORKER_ADDR=${WORKER_ADDRS[$i % 5]}
 
+    WORKER=${WORKERS[$i % 5]}
     $BINARY tx rep assign-initiative "$INIT_ID" "$WORKER_ADDR" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
     sleep 1
-    $BINARY tx rep submit-initiative-work "$INIT_ID" "ipfs://QmChallenge$i" "Work for challenge test" --from "worker$((i+1))" --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+    $BINARY tx rep submit-initiative-work "$INIT_ID" "ipfs://QmChallenge$i" "Work for challenge test" --from "$WORKER" --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
     sleep 1
 
     echo "  Initiative $INIT_ID: submitted for challenge testing"
@@ -1179,10 +1220,16 @@ sleep 1
 
 # Check worker1's assigned initiatives
 WORKER1_INITS=$($BINARY query rep initiatives-by-assignee "${WORKER_ADDRS[0]}" --output json)
-WORKER1_COUNT=$(echo "$WORKER1_INITS" | jq -r '.initiatives | length // 0')
+# Note: initiatives-by-assignee returns flat fields (initiative_id, title, status),
+# not an .initiatives array. Check for initiative_id to verify assignment.
+WORKER1_INIT_ID=$(echo "$WORKER1_INITS" | jq -r '.initiative_id // "0"')
 
 echo ""
-echo "Worker1 assigned initiatives: $WORKER1_COUNT"
+if [ "$WORKER1_INIT_ID" != "0" ] && [ -n "$WORKER1_INIT_ID" ]; then
+    echo "Worker1 has assigned initiative(s) (ID: $WORKER1_INIT_ID)"
+else
+    echo "Worker1 has no assigned initiatives found"
+fi
 echo "Note: Worker can have initiatives across multiple projects"
 echo "  - Each initiative tracks its project_id"
 echo "  - Budget tracked per project separately"

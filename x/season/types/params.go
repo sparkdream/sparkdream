@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	"cosmossdk.io/math"
 )
 
@@ -150,4 +152,185 @@ func (p Params) Validate() error {
 		return ErrInvalidSigner
 	}
 	return nil
+}
+
+// DefaultSeasonOperationalParams returns default operational parameters.
+func DefaultSeasonOperationalParams() SeasonOperationalParams {
+	return SeasonOperationalParams{
+		EpochBlocks:                       DefaultEpochBlocks,
+		SeasonDurationEpochs:              DefaultSeasonDurationEpochs,
+		SeasonTransitionEpochs:            DefaultSeasonTransitionEpochs,
+		XpVoteCast:                        DefaultXpVoteCast,
+		XpProposalCreated:                 DefaultXpProposalCreated,
+		XpForumReplyReceived:              DefaultXpForumReplyReceived,
+		XpForumMarkedHelpful:              DefaultXpForumMarkedHelpful,
+		XpInviteeFirstInitiative:          DefaultXpInviteeFirstInitiative,
+		XpInviteeEstablished:              DefaultXpInviteeEstablished,
+		MaxVoteXpPerEpoch:                 DefaultMaxVoteXpPerEpoch,
+		MaxForumXpPerEpoch:                DefaultMaxForumXpPerEpoch,
+		MaxXpPerEpoch:                     DefaultMaxXpPerEpoch,
+		MinGuildMembers:                   DefaultMinGuildMembers,
+		MaxGuildOfficers:                  DefaultMaxGuildOfficers,
+		GuildCreationCost:                 DefaultGuildCreationCost,
+		GuildHopCooldownEpochs:            DefaultGuildHopCooldownEpochs,
+		MaxGuildsPerSeason:                DefaultMaxGuildsPerSeason,
+		MinGuildAgeEpochs:                 DefaultMinGuildAgeEpochs,
+		MaxPendingInvites:                 DefaultMaxPendingInvites,
+		DisplayNameMinLength:              DefaultDisplayNameMinLength,
+		DisplayNameMaxLength:              DefaultDisplayNameMaxLength,
+		DisplayNameChangeCooldownEpochs:   DefaultDisplayNameChangeCooldown,
+		TransitionBatchSize:               DefaultTransitionBatchSize,
+		MaxSeasonExtensions:               DefaultMaxSeasonExtensions,
+		MaxExtensionEpochs:                DefaultMaxExtensionEpochs,
+		GuildDescriptionMaxLength:         DefaultGuildDescriptionMaxLength,
+		GuildInviteTtlEpochs:             DefaultGuildInviteTtlEpochs,
+		MaxQuestObjectives:                DefaultMaxQuestObjectives,
+		ForumXpMinAccountAgeEpochs:        DefaultForumXpMinAccountAgeEpochs,
+		ForumXpReciprocalCooldownEpochs:   DefaultForumXpReciprocalCooldown,
+		ForumXpSelfReplyCooldownEpochs:    DefaultForumXpSelfReplyCooldown,
+		TransitionGracePeriod:             DefaultTransitionGracePeriod,
+		MaxQuestXpReward:                  DefaultMaxQuestXpReward,
+		UsernameMinLength:                 DefaultUsernameMinLength,
+		UsernameMaxLength:                 DefaultUsernameMaxLength,
+		UsernameChangeCooldownEpochs:      DefaultUsernameChangeCooldown,
+		UsernameCostDream:                 DefaultUsernameCostDream,
+		MaxActiveQuestsPerMember:          DefaultMaxActiveQuestsPerMember,
+		DisplayNameReportStakeDream:       DefaultDisplayNameReportStake,
+		MaxDisplayableTitles:              DefaultMaxDisplayableTitles,
+		InviteCleanupIntervalBlocks:       DefaultInviteCleanupInterval,
+		InviteCleanupBatchSize:            DefaultInviteCleanupBatchSize,
+		MaxObjectiveDescriptionLength:     DefaultMaxObjectiveDescLength,
+		DisplayNameAppealStakeDream:       DefaultDisplayNameAppealStake,
+		DisplayNameAppealPeriodBlocks:     DefaultDisplayNameAppealPeriod,
+		MaxArchivedTitles:                 DefaultMaxArchivedTitles,
+	}
+}
+
+// Validate validates the operational parameters.
+func (op SeasonOperationalParams) Validate() error {
+	if op.EpochBlocks <= 0 {
+		return fmt.Errorf("epoch_blocks must be positive: %d", op.EpochBlocks)
+	}
+	if op.SeasonDurationEpochs <= 0 {
+		return fmt.Errorf("season_duration_epochs must be positive: %d", op.SeasonDurationEpochs)
+	}
+	if op.SeasonTransitionEpochs <= 0 {
+		return fmt.Errorf("season_transition_epochs must be positive: %d", op.SeasonTransitionEpochs)
+	}
+	if op.DisplayNameMinLength > op.DisplayNameMaxLength {
+		return fmt.Errorf("display_name_min_length (%d) must be <= display_name_max_length (%d)", op.DisplayNameMinLength, op.DisplayNameMaxLength)
+	}
+	if op.UsernameMinLength > op.UsernameMaxLength {
+		return fmt.Errorf("username_min_length (%d) must be <= username_max_length (%d)", op.UsernameMinLength, op.UsernameMaxLength)
+	}
+	if op.MinGuildMembers < 1 {
+		return fmt.Errorf("min_guild_members must be >= 1: %d", op.MinGuildMembers)
+	}
+	return nil
+}
+
+// ApplyOperationalParams copies all operational fields from SeasonOperationalParams
+// onto the full Params, preserving governance-only fields (level_thresholds,
+// baseline_reputation, max_guild_members, retention settings, max_transition_epochs,
+// transition_max_retries).
+func (p Params) ApplyOperationalParams(op SeasonOperationalParams) Params {
+	p.EpochBlocks = op.EpochBlocks
+	p.SeasonDurationEpochs = op.SeasonDurationEpochs
+	p.SeasonTransitionEpochs = op.SeasonTransitionEpochs
+	p.XpVoteCast = op.XpVoteCast
+	p.XpProposalCreated = op.XpProposalCreated
+	p.XpForumReplyReceived = op.XpForumReplyReceived
+	p.XpForumMarkedHelpful = op.XpForumMarkedHelpful
+	p.XpInviteeFirstInitiative = op.XpInviteeFirstInitiative
+	p.XpInviteeEstablished = op.XpInviteeEstablished
+	p.MaxVoteXpPerEpoch = op.MaxVoteXpPerEpoch
+	p.MaxForumXpPerEpoch = op.MaxForumXpPerEpoch
+	p.MaxXpPerEpoch = op.MaxXpPerEpoch
+	p.MinGuildMembers = op.MinGuildMembers
+	p.MaxGuildOfficers = op.MaxGuildOfficers
+	p.GuildCreationCost = op.GuildCreationCost
+	p.GuildHopCooldownEpochs = op.GuildHopCooldownEpochs
+	p.MaxGuildsPerSeason = op.MaxGuildsPerSeason
+	p.MinGuildAgeEpochs = op.MinGuildAgeEpochs
+	p.MaxPendingInvites = op.MaxPendingInvites
+	p.DisplayNameMinLength = op.DisplayNameMinLength
+	p.DisplayNameMaxLength = op.DisplayNameMaxLength
+	p.DisplayNameChangeCooldownEpochs = op.DisplayNameChangeCooldownEpochs
+	p.TransitionBatchSize = op.TransitionBatchSize
+	p.MaxSeasonExtensions = op.MaxSeasonExtensions
+	p.MaxExtensionEpochs = op.MaxExtensionEpochs
+	p.GuildDescriptionMaxLength = op.GuildDescriptionMaxLength
+	p.GuildInviteTtlEpochs = op.GuildInviteTtlEpochs
+	p.MaxQuestObjectives = op.MaxQuestObjectives
+	p.ForumXpMinAccountAgeEpochs = op.ForumXpMinAccountAgeEpochs
+	p.ForumXpReciprocalCooldownEpochs = op.ForumXpReciprocalCooldownEpochs
+	p.ForumXpSelfReplyCooldownEpochs = op.ForumXpSelfReplyCooldownEpochs
+	p.TransitionGracePeriod = op.TransitionGracePeriod
+	p.MaxQuestXpReward = op.MaxQuestXpReward
+	p.UsernameMinLength = op.UsernameMinLength
+	p.UsernameMaxLength = op.UsernameMaxLength
+	p.UsernameChangeCooldownEpochs = op.UsernameChangeCooldownEpochs
+	p.UsernameCostDream = op.UsernameCostDream
+	p.MaxActiveQuestsPerMember = op.MaxActiveQuestsPerMember
+	p.DisplayNameReportStakeDream = op.DisplayNameReportStakeDream
+	p.MaxDisplayableTitles = op.MaxDisplayableTitles
+	p.InviteCleanupIntervalBlocks = op.InviteCleanupIntervalBlocks
+	p.InviteCleanupBatchSize = op.InviteCleanupBatchSize
+	p.MaxObjectiveDescriptionLength = op.MaxObjectiveDescriptionLength
+	p.DisplayNameAppealStakeDream = op.DisplayNameAppealStakeDream
+	p.DisplayNameAppealPeriodBlocks = op.DisplayNameAppealPeriodBlocks
+	p.MaxArchivedTitles = op.MaxArchivedTitles
+	return p
+}
+
+// ExtractOperationalParams extracts the operational fields from Params into SeasonOperationalParams.
+func (p Params) ExtractOperationalParams() SeasonOperationalParams {
+	return SeasonOperationalParams{
+		EpochBlocks:                       p.EpochBlocks,
+		SeasonDurationEpochs:              p.SeasonDurationEpochs,
+		SeasonTransitionEpochs:            p.SeasonTransitionEpochs,
+		XpVoteCast:                        p.XpVoteCast,
+		XpProposalCreated:                 p.XpProposalCreated,
+		XpForumReplyReceived:              p.XpForumReplyReceived,
+		XpForumMarkedHelpful:              p.XpForumMarkedHelpful,
+		XpInviteeFirstInitiative:          p.XpInviteeFirstInitiative,
+		XpInviteeEstablished:              p.XpInviteeEstablished,
+		MaxVoteXpPerEpoch:                 p.MaxVoteXpPerEpoch,
+		MaxForumXpPerEpoch:                p.MaxForumXpPerEpoch,
+		MaxXpPerEpoch:                     p.MaxXpPerEpoch,
+		MinGuildMembers:                   p.MinGuildMembers,
+		MaxGuildOfficers:                  p.MaxGuildOfficers,
+		GuildCreationCost:                 p.GuildCreationCost,
+		GuildHopCooldownEpochs:            p.GuildHopCooldownEpochs,
+		MaxGuildsPerSeason:                p.MaxGuildsPerSeason,
+		MinGuildAgeEpochs:                 p.MinGuildAgeEpochs,
+		MaxPendingInvites:                 p.MaxPendingInvites,
+		DisplayNameMinLength:              p.DisplayNameMinLength,
+		DisplayNameMaxLength:              p.DisplayNameMaxLength,
+		DisplayNameChangeCooldownEpochs:   p.DisplayNameChangeCooldownEpochs,
+		TransitionBatchSize:               p.TransitionBatchSize,
+		MaxSeasonExtensions:               p.MaxSeasonExtensions,
+		MaxExtensionEpochs:                p.MaxExtensionEpochs,
+		GuildDescriptionMaxLength:         p.GuildDescriptionMaxLength,
+		GuildInviteTtlEpochs:             p.GuildInviteTtlEpochs,
+		MaxQuestObjectives:                p.MaxQuestObjectives,
+		ForumXpMinAccountAgeEpochs:        p.ForumXpMinAccountAgeEpochs,
+		ForumXpReciprocalCooldownEpochs:   p.ForumXpReciprocalCooldownEpochs,
+		ForumXpSelfReplyCooldownEpochs:    p.ForumXpSelfReplyCooldownEpochs,
+		TransitionGracePeriod:             p.TransitionGracePeriod,
+		MaxQuestXpReward:                  p.MaxQuestXpReward,
+		UsernameMinLength:                 p.UsernameMinLength,
+		UsernameMaxLength:                 p.UsernameMaxLength,
+		UsernameChangeCooldownEpochs:      p.UsernameChangeCooldownEpochs,
+		UsernameCostDream:                 p.UsernameCostDream,
+		MaxActiveQuestsPerMember:          p.MaxActiveQuestsPerMember,
+		DisplayNameReportStakeDream:       p.DisplayNameReportStakeDream,
+		MaxDisplayableTitles:              p.MaxDisplayableTitles,
+		InviteCleanupIntervalBlocks:       p.InviteCleanupIntervalBlocks,
+		InviteCleanupBatchSize:            p.InviteCleanupBatchSize,
+		MaxObjectiveDescriptionLength:     p.MaxObjectiveDescriptionLength,
+		DisplayNameAppealStakeDream:       p.DisplayNameAppealStakeDream,
+		DisplayNameAppealPeriodBlocks:     p.DisplayNameAppealPeriodBlocks,
+		MaxArchivedTitles:                 p.MaxArchivedTitles,
+	}
 }

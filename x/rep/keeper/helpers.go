@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 
 	"cosmossdk.io/math"
@@ -53,6 +54,26 @@ func IsAffiliated(initiative types.Initiative, addr string) bool {
 	// Check project creator by looking at the initiative's project
 	// Note: This would require fetching the project, but for now we skip that check
 	return false
+}
+
+// IsGovAuthority checks if the given address is the governance authority.
+func (k Keeper) IsGovAuthority(addr string) bool {
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(k.GetAuthority(), addrBytes)
+}
+
+// IsCouncilAuthorized checks if the address is authorized via governance authority,
+// council policy address, or committee membership.
+// Delegates to x/commons IsCouncilAuthorized when available.
+// Falls back to IsGovAuthority when x/commons is not wired.
+func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+	if k.commonsKeeper == nil {
+		return k.IsGovAuthority(addr)
+	}
+	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
 // IsOperationsCommittee checks if an address is a member of the Operations committee

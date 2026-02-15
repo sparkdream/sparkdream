@@ -24,3 +24,16 @@ message Params {
   // cost_per_byte_exempt when true, disables cost_per_byte fee collection
   bool cost_per_byte_exempt = 4;
 }
+
+// BlogOperationalParams defines the operational parameters that can be updated
+// by the Commons Council Operations Committee without a full governance proposal.
+message BlogOperationalParams {
+  option (amino.name) = "sparkdream/x/blog/BlogOperationalParams";
+  option (gogoproto.equal) = true;
+
+  // cost_per_byte charged for on-chain content storage (applies to all posts, burned)
+  cosmos.base.v1beta1.Coin cost_per_byte = 1 [(gogoproto.nullable) = false];
+
+  // cost_per_byte_exempt when true, disables cost_per_byte fee collection
+  bool cost_per_byte_exempt = 2;
+}

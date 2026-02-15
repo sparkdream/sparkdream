@@ -79,7 +79,7 @@ PROJECT_TX=$(echo $PROJECT_RES | jq -r '.txhash' 2>/dev/null)
 PROJECT_ID="1"
 if [ -n "$PROJECT_TX" ] && [ "$PROJECT_TX" != "null" ]; then
     PROJECT_ID=$($BINARY query tx $PROJECT_TX --output json | \
-        jq -r '.events[] | select(.type=="sparkdream.rep.v1.EventInitiativeCreated") | .attributes[] | select(.key=="project_id") | .value' | \
+        jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | \
         tr -d '"')
     if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" == "null" ]; then
         PROJECT_ID="1"
@@ -117,7 +117,7 @@ THRESH_TX=$(echo $THRESH_RES | jq -r '.txhash' 2>/dev/null)
 THRESH_ID="1"
 if [ -n "$THRESH_TX" ] && [ "$THRESH_TX" != "null" ]; then
     THRESH_ID=$($BINARY query tx $THRESH_TX --output json | \
-        jq -r '.events[] | select(.type=="sparkdream.rep.v1.EventInitiativeCreated") | .attributes[] | select(.key=="initiative_id") | .value' | \
+        jq -r '.events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' | \
         tr -d '"')
     if [ -z "$THRESH_ID" ] || [ "$THRESH_ID" == "null" ]; then
         THRESH_ID="1"
@@ -144,6 +144,10 @@ sleep 1
 # External staker stakes (counts as external)
 $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100" --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
+
+# Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
+echo "Waiting 15 seconds for conviction to accrue..."
+sleep 15
 
 # Query conviction
 CONVICTION=$($BINARY query rep initiative-conviction $THRESH_ID --output json)
@@ -234,7 +238,7 @@ DUR_TX=$(echo $DUR_RES | jq -r '.txhash' 2>/dev/null)
 DUR_ID="2"
 if [ -n "$DUR_TX" ] && [ "$DUR_TX" != "null" ]; then
     DUR_ID=$($BINARY query tx $DUR_TX --output json | \
-        jq -r '.events[] | select(.type=="sparkdream.rep.v1.EventInitiativeCreated") | .attributes[] | select(.key=="initiative_id") | .value' | \
+        jq -r '.events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' | \
         tr -d '"')
     if [ -z "$DUR_ID" ] || [ "$DUR_ID" == "null" ]; then
         DUR_ID="2"
@@ -715,18 +719,21 @@ echo "  $BINARY query rep list-initiative --limit 50 --page-key <key>"
 echo ""
 echo "--- EDGE CASES AND BOUNDS TEST SUMMARY ---"
 echo ""
-echo "✅ Part 1:  Conviction threshold edge        50% external tested"
-echo "✅ Part 2:  Stake minimum duration           $MIN_DURATION epochs required"
-echo "✅ Part 3:  Reputation caps per tier         Apprent: $APPRENTICE_CAP, Std: $STANDARD_CAP"
-echo "✅ Part 4:  Trust level rollback             CORE → TRUSTED → ... → ZEROED"
-echo "✅ Part 5:  Zeroing (no permanent ban)       Restart with new address"
-echo "✅ Part 6:  Boundary value testing           Min/Max limits verified"
-echo "✅ Part 7:  Negative value protection        All fields non-negative"
-echo "✅ Part 8:  Overflow protection              uint64, checks before ops"
-echo "✅ Part 9:  Concurrent modifications          State machine protection"
-echo "✅ Part 10: Empty state handling              Returns empty/0"
-echo "✅ Part 11: String length limits             Input validation"
-echo "✅ Part 12: Pagination                       Large result sets"
+echo "TESTED (with on-chain assertions):"
+echo "✅ Part 1:  Conviction threshold edge        50% external tested with wait"
+echo "✅ Part 2:  Stake minimum duration           Early unstake rejection tested"
+echo "✅ Part 6:  Boundary value testing           Tier budget enforcement tested"
+echo "✅ Part 10: Empty state handling              Edge queries tested"
+echo ""
+echo "DOCUMENTATION ONLY (design notes, no on-chain assertions):"
+echo "📋 Part 3:  Reputation caps per tier         Design: Apprent: $APPRENTICE_CAP, Std: $STANDARD_CAP"
+echo "📋 Part 4:  Trust level rollback             Design: CORE → TRUSTED → ... → ZEROED"
+echo "📋 Part 5:  Zeroing (no permanent ban)       Design: restart with new address"
+echo "📋 Part 7:  Negative value protection        Design: all fields non-negative"
+echo "📋 Part 8:  Overflow protection              Design: uint64, checks before ops"
+echo "📋 Part 9:  Concurrent modifications          Design: state machine protection"
+echo "📋 Part 11: String length limits             Design: input validation"
+echo "📋 Part 12: Pagination                       Design: large result sets"
 echo ""
 echo "🔒 SECURITY BOUNDARIES:"
 echo ""

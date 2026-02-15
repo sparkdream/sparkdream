@@ -135,7 +135,7 @@ sleep 3
 # Since we have 2/3 votes (Bob+Carol), we meet the threshold.
 
 echo "Attempting Execution (Threshold Met)..."
-EXEC_RES=$($BINARY tx group exec $GROUP_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $GROUP_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 
 echo "Waiting for execution block (3s)..."

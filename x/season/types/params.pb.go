@@ -491,108 +491,520 @@ func (m *Params) GetMaxArchivedTitles() uint32 {
 	return 0
 }
 
+// SeasonOperationalParams defines the operational parameters that can be updated
+// by the Operations Committee without full governance proposals.
+type SeasonOperationalParams struct {
+	// Epoch configuration
+	EpochBlocks int64 `protobuf:"varint,1,opt,name=epoch_blocks,json=epochBlocks,proto3" json:"epoch_blocks,omitempty"`
+	// Season timing
+	SeasonDurationEpochs   int64 `protobuf:"varint,2,opt,name=season_duration_epochs,json=seasonDurationEpochs,proto3" json:"season_duration_epochs,omitempty"`
+	SeasonTransitionEpochs int64 `protobuf:"varint,3,opt,name=season_transition_epochs,json=seasonTransitionEpochs,proto3" json:"season_transition_epochs,omitempty"`
+	// XP rewards
+	XpVoteCast               uint64 `protobuf:"varint,4,opt,name=xp_vote_cast,json=xpVoteCast,proto3" json:"xp_vote_cast,omitempty"`
+	XpProposalCreated        uint64 `protobuf:"varint,5,opt,name=xp_proposal_created,json=xpProposalCreated,proto3" json:"xp_proposal_created,omitempty"`
+	XpForumReplyReceived     uint64 `protobuf:"varint,6,opt,name=xp_forum_reply_received,json=xpForumReplyReceived,proto3" json:"xp_forum_reply_received,omitempty"`
+	XpForumMarkedHelpful     uint64 `protobuf:"varint,7,opt,name=xp_forum_marked_helpful,json=xpForumMarkedHelpful,proto3" json:"xp_forum_marked_helpful,omitempty"`
+	XpInviteeFirstInitiative uint64 `protobuf:"varint,8,opt,name=xp_invitee_first_initiative,json=xpInviteeFirstInitiative,proto3" json:"xp_invitee_first_initiative,omitempty"`
+	XpInviteeEstablished     uint64 `protobuf:"varint,9,opt,name=xp_invitee_established,json=xpInviteeEstablished,proto3" json:"xp_invitee_established,omitempty"`
+	// XP caps
+	MaxVoteXpPerEpoch  uint32 `protobuf:"varint,10,opt,name=max_vote_xp_per_epoch,json=maxVoteXpPerEpoch,proto3" json:"max_vote_xp_per_epoch,omitempty"`
+	MaxForumXpPerEpoch uint64 `protobuf:"varint,11,opt,name=max_forum_xp_per_epoch,json=maxForumXpPerEpoch,proto3" json:"max_forum_xp_per_epoch,omitempty"`
+	MaxXpPerEpoch      uint64 `protobuf:"varint,12,opt,name=max_xp_per_epoch,json=maxXpPerEpoch,proto3" json:"max_xp_per_epoch,omitempty"`
+	// Guilds
+	MinGuildMembers        uint32                `protobuf:"varint,13,opt,name=min_guild_members,json=minGuildMembers,proto3" json:"min_guild_members,omitempty"`
+	MaxGuildOfficers       uint32                `protobuf:"varint,14,opt,name=max_guild_officers,json=maxGuildOfficers,proto3" json:"max_guild_officers,omitempty"`
+	GuildCreationCost      cosmossdk_io_math.Int `protobuf:"bytes,15,opt,name=guild_creation_cost,json=guildCreationCost,proto3,customtype=cosmossdk.io/math.Int" json:"guild_creation_cost"`
+	GuildHopCooldownEpochs uint64                `protobuf:"varint,16,opt,name=guild_hop_cooldown_epochs,json=guildHopCooldownEpochs,proto3" json:"guild_hop_cooldown_epochs,omitempty"`
+	MaxGuildsPerSeason     uint32                `protobuf:"varint,17,opt,name=max_guilds_per_season,json=maxGuildsPerSeason,proto3" json:"max_guilds_per_season,omitempty"`
+	MinGuildAgeEpochs      uint64                `protobuf:"varint,18,opt,name=min_guild_age_epochs,json=minGuildAgeEpochs,proto3" json:"min_guild_age_epochs,omitempty"`
+	MaxPendingInvites      uint32                `protobuf:"varint,19,opt,name=max_pending_invites,json=maxPendingInvites,proto3" json:"max_pending_invites,omitempty"`
+	// Display names
+	DisplayNameMinLength            uint32 `protobuf:"varint,20,opt,name=display_name_min_length,json=displayNameMinLength,proto3" json:"display_name_min_length,omitempty"`
+	DisplayNameMaxLength            uint32 `protobuf:"varint,21,opt,name=display_name_max_length,json=displayNameMaxLength,proto3" json:"display_name_max_length,omitempty"`
+	DisplayNameChangeCooldownEpochs uint64 `protobuf:"varint,22,opt,name=display_name_change_cooldown_epochs,json=displayNameChangeCooldownEpochs,proto3" json:"display_name_change_cooldown_epochs,omitempty"`
+	// Season transitions
+	TransitionBatchSize uint32 `protobuf:"varint,23,opt,name=transition_batch_size,json=transitionBatchSize,proto3" json:"transition_batch_size,omitempty"`
+	// Season extensions
+	MaxSeasonExtensions uint32 `protobuf:"varint,24,opt,name=max_season_extensions,json=maxSeasonExtensions,proto3" json:"max_season_extensions,omitempty"`
+	MaxExtensionEpochs  uint64 `protobuf:"varint,25,opt,name=max_extension_epochs,json=maxExtensionEpochs,proto3" json:"max_extension_epochs,omitempty"`
+	// Guild content limits
+	GuildDescriptionMaxLength uint32 `protobuf:"varint,26,opt,name=guild_description_max_length,json=guildDescriptionMaxLength,proto3" json:"guild_description_max_length,omitempty"`
+	GuildInviteTtlEpochs      uint64 `protobuf:"varint,27,opt,name=guild_invite_ttl_epochs,json=guildInviteTtlEpochs,proto3" json:"guild_invite_ttl_epochs,omitempty"`
+	// Quests
+	MaxQuestObjectives uint32 `protobuf:"varint,28,opt,name=max_quest_objectives,json=maxQuestObjectives,proto3" json:"max_quest_objectives,omitempty"`
+	// Forum XP anti-gaming
+	ForumXpMinAccountAgeEpochs      uint64 `protobuf:"varint,29,opt,name=forum_xp_min_account_age_epochs,json=forumXpMinAccountAgeEpochs,proto3" json:"forum_xp_min_account_age_epochs,omitempty"`
+	ForumXpReciprocalCooldownEpochs uint64 `protobuf:"varint,30,opt,name=forum_xp_reciprocal_cooldown_epochs,json=forumXpReciprocalCooldownEpochs,proto3" json:"forum_xp_reciprocal_cooldown_epochs,omitempty"`
+	ForumXpSelfReplyCooldownEpochs  uint64 `protobuf:"varint,31,opt,name=forum_xp_self_reply_cooldown_epochs,json=forumXpSelfReplyCooldownEpochs,proto3" json:"forum_xp_self_reply_cooldown_epochs,omitempty"`
+	// Transition recovery
+	TransitionGracePeriod uint32 `protobuf:"varint,32,opt,name=transition_grace_period,json=transitionGracePeriod,proto3" json:"transition_grace_period,omitempty"`
+	MaxQuestXpReward      uint64 `protobuf:"varint,33,opt,name=max_quest_xp_reward,json=maxQuestXpReward,proto3" json:"max_quest_xp_reward,omitempty"`
+	// Usernames
+	UsernameMinLength            uint32                `protobuf:"varint,34,opt,name=username_min_length,json=usernameMinLength,proto3" json:"username_min_length,omitempty"`
+	UsernameMaxLength            uint32                `protobuf:"varint,35,opt,name=username_max_length,json=usernameMaxLength,proto3" json:"username_max_length,omitempty"`
+	UsernameChangeCooldownEpochs uint64                `protobuf:"varint,36,opt,name=username_change_cooldown_epochs,json=usernameChangeCooldownEpochs,proto3" json:"username_change_cooldown_epochs,omitempty"`
+	UsernameCostDream            cosmossdk_io_math.Int `protobuf:"bytes,37,opt,name=username_cost_dream,json=usernameCostDream,proto3,customtype=cosmossdk.io/math.Int" json:"username_cost_dream"`
+	// Quest limits
+	MaxActiveQuestsPerMember uint32 `protobuf:"varint,38,opt,name=max_active_quests_per_member,json=maxActiveQuestsPerMember,proto3" json:"max_active_quests_per_member,omitempty"`
+	// Display name moderation
+	DisplayNameReportStakeDream cosmossdk_io_math.Int `protobuf:"bytes,39,opt,name=display_name_report_stake_dream,json=displayNameReportStakeDream,proto3,customtype=cosmossdk.io/math.Int" json:"display_name_report_stake_dream"`
+	// Title management
+	MaxDisplayableTitles uint32 `protobuf:"varint,40,opt,name=max_displayable_titles,json=maxDisplayableTitles,proto3" json:"max_displayable_titles,omitempty"`
+	// Guild invite cleanup
+	InviteCleanupIntervalBlocks uint32 `protobuf:"varint,41,opt,name=invite_cleanup_interval_blocks,json=inviteCleanupIntervalBlocks,proto3" json:"invite_cleanup_interval_blocks,omitempty"`
+	InviteCleanupBatchSize      uint32 `protobuf:"varint,42,opt,name=invite_cleanup_batch_size,json=inviteCleanupBatchSize,proto3" json:"invite_cleanup_batch_size,omitempty"`
+	// Quest validation
+	MaxObjectiveDescriptionLength uint32 `protobuf:"varint,43,opt,name=max_objective_description_length,json=maxObjectiveDescriptionLength,proto3" json:"max_objective_description_length,omitempty"`
+	// Display name appeal
+	DisplayNameAppealStakeDream   cosmossdk_io_math.Int `protobuf:"bytes,44,opt,name=display_name_appeal_stake_dream,json=displayNameAppealStakeDream,proto3,customtype=cosmossdk.io/math.Int" json:"display_name_appeal_stake_dream"`
+	DisplayNameAppealPeriodBlocks uint64                `protobuf:"varint,45,opt,name=display_name_appeal_period_blocks,json=displayNameAppealPeriodBlocks,proto3" json:"display_name_appeal_period_blocks,omitempty"`
+	// Archived titles
+	MaxArchivedTitles uint32 `protobuf:"varint,46,opt,name=max_archived_titles,json=maxArchivedTitles,proto3" json:"max_archived_titles,omitempty"`
+}
+
+func (m *SeasonOperationalParams) Reset()         { *m = SeasonOperationalParams{} }
+func (m *SeasonOperationalParams) String() string { return proto.CompactTextString(m) }
+func (*SeasonOperationalParams) ProtoMessage()    {}
+func (*SeasonOperationalParams) Descriptor() ([]byte, []int) {
+	return fileDescriptor_c326a64530c13c59, []int{1}
+}
+func (m *SeasonOperationalParams) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *SeasonOperationalParams) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_SeasonOperationalParams.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *SeasonOperationalParams) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SeasonOperationalParams.Merge(m, src)
+}
+func (m *SeasonOperationalParams) XXX_Size() int {
+	return m.Size()
+}
+func (m *SeasonOperationalParams) XXX_DiscardUnknown() {
+	xxx_messageInfo_SeasonOperationalParams.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SeasonOperationalParams proto.InternalMessageInfo
+
+func (m *SeasonOperationalParams) GetEpochBlocks() int64 {
+	if m != nil {
+		return m.EpochBlocks
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetSeasonDurationEpochs() int64 {
+	if m != nil {
+		return m.SeasonDurationEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetSeasonTransitionEpochs() int64 {
+	if m != nil {
+		return m.SeasonTransitionEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetXpVoteCast() uint64 {
+	if m != nil {
+		return m.XpVoteCast
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetXpProposalCreated() uint64 {
+	if m != nil {
+		return m.XpProposalCreated
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetXpForumReplyReceived() uint64 {
+	if m != nil {
+		return m.XpForumReplyReceived
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetXpForumMarkedHelpful() uint64 {
+	if m != nil {
+		return m.XpForumMarkedHelpful
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetXpInviteeFirstInitiative() uint64 {
+	if m != nil {
+		return m.XpInviteeFirstInitiative
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetXpInviteeEstablished() uint64 {
+	if m != nil {
+		return m.XpInviteeEstablished
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxVoteXpPerEpoch() uint32 {
+	if m != nil {
+		return m.MaxVoteXpPerEpoch
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxForumXpPerEpoch() uint64 {
+	if m != nil {
+		return m.MaxForumXpPerEpoch
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxXpPerEpoch() uint64 {
+	if m != nil {
+		return m.MaxXpPerEpoch
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMinGuildMembers() uint32 {
+	if m != nil {
+		return m.MinGuildMembers
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxGuildOfficers() uint32 {
+	if m != nil {
+		return m.MaxGuildOfficers
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetGuildHopCooldownEpochs() uint64 {
+	if m != nil {
+		return m.GuildHopCooldownEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxGuildsPerSeason() uint32 {
+	if m != nil {
+		return m.MaxGuildsPerSeason
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMinGuildAgeEpochs() uint64 {
+	if m != nil {
+		return m.MinGuildAgeEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxPendingInvites() uint32 {
+	if m != nil {
+		return m.MaxPendingInvites
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetDisplayNameMinLength() uint32 {
+	if m != nil {
+		return m.DisplayNameMinLength
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetDisplayNameMaxLength() uint32 {
+	if m != nil {
+		return m.DisplayNameMaxLength
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetDisplayNameChangeCooldownEpochs() uint64 {
+	if m != nil {
+		return m.DisplayNameChangeCooldownEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetTransitionBatchSize() uint32 {
+	if m != nil {
+		return m.TransitionBatchSize
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxSeasonExtensions() uint32 {
+	if m != nil {
+		return m.MaxSeasonExtensions
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxExtensionEpochs() uint64 {
+	if m != nil {
+		return m.MaxExtensionEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetGuildDescriptionMaxLength() uint32 {
+	if m != nil {
+		return m.GuildDescriptionMaxLength
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetGuildInviteTtlEpochs() uint64 {
+	if m != nil {
+		return m.GuildInviteTtlEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxQuestObjectives() uint32 {
+	if m != nil {
+		return m.MaxQuestObjectives
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetForumXpMinAccountAgeEpochs() uint64 {
+	if m != nil {
+		return m.ForumXpMinAccountAgeEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetForumXpReciprocalCooldownEpochs() uint64 {
+	if m != nil {
+		return m.ForumXpReciprocalCooldownEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetForumXpSelfReplyCooldownEpochs() uint64 {
+	if m != nil {
+		return m.ForumXpSelfReplyCooldownEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetTransitionGracePeriod() uint32 {
+	if m != nil {
+		return m.TransitionGracePeriod
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxQuestXpReward() uint64 {
+	if m != nil {
+		return m.MaxQuestXpReward
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetUsernameMinLength() uint32 {
+	if m != nil {
+		return m.UsernameMinLength
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetUsernameMaxLength() uint32 {
+	if m != nil {
+		return m.UsernameMaxLength
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetUsernameChangeCooldownEpochs() uint64 {
+	if m != nil {
+		return m.UsernameChangeCooldownEpochs
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxActiveQuestsPerMember() uint32 {
+	if m != nil {
+		return m.MaxActiveQuestsPerMember
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxDisplayableTitles() uint32 {
+	if m != nil {
+		return m.MaxDisplayableTitles
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetInviteCleanupIntervalBlocks() uint32 {
+	if m != nil {
+		return m.InviteCleanupIntervalBlocks
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetInviteCleanupBatchSize() uint32 {
+	if m != nil {
+		return m.InviteCleanupBatchSize
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxObjectiveDescriptionLength() uint32 {
+	if m != nil {
+		return m.MaxObjectiveDescriptionLength
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetDisplayNameAppealPeriodBlocks() uint64 {
+	if m != nil {
+		return m.DisplayNameAppealPeriodBlocks
+	}
+	return 0
+}
+
+func (m *SeasonOperationalParams) GetMaxArchivedTitles() uint32 {
+	if m != nil {
+		return m.MaxArchivedTitles
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterType((*Params)(nil), "sparkdream.season.v1.Params")
+	proto.RegisterType((*SeasonOperationalParams)(nil), "sparkdream.season.v1.SeasonOperationalParams")
 }
 
 func init() { proto.RegisterFile("sparkdream/season/v1/params.proto", fileDescriptor_c326a64530c13c59) }
 
 var fileDescriptor_c326a64530c13c59 = []byte{
-	// 1493 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x57, 0xdd, 0x6e, 0x1b, 0x37,
-	0x16, 0xb6, 0x36, 0xd9, 0xec, 0x86, 0x49, 0x36, 0xf6, 0x58, 0xb6, 0xc7, 0x7f, 0x92, 0x1c, 0xef,
-	0x6e, 0x9c, 0x6c, 0x22, 0xc5, 0xce, 0xcf, 0x36, 0x45, 0x7f, 0x60, 0xcb, 0x4e, 0x62, 0xd4, 0x6e,
-	0x5c, 0xd9, 0x28, 0x8a, 0xde, 0x0c, 0xa8, 0x99, 0x23, 0x89, 0xf5, 0xcc, 0x70, 0x4a, 0x52, 0xca,
-	0x38, 0x8f, 0xd0, 0xab, 0x3e, 0x42, 0x1f, 0xa1, 0x8f, 0x91, 0xcb, 0x5c, 0x16, 0xbd, 0x08, 0x8a,
-	0x04, 0x45, 0xfb, 0x18, 0x05, 0x0f, 0x39, 0xa3, 0x91, 0xe4, 0x02, 0xe9, 0x8d, 0x21, 0xf3, 0xfb,
-	0xbe, 0xc3, 0xc3, 0x43, 0x9e, 0x8f, 0x1c, 0xb2, 0x26, 0x13, 0x2a, 0x4e, 0x03, 0x01, 0x34, 0x6a,
-	0x48, 0xa0, 0x92, 0xc7, 0x8d, 0xc1, 0x66, 0x23, 0xa1, 0x82, 0x46, 0xb2, 0x9e, 0x08, 0xae, 0xb8,
-	0x53, 0x1e, 0x52, 0xea, 0x86, 0x52, 0x1f, 0x6c, 0x2e, 0xcd, 0xd0, 0x88, 0xc5, 0xbc, 0x81, 0x7f,
-	0x0d, 0x71, 0xa9, 0xdc, 0xe5, 0x5d, 0x8e, 0x3f, 0x1b, 0xfa, 0x97, 0x19, 0xbd, 0xf1, 0xeb, 0x22,
-	0xb9, 0x74, 0x84, 0xf1, 0x9c, 0x35, 0x72, 0x15, 0x12, 0xee, 0xf7, 0xbc, 0x76, 0xc8, 0xfd, 0x53,
-	0xe9, 0x96, 0x6a, 0xa5, 0x8d, 0x0b, 0xad, 0x2b, 0x38, 0xb6, 0x83, 0x43, 0xce, 0x03, 0x32, 0x6f,
-	0xe6, 0xf0, 0x82, 0xbe, 0xa0, 0x8a, 0xf1, 0xd8, 0x43, 0x58, 0xba, 0x7f, 0x43, 0x72, 0xd9, 0xa0,
-	0xbb, 0x16, 0xdc, 0x43, 0xcc, 0xf9, 0x80, 0xb8, 0x56, 0xa5, 0x04, 0x8d, 0x25, 0x2b, 0xea, 0x2e,
-	0xa0, 0xce, 0x46, 0x3d, 0xc9, 0x61, 0xab, 0xac, 0x91, 0xab, 0x69, 0xe2, 0x0d, 0xb8, 0x02, 0xcf,
-	0xa7, 0x52, 0xb9, 0x17, 0x6b, 0xa5, 0x8d, 0x8b, 0x2d, 0x92, 0x26, 0x5f, 0x72, 0x05, 0x4d, 0x2a,
-	0x95, 0x53, 0x27, 0xb3, 0x69, 0xe2, 0x25, 0x82, 0x27, 0x5c, 0xd2, 0xd0, 0xf3, 0x05, 0x50, 0x05,
-	0x81, 0xfb, 0x77, 0x24, 0xce, 0xa4, 0xc9, 0x91, 0x45, 0x9a, 0x06, 0x70, 0x1e, 0x92, 0x85, 0x34,
-	0xf1, 0x3a, 0x5c, 0xf4, 0x23, 0x4f, 0x40, 0x12, 0x9e, 0x79, 0x02, 0x7c, 0x60, 0x03, 0x08, 0xdc,
-	0x4b, 0xa8, 0x29, 0xa7, 0xc9, 0x13, 0x8d, 0xb6, 0x34, 0xd8, 0xb2, 0xd8, 0x88, 0x2c, 0xa2, 0xe2,
-	0x14, 0x02, 0xaf, 0x07, 0x61, 0xd2, 0xe9, 0x87, 0xee, 0x3f, 0x46, 0x64, 0x87, 0x08, 0x3e, 0x33,
-	0x98, 0xf3, 0x31, 0x59, 0x4e, 0x13, 0x8f, 0xc5, 0x03, 0xa6, 0x00, 0xbc, 0x0e, 0x13, 0x52, 0x79,
-	0x2c, 0x66, 0x8a, 0x51, 0xc5, 0x06, 0xe0, 0xfe, 0x13, 0xa5, 0x6e, 0x9a, 0xec, 0x1b, 0xc6, 0x13,
-	0x4d, 0xd8, 0xcf, 0x71, 0x5d, 0xee, 0x82, 0x1c, 0xa4, 0xa2, 0xed, 0x90, 0xc9, 0x1e, 0x04, 0xee,
-	0xe5, 0x6c, 0x52, 0xab, 0xdc, 0x1b, 0x62, 0xce, 0x3d, 0x32, 0x17, 0xd1, 0xd4, 0x54, 0x4d, 0xd7,
-	0x06, 0x84, 0x29, 0xb6, 0x4b, 0x6a, 0xa5, 0x8d, 0x6b, 0xad, 0x99, 0x88, 0xa6, 0xba, 0x7c, 0x5f,
-	0x25, 0x47, 0x20, 0xb0, 0xce, 0xce, 0x16, 0x99, 0xd7, 0x0a, 0xb3, 0xbc, 0x11, 0xc9, 0x15, 0x9c,
-	0xc7, 0x89, 0x68, 0x8a, 0xab, 0x2b, 0x68, 0x6e, 0x92, 0x69, 0xad, 0x19, 0x61, 0x5f, 0x45, 0xf6,
-	0xb5, 0x88, 0xa6, 0x05, 0xe2, 0x2d, 0x32, 0x1d, 0xc2, 0x00, 0x42, 0x4f, 0xf5, 0x04, 0xc8, 0x1e,
-	0x0f, 0x03, 0xe9, 0x5e, 0xab, 0x5d, 0xd8, 0xb8, 0xd8, 0xba, 0x8e, 0xe3, 0x27, 0xf9, 0xb0, 0x73,
-	0x42, 0x66, 0xdb, 0x54, 0x42, 0xc8, 0x62, 0xd0, 0x9b, 0xd3, 0x57, 0x78, 0x8a, 0xdc, 0x7f, 0xd5,
-	0x4a, 0x1b, 0x97, 0x77, 0xd6, 0x5f, 0xbd, 0xa9, 0x4e, 0xfd, 0xfc, 0xa6, 0xba, 0xec, 0x73, 0x19,
-	0x71, 0x29, 0x83, 0xd3, 0x3a, 0xe3, 0x8d, 0x88, 0xaa, 0x5e, 0xfd, 0x00, 0xba, 0xd4, 0x3f, 0xdb,
-	0x05, 0xbf, 0xe5, 0x64, 0xfa, 0x56, 0x2e, 0x77, 0x6e, 0x93, 0x99, 0x88, 0xc5, 0x5e, 0xb7, 0xcf,
-	0xc2, 0xc0, 0x8b, 0x20, 0x6a, 0x83, 0x90, 0xee, 0x75, 0xac, 0xc5, 0xf5, 0x88, 0xc5, 0x4f, 0xf5,
-	0xf8, 0xa1, 0x19, 0x46, 0x2e, 0x4d, 0xc7, 0xb8, 0xd3, 0x96, 0x4b, 0xd3, 0x11, 0xee, 0x1d, 0xe2,
-	0x0c, 0xb9, 0xbc, 0xd3, 0x61, 0xbe, 0x26, 0xcf, 0x20, 0x79, 0x3a, 0x23, 0x3f, 0xb7, 0xe3, 0xce,
-	0x21, 0x99, 0x35, 0x4c, 0x3c, 0xa2, 0xba, 0x03, 0x7c, 0x2e, 0x95, 0xeb, 0xe0, 0xda, 0x56, 0xed,
-	0xda, 0xe6, 0x26, 0xd7, 0xb6, 0x1f, 0xab, 0xd6, 0x0c, 0x2a, 0x9b, 0x56, 0xd8, 0xe4, 0x52, 0x39,
-	0x8f, 0xc9, 0xa2, 0x09, 0xd7, 0xe3, 0x89, 0xe7, 0x73, 0x1e, 0x06, 0xfc, 0x45, 0xde, 0x54, 0xb3,
-	0xb8, 0x0f, 0xf3, 0x48, 0x78, 0xc6, 0x93, 0xa6, 0x85, 0x6d, 0x53, 0x6d, 0x9a, 0xf3, 0x81, 0xa8,
-	0xc4, 0xdd, 0x33, 0xdd, 0xe7, 0x96, 0x31, 0x75, 0x27, 0x4b, 0x5d, 0x1e, 0x81, 0x38, 0x46, 0xc4,
-	0x69, 0x90, 0xf2, 0xb0, 0x84, 0xb4, 0x0b, 0xd9, 0x44, 0x73, 0xa6, 0xcd, 0xb2, 0x2a, 0x6e, 0x77,
-	0xc1, 0xce, 0x51, 0x27, 0xb3, 0x7a, 0x8e, 0x04, 0xe2, 0x80, 0xc5, 0x5d, 0x7b, 0x84, 0xa5, 0x3b,
-	0x9f, 0x9f, 0xc0, 0x23, 0x83, 0x98, 0xe3, 0x2b, 0x75, 0x7f, 0x05, 0x4c, 0x26, 0x21, 0x3d, 0xf3,
-	0x62, 0x1a, 0x81, 0xa7, 0x67, 0x0b, 0x21, 0xee, 0xaa, 0x9e, 0xbb, 0x80, 0x9a, 0xb2, 0x85, 0x3f,
-	0xa7, 0x11, 0x1c, 0xb2, 0xf8, 0x00, 0xb1, 0x49, 0x19, 0x4d, 0x33, 0x99, 0x3b, 0x29, 0xa3, 0xa9,
-	0x95, 0x1d, 0x90, 0xf5, 0x11, 0x99, 0xdf, 0xa3, 0x71, 0x17, 0x26, 0xca, 0xb8, 0x88, 0xab, 0xab,
-	0x16, 0x42, 0x34, 0x91, 0x38, 0x56, 0xcf, 0x2d, 0x53, 0xcf, 0x49, 0x6f, 0x5b, 0x42, 0xbd, 0x2e,
-	0xc4, 0x84, 0xb1, 0x6d, 0x91, 0xb9, 0x02, 0xbf, 0x4d, 0x95, 0xdf, 0xf3, 0x24, 0x7b, 0x09, 0xee,
-	0x32, 0xa6, 0x3d, 0x3b, 0x04, 0x77, 0x34, 0x76, 0xcc, 0x5e, 0x42, 0x36, 0x8f, 0xb5, 0x52, 0x48,
-	0x15, 0xc4, 0x92, 0xf1, 0x58, 0xba, 0x2b, 0x46, 0x13, 0xd1, 0xd4, 0x6c, 0xd7, 0x5e, 0x0e, 0x39,
-	0xf7, 0x48, 0x59, 0x6b, 0x72, 0x72, 0x96, 0xda, 0x6a, 0xde, 0xd7, 0x39, 0xd9, 0x66, 0xf6, 0x29,
-	0x59, 0x31, 0xdb, 0x1c, 0x80, 0xf4, 0x05, 0x4b, 0x30, 0xc1, 0x42, 0x5d, 0x2b, 0x38, 0x99, 0x39,
-	0x7c, 0xbb, 0x43, 0xca, 0xb0, 0xb8, 0x0f, 0xc9, 0x82, 0x09, 0x60, 0x36, 0xdd, 0x53, 0x2a, 0xcc,
-	0x66, 0xad, 0x1a, 0xd7, 0x42, 0xd8, 0xec, 0xfc, 0x89, 0x0a, 0xed, 0xbc, 0x36, 0xd3, 0x6f, 0xfb,
-	0x20, 0x95, 0xc7, 0xdb, 0xdf, 0x80, 0xaf, 0x2d, 0x50, 0xba, 0xb5, 0xfc, 0x50, 0x7e, 0xa1, 0xa1,
-	0xe7, 0x39, 0xe2, 0x7c, 0x44, 0x96, 0x64, 0x4c, 0x13, 0xd9, 0xe3, 0xca, 0x13, 0xa0, 0x20, 0xc6,
-	0x54, 0x4d, 0x79, 0xa4, 0xbb, 0x86, 0x3a, 0x37, 0x63, 0xb4, 0x32, 0x82, 0x29, 0x91, 0x74, 0x9a,
-	0xa4, 0x62, 0x6e, 0x3b, 0x25, 0xa8, 0x7f, 0x0a, 0xa2, 0x10, 0xc2, 0x66, 0x7b, 0x03, 0x23, 0x2c,
-	0xe3, 0x7f, 0x27, 0x86, 0x94, 0x47, 0xb1, 0x49, 0x3f, 0x21, 0xb5, 0xcc, 0x66, 0x05, 0xf8, 0x5c,
-	0x04, 0xe7, 0x24, 0xb2, 0x8e, 0x61, 0x56, 0x06, 0x68, 0xb9, 0x2d, 0x64, 0x4d, 0x24, 0xb3, 0x47,
-	0xaa, 0xc6, 0x7c, 0xf3, 0x23, 0x38, 0x91, 0xcd, 0xbf, 0x4d, 0x18, 0xa4, 0x65, 0x07, 0x70, 0x3c,
-	0x9d, 0x66, 0x16, 0x26, 0x4d, 0xb0, 0x83, 0xa8, 0xef, 0xf3, 0x7e, 0xac, 0x8a, 0x1d, 0xfb, 0x1f,
-	0xdc, 0x82, 0xa5, 0x8e, 0x71, 0xf3, 0x43, 0x16, 0x6f, 0x1b, 0xce, 0xb0, 0x75, 0x0f, 0xc8, 0x7a,
-	0x1e, 0x44, 0x80, 0xcf, 0x12, 0xc1, 0x7d, 0x7d, 0xb3, 0x8e, 0x35, 0xc7, 0x7f, 0x4d, 0x73, 0xd8,
-	0x40, 0xad, 0x9c, 0x38, 0xd6, 0x1c, 0x9f, 0x15, 0xa2, 0x49, 0x08, 0x3b, 0xf6, 0xd2, 0x1d, 0x8f,
-	0x76, 0x13, 0xa3, 0x55, 0x6c, 0xb4, 0x63, 0x08, 0x3b, 0x78, 0xff, 0x8e, 0x05, 0x7b, 0x44, 0x16,
-	0x0a, 0x5d, 0xd3, 0x15, 0xd4, 0x07, 0xed, 0x5f, 0x8c, 0x07, 0xee, 0x06, 0x96, 0xa7, 0xd0, 0x54,
-	0x4f, 0x35, 0x7a, 0x84, 0xa0, 0x73, 0xd7, 0xb8, 0x91, 0x39, 0x5b, 0xb8, 0xac, 0x17, 0x54, 0x04,
-	0xee, 0x2d, 0x9c, 0x74, 0x3a, 0x3b, 0x5a, 0x7a, 0x15, 0x7a, 0x5c, 0x9b, 0x57, 0x5f, 0x82, 0x18,
-	0x37, 0xa2, 0xdb, 0xc6, 0xbc, 0x32, 0x68, 0xe8, 0x42, 0x23, 0xfc, 0x61, 0xa7, 0xfc, 0x6f, 0x8c,
-	0x9f, 0x77, 0xc8, 0x1e, 0xa9, 0xe6, 0xfc, 0x3f, 0xb1, 0x9e, 0x3b, 0x98, 0xda, 0x4a, 0x46, 0x3b,
-	0xd7, 0x77, 0x0e, 0x0b, 0xd3, 0xea, 0xbb, 0xc4, 0xc3, 0x47, 0xa0, 0x7b, 0xf7, 0xbd, 0x6e, 0x94,
-	0x3c, 0x32, 0x97, 0x6a, 0x57, 0xeb, 0xf4, 0x63, 0xa3, 0x50, 0x5c, 0xbd, 0x0e, 0x01, 0x4a, 0x30,
-	0x90, 0x6e, 0xdd, 0x58, 0xe9, 0x10, 0x3d, 0xa4, 0x69, 0xcb, 0x60, 0xce, 0x27, 0x64, 0x45, 0x53,
-	0x29, 0xf6, 0xa4, 0xa9, 0xb0, 0xb9, 0x53, 0xcc, 0xe5, 0xe9, 0x36, 0x4c, 0x1b, 0x46, 0x34, 0xdd,
-	0x46, 0x0a, 0x56, 0x5a, 0xdf, 0x2c, 0xe6, 0x16, 0x75, 0x7c, 0x52, 0x1d, 0xb1, 0x62, 0x01, 0x09,
-	0x17, 0xca, 0x93, 0x8a, 0x9e, 0x82, 0x5d, 0xd0, 0xbd, 0xf7, 0x59, 0xd0, 0x72, 0xc1, 0xa5, 0x5b,
-	0x18, 0xe3, 0x58, 0x87, 0xc8, 0x97, 0xa6, 0x93, 0xb4, 0x14, 0xda, 0x0e, 0xc1, 0x53, 0x4c, 0x85,
-	0x20, 0xdd, 0x4d, 0xb3, 0xb4, 0x88, 0xa6, 0xbb, 0x43, 0xf0, 0x04, 0x31, 0xed, 0x10, 0xd6, 0xc2,
-	0xfc, 0x10, 0x68, 0xdc, 0xd7, 0x2f, 0x31, 0x05, 0x62, 0x40, 0xc3, 0xec, 0x85, 0xbc, 0x65, 0x1c,
-	0xc2, 0xb0, 0x9a, 0x86, 0xb4, 0x6f, 0x39, 0xf6, 0xc5, 0xfc, 0x98, 0x2c, 0x8e, 0x05, 0x29, 0x98,
-	0xfd, 0x7d, 0xd4, 0xcf, 0x8f, 0xe8, 0x87, 0x7e, 0xff, 0x94, 0xd4, 0x74, 0xd6, 0xb9, 0x17, 0x8e,
-	0x38, 0xb2, 0x3d, 0x63, 0x0f, 0x30, 0xc2, 0x6a, 0x44, 0xd3, 0xdc, 0x18, 0x0b, 0xa6, 0x6c, 0xcf,
-	0xdb, 0x78, 0x8d, 0x69, 0x92, 0x00, 0x0d, 0x47, 0x6a, 0xfc, 0xf0, 0xaf, 0xd6, 0x78, 0x1b, 0x63,
-	0x14, 0x6a, 0xfc, 0x8c, 0xac, 0x9d, 0x37, 0x89, 0x69, 0xcf, 0xac, 0x60, 0x8f, 0xf0, 0x58, 0xaf,
-	0x4e, 0xc4, 0x31, 0x7d, 0x6a, 0x4b, 0x66, 0xdf, 0x0e, 0x54, 0xf8, 0x3d, 0xfd, 0xf6, 0xce, 0xb6,
-	0xea, 0xff, 0xf9, 0xdb, 0x61, 0xdb, 0x22, 0x66, 0x9f, 0x3e, 0x5c, 0xff, 0xfd, 0x87, 0x6a, 0xe9,
-	0xbb, 0xdf, 0x7e, 0xbc, 0xbd, 0x54, 0xf8, 0x5a, 0x4a, 0xb3, 0xef, 0x25, 0xf3, 0x71, 0xb3, 0x73,
-	0xff, 0xd5, 0xdb, 0x4a, 0xe9, 0xf5, 0xdb, 0x4a, 0xe9, 0x97, 0xb7, 0x95, 0xd2, 0xf7, 0xef, 0x2a,
-	0x53, 0xaf, 0xdf, 0x55, 0xa6, 0x7e, 0x7a, 0x57, 0x99, 0xfa, 0x7a, 0xf1, 0x3c, 0x95, 0x3a, 0x4b,
-	0x40, 0xb6, 0x2f, 0xe1, 0x37, 0xd2, 0xfd, 0x3f, 0x02, 0x00, 0x00, 0xff, 0xff, 0x0a, 0xbd, 0xc2,
-	0x51, 0x87, 0x0d, 0x00, 0x00,
+	// 1697 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x59, 0xcd, 0x6e, 0x1b, 0xc9,
+	0x11, 0x36, 0x63, 0xc7, 0xc9, 0xf6, 0xda, 0x6b, 0x69, 0x44, 0x49, 0xa3, 0x3f, 0x92, 0xb2, 0x76,
+	0xd7, 0xf2, 0x1f, 0x69, 0xc9, 0xf6, 0x26, 0x1b, 0xe4, 0x07, 0x12, 0x25, 0xdb, 0x42, 0xa4, 0x58,
+	0xa1, 0x84, 0x20, 0xc8, 0x65, 0xd0, 0x9c, 0x29, 0x92, 0x13, 0xcd, 0x4c, 0x4f, 0xba, 0x9b, 0xdc,
+	0xd1, 0x3e, 0x42, 0x4e, 0x79, 0x84, 0x3c, 0x42, 0x1e, 0x63, 0x8f, 0x7b, 0x0c, 0x72, 0x30, 0x02,
+	0x1b, 0x41, 0xf2, 0x18, 0x41, 0x57, 0xf7, 0x0c, 0x87, 0x3f, 0x42, 0x24, 0xd2, 0xce, 0xc9, 0x17,
+	0x83, 0x9e, 0xef, 0xab, 0xea, 0xea, 0xea, 0xae, 0xea, 0xaf, 0x20, 0xb2, 0x2e, 0x62, 0xca, 0xcf,
+	0x3c, 0x0e, 0x34, 0xac, 0x09, 0xa0, 0x82, 0x45, 0xb5, 0xde, 0x56, 0x2d, 0xa6, 0x9c, 0x86, 0xa2,
+	0x1a, 0x73, 0x26, 0x99, 0x55, 0xec, 0x53, 0xaa, 0x9a, 0x52, 0xed, 0x6d, 0x2d, 0xcf, 0xd2, 0xd0,
+	0x8f, 0x58, 0x0d, 0xff, 0xd5, 0xc4, 0xe5, 0x62, 0x9b, 0xb5, 0x19, 0xfe, 0xac, 0xa9, 0x5f, 0xfa,
+	0xeb, 0xdd, 0x7f, 0x2d, 0x91, 0x9b, 0xc7, 0xe8, 0xcf, 0x5a, 0x27, 0xb7, 0x20, 0x66, 0x6e, 0xc7,
+	0x69, 0x06, 0xcc, 0x3d, 0x13, 0x76, 0xa1, 0x52, 0xd8, 0xbc, 0xde, 0xf8, 0x14, 0xbf, 0xed, 0xe2,
+	0x27, 0xeb, 0x19, 0x59, 0xd0, 0x6b, 0x38, 0x5e, 0x97, 0x53, 0xe9, 0xb3, 0xc8, 0x41, 0x58, 0xd8,
+	0x3f, 0x40, 0x72, 0x51, 0xa3, 0x7b, 0x06, 0xdc, 0x47, 0xcc, 0xfa, 0x29, 0xb1, 0x8d, 0x95, 0xe4,
+	0x34, 0x12, 0x7e, 0xde, 0xee, 0x3a, 0xda, 0x19, 0xaf, 0xa7, 0x19, 0x6c, 0x2c, 0x2b, 0xe4, 0x56,
+	0x12, 0x3b, 0x3d, 0x26, 0xc1, 0x71, 0xa9, 0x90, 0xf6, 0x8d, 0x4a, 0x61, 0xf3, 0x46, 0x83, 0x24,
+	0xf1, 0xef, 0x98, 0x84, 0x3a, 0x15, 0xd2, 0xaa, 0x92, 0xb9, 0x24, 0x76, 0x62, 0xce, 0x62, 0x26,
+	0x68, 0xe0, 0xb8, 0x1c, 0xa8, 0x04, 0xcf, 0xfe, 0x21, 0x12, 0x67, 0x93, 0xf8, 0xd8, 0x20, 0x75,
+	0x0d, 0x58, 0xcf, 0xc9, 0x62, 0x12, 0x3b, 0x2d, 0xc6, 0xbb, 0xa1, 0xc3, 0x21, 0x0e, 0xce, 0x1d,
+	0x0e, 0x2e, 0xf8, 0x3d, 0xf0, 0xec, 0x9b, 0x68, 0x53, 0x4c, 0xe2, 0x17, 0x0a, 0x6d, 0x28, 0xb0,
+	0x61, 0xb0, 0x01, 0xb3, 0x90, 0xf2, 0x33, 0xf0, 0x9c, 0x0e, 0x04, 0x71, 0xab, 0x1b, 0xd8, 0x3f,
+	0x1a, 0x30, 0x3b, 0x42, 0xf0, 0x95, 0xc6, 0xac, 0x5f, 0x90, 0x95, 0x24, 0x76, 0xfc, 0xa8, 0xe7,
+	0x4b, 0x00, 0xa7, 0xe5, 0x73, 0x21, 0x1d, 0x3f, 0xf2, 0xa5, 0x4f, 0xa5, 0xdf, 0x03, 0xfb, 0xc7,
+	0x68, 0x6a, 0x27, 0xf1, 0x81, 0x66, 0xbc, 0x50, 0x84, 0x83, 0x0c, 0x57, 0xe9, 0xce, 0x99, 0x83,
+	0x90, 0xb4, 0x19, 0xf8, 0xa2, 0x03, 0x9e, 0xfd, 0x49, 0xba, 0xa8, 0xb1, 0xdc, 0xef, 0x63, 0xd6,
+	0x13, 0x32, 0x1f, 0xd2, 0x44, 0x67, 0x4d, 0xe5, 0x06, 0xb8, 0x4e, 0xb6, 0x4d, 0x2a, 0x85, 0xcd,
+	0xdb, 0x8d, 0xd9, 0x90, 0x26, 0x2a, 0x7d, 0xbf, 0x8f, 0x8f, 0x81, 0x63, 0x9e, 0xad, 0x6d, 0xb2,
+	0xa0, 0x2c, 0xf4, 0xf6, 0x06, 0x4c, 0x3e, 0xc5, 0x75, 0xac, 0x90, 0x26, 0xb8, 0xbb, 0x9c, 0xcd,
+	0x3d, 0x32, 0xa3, 0x6c, 0x06, 0xd8, 0xb7, 0x90, 0x7d, 0x3b, 0xa4, 0x49, 0x8e, 0x78, 0x9f, 0xcc,
+	0x04, 0xd0, 0x83, 0xc0, 0x91, 0x1d, 0x0e, 0xa2, 0xc3, 0x02, 0x4f, 0xd8, 0xb7, 0x2b, 0xd7, 0x37,
+	0x6f, 0x34, 0xee, 0xe0, 0xf7, 0xd3, 0xec, 0xb3, 0x75, 0x4a, 0xe6, 0x9a, 0x54, 0x40, 0xe0, 0x47,
+	0xa0, 0x0e, 0xa7, 0x2b, 0xf1, 0x16, 0xd9, 0x9f, 0x55, 0x0a, 0x9b, 0x9f, 0xec, 0x6e, 0x7c, 0xf7,
+	0xa6, 0x7c, 0xed, 0x1f, 0x6f, 0xca, 0x2b, 0x2e, 0x13, 0x21, 0x13, 0xc2, 0x3b, 0xab, 0xfa, 0xac,
+	0x16, 0x52, 0xd9, 0xa9, 0x1e, 0x42, 0x9b, 0xba, 0xe7, 0x7b, 0xe0, 0x36, 0xac, 0xd4, 0xbe, 0x91,
+	0x99, 0x5b, 0x0f, 0xc8, 0x6c, 0xe8, 0x47, 0x4e, 0xbb, 0xeb, 0x07, 0x9e, 0x13, 0x42, 0xd8, 0x04,
+	0x2e, 0xec, 0x3b, 0x98, 0x8b, 0x3b, 0xa1, 0x1f, 0xbd, 0x54, 0xdf, 0x8f, 0xf4, 0x67, 0xe4, 0xd2,
+	0x64, 0x88, 0x3b, 0x63, 0xb8, 0x34, 0x19, 0xe0, 0x3e, 0x22, 0x56, 0x9f, 0xcb, 0x5a, 0x2d, 0xdf,
+	0x55, 0xe4, 0x59, 0x24, 0xcf, 0xa4, 0xe4, 0xd7, 0xe6, 0xbb, 0x75, 0x44, 0xe6, 0x34, 0x13, 0xaf,
+	0xa8, 0xaa, 0x00, 0x97, 0x09, 0x69, 0x5b, 0xb8, 0xb7, 0x35, 0xb3, 0xb7, 0xf9, 0xd1, 0xbd, 0x1d,
+	0x44, 0xb2, 0x31, 0x8b, 0x96, 0x75, 0x63, 0x58, 0x67, 0x42, 0x5a, 0x5f, 0x93, 0x25, 0xed, 0xae,
+	0xc3, 0x62, 0xc7, 0x65, 0x2c, 0xf0, 0xd8, 0x37, 0x59, 0x51, 0xcd, 0xe1, 0x39, 0x2c, 0x20, 0xe1,
+	0x15, 0x8b, 0xeb, 0x06, 0x36, 0x45, 0xb5, 0xa5, 0xef, 0x07, 0xa2, 0x02, 0x4f, 0x4f, 0x57, 0x9f,
+	0x5d, 0xc4, 0xd0, 0xad, 0x34, 0x74, 0x71, 0x0c, 0xfc, 0x04, 0x11, 0xab, 0x46, 0x8a, 0xfd, 0x14,
+	0xd2, 0x36, 0xa4, 0x0b, 0xcd, 0xeb, 0x32, 0x4b, 0xb3, 0xb8, 0xd3, 0x06, 0xb3, 0x46, 0x95, 0xcc,
+	0xa9, 0x35, 0x62, 0x88, 0x3c, 0x3f, 0x6a, 0x9b, 0x2b, 0x2c, 0xec, 0x85, 0xec, 0x06, 0x1e, 0x6b,
+	0x44, 0x5f, 0x5f, 0xa1, 0xea, 0xcb, 0xf3, 0x45, 0x1c, 0xd0, 0x73, 0x27, 0xa2, 0x21, 0x38, 0x6a,
+	0xb5, 0x00, 0xa2, 0xb6, 0xec, 0xd8, 0x8b, 0x68, 0x53, 0x34, 0xf0, 0x6f, 0x68, 0x08, 0x47, 0x7e,
+	0x74, 0x88, 0xd8, 0xa8, 0x19, 0x4d, 0x52, 0x33, 0x7b, 0xd4, 0x8c, 0x26, 0xc6, 0xec, 0x90, 0x6c,
+	0x0c, 0x98, 0xb9, 0x1d, 0x1a, 0xb5, 0x61, 0x24, 0x8d, 0x4b, 0xb8, 0xbb, 0x72, 0xce, 0x45, 0x1d,
+	0x89, 0x43, 0xf9, 0xdc, 0xd6, 0xf9, 0x1c, 0xed, 0x6d, 0xcb, 0x68, 0xaf, 0x12, 0x31, 0xd2, 0xd8,
+	0xb6, 0xc9, 0x7c, 0x8e, 0xdf, 0xa4, 0xd2, 0xed, 0x38, 0xc2, 0xff, 0x16, 0xec, 0x15, 0x0c, 0x7b,
+	0xae, 0x0f, 0xee, 0x2a, 0xec, 0xc4, 0xff, 0x16, 0xd2, 0x75, 0x4c, 0x2b, 0x85, 0x44, 0x42, 0x24,
+	0x7c, 0x16, 0x09, 0x7b, 0x55, 0xdb, 0x84, 0x34, 0xd1, 0xc7, 0xb5, 0x9f, 0x41, 0xd6, 0x13, 0x52,
+	0x54, 0x36, 0x19, 0x39, 0x0d, 0x6d, 0x2d, 0xab, 0xeb, 0x8c, 0x6c, 0x22, 0xfb, 0x15, 0x59, 0xd5,
+	0xc7, 0xec, 0x81, 0x70, 0xb9, 0x1f, 0x63, 0x80, 0xb9, 0xbc, 0x96, 0x70, 0x31, 0x7d, 0xf9, 0xf6,
+	0xfa, 0x94, 0x7e, 0x72, 0x9f, 0x93, 0x45, 0xed, 0x40, 0x1f, 0xba, 0x23, 0x65, 0x90, 0xae, 0x5a,
+	0xd6, 0x5d, 0x0b, 0x61, 0x7d, 0xf2, 0xa7, 0x32, 0x30, 0xeb, 0x9a, 0x48, 0xff, 0xd4, 0x05, 0x21,
+	0x1d, 0xd6, 0xfc, 0x23, 0xb8, 0xaa, 0x05, 0x0a, 0xbb, 0x92, 0x5d, 0xca, 0xdf, 0x2a, 0xe8, 0x75,
+	0x86, 0x58, 0x3f, 0x27, 0xcb, 0x22, 0xa2, 0xb1, 0xe8, 0x30, 0xe9, 0x70, 0x90, 0x10, 0x61, 0xa8,
+	0x3a, 0x3d, 0xc2, 0x5e, 0x47, 0x3b, 0x3b, 0x65, 0x34, 0x52, 0x82, 0x4e, 0x91, 0xb0, 0xea, 0xa4,
+	0xa4, 0x5f, 0x3b, 0xc9, 0xa9, 0x7b, 0x06, 0x3c, 0xe7, 0xc2, 0x44, 0x7b, 0x17, 0x3d, 0xac, 0xe0,
+	0xff, 0x4e, 0x35, 0x29, 0xf3, 0x62, 0x82, 0x7e, 0x41, 0x2a, 0x69, 0x9b, 0xe5, 0xe0, 0x32, 0xee,
+	0x8d, 0x09, 0x64, 0x03, 0xdd, 0xac, 0xf6, 0xb0, 0xe5, 0x36, 0x90, 0x35, 0x12, 0xcc, 0x3e, 0x29,
+	0xeb, 0xe6, 0x9b, 0x5d, 0xc1, 0x91, 0x68, 0x3e, 0xd7, 0x6e, 0x90, 0x96, 0x5e, 0xc0, 0xe1, 0x70,
+	0xea, 0xa9, 0x9b, 0x24, 0xc6, 0x0a, 0xa2, 0xae, 0xcb, 0xba, 0x91, 0xcc, 0x57, 0xec, 0x17, 0x78,
+	0x04, 0xcb, 0x2d, 0xdd, 0xcd, 0x8f, 0xfc, 0x68, 0x47, 0x73, 0xfa, 0xa5, 0x7b, 0x48, 0x36, 0x32,
+	0x27, 0x1c, 0x5c, 0x3f, 0xe6, 0xcc, 0x55, 0x2f, 0xeb, 0x50, 0x71, 0x7c, 0xa9, 0x8b, 0xc3, 0x38,
+	0x6a, 0x64, 0xc4, 0xa1, 0xe2, 0xf8, 0x75, 0xce, 0x9b, 0x80, 0xa0, 0x65, 0x1e, 0xdd, 0x61, 0x6f,
+	0xf7, 0xd0, 0x5b, 0xc9, 0x78, 0x3b, 0x81, 0xa0, 0x85, 0xef, 0xef, 0x90, 0xb3, 0xaf, 0xc8, 0x62,
+	0xae, 0x6a, 0xda, 0x9c, 0xba, 0xa0, 0xfa, 0x97, 0xcf, 0x3c, 0x7b, 0x13, 0xd3, 0x93, 0x2b, 0xaa,
+	0x97, 0x0a, 0x3d, 0x46, 0xd0, 0x7a, 0xac, 0xbb, 0x91, 0xbe, 0x5b, 0xb8, 0xad, 0x6f, 0x28, 0xf7,
+	0xec, 0xfb, 0xb8, 0xe8, 0x4c, 0x7a, 0xb5, 0xd4, 0x2e, 0xd4, 0x77, 0xd5, 0xbc, 0xba, 0x02, 0xf8,
+	0x70, 0x23, 0x7a, 0xa0, 0x9b, 0x57, 0x0a, 0xf5, 0xbb, 0xd0, 0x00, 0xbf, 0x5f, 0x29, 0x0f, 0x87,
+	0xf8, 0x59, 0x85, 0xec, 0x93, 0x72, 0xc6, 0xbf, 0xa0, 0xf5, 0x3c, 0xc2, 0xd0, 0x56, 0x53, 0xda,
+	0xd8, 0xbe, 0x73, 0x94, 0x5b, 0x56, 0xbd, 0x25, 0x0e, 0x8a, 0x40, 0xfb, 0xf1, 0xa5, 0x5e, 0x94,
+	0xcc, 0x33, 0x13, 0x72, 0x4f, 0xd9, 0x29, 0xb1, 0x91, 0x4b, 0xae, 0xda, 0x07, 0x07, 0xc9, 0x7d,
+	0x10, 0x76, 0x55, 0xb7, 0xd2, 0x3e, 0x7a, 0x44, 0x93, 0x86, 0xc6, 0xac, 0x5f, 0x92, 0x55, 0x45,
+	0xa5, 0x58, 0x93, 0x3a, 0xc3, 0xfa, 0x4d, 0xd1, 0x8f, 0xa7, 0x5d, 0xd3, 0x65, 0x18, 0xd2, 0x64,
+	0x07, 0x29, 0x98, 0x69, 0xf5, 0xb2, 0xe8, 0x57, 0xd4, 0x72, 0x49, 0x79, 0xa0, 0x15, 0x73, 0x88,
+	0x19, 0x97, 0x8e, 0x90, 0xf4, 0x0c, 0xcc, 0x86, 0x9e, 0x5c, 0x66, 0x43, 0x2b, 0xb9, 0x2e, 0xdd,
+	0x40, 0x1f, 0x27, 0xca, 0x45, 0xb6, 0x35, 0x15, 0xa4, 0xa1, 0xd0, 0x66, 0x00, 0x8e, 0xf4, 0x65,
+	0x00, 0xc2, 0xde, 0xd2, 0x5b, 0x0b, 0x69, 0xb2, 0xd7, 0x07, 0x4f, 0x11, 0x53, 0x1d, 0xc2, 0xb4,
+	0x30, 0x37, 0x00, 0x1a, 0x75, 0x95, 0x12, 0x93, 0xc0, 0x7b, 0x34, 0x48, 0x15, 0xf2, 0xb6, 0xee,
+	0x10, 0x9a, 0x55, 0xd7, 0xa4, 0x03, 0xc3, 0x31, 0x8a, 0xf9, 0x6b, 0xb2, 0x34, 0xe4, 0x24, 0xd7,
+	0xec, 0x9f, 0xa2, 0xfd, 0xc2, 0x80, 0x7d, 0xbf, 0xdf, 0xbf, 0x24, 0x15, 0x15, 0x75, 0xd6, 0x0b,
+	0x07, 0x3a, 0xb2, 0xb9, 0x63, 0xcf, 0xd0, 0xc3, 0x5a, 0x48, 0x93, 0xac, 0x31, 0xe6, 0x9a, 0xb2,
+	0xb9, 0x6f, 0xc3, 0x39, 0xa6, 0x71, 0x0c, 0x34, 0x18, 0xc8, 0xf1, 0xf3, 0xab, 0xe6, 0x78, 0x07,
+	0x7d, 0xe4, 0x72, 0xfc, 0x8a, 0xac, 0x8f, 0x5b, 0x44, 0x97, 0x67, 0x9a, 0xb0, 0xaf, 0xf0, 0x5a,
+	0xaf, 0x8d, 0xf8, 0xd1, 0x75, 0x6a, 0x52, 0x66, 0xb4, 0x03, 0xe5, 0x6e, 0x47, 0x69, 0xef, 0xf4,
+	0xa8, 0x7e, 0x92, 0x69, 0x87, 0x1d, 0x83, 0xe8, 0x73, 0xfa, 0xd9, 0xc6, 0x7f, 0xfe, 0x5a, 0x2e,
+	0xfc, 0xf9, 0xdf, 0x7f, 0x7b, 0xb0, 0x9c, 0x9b, 0x96, 0x92, 0x74, 0x5e, 0xd2, 0xc3, 0xcd, 0xdd,
+	0x37, 0xf3, 0x64, 0x51, 0x77, 0xdb, 0xd7, 0x31, 0xe8, 0xe9, 0x84, 0x06, 0x1f, 0x07, 0x9f, 0x8f,
+	0x83, 0xcf, 0x87, 0x1b, 0x7c, 0xc6, 0xce, 0x1d, 0xb7, 0xc7, 0xcf, 0x1d, 0xe3, 0x67, 0x89, 0xcf,
+	0xae, 0x36, 0x4b, 0xdc, 0xf9, 0x10, 0xb3, 0xc4, 0xcc, 0x64, 0xb3, 0xc4, 0xec, 0x95, 0x67, 0x09,
+	0xeb, 0x8a, 0xb3, 0xc4, 0xdc, 0x04, 0xb3, 0x44, 0x71, 0xb2, 0x59, 0x62, 0x7e, 0xfa, 0x59, 0x62,
+	0xe1, 0xd2, 0xb3, 0xc4, 0xf8, 0xb9, 0x60, 0x71, 0x82, 0xb9, 0xc0, 0xbe, 0xfa, 0x5c, 0xb0, 0x34,
+	0xf1, 0x5c, 0xb0, 0x3c, 0xc5, 0x5c, 0xb0, 0x32, 0xc1, 0x5c, 0xb0, 0x7a, 0xe1, 0x5c, 0x70, 0x09,
+	0x15, 0xbc, 0xf6, 0xbe, 0x54, 0x70, 0xe9, 0xbd, 0xaa, 0xe0, 0xf2, 0xb4, 0x2a, 0xb8, 0x32, 0x81,
+	0x0a, 0x5e, 0xbf, 0x9a, 0x0a, 0xbe, 0x7b, 0x45, 0x15, 0xbc, 0x31, 0x85, 0x0a, 0xfe, 0x7c, 0x72,
+	0x15, 0xfc, 0xc5, 0x84, 0x2a, 0xf8, 0x7f, 0xe9, 0xd9, 0x2f, 0xa7, 0xd7, 0xb3, 0xf7, 0x3e, 0xa0,
+	0x9e, 0xdd, 0x9c, 0x4a, 0xcf, 0xde, 0x9f, 0x52, 0xcf, 0x3e, 0x98, 0x5a, 0xcf, 0x3e, 0x7c, 0x4f,
+	0x7a, 0xf6, 0xd1, 0xff, 0x47, 0xcf, 0x3e, 0x9e, 0x42, 0xcf, 0x56, 0x2f, 0xd2, 0xb3, 0xcf, 0x52,
+	0x3d, 0xfb, 0x70, 0x9c, 0x9e, 0xbd, 0x40, 0xc4, 0xee, 0x3e, 0xfd, 0xee, 0x6d, 0xa9, 0xf0, 0xfd,
+	0xdb, 0x52, 0xe1, 0x9f, 0x6f, 0x4b, 0x85, 0xbf, 0xbc, 0x2b, 0x5d, 0xfb, 0xfe, 0x5d, 0xe9, 0xda,
+	0xdf, 0xdf, 0x95, 0xae, 0xfd, 0x61, 0x69, 0x9c, 0x1b, 0x79, 0x1e, 0x83, 0x68, 0xde, 0xc4, 0x3f,
+	0x02, 0x3c, 0xfd, 0x6f, 0x00, 0x00, 0x00, 0xff, 0xff, 0x87, 0xb9, 0xfb, 0x03, 0x68, 0x18, 0x00,
+	0x00,
 }
 
 func (this *Params) Equal(that interface{}) bool {
@@ -755,6 +1167,165 @@ func (this *Params) Equal(that interface{}) bool {
 		return false
 	}
 	if this.TransitionMaxRetries != that1.TransitionMaxRetries {
+		return false
+	}
+	if this.MaxActiveQuestsPerMember != that1.MaxActiveQuestsPerMember {
+		return false
+	}
+	if !this.DisplayNameReportStakeDream.Equal(that1.DisplayNameReportStakeDream) {
+		return false
+	}
+	if this.MaxDisplayableTitles != that1.MaxDisplayableTitles {
+		return false
+	}
+	if this.InviteCleanupIntervalBlocks != that1.InviteCleanupIntervalBlocks {
+		return false
+	}
+	if this.InviteCleanupBatchSize != that1.InviteCleanupBatchSize {
+		return false
+	}
+	if this.MaxObjectiveDescriptionLength != that1.MaxObjectiveDescriptionLength {
+		return false
+	}
+	if !this.DisplayNameAppealStakeDream.Equal(that1.DisplayNameAppealStakeDream) {
+		return false
+	}
+	if this.DisplayNameAppealPeriodBlocks != that1.DisplayNameAppealPeriodBlocks {
+		return false
+	}
+	if this.MaxArchivedTitles != that1.MaxArchivedTitles {
+		return false
+	}
+	return true
+}
+func (this *SeasonOperationalParams) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*SeasonOperationalParams)
+	if !ok {
+		that2, ok := that.(SeasonOperationalParams)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if this.EpochBlocks != that1.EpochBlocks {
+		return false
+	}
+	if this.SeasonDurationEpochs != that1.SeasonDurationEpochs {
+		return false
+	}
+	if this.SeasonTransitionEpochs != that1.SeasonTransitionEpochs {
+		return false
+	}
+	if this.XpVoteCast != that1.XpVoteCast {
+		return false
+	}
+	if this.XpProposalCreated != that1.XpProposalCreated {
+		return false
+	}
+	if this.XpForumReplyReceived != that1.XpForumReplyReceived {
+		return false
+	}
+	if this.XpForumMarkedHelpful != that1.XpForumMarkedHelpful {
+		return false
+	}
+	if this.XpInviteeFirstInitiative != that1.XpInviteeFirstInitiative {
+		return false
+	}
+	if this.XpInviteeEstablished != that1.XpInviteeEstablished {
+		return false
+	}
+	if this.MaxVoteXpPerEpoch != that1.MaxVoteXpPerEpoch {
+		return false
+	}
+	if this.MaxForumXpPerEpoch != that1.MaxForumXpPerEpoch {
+		return false
+	}
+	if this.MaxXpPerEpoch != that1.MaxXpPerEpoch {
+		return false
+	}
+	if this.MinGuildMembers != that1.MinGuildMembers {
+		return false
+	}
+	if this.MaxGuildOfficers != that1.MaxGuildOfficers {
+		return false
+	}
+	if !this.GuildCreationCost.Equal(that1.GuildCreationCost) {
+		return false
+	}
+	if this.GuildHopCooldownEpochs != that1.GuildHopCooldownEpochs {
+		return false
+	}
+	if this.MaxGuildsPerSeason != that1.MaxGuildsPerSeason {
+		return false
+	}
+	if this.MinGuildAgeEpochs != that1.MinGuildAgeEpochs {
+		return false
+	}
+	if this.MaxPendingInvites != that1.MaxPendingInvites {
+		return false
+	}
+	if this.DisplayNameMinLength != that1.DisplayNameMinLength {
+		return false
+	}
+	if this.DisplayNameMaxLength != that1.DisplayNameMaxLength {
+		return false
+	}
+	if this.DisplayNameChangeCooldownEpochs != that1.DisplayNameChangeCooldownEpochs {
+		return false
+	}
+	if this.TransitionBatchSize != that1.TransitionBatchSize {
+		return false
+	}
+	if this.MaxSeasonExtensions != that1.MaxSeasonExtensions {
+		return false
+	}
+	if this.MaxExtensionEpochs != that1.MaxExtensionEpochs {
+		return false
+	}
+	if this.GuildDescriptionMaxLength != that1.GuildDescriptionMaxLength {
+		return false
+	}
+	if this.GuildInviteTtlEpochs != that1.GuildInviteTtlEpochs {
+		return false
+	}
+	if this.MaxQuestObjectives != that1.MaxQuestObjectives {
+		return false
+	}
+	if this.ForumXpMinAccountAgeEpochs != that1.ForumXpMinAccountAgeEpochs {
+		return false
+	}
+	if this.ForumXpReciprocalCooldownEpochs != that1.ForumXpReciprocalCooldownEpochs {
+		return false
+	}
+	if this.ForumXpSelfReplyCooldownEpochs != that1.ForumXpSelfReplyCooldownEpochs {
+		return false
+	}
+	if this.TransitionGracePeriod != that1.TransitionGracePeriod {
+		return false
+	}
+	if this.MaxQuestXpReward != that1.MaxQuestXpReward {
+		return false
+	}
+	if this.UsernameMinLength != that1.UsernameMinLength {
+		return false
+	}
+	if this.UsernameMaxLength != that1.UsernameMaxLength {
+		return false
+	}
+	if this.UsernameChangeCooldownEpochs != that1.UsernameChangeCooldownEpochs {
+		return false
+	}
+	if !this.UsernameCostDream.Equal(that1.UsernameCostDream) {
 		return false
 	}
 	if this.MaxActiveQuestsPerMember != that1.MaxActiveQuestsPerMember {
@@ -1202,6 +1773,341 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *SeasonOperationalParams) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *SeasonOperationalParams) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *SeasonOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.MaxArchivedTitles != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxArchivedTitles))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0xf0
+	}
+	if m.DisplayNameAppealPeriodBlocks != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.DisplayNameAppealPeriodBlocks))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0xe8
+	}
+	{
+		size := m.DisplayNameAppealStakeDream.Size()
+		i -= size
+		if _, err := m.DisplayNameAppealStakeDream.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x2
+	i--
+	dAtA[i] = 0xe2
+	if m.MaxObjectiveDescriptionLength != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxObjectiveDescriptionLength))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0xd8
+	}
+	if m.InviteCleanupBatchSize != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.InviteCleanupBatchSize))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0xd0
+	}
+	if m.InviteCleanupIntervalBlocks != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.InviteCleanupIntervalBlocks))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0xc8
+	}
+	if m.MaxDisplayableTitles != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxDisplayableTitles))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0xc0
+	}
+	{
+		size := m.DisplayNameReportStakeDream.Size()
+		i -= size
+		if _, err := m.DisplayNameReportStakeDream.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x2
+	i--
+	dAtA[i] = 0xba
+	if m.MaxActiveQuestsPerMember != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxActiveQuestsPerMember))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0xb0
+	}
+	{
+		size := m.UsernameCostDream.Size()
+		i -= size
+		if _, err := m.UsernameCostDream.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x2
+	i--
+	dAtA[i] = 0xaa
+	if m.UsernameChangeCooldownEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.UsernameChangeCooldownEpochs))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0xa0
+	}
+	if m.UsernameMaxLength != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.UsernameMaxLength))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0x98
+	}
+	if m.UsernameMinLength != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.UsernameMinLength))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0x90
+	}
+	if m.MaxQuestXpReward != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxQuestXpReward))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0x88
+	}
+	if m.TransitionGracePeriod != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.TransitionGracePeriod))
+		i--
+		dAtA[i] = 0x2
+		i--
+		dAtA[i] = 0x80
+	}
+	if m.ForumXpSelfReplyCooldownEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.ForumXpSelfReplyCooldownEpochs))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xf8
+	}
+	if m.ForumXpReciprocalCooldownEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.ForumXpReciprocalCooldownEpochs))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xf0
+	}
+	if m.ForumXpMinAccountAgeEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.ForumXpMinAccountAgeEpochs))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xe8
+	}
+	if m.MaxQuestObjectives != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxQuestObjectives))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xe0
+	}
+	if m.GuildInviteTtlEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.GuildInviteTtlEpochs))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xd8
+	}
+	if m.GuildDescriptionMaxLength != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.GuildDescriptionMaxLength))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xd0
+	}
+	if m.MaxExtensionEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxExtensionEpochs))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xc8
+	}
+	if m.MaxSeasonExtensions != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxSeasonExtensions))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xc0
+	}
+	if m.TransitionBatchSize != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.TransitionBatchSize))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xb8
+	}
+	if m.DisplayNameChangeCooldownEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.DisplayNameChangeCooldownEpochs))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xb0
+	}
+	if m.DisplayNameMaxLength != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.DisplayNameMaxLength))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xa8
+	}
+	if m.DisplayNameMinLength != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.DisplayNameMinLength))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xa0
+	}
+	if m.MaxPendingInvites != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxPendingInvites))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x98
+	}
+	if m.MinGuildAgeEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MinGuildAgeEpochs))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x90
+	}
+	if m.MaxGuildsPerSeason != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxGuildsPerSeason))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x88
+	}
+	if m.GuildHopCooldownEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.GuildHopCooldownEpochs))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x80
+	}
+	{
+		size := m.GuildCreationCost.Size()
+		i -= size
+		if _, err := m.GuildCreationCost.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x7a
+	if m.MaxGuildOfficers != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxGuildOfficers))
+		i--
+		dAtA[i] = 0x70
+	}
+	if m.MinGuildMembers != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MinGuildMembers))
+		i--
+		dAtA[i] = 0x68
+	}
+	if m.MaxXpPerEpoch != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxXpPerEpoch))
+		i--
+		dAtA[i] = 0x60
+	}
+	if m.MaxForumXpPerEpoch != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxForumXpPerEpoch))
+		i--
+		dAtA[i] = 0x58
+	}
+	if m.MaxVoteXpPerEpoch != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxVoteXpPerEpoch))
+		i--
+		dAtA[i] = 0x50
+	}
+	if m.XpInviteeEstablished != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.XpInviteeEstablished))
+		i--
+		dAtA[i] = 0x48
+	}
+	if m.XpInviteeFirstInitiative != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.XpInviteeFirstInitiative))
+		i--
+		dAtA[i] = 0x40
+	}
+	if m.XpForumMarkedHelpful != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.XpForumMarkedHelpful))
+		i--
+		dAtA[i] = 0x38
+	}
+	if m.XpForumReplyReceived != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.XpForumReplyReceived))
+		i--
+		dAtA[i] = 0x30
+	}
+	if m.XpProposalCreated != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.XpProposalCreated))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.XpVoteCast != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.XpVoteCast))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.SeasonTransitionEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.SeasonTransitionEpochs))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.SeasonDurationEpochs != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.SeasonDurationEpochs))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.EpochBlocks != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.EpochBlocks))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintParams(dAtA []byte, offset int, v uint64) int {
 	offset -= sovParams(v)
 	base := offset
@@ -1358,6 +2264,149 @@ func (m *Params) Size() (n int) {
 	if m.TransitionMaxRetries != 0 {
 		n += 2 + sovParams(uint64(m.TransitionMaxRetries))
 	}
+	if m.MaxActiveQuestsPerMember != 0 {
+		n += 2 + sovParams(uint64(m.MaxActiveQuestsPerMember))
+	}
+	l = m.DisplayNameReportStakeDream.Size()
+	n += 2 + l + sovParams(uint64(l))
+	if m.MaxDisplayableTitles != 0 {
+		n += 2 + sovParams(uint64(m.MaxDisplayableTitles))
+	}
+	if m.InviteCleanupIntervalBlocks != 0 {
+		n += 2 + sovParams(uint64(m.InviteCleanupIntervalBlocks))
+	}
+	if m.InviteCleanupBatchSize != 0 {
+		n += 2 + sovParams(uint64(m.InviteCleanupBatchSize))
+	}
+	if m.MaxObjectiveDescriptionLength != 0 {
+		n += 2 + sovParams(uint64(m.MaxObjectiveDescriptionLength))
+	}
+	l = m.DisplayNameAppealStakeDream.Size()
+	n += 2 + l + sovParams(uint64(l))
+	if m.DisplayNameAppealPeriodBlocks != 0 {
+		n += 2 + sovParams(uint64(m.DisplayNameAppealPeriodBlocks))
+	}
+	if m.MaxArchivedTitles != 0 {
+		n += 2 + sovParams(uint64(m.MaxArchivedTitles))
+	}
+	return n
+}
+
+func (m *SeasonOperationalParams) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.EpochBlocks != 0 {
+		n += 1 + sovParams(uint64(m.EpochBlocks))
+	}
+	if m.SeasonDurationEpochs != 0 {
+		n += 1 + sovParams(uint64(m.SeasonDurationEpochs))
+	}
+	if m.SeasonTransitionEpochs != 0 {
+		n += 1 + sovParams(uint64(m.SeasonTransitionEpochs))
+	}
+	if m.XpVoteCast != 0 {
+		n += 1 + sovParams(uint64(m.XpVoteCast))
+	}
+	if m.XpProposalCreated != 0 {
+		n += 1 + sovParams(uint64(m.XpProposalCreated))
+	}
+	if m.XpForumReplyReceived != 0 {
+		n += 1 + sovParams(uint64(m.XpForumReplyReceived))
+	}
+	if m.XpForumMarkedHelpful != 0 {
+		n += 1 + sovParams(uint64(m.XpForumMarkedHelpful))
+	}
+	if m.XpInviteeFirstInitiative != 0 {
+		n += 1 + sovParams(uint64(m.XpInviteeFirstInitiative))
+	}
+	if m.XpInviteeEstablished != 0 {
+		n += 1 + sovParams(uint64(m.XpInviteeEstablished))
+	}
+	if m.MaxVoteXpPerEpoch != 0 {
+		n += 1 + sovParams(uint64(m.MaxVoteXpPerEpoch))
+	}
+	if m.MaxForumXpPerEpoch != 0 {
+		n += 1 + sovParams(uint64(m.MaxForumXpPerEpoch))
+	}
+	if m.MaxXpPerEpoch != 0 {
+		n += 1 + sovParams(uint64(m.MaxXpPerEpoch))
+	}
+	if m.MinGuildMembers != 0 {
+		n += 1 + sovParams(uint64(m.MinGuildMembers))
+	}
+	if m.MaxGuildOfficers != 0 {
+		n += 1 + sovParams(uint64(m.MaxGuildOfficers))
+	}
+	l = m.GuildCreationCost.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if m.GuildHopCooldownEpochs != 0 {
+		n += 2 + sovParams(uint64(m.GuildHopCooldownEpochs))
+	}
+	if m.MaxGuildsPerSeason != 0 {
+		n += 2 + sovParams(uint64(m.MaxGuildsPerSeason))
+	}
+	if m.MinGuildAgeEpochs != 0 {
+		n += 2 + sovParams(uint64(m.MinGuildAgeEpochs))
+	}
+	if m.MaxPendingInvites != 0 {
+		n += 2 + sovParams(uint64(m.MaxPendingInvites))
+	}
+	if m.DisplayNameMinLength != 0 {
+		n += 2 + sovParams(uint64(m.DisplayNameMinLength))
+	}
+	if m.DisplayNameMaxLength != 0 {
+		n += 2 + sovParams(uint64(m.DisplayNameMaxLength))
+	}
+	if m.DisplayNameChangeCooldownEpochs != 0 {
+		n += 2 + sovParams(uint64(m.DisplayNameChangeCooldownEpochs))
+	}
+	if m.TransitionBatchSize != 0 {
+		n += 2 + sovParams(uint64(m.TransitionBatchSize))
+	}
+	if m.MaxSeasonExtensions != 0 {
+		n += 2 + sovParams(uint64(m.MaxSeasonExtensions))
+	}
+	if m.MaxExtensionEpochs != 0 {
+		n += 2 + sovParams(uint64(m.MaxExtensionEpochs))
+	}
+	if m.GuildDescriptionMaxLength != 0 {
+		n += 2 + sovParams(uint64(m.GuildDescriptionMaxLength))
+	}
+	if m.GuildInviteTtlEpochs != 0 {
+		n += 2 + sovParams(uint64(m.GuildInviteTtlEpochs))
+	}
+	if m.MaxQuestObjectives != 0 {
+		n += 2 + sovParams(uint64(m.MaxQuestObjectives))
+	}
+	if m.ForumXpMinAccountAgeEpochs != 0 {
+		n += 2 + sovParams(uint64(m.ForumXpMinAccountAgeEpochs))
+	}
+	if m.ForumXpReciprocalCooldownEpochs != 0 {
+		n += 2 + sovParams(uint64(m.ForumXpReciprocalCooldownEpochs))
+	}
+	if m.ForumXpSelfReplyCooldownEpochs != 0 {
+		n += 2 + sovParams(uint64(m.ForumXpSelfReplyCooldownEpochs))
+	}
+	if m.TransitionGracePeriod != 0 {
+		n += 2 + sovParams(uint64(m.TransitionGracePeriod))
+	}
+	if m.MaxQuestXpReward != 0 {
+		n += 2 + sovParams(uint64(m.MaxQuestXpReward))
+	}
+	if m.UsernameMinLength != 0 {
+		n += 2 + sovParams(uint64(m.UsernameMinLength))
+	}
+	if m.UsernameMaxLength != 0 {
+		n += 2 + sovParams(uint64(m.UsernameMaxLength))
+	}
+	if m.UsernameChangeCooldownEpochs != 0 {
+		n += 2 + sovParams(uint64(m.UsernameChangeCooldownEpochs))
+	}
+	l = m.UsernameCostDream.Size()
+	n += 2 + l + sovParams(uint64(l))
 	if m.MaxActiveQuestsPerMember != 0 {
 		n += 2 + sovParams(uint64(m.MaxActiveQuestsPerMember))
 	}
@@ -2580,6 +3629,990 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 		case 55:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxArchivedTitles", wireType)
+			}
+			m.MaxArchivedTitles = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxArchivedTitles |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipParams(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthParams
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *SeasonOperationalParams) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowParams
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: SeasonOperationalParams: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: SeasonOperationalParams: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EpochBlocks", wireType)
+			}
+			m.EpochBlocks = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.EpochBlocks |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SeasonDurationEpochs", wireType)
+			}
+			m.SeasonDurationEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.SeasonDurationEpochs |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SeasonTransitionEpochs", wireType)
+			}
+			m.SeasonTransitionEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.SeasonTransitionEpochs |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field XpVoteCast", wireType)
+			}
+			m.XpVoteCast = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.XpVoteCast |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field XpProposalCreated", wireType)
+			}
+			m.XpProposalCreated = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.XpProposalCreated |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field XpForumReplyReceived", wireType)
+			}
+			m.XpForumReplyReceived = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.XpForumReplyReceived |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field XpForumMarkedHelpful", wireType)
+			}
+			m.XpForumMarkedHelpful = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.XpForumMarkedHelpful |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field XpInviteeFirstInitiative", wireType)
+			}
+			m.XpInviteeFirstInitiative = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.XpInviteeFirstInitiative |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 9:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field XpInviteeEstablished", wireType)
+			}
+			m.XpInviteeEstablished = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.XpInviteeEstablished |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 10:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxVoteXpPerEpoch", wireType)
+			}
+			m.MaxVoteXpPerEpoch = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxVoteXpPerEpoch |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 11:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxForumXpPerEpoch", wireType)
+			}
+			m.MaxForumXpPerEpoch = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxForumXpPerEpoch |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 12:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxXpPerEpoch", wireType)
+			}
+			m.MaxXpPerEpoch = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxXpPerEpoch |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 13:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MinGuildMembers", wireType)
+			}
+			m.MinGuildMembers = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MinGuildMembers |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 14:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxGuildOfficers", wireType)
+			}
+			m.MaxGuildOfficers = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxGuildOfficers |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 15:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GuildCreationCost", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.GuildCreationCost.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 16:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GuildHopCooldownEpochs", wireType)
+			}
+			m.GuildHopCooldownEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GuildHopCooldownEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 17:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxGuildsPerSeason", wireType)
+			}
+			m.MaxGuildsPerSeason = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxGuildsPerSeason |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 18:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MinGuildAgeEpochs", wireType)
+			}
+			m.MinGuildAgeEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MinGuildAgeEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 19:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxPendingInvites", wireType)
+			}
+			m.MaxPendingInvites = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxPendingInvites |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 20:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DisplayNameMinLength", wireType)
+			}
+			m.DisplayNameMinLength = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DisplayNameMinLength |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 21:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DisplayNameMaxLength", wireType)
+			}
+			m.DisplayNameMaxLength = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DisplayNameMaxLength |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 22:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DisplayNameChangeCooldownEpochs", wireType)
+			}
+			m.DisplayNameChangeCooldownEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DisplayNameChangeCooldownEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 23:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TransitionBatchSize", wireType)
+			}
+			m.TransitionBatchSize = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TransitionBatchSize |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 24:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxSeasonExtensions", wireType)
+			}
+			m.MaxSeasonExtensions = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxSeasonExtensions |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 25:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxExtensionEpochs", wireType)
+			}
+			m.MaxExtensionEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxExtensionEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 26:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GuildDescriptionMaxLength", wireType)
+			}
+			m.GuildDescriptionMaxLength = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GuildDescriptionMaxLength |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 27:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GuildInviteTtlEpochs", wireType)
+			}
+			m.GuildInviteTtlEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GuildInviteTtlEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 28:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxQuestObjectives", wireType)
+			}
+			m.MaxQuestObjectives = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxQuestObjectives |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 29:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ForumXpMinAccountAgeEpochs", wireType)
+			}
+			m.ForumXpMinAccountAgeEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ForumXpMinAccountAgeEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 30:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ForumXpReciprocalCooldownEpochs", wireType)
+			}
+			m.ForumXpReciprocalCooldownEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ForumXpReciprocalCooldownEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 31:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ForumXpSelfReplyCooldownEpochs", wireType)
+			}
+			m.ForumXpSelfReplyCooldownEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ForumXpSelfReplyCooldownEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 32:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TransitionGracePeriod", wireType)
+			}
+			m.TransitionGracePeriod = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TransitionGracePeriod |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 33:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxQuestXpReward", wireType)
+			}
+			m.MaxQuestXpReward = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxQuestXpReward |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 34:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UsernameMinLength", wireType)
+			}
+			m.UsernameMinLength = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.UsernameMinLength |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 35:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UsernameMaxLength", wireType)
+			}
+			m.UsernameMaxLength = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.UsernameMaxLength |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 36:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UsernameChangeCooldownEpochs", wireType)
+			}
+			m.UsernameChangeCooldownEpochs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.UsernameChangeCooldownEpochs |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 37:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UsernameCostDream", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.UsernameCostDream.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 38:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxActiveQuestsPerMember", wireType)
+			}
+			m.MaxActiveQuestsPerMember = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxActiveQuestsPerMember |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 39:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DisplayNameReportStakeDream", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.DisplayNameReportStakeDream.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 40:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxDisplayableTitles", wireType)
+			}
+			m.MaxDisplayableTitles = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxDisplayableTitles |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 41:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field InviteCleanupIntervalBlocks", wireType)
+			}
+			m.InviteCleanupIntervalBlocks = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.InviteCleanupIntervalBlocks |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 42:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field InviteCleanupBatchSize", wireType)
+			}
+			m.InviteCleanupBatchSize = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.InviteCleanupBatchSize |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 43:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxObjectiveDescriptionLength", wireType)
+			}
+			m.MaxObjectiveDescriptionLength = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxObjectiveDescriptionLength |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 44:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DisplayNameAppealStakeDream", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.DisplayNameAppealStakeDream.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 45:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DisplayNameAppealPeriodBlocks", wireType)
+			}
+			m.DisplayNameAppealPeriodBlocks = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DisplayNameAppealPeriodBlocks |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 46:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxArchivedTitles", wireType)
 			}

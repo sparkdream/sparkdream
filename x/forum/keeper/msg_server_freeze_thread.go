@@ -59,7 +59,7 @@ func (k msgServer) FreezeThread(ctx context.Context, msg *types.MsgFreezeThread)
 		// Check archive cycle limit
 		if archiveMetadata.ArchiveCount >= types.DefaultMaxArchiveCycles {
 			// Only operations committee can archive after cycle limit
-			if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+			if !k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
 				return nil, types.ErrArchiveCycleLimit
 			}
 		}

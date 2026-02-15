@@ -62,6 +62,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Skip:      true, // skipped because authority gated
 				},
 				{
+					RpcMethod: "UpdateOperationalParams",
+					Skip:      true, // skipped because council-gated
+				},
+				{
 					RpcMethod:      "RegisterName",
 					Use:            "register-name [name] [data]",
 					Short:          "Send a register-name tx",

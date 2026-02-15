@@ -423,6 +423,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Skip:      true, // skipped because authority gated
 				},
 				{
+					RpcMethod: "UpdateOperationalParams",
+					Skip:      true, // skipped because authority gated
+				},
+				{
 					RpcMethod:      "SetDisplayName",
 					Use:            "set-display-name [name]",
 					Short:          "Send a set-display-name tx",

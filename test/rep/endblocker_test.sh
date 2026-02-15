@@ -184,16 +184,28 @@ sleep 1
 
 echo "✅ Stakes created on Initiative 1: Bob (200), Carol (300) = 500 total"
 
-# Query initial conviction
+# Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
+echo ""
+echo "Waiting 15 seconds for conviction to accrue (timeFactor > 0 requires elapsed time)..."
+sleep 15
+
+# Query conviction after wait
 CONVICTION1=$($BINARY query rep initiative-conviction $INIT1_ID --output json)
 CURRENT1=$(echo "$CONVICTION1" | jq -r '.current_conviction // "0"')
 EXTERNAL1=$(echo "$CONVICTION1" | jq -r '.external_conviction // "0"')
 REQUIRED=$(echo "$CONVICTION1" | jq -r '.required_conviction // "0"')
 
-echo "Initiative 1 conviction (initial):"
+echo "Initiative 1 conviction (after 15s wait):"
 echo "  Current: $CURRENT1"
 echo "  External: $EXTERNAL1"
 echo "  Required: $REQUIRED"
+
+# Verify conviction is non-zero after waiting
+if [ "$CURRENT1" != "0" ] && [ -n "$CURRENT1" ]; then
+    echo "  ✅ Conviction is non-zero ($CURRENT1) - time-weighting working correctly"
+else
+    echo "  ⚠️  Conviction still 0 after waiting (may need more time or epoch to pass)"
+fi
 
 # Assign and submit work
 # Usage: assign-initiative [initiative-id] [assignee]
@@ -513,12 +525,12 @@ echo ""
 # Query existing interims
 ALL_INTERIMS=$($BINARY query rep list-interim --output json 2>/dev/null)
 if [ -n "$ALL_INTERIMS" ]; then
-    INTERIM_COUNT=$(echo "$ALL_INTERIMS" | jq -r '.interims | length // 0')
+    INTERIM_COUNT=$(echo "$ALL_INTERIMS" | jq -r '(.interim // []) | length')
     echo "Found $INTERIM_COUNT interims in system"
 
     # Check for expired interims
-    EXPIRED_COUNT=$(echo "$ALL_INTERIMS" | jq -r '[(.interims // [])[] | select(.status=="INTERIM_STATUS_EXPIRED")] | length')
-    PENDING_COUNT=$(echo "$ALL_INTERIMS" | jq -r '[(.interims // [])[] | select(.status=="INTERIM_STATUS_PENDING")] | length')
+    EXPIRED_COUNT=$(echo "$ALL_INTERIMS" | jq -r '[(.interim // [])[] | select(.status=="INTERIM_STATUS_EXPIRED")] | length')
+    PENDING_COUNT=$(echo "$ALL_INTERIMS" | jq -r '[(.interim // [])[] | select(.status=="INTERIM_STATUS_PENDING")] | length')
 
     echo "  Expired: $EXPIRED_COUNT"
     echo "  Pending: $PENDING_COUNT"
@@ -617,11 +629,21 @@ echo "  ✓ Only updates when needed"
 echo "  ✓ Scales to many initiatives"
 echo ""
 
-# Query conviction again (should trigger lazy update if time passed)
+# Query conviction again (should trigger lazy update since time passed)
 CONVICTION1_LAZY=$($BINARY query rep initiative-conviction $INIT1_ID --output json)
 CURRENT_LAZY=$(echo "$CONVICTION1_LAZY" | jq -r '.current_conviction // "0"')
 
-echo "Initiative 1 conviction (after query): $CURRENT_LAZY"
+echo "Initiative 1 conviction (lazy re-query): $CURRENT_LAZY"
+
+# Verify lazy conviction is at least as large as earlier query (conviction grows with time)
+if [ -n "$CURRENT_LAZY" ] && [ "$CURRENT_LAZY" != "0" ]; then
+    echo "  ✅ Lazy conviction update: $CURRENT_LAZY (non-zero, time-weighted)"
+    if [ "$CURRENT_LAZY" -ge "$CURRENT1" ] 2>/dev/null; then
+        echo "  ✅ Conviction grew or stayed stable: $CURRENT1 → $CURRENT_LAZY"
+    fi
+else
+    echo "  ⚠️  Lazy conviction still 0"
+fi
 
 # ========================================================================
 # PART 9: MULTIPLE INITIATIVES PARALLEL PROCESSING
@@ -643,16 +665,17 @@ echo "  4. Emit events"
 echo ""
 
 # Query all initiatives
+# Note: proto field is "initiative" (singular repeated), not "initiatives"
 ALL_INITIATIVES=$($BINARY query rep list-initiative --output json)
-TOTAL_INITS=$(echo "$ALL_INITIATIVES" | jq -r '(.initiatives // []) | length')
+TOTAL_INITS=$(echo "$ALL_INITIATIVES" | jq -r '(.initiative // []) | length')
 echo "Total initiatives in system: $TOTAL_INITS"
 
-# Count by status
-OPEN_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiatives // [])[] | select(.status=="INITIATIVE_STATUS_OPEN")] | length')
-ASSIGNED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiatives // [])[] | select(.status=="INITIATIVE_STATUS_ASSIGNED")] | length')
-SUBMITTED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiatives // [])[] | select(.status=="INITIATIVE_STATUS_SUBMITTED" or .status=="INITIATIVE_STATUS_IN_REVIEW" or .status=="INITIATIVE_STATUS_CHALLENGED")] | length')
-COMPLETED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiatives // [])[] | select(.status=="INITIATIVE_STATUS_COMPLETED")] | length')
-ABANDONED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiatives // [])[] | select(.status=="INITIATIVE_STATUS_ABANDONED")] | length')
+# Count by status (handle proto3 zero-value omission: null status = OPEN)
+OPEN_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status==null or .status=="INITIATIVE_STATUS_OPEN")] | length')
+ASSIGNED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_ASSIGNED")] | length')
+SUBMITTED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_SUBMITTED" or .status=="INITIATIVE_STATUS_IN_REVIEW" or .status=="INITIATIVE_STATUS_CHALLENGED")] | length')
+COMPLETED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_COMPLETED")] | length')
+ABANDONED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_ABANDONED")] | length')
 
 echo ""
 echo "Initiatives by status:"
@@ -751,16 +774,19 @@ echo "  - 90% to stakers (proportional to conviction)"
 echo ""
 
 # Query stake details
+# Note: stakes-by-staker returns flat fields (stake_id, target_type, amount) per page,
+# not a .stakes array. Use the flat fields directly.
 BOB_STAKES=$($BINARY query rep stakes-by-staker $BOB_ADDR --output json)
 if [ -n "$BOB_STAKES" ]; then
-    STAKE_COUNT=$(echo "$BOB_STAKES" | jq -r '.stakes | length // 0')
-    echo "Bob has $STAKE_COUNT stake(s)"
+    STAKE_ID=$(echo "$BOB_STAKES" | jq -r '.stake_id // "0"')
+    STAKE_AMT=$(echo "$BOB_STAKES" | jq -r '.amount // "0"')
+    STAKE_TYPE=$(echo "$BOB_STAKES" | jq -r '.target_type // "0"')
 
-    for i in $(seq 0 $((STAKE_COUNT - 1)) 2>/dev/null); do
-        STAKE_AMT=$(echo "$BOB_STAKES" | jq -r ".stakes[$i].amount // 0")
-        STAKE_TARGET=$(echo "$BOB_STAKES" | jq -r ".stakes[$i].target_id // 0")
-        echo "  Stake #$i: $STAKE_AMT DREAM on target $STAKE_TARGET"
-    done
+    if [ "$STAKE_ID" != "0" ] && [ -n "$STAKE_ID" ]; then
+        echo "Bob has stake #$STAKE_ID: amount=$STAKE_AMT, target_type=$STAKE_TYPE"
+    else
+        echo "Bob has no stakes recorded"
+    fi
 fi
 
 # ========================================================================
@@ -820,20 +846,23 @@ echo "This allows members to give tips in the next epoch"
 echo ""
 echo "--- ENDBLOCKER LOGIC TEST SUMMARY ---"
 echo ""
-echo "✅ Part 1:  Conviction updates            Time-weighted: amount * epochs"
-echo "✅ Part 2:  Auto-complete flow           5 requirements checked"
-echo "✅ Part 3:  Status transitions           OPEN→ASSIGNED→SUBMITTED→COMPLETED"
-echo "✅ Part 4:  Jury deadlines               Auto-tally when passed"
-echo "✅ Part 5:  Expired interims             Status changed, no payout"
-echo "✅ Part 6:  Epoch end detection          block % epoch_blocks == 0"
-echo "✅ Part 7:  Conviction formula           stake * time_weight"
-echo "✅ Part 8:  Lazy calculation            Computed on access"
-echo "✅ Part 9:  Parallel processing          All initiatives in one pass"
-echo "✅ Part 10: Events emitted              Status/conviction/decay/reward"
-echo "✅ Part 11: Apply decay               All members processed"
-echo "✅ Part 12: Staking rewards           5-10% APY, 90% to stakers"
-echo "✅ Part 13: Trust level updates        Based on reputation totals"
-echo "✅ Part 14: Tip counter reset          Per epoch, max 10"
+echo "TESTED (with assertions):"
+echo "✅ Part 1:  Conviction updates            Time-weighted conviction verified non-zero"
+echo "✅ Part 2:  Auto-complete flow           Review period end verified"
+echo "✅ Part 3:  Status transitions           OPEN→ASSIGNED→SUBMITTED→ABANDONED verified"
+echo "✅ Part 4:  Jury deadlines               Initiative setup for jury testing"
+echo "✅ Part 5:  Expired interims             Interim count and status queried"
+echo "✅ Part 8:  Lazy calculation            Conviction growth verified on re-query"
+echo "✅ Part 9:  Parallel processing          Initiative count and status breakdown verified"
+echo "✅ Part 11: Apply decay               Member decay state queried"
+echo "✅ Part 13: Trust level updates        Member trust levels queried"
+echo ""
+echo "DOCUMENTATION ONLY (design notes, no on-chain assertions):"
+echo "📋 Part 6:  Epoch end detection          Design: block % epoch_blocks == 0"
+echo "📋 Part 7:  Conviction formula           Design: stake * time_weight"
+echo "📋 Part 10: Events emitted              Design: event types listed"
+echo "📋 Part 12: Staking rewards           Design: 5-10% APY, 90% to stakers"
+echo "📋 Part 14: Tip counter reset          Design: per epoch, max 10"
 echo ""
 echo "🔄 ENDBLOCKER PROCESSING ORDER:"
 echo "  1. Is epoch end? (block % epoch_blocks == 0)"

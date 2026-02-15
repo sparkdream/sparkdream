@@ -18,7 +18,7 @@ func (k msgServer) UnpinReply(ctx context.Context, msg *types.MsgUnpinReply) (*t
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	isGov := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+	isGov := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	// Get thread metadata
 	metadata, err := k.ThreadMetadata.Get(ctx, msg.ThreadId)

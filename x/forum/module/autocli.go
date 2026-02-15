@@ -534,6 +534,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Skip:      true, // skipped because authority gated
 				},
 				{
+					RpcMethod: "UpdateOperationalParams",
+					Skip:      true, // skipped because council-gated
+				},
+				{
 					RpcMethod:      "CreateCategory",
 					Use:            "create-category [title] [description] [members-only-write] [admin-only-write]",
 					Short:          "Send a create-category tx",

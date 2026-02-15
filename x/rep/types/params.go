@@ -170,3 +170,206 @@ func (p Params) Validate() error {
 
 	return nil
 }
+
+// DefaultRepOperationalParams returns default operational parameters.
+func DefaultRepOperationalParams() RepOperationalParams {
+	return RepOperationalParams{
+		// Time
+		EpochBlocks:          14400,
+		SeasonDurationEpochs: 150,
+		// DREAM economics
+		StakingApy:         math.LegacyNewDecWithPrec(10, 2), // 10%
+		UnstakedDecayRate:  math.LegacyNewDecWithPrec(1, 2),  // 1%
+		TransferTaxRate:    math.LegacyNewDecWithPrec(3, 2),  // 3%
+		MaxTipAmount:       math.NewInt(100000000),            // 100 DREAM
+		MaxTipsPerEpoch:    10,
+		MaxGiftAmount:      math.NewInt(500000000), // 500 DREAM
+		GiftOnlyToInvitees: true,
+		// Reputation
+		MinReputationMultiplier: math.LegacyNewDecWithPrec(10, 2), // 10%
+		// Review periods
+		DefaultReviewPeriodEpochs:    7,
+		DefaultChallengePeriodEpochs: 7,
+		// Invitations
+		MinInvitationStake:             math.NewInt(100),
+		InvitationAccountabilityEpochs: 150,
+		ReferralRewardRate:             math.LegacyNewDecWithPrec(5, 2),   // 5%
+		InvitationCostMultiplier:       math.LegacyNewDecWithPrec(110, 2), // 1.1x
+		// Challenges
+		MinChallengeStake:      math.NewInt(50),
+		AnonymousFeeMultiplier: math.LegacyNewDecWithPrec(250, 2), // 2.5x
+		ChallengerRewardRate:   math.LegacyNewDecWithPrec(20, 2),  // 20%
+		JurySize:               5,
+		JurySuperMajority:      math.LegacyNewDecWithPrec(67, 2), // 67%
+		MinJurorReputation:     math.LegacyNewDec(50),
+		// Interim compensation
+		SimpleComplexityBudget:   math.NewInt(50000000),             // 50 DREAM
+		StandardComplexityBudget: math.NewInt(150000000),            // 150 DREAM
+		ComplexComplexityBudget:  math.NewInt(400000000),            // 400 DREAM
+		ExpertComplexityBudget:   math.NewInt(1000000000),           // 1000 DREAM
+		SoloExpertBonusRate:      math.LegacyNewDecWithPrec(50, 2), // 50%
+		InterimDeadlineEpochs:    7,
+		// Rate limits
+		MaxActiveChallengesPerCommittee: 3,
+		MaxNewChallengesPerEpoch:        2,
+		ChallengeQueueMaxSize:           10,
+		// Extended staking
+		ProjectStakingApy:          math.LegacyNewDecWithPrec(8, 2), // 8%
+		ProjectCompletionBonusRate: math.LegacyNewDecWithPrec(5, 2), // 5%
+		MemberStakeRevenueShare:    math.LegacyNewDecWithPrec(5, 2), // 5%
+		TagStakeRevenueShare:       math.LegacyNewDecWithPrec(2, 2), // 2%
+		MinStakeDurationSeconds:    86400,                           // 24 hours
+		AllowSelfMemberStake:       false,
+		// Challenge response deadline
+		ChallengeResponseDeadlineEpochs: 3,
+		// Gift rate limiting
+		GiftCooldownBlocks:     14400,
+		MaxGiftsPerSenderEpoch: math.NewInt(2000000000), // 2000 DREAM
+	}
+}
+
+// Validate validates the operational parameters.
+func (op RepOperationalParams) Validate() error {
+	if op.EpochBlocks <= 0 {
+		return fmt.Errorf("epoch blocks must be positive: %d", op.EpochBlocks)
+	}
+	if op.SeasonDurationEpochs <= 0 {
+		return fmt.Errorf("season duration epochs must be positive: %d", op.SeasonDurationEpochs)
+	}
+	if op.UnstakedDecayRate.IsNegative() {
+		return fmt.Errorf("unstaked decay rate cannot be negative: %s", op.UnstakedDecayRate)
+	}
+	if op.UnstakedDecayRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("unstaked decay rate cannot be greater than 1: %s", op.UnstakedDecayRate)
+	}
+	if op.TransferTaxRate.IsNegative() {
+		return fmt.Errorf("transfer tax rate cannot be negative: %s", op.TransferTaxRate)
+	}
+	if op.TransferTaxRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("transfer tax rate cannot be greater than 1: %s", op.TransferTaxRate)
+	}
+	if op.JurySize%2 == 0 {
+		return fmt.Errorf("jury size must be odd: %d", op.JurySize)
+	}
+	if op.GiftCooldownBlocks < 0 {
+		return fmt.Errorf("gift cooldown blocks cannot be negative: %d", op.GiftCooldownBlocks)
+	}
+	if op.MaxGiftsPerSenderEpoch.IsNegative() {
+		return fmt.Errorf("max gifts per sender epoch cannot be negative: %s", op.MaxGiftsPerSenderEpoch)
+	}
+	return nil
+}
+
+// ApplyOperationalParams copies all operational fields from RepOperationalParams
+// onto the full Params, preserving governance-only fields.
+func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
+	// Time
+	p.EpochBlocks = op.EpochBlocks
+	p.SeasonDurationEpochs = op.SeasonDurationEpochs
+	// DREAM economics
+	p.StakingApy = op.StakingApy
+	p.UnstakedDecayRate = op.UnstakedDecayRate
+	p.TransferTaxRate = op.TransferTaxRate
+	p.MaxTipAmount = op.MaxTipAmount
+	p.MaxTipsPerEpoch = op.MaxTipsPerEpoch
+	p.MaxGiftAmount = op.MaxGiftAmount
+	p.GiftOnlyToInvitees = op.GiftOnlyToInvitees
+	// Reputation
+	p.MinReputationMultiplier = op.MinReputationMultiplier
+	// Review periods
+	p.DefaultReviewPeriodEpochs = op.DefaultReviewPeriodEpochs
+	p.DefaultChallengePeriodEpochs = op.DefaultChallengePeriodEpochs
+	// Invitations
+	p.MinInvitationStake = op.MinInvitationStake
+	p.InvitationAccountabilityEpochs = op.InvitationAccountabilityEpochs
+	p.ReferralRewardRate = op.ReferralRewardRate
+	p.InvitationCostMultiplier = op.InvitationCostMultiplier
+	// Challenges
+	p.MinChallengeStake = op.MinChallengeStake
+	p.AnonymousFeeMultiplier = op.AnonymousFeeMultiplier
+	p.ChallengerRewardRate = op.ChallengerRewardRate
+	p.JurySize = op.JurySize
+	p.JurySuperMajority = op.JurySuperMajority
+	p.MinJurorReputation = op.MinJurorReputation
+	// Interim compensation
+	p.SimpleComplexityBudget = op.SimpleComplexityBudget
+	p.StandardComplexityBudget = op.StandardComplexityBudget
+	p.ComplexComplexityBudget = op.ComplexComplexityBudget
+	p.ExpertComplexityBudget = op.ExpertComplexityBudget
+	p.SoloExpertBonusRate = op.SoloExpertBonusRate
+	p.InterimDeadlineEpochs = op.InterimDeadlineEpochs
+	// Rate limits
+	p.MaxActiveChallengesPerCommittee = op.MaxActiveChallengesPerCommittee
+	p.MaxNewChallengesPerEpoch = op.MaxNewChallengesPerEpoch
+	p.ChallengeQueueMaxSize = op.ChallengeQueueMaxSize
+	// Extended staking
+	p.ProjectStakingApy = op.ProjectStakingApy
+	p.ProjectCompletionBonusRate = op.ProjectCompletionBonusRate
+	p.MemberStakeRevenueShare = op.MemberStakeRevenueShare
+	p.TagStakeRevenueShare = op.TagStakeRevenueShare
+	p.MinStakeDurationSeconds = op.MinStakeDurationSeconds
+	p.AllowSelfMemberStake = op.AllowSelfMemberStake
+	// Challenge response deadline
+	p.ChallengeResponseDeadlineEpochs = op.ChallengeResponseDeadlineEpochs
+	// Gift rate limiting
+	p.GiftCooldownBlocks = op.GiftCooldownBlocks
+	p.MaxGiftsPerSenderEpoch = op.MaxGiftsPerSenderEpoch
+	return p
+}
+
+// ExtractOperationalParams extracts the operational fields from Params into RepOperationalParams.
+func (p Params) ExtractOperationalParams() RepOperationalParams {
+	return RepOperationalParams{
+		// Time
+		EpochBlocks:          p.EpochBlocks,
+		SeasonDurationEpochs: p.SeasonDurationEpochs,
+		// DREAM economics
+		StakingApy:         p.StakingApy,
+		UnstakedDecayRate:  p.UnstakedDecayRate,
+		TransferTaxRate:    p.TransferTaxRate,
+		MaxTipAmount:       p.MaxTipAmount,
+		MaxTipsPerEpoch:    p.MaxTipsPerEpoch,
+		MaxGiftAmount:      p.MaxGiftAmount,
+		GiftOnlyToInvitees: p.GiftOnlyToInvitees,
+		// Reputation
+		MinReputationMultiplier: p.MinReputationMultiplier,
+		// Review periods
+		DefaultReviewPeriodEpochs:    p.DefaultReviewPeriodEpochs,
+		DefaultChallengePeriodEpochs: p.DefaultChallengePeriodEpochs,
+		// Invitations
+		MinInvitationStake:             p.MinInvitationStake,
+		InvitationAccountabilityEpochs: p.InvitationAccountabilityEpochs,
+		ReferralRewardRate:             p.ReferralRewardRate,
+		InvitationCostMultiplier:       p.InvitationCostMultiplier,
+		// Challenges
+		MinChallengeStake:      p.MinChallengeStake,
+		AnonymousFeeMultiplier: p.AnonymousFeeMultiplier,
+		ChallengerRewardRate:   p.ChallengerRewardRate,
+		JurySize:               p.JurySize,
+		JurySuperMajority:      p.JurySuperMajority,
+		MinJurorReputation:     p.MinJurorReputation,
+		// Interim compensation
+		SimpleComplexityBudget:   p.SimpleComplexityBudget,
+		StandardComplexityBudget: p.StandardComplexityBudget,
+		ComplexComplexityBudget:  p.ComplexComplexityBudget,
+		ExpertComplexityBudget:   p.ExpertComplexityBudget,
+		SoloExpertBonusRate:      p.SoloExpertBonusRate,
+		InterimDeadlineEpochs:    p.InterimDeadlineEpochs,
+		// Rate limits
+		MaxActiveChallengesPerCommittee: p.MaxActiveChallengesPerCommittee,
+		MaxNewChallengesPerEpoch:        p.MaxNewChallengesPerEpoch,
+		ChallengeQueueMaxSize:           p.ChallengeQueueMaxSize,
+		// Extended staking
+		ProjectStakingApy:          p.ProjectStakingApy,
+		ProjectCompletionBonusRate: p.ProjectCompletionBonusRate,
+		MemberStakeRevenueShare:    p.MemberStakeRevenueShare,
+		TagStakeRevenueShare:       p.TagStakeRevenueShare,
+		MinStakeDurationSeconds:    p.MinStakeDurationSeconds,
+		AllowSelfMemberStake:       p.AllowSelfMemberStake,
+		// Challenge response deadline
+		ChallengeResponseDeadlineEpochs: p.ChallengeResponseDeadlineEpochs,
+		// Gift rate limiting
+		GiftCooldownBlocks:     p.GiftCooldownBlocks,
+		MaxGiftsPerSenderEpoch: p.MaxGiftsPerSenderEpoch,
+	}
+}

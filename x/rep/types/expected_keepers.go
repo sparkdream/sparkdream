@@ -35,6 +35,10 @@ type CommonsKeeper interface {
 
 	// Get the group info for a committee
 	GetCommitteeGroupInfo(ctx context.Context, council string, committee string) (interface{}, error)
+
+	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
+	// or committee membership.
+	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
 }
 
 // SeasonKeeper defines the expected interface for the Season module.

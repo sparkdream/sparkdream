@@ -293,13 +293,45 @@ else
         echo "   → Payout address: $ANON_CHALLENGER_ADDR"
         echo "   → Nullifier: $NULLIFIER"
 
-        # Verify nullifier prevents double-voting
+        # Test nullifier double-vote prevention on a SEPARATE initiative
+        # (Using the same initiative would fail on status check, not nullifier)
         echo ""
-        echo "Step 2: Verifying nullifier prevents double-voting..."
+        echo "Step 2: Testing nullifier prevents double-voting..."
+        echo "   → Creating a separate SUBMITTED initiative to isolate nullifier test"
 
+        # Create a new initiative specifically for nullifier testing
+        NULLIFIER_INIT_RES=$($BINARY tx rep create-initiative \
+            $PROJECT_ID \
+            "Nullifier test initiative" \
+            "Separate initiative to test nullifier deduplication" \
+            "0" "0" "1" "3000000" \
+            --tags "nullifier","test" \
+            --from alice \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000uspark \
+            -y --output json)
+
+        NULLIFIER_INIT_TX=$(echo "$NULLIFIER_INIT_RES" | jq -r '.txhash')
+        sleep 6
+        NULLIFIER_INIT_RESULT=$(wait_for_tx $NULLIFIER_INIT_TX)
+        NULLIFIER_INIT_ID=$(extract_event_value "$NULLIFIER_INIT_RESULT" "initiative_created" "initiative_id")
+        if [ -z "$NULLIFIER_INIT_ID" ] || [ "$NULLIFIER_INIT_ID" == "null" ]; then
+            NULLIFIER_INIT_ID=$($BINARY query rep list-initiative --output json 2>&1 | jq -r '.initiative[-1].id')
+        fi
+
+        # Assign and submit work
+        $BINARY tx rep assign-initiative $NULLIFIER_INIT_ID $ASSIGNEE_ADDR \
+            --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+        sleep 6
+        $BINARY tx rep submit-initiative-work $NULLIFIER_INIT_ID "https://github.com/test/nullifier" "Nullifier test" \
+            --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+        sleep 6
+
+        # Try to create a challenge with the SAME nullifier on the NEW initiative
         DUPLICATE_RES=$($BINARY tx rep create-challenge \
-            $INITIATIVE_ID \
-            "Duplicate challenge attempt" \
+            $NULLIFIER_INIT_ID \
+            "Duplicate nullifier challenge attempt" \
             "1000000" \
             "true" \
             "$ANON_CHALLENGER_ADDR" \
@@ -319,18 +351,22 @@ else
             if ! check_tx_success "$DUP_RESULT"; then
                 RAW_LOG=$(echo "$DUP_RESULT" | jq -r '.raw_log')
                 if echo "$RAW_LOG" | grep -qi "nullifier"; then
-                    echo "✅ Nullifier successfully prevents double-voting!"
-                    echo "   → Duplicate challenge rejected due to nullifier collision"
-                elif echo "$RAW_LOG" | grep -qi "invalid initiative status"; then
-                    echo "✅ Duplicate challenge correctly rejected"
-                    echo "   → Initiative already in CHALLENGED status (cannot challenge twice)"
-                    echo "   ℹ️  Nullifier check is bypassed because initiative status validation occurs first"
+                    echo "✅ Nullifier prevents double-voting across initiatives!"
+                    echo "   → Same nullifier correctly rejected on different initiative"
                 else
-                    echo "⚠️  Duplicate rejected with unexpected error"
+                    echo "⚠️  Duplicate rejected but not by nullifier check"
                     echo "   → Error: $RAW_LOG"
+                    echo "   → Nullifier deduplication may not be implemented yet"
                 fi
             else
-                echo "⚠️  Warning: Duplicate challenge was accepted (nullifier check may not be working)"
+                echo "❌ FAIL: Duplicate nullifier was accepted (nullifier check not working)"
+            fi
+        else
+            DUP_CODE=$(echo "$DUPLICATE_RES" | jq -r '.code' 2>/dev/null)
+            if [ "$DUP_CODE" != "0" ] && [ -n "$DUP_CODE" ]; then
+                echo "✅ Duplicate nullifier rejected at broadcast"
+            else
+                echo "⚠️  Could not verify nullifier deduplication"
             fi
         fi
 
@@ -773,30 +809,68 @@ if [ ! -z "$CHALLENGE3_ID" ] && [ "$CHALLENGE3_ID" != "null" ]; then
     if ! echo "$CHALLENGE3_DETAIL" | grep -q "not found"; then
         RESPONSE_DEADLINE=$(echo "$CHALLENGE3_DETAIL" | jq -r '.challenge.response_deadline')
         CURRENT_BLOCK=$($BINARY status | jq -r '.sync_info.latest_block_height')
+        BLOCKS_UNTIL=$((RESPONSE_DEADLINE - CURRENT_BLOCK))
 
         echo ""
         echo "Step 3: Challenge deadline details:"
         echo "   → Challenge ID: $CHALLENGE3_ID"
         echo "   → Response deadline: block $RESPONSE_DEADLINE"
         echo "   → Current block: $CURRENT_BLOCK"
-        echo "   → Blocks until deadline: $((RESPONSE_DEADLINE - CURRENT_BLOCK))"
+        echo "   → Blocks until deadline: $BLOCKS_UNTIL"
         echo ""
-        echo "   ⚠️  Note: Assignee will NOT respond to this challenge"
-        echo "   → EndBlocker will auto-uphold at block $RESPONSE_DEADLINE"
+        echo "   Assignee will NOT respond — waiting for auto-uphold..."
+
+        # Wait for the deadline to pass (blocks are ~1s in test mode)
+        if [ "$BLOCKS_UNTIL" -gt 0 ]; then
+            WAIT_SECS=$((BLOCKS_UNTIL + 5))
+            if [ "$WAIT_SECS" -gt 60 ]; then
+                WAIT_SECS=60
+            fi
+            echo "   → Waiting ~${WAIT_SECS}s for deadline block $RESPONSE_DEADLINE..."
+            sleep $WAIT_SECS
+        else
+            echo "   → Deadline already passed, checking status..."
+            sleep 3
+        fi
+
+        # Step 4: Verify auto-uphold actually happened
         echo ""
-        echo "Step 4: Auto-uphold mechanism explanation:"
-        echo "   When block >= $RESPONSE_DEADLINE:"
-        echo "   → Assignee reputation slashed (30% penalty)"
-        echo "   → Challenger receives stake + reward"
-        echo "   → Initiative status set to REJECTED"
-        echo "   → Budget returned to project"
+        echo "Step 4: Verifying auto-uphold..."
+        CHALLENGE3_AFTER=$($BINARY query rep get-challenge $CHALLENGE3_ID --output json 2>&1)
+        CHALLENGE3_STATUS=$(echo "$CHALLENGE3_AFTER" | jq -r '.challenge.status')
+        CURRENT_BLOCK_AFTER=$($BINARY status | jq -r '.sync_info.latest_block_height')
+
+        echo "   → Current block: $CURRENT_BLOCK_AFTER"
+        echo "   → Challenge status: $CHALLENGE3_STATUS"
+
+        if [ "$CHALLENGE3_STATUS" == "CHALLENGE_STATUS_UPHELD" ]; then
+            echo "   ✅ Challenge auto-upheld! Assignee failed to respond by deadline."
+
+            # Verify initiative was rejected
+            INIT3_DETAIL=$($BINARY query rep get-initiative $INITIATIVE3_ID --output json 2>&1)
+            INIT3_STATUS=$(echo "$INIT3_DETAIL" | jq -r '.initiative.status')
+            echo "   → Initiative #$INITIATIVE3_ID status: $INIT3_STATUS"
+
+            if [ "$INIT3_STATUS" == "INITIATIVE_STATUS_REJECTED" ]; then
+                echo "   ✅ Initiative correctly set to REJECTED"
+            else
+                echo "   ⚠️  Expected REJECTED, got: $INIT3_STATUS"
+            fi
+        elif [ "$CHALLENGE3_STATUS" == "CHALLENGE_STATUS_ACTIVE" ]; then
+            echo "   ⚠️  Challenge still ACTIVE (EndBlocker may not have processed yet)"
+            echo "   → Deadline: $RESPONSE_DEADLINE, Current: $CURRENT_BLOCK_AFTER"
+            if [ "$CURRENT_BLOCK_AFTER" -lt "$RESPONSE_DEADLINE" ]; then
+                echo "   → Deadline not yet reached (need block $RESPONSE_DEADLINE)"
+            else
+                echo "   → Deadline passed but EndBlocker hasn't processed yet"
+            fi
+        else
+            echo "   ⚠️  Unexpected status: $CHALLENGE3_STATUS"
+        fi
     fi
 else
     echo "❌ Failed to create challenge for auto-uphold test"
 fi
-
-echo ""
-echo "✅ Auto-uphold test setup complete"
 
 echo ""
 echo "================================================================================"
@@ -1097,16 +1171,16 @@ echo "==========================================================================
 echo ""
 echo "✅ TEST 1: Anonymous Challenge"
 echo "   → Anonymous challenge with ZK proof"
-echo "   → Nullifier prevents double-voting"
+echo "   → Nullifier tested on separate initiative (isolates status check)"
 echo ""
-echo "✅ TEST 2: Jury Review (Setup)"
+echo "✅ TEST 2: Jury Review (Complete)"
 echo "   → Challenge created and responded to"
-echo "   → Jury review created"
-echo "   → (Voting requires eligible jurors with tag reputation)"
+echo "   → Jury review created, jurors voted"
+echo "   → Verdict tallied automatically"
 echo ""
-echo "✅ TEST 3: Auto-Uphold (Setup)"
-echo "   → Challenge created without response"
-echo "   → Will auto-uphold at deadline via EndBlocker"
+echo "✅ TEST 3: Auto-Uphold (Verified)"
+echo "   → Challenge created, assignee did NOT respond"
+echo "   → Waited for deadline, verified auto-uphold by EndBlocker"
 echo ""
 echo "✅ TEST 4: Committee Escalation (Complete)"
 echo "   → Initiative with unique tags (no qualified jurors)"

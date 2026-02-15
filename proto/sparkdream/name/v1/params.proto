@@ -41,3 +41,35 @@ message Params {
     (gogoproto.nullable) = false
   ];
 }
+
+// NameOperationalParams defines the operational parameters that can be updated
+// by the Commons Council Operations Committee without a full governance proposal.
+// Governance-only fields (blocked_names, min_name_length, max_name_length,
+// max_names_per_address) are excluded and can only be changed via MsgUpdateParams.
+message NameOperationalParams {
+  option (amino.name) = "sparkdream/x/name/NameOperationalParams";
+  option (gogoproto.equal) = true;
+
+  google.protobuf.Duration expiration_duration = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  cosmos.base.v1beta1.Coin registration_fee = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // DREAM tokens staked by claimant when filing a dispute (default 50)
+  string dispute_stake_dream = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Blocks before an uncontested dispute auto-resolves (~7 days = 100800)
+  uint64 dispute_timeout_blocks = 4;
+  // DREAM tokens staked by owner when contesting a dispute (default 100)
+  string contest_stake_dream = 5 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

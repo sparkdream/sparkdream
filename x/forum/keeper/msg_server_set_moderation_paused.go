@@ -19,7 +19,7 @@ func (k msgServer) SetModerationPaused(ctx context.Context, msg *types.MsgSetMod
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// Only governance, council, or operations committee can pause/unpause moderation
-	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+	if !k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
 		return nil, errorsmod.Wrap(types.ErrNotGovAuthority, "only governance, council, or operations committee can pause/unpause moderation")
 	}
 

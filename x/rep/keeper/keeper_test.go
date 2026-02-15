@@ -22,6 +22,7 @@ import (
 type mockCommonsKeeper struct {
 	IsCommitteeMemberFn     func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 	GetCommitteeGroupInfoFn func(ctx context.Context, council string, committee string) (interface{}, error)
+	IsCouncilAuthorizedFn   func(ctx context.Context, addr string, council string, committee string) bool
 }
 
 func (m mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
@@ -36,6 +37,13 @@ func (m mockCommonsKeeper) GetCommitteeGroupInfo(ctx context.Context, council st
 		return m.GetCommitteeGroupInfoFn(ctx, council, committee)
 	}
 	return nil, nil
+}
+
+func (m mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+	if m.IsCouncilAuthorizedFn != nil {
+		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
+	}
+	return false
 }
 
 type mockSeasonKeeper struct {

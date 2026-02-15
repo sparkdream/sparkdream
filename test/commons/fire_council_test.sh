@@ -116,7 +116,7 @@ echo "Votes cast. Waiting for Veto voting period (12s)..."
 
 # EXECUTE VETO -> THIS MUST FAIL
 echo "Attempting to Execute Veto (Expect Failure)..."
-EXEC_RES=$($BINARY tx group exec $GROUP_PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $GROUP_PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 5
 

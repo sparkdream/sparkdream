@@ -98,6 +98,57 @@ func (p Params) Validate() error {
 	return nil
 }
 
+// DefaultNameOperationalParams returns NameOperationalParams with defaults
+// matching the existing Params defaults for the 5 operational fields.
+func DefaultNameOperationalParams() NameOperationalParams {
+	return NameOperationalParams{
+		ExpirationDuration:   DefaultExpirationDuration,
+		RegistrationFee:      DefaultRegistrationFee,
+		DisputeStakeDream:    DefaultDisputeStakeDream,
+		DisputeTimeoutBlocks: DefaultDisputeTimeoutBlocks,
+		ContestStakeDream:    DefaultContestStakeDream,
+	}
+}
+
+// Validate validates the operational params.
+func (op NameOperationalParams) Validate() error {
+	if op.ExpirationDuration <= 0 {
+		return fmt.Errorf("expiration duration must be positive")
+	}
+	if !op.RegistrationFee.IsValid() {
+		return fmt.Errorf("invalid registration fee coin: %s", op.RegistrationFee)
+	}
+	if op.DisputeStakeDream.IsNegative() {
+		return fmt.Errorf("dispute stake must be non-negative")
+	}
+	if op.ContestStakeDream.IsNegative() {
+		return fmt.Errorf("contest stake must be non-negative")
+	}
+	return nil
+}
+
+// ApplyOperationalParams copies the 5 operational fields from op,
+// preserving BlockedNames, MinNameLength, MaxNameLength, MaxNamesPerAddress.
+func (p Params) ApplyOperationalParams(op NameOperationalParams) Params {
+	p.ExpirationDuration = op.ExpirationDuration
+	p.RegistrationFee = op.RegistrationFee
+	p.DisputeStakeDream = op.DisputeStakeDream
+	p.DisputeTimeoutBlocks = op.DisputeTimeoutBlocks
+	p.ContestStakeDream = op.ContestStakeDream
+	return p
+}
+
+// ExtractOperationalParams extracts the operational fields from the full params.
+func (p Params) ExtractOperationalParams() NameOperationalParams {
+	return NameOperationalParams{
+		ExpirationDuration:   p.ExpirationDuration,
+		RegistrationFee:      p.RegistrationFee,
+		DisputeStakeDream:    p.DisputeStakeDream,
+		DisputeTimeoutBlocks: p.DisputeTimeoutBlocks,
+		ContestStakeDream:    p.ContestStakeDream,
+	}
+}
+
 // Validation Functions ------------------------------------------------------
 
 func validateBlockedNames(i interface{}) error {

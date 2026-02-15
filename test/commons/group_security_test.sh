@@ -49,10 +49,10 @@ echo '{
       "term_duration": 60, 
       "voting_period": 3600,
       "min_execution_period": 0,
-      "max_spend_per_epoch": "100uspark", 
+      "max_spend_per_epoch": "100",
       "update_cooldown": 3600,
       "funding_weight": 0,
-      "futarchy_enabled": true,
+      "futarchy_enabled": false,
       "vote_threshold": "1",
       "policy_type": "threshold",
       "allowed_messages": [
@@ -85,7 +85,7 @@ $BINARY tx group vote $PROPOSAL_ID $BOB_ADDR VOTE_OPTION_YES "Yes" --from bob -y
 sleep 3
 
 echo "Votes cast. Attempting Execution..."
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 3
 
@@ -147,7 +147,7 @@ $BINARY tx group vote $PROPOSAL_ID $BOB_ADDR VOTE_OPTION_YES "Yes" --from bob -y
 sleep 3
 
 echo "Votes cast. Attempting Execution..."
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 3
 EXEC_LOGS=$($BINARY query tx $EXEC_HASH --output json)
@@ -176,7 +176,7 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgUpdateGroupConfig",
       "authority": "'$COMMONS_POLICY'",
       "group_name": "Fort Knox",
-      "max_spend_per_epoch": "9999999uspark"
+      "max_spend_per_epoch": "9999999"
     }
   ]
 }' > "$PROPOSAL_DIR/eve_attack.json"
@@ -244,7 +244,7 @@ $BINARY tx group vote $PROPOSAL_ID $ALICE_ADDR VOTE_OPTION_YES "Yes" --from alic
 sleep 3
 
 echo "Votes cast. Attempting Execution..."
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 3
 EXEC_LOGS=$($BINARY query tx $EXEC_HASH --output json)
@@ -308,7 +308,7 @@ echo '{
       "term_duration": 3600,
       "voting_period": 3600,
       "min_execution_period": 0,
-      "max_spend_per_epoch": "100uspark",
+      "max_spend_per_epoch": "100",
       "update_cooldown": 0,
       "funding_weight": 0,
       "futarchy_enabled": false,
@@ -340,7 +340,7 @@ $BINARY tx group vote $PROPOSAL_ID $BOB_ADDR VOTE_OPTION_YES "Yes" --from bob -y
 sleep 3
 
 echo "Votes cast. Attempting Execution..."
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 sleep 3
 # Check execution
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
@@ -401,7 +401,7 @@ $BINARY tx group vote $PROPOSAL_ID $ALICE_ADDR VOTE_OPTION_YES "Yes" --from alic
 sleep 3
 
 echo "Votes cast. Attempting Execution..."
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 3
 EXEC_LOGS=$($BINARY query tx $EXEC_HASH --output json)

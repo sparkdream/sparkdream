@@ -40,6 +40,7 @@ func setupMsgServerForUpdate(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 		addressCodec,
 		authority,
 		bankKeeper,
+		nil, // commonsKeeper (optional)
 	)
 
 	// Initialize params

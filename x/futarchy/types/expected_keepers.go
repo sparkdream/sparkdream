@@ -27,6 +27,14 @@ type BankKeeper interface {
 	SendCoinsFromModuleToModule(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error
 }
 
+// CommonsKeeper defines the expected interface for the Commons module.
+// Used for council-gated operational parameter updates.
+type CommonsKeeper interface {
+	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
+	// or committee membership.
+	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+}
+
 // ParamSubspace defines the expected Subspace interface for parameters.
 type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})

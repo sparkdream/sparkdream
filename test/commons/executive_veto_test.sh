@@ -115,7 +115,7 @@ echo "Votes cast. Waiting for Veto voting period (5s buffer for 4h window? No, b
 # 2. Or rely on "TryExec" immediately if threshold is met (Instant Execution)
 
 echo "Attempting Immediate Execution (Threshold Met)..."
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 
 echo "Waiting for execution block (5s)..."

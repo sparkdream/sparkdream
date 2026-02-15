@@ -43,7 +43,7 @@ echo '{
       "term_duration": 3600,
       "voting_period": 10,
       "min_execution_period": 0,
-      "max_spend_per_epoch": "1000000uspark", 
+      "max_spend_per_epoch": "1000000",
       "update_cooldown": 0,
       "funding_weight": 0,
       "futarchy_enabled": false,

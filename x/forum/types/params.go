@@ -194,3 +194,116 @@ func DefaultEditGracePeriodValue() int64 {
 func DefaultEditMaxWindowValue() int64 {
 	return DefaultEditMaxWindow
 }
+
+// DefaultForumOperationalParams returns default operational parameters.
+func DefaultForumOperationalParams() ForumOperationalParams {
+	return ForumOperationalParams{
+		BountiesEnabled:              true,
+		ReactionsEnabled:             true,
+		EditingEnabled:               true,
+		SpamTax:                      sdk.NewCoin(DefaultFeeDenom, DefaultSpamTaxAmount),
+		ReactionSpamTax:              sdk.NewCoin(DefaultFeeDenom, DefaultReactionSpamTaxAmount),
+		FlagSpamTax:                  sdk.NewCoin(DefaultFeeDenom, DefaultFlagSpamTaxAmount),
+		DownvoteDeposit:              sdk.NewCoin(DefaultFeeDenom, DefaultDownvoteDepositAmount),
+		AppealFee:                    sdk.NewCoin(DefaultFeeDenom, DefaultAppealFeeAmount),
+		LockAppealFee:                sdk.NewCoin(DefaultFeeDenom, DefaultLockAppealFeeAmount),
+		MoveAppealFee:                sdk.NewCoin(DefaultFeeDenom, DefaultMoveAppealFeeAmount),
+		EditFee:                      sdk.NewCoin(DefaultFeeDenom, DefaultEditFeeAmount),
+		CostPerByte:                  sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
+		CostPerByteExempt:            false,
+		MaxContentSize:               DefaultMaxContentSize,
+		DailyPostLimit:               DefaultDailyPostLimit,
+		MaxReplyDepth:                DefaultMaxReplyDepth,
+		MaxFollowsPerDay:             DefaultMaxFollowsPerDay,
+		BountyCancellationFeePercent: DefaultBountyCancellationFeePercent,
+		EditGracePeriod:              DefaultEditGracePeriod,
+		EditMaxWindow:                DefaultEditMaxWindow,
+		ArchiveThreshold:             DefaultArchiveThreshold,
+		UnarchiveCooldown:            DefaultUnarchiveCooldown,
+		ArchiveCooldown:              DefaultArchiveCooldown,
+		HideAppealCooldown:           DefaultHideAppealCooldown,
+		LockAppealCooldown:           DefaultLockAppealCooldown,
+		MoveAppealCooldown:           DefaultMoveAppealCooldown,
+		EphemeralTtl:                 DefaultEphemeralTTL,
+	}
+}
+
+// Validate validates the operational parameters.
+func (p ForumOperationalParams) Validate() error {
+	if p.EphemeralTtl <= 0 {
+		return fmt.Errorf("ephemeral_ttl must be positive: %d", p.EphemeralTtl)
+	}
+	if !p.CostPerByte.Amount.IsNil() && p.CostPerByte.IsNegative() {
+		return fmt.Errorf("cost_per_byte cannot be negative: %s", p.CostPerByte)
+	}
+	if p.BountyCancellationFeePercent > 100 {
+		return fmt.Errorf("bounty_cancellation_fee_percent must be <= 100: %d", p.BountyCancellationFeePercent)
+	}
+	return nil
+}
+
+// ApplyOperationalParams copies all operational fields from ForumOperationalParams
+// onto the full Params, preserving non-operational fields (forum_paused, moderation_paused, appeals_paused).
+func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
+	p.BountiesEnabled = op.BountiesEnabled
+	p.ReactionsEnabled = op.ReactionsEnabled
+	p.EditingEnabled = op.EditingEnabled
+	p.SpamTax = op.SpamTax
+	p.ReactionSpamTax = op.ReactionSpamTax
+	p.FlagSpamTax = op.FlagSpamTax
+	p.DownvoteDeposit = op.DownvoteDeposit
+	p.AppealFee = op.AppealFee
+	p.LockAppealFee = op.LockAppealFee
+	p.MoveAppealFee = op.MoveAppealFee
+	p.EditFee = op.EditFee
+	p.CostPerByte = op.CostPerByte
+	p.CostPerByteExempt = op.CostPerByteExempt
+	p.MaxContentSize = op.MaxContentSize
+	p.DailyPostLimit = op.DailyPostLimit
+	p.MaxReplyDepth = op.MaxReplyDepth
+	p.MaxFollowsPerDay = op.MaxFollowsPerDay
+	p.BountyCancellationFeePercent = op.BountyCancellationFeePercent
+	p.EditGracePeriod = op.EditGracePeriod
+	p.EditMaxWindow = op.EditMaxWindow
+	p.ArchiveThreshold = op.ArchiveThreshold
+	p.UnarchiveCooldown = op.UnarchiveCooldown
+	p.ArchiveCooldown = op.ArchiveCooldown
+	p.HideAppealCooldown = op.HideAppealCooldown
+	p.LockAppealCooldown = op.LockAppealCooldown
+	p.MoveAppealCooldown = op.MoveAppealCooldown
+	p.EphemeralTtl = op.EphemeralTtl
+	return p
+}
+
+// ExtractOperationalParams extracts the operational fields from Params into ForumOperationalParams.
+func (p Params) ExtractOperationalParams() ForumOperationalParams {
+	return ForumOperationalParams{
+		BountiesEnabled:              p.BountiesEnabled,
+		ReactionsEnabled:             p.ReactionsEnabled,
+		EditingEnabled:               p.EditingEnabled,
+		SpamTax:                      p.SpamTax,
+		ReactionSpamTax:              p.ReactionSpamTax,
+		FlagSpamTax:                  p.FlagSpamTax,
+		DownvoteDeposit:              p.DownvoteDeposit,
+		AppealFee:                    p.AppealFee,
+		LockAppealFee:                p.LockAppealFee,
+		MoveAppealFee:                p.MoveAppealFee,
+		EditFee:                      p.EditFee,
+		CostPerByte:                  p.CostPerByte,
+		CostPerByteExempt:            p.CostPerByteExempt,
+		MaxContentSize:               p.MaxContentSize,
+		DailyPostLimit:               p.DailyPostLimit,
+		MaxReplyDepth:                p.MaxReplyDepth,
+		MaxFollowsPerDay:             p.MaxFollowsPerDay,
+		BountyCancellationFeePercent: p.BountyCancellationFeePercent,
+		EditGracePeriod:              p.EditGracePeriod,
+		EditMaxWindow:                p.EditMaxWindow,
+		ArchiveThreshold:             p.ArchiveThreshold,
+		UnarchiveCooldown:            p.UnarchiveCooldown,
+		ArchiveCooldown:              p.ArchiveCooldown,
+		HideAppealCooldown:           p.HideAppealCooldown,
+		LockAppealCooldown:           p.LockAppealCooldown,
+		MoveAppealCooldown:           p.MoveAppealCooldown,
+		EphemeralTtl:                 p.EphemeralTtl,
+	}
+}

@@ -8,7 +8,7 @@ accounts:
 - name: carol
   coins: [5000000000000uspark]
 - name: dave
-  coins: [1000000uspark]
+  coins: [5000000uspark]
 faucet:
   name: bob
   coins: [1000uspark]
@@ -200,6 +200,7 @@ genesis:
         archive_threshold: "5"       # 5 seconds (was 30 days = 2592000)
         unarchive_cooldown: "5"      # 5 seconds (was 1 day = 86400)
         archive_cooldown: "5"        # 5 seconds (was 30 days = 2592000)
+        ephemeral_ttl: "15"          # 15 seconds (was 24h = 86400) for pruning tests
         hide_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         lock_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         move_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)

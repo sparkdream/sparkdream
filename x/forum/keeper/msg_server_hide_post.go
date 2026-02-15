@@ -38,7 +38,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	}
 
 	// Check if sender is operations committee or sentinel
-	isGovAuthority := k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	// Load sentinel activity for non-gov senders
 	var sentinelActivity types.SentinelActivity
