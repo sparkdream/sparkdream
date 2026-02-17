@@ -430,8 +430,8 @@ func TestUpdatePostStorageDeltaFee(t *testing.T) {
 		// Create a post (this will trigger storage fees too)
 		createResp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
 			Creator: creator,
-			Title:   "Hi",     // 2 bytes
-			Body:    "World",  // 5 bytes = 7 total
+			Title:   "Hi",    // 2 bytes
+			Body:    "World", // 5 bytes = 7 total
 		})
 		require.NoError(t, err)
 
@@ -443,8 +443,8 @@ func TestUpdatePostStorageDeltaFee(t *testing.T) {
 		_, err = msgServer.UpdatePost(ctx, &types.MsgUpdatePost{
 			Creator: creator,
 			Id:      createResp.Id,
-			Title:   "Hello",            // 5 bytes
-			Body:    "World Updated!",   // 14 bytes = 19 total, delta = 19 - 7 = 12
+			Title:   "Hello",          // 5 bytes
+			Body:    "World Updated!", // 14 bytes = 19 total, delta = 19 - 7 = 12
 		})
 		require.NoError(t, err)
 
@@ -464,7 +464,7 @@ func TestUpdatePostStorageDeltaFee(t *testing.T) {
 		// Create a post with larger content
 		createResp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
 			Creator: creator,
-			Title:   "Hello World",       // 11 bytes
+			Title:   "Hello World",         // 11 bytes
 			Body:    "This is a long body", // 19 bytes = 30 total
 		})
 		require.NoError(t, err)
@@ -477,7 +477,7 @@ func TestUpdatePostStorageDeltaFee(t *testing.T) {
 		_, err = msgServer.UpdatePost(ctx, &types.MsgUpdatePost{
 			Creator: creator,
 			Id:      createResp.Id,
-			Title:   "Hi",   // 2 bytes
+			Title:   "Hi",    // 2 bytes
 			Body:    "Short", // 5 bytes = 7 total (smaller)
 		})
 		require.NoError(t, err)

@@ -1,5 +1,6 @@
 syntax = "proto3";
 package sparkdream.common.v1;
+
 option go_package = "sparkdream/x/common/types";
 
 // ContentType tells the frontend how to interpret post content.
@@ -10,17 +11,17 @@ enum ContentType {
   CONTENT_TYPE_UNSPECIFIED = 0;
 
   // On-chain text formats (human-readable strings)
-  CONTENT_TYPE_TEXT     = 1;  // Plain text (UTF-8)
-  CONTENT_TYPE_HTML     = 2;  // HTML content
-  CONTENT_TYPE_MARKDOWN = 3;  // Markdown content
+  CONTENT_TYPE_TEXT = 1; // Plain text (UTF-8)
+  CONTENT_TYPE_HTML = 2; // HTML content
+  CONTENT_TYPE_MARKDOWN = 3; // Markdown content
 
   // On-chain compressed formats (base64-encoded strings)
-  CONTENT_TYPE_GZIP = 10;  // Gzip-compressed (frontend decompresses)
-  CONTENT_TYPE_ZSTD = 11;  // Zstandard-compressed (frontend decompresses)
+  CONTENT_TYPE_GZIP = 10; // Gzip-compressed (frontend decompresses)
+  CONTENT_TYPE_ZSTD = 11; // Zstandard-compressed (frontend decompresses)
 
   // Off-chain references (hash/CID strings)
-  CONTENT_TYPE_IPFS     = 20;  // IPFS CID (frontend fetches from IPFS gateway)
-  CONTENT_TYPE_ARWEAVE  = 21;  // Arweave TX ID (frontend fetches from Arweave gateway)
-  CONTENT_TYPE_FILECOIN = 22;  // Filecoin CID (frontend fetches from Filecoin gateway)
-  CONTENT_TYPE_JACKAL   = 23;  // Jackal FID (frontend fetches from Jackal gateway)
+  CONTENT_TYPE_IPFS = 20; // IPFS CID (frontend fetches from IPFS gateway)
+  CONTENT_TYPE_ARWEAVE = 21; // Arweave TX ID (frontend fetches from Arweave gateway)
+  CONTENT_TYPE_FILECOIN = 22; // Filecoin CID (frontend fetches from Filecoin gateway)
+  CONTENT_TYPE_JACKAL = 23; // Jackal FID (frontend fetches from Jackal gateway)
 }

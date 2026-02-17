@@ -158,6 +158,101 @@ func (k Keeper) SlashReputation(ctx context.Context, memberAddr sdk.AccAddress, 
 	return nil
 }
 
+// AddReputation increases a member's reputation for a specific tag by an absolute amount.
+// Used by other modules (e.g. x/reveal) to reward contributions.
+func (k Keeper) AddReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	if err != nil {
+		return types.ErrMemberNotFound
+	}
+
+	if member.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return types.ErrMemberNotActive
+	}
+
+	if amount.IsNegative() {
+		return types.ErrInvalidAmount
+	}
+
+	if member.ReputationScores == nil {
+		member.ReputationScores = make(map[string]string)
+	}
+
+	currentRep := math.LegacyZeroDec()
+	if repStr, ok := member.ReputationScores[tag]; ok {
+		currentRep, _ = math.LegacyNewDecFromStr(repStr)
+	}
+
+	newRep := currentRep.Add(amount)
+	member.ReputationScores[tag] = newRep.String()
+
+	if err := k.Member.Set(ctx, memberAddr.String(), member); err != nil {
+		return err
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"reputation_added",
+			sdk.NewAttribute("member", memberAddr.String()),
+			sdk.NewAttribute("tag", tag),
+			sdk.NewAttribute("amount", amount.String()),
+			sdk.NewAttribute("new_score", newRep.String()),
+		),
+	)
+
+	return nil
+}
+
+// DeductReputation decreases a member's reputation for a specific tag by an absolute amount.
+// The score is floored at zero. Used by other modules (e.g. x/reveal) to penalize failures.
+func (k Keeper) DeductReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	if err != nil {
+		return types.ErrMemberNotFound
+	}
+
+	if member.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return types.ErrMemberNotActive
+	}
+
+	if amount.IsNegative() {
+		return types.ErrInvalidAmount
+	}
+
+	if member.ReputationScores == nil {
+		member.ReputationScores = make(map[string]string)
+	}
+
+	currentRep := math.LegacyZeroDec()
+	if repStr, ok := member.ReputationScores[tag]; ok {
+		currentRep, _ = math.LegacyNewDecFromStr(repStr)
+	}
+
+	newRep := currentRep.Sub(amount)
+	if newRep.IsNegative() {
+		newRep = math.LegacyZeroDec()
+	}
+	member.ReputationScores[tag] = newRep.String()
+
+	if err := k.Member.Set(ctx, memberAddr.String(), member); err != nil {
+		return err
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"reputation_deducted",
+			sdk.NewAttribute("member", memberAddr.String()),
+			sdk.NewAttribute("tag", tag),
+			sdk.NewAttribute("amount", amount.String()),
+			sdk.NewAttribute("new_score", newRep.String()),
+		),
+	)
+
+	return nil
+}
+
 // DemoteMember applies a reputation slash as a demotion penalty.
 // Per the spec, trust levels never decrease, so "demotion" is actually a reputation slash.
 // The member keeps their trust level but loses reputation, making it harder to participate in tier-gated activities.

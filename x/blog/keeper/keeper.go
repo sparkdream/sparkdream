@@ -17,9 +17,9 @@ type Keeper struct {
 	addressCodec address.Codec
 	// Address capable of executing a MsgUpdateParams message.
 	// Typically, this should be the x/gov module account.
-	authority      []byte
-	bankKeeper     types.BankKeeper
-	commonsKeeper  types.CommonsKeeper
+	authority     []byte
+	bankKeeper    types.BankKeeper
+	commonsKeeper types.CommonsKeeper
 
 	Schema collections.Schema
 	Params collections.Item[types.Params]

@@ -112,7 +112,7 @@ message MsgFileDispute {
   option (cosmos.msg.v1.signer) = "authority";
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string name = 2;
-  string reason = 3;  // Why the claimant believes they should own this name
+  string reason = 3; // Why the claimant believes they should own this name
 }
 
 // MsgFileDisputeResponse defines the MsgFileDisputeResponse message.
@@ -125,7 +125,7 @@ message MsgContestDispute {
   option (amino.name) = "sparkdream/x/name/MsgContestDispute";
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"]; // Current owner
   string name = 2;
-  string reason = 3;  // Why the dispute is invalid
+  string reason = 3; // Why the dispute is invalid
 }
 
 // MsgContestDisputeResponse defines the response for MsgContestDispute.
@@ -137,8 +137,8 @@ message MsgResolveDispute {
   option (cosmos.msg.v1.signer) = "authority";
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string name = 2;
-  string new_owner = 3;          // Only used if transfer_approved
-  bool transfer_approved = 4;    // true = name transfers to claimant, false = dismiss dispute
+  string new_owner = 3; // Only used if transfer_approved
+  bool transfer_approved = 4; // true = name transfers to claimant, false = dismiss dispute
 }
 
 // MsgResolveDisputeResponse defines the MsgResolveDisputeResponse message.

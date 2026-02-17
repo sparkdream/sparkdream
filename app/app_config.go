@@ -15,6 +15,8 @@ import (
 	namemoduletypes "sparkdream/x/name/types"
 	_ "sparkdream/x/rep/module"
 	repmoduletypes "sparkdream/x/rep/types"
+	_ "sparkdream/x/reveal/module"
+	revealmoduletypes "sparkdream/x/reveal/types"
 	_ "sparkdream/x/season/module"
 	seasonmoduletypes "sparkdream/x/season/types"
 	_ "sparkdream/x/sparkdream/module"
@@ -162,6 +164,7 @@ var (
 						repmoduletypes.ModuleName,
 						forummoduletypes.ModuleName,
 						seasonmoduletypes.ModuleName,
+						revealmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -180,6 +183,7 @@ var (
 						repmoduletypes.ModuleName,
 						forummoduletypes.ModuleName,
 						seasonmoduletypes.ModuleName,
+						revealmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -226,6 +230,7 @@ var (
 						repmoduletypes.ModuleName,
 						forummoduletypes.ModuleName,
 						seasonmoduletypes.ModuleName,
+						revealmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -366,6 +371,10 @@ var (
 			{
 				Name:   seasonmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&seasonmoduletypes.Module{}),
+			},
+			{
+				Name:   revealmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&revealmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

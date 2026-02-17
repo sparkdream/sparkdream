@@ -161,9 +161,9 @@ func TestMsgServerUpdateOperationalParams(t *testing.T) {
 		require.NoError(t, err)
 
 		// Modify governance-only fields to non-default values
-		params.CompleterShare = math.LegacyNewDecWithPrec(80, 2) // 0.80
-		params.TreasuryShare = math.LegacyNewDecWithPrec(20, 2)  // 0.20
-		params.ConvictionHalfLifeEpochs = 14 // non-default
+		params.CompleterShare = math.LegacyNewDecWithPrec(80, 2)          // 0.80
+		params.TreasuryShare = math.LegacyNewDecWithPrec(20, 2)           // 0.20
+		params.ConvictionHalfLifeEpochs = 14                              // non-default
 		params.ExternalConvictionRatio = math.LegacyNewDecWithPrec(60, 2) // 0.60
 
 		err = f.keeper.Params.Set(f.ctx, params)

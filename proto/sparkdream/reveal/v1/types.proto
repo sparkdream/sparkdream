@@ -1,0 +1,157 @@
+syntax = "proto3";
+package sparkdream.reveal.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/reveal/types";
+
+// ContributionStatus defines the lifecycle status of a contribution.
+enum ContributionStatus {
+  CONTRIBUTION_STATUS_PROPOSED = 0;
+  CONTRIBUTION_STATUS_IN_PROGRESS = 1;  // set on approval; tranche 0 starts STAKING
+  CONTRIBUTION_STATUS_COMPLETED = 2;
+  CONTRIBUTION_STATUS_CANCELLED = 3;    // rejected, cancelled, or any tranche failed
+}
+
+// TrancheStatus defines the lifecycle status of a tranche.
+enum TrancheStatus {
+  TRANCHE_STATUS_LOCKED = 0;       // waiting for previous tranche to complete
+  TRANCHE_STATUS_STAKING = 1;      // open for conviction stakes
+  TRANCHE_STATUS_BACKED = 2;       // dream_staked >= stake_threshold; awaiting reveal
+  TRANCHE_STATUS_REVEALED = 3;     // code submitted; verification period active
+  TRANCHE_STATUS_VERIFIED = 4;     // verification passed; payout complete
+  TRANCHE_STATUS_DISPUTED = 5;     // verification failed; routed to council
+  TRANCHE_STATUS_CANCELLED = 6;    // stake deadline expired, or contribution cancelled
+  TRANCHE_STATUS_FAILED = 7;       // dispute verdict: REJECT (or auto-REJECT on timeout)
+}
+
+// DisputeVerdict defines the three-way outcome of a council dispute resolution.
+enum DisputeVerdict {
+  DISPUTE_VERDICT_UNSPECIFIED = 0; // proto default; rejected by message handler
+  DISPUTE_VERDICT_ACCEPT = 1;     // code is acceptable; proceed to payout
+  DISPUTE_VERDICT_IMPROVE = 2;    // code has merit but needs work; contributor may re-reveal
+  DISPUTE_VERDICT_REJECT = 3;     // unacceptable or bad faith; hard fail
+}
+
+// Contribution represents a body of existing code being progressively revealed.
+message Contribution {
+  uint64 id = 1;
+  string contributor = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string project_name = 3;
+  string description = 4;
+
+  repeated RevealTranche tranches = 5 [(gogoproto.nullable) = false];
+  uint32 current_tranche = 6;
+
+  string total_valuation = 7 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Bond posted by contributor at proposal time; slashed on failure to reveal
+  string bond_amount = 8 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Remaining bond after any partial slashes (starts equal to bond_amount)
+  string bond_remaining = 9 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  string initial_license = 10;
+  string final_license = 11;
+
+  bool transitioned_to_project = 12;
+  uint64 project_id = 13;          // x/rep Project ID after transition
+
+  ContributionStatus status = 14;
+  uint64 council_id = 15;          // Commons Council that approved (used for project transition)
+  string approved_by = 16 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 approved_at = 17;
+  int64 created_at = 18;
+
+  // DREAM held back from tranche payouts until all tranches complete
+  string holdback_amount = 19 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Epoch at which a rejected contributor may re-propose (0 if not rejected)
+  int64 proposal_eligible_at = 20;
+}
+
+// RevealTranche represents a discrete chunk of code to be backed, revealed, and verified.
+message RevealTranche {
+  uint32 id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string components = 4;
+
+  // DREAM that must be staked to back this tranche; also the mint amount on payout
+  // Invariant: sum(stake_threshold) across all tranches == contribution.total_valuation
+  string stake_threshold = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string dream_staked = 6 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  string preview_uri = 7;
+  string code_uri = 8;             // populated on reveal (e.g., IPFS CID)
+  string docs_uri = 9;
+  string commit_hash = 10;         // git commit hash for integrity verification
+
+  int64 stake_deadline = 11;       // enforced by EndBlocker
+  int64 reveal_deadline = 12;
+  int64 verification_deadline = 13;
+
+  TrancheStatus status = 14;
+  int64 backed_at = 15;
+  int64 revealed_at = 16;
+  int64 verified_at = 17;
+}
+
+// RevealStake represents a community member's conviction stake toward a tranche.
+message RevealStake {
+  uint64 id = 1;
+  string staker = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 3;
+  uint32 tranche_id = 4;
+  string amount = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 staked_at = 6;
+}
+
+// VerificationVote represents a staker's vote on revealed code quality.
+message VerificationVote {
+  string voter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 2;
+  uint32 tranche_id = 3;
+  bool value_confirmed = 4;        // does the code deliver what was promised?
+  uint32 quality_rating = 5;       // 1-5; used to calculate reputation granted to contributor
+  string comments = 6;
+  string stake_weight = 7 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 voted_at = 8;
+}
+
+// TrancheDef is used in MsgPropose to define tranche structure.
+message TrancheDef {
+  string name = 1;
+  string description = 2;
+  repeated string components = 3;
+  // DREAM that must be staked to back this tranche; also the mint amount on payout
+  string stake_threshold = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string preview_uri = 5;
+}

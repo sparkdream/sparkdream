@@ -30,7 +30,7 @@ type Keeper struct {
 	commonsKeeper types.CommonsKeeper
 
 	// Shared DREAM token operations (delegates to repKeeper)
-	dreamOps dreamutil.Ops
+	dreamOps                dreamutil.Ops
 	Season                  collections.Item[types.Season]
 	SeasonTransitionState   collections.Item[types.SeasonTransitionState]
 	TransitionRecoveryState collections.Item[types.TransitionRecoveryState]

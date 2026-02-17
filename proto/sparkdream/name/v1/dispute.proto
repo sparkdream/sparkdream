@@ -10,22 +10,22 @@ option go_package = "sparkdream/x/name/types";
 message Dispute {
   string name = 1;
   string claimant = 2;
-  int64 filed_at = 3;                   // Block height when filed
-  string stake_amount = 4 [             // Claimant's DREAM stake
+  int64 filed_at = 3; // Block height when filed
+  string stake_amount = 4 [ // Claimant's DREAM stake
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  bool active = 5;                      // Whether dispute is pending
-  string contest_challenge_id = 6;      // Set when owner contests (for jury tracking)
-  int64 contested_at = 7;               // Block height when contested
-  bool contest_succeeded = 8;           // Jury verdict: did owner's contest win?
+  bool active = 5; // Whether dispute is pending
+  string contest_challenge_id = 6; // Set when owner contests (for jury tracking)
+  int64 contested_at = 7; // Block height when contested
+  bool contest_succeeded = 8; // Jury verdict: did owner's contest win?
 }
 
 // DisputeStake tracks the claimant's DREAM stake for a name dispute.
 message DisputeStake {
-  string challenge_id = 1;   // "name_dispute:<name>:<block>"
-  string staker = 2;         // Claimant address
+  string challenge_id = 1; // "name_dispute:<name>:<block>"
+  string staker = 2; // Claimant address
   string amount = 3 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
@@ -35,8 +35,8 @@ message DisputeStake {
 
 // ContestStake tracks the owner's DREAM stake when contesting a dispute.
 message ContestStake {
-  string challenge_id = 1;   // "name_contest:<name>:<block>"
-  string owner = 2;          // Current owner address
+  string challenge_id = 1; // "name_contest:<name>:<block>"
+  string owner = 2; // Current owner address
   string amount = 3 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",

@@ -541,3 +541,502 @@ func TestGetReputationTier_EmptyReputation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), tier)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AddReputation tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestAddReputation(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("add_rep_basic___"))
+
+	// Setup: Active member with existing reputation
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Add 25.5 reputation to existing tag
+	err = k.AddReputation(ctx, memberAddr, "backend", math.LegacyMustNewDecFromStr("25.5"))
+	require.NoError(t, err)
+
+	// Verify: 100 + 25.5 = 125.5
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	backendRep, err := math.LegacyNewDecFromStr(member.ReputationScores["backend"])
+	require.NoError(t, err)
+	require.True(t, backendRep.Equal(math.LegacyMustNewDecFromStr("125.5")),
+		"expected 125.5, got %s", backendRep)
+}
+
+func TestAddReputation_NewTag(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("add_rep_newtag__"))
+
+	// Setup: Active member with no reputation scores
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:        memberAddr.String(),
+		Status:         types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.ZeroInt()),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		TrustLevel:     types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Add reputation to a tag that doesn't exist yet
+	err = k.AddReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(10))
+	require.NoError(t, err)
+
+	// Verify: new tag created with value 10
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	revealRep, err := math.LegacyNewDecFromStr(member.ReputationScores["reveal"])
+	require.NoError(t, err)
+	require.True(t, revealRep.Equal(math.LegacyNewDec(10)),
+		"expected 10, got %s", revealRep)
+}
+
+func TestAddReputation_NilReputationScores(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("add_rep_nilmap__"))
+
+	// Setup: Active member with nil ReputationScores map
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: nil,
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Should initialize the map and add the tag
+	err = k.AddReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(42))
+	require.NoError(t, err)
+
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+	require.NotNil(t, member.ReputationScores)
+
+	revealRep, err := math.LegacyNewDecFromStr(member.ReputationScores["reveal"])
+	require.NoError(t, err)
+	require.True(t, revealRep.Equal(math.LegacyNewDec(42)))
+}
+
+func TestAddReputation_ZeroAmount(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("add_rep_zero____"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Adding zero should succeed without changing score
+	err = k.AddReputation(ctx, memberAddr, "backend", math.LegacyZeroDec())
+	require.NoError(t, err)
+
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	backendRep, err := math.LegacyNewDecFromStr(member.ReputationScores["backend"])
+	require.NoError(t, err)
+	require.True(t, backendRep.Equal(math.LegacyMustNewDecFromStr("100.0")))
+}
+
+func TestAddReputation_NegativeAmount(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("add_rep_neg_____"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Negative amount should fail
+	err = k.AddReputation(ctx, memberAddr, "backend", math.LegacyMustNewDecFromStr("-5.0"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrInvalidAmount)
+}
+
+func TestAddReputation_NotFound(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	nonExistentAddr := sdk.AccAddress([]byte("add_rep_missing_"))
+
+	err := k.AddReputation(ctx, nonExistentAddr, "backend", math.LegacyNewDec(10))
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrMemberNotFound)
+}
+
+func TestAddReputation_NotActive(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("add_rep_zeroed__"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:        memberAddr.String(),
+		Status:         types.MemberStatus_MEMBER_STATUS_ZEROED,
+		DreamBalance:   PtrInt(math.ZeroInt()),
+		StakedDream:    PtrInt(math.ZeroInt()),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
+	})
+	require.NoError(t, err)
+
+	err = k.AddReputation(ctx, memberAddr, "backend", math.LegacyNewDec(10))
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrMemberNotActive)
+}
+
+func TestAddReputation_Cumulative(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("add_rep_cumul___"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"reveal": "0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Add multiple times
+	require.NoError(t, k.AddReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(10)))
+	require.NoError(t, k.AddReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(20)))
+	require.NoError(t, k.AddReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(5)))
+
+	// Verify: 0 + 10 + 20 + 5 = 35
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	revealRep, err := math.LegacyNewDecFromStr(member.ReputationScores["reveal"])
+	require.NoError(t, err)
+	require.True(t, revealRep.Equal(math.LegacyNewDec(35)),
+		"expected 35, got %s", revealRep)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DeductReputation tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestDeductReputation(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("ded_rep_basic___"))
+
+	// Setup: Active member with reputation
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"reveal": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Deduct 20 reputation
+	err = k.DeductReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(20))
+	require.NoError(t, err)
+
+	// Verify: 100 - 20 = 80
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	revealRep, err := math.LegacyNewDecFromStr(member.ReputationScores["reveal"])
+	require.NoError(t, err)
+	require.True(t, revealRep.Equal(math.LegacyNewDec(80)),
+		"expected 80, got %s", revealRep)
+}
+
+func TestDeductReputation_FloorAtZero(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("ded_rep_floor___"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"reveal": "15.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Deduct more than current score (50 > 15)
+	err = k.DeductReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(50))
+	require.NoError(t, err)
+
+	// Verify: floored at 0
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	revealRep, err := math.LegacyNewDecFromStr(member.ReputationScores["reveal"])
+	require.NoError(t, err)
+	require.True(t, revealRep.IsZero(), "expected 0, got %s", revealRep)
+}
+
+func TestDeductReputation_NewTag(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("ded_rep_newtag__"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Deduct from a tag that doesn't exist (starts at 0, floors at 0)
+	err = k.DeductReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(10))
+	require.NoError(t, err)
+
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	revealRep, err := math.LegacyNewDecFromStr(member.ReputationScores["reveal"])
+	require.NoError(t, err)
+	require.True(t, revealRep.IsZero(), "expected 0, got %s", revealRep)
+
+	// Verify backend was not affected
+	backendRep, err := math.LegacyNewDecFromStr(member.ReputationScores["backend"])
+	require.NoError(t, err)
+	require.True(t, backendRep.Equal(math.LegacyMustNewDecFromStr("100.0")))
+}
+
+func TestDeductReputation_NegativeAmount(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("ded_rep_neg_____"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Negative amount should fail
+	err = k.DeductReputation(ctx, memberAddr, "backend", math.LegacyMustNewDecFromStr("-5.0"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrInvalidAmount)
+}
+
+func TestDeductReputation_NotFound(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	nonExistentAddr := sdk.AccAddress([]byte("ded_rep_missing_"))
+
+	err := k.DeductReputation(ctx, nonExistentAddr, "backend", math.LegacyNewDec(10))
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrMemberNotFound)
+}
+
+func TestDeductReputation_NotActive(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("ded_rep_zeroed__"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:        memberAddr.String(),
+		Status:         types.MemberStatus_MEMBER_STATUS_ZEROED,
+		DreamBalance:   PtrInt(math.ZeroInt()),
+		StakedDream:    PtrInt(math.ZeroInt()),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
+	})
+	require.NoError(t, err)
+
+	err = k.DeductReputation(ctx, memberAddr, "backend", math.LegacyNewDec(10))
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrMemberNotActive)
+}
+
+func TestDeductReputation_ExactBalance(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("ded_rep_exact___"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"reveal": "20.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Test: Deduct exactly the current balance
+	err = k.DeductReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(20))
+	require.NoError(t, err)
+
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	revealRep, err := math.LegacyNewDecFromStr(member.ReputationScores["reveal"])
+	require.NoError(t, err)
+	require.True(t, revealRep.IsZero(), "expected 0, got %s", revealRep)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AddReputation + DeductReputation interaction tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestAddThenDeductReputation(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("rep_add_deduct__"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"reveal": "50.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Add 30, then deduct 10
+	require.NoError(t, k.AddReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(30)))
+	require.NoError(t, k.DeductReputation(ctx, memberAddr, "reveal", math.LegacyNewDec(10)))
+
+	// Verify: 50 + 30 - 10 = 70
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	revealRep, err := math.LegacyNewDecFromStr(member.ReputationScores["reveal"])
+	require.NoError(t, err)
+	require.True(t, revealRep.Equal(math.LegacyNewDec(70)),
+		"expected 70, got %s", revealRep)
+}
+
+func TestAddReputation_DoesNotAffectOtherTags(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	memberAddr := sdk.AccAddress([]byte("rep_isolate_____"))
+
+	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
+		Address:          memberAddr.String(),
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "100.0", "frontend": "50.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	require.NoError(t, err)
+
+	// Add to backend only
+	require.NoError(t, k.AddReputation(ctx, memberAddr, "backend", math.LegacyNewDec(25)))
+
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	require.NoError(t, err)
+
+	backendRep, err := math.LegacyNewDecFromStr(member.ReputationScores["backend"])
+	require.NoError(t, err)
+	require.True(t, backendRep.Equal(math.LegacyMustNewDecFromStr("125.0")))
+
+	// Frontend should be unchanged
+	frontendRep, err := math.LegacyNewDecFromStr(member.ReputationScores["frontend"])
+	require.NoError(t, err)
+	require.True(t, frontendRep.Equal(math.LegacyMustNewDecFromStr("50.0")),
+		"frontend should be unchanged, got %s", frontendRep)
+}

@@ -1,0 +1,23 @@
+syntax = "proto3";
+package sparkdream.reveal.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/reveal/v1/params.proto";
+import "sparkdream/reveal/v1/types.proto";
+
+option go_package = "sparkdream/x/reveal/types";
+
+// GenesisState defines the reveal module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  repeated Contribution contributions = 2 [(gogoproto.nullable) = false];
+  repeated RevealStake stakes = 3 [(gogoproto.nullable) = false];
+  repeated VerificationVote votes = 4 [(gogoproto.nullable) = false];
+  uint64 next_contribution_id = 5;
+  uint64 next_stake_id = 6;
+}

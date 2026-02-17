@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+package sparkdream.reveal.v1;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/reveal/v1/params.proto";
+import "sparkdream/reveal/v1/types.proto";
+
+option go_package = "sparkdream/x/reveal/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // Propose creates a new contribution proposal with bond.
+  rpc Propose(MsgPropose) returns (MsgProposeResponse);
+
+  // Approve approves a contribution (routed as Commons Council proposal).
+  rpc Approve(MsgApprove) returns (MsgApproveResponse);
+
+  // Reject rejects a contribution (routed as Commons Council proposal).
+  rpc Reject(MsgReject) returns (MsgRejectResponse);
+
+  // Stake locks DREAM toward a tranche to show conviction.
+  rpc Stake(MsgStake) returns (MsgStakeResponse);
+
+  // Withdraw withdraws a stake (only allowed before verification period).
+  rpc Withdraw(MsgWithdraw) returns (MsgWithdrawResponse);
+
+  // Reveal submits code for a backed tranche.
+  rpc Reveal(MsgReveal) returns (MsgRevealResponse);
+
+  // Verify casts a verification vote on revealed code.
+  rpc Verify(MsgVerify) returns (MsgVerifyResponse);
+
+  // Cancel cancels a contribution.
+  rpc Cancel(MsgCancel) returns (MsgCancelResponse);
+
+  // ResolveDispute resolves a tranche dispute (routed as Commons Council proposal).
+  rpc ResolveDispute(MsgResolveDispute) returns (MsgResolveDisputeResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/reveal/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless overwritten).
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // params defines the module parameters to update.
+  // NOTE: All parameters must be supplied.
+  Params params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// Any member with sufficient trust level can propose.
+// Validation:
+// - total_valuation <= max_total_valuation
+// - len(tranches) <= max_tranches
+// - Each tranche: stake_threshold <= max_tranche_valuation
+// - sum(stake_threshold) across all tranches == total_valuation
+// - Contributor has no active proposal_cooldown
+// - Bond (bond_rate * total_valuation) deducted and locked
+message MsgPropose {
+  option (cosmos.msg.v1.signer) = "contributor";
+  string contributor = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string project_name = 2;
+  string description = 3;
+  string total_valuation = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  repeated TrancheDef tranches = 5 [(gogoproto.nullable) = false];
+  string initial_license = 6;
+  string final_license = 7;
+}
+
+// MsgProposeResponse returns the new contribution ID.
+message MsgProposeResponse {
+  uint64 contribution_id = 1;
+}
+
+// Operations Committee member initiates approval; routed as Commons Council proposal.
+// The council votes to approve — prevents single-member collusion with contributors.
+// Accept-or-reject only (no term modification by committee or council).
+message MsgApprove {
+  option (cosmos.msg.v1.signer) = "authority";
+  // Commons Council group policy account (executed via proposal)
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Operations Committee member who initiated the proposal
+  string proposer = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 3;
+}
+
+message MsgApproveResponse {}
+
+// Operations Committee member initiates rejection; routed as Commons Council proposal.
+// Contributor may re-propose after proposal_cooldown_epochs.
+message MsgReject {
+  option (cosmos.msg.v1.signer) = "authority";
+  // Commons Council group policy account (executed via proposal)
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Operations Committee member who initiated the proposal
+  string proposer = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 3;
+  string reason = 4;
+}
+
+message MsgRejectResponse {}
+
+// Any active member stakes DREAM toward a tranche to show conviction.
+// Staked DREAM is temporarily locked and returned after verification — it is NOT payment.
+// The contributor is paid via freshly minted DREAM on tranche verification.
+// Validation:
+// - Staker must NOT be the contribution's contributor (prevents self-staking loop)
+// - Amount must be >= min_stake_amount (prevents dust stake griefing)
+// - Total staked must not exceed stake_threshold (excess stakes rejected)
+message MsgStake {
+  option (cosmos.msg.v1.signer) = "staker";
+  string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 2;
+  uint32 tranche_id = 3;
+  string amount = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// MsgStakeResponse returns the new stake ID.
+message MsgStakeResponse {
+  uint64 stake_id = 1;
+}
+
+// Withdraw a stake (only allowed before verification period).
+message MsgWithdraw {
+  option (cosmos.msg.v1.signer) = "staker";
+  string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 stake_id = 2;
+}
+
+message MsgWithdrawResponse {}
+
+// Contributor reveals the code for a backed tranche.
+message MsgReveal {
+  option (cosmos.msg.v1.signer) = "contributor";
+  string contributor = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 2;
+  uint32 tranche_id = 3;
+  string code_uri = 4;
+  string docs_uri = 5;
+  string commit_hash = 6;
+}
+
+message MsgRevealResponse {}
+
+// Staker votes on whether revealed code matches promises.
+// Voter must NOT be the contribution's contributor (prevents self-verification).
+message MsgVerify {
+  option (cosmos.msg.v1.signer) = "voter";
+  string voter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 2;
+  uint32 tranche_id = 3;
+  bool value_confirmed = 4;
+  uint32 quality_rating = 5;       // 1-5
+  string comments = 6;
+}
+
+message MsgVerifyResponse {}
+
+// Contributor cancels their own contribution (only if no tranche is BACKED or beyond).
+// Operations Committee can cancel any contribution at any time.
+message MsgCancel {
+  option (cosmos.msg.v1.signer) = "authority";
+  // contributor or committee member
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 2;
+  string reason = 3;
+}
+
+message MsgCancelResponse {}
+
+// Dispute resolution routed as Commons Council proposal (same as approvals).
+// Prevents a single committee member from unilaterally siding with a contributor.
+message MsgResolveDispute {
+  option (cosmos.msg.v1.signer) = "authority";
+  // Commons Council group policy account (executed via proposal)
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Operations Committee member who initiated the proposal
+  string proposer = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 contribution_id = 3;
+  uint32 tranche_id = 4;
+  DisputeVerdict verdict = 5;
+  string reason = 6;               // required for IMPROVE/REJECT; feedback for contributor
+}
+
+message MsgResolveDisputeResponse {}

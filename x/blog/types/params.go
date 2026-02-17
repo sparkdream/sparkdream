@@ -22,9 +22,9 @@ var DefaultCostPerByteAmount = math.NewInt(100)
 // NewParams creates a new Params instance.
 func NewParams(maxTitleLength, maxBodyLength uint64) Params {
 	return Params{
-		MaxTitleLength:   maxTitleLength,
-		MaxBodyLength:    maxBodyLength,
-		CostPerByte:      sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
+		MaxTitleLength:    maxTitleLength,
+		MaxBodyLength:     maxBodyLength,
+		CostPerByte:       sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
 		CostPerByteExempt: false,
 	}
 }

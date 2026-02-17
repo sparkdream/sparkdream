@@ -181,7 +181,7 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		StakingApy:         math.LegacyNewDecWithPrec(10, 2), // 10%
 		UnstakedDecayRate:  math.LegacyNewDecWithPrec(1, 2),  // 1%
 		TransferTaxRate:    math.LegacyNewDecWithPrec(3, 2),  // 3%
-		MaxTipAmount:       math.NewInt(100000000),            // 100 DREAM
+		MaxTipAmount:       math.NewInt(100000000),           // 100 DREAM
 		MaxTipsPerEpoch:    10,
 		MaxGiftAmount:      math.NewInt(500000000), // 500 DREAM
 		GiftOnlyToInvitees: true,
@@ -203,10 +203,10 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		JurySuperMajority:      math.LegacyNewDecWithPrec(67, 2), // 67%
 		MinJurorReputation:     math.LegacyNewDec(50),
 		// Interim compensation
-		SimpleComplexityBudget:   math.NewInt(50000000),             // 50 DREAM
-		StandardComplexityBudget: math.NewInt(150000000),            // 150 DREAM
-		ComplexComplexityBudget:  math.NewInt(400000000),            // 400 DREAM
-		ExpertComplexityBudget:   math.NewInt(1000000000),           // 1000 DREAM
+		SimpleComplexityBudget:   math.NewInt(50000000),            // 50 DREAM
+		StandardComplexityBudget: math.NewInt(150000000),           // 150 DREAM
+		ComplexComplexityBudget:  math.NewInt(400000000),           // 400 DREAM
+		ExpertComplexityBudget:   math.NewInt(1000000000),          // 1000 DREAM
 		SoloExpertBonusRate:      math.LegacyNewDecWithPrec(50, 2), // 50%
 		InterimDeadlineEpochs:    7,
 		// Rate limits

@@ -144,8 +144,8 @@ func NewParams() Params {
 		LockAppealCooldown:           DefaultLockAppealCooldown,
 		MoveAppealCooldown:           DefaultMoveAppealCooldown,
 		CostPerByte:                  sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
-		CostPerByteExempt:           false,
-		EphemeralTtl:                DefaultEphemeralTTL,
+		CostPerByteExempt:            false,
+		EphemeralTtl:                 DefaultEphemeralTTL,
 	}
 }
 

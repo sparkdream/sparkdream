@@ -1,0 +1,184 @@
+syntax = "proto3";
+
+package sparkdream.reveal.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/reveal/v1/params.proto";
+import "sparkdream/reveal/v1/types.proto";
+
+option go_package = "sparkdream/x/reveal/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/params";
+  }
+
+  // Contribution queries a single contribution by ID.
+  rpc Contribution(QueryContributionRequest) returns (QueryContributionResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/contribution/{contribution_id}";
+  }
+
+  // Contributions queries all contributions with pagination.
+  rpc Contributions(QueryContributionsRequest) returns (QueryContributionsResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/contributions";
+  }
+
+  // ContributionsByContributor queries contributions by contributor address.
+  rpc ContributionsByContributor(QueryContributionsByContributorRequest) returns (QueryContributionsByContributorResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/contributions_by_contributor/{contributor}";
+  }
+
+  // ContributionsByStatus queries contributions filtered by status.
+  rpc ContributionsByStatus(QueryContributionsByStatusRequest) returns (QueryContributionsByStatusResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/contributions_by_status/{status}";
+  }
+
+  // Tranche queries a single tranche detail.
+  rpc Tranche(QueryTrancheRequest) returns (QueryTrancheResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/tranche/{contribution_id}/{tranche_id}";
+  }
+
+  // TrancheTally queries the verification tally for a tranche.
+  rpc TrancheTally(QueryTrancheTallyRequest) returns (QueryTrancheTallyResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/tranche_tally/{contribution_id}/{tranche_id}";
+  }
+
+  // TrancheStakes queries all stakes for a tranche.
+  rpc TrancheStakes(QueryTrancheStakesRequest) returns (QueryTrancheStakesResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/tranche_stakes/{contribution_id}/{tranche_id}";
+  }
+
+  // StakeDetail queries a single stake by ID.
+  rpc StakeDetail(QueryStakeDetailRequest) returns (QueryStakeDetailResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/stake_detail/{stake_id}";
+  }
+
+  // StakesByStaker queries all stakes by a specific staker.
+  rpc StakesByStaker(QueryStakesByStakerRequest) returns (QueryStakesByStakerResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/stakes_by_staker/{staker}";
+  }
+
+  // VotesByVoter queries all verification votes by a specific voter.
+  rpc VotesByVoter(QueryVotesByVoterRequest) returns (QueryVotesByVoterResponse) {
+    option (google.api.http).get = "/sparkdream/reveal/v1/votes_by_voter/{voter}";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+message QueryContributionRequest {
+  uint64 contribution_id = 1;
+}
+
+message QueryContributionResponse {
+  Contribution contribution = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryContributionsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+message QueryContributionsResponse {
+  repeated Contribution contributions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryContributionsByContributorRequest {
+  string contributor = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryContributionsByContributorResponse {
+  repeated Contribution contributions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryContributionsByStatusRequest {
+  ContributionStatus status = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryContributionsByStatusResponse {
+  repeated Contribution contributions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryTrancheRequest {
+  uint64 contribution_id = 1;
+  uint32 tranche_id = 2;
+}
+
+message QueryTrancheResponse {
+  RevealTranche tranche = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryTrancheTallyRequest {
+  uint64 contribution_id = 1;
+  uint32 tranche_id = 2;
+}
+
+message QueryTrancheTallyResponse {
+  string yes_weight = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string no_weight = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 vote_count = 3;
+}
+
+message QueryTrancheStakesRequest {
+  uint64 contribution_id = 1;
+  uint32 tranche_id = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+message QueryTrancheStakesResponse {
+  repeated RevealStake stakes = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryStakeDetailRequest {
+  uint64 stake_id = 1;
+}
+
+message QueryStakeDetailResponse {
+  RevealStake stake = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryStakesByStakerRequest {
+  string staker = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryStakesByStakerResponse {
+  repeated RevealStake stakes = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryVotesByVoterRequest {
+  string voter = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryVotesByVoterResponse {
+  repeated VerificationVote votes = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
