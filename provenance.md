@@ -1,6 +1,6 @@
 # Provenance Record
 
-On-chain provenance for archived Spark Dream blockchain files. Each entry documents an archive file's cryptographic hash recorded on Ethereum and its permanent storage location(s) on Arweave.
+On-chain provenance for archived Spark Dream blockchain files. Each entry documents an archive file's cryptographic hash recorded at the [sparkdream.eth](https://etherscan.io/name-lookup-search?id=sparkdream.eth) Ethereum address and its permanent storage location(s) on Arweave.
 
 **Note:** Ethereum transaction [0xc3d90a32c2aa8ad2ab7597e89f0a1ae52374ed88febc917f535229b928669a5d](https://etherscan.io/tx/0xc3d90a32c2aa8ad2ab7597e89f0a1ae52374ed88febc917f535229b928669a5d) contains the Arweave wallet address ([4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q](https://viewblock.io/arweave/address/4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q)) used to store the Spark Dream blockchain archived files. The wallet address can be deduced from the transaction's hex input data `0x34694645543055666d3058303830354e34753578376c3958614a48716e683934364f674f53365347783651`.
 
@@ -56,3 +56,16 @@ On-chain provenance for archived Spark Dream blockchain files. Each entry docume
 | **SHA-256** | `0x7dda8a56934b3989513b0df4c63dbcb206ee2031c5b62912343e1fe522215a01` |
 | **Arweave Wallet** | [4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q](https://viewblock.io/arweave/address/4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q) |
 | **Arweave Copy 1** | [EtqMakSWBA_Cg9IyNeodesRRUieE9aMuPGx-icXE4RE](https://arweave.net/EtqMakSWBA_Cg9IyNeodesRRUieE9aMuPGx-icXE4RE) |
+
+---
+
+## sparkdream5.tgz
+
+| Field | Value |
+|---|---|
+| **Date** | 2026-02-19 15:05:27 UTC |
+| **Git Hash** | 6447438be68bc4534c21b3bf7fa353e9daaf4f97 |
+| **Ethereum Tx** | [0xe69464a412a9f16486ba30020f25d7b437b0363ff5475b132078f6470a7691be](https://etherscan.io/tx/0xe69464a412a9f16486ba30020f25d7b437b0363ff5475b132078f6470a7691be) |
+| **SHA-256** | `0x0d5ea9b31a45a171438d324d1a663134008c0ba1d392881ec38b9cef0269a743` |
+| **Arweave Wallet** | [4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q](https://viewblock.io/arweave/address/4iFET0Ufm0X0805N4u5x7l9XaJHqnh946OgOS6SGx6Q) |
+| **Arweave Copy 1** | [EgaDbx3Q4WYdw4CNuUqhby5zPgmR_LoJtQYDnoqiZLY](https://arweave.net/EgaDbx3Q4WYdw4CNuUqhby5zPgmR_LoJtQYDnoqiZLY) |
