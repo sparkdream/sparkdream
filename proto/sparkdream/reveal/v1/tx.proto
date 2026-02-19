@@ -175,7 +175,7 @@ message MsgVerify {
   uint64 contribution_id = 2;
   uint32 tranche_id = 3;
   bool value_confirmed = 4;
-  uint32 quality_rating = 5;       // 1-5
+  uint32 quality_rating = 5; // 1-5
   string comments = 6;
 }
 
@@ -204,7 +204,7 @@ message MsgResolveDispute {
   uint64 contribution_id = 3;
   uint32 tranche_id = 4;
   DisputeVerdict verdict = 5;
-  string reason = 6;               // required for IMPROVE/REJECT; feedback for contributor
+  string reason = 6; // required for IMPROVE/REJECT; feedback for contributor
 }
 
 message MsgResolveDisputeResponse {}

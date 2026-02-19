@@ -11,16 +11,16 @@ message Params {
   option (amino.name) = "sparkdream/x/reveal/Params";
   option (gogoproto.equal) = true;
 
-  int64 stake_deadline_epochs = 1;      // max epochs a tranche stays in STAKING
-  int64 reveal_deadline_epochs = 2;     // max epochs after BACKED to submit code
+  int64 stake_deadline_epochs = 1; // max epochs a tranche stays in STAKING
+  int64 reveal_deadline_epochs = 2; // max epochs after BACKED to submit code
   int64 verification_period_epochs = 3; // duration of verification voting window
-  int64 dispute_resolution_epochs = 4;  // max epochs for council to resolve a dispute
+  int64 dispute_resolution_epochs = 4; // max epochs for council to resolve a dispute
 
   string verification_threshold = 5 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint32 min_verification_votes = 6;    // base minimum; scales with tranche valuation
+  uint32 min_verification_votes = 6; // base minimum; scales with tranche valuation
 
   uint32 max_tranches = 7;
   string max_tranche_valuation = 8 [

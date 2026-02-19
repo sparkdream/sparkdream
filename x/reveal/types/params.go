@@ -12,18 +12,18 @@ var (
 	DefaultVerificationPeriodEpochs int64 = 14 // ~2 weeks
 	DefaultDisputeResolutionEpochs  int64 = 30 // ~1 month for council
 
-	DefaultVerificationThreshold = math.LegacyNewDecWithPrec(60, 2) // 60%
-	DefaultMinVerificationVotes  uint32 = 3                          // base minimum; effective = max(3, stake_threshold/5000)
+	DefaultVerificationThreshold        = math.LegacyNewDecWithPrec(60, 2) // 60%
+	DefaultMinVerificationVotes  uint32 = 3                                // base minimum; effective = max(3, stake_threshold/5000)
 
-	DefaultMaxTranches         uint32   = 10
+	DefaultMaxTranches           uint32 = 10
 	DefaultMaxTrancheValuation          = math.NewInt(50000)
 	DefaultBondRate                     = math.LegacyNewDecWithPrec(10, 2) // 10% of total valuation
 	DefaultMinProposerTrustLevel uint32 = 2                                // TRUST_LEVEL_ESTABLISHED
 
-	DefaultMaxTotalValuation   = math.NewInt(50000)  // valuation cap per contribution
-	DefaultMinStakeAmount      = math.NewInt(100)    // 100 DREAM minimum per stake
-	DefaultPayoutHoldbackRate  = math.LegacyNewDecWithPrec(20, 2) // 20% held back per tranche
-	DefaultProposalCooldownEpochs int64 = 14         // ~2 weeks after rejection
+	DefaultMaxTotalValuation            = math.NewInt(50000)               // valuation cap per contribution
+	DefaultMinStakeAmount               = math.NewInt(100)                 // 100 DREAM minimum per stake
+	DefaultPayoutHoldbackRate           = math.LegacyNewDecWithPrec(20, 2) // 20% held back per tranche
+	DefaultProposalCooldownEpochs int64 = 14                               // ~2 weeks after rejection
 )
 
 // NewParams creates a new Params instance.

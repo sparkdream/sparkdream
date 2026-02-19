@@ -46,8 +46,8 @@ func SimulateMsgStartQuest(
 
 		// Use direct keeper calls to start quest (bypasses maintenance mode check)
 		progress := types.MemberQuestProgress{
-			MemberQuest:     progressKey,
-			Completed:       false,
+			MemberQuest:      progressKey,
+			Completed:        false,
 			LastAttemptBlock: ctx.BlockHeight(),
 		}
 

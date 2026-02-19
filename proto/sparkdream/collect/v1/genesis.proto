@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package sparkdream.collect.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/collect/v1/params.proto";
+import "sparkdream/collect/v1/types.proto";
+
+option go_package = "sparkdream/x/collect/types";
+
+// GenesisState defines the collect module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  repeated Collection collections = 2 [(gogoproto.nullable) = false];
+  uint64 collection_count = 3;
+  repeated Item items = 4 [(gogoproto.nullable) = false];
+  uint64 item_count = 5;
+  repeated Collaborator collaborators = 6 [(gogoproto.nullable) = false];
+  repeated Curator curators = 7 [(gogoproto.nullable) = false];
+  repeated CurationReview curation_reviews = 8 [(gogoproto.nullable) = false];
+  uint64 curation_review_count = 9;
+  repeated CurationSummary curation_summaries = 10 [(gogoproto.nullable) = false];
+  repeated SponsorshipRequest sponsorship_requests = 11 [(gogoproto.nullable) = false];
+  repeated CollectionFlag flags = 12 [(gogoproto.nullable) = false];
+  repeated HideRecord hide_records = 13 [(gogoproto.nullable) = false];
+  uint64 hide_record_count = 14;
+  repeated Endorsement endorsements = 15 [(gogoproto.nullable) = false];
+}

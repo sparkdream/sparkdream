@@ -474,9 +474,9 @@ func (k Keeper) completeContribution(ctx context.Context, contrib *types.Contrib
 		creatorAddr,
 		contrib.ProjectName,
 		contrib.Description,
-		[]string{"reveal"},                                       // tags
+		[]string{"reveal"}, // tags
 		reptypes.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, // default category
-		"",           // council (determined by project governance)
+		"",             // council (determined by project governance)
 		math.ZeroInt(), // requestedBudget (reveal-sourced projects are pre-funded)
 		math.ZeroInt(), // requestedSpark
 	)

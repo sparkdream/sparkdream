@@ -92,7 +92,7 @@ func SimulateMsgVerify(
 		}
 
 		// Create the verification vote directly
-		valueConfirmed := r.Intn(10) > 2 // 70% chance of confirming value
+		valueConfirmed := r.Intn(10) > 2       // 70% chance of confirming value
 		qualityRating := uint32(r.Intn(5) + 1) // 1-5
 
 		vote := types.VerificationVote{

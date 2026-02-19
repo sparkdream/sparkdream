@@ -176,7 +176,7 @@ func getOrCreateContribution(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, con
 		return 0, err
 	}
 
-	numTranches := r.Intn(3) + 1 // 1-3 tranches
+	numTranches := r.Intn(3) + 1                                   // 1-3 tranches
 	totalValuation := math.NewInt(int64((r.Intn(40) + 10) * 1000)) // 10k-50k
 	if totalValuation.GT(params.MaxTotalValuation) {
 		totalValuation = params.MaxTotalValuation

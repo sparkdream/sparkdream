@@ -1,0 +1,133 @@
+syntax = "proto3";
+package sparkdream.collect.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/collect/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "sparkdream/x/collect/Params";
+  option (gogoproto.equal) = true;
+
+  // --- Collection limits (tiered) — GOVERNANCE ONLY ---
+  uint32 max_collections_base = 1;
+  uint32 max_collections_per_trust_level = 2;
+
+  // --- Size limits — GOVERNANCE ONLY ---
+  uint32 max_items_per_collection = 3;
+  uint32 max_title_length = 4;
+  uint32 max_name_length = 5;
+  uint32 max_description_length = 6;
+  uint32 max_tag_length = 7;
+  uint32 max_tags_per_collection = 8;
+  uint32 max_attributes_per_item = 9;
+  uint32 max_attribute_key_length = 10;
+  uint32 max_attribute_value_length = 11;
+  uint32 max_reference_field_length = 12;
+  uint32 max_encrypted_data_size = 13;
+  uint32 max_collaborators_per_collection = 14;
+  uint32 max_batch_size = 15;
+  int64 max_ttl_blocks = 16;
+  int64 max_non_member_ttl_blocks = 17;
+
+  // --- Fee parameters (SPARK) — OPERATIONAL ---
+  string base_collection_deposit = 18 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string per_item_deposit = 19 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string per_item_spam_tax = 20 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // --- Sponsorship parameters — OPERATIONAL ---
+  string sponsor_fee = 22 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string min_sponsor_trust_level = 23;
+  int64 sponsorship_request_ttl_blocks = 24;
+
+  // --- Curation parameters — OPERATIONAL ---
+  string min_curator_bond = 25 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string min_curator_trust_level = 26;
+  int64 min_curator_age_blocks = 27;
+  uint32 max_tags_per_review = 28;
+  uint32 max_review_comment_length = 29;
+  uint32 max_reviews_per_collection = 30;
+  string curator_slash_fraction = 31 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  int64 challenge_window_blocks = 32;
+  string challenge_deposit = 33 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 max_challenge_reason_length = 34;
+
+  // --- EndBlocker — GOVERNANCE ONLY ---
+  uint32 max_prune_per_block = 35;
+
+  string challenge_reward_fraction = 36 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // --- Reaction parameters — OPERATIONAL ---
+  string downvote_cost = 37 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 max_upvotes_per_day = 38;
+  uint32 max_downvotes_per_day = 39;
+
+  // --- Flagging parameters — OPERATIONAL ---
+  uint32 flag_review_threshold = 40;
+  uint32 max_flags_per_day = 41;
+  uint32 max_flaggers_per_target = 42;
+  int64 flag_expiration_blocks = 43;
+  uint32 max_flag_reason_length = 44;
+
+  // --- Sentinel moderation parameters — OPERATIONAL ---
+  string sentinel_commit_amount = 45 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 hide_expiry_blocks = 46;
+  string appeal_fee = 47 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 appeal_cooldown_blocks = 48;
+  int64 appeal_deadline_blocks = 49;
+
+  // --- Endorsement parameters — OPERATIONAL ---
+  string endorsement_creation_fee = 50 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string endorsement_dream_stake = 51 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 endorsement_stake_duration = 52;
+  int64 endorsement_expiry_blocks = 53;
+  string endorsement_fee_endorser_share = 54 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string endorsement_deletion_burn_fraction = 55 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+}

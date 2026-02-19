@@ -3,6 +3,8 @@ package app
 import (
 	_ "sparkdream/x/blog/module"
 	blogmoduletypes "sparkdream/x/blog/types"
+	_ "sparkdream/x/collect/module"
+	collectmoduletypes "sparkdream/x/collect/types"
 	_ "sparkdream/x/commons/module"
 	commonsmoduletypes "sparkdream/x/commons/types"
 	_ "sparkdream/x/ecosystem/module"
@@ -112,7 +114,7 @@ var (
 		{Account: blogmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 		{Account: forummoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
-		{Account: seasonmoduletypes.ModuleName}}
+		{Account: seasonmoduletypes.ModuleName}, {Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}}
 
 	// blocked account addresses
 	blockAccAddrs = []string{
@@ -165,6 +167,7 @@ var (
 						forummoduletypes.ModuleName,
 						seasonmoduletypes.ModuleName,
 						revealmoduletypes.ModuleName,
+						collectmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -184,6 +187,7 @@ var (
 						forummoduletypes.ModuleName,
 						seasonmoduletypes.ModuleName,
 						revealmoduletypes.ModuleName,
+						collectmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -231,6 +235,7 @@ var (
 						forummoduletypes.ModuleName,
 						seasonmoduletypes.ModuleName,
 						revealmoduletypes.ModuleName,
+						collectmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -375,6 +380,10 @@ var (
 			{
 				Name:   revealmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&revealmoduletypes.Module{}),
+			},
+			{
+				Name:   collectmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&collectmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

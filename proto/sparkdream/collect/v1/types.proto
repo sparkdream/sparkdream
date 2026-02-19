@@ -1,0 +1,401 @@
+syntax = "proto3";
+package sparkdream.collect.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/collect/types";
+
+// CollectionType defines the kind of items a collection holds.
+enum CollectionType {
+  COLLECTION_TYPE_UNSPECIFIED = 0;
+  COLLECTION_TYPE_NFT = 1;
+  COLLECTION_TYPE_LINK = 2;
+  COLLECTION_TYPE_ONCHAIN = 3;
+  COLLECTION_TYPE_MIXED = 4;
+}
+
+// Visibility defines whether a collection is publicly browsable or private.
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  VISIBILITY_PUBLIC = 1;
+  VISIBILITY_PRIVATE = 2;
+}
+
+// ReferenceType defines the kind of external reference an item points to.
+enum ReferenceType {
+  REFERENCE_TYPE_UNSPECIFIED = 0;
+  REFERENCE_TYPE_NFT = 1;
+  REFERENCE_TYPE_LINK = 2;
+  REFERENCE_TYPE_ON_CHAIN = 3;
+  REFERENCE_TYPE_CUSTOM = 4;
+}
+
+// CollaboratorRole defines the permission level of a collection collaborator.
+enum CollaboratorRole {
+  COLLABORATOR_ROLE_UNSPECIFIED = 0;
+  COLLABORATOR_ROLE_EDITOR = 1;
+  COLLABORATOR_ROLE_ADMIN = 2;
+}
+
+// CurationVerdict defines the outcome of a curator's review.
+enum CurationVerdict {
+  CURATION_VERDICT_UNSPECIFIED = 0;
+  CURATION_VERDICT_UP = 1;
+  CURATION_VERDICT_DOWN = 2;
+}
+
+// CollectionStatus defines the lifecycle state of a collection.
+enum CollectionStatus {
+  COLLECTION_STATUS_UNSPECIFIED = 0;
+  COLLECTION_STATUS_ACTIVE = 1;
+  COLLECTION_STATUS_PENDING = 2;
+  COLLECTION_STATUS_HIDDEN = 3;
+}
+
+// ItemStatus defines the moderation state of an item.
+enum ItemStatus {
+  ITEM_STATUS_UNSPECIFIED = 0;
+  ITEM_STATUS_ACTIVE = 1;
+  ITEM_STATUS_HIDDEN = 2;
+}
+
+// FlagTargetType identifies whether a moderation action targets a collection or item.
+enum FlagTargetType {
+  FLAG_TARGET_TYPE_UNSPECIFIED = 0;
+  FLAG_TARGET_TYPE_COLLECTION = 1;
+  FLAG_TARGET_TYPE_ITEM = 2;
+}
+
+// ModerationReason defines the reason for flagging or hiding content.
+enum ModerationReason {
+  MODERATION_REASON_UNSPECIFIED = 0;
+  MODERATION_REASON_SPAM = 1;
+  MODERATION_REASON_HARASSMENT = 2;
+  MODERATION_REASON_MISINFORMATION = 3;
+  MODERATION_REASON_INAPPROPRIATE = 4;
+  MODERATION_REASON_IMPERSONATION = 5;
+  MODERATION_REASON_POLICY_VIOLATION = 6;
+  MODERATION_REASON_COPYRIGHT = 7;
+  MODERATION_REASON_SCAM = 8;
+  MODERATION_REASON_OTHER = 9;
+}
+
+// Collection represents a curated set of items owned by an address.
+message Collection {
+  uint64 id = 1;
+  string owner = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string name = 3;
+  string description = 4;
+  string cover_uri = 5;
+  repeated string tags = 6;
+  bytes encrypted_data = 7;
+  CollectionType type = 8;
+  Visibility visibility = 9;
+  bool encrypted = 10;
+  uint64 item_count = 11;
+  uint32 collaborator_count = 12;
+  int64 created_at = 13;
+  int64 updated_at = 14;
+  int64 expires_at = 15;
+  string deposit_amount = 16 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string item_deposit_total = 17 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  bool deposit_burned = 18;
+  string sponsored_by = 19 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bool community_feedback_enabled = 20;
+  CollectionStatus status = 21;
+  uint64 upvote_count = 22;
+  uint64 downvote_count = 23;
+  string endorsed_by = 24 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bool seeking_endorsement = 25;
+  bool immutable = 26;
+}
+
+// Item represents a single entry within a collection.
+message Item {
+  uint64 id = 1;
+  uint64 collection_id = 2;
+  string added_by = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string title = 4;
+  string description = 5;
+  string image_uri = 6;
+  ReferenceType reference_type = 7;
+  NftReference nft = 8;
+  LinkReference link = 9;
+  OnChainReference on_chain = 10;
+  CustomReference custom = 11;
+  // proto3 does not support map in messages used as collection values easily,
+  // so we use repeated KeyValuePair instead.
+  repeated KeyValuePair attributes = 12;
+  bytes encrypted_data = 13;
+  uint64 position = 14;
+  int64 added_at = 15;
+  ItemStatus status = 16;
+  uint64 upvote_count = 17;
+  uint64 downvote_count = 18;
+}
+
+// KeyValuePair is a generic key-value entry used for extensible attributes.
+message KeyValuePair {
+  string key = 1;
+  string value = 2;
+}
+
+// NftReference points to an NFT on a specific chain and contract.
+message NftReference {
+  string chain_id = 1;
+  string contract_address = 2;
+  string token_id = 3;
+  string token_standard = 4;
+  string token_uri = 5;
+}
+
+// LinkReference points to an external URI with optional content integrity hash.
+message LinkReference {
+  string uri = 1;
+  string content_hash = 2;
+  string content_type = 3;
+}
+
+// OnChainReference points to an entity within another on-chain module.
+message OnChainReference {
+  string module = 1;
+  string entity_type = 2;
+  string entity_id = 3;
+}
+
+// CustomReference allows arbitrary typed references with extensible metadata.
+message CustomReference {
+  string type_label = 1;
+  string value = 2;
+  repeated KeyValuePair extra = 3;
+}
+
+// Collaborator represents a user granted edit or admin access to a collection.
+message Collaborator {
+  uint64 collection_id = 1;
+  string address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  CollaboratorRole role = 3;
+  int64 added_at = 4;
+}
+
+// Curator represents a registered curation reviewer with a bonded stake.
+message Curator {
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string bond_amount = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 registered_at = 3;
+  uint64 total_reviews = 4;
+  uint64 challenged_reviews = 5;
+  bool active = 6;
+  uint32 pending_challenges = 7;
+}
+
+// CurationReview records a curator's verdict on a collection.
+message CurationReview {
+  uint64 id = 1;
+  uint64 collection_id = 2;
+  string curator = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  CurationVerdict verdict = 4;
+  repeated string tags = 5;
+  string comment = 6;
+  int64 created_at = 7;
+  bool challenged = 8;
+  bool overturned = 9;
+  string challenger = 10 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// CurationSummary aggregates curation activity for a collection.
+message CurationSummary {
+  uint64 collection_id = 1;
+  uint32 up_count = 2;
+  uint32 down_count = 3;
+  repeated TagCount top_tags = 4 [(gogoproto.nullable) = false];
+  int64 last_reviewed_at = 5;
+}
+
+// TagCount pairs a tag label with the number of times it has been applied.
+message TagCount {
+  string tag = 1;
+  uint32 count = 2;
+}
+
+// SponsorshipRequest represents a pending request for deposit sponsorship.
+message SponsorshipRequest {
+  uint64 collection_id = 1;
+  string requester = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string collection_deposit = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string item_deposit_total = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 requested_at = 5;
+  int64 expires_at = 6;
+}
+
+// AddItemEntry is used in MsgAddItems to define a new item to add to a collection.
+message AddItemEntry {
+  string title = 1;
+  string description = 2;
+  string image_uri = 3;
+  ReferenceType reference_type = 4;
+  NftReference nft = 5;
+  LinkReference link = 6;
+  OnChainReference on_chain = 7;
+  CustomReference custom = 8;
+  repeated KeyValuePair attributes = 9;
+  bytes encrypted_data = 10;
+}
+
+// CollectOperationalParams defines council-adjustable operational parameters for x/collect.
+message CollectOperationalParams {
+  string base_collection_deposit = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string per_item_deposit = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string per_item_spam_tax = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string sponsor_fee = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string min_sponsor_trust_level = 6;
+  int64 sponsorship_request_ttl_blocks = 7;
+  string min_curator_bond = 8 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string min_curator_trust_level = 9;
+  int64 min_curator_age_blocks = 10;
+  uint32 max_tags_per_review = 11;
+  uint32 max_review_comment_length = 12;
+  uint32 max_reviews_per_collection = 13;
+  string curator_slash_fraction = 14 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  int64 challenge_window_blocks = 15;
+  string challenge_deposit = 16 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 max_challenge_reason_length = 17;
+  string challenge_reward_fraction = 18 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string downvote_cost = 19 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 max_upvotes_per_day = 20;
+  uint32 max_downvotes_per_day = 21;
+  uint32 flag_review_threshold = 22;
+  uint32 max_flags_per_day = 23;
+  uint32 max_flaggers_per_target = 24;
+  int64 flag_expiration_blocks = 25;
+  uint32 max_flag_reason_length = 26;
+  string sentinel_commit_amount = 27 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 hide_expiry_blocks = 28;
+  string appeal_fee = 29 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 appeal_cooldown_blocks = 30;
+  int64 appeal_deadline_blocks = 31;
+  string endorsement_creation_fee = 32 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string endorsement_dream_stake = 33 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 endorsement_stake_duration = 34;
+  int64 endorsement_expiry_blocks = 35;
+  string endorsement_fee_endorser_share = 36 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string endorsement_deletion_burn_fraction = 37 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// FlagRecord records a single member's flag on a piece of content.
+message FlagRecord {
+  string flagger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  ModerationReason reason = 2;
+  string reason_text = 3;
+  int64 flagged_at = 4;
+  string weight = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// CollectionFlag aggregates all flags on a single piece of content.
+message CollectionFlag {
+  uint64 target_id = 1;
+  FlagTargetType target_type = 2;
+  repeated FlagRecord flag_records = 3 [(gogoproto.nullable) = false];
+  string total_weight = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 first_flag_at = 5;
+  int64 last_flag_at = 6;
+  bool in_review_queue = 7;
+}
+
+// HideRecord tracks a sentinel's content hide action and its appeal status.
+message HideRecord {
+  uint64 id = 1;
+  uint64 target_id = 2;
+  FlagTargetType target_type = 3;
+  string sentinel = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 hidden_at = 5;
+  string committed_amount = 6 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  ModerationReason reason_code = 7;
+  string reason_text = 8;
+  int64 appeal_deadline = 9;
+  bool appealed = 10;
+  bool resolved = 11;
+}
+
+// Endorsement records a member's endorsement of a non-member's collection.
+message Endorsement {
+  uint64 collection_id = 1;
+  string endorser = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string dream_stake = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 endorsed_at = 4;
+  int64 stake_release_at = 5;
+  bool stake_released = 6;
+}

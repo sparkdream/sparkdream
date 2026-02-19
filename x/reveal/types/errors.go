@@ -42,14 +42,14 @@ var (
 	ErrUnauthorized           = errors.Register(ModuleName, 1143, "unauthorized")
 
 	// Proposal validation errors
-	ErrProposalCooldown       = errors.Register(ModuleName, 1150, "contributor is still in proposal cooldown")
-	ErrTooManyTranches        = errors.Register(ModuleName, 1151, "too many tranches")
-	ErrValuationTooHigh       = errors.Register(ModuleName, 1152, "total valuation exceeds maximum")
+	ErrProposalCooldown        = errors.Register(ModuleName, 1150, "contributor is still in proposal cooldown")
+	ErrTooManyTranches         = errors.Register(ModuleName, 1151, "too many tranches")
+	ErrValuationTooHigh        = errors.Register(ModuleName, 1152, "total valuation exceeds maximum")
 	ErrTrancheValuationTooHigh = errors.Register(ModuleName, 1153, "tranche valuation exceeds maximum")
-	ErrValuationMismatch      = errors.Register(ModuleName, 1154, "sum of tranche thresholds must equal total valuation")
-	ErrInsufficientBond       = errors.Register(ModuleName, 1155, "insufficient DREAM for bond")
-	ErrEmptyProjectName       = errors.Register(ModuleName, 1156, "project name cannot be empty")
-	ErrNoTranches             = errors.Register(ModuleName, 1157, "at least one tranche is required")
+	ErrValuationMismatch       = errors.Register(ModuleName, 1154, "sum of tranche thresholds must equal total valuation")
+	ErrInsufficientBond        = errors.Register(ModuleName, 1155, "insufficient DREAM for bond")
+	ErrEmptyProjectName        = errors.Register(ModuleName, 1156, "project name cannot be empty")
+	ErrNoTranches              = errors.Register(ModuleName, 1157, "at least one tranche is required")
 
 	// Dispute errors
 	ErrInvalidVerdict = errors.Register(ModuleName, 1160, "verdict must be ACCEPT, IMPROVE, or REJECT")

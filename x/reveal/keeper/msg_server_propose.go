@@ -113,20 +113,20 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 	}
 
 	contrib := types.Contribution{
-		Id:              contribID,
-		Contributor:     msg.Contributor,
-		ProjectName:     msg.ProjectName,
-		Description:     msg.Description,
-		Tranches:        tranches,
-		CurrentTranche:  0,
-		TotalValuation:  msg.TotalValuation,
-		BondAmount:      bondAmount,
-		BondRemaining:   bondAmount,
-		InitialLicense:  msg.InitialLicense,
-		FinalLicense:    msg.FinalLicense,
-		Status:          types.ContributionStatus_CONTRIBUTION_STATUS_PROPOSED,
-		CreatedAt:       currentEpoch,
-		HoldbackAmount:  math.ZeroInt(),
+		Id:             contribID,
+		Contributor:    msg.Contributor,
+		ProjectName:    msg.ProjectName,
+		Description:    msg.Description,
+		Tranches:       tranches,
+		CurrentTranche: 0,
+		TotalValuation: msg.TotalValuation,
+		BondAmount:     bondAmount,
+		BondRemaining:  bondAmount,
+		InitialLicense: msg.InitialLicense,
+		FinalLicense:   msg.FinalLicense,
+		Status:         types.ContributionStatus_CONTRIBUTION_STATUS_PROPOSED,
+		CreatedAt:      currentEpoch,
+		HoldbackAmount: math.ZeroInt(),
 	}
 
 	// Save contribution and indexes

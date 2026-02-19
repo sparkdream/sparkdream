@@ -1,0 +1,311 @@
+syntax = "proto3";
+
+package sparkdream.collect.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/collect/v1/params.proto";
+import "sparkdream/collect/v1/types.proto";
+
+option go_package = "sparkdream/x/collect/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/params";
+  }
+  rpc Collection(QueryCollectionRequest) returns (QueryCollectionResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/collection/{id}";
+  }
+  rpc CollectionsByOwner(QueryCollectionsByOwnerRequest) returns (QueryCollectionsByOwnerResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/collections_by_owner/{owner}";
+  }
+  rpc PublicCollections(QueryPublicCollectionsRequest) returns (QueryPublicCollectionsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/public_collections";
+  }
+  rpc PublicCollectionsByType(QueryPublicCollectionsByTypeRequest) returns (QueryPublicCollectionsByTypeResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/public_collections_by_type/{collection_type}";
+  }
+  rpc CollectionsByCollaborator(QueryCollectionsByCollaboratorRequest) returns (QueryCollectionsByCollaboratorResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/collections_by_collaborator/{address}";
+  }
+  rpc Item(QueryItemRequest) returns (QueryItemResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/item/{id}";
+  }
+  rpc Items(QueryItemsRequest) returns (QueryItemsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/items/{collection_id}";
+  }
+  rpc ItemsByOwner(QueryItemsByOwnerRequest) returns (QueryItemsByOwnerResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/items_by_owner/{owner}";
+  }
+  rpc Collaborators(QueryCollaboratorsRequest) returns (QueryCollaboratorsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/collaborators/{collection_id}";
+  }
+  rpc Curator(QueryCuratorRequest) returns (QueryCuratorResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/curator/{address}";
+  }
+  rpc ActiveCurators(QueryActiveCuratorsRequest) returns (QueryActiveCuratorsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/active_curators";
+  }
+  rpc CurationSummary(QueryCurationSummaryRequest) returns (QueryCurationSummaryResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/curation_summary/{collection_id}";
+  }
+  rpc CurationReviews(QueryCurationReviewsRequest) returns (QueryCurationReviewsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/curation_reviews/{collection_id}";
+  }
+  rpc CurationReviewsByCurator(QueryCurationReviewsByCuratorRequest) returns (QueryCurationReviewsByCuratorResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/curation_reviews_by_curator/{curator}";
+  }
+  rpc SponsorshipRequest(QuerySponsorshipRequestRequest) returns (QuerySponsorshipRequestResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/sponsorship_request/{collection_id}";
+  }
+  rpc SponsorshipRequests(QuerySponsorshipRequestsRequest) returns (QuerySponsorshipRequestsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/sponsorship_requests";
+  }
+
+  // ContentFlag Queries a list of ContentFlag items.
+  rpc ContentFlag(QueryContentFlagRequest) returns (QueryContentFlagResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/content_flag/{target_id}/{target_type}";
+  }
+
+  // FlaggedContent Queries a list of FlaggedContent items.
+  rpc FlaggedContent(QueryFlaggedContentRequest) returns (QueryFlaggedContentResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/flagged_content";
+  }
+
+  // HideRecord Queries a list of HideRecord items.
+  rpc HideRecord(QueryHideRecordRequest) returns (QueryHideRecordResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/hide_record/{id}";
+  }
+
+  // HideRecordsByTarget Queries a list of HideRecordsByTarget items.
+  rpc HideRecordsByTarget(QueryHideRecordsByTargetRequest) returns (QueryHideRecordsByTargetResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/hide_records_by_target/{target_id}/{target_type}";
+  }
+
+  // PendingCollections Queries a list of PendingCollections items.
+  rpc PendingCollections(QueryPendingCollectionsRequest) returns (QueryPendingCollectionsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/pending_collections";
+  }
+
+  // Endorsement Queries a list of Endorsement items.
+  rpc Endorsement(QueryEndorsementRequest) returns (QueryEndorsementResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/endorsement/{collection_id}";
+  }
+}
+message QueryParamsRequest {}
+
+message QueryParamsResponse {
+  Params params = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryCollectionRequest {
+  uint64 id = 1;
+}
+
+message QueryCollectionResponse {
+  Collection collection = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryCollectionsByOwnerRequest {
+  string owner = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryCollectionsByOwnerResponse {
+  repeated Collection collections = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryPublicCollectionsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+message QueryPublicCollectionsResponse {
+  repeated Collection collections = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryPublicCollectionsByTypeRequest {
+  uint64 collection_type = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryPublicCollectionsByTypeResponse {
+  repeated Collection collections = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryCollectionsByCollaboratorRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryCollectionsByCollaboratorResponse {
+  repeated Collection collections = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryItemRequest {
+  uint64 id = 1;
+}
+
+message QueryItemResponse {
+  Item item = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryItemsRequest {
+  uint64 collection_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryItemsResponse {
+  repeated Item items = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryItemsByOwnerRequest {
+  string owner = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryItemsByOwnerResponse {
+  repeated Item items = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryCollaboratorsRequest {
+  uint64 collection_id = 1;
+}
+
+message QueryCollaboratorsResponse {
+  repeated Collaborator collaborators = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryCuratorRequest {
+  string address = 1;
+}
+
+message QueryCuratorResponse {
+  Curator curator = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryActiveCuratorsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+message QueryActiveCuratorsResponse {
+  repeated Curator curators = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryCurationSummaryRequest {
+  uint64 collection_id = 1;
+}
+
+message QueryCurationSummaryResponse {
+  CurationSummary summary = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryCurationReviewsRequest {
+  uint64 collection_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryCurationReviewsResponse {
+  repeated CurationReview reviews = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryCurationReviewsByCuratorRequest {
+  string curator = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryCurationReviewsByCuratorResponse {
+  repeated CurationReview reviews = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QuerySponsorshipRequestRequest {
+  uint64 collection_id = 1;
+}
+
+message QuerySponsorshipRequestResponse {
+  SponsorshipRequest sponsorship_request = 1 [(gogoproto.nullable) = false];
+}
+
+message QuerySponsorshipRequestsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+message QuerySponsorshipRequestsResponse {
+  repeated SponsorshipRequest sponsorship_requests = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryContentFlagRequest defines the QueryContentFlagRequest message.
+message QueryContentFlagRequest {
+  uint64 target_id = 1;
+  FlagTargetType target_type = 2;
+}
+
+// QueryContentFlagResponse defines the QueryContentFlagResponse message.
+message QueryContentFlagResponse {
+  CollectionFlag collection_flag = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryFlaggedContentRequest defines the QueryFlaggedContentRequest message.
+message QueryFlaggedContentRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryFlaggedContentResponse defines the QueryFlaggedContentResponse message.
+message QueryFlaggedContentResponse {
+  repeated CollectionFlag collection_flags = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryHideRecordRequest defines the QueryHideRecordRequest message.
+message QueryHideRecordRequest {
+  uint64 id = 1;
+}
+
+// QueryHideRecordResponse defines the QueryHideRecordResponse message.
+message QueryHideRecordResponse {
+  HideRecord hide_record = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryHideRecordsByTargetRequest defines the QueryHideRecordsByTargetRequest message.
+message QueryHideRecordsByTargetRequest {
+  uint64 target_id = 1;
+  FlagTargetType target_type = 2;
+}
+
+// QueryHideRecordsByTargetResponse defines the QueryHideRecordsByTargetResponse message.
+message QueryHideRecordsByTargetResponse {
+  repeated HideRecord hide_records = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryPendingCollectionsRequest defines the QueryPendingCollectionsRequest message.
+message QueryPendingCollectionsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryPendingCollectionsResponse defines the QueryPendingCollectionsResponse message.
+message QueryPendingCollectionsResponse {
+  repeated Collection collections = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryEndorsementRequest defines the QueryEndorsementRequest message.
+message QueryEndorsementRequest {
+  uint64 collection_id = 1;
+}
+
+// QueryEndorsementResponse defines the QueryEndorsementResponse message.
+message QueryEndorsementResponse {
+  Endorsement endorsement = 1 [(gogoproto.nullable) = false];
+}
