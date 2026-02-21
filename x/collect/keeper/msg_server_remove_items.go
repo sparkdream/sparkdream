@@ -111,9 +111,9 @@ func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (
 
 	// Remove all items
 	for _, item := range items {
-		k.Item.Remove(ctx, item.Id)                                          //nolint:errcheck
-		k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id))  //nolint:errcheck
-		k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))    //nolint:errcheck
+		k.Item.Remove(ctx, item.Id)                                         //nolint:errcheck
+		k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id)) //nolint:errcheck
+		k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))   //nolint:errcheck
 	}
 
 	// Update collection

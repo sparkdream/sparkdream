@@ -47,19 +47,19 @@ type Keeper struct {
 	SponsorshipRequest collections.Map[uint64, types.SponsorshipRequest]
 
 	// Content moderation storage
-	Flag             collections.Map[string, types.CollectionFlag]
-	FlagReviewQueue  collections.KeySet[collections.Pair[int32, uint64]]
-	FlagExpiry       collections.KeySet[collections.Pair[int64, string]]
-	HideRecord       collections.Map[uint64, types.HideRecord]
-	HideRecordSeq    collections.Sequence
-	HideRecordByTarget collections.KeySet[collections.Pair[string, uint64]]
-	HideRecordExpiry   collections.KeySet[collections.Pair[int64, uint64]]
+	Flag                   collections.Map[string, types.CollectionFlag]
+	FlagReviewQueue        collections.KeySet[collections.Pair[int32, uint64]]
+	FlagExpiry             collections.KeySet[collections.Pair[int64, string]]
+	HideRecord             collections.Map[uint64, types.HideRecord]
+	HideRecordSeq          collections.Sequence
+	HideRecordByTarget     collections.KeySet[collections.Pair[string, uint64]]
+	HideRecordExpiry       collections.KeySet[collections.Pair[int64, uint64]]
 	Endorsement            collections.Map[uint64, types.Endorsement]
 	EndorsementStakeExpiry collections.KeySet[collections.Pair[int64, uint64]]
 	EndorsementPending     collections.KeySet[collections.Pair[int64, uint64]]
-	ReactionDedup   collections.Map[string, uint32]
-	ReactionLimit   collections.Map[string, uint32]
-	CollectionsByStatus collections.KeySet[collections.Pair[int32, uint64]]
+	ReactionDedup          collections.Map[string, uint32]
+	ReactionLimit          collections.Map[string, uint32]
+	CollectionsByStatus    collections.KeySet[collections.Pair[int32, uint64]]
 
 	// Secondary indexes for efficient queries
 	CollectionsByOwner  collections.KeySet[collections.Pair[string, uint64]]

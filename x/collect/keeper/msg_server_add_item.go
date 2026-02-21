@@ -165,4 +165,3 @@ func (k msgServer) AddItem(ctx context.Context, msg *types.MsgAddItem) (*types.M
 
 	return &types.MsgAddItemResponse{Id: itemID}, nil
 }
-

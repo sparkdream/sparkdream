@@ -1,0 +1,14 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+option go_package = "sparkdream/x/vote/types";
+
+// AnonymousVote records a PUBLIC mode anonymous vote.
+message AnonymousVote {
+  string index = 1;            // Composite key: proposalId/nullifierHex
+  uint64 proposal_id = 2;
+  bytes nullifier = 3;         // 32 bytes, unique per voter+proposal
+  uint32 vote_option = 4;
+  bytes proof = 5;             // ~500 bytes PLONK proof
+  int64 submitted_at = 6;
+}

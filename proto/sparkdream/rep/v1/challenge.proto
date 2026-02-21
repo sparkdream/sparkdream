@@ -1,6 +1,7 @@
 syntax = "proto3";
 package sparkdream.rep.v1;
 
+import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/rep/types";
@@ -24,6 +25,14 @@ message Challenge {
   int64 created_at = 12;
   int64 resolved_at = 13;
   int64 response_deadline = 14;
+
+  // SPARK escrowed for anonymous challenges (uspark amount).
+  // Only set when is_anonymous=true. Stored to handle param changes between
+  // challenge creation and resolution.
+  string staked_spark = 15 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int"
+  ];
 }
 
 enum ChallengeStatus {

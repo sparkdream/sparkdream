@@ -37,7 +37,7 @@ type ModuleInputs struct {
 	BankKeeper    types.BankKeeper
 	RepKeeper     types.RepKeeper
 	CommonsKeeper types.CommonsKeeper `optional:"true"`
-	ForumKeeper   types.ForumKeeper `optional:"true"`
+	ForumKeeper   types.ForumKeeper   `optional:"true"`
 }
 
 type ModuleOutputs struct {

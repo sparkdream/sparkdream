@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestCollaboratorCompositeKey(t *testing.T) {

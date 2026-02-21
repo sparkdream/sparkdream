@@ -196,7 +196,7 @@ func (k Keeper) pruneExpiredSponsorshipRequests(
 		}
 
 		// Delete request and index entry
-		k.SponsorshipRequest.Remove(ctx, collID)                             //nolint:errcheck
+		k.SponsorshipRequest.Remove(ctx, collID)                                       //nolint:errcheck
 		k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)) //nolint:errcheck
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("sponsorship_request_expired",
@@ -304,7 +304,7 @@ func (k Keeper) pruneUnappealedHides(
 						k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM), item.Id)) //nolint:errcheck
 					}
 					k.FlagExpiry.Remove(ctx, collections.Join(flag.LastFlagAt+params.FlagExpirationBlocks, flagKey)) //nolint:errcheck
-					k.Flag.Remove(ctx, flagKey) //nolint:errcheck
+					k.Flag.Remove(ctx, flagKey)                                                                      //nolint:errcheck
 				}
 				// Clean up item hide records (other hide records for this same item)
 				k.cleanupItemHideRecords(ctx, item, params)
@@ -328,7 +328,7 @@ func (k Keeper) pruneUnappealedHides(
 
 		// Mark HideRecord resolved
 		hr.Resolved = true
-		k.HideRecord.Set(ctx, hr.Id, hr) //nolint:errcheck
+		k.HideRecord.Set(ctx, hr.Id, hr)                                 //nolint:errcheck
 		k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("unappealed_hide_expired",
@@ -398,7 +398,7 @@ func (k Keeper) pruneAppealTimeouts(
 				k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
 				coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
 				k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
-				k.Collection.Set(ctx, coll.Id, coll)                                         //nolint:errcheck
+				k.Collection.Set(ctx, coll.Id, coll)                                          //nolint:errcheck
 			}
 
 		case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
@@ -455,7 +455,7 @@ func (k Keeper) pruneAppealTimeouts(
 
 		// Mark HideRecord resolved
 		hr.Resolved = true
-		k.HideRecord.Set(ctx, hr.Id, hr) //nolint:errcheck
+		k.HideRecord.Set(ctx, hr.Id, hr)                                 //nolint:errcheck
 		k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hide_appeal_timeout",
@@ -516,7 +516,7 @@ func (k Keeper) pruneExpiredFlags(
 		}
 
 		// Delete flag record and expiry index
-		k.Flag.Remove(ctx, flagKey) //nolint:errcheck
+		k.Flag.Remove(ctx, flagKey)                                      //nolint:errcheck
 		k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)) //nolint:errcheck
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("flags_expired",

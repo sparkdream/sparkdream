@@ -1372,6 +1372,7 @@ func TestApproveInterim_UnauthorizedApprover(t *testing.T) {
 		nil,
 		commonsKeeper,
 		seasonKeeper,
+		nil, // voteKeeper
 	)
 
 	// Initialize params

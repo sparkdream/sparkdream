@@ -24,7 +24,7 @@ func TestRemoveItem(t *testing.T) {
 			name: "owner removes item, positions compacted",
 			setup: func(f *testFixture) (uint64, uint64) {
 				collID := f.createCollection(t, f.owner)
-				f.addItem(t, collID, f.owner) // item at pos 0
+				f.addItem(t, collID, f.owner)           // item at pos 0
 				itemID := f.addItem(t, collID, f.owner) // item at pos 1
 				f.addItem(t, collID, f.owner)           // item at pos 2
 				return collID, itemID

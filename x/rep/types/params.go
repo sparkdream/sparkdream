@@ -116,6 +116,11 @@ func DefaultParams() Params {
 		MinStakeDurationSeconds:    86400,                           // 24 hours minimum
 		AllowSelfMemberStake:       false,                           // Cannot stake on yourself
 
+		// Anonymous challenge SPARK stake (uspark)
+		// This is the amount of native SPARK tokens escrowed from the anonymous challenger.
+		// Returned if challenge is upheld; burned if rejected.
+		AnonymousChallengeSparkStake: math.NewInt(1000000), // 1 SPARK (1e6 uspark)
+
 		// Challenge response deadline - PRODUCTION values
 		ChallengeResponseDeadlineEpochs: 3, // 3 epochs = ~3 days
 
@@ -220,6 +225,8 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		TagStakeRevenueShare:       math.LegacyNewDecWithPrec(2, 2), // 2%
 		MinStakeDurationSeconds:    86400,                           // 24 hours
 		AllowSelfMemberStake:       false,
+		// Anonymous challenge SPARK stake
+		AnonymousChallengeSparkStake: math.NewInt(1000000), // 1 SPARK (1e6 uspark)
 		// Challenge response deadline
 		ChallengeResponseDeadlineEpochs: 3,
 		// Gift rate limiting
@@ -309,6 +316,8 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.TagStakeRevenueShare = op.TagStakeRevenueShare
 	p.MinStakeDurationSeconds = op.MinStakeDurationSeconds
 	p.AllowSelfMemberStake = op.AllowSelfMemberStake
+	// Anonymous challenge SPARK stake
+	p.AnonymousChallengeSparkStake = op.AnonymousChallengeSparkStake
 	// Challenge response deadline
 	p.ChallengeResponseDeadlineEpochs = op.ChallengeResponseDeadlineEpochs
 	// Gift rate limiting
@@ -366,6 +375,8 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		TagStakeRevenueShare:       p.TagStakeRevenueShare,
 		MinStakeDurationSeconds:    p.MinStakeDurationSeconds,
 		AllowSelfMemberStake:       p.AllowSelfMemberStake,
+		// Anonymous challenge SPARK stake
+		AnonymousChallengeSparkStake: p.AnonymousChallengeSparkStake,
 		// Challenge response deadline
 		ChallengeResponseDeadlineEpochs: p.ChallengeResponseDeadlineEpochs,
 		// Gift rate limiting

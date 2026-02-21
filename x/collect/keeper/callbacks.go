@@ -285,7 +285,7 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 				k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
 				coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
 				k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
-				k.Collection.Set(ctx, coll.Id, coll)                                         //nolint:errcheck
+				k.Collection.Set(ctx, coll.Id, coll)                                          //nolint:errcheck
 			}
 		case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
 			item, itemErr := k.Item.Get(ctx, hr.TargetId)
@@ -317,7 +317,7 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 		}
 
 		hr.Resolved = true
-		k.HideRecord.Set(ctx, hr.Id, hr) //nolint:errcheck
+		k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
 		k.HideRecordExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)) //nolint:errcheck
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hide_appeal_upheld",
@@ -361,13 +361,13 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 				coll, collErr := k.Collection.Get(ctx, item.CollectionId)
 				if collErr == nil {
 					// Remove item
-					k.Item.Remove(ctx, item.Id)                                                          //nolint:errcheck
-					k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id))                   //nolint:errcheck
-					k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))                     //nolint:errcheck
+					k.Item.Remove(ctx, item.Id)                                         //nolint:errcheck
+					k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id)) //nolint:errcheck
+					k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))   //nolint:errcheck
 					coll.ItemCount--
 					coll.UpdatedAt = sdkCtx.BlockHeight()
 					k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
-					k.CompactPositions(ctx, coll.Id)      //nolint:errcheck
+					k.CompactPositions(ctx, coll.Id)     //nolint:errcheck
 
 					// Refund item deposit if TTL
 					if isTTLCollection(coll) {
@@ -403,7 +403,7 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 		}
 
 		hr.Resolved = true
-		k.HideRecord.Set(ctx, hr.Id, hr) //nolint:errcheck
+		k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
 		k.HideRecordExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)) //nolint:errcheck
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hide_appeal_rejected",

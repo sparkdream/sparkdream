@@ -62,6 +62,7 @@ import (
 	seasonmodulekeeper "sparkdream/x/season/keeper"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
 	splitmodulekeeper "sparkdream/x/split/keeper"
+	votemodulekeeper "sparkdream/x/vote/keeper"
 )
 
 const (
@@ -130,6 +131,7 @@ type App struct {
 	ForumKeeper   forummodulekeeper.Keeper
 	RevealKeeper  revealmodulekeeper.Keeper
 	CollectKeeper collectmodulekeeper.Keeper
+	VoteKeeper    votemodulekeeper.Keeper
 }
 
 func init() {
@@ -218,12 +220,17 @@ func New(
 		&app.SeasonKeeper,
 		&app.RevealKeeper,
 		&app.CollectKeeper,
+		&app.VoteKeeper,
 	); err != nil {
 		panic(err)
 	}
 
 	// Wire CommonsKeeper into Futarchy after depinject to break cyclic dependency.
 	app.FutarchyKeeper.SetCommonsKeeper(app.CommonsKeeper)
+
+	// Wire VoteKeeper into Rep after depinject to break cyclic dependency
+	// (vote → rep → vote).
+	app.RepKeeper.SetVoteKeeper(app.VoteKeeper)
 
 	// We explicitly tell Futarchy to call Commons when markets resolve.
 	app.FutarchyKeeper.SetHooks(

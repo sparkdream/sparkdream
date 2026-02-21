@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+option go_package = "sparkdream/x/vote/types";
+
+// VoterTreeSnapshot records the Merkle tree state at proposal creation.
+message VoterTreeSnapshot {
+  uint64 proposal_id = 1;
+  bytes merkle_root = 2;
+  int64 snapshot_block = 3;
+  uint64 voter_count = 4;
+}

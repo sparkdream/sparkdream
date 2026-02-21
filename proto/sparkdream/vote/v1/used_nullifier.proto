@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+option go_package = "sparkdream/x/vote/types";
+
+// UsedNullifier records a vote nullifier keyed by (proposal_id, nullifier).
+message UsedNullifier {
+  string index = 1;        // Composite key: proposalId/nullifierHex
+  uint64 proposal_id = 2;
+  bytes nullifier = 3;
+  int64 used_at = 4;
+}

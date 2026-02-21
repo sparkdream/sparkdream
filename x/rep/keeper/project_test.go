@@ -269,3 +269,129 @@ func TestProjectInvalidStateTransitions(t *testing.T) {
 	err = k.AllocateBudget(ctx, projectID, math.NewInt(1000))
 	require.Error(t, err)
 }
+
+func TestCompleteProject(t *testing.T) {
+	t.Run("active project can be completed", func(t *testing.T) {
+		fixture := initFixture(t)
+		k := fixture.keeper
+		ctx := fixture.ctx
+
+		creator := sdk.AccAddress([]byte("creator"))
+		k.Member.Set(ctx, creator.String(), types.Member{
+			Address:          creator.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: make(map[string]string),
+		})
+
+		// Create and approve project
+		approvedBudget := math.NewInt(10000)
+		projectID, err := k.CreateProject(ctx, creator, "Zenith Project", "A test project for completion", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", approvedBudget, math.NewInt(1000))
+		require.NoError(t, err)
+		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000))
+		require.NoError(t, err)
+
+		// Allocate and spend some budget
+		k.AllocateBudget(ctx, projectID, math.NewInt(5000))
+		spendAmount := math.NewInt(3000)
+		err = k.SpendBudget(ctx, projectID, spendAmount)
+		require.NoError(t, err)
+
+		// Complete the project
+		err = k.CompleteProject(ctx, projectID)
+		require.NoError(t, err)
+
+		// Verify status is COMPLETED
+		project, err := k.GetProject(ctx, projectID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_COMPLETED, project.Status)
+
+		// Verify SpentBudget is preserved
+		require.Equal(t, spendAmount.String(), project.SpentBudget.String(),
+			"spent budget should be preserved after completion")
+	})
+
+	t.Run("non-active project cannot be completed", func(t *testing.T) {
+		fixture := initFixture(t)
+		k := fixture.keeper
+		ctx := fixture.ctx
+
+		creator := sdk.AccAddress([]byte("creator"))
+		k.Member.Set(ctx, creator.String(), types.Member{
+			Address:          creator.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: make(map[string]string),
+		})
+
+		// Create a project but do NOT approve it (status is PROPOSED)
+		projectID, err := k.CreateProject(ctx, creator, "Aurora Project", "A proposed project", []string{"frontend"}, types.ProjectCategory_PROJECT_CATEGORY_ECOSYSTEM, "technical", math.NewInt(5000), math.NewInt(500))
+		require.NoError(t, err)
+
+		// Attempt to complete a PROPOSED project - should fail
+		err = k.CompleteProject(ctx, projectID)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ACTIVE")
+
+		// Now approve and cancel the project
+		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(5000), math.NewInt(500))
+		require.NoError(t, err)
+		err = k.CancelProject(ctx, projectID, "no longer needed")
+		require.NoError(t, err)
+
+		// Attempt to complete a CANCELLED project - should fail
+		err = k.CompleteProject(ctx, projectID)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ACTIVE")
+	})
+
+	t.Run("completed project preserves spent budget", func(t *testing.T) {
+		fixture := initFixture(t)
+		k := fixture.keeper
+		ctx := fixture.ctx
+
+		creator := sdk.AccAddress([]byte("creator"))
+		k.Member.Set(ctx, creator.String(), types.Member{
+			Address:          creator.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: make(map[string]string),
+		})
+
+		// Create, approve, allocate, spend, and complete
+		approvedBudget := math.NewInt(20000)
+		projectID, err := k.CreateProject(ctx, creator, "Nova Project", "Complete workflow test", []string{"backend", "frontend"}, types.ProjectCategory_PROJECT_CATEGORY_CREATIVE, "technical", approvedBudget, math.NewInt(2000))
+		require.NoError(t, err)
+		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(2000))
+		require.NoError(t, err)
+
+		// Allocate and spend in multiple steps
+		err = k.AllocateBudget(ctx, projectID, math.NewInt(8000))
+		require.NoError(t, err)
+		err = k.SpendBudget(ctx, projectID, math.NewInt(3000))
+		require.NoError(t, err)
+		err = k.SpendBudget(ctx, projectID, math.NewInt(2500))
+		require.NoError(t, err)
+
+		totalSpent := math.NewInt(5500) // 3000 + 2500
+
+		// Complete the project
+		err = k.CompleteProject(ctx, projectID)
+		require.NoError(t, err)
+
+		// Verify status and preserved budget
+		project, err := k.GetProject(ctx, projectID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_COMPLETED, project.Status)
+		require.Equal(t, totalSpent.String(), project.SpentBudget.String(),
+			"spent budget should reflect cumulative spending")
+		require.Equal(t, math.NewInt(8000).String(), project.AllocatedBudget.String(),
+			"allocated budget should be preserved")
+	})
+}

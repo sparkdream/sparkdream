@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+option go_package = "sparkdream/x/vote/types";
+
+// TleEpochParticipation records per-epoch TLE validator participation.
+message TleEpochParticipation {
+  uint64 epoch = 1;
+  uint32 registered_count = 2;          // validators with registered TLE shares
+  uint32 submitted_count = 3;           // validators who submitted a share for this epoch
+  repeated string missed_validators = 4; // addresses that failed to submit
+  int64 checked_at = 5;                 // block height when this record was created
+}

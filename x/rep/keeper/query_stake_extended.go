@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 
 	"sparkdream/x/rep/types"
 
@@ -46,7 +47,7 @@ func (q queryServer) GetMemberStakePool(ctx context.Context, req *types.QueryGet
 
 	pool, err := q.k.GetMemberStakePool(ctx, memberAddr)
 	if err != nil {
-		if err == collections.ErrNotFound {
+		if errors.Is(err, collections.ErrNotFound) {
 			// Return empty pool if not found
 			return &types.QueryGetMemberStakePoolResponse{
 				Pool: types.MemberStakePool{
@@ -70,7 +71,7 @@ func (q queryServer) GetTagStakePool(ctx context.Context, req *types.QueryGetTag
 
 	pool, err := q.k.GetTagStakePool(ctx, req.Tag)
 	if err != nil {
-		if err == collections.ErrNotFound {
+		if errors.Is(err, collections.ErrNotFound) {
 			// Return empty pool if not found
 			return &types.QueryGetTagStakePoolResponse{
 				Pool: types.TagStakePool{
@@ -94,7 +95,7 @@ func (q queryServer) GetProjectStakeInfo(ctx context.Context, req *types.QueryGe
 
 	info, err := q.k.GetProjectStakeInfo(ctx, req.ProjectId)
 	if err != nil {
-		if err == collections.ErrNotFound {
+		if errors.Is(err, collections.ErrNotFound) {
 			// Return empty info if not found
 			return &types.QueryGetProjectStakeInfoResponse{
 				Info: types.ProjectStakeInfo{

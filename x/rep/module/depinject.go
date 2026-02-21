@@ -39,6 +39,8 @@ type ModuleInputs struct {
 	// Optional cross-module keepers (nil if modules not available)
 	CommonsKeeper types.CommonsKeeper `optional:"true"`
 	SeasonKeeper  types.SeasonKeeper  `optional:"true"`
+	// VoteKeeper is wired manually in app.go via SetVoteKeeper to break
+	// the cyclic dependency: vote → rep → vote.
 }
 
 type ModuleOutputs struct {
@@ -63,6 +65,7 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.BankKeeper,
 		in.CommonsKeeper,
 		in.SeasonKeeper,
+		nil, // VoteKeeper wired via SetVoteKeeper in app.go
 	)
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 

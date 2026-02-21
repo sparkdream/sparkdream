@@ -1,0 +1,68 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/vote/types";
+
+// How a vote option is counted in the tally.
+// Roles let x/vote understand abstain/veto semantics generically.
+enum OptionRole {
+  OPTION_ROLE_STANDARD = 0; // Normal option — counted in threshold
+  OPTION_ROLE_ABSTAIN = 1;  // Counts toward quorum, excluded from threshold denominator
+  OPTION_ROLE_VETO = 2;     // Counts toward quorum + triggers veto check
+}
+
+// Visibility level controls what non-voters can see.
+enum VisibilityLevel {
+  VISIBILITY_PUBLIC = 0;
+  VISIBILITY_SEALED = 1;
+  VISIBILITY_PRIVATE = 2;
+}
+
+// Proposal lifecycle status.
+enum ProposalStatus {
+  PROPOSAL_STATUS_ACTIVE = 0;     // Voting is open
+  PROPOSAL_STATUS_TALLYING = 1;   // SEALED/PRIVATE: reveal period
+  PROPOSAL_STATUS_FINALIZED = 2;  // Terminal: outcome determined
+  PROPOSAL_STATUS_CANCELLED = 3;  // Terminal: cancelled
+}
+
+// Proposal outcome after finalization.
+enum ProposalOutcome {
+  PROPOSAL_OUTCOME_UNSPECIFIED = 0;
+  PROPOSAL_OUTCOME_PASSED = 1;
+  PROPOSAL_OUTCOME_REJECTED = 2;
+  PROPOSAL_OUTCOME_QUORUM_NOT_MET = 3;
+  PROPOSAL_OUTCOME_VETOED = 4;
+}
+
+// Proposal type for categorization.
+enum ProposalType {
+  PROPOSAL_TYPE_GENERAL = 0;
+  PROPOSAL_TYPE_PARAMETER_CHANGE = 1;
+  PROPOSAL_TYPE_COUNCIL_ELECTION = 2;
+  PROPOSAL_TYPE_CHALLENGE_JURY = 3;
+  PROPOSAL_TYPE_SLASHING = 4;
+  PROPOSAL_TYPE_BUDGET_APPROVAL = 5;
+}
+
+// Vote option definition.
+// IDs MUST be sequential starting from 0.
+message VoteOption {
+  uint32 id = 1;     // Must equal the option's index (0-based, sequential)
+  string label = 2;  // "yes", "no", "abstain", "no with veto", or custom
+  OptionRole role = 3;
+}
+
+// Tally count per option.
+message VoteTally {
+  uint32 option_id = 1;
+  uint64 vote_count = 2;
+}
+
+// Per-voter encrypted copy of the proposal symmetric key (PRIVATE mode).
+message EncryptedKeyShare {
+  bytes voter_encryption_pubkey = 1; // Identifies which voter this is for
+  bytes encrypted_key = 2;           // ECIES-encrypted symmetric key
+}

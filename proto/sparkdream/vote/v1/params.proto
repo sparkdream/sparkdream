@@ -1,0 +1,86 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/vote/types";
+
+// Params defines the parameters for the vote module.
+message Params {
+  option (amino.name) = "sparkdream/x/vote/Params";
+  option (gogoproto.equal) = true;
+
+  // ZK circuit configuration (PLONK with universal SRS)
+  bytes srs_hash = 1;              // SHA-256 hash of the universal SRS (32 bytes)
+  bytes vote_verifying_key = 2;    // Verifying key for vote circuit
+  bytes proposal_verifying_key = 3; // Verifying key for proposal creation circuit
+  uint32 tree_depth = 4;           // default 20
+
+  // Voting periods
+  int64 min_voting_period_epochs = 5;
+  int64 max_voting_period_epochs = 6;
+  int64 default_voting_period_epochs = 7;
+
+  // SEALED mode: reveal period after voting ends
+  int64 sealed_reveal_period_epochs = 8;
+
+  // Thresholds
+  string default_quorum = 9 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string default_threshold = 10 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Registration
+  bool open_registration = 11;
+  string min_registration_stake = 12 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Rate limiting (anonymous proposals)
+  uint64 max_proposals_per_epoch = 13;
+
+  // Privacy
+  bool allow_private_proposals = 14;
+  bool allow_sealed_proposals = 15;
+  uint64 max_private_eligible_voters = 16;
+
+  // Deposit (public proposals only)
+  repeated cosmos.base.v1beta1.Coin min_proposal_deposit = 17 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+  ];
+
+  // Vote options constraints
+  uint32 min_vote_options = 18;
+  uint32 max_vote_options = 19;
+
+  // Threshold timelock encryption (TLE)
+  bool tle_enabled = 20;
+  uint32 tle_threshold_numerator = 21;
+  uint32 tle_threshold_denominator = 22;
+  bytes tle_master_public_key = 23;
+  uint32 max_encrypted_reveal_bytes = 24;
+
+  // TLE validator liveness
+  uint32 tle_miss_window = 25;
+  uint32 tle_miss_tolerance = 26;
+  bool tle_jail_enabled = 27;
+
+  // Epoch fallback
+  uint64 blocks_per_epoch = 28;
+
+  // Default veto threshold
+  string default_veto_threshold = 29 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+}

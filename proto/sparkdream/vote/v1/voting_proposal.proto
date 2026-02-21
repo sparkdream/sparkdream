@@ -1,0 +1,85 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+import "sparkdream/vote/v1/types.proto";
+
+option go_package = "sparkdream/x/vote/types";
+
+// VotingProposal defines a voting proposal with ZK anonymous voting support.
+message VotingProposal {
+  uint64 id = 1;
+
+  // Content (plaintext for PUBLIC/SEALED, encrypted for PRIVATE)
+  string title = 2;
+  string description = 3;
+  bytes encrypted_content = 4;
+  bytes content_nonce = 5;
+
+  // Creator
+  string proposer = 6;
+  bytes proposer_nullifier = 7;
+
+  // Voter eligibility snapshot
+  bytes merkle_root = 8;
+  int64 snapshot_block = 9;
+  uint64 eligible_voters = 10;
+
+  // Vote options
+  repeated VoteOption options = 11;
+
+  // Timing (block heights)
+  int64 voting_start = 12;
+  int64 voting_end = 13;
+
+  // Thresholds
+  string quorum = 14 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string threshold = 15 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Results
+  repeated VoteTally tally = 16;
+  ProposalStatus status = 17;
+  ProposalOutcome outcome = 18;
+
+  // Metadata
+  ProposalType proposal_type = 19;
+  uint64 reference_id = 20;
+  int64 created_at = 21;
+  int64 finalized_at = 22;
+
+  // Visibility
+  VisibilityLevel visibility = 23;
+
+  // Encryption (PRIVATE mode)
+  repeated EncryptedKeyShare key_shares = 24;
+
+  // Deposit (public proposals only)
+  repeated cosmos.base.v1beta1.Coin deposit = 25 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+  ];
+
+  // Executable messages (x/gov pattern)
+  repeated google.protobuf.Any messages = 26;
+
+  // TLE target epoch for auto-reveal (SEALED/PRIVATE only)
+  uint64 reveal_epoch = 27;
+
+  // Veto threshold
+  string veto_threshold = 28 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Reveal deadline as block height (SEALED/PRIVATE only; 0 for PUBLIC)
+  int64 reveal_end = 29;
+}

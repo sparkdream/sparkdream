@@ -47,89 +47,89 @@ var (
 	DefaultMaxChallengeReasonLength uint32 = 1024
 
 	// Reaction defaults
-	DefaultDownvoteCost                   = math.NewInt(25000000) // 25 SPARK
-	DefaultMaxUpvotesPerDay        uint32 = 100
-	DefaultMaxDownvotesPerDay      uint32 = 20
+																				DefaultDownvoteCost              = math.NewInt(25000000) // 25 SPARK
+	DefaultMaxUpvotesPerDay   uint32 = 100
+	DefaultMaxDownvotesPerDay uint32 = 20
 
 	// Flagging defaults
-	DefaultFlagReviewThreshold     uint32 = 5
-	DefaultMaxFlagsPerDay          uint32 = 20
-	DefaultMaxFlaggersPerTarget    uint32 = 50
-	DefaultFlagExpirationBlocks    int64  = 100800 // ~7 days
-	DefaultMaxFlagReasonLength     uint32 = 512
+	DefaultFlagReviewThreshold  uint32 = 5
+	DefaultMaxFlagsPerDay       uint32 = 20
+	DefaultMaxFlaggersPerTarget uint32 = 50
+	DefaultFlagExpirationBlocks int64  = 100800 // ~7 days
+	DefaultMaxFlagReasonLength  uint32 = 512
 
 	// Sentinel moderation defaults
-	DefaultSentinelCommitAmount                   = math.NewInt(100) // 100 DREAM
-	DefaultHideExpiryBlocks             int64     = 100800           // ~7 days
-	DefaultAppealFee                              = math.NewInt(5000000) // 5 SPARK
-	DefaultAppealCooldownBlocks         int64     = 600    // ~1 hour
-	DefaultAppealDeadlineBlocks         int64     = 201600 // ~14 days
+	DefaultSentinelCommitAmount       = math.NewInt(100)     // 100 DREAM
+	DefaultHideExpiryBlocks     int64 = 100800               // ~7 days
+	DefaultAppealFee                  = math.NewInt(5000000) // 5 SPARK
+	DefaultAppealCooldownBlocks int64 = 600                  // ~1 hour
+	DefaultAppealDeadlineBlocks int64 = 201600               // ~14 days
 
 	// Endorsement defaults
-	DefaultEndorsementCreationFee                 = math.NewInt(10000000) // 10 SPARK
-	DefaultEndorsementDreamStake                  = math.NewInt(100)     // 100 DREAM
-	DefaultEndorsementStakeDuration     int64     = 432000 // ~30 days
-	DefaultEndorsementExpiryBlocks      int64     = 432000 // ~30 days
-	DefaultEndorsementFeeEndorserShare            = math.LegacyNewDecWithPrec(80, 2) // 80%
-	DefaultEndorsementDeletionBurnFraction        = math.LegacyNewDecWithPrec(10, 2) // 10%
+	DefaultEndorsementCreationFee                = math.NewInt(10000000)            // 10 SPARK
+	DefaultEndorsementDreamStake                 = math.NewInt(100)                 // 100 DREAM
+	DefaultEndorsementStakeDuration        int64 = 432000                           // ~30 days
+	DefaultEndorsementExpiryBlocks         int64 = 432000                           // ~30 days
+	DefaultEndorsementFeeEndorserShare           = math.LegacyNewDecWithPrec(80, 2) // 80%
+	DefaultEndorsementDeletionBurnFraction       = math.LegacyNewDecWithPrec(10, 2) // 10%
 )
 
 // DefaultParams returns a default set of parameters.
 func DefaultParams() Params {
 	return Params{
-		MaxCollectionsBase:            DefaultMaxCollectionsBase,
-		MaxCollectionsPerTrustLevel:   DefaultMaxCollectionsPerTrustLevel,
-		MaxItemsPerCollection:         DefaultMaxItemsPerCollection,
-		MaxTitleLength:                DefaultMaxTitleLength,
-		MaxNameLength:                 DefaultMaxNameLength,
-		MaxDescriptionLength:          DefaultMaxDescriptionLength,
-		MaxTagLength:                  DefaultMaxTagLength,
-		MaxTagsPerCollection:          DefaultMaxTagsPerCollection,
-		MaxAttributesPerItem:          DefaultMaxAttributesPerItem,
-		MaxAttributeKeyLength:         DefaultMaxAttributeKeyLength,
-		MaxAttributeValueLength:       DefaultMaxAttributeValueLength,
-		MaxReferenceFieldLength:       DefaultMaxReferenceFieldLength,
-		MaxEncryptedDataSize:          DefaultMaxEncryptedDataSize,
-		MaxCollaboratorsPerCollection: DefaultMaxCollaboratorsPerCollection,
-		MaxBatchSize:                  DefaultMaxBatchSize,
-		MaxTtlBlocks:                  DefaultMaxTTLBlocks,
-		MaxNonMemberTtlBlocks:         DefaultMaxNonMemberTTLBlocks,
-		MaxPrunePerBlock:              DefaultMaxPrunePerBlock,
-		BaseCollectionDeposit:         DefaultBaseCollectionDeposit,
-		PerItemDeposit:                DefaultPerItemDeposit,
-		PerItemSpamTax:                DefaultPerItemSpamTax,
-		SponsorFee:                    DefaultSponsorFee,
-		MinSponsorTrustLevel:          DefaultMinSponsorTrustLevel,
-		SponsorshipRequestTtlBlocks:   DefaultSponsorshipRequestTTLBlocks,
-		MinCuratorBond:                DefaultMinCuratorBond,
-		MinCuratorTrustLevel:          DefaultMinCuratorTrustLevel,
-		MinCuratorAgeBlocks:           DefaultMinCuratorAgeBlocks,
-		MaxTagsPerReview:              DefaultMaxTagsPerReview,
-		MaxReviewCommentLength:        DefaultMaxReviewCommentLength,
-		MaxReviewsPerCollection:       DefaultMaxReviewsPerCollection,
-		CuratorSlashFraction:          DefaultCuratorSlashFraction,
-		ChallengeRewardFraction:       DefaultChallengeRewardFraction,
-		ChallengeWindowBlocks:         DefaultChallengeWindowBlocks,
-		ChallengeDeposit:              DefaultChallengeDeposit,
-		MaxChallengeReasonLength:      DefaultMaxChallengeReasonLength,
-		DownvoteCost:                  DefaultDownvoteCost,
-		MaxUpvotesPerDay:              DefaultMaxUpvotesPerDay,
-		MaxDownvotesPerDay:            DefaultMaxDownvotesPerDay,
-		FlagReviewThreshold:           DefaultFlagReviewThreshold,
-		MaxFlagsPerDay:                DefaultMaxFlagsPerDay,
-		MaxFlaggersPerTarget:          DefaultMaxFlaggersPerTarget,
-		FlagExpirationBlocks:          DefaultFlagExpirationBlocks,
-		MaxFlagReasonLength:           DefaultMaxFlagReasonLength,
-		SentinelCommitAmount:          DefaultSentinelCommitAmount,
-		HideExpiryBlocks:              DefaultHideExpiryBlocks,
-		AppealFee:                     DefaultAppealFee,
-		AppealCooldownBlocks:          DefaultAppealCooldownBlocks,
-		AppealDeadlineBlocks:          DefaultAppealDeadlineBlocks,
-		EndorsementCreationFee:        DefaultEndorsementCreationFee,
-		EndorsementDreamStake:         DefaultEndorsementDreamStake,
-		EndorsementStakeDuration:      DefaultEndorsementStakeDuration,
-		EndorsementExpiryBlocks:       DefaultEndorsementExpiryBlocks,
-		EndorsementFeeEndorserShare:   DefaultEndorsementFeeEndorserShare,
+		MaxCollectionsBase:              DefaultMaxCollectionsBase,
+		MaxCollectionsPerTrustLevel:     DefaultMaxCollectionsPerTrustLevel,
+		MaxItemsPerCollection:           DefaultMaxItemsPerCollection,
+		MaxTitleLength:                  DefaultMaxTitleLength,
+		MaxNameLength:                   DefaultMaxNameLength,
+		MaxDescriptionLength:            DefaultMaxDescriptionLength,
+		MaxTagLength:                    DefaultMaxTagLength,
+		MaxTagsPerCollection:            DefaultMaxTagsPerCollection,
+		MaxAttributesPerItem:            DefaultMaxAttributesPerItem,
+		MaxAttributeKeyLength:           DefaultMaxAttributeKeyLength,
+		MaxAttributeValueLength:         DefaultMaxAttributeValueLength,
+		MaxReferenceFieldLength:         DefaultMaxReferenceFieldLength,
+		MaxEncryptedDataSize:            DefaultMaxEncryptedDataSize,
+		MaxCollaboratorsPerCollection:   DefaultMaxCollaboratorsPerCollection,
+		MaxBatchSize:                    DefaultMaxBatchSize,
+		MaxTtlBlocks:                    DefaultMaxTTLBlocks,
+		MaxNonMemberTtlBlocks:           DefaultMaxNonMemberTTLBlocks,
+		MaxPrunePerBlock:                DefaultMaxPrunePerBlock,
+		BaseCollectionDeposit:           DefaultBaseCollectionDeposit,
+		PerItemDeposit:                  DefaultPerItemDeposit,
+		PerItemSpamTax:                  DefaultPerItemSpamTax,
+		SponsorFee:                      DefaultSponsorFee,
+		MinSponsorTrustLevel:            DefaultMinSponsorTrustLevel,
+		SponsorshipRequestTtlBlocks:     DefaultSponsorshipRequestTTLBlocks,
+		MinCuratorBond:                  DefaultMinCuratorBond,
+		MinCuratorTrustLevel:            DefaultMinCuratorTrustLevel,
+		MinCuratorAgeBlocks:             DefaultMinCuratorAgeBlocks,
+		MaxTagsPerReview:                DefaultMaxTagsPerReview,
+		MaxReviewCommentLength:          DefaultMaxReviewCommentLength,
+		MaxReviewsPerCollection:         DefaultMaxReviewsPerCollection,
+		CuratorSlashFraction:            DefaultCuratorSlashFraction,
+		ChallengeRewardFraction:         DefaultChallengeRewardFraction,
+		ChallengeWindowBlocks:           DefaultChallengeWindowBlocks,
+		ChallengeDeposit:                DefaultChallengeDeposit,
+		MaxChallengeReasonLength:        DefaultMaxChallengeReasonLength,
+		DownvoteCost:                    DefaultDownvoteCost,
+		MaxUpvotesPerDay:                DefaultMaxUpvotesPerDay,
+		MaxDownvotesPerDay:              DefaultMaxDownvotesPerDay,
+		FlagReviewThreshold:             DefaultFlagReviewThreshold,
+		MaxFlagsPerDay:                  DefaultMaxFlagsPerDay,
+		MaxFlaggersPerTarget:            DefaultMaxFlaggersPerTarget,
+		FlagExpirationBlocks:            DefaultFlagExpirationBlocks,
+		MaxFlagReasonLength:             DefaultMaxFlagReasonLength,
+		SentinelCommitAmount:            DefaultSentinelCommitAmount,
+		HideExpiryBlocks:                DefaultHideExpiryBlocks,
+		AppealFee:                       DefaultAppealFee,
+		AppealCooldownBlocks:            DefaultAppealCooldownBlocks,
+		AppealDeadlineBlocks:            DefaultAppealDeadlineBlocks,
+		EndorsementCreationFee:          DefaultEndorsementCreationFee,
+		EndorsementDreamStake:           DefaultEndorsementDreamStake,
+		EndorsementStakeDuration:        DefaultEndorsementStakeDuration,
+		EndorsementExpiryBlocks:         DefaultEndorsementExpiryBlocks,
+		EndorsementFeeEndorserShare:     DefaultEndorsementFeeEndorserShare,
 		EndorsementDeletionBurnFraction: DefaultEndorsementDeletionBurnFraction,
 	}
 }

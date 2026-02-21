@@ -15,10 +15,10 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
-	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/collect/keeper"
 	module "sparkdream/x/collect/module"
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 // ---------------------------------------------------------------------------
@@ -71,11 +71,11 @@ func initFixture(t *testing.T) *fixture {
 // ---------------------------------------------------------------------------
 
 type mockBankKeeper struct {
-	spendableCoinsFn             func(ctx context.Context, addr sdk.AccAddress) sdk.Coins
-	sendCoinsFn                  func(ctx context.Context, from, to sdk.AccAddress, amt sdk.Coins) error
+	spendableCoinsFn               func(ctx context.Context, addr sdk.AccAddress) sdk.Coins
+	sendCoinsFn                    func(ctx context.Context, from, to sdk.AccAddress, amt sdk.Coins) error
 	sendCoinsFromAccountToModuleFn func(ctx context.Context, sender sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	sendCoinsFromModuleToAccountFn func(ctx context.Context, senderModule string, recipient sdk.AccAddress, amt sdk.Coins) error
-	burnCoinsFn                  func(ctx context.Context, moduleName string, amt sdk.Coins) error
+	burnCoinsFn                    func(ctx context.Context, moduleName string, amt sdk.Coins) error
 }
 
 func (m *mockBankKeeper) SpendableCoins(ctx context.Context, addr sdk.AccAddress) sdk.Coins {

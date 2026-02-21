@@ -397,3 +397,196 @@ func TestCreateInvitation_NoResetSameSeason(t *testing.T) {
 	require.Equal(t, uint32(1), inviterMember.InvitationCredits)
 	require.Equal(t, int64(0), inviterMember.LastCreditResetSeason) // Still season 0
 }
+
+// TestProcessInviterAccountability tests that inviters are slashed when their
+// invitees fail during the accountability period.
+func TestProcessInviterAccountability(t *testing.T) {
+	t.Run("within accountability period: inviter gets slashed", func(t *testing.T) {
+		fixture := initFixture(t)
+		k := fixture.keeper
+		ctx := fixture.ctx
+
+		// Setup: Create inviter member with DREAM balance
+		inviter := sdk.AccAddress([]byte("inviter_acc1"))
+		inviterInitialDream := math.NewInt(2000)
+		k.Member.Set(ctx, inviter.String(), types.Member{
+			Address:           inviter.String(),
+			DreamBalance:      PtrInt(inviterInitialDream),
+			StakedDream:       PtrInt(math.ZeroInt()),
+			LifetimeEarned:    PtrInt(math.ZeroInt()),
+			LifetimeBurned:    PtrInt(math.ZeroInt()),
+			ReputationScores:  map[string]string{"backend": "100.0"},
+			InvitationCredits: 3,
+			TrustLevel:        types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		})
+
+		// Create invitee member
+		invitee := sdk.AccAddress([]byte("invitee_acc1"))
+		k.Member.Set(ctx, invitee.String(), types.Member{
+			Address:          invitee.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: make(map[string]string),
+			InvitedBy:        inviter.String(),
+		})
+
+		// Create an accepted invitation with AccountabilityEnd in the future (30 days from now)
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		futureEnd := sdkCtx.BlockTime().Unix() + 30*24*60*60 // 30 days in future
+		stakedAmount := math.NewInt(100)
+
+		invitation := types.Invitation{
+			Id:                1,
+			Inviter:           inviter.String(),
+			InviteeAddress:    invitee.String(),
+			StakedDream:       PtrInt(stakedAmount),
+			VouchedTags:       []string{"backend"},
+			AccountabilityEnd: futureEnd,
+			Status:            types.InvitationStatus_INVITATION_STATUS_ACCEPTED,
+			CreatedAt:         sdkCtx.BlockTime().Unix(),
+			AcceptedAt:        sdkCtx.BlockTime().Unix(),
+			ReferralEarned:    PtrInt(math.ZeroInt()),
+		}
+		err := k.Invitation.Set(ctx, 1, invitation)
+		require.NoError(t, err)
+
+		// Process inviter accountability
+		err = k.ProcessInviterAccountability(ctx, invitee, "invitee failed challenge")
+		require.NoError(t, err)
+
+		// Verify inviter's DREAM was reduced by the staked amount
+		inviterMember, err := k.Member.Get(ctx, inviter.String())
+		require.NoError(t, err)
+
+		// Inviter should have lost the staked amount
+		expectedBalance := inviterInitialDream.Sub(stakedAmount)
+		require.Equal(t, expectedBalance.String(), inviterMember.DreamBalance.String(),
+			"inviter should be slashed by staked amount during accountability period")
+	})
+
+	t.Run("past accountability period: no penalty", func(t *testing.T) {
+		fixture := initFixture(t)
+		k := fixture.keeper
+		ctx := fixture.ctx
+
+		// Setup: Create inviter member with DREAM balance
+		inviter := sdk.AccAddress([]byte("inviter_acc2"))
+		inviterInitialDream := math.NewInt(2000)
+		k.Member.Set(ctx, inviter.String(), types.Member{
+			Address:           inviter.String(),
+			DreamBalance:      PtrInt(inviterInitialDream),
+			StakedDream:       PtrInt(math.ZeroInt()),
+			LifetimeEarned:    PtrInt(math.ZeroInt()),
+			LifetimeBurned:    PtrInt(math.ZeroInt()),
+			ReputationScores:  map[string]string{"backend": "100.0"},
+			InvitationCredits: 3,
+			TrustLevel:        types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		})
+
+		// Create invitee member
+		invitee := sdk.AccAddress([]byte("invitee_acc2"))
+		k.Member.Set(ctx, invitee.String(), types.Member{
+			Address:          invitee.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: make(map[string]string),
+			InvitedBy:        inviter.String(),
+		})
+
+		// Create an accepted invitation with AccountabilityEnd in the past (1 hour ago)
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		pastEnd := sdkCtx.BlockTime().Unix() - 3600 // 1 hour ago
+		stakedAmount := math.NewInt(100)
+
+		invitation := types.Invitation{
+			Id:                1,
+			Inviter:           inviter.String(),
+			InviteeAddress:    invitee.String(),
+			StakedDream:       PtrInt(stakedAmount),
+			VouchedTags:       []string{"backend"},
+			AccountabilityEnd: pastEnd,
+			Status:            types.InvitationStatus_INVITATION_STATUS_ACCEPTED,
+			CreatedAt:         sdkCtx.BlockTime().Unix() - 60*24*3600, // 60 days ago
+			AcceptedAt:        sdkCtx.BlockTime().Unix() - 60*24*3600,
+			ReferralEarned:    PtrInt(math.ZeroInt()),
+		}
+		err := k.Invitation.Set(ctx, 1, invitation)
+		require.NoError(t, err)
+
+		// Process inviter accountability (should be no-op since accountability ended)
+		err = k.ProcessInviterAccountability(ctx, invitee, "invitee failed challenge")
+		require.NoError(t, err)
+
+		// Verify inviter's DREAM was NOT reduced
+		inviterMember, err := k.Member.Get(ctx, inviter.String())
+		require.NoError(t, err)
+		require.Equal(t, inviterInitialDream.String(), inviterMember.DreamBalance.String(),
+			"inviter should not be penalized after accountability period ends")
+	})
+
+	t.Run("inviter has insufficient DREAM: burns what is available", func(t *testing.T) {
+		fixture := initFixture(t)
+		k := fixture.keeper
+		ctx := fixture.ctx
+
+		// Setup: Create inviter member with less DREAM than the staked amount
+		inviter := sdk.AccAddress([]byte("inviter_acc3"))
+		inviterLowDream := math.NewInt(30) // Less than staked amount of 100
+		k.Member.Set(ctx, inviter.String(), types.Member{
+			Address:           inviter.String(),
+			DreamBalance:      PtrInt(inviterLowDream),
+			StakedDream:       PtrInt(math.ZeroInt()),
+			LifetimeEarned:    PtrInt(math.ZeroInt()),
+			LifetimeBurned:    PtrInt(math.ZeroInt()),
+			ReputationScores:  map[string]string{"backend": "100.0"},
+			InvitationCredits: 3,
+			TrustLevel:        types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		})
+
+		// Create invitee member
+		invitee := sdk.AccAddress([]byte("invitee_acc3"))
+		k.Member.Set(ctx, invitee.String(), types.Member{
+			Address:          invitee.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: make(map[string]string),
+			InvitedBy:        inviter.String(),
+		})
+
+		// Create an accepted invitation with AccountabilityEnd in the future
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		futureEnd := sdkCtx.BlockTime().Unix() + 30*24*60*60 // 30 days in future
+		stakedAmount := math.NewInt(100)                      // More than inviter's balance
+
+		invitation := types.Invitation{
+			Id:                1,
+			Inviter:           inviter.String(),
+			InviteeAddress:    invitee.String(),
+			StakedDream:       PtrInt(stakedAmount),
+			VouchedTags:       []string{"backend"},
+			AccountabilityEnd: futureEnd,
+			Status:            types.InvitationStatus_INVITATION_STATUS_ACCEPTED,
+			CreatedAt:         sdkCtx.BlockTime().Unix(),
+			AcceptedAt:        sdkCtx.BlockTime().Unix(),
+			ReferralEarned:    PtrInt(math.ZeroInt()),
+		}
+		err := k.Invitation.Set(ctx, 1, invitation)
+		require.NoError(t, err)
+
+		// Process inviter accountability
+		err = k.ProcessInviterAccountability(ctx, invitee, "invitee failed challenge")
+		require.NoError(t, err)
+
+		// Verify inviter's DREAM was burned to zero (burns what's available)
+		inviterMember, err := k.Member.Get(ctx, inviter.String())
+		require.NoError(t, err)
+		require.Equal(t, math.ZeroInt().String(), inviterMember.DreamBalance.String(),
+			"inviter should have all remaining DREAM burned when insufficient for full penalty")
+	})
+}

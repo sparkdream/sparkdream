@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"testing"
+	"time"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -325,4 +326,321 @@ func TestExtendedStaking_ProjectStaking(t *testing.T) {
 	info, err := k.GetProjectStakeInfo(ctx, projectID)
 	require.NoError(t, err)
 	require.Equal(t, stakeAmount.String(), info.TotalStaked.String())
+}
+
+// TestAccumulateTagStakeRevenue tests multi-tag revenue distribution
+func TestAccumulateTagStakeRevenue(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	// Setup: Create tag stake pools with known totals
+	err := k.TagStakePool.Set(ctx, "go", types.TagStakePool{
+		Tag:               "go",
+		TotalStaked:       math.NewInt(100),
+		AccRewardPerShare: math.LegacyZeroDec(),
+		LastUpdated:       0,
+	})
+	require.NoError(t, err)
+
+	err = k.TagStakePool.Set(ctx, "rust", types.TagStakePool{
+		Tag:               "rust",
+		TotalStaked:       math.NewInt(400),
+		AccRewardPerShare: math.LegacyZeroDec(),
+		LastUpdated:       0,
+	})
+	require.NoError(t, err)
+
+	// "python" has zero total staked - should be skipped
+	err = k.TagStakePool.Set(ctx, "python", types.TagStakePool{
+		Tag:               "python",
+		TotalStaked:       math.ZeroInt(),
+		AccRewardPerShare: math.LegacyZeroDec(),
+		LastUpdated:       0,
+	})
+	require.NoError(t, err)
+
+	// Get TagStakeRevenueShare from params (default is 2%)
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+
+	// Test: Accumulate revenue across multiple tags
+	totalRevenue := math.NewInt(10000)
+	err = k.AccumulateTagStakeRevenue(ctx, []string{"go", "rust", "python", "unknown"}, totalRevenue)
+	require.NoError(t, err)
+
+	// Expected per-tag share: totalRevenue * TagStakeRevenueShare = 10000 * 0.02 = 200
+	perTagShare := totalRevenue.ToLegacyDec().Mul(params.TagStakeRevenueShare).TruncateInt()
+	require.Equal(t, math.NewInt(200), perTagShare)
+
+	// Verify "go" pool: AccRewardPerShare = perTagShare / totalStaked = 200 / 100 = 2.0
+	goPool, err := k.GetTagStakePool(ctx, "go")
+	require.NoError(t, err)
+	expectedGoRewardPerShare := perTagShare.ToLegacyDec().Quo(math.NewInt(100).ToLegacyDec())
+	require.Equal(t, expectedGoRewardPerShare.String(), goPool.AccRewardPerShare.String())
+
+	// Verify "rust" pool: AccRewardPerShare = 200 / 400 = 0.5
+	rustPool, err := k.GetTagStakePool(ctx, "rust")
+	require.NoError(t, err)
+	expectedRustRewardPerShare := perTagShare.ToLegacyDec().Quo(math.NewInt(400).ToLegacyDec())
+	require.Equal(t, expectedRustRewardPerShare.String(), rustPool.AccRewardPerShare.String())
+
+	// Verify "python" pool: zero total staked, should be skipped (AccRewardPerShare unchanged)
+	pythonPool, err := k.GetTagStakePool(ctx, "python")
+	require.NoError(t, err)
+	require.True(t, pythonPool.AccRewardPerShare.IsZero(),
+		"python pool with zero staked should not have accumulated rewards")
+
+	// Verify "unknown" tag: not found, should be silently skipped (no error)
+	_, err = k.GetTagStakePool(ctx, "unknown")
+	require.Error(t, err, "unknown tag should not have a pool created")
+
+	// Test: Accumulate a second round of revenue and verify cumulative update
+	err = k.AccumulateTagStakeRevenue(ctx, []string{"go"}, totalRevenue)
+	require.NoError(t, err)
+
+	goPool2, err := k.GetTagStakePool(ctx, "go")
+	require.NoError(t, err)
+	// Should now be 2.0 + 2.0 = 4.0
+	expectedCumulative := expectedGoRewardPerShare.MulInt64(2)
+	require.Equal(t, expectedCumulative.String(), goPool2.AccRewardPerShare.String())
+}
+
+// TestDistributeInitiativeCompletionBonus tests initiative completion bonus distribution
+func TestDistributeInitiativeCompletionBonus(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	// Create the project creator / initiative assignee
+	creator := sdk.AccAddress([]byte("creator_addr________"))
+	k.Member.Set(ctx, creator.String(), types.Member{
+		Address:          creator.String(),
+		DreamBalance:     PtrInt(math.NewInt(50000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "100.0"},
+	})
+
+	// Create external stakers
+	staker1 := sdk.AccAddress([]byte("external_staker1____"))
+	staker2 := sdk.AccAddress([]byte("external_staker2____"))
+
+	for _, s := range []sdk.AccAddress{staker1, staker2} {
+		k.Member.Set(ctx, s.String(), types.Member{
+			Address:          s.String(),
+			DreamBalance:     PtrInt(math.NewInt(10000)),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{"backend": "50.0"},
+		})
+	}
+
+	// Create and approve project
+	projectID, err := k.CreateProject(ctx, creator, "TestProj", "Description",
+		[]string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE,
+		"technical", math.NewInt(100000), math.NewInt(10000))
+	require.NoError(t, err)
+
+	approver := sdk.AccAddress([]byte("approver____________"))
+	err = k.ApproveProject(ctx, projectID, approver, math.NewInt(100000), math.NewInt(10000))
+	require.NoError(t, err)
+
+	// Create initiative
+	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "Do the work",
+		[]string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD,
+		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(1000))
+	require.NoError(t, err)
+
+	// Staker1 stakes 200 DREAM, staker2 stakes 800 DREAM
+	_, err = k.CreateStake(ctx, staker1, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(200))
+	require.NoError(t, err)
+	_, err = k.CreateStake(ctx, staker2, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(800))
+	require.NoError(t, err)
+
+	// Creator (internal) stakes 100 DREAM
+	_, err = k.CreateStake(ctx, creator, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(100))
+	require.NoError(t, err)
+
+	// Advance time so stakes build conviction (1 week)
+	advancedTime := sdk.UnwrapSDKContext(ctx).BlockTime().Add(7 * 24 * time.Hour)
+	ctx = sdk.UnwrapSDKContext(ctx).WithBlockTime(advancedTime)
+
+	// Record balances before bonus distribution
+	preBalances := make(map[string]math.Int)
+	for _, s := range []sdk.AccAddress{staker1, staker2, creator} {
+		member, err := k.Member.Get(ctx, s.String())
+		require.NoError(t, err)
+		preBalances[s.String()] = *member.DreamBalance
+	}
+
+	// Distribute completion bonus with budget = 10000
+	totalBudget := math.NewInt(10000)
+	err = k.DistributeInitiativeCompletionBonus(ctx, initID, totalBudget)
+	require.NoError(t, err)
+
+	// Bonus pool = 10% of 10000 = 1000
+	bonusPool := math.NewInt(1000)
+
+	// Verify that stakers received bonus (each proportional to conviction)
+	totalReceived := math.ZeroInt()
+	for _, s := range []sdk.AccAddress{staker1, staker2, creator} {
+		member, err := k.Member.Get(ctx, s.String())
+		require.NoError(t, err)
+		received := member.DreamBalance.Sub(preBalances[s.String()])
+		require.True(t, received.GTE(math.ZeroInt()),
+			"staker %s should have received non-negative bonus, got %s", s.String(), received.String())
+		totalReceived = totalReceived.Add(received)
+	}
+
+	// Total distributed should be <= bonusPool (truncation can lose a few units)
+	require.True(t, totalReceived.LTE(bonusPool),
+		"total distributed (%s) should not exceed bonus pool (%s)", totalReceived.String(), bonusPool.String())
+	// But should be greater than zero
+	require.True(t, totalReceived.GT(math.ZeroInt()),
+		"total distributed should be greater than zero")
+
+	// Verify that staker2 (800 DREAM) received more than staker1 (200 DREAM)
+	// since conviction scales with stake amount
+	member1, _ := k.Member.Get(ctx, staker1.String())
+	member2, _ := k.Member.Get(ctx, staker2.String())
+	received1 := member1.DreamBalance.Sub(preBalances[staker1.String()])
+	received2 := member2.DreamBalance.Sub(preBalances[staker2.String()])
+	require.True(t, received2.GT(received1),
+		"staker2 (800 DREAM stake) should receive more bonus than staker1 (200 DREAM stake): got %s vs %s",
+		received2.String(), received1.String())
+
+	// Verify that the creator (internal staker) also received a share
+	memberCreator, _ := k.Member.Get(ctx, creator.String())
+	receivedCreator := memberCreator.DreamBalance.Sub(preBalances[creator.String()])
+	require.True(t, receivedCreator.GT(math.ZeroInt()),
+		"creator (internal staker) should also receive a bonus share")
+
+	// Test: No stakes returns without error
+	// Create a separate initiative with no stakes
+	initID2, err := k.CreateInitiative(ctx, creator, projectID, "Empty", "No stakes",
+		[]string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD,
+		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	require.NoError(t, err)
+	err = k.DistributeInitiativeCompletionBonus(ctx, initID2, math.NewInt(10000))
+	require.NoError(t, err)
+}
+
+// TestDistributeProjectCompletionBonus tests project completion bonus distribution
+func TestDistributeProjectCompletionBonus(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	// Create project creator
+	creator := sdk.AccAddress([]byte("proj_creator________"))
+	k.Member.Set(ctx, creator.String(), types.Member{
+		Address:          creator.String(),
+		DreamBalance:     PtrInt(math.NewInt(50000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{},
+	})
+
+	// Create stakers
+	stakerA := sdk.AccAddress([]byte("project_stakerA_____"))
+	stakerB := sdk.AccAddress([]byte("project_stakerB_____"))
+
+	for _, s := range []sdk.AccAddress{stakerA, stakerB} {
+		k.Member.Set(ctx, s.String(), types.Member{
+			Address:          s.String(),
+			DreamBalance:     PtrInt(math.NewInt(10000)),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{},
+		})
+	}
+
+	// Create and approve project
+	projectID, err := k.CreateProject(ctx, creator, "BonusProj", "Testing bonus",
+		[]string{"infra"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE,
+		"technical", math.NewInt(100000), math.NewInt(5000))
+	require.NoError(t, err)
+
+	approver := sdk.AccAddress([]byte("proj_approver_______"))
+	err = k.ApproveProject(ctx, projectID, approver, math.NewInt(100000), math.NewInt(5000))
+	require.NoError(t, err)
+
+	// Create stakes on the project: stakerA = 300, stakerB = 700
+	_, err = k.CreateStake(ctx, stakerA, types.StakeTargetType_STAKE_TARGET_PROJECT, projectID, "", math.NewInt(300))
+	require.NoError(t, err)
+	_, err = k.CreateStake(ctx, stakerB, types.StakeTargetType_STAKE_TARGET_PROJECT, projectID, "", math.NewInt(700))
+	require.NoError(t, err)
+
+	// Verify project stake info
+	info, err := k.GetProjectStakeInfo(ctx, projectID)
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(1000).String(), info.TotalStaked.String())
+
+	// Record balances before bonus
+	preA, _ := k.Member.Get(ctx, stakerA.String())
+	preB, _ := k.Member.Get(ctx, stakerB.String())
+	balancePreA := *preA.DreamBalance
+	balancePreB := *preB.DreamBalance
+
+	// Get ProjectCompletionBonusRate from params (default 5%)
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+
+	// Distribute project completion bonus with finalBudget = 20000
+	finalBudget := math.NewInt(20000)
+	err = k.DistributeProjectCompletionBonus(ctx, projectID, finalBudget)
+	require.NoError(t, err)
+
+	// Expected bonus pool = 20000 * 5% = 1000
+	expectedBonusPool := math.LegacyNewDecFromInt(finalBudget).
+		Mul(params.ProjectCompletionBonusRate).
+		TruncateInt()
+	require.Equal(t, math.NewInt(1000), expectedBonusPool)
+
+	// Verify stakers received bonus proportional to stake amount
+	postA, _ := k.Member.Get(ctx, stakerA.String())
+	postB, _ := k.Member.Get(ctx, stakerB.String())
+	receivedA := postA.DreamBalance.Sub(balancePreA)
+	receivedB := postB.DreamBalance.Sub(balancePreB)
+
+	// stakerA: 300/1000 * 1000 = 300
+	require.Equal(t, math.NewInt(300).String(), receivedA.String(),
+		"stakerA should receive 300 (30%% of bonus pool)")
+	// stakerB: 700/1000 * 1000 = 700
+	require.Equal(t, math.NewInt(700).String(), receivedB.String(),
+		"stakerB should receive 700 (70%% of bonus pool)")
+
+	// Verify project stake info has accumulated bonus
+	updatedInfo, err := k.GetProjectStakeInfo(ctx, projectID)
+	require.NoError(t, err)
+	require.Equal(t, expectedBonusPool.String(), updatedInfo.CompletionBonusPool.String())
+
+	// Test: Zero budget returns without error
+	err = k.DistributeProjectCompletionBonus(ctx, projectID, math.ZeroInt())
+	require.NoError(t, err)
+
+	// Test: No project stakes returns without error
+	// Create a new project with no stakes
+	projectID2, err := k.CreateProject(ctx, creator, "EmptyProj", "No stakes",
+		[]string{"infra"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE,
+		"technical", math.NewInt(50000), math.NewInt(2000))
+	require.NoError(t, err)
+	err = k.ApproveProject(ctx, projectID2, approver, math.NewInt(50000), math.NewInt(2000))
+	require.NoError(t, err)
+
+	// Set up project stake info with zero staked
+	err = k.ProjectStakeInfo.Set(ctx, projectID2, types.ProjectStakeInfo{
+		ProjectId:           projectID2,
+		TotalStaked:         math.ZeroInt(),
+		CompletionBonusPool: math.ZeroInt(),
+	})
+	require.NoError(t, err)
+
+	err = k.DistributeProjectCompletionBonus(ctx, projectID2, math.NewInt(10000))
+	require.NoError(t, err)
 }

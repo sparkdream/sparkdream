@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"cosmossdk.io/core/address"
@@ -62,12 +63,29 @@ func (m mockSeasonKeeper) ResolveDisplayNameAppealInternal(ctx context.Context, 
 	return nil
 }
 
+type mockVoteKeeper struct {
+	VerifyMembershipProofFn func(ctx context.Context, proof []byte, nullifier []byte) error
+}
+
+func (m mockVoteKeeper) VerifyMembershipProof(ctx context.Context, proof []byte, nullifier []byte) error {
+	if m.VerifyMembershipProofFn != nil {
+		return m.VerifyMembershipProofFn(ctx, proof, nullifier)
+	}
+	// Default: accept any non-empty proof (dev mode behavior)
+	if len(proof) == 0 {
+		return fmt.Errorf("empty proof")
+	}
+	return nil
+}
+
 type fixture struct {
 	ctx           sdk.Context
 	keeper        keeper.Keeper
 	addressCodec  address.Codec
+	bankKeeper    *mockBankKeeper
 	commonsKeeper *mockCommonsKeeper
 	seasonKeeper  *mockSeasonKeeper
+	voteKeeper    *mockVoteKeeper
 }
 
 // fixtureOptions allows customization of test fixture
@@ -161,15 +179,22 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		},
 	}
 
+	// Mock VoteKeeper (accepts any non-empty proof by default)
+	voteKeeper := &mockVoteKeeper{}
+
+	// Mock BankKeeper (all operations succeed by default)
+	bankKeeper := &mockBankKeeper{}
+
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
 		addressCodec,
 		authority,
 		nil,
-		nil,
+		bankKeeper,
 		commonsKeeper,
 		seasonKeeper,
+		voteKeeper,
 	)
 
 	// Initialize genesis with default values (including sequence counters starting at 1)
@@ -185,7 +210,9 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		ctx:           ctx,
 		keeper:        k,
 		addressCodec:  addressCodec,
+		bankKeeper:    bankKeeper,
 		commonsKeeper: commonsKeeper,
 		seasonKeeper:  seasonKeeper,
+		voteKeeper:    voteKeeper,
 	}
 }

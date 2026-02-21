@@ -9,8 +9,8 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 const (
@@ -356,7 +356,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		k.EndorsementPending.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
 			if key.K2() == coll.Id {
 				k.EndorsementPending.Remove(ctx, key) //nolint:errcheck
-				return true, nil // stop
+				return true, nil                      // stop
 			}
 			return false, nil
 		}) //nolint:errcheck
@@ -391,7 +391,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			}
 		}
 		k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(req.ExpiresAt, coll.Id)) //nolint:errcheck
-		k.SponsorshipRequest.Remove(ctx, coll.Id) //nolint:errcheck
+		k.SponsorshipRequest.Remove(ctx, coll.Id)                                           //nolint:errcheck
 	}
 
 	// Handle active hide appeals: burn appeal fee, release sentinel bond
@@ -416,7 +416,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 				}
 			}
 			hr.Resolved = true
-			k.HideRecord.Set(ctx, hr.Id, hr) //nolint:errcheck
+			k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
 			k.HideRecordExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)) //nolint:errcheck
 			return false, nil
 		},
@@ -446,7 +446,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			}
 			// Remove review indexes
 			k.CurationReviewsByCurator.Remove(ctx, collections.Join(review.Curator, review.Id)) //nolint:errcheck
-			k.CurationReview.Remove(ctx, review.Id) //nolint:errcheck
+			k.CurationReview.Remove(ctx, review.Id)                                             //nolint:errcheck
 			return false, nil
 		},
 	)
@@ -488,12 +488,12 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 					k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM), itemID)) //nolint:errcheck
 				}
 				k.FlagExpiry.Remove(ctx, collections.Join(flag.LastFlagAt+params.FlagExpirationBlocks, flagKey)) //nolint:errcheck
-				k.Flag.Remove(ctx, flagKey) //nolint:errcheck
+				k.Flag.Remove(ctx, flagKey)                                                                      //nolint:errcheck
 			}
 			// Clean up item reaction dedup entries (can't efficiently walk by prefix, leave for now)
 			k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, itemID)) //nolint:errcheck
 		}
-		k.Item.Remove(ctx, itemID) //nolint:errcheck
+		k.Item.Remove(ctx, itemID)           //nolint:errcheck
 		k.ItemsByCollection.Remove(ctx, key) //nolint:errcheck
 	}
 
@@ -522,7 +522,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION), coll.Id)) //nolint:errcheck
 		}
 		k.FlagExpiry.Remove(ctx, collections.Join(flag.LastFlagAt+params.FlagExpirationBlocks, flagKey)) //nolint:errcheck
-		k.Flag.Remove(ctx, flagKey) //nolint:errcheck
+		k.Flag.Remove(ctx, flagKey)                                                                      //nolint:errcheck
 	}
 
 	// Clean up hide records for collection
@@ -587,7 +587,7 @@ func (k Keeper) cleanupItemHideRecords(ctx context.Context, item types.Item, par
 				}
 			}
 			hr.Resolved = true
-			k.HideRecord.Set(ctx, hr.Id, hr) //nolint:errcheck
+			k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
 			k.HideRecordExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)) //nolint:errcheck
 			return false, nil
 		},

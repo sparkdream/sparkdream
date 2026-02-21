@@ -8,8 +8,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
-	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestRegisterCurator(t *testing.T) {
@@ -57,7 +57,7 @@ func TestRegisterCurator(t *testing.T) {
 			expErrContains: "below required trust level",
 		},
 		{
-			name: "error: bond below minimum",
+			name:  "error: bond below minimum",
 			setup: func(f *testFixture) {},
 			msg: func(f *testFixture) *types.MsgRegisterCurator {
 				return &types.MsgRegisterCurator{

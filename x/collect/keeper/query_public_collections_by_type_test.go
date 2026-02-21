@@ -10,10 +10,10 @@ import (
 
 func TestQueryPublicCollectionsByType(t *testing.T) {
 	tests := []struct {
-		name   string
-		setup  func(f *testFixture)
+		name    string
+		setup   func(f *testFixture)
 		reqType uint64
-		expLen int
+		expLen  int
 	}{
 		{
 			name:    "empty",

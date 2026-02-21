@@ -1,0 +1,11 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+option go_package = "sparkdream/x/vote/types";
+
+// EpochDecryptionKey stores the aggregated epoch decryption key.
+message EpochDecryptionKey {
+  uint64 epoch = 1;
+  bytes decryption_key = 2;
+  int64 available_at = 3;
+}

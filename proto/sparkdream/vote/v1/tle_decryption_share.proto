@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.vote.v1;
+
+option go_package = "sparkdream/x/vote/types";
+
+// TLEDecryptionShare tracks a decryption share submitted by a validator for an epoch.
+message TleDecryptionShare {
+  string index = 1;          // Composite key: validator/epoch
+  string validator = 2;
+  uint64 epoch = 3;
+  bytes share = 4;
+  int64 submitted_at = 5;
+}

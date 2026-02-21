@@ -26,6 +26,7 @@ type Keeper struct {
 	bankKeeper      types.BankKeeper
 	commonsKeeper   types.CommonsKeeper
 	seasonKeeper    types.SeasonKeeper
+	voteKeeper      types.VoteKeeper
 	Member          collections.Map[string, types.Member]
 	InvitationSeq   collections.Sequence
 	Invitation      collections.Map[uint64, types.Invitation]
@@ -71,6 +72,7 @@ func NewKeeper(
 	bankKeeper types.BankKeeper,
 	commonsKeeper types.CommonsKeeper,
 	seasonKeeper types.SeasonKeeper,
+	voteKeeper types.VoteKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -88,6 +90,7 @@ func NewKeeper(
 		bankKeeper:      bankKeeper,
 		commonsKeeper:   commonsKeeper,
 		seasonKeeper:    seasonKeeper,
+		voteKeeper:      voteKeeper,
 		Params:          collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Member:          collections.NewMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc)),
 		Invitation:      collections.NewMap(sb, types.InvitationKey, "invitation", collections.Uint64Key, codec.CollValue[types.Invitation](cdc)),
@@ -144,6 +147,12 @@ func NewKeeper(
 	k.Schema = schema
 
 	return k
+}
+
+// SetVoteKeeper sets the vote keeper after depinject initialization.
+// This breaks the cyclic dependency: vote → rep → vote.
+func (k *Keeper) SetVoteKeeper(vk types.VoteKeeper) {
+	k.voteKeeper = vk
 }
 
 // GetAuthority returns the module's authority.

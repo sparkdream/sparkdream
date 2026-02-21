@@ -167,7 +167,7 @@ func TestCreateCollection(t *testing.T) {
 			expErrContains: "name empty or exceeds max length",
 		},
 		{
-			name: "sequence increments correctly",
+			name:  "sequence increments correctly",
 			setup: func(f *testFixture) {},
 			msg: &types.MsgCreateCollection{
 				Creator:    "", // will be owner
