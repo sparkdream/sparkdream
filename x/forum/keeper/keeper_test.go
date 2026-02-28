@@ -15,6 +15,7 @@ import (
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/keeper"
 	module "sparkdream/x/forum/module"
 	"sparkdream/x/forum/types"
@@ -147,9 +148,14 @@ func (m *mockBankKeeper) MintCoins(ctx context.Context, moduleName string, amt s
 
 // mockRepKeeper implements types.RepKeeper for testing
 type mockRepKeeper struct {
-	CreateAppealInitiativeFn func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
-	IsMemberFn               func(ctx context.Context, addr sdk.AccAddress) bool
-	nextInitiativeID         uint64
+	CreateAppealInitiativeFn         func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
+	IsMemberFn                       func(ctx context.Context, addr sdk.AccAddress) bool
+	GetMemberTrustTreeRootFn         func(ctx context.Context) ([]byte, error)
+	GetPreviousMemberTrustTreeRootFn func(ctx context.Context) []byte
+	ValidateInitiativeReferenceFn    func(ctx context.Context, initiativeID uint64) error
+	RegisterContentInitiativeLinkFn  func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+	RemoveContentInitiativeLinkFn    func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+	nextInitiativeID                 uint64
 }
 
 func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
@@ -224,6 +230,61 @@ func (m *mockRepKeeper) CreateAppealInitiative(ctx context.Context, initiativeTy
 	return m.nextInitiativeID, nil
 }
 
+func (m *mockRepKeeper) GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error) {
+	return math.LegacyZeroDec(), nil
+}
+
+func (m *mockRepKeeper) GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error) {
+	return nil, nil
+}
+
+func (m *mockRepKeeper) CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error) {
+	return 1, nil
+}
+
+func (m *mockRepKeeper) SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error {
+	return nil
+}
+
+func (m *mockRepKeeper) GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error) {
+	return reptypes.Stake{}, reptypes.ErrAuthorBondNotFound
+}
+
+func (m *mockRepKeeper) GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error) {
+	if m.GetMemberTrustTreeRootFn != nil {
+		return m.GetMemberTrustTreeRootFn(ctx)
+	}
+	return bytes.Repeat([]byte{0xAA}, 32), nil
+}
+
+func (m *mockRepKeeper) GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte {
+	if m.GetPreviousMemberTrustTreeRootFn != nil {
+		return m.GetPreviousMemberTrustTreeRootFn(ctx)
+	}
+	return bytes.Repeat([]byte{0xBB}, 32)
+}
+
+func (m *mockRepKeeper) ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error {
+	if m.ValidateInitiativeReferenceFn != nil {
+		return m.ValidateInitiativeReferenceFn(ctx, initiativeID)
+	}
+	return nil
+}
+
+func (m *mockRepKeeper) RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error {
+	if m.RegisterContentInitiativeLinkFn != nil {
+		return m.RegisterContentInitiativeLinkFn(ctx, initiativeID, targetType, targetID)
+	}
+	return nil
+}
+
+func (m *mockRepKeeper) RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error {
+	if m.RemoveContentInitiativeLinkFn != nil {
+		return m.RemoveContentInitiativeLinkFn(ctx, initiativeID, targetType, targetID)
+	}
+	return nil
+}
+
 // mockCommonsKeeper implements types.CommonsKeeper for testing
 type mockCommonsKeeper struct {
 	IsGroupPolicyMemberFn  func(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
@@ -250,6 +311,35 @@ func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string
 		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
 	}
 	return false
+}
+
+// mockVoteKeeper implements types.VoteKeeper for testing
+type mockVoteKeeper struct {
+	VerifyAnonymousActionProofFn func(ctx context.Context, proof, nullifier, merkleRoot []byte, minTrustLevel uint32) error
+}
+
+func (m *mockVoteKeeper) VerifyAnonymousActionProof(ctx context.Context, proof, nullifier, merkleRoot []byte, minTrustLevel uint32) error {
+	if m.VerifyAnonymousActionProofFn != nil {
+		return m.VerifyAnonymousActionProofFn(ctx, proof, nullifier, merkleRoot, minTrustLevel)
+	}
+	return nil // Default: proof passes
+}
+
+// mockSeasonKeeper implements types.SeasonKeeper for testing
+type mockSeasonKeeper struct{}
+
+func (m *mockSeasonKeeper) GetEpochDuration(ctx context.Context) int64 {
+	return 13_140_000
+}
+
+func initFixtureWithVoteKeeper(t *testing.T) (*fixture, *mockVoteKeeper) {
+	t.Helper()
+	f := initFixture(t)
+	vk := &mockVoteKeeper{}
+	f.keeper.SetVoteKeeper(vk)
+	// Re-create msgServer since it embeds Keeper by value
+	f.msgServer = keeper.NewMsgServerImpl(f.keeper)
+	return f, vk
 }
 
 func initFixtureWithCommons(t *testing.T, commonsKeeper types.CommonsKeeper) *fixture {
@@ -452,9 +542,9 @@ func (f *fixture) createTestSentinel(t *testing.T, addr string, bond string) typ
 }
 
 // Helper to create a test tag
-func (f *fixture) createTestTag(t *testing.T, name string) types.Tag {
+func (f *fixture) createTestTag(t *testing.T, name string) commontypes.Tag {
 	t.Helper()
-	tag := types.Tag{
+	tag := commontypes.Tag{
 		Name:      name,
 		CreatedAt: f.sdkCtx().BlockTime().Unix(),
 	}

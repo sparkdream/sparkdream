@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -31,7 +32,7 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 	}
 
 	// Find and update the tag
-	var foundTag types.Tag
+	var foundTag commontypes.Tag
 	var tagKey string
 	tagIter, err := k.Tag.Iterate(ctx, nil)
 	if err != nil {
@@ -101,7 +102,7 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 
 	case 2:
 		// Reserve tag - create a ReservedTag entry
-		reservedTag := types.ReservedTag{
+		reservedTag := commontypes.ReservedTag{
 			Name:          msg.TagName,
 			Authority:     msg.ReserveAuthority,
 			MembersCanUse: msg.ReserveMembersCanUse,

@@ -145,7 +145,10 @@ func (k Keeper) AccumulateTagStakeRevenue(ctx context.Context, tags []string, to
 		return err
 	}
 
-	perTagShare := totalRevenue.ToLegacyDec().Mul(params.TagStakeRevenueShare).TruncateInt()
+	// Split the total tag revenue share evenly across all tags.
+	// Total tag staker revenue stays at TagStakeRevenueShare regardless of tag count.
+	// E.g., 3 tags with 2% share → each tag pool gets 0.66% instead of 2% each.
+	perTagShare := totalRevenue.ToLegacyDec().Mul(params.TagStakeRevenueShare).QuoInt64(int64(len(tags))).TruncateInt()
 
 	for _, tag := range tags {
 		pool, err := k.TagStakePool.Get(ctx, tag)

@@ -17,6 +17,8 @@ import (
 	"sparkdream/x/blog/keeper"
 	module "sparkdream/x/blog/module"
 	"sparkdream/x/blog/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // mockBankKeeper implements types.BankKeeper for testing
@@ -70,18 +72,128 @@ func (m *mockBankKeeper) BurnCoins(ctx context.Context, moduleName string, amt s
 	return nil
 }
 
+// mockRepKeeper implements types.RepKeeper for testing
+type mockRepKeeper struct {
+	IsActiveMemberFn                 func(ctx context.Context, addr sdk.AccAddress) bool
+	GetTrustLevelFn                  func(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
+	GetMemberTrustTreeRootFn         func(ctx context.Context) ([]byte, error)
+	GetPreviousMemberTrustTreeRootFn func(ctx context.Context) []byte
+	CreateAuthorBondFn               func(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error)
+	SlashAuthorBondFn                func(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error
+	GetAuthorBondFn                  func(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error)
+	GetContentConvictionFn           func(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
+	GetContentStakesFn               func(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error)
+
+	// Track calls
+	CreateAuthorBondCalls []createAuthorBondCall
+}
+
+type createAuthorBondCall struct {
+	Author     sdk.AccAddress
+	TargetType reptypes.StakeTargetType
+	TargetID   uint64
+	Amount     math.Int
+}
+
+func (m *mockRepKeeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
+	if m.IsActiveMemberFn != nil {
+		return m.IsActiveMemberFn(ctx, addr)
+	}
+	return true
+}
+
+func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
+	if m.GetTrustLevelFn != nil {
+		return m.GetTrustLevelFn(ctx, addr)
+	}
+	return reptypes.TrustLevel_TRUST_LEVEL_CORE, nil // default: CORE (highest) — tests pass unless overridden
+}
+
+func (m *mockRepKeeper) GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error) {
+	if m.GetMemberTrustTreeRootFn != nil {
+		return m.GetMemberTrustTreeRootFn(ctx)
+	}
+	return []byte("mock-trust-tree-root"), nil
+}
+
+func (m *mockRepKeeper) GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte {
+	if m.GetPreviousMemberTrustTreeRootFn != nil {
+		return m.GetPreviousMemberTrustTreeRootFn(ctx)
+	}
+	return nil
+}
+
+func (m *mockRepKeeper) GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error) {
+	if m.GetContentConvictionFn != nil {
+		return m.GetContentConvictionFn(ctx, targetType, targetID)
+	}
+	return math.LegacyZeroDec(), nil
+}
+
+func (m *mockRepKeeper) GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error) {
+	if m.GetContentStakesFn != nil {
+		return m.GetContentStakesFn(ctx, targetType, targetID)
+	}
+	return nil, nil
+}
+
+func (m *mockRepKeeper) CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error) {
+	m.CreateAuthorBondCalls = append(m.CreateAuthorBondCalls, createAuthorBondCall{
+		Author:     author,
+		TargetType: targetType,
+		TargetID:   targetID,
+		Amount:     amount,
+	})
+	if m.CreateAuthorBondFn != nil {
+		return m.CreateAuthorBondFn(ctx, author, targetType, targetID, amount)
+	}
+	return 1, nil
+}
+
+func (m *mockRepKeeper) SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error {
+	if m.SlashAuthorBondFn != nil {
+		return m.SlashAuthorBondFn(ctx, targetType, targetID)
+	}
+	return nil
+}
+
+func (m *mockRepKeeper) GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error) {
+	if m.GetAuthorBondFn != nil {
+		return m.GetAuthorBondFn(ctx, targetType, targetID)
+	}
+	return reptypes.Stake{}, reptypes.ErrAuthorBondNotFound
+}
+
+func (m *mockRepKeeper) ValidateInitiativeReference(_ context.Context, _ uint64) error {
+	return nil
+}
+
+func (m *mockRepKeeper) RegisterContentInitiativeLink(_ context.Context, _ uint64, _ int32, _ uint64) error {
+	return nil
+}
+
+func (m *mockRepKeeper) RemoveContentInitiativeLink(_ context.Context, _ uint64, _ int32, _ uint64) error {
+	return nil
+}
+
 type fixture struct {
 	ctx          context.Context
 	keeper       keeper.Keeper
 	addressCodec address.Codec
 	bankKeeper   *mockBankKeeper
+	repKeeper    *mockRepKeeper
 }
 
 func initFixture(t *testing.T) *fixture {
 	t.Helper()
 
+	// Ensure global bech32 prefix matches the address codec so that
+	// sdk.AccAddressFromBech32 works for sprkdrm addresses (e.g. in EndBlock).
+	config := sdk.GetConfig()
+	config.SetBech32PrefixForAccount("sprkdrm", "sprkdrmpub")
+
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
-	addressCodec := addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
+	addressCodec := addresscodec.NewBech32Codec("sprkdrm")
 	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 
 	storeService := runtime.NewKVStoreService(storeKey)
@@ -90,6 +202,7 @@ func initFixture(t *testing.T) *fixture {
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
 	bankKeeper := &mockBankKeeper{}
+	repKeeper := &mockRepKeeper{}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -98,6 +211,7 @@ func initFixture(t *testing.T) *fixture {
 		authority,
 		bankKeeper,
 		nil, // commonsKeeper (optional)
+		repKeeper,
 	)
 
 	// Initialize params
@@ -110,5 +224,6 @@ func initFixture(t *testing.T) *fixture {
 		keeper:       k,
 		addressCodec: addressCodec,
 		bankKeeper:   bankKeeper,
+		repKeeper:    repKeeper,
 	}
 }

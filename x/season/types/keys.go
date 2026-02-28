@@ -38,3 +38,10 @@ var (
 	GuildKey      = collections.NewPrefix("guild/value/")
 	GuildCountKey = collections.NewPrefix("guild/count/")
 )
+
+var (
+	NominationKey        = collections.NewPrefix("nomination/value/")
+	NominationCountKey   = collections.NewPrefix("nomination/count/")
+	NominationStakeKey   = collections.NewPrefix("nominationStake/value/")
+	RetroRewardRecordKey = collections.NewPrefix("retroRewardRecord/value/")
+)

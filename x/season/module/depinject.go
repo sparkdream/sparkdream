@@ -36,10 +36,23 @@ type ModuleInputs struct {
 	AuthKeeper types.AuthKeeper
 	BankKeeper types.BankKeeper
 
-	// Optional cross-module keepers (nil if modules not available)
+	// Optional cross-module keepers. Provided via depinject where possible to avoid
+	// the value-copy issue: the AppModule captures a snapshot of the keeper at
+	// ProvideModule time, so Set*Keeper calls in app.go (post-depinject) never reach
+	// the msgServer embedded copy. Providing them here ensures the AppModule snapshot
+	// already has them set.
+	//
+	// No depinject cycles:
+	// - RepKeeper: rep doesn't depend on season in depinject
+	// - CommonsKeeper: commons doesn't depend on season in depinject
+	// - NameKeeper: name doesn't depend on season in depinject
+	//
+	// Blog/Forum/Collect keepers are wired in app.go only because:
+	// vote → season (optional) → blog (optional) → vote (optional) creates a cycle.
+	// These are only used for content validation in nominations, not in msgServer handlers.
 	RepKeeper     types.RepKeeper     `optional:"true"`
-	NameKeeper    types.NameKeeper    `optional:"true"`
 	CommonsKeeper types.CommonsKeeper `optional:"true"`
+	NameKeeper    types.NameKeeper    `optional:"true"`
 }
 
 type ModuleOutputs struct {
@@ -61,10 +74,22 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.AddressCodec,
 		authority,
 		in.BankKeeper,
-		in.RepKeeper,
-		in.NameKeeper,
-		in.CommonsKeeper,
 	)
+	// Wire optional keepers that are available at depinject time.
+	// This ensures the AppModule's keeper snapshot already has these set,
+	// avoiding the value-copy issue where app.go Set*Keeper calls are invisible
+	// to the msgServer (which embeds the AppModule's copy of the keeper).
+	if in.RepKeeper != nil {
+		k.SetRepKeeper(in.RepKeeper)
+	}
+	if in.CommonsKeeper != nil {
+		k.SetCommonsKeeper(in.CommonsKeeper)
+	}
+	if in.NameKeeper != nil {
+		k.SetNameKeeper(in.NameKeeper)
+	}
+	// Blog/Forum/Collect keepers are wired in app.go via Set*Keeper (causes cycles in depinject).
+	// They are only used for content validation in nominations, not in critical msgServer handlers.
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 
 	return ModuleOutputs{SeasonKeeper: k, Module: m}

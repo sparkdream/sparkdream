@@ -23,6 +23,66 @@ message Params {
 
   // cost_per_byte_exempt when true, disables cost_per_byte fee collection
   bool cost_per_byte_exempt = 4;
+
+  // Maximum reply body length in bytes
+  uint64 max_reply_length = 5;
+
+  // Maximum nesting depth for replies
+  uint32 max_reply_depth = 6;
+
+  // Flat fee per reaction
+  cosmos.base.v1beta1.Coin reaction_fee = 7 [(gogoproto.nullable) = false];
+
+  // Disable reaction fees
+  bool reaction_fee_exempt = 8;
+
+  // Max posts per address per day
+  uint32 max_posts_per_day = 9;
+
+  // Max replies per address per day
+  uint32 max_replies_per_day = 10;
+
+  // Max reactions per address per day
+  uint32 max_reactions_per_day = 11;
+
+  // Master toggle for anonymous posting
+  bool anonymous_posting_enabled = 12;
+
+  // Minimum trust level for anonymous posting (default: 2 = ESTABLISHED)
+  uint32 anonymous_min_trust_level = 13;
+
+  // Auto-transferred from Commons Council treasury each epoch
+  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 14 [(gogoproto.nullable) = false];
+
+  // Max subsidy per anonymous post/reply
+  cosmos.base.v1beta1.Coin anon_subsidy_max_per_post = 15 [(gogoproto.nullable) = false];
+
+  // Approved relay addresses eligible for subsidy
+  repeated string anon_subsidy_relay_addresses = 16;
+
+  // TTL in seconds for ephemeral content (default: 604800 = 7 days; 0 = no expiry)
+  int64 ephemeral_content_ttl = 17;
+
+  // Minimum trust level to pin ephemeral content (default: 2 = ESTABLISHED)
+  uint32 pin_min_trust_level = 18;
+
+  // Max pins per address per day
+  uint32 max_pins_per_day = 19;
+
+  // Governance-only floor for ephemeral_content_ttl (default: 86400 = 1 day)
+  int64 min_ephemeral_content_ttl = 20;
+
+  // Governance-only ceiling for cost_per_byte
+  cosmos.base.v1beta1.Coin max_cost_per_byte = 21 [(gogoproto.nullable) = false];
+
+  // Governance-only ceiling for reaction_fee
+  cosmos.base.v1beta1.Coin max_reaction_fee = 22 [(gogoproto.nullable) = false];
+
+  // Min conviction score to renew anonymous content at TTL expiry (default: 100.0; 0 = disabled)
+  string conviction_renewal_threshold = 23 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+
+  // Duration in seconds to extend TTL by when conviction-renewed (default: 604800 = 7 days)
+  int64 conviction_renewal_period = 24;
 }
 
 // BlogOperationalParams defines the operational parameters that can be updated
@@ -36,4 +96,43 @@ message BlogOperationalParams {
 
   // cost_per_byte_exempt when true, disables cost_per_byte fee collection
   bool cost_per_byte_exempt = 2;
+
+  // Flat fee per reaction
+  cosmos.base.v1beta1.Coin reaction_fee = 3 [(gogoproto.nullable) = false];
+
+  // Disable reaction fees
+  bool reaction_fee_exempt = 4;
+
+  // Max posts per address per day
+  uint32 max_posts_per_day = 5;
+
+  // Max replies per address per day
+  uint32 max_replies_per_day = 6;
+
+  // Max reactions per address per day
+  uint32 max_reactions_per_day = 7;
+
+  // Operations Committee can adjust anonymous trust threshold
+  uint32 anonymous_min_trust_level = 8;
+
+  // Epoch subsidy draw amount
+  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 9 [(gogoproto.nullable) = false];
+
+  // Per-post subsidy cap
+  cosmos.base.v1beta1.Coin anon_subsidy_max_per_post = 10 [(gogoproto.nullable) = false];
+
+  // Approved relay addresses
+  repeated string anon_subsidy_relay_addresses = 11;
+
+  // TTL for ephemeral content (anonymous + non-member)
+  int64 ephemeral_content_ttl = 12;
+
+  // Max pins per address per day
+  uint32 max_pins_per_day = 13;
+
+  // Operations Committee can adjust conviction renewal threshold
+  string conviction_renewal_threshold = 14 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+
+  // Operations Committee can adjust conviction renewal period
+  int64 conviction_renewal_period = 15;
 }

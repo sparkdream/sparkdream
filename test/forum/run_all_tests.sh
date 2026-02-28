@@ -38,6 +38,7 @@ RUN_APPEALS=true
 RUN_ADVANCED=true
 RUN_ARCHIVE=true
 RUN_OPERATIONAL_PARAMS=true
+RUN_ANON=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -76,6 +77,9 @@ for arg in "$@"; do
         --no-operational-params)
             RUN_OPERATIONAL_PARAMS=false
             ;;
+        --no-anon)
+            RUN_ANON=false
+            ;;
         --only-setup)
             RUN_POST=false
             RUN_CATEGORY=false
@@ -87,6 +91,7 @@ for arg in "$@"; do
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
             RUN_OPERATIONAL_PARAMS=false
+            RUN_ANON=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -101,6 +106,7 @@ for arg in "$@"; do
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
             RUN_OPERATIONAL_PARAMS=false
+            RUN_ANON=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -117,6 +123,7 @@ for arg in "$@"; do
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
             RUN_OPERATIONAL_PARAMS=false
+            RUN_ANON=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -455,6 +462,14 @@ if [ "$RUN_OPERATIONAL_PARAMS" = true ]; then
     run_test "Operational Params Tests" "operational_params_test.sh"
 else
     echo "Skipping operational params tests (--no-operational-params)"
+    echo ""
+fi
+
+# Anonymous posting/reply/reaction tests
+if [ "$RUN_ANON" = true ]; then
+    run_test "Anonymous Post/Reply/Reaction Tests" "anon_test.sh"
+else
+    echo "Skipping anonymous tests (--no-anon)"
     echo ""
 fi
 

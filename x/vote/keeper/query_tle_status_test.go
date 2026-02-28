@@ -19,7 +19,7 @@ func TestTleStatus_Happy(t *testing.T) {
 	require.True(t, resp.TleEnabled)
 	require.Equal(t, uint64(10), resp.CurrentEpoch)
 	require.Equal(t, uint64(0), resp.LatestAvailableEpoch) // no keys stored yet
-	require.Nil(t, resp.MasterPublicKey)                    // default params have nil master key
+	require.Nil(t, resp.MasterPublicKey)                   // default params have nil master key
 }
 
 func TestTleStatus_LatestAvailableEpoch(t *testing.T) {
@@ -27,14 +27,14 @@ func TestTleStatus_LatestAvailableEpoch(t *testing.T) {
 
 	// Store epoch decryption keys for epochs 3 and 7.
 	require.NoError(t, f.keeper.EpochDecryptionKey.Set(f.ctx, 3, types.EpochDecryptionKey{
-		Epoch:        3,
+		Epoch:         3,
 		DecryptionKey: []byte("key3"),
-		AvailableAt:  50,
+		AvailableAt:   50,
 	}))
 	require.NoError(t, f.keeper.EpochDecryptionKey.Set(f.ctx, 7, types.EpochDecryptionKey{
-		Epoch:        7,
+		Epoch:         7,
 		DecryptionKey: []byte("key7"),
-		AvailableAt:  100,
+		AvailableAt:   100,
 	}))
 
 	resp, err := f.queryServer.TleStatus(f.ctx, &types.QueryTleStatusRequest{})

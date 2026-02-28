@@ -80,4 +80,34 @@ type RepKeeper interface {
 	// deadline: block height by which the appeal must be resolved
 	// Returns the initiative ID or error.
 	CreateAppealInitiative(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
+
+	// Content conviction staking & author bonds
+	GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
+	GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error)
+	CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error)
+	SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error
+	GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error)
+
+	// Initiative reference validation and linking for conviction propagation
+	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
+	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+	RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+
+	// Trust tree for anonymous posting
+	GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error)
+	GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte
+}
+
+// VoteKeeper defines the expected interface for the Vote module.
+// Optional — if nil, anonymous posting is unavailable.
+type VoteKeeper interface {
+	// VerifyAnonymousActionProof verifies a ZK proof for anonymous actions.
+	VerifyAnonymousActionProof(ctx context.Context, proof []byte, nullifier []byte, merkleRoot []byte, minTrustLevel uint32) error
+}
+
+// SeasonKeeper defines the expected interface for the Season module.
+// Optional — falls back to DefaultEpochDuration if nil.
+type SeasonKeeper interface {
+	// GetEpochDuration returns the current epoch duration in seconds.
+	GetEpochDuration(ctx context.Context) int64
 }

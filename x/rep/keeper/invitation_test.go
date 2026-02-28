@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/rep/types"
-	seasontypes "sparkdream/x/season/types"
 )
 
 func TestCreateInvitation(t *testing.T) {
@@ -337,8 +336,8 @@ func TestCreateInvitation_LazyCreditsReset(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrNoInvitationCredits)
 
 	// Change mock to return season 1
-	fixture.seasonKeeper.GetCurrentSeasonFn = func(ctx context.Context) (seasontypes.Season, error) {
-		return seasontypes.Season{Number: 1}, nil
+	fixture.seasonKeeper.GetCurrentSeasonFn = func(ctx context.Context) (types.SeasonState, error) {
+		return types.SeasonState{Number: 1}, nil
 	}
 
 	// Test at season 1: Should succeed (credits lazily reset)
@@ -562,7 +561,7 @@ func TestProcessInviterAccountability(t *testing.T) {
 		// Create an accepted invitation with AccountabilityEnd in the future
 		sdkCtx := sdk.UnwrapSDKContext(ctx)
 		futureEnd := sdkCtx.BlockTime().Unix() + 30*24*60*60 // 30 days in future
-		stakedAmount := math.NewInt(100)                      // More than inviter's balance
+		stakedAmount := math.NewInt(100)                     // More than inviter's balance
 
 		invitation := types.Invitation{
 			Id:                1,

@@ -114,5 +114,22 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgUpdateParams{},
 	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCreateAnonymousCollection{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgManageAnonymousCollection{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAnonymousReact{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgPinCollection{},
+	)
+
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

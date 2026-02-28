@@ -4,6 +4,8 @@ import (
 	"context"
 
 	commonstypes "sparkdream/x/commons/types"
+	nametypes "sparkdream/x/name/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/math"
@@ -39,8 +41,8 @@ type RepKeeper interface {
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 
 	// Membership verification
-	IsMember(ctx context.Context, addr string) bool
-	GetMember(ctx context.Context, addr string) (interface{}, error)
+	IsMember(ctx context.Context, addr sdk.AccAddress) bool
+	GetMember(ctx context.Context, addr sdk.AccAddress) (reptypes.Member, error)
 
 	// Reputation operations for season transitions
 	// GetReputationScores returns all reputation scores for a member (tag -> score string)
@@ -52,18 +54,43 @@ type RepKeeper interface {
 
 	// GetCompletedInitiativesCount returns the cached count of completed initiatives for a member
 	GetCompletedInitiativesCount(ctx context.Context, addr string) (uint64, error)
+
+	// MintDREAM mints DREAM tokens to the given address.
+	MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+
+	// GetTrustLevel returns the trust level for a member address.
+	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 }
 
 // NameKeeper defines the expected interface for the x/name module.
 // This enables cross-module integration for name reservation and release.
 type NameKeeper interface {
 	// Name operations
-	GetName(ctx context.Context, name string) (interface{}, bool)
-	SetName(ctx context.Context, record interface{}) error
+	GetName(ctx context.Context, name string) (nametypes.NameRecord, bool)
+	SetName(ctx context.Context, record nametypes.NameRecord) error
 	RemoveNameFromOwner(ctx context.Context, owner sdk.AccAddress, name string) error
 
 	// Check if a name is available
 	IsNameAvailable(ctx context.Context, name string) bool
+}
+
+// BlogKeeper defines the expected interface for the x/blog module.
+// HasReply is included to disambiguate from x/forum's keeper in depinject.
+type BlogKeeper interface {
+	HasPost(ctx context.Context, id uint64) bool
+	HasReply(ctx context.Context, id uint64) bool
+}
+
+// ForumKeeper defines the expected interface for the x/forum module.
+// HasCategory is included to disambiguate from x/blog's keeper in depinject.
+type ForumKeeper interface {
+	HasPost(ctx context.Context, id uint64) bool
+	HasCategory(ctx context.Context, id uint64) bool
+}
+
+// CollectKeeper defines the expected interface for the x/collect module.
+type CollectKeeper interface {
+	HasCollection(ctx context.Context, id uint64) bool
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.

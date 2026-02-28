@@ -412,7 +412,27 @@ func (k Keeper) TallyJuryVotes(ctx context.Context, juryReviewID uint64) error {
 		return err
 	}
 
-	// Resolve the challenge based on verdict
+	// Content challenge resolution (dispatched when ContentChallengeId > 0)
+	if juryReview.ContentChallengeId > 0 {
+		switch finalVerdict {
+		case types.Verdict_VERDICT_UPHOLD_CHALLENGE:
+			if err := k.UpholdContentChallenge(ctx, juryReview.ContentChallengeId); err != nil {
+				return err
+			}
+		case types.Verdict_VERDICT_REJECT_CHALLENGE:
+			if err := k.RejectContentChallenge(ctx, juryReview.ContentChallengeId); err != nil {
+				return err
+			}
+		case types.Verdict_VERDICT_INCONCLUSIVE:
+			if err := k.ResolveInconclusiveContentChallenge(ctx, juryReview.ContentChallengeId); err != nil {
+				return err
+			}
+		}
+		// Reward jurors for participating
+		return k.RewardJurors(ctx, juryReview)
+	}
+
+	// Initiative challenge resolution
 	challenge, err := k.GetChallenge(ctx, juryReview.ChallengeId)
 	if err != nil {
 		return err

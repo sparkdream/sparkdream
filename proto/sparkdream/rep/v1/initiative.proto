@@ -37,6 +37,8 @@ message Initiative {
   InitiativeStatus status = 22;
   int64 created_at = 23;
   int64 completed_at = 24;
+
+  string propagated_conviction = 25 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // Conviction propagated from linked content
 }
 
 enum InitiativeTier {

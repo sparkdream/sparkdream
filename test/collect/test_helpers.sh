@@ -36,10 +36,22 @@ send_tx() {
 }
 
 # Wait for tx to be included and return the tx result JSON
+# Retries if the result is not valid JSON (tx not yet indexed after chain restart)
 wait_for_tx() {
     local txhash="$1"
     sleep $TX_WAIT
-    $BINARY query tx "$txhash" --output json 2>&1
+    local result
+    local retries=0
+    while [ $retries -lt 3 ]; do
+        result=$($BINARY query tx "$txhash" --output json 2>&1)
+        if echo "$result" | jq -e '.' >/dev/null 2>&1; then
+            echo "$result"
+            return 0
+        fi
+        retries=$((retries + 1))
+        [ $retries -lt 3 ] && sleep 4
+    done
+    echo "$result"
 }
 
 # Get tx hash from broadcast output

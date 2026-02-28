@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
@@ -23,7 +24,7 @@ func createNHideRecord(keeper keeper.Keeper, ctx context.Context, n int) []types
 		items[i].SentinelBondSnapshot = strconv.Itoa(i)
 		items[i].SentinelBackingSnapshot = strconv.Itoa(i)
 		items[i].CommittedAmount = strconv.Itoa(i)
-		items[i].ReasonCode = types.ModerationReason(i)
+		items[i].ReasonCode = commontypes.ModerationReason(i)
 		items[i].ReasonText = strconv.Itoa(i)
 		_ = keeper.HideRecord.Set(ctx, items[i].PostId, items[i])
 	}

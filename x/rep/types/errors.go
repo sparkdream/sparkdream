@@ -46,6 +46,8 @@ var (
 	ErrInsufficientReputation  = errors.Register(ModuleName, 1403, "insufficient reputation for tier")
 	ErrSelfAssignment          = errors.Register(ModuleName, 1404, "cannot self-assign initiative")
 	ErrNotAssignee             = errors.Register(ModuleName, 1405, "not the assignee of this initiative")
+	ErrTagNotRegistered        = errors.Register(ModuleName, 1406, "tag not registered in forum tag registry")
+	ErrTooManyTags             = errors.Register(ModuleName, 1407, "too many tags on initiative")
 
 	// Stake errors
 	ErrStakeNotFound     = errors.Register(ModuleName, 1501, "stake not found")
@@ -54,6 +56,16 @@ var (
 	ErrSelfMemberStake   = errors.Register(ModuleName, 1504, "cannot stake on yourself")
 	ErrInvalidTargetType = errors.Register(ModuleName, 1505, "invalid stake target type")
 	ErrStakePoolNotFound = errors.Register(ModuleName, 1506, "stake pool not found")
+
+	// Content conviction / author bond staking errors
+	ErrSelfContentStake     = errors.Register(ModuleName, 1507, "cannot stake conviction on own content")
+	ErrContentStakeCap      = errors.Register(ModuleName, 1508, "exceeds max content stake per member for this content")
+	ErrAuthorBondCap        = errors.Register(ModuleName, 1509, "exceeds max author bond per content item")
+	ErrAuthorBondExists     = errors.Register(ModuleName, 1510, "author bond already exists for this content item")
+	ErrAuthorBondNotFound   = errors.Register(ModuleName, 1511, "no author bond found for this content item")
+	ErrNotContentTargetType = errors.Register(ModuleName, 1512, "target type is not a content conviction type")
+	ErrNotAuthorBondType    = errors.Register(ModuleName, 1513, "target type is not an author bond type")
+	ErrAuthorBondViaMsg     = errors.Register(ModuleName, 1514, "author bonds must be created via content module, not MsgStake")
 
 	// General errors
 	ErrInvalidRequest = errors.Register(ModuleName, 1600, "invalid request")
@@ -67,4 +79,19 @@ var (
 	ErrMemberAlreadyZeroed = errors.Register(ModuleName, 1801, "member is already zeroed")
 	ErrMemberNotActive     = errors.Register(ModuleName, 1802, "member is not active")
 	ErrCannotZeroCore      = errors.Register(ModuleName, 1803, "cannot zero a core member without governance vote")
+
+	// Circular staking
+	ErrCircularMemberStake = errors.Register(ModuleName, 1805, "circular member staking: target already has an active stake on you")
+
+	// Trust tree errors
+	ErrTrustTreeNotBuilt = errors.Register(ModuleName, 1901, "member trust tree has not been built yet")
+
+	// Content challenge errors
+	ErrContentChallengeNotFound  = errors.Register(ModuleName, 2001, "content challenge not found")
+	ErrContentChallengeExists    = errors.Register(ModuleName, 2002, "active content challenge already exists for this content")
+	ErrNoAuthorBond              = errors.Register(ModuleName, 2003, "no author bond found on target content")
+	ErrCannotChallengeOwnContent = errors.Register(ModuleName, 2004, "cannot challenge your own content")
+	ErrContentChallengeNotActive = errors.Register(ModuleName, 2005, "content challenge is not active")
+	ErrNotContentAuthor          = errors.Register(ModuleName, 2006, "not the author of the challenged content")
+	ErrBondLockedByChallenge     = errors.Register(ModuleName, 2007, "author bond is locked by an active content challenge")
 )

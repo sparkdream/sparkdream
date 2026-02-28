@@ -1,8 +1,11 @@
 syntax = "proto3";
 package sparkdream.collect.v1;
 
+import "cosmos/base/v1beta1/coin.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/common/v1/flag_record.proto";
+import "sparkdream/common/v1/moderation_reason.proto";
 
 option go_package = "sparkdream/x/collect/types";
 
@@ -67,20 +70,6 @@ enum FlagTargetType {
   FLAG_TARGET_TYPE_ITEM = 2;
 }
 
-// ModerationReason defines the reason for flagging or hiding content.
-enum ModerationReason {
-  MODERATION_REASON_UNSPECIFIED = 0;
-  MODERATION_REASON_SPAM = 1;
-  MODERATION_REASON_HARASSMENT = 2;
-  MODERATION_REASON_MISINFORMATION = 3;
-  MODERATION_REASON_INAPPROPRIATE = 4;
-  MODERATION_REASON_IMPERSONATION = 5;
-  MODERATION_REASON_POLICY_VIOLATION = 6;
-  MODERATION_REASON_COPYRIGHT = 7;
-  MODERATION_REASON_SCAM = 8;
-  MODERATION_REASON_OTHER = 9;
-}
-
 // Collection represents a curated set of items owned by an address.
 message Collection {
   uint64 id = 1;
@@ -115,6 +104,8 @@ message Collection {
   string endorsed_by = 24 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   bool seeking_endorsement = 25;
   bool immutable = 26;
+  bool conviction_sustained = 27;
+  uint64 initiative_id = 28;
 }
 
 // Item represents a single entry within a collection.
@@ -341,25 +332,34 @@ message CollectOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-}
 
-// FlagRecord records a single member's flag on a piece of content.
-message FlagRecord {
-  string flagger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  ModerationReason reason = 2;
-  string reason_text = 3;
-  int64 flagged_at = 4;
-  string weight = 5 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+  // --- Conviction renewal parameters — OPERATIONAL ---
+  string conviction_renewal_threshold = 38 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+  int64 conviction_renewal_period = 39;
+
+  // --- Anonymous collection parameters — OPERATIONAL ---
+  bool anonymous_posting_enabled = 40;
+  uint32 anonymous_min_trust_level = 41;
+  uint32 max_anonymous_collections_per_key = 42;
+
+  // --- Pinning parameters — OPERATIONAL ---
+  uint32 pin_min_trust_level = 43;
+  uint32 max_pins_per_day = 44;
+
+  // --- Anonymous subsidy parameters — OPERATIONAL ---
+  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 45 [(gogoproto.nullable) = false];
+  cosmos.base.v1beta1.Coin anon_subsidy_max_per_action = 46 [(gogoproto.nullable) = false];
+  repeated string anon_subsidy_relay_addresses = 47;
 }
 
 // CollectionFlag aggregates all flags on a single piece of content.
 message CollectionFlag {
   uint64 target_id = 1;
   FlagTargetType target_type = 2;
-  repeated FlagRecord flag_records = 3 [(gogoproto.nullable) = false];
+  repeated sparkdream.common.v1.FlagRecord flag_records = 3 [(gogoproto.nullable) = false];
   string total_weight = 4 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -380,7 +380,7 @@ message HideRecord {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  ModerationReason reason_code = 7;
+  sparkdream.common.v1.ModerationReason reason_code = 7;
   string reason_text = 8;
   int64 appeal_deadline = 9;
   bool appealed = 10;
@@ -398,4 +398,21 @@ message Endorsement {
   int64 endorsed_at = 4;
   int64 stake_release_at = 5;
   bool stake_released = 6;
+}
+
+// AnonymousCollectionMeta stores ZK proof metadata and management key for anonymous collections.
+message AnonymousCollectionMeta {
+  uint64 collection_id = 1;
+  bytes management_public_key = 2;
+  bytes nullifier = 3;
+  bytes merkle_root = 4;
+  uint64 nonce = 5;
+  uint32 proven_trust_level = 6;
+}
+
+// AnonNullifierEntry records when and where a nullifier was used.
+message AnonNullifierEntry {
+  int64 used_at = 1;
+  uint64 domain = 2;
+  uint64 scope = 3;
 }

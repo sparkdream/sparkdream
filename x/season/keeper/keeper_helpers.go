@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/season/types"
 )
 
@@ -43,6 +44,18 @@ func (k Keeper) EpochToBlock(ctx context.Context, epoch int64) int64 {
 		return 0
 	}
 	return epoch * params.EpochBlocks
+}
+
+// GetEpochDuration returns the epoch duration in seconds.
+// Assumes ~5 second block times (Cosmos SDK default).
+// Used by x/blog, x/forum, x/collect for anonymous action nullifier scoping.
+func (k Keeper) GetEpochDuration(ctx context.Context) int64 {
+	const blockTimeSeconds int64 = 5
+	params, err := k.Params.Get(ctx)
+	if err != nil || params.EpochBlocks <= 0 {
+		return 86400 // fallback: 1 day
+	}
+	return params.EpochBlocks * blockTimeSeconds
 }
 
 // Authority checks (cross-module stubs)
@@ -124,7 +137,11 @@ func (k Keeper) IsCommonsCouncil(ctx context.Context, addr string) bool {
 func (k Keeper) IsMember(ctx context.Context, addr string) bool {
 	// If rep keeper is available, use it
 	if k.repKeeper != nil {
-		return k.repKeeper.IsMember(ctx, addr)
+		accAddr, err := sdk.AccAddressFromBech32(addr)
+		if err != nil {
+			return false
+		}
+		return k.repKeeper.IsMember(ctx, accAddr)
 	}
 	// Fallback: check if they have a profile in x/season
 	_, err := k.MemberProfile.Get(ctx, addr)
@@ -311,8 +328,18 @@ func (k Keeper) GetPendingInviteCount(ctx context.Context, guildID uint64) uint3
 
 // Season state helpers
 
-// GetCurrentSeason returns the current season
-func (k Keeper) GetCurrentSeason(ctx context.Context) (types.Season, error) {
+// GetCurrentSeason returns the current season state as a reptypes.SeasonState.
+// This satisfies the reptypes.SeasonKeeper interface used by x/rep.
+func (k Keeper) GetCurrentSeason(ctx context.Context) (reptypes.SeasonState, error) {
+	season, err := k.Season.Get(ctx)
+	if err != nil {
+		return reptypes.SeasonState{}, err
+	}
+	return reptypes.SeasonState{Number: season.Number}, nil
+}
+
+// getSeason returns the full internal Season type for use within x/season.
+func (k Keeper) getSeason(ctx context.Context) (types.Season, error) {
 	return k.Season.Get(ctx)
 }
 
@@ -474,8 +501,11 @@ func (k Keeper) ReleaseName(ctx context.Context, name string, owner string) erro
 	return k.nameKeeper.RemoveNameFromOwner(ctx, ownerBytes, name)
 }
 
-// IsNameAvailable checks if a name is available for reservation
-func (k Keeper) IsNameAvailable(ctx context.Context, name string) bool {
+// CheckNameAvailable checks if a name is available for reservation.
+// NOTE: Named differently from NameKeeper.IsNameAvailable to avoid
+// accidentally satisfying the NameKeeper interface (which would create
+// a depinject self-cycle).
+func (k Keeper) CheckNameAvailable(ctx context.Context, name string) bool {
 	if k.nameKeeper == nil {
 		// No name keeper available - assume available (rely on local validation)
 		return true

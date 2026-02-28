@@ -110,5 +110,13 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgUpdateOperationalParams{},
 	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgChallengeContent{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRespondToContentChallenge{},
+	)
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

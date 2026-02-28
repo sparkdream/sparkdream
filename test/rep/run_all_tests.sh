@@ -25,6 +25,7 @@ RUN_COMPLEX_TEST=true
 RUN_EDGE_CASES_TEST=true
 RUN_ENDBLOCKER_TEST=true
 RUN_OPERATIONAL_PARAMS_TEST=true
+RUN_CONTENT_CHALLENGE_TEST=true
 FUND_ALICE=true
 RESET_CHAIN=false
 SAVE_SETUP=false
@@ -83,6 +84,10 @@ while [[ $# -gt 0 ]]; do
             RUN_OPERATIONAL_PARAMS_TEST=false
             shift
             ;;
+        --no-content-challenge)
+            RUN_CONTENT_CHALLENGE_TEST=false
+            shift
+            ;;
         --no-funding)
             FUND_ALICE=false
             shift
@@ -105,6 +110,7 @@ while [[ $# -gt 0 ]]; do
             RUN_EDGE_CASES_TEST=false
             RUN_ENDBLOCKER_TEST=false
             RUN_OPERATIONAL_PARAMS_TEST=false
+            RUN_CONTENT_CHALLENGE_TEST=false
             shift
             ;;
         --restore-setup)
@@ -124,6 +130,7 @@ while [[ $# -gt 0 ]]; do
             RUN_EDGE_CASES_TEST=false
             RUN_ENDBLOCKER_TEST=false
             RUN_OPERATIONAL_PARAMS_TEST=false
+            RUN_CONTENT_CHALLENGE_TEST=false
             shift
             ;;
         --help)
@@ -142,6 +149,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-edge-cases  Skip edge_cases_test.sh"
             echo "  --no-endblocker  Skip endblocker_test.sh"
             echo "  --no-operational-params  Skip operational_params_test.sh"
+            echo "  --no-content-challenge   Skip content_challenge_test.sh"
             echo "  --no-funding     Skip funding Alice with extra DREAM"
             echo "  --no-tests       Skip all tests (use with --restore-setup for manual testing)"
             echo "  --reset-chain    Reset chain before running tests (requires manual restart)"
@@ -333,26 +341,18 @@ fi
 echo "  1. Setup test accounts:      $([ "$RUN_SETUP" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo "  2. Fund Alice (if needed):   $([ "$FUND_ALICE" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo "  3. Member lifecycle test:    $([ "$RUN_MEMBER_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  4. Invitation test:          $([ "$RUN_INVITATION_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  5. DREAM token test:         $([ "$RUN_DREAM_TOKEN_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  6. Initiative flow test:     $([ "$RUN_INITIATIVE_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  7. Staking mechanics test:   $([ "$RUN_STAKING_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  8. Interim test:             $([ "$RUN_INTERIM_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  9. Challenge test:           $([ "$RUN_CHALLENGE_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 10. Complex scenarios test:   $([ "$RUN_COMPLEX_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 11. Edge cases test:          $([ "$RUN_EDGE_CASES_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 12. EndBlocker test:          $([ "$RUN_ENDBLOCKER_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 13. Operational params test:  $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo "  4. Content challenge test:   $([ "$RUN_CONTENT_CHALLENGE_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo "  5. Invitation test:          $([ "$RUN_INVITATION_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo "  6. DREAM token test:         $([ "$RUN_DREAM_TOKEN_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo "  7. Initiative flow test:     $([ "$RUN_INITIATIVE_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo "  8. Staking mechanics test:   $([ "$RUN_STAKING_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo "  9. Interim test:             $([ "$RUN_INTERIM_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo " 10. Challenge test:           $([ "$RUN_CHALLENGE_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo " 11. Complex scenarios test:   $([ "$RUN_COMPLEX_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo " 12. Edge cases test:          $([ "$RUN_EDGE_CASES_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo " 13. EndBlocker test:          $([ "$RUN_ENDBLOCKER_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo " 14. Operational params test:  $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo ""
-
-if [ "$SAVE_SETUP" != true ] && [ "$RESTORE_SETUP" != true ]; then
-    read -p "Proceed with test execution? (yes/no): " PROCEED
-    if [ "$PROCEED" != "yes" ]; then
-        echo "Aborted."
-        exit 0
-    fi
-    echo ""
-fi
 
 # ========================================================================
 # Step 1: Setup Test Accounts
@@ -592,11 +592,38 @@ else
 fi
 
 # ========================================================================
-# Step 4: Run Invitation Test
+# Step 4: Run Content Challenge Test (early to avoid juror reputation decay)
+# ========================================================================
+if [ "$RUN_CONTENT_CHALLENGE_TEST" = true ]; then
+    echo "========================================================================="
+    echo "STEP 4: CONTENT CHALLENGE TEST"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/content_challenge_test.sh"
+    CONTENT_CHALLENGE_EXIT_CODE=$?
+
+    echo ""
+    if [ $CONTENT_CHALLENGE_EXIT_CODE -eq 0 ]; then
+        echo "✅ Content challenge test completed"
+    else
+        echo "⚠️  Content challenge test exited with code: $CONTENT_CHALLENGE_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+else
+    echo "========================================================================="
+    echo "STEP 4: CONTENT CHALLENGE TEST (SKIPPED)"
+    echo "========================================================================="
+    echo ""
+fi
+
+# ========================================================================
+# Step 5: Run Invitation Test
 # ========================================================================
 if [ "$RUN_INVITATION_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 4: INVITATION TEST"
+    echo "STEP 5: INVITATION TEST"
     echo "========================================================================="
     echo ""
 
@@ -613,17 +640,17 @@ if [ "$RUN_INVITATION_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 4: INVITATION TEST (SKIPPED)"
+    echo "STEP 5: INVITATION TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 5: Run DREAM Token Test
+# Step 6: Run DREAM Token Test
 # ========================================================================
 if [ "$RUN_DREAM_TOKEN_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 5: DREAM TOKEN TEST"
+    echo "STEP 6: DREAM TOKEN TEST"
     echo "========================================================================="
     echo ""
 
@@ -640,17 +667,17 @@ if [ "$RUN_DREAM_TOKEN_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 5: DREAM TOKEN TEST (SKIPPED)"
+    echo "STEP 6: DREAM TOKEN TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 6: Run Initiative Flow Test
+# Step 7: Run Initiative Flow Test
 # ========================================================================
 if [ "$RUN_INITIATIVE_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 6: INITIATIVE FLOW TEST"
+    echo "STEP 7: INITIATIVE FLOW TEST"
     echo "========================================================================="
     echo ""
 
@@ -667,17 +694,17 @@ if [ "$RUN_INITIATIVE_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 6: INITIATIVE FLOW TEST (SKIPPED)"
+    echo "STEP 7: INITIATIVE FLOW TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 7: Run Staking Mechanics Test
+# Step 8: Run Staking Mechanics Test
 # ========================================================================
 if [ "$RUN_STAKING_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 7: STAKING MECHANICS TEST"
+    echo "STEP 8: STAKING MECHANICS TEST"
     echo "========================================================================="
     echo ""
 
@@ -694,17 +721,17 @@ if [ "$RUN_STAKING_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 7: STAKING MECHANICS TEST (SKIPPED)"
+    echo "STEP 8: STAKING MECHANICS TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 8: Run Interim Compensation Test
+# Step 9: Run Interim Compensation Test
 # ========================================================================
 if [ "$RUN_INTERIM_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 8: INTERIM COMPENSATION TEST"
+    echo "STEP 9: INTERIM COMPENSATION TEST"
     echo "========================================================================="
     echo ""
 
@@ -721,17 +748,17 @@ if [ "$RUN_INTERIM_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 8: INTERIM COMPENSATION TEST (SKIPPED)"
+    echo "STEP 9: INTERIM COMPENSATION TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 9: Run Challenge Test
+# Step 10: Run Challenge Test
 # ========================================================================
 if [ "$RUN_CHALLENGE_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 9: CHALLENGE TEST"
+    echo "STEP 10: CHALLENGE TEST"
     echo "========================================================================="
     echo ""
 
@@ -748,17 +775,17 @@ if [ "$RUN_CHALLENGE_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 9: CHALLENGE TEST (SKIPPED)"
+    echo "STEP 10: CHALLENGE TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 10: Run Complex Scenarios Test
+# Step 11: Run Complex Scenarios Test
 # ========================================================================
 if [ "$RUN_COMPLEX_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 10: COMPLEX SCENARIOS TEST"
+    echo "STEP 11: COMPLEX SCENARIOS TEST"
     echo "========================================================================="
     echo ""
 
@@ -775,17 +802,17 @@ if [ "$RUN_COMPLEX_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 10: COMPLEX SCENARIOS TEST (SKIPPED)"
+    echo "STEP 11: COMPLEX SCENARIOS TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 11: Run Edge Cases Test
+# Step 12: Run Edge Cases Test
 # ========================================================================
 if [ "$RUN_EDGE_CASES_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 11: EDGE CASES TEST"
+    echo "STEP 12: EDGE CASES TEST"
     echo "========================================================================="
     echo ""
 
@@ -802,17 +829,17 @@ if [ "$RUN_EDGE_CASES_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 11: EDGE CASES TEST (SKIPPED)"
+    echo "STEP 12: EDGE CASES TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 12: Run EndBlocker Test
+# Step 13: Run EndBlocker Test
 # ========================================================================
 if [ "$RUN_ENDBLOCKER_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 12: ENDBLOCKER TEST"
+    echo "STEP 13: ENDBLOCKER TEST"
     echo "========================================================================="
     echo ""
 
@@ -829,17 +856,17 @@ if [ "$RUN_ENDBLOCKER_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 12: ENDBLOCKER TEST (SKIPPED)"
+    echo "STEP 13: ENDBLOCKER TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
 
 # ========================================================================
-# Step 13: Run Operational Params Test
+# Step 14: Run Operational Params Test
 # ========================================================================
 if [ "$RUN_OPERATIONAL_PARAMS_TEST" = true ]; then
     echo "========================================================================="
-    echo "STEP 13: OPERATIONAL PARAMS TEST"
+    echo "STEP 14: OPERATIONAL PARAMS TEST"
     echo "========================================================================="
     echo ""
 
@@ -856,7 +883,7 @@ if [ "$RUN_OPERATIONAL_PARAMS_TEST" = true ]; then
     sleep 2
 else
     echo "========================================================================="
-    echo "STEP 13: OPERATIONAL PARAMS TEST (SKIPPED)"
+    echo "STEP 14: OPERATIONAL PARAMS TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
@@ -872,6 +899,7 @@ echo "Results:"
 echo "  Setup:              $([ "$RUN_SETUP" = true ] && echo "✅ Completed" || echo "⏭️  Skipped")"
 echo "  Alice Funding:      $([ "$FUND_ALICE" = true ] && echo "✅ Completed" || echo "⏭️  Skipped")"
 echo "  Member Test:        $([ "$RUN_MEMBER_TEST" = true ] && ([ $MEMBER_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
+echo "  Content Challenge:  $([ "$RUN_CONTENT_CHALLENGE_TEST" = true ] && ([ ${CONTENT_CHALLENGE_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  Invitation Test:    $([ "$RUN_INVITATION_TEST" = true ] && ([ $INVITATION_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  DREAM Token Test:   $([ "$RUN_DREAM_TOKEN_TEST" = true ] && ([ $DREAM_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  Initiative Test:    $([ "$RUN_INITIATIVE_TEST" = true ] && ([ $INITIATIVE_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
@@ -881,7 +909,7 @@ echo "  Challenge Test:     $([ "$RUN_CHALLENGE_TEST" = true ] && ([ $CHALLENGE_
 echo "  Complex Test:       $([ "$RUN_COMPLEX_TEST" = true ] && ([ $COMPLEX_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  Edge Cases Test:    $([ "$RUN_EDGE_CASES_TEST" = true ] && ([ $EDGE_CASES_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  EndBlocker Test:    $([ "$RUN_ENDBLOCKER_TEST" = true ] && ([ $ENDBLOCKER_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Op Params Test:    $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
+echo "  Op Params Test:     $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo ""
 
 # Final Alice balance

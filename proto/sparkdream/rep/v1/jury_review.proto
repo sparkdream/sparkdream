@@ -24,6 +24,9 @@ message JuryReview {
   int64 deadline = 12;
   Verdict verdict = 13;
   string reasoning = 14;
+
+  // For content challenges (non-zero means this review is for a content challenge, not an initiative challenge)
+  uint64 content_challenge_id = 15;
 }
 
 message JurorVote {

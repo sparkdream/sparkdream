@@ -36,13 +36,30 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 		return nil, types.ErrAppealAlreadyFiled
 	}
 
-	// Creator must be owner of the hidden content (resolve target from HideRecord)
-	coll, err := k.GetCollectionForTarget(ctx, hideRecord.TargetType, hideRecord.TargetId)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to resolve target collection")
-	}
-	if coll.Owner != msg.Creator {
-		return nil, types.ErrNotContentOwner
+	// Creator must be the content creator (collection owner for collections, item adder for items)
+	switch hideRecord.TargetType {
+	case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
+		coll, err := k.Collection.Get(ctx, hideRecord.TargetId)
+		if err != nil {
+			return nil, errorsmod.Wrap(err, "failed to resolve target collection")
+		}
+		if coll.Owner != msg.Creator {
+			return nil, types.ErrNotContentOwner
+		}
+	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
+		item, err := k.Item.Get(ctx, hideRecord.TargetId)
+		if err != nil {
+			return nil, errorsmod.Wrap(err, "failed to resolve target item")
+		}
+		// Item adder can appeal, OR collection owner can appeal on their behalf
+		if item.AddedBy != msg.Creator {
+			coll, err := k.Collection.Get(ctx, item.CollectionId)
+			if err != nil || coll.Owner != msg.Creator {
+				return nil, types.ErrNotContentOwner
+			}
+		}
+	default:
+		return nil, errorsmod.Wrap(types.ErrHideRecordNotFound, "unknown target type")
 	}
 
 	// Get params

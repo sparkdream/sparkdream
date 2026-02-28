@@ -101,10 +101,10 @@ if [ -z "$CAROL_MEMBER" ] || [ "$CAROL_MEMBER" == "null" ]; then
     fi
 fi
 
-# Transfer DREAM to Bob and Carol for staking
-$BINARY tx rep transfer-dream "$BOB_ADDR" "500" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+# Transfer DREAM to Bob and Carol for staking (500 DREAM = 500,000,000 micro-DREAM each)
+$BINARY tx rep transfer-dream "$BOB_ADDR" "500000000" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
-$BINARY tx rep transfer-dream "$CAROL_ADDR" "500" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep transfer-dream "$CAROL_ADDR" "500000000" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 echo "✅ Bob and Carol setup complete"
 
@@ -1026,18 +1026,18 @@ echo "✅ Competition initiative created: ID $COMP_ID"
 echo ""
 echo "Stakers competing on conviction..."
 
-# Bob stakes early
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "300" --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+# Bob stakes early (300 DREAM = 300,000,000 micro-DREAM)
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "300000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
-# Carol stakes more
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "500" --from carol --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+# Carol stakes more (500 DREAM = 500,000,000 micro-DREAM)
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "500000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
-# Worker1 stakes from initiative assignee
+# Worker1 stakes from initiative assignee (200 DREAM = 200,000,000 micro-DREAM)
 $BINARY tx rep assign-initiative "$COMP_ID" "${WORKER_ADDRS[0]}" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "200" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "200000000" --from assignee --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
 # Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
@@ -1046,9 +1046,9 @@ sleep 15
 
 # Query conviction
 CONVICTION=$($BINARY query rep initiative-conviction "$COMP_ID" --output json)
-CURRENT=$(echo "$CONVICTION" | jq -r '.current_conviction // 0')
+CURRENT=$(echo "$CONVICTION" | jq -r '.total_conviction // 0')
 EXTERNAL=$(echo "$CONVICTION" | jq -r '.external_conviction // 0')
-REQUIRED=$(echo "$CONVICTION" | jq -r '.required_conviction // 0')
+REQUIRED=$(echo "$CONVICTION" | jq -r '.threshold // 0')
 
 echo ""
 echo "Conviction on competition initiative:"

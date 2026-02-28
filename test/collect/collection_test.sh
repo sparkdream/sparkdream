@@ -26,8 +26,9 @@ assert_tx_success "Member creates permanent PUBLIC collection" "$TX_OUT"
 COLL1_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")
 if [ -z "$COLL1_ID" ]; then
     # Fallback: query collections-by-owner and get latest
+    # Use // 0 to handle proto3 JSON omitting zero-value id fields
     COLL1_DATA=$(query collect collections-by-owner "$COLLECTOR1_ADDR")
-    COLL1_ID=$(echo "$COLL1_DATA" | jq -r '.collections[-1].id // empty' 2>/dev/null)
+    COLL1_ID=$(echo "$COLL1_DATA" | jq -r '(.collections[-1].id // 0) | tostring' 2>/dev/null)
 fi
 echo "  Collection ID: $COLL1_ID"
 
@@ -53,7 +54,7 @@ assert_tx_success "Member creates TTL PUBLIC collection" "$TX_OUT"
 COLL2_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")
 if [ -z "$COLL2_ID" ]; then
     COLL2_DATA=$(query collect collections-by-owner "$COLLECTOR1_ADDR")
-    COLL2_ID=$(echo "$COLL2_DATA" | jq -r '.collections[-1].id // empty' 2>/dev/null)
+    COLL2_ID=$(echo "$COLL2_DATA" | jq -r '(.collections[-1].id // 0) | tostring' 2>/dev/null)
 fi
 echo "  Collection ID: $COLL2_ID"
 
@@ -75,7 +76,7 @@ assert_tx_success "Non-member creates TTL PUBLIC collection" "$TX_OUT"
 COLL3_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")
 if [ -z "$COLL3_ID" ]; then
     COLL3_DATA=$(query collect collections-by-owner "$NONMEMBER1_ADDR")
-    COLL3_ID=$(echo "$COLL3_DATA" | jq -r '.collections[-1].id // empty' 2>/dev/null)
+    COLL3_ID=$(echo "$COLL3_DATA" | jq -r '(.collections[-1].id // 0) | tostring' 2>/dev/null)
 fi
 echo "  Collection ID: $COLL3_ID"
 
@@ -130,7 +131,7 @@ assert_tx_success "Create collection for deletion" "$TX_OUT"
 DEL_COLL_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")
 if [ -z "$DEL_COLL_ID" ]; then
     DEL_DATA=$(query collect collections-by-owner "$COLLECTOR1_ADDR")
-    DEL_COLL_ID=$(echo "$DEL_DATA" | jq -r '.collections[-1].id // empty' 2>/dev/null)
+    DEL_COLL_ID=$(echo "$DEL_DATA" | jq -r '(.collections[-1].id // 0) | tostring' 2>/dev/null)
 fi
 
 TX_OUT=$(send_tx collect delete-collection "$DEL_COLL_ID" --from collector1)

@@ -63,6 +63,10 @@ var (
 
 	// SponsorshipRequestsByExpiryKey: (expiresAt, collectionID) - for TTL pruning
 	SponsorshipRequestsByExpiryKey = collections.NewPrefix("sponsorship_request/by_expiry/")
+
+	// ItemsByOnChainRefKey: (refKey, itemID) - reverse index for OnChainReference lookups
+	// refKey is "{module}:{entity_type}:{entity_id}", e.g. "blog:post:42"
+	ItemsByOnChainRefKey = collections.NewPrefix("item/by_onchain_ref/")
 )
 
 // Content moderation keys
@@ -105,4 +109,11 @@ var (
 
 	// CollectionsByStatusKey: (status, collectionID) → empty - for querying by status
 	CollectionsByStatusKey = collections.NewPrefix("collection/by_status/")
+)
+
+// Anonymous collection keys (prefix-based, not collections framework)
+const (
+	AnonCollectionMetaKey = "AnonMeta/collection/"
+	AnonNullifierKey      = "AnonNullifier/"
+	AnonMgmtKeyIndexKey   = "AnonMgmtKeyIndex/"
 )

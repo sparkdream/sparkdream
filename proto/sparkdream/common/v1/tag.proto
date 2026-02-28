@@ -1,0 +1,14 @@
+syntax = "proto3";
+package sparkdream.common.v1;
+
+option go_package = "sparkdream/x/common/types";
+
+// Tag defines a content-tagging label shared across modules.
+// Storage is owned by x/forum; other modules access tags via the TagKeeper interface.
+message Tag {
+  string name = 1;
+  uint64 usage_count = 2;
+  int64 created_at = 3;
+  int64 last_used_at = 4;
+  int64 expiration_index = 5;
+}

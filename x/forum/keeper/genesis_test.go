@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	"github.com/stretchr/testify/require"
@@ -13,8 +14,8 @@ func TestGenesis(t *testing.T) {
 		Params:                   types.DefaultParams(),
 		PostMap:                  []types.Post{{PostId: 0}, {PostId: 1}},
 		CategoryMap:              []types.Category{{CategoryId: 0}, {CategoryId: 1}},
-		TagMap:                   []types.Tag{{Name: "tag0"}, {Name: "tag1"}},
-		ReservedTagMap:           []types.ReservedTag{{Name: "reserved0"}, {Name: "reserved1"}},
+		TagMap:                   []commontypes.Tag{{Name: "tag0"}, {Name: "tag1"}},
+		ReservedTagMap:           []commontypes.ReservedTag{{Name: "reserved0"}, {Name: "reserved1"}},
 		UserRateLimitMap:         []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 		UserReactionLimitMap:     []types.UserReactionLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 		SentinelActivityMap:      []types.SentinelActivity{{Address: "sentinel0"}, {Address: "sentinel1"}},

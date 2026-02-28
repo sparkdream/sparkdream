@@ -71,7 +71,9 @@ echo "--- PART 1: ENSURE SENTINEL IS BONDED ---"
 PART1_RESULT="FAIL"
 
 # Helper: bootstrap reputation by creating & completing EPIC interims
-# Each EPIC grants 100 rep. Tier 3 = 200+, Tier 4 = 500+
+# Each EPIC grants 100 rep, but the per-epoch cap is 50 rep/tag/epoch
+# (epoch_blocks=10, ~10s per epoch). Need extra interims to hit targets.
+# Tier 3 = 200+, Tier 4 = 500+
 bootstrap_reputation() {
     local ACCOUNT=$1
     local NUM_EPICS=$2
@@ -182,8 +184,9 @@ bond_sentinel() {
     fi
 }
 
-# Bootstrap sentinel1 reputation: 5 EPICs = 500 rep = tier 4 (bonding needs tier 3, lock needs tier 4)
-bootstrap_reputation sentinel1 5
+# Bootstrap sentinel1 reputation: tier 4 (500+ rep) for thread locking.
+# Per-epoch cap is 50 rep, so need ~11 EPICs to guarantee 500+ after decay.
+bootstrap_reputation sentinel1 11
 
 # Bootstrap a second sentinel for cosigning, report, and unbond tests.
 # sentinel2 may be in demotion cooldown from sentinel_test's full unbond,
@@ -191,7 +194,9 @@ bootstrap_reputation sentinel1 5
 SECOND_SENTINEL_ACCOUNT="sentinel2"
 SECOND_SENTINEL_ADDR="$SENTINEL2_ADDR"
 
-bootstrap_reputation sentinel2 2
+# Sentinel2 needs tier 3 (200+ rep) for bonding and reporting.
+# Per-epoch cap is 50 rep, so need ~5 EPICs to guarantee 200+ after decay.
+bootstrap_reputation sentinel2 5
 
 # Bond both sentinels
 bond_sentinel sentinel1 "$SENTINEL1_ADDR"
@@ -205,7 +210,7 @@ if [ "$BOND2_RC" -ne 0 ]; then
     echo "  sentinel2 unavailable (demotion cooldown), using moderator as second sentinel..."
     SECOND_SENTINEL_ACCOUNT="moderator"
     SECOND_SENTINEL_ADDR="$MODERATOR_ADDR"
-    bootstrap_reputation moderator 2
+    bootstrap_reputation moderator 5
 
     # Fund moderator with enough DREAM for bonding + cosign escrow
     echo "  Funding moderator with DREAM for sentinel operations..."
@@ -616,6 +621,26 @@ echo ""
 # ========================================================================
 echo "--- PART 10: REPORT MEMBER ---"
 PART10_RESULT="FAIL"
+
+# Sentinel1 needs enough unlocked DREAM to post a report bond (= sentinelBond amount).
+# The EPIC interims used for rep bootstrapping only grant ~0.0025 DREAM each (no param),
+# so sentinel1's DREAM comes mostly from the initial 500 DREAM gift during setup.
+# After DREAM decay (1%/epoch, epoch_blocks=10) across all prior tests, sentinel1's
+# unlocked balance may be insufficient. Top up sentinel1's DREAM from alice.
+echo "  Topping up sentinel1 DREAM for report bond..."
+TX_RES=$($BINARY tx rep transfer-dream \
+    "$SENTINEL1_ADDR" "500000000" "gift" "Fund sentinel1 for report bond" \
+    --from alice \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000uspark \
+    -y \
+    --output json 2>&1)
+TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+    sleep 6
+    wait_for_tx $TXHASH > /dev/null 2>&1
+fi
 
 echo "  Reporting member $POSTER2_ADDR..."
 

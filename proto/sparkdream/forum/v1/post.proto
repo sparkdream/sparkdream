@@ -34,4 +34,6 @@ message Post {
   int64 edited_at = 24;
   repeated string tags = 30;
   sparkdream.common.v1.ContentType content_type = 31;
+  uint64 initiative_id = 32;
+  bool conviction_sustained = 33;
 }

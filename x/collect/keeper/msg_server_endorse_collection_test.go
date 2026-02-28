@@ -93,8 +93,13 @@ func TestEndorseCollection(t *testing.T) {
 		{
 			name: "error not seeking endorsement",
 			setup: func(f *testFixture) uint64 {
-				// Create pending but do NOT set seeking_endorsement
-				return f.createPendingCollection(t)
+				// Create pending (H1 fix sets SeekingEndorsement=true by default)
+				// Explicitly set it to false to test this error path
+				collID := f.createPendingCollection(t)
+				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
+				coll.SeekingEndorsement = false
+				f.keeper.Collection.Set(f.ctx, collID, coll) //nolint:errcheck
+				return collID
 			},
 			creator:        "", // f.member
 			expErr:         true,

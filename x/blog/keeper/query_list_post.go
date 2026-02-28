@@ -27,6 +27,12 @@ func (q queryServer) ListPost(ctx context.Context, req *types.QueryListPostReque
 			return err
 		}
 
+		// Exclude hidden posts from public listing; tombstoned posts are included
+		// (clients should check status field and display accordingly)
+		if post.Status == types.PostStatus_POST_STATUS_HIDDEN {
+			return nil
+		}
+
 		posts = append(posts, post)
 		return nil
 	})

@@ -2,15 +2,23 @@ version: 1
 build:
   main: cmd/sparkdreamd
 validation: sovereign
+# Test-only accounts. Mnemonics are committed intentionally — they derive the
+# specific addresses hardcoded in x/commons/keeper/genesis_vals.go (founder,
+# council members). Changing these mnemonics will break governance bootstrap
+# and all E2E tests. These keys hold no real funds and are never used in production.
 accounts:
 - name: alice
   coins: [20000000000000uspark]
+  mnemonic: "punch toss leisure miss pulse hand dentist ozone gadget pretty narrow wise ankle manage equal carry devote naive hungry betray mean word music grunt"
 - name: bob
   coins: [10000000000000uspark]
+  mnemonic: "chat opera segment access debate stool axis govern wave tool drift crater miracle yellow quote orchard start mistake normal evoke simple sing mimic retreat"
 - name: carol
   coins: [5000000000000uspark]
+  mnemonic: "remove enable fade luxury post call spring lock once retire chef luggage bless lend benefit plug phrase poem grief quit trouble still manage solve"
 - name: dave
   coins: [5000000uspark]
+  mnemonic: "pledge dice input pave satisfy student slight author battle safe place purity syrup skin buyer sick raven shock decrease acoustic fluid kick muffin soft"
 faucet:
   name: bob
   coins: [1000uspark]
@@ -85,6 +93,10 @@ genesis:
         transition_batch_size: "1"  # 1 member per block per phase (slow for abort/skip testing)
         transition_grace_period: "10"  # 10 blocks grace after abort (short for testing)
         display_name_appeal_period_blocks: "20"  # ~20 seconds (short for testing; default 100800)
+        # Nomination params - TESTING values
+        nomination_min_stake: "1"  # 1 udream minimum stake for testing
+        retro_reward_budget_per_season: "1000"  # 1000 DREAM budget for testing
+        retro_reward_min_conviction: "1"  # minimal conviction required for testing
       member_profile_map:
       # Alice - High level founder with multiple achievements and titles
       - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
@@ -196,6 +208,50 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
+      - address: sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y  # bob
+        dream_balance: "25000000000"  # 25000 DREAM (Tier 2 founder)
+        staked_dream: "0"
+        lifetime_earned: "25000000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_ESTABLISHED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 5
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      - address: sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz  # carol
+        dream_balance: "10000000000"  # 10000 DREAM (Tier 3 founder)
+        staked_dream: "0"
+        lifetime_earned: "10000000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_PROVISIONAL
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 3
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
     forum:
       params:
         # Archive timing - FAST for testing
@@ -206,6 +262,8 @@ genesis:
         hide_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         lock_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         move_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
+        anonymous_posting_enabled: true
+        private_reactions_enabled: true
       tag_map:
       # Three main councils
       - name: "commons-council"
@@ -250,6 +308,107 @@ genesis:
         last_used_at: 0
         expiration_index: 0
       - name: "ecosystem-gov-committee"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      # Test tags for x/rep integration tests
+      - name: "advanced-physics"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "budget"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "challenge"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "challenges"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "competition"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "concurrent"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "cross-project"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "cryptography"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "deadline"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "documentation"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "jury"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "nullifier"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "quantum-computing"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "referral-test"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "security"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "staking"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "test"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "testing"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "trust-builder"
+        usage_count: 0
+        created_at: 0
+        last_used_at: 0
+        expiration_index: 0
+      - name: "zero-knowledge"
         usage_count: 0
         created_at: 0
         last_used_at: 0

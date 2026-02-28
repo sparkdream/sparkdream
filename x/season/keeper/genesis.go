@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"sparkdream/x/season/types"
 
@@ -129,6 +130,27 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 	for _, elem := range genState.DisplayNameAppealStakeMap {
 		if err := k.DisplayNameAppealStake.Set(ctx, elem.ChallengeId, elem); err != nil {
+			return err
+		}
+	}
+
+	for _, elem := range genState.NominationList {
+		if err := k.Nomination.Set(ctx, elem.Id, elem); err != nil {
+			return err
+		}
+	}
+	if err := k.NominationSeq.Set(ctx, genState.NominationCount); err != nil {
+		return err
+	}
+	for _, elem := range genState.NominationStakeList {
+		key := fmt.Sprintf("%d/%s", elem.NominationId, elem.Staker)
+		if err := k.NominationStake.Set(ctx, key, elem); err != nil {
+			return err
+		}
+	}
+	for _, elem := range genState.RetroRewardRecordList {
+		key := fmt.Sprintf("%d/%d", elem.Season, elem.NominationId)
+		if err := k.RetroRewardRecord.Set(ctx, key, elem); err != nil {
 			return err
 		}
 	}
@@ -277,6 +299,32 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		genesis.DisplayNameAppealStakeMap = append(genesis.DisplayNameAppealStakeMap, val)
 		return false, nil
 	}); err != nil {
+		return nil, err
+	}
+
+	err = k.Nomination.Walk(ctx, nil, func(_ uint64, val types.Nomination) (bool, error) {
+		genesis.NominationList = append(genesis.NominationList, val)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	genesis.NominationCount, err = k.NominationSeq.Peek(ctx)
+	if err != nil {
+		return nil, err
+	}
+	err = k.NominationStake.Walk(ctx, nil, func(_ string, val types.NominationStake) (bool, error) {
+		genesis.NominationStakeList = append(genesis.NominationStakeList, val)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.RetroRewardRecord.Walk(ctx, nil, func(_ string, val types.RetroRewardRecord) (bool, error) {
+		genesis.RetroRewardRecordList = append(genesis.RetroRewardRecordList, val)
+		return false, nil
+	})
+	if err != nil {
 		return nil, err
 	}
 

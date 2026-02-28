@@ -27,6 +27,7 @@ import "sparkdream/season/v1/season_transition_state.proto";
 import "sparkdream/season/v1/title.proto";
 import "sparkdream/season/v1/transition_recovery_state.proto";
 import "sparkdream/season/v1/vote_xp_record.proto";
+import "sparkdream/season/v1/nomination.proto";
 
 option go_package = "sparkdream/x/season/types";
 
@@ -60,4 +61,10 @@ message GenesisState {
   repeated DisplayNameModeration display_name_moderation_map = 22 [(gogoproto.nullable) = false];
   repeated DisplayNameReportStake display_name_report_stake_map = 23 [(gogoproto.nullable) = false];
   repeated DisplayNameAppealStake display_name_appeal_stake_map = 24 [(gogoproto.nullable) = false];
+
+  // Retroactive Public Goods Funding
+  repeated Nomination nomination_list = 25 [(gogoproto.nullable) = false];
+  uint64 nomination_count = 26;
+  repeated NominationStake nomination_stake_list = 27 [(gogoproto.nullable) = false];
+  repeated RetroRewardRecord retro_reward_record_list = 28 [(gogoproto.nullable) = false];
 }

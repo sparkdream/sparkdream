@@ -61,7 +61,7 @@ func TestEndBlockOutcomePassed(t *testing.T) {
 
 	p := makeBaseProposal(f, f.standardOptions())
 	p.Quorum = math.LegacyNewDecWithPrec(10, 2)    // 10%
-	p.Threshold = math.LegacyNewDecWithPrec(50, 2)  // 50%
+	p.Threshold = math.LegacyNewDecWithPrec(50, 2) // 50%
 	p.EligibleVoters = 10
 
 	// 6 votes for Yes, 1 for No (total 7, quorum = 70% > 10%; Yes ratio = 6/7 > 50%)
@@ -93,7 +93,7 @@ func TestEndBlockOutcomeRejected(t *testing.T) {
 	}
 	p := makeBaseProposal(f, threeOpts)
 	p.Quorum = math.LegacyNewDecWithPrec(10, 2)    // 10%
-	p.Threshold = math.LegacyNewDecWithPrec(50, 2)  // 50%
+	p.Threshold = math.LegacyNewDecWithPrec(50, 2) // 50%
 	p.EligibleVoters = 10
 
 	// Votes: A=3, B=2, C=2 (total=7, quorum=70%>10%).
@@ -144,7 +144,7 @@ func TestEndBlockOutcomeVetoed(t *testing.T) {
 
 	opts := f.optionsWithAbstainVeto()
 	p := makeBaseProposal(f, opts)
-	p.Quorum = math.LegacyNewDecWithPrec(10, 2)     // 10%
+	p.Quorum = math.LegacyNewDecWithPrec(10, 2)        // 10%
 	p.VetoThreshold = math.LegacyNewDecWithPrec(33, 2) // 33%
 	p.EligibleVoters = 10
 
@@ -273,7 +273,7 @@ func TestEndBlockTieBreaking(t *testing.T) {
 
 	p := makeBaseProposal(f, f.standardOptions())
 	p.Quorum = math.LegacyNewDecWithPrec(10, 2)    // 10%
-	p.Threshold = math.LegacyNewDecWithPrec(50, 2)  // 50%
+	p.Threshold = math.LegacyNewDecWithPrec(50, 2) // 50%
 	p.EligibleVoters = 10
 
 	// Equal votes on both standard options: 3 Yes (id=0), 3 No (id=1).
@@ -297,7 +297,7 @@ func TestEndBlockTieBreaking(t *testing.T) {
 	p2 := makeBaseProposal(f, f.standardOptions())
 	p2.Id = 1
 	p2.Quorum = math.LegacyNewDecWithPrec(10, 2)    // 10%
-	p2.Threshold = math.LegacyNewDecWithPrec(49, 2)  // 49%
+	p2.Threshold = math.LegacyNewDecWithPrec(49, 2) // 49%
 	p2.EligibleVoters = 10
 	p2.Tally[0].VoteCount = 3 // Yes (id=0)
 	p2.Tally[1].VoteCount = 3 // No  (id=1)

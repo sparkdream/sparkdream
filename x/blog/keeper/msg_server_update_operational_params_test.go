@@ -21,6 +21,7 @@ import (
 // mockCommonsKeeper implements types.CommonsKeeper for testing
 type mockCommonsKeeper struct {
 	IsCouncilAuthorizedFn func(ctx context.Context, addr string, council string, committee string) bool
+	SpendFromTreasuryFn   func(ctx context.Context, council string, recipient sdk.AccAddress, amount sdk.Coins) error
 }
 
 func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
@@ -28,6 +29,13 @@ func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string
 		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
 	}
 	return false
+}
+
+func (m *mockCommonsKeeper) SpendFromTreasury(ctx context.Context, council string, recipient sdk.AccAddress, amount sdk.Coins) error {
+	if m.SpendFromTreasuryFn != nil {
+		return m.SpendFromTreasuryFn(ctx, council, recipient, amount)
+	}
+	return nil
 }
 
 // setupMsgServerWithCommons creates a keeper with a custom CommonsKeeper wired in.
@@ -45,6 +53,7 @@ func setupMsgServerWithCommons(t testing.TB, commonsKeeper types.CommonsKeeper) 
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
 	bankKeeper := &mockBankKeeper{}
+	repKeeper := &mockRepKeeper{}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -53,6 +62,7 @@ func setupMsgServerWithCommons(t testing.TB, commonsKeeper types.CommonsKeeper) 
 		authority,
 		bankKeeper,
 		commonsKeeper,
+		repKeeper,
 	)
 
 	// Initialize params

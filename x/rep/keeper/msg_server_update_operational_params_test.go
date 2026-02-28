@@ -41,7 +41,6 @@ func initFixtureNilCommons(t *testing.T) *fixture {
 		nil, // authKeeper
 		nil, // bankKeeper
 		nil, // commonsKeeper (nil - falls back to IsGovAuthority)
-		nil, // seasonKeeper
 		nil, // voteKeeper
 	)
 

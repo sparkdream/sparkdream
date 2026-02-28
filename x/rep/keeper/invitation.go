@@ -226,6 +226,9 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 		return err
 	}
 
+	// Mark trust tree dirty — new member joined
+	k.MarkMemberDirty(ctx, invitee.String())
+
 	// Update invitation status
 	invitation.Status = types.InvitationStatus_INVITATION_STATUS_ACCEPTED
 	invitation.AcceptedAt = currentTime
@@ -233,13 +236,29 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 		return err
 	}
 
-	// Return staked DREAM to inviter
+	// Return staked DREAM to inviter (minus anti-sybil burn)
 	inviterAddr, err := sdk.AccAddressFromBech32(invitation.Inviter)
 	if err != nil {
 		return err
 	}
-	if err := k.UnlockDREAM(ctx, inviterAddr, *invitation.StakedDream); err != nil {
+
+	// Get params for burn rate
+	params, err := k.Params.Get(ctx)
+	if err != nil {
 		return err
+	}
+
+	stakedAmount := *invitation.StakedDream
+	burnAmount := params.InvitationStakeBurnRate.MulInt(stakedAmount).TruncateInt()
+
+	// Unlock full amount from staked balance, then burn the fraction from free balance
+	if err := k.UnlockDREAM(ctx, inviterAddr, stakedAmount); err != nil {
+		return err
+	}
+	if burnAmount.IsPositive() {
+		if err := k.BurnDREAM(ctx, inviterAddr, burnAmount); err != nil {
+			return err
+		}
 	}
 
 	// Emit event
@@ -249,6 +268,7 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 			sdk.NewAttribute("invitation_id", fmt.Sprintf("%d", invitationID)),
 			sdk.NewAttribute("inviter", invitation.Inviter),
 			sdk.NewAttribute("new_member", invitee.String()),
+			sdk.NewAttribute("stake_burned", burnAmount.String()),
 		),
 	)
 

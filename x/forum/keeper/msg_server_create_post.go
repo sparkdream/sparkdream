@@ -3,18 +3,17 @@ package keeper
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-)
 
-// tagPattern validates tag format: alphanumeric and hyphens only
-var tagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
+	reptypes "sparkdream/x/rep/types"
+)
 
 // validatePostTags validates a list of tags for use on a post and updates tag metadata.
 func (k msgServer) validatePostTags(ctx context.Context, tags []string, now int64) error {
@@ -36,7 +35,7 @@ func (k msgServer) validatePostTags(ctx context.Context, tags []string, now int6
 		}
 
 		// Check format
-		if !tagPattern.MatchString(tagName) {
+		if !commontypes.ValidateTagFormat(tagName) {
 			return errorsmod.Wrapf(types.ErrInvalidTag, "tag %q does not match required format", tagName)
 		}
 
@@ -109,6 +108,16 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 			return nil, errorsmod.Wrap(types.ErrParentPostNotFound, fmt.Sprintf("parent post %d not found", msg.ParentId))
 		}
 
+		// Check parent post status — cannot reply to hidden/deleted/archived posts
+		switch parentPost.Status {
+		case types.PostStatus_POST_STATUS_HIDDEN:
+			return nil, errorsmod.Wrap(types.ErrPostAlreadyHidden, fmt.Sprintf("parent post %d is hidden", msg.ParentId))
+		case types.PostStatus_POST_STATUS_DELETED:
+			return nil, errorsmod.Wrap(types.ErrPostDeleted, fmt.Sprintf("parent post %d has been deleted", msg.ParentId))
+		case types.PostStatus_POST_STATUS_ARCHIVED:
+			return nil, errorsmod.Wrap(types.ErrPostArchived, fmt.Sprintf("parent post %d is archived", msg.ParentId))
+		}
+
 		// Determine root ID
 		if parentPost.ParentId == 0 {
 			rootID = msg.ParentId
@@ -170,6 +179,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		return nil, err
 	}
 
+	// Validate initiative reference before creating the post
+	if msg.InitiativeId > 0 && k.repKeeper != nil {
+		if err := k.repKeeper.ValidateInitiativeReference(ctx, msg.InitiativeId); err != nil {
+			return nil, errorsmod.Wrapf(types.ErrInvalidInitiativeRef, "initiative %d: %s", msg.InitiativeId, err.Error())
+		}
+	}
+
 	// Generate post ID
 	postID, err := k.PostSeq.Next(ctx)
 	if err != nil {
@@ -203,11 +219,27 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		Depth:          depth,
 		Tags:           msg.Tags,
 		ContentType:    msg.ContentType,
+		InitiativeId:   msg.InitiativeId,
 	}
 
 	// Store post
 	if err := k.Post.Set(ctx, postID, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store post")
+	}
+
+	// Register initiative reference link for conviction propagation
+	if msg.InitiativeId > 0 && k.repKeeper != nil {
+		if err := k.repKeeper.RegisterContentInitiativeLink(ctx, msg.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_FORUM_CONTENT), postID); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to register content initiative link")
+		}
+	}
+
+	// Create author bond if requested (requires repKeeper)
+	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.repKeeper != nil {
+		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+		if _, err := k.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND, postID, *msg.AuthorBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to create author bond")
+		}
 	}
 
 	// Enqueue ephemeral post for pruning

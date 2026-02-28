@@ -1,0 +1,58 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/rep/v1/stake.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// ContentChallenge defines a challenge against bonded content.
+// Any member can challenge content that has an author bond.
+// The challenge routes through the jury system for resolution.
+message ContentChallenge {
+  uint64 id = 1;
+
+  // Target content identification (author bond type: 7=BLOG, 8=FORUM, 9=COLLECTION)
+  StakeTargetType target_type = 2;
+  uint64 target_id = 3;
+
+  // Challenger info
+  string challenger = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string reason = 5;
+  repeated string evidence = 6;
+  string staked_dream = 7 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Content author (resolved from author bond at challenge creation time)
+  string author = 8 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // Status tracking
+  ContentChallengeStatus status = 9;
+  int64 created_at = 10;            // block height
+  int64 resolved_at = 11;           // block height (0 if unresolved)
+  int64 response_deadline = 12;     // block height
+  uint64 jury_review_id = 13;       // 0 if not yet in jury review
+
+  // Author response (set when author responds)
+  string author_response = 14;
+  repeated string author_evidence = 15;
+
+  // Bond amount snapshot (for reward calculation even after bond removal)
+  string bond_amount = 16 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// ContentChallengeStatus defines the status of a content challenge.
+enum ContentChallengeStatus {
+  CONTENT_CHALLENGE_STATUS_ACTIVE = 0;
+  CONTENT_CHALLENGE_STATUS_IN_JURY_REVIEW = 1;
+  CONTENT_CHALLENGE_STATUS_UPHELD = 2;
+  CONTENT_CHALLENGE_STATUS_REJECTED = 3;
+}

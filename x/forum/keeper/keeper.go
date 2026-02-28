@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -8,8 +9,13 @@ import (
 	corestore "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 )
+
+// DefaultEpochDuration is the fallback epoch duration in seconds (~5 months)
+// used when no SeasonKeeper is configured.
+const DefaultEpochDuration int64 = 13_140_000
 
 type Keeper struct {
 	storeService corestore.KVStoreService
@@ -25,12 +31,14 @@ type Keeper struct {
 	bankKeeper            types.BankKeeper
 	repKeeper             types.RepKeeper
 	commonsKeeper         types.CommonsKeeper
+	voteKeeper            types.VoteKeeper
+	seasonKeeper          types.SeasonKeeper
 	Post                  collections.Map[uint64, types.Post]
 	PostSeq               collections.Sequence
 	Category              collections.Map[uint64, types.Category]
 	CategorySeq           collections.Sequence
-	Tag                   collections.Map[string, types.Tag]
-	ReservedTag           collections.Map[string, types.ReservedTag]
+	Tag                   collections.Map[string, commontypes.Tag]
+	ReservedTag           collections.Map[string, commontypes.ReservedTag]
 	UserRateLimit         collections.Map[string, types.UserRateLimit]
 	UserReactionLimit     collections.Map[string, types.UserReactionLimit]
 	SentinelActivity      collections.Map[string, types.SentinelActivity]
@@ -87,8 +95,8 @@ func NewKeeper(
 		PostSeq:           collections.NewSequence(sb, types.PostSeqKey, "postSequence"),
 		Category:          collections.NewMap(sb, types.CategoryKey, "category", collections.Uint64Key, codec.CollValue[types.Category](cdc)),
 		CategorySeq:       collections.NewSequence(sb, types.CategorySeqKey, "categorySequence"),
-		Tag:               collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[types.Tag](cdc)),
-		ReservedTag:       collections.NewMap(sb, types.ReservedTagKey, "reservedTag", collections.StringKey, codec.CollValue[types.ReservedTag](cdc)),
+		Tag:               collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[commontypes.Tag](cdc)),
+		ReservedTag:       collections.NewMap(sb, types.ReservedTagKey, "reservedTag", collections.StringKey, codec.CollValue[commontypes.ReservedTag](cdc)),
 		UserRateLimit:     collections.NewMap(sb, types.UserRateLimitKey, "userRateLimit", collections.StringKey, codec.CollValue[types.UserRateLimit](cdc)),
 		UserReactionLimit: collections.NewMap(sb, types.UserReactionLimitKey, "userReactionLimit", collections.StringKey, codec.CollValue[types.UserReactionLimit](cdc)),
 		SentinelActivity:  collections.NewMap(sb, types.SentinelActivityKey, "sentinelActivity", collections.StringKey, codec.CollValue[types.SentinelActivity](cdc)),
@@ -125,4 +133,26 @@ func NewKeeper(
 // GetAuthority returns the module's authority.
 func (k Keeper) GetAuthority() []byte {
 	return k.authority
+}
+
+// SetVoteKeeper sets the optional VoteKeeper for ZK proof verification.
+func (k *Keeper) SetVoteKeeper(vk types.VoteKeeper) {
+	k.voteKeeper = vk
+}
+
+// SetSeasonKeeper sets the optional SeasonKeeper for epoch duration.
+func (k *Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
+	k.seasonKeeper = sk
+}
+
+// HasPost returns true if a post (or reply, which is a post with ParentId > 0) exists.
+func (k Keeper) HasPost(ctx context.Context, id uint64) bool {
+	has, _ := k.Post.Has(ctx, id)
+	return has
+}
+
+// HasCategory returns true if a category with the given ID exists.
+func (k Keeper) HasCategory(ctx context.Context, id uint64) bool {
+	has, _ := k.Category.Has(ctx, id)
+	return has
 }

@@ -290,7 +290,10 @@ DEC_FIELDS = [
     'challenger_reward_rate', 'jury_super_majority',
     'min_juror_reputation', 'solo_expert_bonus_rate',
     'project_staking_apy', 'project_completion_bonus_rate',
-    'member_stake_revenue_share', 'tag_stake_revenue_share'
+    'member_stake_revenue_share', 'tag_stake_revenue_share',
+    'content_challenge_reward_share', 'conviction_propagation_ratio',
+    'reputation_decay_rate', 'max_conviction_share_per_member',
+    'invitation_stake_burn_rate', 'max_reputation_gain_per_epoch'
 ]
 
 PRECISION = 18
@@ -299,13 +302,19 @@ params = json.loads(sys.argv[1])
 for field in DEC_FIELDS:
     if field in params and params[field]:
         raw = str(params[field])
-        # Pad to at least PRECISION+1 digits
-        padded = raw.zfill(PRECISION + 1)
-        int_part = padded[:len(padded) - PRECISION]
-        dec_part = padded[len(padded) - PRECISION:]
-        # Strip trailing zeros but keep at least one decimal
-        dec_str = (int_part + '.' + dec_part).rstrip('0').rstrip('.')
-        params[field] = dec_str
+        # If already in decimal format (contains '.'), pass through as-is
+        # (newer Cosmos SDK versions return LegacyDec as '0.500000000000000000')
+        if '.' in raw:
+            # Strip trailing zeros but keep at least one decimal digit
+            dec_str = raw.rstrip('0').rstrip('.')
+            params[field] = dec_str
+        else:
+            # Raw 18-precision integer format (e.g. '100000000000000000' for 0.1)
+            padded = raw.zfill(PRECISION + 1)
+            int_part = padded[:len(padded) - PRECISION]
+            dec_part = padded[len(padded) - PRECISION:]
+            dec_str = (int_part + '.' + dec_part).rstrip('0').rstrip('.')
+            params[field] = dec_str
 
 print(json.dumps(params))
 " "$params_json"
@@ -390,7 +399,19 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ] && [ "$GOV_SETUP_RESULT" == "PASS" ]; th
       allow_self_member_stake: (.allow_self_member_stake // false),
       challenge_response_deadline_epochs,
       gift_cooldown_blocks,
-      max_gifts_per_sender_epoch
+      max_gifts_per_sender_epoch,
+      anonymous_challenge_spark_stake,
+      content_conviction_half_life_epochs,
+      max_content_stake_per_member,
+      max_author_bond_per_content,
+      author_bond_slash_on_moderation: (.author_bond_slash_on_moderation // false),
+      content_challenge_reward_share,
+      conviction_propagation_ratio,
+      reputation_decay_rate,
+      max_conviction_share_per_member,
+      invitation_stake_burn_rate,
+      max_reputation_gain_per_epoch,
+      max_tags_per_initiative
     }')
 
     # Modify test fields
@@ -574,7 +595,19 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       allow_self_member_stake: (.allow_self_member_stake // false),
       challenge_response_deadline_epochs,
       gift_cooldown_blocks,
-      max_gifts_per_sender_epoch
+      max_gifts_per_sender_epoch,
+      anonymous_challenge_spark_stake,
+      content_conviction_half_life_epochs,
+      max_content_stake_per_member,
+      max_author_bond_per_content,
+      author_bond_slash_on_moderation: (.author_bond_slash_on_moderation // false),
+      content_challenge_reward_share,
+      conviction_propagation_ratio,
+      reputation_decay_rate,
+      max_conviction_share_per_member,
+      invitation_stake_burn_rate,
+      max_reputation_gain_per_epoch,
+      max_tags_per_initiative
     }')
 
     # Convert LegacyDec fields from raw format to decimal format

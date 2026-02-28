@@ -207,4 +207,16 @@ var (
 	// Member errors (2250-2299)
 	ErrNotMember        = errors.Register(ModuleName, 2250, "not a member")
 	ErrMembershipTooNew = errors.Register(ModuleName, 2251, "membership too recent for this operation")
+
+	// Anonymous posting errors (2300-2399)
+	ErrAnonPostingDisabled       = errors.Register(ModuleName, 2300, "anonymous posting is disabled")
+	ErrInvalidProof              = errors.Register(ModuleName, 2301, "invalid ZK proof")
+	ErrNullifierUsed             = errors.Register(ModuleName, 2302, "nullifier already used")
+	ErrInsufficientTrustLevel    = errors.Register(ModuleName, 2303, "insufficient trust level for anonymous action")
+	ErrCategoryAnonNotAllowed    = errors.Register(ModuleName, 2304, "anonymous posting not allowed in this category")
+	ErrPrivateReactionsDisabled  = errors.Register(ModuleName, 2305, "private reactions are disabled")
+	ErrInvalidReactionType       = errors.Register(ModuleName, 2306, "invalid reaction type")
+
+	// Conviction propagation errors (2400-2499)
+	ErrInvalidInitiativeRef = errors.Register(ModuleName, 2400, "invalid initiative reference")
 )

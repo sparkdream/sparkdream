@@ -22,6 +22,8 @@ type BankKeeper interface {
 // RepKeeper defines the expected interface for the x/rep module.
 type RepKeeper interface {
 	IsMember(ctx context.Context, member sdk.AccAddress) bool
+	// MarkMemberDirty flags a member's trust-tree leaf for rebuild on the next EndBlock.
+	MarkMemberDirty(ctx context.Context, address string)
 }
 
 // SeasonKeeper defines the expected interface for the x/season module.

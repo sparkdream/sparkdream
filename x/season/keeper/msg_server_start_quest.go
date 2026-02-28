@@ -51,7 +51,7 @@ func (k msgServer) StartQuest(ctx context.Context, msg *types.MsgStartQuest) (*t
 
 	// Check season
 	if quest.Season > 0 {
-		season, err := k.GetCurrentSeason(ctx)
+		season, err := k.getSeason(ctx)
 		if err == nil && uint64(season.Number) != quest.Season {
 			return nil, types.ErrQuestSeasonMismatch
 		}

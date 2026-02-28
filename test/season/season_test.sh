@@ -105,6 +105,7 @@ status_text() {
         "2") echo "ENDING" ;;
         "3") echo "MAINTENANCE" ;;
         "4") echo "COMPLETED" ;;
+        "5") echo "NOMINATION" ;;
         *) echo "UNKNOWN ($STATUS_NUM)" ;;
     esac
 }
@@ -203,10 +204,12 @@ else
     echo "  Status: $(status_text $S_STATUS)"
     echo "  End Block: $SEASON_END_BLOCK"
 
-    if [ "$S_NUMBER" == "1" ] && [ "$S_STATUS" == "1" ]; then
+    # Status may be ACTIVE (1) or NOMINATION (5) depending on how close
+    # the chain is to the season end block (BeginBlock auto-transitions to NOMINATION)
+    if [ "$S_NUMBER" == "1" ] && ([ "$S_STATUS" == "1" ] || [ "$S_STATUS" == "5" ]); then
         pass_test "Query current season"
     else
-        fail_test "Query current season" "expected number=1 status=1, got number=$S_NUMBER status=$S_STATUS"
+        fail_test "Query current season" "expected number=1 status=1|5, got number=$S_NUMBER status=$S_STATUS"
     fi
 fi
 
@@ -228,10 +231,12 @@ else
 
     echo "  Season #1: $SBN_NAME ($(status_text $SBN_STATUS))"
 
-    if [ "$SBN_NAME" == "Genesis Season" ] && [ "$SBN_STATUS" == "1" ]; then
+    # Status may be ACTIVE (1) or NOMINATION (5) depending on how close
+    # the chain is to the season end block (BeginBlock auto-transitions to NOMINATION)
+    if [ "$SBN_NAME" == "Genesis Season" ] && ([ "$SBN_STATUS" == "1" ] || [ "$SBN_STATUS" == "5" ]); then
         pass_test "Query season by number"
     else
-        fail_test "Query season by number" "expected name=Genesis Season status=1"
+        fail_test "Query season by number" "expected name=Genesis Season status=1|5, got name=$SBN_NAME status=$SBN_STATUS"
     fi
 fi
 
@@ -461,12 +466,15 @@ if [ "$TRANSITION_STARTED" == "true" ]; then
             echo "  Season status after abort: $(status_text $POST_ABORT_STATUS)"
             echo "  New end block: $POST_ABORT_END (was $SEASON_END_BLOCK)"
 
-            if [ "$POST_ABORT_STATUS" == "1" ]; then
+            # After abort, status is set to ACTIVE with a short grace period.
+            # However, BeginBlocker may re-transition to NOMINATION if the new
+            # end block is within the nomination window. Both are valid outcomes.
+            if [ "$POST_ABORT_STATUS" == "1" ] || [ "$POST_ABORT_STATUS" == "5" ]; then
                 SEASON_END_BLOCK=$POST_ABORT_END
                 ABORT_SUCCEEDED=true
                 pass_test "Abort transition"
             else
-                fail_test "Abort transition" "status not ACTIVE after abort: $POST_ABORT_STATUS"
+                fail_test "Abort transition" "status not ACTIVE/NOMINATION after abort: $POST_ABORT_STATUS"
             fi
         else
             ERROR_MSG=$(get_tx_error "$TX_RESULT")

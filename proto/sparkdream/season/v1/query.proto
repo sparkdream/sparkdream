@@ -29,6 +29,7 @@ import "sparkdream/season/v1/season_transition_state.proto";
 import "sparkdream/season/v1/title.proto";
 import "sparkdream/season/v1/transition_recovery_state.proto";
 import "sparkdream/season/v1/vote_xp_record.proto";
+import "sparkdream/season/v1/nomination.proto";
 
 option go_package = "sparkdream/x/season/types";
 
@@ -347,6 +348,31 @@ service Query {
   // AvailableQuests Queries a list of AvailableQuests items.
   rpc AvailableQuests(QueryAvailableQuestsRequest) returns (QueryAvailableQuestsResponse) {
     option (google.api.http).get = "/sparkdream/season/v1/available_quests/{member}";
+  }
+
+  // GetNomination queries a single nomination by ID.
+  rpc GetNomination(QueryGetNominationRequest) returns (QueryGetNominationResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/nomination/{id}";
+  }
+
+  // ListNominations queries all nominations for the current season.
+  rpc ListNominations(QueryListNominationsRequest) returns (QueryListNominationsResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/nominations";
+  }
+
+  // ListNominationsByCreator queries nominations by a specific creator.
+  rpc ListNominationsByCreator(QueryListNominationsByCreatorRequest) returns (QueryListNominationsByCreatorResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/nominations_by_creator/{creator}";
+  }
+
+  // ListNominationStakes queries all stakes for a specific nomination.
+  rpc ListNominationStakes(QueryListNominationStakesRequest) returns (QueryListNominationStakesResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/nomination_stakes/{nomination_id}";
+  }
+
+  // ListRetroRewardHistory queries retroactive reward records for a given season.
+  rpc ListRetroRewardHistory(QueryListRetroRewardHistoryRequest) returns (QueryListRetroRewardHistoryResponse) {
+    option (google.api.http).get = "/sparkdream/season/v1/retro_reward_history/{season}";
   }
 }
 
@@ -1060,4 +1086,65 @@ message QueryAvailableQuestsResponse {
   string name = 2;
   uint64 xp_reward = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// ============================================================================
+// Nomination / Retroactive Public Goods Funding Queries
+// ============================================================================
+
+// QueryGetNominationRequest defines the request for GetNomination.
+message QueryGetNominationRequest {
+  uint64 id = 1;
+}
+
+// QueryGetNominationResponse defines the response for GetNomination.
+message QueryGetNominationResponse {
+  Nomination nomination = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryListNominationsRequest defines the request for ListNominations.
+message QueryListNominationsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryListNominationsResponse defines the response for ListNominations.
+message QueryListNominationsResponse {
+  repeated Nomination nominations = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryListNominationsByCreatorRequest defines the request for ListNominationsByCreator.
+message QueryListNominationsByCreatorRequest {
+  string creator = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryListNominationsByCreatorResponse defines the response for ListNominationsByCreator.
+message QueryListNominationsByCreatorResponse {
+  repeated Nomination nominations = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryListNominationStakesRequest defines the request for ListNominationStakes.
+message QueryListNominationStakesRequest {
+  uint64 nomination_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryListNominationStakesResponse defines the response for ListNominationStakes.
+message QueryListNominationStakesResponse {
+  repeated NominationStake stakes = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryListRetroRewardHistoryRequest defines the request for ListRetroRewardHistory.
+message QueryListRetroRewardHistoryRequest {
+  uint64 season = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryListRetroRewardHistoryResponse defines the response for ListRetroRewardHistory.
+message QueryListRetroRewardHistoryResponse {
+  repeated RetroRewardRecord records = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

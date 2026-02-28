@@ -9,6 +9,7 @@ import (
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func TestQueryFlaggedContent(t *testing.T) {
@@ -32,7 +33,7 @@ func TestQueryFlaggedContent(t *testing.T) {
 				flag := types.CollectionFlag{
 					TargetId:      collID,
 					TargetType:    targetType,
-					FlagRecords:   []types.FlagRecord{{Flagger: f.member, Reason: types.ModerationReason_MODERATION_REASON_SPAM, Weight: math.NewInt(10)}},
+					FlagRecords:   []commontypes.FlagRecord{{Flagger: f.member, Reason: commontypes.ModerationReason_MODERATION_REASON_SPAM, Weight: math.NewInt(10)}},
 					TotalWeight:   math.NewInt(10),
 					FirstFlagAt:   1,
 					LastFlagAt:    1,

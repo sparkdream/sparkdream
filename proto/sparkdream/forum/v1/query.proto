@@ -6,6 +6,8 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/common/v1/reserved_tag.proto";
+import "sparkdream/common/v1/tag.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
 import "sparkdream/forum/v1/bounty.proto";
 import "sparkdream/forum/v1/category.proto";
@@ -18,9 +20,7 @@ import "sparkdream/forum/v1/member_warning.proto";
 import "sparkdream/forum/v1/params.proto";
 import "sparkdream/forum/v1/post.proto";
 import "sparkdream/forum/v1/post_flag.proto";
-import "sparkdream/forum/v1/reserved_tag.proto";
 import "sparkdream/forum/v1/sentinel_activity.proto";
-import "sparkdream/forum/v1/tag.proto";
 import "sparkdream/forum/v1/tag_budget.proto";
 import "sparkdream/forum/v1/tag_budget_award.proto";
 import "sparkdream/forum/v1/tag_report.proto";
@@ -31,6 +31,7 @@ import "sparkdream/forum/v1/thread_metadata.proto";
 import "sparkdream/forum/v1/thread_move_record.proto";
 import "sparkdream/forum/v1/user_rate_limit.proto";
 import "sparkdream/forum/v1/user_reaction_limit.proto";
+import "sparkdream/forum/v1/types.proto";
 
 option go_package = "sparkdream/x/forum/types";
 
@@ -435,6 +436,21 @@ service Query {
   rpc GovActionAppeals(QueryGovActionAppealsRequest) returns (QueryGovActionAppealsResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/gov_action_appeals";
   }
+
+  // AnonymousPostMeta returns the anonymous metadata for a post.
+  rpc AnonymousPostMeta(QueryAnonymousPostMetaRequest) returns (QueryAnonymousPostMetaResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/anonymous_post_meta/{post_id}";
+  }
+
+  // AnonymousReplyMeta returns the anonymous metadata for a reply.
+  rpc AnonymousReplyMeta(QueryAnonymousReplyMetaRequest) returns (QueryAnonymousReplyMetaResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/anonymous_reply_meta/{post_id}";
+  }
+
+  // IsNullifierUsed checks whether a nullifier has been used.
+  rpc IsNullifierUsed(QueryIsNullifierUsedRequest) returns (QueryIsNullifierUsedResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/is_nullifier_used/{nullifier_hex}/{domain}/{scope}";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -498,7 +514,7 @@ message QueryGetTagRequest {
 
 // QueryGetTagResponse defines the QueryGetTagResponse message.
 message QueryGetTagResponse {
-  Tag tag = 1 [(gogoproto.nullable) = false];
+  sparkdream.common.v1.Tag tag = 1 [(gogoproto.nullable) = false];
 }
 
 // QueryAllTagRequest defines the QueryAllTagRequest message.
@@ -508,7 +524,7 @@ message QueryAllTagRequest {
 
 // QueryAllTagResponse defines the QueryAllTagResponse message.
 message QueryAllTagResponse {
-  repeated Tag tag = 1 [(gogoproto.nullable) = false];
+  repeated sparkdream.common.v1.Tag tag = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
@@ -519,7 +535,7 @@ message QueryGetReservedTagRequest {
 
 // QueryGetReservedTagResponse defines the QueryGetReservedTagResponse message.
 message QueryGetReservedTagResponse {
-  ReservedTag reserved_tag = 1 [(gogoproto.nullable) = false];
+  sparkdream.common.v1.ReservedTag reserved_tag = 1 [(gogoproto.nullable) = false];
 }
 
 // QueryAllReservedTagRequest defines the QueryAllReservedTagRequest message.
@@ -529,7 +545,7 @@ message QueryAllReservedTagRequest {
 
 // QueryAllReservedTagResponse defines the QueryAllReservedTagResponse message.
 message QueryAllReservedTagResponse {
-  repeated ReservedTag reserved_tag = 1 [(gogoproto.nullable) = false];
+  repeated sparkdream.common.v1.ReservedTag reserved_tag = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
@@ -1348,4 +1364,36 @@ message QueryGovActionAppealsResponse {
   uint64 action_type = 2;
   uint64 status = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryAnonymousPostMetaRequest defines the request for AnonymousPostMeta.
+message QueryAnonymousPostMetaRequest {
+  uint64 post_id = 1;
+}
+
+// QueryAnonymousPostMetaResponse defines the response for AnonymousPostMeta.
+message QueryAnonymousPostMetaResponse {
+  AnonymousPostMetadata metadata = 1;
+}
+
+// QueryAnonymousReplyMetaRequest defines the request for AnonymousReplyMeta.
+message QueryAnonymousReplyMetaRequest {
+  uint64 post_id = 1;
+}
+
+// QueryAnonymousReplyMetaResponse defines the response for AnonymousReplyMeta.
+message QueryAnonymousReplyMetaResponse {
+  AnonymousPostMetadata metadata = 1;
+}
+
+// QueryIsNullifierUsedRequest defines the request for IsNullifierUsed.
+message QueryIsNullifierUsedRequest {
+  string nullifier_hex = 1;
+  uint64 domain = 2;
+  uint64 scope = 3;
+}
+
+// QueryIsNullifierUsedResponse defines the response for IsNullifierUsed.
+message QueryIsNullifierUsedResponse {
+  bool used = 1;
 }

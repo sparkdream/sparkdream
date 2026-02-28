@@ -63,6 +63,18 @@ var (
 	DefaultMaxArchivedTitles            uint32 = 200
 	DefaultInviteCleanupInterval        uint32 = 100
 	DefaultInviteCleanupBatchSize       uint32 = 50
+
+	// Nomination / Retroactive Public Goods Funding defaults
+	DefaultNominationWindowEpochs             uint64 = 5
+	DefaultMaxNominationsPerMember            uint64 = 3
+	DefaultRetroRewardMaxRecipients           uint64 = 20
+	DefaultRetroRewardBudgetPerSeason                = math.LegacyMustNewDecFromStr("50000")
+	DefaultRetroRewardMinConviction                  = math.LegacyMustNewDecFromStr("50")
+	DefaultNominationConvictionHalfLifeEpochs uint64 = 3
+	DefaultNominationRationaleMaxLength       uint32 = 500
+	DefaultNominationMinTrustLevel            uint32 = 2
+	DefaultNominationStakeMinTrustLevel       uint32 = 1
+	DefaultNominationMinStake                        = math.LegacyMustNewDecFromStr("10")
 )
 
 // NewParams creates a new Params instance.
@@ -121,8 +133,18 @@ func NewParams() Params {
 		DisplayNameAppealPeriodBlocks:   DefaultDisplayNameAppealPeriod,
 		MaxDisplayableTitles:            DefaultMaxDisplayableTitles,
 		MaxArchivedTitles:               DefaultMaxArchivedTitles,
-		InviteCleanupIntervalBlocks:     DefaultInviteCleanupInterval,
-		InviteCleanupBatchSize:          DefaultInviteCleanupBatchSize,
+		InviteCleanupIntervalBlocks:              DefaultInviteCleanupInterval,
+		InviteCleanupBatchSize:                   DefaultInviteCleanupBatchSize,
+		NominationWindowEpochs:                   DefaultNominationWindowEpochs,
+		MaxNominationsPerMember:                  DefaultMaxNominationsPerMember,
+		RetroRewardMaxRecipients:                 DefaultRetroRewardMaxRecipients,
+		RetroRewardBudgetPerSeason:               DefaultRetroRewardBudgetPerSeason,
+		RetroRewardMinConviction:                 DefaultRetroRewardMinConviction,
+		NominationConvictionHalfLifeEpochs:       DefaultNominationConvictionHalfLifeEpochs,
+		NominationRationaleMaxLength:             DefaultNominationRationaleMaxLength,
+		NominationMinTrustLevel:                  DefaultNominationMinTrustLevel,
+		NominationStakeMinTrustLevel:             DefaultNominationStakeMinTrustLevel,
+		NominationMinStake:                       DefaultNominationMinStake,
 	}
 }
 
@@ -150,6 +172,27 @@ func (p Params) Validate() error {
 	}
 	if p.UsernameMinLength > p.UsernameMaxLength {
 		return ErrInvalidSigner
+	}
+	if p.NominationWindowEpochs == 0 {
+		return fmt.Errorf("nomination_window_epochs must be positive")
+	}
+	if p.MaxNominationsPerMember == 0 {
+		return fmt.Errorf("max_nominations_per_member must be positive")
+	}
+	if p.RetroRewardMaxRecipients == 0 {
+		return fmt.Errorf("retro_reward_max_recipients must be positive")
+	}
+	if p.RetroRewardBudgetPerSeason.IsNegative() {
+		return fmt.Errorf("retro_reward_budget_per_season must be non-negative")
+	}
+	if p.RetroRewardMinConviction.IsNegative() {
+		return fmt.Errorf("retro_reward_min_conviction must be non-negative")
+	}
+	if p.NominationConvictionHalfLifeEpochs == 0 {
+		return fmt.Errorf("nomination_conviction_half_life_epochs must be positive")
+	}
+	if p.NominationMinStake.IsNegative() {
+		return fmt.Errorf("nomination_min_stake must be non-negative")
 	}
 	return nil
 }
@@ -201,8 +244,18 @@ func DefaultSeasonOperationalParams() SeasonOperationalParams {
 		InviteCleanupBatchSize:          DefaultInviteCleanupBatchSize,
 		MaxObjectiveDescriptionLength:   DefaultMaxObjectiveDescLength,
 		DisplayNameAppealStakeDream:     DefaultDisplayNameAppealStake,
-		DisplayNameAppealPeriodBlocks:   DefaultDisplayNameAppealPeriod,
-		MaxArchivedTitles:               DefaultMaxArchivedTitles,
+		DisplayNameAppealPeriodBlocks:          DefaultDisplayNameAppealPeriod,
+		MaxArchivedTitles:                      DefaultMaxArchivedTitles,
+		NominationWindowEpochs:                 DefaultNominationWindowEpochs,
+		MaxNominationsPerMember:                DefaultMaxNominationsPerMember,
+		RetroRewardMaxRecipients:               DefaultRetroRewardMaxRecipients,
+		RetroRewardBudgetPerSeason:             DefaultRetroRewardBudgetPerSeason,
+		RetroRewardMinConviction:               DefaultRetroRewardMinConviction,
+		NominationConvictionHalfLifeEpochs:     DefaultNominationConvictionHalfLifeEpochs,
+		NominationRationaleMaxLength:           DefaultNominationRationaleMaxLength,
+		NominationMinTrustLevel:                DefaultNominationMinTrustLevel,
+		NominationStakeMinTrustLevel:           DefaultNominationStakeMinTrustLevel,
+		NominationMinStake:                     DefaultNominationMinStake,
 	}
 }
 
@@ -225,6 +278,27 @@ func (op SeasonOperationalParams) Validate() error {
 	}
 	if op.MinGuildMembers < 1 {
 		return fmt.Errorf("min_guild_members must be >= 1: %d", op.MinGuildMembers)
+	}
+	if op.NominationWindowEpochs == 0 {
+		return fmt.Errorf("nomination_window_epochs must be positive")
+	}
+	if op.MaxNominationsPerMember == 0 {
+		return fmt.Errorf("max_nominations_per_member must be positive")
+	}
+	if op.RetroRewardMaxRecipients == 0 {
+		return fmt.Errorf("retro_reward_max_recipients must be positive")
+	}
+	if op.RetroRewardBudgetPerSeason.IsNegative() {
+		return fmt.Errorf("retro_reward_budget_per_season must be non-negative")
+	}
+	if op.RetroRewardMinConviction.IsNegative() {
+		return fmt.Errorf("retro_reward_min_conviction must be non-negative")
+	}
+	if op.NominationConvictionHalfLifeEpochs == 0 {
+		return fmt.Errorf("nomination_conviction_half_life_epochs must be positive")
+	}
+	if op.NominationMinStake.IsNegative() {
+		return fmt.Errorf("nomination_min_stake must be non-negative")
 	}
 	return nil
 }
@@ -280,6 +354,16 @@ func (p Params) ApplyOperationalParams(op SeasonOperationalParams) Params {
 	p.DisplayNameAppealStakeDream = op.DisplayNameAppealStakeDream
 	p.DisplayNameAppealPeriodBlocks = op.DisplayNameAppealPeriodBlocks
 	p.MaxArchivedTitles = op.MaxArchivedTitles
+	p.NominationWindowEpochs = op.NominationWindowEpochs
+	p.MaxNominationsPerMember = op.MaxNominationsPerMember
+	p.RetroRewardMaxRecipients = op.RetroRewardMaxRecipients
+	p.RetroRewardBudgetPerSeason = op.RetroRewardBudgetPerSeason
+	p.RetroRewardMinConviction = op.RetroRewardMinConviction
+	p.NominationConvictionHalfLifeEpochs = op.NominationConvictionHalfLifeEpochs
+	p.NominationRationaleMaxLength = op.NominationRationaleMaxLength
+	p.NominationMinTrustLevel = op.NominationMinTrustLevel
+	p.NominationStakeMinTrustLevel = op.NominationStakeMinTrustLevel
+	p.NominationMinStake = op.NominationMinStake
 	return p
 }
 
@@ -329,8 +413,18 @@ func (p Params) ExtractOperationalParams() SeasonOperationalParams {
 		InviteCleanupIntervalBlocks:     p.InviteCleanupIntervalBlocks,
 		InviteCleanupBatchSize:          p.InviteCleanupBatchSize,
 		MaxObjectiveDescriptionLength:   p.MaxObjectiveDescriptionLength,
-		DisplayNameAppealStakeDream:     p.DisplayNameAppealStakeDream,
-		DisplayNameAppealPeriodBlocks:   p.DisplayNameAppealPeriodBlocks,
-		MaxArchivedTitles:               p.MaxArchivedTitles,
+		DisplayNameAppealStakeDream:            p.DisplayNameAppealStakeDream,
+		DisplayNameAppealPeriodBlocks:          p.DisplayNameAppealPeriodBlocks,
+		MaxArchivedTitles:                      p.MaxArchivedTitles,
+		NominationWindowEpochs:                 p.NominationWindowEpochs,
+		MaxNominationsPerMember:                p.MaxNominationsPerMember,
+		RetroRewardMaxRecipients:               p.RetroRewardMaxRecipients,
+		RetroRewardBudgetPerSeason:             p.RetroRewardBudgetPerSeason,
+		RetroRewardMinConviction:               p.RetroRewardMinConviction,
+		NominationConvictionHalfLifeEpochs:     p.NominationConvictionHalfLifeEpochs,
+		NominationRationaleMaxLength:           p.NominationRationaleMaxLength,
+		NominationMinTrustLevel:                p.NominationMinTrustLevel,
+		NominationStakeMinTrustLevel:           p.NominationStakeMinTrustLevel,
+		NominationMinStake:                     p.NominationMinStake,
 	}
 }

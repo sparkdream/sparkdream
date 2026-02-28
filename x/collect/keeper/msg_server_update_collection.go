@@ -77,6 +77,16 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 		if uint32(len(tag)) > params.MaxTagLength {
 			return nil, types.ErrTagTooLong
 		}
+		// Validate against shared tag registry if available
+		if k.forumKeeper != nil {
+			exists, err := k.forumKeeper.TagExists(ctx, tag)
+			if err != nil {
+				return nil, errorsmod.Wrap(err, "failed to check tag registry")
+			}
+			if !exists {
+				return nil, errorsmod.Wrapf(types.ErrTagTooLong, "tag %q not found in registry", tag)
+			}
+		}
 	}
 
 	member := k.isMember(ctx, msg.Creator)

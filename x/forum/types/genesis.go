@@ -1,12 +1,16 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+
+	commontypes "sparkdream/x/common/types"
+)
 
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params:  DefaultParams(),
-		PostMap: []Post{}, CategoryMap: []Category{}, TagMap: []Tag{}, ReservedTagMap: []ReservedTag{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, TagBudgetList: []TagBudget{}, TagBudgetAwardList: []TagBudgetAward{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchiveMetadataMap: []ArchiveMetadata{}, TagReportMap: []TagReport{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
+		PostMap: []Post{}, CategoryMap: []Category{}, TagMap: []commontypes.Tag{}, ReservedTagMap: []commontypes.ReservedTag{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, TagBudgetList: []TagBudget{}, TagBudgetAwardList: []TagBudgetAward{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchiveMetadataMap: []ArchiveMetadata{}, TagReportMap: []TagReport{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
 }
 
 // Validate performs basic genesis state validation returning an error upon any
@@ -156,9 +160,10 @@ func (gs GenesisState) Validate() error {
 	threadFollowIndexMap := make(map[string]struct{})
 
 	for _, elem := range gs.ThreadFollowMap {
-		index := fmt.Sprint(elem.Follower)
+		// Unique key is (Follower, ThreadId), not just Follower
+		index := fmt.Sprintf("%s/%d", elem.Follower, elem.ThreadId)
 		if _, ok := threadFollowIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for threadFollow")
+			return fmt.Errorf("duplicated threadFollow: follower=%s thread=%d", elem.Follower, elem.ThreadId)
 		}
 		threadFollowIndexMap[index] = struct{}{}
 	}
@@ -237,6 +242,88 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("govActionAppeal id should be lower or equal than the last id")
 		}
 		govActionAppealIdMap[elem.Id] = true
+	}
+
+	// --- Enhanced validation: cross-references and status checks ---
+
+	// Build lookup maps for cross-referencing
+	postIDs := make(map[uint64]bool, len(gs.PostMap))
+	categoryIDs := make(map[uint64]bool, len(gs.CategoryMap))
+
+	for _, post := range gs.PostMap {
+		postIDs[post.PostId] = true
+	}
+	for _, cat := range gs.CategoryMap {
+		categoryIDs[cat.CategoryId] = true
+	}
+
+	// Post status must not be UNSPECIFIED
+	for _, post := range gs.PostMap {
+		if post.Status == PostStatus_POST_STATUS_UNSPECIFIED {
+			return fmt.Errorf("post %d has UNSPECIFIED status", post.PostId)
+		}
+		// Category reference must exist
+		if post.CategoryId != 0 {
+			if !categoryIDs[post.CategoryId] {
+				return fmt.Errorf("post %d references non-existent category %d", post.PostId, post.CategoryId)
+			}
+		}
+		// Parent reference must exist (for replies)
+		if post.ParentId != 0 {
+			if !postIDs[post.ParentId] {
+				return fmt.Errorf("post %d references non-existent parent %d", post.PostId, post.ParentId)
+			}
+		}
+		// Root reference must exist (for replies)
+		if post.RootId != 0 {
+			if !postIDs[post.RootId] {
+				return fmt.Errorf("post %d references non-existent root %d", post.PostId, post.RootId)
+			}
+		}
+	}
+
+	// Bounty thread reference must exist
+	for _, bounty := range gs.BountyList {
+		if bounty.Status == BountyStatus_BOUNTY_STATUS_ACTIVE && bounty.ThreadId != 0 {
+			if !postIDs[bounty.ThreadId] {
+				return fmt.Errorf("bounty %d references non-existent thread %d", bounty.Id, bounty.ThreadId)
+			}
+		}
+	}
+
+	// Hide records must reference existing posts
+	for _, hr := range gs.HideRecordMap {
+		if !postIDs[hr.PostId] {
+			return fmt.Errorf("hide record references non-existent post %d", hr.PostId)
+		}
+	}
+
+	// Thread lock records must reference existing root posts
+	for _, tlr := range gs.ThreadLockRecordMap {
+		if !postIDs[tlr.RootId] {
+			return fmt.Errorf("thread lock record references non-existent root post %d", tlr.RootId)
+		}
+	}
+
+	// Thread move records must reference existing root posts
+	for _, tmr := range gs.ThreadMoveRecordMap {
+		if !postIDs[tmr.RootId] {
+			return fmt.Errorf("thread move record references non-existent root post %d", tmr.RootId)
+		}
+	}
+
+	// Post flags must reference existing posts
+	for _, pf := range gs.PostFlagMap {
+		if !postIDs[pf.PostId] {
+			return fmt.Errorf("post flag references non-existent post %d", pf.PostId)
+		}
+	}
+
+	// Sentinel bond status must not be UNSPECIFIED for active sentinels
+	for _, sa := range gs.SentinelActivityMap {
+		if sa.BondStatus == SentinelBondStatus_SENTINEL_BOND_STATUS_UNSPECIFIED && sa.CurrentBond != "" && sa.CurrentBond != "0" {
+			return fmt.Errorf("sentinel %s has UNSPECIFIED bond status with non-zero bond", sa.Address)
+		}
 	}
 
 	return gs.Params.Validate()

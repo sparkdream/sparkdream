@@ -83,6 +83,36 @@ extract_event_value() {
     echo "$TX_RESULT" | jq -r ".events[] | select(.type==\"$EVENT_TYPE\") | .attributes[] | select(.key==\"$ATTR_KEY\") | .value" | tr -d '"'
 }
 
+# Helper: Fix LegacyDec fields in operational params JSON.
+# The query output shows LegacyDec values as their internal integer representation
+# (e.g., "1000000000000000000" for 1.0). When sent back in a message, the handler
+# parses these as decimal values, causing double-encoding.
+# This function converts the 3 LegacyDec operational params fields back to proper
+# decimal format by dividing by 10^18.
+fix_legacy_dec_fields() {
+    local json_input="$1"
+    echo "$json_input" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+DEC_FIELDS = ['retro_reward_budget_per_season', 'retro_reward_min_conviction', 'nomination_min_stake']
+for f in DEC_FIELDS:
+    if f in d and d[f] is not None:
+        s = str(d[f])
+        # Remove any existing decimal point for uniform handling
+        s = s.replace('.', '')
+        # Pad to at least 19 chars (1 integer digit + 18 decimal)
+        if len(s) <= 18:
+            s = s.zfill(19)
+        # Insert decimal point 18 positions from the right
+        int_part = s[:-18]
+        dec_part = s[-18:]
+        # Strip leading zeros from integer part (but keep at least '0')
+        int_part = int_part.lstrip('0') or '0'
+        d[f] = int_part + '.' + dec_part
+json.dump(d, sys.stdout)
+"
+}
+
 # Helper: extract group proposal ID from tx hash
 get_group_proposal_id() {
     local tx_hash=$1
@@ -356,8 +386,22 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       max_objective_description_length,
       display_name_appeal_stake_dream,
       display_name_appeal_period_blocks,
-      max_archived_titles
+      max_archived_titles,
+      nomination_window_epochs,
+      max_nominations_per_member,
+      retro_reward_max_recipients,
+      retro_reward_budget_per_season,
+      retro_reward_min_conviction,
+      nomination_conviction_half_life_epochs,
+      nomination_rationale_max_length,
+      nomination_min_trust_level,
+      nomination_stake_min_trust_level,
+      nomination_min_stake
     }')
+
+    # Fix LegacyDec fields: query output uses internal integer format (e.g., 10^18 for 1.0)
+    # which would be double-encoded if sent back as-is in a message
+    OP_PARAMS=$(fix_legacy_dec_fields "$OP_PARAMS")
 
     # Modify test fields
     NEW_XP_VOTE="10"
@@ -544,8 +588,21 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       max_objective_description_length,
       display_name_appeal_stake_dream,
       display_name_appeal_period_blocks,
-      max_archived_titles
+      max_archived_titles,
+      nomination_window_epochs,
+      max_nominations_per_member,
+      retro_reward_max_recipients,
+      retro_reward_budget_per_season,
+      retro_reward_min_conviction,
+      nomination_conviction_half_life_epochs,
+      nomination_rationale_max_length,
+      nomination_min_trust_level,
+      nomination_stake_min_trust_level,
+      nomination_min_stake
     }')
+
+    # Fix LegacyDec fields before sending back
+    RESET_OP_PARAMS=$(fix_legacy_dec_fields "$RESET_OP_PARAMS")
 
     jq -n \
       --arg policy "$COUNCIL_POLICY" \

@@ -4,6 +4,8 @@ package sparkdream.forum.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/common/v1/reserved_tag.proto";
+import "sparkdream/common/v1/tag.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
 import "sparkdream/forum/v1/bounty.proto";
 import "sparkdream/forum/v1/category.proto";
@@ -15,10 +17,9 @@ import "sparkdream/forum/v1/member_salvation_status.proto";
 import "sparkdream/forum/v1/member_warning.proto";
 import "sparkdream/forum/v1/params.proto";
 import "sparkdream/forum/v1/post.proto";
+import "sparkdream/forum/v1/types.proto";
 import "sparkdream/forum/v1/post_flag.proto";
-import "sparkdream/forum/v1/reserved_tag.proto";
 import "sparkdream/forum/v1/sentinel_activity.proto";
-import "sparkdream/forum/v1/tag.proto";
 import "sparkdream/forum/v1/tag_budget.proto";
 import "sparkdream/forum/v1/tag_budget_award.proto";
 import "sparkdream/forum/v1/tag_report.proto";
@@ -41,8 +42,8 @@ message GenesisState {
   ];
   repeated Post post_map = 2 [(gogoproto.nullable) = false];
   repeated Category category_map = 3 [(gogoproto.nullable) = false];
-  repeated Tag tag_map = 4 [(gogoproto.nullable) = false];
-  repeated ReservedTag reserved_tag_map = 5 [(gogoproto.nullable) = false];
+  repeated sparkdream.common.v1.Tag tag_map = 4 [(gogoproto.nullable) = false];
+  repeated sparkdream.common.v1.ReservedTag reserved_tag_map = 5 [(gogoproto.nullable) = false];
   repeated UserRateLimit user_rate_limit_map = 6 [(gogoproto.nullable) = false];
   repeated UserReactionLimit user_reaction_limit_map = 7 [(gogoproto.nullable) = false];
   repeated SentinelActivity sentinel_activity_map = 8 [(gogoproto.nullable) = false];
@@ -68,4 +69,9 @@ message GenesisState {
   uint64 member_warning_count = 29;
   repeated GovActionAppeal gov_action_appeal_list = 30 [(gogoproto.nullable) = false];
   uint64 gov_action_appeal_count = 31;
+
+  // Anonymous posting state
+  repeated AnonymousPostMetadata anonymous_post_meta = 32 [(gogoproto.nullable) = false];
+  repeated AnonymousPostMetadata anonymous_reply_meta = 33 [(gogoproto.nullable) = false];
+  repeated GenesisNullifierEntry nullifiers = 34 [(gogoproto.nullable) = false];
 }

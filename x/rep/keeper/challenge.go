@@ -496,12 +496,12 @@ func (k Keeper) VerifyAnonymousEligibility(ctx context.Context, proof []byte, nu
 		return false, fmt.Errorf("empty proof")
 	}
 
-	if k.voteKeeper == nil {
+	if k.late.voteKeeper == nil {
 		// Dev mode: x/vote not available, accept any non-empty proof
 		return true, nil
 	}
 
-	if err := k.voteKeeper.VerifyMembershipProof(ctx, proof, nullifier); err != nil {
+	if err := k.late.voteKeeper.VerifyMembershipProof(ctx, proof, nullifier); err != nil {
 		return false, err
 	}
 	return true, nil

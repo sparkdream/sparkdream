@@ -30,6 +30,7 @@ func setupMsgServerForDelete(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
 	bankKeeper := &mockBankKeeper{}
+	repKeeper := &mockRepKeeper{}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -38,10 +39,13 @@ func setupMsgServerForDelete(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 		authority,
 		bankKeeper,
 		nil, // commonsKeeper (optional)
+		repKeeper,
 	)
 
-	// Initialize params
-	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
+	// Initialize params with high rate limits for testing
+	params := types.DefaultParams()
+	params.MaxPostsPerDay = 100
+	if err := k.Params.Set(ctx, params); err != nil {
 		t.Fatalf("failed to set params: %v", err)
 	}
 
@@ -137,9 +141,12 @@ func TestDeletePost(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 
-				// Verify post was actually deleted
-				_, found := k.GetPost(ctx, tt.msg.Id)
-				require.False(t, found, "post should be deleted")
+				// Verify post was tombstoned (still exists but with DELETED status)
+				post, found := k.GetPost(ctx, tt.msg.Id)
+				require.True(t, found, "tombstoned post should still exist in store")
+				require.Equal(t, types.PostStatus_POST_STATUS_DELETED, post.Status)
+				require.Empty(t, post.Title, "title should be cleared on tombstone")
+				require.Empty(t, post.Body, "body should be cleared on tombstone")
 			}
 		})
 	}
@@ -190,9 +197,10 @@ func TestDeletePostOwnership(t *testing.T) {
 	_, err = msgServer.DeletePost(ctx, deleteMsg2)
 	require.NoError(t, err)
 
-	// Verify deletion
-	_, found = k.GetPost(ctx, resp2.Id)
-	require.False(t, found)
+	// Verify tombstone
+	deletedPost, found := k.GetPost(ctx, resp2.Id)
+	require.True(t, found, "tombstoned post should still exist")
+	require.Equal(t, types.PostStatus_POST_STATUS_DELETED, deletedPost.Status)
 
 	// Creator 1's post should still exist
 	post1, found := k.GetPost(ctx, resp1.Id)
@@ -223,8 +231,8 @@ func TestDeleteAlreadyDeletedPost(t *testing.T) {
 	_, err = msgServer.DeletePost(ctx, deleteMsg)
 	require.NoError(t, err)
 
-	// Try to delete again
+	// Try to delete again — should fail because post is already tombstoned
 	_, err = msgServer.DeletePost(ctx, deleteMsg)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "doesn't exist")
+	require.Contains(t, err.Error(), "post is already deleted")
 }

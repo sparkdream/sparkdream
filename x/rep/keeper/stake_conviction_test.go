@@ -272,7 +272,7 @@ func TestCanCompleteInitiative(t *testing.T) {
 		require.NoError(t, err)
 		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
 		initiative.RequiredConviction = keeper.PtrDec(math.LegacyNewDec(1000))
-		initiative.CurrentConviction = keeper.PtrDec(math.LegacyNewDec(500))   // less than required
+		initiative.CurrentConviction = keeper.PtrDec(math.LegacyNewDec(500))  // less than required
 		initiative.ExternalConviction = keeper.PtrDec(math.LegacyNewDec(500)) // enough external
 		err = k.Initiative.Set(ctx, initID, initiative)
 		require.NoError(t, err)
@@ -294,7 +294,7 @@ func TestCanCompleteInitiative(t *testing.T) {
 		require.NoError(t, err)
 		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
 		initiative.RequiredConviction = keeper.PtrDec(math.LegacyNewDec(1000))
-		initiative.CurrentConviction = keeper.PtrDec(math.LegacyNewDec(1500))  // above required
+		initiative.CurrentConviction = keeper.PtrDec(math.LegacyNewDec(1500)) // above required
 		initiative.ExternalConviction = keeper.PtrDec(math.LegacyNewDec(400)) // below 50% of 1000 = 500
 		err = k.Initiative.Set(ctx, initID, initiative)
 		require.NoError(t, err)
@@ -391,7 +391,7 @@ func TestCanCompleteInitiative(t *testing.T) {
 		require.NoError(t, err)
 		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
 		initiative.RequiredConviction = keeper.PtrDec(math.LegacyNewDec(100))
-		initiative.CurrentConviction = keeper.PtrDec(math.LegacyNewDec(100))  // exactly at threshold
+		initiative.CurrentConviction = keeper.PtrDec(math.LegacyNewDec(100)) // exactly at threshold
 		initiative.ExternalConviction = keeper.PtrDec(math.LegacyNewDec(50)) // exactly 50%
 		err = k.Initiative.Set(ctx, initID, initiative)
 		require.NoError(t, err)

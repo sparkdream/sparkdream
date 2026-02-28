@@ -63,6 +63,12 @@ func (k Keeper) GetName(ctx context.Context, name string) (types.NameRecord, boo
 	return record, true
 }
 
+// IsNameAvailable returns true if the given name is not currently registered.
+func (k Keeper) IsNameAvailable(ctx context.Context, name string) bool {
+	_, err := k.Names.Get(ctx, name)
+	return err != nil // not found means available
+}
+
 func (k Keeper) SetName(ctx context.Context, record types.NameRecord) error {
 	return k.Names.Set(ctx, record.Name, record)
 }

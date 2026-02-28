@@ -127,6 +127,27 @@ func DefaultParams() Params {
 		// Gift rate limiting - PRODUCTION values
 		GiftCooldownBlocks:     14400,                   // 1 day (14400 blocks * 6s = 86400s = 1 day)
 		MaxGiftsPerSenderEpoch: math.NewInt(2000000000), // 2000 DREAM per epoch total (2000 * 1e6 micro-DREAM)
+
+		// Content conviction staking
+		ContentConvictionHalfLifeEpochs: 14,                             // 14 epochs = ~2 weeks (slower than initiative conviction)
+		MaxContentStakePerMember:        math.NewInt(10000000000),       // 10,000 DREAM per member per content item
+		MaxAuthorBondPerContent:         math.NewInt(1000000000),        // 1,000 DREAM max author bond per content item
+		AuthorBondSlashOnModeration:     true,                           // Slash author bonds when content is moderated
+
+		// Content challenge reward share (fraction of slashed bond minted to challenger)
+		ContentChallengeRewardShare: math.LegacyNewDecWithPrec(50, 2), // 50%
+
+		// Conviction propagation (fraction of linked content conviction propagated to initiative)
+		ConvictionPropagationRatio: math.LegacyNewDecWithPrec(10, 2), // 10%
+
+		// Tag anti-gaming
+		MaxTagsPerInitiative: 3, // Max 3 tags per initiative (prevents tag stuffing for rep/revenue inflation)
+
+		// Anti-gaming parameters
+		ReputationDecayRate:          math.LegacyNewDecWithPrec(5, 3),  // 0.5% per epoch (~47% retained over a 5-month season)
+		MaxConvictionSharePerMember:  math.LegacyNewDecWithPrec(33, 2), // 33% — no single member can contribute more than 1/3 of required conviction
+		InvitationStakeBurnRate:      math.LegacyNewDecWithPrec(10, 2), // 10% of invitation stake burned on acceptance
+		MaxReputationGainPerEpoch:    math.LegacyNewDec(50),            // Max 50 reputation per tag per epoch (prevents interim grinding)
 	}
 }
 
@@ -171,6 +192,61 @@ func (p Params) Validate() error {
 	}
 	if p.MaxGiftsPerSenderEpoch.IsNegative() {
 		return fmt.Errorf("max gifts per sender epoch cannot be negative: %s", p.MaxGiftsPerSenderEpoch)
+	}
+
+	// Content conviction staking validation
+	if p.ContentConvictionHalfLifeEpochs <= 0 {
+		return fmt.Errorf("content conviction half life epochs must be positive: %d", p.ContentConvictionHalfLifeEpochs)
+	}
+	if !p.MaxContentStakePerMember.IsPositive() {
+		return fmt.Errorf("max content stake per member must be positive: %s", p.MaxContentStakePerMember)
+	}
+	if !p.MaxAuthorBondPerContent.IsPositive() {
+		return fmt.Errorf("max author bond per content must be positive: %s", p.MaxAuthorBondPerContent)
+	}
+
+	// Content challenge reward share validation
+	if p.ContentChallengeRewardShare.IsNegative() {
+		return fmt.Errorf("content challenge reward share cannot be negative: %s", p.ContentChallengeRewardShare)
+	}
+	if p.ContentChallengeRewardShare.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("content challenge reward share cannot be greater than 1: %s", p.ContentChallengeRewardShare)
+	}
+
+	// Conviction propagation ratio validation
+	if p.ConvictionPropagationRatio.IsNegative() {
+		return fmt.Errorf("conviction propagation ratio cannot be negative: %s", p.ConvictionPropagationRatio)
+	}
+	if p.ConvictionPropagationRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("conviction propagation ratio cannot be greater than 1: %s", p.ConvictionPropagationRatio)
+	}
+
+	// Anti-gaming parameter validation
+	if p.ReputationDecayRate.IsNegative() {
+		return fmt.Errorf("reputation decay rate cannot be negative: %s", p.ReputationDecayRate)
+	}
+	if p.ReputationDecayRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("reputation decay rate cannot be greater than 1: %s", p.ReputationDecayRate)
+	}
+	if p.MaxConvictionSharePerMember.IsNegative() || p.MaxConvictionSharePerMember.IsZero() {
+		return fmt.Errorf("max conviction share per member must be positive: %s", p.MaxConvictionSharePerMember)
+	}
+	if p.MaxConvictionSharePerMember.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("max conviction share per member cannot be greater than 1: %s", p.MaxConvictionSharePerMember)
+	}
+	if p.InvitationStakeBurnRate.IsNegative() {
+		return fmt.Errorf("invitation stake burn rate cannot be negative: %s", p.InvitationStakeBurnRate)
+	}
+	if p.InvitationStakeBurnRate.GTE(math.LegacyOneDec()) {
+		return fmt.Errorf("invitation stake burn rate must be less than 1: %s", p.InvitationStakeBurnRate)
+	}
+	if p.MaxReputationGainPerEpoch.IsNegative() {
+		return fmt.Errorf("max reputation gain per epoch cannot be negative: %s", p.MaxReputationGainPerEpoch)
+	}
+
+	// Tag anti-gaming
+	if p.MaxTagsPerInitiative == 0 {
+		return fmt.Errorf("max tags per initiative must be positive")
 	}
 
 	return nil
@@ -232,6 +308,22 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		// Gift rate limiting
 		GiftCooldownBlocks:     14400,
 		MaxGiftsPerSenderEpoch: math.NewInt(2000000000), // 2000 DREAM
+		// Content conviction staking
+		ContentConvictionHalfLifeEpochs: 14,
+		MaxContentStakePerMember:        math.NewInt(10000000000), // 10,000 DREAM
+		MaxAuthorBondPerContent:         math.NewInt(1000000000),  // 1,000 DREAM
+		AuthorBondSlashOnModeration:     true,
+		// Content challenge reward share
+		ContentChallengeRewardShare: math.LegacyNewDecWithPrec(50, 2), // 50%
+		// Conviction propagation
+		ConvictionPropagationRatio: math.LegacyNewDecWithPrec(10, 2), // 10%
+		// Tag anti-gaming
+		MaxTagsPerInitiative: 3,
+		// Anti-gaming
+		ReputationDecayRate:         math.LegacyNewDecWithPrec(5, 3),  // 0.5% per epoch
+		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(33, 2), // 33%
+		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10%
+		MaxReputationGainPerEpoch:   math.LegacyNewDec(50),            // Max 50 per tag per epoch
 	}
 }
 
@@ -263,6 +355,56 @@ func (op RepOperationalParams) Validate() error {
 	}
 	if op.MaxGiftsPerSenderEpoch.IsNegative() {
 		return fmt.Errorf("max gifts per sender epoch cannot be negative: %s", op.MaxGiftsPerSenderEpoch)
+	}
+	// Content conviction staking validation
+	if op.ContentConvictionHalfLifeEpochs <= 0 {
+		return fmt.Errorf("content conviction half life epochs must be positive: %d", op.ContentConvictionHalfLifeEpochs)
+	}
+	if !op.MaxContentStakePerMember.IsPositive() {
+		return fmt.Errorf("max content stake per member must be positive: %s", op.MaxContentStakePerMember)
+	}
+	if !op.MaxAuthorBondPerContent.IsPositive() {
+		return fmt.Errorf("max author bond per content must be positive: %s", op.MaxAuthorBondPerContent)
+	}
+	// Content challenge reward share validation
+	if op.ContentChallengeRewardShare.IsNegative() {
+		return fmt.Errorf("content challenge reward share cannot be negative: %s", op.ContentChallengeRewardShare)
+	}
+	if op.ContentChallengeRewardShare.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("content challenge reward share cannot be greater than 1: %s", op.ContentChallengeRewardShare)
+	}
+	// Conviction propagation ratio validation
+	if op.ConvictionPropagationRatio.IsNegative() {
+		return fmt.Errorf("conviction propagation ratio cannot be negative: %s", op.ConvictionPropagationRatio)
+	}
+	if op.ConvictionPropagationRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("conviction propagation ratio cannot be greater than 1: %s", op.ConvictionPropagationRatio)
+	}
+	// Anti-gaming parameter validation
+	if op.ReputationDecayRate.IsNegative() {
+		return fmt.Errorf("reputation decay rate cannot be negative: %s", op.ReputationDecayRate)
+	}
+	if op.ReputationDecayRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("reputation decay rate cannot be greater than 1: %s", op.ReputationDecayRate)
+	}
+	if op.MaxConvictionSharePerMember.IsNegative() || op.MaxConvictionSharePerMember.IsZero() {
+		return fmt.Errorf("max conviction share per member must be positive: %s", op.MaxConvictionSharePerMember)
+	}
+	if op.MaxConvictionSharePerMember.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("max conviction share per member cannot be greater than 1: %s", op.MaxConvictionSharePerMember)
+	}
+	if op.InvitationStakeBurnRate.IsNegative() {
+		return fmt.Errorf("invitation stake burn rate cannot be negative: %s", op.InvitationStakeBurnRate)
+	}
+	if op.InvitationStakeBurnRate.GTE(math.LegacyOneDec()) {
+		return fmt.Errorf("invitation stake burn rate must be less than 1: %s", op.InvitationStakeBurnRate)
+	}
+	if op.MaxReputationGainPerEpoch.IsNegative() {
+		return fmt.Errorf("max reputation gain per epoch cannot be negative: %s", op.MaxReputationGainPerEpoch)
+	}
+	// Tag anti-gaming
+	if op.MaxTagsPerInitiative == 0 {
+		return fmt.Errorf("max tags per initiative must be positive")
 	}
 	return nil
 }
@@ -323,6 +465,22 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	// Gift rate limiting
 	p.GiftCooldownBlocks = op.GiftCooldownBlocks
 	p.MaxGiftsPerSenderEpoch = op.MaxGiftsPerSenderEpoch
+	// Content conviction staking
+	p.ContentConvictionHalfLifeEpochs = op.ContentConvictionHalfLifeEpochs
+	p.MaxContentStakePerMember = op.MaxContentStakePerMember
+	p.MaxAuthorBondPerContent = op.MaxAuthorBondPerContent
+	p.AuthorBondSlashOnModeration = op.AuthorBondSlashOnModeration
+	// Content challenge reward share
+	p.ContentChallengeRewardShare = op.ContentChallengeRewardShare
+	// Conviction propagation
+	p.ConvictionPropagationRatio = op.ConvictionPropagationRatio
+	// Tag anti-gaming
+	p.MaxTagsPerInitiative = op.MaxTagsPerInitiative
+	// Anti-gaming
+	p.ReputationDecayRate = op.ReputationDecayRate
+	p.MaxConvictionSharePerMember = op.MaxConvictionSharePerMember
+	p.InvitationStakeBurnRate = op.InvitationStakeBurnRate
+	p.MaxReputationGainPerEpoch = op.MaxReputationGainPerEpoch
 	return p
 }
 
@@ -382,5 +540,21 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		// Gift rate limiting
 		GiftCooldownBlocks:     p.GiftCooldownBlocks,
 		MaxGiftsPerSenderEpoch: p.MaxGiftsPerSenderEpoch,
+		// Content conviction staking
+		ContentConvictionHalfLifeEpochs: p.ContentConvictionHalfLifeEpochs,
+		MaxContentStakePerMember:        p.MaxContentStakePerMember,
+		MaxAuthorBondPerContent:         p.MaxAuthorBondPerContent,
+		AuthorBondSlashOnModeration:     p.AuthorBondSlashOnModeration,
+		// Content challenge reward share
+		ContentChallengeRewardShare: p.ContentChallengeRewardShare,
+		// Conviction propagation
+		ConvictionPropagationRatio: p.ConvictionPropagationRatio,
+		// Tag anti-gaming
+		MaxTagsPerInitiative: p.MaxTagsPerInitiative,
+		// Anti-gaming
+		ReputationDecayRate:         p.ReputationDecayRate,
+		MaxConvictionSharePerMember: p.MaxConvictionSharePerMember,
+		InvitationStakeBurnRate:     p.InvitationStakeBurnRate,
+		MaxReputationGainPerEpoch:   p.MaxReputationGainPerEpoch,
 	}
 }

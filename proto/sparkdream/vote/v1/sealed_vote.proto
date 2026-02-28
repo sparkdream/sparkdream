@@ -5,13 +5,13 @@ option go_package = "sparkdream/x/vote/types";
 
 // SealedVote records a SEALED/PRIVATE mode vote with commit-reveal.
 message SealedVote {
-  string index = 1;               // Composite key: proposalId/nullifierHex
+  string index = 1; // Composite key: proposalId/nullifierHex
   uint64 proposal_id = 2;
   bytes nullifier = 3;
-  bytes vote_commitment = 4;      // hash(vote_option, salt)
+  bytes vote_commitment = 4; // hash(vote_option, salt)
   bytes proof = 5;
   int64 submitted_at = 6;
-  bytes encrypted_reveal = 7;     // TLE-encrypted reveal payload
+  bytes encrypted_reveal = 7; // TLE-encrypted reveal payload
 
   // Populated during reveal phase (auto or manual)
   uint32 revealed_option = 8;

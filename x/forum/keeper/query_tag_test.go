@@ -10,12 +10,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-func createNTag(keeper keeper.Keeper, ctx context.Context, n int) []types.Tag {
-	items := make([]types.Tag, n)
+func createNTag(keeper keeper.Keeper, ctx context.Context, n int) []commontypes.Tag {
+	items := make([]commontypes.Tag, n)
 	for i := range items {
 		items[i].Name = strconv.Itoa(i)
 		items[i].UsageCount = uint64(i)

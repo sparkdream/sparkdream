@@ -5,7 +5,7 @@ option go_package = "sparkdream/x/vote/types";
 
 // UsedProposalNullifier records a proposal creation nullifier keyed by (epoch, nullifier).
 message UsedProposalNullifier {
-  string index = 1;        // Composite key: epoch/nullifierHex
+  string index = 1; // Composite key: epoch/nullifierHex
   uint64 epoch = 2;
   bytes nullifier = 3;
   int64 used_at = 4;

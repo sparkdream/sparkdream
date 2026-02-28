@@ -49,7 +49,6 @@ func initFixture(t *testing.T) *fixture {
 		addressCodec,
 		authority,
 		nil, // bankKeeper
-		nil, // repKeeper
 		nil, // commonsKeeper
 		nil, // forumKeeper
 	)
@@ -160,6 +159,38 @@ func (m *mockRepKeeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amou
 	return nil
 }
 
+func (m *mockRepKeeper) GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error) {
+	return math.LegacyZeroDec(), nil
+}
+
+func (m *mockRepKeeper) GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error) {
+	return nil, nil
+}
+
+func (m *mockRepKeeper) CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error) {
+	return 1, nil
+}
+
+func (m *mockRepKeeper) SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error {
+	return nil
+}
+
+func (m *mockRepKeeper) GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error) {
+	return reptypes.Stake{}, reptypes.ErrAuthorBondNotFound
+}
+
+func (m *mockRepKeeper) ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error {
+	return nil
+}
+
+func (m *mockRepKeeper) RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error {
+	return nil
+}
+
+func (m *mockRepKeeper) RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Mock CommonsKeeper
 // ---------------------------------------------------------------------------
@@ -222,6 +253,18 @@ func (m *mockForumKeeper) SlashBondCommitment(ctx context.Context, sentinel stri
 	return nil
 }
 
+func (m *mockForumKeeper) TagExists(ctx context.Context, name string) (bool, error) {
+	return true, nil
+}
+
+func (m *mockForumKeeper) IsReservedTag(ctx context.Context, name string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockForumKeeper) HasPost(_ context.Context, _ uint64) bool {
+	return true
+}
+
 // ---------------------------------------------------------------------------
 // Enhanced test fixture (used by message handler / query / endblock tests)
 // ---------------------------------------------------------------------------
@@ -270,10 +313,10 @@ func initTestFixture(t *testing.T) *testFixture {
 		addressCodec,
 		authority,
 		bk,
-		rk,
 		ck,
 		fk,
 	)
+	k.SetRepKeeper(rk)
 
 	if err := k.Params.Set(sdkCtx, types.DefaultParams()); err != nil {
 		t.Fatalf("failed to set params: %v", err)

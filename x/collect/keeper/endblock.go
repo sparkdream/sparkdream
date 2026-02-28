@@ -7,9 +7,12 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // PruneExpired prunes expired collections, sponsorship requests, unappealed hides,
@@ -40,14 +43,8 @@ func (k Keeper) PruneExpired(ctx context.Context) error {
 		return err
 	}
 
-	// §10.3 — Unappealed hide expiry
-	pruned, err = k.pruneUnappealedHides(ctx, currentBlock, params, pruned, cap)
-	if err != nil {
-		return err
-	}
-
-	// §10.3a — Appeal timeout
-	pruned, err = k.pruneAppealTimeouts(ctx, currentBlock, params, pruned, cap)
+	// §10.3 + §10.3a — Unappealed hide expiry and appeal timeout (single walk)
+	pruned, err = k.pruneExpiredHideRecords(ctx, currentBlock, params, pruned, cap)
 	if err != nil {
 		return err
 	}
@@ -111,6 +108,62 @@ func (k Keeper) pruneExpiredCollections(
 			k.CollectionsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)) //nolint:errcheck
 			pruned++
 			continue
+		}
+
+		// §10.1 Conviction-based TTL renewal: anonymous collections (owner == module account)
+		// can be renewed if their conviction score meets the threshold.
+		moduleAddr := authtypes.NewModuleAddress(types.ModuleName).String()
+		if coll.Owner == moduleAddr && k.repKeeper != nil && params.ConvictionRenewalThreshold.IsPositive() {
+			conviction, convErr := k.repKeeper.GetContentConviction(ctx,
+				reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, collID)
+			if convErr == nil && conviction.GTE(params.ConvictionRenewalThreshold) {
+				// Renew: extend TTL by conviction_renewal_period
+				renewalPeriod := params.ConvictionRenewalPeriod
+				if renewalPeriod <= 0 {
+					// Fallback to original TTL if period not set
+					renewalPeriod = coll.ExpiresAt - coll.CreatedAt
+					if renewalPeriod <= 0 {
+						renewalPeriod = params.MaxNonMemberTtlBlocks
+					}
+				}
+				newExpiresAt := currentBlock + renewalPeriod
+
+				// Update expiry index
+				k.CollectionsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)) //nolint:errcheck
+				k.CollectionsByExpiry.Set(ctx, collections.Join(newExpiresAt, collID)) //nolint:errcheck
+
+				// Update collection
+				wasSustained := coll.ConvictionSustained
+				coll.ExpiresAt = newExpiresAt
+				coll.ConvictionSustained = true
+				k.Collection.Set(ctx, collID, coll) //nolint:errcheck
+
+				// Emit appropriate event
+				eventType := "collection_renewed"
+				if !wasSustained {
+					eventType = "collection_conviction_sustained"
+				}
+				sdkCtx.EventManager().EmitEvent(sdk.NewEvent(eventType,
+					sdk.NewAttribute("id", strconv.FormatUint(collID, 10)),
+					sdk.NewAttribute("conviction_score", conviction.String()),
+					sdk.NewAttribute("new_expires_at", strconv.FormatInt(newExpiresAt, 10)),
+				))
+
+				pruned++
+				continue
+			}
+			// Below threshold — clear conviction_sustained flag before deletion
+			if coll.ConvictionSustained {
+				coll.ConvictionSustained = false
+				k.Collection.Set(ctx, collID, coll) //nolint:errcheck
+			}
+		}
+
+		// Remove initiative link on hard-delete (best effort)
+		if coll.InitiativeId > 0 && k.repKeeper != nil {
+			if linkErr := k.repKeeper.RemoveContentInitiativeLink(ctx, coll.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), collID); linkErr != nil {
+				sdkCtx.Logger().Error("failed to remove initiative link on prune", "collection_id", collID, "error", linkErr)
+			}
 		}
 
 		// Delete via deleteCollectionFull which handles deposit refunds, sponsorship cleanup,
@@ -211,10 +264,11 @@ func (k Keeper) pruneExpiredSponsorshipRequests(
 	return pruned, nil
 }
 
-// pruneUnappealedHides implements §10.3: walk HideRecordExpiry for entries where
-// deadline <= currentBlock, filter for appealed=false + resolved=false.
-// Deletes the hidden content and releases sentinel bond.
-func (k Keeper) pruneUnappealedHides(
+// pruneExpiredHideRecords implements §10.3 + §10.3a in a single walk of HideRecordExpiry.
+// For entries where deadline <= currentBlock:
+//   - Unappealed + unresolved (§10.3): delete hidden content, release sentinel bond
+//   - Appealed + unresolved (§10.3a): restore to ACTIVE, refund 50% appeal fee, burn rest
+func (k Keeper) pruneExpiredHideRecords(
 	ctx context.Context,
 	currentBlock int64,
 	params types.Params,
@@ -250,225 +304,209 @@ func (k Keeper) pruneUnappealedHides(
 			continue
 		}
 
-		// §10.3: only process unappealed, unresolved hides
-		if hr.Appealed || hr.Resolved {
+		// Skip already resolved records
+		if hr.Resolved {
 			continue
 		}
 
-		targetDeleted := false
-
-		// Delete the hidden content
-		switch hr.TargetType {
-		case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
-			coll, err := k.Collection.Get(ctx, hr.TargetId)
-			if err == nil {
-				if err := k.deleteCollectionFull(ctx, coll); err != nil {
-					sdkCtx.Logger().Error("endblock: failed to delete hidden collection",
-						"collection_id", hr.TargetId, "error", err)
-				} else {
-					targetDeleted = true
-				}
-			} else {
-				targetDeleted = true // already gone
-			}
-
-		case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
-			item, err := k.Item.Get(ctx, hr.TargetId)
-			if err == nil {
-				// Refund per_item_deposit to collection owner if TTL collection
-				coll, collErr := k.Collection.Get(ctx, item.CollectionId)
-				if collErr == nil && !coll.DepositBurned {
-					ownerAddr, addrErr := k.addressCodec.StringToBytes(coll.Owner)
-					if addrErr == nil && params.PerItemDeposit.IsPositive() {
-						k.RefundSPARK(ctx, ownerAddr, params.PerItemDeposit) //nolint:errcheck
-					}
-					// Decrement item_count and item_deposit_total
-					if coll.ItemCount > 0 {
-						coll.ItemCount--
-					}
-					coll.ItemDepositTotal = coll.ItemDepositTotal.Sub(params.PerItemDeposit)
-					if coll.ItemDepositTotal.IsNegative() {
-						coll.ItemDepositTotal = math.ZeroInt() // safety clamp
-					}
-					k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
-				}
-
-				// Remove item from indexes
-				k.ItemsByCollection.Remove(ctx, collections.Join(item.CollectionId, item.Id)) //nolint:errcheck
-				k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))             //nolint:errcheck
-				// Clean up item flags
-				flagKey := FlagCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, item.Id)
-				flag, flagErr := k.Flag.Get(ctx, flagKey)
-				if flagErr == nil {
-					if flag.InReviewQueue {
-						k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM), item.Id)) //nolint:errcheck
-					}
-					k.FlagExpiry.Remove(ctx, collections.Join(flag.LastFlagAt+params.FlagExpirationBlocks, flagKey)) //nolint:errcheck
-					k.Flag.Remove(ctx, flagKey)                                                                      //nolint:errcheck
-				}
-				// Clean up item hide records (other hide records for this same item)
-				k.cleanupItemHideRecords(ctx, item, params)
-				// Delete item
-				k.Item.Remove(ctx, item.Id) //nolint:errcheck
-
-				// Compact positions for the collection
-				if collErr == nil {
-					k.CompactPositions(ctx, item.CollectionId) //nolint:errcheck
-				}
-				targetDeleted = true
-			} else {
-				targetDeleted = true // already gone
-			}
+		if !hr.Appealed {
+			// §10.3: Unappealed hide — delete content, release bond
+			pruned = k.handleUnappealedHideExpiry(ctx, sdkCtx, hr, deadline, hrID, params, pruned)
+		} else {
+			// §10.3a: Appealed hide — restore content, refund appellant
+			pruned = k.handleAppealedHideExpiry(ctx, sdkCtx, hr, deadline, hrID, params, pruned)
 		}
-
-		// Release sentinel's committed bond (no penalty — content was not appealed)
-		if k.forumKeeper != nil {
-			k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
-		}
-
-		// Mark HideRecord resolved
-		hr.Resolved = true
-		k.HideRecord.Set(ctx, hr.Id, hr)                                 //nolint:errcheck
-		k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
-
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("unappealed_hide_expired",
-			sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
-			sdk.NewAttribute("target_id", strconv.FormatUint(hr.TargetId, 10)),
-			sdk.NewAttribute("target_type", fmt.Sprintf("%d", int32(hr.TargetType))),
-			sdk.NewAttribute("target_deleted", strconv.FormatBool(targetDeleted)),
-		))
-
-		pruned++
 	}
 
 	return pruned, nil
 }
 
-// pruneAppealTimeouts implements §10.3a: walk HideRecordExpiry for entries where
-// deadline <= currentBlock, filter for appealed=true + resolved=false.
-// Restores hidden content to ACTIVE, refunds 50% appeal fee, burns remaining 50%.
-func (k Keeper) pruneAppealTimeouts(
+// handleUnappealedHideExpiry processes a single unappealed, unresolved hide record
+// that has expired. Deletes the hidden content and releases sentinel bond.
+func (k Keeper) handleUnappealedHideExpiry(
 	ctx context.Context,
-	currentBlock int64,
+	sdkCtx sdk.Context,
+	hr types.HideRecord,
+	deadline int64,
+	hrID uint64,
 	params types.Params,
-	pruned, cap uint32,
-) (uint32, error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	pruned uint32,
+) uint32 {
+	targetDeleted := false
 
-	// We need to re-walk since pruneUnappealedHides may have consumed some entries
-	// but skipped the appealed ones
-	var entries []collections.Pair[int64, uint64]
-	err := k.HideRecordExpiry.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-		if key.K1() > currentBlock || pruned+uint32(len(entries)) >= cap {
-			return true, nil
+	// Delete the hidden content
+	switch hr.TargetType {
+	case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
+		coll, err := k.Collection.Get(ctx, hr.TargetId)
+		if err == nil {
+			if err := k.deleteCollectionFull(ctx, coll); err != nil {
+				sdkCtx.Logger().Error("endblock: failed to delete hidden collection",
+					"collection_id", hr.TargetId, "error", err)
+			} else {
+				targetDeleted = true
+			}
+		} else {
+			targetDeleted = true // already gone
 		}
-		entries = append(entries, key)
-		return false, nil
-	})
-	if err != nil {
-		return pruned, err
+
+	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
+		item, err := k.Item.Get(ctx, hr.TargetId)
+		if err == nil {
+			// Refund per_item_deposit to collection owner if TTL collection
+			coll, collErr := k.Collection.Get(ctx, item.CollectionId)
+			if collErr == nil && !coll.DepositBurned {
+				ownerAddr, addrErr := k.addressCodec.StringToBytes(coll.Owner)
+				if addrErr == nil && params.PerItemDeposit.IsPositive() {
+					k.RefundSPARK(ctx, ownerAddr, params.PerItemDeposit) //nolint:errcheck
+				}
+				// Decrement item_count and item_deposit_total
+				if coll.ItemCount > 0 {
+					coll.ItemCount--
+				}
+				coll.ItemDepositTotal = coll.ItemDepositTotal.Sub(params.PerItemDeposit)
+				if coll.ItemDepositTotal.IsNegative() {
+					coll.ItemDepositTotal = math.ZeroInt() // safety clamp
+				}
+				k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
+			}
+
+			// Remove item from indexes
+			k.ItemsByCollection.Remove(ctx, collections.Join(item.CollectionId, item.Id)) //nolint:errcheck
+			if collErr == nil {
+				k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id)) //nolint:errcheck
+			}
+			// Clean up item flags
+			flagKey := FlagCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, item.Id)
+			flag, flagErr := k.Flag.Get(ctx, flagKey)
+			if flagErr == nil {
+				if flag.InReviewQueue {
+					k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM), item.Id)) //nolint:errcheck
+				}
+				k.FlagExpiry.Remove(ctx, collections.Join(flag.LastFlagAt+params.FlagExpirationBlocks, flagKey)) //nolint:errcheck
+				k.Flag.Remove(ctx, flagKey)                                                                      //nolint:errcheck
+			}
+			// Clean up item hide records (other hide records for this same item)
+			k.cleanupItemHideRecords(ctx, item, params)
+			// Delete item
+			k.Item.Remove(ctx, item.Id) //nolint:errcheck
+
+			// Compact positions for the collection
+			if collErr == nil {
+				k.CompactPositions(ctx, item.CollectionId) //nolint:errcheck
+			}
+			targetDeleted = true
+		} else {
+			targetDeleted = true // already gone
+		}
 	}
 
-	for _, entry := range entries {
-		if pruned >= cap {
-			break
+	// Release sentinel's committed bond (no penalty — content was not appealed)
+	if k.forumKeeper != nil {
+		k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
+	}
+
+	// Mark HideRecord resolved
+	hr.Resolved = true
+	k.HideRecord.Set(ctx, hr.Id, hr)                                 //nolint:errcheck
+	k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
+
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("unappealed_hide_expired",
+		sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
+		sdk.NewAttribute("target_id", strconv.FormatUint(hr.TargetId, 10)),
+		sdk.NewAttribute("target_type", fmt.Sprintf("%d", int32(hr.TargetType))),
+		sdk.NewAttribute("target_deleted", strconv.FormatBool(targetDeleted)),
+	))
+
+	return pruned + 1
+}
+
+// handleAppealedHideExpiry processes a single appealed, unresolved hide record
+// that has timed out. Restores content to ACTIVE, refunds 50% appeal fee, burns rest.
+func (k Keeper) handleAppealedHideExpiry(
+	ctx context.Context,
+	sdkCtx sdk.Context,
+	hr types.HideRecord,
+	deadline int64,
+	hrID uint64,
+	params types.Params,
+	pruned uint32,
+) uint32 {
+	// Restore hidden content to ACTIVE (favor appellant)
+	switch hr.TargetType {
+	case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
+		coll, collErr := k.Collection.Get(ctx, hr.TargetId)
+		if collErr == nil && coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
+			// Update status indexes
+			k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
+			coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
+			k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
+			k.Collection.Set(ctx, coll.Id, coll)                                          //nolint:errcheck
 		}
 
-		deadline := entry.K1()
-		hrID := entry.K2()
-
-		hr, err := k.HideRecord.Get(ctx, hrID)
-		if err != nil {
-			k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
-			pruned++
-			continue
+	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
+		item, itemErr := k.Item.Get(ctx, hr.TargetId)
+		if itemErr == nil && item.Status == types.ItemStatus_ITEM_STATUS_HIDDEN {
+			item.Status = types.ItemStatus_ITEM_STATUS_ACTIVE
+			k.Item.Set(ctx, item.Id, item) //nolint:errcheck
 		}
+	}
 
-		// §10.3a: only process appealed, unresolved hides
-		if !hr.Appealed || hr.Resolved {
-			continue
-		}
+	// Resolve the appeal owner (content owner is the appellant) for refund
+	appellantRefund := params.AppealFee.Quo(math.NewInt(2)) // 50%
 
-		// Restore hidden content to ACTIVE (favor appellant)
-		switch hr.TargetType {
-		case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
-			coll, collErr := k.Collection.Get(ctx, hr.TargetId)
-			if collErr == nil && coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
-				// Update status indexes
-				k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
-				coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
-				k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
-				k.Collection.Set(ctx, coll.Id, coll)                                          //nolint:errcheck
+	// Find the content owner to refund the appeal fee to
+	var appellantAddr sdk.AccAddress
+	switch hr.TargetType {
+	case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
+		coll, collErr := k.Collection.Get(ctx, hr.TargetId)
+		if collErr == nil {
+			addr, addrErr := k.addressCodec.StringToBytes(coll.Owner)
+			if addrErr == nil {
+				appellantAddr = addr
 			}
-
-		case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
-			item, itemErr := k.Item.Get(ctx, hr.TargetId)
-			if itemErr == nil && item.Status == types.ItemStatus_ITEM_STATUS_HIDDEN {
-				item.Status = types.ItemStatus_ITEM_STATUS_ACTIVE
-				k.Item.Set(ctx, item.Id, item) //nolint:errcheck
-			}
 		}
-
-		// Resolve the appeal owner (content owner is the appellant) for refund
-		appellantRefund := params.AppealFee.Quo(math.NewInt(2)) // 50%
-
-		// Find the content owner to refund the appeal fee to
-		var appellantAddr sdk.AccAddress
-		switch hr.TargetType {
-		case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
-			coll, collErr := k.Collection.Get(ctx, hr.TargetId)
+	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
+		item, itemErr := k.Item.Get(ctx, hr.TargetId)
+		if itemErr == nil {
+			coll, collErr := k.Collection.Get(ctx, item.CollectionId)
 			if collErr == nil {
 				addr, addrErr := k.addressCodec.StringToBytes(coll.Owner)
 				if addrErr == nil {
 					appellantAddr = addr
 				}
 			}
-		case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
-			item, itemErr := k.Item.Get(ctx, hr.TargetId)
-			if itemErr == nil {
-				coll, collErr := k.Collection.Get(ctx, item.CollectionId)
-				if collErr == nil {
-					addr, addrErr := k.addressCodec.StringToBytes(coll.Owner)
-					if addrErr == nil {
-						appellantAddr = addr
-					}
-				}
-			}
 		}
-
-		// Refund 50% of appeal_fee to appellant
-		if appellantAddr != nil && appellantRefund.IsPositive() {
-			k.RefundSPARK(ctx, appellantAddr, appellantRefund) //nolint:errcheck
-		}
-
-		// Burn remaining 50% (simplified: spec says 30% jury + 20% burned,
-		// but jury pool is not implemented yet)
-		burnAmt := params.AppealFee.Sub(appellantRefund)
-		if burnAmt.IsPositive() {
-			k.BurnSPARK(ctx, burnAmt) //nolint:errcheck
-		}
-
-		// Release sentinel's committed bond (no penalty — jury timed out)
-		if k.forumKeeper != nil {
-			k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
-		}
-
-		// Mark HideRecord resolved
-		hr.Resolved = true
-		k.HideRecord.Set(ctx, hr.Id, hr)                                 //nolint:errcheck
-		k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
-
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hide_appeal_timeout",
-			sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
-			sdk.NewAttribute("target_id", strconv.FormatUint(hr.TargetId, 10)),
-			sdk.NewAttribute("target_type", fmt.Sprintf("%d", int32(hr.TargetType))),
-			sdk.NewAttribute("appellant_refund", appellantRefund.String()),
-		))
-
-		pruned++
 	}
 
-	return pruned, nil
+	// Refund 50% of appeal_fee to appellant
+	if appellantAddr != nil && appellantRefund.IsPositive() {
+		k.RefundSPARK(ctx, appellantAddr, appellantRefund) //nolint:errcheck
+	}
+
+	// Burn remaining 50% (jurors compensated via x/rep DREAM minting, no SPARK jury pool)
+	burnAmt := params.AppealFee.Sub(appellantRefund)
+	if burnAmt.IsPositive() {
+		k.BurnSPARK(ctx, burnAmt) //nolint:errcheck
+	}
+
+	// Release sentinel's committed bond (no penalty — jury timed out)
+	if k.forumKeeper != nil {
+		k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
+	}
+
+	// Mark HideRecord resolved
+	hr.Resolved = true
+	k.HideRecord.Set(ctx, hr.Id, hr)                                 //nolint:errcheck
+	k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
+
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hide_appeal_timeout",
+		sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
+		sdk.NewAttribute("target_id", strconv.FormatUint(hr.TargetId, 10)),
+		sdk.NewAttribute("target_type", fmt.Sprintf("%d", int32(hr.TargetType))),
+		sdk.NewAttribute("appellant_refund", appellantRefund.String()),
+	))
+
+	return pruned + 1
 }
 
 // pruneExpiredFlags implements §10.4: walk FlagExpiry for entries where

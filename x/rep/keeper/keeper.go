@@ -11,6 +11,15 @@ import (
 	"sparkdream/x/rep/types"
 )
 
+// lateKeepers holds keepers that are wired after depinject initialization
+// (to break cyclic dependencies). All value copies of Keeper share the same
+// pointer, so mutations via SetVoteKeeper/SetTagKeeper are visible everywhere.
+type lateKeepers struct {
+	voteKeeper   types.VoteKeeper
+	tagKeeper    types.TagKeeper
+	seasonKeeper types.SeasonKeeper
+}
+
 type Keeper struct {
 	storeService corestore.KVStoreService
 	cdc          codec.Codec
@@ -22,11 +31,10 @@ type Keeper struct {
 	Schema collections.Schema
 	Params collections.Item[types.Params]
 
-	authKeeper      types.AuthKeeper
-	bankKeeper      types.BankKeeper
-	commonsKeeper   types.CommonsKeeper
-	seasonKeeper    types.SeasonKeeper
-	voteKeeper      types.VoteKeeper
+	authKeeper    types.AuthKeeper
+	bankKeeper    types.BankKeeper
+	commonsKeeper types.CommonsKeeper
+	late          *lateKeepers // shared across value copies
 	Member          collections.Map[string, types.Member]
 	InvitationSeq   collections.Sequence
 	Invitation      collections.Map[uint64, types.Invitation]
@@ -60,6 +68,17 @@ type Keeper struct {
 	MemberStakePool  collections.Map[string, types.MemberStakePool]  // member address -> pool
 	TagStakePool     collections.Map[string, types.TagStakePool]     // tag name -> pool
 	ProjectStakeInfo collections.Map[uint64, types.ProjectStakeInfo] // project ID -> info
+
+	// Content challenges
+	ContentChallengeSeq      collections.Sequence
+	ContentChallenge         collections.Map[uint64, types.ContentChallenge]
+	ContentChallengesByStatus collections.KeySet[collections.Pair[int32, uint64]]
+	// (targetType, targetID) -> challengeID — enforces one active challenge per content item
+	ContentChallengesByTarget collections.Map[collections.Pair[int32, uint64], uint64]
+
+	// Content-initiative links for conviction propagation
+	// Key: (initiativeID, (targetType, targetID)) — enables prefix scan by initiative
+	ContentInitiativeLinks collections.KeySet[collections.Pair[uint64, collections.Pair[int32, uint64]]]
 }
 
 func NewKeeper(
@@ -71,7 +90,6 @@ func NewKeeper(
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
 	commonsKeeper types.CommonsKeeper,
-	seasonKeeper types.SeasonKeeper,
 	voteKeeper types.VoteKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
@@ -86,11 +104,10 @@ func NewKeeper(
 		addressCodec: addressCodec,
 		authority:    authority,
 
-		authKeeper:      authKeeper,
-		bankKeeper:      bankKeeper,
-		commonsKeeper:   commonsKeeper,
-		seasonKeeper:    seasonKeeper,
-		voteKeeper:      voteKeeper,
+		authKeeper:    authKeeper,
+		bankKeeper:    bankKeeper,
+		commonsKeeper: commonsKeeper,
+		late:          &lateKeepers{voteKeeper: voteKeeper},
 		Params:          collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Member:          collections.NewMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc)),
 		Invitation:      collections.NewMap(sb, types.InvitationKey, "invitation", collections.Uint64Key, codec.CollValue[types.Invitation](cdc)),
@@ -139,6 +156,25 @@ func NewKeeper(
 		MemberStakePool:  collections.NewMap(sb, types.MemberStakePoolKey, "memberStakePool", collections.StringKey, codec.CollValue[types.MemberStakePool](cdc)),
 		TagStakePool:     collections.NewMap(sb, types.TagStakePoolKey, "tagStakePool", collections.StringKey, codec.CollValue[types.TagStakePool](cdc)),
 		ProjectStakeInfo: collections.NewMap(sb, types.ProjectStakeInfoKey, "projectStakeInfo", collections.Uint64Key, codec.CollValue[types.ProjectStakeInfo](cdc)),
+
+		// Content challenges
+		ContentChallenge:    collections.NewMap(sb, types.ContentChallengeKey, "contentChallenge", collections.Uint64Key, codec.CollValue[types.ContentChallenge](cdc)),
+		ContentChallengeSeq: collections.NewSequence(sb, types.ContentChallengeCountKey, "contentChallengeSequence"),
+		ContentChallengesByStatus: collections.NewKeySet(
+			sb, types.ContentChallengesByStatusKey, "contentChallengesByStatus",
+			collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key),
+		),
+		ContentChallengesByTarget: collections.NewMap(
+			sb, types.ContentChallengesByTargetKey, "contentChallengesByTarget",
+			collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key),
+			collections.Uint64Value,
+		),
+
+		// Content-initiative links for conviction propagation
+		ContentInitiativeLinks: collections.NewKeySet(
+			sb, types.ContentInitiativeLinksKey, "contentInitiativeLinks",
+			collections.PairKeyCodec(collections.Uint64Key, collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key)),
+		),
 	}
 	schema, err := sb.Build()
 	if err != nil {
@@ -151,8 +187,23 @@ func NewKeeper(
 
 // SetVoteKeeper sets the vote keeper after depinject initialization.
 // This breaks the cyclic dependency: vote → rep → vote.
-func (k *Keeper) SetVoteKeeper(vk types.VoteKeeper) {
-	k.voteKeeper = vk
+// Uses the shared lateKeepers so all value copies see the update.
+func (k Keeper) SetVoteKeeper(vk types.VoteKeeper) {
+	k.late.voteKeeper = vk
+}
+
+// SetTagKeeper sets the tag keeper after depinject initialization.
+// This breaks the cyclic dependency: forum → rep → forum.
+// Uses the shared lateKeepers so all value copies see the update.
+func (k Keeper) SetTagKeeper(tk types.TagKeeper) {
+	k.late.tagKeeper = tk
+}
+
+// SetSeasonKeeper sets the season keeper after depinject initialization.
+// This breaks the cyclic dependency: rep → season → collect/blog/forum → rep.
+// Uses the shared lateKeepers so all value copies see the update.
+func (k Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
+	k.late.seasonKeeper = sk
 }
 
 // GetAuthority returns the module's authority.

@@ -55,6 +55,12 @@ func (k msgServer) SponsorCollection(ctx context.Context, msg *types.MsgSponsorC
 		return nil, errorsmod.Wrap(types.ErrCollectionAlreadyPermanent, "collection is already permanent")
 	}
 
+	// Verify sponsorship request deposits still match collection state
+	// (items may have been removed between request and sponsorship)
+	if !req.CollectionDeposit.Equal(coll.DepositAmount) || !req.ItemDepositTotal.Equal(coll.ItemDepositTotal) {
+		return nil, errorsmod.Wrap(types.ErrUnauthorized, "sponsorship request deposits no longer match collection state; cancel and re-request")
+	}
+
 	// Charge sponsor_fee from creator (burned)
 	if err := k.BurnSPARKFromAccount(ctx, sponsorAddr, params.SponsorFee); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to charge sponsor fee")

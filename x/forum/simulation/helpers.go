@@ -7,6 +7,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
+
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
@@ -272,15 +274,15 @@ func findBountyByCreator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creator
 }
 
 // findTag returns a random tag from state
-func findTag(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Tag, string, error) {
+func findTag(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*commontypes.Tag, string, error) {
 	var tags []struct {
 		name string
-		tag  types.Tag
+		tag  commontypes.Tag
 	}
-	err := k.Tag.Walk(ctx, nil, func(name string, tag types.Tag) (bool, error) {
+	err := k.Tag.Walk(ctx, nil, func(name string, tag commontypes.Tag) (bool, error) {
 		tags = append(tags, struct {
 			name string
-			tag  types.Tag
+			tag  commontypes.Tag
 		}{name, tag})
 		return false, nil
 	})
@@ -621,7 +623,7 @@ func getOrCreateTag(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (string, err
 	tagName = randomTagName(r)
 	now := ctx.BlockTime().Unix()
 
-	tag := types.Tag{
+	tag := commontypes.Tag{
 		Name:       tagName,
 		UsageCount: 0,
 		CreatedAt:  now,
@@ -702,7 +704,7 @@ func getOrCreateTagReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, tagNam
 	if err != nil {
 		// Create tag
 		now := ctx.BlockTime().Unix()
-		tag := types.Tag{
+		tag := commontypes.Tag{
 			Name:       tagName,
 			UsageCount: 0,
 			CreatedAt:  now,
@@ -949,7 +951,7 @@ func getOrCreateHiddenPost(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, autho
 		SentinelBondSnapshot:    "1000",
 		SentinelBackingSnapshot: "10000",
 		CommittedAmount:         "250",
-		ReasonCode:              types.ModerationReason_MODERATION_REASON_SPAM,
+		ReasonCode:              commontypes.ModerationReason_MODERATION_REASON_SPAM,
 		ReasonText:              "Simulation test hide",
 	}
 	return postID, k.HideRecord.Set(ctx, postID, hideRecord)

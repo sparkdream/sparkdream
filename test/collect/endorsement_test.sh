@@ -69,9 +69,9 @@ assert_gt "Pending collections exist" "0" "$PENDING_COUNT"
 # =========================================================================
 echo ""
 echo "--- Test 5: Member endorses collection ---"
-# Endorsement requires EndorsementDreamStake (100 DREAM).
-# DREAM is distributed from Alice in setup_test_accounts.sh.
-TX_OUT=$(send_tx collect endorse-collection "$ENDORSE_COLL_ID" --from collector1)
+# Endorsement requires EndorsementDreamStake (100 DREAM) and TRUST_LEVEL_ESTABLISHED or above.
+# Alice has TRUST_LEVEL_CORE and sufficient DREAM — use Alice as endorser.
+TX_OUT=$(send_tx collect endorse-collection "$ENDORSE_COLL_ID" --from alice)
 assert_tx_success "Member endorses collection" "$TX_OUT"
 
 # Verify collection is now ACTIVE and immutable
@@ -82,7 +82,7 @@ ENDORSED_BY=$(echo "$COLL_QUERY" | jq -r '.collection.endorsed_by // empty' 2>/d
 
 assert_equal "Endorsed collection status is ACTIVE" "COLLECTION_STATUS_ACTIVE" "$STATUS"
 assert_equal "Endorsed collection is immutable" "true" "$IMMUTABLE"
-assert_equal "Endorsed by collector1" "$COLLECTOR1_ADDR" "$ENDORSED_BY"
+assert_equal "Endorsed by alice" "$ALICE_ADDR" "$ENDORSED_BY"
 
 # =========================================================================
 # Test 6: Query endorsement
@@ -91,7 +91,7 @@ echo ""
 echo "--- Test 6: Query endorsement ---"
 ENDORSE_QUERY=$(query collect endorsement "$ENDORSE_COLL_ID")
 ENDORSER=$(echo "$ENDORSE_QUERY" | jq -r '.endorsement.endorser // empty' 2>/dev/null)
-assert_equal "Endorsement endorser is collector1" "$COLLECTOR1_ADDR" "$ENDORSER"
+assert_equal "Endorsement endorser is alice" "$ALICE_ADDR" "$ENDORSER"
 
 # =========================================================================
 # Test 7: Cannot endorse already-endorsed collection

@@ -268,6 +268,55 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Content conviction staking
+  int64 content_conviction_half_life_epochs = 56; // Half-life for content conviction decay (default: 14 epochs)
+  string max_content_stake_per_member = 57 [      // Max DREAM one member can stake on a single content item
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string max_author_bond_per_content = 58 [       // Max DREAM an author can bond on their own content
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  bool author_bond_slash_on_moderation = 59;      // Whether to slash author bonds when content is moderated
+  string content_challenge_reward_share = 60 [    // Fraction of slashed author bond given to challenger (rest burned), default 0.5
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string conviction_propagation_ratio = 61 [      // Fraction of linked content conviction propagated to initiative (default 0.10)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Tag anti-gaming
+  uint32 max_tags_per_initiative = 66;            // Max tags allowed per initiative (default 3, prevents tag stuffing)
+
+  // Anti-gaming parameters
+  string reputation_decay_rate = 62 [             // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string max_conviction_share_per_member = 63 [   // Max fraction of required conviction any single member can contribute (default 0.33)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string invitation_stake_burn_rate = 64 [        // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string max_reputation_gain_per_epoch = 65 [     // Max reputation any member can earn per tag per epoch (default 50)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -424,6 +473,55 @@ message RepOperationalParams {
   string anonymous_challenge_spark_stake = 41 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Content conviction staking
+  int64 content_conviction_half_life_epochs = 42;
+  string max_content_stake_per_member = 43 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string max_author_bond_per_content = 44 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  bool author_bond_slash_on_moderation = 45;
+  string content_challenge_reward_share = 46 [    // Fraction of slashed author bond given to challenger (rest burned), default 0.5
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string conviction_propagation_ratio = 47 [      // Fraction of linked content conviction propagated to initiative (default 0.10)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Tag anti-gaming
+  uint32 max_tags_per_initiative = 52;            // Max tags allowed per initiative (default 3, prevents tag stuffing)
+
+  // Anti-gaming parameters
+  string reputation_decay_rate = 48 [             // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string max_conviction_share_per_member = 49 [   // Max fraction of required conviction any single member can contribute (default 0.33)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string invitation_stake_burn_rate = 50 [        // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string max_reputation_gain_per_epoch = 51 [     // Max reputation any member can earn per tag per epoch (default 50)
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 }

@@ -19,6 +19,31 @@ const (
 
 	// Id of the latest post added to the store
 	PostCountKey = "Post/count/"
+
+	// Creator post index
+	CreatorPostKey = "Post/creator/"
+
+	// Reply storage
+	ReplyKey      = "Reply/value/"
+	ReplyCountKey = "Reply/count/"
+	ReplyPostKey  = "Reply/post/"
+
+	// Reaction storage
+	ReactionKey        = "Reaction/value/"
+	ReactionCountKey   = "Reaction/counts/"
+	ReactionCreatorKey = "Reaction/creator/"
+
+	// Rate limiting
+	RateLimitKey = "RateLimit/"
+
+	// Anonymous posting
+	AnonMetaPostKey  = "AnonMeta/post/"
+	AnonMetaReplyKey = "AnonMeta/reply/"
+	AnonNullifierKey = "AnonNullifier/"
+	AnonSubsidyKey   = "AnonSubsidy/last_epoch"
+
+	// Expiry index
+	ExpiryKey = "Expiry/"
 )
 
 // ParamsKey is the prefix to retrieve all Params

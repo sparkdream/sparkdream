@@ -33,6 +33,7 @@ func setupMsgServerForUpdate(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
 	bankKeeper := &mockBankKeeper{}
+	repKeeper := &mockRepKeeper{}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -41,10 +42,14 @@ func setupMsgServerForUpdate(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 		authority,
 		bankKeeper,
 		nil, // commonsKeeper (optional)
+		repKeeper,
 	)
 
-	// Initialize params
-	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
+	// Initialize params with high rate limits for testing
+	params := types.DefaultParams()
+	params.MaxPostsPerDay = 100
+	params.MaxRepliesPerDay = 100
+	if err := k.Params.Set(ctx, params); err != nil {
 		t.Fatalf("failed to set params: %v", err)
 	}
 
@@ -418,7 +423,7 @@ func TestUpdateDeletedPost(t *testing.T) {
 	}
 	_, err = msgServer.UpdatePost(ctx, updateMsg)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "doesn't exist")
+	require.Contains(t, err.Error(), "has been deleted")
 }
 
 func TestUpdatePostStorageDeltaFee(t *testing.T) {

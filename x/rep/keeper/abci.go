@@ -50,6 +50,15 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		return false
 	})
 
+	// 5b. Process expired content challenge responses
+	// If author doesn't respond within the deadline, challenge is auto-upheld
+	k.IterateActiveContentChallenges(ctx, func(index int64, cc types.ContentChallenge) bool {
+		if cc.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= cc.ResponseDeadline {
+			_ = k.UpholdContentChallenge(ctx, cc.Id)
+		}
+		return false
+	})
+
 	// 6. Process jury review deadlines
 	k.IterateActiveJuryReviews(ctx, func(index int64, review types.JuryReview) bool {
 		if sdkCtx.BlockHeight() >= review.Deadline {
@@ -83,7 +92,12 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		return err
 	}
 
-	// 11. Invitation credits are reset lazily via EnsureInvitationCreditsReset
+	// 11. Rebuild member trust tree if dirty (for anonymous posting ZK proofs)
+	if err := k.MaybeRebuildTrustTree(ctx); err != nil {
+		return err
+	}
+
+	// 12. Invitation credits are reset lazily via EnsureInvitationCreditsReset
 	// When a member tries to invite, we check if the current season > their last reset season
 	// If so, we reset their credits to their trust-level max
 	// This scales O(1) per block instead of O(n) where n = member count

@@ -816,9 +816,9 @@ func TestVerifyAnonymousEligibility(t *testing.T) {
 			nil, // authKeeper
 			&mockBankKeeper{},
 			&mockCommonsKeeper{},
-			&mockSeasonKeeper{},
 			nil, // nil voteKeeper => dev mode
 		)
+		k.SetSeasonKeeper(&mockSeasonKeeper{})
 		// InitGenesis so Params collection is populated
 		genState := types.DefaultGenesis()
 		err := k.InitGenesis(ctx, *genState)

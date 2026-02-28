@@ -128,6 +128,27 @@ message Params {
 
   // Archived titles
   uint32 max_archived_titles = 55;
+
+  // Nomination / Retroactive Public Goods Funding
+  uint64 nomination_window_epochs = 56;
+  uint64 max_nominations_per_member = 57;
+  uint64 retro_reward_max_recipients = 58;
+  string retro_reward_budget_per_season = 59 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string retro_reward_min_conviction = 60 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 nomination_conviction_half_life_epochs = 61;
+  uint32 nomination_rationale_max_length = 62;
+  uint32 nomination_min_trust_level = 63;
+  uint32 nomination_stake_min_trust_level = 64;
+  string nomination_min_stake = 65 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // SeasonOperationalParams defines the operational parameters that can be updated
@@ -233,4 +254,25 @@ message SeasonOperationalParams {
 
   // Archived titles
   uint32 max_archived_titles = 46;
+
+  // Nomination / Retroactive Public Goods Funding
+  uint64 nomination_window_epochs = 47;
+  uint64 max_nominations_per_member = 48;
+  uint64 retro_reward_max_recipients = 49;
+  string retro_reward_budget_per_season = 50 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string retro_reward_min_conviction = 51 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 nomination_conviction_half_life_epochs = 52;
+  uint32 nomination_rationale_max_length = 53;
+  uint32 nomination_min_trust_level = 54;
+  uint32 nomination_stake_min_trust_level = 55;
+  string nomination_min_stake = 56 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }

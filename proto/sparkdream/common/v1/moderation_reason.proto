@@ -1,0 +1,22 @@
+syntax = "proto3";
+package sparkdream.common.v1;
+
+option go_package = "sparkdream/x/common/types";
+
+// ModerationReason defines the reason for flagging or hiding content.
+// Shared across modules (x/forum, x/collect) for consistent moderation vocabulary.
+enum ModerationReason {
+  MODERATION_REASON_UNSPECIFIED = 0;
+  MODERATION_REASON_SPAM = 1; // Unsolicited commercial content, repetitive posts
+  MODERATION_REASON_HARASSMENT = 2; // Personal attacks, bullying, threats
+  MODERATION_REASON_MISINFORMATION = 3; // False claims, misleading content
+  MODERATION_REASON_OFF_TOPIC = 4; // Content unrelated to category/thread
+  MODERATION_REASON_LOW_QUALITY = 5; // Low-effort posts, unclear content
+  MODERATION_REASON_INAPPROPRIATE = 6; // Adult content, graphic material
+  MODERATION_REASON_IMPERSONATION = 7; // Pretending to be someone else
+  MODERATION_REASON_POLICY_VIOLATION = 8; // Violates community guidelines
+  MODERATION_REASON_DUPLICATE = 9; // Duplicate/cross-posted content
+  MODERATION_REASON_SCAM = 10; // Fraudulent content, phishing attempts
+  MODERATION_REASON_COPYRIGHT = 11; // Copyright infringement
+  MODERATION_REASON_OTHER = 12; // Requires custom reason field
+}

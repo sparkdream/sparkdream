@@ -3,6 +3,8 @@ package keeper_test
 import (
 	"context"
 
+	reptypes "sparkdream/x/rep/types"
+
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -86,16 +88,22 @@ func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 }
 
 // IsMember returns whether an address is a member
-func (m *mockRepKeeper) IsMember(ctx context.Context, addr string) bool {
-	return m.Members[addr]
+func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool {
+	// Try bech32 string first
+	if m.Members[addr.String()] {
+		return true
+	}
+	// Also try raw string (for tests that use simple string addresses)
+	return m.Members[string(addr)]
 }
 
-// GetMember returns member data (as interface{} to match the interface)
-func (m *mockRepKeeper) GetMember(ctx context.Context, addr string) (interface{}, error) {
-	if !m.Members[addr] {
-		return nil, nil
+// GetMember returns member data
+func (m *mockRepKeeper) GetMember(ctx context.Context, addr sdk.AccAddress) (reptypes.Member, error) {
+	addrStr := addr.String()
+	if !m.Members[addrStr] {
+		return reptypes.Member{}, nil
 	}
-	return struct{ Address string }{Address: addr}, nil
+	return reptypes.Member{Address: addrStr}, nil
 }
 
 // GetReputationScores returns all reputation scores for a member
@@ -148,4 +156,24 @@ func (m *mockRepKeeper) GetCompletedInitiativesCount(ctx context.Context, addr s
 		return count, nil
 	}
 	return 0, nil
+}
+
+// MintDREAM mints DREAM tokens to the given address.
+func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	addrStr := addr.String()
+	if balance, ok := m.Balances[addrStr]; ok {
+		m.Balances[addrStr] = balance.Add(amount)
+	} else {
+		m.Balances[addrStr] = amount
+	}
+	return nil
+}
+
+// GetTrustLevel returns the trust level for a member address.
+func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
+	addrStr := addr.String()
+	if m.Members[addrStr] {
+		return reptypes.TrustLevel(2), nil // Default to trust level 2 for test members
+	}
+	return reptypes.TrustLevel(0), nil
 }

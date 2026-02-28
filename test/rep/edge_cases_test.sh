@@ -131,18 +131,31 @@ sleep 1
 $BINARY tx rep submit-initiative-work $THRESH_ID "ipfs://QmThresholdTest" "Threshold edge test work" --from edge_user --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
+# Ensure Bob has sufficient DREAM for staking (may have lost to decay from prior tests)
+BOB_MEMBER=$($BINARY query rep get-member "$BOB_ADDR" -o json 2>/dev/null | grep -v "Falling back")
+BOB_BALANCE=$(echo "$BOB_MEMBER" | jq -r '.member.dream_balance // "0"')
+BOB_STAKED=$(echo "$BOB_MEMBER" | jq -r '.member.staked_dream // "0"')
+BOB_AVAILABLE=$((BOB_BALANCE - BOB_STAKED))
+if [ "$BOB_AVAILABLE" -lt "200000000" ]; then
+    TOP_UP=$((200000000 - BOB_AVAILABLE + 50000000))
+    echo "Funding Bob with $((TOP_UP / 1000000)) DREAM for staking..."
+    $BINARY tx rep transfer-dream "$BOB_ADDR" "$TOP_UP" "tip" "Funding for edge case test" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+    sleep 2
+fi
+
 echo ""
 echo "Creating stakes for exact 50% external conviction test..."
 echo "Scenario: Assignee stakes 100 DREAM, External stakers stake 100 DREAM"
 echo "Result: External = 100 / 200 = 50% (exactly at threshold)"
 
-# Assignee stakes (affiliated, doesn't count as external)
-# Usage: stake [target-type] [target-id] [amount]
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100" --from edge_user --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+# Assignee stakes (affiliated, doesn't count as external) - 100 DREAM
+# Usage: stake [target-type] [target-id] [amount-micro-dream]
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100000000" --from edge_user --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
-# External staker stakes (counts as external)
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100" --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+# External staker stakes (counts as external) - 100 DREAM
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
 # Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
@@ -151,9 +164,9 @@ sleep 15
 
 # Query conviction
 CONVICTION=$($BINARY query rep initiative-conviction $THRESH_ID --output json)
-CURRENT=$(echo "$CONVICTION" | jq -r '.current_conviction // 0')
+CURRENT=$(echo "$CONVICTION" | jq -r '.total_conviction // 0')
 EXTERNAL=$(echo "$CONVICTION" | jq -r '.external_conviction // 0')
-REQUIRED=$(echo "$CONVICTION" | jq -r '.required_conviction // 0')
+REQUIRED=$(echo "$CONVICTION" | jq -r '.threshold // 0')
 
 echo ""
 echo "Conviction results:"
@@ -180,13 +193,13 @@ fi
 echo ""
 echo "Testing with 49% external conviction (just below threshold)..."
 
-# Add one more affiliated stake to change ratio
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "2" --from carol --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+# Add one more affiliated stake to change ratio - 2 DREAM
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "2000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
 # Query conviction again
 CONVICTION2=$($BINARY query rep initiative-conviction $THRESH_ID --output json)
-CURRENT2=$(echo "$CONVICTION2" | jq -r '.current_conviction // 0')
+CURRENT2=$(echo "$CONVICTION2" | jq -r '.total_conviction // 0')
 EXTERNAL2=$(echo "$CONVICTION2" | jq -r '.external_conviction // 0')
 
 if [ -n "$EXTERNAL2" ] && [ "$EXTERNAL2" != "0" ] && [ -n "$CURRENT2" ] && [ "$CURRENT2" != "0" ]; then

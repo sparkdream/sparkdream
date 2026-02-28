@@ -36,6 +36,18 @@ type RepKeeper interface {
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+
+	// Content conviction staking & author bonds
+	GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
+	GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error)
+	CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error)
+	SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error
+	GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error)
+
+	// Cross-module conviction propagation
+	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
+	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+	RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.
@@ -46,8 +58,17 @@ type CommonsKeeper interface {
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
 }
 
+// BlogKeeper defines the expected interface for the x/blog module.
+// Used for validating OnChainReference entries pointing to blog posts/replies.
+// This is optional — if nil, blog references are accepted without validation.
+type BlogKeeper interface {
+	HasPost(ctx context.Context, id uint64) bool
+	HasReply(ctx context.Context, id uint64) bool
+}
+
 // ForumKeeper defines the expected interface for the x/forum module.
-// Used for sentinel bond operations in content moderation (MsgHideContent).
+// Used for sentinel bond operations in content moderation (MsgHideContent)
+// and OnChainReference validation for forum posts/replies.
 // This is optional — if nil, sentinel operations return ErrNotSentinel.
 type ForumKeeper interface {
 	// IsSentinelActive checks if the address is an active sentinel (bonded, not demoted, not in cooldown).
@@ -64,6 +85,27 @@ type ForumKeeper interface {
 
 	// SlashBondCommitment slashes a committed bond amount from the sentinel (burned).
 	SlashBondCommitment(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
+
+	// Tag registry operations (shared tag system)
+	TagExists(ctx context.Context, name string) (bool, error)
+	IsReservedTag(ctx context.Context, name string) (bool, error)
+
+	// Post existence check for OnChainReference validation.
+	// Forum replies are posts with ParentId > 0, both stored in Post collection.
+	HasPost(ctx context.Context, id uint64) bool
+}
+
+// VoteKeeper defines the expected interface for the x/vote module.
+// Used for ZK proof verification in anonymous collection operations.
+// This is optional — if nil, anonymous operations return ErrAnonymousPostingUnavailable.
+type VoteKeeper interface {
+	VerifyAnonymousActionProof(ctx context.Context, proof []byte, nullifier []byte, merkleRoot []byte, minTrustLevel uint32) error
+}
+
+// SeasonKeeper defines the expected interface for the x/season module.
+// Used for epoch duration in anonymous collection nullifier scoping.
+type SeasonKeeper interface {
+	GetEpochDuration(ctx context.Context) int64
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

@@ -569,8 +569,8 @@ message TleValidatorLivenessInfo {
   uint32 participated_epochs = 3;
   uint32 window_size = 4;
   bool over_tolerance = 5;
-  int64 flagged_at = 6;      // block height when flagged inactive (0 if active)
-  int64 recovered_at = 7;    // block height when last recovered (0 if never flagged)
+  int64 flagged_at = 6; // block height when flagged inactive (0 if active)
+  int64 recovered_at = 7; // block height when last recovered (0 if never flagged)
 }
 
 message QueryTleLivenessRequest {}

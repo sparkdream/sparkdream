@@ -389,6 +389,36 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgCreateInterim,
 		repsimulation.SimulateMsgCreateInterim(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgChallengeContent          = "op_weight_msg_rep"
+		defaultWeightMsgChallengeContent int = 50
+	)
+
+	var weightMsgChallengeContent int
+	simState.AppParams.GetOrGenerate(opWeightMsgChallengeContent, &weightMsgChallengeContent, nil,
+		func(_ *rand.Rand) {
+			weightMsgChallengeContent = defaultWeightMsgChallengeContent
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgChallengeContent,
+		repsimulation.SimulateMsgChallengeContent(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgRespondToContentChallenge          = "op_weight_msg_rep"
+		defaultWeightMsgRespondToContentChallenge int = 50
+	)
+
+	var weightMsgRespondToContentChallenge int
+	simState.AppParams.GetOrGenerate(opWeightMsgRespondToContentChallenge, &weightMsgRespondToContentChallenge, nil,
+		func(_ *rand.Rand) {
+			weightMsgRespondToContentChallenge = defaultWeightMsgRespondToContentChallenge
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRespondToContentChallenge,
+		repsimulation.SimulateMsgRespondToContentChallenge(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

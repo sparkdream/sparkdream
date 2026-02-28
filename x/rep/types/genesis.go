@@ -21,7 +21,10 @@ func DefaultGenesis() *GenesisState {
 		JuryReviewCount:    1,
 		InterimList:        []Interim{},
 		InterimCount:       1,
-		InterimTemplateMap: []InterimTemplate{},
+		InterimTemplateMap:        []InterimTemplate{},
+		ContentChallengeList:      []ContentChallenge{},
+		ContentChallengeCount:     1,
+		ContentInitiativeLinks:    []ContentInitiativeLink{},
 	}
 }
 
@@ -122,6 +125,32 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated index for interimTemplate")
 		}
 		interimTemplateIndexMap[index] = struct{}{}
+	}
+
+	// Content challenge validation
+	contentChallengeIdMap := make(map[uint64]bool)
+	contentChallengeCount := gs.GetContentChallengeCount()
+	for _, elem := range gs.ContentChallengeList {
+		if _, ok := contentChallengeIdMap[elem.Id]; ok {
+			return fmt.Errorf("duplicated id for contentChallenge")
+		}
+		if elem.Id >= contentChallengeCount {
+			return fmt.Errorf("contentChallenge id should be lower or equal than the last id")
+		}
+		contentChallengeIdMap[elem.Id] = true
+	}
+
+	// Content initiative link validation
+	linkKeyMap := make(map[string]bool)
+	for _, link := range gs.ContentInitiativeLinks {
+		if link.InitiativeId == 0 {
+			return fmt.Errorf("content initiative link has zero initiative_id")
+		}
+		key := fmt.Sprintf("%d-%d-%d", link.InitiativeId, link.TargetType, link.TargetId)
+		if linkKeyMap[key] {
+			return fmt.Errorf("duplicated content initiative link: %s", key)
+		}
+		linkKeyMap[key] = true
 	}
 
 	return gs.Params.Validate()

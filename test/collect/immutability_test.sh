@@ -55,8 +55,9 @@ echo "  Item IDs: $IMMUT_ITEM1_ID, $IMMUT_ITEM2_ID"
 TX_OUT=$(send_tx collect set-seeking-endorsement "$IMMUT_COLL_ID" true --from nonmember1)
 assert_tx_success "Set seeking endorsement" "$TX_OUT"
 
-# collector1 endorses the collection (locks 100 DREAM)
-TX_OUT=$(send_tx collect endorse-collection "$IMMUT_COLL_ID" --from collector1)
+# Alice endorses the collection (locks 100 DREAM); requires TRUST_LEVEL_ESTABLISHED or above.
+# Alice has TRUST_LEVEL_CORE and sufficient DREAM.
+TX_OUT=$(send_tx collect endorse-collection "$IMMUT_COLL_ID" --from alice)
 assert_tx_success "Endorse collection" "$TX_OUT"
 
 # Verify immutability

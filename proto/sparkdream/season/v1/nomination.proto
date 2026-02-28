@@ -1,0 +1,59 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/season/types";
+
+// Nomination represents a retroactive public goods funding nomination.
+// Members nominate completed contributions and the community stakes DREAM
+// conviction on nominations. Top-conviction nominations receive bonus DREAM.
+message Nomination {
+  uint64 id = 1;
+  string nominator = 2;          // address of the nominator
+  string content_ref = 3;        // e.g. "blog/post/42", "forum/post/7", "collect/collection/3", "rep/initiative/5", "rep/jury/addr"
+  string rationale = 4;
+  int64 created_at_block = 5;
+  uint64 season = 6;
+  string total_staked = 7 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string conviction = 8 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string reward_amount = 9 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  bool rewarded = 10;
+}
+
+// NominationStake represents a DREAM stake on a nomination.
+message NominationStake {
+  uint64 nomination_id = 1;
+  string staker = 2;
+  string amount = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  int64 staked_at_block = 4;
+}
+
+// RetroRewardRecord tracks the history of retroactive rewards distributed per season.
+message RetroRewardRecord {
+  uint64 season = 1;
+  uint64 nomination_id = 2;
+  string recipient = 3;            // nominator address
+  string content_ref = 4;
+  string conviction = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string reward_amount = 6 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  int64 distributed_at_block = 7;
+}

@@ -121,6 +121,7 @@ func (k Keeper) GetReputationForTags(ctx context.Context, memberAddr sdk.AccAddr
 		return math.LegacyZeroDec(), nil
 	}
 
+	// GetMember applies both reputation decay and DREAM decay lazily
 	member, err := k.GetMember(ctx, memberAddr)
 	if err != nil {
 		return math.LegacyZeroDec(), err

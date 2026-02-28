@@ -10,6 +10,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCollection) (*types.MsgCreateCollectionResponse, error) {
@@ -75,6 +77,16 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		if uint32(len(tag)) > params.MaxTagLength {
 			return nil, types.ErrTagTooLong
 		}
+		// Validate against shared tag registry if available
+		if k.forumKeeper != nil {
+			exists, err := k.forumKeeper.TagExists(ctx, tag)
+			if err != nil {
+				return nil, errorsmod.Wrap(err, "failed to check tag registry")
+			}
+			if !exists {
+				return nil, errorsmod.Wrapf(types.ErrTagTooLong, "tag %q not found in registry", tag)
+			}
+		}
 	}
 
 	member := k.isMember(ctx, msg.Creator)
@@ -134,6 +146,13 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		}
 	}
 
+	// Validate initiative reference before creating the collection
+	if msg.InitiativeId > 0 && k.repKeeper != nil {
+		if err := k.repKeeper.ValidateInitiativeReference(ctx, msg.InitiativeId); err != nil {
+			return nil, errorsmod.Wrapf(types.ErrInvalidInitiativeRef, "initiative %d: %s", msg.InitiativeId, err.Error())
+		}
+	}
+
 	// Get next collection ID
 	collID, err := k.CollectionSeq.Next(ctx)
 	if err != nil {
@@ -161,6 +180,8 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		DepositBurned:            depositBurned,
 		CommunityFeedbackEnabled: true,
 		Status:                   status,
+		SeekingEndorsement:       status == types.CollectionStatus_COLLECTION_STATUS_PENDING,
+		InitiativeId:             msg.InitiativeId,
 	}
 
 	// Store collection
@@ -179,6 +200,20 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 	}
 	if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(status), collID)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set status index")
+	}
+
+	// Create author bond if requested (requires repKeeper)
+	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.repKeeper != nil {
+		if _, err := k.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, collID, *msg.AuthorBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to create author bond")
+		}
+	}
+
+	// Register initiative reference link for conviction propagation
+	if msg.InitiativeId > 0 && k.repKeeper != nil {
+		if err := k.repKeeper.RegisterContentInitiativeLink(ctx, msg.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), collID); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to register content initiative link")
+		}
 	}
 
 	// For PENDING: add EndorsementPending index entry

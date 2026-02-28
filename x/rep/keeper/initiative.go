@@ -66,6 +66,24 @@ func (k Keeper) CreateInitiative(
 		return 0, fmt.Errorf("budget %s DREAM exceeds %s tier maximum of %s DREAM", budgetDream.String(), tierName, maxDream.String())
 	}
 
+	// Enforce max tags per initiative (anti-gaming: prevents tag stuffing for rep/revenue inflation)
+	if params.MaxTagsPerInitiative > 0 && uint32(len(tags)) > params.MaxTagsPerInitiative {
+		return 0, fmt.Errorf("initiative has %d tags, max allowed is %d: %w", len(tags), params.MaxTagsPerInitiative, types.ErrTooManyTags)
+	}
+
+	// Validate tags against forum tag registry (anti-gaming: prevents rep farming in fake tags)
+	if k.late != nil && k.late.tagKeeper != nil {
+		for _, tag := range tags {
+			exists, err := k.late.tagKeeper.TagExists(ctx, tag)
+			if err != nil {
+				return 0, fmt.Errorf("failed to validate tag %q: %w", tag, err)
+			}
+			if !exists {
+				return 0, fmt.Errorf("tag %q: %w", tag, types.ErrTagNotRegistered)
+			}
+		}
+	}
+
 	// Allocate budget from project
 	if err := k.AllocateBudget(ctx, projectID, budget); err != nil {
 		return 0, fmt.Errorf("failed to allocate budget: %w", err)
@@ -490,26 +508,31 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		tierConfig = params.EpicTier
 	}
 
-	// Grant reputation for each tag
+	// Grant reputation split evenly across tags (subject to per-epoch cap).
+	// Total reputation = budget / 10, divided by tag count.
+	// E.g., 2000 DREAM budget with 3 tags → 66.6 rep per tag instead of 200 per tag.
+	tagCount := int64(len(initiative.Tags))
+	if tagCount == 0 {
+		tagCount = 1
+	}
 	for _, tag := range initiative.Tags {
 		currentRep := math.LegacyZeroDec()
 		if repStr, ok := member.ReputationScores[tag]; ok {
 			currentRep, _ = math.LegacyNewDecFromStr(repStr)
 		}
 
-		// Reputation grant = min(budget / 10, tier cap - current rep)
-		repGrant := math.LegacyNewDecFromInt(DerefInt(initiative.Budget)).QuoInt64(10)
+		// Reputation grant = min(budget / 10 / tagCount, tier cap - current rep)
+		repGrant := math.LegacyNewDecFromInt(DerefInt(initiative.Budget)).QuoInt64(10).QuoInt64(tagCount)
 		maxGrant := tierConfig.ReputationCap.Sub(currentRep)
 		if repGrant.GT(maxGrant) {
 			repGrant = maxGrant
 		}
 
 		if repGrant.GT(math.LegacyZeroDec()) {
-			newRep := currentRep.Add(repGrant)
-			if member.ReputationScores == nil {
-				member.ReputationScores = make(map[string]string)
+			// Use capped grant to prevent reputation grinding
+			if _, err := k.GrantReputationCapped(ctx, &member, tag, repGrant); err != nil {
+				return fmt.Errorf("failed to grant reputation for tag %s: %w", tag, err)
 			}
-			member.ReputationScores[tag] = newRep.String()
 		}
 	}
 
@@ -589,7 +612,14 @@ func (k Keeper) GetMember(ctx context.Context, address sdk.AccAddress) (types.Me
 		return types.Member{}, err
 	}
 
-	// Apply lazy decay - this ensures balances are always accurate
+	// Apply lazy reputation decay before DREAM decay (both use LastDecayEpoch).
+	// Reputation decay must run first since it reads the same epoch field
+	// but doesn't update it — ApplyPendingDecay handles the epoch advancement.
+	if err := k.ApplyReputationDecay(ctx, &member); err != nil {
+		return types.Member{}, err
+	}
+
+	// Apply lazy DREAM balance decay - this ensures balances are always accurate
 	if err := k.ApplyPendingDecay(ctx, &member); err != nil {
 		return types.Member{}, err
 	}

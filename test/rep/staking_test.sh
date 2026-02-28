@@ -263,6 +263,36 @@ else
 fi
 
 echo "Staker3 staking 100 DREAM on initiative..."
+# Check Staker3 (juror1) balance and fund if insufficient
+JUROR1_MEMBER=$($BINARY query rep get-member $JUROR1_ADDR -o json 2>/dev/null | grep -v "Falling back")
+JUROR1_BALANCE=$(echo "$JUROR1_MEMBER" | jq -r '.member.dream_balance // "0"')
+JUROR1_LOCKED=$(echo "$JUROR1_MEMBER" | jq -r '.member.staked_dream // "0"')
+JUROR1_AVAILABLE=$((JUROR1_BALANCE - JUROR1_LOCKED))
+
+if [ "$JUROR1_AVAILABLE" -lt "100000000" ]; then
+    NEEDED=$((100000000 - JUROR1_AVAILABLE + 10000000))  # +10 for buffer
+    NEEDED_DREAM=$(echo "scale=2; $NEEDED / 1000000" | bc 2>/dev/null || echo "0")
+    echo "   ⚠️  Staker3 (juror1) has insufficient balance, transferring $NEEDED_DREAM DREAM from Alice..."
+    FUND_RES=$($BINARY tx rep transfer-dream \
+      $JUROR1_ADDR \
+      "$NEEDED" \
+      "tip" \
+      "Funding juror1 for staking test" \
+      --from alice \
+      --chain-id $CHAIN_ID \
+      --keyring-backend test \
+      --fees 5000uspark \
+      -y \
+      --output json 2>&1)
+    FUND_TXHASH=$(echo "$FUND_RES" | grep -v "^gas estimate:" | grep -v "^Falling back" | jq -r '.txhash // ""')
+    if [ -n "$FUND_TXHASH" ]; then
+        sleep 3
+        echo "   ✅ Funded Staker3 (TX: $FUND_TXHASH)"
+    else
+        echo "   ⚠️  Funding failed, Staker3 may not have enough DREAM"
+    fi
+fi
+
 STAKE3_RES=$($BINARY tx rep stake \
   "stake-target-initiative" \
   $INITIATIVE_ID \
@@ -974,7 +1004,7 @@ echo "    3. Update reward_debt = stake.amount * current_acc_reward_per_share"
 echo ""
 echo "--- STAKING MECHANICS TEST SUMMARY ---"
 echo ""
-echo "✅ Part 1: Initiative staking         3 stakers, 300 DREAM total"
+echo "✅ Part 1: Initiative staking         $STAKERS_COUNT stakers, $TOTAL_STAKED DREAM total"
 echo "✅ Part 2: Member staking              Skipped (accounts have limited DREAM)"
 echo "✅ Part 3: Tag staking                 'staking': 100, 'test': 10 DREAM"
 echo "✅ Part 4: Project staking              100 DREAM (8% APY + 5% bonus)"
@@ -986,7 +1016,11 @@ echo "✅ Part 9: Project stake info           Bonus pool tracked"
 echo "✅ Part 10: Individual stake details    All stake details verified"
 echo "✅ Part 11: Claim rewards              Staker1 claimed rewards"
 echo "✅ Part 12: Compound rewards           Staker2 compounded rewards"
-echo "✅ Part 13: Unstake                  Staker3 removed stake (principal + rewards)"
+if [ "$STAKE3_ID" != "unknown" ]; then
+    echo "✅ Part 13: Unstake                  Staker3 removed stake (principal + rewards)"
+else
+    echo "⚠️  Part 13: Unstake                  Skipped (Staker3 stake failed)"
+fi
 echo "✅ Part 14: Pending rewards           Reward debt tracking verified"
 echo "✅ Part 15: Minimum duration           24-hour minimum enforced"
 echo "✅ Part 16: Target types summary         4 types with different reward mechanics"
@@ -995,9 +1029,21 @@ echo "✅ Part 18: MasterChef pattern        Lazy reward calculation explained"
 echo ""
 echo "📊 STAKING POSITIONS CREATED IN THIS TEST:"
 echo "   Initiative #$INITIATIVE_ID:"
-echo "     → Staker1: 100 DREAM (STAKE_TARGET_INITIATIVE)"
-echo "     → Staker2: 100 DREAM (STAKE_TARGET_INITIATIVE)"
-echo "     → Staker3: 100 DREAM (STAKE_TARGET_INITIATIVE - unstaked)"
+if [ "$STAKE1_ID" != "unknown" ]; then
+    echo "     → Staker1: 100 DREAM (STAKE_TARGET_INITIATIVE)"
+else
+    echo "     → Staker1: FAILED"
+fi
+if [ "$STAKE2_ID" != "unknown" ]; then
+    echo "     → Staker2: 100 DREAM (STAKE_TARGET_INITIATIVE)"
+else
+    echo "     → Staker2: FAILED"
+fi
+if [ "$STAKE3_ID" != "unknown" ]; then
+    echo "     → Staker3: 100 DREAM (STAKE_TARGET_INITIATIVE - unstaked)"
+else
+    echo "     → Staker3: FAILED (insufficient balance)"
+fi
 echo ""
 echo "   Member staking: Skipped"
 echo ""

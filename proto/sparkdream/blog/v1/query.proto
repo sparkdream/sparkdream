@@ -8,6 +8,7 @@ import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/blog/v1/params.proto";
 import "sparkdream/blog/v1/post.proto";
+import "sparkdream/blog/v1/types.proto";
 
 option go_package = "sparkdream/x/blog/types";
 
@@ -18,14 +19,69 @@ service Query {
     option (google.api.http).get = "/sparkdream/blog/v1/params";
   }
 
-  // ShowPost Queries a list of ShowPost items.
+  // ShowPost returns a single post by ID.
   rpc ShowPost(QueryShowPostRequest) returns (QueryShowPostResponse) {
     option (google.api.http).get = "/sparkdream/blog/v1/show_post/{id}";
   }
 
-  // ListPost Queries a list of ListPost items.
+  // ListPost returns paginated list of all posts.
   rpc ListPost(QueryListPostRequest) returns (QueryListPostResponse) {
     option (google.api.http).get = "/sparkdream/blog/v1/list_post";
+  }
+
+  // ShowReply returns a single reply by ID.
+  rpc ShowReply(QueryShowReplyRequest) returns (QueryShowReplyResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/show_reply/{id}";
+  }
+
+  // ListReplies returns paginated replies for a post.
+  rpc ListReplies(QueryListRepliesRequest) returns (QueryListRepliesResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_replies/{post_id}";
+  }
+
+  // ListPostsByCreator returns paginated posts by a specific creator.
+  rpc ListPostsByCreator(QueryListPostsByCreatorRequest) returns (QueryListPostsByCreatorResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_posts_by_creator/{creator}";
+  }
+
+  // ReactionCounts returns aggregate reaction counts for a target.
+  rpc ReactionCounts(QueryReactionCountsRequest) returns (QueryReactionCountsResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/reaction_counts/{post_id}";
+  }
+
+  // UserReaction checks what reaction a user has on a target.
+  rpc UserReaction(QueryUserReactionRequest) returns (QueryUserReactionResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/user_reaction/{creator}/{post_id}";
+  }
+
+  // ListReactions returns paginated reaction records for a target.
+  rpc ListReactions(QueryListReactionsRequest) returns (QueryListReactionsResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_reactions/{post_id}";
+  }
+
+  // ListReactionsByCreator returns paginated reactions by a specific creator.
+  rpc ListReactionsByCreator(QueryListReactionsByCreatorRequest) returns (QueryListReactionsByCreatorResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_reactions_by_creator/{creator}";
+  }
+
+  // AnonymousPostMeta returns anonymous posting metadata for a post.
+  rpc AnonymousPostMeta(QueryAnonymousPostMetaRequest) returns (QueryAnonymousPostMetaResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/anonymous_post_meta/{post_id}";
+  }
+
+  // AnonymousReplyMeta returns anonymous posting metadata for a reply.
+  rpc AnonymousReplyMeta(QueryAnonymousReplyMetaRequest) returns (QueryAnonymousReplyMetaResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/anonymous_reply_meta/{reply_id}";
+  }
+
+  // IsNullifierUsed checks if a nullifier has been used.
+  rpc IsNullifierUsed(QueryIsNullifierUsedRequest) returns (QueryIsNullifierUsedResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/is_nullifier_used";
+  }
+
+  // ListExpiringContent returns paginated ephemeral content expiring before a timestamp.
+  rpc ListExpiringContent(QueryListExpiringContentRequest) returns (QueryListExpiringContentResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_expiring_content";
   }
 }
 
@@ -60,4 +116,136 @@ message QueryListPostRequest {
 message QueryListPostResponse {
   repeated Post post = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryShowReplyRequest defines the QueryShowReplyRequest message.
+message QueryShowReplyRequest {
+  uint64 id = 1;
+}
+
+// QueryShowReplyResponse defines the QueryShowReplyResponse message.
+message QueryShowReplyResponse {
+  Reply reply = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryListRepliesRequest defines the QueryListRepliesRequest message.
+message QueryListRepliesRequest {
+  uint64 post_id = 1;
+  bool filter_by_parent = 2;
+  uint64 parent_reply_id = 3;
+  cosmos.base.query.v1beta1.PageRequest pagination = 4;
+  bool include_hidden = 5;
+}
+
+// QueryListRepliesResponse defines the QueryListRepliesResponse message.
+message QueryListRepliesResponse {
+  repeated Reply replies = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryListPostsByCreatorRequest defines the QueryListPostsByCreatorRequest message.
+message QueryListPostsByCreatorRequest {
+  string creator = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+  bool include_hidden = 3;
+}
+
+// QueryListPostsByCreatorResponse defines the QueryListPostsByCreatorResponse message.
+message QueryListPostsByCreatorResponse {
+  repeated Post posts = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryReactionCountsRequest defines the QueryReactionCountsRequest message.
+message QueryReactionCountsRequest {
+  uint64 post_id = 1;
+  uint64 reply_id = 2;
+}
+
+// QueryReactionCountsResponse defines the QueryReactionCountsResponse message.
+message QueryReactionCountsResponse {
+  ReactionCounts counts = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryUserReactionRequest defines the QueryUserReactionRequest message.
+message QueryUserReactionRequest {
+  string creator = 1;
+  uint64 post_id = 2;
+  uint64 reply_id = 3;
+}
+
+// QueryUserReactionResponse defines the QueryUserReactionResponse message.
+message QueryUserReactionResponse {
+  Reaction reaction = 1;  // nil if user has not reacted
+}
+
+// QueryListReactionsRequest defines the QueryListReactionsRequest message.
+message QueryListReactionsRequest {
+  uint64 post_id = 1;
+  uint64 reply_id = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryListReactionsResponse defines the QueryListReactionsResponse message.
+message QueryListReactionsResponse {
+  repeated Reaction reactions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryListReactionsByCreatorRequest defines the QueryListReactionsByCreatorRequest message.
+message QueryListReactionsByCreatorRequest {
+  string creator = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryListReactionsByCreatorResponse defines the QueryListReactionsByCreatorResponse message.
+message QueryListReactionsByCreatorResponse {
+  repeated Reaction reactions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryAnonymousPostMetaRequest defines the QueryAnonymousPostMetaRequest message.
+message QueryAnonymousPostMetaRequest {
+  uint64 post_id = 1;
+}
+
+// QueryAnonymousPostMetaResponse defines the QueryAnonymousPostMetaResponse message.
+message QueryAnonymousPostMetaResponse {
+  AnonymousPostMetadata metadata = 1;  // nil if post is not anonymous
+}
+
+// QueryAnonymousReplyMetaRequest defines the QueryAnonymousReplyMetaRequest message.
+message QueryAnonymousReplyMetaRequest {
+  uint64 reply_id = 1;
+}
+
+// QueryAnonymousReplyMetaResponse defines the QueryAnonymousReplyMetaResponse message.
+message QueryAnonymousReplyMetaResponse {
+  AnonymousPostMetadata metadata = 1;  // nil if reply is not anonymous
+}
+
+// QueryIsNullifierUsedRequest defines the QueryIsNullifierUsedRequest message.
+message QueryIsNullifierUsedRequest {
+  string nullifier_hex = 1;
+  uint64 domain = 2;
+  uint64 scope = 3;
+}
+
+// QueryIsNullifierUsedResponse defines the QueryIsNullifierUsedResponse message.
+message QueryIsNullifierUsedResponse {
+  bool used = 1;
+}
+
+// QueryListExpiringContentRequest defines the QueryListExpiringContentRequest message.
+message QueryListExpiringContentRequest {
+  int64 expires_before = 1;
+  string content_type = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryListExpiringContentResponse defines the QueryListExpiringContentResponse message.
+message QueryListExpiringContentResponse {
+  repeated Post posts = 1 [(gogoproto.nullable) = false];
+  repeated Reply replies = 2 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
 }

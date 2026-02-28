@@ -4,7 +4,10 @@ import (
 	"context"
 
 	"cosmossdk.io/core/address"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // AuthKeeper defines the expected interface for the Auth module.
@@ -27,6 +30,48 @@ type CommonsKeeper interface {
 	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
 	// or committee membership.
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+	// SpendFromTreasury transfers coins from a council treasury to a recipient.
+	SpendFromTreasury(ctx context.Context, council string, recipient sdk.AccAddress, amount sdk.Coins) error
+}
+
+// RepKeeper defines the expected interface for the Rep module.
+// Required dependency — x/blog requires x/rep for membership and trust level checks.
+type RepKeeper interface {
+	// IsActiveMember returns true if addr is an active member.
+	IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
+	// GetTrustLevel returns the trust level (0-4) for the given address.
+	// Returns 0 if the address is not a member.
+	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
+	// GetMemberTrustTreeRoot returns the current member trust tree Merkle root.
+	GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error)
+	// GetPreviousMemberTrustTreeRoot returns the previous member trust tree Merkle root.
+	GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte
+
+	// Content conviction staking & author bonds
+	GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
+	GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error)
+	CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error)
+	SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error
+	GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error)
+
+	// Initiative reference validation and linking for conviction propagation
+	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
+	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+	RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+}
+
+// VoteKeeper defines the expected interface for the Vote module.
+// Optional — if nil, anonymous posting is unavailable.
+type VoteKeeper interface {
+	// VerifyAnonymousActionProof verifies a ZK proof for anonymous actions.
+	VerifyAnonymousActionProof(ctx context.Context, proof []byte, nullifier []byte, merkleRoot []byte, minTrustLevel uint32) error
+}
+
+// SeasonKeeper defines the expected interface for the Season module.
+// Optional — falls back to DefaultEpochDuration if nil.
+type SeasonKeeper interface {
+	// GetEpochDuration returns the current epoch duration in seconds.
+	GetEpochDuration(ctx context.Context) int64
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

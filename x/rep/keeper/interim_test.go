@@ -1371,9 +1371,9 @@ func TestApproveInterim_UnauthorizedApprover(t *testing.T) {
 		nil,
 		nil,
 		commonsKeeper,
-		seasonKeeper,
 		nil, // voteKeeper
 	)
+	testKeeper.SetSeasonKeeper(seasonKeeper)
 
 	// Initialize params
 	err := testKeeper.Params.Set(testCtx, types.DefaultParams())

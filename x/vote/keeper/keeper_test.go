@@ -154,6 +154,8 @@ func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool 
 	return true
 }
 
+func (m *mockRepKeeper) MarkMemberDirty(_ context.Context, _ string) {}
+
 // ---------------------------------------------------------------------------
 // Mock SeasonKeeper
 // ---------------------------------------------------------------------------

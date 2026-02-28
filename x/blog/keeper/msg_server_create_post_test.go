@@ -35,6 +35,7 @@ func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context, 
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 
 	bankKeeper := &mockBankKeeper{}
+	repKeeper := &mockRepKeeper{}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -43,10 +44,13 @@ func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context, 
 		authority,
 		bankKeeper,
 		nil, // commonsKeeper (optional)
+		repKeeper,
 	)
 
-	// Initialize params
-	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
+	// Initialize params with high rate limits for testing
+	params := types.DefaultParams()
+	params.MaxPostsPerDay = 100
+	if err := k.Params.Set(ctx, params); err != nil {
 		t.Fatalf("failed to set params: %v", err)
 	}
 

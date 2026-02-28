@@ -17,7 +17,6 @@ import (
 	"sparkdream/x/rep/keeper"
 	module "sparkdream/x/rep/module"
 	"sparkdream/x/rep/types"
-	seasontypes "sparkdream/x/season/types"
 )
 
 type mockCommonsKeeper struct {
@@ -48,15 +47,15 @@ func (m mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string,
 }
 
 type mockSeasonKeeper struct {
-	GetCurrentSeasonFn func(ctx context.Context) (seasontypes.Season, error)
+	GetCurrentSeasonFn func(ctx context.Context) (types.SeasonState, error)
 }
 
-func (m mockSeasonKeeper) GetCurrentSeason(ctx context.Context) (seasontypes.Season, error) {
+func (m mockSeasonKeeper) GetCurrentSeason(ctx context.Context) (types.SeasonState, error) {
 	if m.GetCurrentSeasonFn != nil {
 		return m.GetCurrentSeasonFn(ctx)
 	}
 	// Default: return season 1
-	return seasontypes.Season{Number: 1}, nil
+	return types.SeasonState{Number: 1}, nil
 }
 
 func (m mockSeasonKeeper) ResolveDisplayNameAppealInternal(ctx context.Context, member string, appealSucceeded bool) error {
@@ -64,7 +63,9 @@ func (m mockSeasonKeeper) ResolveDisplayNameAppealInternal(ctx context.Context, 
 }
 
 type mockVoteKeeper struct {
-	VerifyMembershipProofFn func(ctx context.Context, proof []byte, nullifier []byte) error
+	VerifyMembershipProofFn      func(ctx context.Context, proof []byte, nullifier []byte) error
+	GetActiveVoterZkPublicKeysFn func(ctx context.Context) ([]string, [][]byte, error)
+	GetVoterZkPublicKeyFn        func(ctx context.Context, address string) ([]byte, error)
 }
 
 func (m mockVoteKeeper) VerifyMembershipProof(ctx context.Context, proof []byte, nullifier []byte) error {
@@ -76,6 +77,22 @@ func (m mockVoteKeeper) VerifyMembershipProof(ctx context.Context, proof []byte,
 		return fmt.Errorf("empty proof")
 	}
 	return nil
+}
+
+func (m mockVoteKeeper) GetActiveVoterZkPublicKeys(ctx context.Context) ([]string, [][]byte, error) {
+	if m.GetActiveVoterZkPublicKeysFn != nil {
+		return m.GetActiveVoterZkPublicKeysFn(ctx)
+	}
+	// Default: no registered voters
+	return nil, nil, nil
+}
+
+func (m mockVoteKeeper) GetVoterZkPublicKey(ctx context.Context, address string) ([]byte, error) {
+	if m.GetVoterZkPublicKeyFn != nil {
+		return m.GetVoterZkPublicKeyFn(ctx, address)
+	}
+	// Default: no registration found
+	return nil, fmt.Errorf("no voter registration for %s", address)
 }
 
 type fixture struct {
@@ -174,8 +191,8 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 
 	// Mock SeasonKeeper with configurable season number
 	seasonKeeper := &mockSeasonKeeper{
-		GetCurrentSeasonFn: func(ctx context.Context) (seasontypes.Season, error) {
-			return seasontypes.Season{Number: options.seasonNumber}, nil
+		GetCurrentSeasonFn: func(ctx context.Context) (types.SeasonState, error) {
+			return types.SeasonState{Number: options.seasonNumber}, nil
 		},
 	}
 
@@ -193,9 +210,9 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		nil,
 		bankKeeper,
 		commonsKeeper,
-		seasonKeeper,
 		voteKeeper,
 	)
+	k.SetSeasonKeeper(seasonKeeper)
 
 	// Initialize genesis with default values (including sequence counters starting at 1)
 	genState := types.DefaultGenesis()

@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	"github.com/stretchr/testify/require"
@@ -238,7 +239,7 @@ func TestMoveThreadWithReservedTag(t *testing.T) {
 	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
 
 	// Create reserved tag
-	reservedTag := types.ReservedTag{
+	reservedTag := commontypes.ReservedTag{
 		Name:          "governance",
 		Authority:     testAuthority,
 		MembersCanUse: true,

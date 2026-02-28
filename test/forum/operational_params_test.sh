@@ -333,7 +333,12 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       hide_appeal_cooldown,
       lock_appeal_cooldown,
       move_appeal_cooldown,
-      ephemeral_ttl
+      ephemeral_ttl,
+      anonymous_posting_enabled: (.anonymous_posting_enabled // false),
+      anonymous_min_trust_level,
+      private_reactions_enabled: (.private_reactions_enabled // false),
+      conviction_renewal_threshold,
+      conviction_renewal_period
     }')
 
     # Modify test fields: double the ephemeral TTL and spam tax
@@ -503,7 +508,12 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       hide_appeal_cooldown,
       lock_appeal_cooldown,
       move_appeal_cooldown,
-      ephemeral_ttl
+      ephemeral_ttl,
+      anonymous_posting_enabled: (.anonymous_posting_enabled // false),
+      anonymous_min_trust_level,
+      private_reactions_enabled: (.private_reactions_enabled // false),
+      conviction_renewal_threshold,
+      conviction_renewal_period
     }')
 
     jq -n \

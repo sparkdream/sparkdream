@@ -463,9 +463,11 @@ STAKER1_STAKE_RES=$($BINARY tx rep stake \
   --from $STAKER1_NAME \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
+  --gas auto \
+  --gas-adjustment 1.5 \
   --fees 5000uspark \
   -y \
-  -o json)
+  -o json 2>&1)
 
 STAKER1_STAKE_TX=$(echo $STAKER1_STAKE_RES | jq -r '.txhash')
 sleep 2
@@ -513,9 +515,11 @@ STAKER2_STAKE_RES=$($BINARY tx rep stake \
   --from $STAKER2_NAME \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
+  --gas auto \
+  --gas-adjustment 1.5 \
   --fees 5000uspark \
   -y \
-  -o json)
+  -o json 2>&1)
 
 STAKER2_STAKE_TX=$(echo $STAKER2_STAKE_RES | jq -r '.txhash')
 sleep 2

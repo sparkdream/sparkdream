@@ -75,6 +75,9 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 		return err
 	}
 
+	// Mark trust tree dirty — zeroed member must be removed from anonymous posting tree
+	k.MarkMemberDirty(ctx, memberAddr.String())
+
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(

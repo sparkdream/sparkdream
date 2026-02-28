@@ -39,10 +39,10 @@ type Keeper struct {
 	UsedProposalNullifier collections.Map[string, types.UsedProposalNullifier]
 	TleValidatorShare     collections.Map[string, types.TleValidatorShare]
 	TleDecryptionShare    collections.Map[string, types.TleDecryptionShare]
-	EpochDecryptionKey        collections.Map[uint64, types.EpochDecryptionKey]
-	SrsState                  collections.Item[types.SrsState]
-	TleEpochParticipation     collections.Map[uint64, types.TleEpochParticipation]
-	TleValidatorLiveness      collections.Map[string, types.TleValidatorLiveness]
+	EpochDecryptionKey    collections.Map[uint64, types.EpochDecryptionKey]
+	SrsState              collections.Item[types.SrsState]
+	TleEpochParticipation collections.Map[uint64, types.TleEpochParticipation]
+	TleValidatorLiveness  collections.Map[string, types.TleValidatorLiveness]
 }
 
 func NewKeeper(
@@ -90,6 +90,59 @@ func NewKeeper(
 // GetAuthority returns the module's authority.
 func (k Keeper) GetAuthority() []byte {
 	return k.authority
+}
+
+// VerifyAnonymousActionProof verifies a ZK proof for anonymous actions (posting, replying, etc.).
+// It delegates to the Groth16 verifier using the AnonActionVerifyingKey from module params.
+// If no verifying key is configured, verification is skipped (development mode).
+func (k Keeper) VerifyAnonymousActionProof(ctx context.Context, proof, nullifier, merkleRoot []byte, minTrustLevel uint32) error {
+	if len(proof) == 0 {
+		return fmt.Errorf("empty proof")
+	}
+	if len(nullifier) == 0 {
+		return fmt.Errorf("empty nullifier")
+	}
+
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get vote params: %w", err)
+	}
+
+	// Scope is 0 for anonymous actions (the scope is embedded in the nullifier by the prover)
+	return verifyAnonActionProof(ctx, params.AnonActionVerifyingKey, merkleRoot, nullifier, proof, minTrustLevel, 0)
+}
+
+// GetActiveVoterZkPublicKeys returns the addresses and ZK public keys of all active voter registrations.
+// Used by x/rep to build the member trust tree.
+func (k Keeper) GetActiveVoterZkPublicKeys(ctx context.Context) ([]string, [][]byte, error) {
+	var addresses []string
+	var zkPubKeys [][]byte
+
+	err := k.VoterRegistration.Walk(ctx, nil, func(addr string, reg types.VoterRegistration) (bool, error) {
+		if reg.Active {
+			addresses = append(addresses, addr)
+			zkPubKeys = append(zkPubKeys, reg.ZkPublicKey)
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return addresses, zkPubKeys, nil
+}
+
+// GetVoterZkPublicKey returns the ZK public key for a single active voter registration.
+// Used by x/rep for incremental trust tree updates.
+func (k Keeper) GetVoterZkPublicKey(ctx context.Context, address string) ([]byte, error) {
+	reg, err := k.VoterRegistration.Get(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	if !reg.Active {
+		return nil, fmt.Errorf("voter registration not active: %s", address)
+	}
+	return reg.ZkPublicKey, nil
 }
 
 // VerifyMembershipProof verifies a ZK proof that the prover is a registered

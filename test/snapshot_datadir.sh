@@ -29,8 +29,12 @@ pkill -9 ignite
 pkill -9 sparkdreamd
 sleep 3
 
-# Copy the entire data directory
+# Copy the entire data directory (remove existing to prevent nesting)
 echo "→ Copying ~/.sparkdream to snapshot..."
+if [ -d "$SNAPSHOT_PATH/sparkdream_data" ]; then
+    echo "  → Removing existing snapshot data..."
+    rm -rf "$SNAPSHOT_PATH/sparkdream_data"
+fi
 cp -r ~/.sparkdream "$SNAPSHOT_PATH/sparkdream_data"
 
 if [ $? -eq 0 ]; then

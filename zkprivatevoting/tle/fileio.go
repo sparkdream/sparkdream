@@ -25,12 +25,12 @@ type MasterFile struct {
 // SealedVoteFile is the JSON format for a sealed vote's local state.
 // Voters save this to reveal their vote later if auto-reveal fails.
 type SealedVoteFile struct {
-	ProposalID     uint64 `json:"proposal_id"`
-	VoteOption     uint32 `json:"vote_option"`
-	SaltHex        string `json:"salt_hex"`
-	NullifierHex   string `json:"nullifier_hex"`
-	CommitmentHex  string `json:"commitment_hex"`
-	EncryptedHex   string `json:"encrypted_hex"`
+	ProposalID    uint64 `json:"proposal_id"`
+	VoteOption    uint32 `json:"vote_option"`
+	SaltHex       string `json:"salt_hex"`
+	NullifierHex  string `json:"nullifier_hex"`
+	CommitmentHex string `json:"commitment_hex"`
+	EncryptedHex  string `json:"encrypted_hex"`
 }
 
 // SaveDKGOutput writes the DKG output to the given directory as JSON files.

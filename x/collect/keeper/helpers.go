@@ -539,6 +539,13 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		k.HideRecordByTarget.Remove(ctx, key) //nolint:errcheck
 	}
 
+	// Remove initiative link if collection references an initiative (best effort)
+	if coll.InitiativeId > 0 && k.repKeeper != nil {
+		if linkErr := k.repKeeper.RemoveContentInitiativeLink(ctx, coll.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), coll.Id); linkErr != nil {
+			sdkCtx.Logger().Error("failed to remove content initiative link on delete", "collection_id", coll.Id, "error", linkErr)
+		}
+	}
+
 	// Remove indexes
 	k.CollectionsByOwner.Remove(ctx, collections.Join(coll.Owner, coll.Id)) //nolint:errcheck
 	if coll.ExpiresAt > 0 {

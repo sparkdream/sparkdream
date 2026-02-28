@@ -128,8 +128,9 @@ echo ""
 SENTINEL_STATUS=$($BINARY query forum sentinel-status "$SENTINEL1_ADDR" --output json 2>&1)
 
 if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
-    # Sentinel1 needs tier 4 (500+ rep) for thread locking = 5 EPIC interims
-    bootstrap_reputation sentinel1 5
+    # Sentinel1 needs tier 4 (500+ rep) for thread locking.
+    # Per-epoch cap is 50 rep, so need ~11 EPICs to guarantee 500+ after decay.
+    bootstrap_reputation sentinel1 11
     echo ""
 else
     echo "  Sentinel1 already registered, skipping bootstrap"

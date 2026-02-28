@@ -9,8 +9,8 @@ option go_package = "sparkdream/x/vote/types";
 // Roles let x/vote understand abstain/veto semantics generically.
 enum OptionRole {
   OPTION_ROLE_STANDARD = 0; // Normal option — counted in threshold
-  OPTION_ROLE_ABSTAIN = 1;  // Counts toward quorum, excluded from threshold denominator
-  OPTION_ROLE_VETO = 2;     // Counts toward quorum + triggers veto check
+  OPTION_ROLE_ABSTAIN = 1; // Counts toward quorum, excluded from threshold denominator
+  OPTION_ROLE_VETO = 2; // Counts toward quorum + triggers veto check
 }
 
 // Visibility level controls what non-voters can see.
@@ -22,10 +22,10 @@ enum VisibilityLevel {
 
 // Proposal lifecycle status.
 enum ProposalStatus {
-  PROPOSAL_STATUS_ACTIVE = 0;     // Voting is open
-  PROPOSAL_STATUS_TALLYING = 1;   // SEALED/PRIVATE: reveal period
-  PROPOSAL_STATUS_FINALIZED = 2;  // Terminal: outcome determined
-  PROPOSAL_STATUS_CANCELLED = 3;  // Terminal: cancelled
+  PROPOSAL_STATUS_ACTIVE = 0; // Voting is open
+  PROPOSAL_STATUS_TALLYING = 1; // SEALED/PRIVATE: reveal period
+  PROPOSAL_STATUS_FINALIZED = 2; // Terminal: outcome determined
+  PROPOSAL_STATUS_CANCELLED = 3; // Terminal: cancelled
 }
 
 // Proposal outcome after finalization.
@@ -50,8 +50,8 @@ enum ProposalType {
 // Vote option definition.
 // IDs MUST be sequential starting from 0.
 message VoteOption {
-  uint32 id = 1;     // Must equal the option's index (0-based, sequential)
-  string label = 2;  // "yes", "no", "abstain", "no with veto", or custom
+  uint32 id = 1; // Must equal the option's index (0-based, sequential)
+  string label = 2; // "yes", "no", "abstain", "no with veto", or custom
   OptionRole role = 3;
 }
 
@@ -64,5 +64,5 @@ message VoteTally {
 // Per-voter encrypted copy of the proposal symmetric key (PRIVATE mode).
 message EncryptedKeyShare {
   bytes voter_encryption_pubkey = 1; // Identifies which voter this is for
-  bytes encrypted_key = 2;           // ECIES-encrypted symmetric key
+  bytes encrypted_key = 2; // ECIES-encrypted symmetric key
 }

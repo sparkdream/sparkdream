@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func TestFlagPost(t *testing.T) {
 			msg: &types.MsgFlagPost{
 				Creator:  testCreator2,
 				PostId:   post.PostId,
-				Category: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				Category: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				Reason:   "This is spam",
 			},
 			expectError: false,
@@ -37,7 +38,7 @@ func TestFlagPost(t *testing.T) {
 			msg: &types.MsgFlagPost{
 				Creator:  "invalid-address",
 				PostId:   post.PostId,
-				Category: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				Category: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				Reason:   "Test",
 			},
 			expectError: true,
@@ -48,7 +49,7 @@ func TestFlagPost(t *testing.T) {
 			msg: &types.MsgFlagPost{
 				Creator:  testCreator2,
 				PostId:   9999,
-				Category: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				Category: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				Reason:   "Test",
 			},
 			expectError: true,
@@ -59,7 +60,7 @@ func TestFlagPost(t *testing.T) {
 			msg: &types.MsgFlagPost{
 				Creator:  testCreator2,
 				PostId:   post.PostId,
-				Category: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				Category: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				Reason:   "Test",
 			},
 			setup: func() {
@@ -75,7 +76,7 @@ func TestFlagPost(t *testing.T) {
 			msg: &types.MsgFlagPost{
 				Creator:  testCreator2,
 				PostId:   post.PostId,
-				Category: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				Category: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				Reason:   "Test",
 			},
 			setup: func() {
@@ -138,7 +139,7 @@ func TestFlagPostWeight(t *testing.T) {
 	_, err := f.msgServer.FlagPost(f.ctx, &types.MsgFlagPost{
 		Creator:  testCreator2,
 		PostId:   post.PostId,
-		Category: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+		Category: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 		Reason:   "Spam content",
 	})
 	require.NoError(t, err)
@@ -153,7 +154,7 @@ func TestFlagPostWeight(t *testing.T) {
 	_, err = f.msgServer.FlagPost(f.ctx, &types.MsgFlagPost{
 		Creator:  testSentinel,
 		PostId:   post.PostId,
-		Category: uint64(types.ModerationReason_MODERATION_REASON_HARASSMENT),
+		Category: uint64(commontypes.ModerationReason_MODERATION_REASON_HARASSMENT),
 		Reason:   "Harassing content",
 	})
 	require.NoError(t, err)

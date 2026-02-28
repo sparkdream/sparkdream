@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func TestPruneExpiredCollections(t *testing.T) {
@@ -104,7 +105,7 @@ func TestPruneUnappealedHides(t *testing.T) {
 		Creator:    f.sentinel,
 		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
 		TargetId:   collID,
-		ReasonCode: types.ModerationReason_MODERATION_REASON_SPAM,
+		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
 	})
 	require.NoError(t, err)
 	hideRecordID := resp.HideRecordId
@@ -155,7 +156,7 @@ func TestPruneAppealTimeouts(t *testing.T) {
 		Creator:    f.sentinel,
 		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
 		TargetId:   collID,
-		ReasonCode: types.ModerationReason_MODERATION_REASON_SPAM,
+		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
 	})
 	require.NoError(t, err)
 	hideRecordID := resp.HideRecordId
@@ -233,7 +234,7 @@ func TestPruneExpiredFlags(t *testing.T) {
 		Creator:    f.member,
 		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
 		TargetId:   collID,
-		Reason:     types.ModerationReason_MODERATION_REASON_SPAM,
+		Reason:     commontypes.ModerationReason_MODERATION_REASON_SPAM,
 	})
 	require.NoError(t, err)
 

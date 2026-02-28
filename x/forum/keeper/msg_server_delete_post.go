@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -34,6 +35,14 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 		return nil, types.ErrPostDeleted
 	case types.PostStatus_POST_STATUS_ARCHIVED:
 		return nil, types.ErrPostArchived
+	}
+
+	// Remove initiative link if post references an initiative
+	if post.InitiativeId > 0 && k.repKeeper != nil {
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		if err := k.repKeeper.RemoveContentInitiativeLink(ctx, post.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_FORUM_CONTENT), msg.PostId); err != nil {
+			sdkCtx.Logger().Error("failed to remove content initiative link on delete", "post_id", msg.PostId, "error", err)
+		}
 	}
 
 	// Soft delete: update status and clear content

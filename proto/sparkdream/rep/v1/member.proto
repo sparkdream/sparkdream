@@ -50,6 +50,11 @@ message Member {
 
   // Invitation credit tracking for lazy seasonal reset
   int64 last_credit_reset_season = 25; // Season when credits were last reset to trust-level max
+
+  // Per-epoch reputation gain cap tracking
+  // Maps tag -> stringified Dec of reputation gained in the current epoch
+  map<string, string> reputation_gained_this_epoch = 26;
+  int64 last_rep_gain_epoch = 27; // Epoch when reputation gain counter was last reset
 }
 
 enum TrustLevel {

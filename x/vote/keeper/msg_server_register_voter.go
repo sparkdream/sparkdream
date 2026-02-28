@@ -82,6 +82,9 @@ func (k msgServer) RegisterVoter(ctx context.Context, msg *types.MsgRegisterVote
 		}
 	}
 
+	// Notify x/rep to rebuild this member's trust tree leaf (new ZK key registered).
+	k.repKeeper.MarkMemberDirty(ctx, msg.Voter)
+
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventVoterRegistered,
 		sdk.NewAttribute(types.AttributeVoter, msg.Voter),

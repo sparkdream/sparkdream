@@ -7,6 +7,7 @@ import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/rep/v1/challenge.proto";
+import "sparkdream/rep/v1/content_challenge.proto";
 import "sparkdream/rep/v1/initiative.proto";
 import "sparkdream/rep/v1/interim.proto";
 import "sparkdream/rep/v1/interim_template.proto";
@@ -204,6 +205,36 @@ service Query {
   // GetProjectStakeInfo queries a project's stake info
   rpc GetProjectStakeInfo(QueryGetProjectStakeInfoRequest) returns (QueryGetProjectStakeInfoResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/project_stake_info/{project_id}";
+  }
+
+  // ContentConviction queries the total conviction score for a content item
+  rpc ContentConviction(QueryContentConvictionRequest) returns (QueryContentConvictionResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/content_conviction/{target_type}/{target_id}";
+  }
+
+  // AuthorBond queries the author bond for a content item
+  rpc AuthorBond(QueryAuthorBondRequest) returns (QueryAuthorBondResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/author_bond/{target_type}/{target_id}";
+  }
+
+  // GetContentChallenge queries a content challenge by ID
+  rpc GetContentChallenge(QueryGetContentChallengeRequest) returns (QueryGetContentChallengeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/content_challenge/{id}";
+  }
+
+  // ListContentChallenge queries all content challenges with pagination
+  rpc ListContentChallenge(QueryAllContentChallengeRequest) returns (QueryAllContentChallengeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/content_challenge";
+  }
+
+  // ContentChallengesByTarget queries content challenges by target type and ID
+  rpc ContentChallengesByTarget(QueryContentChallengesByTargetRequest) returns (QueryContentChallengesByTargetResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/content_challenges_by_target/{target_type}/{target_id}";
+  }
+
+  // ContentByInitiative queries content items linked to an initiative for conviction propagation
+  rpc ContentByInitiative(QueryContentByInitiativeRequest) returns (QueryContentByInitiativeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/content_by_initiative/{initiative_id}";
   }
 }
 
@@ -569,6 +600,7 @@ message QueryInitiativeConvictionResponse {
   string total_conviction = 1 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   string external_conviction = 2 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   string threshold = 3 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string propagated_conviction = 4 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // Conviction propagated from linked content
 }
 
 // QueryChallengesByInitiativeRequest defines the QueryChallengesByInitiativeRequest message.
@@ -642,4 +674,95 @@ message QueryGetProjectStakeInfoRequest {
 // QueryGetProjectStakeInfoResponse defines the response for project stake info
 message QueryGetProjectStakeInfoResponse {
   ProjectStakeInfo info = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryContentConvictionRequest defines the request for content conviction score
+message QueryContentConvictionRequest {
+  uint64 target_type = 1; // StakeTargetType (4=BLOG_CONTENT, 5=FORUM_CONTENT, 6=COLLECTION_CONTENT)
+  uint64 target_id = 2;   // Content ID (post ID, collection ID, etc.)
+}
+
+// QueryContentConvictionResponse defines the response for content conviction score
+message QueryContentConvictionResponse {
+  string total_conviction = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 staker_count = 2;
+  string total_staked = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// QueryAuthorBondRequest defines the request for author bond info
+message QueryAuthorBondRequest {
+  uint64 target_type = 1; // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND)
+  uint64 target_id = 2;   // Content ID
+}
+
+// QueryAuthorBondResponse defines the response for author bond info
+message QueryAuthorBondResponse {
+  string bond_amount = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string author = 2;
+  uint64 stake_id = 3;
+}
+
+// QueryGetContentChallengeRequest defines the request for a content challenge by ID
+message QueryGetContentChallengeRequest {
+  uint64 id = 1;
+}
+
+// QueryGetContentChallengeResponse defines the response for a content challenge
+message QueryGetContentChallengeResponse {
+  ContentChallenge content_challenge = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllContentChallengeRequest defines the request for all content challenges
+message QueryAllContentChallengeRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllContentChallengeResponse defines the response for all content challenges
+message QueryAllContentChallengeResponse {
+  repeated ContentChallenge content_challenge = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryContentChallengesByTargetRequest defines the request for content challenges by target
+message QueryContentChallengesByTargetRequest {
+  uint64 target_type = 1;
+  uint64 target_id = 2;
+}
+
+// QueryContentChallengesByTargetResponse defines the response for content challenges by target
+message QueryContentChallengesByTargetResponse {
+  ContentChallenge content_challenge = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryContentByInitiativeRequest defines the request for content linked to an initiative
+message QueryContentByInitiativeRequest {
+  uint64 initiative_id = 1;
+}
+
+// ContentInitiativeLinkEntry represents a content item linked to an initiative with its conviction
+message ContentInitiativeLinkEntry {
+  int32 target_type = 1;  // StakeTargetType (4=BLOG_CONTENT, 5=FORUM_CONTENT)
+  uint64 target_id = 2;   // Content ID
+  string conviction = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// QueryContentByInitiativeResponse defines the response for content linked to an initiative
+message QueryContentByInitiativeResponse {
+  repeated ContentInitiativeLinkEntry links = 1 [(gogoproto.nullable) = false];
+  string total_propagated = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }

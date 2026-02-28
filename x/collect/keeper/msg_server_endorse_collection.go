@@ -25,6 +25,17 @@ func (k msgServer) EndorseCollection(ctx context.Context, msg *types.MsgEndorseC
 		return nil, types.ErrNotMember
 	}
 
+	// Get params (needed for trust level check and later)
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to get params")
+	}
+
+	// Endorser must meet min_sponsor_trust_level (same gate as sponsorship)
+	if !k.meetsMinTrustLevel(ctx, msg.Creator, params.MinSponsorTrustLevel) {
+		return nil, errorsmod.Wrapf(types.ErrTrustLevelTooLow, "endorser must be at or above %s", params.MinSponsorTrustLevel)
+	}
+
 	// Get collection
 	coll, err := k.Collection.Get(ctx, msg.CollectionId)
 	if err != nil {
@@ -54,12 +65,6 @@ func (k msgServer) EndorseCollection(ctx context.Context, msg *types.MsgEndorseC
 	// Collection must not already be endorsed
 	if coll.EndorsedBy != "" {
 		return nil, types.ErrAlreadyEndorsed
-	}
-
-	// Get params
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
 	// Lock endorsement_dream_stake DREAM from creator

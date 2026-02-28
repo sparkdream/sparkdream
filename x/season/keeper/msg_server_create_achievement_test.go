@@ -36,10 +36,8 @@ func initFixtureWithCommons(t *testing.T, commonsKeeper types.CommonsKeeper) *fi
 		addressCodec,
 		authority,
 		nil, // bankKeeper
-		nil, // repKeeper
-		nil, // nameKeeper
-		commonsKeeper,
 	)
+	k.SetCommonsKeeper(commonsKeeper)
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {

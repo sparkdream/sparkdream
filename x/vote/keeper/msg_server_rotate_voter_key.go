@@ -41,6 +41,9 @@ func (k msgServer) RotateVoterKey(ctx context.Context, msg *types.MsgRotateVoter
 		return nil, errorsmod.Wrap(err, "failed to update voter registration")
 	}
 
+	// Notify x/rep to rebuild this member's trust tree leaf (ZK key changed).
+	k.repKeeper.MarkMemberDirty(ctx, msg.Voter)
+
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventVoterKeyRotated,

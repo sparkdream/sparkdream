@@ -23,6 +23,14 @@ func (k Keeper) GetPendingStakingRewards(ctx context.Context, stake types.Stake)
 		return k.getPendingMemberRewards(ctx, stake)
 	case types.StakeTargetType_STAKE_TARGET_TAG:
 		return k.getPendingTagRewards(ctx, stake)
+	case types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT,
+		types.StakeTargetType_STAKE_TARGET_FORUM_CONTENT,
+		types.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT,
+		types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
+		types.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND,
+		types.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND:
+		// Content conviction and author bond stakes earn no DREAM rewards
+		return math.ZeroInt(), nil
 	}
 	return math.ZeroInt(), fmt.Errorf("unknown stake target type: %v", stake.TargetType)
 }

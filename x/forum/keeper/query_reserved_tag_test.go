@@ -10,12 +10,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-func createNReservedTag(keeper keeper.Keeper, ctx context.Context, n int) []types.ReservedTag {
-	items := make([]types.ReservedTag, n)
+func createNReservedTag(keeper keeper.Keeper, ctx context.Context, n int) []commontypes.ReservedTag {
+	items := make([]commontypes.ReservedTag, n)
 	for i := range items {
 		items[i].Name = strconv.Itoa(i)
 		items[i].Authority = strconv.Itoa(i)

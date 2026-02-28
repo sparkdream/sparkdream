@@ -7,18 +7,55 @@ import (
 
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	commontypes "sparkdream/x/common/types"
+	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 // maxPrunePerBlock limits the number of expired posts pruned per EndBlock
 // to bound gas consumption.
 const maxPrunePerBlock = 100
 
-// EndBlocker runs at the end of each block and prunes expired ephemeral posts.
+// maxBountyExpirations limits bounty expirations per block.
+const maxBountyExpirations = 50
+
+// maxTagExpirations limits tag expirations per block.
+const maxTagExpirations = 50
+
+// maxHiddenExpiry limits hidden post expiry processing per block.
+const maxHiddenExpiry = 50
+
+// EndBlocker runs at the end of each block.
+// Phase 1: Ephemeral post pruning
+// Phase 2: Hidden post expiration
+// Phase 3: Bounty expiration
+// Phase 4: Tag expiration
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	return k.PruneExpiredPosts(ctx, now)
+	// Phase 1: Prune expired ephemeral posts
+	if err := k.PruneExpiredPosts(ctx, now); err != nil {
+		sdkCtx.Logger().Error("error pruning expired posts", "error", err)
+	}
+
+	// Phase 2: Expire hidden posts (hidden_at + hidden_expiration exceeded)
+	if err := k.ExpireHiddenPosts(ctx, now); err != nil {
+		sdkCtx.Logger().Error("error expiring hidden posts", "error", err)
+	}
+
+	// Phase 3: Expire bounties past their deadline
+	if err := k.ExpireBounties(ctx, now); err != nil {
+		sdkCtx.Logger().Error("error expiring bounties", "error", err)
+	}
+
+	// Phase 4: Expire unused tags
+	if err := k.ExpireTags(ctx, now); err != nil {
+		sdkCtx.Logger().Error("error expiring tags", "error", err)
+	}
+
+	return nil
 }
 
 // PruneExpiredPosts removes ephemeral posts whose expiration time has passed.
@@ -58,6 +95,56 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 			return false, nil
 		}
 
+		// Conviction renewal check: if post has initiative_id and conviction meets threshold, renew TTL
+		if post.InitiativeId > 0 && k.repKeeper != nil {
+			params, pErr := k.Params.Get(ctx)
+			if pErr == nil && params.ConvictionRenewalThreshold.IsPositive() {
+				conviction, cErr := k.repKeeper.GetContentConviction(ctx, reptypes.StakeTargetType_STAKE_TARGET_FORUM_CONTENT, postID)
+				if cErr == nil && conviction.GTE(params.ConvictionRenewalThreshold) {
+					blockTime := sdkCtx.BlockTime().Unix()
+					newExpiresAt := blockTime + params.ConvictionRenewalPeriod
+					// Remove old queue entry
+					if removeErr := k.ExpirationQueue.Remove(ctx, key); removeErr != nil {
+						sdkCtx.Logger().Error("failed to remove old queue entry for conviction renewal", "post_id", postID, "error", removeErr)
+					}
+					if !post.ConvictionSustained {
+						post.ConvictionSustained = true
+						post.ExpirationTime = newExpiresAt
+						_ = k.Post.Set(ctx, postID, post)
+						_ = k.ExpirationQueue.Set(ctx, collections.Join(newExpiresAt, postID))
+						sdkCtx.EventManager().EmitEvent(sdk.NewEvent("forum.post.conviction_sustained",
+							sdk.NewAttribute("post_id", fmt.Sprintf("%d", postID)),
+							sdk.NewAttribute("conviction_score", conviction.String()),
+							sdk.NewAttribute("new_expires_at", fmt.Sprintf("%d", newExpiresAt)),
+						))
+					} else {
+						post.ExpirationTime = newExpiresAt
+						_ = k.Post.Set(ctx, postID, post)
+						_ = k.ExpirationQueue.Set(ctx, collections.Join(newExpiresAt, postID))
+						sdkCtx.EventManager().EmitEvent(sdk.NewEvent("forum.post.renewed",
+							sdk.NewAttribute("post_id", fmt.Sprintf("%d", postID)),
+							sdk.NewAttribute("conviction_score", conviction.String()),
+							sdk.NewAttribute("new_expires_at", fmt.Sprintf("%d", newExpiresAt)),
+						))
+					}
+					pruned++
+					return false, nil // continue walking
+				}
+				// Conviction below threshold — clear flag, proceed to hard-delete
+				if post.ConvictionSustained {
+					post.ConvictionSustained = false
+					_ = k.Post.Set(ctx, postID, post)
+				}
+			}
+		}
+
+		// Remove initiative link on hard-delete (best effort)
+		if post.InitiativeId > 0 && k.repKeeper != nil {
+			if linkErr := k.repKeeper.RemoveContentInitiativeLink(ctx, post.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_FORUM_CONTENT), postID); linkErr != nil {
+				sdkCtx.Logger().Error("failed to remove initiative link on prune", "post_id", postID, "error", linkErr)
+			}
+		}
+
 		// Hard-delete the post
 		if removeErr := k.Post.Remove(ctx, postID); removeErr != nil {
 			sdkCtx.Logger().Error("failed to remove expired post", "post_id", postID, "error", removeErr)
@@ -67,6 +154,10 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 		// Clean up associated records (best effort)
 		_ = k.PostFlag.Remove(ctx, postID)
 		_ = k.HideRecord.Remove(ctx, postID)
+		_ = k.ThreadLockRecord.Remove(ctx, postID)
+		_ = k.ThreadMoveRecord.Remove(ctx, postID)
+		_ = k.ThreadMetadata.Remove(ctx, postID)
+		_ = k.ThreadFollowCount.Remove(ctx, postID)
 
 		// Remove from queue
 		if removeErr := k.ExpirationQueue.Remove(ctx, key); removeErr != nil {
@@ -93,6 +184,192 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 
 	if pruned > 0 {
 		sdkCtx.Logger().Info("pruned expired ephemeral posts", "count", pruned)
+	}
+
+	return nil
+}
+
+// ExpireHiddenPosts checks posts in HIDDEN status and soft-deletes them
+// if they have been hidden longer than the configured hidden_expiration period.
+func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	hiddenExpiry := int64(types.DefaultHiddenExpiration)
+	if hiddenExpiry <= 0 {
+		return nil // disabled
+	}
+
+	expired := 0
+
+	// Walk hide records to find expired hidden posts
+	err := k.HideRecord.Walk(ctx, nil, func(postID uint64, hr types.HideRecord) (bool, error) {
+		if expired >= maxHiddenExpiry {
+			return true, nil // stop
+		}
+
+		// Check if hidden long enough
+		if hr.HiddenAt+hiddenExpiry > now {
+			return false, nil // not yet expired
+		}
+
+		// Load post and verify it's still hidden (not restored via appeal)
+		post, err := k.Post.Get(ctx, postID)
+		if err != nil {
+			// Post gone, clean up stale hide record
+			_ = k.HideRecord.Remove(ctx, postID)
+			expired++
+			return false, nil
+		}
+
+		if post.Status != types.PostStatus_POST_STATUS_HIDDEN {
+			// Post was restored, clean up stale hide record
+			_ = k.HideRecord.Remove(ctx, postID)
+			return false, nil
+		}
+
+		// Soft-delete the post
+		post.Status = types.PostStatus_POST_STATUS_DELETED
+		post.Content = "" // clear content to reclaim space
+		if setErr := k.Post.Set(ctx, postID, post); setErr != nil {
+			sdkCtx.Logger().Error("failed to delete expired hidden post", "post_id", postID, "error", setErr)
+			return false, nil
+		}
+
+		// Clean up hide record
+		_ = k.HideRecord.Remove(ctx, postID)
+
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hidden_post_expired",
+			sdk.NewAttribute("post_id", fmt.Sprintf("%d", postID)),
+			sdk.NewAttribute("hidden_at", fmt.Sprintf("%d", hr.HiddenAt)),
+		))
+
+		expired++
+		return false, nil
+	})
+
+	if err != nil {
+		return nil // don't halt chain
+	}
+
+	if expired > 0 {
+		sdkCtx.Logger().Info("expired hidden posts", "count", expired)
+	}
+
+	return nil
+}
+
+// ExpireBounties checks active bounties and marks expired ones.
+// Expired bounties have their escrowed funds returned to the creator.
+func (k Keeper) ExpireBounties(ctx context.Context, now int64) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	expired := 0
+
+	err := k.Bounty.Walk(ctx, nil, func(id uint64, bounty types.Bounty) (bool, error) {
+		if expired >= maxBountyExpirations {
+			return true, nil
+		}
+
+		// Only expire active bounties past their deadline
+		if bounty.Status != types.BountyStatus_BOUNTY_STATUS_ACTIVE {
+			return false, nil
+		}
+		if bounty.ExpiresAt <= 0 || bounty.ExpiresAt > now {
+			return false, nil
+		}
+
+		// Mark bounty as expired
+		bounty.Status = types.BountyStatus_BOUNTY_STATUS_EXPIRED
+		if setErr := k.Bounty.Set(ctx, id, bounty); setErr != nil {
+			sdkCtx.Logger().Error("failed to expire bounty", "bounty_id", id, "error", setErr)
+			return false, nil
+		}
+
+		// Refund escrowed amount to creator (best effort)
+		if bounty.Amount != "" && bounty.Creator != "" {
+			creatorAddr, addrErr := sdk.AccAddressFromBech32(bounty.Creator)
+			if addrErr == nil {
+				refundCoin, coinErr := sdk.ParseCoinNormalized(bounty.Amount)
+				if coinErr == nil && refundCoin.IsPositive() {
+					if sendErr := k.bankKeeper.SendCoinsFromModuleToAccount(
+						ctx, types.ModuleName, creatorAddr, sdk.NewCoins(refundCoin),
+					); sendErr != nil {
+						sdkCtx.Logger().Error("failed to refund expired bounty",
+							"bounty_id", id, "amount", bounty.Amount, "error", sendErr)
+					}
+				}
+			}
+		}
+
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("bounty_expired",
+			sdk.NewAttribute("bounty_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("root_id", fmt.Sprintf("%d", bounty.ThreadId)),
+			sdk.NewAttribute("amount", bounty.Amount),
+		))
+
+		expired++
+		return false, nil
+	})
+
+	if err != nil {
+		return nil // don't halt chain
+	}
+
+	if expired > 0 {
+		sdkCtx.Logger().Info("expired bounties", "count", expired)
+	}
+
+	return nil
+}
+
+// ExpireTags removes tags that have passed their expiration_index time
+// and have not been renewed by activity.
+func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	expired := 0
+
+	err := k.Tag.Walk(ctx, nil, func(name string, tag commontypes.Tag) (bool, error) {
+		if expired >= maxTagExpirations {
+			return true, nil
+		}
+
+		// Tags with expiration_index <= 0 never expire
+		if tag.ExpirationIndex <= 0 {
+			return false, nil
+		}
+
+		if tag.ExpirationIndex > now {
+			return false, nil // not yet expired
+		}
+
+		// Check if tag is reserved — reserved tags don't expire
+		_, reservedErr := k.ReservedTag.Get(ctx, name)
+		if reservedErr == nil {
+			return false, nil // reserved, skip
+		}
+
+		// Remove the tag
+		if removeErr := k.Tag.Remove(ctx, name); removeErr != nil {
+			sdkCtx.Logger().Error("failed to remove expired tag", "tag", name, "error", removeErr)
+			return false, nil
+		}
+
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("tag_expired",
+			sdk.NewAttribute("tag_name", name),
+			sdk.NewAttribute("expiration_index", fmt.Sprintf("%d", tag.ExpirationIndex)),
+		))
+
+		expired++
+		return false, nil
+	})
+
+	if err != nil {
+		return nil // don't halt chain
+	}
+
+	if expired > 0 {
+		sdkCtx.Logger().Info("expired tags", "count", expired)
 	}
 
 	return nil

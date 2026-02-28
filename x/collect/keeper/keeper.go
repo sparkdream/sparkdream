@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -75,8 +76,14 @@ type Keeper struct {
 
 	SponsorshipRequestsByExpiry collections.KeySet[collections.Pair[int64, uint64]]
 
+	// ItemsByOnChainRef: (refKey, itemID) - reverse index for OnChainReference lookups
+	ItemsByOnChainRef collections.KeySet[collections.Pair[string, uint64]]
+
 	// External keepers (optional)
-	forumKeeper types.ForumKeeper
+	blogKeeper   types.BlogKeeper
+	forumKeeper  types.ForumKeeper
+	voteKeeper   types.VoteKeeper
+	seasonKeeper types.SeasonKeeper
 }
 
 func NewKeeper(
@@ -86,7 +93,6 @@ func NewKeeper(
 	authority []byte,
 
 	bankKeeper types.BankKeeper,
-	repKeeper types.RepKeeper,
 	commonsKeeper types.CommonsKeeper,
 	forumKeeper types.ForumKeeper,
 ) Keeper {
@@ -102,7 +108,6 @@ func NewKeeper(
 		addressCodec:  addressCodec,
 		authority:     authority,
 		bankKeeper:    bankKeeper,
-		repKeeper:     repKeeper,
 		commonsKeeper: commonsKeeper,
 		forumKeeper:   forumKeeper,
 
@@ -195,6 +200,10 @@ func NewKeeper(
 			sb, types.SponsorshipRequestsByExpiryKey, "sponsorshipRequestsByExpiry",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
 		),
+		ItemsByOnChainRef: collections.NewKeySet(
+			sb, types.ItemsByOnChainRefKey, "itemsByOnChainRef",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
 	}
 
 	schema, err := sb.Build()
@@ -216,3 +225,33 @@ func (k Keeper) GetAuthorityString() string {
 	addr, _ := k.addressCodec.BytesToString(k.authority)
 	return addr
 }
+
+// SetRepKeeper sets the RepKeeper after depinject to break cyclic dependency
+// (rep → season → collect → rep).
+func (k *Keeper) SetRepKeeper(rk types.RepKeeper) {
+	k.repKeeper = rk
+}
+
+// SetBlogKeeper sets the optional blog keeper for OnChainReference validation.
+func (k *Keeper) SetBlogKeeper(bk types.BlogKeeper) {
+	k.blogKeeper = bk
+}
+
+// SetVoteKeeper sets the optional vote keeper for ZK proof verification.
+func (k *Keeper) SetVoteKeeper(vk types.VoteKeeper) {
+	k.voteKeeper = vk
+}
+
+// SetSeasonKeeper sets the optional season keeper for epoch duration.
+func (k *Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
+	k.seasonKeeper = sk
+}
+
+// HasCollection returns true if a collection with the given ID exists.
+func (k Keeper) HasCollection(ctx context.Context, id uint64) bool {
+	has, _ := k.Collection.Has(ctx, id)
+	return has
+}
+
+// DefaultEpochDuration is the fallback epoch duration (~5 months in seconds).
+const DefaultEpochDuration int64 = 13_140_000

@@ -305,10 +305,10 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 			k.RefundSPARK(ctx, appellantAddr, appellantRefund) //nolint:errcheck
 		}
 
-		// 20% to jury pool (simplified: burned for now until jury pool is implemented)
-		juryAmount := params.AppealFee.Sub(appellantRefund)
-		if juryAmount.IsPositive() {
-			k.BurnSPARK(ctx, juryAmount) //nolint:errcheck
+		// Burn remaining 20% (jurors compensated via x/rep DREAM minting, no SPARK jury pool)
+		burnAmount := params.AppealFee.Sub(appellantRefund)
+		if burnAmount.IsPositive() {
+			k.BurnSPARK(ctx, burnAmount) //nolint:errcheck
 		}
 
 		// Slash sentinel's committed bond
@@ -380,10 +380,9 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 			}
 		}
 
-		// Distribute appeal fee: 50% to sentinel, 20% to jury, 30% burned
+		// Distribute appeal fee: 50% to sentinel, 50% burned
 		sentinelReward := params.AppealFee.MulRaw(50).Quo(math.NewInt(100))
-		juryAmount := params.AppealFee.MulRaw(20).Quo(math.NewInt(100))
-		burnAmount := params.AppealFee.Sub(sentinelReward).Sub(juryAmount)
+		burnAmount := params.AppealFee.Sub(sentinelReward)
 
 		// Send sentinel reward
 		if k.forumKeeper != nil && sentinelReward.IsPositive() {
@@ -396,10 +395,9 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 			}
 		}
 
-		// Jury pool (simplified: burned for now)
-		totalBurn := juryAmount.Add(burnAmount)
-		if totalBurn.IsPositive() {
-			k.BurnSPARK(ctx, totalBurn) //nolint:errcheck
+		// Burn remaining 50% (jurors compensated via x/rep DREAM minting, no SPARK jury pool)
+		if burnAmount.IsPositive() {
+			k.BurnSPARK(ctx, burnAmount) //nolint:errcheck
 		}
 
 		hr.Resolved = true

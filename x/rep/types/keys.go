@@ -97,3 +97,20 @@ var (
 	// ProjectStakeInfoKey: project ID -> ProjectStakeInfo
 	ProjectStakeInfoKey = collections.NewPrefix("stake/project_info/")
 )
+
+// Content initiative links: (initiativeID, (targetType, targetID)) -> exists
+// Enables prefix scan by initiativeID to find all linked content for conviction propagation
+var ContentInitiativeLinksKey = collections.NewPrefix("content_initiative_links/")
+
+// Content challenge keys
+var (
+	ContentChallengeKey      = collections.NewPrefix("contentchallenge/value/")
+	ContentChallengeCountKey = collections.NewPrefix("contentchallenge/count/")
+
+	// ContentChallengesByStatusKey: (status, id) - allows iteration by status
+	ContentChallengesByStatusKey = collections.NewPrefix("contentchallenge/by_status/")
+
+	// ContentChallengesByTargetKey: (targetType, targetID) -> challengeID
+	// Enforces one active challenge per content item
+	ContentChallengesByTargetKey = collections.NewPrefix("contentchallenge/by_target/")
+)

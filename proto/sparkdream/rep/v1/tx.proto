@@ -103,6 +103,12 @@ service Msg {
 
   // SubmitExpertTestimony defines the SubmitExpertTestimony RPC.
   rpc SubmitExpertTestimony(MsgSubmitExpertTestimony) returns (MsgSubmitExpertTestimonyResponse);
+
+  // ChallengeContent creates a challenge against bonded content.
+  rpc ChallengeContent(MsgChallengeContent) returns (MsgChallengeContentResponse);
+
+  // RespondToContentChallenge allows the content author to respond to a challenge.
+  rpc RespondToContentChallenge(MsgRespondToContentChallenge) returns (MsgRespondToContentChallengeResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -487,3 +493,35 @@ message MsgSubmitExpertTestimony {
 
 // MsgSubmitExpertTestimonyResponse defines the MsgSubmitExpertTestimonyResponse message.
 message MsgSubmitExpertTestimonyResponse {}
+
+// MsgChallengeContent creates a challenge against bonded content.
+message MsgChallengeContent {
+  option (cosmos.msg.v1.signer) = "challenger";
+  string challenger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 target_type = 2;  // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND)
+  uint64 target_id = 3;
+  string reason = 4;
+  repeated string evidence = 5;
+  string staked_dream = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = true
+  ];
+}
+
+// MsgChallengeContentResponse defines the response for ChallengeContent.
+message MsgChallengeContentResponse {
+  uint64 content_challenge_id = 1;
+}
+
+// MsgRespondToContentChallenge allows the content author to respond to a challenge.
+message MsgRespondToContentChallenge {
+  option (cosmos.msg.v1.signer) = "author";
+  string author = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 content_challenge_id = 2;
+  string response = 3;
+  repeated string evidence = 4;
+}
+
+// MsgRespondToContentChallengeResponse defines the response for RespondToContentChallenge.
+message MsgRespondToContentChallengeResponse {}

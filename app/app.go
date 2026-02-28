@@ -228,9 +228,35 @@ func New(
 	// Wire CommonsKeeper into Futarchy after depinject to break cyclic dependency.
 	app.FutarchyKeeper.SetCommonsKeeper(app.CommonsKeeper)
 
+	// Wire cross-module keepers into Season after depinject.
+	// Season has no optional depinject inputs to avoid cyclic deps.
+	app.SeasonKeeper.SetRepKeeper(app.RepKeeper)
+	app.SeasonKeeper.SetNameKeeper(app.NameKeeper)
+	app.SeasonKeeper.SetCommonsKeeper(app.CommonsKeeper)
+	app.SeasonKeeper.SetBlogKeeper(app.BlogKeeper)
+	app.SeasonKeeper.SetForumKeeper(app.ForumKeeper)
+	app.SeasonKeeper.SetCollectKeeper(app.CollectKeeper)
+
+	// Wire cross-module keepers into Blog after depinject.
+	app.BlogKeeper.SetRepKeeper(app.RepKeeper)
+	app.BlogKeeper.SetVoteKeeper(app.VoteKeeper)
+	app.BlogKeeper.SetSeasonKeeper(app.SeasonKeeper)
+
+	// Wire SeasonKeeper into Forum/Collect after depinject.
+	app.ForumKeeper.SetSeasonKeeper(app.SeasonKeeper)
+	app.CollectKeeper.SetSeasonKeeper(app.SeasonKeeper)
+	app.CollectKeeper.SetRepKeeper(app.RepKeeper)
+
+	// Wire SeasonKeeper into Rep after depinject.
+	app.RepKeeper.SetSeasonKeeper(app.SeasonKeeper)
+
 	// Wire VoteKeeper into Rep after depinject to break cyclic dependency
 	// (vote → rep → vote).
 	app.RepKeeper.SetVoteKeeper(app.VoteKeeper)
+
+	// Wire TagKeeper into Rep after depinject to break cyclic dependency
+	// (forum → rep → forum).
+	app.RepKeeper.SetTagKeeper(app.ForumKeeper)
 
 	// We explicitly tell Futarchy to call Commons when markets resolve.
 	app.FutarchyKeeper.SetHooks(

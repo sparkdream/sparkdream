@@ -26,6 +26,26 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 		return nil
 	}
 
+	// Check if we need to enter nomination phase
+	if season.Status == types.SeasonStatus_SEASON_STATUS_ACTIVE {
+		params, pErr := k.Params.Get(ctx)
+		if pErr == nil {
+			nominationWindowBlocks := int64(params.NominationWindowEpochs) * params.EpochBlocks
+			nominationStartBlock := season.EndBlock - nominationWindowBlocks
+			if currentBlock >= nominationStartBlock {
+				season.Status = types.SeasonStatus_SEASON_STATUS_NOMINATION
+				_ = k.Season.Set(ctx, season)
+				sdkCtx.EventManager().EmitEvent(
+					sdk.NewEvent(
+						"nomination_window_opened",
+						sdk.NewAttribute("season", fmt.Sprintf("%d", season.Number)),
+						sdk.NewAttribute("start_block", fmt.Sprintf("%d", currentBlock)),
+					),
+				)
+			}
+		}
+	}
+
 	// Check if we need to start or continue a transition
 	transitionState, transitionErr := k.SeasonTransitionState.Get(ctx)
 	hasActiveTransition := transitionErr == nil &&
@@ -37,7 +57,7 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 	}
 
 	// Check if season has ended and we need to start a transition
-	if currentBlock >= season.EndBlock && season.Status == types.SeasonStatus_SEASON_STATUS_ACTIVE {
+	if currentBlock >= season.EndBlock && (season.Status == types.SeasonStatus_SEASON_STATUS_ACTIVE || season.Status == types.SeasonStatus_SEASON_STATUS_NOMINATION) {
 		return k.startSeasonTransition(ctx, season)
 	}
 
@@ -56,7 +76,7 @@ func (k Keeper) startSeasonTransition(ctx context.Context, season types.Season) 
 
 	// Initialize transition state
 	transitionState := types.SeasonTransitionState{
-		Phase:           types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT,
+		Phase:           types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS,
 		ProcessedCount:  0,
 		TotalCount:      0, // Will be set when we know how many members
 		TransitionStart: sdkCtx.BlockHeight(),
@@ -98,6 +118,12 @@ func (k Keeper) processTransitionBatch(ctx context.Context, state types.SeasonTr
 	var processErr error
 
 	switch state.Phase {
+	case types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS:
+		phaseComplete, processErr = k.processRetroRewardsPhase(ctx, &state, int(batchSize))
+
+	case types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES:
+		phaseComplete, processErr = k.processReturnNominationStakesPhase(ctx, &state, int(batchSize))
+
 	case types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT:
 		phaseComplete, processErr = k.processSnapshotPhase(ctx, &state, int(batchSize))
 
@@ -135,14 +161,15 @@ func (k Keeper) processTransitionBatch(ctx context.Context, state types.SeasonTr
 
 	if phaseComplete {
 		// Move to next phase
-		state.Phase++
+		completedPhase := state.Phase
+		state.Phase = k.nextTransitionPhase(state.Phase)
 		state.ProcessedCount = 0
 		state.LastProcessed = ""
 
 		sdkCtx.EventManager().EmitEvent(
 			sdk.NewEvent(
 				"season_transition_phase_complete",
-				sdk.NewAttribute("completed_phase", (state.Phase-1).String()),
+				sdk.NewAttribute("completed_phase", completedPhase.String()),
 				sdk.NewAttribute("next_phase", state.Phase.String()),
 			),
 		)
@@ -150,6 +177,19 @@ func (k Keeper) processTransitionBatch(ctx context.Context, state types.SeasonTr
 
 	// Save updated state
 	return k.SeasonTransitionState.Set(ctx, state)
+}
+
+// nextTransitionPhase returns the next phase in the transition sequence.
+// Phases run: RETRO_REWARDS(8) -> RETURN_NOMINATION_STAKES(9) -> SNAPSHOT(1) -> ... -> COMPLETE(7)
+func (k Keeper) nextTransitionPhase(current types.TransitionPhase) types.TransitionPhase {
+	switch current {
+	case types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS:
+		return types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES
+	case types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES:
+		return types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT
+	default:
+		return current + 1
+	}
 }
 
 // processSnapshotPhase creates member snapshots for the ending season.

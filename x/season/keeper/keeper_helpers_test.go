@@ -458,8 +458,8 @@ func TestCrossModuleHelpers(t *testing.T) {
 		require.NoError(t, err, "should not error when name keeper is nil")
 	})
 
-	t.Run("IsNameAvailable without name keeper", func(t *testing.T) {
-		available := k.IsNameAvailable(ctx, "testname")
+	t.Run("CheckNameAvailable without name keeper", func(t *testing.T) {
+		available := k.CheckNameAvailable(ctx, "testname")
 		require.True(t, available, "should return true when name keeper is nil")
 	})
 }

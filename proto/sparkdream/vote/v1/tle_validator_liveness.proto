@@ -6,9 +6,9 @@ option go_package = "sparkdream/x/vote/types";
 // TleValidatorLiveness tracks the persistent TLE liveness status of a validator.
 message TleValidatorLiveness {
   string validator = 1;
-  bool tle_active = 2;      // false when missed_count > tle_miss_tolerance
-  uint32 missed_count = 3;  // misses within the current rolling window
-  uint32 window_size = 4;   // number of epochs tracked in the current window
-  int64 flagged_at = 5;     // block height when flagged inactive (0 if active)
-  int64 recovered_at = 6;   // block height when last recovered (0 if never flagged)
+  bool tle_active = 2; // false when missed_count > tle_miss_tolerance
+  uint32 missed_count = 3; // misses within the current rolling window
+  uint32 window_size = 4; // number of epochs tracked in the current window
+  int64 flagged_at = 5; // block height when flagged inactive (0 if active)
+  int64 recovered_at = 6; // block height when last recovered (0 if never flagged)
 }

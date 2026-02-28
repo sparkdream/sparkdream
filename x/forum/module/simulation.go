@@ -7,9 +7,20 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	forumsimulation "sparkdream/x/forum/simulation"
 	"sparkdream/x/forum/types"
 )
+
+// simulationTags is the union of all tags used by simulation helpers across modules
+// (x/forum, x/rep, x/collect). Pre-seeding these in genesis ensures that tag
+// validation passes when simulation operations reference them.
+var simulationTags = []string{
+	"art", "backend", "code", "design", "devops", "documentation",
+	"education", "frontend", "golang", "history", "javascript",
+	"music", "nature", "python", "research", "rust", "science",
+	"tech", "testing",
+}
 
 // GenerateGenesisState creates a randomized GenState of the module.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
@@ -17,8 +28,17 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	for i, acc := range simState.Accounts {
 		accs[i] = acc.Address.String()
 	}
+
+	// Pre-seed the tag registry with all tags used by simulation operations
+	// across modules (x/rep, x/collect, x/forum) so that tag validation passes.
+	tags := make([]commontypes.Tag, len(simulationTags))
+	for i, name := range simulationTags {
+		tags[i] = commontypes.Tag{Name: name}
+	}
+
 	forumGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
+		TagMap: tags,
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&forumGenesis)
 }
@@ -748,6 +768,51 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgAppealGovAction,
 		forumsimulation.SimulateMsgAppealGovAction(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgCreateAnonymousPost          = "op_weight_msg_forum"
+		defaultWeightMsgCreateAnonymousPost int = 0
+	)
+
+	var weightMsgCreateAnonymousPost int
+	simState.AppParams.GetOrGenerate(opWeightMsgCreateAnonymousPost, &weightMsgCreateAnonymousPost, nil,
+		func(_ *rand.Rand) {
+			weightMsgCreateAnonymousPost = defaultWeightMsgCreateAnonymousPost
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCreateAnonymousPost,
+		forumsimulation.SimulateMsgCreateAnonymousPost(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgCreateAnonymousReply          = "op_weight_msg_forum"
+		defaultWeightMsgCreateAnonymousReply int = 0
+	)
+
+	var weightMsgCreateAnonymousReply int
+	simState.AppParams.GetOrGenerate(opWeightMsgCreateAnonymousReply, &weightMsgCreateAnonymousReply, nil,
+		func(_ *rand.Rand) {
+			weightMsgCreateAnonymousReply = defaultWeightMsgCreateAnonymousReply
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCreateAnonymousReply,
+		forumsimulation.SimulateMsgCreateAnonymousReply(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgAnonymousReact          = "op_weight_msg_forum"
+		defaultWeightMsgAnonymousReact int = 0
+	)
+
+	var weightMsgAnonymousReact int
+	simState.AppParams.GetOrGenerate(opWeightMsgAnonymousReact, &weightMsgAnonymousReact, nil,
+		func(_ *rand.Rand) {
+			weightMsgAnonymousReact = defaultWeightMsgAnonymousReact
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgAnonymousReact,
+		forumsimulation.SimulateMsgAnonymousReact(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

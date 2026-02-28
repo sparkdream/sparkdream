@@ -14,10 +14,10 @@ message Params {
   option (gogoproto.equal) = true;
 
   // ZK circuit configuration (PLONK with universal SRS)
-  bytes srs_hash = 1;              // SHA-256 hash of the universal SRS (32 bytes)
-  bytes vote_verifying_key = 2;    // Verifying key for vote circuit
+  bytes srs_hash = 1; // SHA-256 hash of the universal SRS (32 bytes)
+  bytes vote_verifying_key = 2; // Verifying key for vote circuit
   bytes proposal_verifying_key = 3; // Verifying key for proposal creation circuit
-  uint32 tree_depth = 4;           // default 20
+  uint32 tree_depth = 4; // default 20
 
   // Voting periods
   int64 min_voting_period_epochs = 5;
@@ -83,4 +83,7 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+
+  // Verifying key for anonymous action circuit (posting, replying, etc.)
+  bytes anon_action_verifying_key = 30;
 }

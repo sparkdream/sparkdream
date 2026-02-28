@@ -365,21 +365,23 @@ func TestAccumulateTagStakeRevenue(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test: Accumulate revenue across multiple tags
+	// Revenue share is now SPLIT across tags: total 2% divided by tag count.
+	tags := []string{"go", "rust", "python", "unknown"}
 	totalRevenue := math.NewInt(10000)
-	err = k.AccumulateTagStakeRevenue(ctx, []string{"go", "rust", "python", "unknown"}, totalRevenue)
+	err = k.AccumulateTagStakeRevenue(ctx, tags, totalRevenue)
 	require.NoError(t, err)
 
-	// Expected per-tag share: totalRevenue * TagStakeRevenueShare = 10000 * 0.02 = 200
-	perTagShare := totalRevenue.ToLegacyDec().Mul(params.TagStakeRevenueShare).TruncateInt()
-	require.Equal(t, math.NewInt(200), perTagShare)
+	// Expected per-tag share: totalRevenue * TagStakeRevenueShare / tagCount = 10000 * 0.02 / 4 = 50
+	perTagShare := totalRevenue.ToLegacyDec().Mul(params.TagStakeRevenueShare).QuoInt64(int64(len(tags))).TruncateInt()
+	require.Equal(t, math.NewInt(50), perTagShare)
 
-	// Verify "go" pool: AccRewardPerShare = perTagShare / totalStaked = 200 / 100 = 2.0
+	// Verify "go" pool: AccRewardPerShare = perTagShare / totalStaked = 50 / 100 = 0.5
 	goPool, err := k.GetTagStakePool(ctx, "go")
 	require.NoError(t, err)
 	expectedGoRewardPerShare := perTagShare.ToLegacyDec().Quo(math.NewInt(100).ToLegacyDec())
 	require.Equal(t, expectedGoRewardPerShare.String(), goPool.AccRewardPerShare.String())
 
-	// Verify "rust" pool: AccRewardPerShare = 200 / 400 = 0.5
+	// Verify "rust" pool: AccRewardPerShare = 50 / 400 = 0.125
 	rustPool, err := k.GetTagStakePool(ctx, "rust")
 	require.NoError(t, err)
 	expectedRustRewardPerShare := perTagShare.ToLegacyDec().Quo(math.NewInt(400).ToLegacyDec())
@@ -395,14 +397,16 @@ func TestAccumulateTagStakeRevenue(t *testing.T) {
 	_, err = k.GetTagStakePool(ctx, "unknown")
 	require.Error(t, err, "unknown tag should not have a pool created")
 
-	// Test: Accumulate a second round of revenue and verify cumulative update
+	// Test: Accumulate a second round with single tag — full 2% goes to that tag
 	err = k.AccumulateTagStakeRevenue(ctx, []string{"go"}, totalRevenue)
 	require.NoError(t, err)
 
 	goPool2, err := k.GetTagStakePool(ctx, "go")
 	require.NoError(t, err)
-	// Should now be 2.0 + 2.0 = 4.0
-	expectedCumulative := expectedGoRewardPerShare.MulInt64(2)
+	// Single tag gets full share: 10000 * 0.02 / 1 = 200, rewardPerShare = 200/100 = 2.0
+	singleTagShare := totalRevenue.ToLegacyDec().Mul(params.TagStakeRevenueShare).TruncateInt()
+	singleTagRewardPerShare := singleTagShare.ToLegacyDec().Quo(math.NewInt(100).ToLegacyDec())
+	expectedCumulative := expectedGoRewardPerShare.Add(singleTagRewardPerShare)
 	require.Equal(t, expectedCumulative.String(), goPool2.AccRewardPerShare.String())
 }
 

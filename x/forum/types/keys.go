@@ -51,3 +51,11 @@ var (
 
 // ExpirationQueueKey is the prefix for the ephemeral post expiration queue
 var ExpirationQueueKey = collections.NewPrefix("expiration_queue/")
+
+// Anonymous posting storage keys (prefix-based, matching x/blog pattern)
+const (
+	AnonMetaPostKey  = "AnonMeta/post/"
+	AnonMetaReplyKey = "AnonMeta/reply/"
+	AnonNullifierKey = "AnonNullifier/"
+	AnonSubsidyKey   = "AnonSubsidy/last_epoch"
+)

@@ -11,14 +11,14 @@ var (
 	ErrInvalidSigner = errors.Register(ModuleName, 1100, "expected gov account as only signer for proposal message")
 
 	// Registration errors
-	ErrNotAMember        = errors.Register(ModuleName, 2, "sender is not an active x/rep member")
-	ErrAlreadyRegistered = errors.Register(ModuleName, 3, "voter already has an active registration")
-	ErrNotRegistered     = errors.Register(ModuleName, 4, "voter is not registered")
-	ErrAlreadyInactive   = errors.Register(ModuleName, 5, "voter registration is already inactive")
+	ErrNotAMember         = errors.Register(ModuleName, 2, "sender is not an active x/rep member")
+	ErrAlreadyRegistered  = errors.Register(ModuleName, 3, "voter already has an active registration")
+	ErrNotRegistered      = errors.Register(ModuleName, 4, "voter is not registered")
+	ErrAlreadyInactive    = errors.Register(ModuleName, 5, "voter registration is already inactive")
 	ErrDuplicatePublicKey = errors.Register(ModuleName, 6, "zk public key is already registered to another address")
-	ErrUseRotateKey      = errors.Register(ModuleName, 7, "active registration exists — use MsgRotateVoterKey to change keys")
+	ErrUseRotateKey       = errors.Register(ModuleName, 7, "active registration exists — use MsgRotateVoterKey to change keys")
 	ErrRegistrationClosed = errors.Register(ModuleName, 8, "voter registration is closed (open_registration = false)")
-	ErrInsufficientStake = errors.Register(ModuleName, 9, "voter does not meet min_registration_stake requirement")
+	ErrInsufficientStake  = errors.Register(ModuleName, 9, "voter does not meet min_registration_stake requirement")
 
 	// Proposal errors
 	ErrProposalNotFound       = errors.Register(ModuleName, 10, "proposal not found")
@@ -51,20 +51,20 @@ var (
 	ErrAlreadyRevealed      = errors.Register(ModuleName, 37, "sealed vote has already been revealed")
 
 	// Epoch/proposal nullifier errors
-	ErrEpochMismatch         = errors.Register(ModuleName, 40, "claimed epoch is not within ±1 of current epoch")
-	ErrMaxNonceMismatch      = errors.Register(ModuleName, 41, "MaxNonce does not match params.max_proposals_per_epoch - 1")
-	ErrProposalLimitReached  = errors.Register(ModuleName, 42, "proposal creation nullifier already used this epoch")
+	ErrEpochMismatch        = errors.Register(ModuleName, 40, "claimed epoch is not within ±1 of current epoch")
+	ErrMaxNonceMismatch     = errors.Register(ModuleName, 41, "MaxNonce does not match params.max_proposals_per_epoch - 1")
+	ErrProposalLimitReached = errors.Register(ModuleName, 42, "proposal creation nullifier already used this epoch")
 
 	// TLE errors
-	ErrTLENotEnabled             = errors.Register(ModuleName, 50, "threshold timelock encryption is not enabled")
-	ErrNotValidator              = errors.Register(ModuleName, 51, "sender is not an active bonded validator")
-	ErrNoTLEShare                = errors.Register(ModuleName, 52, "validator has no registered TLE public key share")
-	ErrDuplicateDecryptionShare  = errors.Register(ModuleName, 53, "validator already submitted a decryption share for this epoch")
-	ErrInvalidCorrectnessProof   = errors.Register(ModuleName, 54, "decryption share correctness proof verification failed")
-	ErrEncryptedRevealTooLarge   = errors.Register(ModuleName, 55, "encrypted reveal exceeds max_encrypted_reveal_bytes")
-	ErrInvalidPublicKeyShare     = errors.Register(ModuleName, 56, "public key share is not a valid BN256 G1 point")
-	ErrInvalidShareIndex         = errors.Register(ModuleName, 57, "share index must be positive (1-based)")
-	ErrDuplicateShareIndex       = errors.Register(ModuleName, 58, "share index is already registered by another validator")
+	ErrTLENotEnabled            = errors.Register(ModuleName, 50, "threshold timelock encryption is not enabled")
+	ErrNotValidator             = errors.Register(ModuleName, 51, "sender is not an active bonded validator")
+	ErrNoTLEShare               = errors.Register(ModuleName, 52, "validator has no registered TLE public key share")
+	ErrDuplicateDecryptionShare = errors.Register(ModuleName, 53, "validator already submitted a decryption share for this epoch")
+	ErrInvalidCorrectnessProof  = errors.Register(ModuleName, 54, "decryption share correctness proof verification failed")
+	ErrEncryptedRevealTooLarge  = errors.Register(ModuleName, 55, "encrypted reveal exceeds max_encrypted_reveal_bytes")
+	ErrInvalidPublicKeyShare    = errors.Register(ModuleName, 56, "public key share is not a valid BN256 G1 point")
+	ErrInvalidShareIndex        = errors.Register(ModuleName, 57, "share index must be positive (1-based)")
+	ErrDuplicateShareIndex      = errors.Register(ModuleName, 58, "share index is already registered by another validator")
 
 	// SRS errors
 	ErrSRSNotStored    = errors.Register(ModuleName, 60, "SRS not found in state — must be stored before key derivation")

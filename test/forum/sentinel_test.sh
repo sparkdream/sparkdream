@@ -94,7 +94,10 @@ extract_event_value() {
 }
 
 # Bootstrap reputation for an account by creating and completing EPIC interims.
-# Each EPIC interim grants 100 reputation. Tier 3 = 200+, Tier 4 = 500+.
+# Each EPIC interim grants 100 rep, but the per-epoch cap is 50 rep/tag/epoch
+# (epoch_blocks=10, ~10s per epoch). With ~12s per interim, most interims span
+# one epoch, so each gives ~50-100 rep. Need extra interims to hit targets.
+# Tier 3 = 200+, Tier 4 = 500+.
 bootstrap_reputation() {
     local ACCOUNT=$1
     local COUNT=$2
@@ -153,13 +156,15 @@ echo "--- PART 0: BOOTSTRAP REPUTATION ---"
 echo "Sentinel operations require reputation tiers. Building reputation via EPIC interims..."
 echo ""
 
-# Sentinel1 needs tier 4 (500+ rep) for thread locking = 5 EPIC interims
-bootstrap_reputation sentinel1 5
+# Sentinel1 needs tier 4 (500+ rep) for thread locking.
+# Per-epoch cap is 50 rep, so need ~11 EPICs to guarantee 500+ after decay.
+bootstrap_reputation sentinel1 11
 BOOTSTRAP1_OK=$?
 echo ""
 
-# Sentinel2 needs tier 3 (200+ rep) for bonding = 2 EPIC interims
-bootstrap_reputation sentinel2 2
+# Sentinel2 needs tier 3 (200+ rep) for bonding.
+# Per-epoch cap is 50 rep, so need ~5 EPICs to guarantee 200+ after decay.
+bootstrap_reputation sentinel2 5
 BOOTSTRAP2_OK=$?
 echo ""
 

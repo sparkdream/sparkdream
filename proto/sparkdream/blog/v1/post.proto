@@ -2,14 +2,31 @@ syntax = "proto3";
 package sparkdream.blog.v1;
 
 import "sparkdream/common/v1/content_type.proto";
+import "sparkdream/blog/v1/types.proto";
 
 option go_package = "sparkdream/x/blog/types";
 
 // Post defines the Post message.
 message Post {
-  string title = 1;
-  string body = 2;
-  string creator = 3;
-  uint64 id = 4;
-  sparkdream.common.v1.ContentType content_type = 5;
+  string title = 1;                                    // Post title
+  string body = 2;                                     // Post content
+  string creator = 3;                                  // Creator's bech32 address
+  uint64 id = 4;                                       // Auto-incremented unique identifier
+  sparkdream.common.v1.ContentType content_type = 5;   // Content encoding hint
+  bool replies_enabled = 6;                            // Whether replies are accepted (default: true)
+  uint64 reply_count = 7;                              // Denormalized reply count (active replies only)
+  int32 min_reply_trust_level = 8;                     // Minimum trust level to reply (default: 0)
+  int64 created_at = 9;                                // Unix timestamp of creation
+  int64 updated_at = 10;                               // Unix timestamp of last update (0 if never)
+  PostStatus status = 11;                              // ACTIVE, HIDDEN, or DELETED
+  string hidden_by = 12;                               // Address that hid the post (empty if not hidden)
+  int64 hidden_at = 13;                                // Unix timestamp when hidden (0 if not hidden)
+  int64 expires_at = 14;                               // Unix timestamp when post auto-tombstones (0 = permanent)
+  string pinned_by = 15;                               // Address of member who pinned (empty if not pinned)
+  int64 pinned_at = 16;                                // Unix timestamp when pinned (0 if not pinned)
+  uint64 fee_bytes_high_water = 17;                    // Highest byte count for which storage fees have been paid
+  bool edited = 18;                                    // Whether post content has been edited (via UpdatePost)
+  int64 edited_at = 19;                                // Unix timestamp of last content edit (0 if never)
+  uint64 initiative_id = 20;                           // x/rep initiative referenced by this post (0 = none, immutable)
+  bool conviction_sustained = 21;                      // True if anonymous content has entered conviction-sustained state (TTL extended by community conviction)
 }

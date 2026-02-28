@@ -223,6 +223,46 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}, {ProtoField: "tag"}},
 				},
 
+				{
+					RpcMethod:      "ContentConviction",
+					Use:            "content-conviction [target-type] [target-id]",
+					Short:          "Query content conviction score",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_type"}, {ProtoField: "target_id"}},
+				},
+
+				{
+					RpcMethod:      "AuthorBond",
+					Use:            "author-bond [target-type] [target-id]",
+					Short:          "Query author bond for content",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_type"}, {ProtoField: "target_id"}},
+				},
+
+				{
+					RpcMethod:      "GetContentChallenge",
+					Use:            "get-content-challenge [id]",
+					Short:          "Gets a content challenge by id",
+					Alias:          []string{"show-content-challenge"},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod: "ListContentChallenge",
+					Use:       "list-content-challenge",
+					Short:     "List all content challenges",
+				},
+				{
+					RpcMethod:      "ContentChallengesByTarget",
+					Use:            "content-challenges-by-target [target-type] [target-id]",
+					Short:          "Query content challenges by target",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_type"}, {ProtoField: "target_id"}},
+				},
+
+				{
+					RpcMethod:      "ContentByInitiative",
+					Use:            "content-by-initiative [initiative-id]",
+					Short:          "Query content items linked to an initiative for conviction propagation",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
+				},
+
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -392,6 +432,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "create-interim [interim-type] [reference-id] [reference-type] [complexity] [deadline]",
 					Short:          "Send a create-interim tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "interim_type"}, {ProtoField: "reference_id"}, {ProtoField: "reference_type"}, {ProtoField: "complexity"}, {ProtoField: "deadline"}},
+				},
+				{
+					RpcMethod:      "ChallengeContent",
+					Use:            "challenge-content [target-type] [target-id] [reason] [staked-dream]",
+					Short:          "Challenge bonded content (blog post, forum post, collection)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_type"}, {ProtoField: "target_id"}, {ProtoField: "reason"}, {ProtoField: "staked_dream"}},
+				},
+				{
+					RpcMethod:      "RespondToContentChallenge",
+					Use:            "respond-to-content-challenge [content-challenge-id] [response]",
+					Short:          "Respond to a content challenge as the author",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "content_challenge_id"}, {ProtoField: "response"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

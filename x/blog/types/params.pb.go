@@ -4,6 +4,7 @@
 package types
 
 import (
+	cosmossdk_io_math "cosmossdk.io/math"
 	fmt "fmt"
 	types "github.com/cosmos/cosmos-sdk/types"
 	_ "github.com/cosmos/cosmos-sdk/types/tx/amino"
@@ -35,6 +36,46 @@ type Params struct {
 	CostPerByte types.Coin `protobuf:"bytes,3,opt,name=cost_per_byte,json=costPerByte,proto3" json:"cost_per_byte"`
 	// cost_per_byte_exempt when true, disables cost_per_byte fee collection
 	CostPerByteExempt bool `protobuf:"varint,4,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
+	// Maximum reply body length in bytes
+	MaxReplyLength uint64 `protobuf:"varint,5,opt,name=max_reply_length,json=maxReplyLength,proto3" json:"max_reply_length,omitempty"`
+	// Maximum nesting depth for replies
+	MaxReplyDepth uint32 `protobuf:"varint,6,opt,name=max_reply_depth,json=maxReplyDepth,proto3" json:"max_reply_depth,omitempty"`
+	// Flat fee per reaction
+	ReactionFee types.Coin `protobuf:"bytes,7,opt,name=reaction_fee,json=reactionFee,proto3" json:"reaction_fee"`
+	// Disable reaction fees
+	ReactionFeeExempt bool `protobuf:"varint,8,opt,name=reaction_fee_exempt,json=reactionFeeExempt,proto3" json:"reaction_fee_exempt,omitempty"`
+	// Max posts per address per day
+	MaxPostsPerDay uint32 `protobuf:"varint,9,opt,name=max_posts_per_day,json=maxPostsPerDay,proto3" json:"max_posts_per_day,omitempty"`
+	// Max replies per address per day
+	MaxRepliesPerDay uint32 `protobuf:"varint,10,opt,name=max_replies_per_day,json=maxRepliesPerDay,proto3" json:"max_replies_per_day,omitempty"`
+	// Max reactions per address per day
+	MaxReactionsPerDay uint32 `protobuf:"varint,11,opt,name=max_reactions_per_day,json=maxReactionsPerDay,proto3" json:"max_reactions_per_day,omitempty"`
+	// Master toggle for anonymous posting
+	AnonymousPostingEnabled bool `protobuf:"varint,12,opt,name=anonymous_posting_enabled,json=anonymousPostingEnabled,proto3" json:"anonymous_posting_enabled,omitempty"`
+	// Minimum trust level for anonymous posting (default: 2 = ESTABLISHED)
+	AnonymousMinTrustLevel uint32 `protobuf:"varint,13,opt,name=anonymous_min_trust_level,json=anonymousMinTrustLevel,proto3" json:"anonymous_min_trust_level,omitempty"`
+	// Auto-transferred from Commons Council treasury each epoch
+	AnonSubsidyBudgetPerEpoch types.Coin `protobuf:"bytes,14,opt,name=anon_subsidy_budget_per_epoch,json=anonSubsidyBudgetPerEpoch,proto3" json:"anon_subsidy_budget_per_epoch"`
+	// Max subsidy per anonymous post/reply
+	AnonSubsidyMaxPerPost types.Coin `protobuf:"bytes,15,opt,name=anon_subsidy_max_per_post,json=anonSubsidyMaxPerPost,proto3" json:"anon_subsidy_max_per_post"`
+	// Approved relay addresses eligible for subsidy
+	AnonSubsidyRelayAddresses []string `protobuf:"bytes,16,rep,name=anon_subsidy_relay_addresses,json=anonSubsidyRelayAddresses,proto3" json:"anon_subsidy_relay_addresses,omitempty"`
+	// TTL in seconds for ephemeral content (default: 604800 = 7 days; 0 = no expiry)
+	EphemeralContentTtl int64 `protobuf:"varint,17,opt,name=ephemeral_content_ttl,json=ephemeralContentTtl,proto3" json:"ephemeral_content_ttl,omitempty"`
+	// Minimum trust level to pin ephemeral content (default: 2 = ESTABLISHED)
+	PinMinTrustLevel uint32 `protobuf:"varint,18,opt,name=pin_min_trust_level,json=pinMinTrustLevel,proto3" json:"pin_min_trust_level,omitempty"`
+	// Max pins per address per day
+	MaxPinsPerDay uint32 `protobuf:"varint,19,opt,name=max_pins_per_day,json=maxPinsPerDay,proto3" json:"max_pins_per_day,omitempty"`
+	// Governance-only floor for ephemeral_content_ttl (default: 86400 = 1 day)
+	MinEphemeralContentTtl int64 `protobuf:"varint,20,opt,name=min_ephemeral_content_ttl,json=minEphemeralContentTtl,proto3" json:"min_ephemeral_content_ttl,omitempty"`
+	// Governance-only ceiling for cost_per_byte
+	MaxCostPerByte types.Coin `protobuf:"bytes,21,opt,name=max_cost_per_byte,json=maxCostPerByte,proto3" json:"max_cost_per_byte"`
+	// Governance-only ceiling for reaction_fee
+	MaxReactionFee types.Coin `protobuf:"bytes,22,opt,name=max_reaction_fee,json=maxReactionFee,proto3" json:"max_reaction_fee"`
+	// Min conviction score to renew anonymous content at TTL expiry (default: 100.0; 0 = disabled)
+	ConvictionRenewalThreshold cosmossdk_io_math.LegacyDec `protobuf:"bytes,23,opt,name=conviction_renewal_threshold,json=convictionRenewalThreshold,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_renewal_threshold"`
+	// Duration in seconds to extend TTL by when conviction-renewed (default: 604800 = 7 days)
+	ConvictionRenewalPeriod int64 `protobuf:"varint,24,opt,name=conviction_renewal_period,json=convictionRenewalPeriod,proto3" json:"conviction_renewal_period,omitempty"`
 }
 
 func (m *Params) Reset()         { *m = Params{} }
@@ -98,6 +139,139 @@ func (m *Params) GetCostPerByteExempt() bool {
 	return false
 }
 
+func (m *Params) GetMaxReplyLength() uint64 {
+	if m != nil {
+		return m.MaxReplyLength
+	}
+	return 0
+}
+
+func (m *Params) GetMaxReplyDepth() uint32 {
+	if m != nil {
+		return m.MaxReplyDepth
+	}
+	return 0
+}
+
+func (m *Params) GetReactionFee() types.Coin {
+	if m != nil {
+		return m.ReactionFee
+	}
+	return types.Coin{}
+}
+
+func (m *Params) GetReactionFeeExempt() bool {
+	if m != nil {
+		return m.ReactionFeeExempt
+	}
+	return false
+}
+
+func (m *Params) GetMaxPostsPerDay() uint32 {
+	if m != nil {
+		return m.MaxPostsPerDay
+	}
+	return 0
+}
+
+func (m *Params) GetMaxRepliesPerDay() uint32 {
+	if m != nil {
+		return m.MaxRepliesPerDay
+	}
+	return 0
+}
+
+func (m *Params) GetMaxReactionsPerDay() uint32 {
+	if m != nil {
+		return m.MaxReactionsPerDay
+	}
+	return 0
+}
+
+func (m *Params) GetAnonymousPostingEnabled() bool {
+	if m != nil {
+		return m.AnonymousPostingEnabled
+	}
+	return false
+}
+
+func (m *Params) GetAnonymousMinTrustLevel() uint32 {
+	if m != nil {
+		return m.AnonymousMinTrustLevel
+	}
+	return 0
+}
+
+func (m *Params) GetAnonSubsidyBudgetPerEpoch() types.Coin {
+	if m != nil {
+		return m.AnonSubsidyBudgetPerEpoch
+	}
+	return types.Coin{}
+}
+
+func (m *Params) GetAnonSubsidyMaxPerPost() types.Coin {
+	if m != nil {
+		return m.AnonSubsidyMaxPerPost
+	}
+	return types.Coin{}
+}
+
+func (m *Params) GetAnonSubsidyRelayAddresses() []string {
+	if m != nil {
+		return m.AnonSubsidyRelayAddresses
+	}
+	return nil
+}
+
+func (m *Params) GetEphemeralContentTtl() int64 {
+	if m != nil {
+		return m.EphemeralContentTtl
+	}
+	return 0
+}
+
+func (m *Params) GetPinMinTrustLevel() uint32 {
+	if m != nil {
+		return m.PinMinTrustLevel
+	}
+	return 0
+}
+
+func (m *Params) GetMaxPinsPerDay() uint32 {
+	if m != nil {
+		return m.MaxPinsPerDay
+	}
+	return 0
+}
+
+func (m *Params) GetMinEphemeralContentTtl() int64 {
+	if m != nil {
+		return m.MinEphemeralContentTtl
+	}
+	return 0
+}
+
+func (m *Params) GetMaxCostPerByte() types.Coin {
+	if m != nil {
+		return m.MaxCostPerByte
+	}
+	return types.Coin{}
+}
+
+func (m *Params) GetMaxReactionFee() types.Coin {
+	if m != nil {
+		return m.MaxReactionFee
+	}
+	return types.Coin{}
+}
+
+func (m *Params) GetConvictionRenewalPeriod() int64 {
+	if m != nil {
+		return m.ConvictionRenewalPeriod
+	}
+	return 0
+}
+
 // BlogOperationalParams defines the operational parameters that can be updated
 // by the Commons Council Operations Committee without a full governance proposal.
 type BlogOperationalParams struct {
@@ -105,6 +279,32 @@ type BlogOperationalParams struct {
 	CostPerByte types.Coin `protobuf:"bytes,1,opt,name=cost_per_byte,json=costPerByte,proto3" json:"cost_per_byte"`
 	// cost_per_byte_exempt when true, disables cost_per_byte fee collection
 	CostPerByteExempt bool `protobuf:"varint,2,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
+	// Flat fee per reaction
+	ReactionFee types.Coin `protobuf:"bytes,3,opt,name=reaction_fee,json=reactionFee,proto3" json:"reaction_fee"`
+	// Disable reaction fees
+	ReactionFeeExempt bool `protobuf:"varint,4,opt,name=reaction_fee_exempt,json=reactionFeeExempt,proto3" json:"reaction_fee_exempt,omitempty"`
+	// Max posts per address per day
+	MaxPostsPerDay uint32 `protobuf:"varint,5,opt,name=max_posts_per_day,json=maxPostsPerDay,proto3" json:"max_posts_per_day,omitempty"`
+	// Max replies per address per day
+	MaxRepliesPerDay uint32 `protobuf:"varint,6,opt,name=max_replies_per_day,json=maxRepliesPerDay,proto3" json:"max_replies_per_day,omitempty"`
+	// Max reactions per address per day
+	MaxReactionsPerDay uint32 `protobuf:"varint,7,opt,name=max_reactions_per_day,json=maxReactionsPerDay,proto3" json:"max_reactions_per_day,omitempty"`
+	// Operations Committee can adjust anonymous trust threshold
+	AnonymousMinTrustLevel uint32 `protobuf:"varint,8,opt,name=anonymous_min_trust_level,json=anonymousMinTrustLevel,proto3" json:"anonymous_min_trust_level,omitempty"`
+	// Epoch subsidy draw amount
+	AnonSubsidyBudgetPerEpoch types.Coin `protobuf:"bytes,9,opt,name=anon_subsidy_budget_per_epoch,json=anonSubsidyBudgetPerEpoch,proto3" json:"anon_subsidy_budget_per_epoch"`
+	// Per-post subsidy cap
+	AnonSubsidyMaxPerPost types.Coin `protobuf:"bytes,10,opt,name=anon_subsidy_max_per_post,json=anonSubsidyMaxPerPost,proto3" json:"anon_subsidy_max_per_post"`
+	// Approved relay addresses
+	AnonSubsidyRelayAddresses []string `protobuf:"bytes,11,rep,name=anon_subsidy_relay_addresses,json=anonSubsidyRelayAddresses,proto3" json:"anon_subsidy_relay_addresses,omitempty"`
+	// TTL for ephemeral content (anonymous + non-member)
+	EphemeralContentTtl int64 `protobuf:"varint,12,opt,name=ephemeral_content_ttl,json=ephemeralContentTtl,proto3" json:"ephemeral_content_ttl,omitempty"`
+	// Max pins per address per day
+	MaxPinsPerDay uint32 `protobuf:"varint,13,opt,name=max_pins_per_day,json=maxPinsPerDay,proto3" json:"max_pins_per_day,omitempty"`
+	// Operations Committee can adjust conviction renewal threshold
+	ConvictionRenewalThreshold cosmossdk_io_math.LegacyDec `protobuf:"bytes,14,opt,name=conviction_renewal_threshold,json=convictionRenewalThreshold,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_renewal_threshold"`
+	// Operations Committee can adjust conviction renewal period
+	ConvictionRenewalPeriod int64 `protobuf:"varint,15,opt,name=conviction_renewal_period,json=convictionRenewalPeriod,proto3" json:"conviction_renewal_period,omitempty"`
 }
 
 func (m *BlogOperationalParams) Reset()         { *m = BlogOperationalParams{} }
@@ -154,6 +354,90 @@ func (m *BlogOperationalParams) GetCostPerByteExempt() bool {
 	return false
 }
 
+func (m *BlogOperationalParams) GetReactionFee() types.Coin {
+	if m != nil {
+		return m.ReactionFee
+	}
+	return types.Coin{}
+}
+
+func (m *BlogOperationalParams) GetReactionFeeExempt() bool {
+	if m != nil {
+		return m.ReactionFeeExempt
+	}
+	return false
+}
+
+func (m *BlogOperationalParams) GetMaxPostsPerDay() uint32 {
+	if m != nil {
+		return m.MaxPostsPerDay
+	}
+	return 0
+}
+
+func (m *BlogOperationalParams) GetMaxRepliesPerDay() uint32 {
+	if m != nil {
+		return m.MaxRepliesPerDay
+	}
+	return 0
+}
+
+func (m *BlogOperationalParams) GetMaxReactionsPerDay() uint32 {
+	if m != nil {
+		return m.MaxReactionsPerDay
+	}
+	return 0
+}
+
+func (m *BlogOperationalParams) GetAnonymousMinTrustLevel() uint32 {
+	if m != nil {
+		return m.AnonymousMinTrustLevel
+	}
+	return 0
+}
+
+func (m *BlogOperationalParams) GetAnonSubsidyBudgetPerEpoch() types.Coin {
+	if m != nil {
+		return m.AnonSubsidyBudgetPerEpoch
+	}
+	return types.Coin{}
+}
+
+func (m *BlogOperationalParams) GetAnonSubsidyMaxPerPost() types.Coin {
+	if m != nil {
+		return m.AnonSubsidyMaxPerPost
+	}
+	return types.Coin{}
+}
+
+func (m *BlogOperationalParams) GetAnonSubsidyRelayAddresses() []string {
+	if m != nil {
+		return m.AnonSubsidyRelayAddresses
+	}
+	return nil
+}
+
+func (m *BlogOperationalParams) GetEphemeralContentTtl() int64 {
+	if m != nil {
+		return m.EphemeralContentTtl
+	}
+	return 0
+}
+
+func (m *BlogOperationalParams) GetMaxPinsPerDay() uint32 {
+	if m != nil {
+		return m.MaxPinsPerDay
+	}
+	return 0
+}
+
+func (m *BlogOperationalParams) GetConvictionRenewalPeriod() int64 {
+	if m != nil {
+		return m.ConvictionRenewalPeriod
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterType((*Params)(nil), "sparkdream.blog.v1.Params")
 	proto.RegisterType((*BlogOperationalParams)(nil), "sparkdream.blog.v1.BlogOperationalParams")
@@ -162,30 +446,64 @@ func init() {
 func init() { proto.RegisterFile("sparkdream/blog/v1/params.proto", fileDescriptor_eef2bd21712a9c07) }
 
 var fileDescriptor_eef2bd21712a9c07 = []byte{
-	// 368 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x91, 0xb1, 0x4a, 0xc3, 0x40,
-	0x18, 0xc7, 0x73, 0xb5, 0x14, 0x49, 0xa9, 0xda, 0x50, 0x31, 0x76, 0x48, 0x6b, 0x07, 0x0d, 0x0e,
-	0x39, 0xa3, 0x9b, 0x63, 0x8a, 0x9b, 0x60, 0x29, 0x4e, 0x2e, 0xe1, 0xd2, 0x1e, 0x31, 0x98, 0xcb,
-	0x17, 0x72, 0x47, 0x49, 0x5e, 0xc1, 0xc9, 0x47, 0xf0, 0x11, 0x7c, 0x03, 0xd7, 0x8e, 0x1d, 0x9d,
-	0x44, 0xda, 0x41, 0x77, 0x5f, 0x40, 0x72, 0x49, 0xb1, 0x52, 0xdd, 0x5c, 0xc2, 0xc7, 0xf7, 0xfd,
-	0xf2, 0xdd, 0xef, 0xfe, 0xa7, 0x76, 0x78, 0x4c, 0x92, 0xbb, 0x71, 0x42, 0x09, 0xc3, 0x5e, 0x08,
-	0x3e, 0x9e, 0xd8, 0x38, 0x26, 0x09, 0x61, 0xdc, 0x8a, 0x13, 0x10, 0xa0, 0x69, 0xdf, 0x80, 0x95,
-	0x03, 0xd6, 0xc4, 0x6e, 0x37, 0x09, 0x0b, 0x22, 0xc0, 0xf2, 0x5b, 0x60, 0x6d, 0x63, 0x04, 0x9c,
-	0x01, 0xc7, 0x1e, 0xe1, 0x14, 0x4f, 0x6c, 0x8f, 0x0a, 0x62, 0xe3, 0x11, 0x04, 0x51, 0x39, 0x6f,
-	0xf9, 0xe0, 0x83, 0x2c, 0x71, 0x5e, 0x15, 0xdd, 0xde, 0x27, 0x52, 0x6b, 0x03, 0x79, 0x9a, 0x66,
-	0xaa, 0x3b, 0x8c, 0xa4, 0xae, 0x08, 0x44, 0x48, 0xdd, 0x90, 0x46, 0xbe, 0xb8, 0xd5, 0x51, 0x17,
-	0x99, 0xd5, 0xe1, 0x16, 0x23, 0xe9, 0x75, 0xde, 0xbe, 0x94, 0x5d, 0xed, 0x50, 0xdd, 0xce, 0x49,
-	0x0f, 0xc6, 0xd9, 0x12, 0xac, 0x48, 0xb0, 0xc1, 0x48, 0xea, 0xc0, 0x38, 0x2b, 0xb9, 0xbe, 0xda,
-	0x18, 0x01, 0x17, 0x6e, 0x4c, 0x13, 0xd7, 0xcb, 0x04, 0xd5, 0x37, 0xba, 0xc8, 0xac, 0x9f, 0xee,
-	0x5b, 0x85, 0xaa, 0x95, 0xab, 0x5a, 0xa5, 0xaa, 0xd5, 0x87, 0x20, 0x72, 0xaa, 0xd3, 0xd7, 0x8e,
-	0x32, 0xac, 0xe7, 0x7f, 0x0d, 0x68, 0xe2, 0x64, 0x82, 0x6a, 0x58, 0x6d, 0xfd, 0x58, 0xe2, 0xd2,
-	0x94, 0xb2, 0x58, 0xe8, 0xd5, 0x2e, 0x32, 0x37, 0x87, 0xcd, 0x15, 0xf4, 0x42, 0x0e, 0xce, 0x0f,
-	0x3e, 0x1e, 0x3b, 0xe8, 0xfe, 0xfd, 0xe9, 0x58, 0x5f, 0x49, 0x36, 0x2d, 0xb2, 0x2d, 0xae, 0xda,
-	0x7b, 0x46, 0xea, 0xae, 0x13, 0x82, 0x7f, 0x15, 0xd3, 0x84, 0x88, 0x00, 0x22, 0x12, 0x96, 0x21,
-	0xac, 0x29, 0xa3, 0x7f, 0x54, 0xae, 0xfc, 0xa5, 0x7c, 0xb2, 0x54, 0x3e, 0x5a, 0x57, 0xfe, 0xd5,
-	0xd3, 0xb1, 0xa7, 0x73, 0x03, 0xcd, 0xe6, 0x06, 0x7a, 0x9b, 0x1b, 0xe8, 0x61, 0x61, 0x28, 0xb3,
-	0x85, 0xa1, 0xbc, 0x2c, 0x0c, 0xe5, 0x66, 0x6f, 0x7d, 0x85, 0xc8, 0x62, 0xca, 0xbd, 0x9a, 0x7c,
-	0xf1, 0xb3, 0xaf, 0x00, 0x00, 0x00, 0xff, 0xff, 0xd4, 0x06, 0xc0, 0x5f, 0x71, 0x02, 0x00, 0x00,
+	// 910 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x56, 0x4d, 0x6f, 0xe3, 0x44,
+	0x18, 0xae, 0xb7, 0xdd, 0x7e, 0x4c, 0x9a, 0x7e, 0xb8, 0x4d, 0xeb, 0x96, 0x25, 0x0d, 0x8b, 0xc4,
+	0x06, 0x24, 0x6c, 0xb2, 0x9c, 0x76, 0x2f, 0x88, 0xb4, 0x45, 0x02, 0x75, 0x85, 0x65, 0x7a, 0x81,
+	0x8b, 0x35, 0xb6, 0x5f, 0x92, 0xd1, 0xda, 0x33, 0xd6, 0xcc, 0x34, 0xc4, 0x7f, 0x81, 0x13, 0x3f,
+	0x81, 0x9f, 0xc0, 0x1f, 0xe0, 0xbe, 0xc7, 0x3d, 0x22, 0x0e, 0x2b, 0xd4, 0x1e, 0xe0, 0x37, 0x70,
+	0x42, 0x33, 0x13, 0xa7, 0x0e, 0x49, 0x97, 0x14, 0xb6, 0x5c, 0xaa, 0x68, 0xde, 0xe7, 0x7d, 0xe6,
+	0x79, 0xa6, 0xef, 0xfb, 0x24, 0xe8, 0x48, 0xe4, 0x98, 0x3f, 0x4f, 0x38, 0xe0, 0xcc, 0x8b, 0x52,
+	0xd6, 0xf3, 0x06, 0x1d, 0x2f, 0xc7, 0x1c, 0x67, 0xc2, 0xcd, 0x39, 0x93, 0xcc, 0xb6, 0xaf, 0x01,
+	0xae, 0x02, 0xb8, 0x83, 0xce, 0xe1, 0x36, 0xce, 0x08, 0x65, 0x9e, 0xfe, 0x6b, 0x60, 0x87, 0xcd,
+	0x98, 0x89, 0x8c, 0x09, 0x2f, 0xc2, 0x02, 0xbc, 0x41, 0x27, 0x02, 0x89, 0x3b, 0x5e, 0xcc, 0x08,
+	0x1d, 0xd5, 0x77, 0x7b, 0xac, 0xc7, 0xf4, 0x47, 0x4f, 0x7d, 0x32, 0xa7, 0x0f, 0x7f, 0xae, 0xa1,
+	0x65, 0x5f, 0xdf, 0x66, 0xb7, 0xd1, 0x56, 0x86, 0x87, 0xa1, 0x24, 0x32, 0x85, 0x30, 0x05, 0xda,
+	0x93, 0x7d, 0xc7, 0x6a, 0x59, 0xed, 0xa5, 0x60, 0x23, 0xc3, 0xc3, 0x73, 0x75, 0x7c, 0xa6, 0x4f,
+	0xed, 0xf7, 0xd0, 0xa6, 0x42, 0x46, 0x2c, 0x29, 0x4a, 0xe0, 0x3d, 0x0d, 0xac, 0x67, 0x78, 0xd8,
+	0x65, 0x49, 0x31, 0xc2, 0x1d, 0xa3, 0x7a, 0xcc, 0x84, 0x0c, 0x73, 0xe0, 0x61, 0x54, 0x48, 0x70,
+	0x16, 0x5b, 0x56, 0xbb, 0xf6, 0xf8, 0xc0, 0x35, 0x52, 0x5d, 0x25, 0xd5, 0x1d, 0x49, 0x75, 0x8f,
+	0x19, 0xa1, 0xdd, 0xa5, 0x17, 0xaf, 0x8e, 0x16, 0x82, 0x9a, 0xea, 0xf2, 0x81, 0x77, 0x0b, 0x09,
+	0xb6, 0x87, 0x76, 0x27, 0x48, 0x42, 0x18, 0x42, 0x96, 0x4b, 0x67, 0xa9, 0x65, 0xb5, 0x57, 0x83,
+	0xed, 0x0a, 0xf4, 0x54, 0x17, 0x4a, 0x1f, 0x1c, 0xf2, 0x74, 0x2c, 0xef, 0xfe, 0xd8, 0x47, 0xa0,
+	0x8e, 0x27, 0x7d, 0x18, 0x64, 0x02, 0xb9, 0xec, 0x3b, 0xcb, 0x2d, 0xab, 0x5d, 0xd7, 0x3e, 0x34,
+	0xf0, 0x44, 0x1d, 0xda, 0x5d, 0xb4, 0xce, 0x01, 0xc7, 0x92, 0x30, 0x1a, 0x7e, 0x0b, 0xe0, 0xac,
+	0xcc, 0x69, 0xa3, 0x6c, 0xfa, 0x0c, 0xc0, 0x76, 0xd1, 0x4e, 0x95, 0xa3, 0x74, 0xb1, 0x6a, 0x5c,
+	0x54, 0x90, 0x23, 0x17, 0xef, 0xa3, 0x6d, 0xa5, 0x2d, 0x67, 0x42, 0x0a, 0xed, 0x3d, 0xc1, 0x85,
+	0xb3, 0xa6, 0xd5, 0x29, 0x1b, 0xbe, 0x3a, 0xf7, 0x81, 0x9f, 0xe0, 0xc2, 0xfe, 0x10, 0xed, 0x94,
+	0x36, 0x08, 0x5c, 0x83, 0x91, 0x06, 0x6f, 0x8d, 0xac, 0x10, 0x28, 0xe1, 0x1d, 0xd4, 0x30, 0x70,
+	0x73, 0xe5, 0x75, 0x43, 0x4d, 0x37, 0xd8, 0xba, 0x61, 0x54, 0x1b, 0xb5, 0x3c, 0x45, 0x07, 0x98,
+	0x32, 0x5a, 0x64, 0xec, 0x42, 0x68, 0x49, 0x84, 0xf6, 0x42, 0xa0, 0x38, 0x4a, 0x21, 0x71, 0xd6,
+	0xb5, 0x85, 0xfd, 0x31, 0xc0, 0x37, 0xf5, 0x53, 0x53, 0xb6, 0x9f, 0x54, 0x7b, 0x33, 0x42, 0x43,
+	0xc9, 0x2f, 0x84, 0x0c, 0x53, 0x18, 0x40, 0xea, 0xd4, 0xf5, 0x95, 0x7b, 0x63, 0xc0, 0x33, 0x42,
+	0xcf, 0x55, 0xf9, 0x4c, 0x55, 0x6d, 0x8c, 0xde, 0x56, 0x95, 0x50, 0x5c, 0x44, 0x82, 0x24, 0x45,
+	0x18, 0x5d, 0x24, 0x3d, 0x30, 0x93, 0x00, 0x39, 0x8b, 0xfb, 0xce, 0xc6, 0x7c, 0xff, 0x08, 0x2d,
+	0xe0, 0x2b, 0x43, 0xd2, 0xd5, 0x1c, 0x3e, 0xf0, 0x53, 0xc5, 0x60, 0x7f, 0x6d, 0xd4, 0x8d, 0xaf,
+	0xd0, 0x6f, 0x0e, 0x5c, 0x9b, 0x74, 0x36, 0xe7, 0xa3, 0x6f, 0x54, 0xe8, 0x9f, 0xe1, 0xa1, 0x0f,
+	0x5c, 0x3d, 0x81, 0xfd, 0x09, 0x7a, 0x30, 0x41, 0xcd, 0x21, 0xc5, 0x45, 0x88, 0x93, 0x84, 0x83,
+	0x10, 0x20, 0x9c, 0xad, 0xd6, 0x62, 0x7b, 0x6d, 0x42, 0x5b, 0xa0, 0x10, 0x9f, 0x96, 0x00, 0xfb,
+	0x31, 0x6a, 0x40, 0xde, 0x87, 0x0c, 0x38, 0x4e, 0xc3, 0x98, 0x51, 0x09, 0x54, 0x86, 0x52, 0xa6,
+	0xce, 0x76, 0xcb, 0x6a, 0x2f, 0x06, 0x3b, 0xe3, 0xe2, 0xb1, 0xa9, 0x9d, 0xcb, 0x54, 0xcd, 0x42,
+	0x4e, 0xe8, 0xd4, 0x3b, 0xdb, 0x66, 0x16, 0x72, 0x42, 0x27, 0x5f, 0xf8, 0x91, 0xd9, 0x95, 0x9c,
+	0x54, 0xc6, 0x60, 0x67, 0xbc, 0x02, 0x3e, 0x19, 0x4f, 0xc0, 0x13, 0x74, 0xa0, 0x38, 0x67, 0xeb,
+	0xd9, 0xd5, 0x7a, 0xf6, 0x32, 0x42, 0x4f, 0x67, 0x48, 0xfa, 0xc2, 0x4c, 0xf2, 0x64, 0x12, 0x34,
+	0xe6, 0x7b, 0x5a, 0x35, 0xea, 0xc7, 0x95, 0x30, 0xf8, 0xbc, 0xdc, 0xed, 0xca, 0x36, 0xee, 0xcd,
+	0x4f, 0x15, 0x54, 0x16, 0x12, 0xd0, 0x83, 0x98, 0xd1, 0x01, 0x31, 0x44, 0x1c, 0x28, 0x7c, 0x87,
+	0xd3, 0x50, 0xf6, 0x39, 0x88, 0x3e, 0x4b, 0x13, 0x67, 0xbf, 0x65, 0xb5, 0xd7, 0xba, 0xef, 0xaa,
+	0xde, 0x5f, 0x5f, 0x1d, 0xbd, 0x65, 0xd8, 0x45, 0xf2, 0xdc, 0x25, 0xcc, 0xcb, 0xb0, 0xec, 0xbb,
+	0x67, 0xd0, 0xc3, 0x71, 0x71, 0x02, 0x71, 0x70, 0x78, 0x4d, 0x14, 0x18, 0x9e, 0xf3, 0x92, 0x46,
+	0xad, 0xce, 0x8c, 0x6b, 0x72, 0xe0, 0x84, 0x25, 0x8e, 0xa3, 0x1f, 0x6e, 0x7f, 0xaa, 0xdd, 0xd7,
+	0xe5, 0xa7, 0xef, 0xfc, 0xf1, 0xe3, 0x91, 0xf5, 0xfd, 0xef, 0x3f, 0x7d, 0xe0, 0x54, 0xbe, 0x23,
+	0x86, 0xe6, 0x5b, 0xc2, 0x84, 0xf6, 0xc3, 0x3f, 0x57, 0x50, 0xa3, 0x9b, 0xb2, 0xde, 0x97, 0x39,
+	0x70, 0xac, 0x18, 0x70, 0x3a, 0x8a, 0xf3, 0xa9, 0xf0, 0xb5, 0xde, 0x60, 0xf8, 0xde, 0xbb, 0x29,
+	0x7c, 0xff, 0x1e, 0x95, 0x8b, 0x6f, 0x2e, 0x2a, 0x97, 0x6e, 0x15, 0x95, 0xf7, 0x6f, 0x13, 0x95,
+	0xcb, 0xb7, 0x8d, 0xca, 0x95, 0x1b, 0xa3, 0xf2, 0xb5, 0x71, 0xb7, 0xfa, 0xdf, 0xe2, 0x6e, 0xed,
+	0x6e, 0xe3, 0x0e, 0xdd, 0x69, 0xdc, 0xd5, 0xfe, 0x75, 0xdc, 0xad, 0xdf, 0x1c, 0x77, 0xb3, 0xf2,
+	0xab, 0x3e, 0x2b, 0xbf, 0xfe, 0x69, 0xdb, 0x37, 0xfe, 0x87, 0x6d, 0xdf, 0x7c, 0xfd, 0xb6, 0x7f,
+	0x54, 0x6e, 0xfb, 0xa3, 0xe9, 0x6d, 0x9f, 0xb9, 0xe2, 0xdd, 0xce, 0x8b, 0xcb, 0xa6, 0xf5, 0xf2,
+	0xb2, 0x69, 0xfd, 0x76, 0xd9, 0xb4, 0x7e, 0xb8, 0x6a, 0x2e, 0xbc, 0xbc, 0x6a, 0x2e, 0xfc, 0x72,
+	0xd5, 0x5c, 0xf8, 0x66, 0x7f, 0x9a, 0x42, 0x16, 0x39, 0x88, 0x68, 0x59, 0xff, 0xec, 0xfb, 0xf8,
+	0xaf, 0x00, 0x00, 0x00, 0xff, 0xff, 0xb9, 0x01, 0xba, 0x20, 0x76, 0x0a, 0x00, 0x00,
 }
 
 func (this *Params) Equal(that interface{}) bool {
@@ -219,6 +537,71 @@ func (this *Params) Equal(that interface{}) bool {
 	if this.CostPerByteExempt != that1.CostPerByteExempt {
 		return false
 	}
+	if this.MaxReplyLength != that1.MaxReplyLength {
+		return false
+	}
+	if this.MaxReplyDepth != that1.MaxReplyDepth {
+		return false
+	}
+	if !this.ReactionFee.Equal(&that1.ReactionFee) {
+		return false
+	}
+	if this.ReactionFeeExempt != that1.ReactionFeeExempt {
+		return false
+	}
+	if this.MaxPostsPerDay != that1.MaxPostsPerDay {
+		return false
+	}
+	if this.MaxRepliesPerDay != that1.MaxRepliesPerDay {
+		return false
+	}
+	if this.MaxReactionsPerDay != that1.MaxReactionsPerDay {
+		return false
+	}
+	if this.AnonymousPostingEnabled != that1.AnonymousPostingEnabled {
+		return false
+	}
+	if this.AnonymousMinTrustLevel != that1.AnonymousMinTrustLevel {
+		return false
+	}
+	if !this.AnonSubsidyBudgetPerEpoch.Equal(&that1.AnonSubsidyBudgetPerEpoch) {
+		return false
+	}
+	if !this.AnonSubsidyMaxPerPost.Equal(&that1.AnonSubsidyMaxPerPost) {
+		return false
+	}
+	if len(this.AnonSubsidyRelayAddresses) != len(that1.AnonSubsidyRelayAddresses) {
+		return false
+	}
+	for i := range this.AnonSubsidyRelayAddresses {
+		if this.AnonSubsidyRelayAddresses[i] != that1.AnonSubsidyRelayAddresses[i] {
+			return false
+		}
+	}
+	if this.EphemeralContentTtl != that1.EphemeralContentTtl {
+		return false
+	}
+	if this.PinMinTrustLevel != that1.PinMinTrustLevel {
+		return false
+	}
+	if this.MaxPinsPerDay != that1.MaxPinsPerDay {
+		return false
+	}
+	if this.MinEphemeralContentTtl != that1.MinEphemeralContentTtl {
+		return false
+	}
+	if !this.MaxCostPerByte.Equal(&that1.MaxCostPerByte) {
+		return false
+	}
+	if !this.MaxReactionFee.Equal(&that1.MaxReactionFee) {
+		return false
+	}
+	if !this.ConvictionRenewalThreshold.Equal(that1.ConvictionRenewalThreshold) {
+		return false
+	}
+	if this.ConvictionRenewalPeriod != that1.ConvictionRenewalPeriod {
+		return false
+	}
 	return true
 }
 func (this *BlogOperationalParams) Equal(that interface{}) bool {
@@ -246,6 +629,50 @@ func (this *BlogOperationalParams) Equal(that interface{}) bool {
 	if this.CostPerByteExempt != that1.CostPerByteExempt {
 		return false
 	}
+	if !this.ReactionFee.Equal(&that1.ReactionFee) {
+		return false
+	}
+	if this.ReactionFeeExempt != that1.ReactionFeeExempt {
+		return false
+	}
+	if this.MaxPostsPerDay != that1.MaxPostsPerDay {
+		return false
+	}
+	if this.MaxRepliesPerDay != that1.MaxRepliesPerDay {
+		return false
+	}
+	if this.MaxReactionsPerDay != that1.MaxReactionsPerDay {
+		return false
+	}
+	if this.AnonymousMinTrustLevel != that1.AnonymousMinTrustLevel {
+		return false
+	}
+	if !this.AnonSubsidyBudgetPerEpoch.Equal(&that1.AnonSubsidyBudgetPerEpoch) {
+		return false
+	}
+	if !this.AnonSubsidyMaxPerPost.Equal(&that1.AnonSubsidyMaxPerPost) {
+		return false
+	}
+	if len(this.AnonSubsidyRelayAddresses) != len(that1.AnonSubsidyRelayAddresses) {
+		return false
+	}
+	for i := range this.AnonSubsidyRelayAddresses {
+		if this.AnonSubsidyRelayAddresses[i] != that1.AnonSubsidyRelayAddresses[i] {
+			return false
+		}
+	}
+	if this.EphemeralContentTtl != that1.EphemeralContentTtl {
+		return false
+	}
+	if this.MaxPinsPerDay != that1.MaxPinsPerDay {
+		return false
+	}
+	if !this.ConvictionRenewalThreshold.Equal(that1.ConvictionRenewalThreshold) {
+		return false
+	}
+	if this.ConvictionRenewalPeriod != that1.ConvictionRenewalPeriod {
+		return false
+	}
 	return true
 }
 func (m *Params) Marshal() (dAtA []byte, err error) {
@@ -268,6 +695,168 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.ConvictionRenewalPeriod != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.ConvictionRenewalPeriod))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xc0
+	}
+	{
+		size := m.ConvictionRenewalThreshold.Size()
+		i -= size
+		if _, err := m.ConvictionRenewalThreshold.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1
+	i--
+	dAtA[i] = 0xba
+	{
+		size, err := m.MaxReactionFee.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1
+	i--
+	dAtA[i] = 0xb2
+	{
+		size, err := m.MaxCostPerByte.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1
+	i--
+	dAtA[i] = 0xaa
+	if m.MinEphemeralContentTtl != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MinEphemeralContentTtl))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xa0
+	}
+	if m.MaxPinsPerDay != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxPinsPerDay))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x98
+	}
+	if m.PinMinTrustLevel != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.PinMinTrustLevel))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x90
+	}
+	if m.EphemeralContentTtl != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.EphemeralContentTtl))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x88
+	}
+	if len(m.AnonSubsidyRelayAddresses) > 0 {
+		for iNdEx := len(m.AnonSubsidyRelayAddresses) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.AnonSubsidyRelayAddresses[iNdEx])
+			copy(dAtA[i:], m.AnonSubsidyRelayAddresses[iNdEx])
+			i = encodeVarintParams(dAtA, i, uint64(len(m.AnonSubsidyRelayAddresses[iNdEx])))
+			i--
+			dAtA[i] = 0x1
+			i--
+			dAtA[i] = 0x82
+		}
+	}
+	{
+		size, err := m.AnonSubsidyMaxPerPost.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x7a
+	{
+		size, err := m.AnonSubsidyBudgetPerEpoch.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x72
+	if m.AnonymousMinTrustLevel != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.AnonymousMinTrustLevel))
+		i--
+		dAtA[i] = 0x68
+	}
+	if m.AnonymousPostingEnabled {
+		i--
+		if m.AnonymousPostingEnabled {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x60
+	}
+	if m.MaxReactionsPerDay != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxReactionsPerDay))
+		i--
+		dAtA[i] = 0x58
+	}
+	if m.MaxRepliesPerDay != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxRepliesPerDay))
+		i--
+		dAtA[i] = 0x50
+	}
+	if m.MaxPostsPerDay != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxPostsPerDay))
+		i--
+		dAtA[i] = 0x48
+	}
+	if m.ReactionFeeExempt {
+		i--
+		if m.ReactionFeeExempt {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x40
+	}
+	{
+		size, err := m.ReactionFee.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x3a
+	if m.MaxReplyDepth != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxReplyDepth))
+		i--
+		dAtA[i] = 0x30
+	}
+	if m.MaxReplyLength != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxReplyLength))
+		i--
+		dAtA[i] = 0x28
+	}
 	if m.CostPerByteExempt {
 		i--
 		if m.CostPerByteExempt {
@@ -321,6 +910,100 @@ func (m *BlogOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.ConvictionRenewalPeriod != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.ConvictionRenewalPeriod))
+		i--
+		dAtA[i] = 0x78
+	}
+	{
+		size := m.ConvictionRenewalThreshold.Size()
+		i -= size
+		if _, err := m.ConvictionRenewalThreshold.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x72
+	if m.MaxPinsPerDay != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxPinsPerDay))
+		i--
+		dAtA[i] = 0x68
+	}
+	if m.EphemeralContentTtl != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.EphemeralContentTtl))
+		i--
+		dAtA[i] = 0x60
+	}
+	if len(m.AnonSubsidyRelayAddresses) > 0 {
+		for iNdEx := len(m.AnonSubsidyRelayAddresses) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.AnonSubsidyRelayAddresses[iNdEx])
+			copy(dAtA[i:], m.AnonSubsidyRelayAddresses[iNdEx])
+			i = encodeVarintParams(dAtA, i, uint64(len(m.AnonSubsidyRelayAddresses[iNdEx])))
+			i--
+			dAtA[i] = 0x5a
+		}
+	}
+	{
+		size, err := m.AnonSubsidyMaxPerPost.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x52
+	{
+		size, err := m.AnonSubsidyBudgetPerEpoch.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x4a
+	if m.AnonymousMinTrustLevel != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.AnonymousMinTrustLevel))
+		i--
+		dAtA[i] = 0x40
+	}
+	if m.MaxReactionsPerDay != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxReactionsPerDay))
+		i--
+		dAtA[i] = 0x38
+	}
+	if m.MaxRepliesPerDay != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxRepliesPerDay))
+		i--
+		dAtA[i] = 0x30
+	}
+	if m.MaxPostsPerDay != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxPostsPerDay))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.ReactionFeeExempt {
+		i--
+		if m.ReactionFeeExempt {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x20
+	}
+	{
+		size, err := m.ReactionFee.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
 	if m.CostPerByteExempt {
 		i--
 		if m.CostPerByteExempt {
@@ -372,6 +1055,63 @@ func (m *Params) Size() (n int) {
 	if m.CostPerByteExempt {
 		n += 2
 	}
+	if m.MaxReplyLength != 0 {
+		n += 1 + sovParams(uint64(m.MaxReplyLength))
+	}
+	if m.MaxReplyDepth != 0 {
+		n += 1 + sovParams(uint64(m.MaxReplyDepth))
+	}
+	l = m.ReactionFee.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if m.ReactionFeeExempt {
+		n += 2
+	}
+	if m.MaxPostsPerDay != 0 {
+		n += 1 + sovParams(uint64(m.MaxPostsPerDay))
+	}
+	if m.MaxRepliesPerDay != 0 {
+		n += 1 + sovParams(uint64(m.MaxRepliesPerDay))
+	}
+	if m.MaxReactionsPerDay != 0 {
+		n += 1 + sovParams(uint64(m.MaxReactionsPerDay))
+	}
+	if m.AnonymousPostingEnabled {
+		n += 2
+	}
+	if m.AnonymousMinTrustLevel != 0 {
+		n += 1 + sovParams(uint64(m.AnonymousMinTrustLevel))
+	}
+	l = m.AnonSubsidyBudgetPerEpoch.Size()
+	n += 1 + l + sovParams(uint64(l))
+	l = m.AnonSubsidyMaxPerPost.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if len(m.AnonSubsidyRelayAddresses) > 0 {
+		for _, s := range m.AnonSubsidyRelayAddresses {
+			l = len(s)
+			n += 2 + l + sovParams(uint64(l))
+		}
+	}
+	if m.EphemeralContentTtl != 0 {
+		n += 2 + sovParams(uint64(m.EphemeralContentTtl))
+	}
+	if m.PinMinTrustLevel != 0 {
+		n += 2 + sovParams(uint64(m.PinMinTrustLevel))
+	}
+	if m.MaxPinsPerDay != 0 {
+		n += 2 + sovParams(uint64(m.MaxPinsPerDay))
+	}
+	if m.MinEphemeralContentTtl != 0 {
+		n += 2 + sovParams(uint64(m.MinEphemeralContentTtl))
+	}
+	l = m.MaxCostPerByte.Size()
+	n += 2 + l + sovParams(uint64(l))
+	l = m.MaxReactionFee.Size()
+	n += 2 + l + sovParams(uint64(l))
+	l = m.ConvictionRenewalThreshold.Size()
+	n += 2 + l + sovParams(uint64(l))
+	if m.ConvictionRenewalPeriod != 0 {
+		n += 2 + sovParams(uint64(m.ConvictionRenewalPeriod))
+	}
 	return n
 }
 
@@ -385,6 +1125,44 @@ func (m *BlogOperationalParams) Size() (n int) {
 	n += 1 + l + sovParams(uint64(l))
 	if m.CostPerByteExempt {
 		n += 2
+	}
+	l = m.ReactionFee.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if m.ReactionFeeExempt {
+		n += 2
+	}
+	if m.MaxPostsPerDay != 0 {
+		n += 1 + sovParams(uint64(m.MaxPostsPerDay))
+	}
+	if m.MaxRepliesPerDay != 0 {
+		n += 1 + sovParams(uint64(m.MaxRepliesPerDay))
+	}
+	if m.MaxReactionsPerDay != 0 {
+		n += 1 + sovParams(uint64(m.MaxReactionsPerDay))
+	}
+	if m.AnonymousMinTrustLevel != 0 {
+		n += 1 + sovParams(uint64(m.AnonymousMinTrustLevel))
+	}
+	l = m.AnonSubsidyBudgetPerEpoch.Size()
+	n += 1 + l + sovParams(uint64(l))
+	l = m.AnonSubsidyMaxPerPost.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if len(m.AnonSubsidyRelayAddresses) > 0 {
+		for _, s := range m.AnonSubsidyRelayAddresses {
+			l = len(s)
+			n += 1 + l + sovParams(uint64(l))
+		}
+	}
+	if m.EphemeralContentTtl != 0 {
+		n += 1 + sovParams(uint64(m.EphemeralContentTtl))
+	}
+	if m.MaxPinsPerDay != 0 {
+		n += 1 + sovParams(uint64(m.MaxPinsPerDay))
+	}
+	l = m.ConvictionRenewalThreshold.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if m.ConvictionRenewalPeriod != 0 {
+		n += 1 + sovParams(uint64(m.ConvictionRenewalPeriod))
 	}
 	return n
 }
@@ -515,6 +1293,486 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.CostPerByteExempt = bool(v != 0)
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxReplyLength", wireType)
+			}
+			m.MaxReplyLength = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxReplyLength |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxReplyDepth", wireType)
+			}
+			m.MaxReplyDepth = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxReplyDepth |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReactionFee", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ReactionFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReactionFeeExempt", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.ReactionFeeExempt = bool(v != 0)
+		case 9:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxPostsPerDay", wireType)
+			}
+			m.MaxPostsPerDay = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxPostsPerDay |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 10:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxRepliesPerDay", wireType)
+			}
+			m.MaxRepliesPerDay = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxRepliesPerDay |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 11:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxReactionsPerDay", wireType)
+			}
+			m.MaxReactionsPerDay = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxReactionsPerDay |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 12:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonymousPostingEnabled", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.AnonymousPostingEnabled = bool(v != 0)
+		case 13:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonymousMinTrustLevel", wireType)
+			}
+			m.AnonymousMinTrustLevel = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.AnonymousMinTrustLevel |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 14:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonSubsidyBudgetPerEpoch", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.AnonSubsidyBudgetPerEpoch.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 15:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonSubsidyMaxPerPost", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.AnonSubsidyMaxPerPost.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 16:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonSubsidyRelayAddresses", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.AnonSubsidyRelayAddresses = append(m.AnonSubsidyRelayAddresses, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 17:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EphemeralContentTtl", wireType)
+			}
+			m.EphemeralContentTtl = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.EphemeralContentTtl |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 18:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PinMinTrustLevel", wireType)
+			}
+			m.PinMinTrustLevel = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PinMinTrustLevel |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 19:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxPinsPerDay", wireType)
+			}
+			m.MaxPinsPerDay = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxPinsPerDay |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 20:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MinEphemeralContentTtl", wireType)
+			}
+			m.MinEphemeralContentTtl = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MinEphemeralContentTtl |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 21:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxCostPerByte", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.MaxCostPerByte.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 22:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxReactionFee", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.MaxReactionFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 23:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionRenewalThreshold", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ConvictionRenewalThreshold.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 24:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionRenewalPeriod", wireType)
+			}
+			m.ConvictionRenewalPeriod = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ConvictionRenewalPeriod |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipParams(dAtA[iNdEx:])
@@ -618,6 +1876,324 @@ func (m *BlogOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.CostPerByteExempt = bool(v != 0)
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReactionFee", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ReactionFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReactionFeeExempt", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.ReactionFeeExempt = bool(v != 0)
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxPostsPerDay", wireType)
+			}
+			m.MaxPostsPerDay = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxPostsPerDay |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxRepliesPerDay", wireType)
+			}
+			m.MaxRepliesPerDay = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxRepliesPerDay |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxReactionsPerDay", wireType)
+			}
+			m.MaxReactionsPerDay = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxReactionsPerDay |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonymousMinTrustLevel", wireType)
+			}
+			m.AnonymousMinTrustLevel = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.AnonymousMinTrustLevel |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonSubsidyBudgetPerEpoch", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.AnonSubsidyBudgetPerEpoch.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonSubsidyMaxPerPost", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.AnonSubsidyMaxPerPost.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AnonSubsidyRelayAddresses", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.AnonSubsidyRelayAddresses = append(m.AnonSubsidyRelayAddresses, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 12:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EphemeralContentTtl", wireType)
+			}
+			m.EphemeralContentTtl = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.EphemeralContentTtl |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 13:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxPinsPerDay", wireType)
+			}
+			m.MaxPinsPerDay = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxPinsPerDay |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 14:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionRenewalThreshold", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ConvictionRenewalThreshold.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 15:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionRenewalPeriod", wireType)
+			}
+			m.ConvictionRenewalPeriod = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ConvictionRenewalPeriod |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipParams(dAtA[iNdEx:])

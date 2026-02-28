@@ -197,11 +197,11 @@ func TestIncrementMemberCompletedInterims(t *testing.T) {
 		addr := sdk.AccAddress([]byte("interims_incr_addr__"))
 
 		err := f.keeper.Member.Set(f.ctx, addr.String(), types.Member{
-			Address:               addr.String(),
-			DreamBalance:          PtrInt(math.ZeroInt()),
-			StakedDream:           PtrInt(math.ZeroInt()),
-			LifetimeEarned:        PtrInt(math.ZeroInt()),
-			LifetimeBurned:        PtrInt(math.ZeroInt()),
+			Address:                addr.String(),
+			DreamBalance:           PtrInt(math.ZeroInt()),
+			StakedDream:            PtrInt(math.ZeroInt()),
+			LifetimeEarned:         PtrInt(math.ZeroInt()),
+			LifetimeBurned:         PtrInt(math.ZeroInt()),
 			CompletedInterimsCount: 0,
 		})
 		require.NoError(t, err)
@@ -219,11 +219,11 @@ func TestIncrementMemberCompletedInterims(t *testing.T) {
 		addr := sdk.AccAddress([]byte("interims_multi_addr_"))
 
 		err := f.keeper.Member.Set(f.ctx, addr.String(), types.Member{
-			Address:               addr.String(),
-			DreamBalance:          PtrInt(math.ZeroInt()),
-			StakedDream:           PtrInt(math.ZeroInt()),
-			LifetimeEarned:        PtrInt(math.ZeroInt()),
-			LifetimeBurned:        PtrInt(math.ZeroInt()),
+			Address:                addr.String(),
+			DreamBalance:           PtrInt(math.ZeroInt()),
+			StakedDream:            PtrInt(math.ZeroInt()),
+			LifetimeEarned:         PtrInt(math.ZeroInt()),
+			LifetimeBurned:         PtrInt(math.ZeroInt()),
 			CompletedInterimsCount: 0,
 		})
 		require.NoError(t, err)

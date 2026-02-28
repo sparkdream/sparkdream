@@ -32,8 +32,9 @@ func (q queryServer) InitiativeConviction(ctx context.Context, req *types.QueryI
 	}
 
 	return &types.QueryInitiativeConvictionResponse{
-		TotalConviction:    initiative.CurrentConviction,
-		ExternalConviction: initiative.ExternalConviction,
-		Threshold:          initiative.RequiredConviction,
+		TotalConviction:      initiative.CurrentConviction,
+		ExternalConviction:   initiative.ExternalConviction,
+		Threshold:            initiative.RequiredConviction,
+		PropagatedConviction: initiative.PropagatedConviction,
 	}, nil
 }

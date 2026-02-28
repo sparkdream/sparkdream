@@ -8,6 +8,62 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCreateAnonymousReply{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCreateAnonymousPost{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAnonymousReact{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgPinReply{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgPinPost{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRemoveReaction{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgReact{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUnhideReply{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgHideReply{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgDeleteReply{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUpdateReply{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCreateReply{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUnhidePost{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgHidePost{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgDeletePost{},
 	)
 

@@ -44,6 +44,7 @@ func (k msgServer) CreateCategory(ctx context.Context, msg *types.MsgCreateCateg
 		Description:      msg.Description,
 		MembersOnlyWrite: msg.MembersOnlyWrite,
 		AdminOnlyWrite:   msg.AdminOnlyWrite,
+		AllowAnonymous:   msg.AllowAnonymous,
 	}
 
 	// Store category

@@ -193,6 +193,68 @@ func verifyProposalProof(_ context.Context, verifyingKey, merkleRoot, nullifier,
 }
 
 // ---------------------------------------------------------------------------
+// Anonymous action proof verification (for x/blog anonymous posting, etc.)
+// ---------------------------------------------------------------------------
+
+// anonActionPublicInputs mirrors the public fields of the AnonActionCircuit.
+// Used to construct the public witness for Groth16 verification.
+type anonActionPublicInputs struct {
+	MerkleRoot    frontend.Variable `gnark:",public"`
+	Nullifier     frontend.Variable `gnark:",public"`
+	MinTrustLevel frontend.Variable `gnark:",public"`
+	Scope         frontend.Variable `gnark:",public"`
+
+	// Private fields must be present so gnark knows the full circuit shape,
+	// but they are zeroed out when building a public-only witness.
+	SecretKey    frontend.Variable
+	TrustLevel   frontend.Variable
+	PathElements [defaultTreeDepth]frontend.Variable
+	PathIndices  [defaultTreeDepth]frontend.Variable
+}
+
+func (c *anonActionPublicInputs) Define(frontend.API) error { return nil }
+
+// verifyAnonActionProof verifies a Groth16 ZK proof for an anonymous action.
+//
+// If no verifying key is configured (len == 0), verification is skipped.
+// This allows the chain to operate during development before a trusted
+// setup ceremony has been performed.
+func verifyAnonActionProof(_ context.Context, verifyingKey, merkleRoot, nullifier, proof []byte, minTrustLevel uint32, scope uint64) error {
+	if len(verifyingKey) == 0 {
+		// No verifying key configured — skip verification (development mode).
+		return nil
+	}
+
+	vk := groth16.NewVerifyingKey(ecc.BN254)
+	if _, err := vk.ReadFrom(bytes.NewReader(verifyingKey)); err != nil {
+		return fmt.Errorf("invalid verifying key: %w", err)
+	}
+
+	p := groth16.NewProof(ecc.BN254)
+	if _, err := p.ReadFrom(bytes.NewReader(proof)); err != nil {
+		return fmt.Errorf("invalid proof bytes: %w", err)
+	}
+
+	assignment := &anonActionPublicInputs{
+		MerkleRoot:    new(big.Int).SetBytes(zkcrypto.PadTo32(merkleRoot)),
+		Nullifier:     new(big.Int).SetBytes(zkcrypto.PadTo32(nullifier)),
+		MinTrustLevel: uint64(minTrustLevel),
+		Scope:         scope,
+	}
+
+	publicWitness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField(), frontend.PublicOnly())
+	if err != nil {
+		return fmt.Errorf("failed to build public witness: %w", err)
+	}
+
+	if err := groth16.Verify(p, vk, publicWitness); err != nil {
+		return fmt.Errorf("proof verification failed: %w", err)
+	}
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Circuit compilation helper (for key generation tooling)
 // ---------------------------------------------------------------------------
 

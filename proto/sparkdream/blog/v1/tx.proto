@@ -7,6 +7,7 @@ import "cosmos/msg/v1/msg.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/blog/v1/params.proto";
+import "sparkdream/blog/v1/types.proto";
 import "sparkdream/common/v1/content_type.proto";
 
 option go_package = "sparkdream/x/blog/types";
@@ -23,14 +24,56 @@ service Msg {
   // operational parameters. Authorized for Commons Council Operations Committee.
   rpc UpdateOperationalParams(MsgUpdateOperationalParams) returns (MsgUpdateOperationalParamsResponse);
 
-  // CreatePost defines the CreatePost RPC.
+  // CreatePost creates a new blog post.
   rpc CreatePost(MsgCreatePost) returns (MsgCreatePostResponse);
 
-  // UpdatePost defines the UpdatePost RPC.
+  // UpdatePost updates an existing blog post (full replacement).
   rpc UpdatePost(MsgUpdatePost) returns (MsgUpdatePostResponse);
 
-  // DeletePost defines the DeletePost RPC.
+  // DeletePost tombstones a post (clears content, preserves structure).
   rpc DeletePost(MsgDeletePost) returns (MsgDeletePostResponse);
+
+  // HidePost hides a post (author self-moderation).
+  rpc HidePost(MsgHidePost) returns (MsgHidePostResponse);
+
+  // UnhidePost restores a previously hidden post.
+  rpc UnhidePost(MsgUnhidePost) returns (MsgUnhidePostResponse);
+
+  // CreateReply creates a threaded reply to a blog post.
+  rpc CreateReply(MsgCreateReply) returns (MsgCreateReplyResponse);
+
+  // UpdateReply updates an existing reply.
+  rpc UpdateReply(MsgUpdateReply) returns (MsgUpdateReplyResponse);
+
+  // DeleteReply tombstones a reply.
+  rpc DeleteReply(MsgDeleteReply) returns (MsgDeleteReplyResponse);
+
+  // HideReply hides a reply (post author moderation).
+  rpc HideReply(MsgHideReply) returns (MsgHideReplyResponse);
+
+  // UnhideReply restores a previously hidden reply.
+  rpc UnhideReply(MsgUnhideReply) returns (MsgUnhideReplyResponse);
+
+  // React adds or changes a reaction on a post or reply.
+  rpc React(MsgReact) returns (MsgReactResponse);
+
+  // RemoveReaction removes your reaction from a post or reply.
+  rpc RemoveReaction(MsgRemoveReaction) returns (MsgRemoveReactionResponse);
+
+  // PinPost pins an ephemeral post, making it permanent.
+  rpc PinPost(MsgPinPost) returns (MsgPinPostResponse);
+
+  // PinReply pins an ephemeral reply, making it permanent.
+  rpc PinReply(MsgPinReply) returns (MsgPinReplyResponse);
+
+  // CreateAnonymousPost creates a post with ZK proof of membership.
+  rpc CreateAnonymousPost(MsgCreateAnonymousPost) returns (MsgCreateAnonymousPostResponse);
+
+  // CreateAnonymousReply creates a reply with ZK proof of membership.
+  rpc CreateAnonymousReply(MsgCreateAnonymousReply) returns (MsgCreateAnonymousReplyResponse);
+
+  // AnonymousReact adds a reaction to a post or reply with ZK proof of membership.
+  rpc AnonymousReact(MsgAnonymousReact) returns (MsgAnonymousReactResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -83,7 +126,14 @@ message MsgCreatePost {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string title = 2;
   string body = 3;
-  sparkdream.common.v1.ContentType content_type = 5;
+  sparkdream.common.v1.ContentType content_type = 4;
+  int32 min_reply_trust_level = 5;  // Minimum trust level to reply (-1 to 4, default: 0)
+  string author_bond = 6 [           // Optional DREAM amount to lock as author bond
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = true
+  ];
+  uint64 initiative_id = 7;          // Optional: reference an x/rep initiative (0 = none, immutable)
 }
 
 // MsgCreatePostResponse defines the MsgCreatePostResponse message.
@@ -99,6 +149,8 @@ message MsgUpdatePost {
   string body = 3;
   uint64 id = 4;
   sparkdream.common.v1.ContentType content_type = 5;
+  bool replies_enabled = 6;
+  int32 min_reply_trust_level = 7;  // Minimum trust level to reply (-1 to 4)
 }
 
 // MsgUpdatePostResponse defines the MsgUpdatePostResponse message.
@@ -113,3 +165,180 @@ message MsgDeletePost {
 
 // MsgDeletePostResponse defines the MsgDeletePostResponse message.
 message MsgDeletePostResponse {}
+
+// MsgHidePost defines the MsgHidePost message.
+message MsgHidePost {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgHidePostResponse defines the MsgHidePostResponse message.
+message MsgHidePostResponse {}
+
+// MsgUnhidePost defines the MsgUnhidePost message.
+message MsgUnhidePost {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgUnhidePostResponse defines the MsgUnhidePostResponse message.
+message MsgUnhidePostResponse {}
+
+// MsgCreateReply defines the MsgCreateReply message.
+message MsgCreateReply {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 2;
+  uint64 parent_reply_id = 3;
+  string body = 4;
+  sparkdream.common.v1.ContentType content_type = 5;
+  string author_bond = 6 [           // Optional DREAM amount to lock as author bond
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = true
+  ];
+}
+
+// MsgCreateReplyResponse defines the MsgCreateReplyResponse message.
+message MsgCreateReplyResponse {
+  uint64 id = 1;
+}
+
+// MsgUpdateReply defines the MsgUpdateReply message.
+message MsgUpdateReply {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+  string body = 3;
+  sparkdream.common.v1.ContentType content_type = 4;
+}
+
+// MsgUpdateReplyResponse defines the MsgUpdateReplyResponse message.
+message MsgUpdateReplyResponse {}
+
+// MsgDeleteReply defines the MsgDeleteReply message.
+message MsgDeleteReply {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgDeleteReplyResponse defines the MsgDeleteReplyResponse message.
+message MsgDeleteReplyResponse {}
+
+// MsgHideReply defines the MsgHideReply message.
+message MsgHideReply {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgHideReplyResponse defines the MsgHideReplyResponse message.
+message MsgHideReplyResponse {}
+
+// MsgUnhideReply defines the MsgUnhideReply message.
+message MsgUnhideReply {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgUnhideReplyResponse defines the MsgUnhideReplyResponse message.
+message MsgUnhideReplyResponse {}
+
+// MsgReact defines the MsgReact message.
+message MsgReact {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 2;
+  uint64 reply_id = 3;
+  ReactionType reaction_type = 4;  // Uses enum instead of uint64
+}
+
+// MsgReactResponse defines the MsgReactResponse message.
+message MsgReactResponse {}
+
+// MsgRemoveReaction defines the MsgRemoveReaction message.
+message MsgRemoveReaction {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 2;
+  uint64 reply_id = 3;
+}
+
+// MsgRemoveReactionResponse defines the MsgRemoveReactionResponse message.
+message MsgRemoveReactionResponse {}
+
+// MsgPinPost defines the MsgPinPost message.
+message MsgPinPost {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgPinPostResponse defines the MsgPinPostResponse message.
+message MsgPinPostResponse {}
+
+// MsgPinReply defines the MsgPinReply message.
+message MsgPinReply {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgPinReplyResponse defines the MsgPinReplyResponse message.
+message MsgPinReplyResponse {}
+
+// MsgCreateAnonymousPost defines the MsgCreateAnonymousPost message.
+message MsgCreateAnonymousPost {
+  option (cosmos.msg.v1.signer) = "submitter";
+  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string title = 2;
+  string body = 3;
+  sparkdream.common.v1.ContentType content_type = 4;
+  bytes proof = 5;               // ZK proof bytes
+  bytes nullifier = 6;           // 32-byte nullifier
+  bytes merkle_root = 7;         // Trust tree root
+  uint32 min_trust_level = 8;    // Proven minimum trust level
+}
+
+// MsgCreateAnonymousPostResponse defines the MsgCreateAnonymousPostResponse message.
+message MsgCreateAnonymousPostResponse {
+  uint64 id = 1;
+}
+
+// MsgCreateAnonymousReply defines the MsgCreateAnonymousReply message.
+message MsgCreateAnonymousReply {
+  option (cosmos.msg.v1.signer) = "submitter";
+  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 2;
+  string body = 3;
+  sparkdream.common.v1.ContentType content_type = 4;
+  bytes proof = 5;               // ZK proof bytes
+  bytes nullifier = 6;           // 32-byte nullifier
+  bytes merkle_root = 7;         // Trust tree root
+  uint32 min_trust_level = 8;    // Proven minimum trust level
+}
+
+// MsgCreateAnonymousReplyResponse defines the MsgCreateAnonymousReplyResponse message.
+message MsgCreateAnonymousReplyResponse {
+  uint64 id = 1;
+}
+
+// MsgAnonymousReact defines the MsgAnonymousReact message.
+message MsgAnonymousReact {
+  option (cosmos.msg.v1.signer) = "submitter";
+  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 2;
+  uint64 reply_id = 3;
+  ReactionType reaction_type = 4;
+  bytes proof = 5;               // ZK proof bytes
+  bytes nullifier = 6;           // 32-byte nullifier
+  bytes merkle_root = 7;         // Trust tree root
+  uint32 min_trust_level = 8;    // Proven minimum trust level
+}
+
+// MsgAnonymousReactResponse defines the MsgAnonymousReactResponse message.
+message MsgAnonymousReactResponse {}

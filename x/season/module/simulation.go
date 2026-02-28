@@ -612,6 +612,53 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		seasonsimulation.SimulateMsgResolveDisplayNameAppeal(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
+	// Retroactive public goods funding nomination operations
+	const (
+		opWeightMsgNominate          = "op_weight_msg_nominate"
+		defaultWeightMsgNominate int = 50
+	)
+
+	var weightMsgNominate int
+	simState.AppParams.GetOrGenerate(opWeightMsgNominate, &weightMsgNominate, nil,
+		func(_ *rand.Rand) {
+			weightMsgNominate = defaultWeightMsgNominate
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgNominate,
+		seasonsimulation.SimulateMsgNominate(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgStakeNomination          = "op_weight_msg_stake_nomination"
+		defaultWeightMsgStakeNomination int = 50
+	)
+
+	var weightMsgStakeNomination int
+	simState.AppParams.GetOrGenerate(opWeightMsgStakeNomination, &weightMsgStakeNomination, nil,
+		func(_ *rand.Rand) {
+			weightMsgStakeNomination = defaultWeightMsgStakeNomination
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgStakeNomination,
+		seasonsimulation.SimulateMsgStakeNomination(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgUnstakeNomination          = "op_weight_msg_unstake_nomination"
+		defaultWeightMsgUnstakeNomination int = 50
+	)
+
+	var weightMsgUnstakeNomination int
+	simState.AppParams.GetOrGenerate(opWeightMsgUnstakeNomination, &weightMsgUnstakeNomination, nil,
+		func(_ *rand.Rand) {
+			weightMsgUnstakeNomination = defaultWeightMsgUnstakeNomination
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUnstakeNomination,
+		seasonsimulation.SimulateMsgUnstakeNomination(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
 	return operations
 }
 

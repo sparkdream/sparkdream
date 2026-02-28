@@ -137,6 +137,9 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 			return err
 		}
 
+		// Mark trust tree dirty — trust level changed affects anonymous posting ZK proofs
+		k.MarkMemberDirty(ctx, memberAddr.String())
+
 		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
 			sdk.NewEvent(
 				"trust_level_updated",
@@ -154,10 +157,10 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 // GetCurrentSeason returns the current season number from the x/season module.
 // Returns 0 if the season keeper is not available (optional dependency).
 func (k Keeper) GetCurrentSeason(ctx context.Context) (int64, error) {
-	if k.seasonKeeper == nil {
+	if k.late.seasonKeeper == nil {
 		return 0, nil // Fallback when x/season not wired
 	}
-	season, err := k.seasonKeeper.GetCurrentSeason(ctx)
+	season, err := k.late.seasonKeeper.GetCurrentSeason(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -208,6 +211,124 @@ func (k Keeper) EnsureInvitationCreditsReset(ctx context.Context, memberAddr str
 	)
 
 	return true, nil
+}
+
+// GrantReputationCapped adds reputation to a member for a given tag, enforcing
+// the per-epoch per-tag cap (MaxReputationGainPerEpoch). Returns the amount
+// actually granted (which may be less than requested if the cap is hit).
+// Modifies member in-place; caller must save.
+func (k Keeper) GrantReputationCapped(ctx context.Context, member *types.Member, tag string, amount math.LegacyDec) (math.LegacyDec, error) {
+	if amount.IsNegative() || amount.IsZero() {
+		return math.LegacyZeroDec(), nil
+	}
+
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return math.LegacyZeroDec(), err
+	}
+
+	currentEpoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return math.LegacyZeroDec(), err
+	}
+
+	// Reset per-epoch counters if epoch has changed
+	if member.LastRepGainEpoch != currentEpoch {
+		member.ReputationGainedThisEpoch = make(map[string]string)
+		member.LastRepGainEpoch = currentEpoch
+	}
+
+	// Initialize maps if nil
+	if member.ReputationGainedThisEpoch == nil {
+		member.ReputationGainedThisEpoch = make(map[string]string)
+	}
+	if member.ReputationScores == nil {
+		member.ReputationScores = make(map[string]string)
+	}
+
+	// Check how much has already been gained this epoch for this tag
+	gainedSoFar := math.LegacyZeroDec()
+	if gainedStr, ok := member.ReputationGainedThisEpoch[tag]; ok {
+		gainedSoFar, _ = math.LegacyNewDecFromStr(gainedStr)
+	}
+
+	// Calculate remaining headroom (zero if cap is zero = unlimited)
+	maxGain := params.MaxReputationGainPerEpoch
+	effectiveGrant := amount
+	if maxGain.IsPositive() {
+		remaining := maxGain.Sub(gainedSoFar)
+		if remaining.IsNegative() || remaining.IsZero() {
+			return math.LegacyZeroDec(), nil // Cap already reached
+		}
+		if effectiveGrant.GT(remaining) {
+			effectiveGrant = remaining
+		}
+	}
+
+	// Get current reputation for this tag
+	currentRep := math.LegacyZeroDec()
+	if repStr, ok := member.ReputationScores[tag]; ok {
+		currentRep, _ = math.LegacyNewDecFromStr(repStr)
+	}
+
+	// Apply the grant
+	newRep := currentRep.Add(effectiveGrant)
+	member.ReputationScores[tag] = newRep.String()
+
+	// Update the epoch tracking
+	newGained := gainedSoFar.Add(effectiveGrant)
+	member.ReputationGainedThisEpoch[tag] = newGained.String()
+
+	return effectiveGrant, nil
+}
+
+// ApplyReputationDecay lazily decays all reputation scores based on epochs elapsed
+// since the last decay. Uses the same LastDecayEpoch field as DREAM decay.
+// Modifies member in-place; caller must save if needed.
+func (k Keeper) ApplyReputationDecay(ctx context.Context, member *types.Member) error {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	if params.ReputationDecayRate.IsZero() {
+		return nil // No decay configured
+	}
+
+	currentEpoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return err
+	}
+
+	elapsed := currentEpoch - member.LastDecayEpoch
+	if elapsed <= 0 {
+		return nil // Already up to date
+	}
+
+	// Calculate compound decay multiplier: (1 - rate)^elapsed
+	multiplier := math.LegacyOneDec().Sub(params.ReputationDecayRate).Power(uint64(elapsed))
+
+	if member.ReputationScores == nil {
+		return nil
+	}
+
+	for tag, repStr := range member.ReputationScores {
+		rep, err := math.LegacyNewDecFromStr(repStr)
+		if err != nil {
+			continue
+		}
+		if rep.IsZero() {
+			continue
+		}
+		newRep := rep.Mul(multiplier)
+		member.ReputationScores[tag] = newRep.String()
+	}
+
+	// Note: we do NOT update LastDecayEpoch here. That field is managed by
+	// ApplyPendingDecay (DREAM decay). Both decays share the same epoch counter
+	// via GetMember(), which calls ApplyReputationDecay first, then ApplyPendingDecay.
+	// ApplyPendingDecay updates LastDecayEpoch for both.
+	return nil
 }
 
 // GetInterimReputationTag returns the reputation tag for an interim type
@@ -263,7 +384,8 @@ func GetInterimReputationGrant(complexity types.InterimComplexity) math.LegacyDe
 	}
 }
 
-// GrantInterimReputation grants reputation to a member for completing an interim
+// GrantInterimReputation grants reputation to a member for completing an interim.
+// Subject to per-epoch per-tag reputation cap to prevent interim grinding.
 func (k Keeper) GrantInterimReputation(ctx context.Context, memberAddr sdk.AccAddress, interim types.Interim) error {
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
@@ -276,24 +398,21 @@ func (k Keeper) GrantInterimReputation(ctx context.Context, memberAddr sdk.AccAd
 	// Get reputation grant based on complexity
 	repGrant := GetInterimReputationGrant(interim.Complexity)
 
-	// Initialize reputation scores map if nil
-	if member.ReputationScores == nil {
-		member.ReputationScores = make(map[string]string)
+	// Apply the grant with per-epoch cap enforcement
+	actualGrant, err := k.GrantReputationCapped(ctx, &member, tag, repGrant)
+	if err != nil {
+		return err
 	}
-
-	// Get current reputation for this tag
-	currentRep := math.LegacyZeroDec()
-	if repStr, ok := member.ReputationScores[tag]; ok {
-		currentRep, _ = math.LegacyNewDecFromStr(repStr)
-	}
-
-	// Add the grant
-	newRep := currentRep.Add(repGrant)
-	member.ReputationScores[tag] = newRep.String()
 
 	// Save member
 	if err := k.Member.Set(ctx, memberAddr.String(), member); err != nil {
 		return err
+	}
+
+	// Get new total for event
+	newTotal := math.LegacyZeroDec()
+	if repStr, ok := member.ReputationScores[tag]; ok {
+		newTotal, _ = math.LegacyNewDecFromStr(repStr)
 	}
 
 	// Emit event
@@ -302,8 +421,8 @@ func (k Keeper) GrantInterimReputation(ctx context.Context, memberAddr sdk.AccAd
 			"reputation_granted",
 			sdk.NewAttribute("member", memberAddr.String()),
 			sdk.NewAttribute("tag", tag),
-			sdk.NewAttribute("amount", repGrant.String()),
-			sdk.NewAttribute("new_total", newRep.String()),
+			sdk.NewAttribute("amount", actualGrant.String()),
+			sdk.NewAttribute("new_total", newTotal.String()),
 			sdk.NewAttribute("source", "interim"),
 			sdk.NewAttribute("interim_id", fmt.Sprintf("%d", interim.Id)),
 		),

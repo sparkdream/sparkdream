@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -63,6 +64,18 @@ func (k msgServer) UpdateItem(ctx context.Context, msg *types.MsgUpdateItem) (*t
 		return nil, err
 	}
 
+	// Validate OnChainReference if present
+	if msg.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && msg.OnChain != nil {
+		if err := k.validateOnChainReference(ctx, msg.OnChain); err != nil {
+			return nil, err
+		}
+	}
+
+	// Remove old OnChainRef index entry if the item previously had one
+	if item.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && item.OnChain != nil {
+		k.ItemsByOnChainRef.Remove(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)) //nolint:errcheck
+	}
+
 	// Update item fields
 	item.Title = msg.Title
 	item.Description = msg.Description
@@ -78,6 +91,13 @@ func (k msgServer) UpdateItem(ctx context.Context, msg *types.MsgUpdateItem) (*t
 	// Store updated item
 	if err := k.Item.Set(ctx, item.Id, item); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update item")
+	}
+
+	// Add new OnChainRef index entry if the updated item has one
+	if item.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && item.OnChain != nil {
+		if err := k.ItemsByOnChainRef.Set(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to set on-chain ref index")
+		}
 	}
 
 	// Update collection timestamp

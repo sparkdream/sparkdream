@@ -9,6 +9,8 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
+
 	"sparkdream/x/collect/types"
 )
 
@@ -37,22 +39,20 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 	}
 
 	// Validate reason
-	if msg.Reason == types.ModerationReason_MODERATION_REASON_UNSPECIFIED {
+	if msg.Reason == commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED {
 		return nil, types.ErrInvalidFlagReason
 	}
 
-	// Validate reason_text
-	if msg.Reason == types.ModerationReason_MODERATION_REASON_OTHER {
-		if len(msg.ReasonText) == 0 || uint32(len(msg.ReasonText)) > params.MaxFlagReasonLength {
-			if len(msg.ReasonText) == 0 {
-				return nil, types.ErrFlagReasonTextRequired
-			}
+	// Validate reason_text: required for OTHER, forbidden for other reasons
+	if msg.Reason == commontypes.ModerationReason_MODERATION_REASON_OTHER {
+		if len(msg.ReasonText) == 0 {
+			return nil, types.ErrFlagReasonTextRequired
+		}
+		if uint32(len(msg.ReasonText)) > params.MaxFlagReasonLength {
 			return nil, types.ErrFlagReasonTextTooLong
 		}
-	} else {
-		if msg.ReasonText != "" {
-			return nil, types.ErrInvalidFlagReason
-		}
+	} else if msg.ReasonText != "" {
+		return nil, types.ErrInvalidFlagReason
 	}
 
 	// Build flag composite key
@@ -65,7 +65,7 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 		flag = types.CollectionFlag{
 			TargetId:      msg.TargetId,
 			TargetType:    msg.TargetType,
-			FlagRecords:   []types.FlagRecord{},
+			FlagRecords:   []commontypes.FlagRecord{},
 			TotalWeight:   math.ZeroInt(),
 			FirstFlagAt:   blockHeight,
 			LastFlagAt:    blockHeight,
@@ -92,7 +92,7 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 
 	// Create new FlagRecord with weight=2
 	weight := math.NewInt(2)
-	newRecord := types.FlagRecord{
+	newRecord := commontypes.FlagRecord{
 		Flagger:    msg.Creator,
 		Reason:     msg.Reason,
 		ReasonText: msg.ReasonText,

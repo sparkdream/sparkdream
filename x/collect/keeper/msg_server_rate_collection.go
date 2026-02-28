@@ -41,6 +41,11 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentBlock := sdkCtx.BlockHeight()
 
+	// Curator daily review rate limit (cap at max_reviews_per_collection per day)
+	if err := k.checkDailyLimit(ctx, msg.Creator, currentBlock, "review", params.MaxReviewsPerCollection); err != nil {
+		return nil, errorsmod.Wrap(err, "curator daily review limit exceeded")
+	}
+
 	// Curator registered for at least min_curator_age_blocks
 	if currentBlock-curator.RegisteredAt < params.MinCuratorAgeBlocks {
 		return nil, errorsmod.Wrapf(types.ErrCuratorTooNew, "registered %d blocks ago, need %d",
@@ -118,6 +123,16 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	for _, tag := range msg.Tags {
 		if uint32(len(tag)) > params.MaxTagLength {
 			return nil, errorsmod.Wrapf(types.ErrTagTooLong, "tag %q exceeds max length %d", tag, params.MaxTagLength)
+		}
+		// Validate against shared tag registry if available
+		if k.forumKeeper != nil {
+			exists, err := k.forumKeeper.TagExists(ctx, tag)
+			if err != nil {
+				return nil, errorsmod.Wrap(err, "failed to check tag registry")
+			}
+			if !exists {
+				return nil, errorsmod.Wrapf(types.ErrTagTooLong, "tag %q not found in registry", tag)
+			}
 		}
 	}
 

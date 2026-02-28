@@ -8,6 +8,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
+
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
@@ -58,7 +60,7 @@ func SimulateMsgHidePost(
 			Sentinel:             simAccount.Address.String(),
 			HiddenAt:             now,
 			SentinelBondSnapshot: "1000",
-			ReasonCode:           types.ModerationReason_MODERATION_REASON_SPAM,
+			ReasonCode:           commontypes.ModerationReason_MODERATION_REASON_SPAM,
 			ReasonText:           randomReason(r),
 		}
 		if err := k.HideRecord.Set(ctx, postID, hideRecord); err != nil {

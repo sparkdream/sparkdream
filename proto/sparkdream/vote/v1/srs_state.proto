@@ -5,7 +5,7 @@ option go_package = "sparkdream/x/vote/types";
 
 // SRSState stores the PLONK universal structured reference string.
 message SrsState {
-  bytes srs = 1;       // Full PLONK SRS bytes
-  bytes hash = 2;      // SHA-256 hash (must match params.srs_hash)
+  bytes srs = 1; // Full PLONK SRS bytes
+  bytes hash = 2; // SHA-256 hash (must match params.srs_hash)
   int64 stored_at = 3;
 }

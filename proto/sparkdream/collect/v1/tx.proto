@@ -8,6 +8,7 @@ import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/collect/v1/params.proto";
 import "sparkdream/collect/v1/types.proto";
+import "sparkdream/common/v1/moderation_reason.proto";
 
 option go_package = "sparkdream/x/collect/types";
 
@@ -56,6 +57,18 @@ service Msg {
 
   // SetSeekingEndorsement defines the SetSeekingEndorsement RPC.
   rpc SetSeekingEndorsement(MsgSetSeekingEndorsement) returns (MsgSetSeekingEndorsementResponse);
+
+  // CreateAnonymousCollection creates a ZK-proof-authenticated anonymous collection.
+  rpc CreateAnonymousCollection(MsgCreateAnonymousCollection) returns (MsgCreateAnonymousCollectionResponse);
+
+  // ManageAnonymousCollection performs management actions via Ed25519 signature.
+  rpc ManageAnonymousCollection(MsgManageAnonymousCollection) returns (MsgManageAnonymousCollectionResponse);
+
+  // AnonymousReact submits a ZK-proof-authenticated anonymous reaction (up/downvote).
+  rpc AnonymousReact(MsgAnonymousReact) returns (MsgAnonymousReactResponse);
+
+  // PinCollection makes an ephemeral collection permanent by burning its deposits.
+  rpc PinCollection(MsgPinCollection) returns (MsgPinCollectionResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -83,6 +96,12 @@ message MsgCreateCollection {
   string cover_uri = 8;
   repeated string tags = 9;
   bytes encrypted_data = 10;
+  string author_bond = 11 [          // Optional DREAM amount to lock as author bond
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = true
+  ];
+  uint64 initiative_id = 12;         // Optional x/rep initiative to link for conviction propagation
 }
 
 message MsgCreateCollectionResponse {
@@ -322,7 +341,7 @@ message MsgFlagContent {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 target_id = 2;
   FlagTargetType target_type = 3;
-  ModerationReason reason = 4;
+  sparkdream.common.v1.ModerationReason reason = 4;
   string reason_text = 5;
 }
 
@@ -335,7 +354,7 @@ message MsgHideContent {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 target_id = 2;
   FlagTargetType target_type = 3;
-  ModerationReason reason_code = 4;
+  sparkdream.common.v1.ModerationReason reason_code = 4;
   string reason_text = 5;
 }
 
@@ -374,3 +393,99 @@ message MsgSetSeekingEndorsement {
 
 // MsgSetSeekingEndorsementResponse defines the MsgSetSeekingEndorsementResponse message.
 message MsgSetSeekingEndorsementResponse {}
+
+// MsgCreateAnonymousCollection creates an anonymous collection via ZK proof.
+message MsgCreateAnonymousCollection {
+  option (cosmos.msg.v1.signer) = "submitter";
+  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  CollectionType type = 2;
+  int64 expires_at = 3;
+  string name = 4;
+  string description = 5;
+  string cover_uri = 6;
+  repeated string tags = 7;
+  bytes management_public_key = 8;
+  bytes proof = 9;
+  bytes nullifier = 10;
+  bytes merkle_root = 11;
+  uint32 min_trust_level = 12;
+  repeated AddItemEntry initial_items = 13 [(gogoproto.nullable) = false];
+  string author_bond_amount = 14 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint64 initiative_id = 15;         // Optional x/rep initiative to link for conviction propagation
+}
+
+message MsgCreateAnonymousCollectionResponse {
+  uint64 id = 1;
+  repeated uint64 item_ids = 2;
+}
+
+// AnonymousManageAction enumerates the management actions available for anonymous collections.
+enum AnonymousManageAction {
+  ANON_MANAGE_ACTION_UNSPECIFIED = 0;
+  ANON_MANAGE_ACTION_ADD_ITEM = 1;
+  ANON_MANAGE_ACTION_REMOVE_ITEM = 2;
+  ANON_MANAGE_ACTION_UPDATE_ITEM = 3;
+  ANON_MANAGE_ACTION_REORDER_ITEM = 4;
+  ANON_MANAGE_ACTION_UPDATE_METADATA = 5;
+  ANON_MANAGE_ACTION_ADD_ITEMS = 6;
+  ANON_MANAGE_ACTION_REMOVE_ITEMS = 7;
+}
+
+// MsgManageAnonymousCollection performs a management action on an anonymous collection.
+message MsgManageAnonymousCollection {
+  option (cosmos.msg.v1.signer) = "submitter";
+  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 collection_id = 2;
+  AnonymousManageAction action = 3;
+  bytes management_signature = 4;
+  uint64 nonce = 5;
+  // Action-specific fields
+  repeated AddItemEntry items = 6 [(gogoproto.nullable) = false];
+  repeated uint64 item_ids = 7;
+  uint64 target_item_id = 8;
+  string title = 9;
+  string description = 10;
+  string image_uri = 11;
+  ReferenceType reference_type = 12;
+  NftReference nft = 13;
+  LinkReference link = 14;
+  OnChainReference on_chain = 15;
+  CustomReference custom = 16;
+  repeated KeyValuePair attributes = 17;
+  uint64 new_position = 18;
+  string collection_name = 19;
+  string collection_description = 20;
+  string collection_cover_uri = 21;
+  repeated string metadata_tags = 22;
+}
+
+message MsgManageAnonymousCollectionResponse {
+  repeated uint64 item_ids = 1;
+}
+
+// MsgAnonymousReact submits an anonymous reaction via ZK proof.
+message MsgAnonymousReact {
+  option (cosmos.msg.v1.signer) = "submitter";
+  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 target_id = 2;
+  FlagTargetType target_type = 3;
+  uint32 reaction_type = 4;
+  bytes proof = 5;
+  bytes nullifier = 6;
+  bytes merkle_root = 7;
+  uint32 min_trust_level = 8;
+}
+
+message MsgAnonymousReactResponse {}
+
+// MsgPinCollection makes an ephemeral collection permanent by burning its deposits.
+message MsgPinCollection {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 collection_id = 2;
+}
+
+message MsgPinCollectionResponse {}

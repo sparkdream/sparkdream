@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
@@ -47,7 +48,7 @@ func TestQueryTagExists(t *testing.T) {
 	})
 
 	t.Run("tag with expiration", func(t *testing.T) {
-		tag := types.Tag{
+		tag := commontypes.Tag{
 			Name:            "expiring-tag",
 			CreatedAt:       f.sdkCtx().BlockTime().Unix(),
 			ExpirationIndex: f.sdkCtx().BlockTime().Unix() + 86400,

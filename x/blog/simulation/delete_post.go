@@ -28,19 +28,20 @@ func SimulateMsgDeletePost(
 		}
 
 		// 2. Pick a random post ID
-		// We try a few times to find a valid post ID, as IDs might not be contiguous if deletes happened.
+		// Try to find a valid active post. Posts may have been deleted or hidden.
 		var post types.Post
 		var found bool
 		for i := 0; i < 100; i++ {
 			postID := r.Uint64() % count
 			post, found = k.GetPost(ctx, postID)
-			if found {
+			if found && post.Status == types.PostStatus_POST_STATUS_ACTIVE {
 				break
 			}
+			found = false
 		}
 
 		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeletePost{}), "post not found"), nil, nil
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeletePost{}), "no active post found"), nil, nil
 		}
 
 		// 3. Find the simulation account that owns this post

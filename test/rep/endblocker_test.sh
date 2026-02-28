@@ -57,6 +57,27 @@ echo "Unstaked decay rate: $DECAY_RATE"
 BLOCK_HEIGHT=$($BINARY status 2>/dev/null | jq -r '.sync_info.latest_block_height // .SyncInfo.latest_block_height // "0"')
 echo "Current block height: $BLOCK_HEIGHT"
 
+# Ensure Bob and Carol have sufficient DREAM for staking (500 DREAM each)
+# They may have lost balance to decay from prior tests
+ensure_dream_balance() {
+    local ADDR=$1
+    local NAME=$2
+    local NEEDED=500000000  # 500 DREAM in micro-DREAM
+    local MEMBER_INFO=$($BINARY query rep get-member "$ADDR" -o json 2>/dev/null | grep -v "Falling back")
+    local BALANCE=$(echo "$MEMBER_INFO" | jq -r '.member.dream_balance // "0"')
+    local STAKED=$(echo "$MEMBER_INFO" | jq -r '.member.staked_dream // "0"')
+    local AVAILABLE=$((BALANCE - STAKED))
+    if [ "$AVAILABLE" -lt "$NEEDED" ]; then
+        local TOP_UP=$((NEEDED - AVAILABLE + 50000000))  # +50 DREAM buffer
+        echo "  Funding $NAME with $((TOP_UP / 1000000)) DREAM (current available: $((AVAILABLE / 1000000)) DREAM)..."
+        $BINARY tx rep transfer-dream "$ADDR" "$TOP_UP" "tip" "Funding for endblocker test" \
+            --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+        sleep 2
+    fi
+}
+ensure_dream_balance "$BOB_ADDR" "Bob"
+ensure_dream_balance "$CAROL_ADDR" "Carol"
+
 # ========================================================================
 # PART 1: CONVICTION UPDATES OVER TIME
 # ========================================================================
@@ -176,10 +197,10 @@ echo "✅ Initiative 2 created: ID $INIT2_ID"
 # Usage: stake [target-type] [target-id] [amount]
 echo ""
 echo "Staking on Initiative 1 (early)..."
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "200" --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "300" --from carol --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "300000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
 echo "✅ Stakes created on Initiative 1: Bob (200), Carol (300) = 500 total"
@@ -191,9 +212,9 @@ sleep 15
 
 # Query conviction after wait
 CONVICTION1=$($BINARY query rep initiative-conviction $INIT1_ID --output json)
-CURRENT1=$(echo "$CONVICTION1" | jq -r '.current_conviction // "0"')
+CURRENT1=$(echo "$CONVICTION1" | jq -r '.total_conviction // "0"')
 EXTERNAL1=$(echo "$CONVICTION1" | jq -r '.external_conviction // "0"')
-REQUIRED=$(echo "$CONVICTION1" | jq -r '.required_conviction // "0"')
+REQUIRED=$(echo "$CONVICTION1" | jq -r '.threshold // "0"')
 
 echo "Initiative 1 conviction (after 15s wait):"
 echo "  Current: $CURRENT1"
@@ -485,7 +506,7 @@ if [ "$SKIP_INIT4_TEST" != "true" ]; then
 
     # Add stakes for conviction
     # Usage: stake [target-type] [target-id] [amount]
-    $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT4_ID "200" --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+    $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT4_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
     sleep 1
 
     echo "✅ Initiative 4 set up for jury testing"
@@ -631,7 +652,7 @@ echo ""
 
 # Query conviction again (should trigger lazy update since time passed)
 CONVICTION1_LAZY=$($BINARY query rep initiative-conviction $INIT1_ID --output json)
-CURRENT_LAZY=$(echo "$CONVICTION1_LAZY" | jq -r '.current_conviction // "0"')
+CURRENT_LAZY=$(echo "$CONVICTION1_LAZY" | jq -r '.total_conviction // "0"')
 
 echo "Initiative 1 conviction (lazy re-query): $CURRENT_LAZY"
 

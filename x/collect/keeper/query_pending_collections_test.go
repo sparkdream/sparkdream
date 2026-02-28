@@ -36,8 +36,12 @@ func TestQueryPendingCollections(t *testing.T) {
 		{
 			name: "excludes pending without seeking endorsement",
 			setup: func(f *testFixture) {
-				// createPendingCollection creates a PENDING collection but SeekingEndorsement defaults to false
-				f.createPendingCollection(t)
+				// H1 fix sets SeekingEndorsement=true by default for PENDING collections.
+				// Explicitly set it to false to test the exclusion logic.
+				collID := f.createPendingCollection(t)
+				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
+				coll.SeekingEndorsement = false
+				f.keeper.Collection.Set(f.ctx, collID, coll) //nolint:errcheck
 			},
 			expLen: 0,
 		},

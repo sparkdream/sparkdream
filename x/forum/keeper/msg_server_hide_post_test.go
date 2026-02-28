@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,7 @@ func TestHidePost(t *testing.T) {
 			msg: &types.MsgHidePost{
 				Creator:    testSentinel,
 				PostId:     post.PostId,
-				ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				ReasonText: "This is spam",
 			},
 			expectError: false,
@@ -40,7 +41,7 @@ func TestHidePost(t *testing.T) {
 			msg: &types.MsgHidePost{
 				Creator:    "invalid-address",
 				PostId:     post.PostId,
-				ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				ReasonText: "Test",
 			},
 			expectError: true,
@@ -51,7 +52,7 @@ func TestHidePost(t *testing.T) {
 			msg: &types.MsgHidePost{
 				Creator:    testSentinel,
 				PostId:     post.PostId,
-				ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				ReasonText: "Test",
 			},
 			setup: func() {
@@ -67,7 +68,7 @@ func TestHidePost(t *testing.T) {
 			msg: &types.MsgHidePost{
 				Creator:    testSentinel,
 				PostId:     9999,
-				ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				ReasonText: "Test",
 			},
 			expectError: true,
@@ -78,7 +79,7 @@ func TestHidePost(t *testing.T) {
 			msg: &types.MsgHidePost{
 				Creator:    testSentinel,
 				PostId:     post.PostId,
-				ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_UNSPECIFIED),
+				ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED),
 				ReasonText: "Test",
 			},
 			expectError: true,
@@ -89,7 +90,7 @@ func TestHidePost(t *testing.T) {
 			msg: &types.MsgHidePost{
 				Creator:    testCreator2,
 				PostId:     post.PostId,
-				ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				ReasonText: "Test",
 			},
 			expectError: true,
@@ -100,7 +101,7 @@ func TestHidePost(t *testing.T) {
 			msg: &types.MsgHidePost{
 				Creator:    testSentinel,
 				PostId:     post.PostId,
-				ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+				ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 				ReasonText: "Test",
 			},
 			setup: func() {
@@ -166,7 +167,7 @@ func TestHidePostByGovAuthority(t *testing.T) {
 	resp, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
 		Creator:    authority,
 		PostId:     post.PostId,
-		ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_POLICY_VIOLATION),
+		ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_POLICY_VIOLATION),
 		ReasonText: "Policy violation",
 	})
 	require.NoError(t, err)
@@ -197,7 +198,7 @@ func TestHidePostSentinelBondCommitment(t *testing.T) {
 	_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
 		Creator:    testSentinel,
 		PostId:     post.PostId,
-		ReasonCode: uint64(types.ModerationReason_MODERATION_REASON_SPAM),
+		ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 		ReasonText: "Spam",
 	})
 	require.NoError(t, err)

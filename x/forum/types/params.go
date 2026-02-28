@@ -66,6 +66,7 @@ const (
 	DefaultSentinelOverturnCooldown = int64(86400)  // 24 hours
 	DefaultSentinelDemotionCooldown = int64(604800) // 7 days
 	DefaultMinSentinelBondAmount    = int64(500)    // 500 DREAM
+	DefaultSentinelSlashAmount      = int64(100)    // 100 DREAM per overturned appeal
 
 	// Archive limits
 	DefaultMaxArchiveCycles  = uint64(5)
@@ -97,6 +98,14 @@ const (
 
 	// Lazy prune
 	DefaultLazyPruneLimit = uint64(2)
+
+	// Anonymous posting defaults
+	DefaultAnonymousPostingEnabled = true
+	DefaultAnonymousMinTrustLevel  = uint32(2) // ESTABLISHED
+	DefaultPrivateReactionsEnabled = true
+
+	// Conviction renewal defaults
+	DefaultConvictionRenewalPeriod = int64(604800) // 7 days
 )
 
 // Default fee amounts
@@ -110,7 +119,8 @@ var (
 	DefaultMoveAppealFeeAmount   = math.NewInt(5000000) // 5 SPARK
 	DefaultEditFeeAmount         = math.NewInt(10000)   // 0.01 SPARK
 	DefaultTagReportBond         = math.NewInt(10)      // 10 DREAM
-	DefaultCostPerByteAmount     = math.NewInt(100)     // 100 uspark/byte (~1 SPARK for 10KB)
+	DefaultCostPerByteAmount             = math.NewInt(100)     // 100 uspark/byte (~1 SPARK for 10KB)
+	DefaultConvictionRenewalThreshold    = math.LegacyNewDec(100)
 )
 
 // NewParams creates a new Params instance.
@@ -146,6 +156,14 @@ func NewParams() Params {
 		CostPerByte:                  sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
 		CostPerByteExempt:            false,
 		EphemeralTtl:                 DefaultEphemeralTTL,
+		AnonymousPostingEnabled:      DefaultAnonymousPostingEnabled,
+		AnonymousMinTrustLevel:       DefaultAnonymousMinTrustLevel,
+		PrivateReactionsEnabled:      DefaultPrivateReactionsEnabled,
+		AnonSubsidyBudgetPerEpoch:    sdk.NewCoin(DefaultFeeDenom, math.ZeroInt()),
+		AnonSubsidyMaxPerPost:        sdk.NewCoin(DefaultFeeDenom, math.ZeroInt()),
+		AnonSubsidyApprovedRelays:    nil,
+		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
+		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
 	}
 }
 
@@ -225,6 +243,11 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		LockAppealCooldown:           DefaultLockAppealCooldown,
 		MoveAppealCooldown:           DefaultMoveAppealCooldown,
 		EphemeralTtl:                 DefaultEphemeralTTL,
+		AnonymousPostingEnabled:      DefaultAnonymousPostingEnabled,
+		AnonymousMinTrustLevel:       DefaultAnonymousMinTrustLevel,
+		PrivateReactionsEnabled:      DefaultPrivateReactionsEnabled,
+		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
+		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
 	}
 }
 
@@ -238,6 +261,12 @@ func (p ForumOperationalParams) Validate() error {
 	}
 	if p.BountyCancellationFeePercent > 100 {
 		return fmt.Errorf("bounty_cancellation_fee_percent must be <= 100: %d", p.BountyCancellationFeePercent)
+	}
+	if p.ConvictionRenewalThreshold.IsNegative() {
+		return fmt.Errorf("conviction_renewal_threshold cannot be negative: %s", p.ConvictionRenewalThreshold)
+	}
+	if p.ConvictionRenewalPeriod < 0 {
+		return fmt.Errorf("conviction_renewal_period cannot be negative: %d", p.ConvictionRenewalPeriod)
 	}
 	return nil
 }
@@ -272,6 +301,11 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.LockAppealCooldown = op.LockAppealCooldown
 	p.MoveAppealCooldown = op.MoveAppealCooldown
 	p.EphemeralTtl = op.EphemeralTtl
+	p.AnonymousPostingEnabled = op.AnonymousPostingEnabled
+	p.AnonymousMinTrustLevel = op.AnonymousMinTrustLevel
+	p.PrivateReactionsEnabled = op.PrivateReactionsEnabled
+	p.ConvictionRenewalThreshold = op.ConvictionRenewalThreshold
+	p.ConvictionRenewalPeriod = op.ConvictionRenewalPeriod
 	return p
 }
 
@@ -305,5 +339,10 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		LockAppealCooldown:           p.LockAppealCooldown,
 		MoveAppealCooldown:           p.MoveAppealCooldown,
 		EphemeralTtl:                 p.EphemeralTtl,
+		AnonymousPostingEnabled:      p.AnonymousPostingEnabled,
+		AnonymousMinTrustLevel:       p.AnonymousMinTrustLevel,
+		PrivateReactionsEnabled:      p.PrivateReactionsEnabled,
+		ConvictionRenewalThreshold:   p.ConvictionRenewalThreshold,
+		ConvictionRenewalPeriod:      p.ConvictionRenewalPeriod,
 	}
 }

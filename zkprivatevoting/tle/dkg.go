@@ -31,10 +31,10 @@ type ValidatorShare struct {
 
 // DKGOutput contains the complete output of a DKG ceremony.
 type DKGOutput struct {
-	MasterPublicKey []byte             // aggregated public key for voter ECIES encryption
-	ValidatorShares []*ValidatorShare  // per-validator shares (index 1..N)
-	Threshold       int                // minimum shares for reconstruction
-	TotalValidators int                // total number of validators
+	MasterPublicKey []byte            // aggregated public key for voter ECIES encryption
+	ValidatorShares []*ValidatorShare // per-validator shares (index 1..N)
+	Threshold       int               // minimum shares for reconstruction
+	TotalValidators int               // total number of validators
 }
 
 // RunDKG performs a simplified dealer-based DKG ceremony.

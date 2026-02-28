@@ -9,6 +9,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+
+	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (*types.MsgHideContentResponse, error) {
@@ -36,10 +39,33 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, err
 	}
 
+	// Check for existing unresolved hide record on this target
+	targetKey := HideRecordTargetCompositeKey(msg.TargetType, msg.TargetId)
+	hasUnresolved := false
+	_ = k.HideRecordByTarget.Walk(ctx,
+		collections.NewPrefixedPairRange[string, uint64](targetKey),
+		func(key collections.Pair[string, uint64]) (bool, error) {
+			hr, hrErr := k.HideRecord.Get(ctx, key.K2())
+			if hrErr == nil && !hr.Resolved {
+				hasUnresolved = true
+				return true, nil // stop walking
+			}
+			return false, nil
+		},
+	)
+	if hasUnresolved {
+		return nil, types.ErrAlreadyHidden
+	}
+
 	// Get params
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get params")
+	}
+
+	// Validate ReasonCode is not UNSPECIFIED
+	if msg.ReasonCode == commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED {
+		return nil, errorsmod.Wrap(types.ErrInvalidFlagReason, "reason code must not be UNSPECIFIED")
 	}
 
 	// Sentinel must have available bond >= sentinel_commit_amount
@@ -105,8 +131,7 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, errorsmod.Wrap(err, "failed to store hide record")
 	}
 
-	// Set HideRecordByTarget index
-	targetKey := HideRecordTargetCompositeKey(msg.TargetType, msg.TargetId)
+	// Set HideRecordByTarget index (targetKey already computed above for duplicate check)
 	if err := k.HideRecordByTarget.Set(ctx, collections.Join(targetKey, hideRecordID)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set hide record target index")
 	}
@@ -129,6 +154,13 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)) //nolint:errcheck
 		// Remove the flag itself
 		k.Flag.Remove(ctx, flagKey) //nolint:errcheck
+	}
+
+	// Slash author bond on collection moderation (best-effort: log if no bond exists)
+	if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION && k.repKeeper != nil {
+		if err := k.repKeeper.SlashAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, msg.TargetId); err != nil {
+			sdkCtx.Logger().Debug("author bond slash skipped", "target_id", msg.TargetId, "error", err)
+		}
 	}
 
 	// Emit event

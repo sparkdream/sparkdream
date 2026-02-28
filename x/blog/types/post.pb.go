@@ -25,11 +25,27 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // Post defines the Post message.
 type Post struct {
-	Title       string            `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
-	Body        string            `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
-	Creator     string            `protobuf:"bytes,3,opt,name=creator,proto3" json:"creator,omitempty"`
-	Id          uint64            `protobuf:"varint,4,opt,name=id,proto3" json:"id,omitempty"`
-	ContentType types.ContentType `protobuf:"varint,5,opt,name=content_type,json=contentType,proto3,enum=sparkdream.common.v1.ContentType" json:"content_type,omitempty"`
+	Title               string            `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
+	Body                string            `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	Creator             string            `protobuf:"bytes,3,opt,name=creator,proto3" json:"creator,omitempty"`
+	Id                  uint64            `protobuf:"varint,4,opt,name=id,proto3" json:"id,omitempty"`
+	ContentType         types.ContentType `protobuf:"varint,5,opt,name=content_type,json=contentType,proto3,enum=sparkdream.common.v1.ContentType" json:"content_type,omitempty"`
+	RepliesEnabled      bool              `protobuf:"varint,6,opt,name=replies_enabled,json=repliesEnabled,proto3" json:"replies_enabled,omitempty"`
+	ReplyCount          uint64            `protobuf:"varint,7,opt,name=reply_count,json=replyCount,proto3" json:"reply_count,omitempty"`
+	MinReplyTrustLevel  int32             `protobuf:"varint,8,opt,name=min_reply_trust_level,json=minReplyTrustLevel,proto3" json:"min_reply_trust_level,omitempty"`
+	CreatedAt           int64             `protobuf:"varint,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt           int64             `protobuf:"varint,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Status              PostStatus        `protobuf:"varint,11,opt,name=status,proto3,enum=sparkdream.blog.v1.PostStatus" json:"status,omitempty"`
+	HiddenBy            string            `protobuf:"bytes,12,opt,name=hidden_by,json=hiddenBy,proto3" json:"hidden_by,omitempty"`
+	HiddenAt            int64             `protobuf:"varint,13,opt,name=hidden_at,json=hiddenAt,proto3" json:"hidden_at,omitempty"`
+	ExpiresAt           int64             `protobuf:"varint,14,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	PinnedBy            string            `protobuf:"bytes,15,opt,name=pinned_by,json=pinnedBy,proto3" json:"pinned_by,omitempty"`
+	PinnedAt            int64             `protobuf:"varint,16,opt,name=pinned_at,json=pinnedAt,proto3" json:"pinned_at,omitempty"`
+	FeeBytesHighWater   uint64            `protobuf:"varint,17,opt,name=fee_bytes_high_water,json=feeBytesHighWater,proto3" json:"fee_bytes_high_water,omitempty"`
+	Edited              bool              `protobuf:"varint,18,opt,name=edited,proto3" json:"edited,omitempty"`
+	EditedAt            int64             `protobuf:"varint,19,opt,name=edited_at,json=editedAt,proto3" json:"edited_at,omitempty"`
+	InitiativeId        uint64            `protobuf:"varint,20,opt,name=initiative_id,json=initiativeId,proto3" json:"initiative_id,omitempty"`
+	ConvictionSustained bool              `protobuf:"varint,21,opt,name=conviction_sustained,json=convictionSustained,proto3" json:"conviction_sustained,omitempty"`
 }
 
 func (m *Post) Reset()         { *m = Post{} }
@@ -100,6 +116,118 @@ func (m *Post) GetContentType() types.ContentType {
 	return types.ContentType_CONTENT_TYPE_UNSPECIFIED
 }
 
+func (m *Post) GetRepliesEnabled() bool {
+	if m != nil {
+		return m.RepliesEnabled
+	}
+	return false
+}
+
+func (m *Post) GetReplyCount() uint64 {
+	if m != nil {
+		return m.ReplyCount
+	}
+	return 0
+}
+
+func (m *Post) GetMinReplyTrustLevel() int32 {
+	if m != nil {
+		return m.MinReplyTrustLevel
+	}
+	return 0
+}
+
+func (m *Post) GetCreatedAt() int64 {
+	if m != nil {
+		return m.CreatedAt
+	}
+	return 0
+}
+
+func (m *Post) GetUpdatedAt() int64 {
+	if m != nil {
+		return m.UpdatedAt
+	}
+	return 0
+}
+
+func (m *Post) GetStatus() PostStatus {
+	if m != nil {
+		return m.Status
+	}
+	return PostStatus_POST_STATUS_UNSPECIFIED
+}
+
+func (m *Post) GetHiddenBy() string {
+	if m != nil {
+		return m.HiddenBy
+	}
+	return ""
+}
+
+func (m *Post) GetHiddenAt() int64 {
+	if m != nil {
+		return m.HiddenAt
+	}
+	return 0
+}
+
+func (m *Post) GetExpiresAt() int64 {
+	if m != nil {
+		return m.ExpiresAt
+	}
+	return 0
+}
+
+func (m *Post) GetPinnedBy() string {
+	if m != nil {
+		return m.PinnedBy
+	}
+	return ""
+}
+
+func (m *Post) GetPinnedAt() int64 {
+	if m != nil {
+		return m.PinnedAt
+	}
+	return 0
+}
+
+func (m *Post) GetFeeBytesHighWater() uint64 {
+	if m != nil {
+		return m.FeeBytesHighWater
+	}
+	return 0
+}
+
+func (m *Post) GetEdited() bool {
+	if m != nil {
+		return m.Edited
+	}
+	return false
+}
+
+func (m *Post) GetEditedAt() int64 {
+	if m != nil {
+		return m.EditedAt
+	}
+	return 0
+}
+
+func (m *Post) GetInitiativeId() uint64 {
+	if m != nil {
+		return m.InitiativeId
+	}
+	return 0
+}
+
+func (m *Post) GetConvictionSustained() bool {
+	if m != nil {
+		return m.ConvictionSustained
+	}
+	return false
+}
+
 func init() {
 	proto.RegisterType((*Post)(nil), "sparkdream.blog.v1.Post")
 }
@@ -107,23 +235,42 @@ func init() {
 func init() { proto.RegisterFile("sparkdream/blog/v1/post.proto", fileDescriptor_bb901bd0ccc9b168) }
 
 var fileDescriptor_bb901bd0ccc9b168 = []byte{
-	// 243 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x92, 0x2d, 0x2e, 0x48, 0x2c,
-	0xca, 0x4e, 0x29, 0x4a, 0x4d, 0xcc, 0xd5, 0x4f, 0xca, 0xc9, 0x4f, 0xd7, 0x2f, 0x33, 0xd4, 0x2f,
-	0xc8, 0x2f, 0x2e, 0xd1, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x12, 0x42, 0x48, 0xeb, 0x81, 0xa4,
-	0xf5, 0xca, 0x0c, 0xa5, 0xd4, 0x91, 0xb4, 0x24, 0xe7, 0xe7, 0xe6, 0xe6, 0xe7, 0x81, 0x34, 0x25,
-	0xe7, 0xe7, 0x95, 0xa4, 0xe6, 0x95, 0xc4, 0x97, 0x54, 0x16, 0xa4, 0x42, 0x34, 0x2b, 0x2d, 0x60,
-	0xe4, 0x62, 0x09, 0xc8, 0x2f, 0x2e, 0x11, 0x12, 0xe1, 0x62, 0x2d, 0xc9, 0x2c, 0xc9, 0x49, 0x95,
-	0x60, 0x54, 0x60, 0xd4, 0xe0, 0x0c, 0x82, 0x70, 0x84, 0x84, 0xb8, 0x58, 0x92, 0xf2, 0x53, 0x2a,
-	0x25, 0x98, 0xc0, 0x82, 0x60, 0xb6, 0x90, 0x04, 0x17, 0x7b, 0x72, 0x51, 0x6a, 0x62, 0x49, 0x7e,
-	0x91, 0x04, 0x33, 0x58, 0x18, 0xc6, 0x15, 0xe2, 0xe3, 0x62, 0xca, 0x4c, 0x91, 0x60, 0x51, 0x60,
-	0xd4, 0x60, 0x09, 0x62, 0xca, 0x4c, 0x11, 0x72, 0xe1, 0xe2, 0x41, 0xb6, 0x52, 0x82, 0x55, 0x81,
-	0x51, 0x83, 0xcf, 0x48, 0x51, 0x0f, 0xc9, 0xc1, 0x10, 0xc7, 0xe9, 0x95, 0x19, 0xea, 0x39, 0x43,
-	0x54, 0x86, 0x54, 0x16, 0xa4, 0x06, 0x71, 0x27, 0x23, 0x38, 0x4e, 0x86, 0x27, 0x1e, 0xc9, 0x31,
-	0x5e, 0x78, 0x24, 0xc7, 0xf8, 0xe0, 0x91, 0x1c, 0xe3, 0x84, 0xc7, 0x72, 0x0c, 0x17, 0x1e, 0xcb,
-	0x31, 0xdc, 0x78, 0x2c, 0xc7, 0x10, 0x25, 0x8e, 0xe4, 0xcb, 0x0a, 0x48, 0xd0, 0x80, 0xec, 0x29,
-	0x4e, 0x62, 0x03, 0x7b, 0xce, 0x18, 0x10, 0x00, 0x00, 0xff, 0xff, 0x24, 0xce, 0xe6, 0xc0, 0x3a,
-	0x01, 0x00, 0x00,
+	// 552 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x6c, 0x93, 0x4f, 0x6f, 0xd3, 0x3c,
+	0x18, 0xc0, 0x97, 0xad, 0xed, 0x56, 0x6f, 0xeb, 0xde, 0x79, 0xdd, 0x8b, 0x35, 0xb4, 0x50, 0xe0,
+	0xb0, 0x9c, 0x52, 0x05, 0x24, 0xee, 0xdd, 0x40, 0x02, 0x89, 0x03, 0xca, 0x26, 0x21, 0x71, 0xb1,
+	0x92, 0xf8, 0xd9, 0x6a, 0x91, 0xda, 0x51, 0xfc, 0x34, 0x2c, 0xdf, 0x82, 0x8f, 0xc5, 0x71, 0x47,
+	0x8e, 0x68, 0xe3, 0x83, 0x20, 0xdb, 0x99, 0x5a, 0x09, 0x6e, 0xf1, 0xef, 0xf7, 0xfc, 0xb3, 0xa3,
+	0x87, 0x9c, 0x9a, 0x2a, 0xab, 0xbf, 0x8a, 0x1a, 0xb2, 0xc5, 0x34, 0x2f, 0xf5, 0xcd, 0xb4, 0x49,
+	0xa6, 0x95, 0x36, 0x18, 0x57, 0xb5, 0x46, 0x4d, 0xe9, 0x4a, 0xc7, 0x56, 0xc7, 0x4d, 0x72, 0x72,
+	0xb6, 0x96, 0x52, 0xe8, 0xc5, 0x42, 0x2b, 0x9b, 0x54, 0x68, 0x85, 0xa0, 0x90, 0x63, 0x5b, 0x81,
+	0x4f, 0x3e, 0x09, 0xff, 0x51, 0xdb, 0x6a, 0xe3, 0xfd, 0x8b, 0xdf, 0x7d, 0xd2, 0xfb, 0xa4, 0x0d,
+	0xd2, 0x31, 0xe9, 0xa3, 0xc4, 0x12, 0x58, 0x30, 0x09, 0xa2, 0x61, 0xea, 0x0f, 0x94, 0x92, 0x5e,
+	0xae, 0x45, 0xcb, 0x36, 0x1d, 0x74, 0xdf, 0x94, 0x91, 0xed, 0xa2, 0x86, 0x0c, 0x75, 0xcd, 0xb6,
+	0x1c, 0x7e, 0x3c, 0xd2, 0x11, 0xd9, 0x94, 0x82, 0xf5, 0x26, 0x41, 0xd4, 0x4b, 0x37, 0xa5, 0xa0,
+	0x6f, 0xc9, 0xde, 0xfa, 0x48, 0xac, 0x3f, 0x09, 0xa2, 0xd1, 0xab, 0xe7, 0xf1, 0xda, 0x85, 0xfc,
+	0xf0, 0x71, 0x93, 0xc4, 0x17, 0x3e, 0xf2, 0xaa, 0xad, 0x20, 0xdd, 0x2d, 0x56, 0x07, 0x7a, 0x46,
+	0x0e, 0x6a, 0xa8, 0x4a, 0x09, 0x86, 0x83, 0xca, 0xf2, 0x12, 0x04, 0x1b, 0x4c, 0x82, 0x68, 0x27,
+	0x1d, 0x75, 0xf8, 0x9d, 0xa7, 0xf4, 0x19, 0xd9, 0xb5, 0xa4, 0xe5, 0x85, 0x5e, 0x2a, 0x64, 0xdb,
+	0x6e, 0x0e, 0xe2, 0xd0, 0x85, 0x25, 0x34, 0x21, 0xc7, 0x0b, 0xa9, 0xb8, 0x0f, 0xc2, 0x7a, 0x69,
+	0x90, 0x97, 0xd0, 0x40, 0xc9, 0x76, 0x26, 0x41, 0xd4, 0x4f, 0xe9, 0x42, 0xaa, 0xd4, 0xba, 0x2b,
+	0xab, 0x3e, 0x5a, 0x43, 0x4f, 0x09, 0x71, 0xb7, 0x03, 0xc1, 0x33, 0x64, 0xc3, 0x49, 0x10, 0x6d,
+	0xa5, 0xc3, 0x8e, 0xcc, 0xd0, 0xea, 0x65, 0x25, 0x1e, 0x35, 0xf1, 0xba, 0x23, 0x33, 0xa4, 0x6f,
+	0xc8, 0xc0, 0x60, 0x86, 0x4b, 0xc3, 0x76, 0xdd, 0xd5, 0xc3, 0xf8, 0xef, 0x7f, 0x19, 0xdb, 0xe7,
+	0xbf, 0x74, 0x51, 0x69, 0x17, 0x4d, 0x9f, 0x92, 0xe1, 0x5c, 0x0a, 0x01, 0x8a, 0xe7, 0x2d, 0xdb,
+	0x73, 0x8f, 0xbc, 0xe3, 0xc1, 0x79, 0xbb, 0x26, 0x33, 0x64, 0xfb, 0xae, 0x65, 0x27, 0xfd, 0x40,
+	0x70, 0x5b, 0xc9, 0x1a, 0x8c, 0xb5, 0x23, 0x3f, 0x50, 0x47, 0x66, 0x68, 0x73, 0x2b, 0xa9, 0x14,
+	0x08, 0x5b, 0xf8, 0xc0, 0x17, 0xf6, 0xc0, 0x17, 0xee, 0x64, 0x86, 0xec, 0x3f, 0x5f, 0xd8, 0x83,
+	0x19, 0xd2, 0x29, 0x19, 0x5f, 0x03, 0xf0, 0xbc, 0x45, 0x30, 0x7c, 0x2e, 0x6f, 0xe6, 0xfc, 0x5b,
+	0x86, 0x50, 0xb3, 0x43, 0xf7, 0xca, 0x87, 0xd7, 0x00, 0xe7, 0x56, 0xbd, 0x97, 0x37, 0xf3, 0xcf,
+	0x56, 0xd0, 0xff, 0xc9, 0x00, 0x84, 0x44, 0x10, 0x8c, 0xba, 0xbf, 0xd5, 0x9d, 0x6c, 0x17, 0xff,
+	0x65, 0xbb, 0x1c, 0xf9, 0x2e, 0x1e, 0xcc, 0x90, 0xbe, 0x24, 0xfb, 0x52, 0x49, 0x94, 0x19, 0xca,
+	0x06, 0xb8, 0x14, 0x6c, 0xec, 0xca, 0xef, 0xad, 0xe0, 0x07, 0x41, 0x13, 0x32, 0x2e, 0xb4, 0x6a,
+	0x64, 0x81, 0x52, 0x2b, 0x6e, 0x96, 0x06, 0x33, 0xa9, 0x40, 0xb0, 0x63, 0xd7, 0xe7, 0x68, 0xe5,
+	0x2e, 0x1f, 0xd5, 0x79, 0xf2, 0xe3, 0x3e, 0x0c, 0xee, 0xee, 0xc3, 0xe0, 0xd7, 0x7d, 0x18, 0x7c,
+	0x7f, 0x08, 0x37, 0xee, 0x1e, 0xc2, 0x8d, 0x9f, 0x0f, 0xe1, 0xc6, 0x97, 0x27, 0x6b, 0x0b, 0x72,
+	0xeb, 0x57, 0xc4, 0xed, 0x47, 0x3e, 0x70, 0x0b, 0xf2, 0xfa, 0x4f, 0x00, 0x00, 0x00, 0xff, 0xff,
+	0x72, 0xf8, 0xd7, 0x81, 0x9e, 0x03, 0x00, 0x00,
 }
 
 func (m *Post) Marshal() (dAtA []byte, err error) {
@@ -146,6 +293,117 @@ func (m *Post) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.ConvictionSustained {
+		i--
+		if m.ConvictionSustained {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xa8
+	}
+	if m.InitiativeId != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.InitiativeId))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xa0
+	}
+	if m.EditedAt != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.EditedAt))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x98
+	}
+	if m.Edited {
+		i--
+		if m.Edited {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x90
+	}
+	if m.FeeBytesHighWater != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.FeeBytesHighWater))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x88
+	}
+	if m.PinnedAt != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.PinnedAt))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x80
+	}
+	if len(m.PinnedBy) > 0 {
+		i -= len(m.PinnedBy)
+		copy(dAtA[i:], m.PinnedBy)
+		i = encodeVarintPost(dAtA, i, uint64(len(m.PinnedBy)))
+		i--
+		dAtA[i] = 0x7a
+	}
+	if m.ExpiresAt != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.ExpiresAt))
+		i--
+		dAtA[i] = 0x70
+	}
+	if m.HiddenAt != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.HiddenAt))
+		i--
+		dAtA[i] = 0x68
+	}
+	if len(m.HiddenBy) > 0 {
+		i -= len(m.HiddenBy)
+		copy(dAtA[i:], m.HiddenBy)
+		i = encodeVarintPost(dAtA, i, uint64(len(m.HiddenBy)))
+		i--
+		dAtA[i] = 0x62
+	}
+	if m.Status != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.Status))
+		i--
+		dAtA[i] = 0x58
+	}
+	if m.UpdatedAt != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.UpdatedAt))
+		i--
+		dAtA[i] = 0x50
+	}
+	if m.CreatedAt != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.CreatedAt))
+		i--
+		dAtA[i] = 0x48
+	}
+	if m.MinReplyTrustLevel != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.MinReplyTrustLevel))
+		i--
+		dAtA[i] = 0x40
+	}
+	if m.ReplyCount != 0 {
+		i = encodeVarintPost(dAtA, i, uint64(m.ReplyCount))
+		i--
+		dAtA[i] = 0x38
+	}
+	if m.RepliesEnabled {
+		i--
+		if m.RepliesEnabled {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x30
+	}
 	if m.ContentType != 0 {
 		i = encodeVarintPost(dAtA, i, uint64(m.ContentType))
 		i--
@@ -214,6 +472,56 @@ func (m *Post) Size() (n int) {
 	}
 	if m.ContentType != 0 {
 		n += 1 + sovPost(uint64(m.ContentType))
+	}
+	if m.RepliesEnabled {
+		n += 2
+	}
+	if m.ReplyCount != 0 {
+		n += 1 + sovPost(uint64(m.ReplyCount))
+	}
+	if m.MinReplyTrustLevel != 0 {
+		n += 1 + sovPost(uint64(m.MinReplyTrustLevel))
+	}
+	if m.CreatedAt != 0 {
+		n += 1 + sovPost(uint64(m.CreatedAt))
+	}
+	if m.UpdatedAt != 0 {
+		n += 1 + sovPost(uint64(m.UpdatedAt))
+	}
+	if m.Status != 0 {
+		n += 1 + sovPost(uint64(m.Status))
+	}
+	l = len(m.HiddenBy)
+	if l > 0 {
+		n += 1 + l + sovPost(uint64(l))
+	}
+	if m.HiddenAt != 0 {
+		n += 1 + sovPost(uint64(m.HiddenAt))
+	}
+	if m.ExpiresAt != 0 {
+		n += 1 + sovPost(uint64(m.ExpiresAt))
+	}
+	l = len(m.PinnedBy)
+	if l > 0 {
+		n += 1 + l + sovPost(uint64(l))
+	}
+	if m.PinnedAt != 0 {
+		n += 2 + sovPost(uint64(m.PinnedAt))
+	}
+	if m.FeeBytesHighWater != 0 {
+		n += 2 + sovPost(uint64(m.FeeBytesHighWater))
+	}
+	if m.Edited {
+		n += 3
+	}
+	if m.EditedAt != 0 {
+		n += 2 + sovPost(uint64(m.EditedAt))
+	}
+	if m.InitiativeId != 0 {
+		n += 2 + sovPost(uint64(m.InitiativeId))
+	}
+	if m.ConvictionSustained {
+		n += 3
 	}
 	return n
 }
@@ -387,6 +695,339 @@ func (m *Post) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RepliesEnabled", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.RepliesEnabled = bool(v != 0)
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReplyCount", wireType)
+			}
+			m.ReplyCount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ReplyCount |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MinReplyTrustLevel", wireType)
+			}
+			m.MinReplyTrustLevel = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MinReplyTrustLevel |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 9:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CreatedAt", wireType)
+			}
+			m.CreatedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.CreatedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 10:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UpdatedAt", wireType)
+			}
+			m.UpdatedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.UpdatedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 11:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			m.Status = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Status |= PostStatus(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 12:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field HiddenBy", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthPost
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthPost
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.HiddenBy = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 13:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field HiddenAt", wireType)
+			}
+			m.HiddenAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.HiddenAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 14:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ExpiresAt", wireType)
+			}
+			m.ExpiresAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ExpiresAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 15:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PinnedBy", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthPost
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthPost
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PinnedBy = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 16:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PinnedAt", wireType)
+			}
+			m.PinnedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PinnedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 17:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FeeBytesHighWater", wireType)
+			}
+			m.FeeBytesHighWater = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.FeeBytesHighWater |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 18:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Edited", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Edited = bool(v != 0)
+		case 19:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EditedAt", wireType)
+			}
+			m.EditedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.EditedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 20:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeId", wireType)
+			}
+			m.InitiativeId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.InitiativeId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 21:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionSustained", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPost
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.ConvictionSustained = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipPost(dAtA[iNdEx:])

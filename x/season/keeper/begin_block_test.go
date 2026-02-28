@@ -47,11 +47,9 @@ func initBeginBlockFixture(t *testing.T) *beginBlockFixture {
 		encCfg.Codec,
 		addressCodec,
 		authority,
-		nil,     // bankKeeper
-		mockRep, // repKeeper
-		nil,     // nameKeeper
-		nil,     // commonsKeeper
+		nil, // bankKeeper
 	)
+	k.SetRepKeeper(mockRep)
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
@@ -141,10 +139,10 @@ func TestBeginBlocker_StartsTransition(t *testing.T) {
 	err := f.keeper.BeginBlocker(f.ctx)
 	require.NoError(t, err)
 
-	// Verify transition started
+	// Verify transition started (starts at RETRO_REWARDS phase now)
 	state, err := f.keeper.SeasonTransitionState.Get(f.ctx)
 	require.NoError(t, err)
-	require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT, state.Phase)
+	require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS, state.Phase)
 
 	// Verify season status changed to ENDING
 	season, err := f.keeper.Season.Get(f.ctx)
@@ -402,9 +400,6 @@ func TestSnapshotPhase_NoRepKeeper(t *testing.T) {
 		addressCodec,
 		authority,
 		nil, // bankKeeper
-		nil, // NO repKeeper
-		nil, // nameKeeper
-		nil, // commonsKeeper
 	)
 
 	err := k.Params.Set(ctx, types.DefaultParams())
@@ -722,10 +717,10 @@ func TestFullTransitionFlow(t *testing.T) {
 	err = f.keeper.BeginBlocker(f.ctx)
 	require.NoError(t, err)
 
-	// Verify transition started
+	// Verify transition started (starts at RETRO_REWARDS phase now)
 	state, err := f.keeper.SeasonTransitionState.Get(f.ctx)
 	require.NoError(t, err)
-	require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT, state.Phase)
+	require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS, state.Phase)
 
 	// Verify season is ENDING
 	s, _ := f.keeper.Season.Get(f.ctx)
@@ -733,13 +728,16 @@ func TestFullTransitionFlow(t *testing.T) {
 
 	// Process remaining phases one block at a time
 	// Each BeginBlocker call processes one phase (batch_size=100 handles all 3 members at once)
+	// New order: RETRO_REWARDS(8) -> RETURN_NOMINATION_STAKES(9) -> SNAPSHOT(1) -> ... -> COMPLETE(7)
 	expectedPhases := []types.TransitionPhase{
-		types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION, // After SNAPSHOT completes
-		types.TransitionPhase_TRANSITION_PHASE_RESET_REPUTATION,   // After ARCHIVE completes
-		types.TransitionPhase_TRANSITION_PHASE_RESET_XP,           // After RESET_REP completes
-		types.TransitionPhase_TRANSITION_PHASE_TITLES,             // After RESET_XP completes
-		types.TransitionPhase_TRANSITION_PHASE_CLEANUP,            // After TITLES completes
-		types.TransitionPhase_TRANSITION_PHASE_COMPLETE,           // After CLEANUP completes
+		types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES, // After RETRO_REWARDS completes
+		types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT,                 // After RETURN_NOMINATION_STAKES completes
+		types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION,       // After SNAPSHOT completes
+		types.TransitionPhase_TRANSITION_PHASE_RESET_REPUTATION,         // After ARCHIVE completes
+		types.TransitionPhase_TRANSITION_PHASE_RESET_XP,                 // After RESET_REP completes
+		types.TransitionPhase_TRANSITION_PHASE_TITLES,                   // After RESET_XP completes
+		types.TransitionPhase_TRANSITION_PHASE_CLEANUP,                  // After TITLES completes
+		types.TransitionPhase_TRANSITION_PHASE_COMPLETE,                 // After CLEANUP completes
 	}
 
 	for i, expectedPhase := range expectedPhases {
@@ -754,7 +752,7 @@ func TestFullTransitionFlow(t *testing.T) {
 	}
 
 	// One more call at COMPLETE phase should finalize
-	f.ctx = f.ctx.WithBlockHeight(107)
+	f.ctx = f.ctx.WithBlockHeight(109)
 	err = f.keeper.BeginBlocker(f.ctx)
 	require.NoError(t, err)
 
@@ -765,7 +763,7 @@ func TestFullTransitionFlow(t *testing.T) {
 	require.Equal(t, "Season Two", newSeason.Name)
 	require.Equal(t, "Adventure", newSeason.Theme)
 	require.Equal(t, types.SeasonStatus_SEASON_STATUS_ACTIVE, newSeason.Status)
-	require.Equal(t, int64(107), newSeason.StartBlock)
+	require.Equal(t, int64(109), newSeason.StartBlock)
 
 	// Verify transition state is cleaned up
 	_, err = f.keeper.SeasonTransitionState.Get(f.ctx)

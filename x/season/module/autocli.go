@@ -411,6 +411,36 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
 				},
 
+				{
+					RpcMethod:      "GetNomination",
+					Use:            "get-nomination [id]",
+					Short:          "Gets a nomination by ID",
+					Alias:          []string{"show-nomination"},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod: "ListNominations",
+					Use:       "list-nominations",
+					Short:     "List all nominations",
+				},
+				{
+					RpcMethod:      "ListNominationsByCreator",
+					Use:            "list-nominations-by-creator [creator]",
+					Short:          "List nominations by creator",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "creator"}},
+				},
+				{
+					RpcMethod:      "ListNominationStakes",
+					Use:            "list-nomination-stakes [nomination-id]",
+					Short:          "List stakes for a nomination",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "nomination_id"}},
+				},
+				{
+					RpcMethod:      "ListRetroRewardHistory",
+					Use:            "list-retro-reward-history [season]",
+					Short:          "List retroactive reward history for a season",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "season"}},
+				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -656,6 +686,24 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "resolve-unappealed-moderation [member]",
 					Short:          "Resolve an unappealed display name moderation after appeal period expires",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
+				},
+				{
+					RpcMethod:      "Nominate",
+					Use:            "nominate [content-ref] [rationale]",
+					Short:          "Nominate content for retroactive public goods funding",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "content_ref"}, {ProtoField: "rationale"}},
+				},
+				{
+					RpcMethod:      "StakeNomination",
+					Use:            "stake-nomination [nomination-id] [amount]",
+					Short:          "Stake DREAM on a nomination",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "nomination_id"}, {ProtoField: "amount"}},
+				},
+				{
+					RpcMethod:      "UnstakeNomination",
+					Use:            "unstake-nomination [nomination-id]",
+					Short:          "Remove DREAM stake from a nomination",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "nomination_id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

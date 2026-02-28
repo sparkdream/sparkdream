@@ -6,9 +6,13 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	commontypes "sparkdream/x/common/types"
+
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types.MsgHidePostResponse, error) {
@@ -29,11 +33,11 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	}
 
 	// Validate reason code
-	reasonCode := types.ModerationReason(msg.ReasonCode)
-	if reasonCode == types.ModerationReason_MODERATION_REASON_UNSPECIFIED {
+	reasonCode := commontypes.ModerationReason(msg.ReasonCode)
+	if reasonCode == commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED {
 		return nil, types.ErrInvalidReasonCode
 	}
-	if reasonCode == types.ModerationReason_MODERATION_REASON_OTHER && msg.ReasonText == "" {
+	if reasonCode == commontypes.ModerationReason_MODERATION_REASON_OTHER && msg.ReasonText == "" {
 		return nil, types.ErrReasonTextRequired
 	}
 
@@ -76,7 +80,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		}
 		availableBond := currentBond.Sub(committedBond)
 
-		slashAmount := math.NewInt(100) // DefaultSentinelSlashAmount
+		slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
 		if availableBond.LT(slashAmount) {
 			return nil, errorsmod.Wrapf(types.ErrInsufficientBond,
 				"need %s DREAM available, only %s available", slashAmount.String(), availableBond.String())
@@ -111,7 +115,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 
 	// Create HideRecord and update sentinel activity for non-gov senders
 	if !isGovAuthority {
-		slashAmount := math.NewInt(100) // DefaultSentinelSlashAmount
+		slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
 
 		// Get sentinel backing for snapshot
 		backing := k.GetSentinelBacking(ctx, msg.Creator)
@@ -144,6 +148,14 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 
 		if err := k.SentinelActivity.Set(ctx, msg.Creator, sentinelActivity); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
+		}
+	}
+
+	// Slash author bond on moderation (best-effort: log and continue if no bond exists)
+	if k.repKeeper != nil {
+		if err := k.repKeeper.SlashAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND, msg.PostId); err != nil {
+			// No bond to slash is fine — just log
+			sdkCtx.Logger().Debug("author bond slash skipped", "post_id", msg.PostId, "error", err)
 		}
 	}
 

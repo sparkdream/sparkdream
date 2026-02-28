@@ -6,7 +6,10 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	commontypes "sparkdream/x/common/types"
+
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -49,7 +52,7 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 			FirstFlagAt:   now,
 			LastFlagAt:    now,
 			InReviewQueue: false,
-			FlagRecords:   []*types.FlagRecord{},
+			FlagRecords:   []*commontypes.FlagRecord{},
 			ReasonCounts:  make(map[int32]uint64),
 		}
 	}
@@ -93,13 +96,13 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 	postFlag.LastFlagAt = now
 
 	// Create flag record with reason
-	reasonCode := types.ModerationReason(msg.Category)
-	flagRecord := &types.FlagRecord{
+	reasonCode := commontypes.ModerationReason(msg.Category)
+	flagRecord := &commontypes.FlagRecord{
 		Flagger:    msg.Creator,
-		ReasonCode: reasonCode,
+		Reason:     reasonCode,
 		ReasonText: msg.Reason,
 		FlaggedAt:  now,
-		Weight:     weight,
+		Weight:     math.NewInt(int64(weight)),
 	}
 	postFlag.FlagRecords = append(postFlag.FlagRecords, flagRecord)
 

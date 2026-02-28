@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	"cosmossdk.io/collections"
@@ -21,7 +22,7 @@ func (q queryServer) ListReservedTag(ctx context.Context, req *types.QueryAllRes
 		ctx,
 		q.k.ReservedTag,
 		req.Pagination,
-		func(_ string, value types.ReservedTag) (types.ReservedTag, error) {
+		func(_ string, value commontypes.ReservedTag) (commontypes.ReservedTag, error) {
 			return value, nil
 		},
 	)

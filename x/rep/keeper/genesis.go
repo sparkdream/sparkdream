@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"sparkdream/x/rep/types"
+
+	"cosmossdk.io/collections"
 )
 
 // InitGenesis initializes the module's state from a provided genesis state.
@@ -80,6 +82,32 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.InterimTemplate.Set(ctx, elem.Id, elem); err != nil {
 			return err
 		}
+	}
+
+	// Content challenges
+	for _, elem := range genState.ContentChallengeList {
+		if err := k.ContentChallenge.Set(ctx, elem.Id, elem); err != nil {
+			return err
+		}
+	}
+
+	if err := k.ContentChallengeSeq.Set(ctx, genState.ContentChallengeCount); err != nil {
+		return err
+	}
+
+	// Content initiative links
+	for _, link := range genState.ContentInitiativeLinks {
+		key := collections.Join(link.InitiativeId, collections.Join(link.TargetType, link.TargetId))
+		if err := k.ContentInitiativeLinks.Set(ctx, key); err != nil {
+			return err
+		}
+	}
+
+	// If there are members, trigger a full trust tree rebuild on next EndBlock.
+	// The tree is derived state (not exported in genesis) and will be populated
+	// from member records + voter registrations.
+	if len(genState.MemberMap) > 0 {
+		k.MarkTrustTreeDirty(ctx)
 	}
 
 	return k.Params.Set(ctx, genState.Params)
@@ -188,6 +216,33 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		genesis.InterimTemplateMap = append(genesis.InterimTemplateMap, val)
 		return false, nil
 	}); err != nil {
+		return nil, err
+	}
+
+	// Content challenges
+	err = k.ContentChallenge.Walk(ctx, nil, func(key uint64, elem types.ContentChallenge) (bool, error) {
+		genesis.ContentChallengeList = append(genesis.ContentChallengeList, elem)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	genesis.ContentChallengeCount, err = k.ContentChallengeSeq.Peek(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Content initiative links
+	err = k.ContentInitiativeLinks.Walk(ctx, nil, func(key collections.Pair[uint64, collections.Pair[int32, uint64]]) (bool, error) {
+		genesis.ContentInitiativeLinks = append(genesis.ContentInitiativeLinks, types.ContentInitiativeLink{
+			InitiativeId: key.K1(),
+			TargetType:   key.K2().K1(),
+			TargetId:     key.K2().K2(),
+		})
+		return false, nil
+	})
+	if err != nil {
 		return nil, err
 	}
 

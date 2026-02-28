@@ -94,6 +94,28 @@ service Query {
   rpc Endorsement(QueryEndorsementRequest) returns (QueryEndorsementResponse) {
     option (google.api.http).get = "/sparkdream/collect/v1/endorsement/{collection_id}";
   }
+
+  // CollectionsByContent returns collections that reference a specific on-chain entity
+  // (e.g., a blog post or forum thread) via OnChainReference items.
+  rpc CollectionsByContent(QueryCollectionsByContentRequest) returns (QueryCollectionsByContentResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/collections_by_content/{module}/{entity_type}/{entity_id}";
+  }
+
+  // CollectionConviction returns the current conviction score, stake count, total staked,
+  // and author bond for a collection (delegates to x/rep).
+  rpc CollectionConviction(QueryCollectionConvictionRequest) returns (QueryCollectionConvictionResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/collection_conviction/{collection_id}";
+  }
+
+  // AnonymousCollections returns paginated anonymous collections (owner = module account).
+  rpc AnonymousCollections(QueryAnonymousCollectionsRequest) returns (QueryAnonymousCollectionsResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/anonymous_collections";
+  }
+
+  // IsCollectNullifierUsed checks if a nullifier has been used in x/collect domains.
+  rpc IsCollectNullifierUsed(QueryIsCollectNullifierUsedRequest) returns (QueryIsCollectNullifierUsedResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/is_nullifier_used";
+  }
 }
 message QueryParamsRequest {}
 
@@ -308,4 +330,63 @@ message QueryEndorsementRequest {
 // QueryEndorsementResponse defines the QueryEndorsementResponse message.
 message QueryEndorsementResponse {
   Endorsement endorsement = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryCollectionsByContentRequest returns collections referencing on-chain content.
+message QueryCollectionsByContentRequest {
+  string module = 1;
+  string entity_type = 2;
+  string entity_id = 3;
+  cosmos.base.query.v1beta1.PageRequest pagination = 4;
+}
+
+// QueryCollectionsByContentResponse is the response for CollectionsByContent.
+message QueryCollectionsByContentResponse {
+  repeated Collection collections = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryCollectionConvictionRequest defines the QueryCollectionConviction request.
+message QueryCollectionConvictionRequest {
+  uint64 collection_id = 1;
+}
+
+// QueryCollectionConvictionResponse defines the QueryCollectionConviction response.
+message QueryCollectionConvictionResponse {
+  string conviction_score = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint32 stake_count = 2;
+  string total_staked = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string author_bond = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// QueryAnonymousCollectionsRequest defines the AnonymousCollections request.
+message QueryAnonymousCollectionsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAnonymousCollectionsResponse defines the AnonymousCollections response.
+message QueryAnonymousCollectionsResponse {
+  repeated Collection collections = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryIsCollectNullifierUsedRequest defines the IsCollectNullifierUsed request.
+message QueryIsCollectNullifierUsedRequest {
+  string nullifier_hex = 1;
+  uint64 domain = 2;
+  uint64 scope = 3;
+}
+
+// QueryIsCollectNullifierUsedResponse defines the IsCollectNullifierUsed response.
+message QueryIsCollectNullifierUsedResponse {
+  bool used = 1;
 }

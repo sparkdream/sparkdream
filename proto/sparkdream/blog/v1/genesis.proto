@@ -4,6 +4,8 @@ package sparkdream.blog.v1;
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/blog/v1/params.proto";
+import "sparkdream/blog/v1/post.proto";
+import "sparkdream/blog/v1/types.proto";
 
 option go_package = "sparkdream/x/blog/types";
 
@@ -14,4 +16,34 @@ message GenesisState {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+
+  // posts is the list of all posts.
+  repeated Post posts = 2 [(gogoproto.nullable) = false];
+
+  // post_count is the next auto-increment ID for posts.
+  uint64 post_count = 3;
+
+  // replies is the list of all replies.
+  repeated Reply replies = 4 [(gogoproto.nullable) = false];
+
+  // reply_count is the next auto-increment ID for replies.
+  uint64 reply_count = 5;
+
+  // reactions is the list of all individual reactions.
+  repeated Reaction reactions = 6 [(gogoproto.nullable) = false];
+
+  // reaction_counts is the list of all aggregate reaction counts.
+  repeated GenesisReactionCounts reaction_counts = 7 [(gogoproto.nullable) = false];
+
+  // anonymous_post_meta is the list of anonymous post metadata entries.
+  repeated AnonymousPostMetadata anonymous_post_meta = 8 [(gogoproto.nullable) = false];
+
+  // anonymous_reply_meta is the list of anonymous reply metadata entries.
+  repeated AnonymousPostMetadata anonymous_reply_meta = 9 [(gogoproto.nullable) = false];
+
+  // nullifiers is the list of used anonymous nullifiers.
+  repeated GenesisNullifierEntry nullifiers = 10 [(gogoproto.nullable) = false];
+
+  // anon_subsidy_last_epoch is the last epoch for which subsidy was drawn.
+  uint64 anon_subsidy_last_epoch = 11;
 }

@@ -7,6 +7,7 @@ import (
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func TestFlagContent(t *testing.T) {
@@ -28,7 +29,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   targetID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_SPAM,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_SPAM,
 				}
 			},
 			check: func(t *testing.T, f *testFixture, targetID uint64) {
@@ -37,7 +38,7 @@ func TestFlagContent(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, flag.FlagRecords, 1)
 				require.Equal(t, f.member, flag.FlagRecords[0].Flagger)
-				require.Equal(t, types.ModerationReason_MODERATION_REASON_SPAM, flag.FlagRecords[0].Reason)
+				require.Equal(t, commontypes.ModerationReason_MODERATION_REASON_SPAM, flag.FlagRecords[0].Reason)
 			},
 		},
 		{
@@ -56,7 +57,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.sentinel,
 					TargetId:   collID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_SPAM,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_SPAM,
 				})
 				require.NoError(t, err)
 
@@ -67,7 +68,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   targetID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_INAPPROPRIATE,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_INAPPROPRIATE,
 				}
 			},
 			check: func(t *testing.T, f *testFixture, targetID uint64) {
@@ -88,7 +89,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.nonMember,
 					TargetId:   targetID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_SPAM,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_SPAM,
 				}
 			},
 			expErr:         true,
@@ -102,7 +103,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   collID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_SPAM,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_SPAM,
 				})
 				require.NoError(t, err)
 				return collID
@@ -112,7 +113,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   targetID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_SPAM,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_SPAM,
 				}
 			},
 			expErr:         true,
@@ -128,7 +129,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   targetID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_UNSPECIFIED,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED,
 				}
 			},
 			expErr:         true,
@@ -144,7 +145,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   targetID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_OTHER,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_OTHER,
 					ReasonText: "",
 				}
 			},
@@ -161,7 +162,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   targetID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_OTHER,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_OTHER,
 					ReasonText: "custom reason text",
 				}
 			},
@@ -182,7 +183,7 @@ func TestFlagContent(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   targetID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_SPAM,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_SPAM,
 					ReasonText: "should not be set",
 				}
 			},

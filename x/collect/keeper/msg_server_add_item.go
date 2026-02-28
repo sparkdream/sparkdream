@@ -75,6 +75,13 @@ func (k msgServer) AddItem(ctx context.Context, msg *types.MsgAddItem) (*types.M
 		return nil, err
 	}
 
+	// Validate OnChainReference if present
+	if msg.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && msg.OnChain != nil {
+		if err := k.validateOnChainReference(ctx, msg.OnChain); err != nil {
+			return nil, err
+		}
+	}
+
 	// Determine position
 	position := msg.Position
 	if position >= coll.ItemCount {
@@ -154,6 +161,11 @@ func (k msgServer) AddItem(ctx context.Context, msg *types.MsgAddItem) (*types.M
 	}
 	if err := k.ItemsByOwner.Set(ctx, collections.Join(coll.Owner, itemID)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set owner index")
+	}
+	if item.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && item.OnChain != nil {
+		if err := k.ItemsByOnChainRef.Set(ctx, collections.Join(onChainRefKey(item.OnChain), itemID)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to set on-chain ref index")
+		}
 	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("item_added",

@@ -9,6 +9,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
+
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
@@ -633,7 +635,7 @@ func getOrCreateFlag(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, targetType 
 	flag := types.CollectionFlag{
 		TargetId:   targetID,
 		TargetType: targetType,
-		FlagRecords: []types.FlagRecord{
+		FlagRecords: []commontypes.FlagRecord{
 			{
 				Flagger:    flagger,
 				Reason:     randomModerationReason(r),
@@ -779,13 +781,13 @@ func randomCollectionType(r *rand.Rand) types.CollectionType {
 	return validTypes[r.Intn(len(validTypes))]
 }
 
-func randomModerationReason(r *rand.Rand) types.ModerationReason {
-	reasons := []types.ModerationReason{
-		types.ModerationReason_MODERATION_REASON_SPAM,
-		types.ModerationReason_MODERATION_REASON_HARASSMENT,
-		types.ModerationReason_MODERATION_REASON_MISINFORMATION,
-		types.ModerationReason_MODERATION_REASON_INAPPROPRIATE,
-		types.ModerationReason_MODERATION_REASON_POLICY_VIOLATION,
+func randomModerationReason(r *rand.Rand) commontypes.ModerationReason {
+	reasons := []commontypes.ModerationReason{
+		commontypes.ModerationReason_MODERATION_REASON_SPAM,
+		commontypes.ModerationReason_MODERATION_REASON_HARASSMENT,
+		commontypes.ModerationReason_MODERATION_REASON_MISINFORMATION,
+		commontypes.ModerationReason_MODERATION_REASON_INAPPROPRIATE,
+		commontypes.ModerationReason_MODERATION_REASON_POLICY_VIOLATION,
 	}
 	return reasons[r.Intn(len(reasons))]
 }

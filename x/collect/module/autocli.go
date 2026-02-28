@@ -171,6 +171,34 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}},
 				},
 
+				{
+					RpcMethod:      "CollectionsByContent",
+					Use:            "collections-by-content [module] [entity-type] [entity-id]",
+					Short:          "Query collections referencing on-chain content",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "module"}, {ProtoField: "entity_type"}, {ProtoField: "entity_id"}},
+				},
+
+				{
+					RpcMethod:      "CollectionConviction",
+					Use:            "collection-conviction [collection-id]",
+					Short:          "Query conviction score, stakes, and author bond for a collection",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}},
+				},
+
+				{
+					RpcMethod:      "AnonymousCollections",
+					Use:            "anonymous-collections",
+					Short:          "Query paginated anonymous collections",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
+				},
+
+				{
+					RpcMethod:      "IsCollectNullifierUsed",
+					Use:            "is-nullifier-used [nullifier-hex] [domain] [scope]",
+					Short:          "Check if a nullifier has been used in x/collect",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "nullifier_hex"}, {ProtoField: "domain"}, {ProtoField: "scope"}},
+				},
+
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -337,6 +365,30 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "set-seeking-endorsement [collection-id] [seeking]",
 					Short:          "Send a SetSeekingEndorsement tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}, {ProtoField: "seeking"}},
+				},
+				{
+					RpcMethod:      "CreateAnonymousCollection",
+					Use:            "create-anonymous-collection [name] [description]",
+					Short:          "Create an anonymous collection with ZK proof",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "description"}},
+				},
+				{
+					RpcMethod:      "ManageAnonymousCollection",
+					Use:            "manage-anonymous-collection [collection-id] [action] [nonce]",
+					Short:          "Manage an anonymous collection using management key",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}, {ProtoField: "action"}, {ProtoField: "nonce"}},
+				},
+				{
+					RpcMethod:      "AnonymousReact",
+					Use:            "anonymous-react [target-id] [target-type] [reaction-type]",
+					Short:          "React anonymously to collection content with ZK proof",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_id"}, {ProtoField: "target_type"}, {ProtoField: "reaction_type"}},
+				},
+				{
+					RpcMethod:      "PinCollection",
+					Use:            "pin-collection [collection-id]",
+					Short:          "Pin an ephemeral collection to make it permanent",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

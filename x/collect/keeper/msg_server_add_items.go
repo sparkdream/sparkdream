@@ -82,6 +82,11 @@ func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types
 			entry.ReferenceType, entry.Nft, entry.Link, entry.OnChain, entry.Custom, attrs, entry.EncryptedData, params); err != nil {
 			return nil, errorsmod.Wrapf(err, "item[%d]", i)
 		}
+		if entry.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && entry.OnChain != nil {
+			if err := k.validateOnChainReference(ctx, entry.OnChain); err != nil {
+				return nil, errorsmod.Wrapf(err, "item[%d]", i)
+			}
+		}
 	}
 
 	// Single deposit transfer for all items
@@ -148,6 +153,11 @@ func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types
 		}
 		if err := k.ItemsByOwner.Set(ctx, collections.Join(coll.Owner, itemID)); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to set owner index")
+		}
+		if item.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && item.OnChain != nil {
+			if err := k.ItemsByOnChainRef.Set(ctx, collections.Join(onChainRefKey(item.OnChain), itemID)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to set on-chain ref index")
+			}
 		}
 
 		ids = append(ids, itemID)

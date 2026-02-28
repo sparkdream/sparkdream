@@ -82,8 +82,8 @@ message MsgUpdateParamsResponse {}
 message MsgRegisterVoter {
   option (cosmos.msg.v1.signer) = "voter";
   string voter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  bytes zk_public_key = 2;          // hash(secretKey), 32 bytes
-  bytes encryption_public_key = 3;  // Babyjubjub point, required
+  bytes zk_public_key = 2; // hash(secretKey), 32 bytes
+  bytes encryption_public_key = 3; // Babyjubjub point, required
 }
 
 message MsgRegisterVoterResponse {}

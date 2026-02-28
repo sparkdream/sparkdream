@@ -288,15 +288,6 @@ echo "  5. Emergency cancel test:         $([ "$RUN_EMERGENCY_CANCEL_TEST" = tru
 echo "  6. Operational params test:       $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo ""
 
-if [ "$SAVE_SETUP" != true ] && [ "$RESTORE_SETUP" != true ]; then
-    read -p "Proceed with test execution? (yes/no): " PROCEED
-    if [ "$PROCEED" != "yes" ]; then
-        echo "Aborted."
-        exit 0
-    fi
-    echo ""
-fi
-
 # ========================================================================
 # Save Setup Mode
 # ========================================================================

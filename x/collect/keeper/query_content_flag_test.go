@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func TestQueryContentFlag(t *testing.T) {
@@ -24,7 +25,7 @@ func TestQueryContentFlag(t *testing.T) {
 					Creator:    f.member,
 					TargetId:   collID,
 					TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-					Reason:     types.ModerationReason_MODERATION_REASON_SPAM,
+					Reason:     commontypes.ModerationReason_MODERATION_REASON_SPAM,
 				})
 				require.NoError(t, err)
 				return collID

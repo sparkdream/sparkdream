@@ -2,13 +2,99 @@ package keeper
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
+
+	"cosmossdk.io/store/prefix"
+	"github.com/cosmos/cosmos-sdk/runtime"
 
 	"sparkdream/x/blog/types"
 )
 
 // InitGenesis initializes the module's state from a provided genesis state.
 func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) error {
-	return k.Params.Set(ctx, genState.Params)
+	if err := genState.Params.Validate(); err != nil {
+		return fmt.Errorf("invalid blog params in genesis: %w", err)
+	}
+	if err := k.Params.Set(ctx, genState.Params); err != nil {
+		return err
+	}
+
+	// Import posts
+	for _, post := range genState.Posts {
+		k.SetPost(ctx, post)
+	}
+	k.SetPostCount(ctx, genState.PostCount)
+
+	// Import replies
+	for _, reply := range genState.Replies {
+		k.SetReply(ctx, reply)
+	}
+	k.SetReplyCount(ctx, genState.ReplyCount)
+
+	// Import reactions
+	for _, reaction := range genState.Reactions {
+		k.SetReaction(ctx, reaction)
+	}
+
+	// Import reaction counts
+	for _, rc := range genState.ReactionCounts {
+		if rc.Counts != nil {
+			k.SetReactionCounts(ctx, rc.PostId, rc.ReplyId, *rc.Counts)
+		}
+	}
+
+	// Import anonymous post metadata
+	for _, meta := range genState.AnonymousPostMeta {
+		k.SetAnonymousPostMeta(ctx, meta.ContentId, meta)
+	}
+
+	// Import anonymous reply metadata
+	for _, meta := range genState.AnonymousReplyMeta {
+		k.SetAnonymousReplyMeta(ctx, meta.ContentId, meta)
+	}
+
+	// Import nullifiers
+	for _, n := range genState.Nullifiers {
+		entry := types.AnonNullifierEntry{
+			UsedAt: n.UsedAt,
+			Domain: n.Domain,
+			Scope:  n.Scope,
+		}
+		k.SetNullifierUsed(ctx, n.Domain, n.Scope, n.NullifierHex, entry)
+	}
+
+	// Import anon subsidy last epoch
+	if genState.AnonSubsidyLastEpoch > 0 {
+		k.SetAnonSubsidyLastEpoch(ctx, genState.AnonSubsidyLastEpoch)
+	}
+
+	// Rebuild derived indexes that SetPost/SetReply don't create
+	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
+
+	// Rebuild creator post index and expiry index for posts
+	creatorStore := prefix.NewStore(storeAdapter, []byte(types.CreatorPostKey))
+	for _, post := range genState.Posts {
+		creatorKey := append([]byte(post.Creator+"/"), GetPostIDBytes(post.Id)...)
+		creatorStore.Set(creatorKey, []byte{0x01})
+
+		if post.ExpiresAt > 0 {
+			k.AddToExpiryIndex(ctx, post.ExpiresAt, "post", post.Id)
+		}
+	}
+
+	// Rebuild reply post index and expiry index for replies
+	postStore := prefix.NewStore(storeAdapter, []byte(types.ReplyPostKey))
+	for _, reply := range genState.Replies {
+		postKey := append(GetPostIDBytes(reply.PostId), GetReplyIDBytes(reply.Id)...)
+		postStore.Set(postKey, []byte{0x01})
+
+		if reply.ExpiresAt > 0 {
+			k.AddToExpiryIndex(ctx, reply.ExpiresAt, "reply", reply.Id)
+		}
+	}
+
+	return nil
 }
 
 // ExportGenesis returns the module's exported genesis.
@@ -20,6 +106,105 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
+
+	// Export posts
+	postStore := prefix.NewStore(storeAdapter, []byte(types.PostKey))
+	postIter := postStore.Iterator(nil, nil)
+	for ; postIter.Valid(); postIter.Next() {
+		var post types.Post
+		k.cdc.MustUnmarshal(postIter.Value(), &post)
+		genesis.Posts = append(genesis.Posts, post)
+	}
+	postIter.Close()
+	genesis.PostCount = k.GetPostCount(ctx)
+
+	// Export replies
+	replyStore := prefix.NewStore(storeAdapter, []byte(types.ReplyKey))
+	replyIter := replyStore.Iterator(nil, nil)
+	for ; replyIter.Valid(); replyIter.Next() {
+		var reply types.Reply
+		k.cdc.MustUnmarshal(replyIter.Value(), &reply)
+		genesis.Replies = append(genesis.Replies, reply)
+	}
+	replyIter.Close()
+	genesis.ReplyCount = k.GetReplyCount(ctx)
+
+	// Export reactions
+	reactionStore := prefix.NewStore(storeAdapter, []byte(types.ReactionKey))
+	reactionIter := reactionStore.Iterator(nil, nil)
+	for ; reactionIter.Valid(); reactionIter.Next() {
+		var reaction types.Reaction
+		k.cdc.MustUnmarshal(reactionIter.Value(), &reaction)
+		genesis.Reactions = append(genesis.Reactions, reaction)
+	}
+	reactionIter.Close()
+
+	// Export reaction counts
+	countsStore := prefix.NewStore(storeAdapter, []byte(types.ReactionCountKey))
+	countsIter := countsStore.Iterator(nil, nil)
+	for ; countsIter.Valid(); countsIter.Next() {
+		key := countsIter.Key()
+		if len(key) < 16 {
+			continue
+		}
+		postId := binary.BigEndian.Uint64(key[:8])
+		replyId := binary.BigEndian.Uint64(key[8:16])
+		var counts types.ReactionCounts
+		k.cdc.MustUnmarshal(countsIter.Value(), &counts)
+		genesis.ReactionCounts = append(genesis.ReactionCounts, types.GenesisReactionCounts{
+			PostId:  postId,
+			ReplyId: replyId,
+			Counts:  &counts,
+		})
+	}
+	countsIter.Close()
+
+	// Export anonymous post metadata
+	anonPostStore := prefix.NewStore(storeAdapter, []byte(types.AnonMetaPostKey))
+	anonPostIter := anonPostStore.Iterator(nil, nil)
+	for ; anonPostIter.Valid(); anonPostIter.Next() {
+		var meta types.AnonymousPostMetadata
+		k.cdc.MustUnmarshal(anonPostIter.Value(), &meta)
+		genesis.AnonymousPostMeta = append(genesis.AnonymousPostMeta, meta)
+	}
+	anonPostIter.Close()
+
+	// Export anonymous reply metadata
+	anonReplyStore := prefix.NewStore(storeAdapter, []byte(types.AnonMetaReplyKey))
+	anonReplyIter := anonReplyStore.Iterator(nil, nil)
+	for ; anonReplyIter.Valid(); anonReplyIter.Next() {
+		var meta types.AnonymousPostMetadata
+		k.cdc.MustUnmarshal(anonReplyIter.Value(), &meta)
+		genesis.AnonymousReplyMeta = append(genesis.AnonymousReplyMeta, meta)
+	}
+	anonReplyIter.Close()
+
+	// Export nullifiers
+	nullifierStore := prefix.NewStore(storeAdapter, []byte(types.AnonNullifierKey))
+	nullifierIter := nullifierStore.Iterator(nil, nil)
+	for ; nullifierIter.Valid(); nullifierIter.Next() {
+		key := nullifierIter.Key()
+		// Key format: domain(8) + scope(8) + nullifier_hex_string
+		if len(key) < 17 {
+			continue
+		}
+		domain := binary.BigEndian.Uint64(key[:8])
+		scope := binary.BigEndian.Uint64(key[8:16])
+		nullifierHex := string(key[16:])
+		var entry types.AnonNullifierEntry
+		k.cdc.MustUnmarshal(nullifierIter.Value(), &entry)
+		genesis.Nullifiers = append(genesis.Nullifiers, types.GenesisNullifierEntry{
+			NullifierHex: nullifierHex,
+			Domain:       domain,
+			Scope:        scope,
+			UsedAt:       entry.UsedAt,
+		})
+	}
+	nullifierIter.Close()
+
+	genesis.AnonSubsidyLastEpoch = k.GetAnonSubsidyLastEpoch(ctx)
 
 	return genesis, nil
 }

@@ -215,7 +215,7 @@ func TestCreatePostWithTags(t *testing.T) {
 	t.Run("reserved tag rejected", func(t *testing.T) {
 		// Create a reserved tag
 		f.createTestTag(t, "official")
-		_ = f.keeper.ReservedTag.Set(f.ctx, "official", types.ReservedTag{
+		_ = f.keeper.ReservedTag.Set(f.ctx, "official", commontypes.ReservedTag{
 			Name:      "official",
 			Authority: testAuthority,
 		})

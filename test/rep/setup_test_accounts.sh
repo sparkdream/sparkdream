@@ -288,7 +288,8 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
     TX_RESULT=$(wait_for_tx $TXHASH)
 
     if check_tx_success "$TX_RESULT"; then
-        echo "  ✅ Transferred 250 DREAM to $ACCOUNT"
+        DREAM_DISPLAY=$((DREAM_AMOUNT / 1000000))
+        echo "  ✅ Transferred $DREAM_DISPLAY DREAM to $ACCOUNT"
     else
         echo "  ❌ Failed to transfer DREAM to $ACCOUNT"
         echo "     $(echo "$TX_RESULT" | jq -r '.raw_log')"
@@ -434,8 +435,9 @@ echo "  Strategy: Build APPRENTICE initiatives (25 rep cap) until requirement me
 echo "  Using fast test params: conviction in ~2 min, auto-completion via EndBlocker"
 echo ""
 
-TEST_TAGS=("challenge" "test" "jury" "auto-uphold" "full-flow")
+TEST_TAGS=("challenge" "test" "jury")
 JUROR_ACCOUNTS=("juror1" "juror2" "juror3")
+JUROR_REP_SUCCESS=true
 
 for JUROR in "${JUROR_ACCOUNTS[@]}"; do
     case "$JUROR" in
@@ -476,8 +478,10 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
     # Create APPRENTICE tier initiative to build juror reputation
     # APPRENTICE: tier=0, min_rep=0, cap=25
     # Budget: 0.25 DREAM (250000 micro) → rep grant = 25 per tag
-    # Required conviction = 0.01 × 250000 = 2500
-    # Stakes: 5 DREAM each → sqrt(5M) ≈ 2236 each, total ≈ 4472 > 2500 ✓
+    # Required conviction = conviction_per_dream × sqrt(budget) = 0.2 × 500 = 100
+    # Per-member cap = 33% of required = 33 per staker
+    # 4 stakers × 33 cap = 132 > 100 required ✓
+    # External conviction: 3 external × 33 = 99 > 50 required ✓
     TX_RES=$($BINARY tx rep create-initiative \
         $PROJECT_ID \
         "Reputation builder for $JUROR" \
@@ -486,7 +490,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         "0" \
         "" \
         "250000" \
-        --tags "challenge","test","jury","auto-uphold","full-flow" \
+        --tags "challenge","test","jury" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -567,69 +571,42 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
 
     echo "    → Adding stakes for conviction..."
 
-    # Stake 5 DREAM (5000000 micro-DREAM) from Alice to build conviction
-    # Alice is the creator, so this won't count as external conviction
-    TX_RES=$($BINARY tx rep stake \
-        "stake-target-initiative" \
-        $INIT_ID \
-        "5000000" \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y --output json 2>&1)
+    # MaxConvictionSharePerMember = 33%, so each staker is capped at 33% of required.
+    # Need 4 stakers to exceed 100% (4 × 33% = 132%).
+    # Alice is project creator (NOT external). Need 3 external stakers for
+    # external conviction >= 50% requirement (3 × 33% = 99% > 50%).
+    # Stakers: alice (internal), challenger, anonymous_challenger, expert (all external)
+    STAKER_ACCOUNTS=("alice" "challenger" "anonymous_challenger" "expert")
 
-    # Check if output is valid JSON
-    if echo "$TX_RES" | jq -e '.' >/dev/null 2>&1; then
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-            echo "    ⚠️  Failed to create Alice stake (no txhash)"
-            echo "    Error: $(echo "$TX_RES" | jq -r '.raw_log // .message // .')"
-        else
-            sleep 6
-            TX_RESULT=$(wait_for_tx $TXHASH)
-            if ! check_tx_success "$TX_RESULT"; then
-                echo "    ⚠️  Alice stake transaction failed"
+    for STAKER in "${STAKER_ACCOUNTS[@]}"; do
+        TX_RES=$($BINARY tx rep stake \
+            "stake-target-initiative" \
+            $INIT_ID \
+            "5000000" \
+            --from $STAKER \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --gas 300000 \
+            --fees 5000uspark \
+            -y --output json 2>&1)
+
+        if echo "$TX_RES" | jq -e '.' >/dev/null 2>&1; then
+            TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+            if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+                echo "    ⚠️  Failed to create $STAKER stake (no txhash)"
             else
-                echo "    ✅ Alice staked 5 DREAM on initiative #$INIT_ID"
+                sleep 6
+                TX_RESULT=$(wait_for_tx $TXHASH)
+                if check_tx_success "$TX_RESULT"; then
+                    echo "    ✅ $STAKER staked 5 DREAM on initiative #$INIT_ID"
+                else
+                    echo "    ⚠️  $STAKER stake transaction failed"
+                fi
             fi
-        fi
-    else
-        echo "    ⚠️  Alice stake command failed (invalid JSON response)"
-        echo "    Raw output: $TX_RES"
-    fi
-
-    # Stake 5 DREAM (5000000 micro-DREAM) from challenger for external conviction
-    # External conviction requirement = 50% of total conviction
-    TX_RES=$($BINARY tx rep stake \
-        "stake-target-initiative" \
-        $INIT_ID \
-        "5000000" \
-        --from challenger \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y --output json 2>&1)
-
-    # Check if output is valid JSON
-    if echo "$TX_RES" | jq -e '.' >/dev/null 2>&1; then
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-            echo "    ⚠️  Failed to create Challenger stake (no txhash)"
-            echo "    Error: $(echo "$TX_RES" | jq -r '.raw_log // .message // .')"
         else
-            sleep 6
-            TX_RESULT=$(wait_for_tx $TXHASH)
-            if ! check_tx_success "$TX_RESULT"; then
-                echo "    ⚠️  Challenger stake transaction failed"
-            else
-                echo "    ✅ Challenger staked 5 DREAM on initiative #$INIT_ID"
-            fi
+            echo "    ⚠️  $STAKER stake failed (invalid JSON response)"
         fi
-    else
-        echo "    ⚠️  Challenger stake command failed (invalid JSON response)"
-        echo "    Raw output: $TX_RES"
-    fi
+    done
 
     # Wait for conviction to accumulate
     # With test params: 2 minutes for full conviction, ~7 seconds for 1% conviction
@@ -764,14 +741,21 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
             echo "    ✅ $JUROR final reputation: ${FINAL_REP} (meets ${MIN_JUROR_REP_DEC} requirement)"
         else
             echo "    ⚠️  $JUROR final reputation: ${FINAL_REP} (below ${MIN_JUROR_REP_DEC} requirement)"
+            JUROR_REP_SUCCESS=false
         fi
     fi
 done  # End jurors loop
 
 echo ""
-echo "✅ Juror reputation building complete"
-echo "   All jurors meet minimum requirement: ${MIN_JUROR_REP_DEC} reputation"
-echo "   Tags built: ${TEST_TAGS[@]}"
+if [ "$JUROR_REP_SUCCESS" = true ]; then
+    echo "✅ Juror reputation building complete"
+    echo "   All jurors meet minimum requirement: ${MIN_JUROR_REP_DEC} reputation"
+else
+    echo "⚠️  Juror reputation building incomplete"
+    echo "   Some jurors did not meet minimum requirement: ${MIN_JUROR_REP_DEC} reputation"
+    echo "   Challenge tests requiring jury may fail"
+fi
+echo "   Tags used: ${TEST_TAGS[@]}"
 
 echo ""
 

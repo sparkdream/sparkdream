@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -27,7 +28,7 @@ func TestAppealPost(t *testing.T) {
 		PostId:     post.PostId,
 		Sentinel:   testSentinel,
 		HiddenAt:   f.sdkCtx().BlockTime().Unix() - types.DefaultHideAppealCooldown - 1, // Past cooldown
-		ReasonCode: types.ModerationReason_MODERATION_REASON_SPAM,
+		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
 		ReasonText: "Spam content",
 	}
 	_ = f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)
@@ -134,7 +135,7 @@ func TestAppealPost(t *testing.T) {
 				PostId:     post.PostId,
 				Sentinel:   testSentinel,
 				HiddenAt:   f.sdkCtx().BlockTime().Unix() - types.DefaultHideAppealCooldown - 1,
-				ReasonCode: types.ModerationReason_MODERATION_REASON_SPAM,
+				ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
 				ReasonText: "Spam content",
 			}
 			_ = f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)

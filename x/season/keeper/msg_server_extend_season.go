@@ -30,8 +30,9 @@ func (k msgServer) ExtendSeason(ctx context.Context, msg *types.MsgExtendSeason)
 		return nil, errorsmod.Wrap(err, "failed to get current season")
 	}
 
-	// Check season is active
-	if season.Status != types.SeasonStatus_SEASON_STATUS_ACTIVE {
+	// Check season is active or in nomination phase (extending during nomination is valid)
+	if season.Status != types.SeasonStatus_SEASON_STATUS_ACTIVE &&
+		season.Status != types.SeasonStatus_SEASON_STATUS_NOMINATION {
 		return nil, types.ErrSeasonNotActive
 	}
 

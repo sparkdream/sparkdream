@@ -126,7 +126,7 @@ func TestRateCollection(t *testing.T) {
 				}
 			},
 			expErr:         true,
-			expErrContains: "max reviews",
+			expErrContains: "daily review limit",
 		},
 		{
 			name: "error: collection not public/active",

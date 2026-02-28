@@ -15,9 +15,9 @@ func TestEpochDecryptionKeyQuery_Available(t *testing.T) {
 
 	// Store an epoch decryption key for epoch 5.
 	require.NoError(t, f.keeper.EpochDecryptionKey.Set(f.ctx, 5, types.EpochDecryptionKey{
-		Epoch:        5,
+		Epoch:         5,
 		DecryptionKey: []byte("decryption-key-5"),
-		AvailableAt:  100,
+		AvailableAt:   100,
 	}))
 
 	resp, err := f.queryServer.EpochDecryptionKeyQuery(f.ctx, &types.QueryEpochDecryptionKeyQueryRequest{
