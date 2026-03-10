@@ -15,8 +15,8 @@ import (
 	"sparkdream/x/commons/types"
 )
 
-func createNExtendedGroup(keeper keeper.Keeper, ctx context.Context, n int) []types.ExtendedGroup {
-	items := make([]types.ExtendedGroup, n)
+func createNGroup(keeper keeper.Keeper, ctx context.Context, n int) []types.Group {
+	items := make([]types.Group, n)
 	for i := range items {
 		maxSpendPerEpoch := math.NewInt(int64(i))
 		items[i].Index = strconv.Itoa(i)
@@ -32,38 +32,38 @@ func createNExtendedGroup(keeper keeper.Keeper, ctx context.Context, n int) []ty
 		items[i].TermDuration = int64(i)
 		items[i].CurrentTermExpiration = int64(i)
 		items[i].ActivationTime = int64(i)
-		_ = keeper.ExtendedGroup.Set(ctx, items[i].Index, items[i])
+		_ = keeper.Groups.Set(ctx, items[i].Index, items[i])
 	}
 	return items
 }
 
-func TestExtendedGroupQuerySingle(t *testing.T) {
+func TestGroupQuerySingle(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
-	msgs := createNExtendedGroup(f.keeper, f.ctx, 2)
+	msgs := createNGroup(f.keeper, f.ctx, 2)
 	tests := []struct {
 		desc     string
-		request  *types.QueryGetExtendedGroupRequest
-		response *types.QueryGetExtendedGroupResponse
+		request  *types.QueryGetGroupRequest
+		response *types.QueryGetGroupResponse
 		err      error
 	}{
 		{
 			desc: "First",
-			request: &types.QueryGetExtendedGroupRequest{
+			request: &types.QueryGetGroupRequest{
 				Index: msgs[0].Index,
 			},
-			response: &types.QueryGetExtendedGroupResponse{ExtendedGroup: msgs[0]},
+			response: &types.QueryGetGroupResponse{Group: msgs[0]},
 		},
 		{
 			desc: "Second",
-			request: &types.QueryGetExtendedGroupRequest{
+			request: &types.QueryGetGroupRequest{
 				Index: msgs[1].Index,
 			},
-			response: &types.QueryGetExtendedGroupResponse{ExtendedGroup: msgs[1]},
+			response: &types.QueryGetGroupResponse{Group: msgs[1]},
 		},
 		{
 			desc: "KeyNotFound",
-			request: &types.QueryGetExtendedGroupRequest{
+			request: &types.QueryGetGroupRequest{
 				Index: strconv.Itoa(100000),
 			},
 			err: status.Error(codes.NotFound, "not found"),
@@ -75,7 +75,7 @@ func TestExtendedGroupQuerySingle(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			response, err := qs.GetExtendedGroup(f.ctx, tc.request)
+			response, err := qs.GetGroup(f.ctx, tc.request)
 			if tc.err != nil {
 				require.ErrorIs(t, err, tc.err)
 			} else {
@@ -86,13 +86,13 @@ func TestExtendedGroupQuerySingle(t *testing.T) {
 	}
 }
 
-func TestExtendedGroupQueryPaginated(t *testing.T) {
+func TestGroupQueryPaginated(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
-	msgs := createNExtendedGroup(f.keeper, f.ctx, 5)
+	msgs := createNGroup(f.keeper, f.ctx, 5)
 
-	request := func(next []byte, offset, limit uint64, total bool) *types.QueryAllExtendedGroupRequest {
-		return &types.QueryAllExtendedGroupRequest{
+	request := func(next []byte, offset, limit uint64, total bool) *types.QueryAllGroupRequest {
+		return &types.QueryAllGroupRequest{
 			Pagination: &query.PageRequest{
 				Key:        next,
 				Offset:     offset,
@@ -104,31 +104,31 @@ func TestExtendedGroupQueryPaginated(t *testing.T) {
 	t.Run("ByOffset", func(t *testing.T) {
 		step := 2
 		for i := 0; i < len(msgs); i += step {
-			resp, err := qs.ListExtendedGroup(f.ctx, request(nil, uint64(i), uint64(step), false))
+			resp, err := qs.ListGroups(f.ctx, request(nil, uint64(i), uint64(step), false))
 			require.NoError(t, err)
-			require.LessOrEqual(t, len(resp.ExtendedGroup), step)
-			require.Subset(t, msgs, resp.ExtendedGroup)
+			require.LessOrEqual(t, len(resp.Group), step)
+			require.Subset(t, msgs, resp.Group)
 		}
 	})
 	t.Run("ByKey", func(t *testing.T) {
 		step := 2
 		var next []byte
 		for i := 0; i < len(msgs); i += step {
-			resp, err := qs.ListExtendedGroup(f.ctx, request(next, 0, uint64(step), false))
+			resp, err := qs.ListGroups(f.ctx, request(next, 0, uint64(step), false))
 			require.NoError(t, err)
-			require.LessOrEqual(t, len(resp.ExtendedGroup), step)
-			require.Subset(t, msgs, resp.ExtendedGroup)
+			require.LessOrEqual(t, len(resp.Group), step)
+			require.Subset(t, msgs, resp.Group)
 			next = resp.Pagination.NextKey
 		}
 	})
 	t.Run("Total", func(t *testing.T) {
-		resp, err := qs.ListExtendedGroup(f.ctx, request(nil, 0, 0, true))
+		resp, err := qs.ListGroups(f.ctx, request(nil, 0, 0, true))
 		require.NoError(t, err)
 		require.Equal(t, len(msgs), int(resp.Pagination.Total))
-		require.EqualExportedValues(t, msgs, resp.ExtendedGroup)
+		require.EqualExportedValues(t, msgs, resp.Group)
 	})
 	t.Run("InvalidRequest", func(t *testing.T) {
-		_, err := qs.ListExtendedGroup(f.ctx, nil)
+		_, err := qs.ListGroups(f.ctx, nil)
 		require.ErrorIs(t, err, status.Error(codes.InvalidArgument, "invalid request"))
 	})
 }

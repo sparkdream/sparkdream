@@ -8,14 +8,14 @@ import (
 	"cosmossdk.io/core/appmodule"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/spf13/cobra"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
 
+	"sparkdream/x/commons/client/cli"
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
@@ -32,12 +32,10 @@ var (
 
 // AppModule implements the AppModule interface that defines the inter-dependent methods that modules need to implement
 type AppModule struct {
-	cdc         codec.Codec
-	keeper      keeper.Keeper
-	authKeeper  types.AuthKeeper
-	bankKeeper  types.BankKeeper
-	govKeeper   *govkeeper.Keeper
-	groupKeeper groupkeeper.Keeper
+	cdc        codec.Codec
+	keeper     keeper.Keeper
+	authKeeper types.AuthKeeper
+	bankKeeper types.BankKeeper
 }
 
 func NewAppModule(
@@ -45,16 +43,12 @@ func NewAppModule(
 	keeper keeper.Keeper,
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
-	govKeeper *govkeeper.Keeper,
-	groupKeeper groupkeeper.Keeper,
 ) AppModule {
 	return AppModule{
-		cdc:         cdc,
-		keeper:      keeper,
-		authKeeper:  authKeeper,
-		bankKeeper:  bankKeeper,
-		govKeeper:   govKeeper,
-		groupKeeper: groupKeeper,
+		cdc:        cdc,
+		keeper:     keeper,
+		authKeeper: authKeeper,
+		bankKeeper: bankKeeper,
 	}
 }
 
@@ -90,7 +84,6 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 }
 
 // DefaultGenesis returns a default GenesisState for the module, marshalled to json.RawMessage.
-// The default GenesisState need to be defined by the module developer and is primarily used for testing.
 func (am AppModule) DefaultGenesis(codec.JSONCodec) json.RawMessage {
 	return am.cdc.MustMarshalJSON(types.DefaultGenesis())
 }
@@ -105,10 +98,9 @@ func (am AppModule) ValidateGenesis(_ codec.JSONCodec, _ client.TxEncodingConfig
 	return genState.Validate()
 }
 
-// InitGenesis performs the module's genesis initialization. It returns no validator updates.
+// InitGenesis performs the module's genesis initialization.
 func (am AppModule) InitGenesis(ctx sdk.Context, _ codec.JSONCodec, gs json.RawMessage) {
 	var genState types.GenesisState
-	// Initialize global index to index in genesis state
 	if err := am.cdc.UnmarshalJSON(gs, &genState); err != nil {
 		panic(fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err))
 	}
@@ -134,18 +126,20 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, _ codec.JSONCodec) json.RawMe
 }
 
 // ConsensusVersion is a sequence number for state-breaking change of the module.
-// It should be incremented on each consensus-breaking change introduced by the module.
-// To avoid wrong/empty versions, the initial version should be set to 1.
-func (AppModule) ConsensusVersion() uint64 { return 1 }
+func (AppModule) ConsensusVersion() uint64 { return 2 }
 
 // BeginBlock contains the logic that is automatically triggered at the beginning of each block.
-// The begin block implementation is optional.
 func (am AppModule) BeginBlock(_ context.Context) error {
 	return nil
 }
 
 // EndBlock contains the logic that is automatically triggered at the end of each block.
-// The end block implementation is optional.
-func (am AppModule) EndBlock(_ context.Context) error {
-	return nil
+func (am AppModule) EndBlock(ctx context.Context) error {
+	return am.keeper.EndBlockProposals(ctx)
+}
+
+// GetTxCmd returns custom transaction commands that can't be handled by autocli
+// (e.g., submit-proposal which takes a JSON file with Any-typed messages).
+func (AppModule) GetTxCmd() *cobra.Command {
+	return cli.GetTxCmd()
 }

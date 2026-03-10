@@ -8,29 +8,19 @@ import (
 	"sparkdream/x/commons/types"
 
 	errorsmod "cosmossdk.io/errors"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/group"
 )
 
 // Allow alphanumeric, spaces, and hyphens.
-// Must start and end with an alphanumeric character (prevents leading/trailing spaces/hyphens).
 var groupNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 \-]*[a-zA-Z0-9]$`)
 
 func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGroup) (*types.MsgRegisterGroupResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// ==========================================
-	// 0. AUTHORITY CHECK & FEE ENFORCEMENT
-	// ==========================================
-	govAddress := k.authKeeper.GetModuleAddress(govtypes.ModuleName).String()
+	govAddress := k.authKeeper.GetModuleAddress(types.GovModuleName).String()
 	isGov := (msg.Authority == govAddress)
 
-	// FEE DEDUCTION (Anti-Spam)
-	// We waive the fee for x/gov because the proposal already paid a deposit to get here.
-	// All other entities (e.g., a Council creating a sub-committee) must pay the tax.
 	params, err := k.GetParams(ctx)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get module params")
@@ -41,27 +31,18 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		if err != nil {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid module param ProposalFee: %s", err)
 		}
-
 		if !fee.IsZero() {
 			signerAddr, err := sdk.AccAddressFromBech32(msg.Authority)
 			if err != nil {
 				return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, "invalid authority address")
 			}
-
-			// Transfer Fee: Signer -> x/commons Module Account
-			// This effectively locks the tokens in the commons treasury (or burns them if you send to null).
-			// Here we send to the module account to build the treasury.
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, signerAddr, types.ModuleName, fee); err != nil {
 				return nil, errorsmod.Wrapf(sdkerrors.ErrInsufficientFunds, "failed to pay registration fee of %s: %s", params.ProposalFee, err)
 			}
 		}
 	}
 
-	// ==========================================
-	// 1. VALIDATION CHECKS
-	// ==========================================
-
-	// Name & Params Validation
+	// Validation
 	nameLen := len(msg.Name)
 	if nameLen < 3 || nameLen > 50 {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "group name must be between 3 and 50 characters, got %d", nameLen)
@@ -91,8 +72,6 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		if msg.MaxSpendPerEpoch.IsNegative() {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch cannot be negative")
 		}
-
-		// Check if it forms a valid coin (positive)
 		coin := sdk.NewCoin("uspark", *msg.MaxSpendPerEpoch)
 		if !coin.IsValid() {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch must be valid")
@@ -102,8 +81,6 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	if msg.UpdateCooldown < 0 {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "update_cooldown cannot be negative")
 	}
-
-	// Policy Type Validation
 	if msg.PolicyType != PolicyTypePercentage && msg.PolicyType != PolicyTypeThreshold {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid policy_type '%s'", msg.PolicyType)
 	}
@@ -111,8 +88,6 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "voting_period must be greater than 0")
 	}
 
-	// SECURITY CHECK: Prevent "Self-Granting" of Root Permissions
-	// Unless the Creator is x/gov itself, they cannot add Restricted Messages.
 	if !isGov {
 		for _, allowedMsg := range msg.AllowedMessages {
 			if RestrictedMessages[allowedMsg] {
@@ -121,12 +96,8 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		}
 	}
 
-	// ==========================================
-	// 2. AUTHORITY & HIERARCHY LOGIC
-	// ==========================================
-
+	// Authority & Hierarchy
 	var finalParent string
-
 	if isGov {
 		if msg.IntendedParentAddress != "" {
 			finalParent = msg.IntendedParentAddress
@@ -134,85 +105,66 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 			finalParent = msg.Authority
 		}
 	} else {
-		// Non-Gov Signer: Must be an existing Extended Group
-		// OPTIMIZED: Use the PolicyToName index for O(1) lookup
 		hasProfile, err := k.PolicyToName.Has(ctx, msg.Authority)
 		if err != nil {
 			return nil, err
 		}
-
 		if !hasProfile {
 			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "signer must be x/gov or a registered council")
 		}
-
-		// Only x/gov can assign arbitrary parents
 		if msg.IntendedParentAddress != "" && msg.IntendedParentAddress != msg.Authority {
 			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only x/gov can assign groups to other parents")
 		}
 		finalParent = msg.Authority
 	}
 
-	// ==========================================
-	// 3. EXECUTION
-	// ==========================================
-
+	// Create native council state
 	members, err := k.parseMembers(msg.Members, msg.MemberWeights)
 	if err != nil {
 		return nil, err
 	}
 
-	groupRes, err := k.groupKeeper.CreateGroup(ctx, &group.MsgCreateGroup{
-		Admin:    k.GetModuleAddress().String(),
-		Members:  members,
-		Metadata: msg.Description,
-	})
+	councilID, err := k.CouncilSeq.Next(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Policy Creation
-	var decisionPolicy group.DecisionPolicy
-	votingPeriod := time.Duration(msg.VotingPeriod) * time.Second
-	minExecutionPeriod := time.Duration(msg.MinExecutionPeriod) * time.Second
+	policyAddr := DeriveCouncilAddress(councilID, "standard")
+	policyAddrStr := policyAddr.String()
 
-	if msg.PolicyType == PolicyTypePercentage {
-		// Percentage Policy (e.g., "0.51")
-		decisionPolicy = group.NewPercentageDecisionPolicy(msg.VoteThreshold.String(), votingPeriod, minExecutionPeriod)
-	} else {
-		// Threshold Policy (e.g., "3")
-		decisionPolicy = &group.ThresholdDecisionPolicy{
-			Threshold: msg.VoteThreshold.TruncateInt().String(),
-			Windows: &group.DecisionPolicyWindows{
-				VotingPeriod:       votingPeriod,
-				MinExecutionPeriod: minExecutionPeriod,
-			},
+	for _, m := range members {
+		m.AddedAt = ctx.BlockTime().Unix()
+		if err := k.AddMember(ctx, msg.Name, m); err != nil {
+			return nil, err
 		}
 	}
 
-	policyAny, err := codectypes.NewAnyWithValue(decisionPolicy)
-	if err != nil {
+	// Store decision policy
+	votingPeriod := time.Duration(msg.VotingPeriod) * time.Second
+	minExecutionPeriod := time.Duration(msg.MinExecutionPeriod) * time.Second
+
+	var thresholdStr string
+	if msg.PolicyType == PolicyTypePercentage {
+		thresholdStr = msg.VoteThreshold.String()
+	} else {
+		thresholdStr = msg.VoteThreshold.TruncateInt().String()
+	}
+
+	decPolicy := types.DecisionPolicy{
+		PolicyType:         msg.PolicyType,
+		Threshold:          thresholdStr,
+		VotingPeriod:       int64(votingPeriod.Seconds()),
+		MinExecutionPeriod: int64(minExecutionPeriod.Seconds()),
+	}
+	if err := k.DecisionPolicies.Set(ctx, policyAddrStr, decPolicy); err != nil {
+		return nil, err
+	}
+	if err := k.PolicyVersion.Set(ctx, policyAddrStr, 0); err != nil {
 		return nil, err
 	}
 
-	policyRes, err := k.groupKeeper.CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
-		Admin:          k.GetModuleAddress().String(),
-		GroupId:        groupRes.GroupId,
-		DecisionPolicy: policyAny,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	policyAddr := policyRes.Address
-
-	// ==========================================
-	// 4. CYCLE DETECTION
-	// ==========================================
-	// We verify that the 'finalParent' is not the group itself, and does not create a loop.
-	// Note: For a BRAND NEW group, a loop is impossible (it has no children),
-	// but this check handles the self-parenting edge case and future-proofs the logic.
-
-	hasCycle, err := k.DetectCycle(ctx, policyAddr, finalParent)
+	// Cycle detection
+	hasCycle, err := k.DetectCycle(ctx, policyAddrStr, finalParent)
 	if err != nil {
 		return nil, err
 	}
@@ -220,26 +172,23 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		return nil, errorsmod.Wrap(types.ErrInvalidGroupSize, "creation would result in a cyclic parent-child relationship")
 	}
 
-	// ==========================================
-	// 5. FINALIZE STORAGE
-	// ==========================================
-
+	// Finalize
 	if msg.FundingWeight > 0 {
-		k.splitKeeper.SetShareByAddress(ctx, policyAddr, msg.FundingWeight)
+		k.splitKeeper.SetShareByAddress(ctx, policyAddrStr, msg.FundingWeight)
 	}
 
 	if len(msg.AllowedMessages) > 0 {
-		if err := k.PolicyPermissions.Set(ctx, policyAddr, types.PolicyPermissions{
-			PolicyAddress:   policyAddr,
+		if err := k.PolicyPermissions.Set(ctx, policyAddrStr, types.PolicyPermissions{
+			PolicyAddress:   policyAddrStr,
 			AllowedMessages: msg.AllowedMessages,
 		}); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to set policy permissions")
 		}
 	}
 
-	extendedGroup := types.ExtendedGroup{
-		GroupId:                groupRes.GroupId,
-		PolicyAddress:          policyAddr,
+	group := types.Group{
+		GroupId:                councilID,
+		PolicyAddress:          policyAddrStr,
 		ParentPolicyAddress:    finalParent,
 		ElectoralPolicyAddress: msg.ElectoralPolicyAddress,
 		FundingWeight:          msg.FundingWeight,
@@ -254,17 +203,13 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		LastParentUpdate:       ctx.BlockTime().Unix(),
 	}
 
-	// A. Save Group
-	if err := k.ExtendedGroup.Set(ctx, msg.Name, extendedGroup); err != nil {
+	if err := k.Groups.Set(ctx, msg.Name, group); err != nil {
 		return nil, err
 	}
-
-	// B. Save Index (Policy -> Name)
-	if err := k.PolicyToName.Set(ctx, policyAddr, msg.Name); err != nil {
+	if err := k.PolicyToName.Set(ctx, policyAddrStr, msg.Name); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set policy index")
 	}
 
-	// AUTOMATION: Start the Confidence Engine (only if futarchy is enabled)
 	if msg.FutarchyEnabled {
 		if err := k.TriggerGovernanceMarket(ctx, msg.Name); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to create initial governance market")

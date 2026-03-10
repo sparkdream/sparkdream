@@ -27,3 +27,25 @@ var MarketTriggerQueueKey = collections.NewPrefix("marketTriggerQueue/value/")
 var (
 	KeyProposalFee = []byte("ProposalFee")
 )
+
+// New native governance collection keys (replacing x/group)
+var (
+	// Members: (council_name, member_address) -> Member
+	MembersKey = collections.NewPrefix("members/value/")
+	// DecisionPolicies: policy_address -> DecisionPolicy
+	DecisionPoliciesKey = collections.NewPrefix("decisionPolicies/value/")
+	// Proposals: proposal_id -> Proposal
+	ProposalsKey = collections.NewPrefix("proposals/value/")
+	// ProposalSeq: auto-increment sequence for proposal IDs
+	ProposalSeqKey = collections.NewPrefix("proposals/seq/")
+	// CouncilSeq: auto-increment sequence for council IDs
+	CouncilSeqKey = collections.NewPrefix("councils/seq/")
+	// PolicyVersion: policy_address -> uint64 (for veto invalidation)
+	PolicyVersionKey = collections.NewPrefix("policyVersion/value/")
+	// Votes: (proposal_id, voter_address) -> Vote
+	VotesKey = collections.NewPrefix("votes/value/")
+	// ProposalsByCouncil: (council_name, proposal_id) -> empty (index for filtering)
+	ProposalsByCouncilKey = collections.NewPrefix("proposalsByCouncil/value/")
+	// VetoPolicies: council_name -> veto_policy_address (maps council to its veto policy)
+	VetoPoliciesKey = collections.NewPrefix("vetoPolicies/value/")
+)

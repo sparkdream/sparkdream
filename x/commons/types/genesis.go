@@ -6,7 +6,7 @@ import "fmt"
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params:               DefaultParams(),
-		PolicyPermissionsMap: []PolicyPermissions{}, ExtendedGroupMap: []ExtendedGroup{}}
+		PolicyPermissionsMap: []PolicyPermissions{}, GroupMap: []Group{}}
 }
 
 // Validate performs basic genesis state validation returning an error upon any
@@ -21,14 +21,14 @@ func (gs GenesisState) Validate() error {
 		}
 		policyPermissionsIndexMap[index] = struct{}{}
 	}
-	extendedGroupIndexMap := make(map[string]struct{})
+	groupIndexMap := make(map[string]struct{})
 
-	for _, elem := range gs.ExtendedGroupMap {
+	for _, elem := range gs.GroupMap {
 		index := fmt.Sprint(elem.Index)
-		if _, ok := extendedGroupIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for extendedGroup")
+		if _, ok := groupIndexMap[index]; ok {
+			return fmt.Errorf("duplicated index for group")
 		}
-		extendedGroupIndexMap[index] = struct{}{}
+		groupIndexMap[index] = struct{}{}
 	}
 
 	return gs.Params.Validate()

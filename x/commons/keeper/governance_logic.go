@@ -30,7 +30,7 @@ func (k Keeper) ScheduleNextMarket(ctx sdk.Context, groupName string, termDurati
 
 func (k Keeper) TriggerGovernanceMarket(ctx sdk.Context, groupName string) error {
 	// 1. Get Group
-	group, err := k.ExtendedGroup.Get(ctx, groupName)
+	group, err := k.Groups.Get(ctx, groupName)
 	if err != nil {
 		return err
 	}

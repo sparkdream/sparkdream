@@ -1,6 +1,6 @@
 # `x/commons`
 
-The `x/commons` module is the orchestrator of Spark Dream's "Three Pillars" governance system. It wraps the Cosmos SDK's `x/group` module with an `ExtendedGroup` abstraction layer, implementing hierarchical governance with councils, committees, policy permissions, and elastic tenure via prediction markets.
+The `x/commons` module is the orchestrator of Spark Dream's "Three Pillars" governance system. It wraps the Cosmos SDK's `x/group` module with a `Group` abstraction layer, implementing hierarchical governance with councils, committees, policy permissions, and elastic tenure via prediction markets.
 
 ## Overview
 
@@ -31,9 +31,9 @@ GOVERNANCE (x/gov)
 └── Commons Supervisory Board (oversees HR decisions)
 ```
 
-### Extended Groups
+### Groups
 
-Beyond `x/group`'s basic Group and GroupPolicy, this module adds ExtendedGroup metadata:
+Beyond `x/group`'s basic Group and GroupPolicy, this module adds Group metadata:
 
 - **Parent/child relationships** — hierarchical governance with delegation
 - **Electoral delegation** — child committees manage parent council membership
@@ -72,13 +72,13 @@ When a group has `futarchy_enabled=true`:
 
 | Object | Key | Description |
 |--------|-----|-------------|
-| `ExtendedGroup` | `extendedGroup/value/{index}` | Group with hierarchy, permissions, and lifecycle |
+| `Group` | `group/value/{index}` | Group with hierarchy, permissions, and lifecycle |
 | `PolicyPermissions` | `policyPermissions/value/{policy_address}` | Allowed messages for a group policy |
 | `MarketToGroup` | `market_to_group/value/{market_id}` | Futarchy market → group name mapping |
 | `PolicyToName` | `policyToName/value/{policy_address}` | Reverse lookup: policy → group name |
 | `MarketTriggerQueue` | `market_trigger_queue/value/{trigger_time,name}` | Scheduled confidence markets |
 
-### ExtendedGroup Fields
+### Group Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -135,8 +135,8 @@ When a group has `futarchy_enabled=true`:
 | Query | Description |
 |-------|-------------|
 | `Params` | Module parameters |
-| `GetExtendedGroup` | Single group by name |
-| `ListExtendedGroup` | Paginated list of all groups |
+| `GetGroup` | Single group by name |
+| `ListGroup` | Paginated list of all groups |
 | `GetPolicyPermissions` | Allowed messages for a policy |
 | `ListPolicyPermissions` | Paginated list of all permission sets |
 
@@ -187,8 +187,8 @@ sparkdreamd tx commons register-group --from authority
 sparkdreamd tx commons spend-from-commons [recipient] [amount] --from policy
 
 # Queries
-sparkdreamd q commons get-extended-group "Technical Council"
-sparkdreamd q commons list-extended-group
+sparkdreamd q commons get-group "Technical Council"
+sparkdreamd q commons list-group
 sparkdreamd q commons get-policy-permissions [policy_address]
 sparkdreamd q commons params
 ```

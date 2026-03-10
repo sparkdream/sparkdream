@@ -6,7 +6,7 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
-import "sparkdream/commons/v1/extended_group.proto";
+import "sparkdream/commons/v1/group.proto";
 import "sparkdream/commons/v1/params.proto";
 import "sparkdream/commons/v1/policy_permissions.proto";
 
@@ -29,14 +29,34 @@ service Query {
     option (google.api.http).get = "/sparkdream/commons/v1/policy_permissions";
   }
 
-  // ListExtendedGroup Queries a list of ExtendedGroup items.
-  rpc GetExtendedGroup(QueryGetExtendedGroupRequest) returns (QueryGetExtendedGroupResponse) {
-    option (google.api.http).get = "/sparkdream/commons/v1/extended_group/{index}";
+  // GetGroup queries a specific group by name.
+  rpc GetGroup(QueryGetGroupRequest) returns (QueryGetGroupResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/group/{index}";
   }
 
-  // ListExtendedGroup defines the ListExtendedGroup RPC.
-  rpc ListExtendedGroup(QueryAllExtendedGroupRequest) returns (QueryAllExtendedGroupResponse) {
-    option (google.api.http).get = "/sparkdream/commons/v1/extended_group";
+  // ListGroups queries all groups.
+  rpc ListGroups(QueryAllGroupRequest) returns (QueryAllGroupResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/group";
+  }
+
+  // GetCouncilMembers queries the members of a specific council.
+  rpc GetCouncilMembers(QueryGetCouncilMembersRequest) returns (QueryGetCouncilMembersResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/council_members/{council_name}";
+  }
+
+  // GetProposal queries a specific proposal by ID.
+  rpc GetProposal(QueryGetProposalRequest) returns (QueryGetProposalResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/proposal/{proposal_id}";
+  }
+
+  // ListProposals queries all proposals with optional filtering.
+  rpc ListProposals(QueryListProposalsRequest) returns (QueryListProposalsResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/proposals";
+  }
+
+  // GetProposalVotes queries votes for a specific proposal.
+  rpc GetProposalVotes(QueryGetProposalVotesRequest) returns (QueryGetProposalVotesResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/proposal/{proposal_id}/votes";
   }
 }
 
@@ -73,23 +93,69 @@ message QueryAllPolicyPermissionsResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-// QueryGetExtendedGroupRequest defines the QueryGetExtendedGroupRequest message.
-message QueryGetExtendedGroupRequest {
+// QueryGetGroupRequest queries a specific group by name.
+message QueryGetGroupRequest {
   string index = 1;
 }
 
-// QueryGetExtendedGroupResponse defines the QueryGetExtendedGroupResponse message.
-message QueryGetExtendedGroupResponse {
-  ExtendedGroup extended_group = 1 [(gogoproto.nullable) = false];
+// QueryGetGroupResponse returns a group.
+message QueryGetGroupResponse {
+  Group group = 1 [(gogoproto.nullable) = false];
 }
 
-// QueryAllExtendedGroupRequest defines the QueryAllExtendedGroupRequest message.
-message QueryAllExtendedGroupRequest {
+// QueryAllGroupRequest queries all groups.
+message QueryAllGroupRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
 }
 
-// QueryAllExtendedGroupResponse defines the QueryAllExtendedGroupResponse message.
-message QueryAllExtendedGroupResponse {
-  repeated ExtendedGroup extended_group = 1 [(gogoproto.nullable) = false];
+// QueryAllGroupResponse returns all groups.
+message QueryAllGroupResponse {
+  repeated Group group = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetCouncilMembersRequest queries the members of a council.
+message QueryGetCouncilMembersRequest {
+  string council_name = 1;
+}
+
+// QueryGetCouncilMembersResponse returns the members of a council.
+message QueryGetCouncilMembersResponse {
+  repeated Member members = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryGetProposalRequest queries a specific proposal.
+message QueryGetProposalRequest {
+  uint64 proposal_id = 1;
+}
+
+// QueryGetProposalResponse returns a proposal.
+message QueryGetProposalResponse {
+  Proposal proposal = 1 [(gogoproto.nullable) = false];
+  repeated Vote votes = 2 [(gogoproto.nullable) = false];
+  TallyResult tally = 3 [(gogoproto.nullable) = false];
+}
+
+// QueryListProposalsRequest queries all proposals with optional council filter.
+message QueryListProposalsRequest {
+  // Optional filter by council name
+  string council_name = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryListProposalsResponse returns a list of proposals.
+message QueryListProposalsResponse {
+  repeated Proposal proposals = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetProposalVotesRequest queries votes for a proposal.
+message QueryGetProposalVotesRequest {
+  uint64 proposal_id = 1;
+}
+
+// QueryGetProposalVotesResponse returns votes for a proposal.
+message QueryGetProposalVotesResponse {
+  repeated Vote votes = 1 [(gogoproto.nullable) = false];
+  TallyResult tally = 2 [(gogoproto.nullable) = false];
 }

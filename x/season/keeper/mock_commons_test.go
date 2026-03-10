@@ -12,8 +12,8 @@ import (
 type mockCommonsKeeper struct {
 	// IsCommitteeMemberFn can be set to control committee membership checks
 	IsCommitteeMemberFn func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
-	// GetExtendedGroupFn can be set to control group lookups (e.g., Commons Council)
-	GetExtendedGroupFn func(ctx context.Context, name string) (commonstypes.ExtendedGroup, error)
+	// GetGroupFn can be set to control group lookups (e.g., Commons Council)
+	GetGroupFn func(ctx context.Context, name string) (commonstypes.Group, error)
 	// IsCouncilAuthorizedFn can be set to control council authorization checks
 	IsCouncilAuthorizedFn func(ctx context.Context, addr string, council string, committee string) bool
 }
@@ -25,11 +25,11 @@ func (m *mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.A
 	return false, nil
 }
 
-func (m *mockCommonsKeeper) GetExtendedGroup(ctx context.Context, name string) (commonstypes.ExtendedGroup, error) {
-	if m.GetExtendedGroupFn != nil {
-		return m.GetExtendedGroupFn(ctx, name)
+func (m *mockCommonsKeeper) GetGroup(ctx context.Context, name string) (commonstypes.Group, error) {
+	if m.GetGroupFn != nil {
+		return m.GetGroupFn(ctx, name)
 	}
-	return commonstypes.ExtendedGroup{}, nil
+	return commonstypes.Group{}, nil
 }
 
 func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
@@ -51,9 +51,9 @@ func newMockCommonsKeeper(authorizedAddresses ...string) *mockCommonsKeeper {
 			// Check if the address is in our authorized set
 			return authorizedSet[address.String()], nil
 		},
-		GetExtendedGroupFn: func(ctx context.Context, name string) (commonstypes.ExtendedGroup, error) {
+		GetGroupFn: func(ctx context.Context, name string) (commonstypes.Group, error) {
 			// Return a mock Commons Council with no special policy address
-			return commonstypes.ExtendedGroup{
+			return commonstypes.Group{
 				Index:         name,
 				PolicyAddress: "", // No special policy address unless set
 			}, nil
@@ -75,14 +75,14 @@ func newMockCommonsKeeperWithCouncil(councilPolicyAddr string, authorizedAddress
 		IsCommitteeMemberFn: func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
 			return authorizedSet[address.String()], nil
 		},
-		GetExtendedGroupFn: func(ctx context.Context, name string) (commonstypes.ExtendedGroup, error) {
+		GetGroupFn: func(ctx context.Context, name string) (commonstypes.Group, error) {
 			if name == "Commons Council" {
-				return commonstypes.ExtendedGroup{
+				return commonstypes.Group{
 					Index:         name,
 					PolicyAddress: councilPolicyAddr,
 				}, nil
 			}
-			return commonstypes.ExtendedGroup{Index: name}, nil
+			return commonstypes.Group{Index: name}, nil
 		},
 		IsCouncilAuthorizedFn: func(ctx context.Context, addr string, council string, committee string) bool {
 			if addr == councilPolicyAddr {

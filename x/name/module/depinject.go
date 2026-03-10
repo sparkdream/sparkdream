@@ -8,7 +8,6 @@ import (
 	"cosmossdk.io/depinject/appconfig"
 	"github.com/cosmos/cosmos-sdk/codec"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 
 	commonskeeper "sparkdream/x/commons/keeper"
 	"sparkdream/x/name/keeper"
@@ -39,7 +38,6 @@ type ModuleInputs struct {
 	AuthKeeper    types.AuthKeeper
 	BankKeeper    types.BankKeeper
 	CommonsKeeper commonskeeper.Keeper
-	GroupKeeper   groupkeeper.Keeper
 	RepKeeper     repkeeper.Keeper
 }
 
@@ -63,10 +61,9 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		authority,
 		in.BankKeeper,
 		in.CommonsKeeper,
-		in.GroupKeeper,
 		in.RepKeeper,
 	)
-	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper, in.CommonsKeeper, in.GroupKeeper)
+	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 
 	return ModuleOutputs{NameKeeper: k, Module: m}
 }

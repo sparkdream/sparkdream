@@ -8,7 +8,6 @@ import (
 	"cosmossdk.io/depinject"
 	"cosmossdk.io/log"
 	storetypes "cosmossdk.io/store/types"
-	circuitkeeper "cosmossdk.io/x/circuit/keeper"
 	upgradekeeper "cosmossdk.io/x/upgrade/keeper"
 
 	abci "github.com/cometbft/cometbft/abci/types"
@@ -29,14 +28,12 @@ import (
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	consensuskeeper "github.com/cosmos/cosmos-sdk/x/consensus/keeper"
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	mintkeeper "github.com/cosmos/cosmos-sdk/x/mint/keeper"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -102,11 +99,8 @@ type App struct {
 	MintKeeper            mintkeeper.Keeper
 	DistrKeeper           distrkeeper.Keeper
 	GovKeeper             *govkeeper.Keeper
-	GroupKeeper           groupkeeper.Keeper
 	UpgradeKeeper         *upgradekeeper.Keeper
-	AuthzKeeper           authzkeeper.Keeper
 	ConsensusParamsKeeper consensuskeeper.Keeper
-	CircuitBreakerKeeper  circuitkeeper.Keeper
 	ParamsKeeper          paramskeeper.Keeper
 
 	// ibc keepers
@@ -202,11 +196,8 @@ func New(
 		&app.MintKeeper,
 		&app.DistrKeeper,
 		&app.GovKeeper,
-		&app.GroupKeeper,
 		&app.UpgradeKeeper,
-		&app.AuthzKeeper,
 		&app.ConsensusParamsKeeper,
-		&app.CircuitBreakerKeeper,
 		&app.ParamsKeeper,
 		&app.SparkdreamKeeper,
 		&app.BlogKeeper,
@@ -224,6 +215,9 @@ func New(
 	); err != nil {
 		panic(err)
 	}
+
+	// Wire GovKeeper into Commons via adapter (concrete keeper → interface adapter).
+	app.CommonsKeeper.SetGovKeeper(NewGovKeeperAdapter(app.GovKeeper))
 
 	// Wire CommonsKeeper into Futarchy after depinject to break cyclic dependency.
 	app.FutarchyKeeper.SetCommonsKeeper(app.CommonsKeeper)
@@ -272,6 +266,9 @@ func New(
 	// build app
 	app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
 
+	// Wire MsgServiceRouter into Commons for proposal message execution.
+	app.CommonsKeeper.SetRouter(app.MsgServiceRouter())
+
 	anteOptions := cosmos_ante.HandlerOptions{
 		SignModeHandler: app.txConfig.SignModeHandler(),
 		SigGasConsumer:  cosmos_ante.DefaultSigVerificationGasConsumer,
@@ -294,9 +291,9 @@ func New(
 		cosmos_ante.NewIncrementSequenceDecorator(app.AuthKeeper),
 	}
 
-	// 3. Insert the group policy Decorator at the end
-	// This ensures the transaction is valid and signed before checking the allowlist
-	decorators = append(decorators, ante.NewGroupPolicyDecorator(app.GroupKeeper, app.CommonsKeeper))
+	// 3. Insert the proposal fee decorator at the end
+	// This ensures the transaction is valid and signed before checking fees
+	decorators = append(decorators, ante.NewProposalFeeDecorator(app.CommonsKeeper))
 
 	// 4. Chain them together and set
 	app.SetAnteHandler(sdk.ChainAnteDecorators(decorators...))

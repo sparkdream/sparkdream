@@ -42,7 +42,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgRegisterName,
-		namesimulation.SimulateMsgRegisterName(am.authKeeper, am.bankKeeper, am.commonsKeeper, am.groupKeeper, am.keeper, simState.TxConfig),
+		namesimulation.SimulateMsgRegisterName(am.authKeeper, am.bankKeeper, am.keeper.GetCommonsKeeper(), am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgSetPrimary          = "op_weight_msg_name"
@@ -72,7 +72,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgFileDispute,
-		namesimulation.SimulateMsgFileDispute(am.authKeeper, am.bankKeeper, am.commonsKeeper, am.groupKeeper, am.keeper, simState.TxConfig),
+		namesimulation.SimulateMsgFileDispute(am.authKeeper, am.bankKeeper, am.keeper.GetCommonsKeeper(), am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgResolveDispute          = "op_weight_msg_name"
@@ -87,7 +87,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgResolveDispute,
-		namesimulation.SimulateMsgResolveDispute(am.authKeeper, am.bankKeeper, am.commonsKeeper, am.groupKeeper, am.keeper, am.cdc, simState.TxConfig),
+		namesimulation.SimulateMsgResolveDispute(am.authKeeper, am.bankKeeper, am.keeper.GetCommonsKeeper(), am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgUpdateName          = "op_weight_msg_name"

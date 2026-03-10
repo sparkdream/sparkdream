@@ -38,31 +38,31 @@ func TestSpendFromCommons(t *testing.T) {
 
 	// A. Valid Council (Active, 1000 limit)
 	maxSpendPerEpoch := math.NewInt(1000)
-	validGroup := types.ExtendedGroup{
+	validGroup := types.Group{
 		PolicyAddress:         councilAddr.String(),
 		MaxSpendPerEpoch:      &maxSpendPerEpoch,
 		ActivationTime:        0,
 		CurrentTermExpiration: now + 3600, // Valid for 1 hour
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "ValidCouncil", validGroup))
+	require.NoError(t, k.Groups.Set(ctx, "ValidCouncil", validGroup))
 	// NEW: Must set Index for O(1) lookup
 	require.NoError(t, k.PolicyToName.Set(ctx, councilAddr.String(), "ValidCouncil"))
 
 	// B. Shell Group (Future Activation)
-	shellGroup := types.ExtendedGroup{
+	shellGroup := types.Group{
 		PolicyAddress:  shellAddr.String(),
 		ActivationTime: now + 3600, // Active in 1 hour
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "ShellGroup", shellGroup))
+	require.NoError(t, k.Groups.Set(ctx, "ShellGroup", shellGroup))
 	// NEW: Must set Index
 	require.NoError(t, k.PolicyToName.Set(ctx, shellAddr.String(), "ShellGroup"))
 
 	// C. Zombie Group (Expired Term)
-	zombieGroup := types.ExtendedGroup{
+	zombieGroup := types.Group{
 		PolicyAddress:         zombieAddr.String(),
 		CurrentTermExpiration: now - 3600, // Expired 1 hour ago
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "ZombieGroup", zombieGroup))
+	require.NoError(t, k.Groups.Set(ctx, "ZombieGroup", zombieGroup))
 	// NEW: Must set Index
 	require.NoError(t, k.PolicyToName.Set(ctx, zombieAddr.String(), "ZombieGroup"))
 

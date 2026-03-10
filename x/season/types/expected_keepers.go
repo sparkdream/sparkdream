@@ -99,8 +99,8 @@ type CommonsKeeper interface {
 	// Committee membership checks
 	IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 
-	// GetExtendedGroup retrieves a group by name (e.g., "Commons Council")
-	GetExtendedGroup(ctx context.Context, name string) (commonstypes.ExtendedGroup, error)
+	// GetGroup retrieves a group by name (e.g., "Commons Council")
+	GetGroup(ctx context.Context, name string) (commonstypes.Group, error)
 
 	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
 	// or committee membership.

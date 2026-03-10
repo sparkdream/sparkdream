@@ -137,6 +137,59 @@ submit_and_wait() {
     return 0
 }
 
+# Extract commons proposal ID from tx result
+get_commons_proposal_id() {
+    local TX_RESULT=$1
+    local prop_id=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"')
+    if [ -z "$prop_id" ] || [ "$prop_id" == "null" ]; then
+        prop_id=$(echo "$TX_RESULT" | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+    fi
+    echo "$prop_id"
+}
+
+# Vote on commons proposal and execute
+vote_and_execute_commons() {
+    local PROP_ID=$1
+
+    for VOTER in "alice" "bob" "carol"; do
+        VOTER_ADDR=$($BINARY keys show $VOTER -a --keyring-backend test)
+        echo "  $VOTER voting YES..."
+        TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes \
+            --from $VOTER -y \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000000uspark \
+            --output json 2>&1)
+        submit_and_wait "$TX_RES" "$VOTER vote" || echo "  Warning: $VOTER vote may have failed"
+    done
+
+    echo ""
+    echo "  Executing proposal..."
+    TX_RES=$($BINARY tx commons execute-proposal $PROP_ID \
+        --from alice -y \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000000uspark \
+        --gas 2000000 \
+        --output json 2>&1)
+
+    if submit_and_wait "$TX_RES" "proposal exec"; then
+        # Check proposal status to verify execution
+        sleep 5
+        local PROP_STATUS=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
+        if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
+            echo "  Proposal executed successfully"
+            return 0
+        else
+            echo "  WARNING: Proposal status is $PROP_STATUS after execution"
+            return 0
+        fi
+    else
+        echo "  FAIL: Could not execute proposal"
+        return 1
+    fi
+}
+
 # ========================================================================
 # PART 1: SETUP -- Register Names for Testing
 # ========================================================================
@@ -252,8 +305,8 @@ echo ""
 echo "--- PART 3: COUNCIL PROPOSAL -- Resolve Dispute ---"
 
 # Get Council Policy Address
-COMMONS_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json 2>&1)
-COMMONS_POLICY=$(echo "$COMMONS_INFO" | jq -r '.extended_group.policy_address')
+COMMONS_INFO=$($BINARY query commons get-group "Commons Council" --output json 2>&1)
+COMMONS_POLICY=$(echo "$COMMONS_INFO" | jq -r '.group.policy_address')
 
 if [ -z "$COMMONS_POLICY" ] || [ "$COMMONS_POLICY" == "null" ]; then
     echo "  ERROR: No Group Policy found for Commons Council"
@@ -264,10 +317,7 @@ echo "  Council Policy: $COMMONS_POLICY"
 # Create proposal JSON: transfer_approved=true means dispute upheld, name transfers to claimant
 cat > "$PROPOSAL_DIR/resolve_dispute.json" <<EOF
 {
-  "group_policy_address": "$COMMONS_POLICY",
-  "proposers": ["$ALICE_ADDR"],
-  "title": "Resolve Name Dispute: $TARGET_NAME",
-  "summary": "Transfer name '$TARGET_NAME' to claimant. Dispute upheld.",
+  "policy_address": "$COMMONS_POLICY",
   "messages": [
     {
       "@type": "/sparkdream.name.v1.MsgResolveDispute",
@@ -276,12 +326,13 @@ cat > "$PROPOSAL_DIR/resolve_dispute.json" <<EOF
       "new_owner": "$CLAIMANT_ADDR",
       "transfer_approved": true
     }
-  ]
+  ],
+  "metadata": "Resolve Name Dispute: $TARGET_NAME - Transfer to claimant. Dispute upheld."
 }
 EOF
 
 echo "  Submitting proposal..."
-TX_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/resolve_dispute.json" \
+TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/resolve_dispute.json" \
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -295,7 +346,7 @@ if ! submit_and_wait "$TX_RES" "proposal submission"; then
 fi
 
 # Extract proposal ID
-PROPOSAL_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"')
+PROPOSAL_ID=$(get_commons_proposal_id "$TX_RESULT")
 
 if [ -z "$PROPOSAL_ID" ]; then
     echo "  ERROR: Could not extract proposal ID"
@@ -310,37 +361,8 @@ echo ""
 # ========================================================================
 echo "--- PART 4: VOTE & EXECUTE ---"
 
-for VOTER in "alice" "bob" "carol"; do
-    VOTER_ADDR=$($BINARY keys show $VOTER -a --keyring-backend test)
-    echo "  $VOTER voting YES..."
-    TX_RES=$($BINARY tx group vote $PROPOSAL_ID $VOTER_ADDR VOTE_OPTION_YES "Transfer approved" \
-        --from $VOTER -y \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000000uspark \
-        --output json 2>&1)
-    submit_and_wait "$TX_RES" "$VOTER vote" || echo "  Warning: $VOTER vote may have failed"
-done
-
-echo ""
-echo "  Executing proposal..."
-TX_RES=$($BINARY tx group exec $PROPOSAL_ID \
-    --from alice -y \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000000uspark \
-    --gas 2000000 \
-    --output json 2>&1)
-
-if submit_and_wait "$TX_RES" "proposal exec"; then
-    if echo "$TX_RESULT" | jq -r '.' | grep -q "PROPOSAL_EXECUTOR_RESULT_SUCCESS"; then
-        echo "  Proposal executed successfully"
-    else
-        echo "  WARNING: Execution may have failed (MinExecutionPeriod or threshold not met)"
-        echo "  $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null | head -3)"
-    fi
-else
-    echo "  FAIL: Could not execute proposal"
+vote_and_execute_commons $PROPOSAL_ID
+if [ $? -ne 0 ]; then
     FAILURES=$((FAILURES + 1))
 fi
 
@@ -463,10 +485,7 @@ if [ "$PART6_READY" == "true" ]; then
     # Owner (Alice) gets contest stake back, claimant (name_claimant) stake burned
     cat > "$PROPOSAL_DIR/resolve_contest.json" <<EOF
 {
-  "group_policy_address": "$COMMONS_POLICY",
-  "proposers": ["$ALICE_ADDR"],
-  "title": "Resolve Contested Name Dispute: $CONTEST_NAME",
-  "summary": "Owner Alice wins contested dispute. Dismiss claimant's claim.",
+  "policy_address": "$COMMONS_POLICY",
   "messages": [
     {
       "@type": "/sparkdream.name.v1.MsgResolveDispute",
@@ -475,12 +494,13 @@ if [ "$PART6_READY" == "true" ]; then
       "new_owner": "",
       "transfer_approved": false
     }
-  ]
+  ],
+  "metadata": "Resolve Contested Name Dispute: $CONTEST_NAME - Owner Alice wins. Dismiss claimant."
 }
 EOF
 
     echo "  Submitting proposal..."
-    TX_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/resolve_contest.json" \
+    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/resolve_contest.json" \
         --from alice -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -488,40 +508,11 @@ EOF
         --output json 2>&1)
 
     if submit_and_wait "$TX_RES" "contest proposal submission"; then
-        PROPOSAL_ID2=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"')
+        PROPOSAL_ID2=$(get_commons_proposal_id "$TX_RESULT")
         echo "  Proposal ID: $PROPOSAL_ID2"
 
-        # Vote
-        for VOTER in "alice" "bob" "carol"; do
-            VOTER_ADDR=$($BINARY keys show $VOTER -a --keyring-backend test)
-            echo "  $VOTER voting YES..."
-            TX_RES=$($BINARY tx group vote $PROPOSAL_ID2 $VOTER_ADDR VOTE_OPTION_YES "Owner wins" \
-                --from $VOTER -y \
-                --chain-id $CHAIN_ID \
-                --keyring-backend test \
-                --fees 5000000uspark \
-                --output json 2>&1)
-            submit_and_wait "$TX_RES" "$VOTER vote" || echo "  Warning: $VOTER vote may have failed"
-        done
-
-        echo ""
-        echo "  Executing proposal..."
-        TX_RES=$($BINARY tx group exec $PROPOSAL_ID2 \
-            --from alice -y \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000000uspark \
-            --gas 2000000 \
-            --output json 2>&1)
-
-        if submit_and_wait "$TX_RES" "contest proposal exec"; then
-            if echo "$TX_RESULT" | jq -r '.' | grep -q "PROPOSAL_EXECUTOR_RESULT_SUCCESS"; then
-                echo "  Proposal executed"
-            else
-                echo "  WARNING: Execution may have failed"
-                echo "  $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null | head -3)"
-            fi
-        else
+        vote_and_execute_commons $PROPOSAL_ID2
+        if [ $? -ne 0 ]; then
             echo "  FAIL: Could not execute contest proposal"
             FAILURES=$((FAILURES + 1))
         fi
@@ -680,10 +671,7 @@ if [ "$PART9_READY" == "true" ]; then
     # - Owner's contest stake burned
     cat > "$PROPOSAL_DIR/resolve_challenger_wins.json" <<EOF
 {
-  "group_policy_address": "$COMMONS_POLICY",
-  "proposers": ["$ALICE_ADDR"],
-  "title": "Resolve Contested Name Dispute: $CHALLENGER_WINS_NAME",
-  "summary": "Challenger wins. Transfer name to claimant, burn owner contest stake.",
+  "policy_address": "$COMMONS_POLICY",
   "messages": [
     {
       "@type": "/sparkdream.name.v1.MsgResolveDispute",
@@ -692,12 +680,13 @@ if [ "$PART9_READY" == "true" ]; then
       "new_owner": "$CLAIMANT_ADDR",
       "transfer_approved": true
     }
-  ]
+  ],
+  "metadata": "Resolve Contested Name Dispute: $CHALLENGER_WINS_NAME - Challenger wins. Transfer name."
 }
 EOF
 
     echo "  Submitting proposal (transfer_approved=true)..."
-    TX_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/resolve_challenger_wins.json" \
+    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/resolve_challenger_wins.json" \
         --from alice -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -705,40 +694,11 @@ EOF
         --output json 2>&1)
 
     if submit_and_wait "$TX_RES" "challenger-wins proposal submission"; then
-        PROPOSAL_ID3=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"')
+        PROPOSAL_ID3=$(get_commons_proposal_id "$TX_RESULT")
         echo "  Proposal ID: $PROPOSAL_ID3"
 
-        # Vote
-        for VOTER in "alice" "bob" "carol"; do
-            VOTER_ADDR=$($BINARY keys show $VOTER -a --keyring-backend test)
-            echo "  $VOTER voting YES..."
-            TX_RES=$($BINARY tx group vote $PROPOSAL_ID3 $VOTER_ADDR VOTE_OPTION_YES "Challenger wins" \
-                --from $VOTER -y \
-                --chain-id $CHAIN_ID \
-                --keyring-backend test \
-                --fees 5000000uspark \
-                --output json 2>&1)
-            submit_and_wait "$TX_RES" "$VOTER vote" || echo "  Warning: $VOTER vote may have failed"
-        done
-
-        echo ""
-        echo "  Executing proposal..."
-        TX_RES=$($BINARY tx group exec $PROPOSAL_ID3 \
-            --from alice -y \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000000uspark \
-            --gas 2000000 \
-            --output json 2>&1)
-
-        if submit_and_wait "$TX_RES" "challenger-wins proposal exec"; then
-            if echo "$TX_RESULT" | jq -r '.' | grep -q "PROPOSAL_EXECUTOR_RESULT_SUCCESS"; then
-                echo "  Proposal executed"
-            else
-                echo "  WARNING: Execution may have failed"
-                echo "  $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null | head -3)"
-            fi
-        else
+        vote_and_execute_commons $PROPOSAL_ID3
+        if [ $? -ne 0 ]; then
             echo "  FAIL: Could not execute challenger-wins proposal"
             FAILURES=$((FAILURES + 1))
         fi

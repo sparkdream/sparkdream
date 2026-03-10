@@ -4,7 +4,7 @@ package sparkdream.commons.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
-import "sparkdream/commons/v1/extended_group.proto";
+import "sparkdream/commons/v1/group.proto";
 import "sparkdream/commons/v1/params.proto";
 import "sparkdream/commons/v1/policy_permissions.proto";
 
@@ -18,5 +18,44 @@ message GenesisState {
     (amino.dont_omitempty) = true
   ];
   repeated PolicyPermissions policy_permissions_map = 2 [(gogoproto.nullable) = false];
-  repeated ExtendedGroup extended_group_map = 3 [(gogoproto.nullable) = false];
+  repeated Group group_map = 3 [(gogoproto.nullable) = false];
+
+  // members stores all council members keyed by council_name
+  repeated CouncilMembers council_members = 4 [(gogoproto.nullable) = false];
+  // decision_policies stores decision policies keyed by policy_address
+  repeated PolicyWithAddress decision_policies = 5 [(gogoproto.nullable) = false];
+  // proposals stores all proposals
+  repeated Proposal proposals = 6 [(gogoproto.nullable) = false];
+  // next_proposal_id is the next auto-increment proposal ID
+  uint64 next_proposal_id = 7;
+  // next_council_id is the next auto-increment council ID
+  uint64 next_council_id = 8;
+  // policy_versions stores the current version for each policy address
+  repeated PolicyVersionEntry policy_versions = 9 [(gogoproto.nullable) = false];
+  // votes stores all active votes
+  repeated ProposalVotes proposal_votes = 10 [(gogoproto.nullable) = false];
+}
+
+// CouncilMembers groups members by council name for genesis export.
+message CouncilMembers {
+  string council_name = 1;
+  repeated Member members = 2 [(gogoproto.nullable) = false];
+}
+
+// PolicyWithAddress pairs a policy address with its decision policy.
+message PolicyWithAddress {
+  string policy_address = 1;
+  DecisionPolicy decision_policy = 2 [(gogoproto.nullable) = false];
+}
+
+// PolicyVersionEntry pairs a policy address with its current version.
+message PolicyVersionEntry {
+  string policy_address = 1;
+  uint64 version = 2;
+}
+
+// ProposalVotes groups votes by proposal ID for genesis export.
+message ProposalVotes {
+  uint64 proposal_id = 1;
+  repeated Vote votes = 2 [(gogoproto.nullable) = false];
 }

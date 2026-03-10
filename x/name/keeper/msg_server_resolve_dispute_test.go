@@ -257,7 +257,7 @@ func TestResolveDispute(t *testing.T) {
 			setup: func() {
 				f.mockRep.Reset()
 				f.mockCommons.Reset()
-				f.mockCommons.ExtendedGroups["Commons Council"] = commonstypes.ExtendedGroup{
+				f.mockCommons.Groups["Commons Council"] = commonstypes.Group{
 					PolicyAddress: f.councilAddr,
 				}
 				f.keeper.SetName(f.ctx, types.NameRecord{Name: "eve", Owner: owner})

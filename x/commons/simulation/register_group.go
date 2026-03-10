@@ -31,16 +31,16 @@ func SimulateMsgRegisterGroup(
 		simAccount, _ := simtypes.RandomAcc(r, accs)
 
 		// 2. STATE INJECTION (The Hack)
-		// The msg_server requires the signer to be a registered ExtendedGroup Policy.
-		// We inject a fake ExtendedGroup record where the PolicyAddress is our simAccount.
+		// The msg_server requires the signer to be a registered Group Policy.
+		// We inject a fake Group record where the PolicyAddress is our simAccount.
 		// Use hyphens (valid) instead of underscores (invalid)
 		fakeParentName := "sim-parent-" + simtypes.RandStringOfLength(r, 5)
-		fakeParent := types.ExtendedGroup{
+		fakeParent := types.Group{
 			GroupId:       uint64(simtypes.RandIntBetween(r, 1, 1000)),
 			PolicyAddress: simAccount.Address.String(),
 		}
 
-		if err := k.ExtendedGroup.Set(ctx, fakeParentName, fakeParent); err != nil {
+		if err := k.Groups.Set(ctx, fakeParentName, fakeParent); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to setup fake parent"), nil, err
 		}
 

@@ -23,7 +23,7 @@ ECO_MODULE_ADDR=$($BINARY query auth module-account ecosystem --output json | jq
 get_policy_addr() {
     local name="$1"
     # Suppress error if group not found, return empty
-    $BINARY query commons get-extended-group "$name" --output json 2>/dev/null | jq -r '.extended_group.policy_address // empty'
+    $BINARY query commons get-group "$name" --output json 2>/dev/null | jq -r '.group.policy_address // empty'
 }
 
 COMMONS_POLICY=$(get_policy_addr "Commons Council")

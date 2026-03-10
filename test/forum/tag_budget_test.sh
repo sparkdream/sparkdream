@@ -16,8 +16,15 @@ fi
 
 source "$SCRIPT_DIR/.test_env"
 
-# Group 9 (Commons Ops Committee) - threshold=1, alice is sole member
-GROUP_POLICY_ADDR="sprkdrm10ezj2lmcj3flaacqwrzv278aled0pen8cnx257sggeng2fdel53qq27zxg"
+# Look up Commons Operations Committee policy address
+COMM_OPS_INFO=$($BINARY query commons get-group "Commons Operations Committee" --output json 2>&1)
+GROUP_POLICY_ADDR=$(echo "$COMM_OPS_INFO" | jq -r '.group.policy_address')
+
+if [ -z "$GROUP_POLICY_ADDR" ] || [ "$GROUP_POLICY_ADDR" == "null" ]; then
+    echo "ERROR: Could not find Commons Operations Committee"
+    exit 1
+fi
+
 GOV_MODULE_ADDR="sprkdrm10d07y265gmmuvt4z0w9aw880jnsr700j865qcw"
 
 # Use existing genesis tags for budgets (separate from reporting tags)
@@ -76,20 +83,15 @@ extract_event_value() {
     echo "$TX_RESULT" | jq -r ".events[] | select(.type==\"$EVENT_TYPE\") | .attributes[] | select(.key==\"$ATTR_KEY\") | .value" | tr -d '"'
 }
 
-# Submit a group proposal to Group 9, auto-vote, and execute.
-# Uses --exec try to auto-vote YES on submit, then waits for min_execution_period,
-# then executes separately via tx group exec.
-# Usage: submit_and_exec_group_proposal <proposal_json_file>
+# Submit a commons proposal, vote YES, and execute.
+# Usage: submit_and_exec_commons_proposal <proposal_json_file>
 # Sets: GP_EXEC_RESULT (tx result of execution)
-submit_and_exec_group_proposal() {
+submit_and_exec_commons_proposal() {
     local PROPOSAL_FILE=$1
 
-    # Submit proposal with --exec try: proposer signature counts as YES vote,
-    # and it attempts execution (which will fail due to min_execution_period=1s,
-    # but the proposal will be in ACCEPTED state with the vote recorded).
-    local TX_RES=$($BINARY tx group submit-proposal \
+    # Submit proposal
+    local TX_RES=$($BINARY tx commons submit-proposal \
         "$PROPOSAL_FILE" \
-        --exec try \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -98,16 +100,15 @@ submit_and_exec_group_proposal() {
         -y \
         --output json 2>&1)
 
-    # Check for immediate rejection (CheckTx failure)
     local INIT_CODE=$(echo "$TX_RES" | jq -r '.code // "0"')
     if [ "$INIT_CODE" != "0" ] && [ "$INIT_CODE" != "null" ]; then
-        echo "  Group proposal rejected: $(echo "$TX_RES" | jq -r '.raw_log')"
+        echo "  Proposal rejected: $(echo "$TX_RES" | jq -r '.raw_log')"
         return 1
     fi
 
     local TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  Failed to submit group proposal"
+        echo "  Failed to submit proposal"
         echo "  $TX_RES"
         return 1
     fi
@@ -116,30 +117,35 @@ submit_and_exec_group_proposal() {
     local TX_RESULT=$(wait_for_tx $TXHASH)
 
     if ! check_tx_success "$TX_RESULT"; then
-        echo "  Group proposal submission failed"
+        echo "  Proposal submission tx failed"
         return 1
     fi
 
-    # Extract proposal ID from events
-    local PROPOSAL_ID=$(extract_event_value "$TX_RESULT" "cosmos.group.v1.EventSubmitProposal" "proposal_id")
-    if [ -z "$PROPOSAL_ID" ]; then
-        PROPOSAL_ID=$(echo "$TX_RESULT" | jq -r '[.events[] | select(.type | test("submit_proposal|SubmitProposal")) | .attributes[] | select(.key=="proposal_id") | .value] | first // empty' | tr -d '"')
-    fi
-
+    # Extract proposal ID
+    local PROPOSAL_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
     if [ -z "$PROPOSAL_ID" ]; then
         echo "  Could not extract proposal ID"
         echo "  Events: $(echo "$TX_RESULT" | jq -c '[.events[].type]' 2>/dev/null)"
         return 1
     fi
 
-    echo "  Group proposal #$PROPOSAL_ID submitted"
+    echo "  Commons proposal #$PROPOSAL_ID submitted"
+
+    # Vote YES (alice is sole member with threshold=1, so one vote suffices)
+    TX_RES=$($BINARY tx commons vote-proposal $PROPOSAL_ID yes \
+        --from alice \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000000uspark \
+        -y \
+        --output json 2>&1)
+    sleep 5
 
     # Wait for min_execution_period (1s) + buffer
     sleep 3
 
-    # Execute the proposal (now that min_execution_period has passed)
-    TX_RES=$($BINARY tx group exec \
-        "$PROPOSAL_ID" \
+    # Execute the proposal
+    TX_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -148,7 +154,6 @@ submit_and_exec_group_proposal() {
         -y \
         --output json 2>&1)
 
-    # Check for immediate rejection
     INIT_CODE=$(echo "$TX_RES" | jq -r '.code // "0"')
     if [ "$INIT_CODE" != "0" ] && [ "$INIT_CODE" != "null" ]; then
         echo "  Exec rejected: $(echo "$TX_RES" | jq -r '.raw_log')"
@@ -166,19 +171,17 @@ submit_and_exec_group_proposal() {
     GP_EXEC_RESULT=$(wait_for_tx $TXHASH)
 
     if ! check_tx_success "$GP_EXEC_RESULT"; then
-        echo "  Group proposal execution tx failed"
+        echo "  Proposal execution tx failed"
         return 1
     fi
 
-    # Check inner execution result (the group module wraps the inner message execution)
-    local EXEC_RESULT=$(echo "$GP_EXEC_RESULT" | jq -r '[.events[] | select(.type=="cosmos.group.v1.EventExec") | .attributes[] | select(.key=="result") | .value] | first // empty' | tr -d '"')
-
-    if [ "$EXEC_RESULT" == "PROPOSAL_EXECUTOR_RESULT_SUCCESS" ]; then
-        echo "  Group proposal executed successfully"
+    # Check proposal status
+    local PROP_STATUS=$($BINARY query commons get-proposal $PROPOSAL_ID --output json 2>/dev/null | jq -r '.proposal.status')
+    if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
+        echo "  Proposal executed successfully"
         return 0
     else
-        local EXEC_LOGS=$(echo "$GP_EXEC_RESULT" | jq -r '[.events[] | select(.type=="cosmos.group.v1.EventExec") | .attributes[] | select(.key=="logs") | .value] | first // empty' | tr -d '"')
-        echo "  Group proposal inner execution failed: $EXEC_LOGS"
+        echo "  Proposal status: $PROP_STATUS (expected EXECUTED)"
         return 1
     fi
 }
@@ -241,10 +244,10 @@ cat > "$GOV_PROPOSAL_FILE" <<EOF
     }
   ],
   "metadata": "",
-  "deposit": "50000000uspark",
+  "deposit": "100000000uspark",
   "title": "Add forum tag budget permissions to Commons Ops",
   "summary": "Enable Commons Ops committee to manage tag budgets",
-  "expedited": false
+  "expedited": true
 }
 EOF
 
@@ -310,9 +313,9 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     wait_for_tx $TXHASH > /dev/null 2>&1
 fi
 
-# Wait for voting period (60s in genesis config)
-echo "  Waiting for voting period (65s)..."
-sleep 65
+# Wait for expedited voting period (40s)
+echo "  Waiting for voting period (45s)..."
+sleep 45
 
 # Verify proposal passed
 PROPOSAL_STATUS=$($BINARY query gov proposal "$GOV_PROPOSAL_ID" --output json 2>&1 | jq -r '.proposal.status // .status // "unknown"')
@@ -351,7 +354,7 @@ echo "  PART 0 COMPLETE"
 echo ""
 
 # ========================================================================
-# PART 1: CREATE TAG BUDGET (via group proposal)
+# PART 1: CREATE TAG BUDGET (via commons proposal)
 # ========================================================================
 echo "--- PART 1: CREATE TAG BUDGET ---"
 
@@ -359,12 +362,12 @@ RESULT_CREATE="FAIL"
 BUDGET_AMOUNT="1000000"
 
 echo "Creating tag budget for tag: $TAG_NAME (amount: $BUDGET_AMOUNT)"
-echo "Via group proposal to Commons Ops ($GROUP_POLICY_ADDR)"
+echo "Via commons proposal to Commons Ops ($GROUP_POLICY_ADDR)"
 
 PROPOSAL_FILE="/tmp/tag_budget_create_proposal.json"
 cat > "$PROPOSAL_FILE" <<EOF
 {
-  "group_policy_address": "$GROUP_POLICY_ADDR",
+  "policy_address": "$GROUP_POLICY_ADDR",
   "messages": [
     {
       "@type": "/sparkdream.forum.v1.MsgCreateTagBudget",
@@ -374,15 +377,12 @@ cat > "$PROPOSAL_FILE" <<EOF
       "members_only": false
     }
   ],
-  "metadata": "",
-  "title": "Create tag budget for $TAG_NAME",
-  "summary": "Test: create tag budget",
-  "proposers": ["$ALICE_ADDR"]
+  "metadata": ""
 }
 EOF
 
 TAG_BUDGET_ID=""
-if submit_and_exec_group_proposal "$PROPOSAL_FILE"; then
+if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
     TAG_BUDGET_ID=$(extract_event_value "$GP_EXEC_RESULT" "tag_budget_created" "budget_id")
     if [ -z "$TAG_BUDGET_ID" ] || [ "$TAG_BUDGET_ID" == "null" ]; then
         # Fallback: budget IDs are auto-incremented from 0, count-1 = latest ID
@@ -512,19 +512,19 @@ echo "  Result: $RESULT_TOPUP"
 echo ""
 
 # ========================================================================
-# PART 5: TOGGLE TAG BUDGET (Deactivate) - via group proposal
+# PART 5: TOGGLE TAG BUDGET (Deactivate) - via commons proposal
 # ========================================================================
 echo "--- PART 5: TOGGLE TAG BUDGET (Deactivate) ---"
 
 RESULT_DEACTIVATE="FAIL"
 
 if [ -n "$TAG_BUDGET_ID" ]; then
-    echo "Deactivating tag budget: $TAG_BUDGET_ID (via group proposal)"
+    echo "Deactivating tag budget: $TAG_BUDGET_ID (via commons proposal)"
 
     PROPOSAL_FILE="/tmp/tag_budget_toggle_off.json"
     cat > "$PROPOSAL_FILE" <<EOF
 {
-  "group_policy_address": "$GROUP_POLICY_ADDR",
+  "policy_address": "$GROUP_POLICY_ADDR",
   "messages": [
     {
       "@type": "/sparkdream.forum.v1.MsgToggleTagBudget",
@@ -533,14 +533,11 @@ if [ -n "$TAG_BUDGET_ID" ]; then
       "active": false
     }
   ],
-  "metadata": "",
-  "title": "Deactivate tag budget $TAG_BUDGET_ID",
-  "summary": "Test: deactivate tag budget",
-  "proposers": ["$ALICE_ADDR"]
+  "metadata": ""
 }
 EOF
 
-    if submit_and_exec_group_proposal "$PROPOSAL_FILE"; then
+    if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
         # Verify status (proto omits false, so null means false)
         BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         STATUS=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.active // false')
@@ -557,19 +554,19 @@ echo "  Result: $RESULT_DEACTIVATE"
 echo ""
 
 # ========================================================================
-# PART 6: TOGGLE TAG BUDGET (Reactivate) - via group proposal
+# PART 6: TOGGLE TAG BUDGET (Reactivate) - via commons proposal
 # ========================================================================
 echo "--- PART 6: TOGGLE TAG BUDGET (Reactivate) ---"
 
 RESULT_REACTIVATE="FAIL"
 
 if [ -n "$TAG_BUDGET_ID" ]; then
-    echo "Reactivating tag budget: $TAG_BUDGET_ID (via group proposal)"
+    echo "Reactivating tag budget: $TAG_BUDGET_ID (via commons proposal)"
 
     PROPOSAL_FILE="/tmp/tag_budget_toggle_on.json"
     cat > "$PROPOSAL_FILE" <<EOF
 {
-  "group_policy_address": "$GROUP_POLICY_ADDR",
+  "policy_address": "$GROUP_POLICY_ADDR",
   "messages": [
     {
       "@type": "/sparkdream.forum.v1.MsgToggleTagBudget",
@@ -578,14 +575,11 @@ if [ -n "$TAG_BUDGET_ID" ]; then
       "active": true
     }
   ],
-  "metadata": "",
-  "title": "Reactivate tag budget $TAG_BUDGET_ID",
-  "summary": "Test: reactivate tag budget",
-  "proposers": ["$ALICE_ADDR"]
+  "metadata": ""
 }
 EOF
 
-    if submit_and_exec_group_proposal "$PROPOSAL_FILE"; then
+    if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
         # Verify status
         BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         STATUS=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.active // "N/A"')
@@ -748,19 +742,19 @@ echo "  Part 7b result: $RESULT_EDIT_TAGS"
 echo ""
 
 # ========================================================================
-# PART 8: WITHDRAW FROM TAG BUDGET - via group proposal
+# PART 8: WITHDRAW FROM TAG BUDGET - via commons proposal
 # ========================================================================
 echo "--- PART 8: WITHDRAW FROM TAG BUDGET ---"
 
 RESULT_WITHDRAW="FAIL"
 
 if [ -n "$TAG_BUDGET_ID" ]; then
-    echo "Withdrawing from tag budget: $TAG_BUDGET_ID (full withdrawal via group proposal)"
+    echo "Withdrawing from tag budget: $TAG_BUDGET_ID (full withdrawal via commons proposal)"
 
     PROPOSAL_FILE="/tmp/tag_budget_withdraw.json"
     cat > "$PROPOSAL_FILE" <<EOF
 {
-  "group_policy_address": "$GROUP_POLICY_ADDR",
+  "policy_address": "$GROUP_POLICY_ADDR",
   "messages": [
     {
       "@type": "/sparkdream.forum.v1.MsgWithdrawTagBudget",
@@ -768,14 +762,11 @@ if [ -n "$TAG_BUDGET_ID" ]; then
       "budget_id": "$TAG_BUDGET_ID"
     }
   ],
-  "metadata": "",
-  "title": "Withdraw tag budget $TAG_BUDGET_ID",
-  "summary": "Test: withdraw tag budget",
-  "proposers": ["$ALICE_ADDR"]
+  "metadata": ""
 }
 EOF
 
-    if submit_and_exec_group_proposal "$PROPOSAL_FILE"; then
+    if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
         # Verify
         BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         NEW_BALANCE=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.pool_balance // "N/A"')
@@ -792,7 +783,7 @@ echo "  Result: $RESULT_WITHDRAW"
 echo ""
 
 # ========================================================================
-# PART 9: CREATE SECOND TAG BUDGET (via group proposal)
+# PART 9: CREATE SECOND TAG BUDGET (via commons proposal)
 # ========================================================================
 echo "--- PART 9: CREATE SECOND TAG BUDGET ---"
 
@@ -804,7 +795,7 @@ echo "Creating second tag budget for tag: $TAG_NAME2 (amount: $BUDGET_AMOUNT2)"
 PROPOSAL_FILE="/tmp/tag_budget_create2_proposal.json"
 cat > "$PROPOSAL_FILE" <<EOF
 {
-  "group_policy_address": "$GROUP_POLICY_ADDR",
+  "policy_address": "$GROUP_POLICY_ADDR",
   "messages": [
     {
       "@type": "/sparkdream.forum.v1.MsgCreateTagBudget",
@@ -814,15 +805,12 @@ cat > "$PROPOSAL_FILE" <<EOF
       "members_only": false
     }
   ],
-  "metadata": "",
-  "title": "Create tag budget for $TAG_NAME2",
-  "summary": "Test: create second tag budget",
-  "proposers": ["$ALICE_ADDR"]
+  "metadata": ""
 }
 EOF
 
 TAG_BUDGET_ID_2=""
-if submit_and_exec_group_proposal "$PROPOSAL_FILE"; then
+if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
     TAG_BUDGET_ID_2=$(extract_event_value "$GP_EXEC_RESULT" "tag_budget_created" "budget_id")
     if [ -z "$TAG_BUDGET_ID_2" ] || [ "$TAG_BUDGET_ID_2" == "null" ]; then
         # Fallback: budget IDs are auto-incremented from 0, count-1 = latest ID

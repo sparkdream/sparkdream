@@ -11,7 +11,7 @@ import (
 func TestGenesis(t *testing.T) {
 	genesisState := types.GenesisState{
 		Params:               types.DefaultParams(),
-		PolicyPermissionsMap: []types.PolicyPermissions{{PolicyAddress: "0"}, {PolicyAddress: "1"}}, ExtendedGroupMap: []types.ExtendedGroup{{Index: "0"}, {Index: "1"}}}
+		PolicyPermissionsMap: []types.PolicyPermissions{{PolicyAddress: "0"}, {PolicyAddress: "1"}}, GroupMap: []types.Group{{Index: "0"}, {Index: "1"}}}
 
 	f := initFixture(t)
 	err := f.keeper.InitGenesis(f.ctx, genesisState)
@@ -22,6 +22,6 @@ func TestGenesis(t *testing.T) {
 
 	require.EqualExportedValues(t, genesisState.Params, got.Params)
 	require.EqualExportedValues(t, genesisState.PolicyPermissionsMap, got.PolicyPermissionsMap)
-	require.EqualExportedValues(t, genesisState.ExtendedGroupMap, got.ExtendedGroupMap)
+	require.EqualExportedValues(t, genesisState.GroupMap, got.GroupMap)
 
 }

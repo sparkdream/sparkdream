@@ -161,9 +161,9 @@ wait_for_pass $PROP_ID
 echo "--- VERIFYING REGISTRY ---"
 
 # Check Commons
-COMMONS_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json)
-COMMONS_POLICY=$(echo $COMMONS_INFO | jq -r '.extended_group.policy_address')
-COMMONS_PARENT=$(echo $COMMONS_INFO | jq -r '.extended_group.parent_policy_address')
+COMMONS_INFO=$($BINARY query commons get-group "Commons Council" --output json)
+COMMONS_POLICY=$(echo $COMMONS_INFO | jq -r '.group.policy_address')
+COMMONS_PARENT=$(echo $COMMONS_INFO | jq -r '.group.parent_policy_address')
 
 if [ "$COMMONS_PARENT" == "$GOV_ADDR" ]; then
     echo "✅ Commons Council Registered. Policy: $COMMONS_POLICY"

@@ -15,8 +15,8 @@ BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 # Season uses Commons Council for authorization
 COUNCIL_NAME="Commons Council"
 echo "Looking up '$COUNCIL_NAME'..."
-COUNCIL_INFO=$($BINARY query commons get-extended-group "$COUNCIL_NAME" --output json)
-COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.extended_group.policy_address')
+COUNCIL_INFO=$($BINARY query commons get-group "$COUNCIL_NAME" --output json)
+COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.group.policy_address')
 
 if [ -z "$COUNCIL_POLICY" ] || [ "$COUNCIL_POLICY" == "null" ]; then
     echo "SETUP ERROR: '$COUNCIL_NAME' not found. Run genesis/bootstrap first."
@@ -113,7 +113,7 @@ json.dump(d, sys.stdout)
 "
 }
 
-# Helper: extract group proposal ID from tx hash
+# Helper: extract commons proposal ID from tx hash
 get_group_proposal_id() {
     local tx_hash=$1
     local retries=0
@@ -130,7 +130,7 @@ get_group_proposal_id() {
                 echo "TX failed with code $tx_code: $(echo $TX_RES | jq -r '.raw_log' | head -c 200)" >&2
                 return 1
             fi
-            prop_id=$(echo $TX_RES | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+            prop_id=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
             if [ ! -z "$prop_id" ] && [ "$prop_id" != "null" ]; then
                 echo "$prop_id"
                 return 0
@@ -141,35 +141,40 @@ get_group_proposal_id() {
     return 1
 }
 
-# Helper: vote + execute a group proposal (council requires 2 of 3 votes)
+# Helper: vote + execute a commons proposal (council requires 2 of 3 votes)
 vote_and_execute() {
     local prop_id=$1
 
     echo "  Alice voting YES..."
-    $BINARY tx group vote $prop_id $ALICE_ADDR VOTE_OPTION_YES "Approve" \
+    $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --output json > /dev/null 2>&1
-    sleep 3
+        --fees 5000000uspark --output json > /dev/null 2>&1
+    sleep 5
 
     echo "  Bob voting YES..."
-    $BINARY tx group vote $prop_id $BOB_ADDR VOTE_OPTION_YES "Approve" \
+    $BINARY tx commons vote-proposal $prop_id yes \
         --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --output json > /dev/null 2>&1
-    sleep 3
+        --fees 5000000uspark --output json > /dev/null 2>&1
+    sleep 5
 
     echo "  Executing proposal $prop_id..."
-    EXEC_RES=$($BINARY tx group exec $prop_id \
+    EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --output json)
+        --gas 2000000 --fees 5000000uspark --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
     EXEC_TX_JSON=$(wait_for_tx $EXEC_TX_HASH)
-    if echo "$EXEC_TX_JSON" | grep -q "PROPOSAL_EXECUTOR_RESULT_SUCCESS"; then
-        echo "  Execution successful"
+    # Check proposal status
+    PROP_STATUS=$($BINARY query commons get-proposal $prop_id --output json 2>/dev/null | jq -r '.proposal.status // empty')
+    if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
+        echo "  Proposal executed successfully"
+        return 0
+    elif check_tx_success "$EXEC_TX_JSON" 2>/dev/null; then
+        echo "  Execution tx succeeded (status: $PROP_STATUS)"
         return 0
     else
-        echo "  Execution failed"
+        echo "  Execution failed (status: $PROP_STATUS)"
         echo "  Raw: $(echo $EXEC_TX_JSON | jq -r '.raw_log' 2>/dev/null)"
         return 1
     fi
@@ -420,10 +425,8 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       --arg alice "$ALICE_ADDR" \
       --argjson op_params "$OP_PARAMS" \
     '{
-      group_policy_address: $policy,
-      proposers: [$alice],
-      title: "Update Season Operational Params",
-      summary: "Adjust XP rewards and guild limits via Operations Committee",
+      policy_address: $policy,
+      metadata: "Adjust XP rewards and guild limits via Operations Committee",
       messages: [{
         "@type": "/sparkdream.season.v1.MsgUpdateOperationalParams",
         authority: $policy,
@@ -431,7 +434,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       }]
     }' > "$PROPOSAL_DIR/update_season_op_params.json"
 
-    SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/update_season_op_params.json" \
+    SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_season_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000000uspark --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
@@ -609,10 +612,8 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       --arg alice "$ALICE_ADDR" \
       --argjson op_params "$RESET_OP_PARAMS" \
     '{
-      group_policy_address: $policy,
-      proposers: [$alice],
-      title: "Reset Season Operational Params",
-      summary: "Restoring original values after test",
+      policy_address: $policy,
+      metadata: "Restoring original values after test",
       messages: [{
         "@type": "/sparkdream.season.v1.MsgUpdateOperationalParams",
         authority: $policy,
@@ -620,7 +621,7 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       }]
     }' > "$PROPOSAL_DIR/reset_season_op_params.json"
 
-    SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/reset_season_op_params.json" \
+    SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/reset_season_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000000uspark --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')

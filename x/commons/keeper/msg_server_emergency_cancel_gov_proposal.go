@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 
-	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -18,25 +17,17 @@ import (
 func (k msgServer) EmergencyCancelGovProposal(goCtx context.Context, msg *types.MsgEmergencyCancelGovProposal) (*types.MsgEmergencyCancelGovProposalResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// --- STEP 1: PERMISSION CHECK (RBAC) ---
-	// We verify if the signer (msg.Authority) has been explicitly granted
-	// the permission to execute this specific message type.
-
-	// 1. Retrieve the permissions object for the signer
-	perms, err := k.PolicyPermissions.Get(ctx, msg.Authority)
-	if err != nil {
-		// If the key doesn't exist, they have 0 permissions.
-		if errorsmod.IsOf(err, collections.ErrNotFound) {
-			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "signer %s has no permissions configured", msg.Authority)
-		}
-		return nil, err
+	if k.late.govKeeper == nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "gov keeper not configured")
 	}
 
-	// 2. Identify the required permission string (The Message Type URL)
-	// We use the SDK to generate the exact string key expected in the list.
-	requiredPermission := sdk.MsgTypeURL(&types.MsgEmergencyCancelGovProposal{})
+	// STEP 1: PERMISSION CHECK
+	perms, err := k.PolicyPermissions.Get(ctx, msg.Authority)
+	if err != nil {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "signer %s has no permissions configured", msg.Authority)
+	}
 
-	// 3. Check if the permission exists in the allowed list
+	requiredPermission := sdk.MsgTypeURL(&types.MsgEmergencyCancelGovProposal{})
 	if !slices.Contains(perms.AllowedMessages, requiredPermission) {
 		return nil, errorsmod.Wrapf(
 			sdkerrors.ErrUnauthorized,
@@ -45,35 +36,26 @@ func (k msgServer) EmergencyCancelGovProposal(goCtx context.Context, msg *types.
 		)
 	}
 
-	// --- STEP 2: GET TARGET PROPOSAL ---
-	prop, err := k.govKeeper.Proposals.Get(ctx, msg.ProposalId)
+	// STEP 2: GET TARGET PROPOSAL
+	prop, err := k.late.govKeeper.GetProposal(ctx, msg.ProposalId)
 	if err != nil {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrNotFound, "proposal %d not found", msg.ProposalId)
 	}
 
-	// --- STEP 3: VALIDATE PROPOSAL STATUS ---
-	// Only active proposals (Deposit or Voting period) can be cancelled.
+	// STEP 3: VALIDATE STATUS
 	if prop.Status != v1.StatusVotingPeriod && prop.Status != v1.StatusDepositPeriod {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "proposal is already finalized (status: %s)", prop.Status)
 	}
 
-	// --- STEP 4: CONSTITUTIONAL PROTECTION (The "Super-Majority" Guard) ---
-	// Even if a Group has the "Emergency Cancel" permission, they cannot use it
-	// to block a Constitutional Amendment (MsgUpdateParams) OR a Membership Overwrite
-	// (MsgRenewGroup) IF the community is running it via the EXPEDITED track.
+	// STEP 4: CONSTITUTIONAL PROTECTION
 	msgs, err := prop.GetMsgs()
 	if err != nil {
 		return nil, err
 	}
-
 	for _, propMsg := range msgs {
 		typeURL := sdk.MsgTypeURL(propMsg)
-
 		if typeURL == "/sparkdream.commons.v1.MsgUpdateParams" ||
 			typeURL == "/sparkdream.commons.v1.MsgRenewGroup" {
-
-			// If the proposal is Expedited, it implies a higher quorum/threshold/deposit.
-			// This represents a strong community will that overrides Group permissions.
 			if prop.Expedited {
 				return nil, errorsmod.Wrapf(
 					sdkerrors.ErrUnauthorized,
@@ -81,56 +63,48 @@ func (k msgServer) EmergencyCancelGovProposal(goCtx context.Context, msg *types.
 					typeURL,
 				)
 			}
-			// If it is NOT Expedited, we allow the cancellation to proceed.
 			break
 		}
 	}
 
-	// --- STEP 5: CALCULATE TALLY (SNAPSHOT) ---
-	// We tally the votes now to preserve the history of the vote distribution
-	// at the exact moment it was killed.
-	_, _, tallyResult, err := k.govKeeper.Tally(ctx, prop)
+	// STEP 5: TALLY
+	_, _, tallyResult, err := k.late.govKeeper.Tally(ctx, prop)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to tally votes during cancellation")
 	}
 
-	// --- STEP 6: UPDATE PROPOSAL STATE ---
+	// STEP 6: UPDATE STATE
 	prop.FinalTallyResult = &tallyResult
 	prop.Status = v1.StatusFailed
 	prop.FailedReason = fmt.Sprintf("Emergency Cancel executed by Authority: %s", msg.Authority)
 
-	err = k.govKeeper.Proposals.Set(ctx, msg.ProposalId, prop)
+	err = k.late.govKeeper.SetProposal(ctx, prop)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update proposal status")
 	}
 
-	// --- STEP 7: CLEANUP QUEUES ---
-	// Remove from Active Queue to stop EndBlocker processing
+	// STEP 7: CLEANUP QUEUES
 	if prop.VotingEndTime != nil {
-		err = k.govKeeper.ActiveProposalsQueue.Remove(ctx, collections.Join(*prop.VotingEndTime, prop.Id))
+		err = k.late.govKeeper.ActiveProposalsQueueRemove(ctx, prop.Id, *prop.VotingEndTime)
 		if err != nil {
 			return nil, err
 		}
 	}
-
-	// Remove from Voting Period Queue
 	if prop.Status == v1.StatusVotingPeriod {
-		err = k.govKeeper.VotingPeriodProposals.Remove(ctx, prop.Id)
+		err = k.late.govKeeper.VotingPeriodProposalsRemove(ctx, prop.Id)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	// --- STEP 8: CHARGE DEPOSITS ---
-	// Deposits are burned (sent to community pool) to prevent spam/abuse.
-	// We charge "1" (100% of the deposit).
+	// STEP 8: CHARGE DEPOSITS
 	destination := k.authKeeper.GetModuleAddress(distrtypes.ModuleName).String()
-	err = k.govKeeper.ChargeDeposit(ctx, prop.Id, destination, "1")
+	err = k.late.govKeeper.ChargeDeposit(ctx, prop.Id, destination, "1")
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to charge deposit")
 	}
 
-	// --- STEP 9: EMIT EVENT ---
+	// STEP 9: EMIT EVENT
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"emergency_veto",

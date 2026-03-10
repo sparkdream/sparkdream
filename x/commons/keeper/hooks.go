@@ -23,7 +23,7 @@ func (k Keeper) AfterMarketResolved(ctx context.Context, marketId uint64, winner
 	}
 
 	// 2. Fetch the Committee Group
-	group, err := k.ExtendedGroup.Get(ctx, groupName)
+	group, err := k.Groups.Get(ctx, groupName)
 	if err != nil {
 		return fmt.Errorf("hook error: market linked to non-existent group %s", groupName)
 	}
@@ -86,5 +86,5 @@ func (k Keeper) AfterMarketResolved(ctx context.Context, marketId uint64, winner
 	}
 
 	// 5. Save the updated Group
-	return k.ExtendedGroup.Set(ctx, groupName, group)
+	return k.Groups.Set(ctx, groupName, group)
 }

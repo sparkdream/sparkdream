@@ -28,7 +28,7 @@ func (k msgServer) SpendFromCommons(goCtx context.Context, msg *types.MsgSpendFr
 
 	// 2. LOOKUP: Identify the Group
 	// This ensures only registered groups can use this message.
-	_, extGroup, found := k.getExtendedGroupByPolicy(ctx, msg.Authority)
+	_, extGroup, found := k.getGroupByPolicy(ctx, msg.Authority)
 	if !found {
 		return nil, errorsmod.Wrapf(types.ErrGroupNotFound,
 			"signer %s is not a registered group policy", msg.Authority)

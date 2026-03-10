@@ -33,19 +33,19 @@ echo "Constraints: Min $MIN_LEN, Max $MAX_LEN, Fee $FEE_AMOUNT $DENOM"
 # We query the Commons Council via the commons module to get the Group ID.
 # (The group module's metadata is the description, not the name, so groups-by-name fails)
 echo "Locating Commons Council..."
-COUNCIL_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json)
-COUNCIL_ID=$(echo $COUNCIL_INFO | jq -r '.extended_group.group_id')
+COUNCIL_INFO=$($BINARY query commons get-group "Commons Council" --output json)
+COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.group.policy_address')
 
-if [ -z "$COUNCIL_ID" ] || [ "$COUNCIL_ID" == "null" ]; then
-    echo "❌ Error: Could not find 'Commons Council' group ID."
+if [ -z "$COUNCIL_POLICY" ] || [ "$COUNCIL_POLICY" == "null" ]; then
+    echo "❌ Error: Could not find 'Commons Council'."
     exit 1
 fi
-echo "Found Commons Council (Group ID: $COUNCIL_ID)"
+echo "Found Commons Council (Policy: $COUNCIL_POLICY)"
 
-MEMBERSHIP=$($BINARY query group group-members $COUNCIL_ID --output json | jq -r --arg ADDR "$ALICE_ADDR" '.members[] | select(.member.address==$ADDR)')
+MEMBERSHIP=$($BINARY query commons get-council-members "Commons Council" --output json | jq -r --arg ADDR "$ALICE_ADDR" '.members[] | select(.address==$ADDR)')
 
 if [ -z "$MEMBERSHIP" ]; then
-    echo "⚠️  WARNING: Alice is NOT found in the Commons Council (Group ID $COUNCIL_ID)."
+    echo "⚠️  WARNING: Alice is NOT found in the Commons Council."
     echo "    Valid registration tests are likely to fail."
 else
     echo "✅ Pre-flight: Alice is a verified Council member."

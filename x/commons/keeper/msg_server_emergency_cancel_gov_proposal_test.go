@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -30,28 +31,58 @@ import (
 	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	govtypesv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
-	"github.com/cosmos/cosmos-sdk/x/group"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
 
+// govKeeperAdapter wraps *govkeeper.Keeper to satisfy types.GovKeeper interface in tests.
+type govKeeperAdapter struct {
+	keeper *govkeeper.Keeper
+}
+
+func (a *govKeeperAdapter) GetProposal(ctx context.Context, proposalID uint64) (govtypesv1.Proposal, error) {
+	return a.keeper.Proposals.Get(ctx, proposalID)
+}
+
+func (a *govKeeperAdapter) SetProposal(ctx context.Context, proposal govtypesv1.Proposal) error {
+	return a.keeper.SetProposal(ctx, proposal)
+}
+
+func (a *govKeeperAdapter) Tally(ctx context.Context, proposal govtypesv1.Proposal) (bool, bool, govtypesv1.TallyResult, error) {
+	return a.keeper.Tally(ctx, proposal)
+}
+
+func (a *govKeeperAdapter) CancelProposal(ctx context.Context, proposalID uint64, proposer string) error {
+	return a.keeper.CancelProposal(ctx, proposalID, proposer)
+}
+
+func (a *govKeeperAdapter) ChargeDeposit(ctx context.Context, proposalID uint64, destAddress string, percent string) error {
+	return a.keeper.ChargeDeposit(ctx, proposalID, destAddress, percent)
+}
+
+func (a *govKeeperAdapter) ActiveProposalsQueueRemove(ctx context.Context, proposalID uint64, votingEndTime time.Time) error {
+	return a.keeper.ActiveProposalsQueue.Remove(ctx, collections.Join(votingEndTime, proposalID))
+}
+
+func (a *govKeeperAdapter) VotingPeriodProposalsRemove(ctx context.Context, proposalID uint64) error {
+	return a.keeper.VotingPeriodProposals.Remove(ctx, proposalID)
+}
+
 // --- Setup Helper ---
 
-func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.Keeper, groupkeeper.Keeper, sdk.AccAddress) {
+func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.Keeper, sdk.AccAddress) {
 	// 1. Setup Store
 	db := dbm.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
 
 	keys := storetypes.NewKVStoreKeys(
-		types.StoreKey, authtypes.StoreKey, banktypes.StoreKey, govtypes.StoreKey, group.StoreKey,
+		types.StoreKey, authtypes.StoreKey, banktypes.StoreKey, govtypes.StoreKey,
 	)
 	stateStore.MountStoreWithDB(keys[types.StoreKey], storetypes.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(keys[authtypes.StoreKey], storetypes.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(keys[banktypes.StoreKey], storetypes.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(keys[govtypes.StoreKey], storetypes.StoreTypeIAVL, db)
-	stateStore.MountStoreWithDB(keys[group.StoreKey], storetypes.StoreTypeIAVL, db)
 	require.NoError(t, stateStore.LoadLatestVersion())
 
 	ctx := sdk.NewContext(stateStore, cmtproto.Header{Time: time.Now()}, false, log.NewNopLogger())
@@ -64,7 +95,6 @@ func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.
 	cryptocodec.RegisterInterfaces(interfaceRegistry)
 	banktypes.RegisterInterfaces(interfaceRegistry)
 	govtypesv1.RegisterInterfaces(interfaceRegistry)
-	group.RegisterInterfaces(interfaceRegistry)
 	authtypes.RegisterInterfaces(interfaceRegistry)
 	distrtypes.RegisterInterfaces(interfaceRegistry)
 	types.RegisterInterfaces(interfaceRegistry)
@@ -94,16 +124,7 @@ func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.
 	msgRouter.SetInterfaceRegistry(interfaceRegistry)
 	banktypes.RegisterMsgServer(msgRouter, bankkeeper.NewMsgServerImpl(bankKeeper))
 
-	// 5. Setup Real Group Keeper
-	groupK := groupkeeper.NewKeeper(
-		keys[group.StoreKey],
-		cdc,
-		msgRouter,
-		accountKeeper,
-		group.DefaultConfig(),
-	)
-
-	// 6. Setup Real Gov Keeper
+	// 5. Setup Real Gov Keeper
 	govK := govkeeper.NewKeeper(
 		cdc, runtime.NewKVStoreService(keys[govtypes.StoreKey]),
 		accountKeeper, bankKeeper, &mockStakingKeeper{}, &mockDistrKeeper{},
@@ -114,7 +135,8 @@ func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.
 	err := govK.Params.Set(ctx, govtypesv1.DefaultParams())
 	require.NoError(t, err)
 
-	// 7. Setup Commons Keeper
+	// 6. Setup Commons Keeper (using gov keeper adapter)
+	govAdapter := &govKeeperAdapter{keeper: govK}
 	commonsK := keeper.NewKeeper(
 		runtime.NewKVStoreService(keys[types.StoreKey]),
 		cdc,
@@ -123,8 +145,7 @@ func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.
 		accountKeeper,
 		bankKeeper,
 		mockFutarchyKeeper{},
-		govK,
-		groupK,
+		govAdapter,
 		mockSplitKeeper{},
 		mockUpgradeKeeper{},
 	)
@@ -136,13 +157,13 @@ func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.
 	// Register Commons MsgServer on the router
 	types.RegisterMsgServer(msgRouter, keeper.NewMsgServerImpl(commonsK))
 
-	return commonsK, ctx, govK, groupK, authority
+	return commonsK, ctx, govK, authority
 }
 
 // --- Tests ---
 
 func TestEmergencyCancelGovProposal(t *testing.T) {
-	k, ctx, govK, _, _ := setupKeeperForCancel(t)
+	k, ctx, govK, _ := setupKeeperForCancel(t)
 	ms := keeper.NewMsgServerImpl(k)
 
 	alice := sdk.AccAddress([]byte("alice_address_______"))

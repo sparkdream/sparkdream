@@ -22,7 +22,6 @@ type Keeper struct {
 	// External Keepers
 	bankKeeper    types.BankKeeper
 	commonsKeeper types.CommonsKeeper
-	groupKeeper   types.GroupKeeper
 	repKeeper     types.RepKeeper
 
 	// Shared DREAM token operations (delegates to repKeeper)
@@ -44,6 +43,11 @@ type Keeper struct {
 	ContestStakes collections.Map[string, types.ContestStake] // Key: challenge_id
 }
 
+// GetCommonsKeeper returns the commons keeper for simulation use.
+func (k Keeper) GetCommonsKeeper() types.CommonsKeeper {
+	return k.commonsKeeper
+}
+
 func NewKeeper(
 	storeService storetypes.KVStoreService,
 	cdc codec.Codec,
@@ -51,7 +55,6 @@ func NewKeeper(
 	authority []byte,
 	bankKeeper types.BankKeeper,
 	commonsKeeper types.CommonsKeeper,
-	groupKeeper types.GroupKeeper,
 	repKeeper types.RepKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
@@ -66,7 +69,6 @@ func NewKeeper(
 		authority:     authority,
 		bankKeeper:    bankKeeper,
 		commonsKeeper: commonsKeeper,
-		groupKeeper:   groupKeeper,
 		repKeeper:     repKeeper,
 
 		// Initialize Collections

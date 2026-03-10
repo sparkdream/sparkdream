@@ -6,11 +6,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/group"
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
@@ -24,43 +22,25 @@ func TestUpdateGroupMembers(t *testing.T) {
 	govAddr := k.GetModuleAddressByName(govtypes.ModuleName).String()
 	newMember := sdk.AccAddress([]byte("new_member__________"))
 
-	// Helper to create a real x/group Group & Policy
-	createRealGroup := func(name string) (uint64, string) {
-		// Create Group
-		gRes, err := k.GetGroupKeeper().CreateGroup(ctx, &group.MsgCreateGroup{
-			Admin:    k.GetModuleAddress().String(),
-			Members:  []group.MemberRequest{{Address: govAddr, Weight: "1"}}, // Initial dummy member
-			Metadata: name,
-		})
-		require.NoError(t, err)
-
-		// Create Policy
-		policy := group.NewThresholdDecisionPolicy("1", time.Hour, 0)
-		policyAny, err := codectypes.NewAnyWithValue(policy)
-		require.NoError(t, err)
-
-		pRes, err := k.GetGroupKeeper().CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
-			Admin:          k.GetModuleAddress().String(),
-			GroupId:        gRes.GroupId,
-			DecisionPolicy: policyAny,
-		})
-		require.NoError(t, err)
-
-		return gRes.GroupId, pRes.Address
+	// Helper to create a council with native state injection
+	nextCouncilID := uint64(1)
+	createCouncil := func(name string) string {
+		councilID := nextCouncilID
+		nextCouncilID++
+		policyAddr := keeper.DeriveCouncilAddress(councilID, "standard").String()
+		return policyAddr
 	}
 
-	// 2. Register Groups with Hierarchy & Delegation (Using Real IDs/Addresses)
+	// 2. Register Groups with Hierarchy & Delegation (Using native state)
 
-	// A. Parent Council
-	councilID, councilAddr := createRealGroup("ParentCouncil")
-	// Note: We need the Elections ID/Address before we can save the Parent's delegation,
-	// so we create Elections first.
+	// A. Create council addresses
+	councilAddr := createCouncil("ParentCouncil")
+	electionsAddr := createCouncil("ElectionsCommittee")
+	childAddr := createCouncil("RandomChild")
 
 	// B. Elections Committee (The Authorized Manager)
-	electionsID, electionsAddr := createRealGroup("ElectionsCommittee")
-
-	electionsGroup := types.ExtendedGroup{
-		GroupId:             electionsID,
+	electionsGroup := types.Group{
+		GroupId:             2,
 		PolicyAddress:       electionsAddr,
 		ParentPolicyAddress: councilAddr,
 		UpdateCooldown:      3600, // 1 Hour Cooldown
@@ -68,31 +48,34 @@ func TestUpdateGroupMembers(t *testing.T) {
 		MinMembers:          1,
 		MaxMembers:          10,
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "ElectionsCommittee", electionsGroup))
+	require.NoError(t, k.Groups.Set(ctx, "ElectionsCommittee", electionsGroup))
 	require.NoError(t, k.PolicyToName.Set(ctx, electionsAddr, "ElectionsCommittee"))
 
-	// Now Save Parent (delegating to Elections)
-	council := types.ExtendedGroup{
-		GroupId:                councilID,
+	// C. Parent Council (delegating to Elections)
+	council := types.Group{
+		GroupId:                1,
 		PolicyAddress:          councilAddr,
 		ElectoralPolicyAddress: electionsAddr, // <--- DELEGATION
 		MinMembers:             1,
 		MaxMembers:             10,
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "ParentCouncil", council))
+	require.NoError(t, k.Groups.Set(ctx, "ParentCouncil", council))
 	require.NoError(t, k.PolicyToName.Set(ctx, councilAddr, "ParentCouncil"))
 
-	// C. Random Child (Unauthorized)
-	childID, childAddr := createRealGroup("RandomChild")
+	// Add initial member to ParentCouncil
+	require.NoError(t, k.AddMember(ctx, "ParentCouncil", types.Member{
+		Address: govAddr, Weight: "1",
+	}))
 
-	childGroup := types.ExtendedGroup{
-		GroupId:             childID,
+	// D. Random Child (Unauthorized)
+	childGroup := types.Group{
+		GroupId:             3,
 		PolicyAddress:       childAddr,
 		ParentPolicyAddress: councilAddr,
 		MinMembers:          1,
 		MaxMembers:          10,
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "RandomChild", childGroup))
+	require.NoError(t, k.Groups.Set(ctx, "RandomChild", childGroup))
 	require.NoError(t, k.PolicyToName.Set(ctx, childAddr, "RandomChild"))
 
 	// 3. Test Cases
@@ -135,7 +118,7 @@ func TestUpdateGroupMembers(t *testing.T) {
 			expectErr: false,
 			check: func(t *testing.T) {
 				// Verify Cooldown was triggered on the SIGNER (ElectionsCommittee)
-				signer, err := k.ExtendedGroup.Get(ctx, "ElectionsCommittee")
+				signer, err := k.Groups.Get(ctx, "ElectionsCommittee")
 				require.NoError(t, err)
 				require.Equal(t, ctx.BlockTime().Unix(), signer.LastParentUpdate)
 			},

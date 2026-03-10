@@ -30,16 +30,39 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "policy_address"}},
 				},
 				{
-					RpcMethod: "ListExtendedGroup",
-					Use:       "list-extended-group",
-					Short:     "List all extended-group",
+					RpcMethod: "ListGroups",
+					Use:       "list-group",
+					Short:     "List all groups",
 				},
 				{
-					RpcMethod:      "GetExtendedGroup",
-					Use:            "get-extended-group [id]",
-					Short:          "Gets a extended-group",
-					Alias:          []string{"show-extended-group"},
+					RpcMethod:      "GetGroup",
+					Use:            "get-group [id]",
+					Short:          "Gets a group",
+					Alias:          []string{"show-group"},
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "index"}},
+				},
+				{
+					RpcMethod:      "GetCouncilMembers",
+					Use:            "get-council-members [council-name]",
+					Short:          "Get members of a council",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "council_name"}},
+				},
+				{
+					RpcMethod:      "GetProposal",
+					Use:            "get-proposal [proposal-id]",
+					Short:          "Get a proposal by ID with votes and tally",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}},
+				},
+				{
+					RpcMethod: "ListProposals",
+					Use:       "list-proposals",
+					Short:     "List all proposals",
+				},
+				{
+					RpcMethod:      "GetProposalVotes",
+					Use:            "get-proposal-votes [proposal-id]",
+					Short:          "Get votes for a proposal",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
@@ -123,6 +146,22 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "veto-group-proposals [group-name]",
 					Short:          "Send a veto-group-proposals tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "group_name"}},
+				},
+				{
+					RpcMethod: "SubmitProposal",
+					Skip:      true, // custom CLI command (handles JSON file with Any messages)
+				},
+				{
+					RpcMethod:      "VoteProposal",
+					Use:            "vote-proposal [proposal-id] [option]",
+					Short:          "Vote on a proposal (VOTE_OPTION_YES, VOTE_OPTION_NO, VOTE_OPTION_ABSTAIN, VOTE_OPTION_NO_WITH_VETO)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}, {ProtoField: "option"}},
+				},
+				{
+					RpcMethod:      "ExecuteProposal",
+					Use:            "execute-proposal [proposal-id]",
+					Short:          "Execute an accepted proposal",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

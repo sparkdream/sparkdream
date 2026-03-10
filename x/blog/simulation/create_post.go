@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -25,20 +26,36 @@ func SimulateMsgCreatePost(
 		simAccount, _ := simtypes.RandomAcc(r, accs)
 
 		// 2. Generate random content for the message
-		msg := &types.MsgCreatePost{
-			Creator: simAccount.Address.String(),
-			Title:   simtypes.RandStringOfLength(r, 20),  // Random title (20 chars)
-			Body:    simtypes.RandStringOfLength(r, 200), // Random body (200 chars)
+		title := simtypes.RandStringOfLength(r, 20)
+		body := simtypes.RandStringOfLength(r, 200)
+
+		// Estimate storage fee: CostPerByte * (title + body length)
+		// Default CostPerByte is 100uspark, 220 chars -> ~22000uspark
+		contentLen := int64(len(title) + len(body))
+		storageFee := sdk.NewCoin("uspark", math.NewInt(100).MulRaw(contentLen))
+
+		// Check solvency: need storage fee + some gas
+		balance := bk.SpendableCoins(ctx, simAccount.Address)
+		totalRequired := storageFee.Amount.Add(math.NewInt(10000))
+		if balance.AmountOf("uspark").LT(totalRequired) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreatePost{}), "insufficient funds for storage fee"), nil, nil
 		}
 
-		// 3. Construct the OperationInput struct expected by util.go
+		msg := &types.MsgCreatePost{
+			Creator: simAccount.Address.String(),
+			Title:   title,
+			Body:    body,
+		}
+
+		// 3. Declare storage fee as CoinsSpentInMsg so GenAndDeliverTxWithRandFees
+		// reserves this amount and only uses the remainder for random fees
 		opMsg := simulation.OperationInput{
 			R:               r,
 			App:             app,
 			TxGen:           txGen,
-			Cdc:             nil, // Codec is not strictly used in the helper logic for GenTx
+			Cdc:             nil,
 			Msg:             msg,
-			CoinsSpentInMsg: nil, // No coins spent by this message
+			CoinsSpentInMsg: sdk.NewCoins(storageFee),
 			Context:         ctx,
 			SimAccount:      simAccount,
 			AccountKeeper:   ak,
@@ -46,7 +63,6 @@ func SimulateMsgCreatePost(
 			ModuleName:      types.ModuleName,
 		}
 
-		// 4. Call the helper function (defined in util.go in the same package)
 		return simulation.GenAndDeliverTxWithRandFees(opMsg)
 	}
 }

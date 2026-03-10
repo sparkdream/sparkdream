@@ -21,7 +21,6 @@ func TestRegisterName(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
 	ctx := f.ctx
-	mockGK := f.mockGroup
 	mockCK := f.mockCommons
 	ms := keeper.NewMsgServerImpl(k)
 
@@ -34,18 +33,16 @@ func TestRegisterName(t *testing.T) {
 
 	// Helper function for the common setup required by RegisterName
 	commonSetup := func(c sdk.Context) {
-		mockGK.Reset()
 		mockCK.Reset()
 
-		// 1. Setup CommonsKeeper mock
-		mockCK.ExtendedGroups["Commons Council"] = commonstypes.ExtendedGroup{
+		// 1. Setup CommonsKeeper mock with council and membership
+		mockCK.Groups["Commons Council"] = commonstypes.Group{
 			GroupId:       1,
 			PolicyAddress: f.councilAddr,
 		}
-		// 2. Setup GroupKeeper mock
-		mockGK.CouncilGroupId = 1
-		mockGK.members[alice] = true
-		mockGK.members[bob] = false
+		// 2. Setup membership via CommonsKeeper.HasMember
+		mockCK.Members["Commons Council|"+alice] = true
+		mockCK.Members["Commons Council|"+bob] = false
 
 		// 3. Set default params
 		k.SetParams(c, types.DefaultParams())

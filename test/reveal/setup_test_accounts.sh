@@ -331,8 +331,8 @@ echo ""
 # ========================================================================
 echo "Step 8: Looking up Commons Council policy address..."
 
-COUNCIL_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json 2>&1)
-COUNCIL_POLICY=$(echo "$COUNCIL_INFO" | jq -r '.extended_group.policy_address')
+COUNCIL_INFO=$($BINARY query commons get-group "Commons Council" --output json 2>&1)
+COUNCIL_POLICY=$(echo "$COUNCIL_INFO" | jq -r '.group.policy_address')
 
 if [ -z "$COUNCIL_POLICY" ] || [ "$COUNCIL_POLICY" == "null" ]; then
     echo "  WARNING: Could not find Commons Council policy address"

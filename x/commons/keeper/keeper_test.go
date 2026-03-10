@@ -25,8 +25,6 @@ import (
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/group"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/stretchr/testify/require"
 
@@ -50,14 +48,12 @@ func initFixture(t *testing.T) *fixture {
 	// Define Keys
 	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 	memStoreKey := storetypes.NewMemoryStoreKey("mem_commons")
-	groupKey := storetypes.NewKVStoreKey(group.StoreKey)
 
 	// Setup Store
 	db := dbm.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
 	stateStore.MountStoreWithDB(storeKey, storetypes.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(memStoreKey, storetypes.StoreTypeMemory, nil)
-	stateStore.MountStoreWithDB(groupKey, storetypes.StoreTypeIAVL, db)
 	require.NoError(t, stateStore.LoadLatestVersion())
 
 	// Initialize Context with positive time
@@ -65,15 +61,6 @@ func initFixture(t *testing.T) *fixture {
 
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 	mockAuth := mockAuthKeeper{}
-
-	// Initialize Real Group Keeper
-	groupKeeper := groupkeeper.NewKeeper(
-		groupKey,
-		encCfg.Codec,
-		nil, // MsgRouter
-		mockAuth,
-		group.DefaultConfig(),
-	)
 
 	storeService := runtime.NewKVStoreService(storeKey)
 
@@ -86,7 +73,6 @@ func initFixture(t *testing.T) *fixture {
 		nil, // Bank
 		mockFutarchyKeeper{},
 		nil, // Gov
-		groupKeeper,
 		mockSplitKeeper{},
 		mockUpgradeKeeper{},
 	)
@@ -108,14 +94,12 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 	memStoreKey := storetypes.NewMemoryStoreKey("mem_commons")
 	authKey := storetypes.NewKVStoreKey(authtypes.StoreKey)
-	groupKey := storetypes.NewKVStoreKey(group.StoreKey)
 
 	db := dbm.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
 	stateStore.MountStoreWithDB(storeKey, storetypes.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(memStoreKey, storetypes.StoreTypeMemory, nil)
 	stateStore.MountStoreWithDB(authKey, storetypes.StoreTypeIAVL, db)
-	stateStore.MountStoreWithDB(groupKey, storetypes.StoreTypeIAVL, db)
 
 	require.NoError(t, stateStore.LoadLatestVersion())
 
@@ -126,7 +110,6 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 	interfaceRegistry := cdcOpts.NewInterfaceRegistry()
 
 	authtypes.RegisterInterfaces(interfaceRegistry)   // <--- Registers BaseAccount
-	group.RegisterInterfaces(interfaceRegistry)       // <--- Registers Group Types
 	cryptocodec.RegisterInterfaces(interfaceRegistry) // <--- Registers PubKeys
 	types.RegisterInterfaces(interfaceRegistry)       // <--- Registers Commons Types
 
@@ -146,20 +129,10 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 		map[string][]string{
 			types.ModuleName:    nil,
 			govtypes.ModuleName: {authtypes.Burner},
-			group.ModuleName:    nil, // Allow group module
 		},
 		addresscodec.NewBech32Codec("cosmos"),
 		"cosmos",
 		authtypes.NewModuleAddress("gov").String(),
-	)
-
-	// Initialize Real Group Keeper
-	groupKeeper := groupkeeper.NewKeeper(
-		groupKey,
-		cdc,
-		nil,
-		authKeeper,
-		group.DefaultConfig(),
 	)
 
 	storeService := runtime.NewKVStoreService(storeKey)
@@ -173,7 +146,6 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 		mockBK,
 		mockFutarchyKeeper{},
 		nil,
-		groupKeeper,
 		mockSplitKeeper{},
 		mockUpgradeKeeper{},
 	)
@@ -181,14 +153,13 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 	return k, ctx, mockBK
 }
 
-// --- Helper for this specific test (needs Group Keeper access) ---
-func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, groupkeeper.Keeper, sdk.AccAddress) {
-	// 1. Define Keys (Include Auth Key!)
+// --- Helper for tests that need full state setup ---
+func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, sdk.AccAddress) {
+	// 1. Define Keys
 	key := storetypes.NewKVStoreKey(types.StoreKey)
 	memKey := storetypes.NewMemoryStoreKey("mem_commons")
 	tKey := storetypes.NewTransientStoreKey("transient_test")
 	authKey := storetypes.NewKVStoreKey(authtypes.StoreKey)
-	groupKey := storetypes.NewKVStoreKey(group.StoreKey)
 
 	db := dbm.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
@@ -198,18 +169,16 @@ func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, groupkeeper.
 	stateStore.MountStoreWithDB(memKey, storetypes.StoreTypeMemory, nil)
 	stateStore.MountStoreWithDB(tKey, storetypes.StoreTypeTransient, nil)
 	stateStore.MountStoreWithDB(authKey, storetypes.StoreTypeIAVL, db)
-	stateStore.MountStoreWithDB(groupKey, storetypes.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(storetypes.NewKVStoreKey(govtypes.StoreKey), storetypes.StoreTypeIAVL, db)
 
 	require.NoError(t, stateStore.LoadLatestVersion())
 
 	ctx := sdk.NewContext(stateStore, cmtproto.Header{Time: time.Now()}, false, log.NewNopLogger())
 
-	// 3. Register Codec Interfaces (Fixes BaseAccount encoding error)
+	// 3. Register Codec Interfaces
 	cdcOpts := codectestutil.CodecOptions{}
 	reg := cdcOpts.NewInterfaceRegistry()
 	cryptocodec.RegisterInterfaces(reg)
-	group.RegisterInterfaces(reg)
 	authtypes.RegisterInterfaces(reg)
 	cdc := codec.NewProtoCodec(reg)
 
@@ -217,12 +186,11 @@ func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, groupkeeper.
 	maccPerms := map[string][]string{
 		types.ModuleName:    nil,
 		govtypes.ModuleName: {authtypes.Burner},
-		group.ModuleName:    nil, // Allow group module
 	}
 
 	authK := authkeeper.NewAccountKeeper(
 		cdc,
-		runtime.NewKVStoreService(authKey), // Use real service
+		runtime.NewKVStoreService(authKey),
 		authtypes.ProtoBaseAccount,
 		maccPerms,
 		addresscodec.NewBech32Codec("cosmos"),
@@ -230,10 +198,7 @@ func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, groupkeeper.
 		authtypes.NewModuleAddress("gov").String(),
 	)
 
-	// 5. Setup Group Keeper
-	groupK := groupkeeper.NewKeeper(groupKey, cdc, nil, authK, group.DefaultConfig())
-
-	// 6. Setup Commons Keeper
+	// 5. Setup Commons Keeper (no groupKeeper)
 	k := keeper.NewKeeper(
 		runtime.NewKVStoreService(key),
 		cdc,
@@ -243,12 +208,11 @@ func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, groupkeeper.
 		nil,
 		mockFutarchyKeeper{},
 		nil,
-		groupK,
 		mockSplitKeeper{},
 		mockUpgradeKeeper{},
 	)
 
-	return k, ctx, groupK, k.GetModuleAddress()
+	return k, ctx, k.GetModuleAddress()
 }
 
 // --- Mock Auth Keeper ---

@@ -40,7 +40,7 @@ echo '{
 # Submit & Vote
 SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/set_bob_dictator.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 3
+sleep 5
 
 # Get Prop ID
 TX_RES=$($BINARY query tx $TX_HASH --output json)
@@ -56,20 +56,18 @@ echo "Waiting for Expedited Voting (45s)..."
 sleep 45
 
 # Verify Bob is Sole Member
-# 1. Get Group ID
-GROUP_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json)
-GROUP_ID=$(echo $GROUP_INFO | jq -r '.extended_group.group_id')
-POLICY_ADDR=$(echo $GROUP_INFO | jq -r '.extended_group.policy_address')
+GROUP_INFO=$($BINARY query commons get-group "Commons Council" --output json)
+POLICY_ADDR=$(echo $GROUP_INFO | jq -r '.group.policy_address')
 
-# 2. Check Members
-MEMBERS_JSON=$($BINARY query group group-members $GROUP_ID --output json)
+# Check Members via commons query
+MEMBERS_JSON=$($BINARY query commons get-council-members "Commons Council" --output json)
 COUNT=$(echo $MEMBERS_JSON | jq '.members | length')
-MEMBER_ADDR=$(echo $MEMBERS_JSON | jq -r '.members[0].member.address')
+MEMBER_ADDR=$(echo $MEMBERS_JSON | jq -r '.members[0].address')
 
 if [ "$COUNT" == "1" ] && [ "$MEMBER_ADDR" == "$BOB_ADDR" ]; then
-    echo "✅ SUCCESS: Bob is now the sole member (Dictator)."
+    echo "SUCCESS: Bob is now the sole member (Dictator)."
 else
-    echo "❌ FAILURE: Membership update failed. Count: $COUNT"
+    echo "FAILURE: Membership update failed. Count: $COUNT"
     exit 1
 fi
 
@@ -93,62 +91,59 @@ echo '{
 
 SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/bad_prop_bob.json" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 3
+sleep 5
 BAD_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 echo "Bad Prop ID: $BAD_PROP_ID"
 
 echo "Discovering Veto Policy..."
 
-# 1. DISCOVER VETO POLICY for Commons Council
-# We look for the policy with metadata "veto" (or however you tagged it in genesis/setup)
-VETO_POLICY_ADDR=$($BINARY query group group-policies-by-group $GROUP_ID --output json | jq -r '.group_policies[] | select(.metadata == "veto") | .address' | head -n 1)
+# Discover Veto Policy from get-group
+VETO_POLICY_ADDR=$($BINARY query commons get-group "Commons Council" --output json | jq -r '.group.veto_policy_address')
 
 if [ -z "$VETO_POLICY_ADDR" ] || [ "$VETO_POLICY_ADDR" == "null" ]; then
-    echo "❌ ERROR: Could not find Veto Policy for Group $GROUP_ID"
+    echo "ERROR: Could not find Veto Policy for Commons Council"
     exit 1
 fi
 
 echo "Using Veto Policy: $VETO_POLICY_ADDR"
 
-# 2. Bob submits Veto via VETO Policy
-echo "Bob submits Veto via Group Proposal..."
+# Bob submits Veto via VETO Policy
+echo "Bob submits Veto via Commons Proposal..."
 echo '{
-  "group_policy_address": "'$VETO_POLICY_ADDR'",
-  "proposers": ["'$BOB_ADDR'"],
-  "title": "FAST VETO",
-  "summary": "Immediate execution.",
+  "policy_address": "'$VETO_POLICY_ADDR'",
   "messages": [
     {
       "@type": "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
       "authority": "'$VETO_POLICY_ADDR'",
       "proposal_id": '$BAD_PROP_ID'
     }
-  ]
+  ],
+  "metadata": "FAST VETO - Immediate execution."
 }' > "$PROPOSAL_DIR/fast_veto.json"
 
-# Submit Group Proposal
-SUBMIT_GROUP=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/fast_veto.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+# Submit Commons Proposal
+SUBMIT_GROUP=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/fast_veto.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 GROUP_TX=$(echo $SUBMIT_GROUP | jq -r '.txhash')
-sleep 3
+sleep 5
 
-GROUP_PROP_ID=$(echo $($BINARY query tx $GROUP_TX --output json) | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+GROUP_PROP_ID=$(echo $($BINARY query tx $GROUP_TX --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 if [ -z "$GROUP_PROP_ID" ] || [ "$GROUP_PROP_ID" == "null" ]; then
-   GROUP_PROP_ID=$(echo $($BINARY query tx $GROUP_TX --output json) | jq -r '.logs[0].events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+   GROUP_PROP_ID=$(echo $($BINARY query tx $GROUP_TX --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 fi
-echo "Group Prop ID: $GROUP_PROP_ID"
+echo "Commons Prop ID: $GROUP_PROP_ID"
 
-# Bob Votes YES (100% of weight)
-$BINARY tx group vote $GROUP_PROP_ID $BOB_ADDR VOTE_OPTION_YES "Veto" --from bob -y --chain-id $CHAIN_ID --keyring-backend test
-sleep 3
-$BINARY tx group exec $GROUP_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000
-sleep 3
+# Bob Votes YES (100% of weight - sole member)
+$BINARY tx commons vote-proposal $GROUP_PROP_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 5
+$BINARY tx commons execute-proposal $GROUP_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000
+sleep 5
 
 # Verify Kill
 STATUS=$($BINARY query gov proposal $BAD_PROP_ID --output json | jq -r '.proposal.status')
 if [ "$STATUS" == "PROPOSAL_STATUS_FAILED" ] || [ "$STATUS" == "PROPOSAL_STATUS_REJECTED" ]; then
-    echo "✅ SUCCESS: Bob successfully vetoed using Veto Policy."
+    echo "SUCCESS: Bob successfully vetoed using Veto Policy."
 else
-    echo "❌ FAILURE: Proposal is still $STATUS"
+    echo "FAILURE: Proposal is still $STATUS"
     exit 1
 fi
 
@@ -178,7 +173,7 @@ echo '{
 # Submit Proposal
 SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/restore_council.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 3
+sleep 5
 RESTORE_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 if [ -z "$RESTORE_PROP_ID" ] || [ "$RESTORE_PROP_ID" == "null" ]; then
    RESTORE_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
@@ -192,12 +187,12 @@ $BINARY tx gov vote $RESTORE_PROP_ID yes --from alice -y --chain-id $CHAIN_ID --
 echo "Waiting for Expedited Voting (45s)..."
 sleep 45
 
-# Verify Final State
-FINAL_MEMBERS=$($BINARY query group group-members $GROUP_ID --output json)
+# Verify Final State via commons query
+FINAL_MEMBERS=$($BINARY query commons get-council-members "Commons Council" --output json)
 FINAL_COUNT=$(echo $FINAL_MEMBERS | jq '.members | length')
 
 if [ "$FINAL_COUNT" == "3" ]; then
-    echo "🎉 SUCCESS: The Republic is Restored. 3 Members found."
+    echo "SUCCESS: The Republic is Restored. 3 Members found."
 else
-    echo "❌ FAILURE: Restoration failed. Count: $FINAL_COUNT"
+    echo "FAILURE: Restoration failed. Count: $FINAL_COUNT"
 fi

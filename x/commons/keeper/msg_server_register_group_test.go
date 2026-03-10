@@ -32,10 +32,10 @@ func TestRegisterGroup(t *testing.T) {
 
 	// 2. Create a valid parent group to test hierarchy
 	parentPolicyAddr := sdk.AccAddress([]byte("existing_policy_____"))
-	parentGroup := types.ExtendedGroup{
+	parentGroup := types.Group{
 		PolicyAddress: parentPolicyAddr.String(),
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "ExistingCouncil", parentGroup))
+	require.NoError(t, k.Groups.Set(ctx, "ExistingCouncil", parentGroup))
 	require.NoError(t, k.PolicyToName.Set(ctx, parentPolicyAddr.String(), "ExistingCouncil"))
 
 	maxSpendPerEpoch := math.NewInt(1000)
@@ -70,7 +70,7 @@ func TestRegisterGroup(t *testing.T) {
 			expectErr: false,
 			check: func(t *testing.T) {
 				// Verify Registry
-				g, err := k.ExtendedGroup.Get(ctx, "MainCouncil")
+				g, err := k.Groups.Get(ctx, "MainCouncil")
 				require.True(t, err == nil)
 				require.Equal(t, govAddr, g.ParentPolicyAddress) // Parent is Gov
 				require.Equal(t, uint64(50), g.FundingWeight)
@@ -100,7 +100,7 @@ func TestRegisterGroup(t *testing.T) {
 			},
 			expectErr: false,
 			check: func(t *testing.T) {
-				g, err := k.ExtendedGroup.Get(ctx, "SubCommittee")
+				g, err := k.Groups.Get(ctx, "SubCommittee")
 				require.True(t, err == nil)
 				require.Equal(t, parentPolicyAddr.String(), g.ParentPolicyAddress) // Linked to Parent
 
@@ -127,7 +127,7 @@ func TestRegisterGroup(t *testing.T) {
 			},
 			expectErr: false,
 			check: func(t *testing.T) {
-				g, err := k.ExtendedGroup.Get(ctx, "PercentCouncil")
+				g, err := k.Groups.Get(ctx, "PercentCouncil")
 				require.True(t, err == nil)
 				require.Equal(t, govAddr, g.ParentPolicyAddress)
 			},

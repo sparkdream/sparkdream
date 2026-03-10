@@ -97,7 +97,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 **Purpose:** Central engine for the "Three Pillars" governance.
 
-**Mechanism:** Wraps `x/group` with an `ExtendedGroup` structure defined in [x/commons/types/extended_group.pb.go](x/commons/types/extended_group.pb.go).
+**Mechanism:** Wraps `x/group` with a `Group` structure defined in [x/commons/types/group.pb.go](x/commons/types/group.pb.go).
 
 **Key Logic (MsgRegisterGroup):**
 - **Hierarchy:** Enforces parent-child trust chains (Gov → Council → Committee) and prevents cyclic dependencies.

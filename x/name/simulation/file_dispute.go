@@ -21,7 +21,6 @@ func SimulateMsgFileDispute(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	ck types.CommonsKeeper,
-	gk types.GroupKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {

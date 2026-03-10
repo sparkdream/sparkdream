@@ -12,16 +12,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (q queryServer) ListExtendedGroup(ctx context.Context, req *types.QueryAllExtendedGroupRequest) (*types.QueryAllExtendedGroupResponse, error) {
+func (q queryServer) ListGroups(ctx context.Context, req *types.QueryAllGroupRequest) (*types.QueryAllGroupResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	extendedGroups, pageRes, err := query.CollectionPaginate(
+	groups, pageRes, err := query.CollectionPaginate(
 		ctx,
-		q.k.ExtendedGroup,
+		q.k.Groups,
 		req.Pagination,
-		func(_ string, value types.ExtendedGroup) (types.ExtendedGroup, error) {
+		func(key string, value types.Group) (types.Group, error) {
+			value.Index = key
 			return value, nil
 		},
 	)
@@ -29,15 +30,15 @@ func (q queryServer) ListExtendedGroup(ctx context.Context, req *types.QueryAllE
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	return &types.QueryAllExtendedGroupResponse{ExtendedGroup: extendedGroups, Pagination: pageRes}, nil
+	return &types.QueryAllGroupResponse{Group: groups, Pagination: pageRes}, nil
 }
 
-func (q queryServer) GetExtendedGroup(ctx context.Context, req *types.QueryGetExtendedGroupRequest) (*types.QueryGetExtendedGroupResponse, error) {
+func (q queryServer) GetGroup(ctx context.Context, req *types.QueryGetGroupRequest) (*types.QueryGetGroupResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	val, err := q.k.ExtendedGroup.Get(ctx, req.Index)
+	val, err := q.k.Groups.Get(ctx, req.Index)
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "not found")
@@ -46,5 +47,6 @@ func (q queryServer) GetExtendedGroup(ctx context.Context, req *types.QueryGetEx
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 
-	return &types.QueryGetExtendedGroupResponse{ExtendedGroup: val}, nil
+	val.Index = req.Index
+	return &types.QueryGetGroupResponse{Group: val}, nil
 }

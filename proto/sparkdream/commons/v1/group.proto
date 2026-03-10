@@ -1,0 +1,124 @@
+syntax = "proto3";
+package sparkdream.commons.v1;
+
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+
+option go_package = "sparkdream/x/commons/types";
+
+// Group defines a governance group (council or committee) with its configuration.
+message Group {
+  string index = 1;
+  uint64 group_id = 2;
+  string policy_address = 3;
+  string parent_policy_address = 4;
+  string electoral_policy_address = 5;
+  uint64 funding_weight = 6;
+  string max_spend_per_epoch = 7 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  int64 update_cooldown = 8;
+  uint64 min_members = 9;
+  uint64 max_members = 10;
+  int64 term_duration = 11;
+  int64 current_term_expiration = 12;
+  int64 activation_time = 13;
+  int64 last_parent_update = 14;
+  bool futarchy_enabled = 15;
+  string veto_policy_address = 16;
+}
+
+// Member represents a member of a council or committee.
+message Member {
+  string address = 1;
+  string weight = 2;
+  string metadata = 3;
+  int64  added_at = 4;
+}
+
+// DecisionPolicy defines the voting rules for a council policy.
+message DecisionPolicy {
+  // policy_type is "percentage" or "threshold"
+  string policy_type = 1;
+  // threshold is the vote threshold value (e.g., "0.51" for percentage, "3" for threshold)
+  string threshold = 2;
+  // voting_period is the duration in seconds for which voting is open
+  int64  voting_period = 3;
+  // min_execution_period is the minimum time after voting ends before execution
+  int64  min_execution_period = 4;
+}
+
+// ProposalStatus defines the possible states of a council proposal.
+enum ProposalStatus {
+  // PROPOSAL_STATUS_UNSPECIFIED is the default value.
+  PROPOSAL_STATUS_UNSPECIFIED = 0;
+  // PROPOSAL_STATUS_SUBMITTED means the proposal is open for voting.
+  PROPOSAL_STATUS_SUBMITTED = 1;
+  // PROPOSAL_STATUS_ACCEPTED means the proposal passed the vote threshold.
+  PROPOSAL_STATUS_ACCEPTED = 2;
+  // PROPOSAL_STATUS_REJECTED means the proposal did not reach the threshold.
+  PROPOSAL_STATUS_REJECTED = 3;
+  // PROPOSAL_STATUS_EXECUTED means the proposal was successfully executed.
+  PROPOSAL_STATUS_EXECUTED = 4;
+  // PROPOSAL_STATUS_FAILED means proposal execution failed.
+  PROPOSAL_STATUS_FAILED = 5;
+  // PROPOSAL_STATUS_VETOED means the proposal was invalidated by a veto.
+  PROPOSAL_STATUS_VETOED = 6;
+  // PROPOSAL_STATUS_EXPIRED means the proposal voting period ended without reaching threshold.
+  PROPOSAL_STATUS_EXPIRED = 7;
+}
+
+// VoteOption defines the possible vote choices.
+enum VoteOption {
+  // VOTE_OPTION_UNSPECIFIED is the default value.
+  VOTE_OPTION_UNSPECIFIED = 0;
+  // VOTE_OPTION_YES indicates approval.
+  VOTE_OPTION_YES = 1;
+  // VOTE_OPTION_NO indicates rejection.
+  VOTE_OPTION_NO = 2;
+  // VOTE_OPTION_ABSTAIN indicates abstention.
+  VOTE_OPTION_ABSTAIN = 3;
+  // VOTE_OPTION_NO_WITH_VETO indicates strong rejection.
+  VOTE_OPTION_NO_WITH_VETO = 4;
+}
+
+// Vote represents a single vote on a proposal.
+message Vote {
+  string voter = 1;
+  VoteOption option = 2;
+  string metadata = 3;
+  int64 submit_time = 4;
+}
+
+// Proposal represents a council governance proposal.
+message Proposal {
+  uint64 id = 1;
+  // council_name is the name of the council this proposal belongs to
+  string council_name = 2;
+  // policy_address is the policy address (standard or veto) that this proposal targets
+  string policy_address = 3;
+  // proposer is the address that submitted the proposal
+  string proposer = 4;
+  // messages are the messages to execute if the proposal passes
+  repeated google.protobuf.Any messages = 5;
+  // status is the current status of the proposal
+  ProposalStatus status = 6;
+  // submit_time is the block time when the proposal was submitted
+  int64 submit_time = 7;
+  // voting_deadline is the block time when voting ends
+  int64 voting_deadline = 8;
+  // policy_version tracks the policy version at submission time for veto invalidation
+  uint64 policy_version = 9;
+  // metadata is optional metadata about the proposal
+  string metadata = 10;
+  // execution_time is the earliest time the proposal can be executed after acceptance
+  int64 execution_time = 11;
+  // failed_reason stores the reason if execution failed
+  string failed_reason = 12;
+}
+
+// TallyResult contains the vote tally for a proposal.
+message TallyResult {
+  string yes_weight = 1;
+  string no_weight = 2;
+  string abstain_weight = 3;
+  string no_with_veto_weight = 4;
+}

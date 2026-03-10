@@ -18,11 +18,11 @@ echo "Bob Address:   $BOB_ADDR"
 echo "Carol Address: $CAROL_ADDR"
 
 # Get Commons Council info (should exist from genesis)
-COUNCIL_INFO=$($BINARY query commons get-extended-group "Commons Council" --output json 2>/dev/null) || true
+COUNCIL_INFO=$($BINARY query commons get-group "Commons Council" --output json 2>/dev/null) || true
 
 if [ -n "$COUNCIL_INFO" ] && [ "$COUNCIL_INFO" != "null" ]; then
-    COUNCIL_ADDR=$(echo $COUNCIL_INFO | jq -r '.extended_group.policy_address')
-    FUTARCHY_ENABLED=$(echo $COUNCIL_INFO | jq -r '.extended_group.futarchy_enabled')
+    COUNCIL_ADDR=$(echo $COUNCIL_INFO | jq -r '.group.policy_address')
+    FUTARCHY_ENABLED=$(echo $COUNCIL_INFO | jq -r '.group.futarchy_enabled')
 
     echo "Commons Council Address: $COUNCIL_ADDR"
     echo "Futarchy Enabled: $FUTARCHY_ENABLED"

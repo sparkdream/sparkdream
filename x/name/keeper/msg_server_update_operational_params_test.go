@@ -47,7 +47,6 @@ func initFixtureNoCommons(t *testing.T) *fixture {
 	councilAddrStr := councilAddr.String()
 
 	mockBK := NewMockBankKeeper()
-	mockGK := &MockGroupKeeperReg{members: make(map[string]bool)}
 	mockRK := NewMockRepKeeper()
 
 	storeService := runtime.NewKVStoreService(storeKey)
@@ -59,7 +58,6 @@ func initFixtureNoCommons(t *testing.T) *fixture {
 		authority,
 		mockBK, // BankKeeper
 		nil,    // CommonsKeeper (nil => falls back to IsGovAuthority)
-		mockGK, // GroupKeeper
 		mockRK, // RepKeeper
 	)
 
@@ -72,7 +70,6 @@ func initFixtureNoCommons(t *testing.T) *fixture {
 		addressCodec: addressCodec,
 		mockBank:     mockBK,
 		mockCommons:  nil,
-		mockGroup:    mockGK,
 		mockRep:      mockRK,
 		councilAddr:  councilAddrStr,
 	}
@@ -112,7 +109,6 @@ func initFixtureCouncilAuthorized(t *testing.T) *fixture {
 	councilAddrStr := councilAddr.String()
 
 	mockBK := NewMockBankKeeper()
-	mockGK := &MockGroupKeeperReg{members: make(map[string]bool)}
 	mockCK := &mockCommonsKeeperAuthorized{MockCommonsKeeper: *NewMockCommonsKeeper()}
 	mockRK := NewMockRepKeeper()
 
@@ -125,7 +121,6 @@ func initFixtureCouncilAuthorized(t *testing.T) *fixture {
 		authority,
 		mockBK, // BankKeeper
 		mockCK, // CommonsKeeper (authorized)
-		mockGK, // GroupKeeper
 		mockRK, // RepKeeper
 	)
 
@@ -138,7 +133,6 @@ func initFixtureCouncilAuthorized(t *testing.T) *fixture {
 		addressCodec: addressCodec,
 		mockBank:     mockBK,
 		mockCommons:  nil, // not used directly in this fixture
-		mockGroup:    mockGK,
 		mockRep:      mockRK,
 		councilAddr:  councilAddrStr,
 	}

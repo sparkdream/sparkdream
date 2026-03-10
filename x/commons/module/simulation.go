@@ -61,7 +61,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgEmergencyCancelGovProposal,
-		commonssimulation.SimulateMsgEmergencyCancelGovProposal(am.authKeeper, am.bankKeeper, am.govKeeper, am.groupKeeper, am.keeper, simState.TxConfig),
+		commonssimulation.SimulateMsgEmergencyCancelGovProposal(am.authKeeper, am.bankKeeper, nil, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgCreatePolicyPermissions          = "op_weight_msg_commons"
@@ -196,7 +196,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgDeleteGroup,
-		commonssimulation.SimulateMsgDeleteGroup(am.authKeeper, am.bankKeeper, am.groupKeeper, am.keeper, am.cdc, simState.TxConfig),
+		commonssimulation.SimulateMsgDeleteGroup(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
 	))
 	const (
 		opWeightMsgVetoGroupProposals          = "op_weight_msg_commons"
@@ -211,7 +211,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgVetoGroupProposals,
-		commonssimulation.SimulateMsgVetoGroupProposals(am.authKeeper, am.bankKeeper, am.groupKeeper, am.keeper, am.cdc, simState.TxConfig),
+		commonssimulation.SimulateMsgVetoGroupProposals(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
 	))
 
 	return operations

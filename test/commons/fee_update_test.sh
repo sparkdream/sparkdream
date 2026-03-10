@@ -21,14 +21,13 @@ PARAMS_JSON=$($BINARY query commons params --output json)
 CURRENT_FEE=$(echo $PARAMS_JSON | jq -r '.params.proposal_fee')
 
 # DISCOVERY: Find a valid Council Policy Address from the Registry
-# We query the group info for "Commons Council"
-COUNCIL_ADDR=$($BINARY query commons get-extended-group "Commons Council" --output json | jq -r '.extended_group.policy_address')
+COUNCIL_ADDR=$($BINARY query commons get-group "Commons Council" --output json | jq -r '.group.policy_address')
 
 echo "Current Fee:     $CURRENT_FEE"
 echo "Council Address: $COUNCIL_ADDR"
 
 if [ -z "$COUNCIL_ADDR" ] || [ "$COUNCIL_ADDR" == "null" ]; then
-    echo "❌ SETUP ERROR: Could not find 'Commons Council'. Run bootstrap first."
+    echo "SETUP ERROR: Could not find 'Commons Council'. Run bootstrap first."
     exit 1
 fi
 
@@ -36,7 +35,7 @@ fi
 NEW_FEE_AMOUNT="10000000"
 NEW_FEE_STR="${NEW_FEE_AMOUNT}uspark"
 
-# Helper Function: Get Proposal ID
+# Helper Function: Get Proposal ID (for x/gov proposals)
 get_proposal_id() {
     local tx_hash=$1
     local retries=0
@@ -51,7 +50,7 @@ get_proposal_id() {
             if [ -z "$prop_id" ] || [ "$prop_id" == "null" ]; then
                 prop_id=$(echo $TX_RES | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
             fi
-            
+
             if [ ! -z "$prop_id" ] && [ "$prop_id" != "null" ]; then
                 echo "$prop_id"
                 return 0
@@ -90,10 +89,10 @@ echo "Waiting for block inclusion..."
 GOV_PROP_ID=$(get_proposal_id $TX_HASH)
 
 if [ -z "$GOV_PROP_ID" ]; then
-    echo "❌ ERROR: Failed to find Proposal ID after retries."
+    echo "ERROR: Failed to find Proposal ID after retries."
     exit 1
 fi
-echo "✅ Proposal ID: $GOV_PROP_ID"
+echo "Proposal ID: $GOV_PROP_ID"
 
 # Vote YES (Alice 75% stake)
 $BINARY tx gov vote $GOV_PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
@@ -104,21 +103,18 @@ sleep 70
 # Verify Update
 UPDATED_FEE=$($BINARY query commons params --output json | jq -r '.params.proposal_fee')
 if [ "$UPDATED_FEE" == "$NEW_FEE_STR" ]; then
-    echo "✅ SUCCESS: Fee updated to $UPDATED_FEE"
+    echo "SUCCESS: Fee updated to $UPDATED_FEE"
 else
-    echo "❌ FAILURE: Fee did not update. Current: $UPDATED_FEE"
+    echo "FAILURE: Fee did not update. Current: $UPDATED_FEE"
     exit 1
 fi
 
 # --- 3. STEP 2: VERIFY ENFORCEMENT ---
 echo "--- STEP 2: VERIFYING ANTEHANDLER ENFORCEMENT ---"
 
-# Create Dummy Group Proposal
+# Create Dummy Commons Proposal
 echo '{
-  "group_policy_address": "'$COUNCIL_ADDR'",
-  "proposers": ["'$ALICE_ADDR'"],
-  "title": "Spam Check",
-  "summary": "Testing fee enforcement",
+  "policy_address": "'$COUNCIL_ADDR'",
   "messages": [
     {
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
@@ -129,38 +125,39 @@ echo '{
           "denom": "uspark",
           "amount": "1"
         }
-      ] 
+      ]
     }
-  ]
+  ],
+  "metadata": "Testing fee enforcement"
 }' > "$PROPOSAL_DIR/msg_spam_check.json"
 
 # TEST A: FAIL (Pay Old Fee)
 echo "Attempting submission with OLD FEE (5000000uspark)... (Expect Failure)"
-FAIL_OUTPUT=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_spam_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
+FAIL_OUTPUT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_spam_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
 
 echo "Waiting for block inclusion (3s)..."
-sleep 3
+sleep 5
 
 if echo "$FAIL_OUTPUT" | grep -q "insufficient fee"; then
-    echo "✅ SUCCESS: Transaction rejected correctly (Insufficient Fee)."
+    echo "SUCCESS: Transaction rejected correctly (Insufficient Fee)."
 else
-    echo "❌ FAILURE: Transaction was accepted or wrong error!"
+    echo "FAILURE: Transaction was accepted or wrong error!"
     echo "Output: $FAIL_OUTPUT"
     exit 1
 fi
 
 # TEST B: SUCCESS (Pay New Fee)
 echo "Attempting submission with NEW FEE ($NEW_FEE_STR)... (Expect Success)"
-SUCCESS_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_spam_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees $NEW_FEE_STR --output json)
+SUCCESS_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_spam_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees $NEW_FEE_STR --output json)
 SUCCESS_CODE=$(echo $SUCCESS_RES | jq -r '.code')
 
 echo "Waiting for block inclusion (3s)..."
-sleep 3
+sleep 5
 
 if [ "$SUCCESS_CODE" == "0" ]; then
-    echo "✅ SUCCESS: Transaction accepted with correct fee."
+    echo "SUCCESS: Transaction accepted with correct fee."
 else
-    echo "❌ FAILURE: Transaction rejected even with correct fee."
+    echo "FAILURE: Transaction rejected even with correct fee."
     echo "Raw Log: $(echo $SUCCESS_RES | jq -r '.raw_log')"
     exit 1
 fi
@@ -190,7 +187,7 @@ echo "Waiting for block inclusion..."
 GOV_PROP_ID=$(get_proposal_id $TX_HASH)
 
 if [ -z "$GOV_PROP_ID" ]; then
-    echo "❌ ERROR: Failed to find Reset Proposal ID."
+    echo "ERROR: Failed to find Reset Proposal ID."
     exit 1
 fi
 echo "Reset Proposal ID: $GOV_PROP_ID"
@@ -204,7 +201,7 @@ sleep 70
 # Verify Reset
 FINAL_FEE=$($BINARY query commons params --output json | jq -r '.params.proposal_fee')
 if [ "$FINAL_FEE" == "$CURRENT_FEE" ]; then
-    echo "✅ SUCCESS: Fee reset to original value ($FINAL_FEE)."
+    echo "SUCCESS: Fee reset to original value ($FINAL_FEE)."
 else
-    echo "❌ FAILURE: Fee did not reset. Current: $FINAL_FEE"
+    echo "FAILURE: Fee did not reset. Current: $FINAL_FEE"
 fi

@@ -1,6 +1,7 @@
 vue/node_modules
 vue/dist
 build/
+sparkdreamd
 prod/
 release/
 test/*/proposals
@@ -12,5 +13,4 @@ test/*/snapshots
 *.dot
 *.log
 *.ign
-*.md
 *.out

@@ -29,7 +29,21 @@ type GenesisState struct {
 	// params defines all the parameters of the module.
 	Params               Params              `protobuf:"bytes,1,opt,name=params,proto3" json:"params"`
 	PolicyPermissionsMap []PolicyPermissions `protobuf:"bytes,2,rep,name=policy_permissions_map,json=policyPermissionsMap,proto3" json:"policy_permissions_map"`
-	ExtendedGroupMap     []ExtendedGroup     `protobuf:"bytes,3,rep,name=extended_group_map,json=extendedGroupMap,proto3" json:"extended_group_map"`
+	GroupMap             []Group             `protobuf:"bytes,3,rep,name=group_map,json=groupMap,proto3" json:"group_map"`
+	// members stores all council members keyed by council_name
+	CouncilMembers []CouncilMembers `protobuf:"bytes,4,rep,name=council_members,json=councilMembers,proto3" json:"council_members"`
+	// decision_policies stores decision policies keyed by policy_address
+	DecisionPolicies []PolicyWithAddress `protobuf:"bytes,5,rep,name=decision_policies,json=decisionPolicies,proto3" json:"decision_policies"`
+	// proposals stores all proposals
+	Proposals []Proposal `protobuf:"bytes,6,rep,name=proposals,proto3" json:"proposals"`
+	// next_proposal_id is the next auto-increment proposal ID
+	NextProposalId uint64 `protobuf:"varint,7,opt,name=next_proposal_id,json=nextProposalId,proto3" json:"next_proposal_id,omitempty"`
+	// next_council_id is the next auto-increment council ID
+	NextCouncilId uint64 `protobuf:"varint,8,opt,name=next_council_id,json=nextCouncilId,proto3" json:"next_council_id,omitempty"`
+	// policy_versions stores the current version for each policy address
+	PolicyVersions []PolicyVersionEntry `protobuf:"bytes,9,rep,name=policy_versions,json=policyVersions,proto3" json:"policy_versions"`
+	// votes stores all active votes
+	ProposalVotes []ProposalVotes `protobuf:"bytes,10,rep,name=proposal_votes,json=proposalVotes,proto3" json:"proposal_votes"`
 }
 
 func (m *GenesisState) Reset()         { *m = GenesisState{} }
@@ -79,15 +93,280 @@ func (m *GenesisState) GetPolicyPermissionsMap() []PolicyPermissions {
 	return nil
 }
 
-func (m *GenesisState) GetExtendedGroupMap() []ExtendedGroup {
+func (m *GenesisState) GetGroupMap() []Group {
 	if m != nil {
-		return m.ExtendedGroupMap
+		return m.GroupMap
+	}
+	return nil
+}
+
+func (m *GenesisState) GetCouncilMembers() []CouncilMembers {
+	if m != nil {
+		return m.CouncilMembers
+	}
+	return nil
+}
+
+func (m *GenesisState) GetDecisionPolicies() []PolicyWithAddress {
+	if m != nil {
+		return m.DecisionPolicies
+	}
+	return nil
+}
+
+func (m *GenesisState) GetProposals() []Proposal {
+	if m != nil {
+		return m.Proposals
+	}
+	return nil
+}
+
+func (m *GenesisState) GetNextProposalId() uint64 {
+	if m != nil {
+		return m.NextProposalId
+	}
+	return 0
+}
+
+func (m *GenesisState) GetNextCouncilId() uint64 {
+	if m != nil {
+		return m.NextCouncilId
+	}
+	return 0
+}
+
+func (m *GenesisState) GetPolicyVersions() []PolicyVersionEntry {
+	if m != nil {
+		return m.PolicyVersions
+	}
+	return nil
+}
+
+func (m *GenesisState) GetProposalVotes() []ProposalVotes {
+	if m != nil {
+		return m.ProposalVotes
+	}
+	return nil
+}
+
+// CouncilMembers groups members by council name for genesis export.
+type CouncilMembers struct {
+	CouncilName string   `protobuf:"bytes,1,opt,name=council_name,json=councilName,proto3" json:"council_name,omitempty"`
+	Members     []Member `protobuf:"bytes,2,rep,name=members,proto3" json:"members"`
+}
+
+func (m *CouncilMembers) Reset()         { *m = CouncilMembers{} }
+func (m *CouncilMembers) String() string { return proto.CompactTextString(m) }
+func (*CouncilMembers) ProtoMessage()    {}
+func (*CouncilMembers) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0704360ba80b2ecf, []int{1}
+}
+func (m *CouncilMembers) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *CouncilMembers) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_CouncilMembers.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *CouncilMembers) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CouncilMembers.Merge(m, src)
+}
+func (m *CouncilMembers) XXX_Size() int {
+	return m.Size()
+}
+func (m *CouncilMembers) XXX_DiscardUnknown() {
+	xxx_messageInfo_CouncilMembers.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CouncilMembers proto.InternalMessageInfo
+
+func (m *CouncilMembers) GetCouncilName() string {
+	if m != nil {
+		return m.CouncilName
+	}
+	return ""
+}
+
+func (m *CouncilMembers) GetMembers() []Member {
+	if m != nil {
+		return m.Members
+	}
+	return nil
+}
+
+// PolicyWithAddress pairs a policy address with its decision policy.
+type PolicyWithAddress struct {
+	PolicyAddress  string         `protobuf:"bytes,1,opt,name=policy_address,json=policyAddress,proto3" json:"policy_address,omitempty"`
+	DecisionPolicy DecisionPolicy `protobuf:"bytes,2,opt,name=decision_policy,json=decisionPolicy,proto3" json:"decision_policy"`
+}
+
+func (m *PolicyWithAddress) Reset()         { *m = PolicyWithAddress{} }
+func (m *PolicyWithAddress) String() string { return proto.CompactTextString(m) }
+func (*PolicyWithAddress) ProtoMessage()    {}
+func (*PolicyWithAddress) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0704360ba80b2ecf, []int{2}
+}
+func (m *PolicyWithAddress) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *PolicyWithAddress) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_PolicyWithAddress.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *PolicyWithAddress) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PolicyWithAddress.Merge(m, src)
+}
+func (m *PolicyWithAddress) XXX_Size() int {
+	return m.Size()
+}
+func (m *PolicyWithAddress) XXX_DiscardUnknown() {
+	xxx_messageInfo_PolicyWithAddress.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PolicyWithAddress proto.InternalMessageInfo
+
+func (m *PolicyWithAddress) GetPolicyAddress() string {
+	if m != nil {
+		return m.PolicyAddress
+	}
+	return ""
+}
+
+func (m *PolicyWithAddress) GetDecisionPolicy() DecisionPolicy {
+	if m != nil {
+		return m.DecisionPolicy
+	}
+	return DecisionPolicy{}
+}
+
+// PolicyVersionEntry pairs a policy address with its current version.
+type PolicyVersionEntry struct {
+	PolicyAddress string `protobuf:"bytes,1,opt,name=policy_address,json=policyAddress,proto3" json:"policy_address,omitempty"`
+	Version       uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+}
+
+func (m *PolicyVersionEntry) Reset()         { *m = PolicyVersionEntry{} }
+func (m *PolicyVersionEntry) String() string { return proto.CompactTextString(m) }
+func (*PolicyVersionEntry) ProtoMessage()    {}
+func (*PolicyVersionEntry) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0704360ba80b2ecf, []int{3}
+}
+func (m *PolicyVersionEntry) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *PolicyVersionEntry) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_PolicyVersionEntry.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *PolicyVersionEntry) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PolicyVersionEntry.Merge(m, src)
+}
+func (m *PolicyVersionEntry) XXX_Size() int {
+	return m.Size()
+}
+func (m *PolicyVersionEntry) XXX_DiscardUnknown() {
+	xxx_messageInfo_PolicyVersionEntry.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PolicyVersionEntry proto.InternalMessageInfo
+
+func (m *PolicyVersionEntry) GetPolicyAddress() string {
+	if m != nil {
+		return m.PolicyAddress
+	}
+	return ""
+}
+
+func (m *PolicyVersionEntry) GetVersion() uint64 {
+	if m != nil {
+		return m.Version
+	}
+	return 0
+}
+
+// ProposalVotes groups votes by proposal ID for genesis export.
+type ProposalVotes struct {
+	ProposalId uint64 `protobuf:"varint,1,opt,name=proposal_id,json=proposalId,proto3" json:"proposal_id,omitempty"`
+	Votes      []Vote `protobuf:"bytes,2,rep,name=votes,proto3" json:"votes"`
+}
+
+func (m *ProposalVotes) Reset()         { *m = ProposalVotes{} }
+func (m *ProposalVotes) String() string { return proto.CompactTextString(m) }
+func (*ProposalVotes) ProtoMessage()    {}
+func (*ProposalVotes) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0704360ba80b2ecf, []int{4}
+}
+func (m *ProposalVotes) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ProposalVotes) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ProposalVotes.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ProposalVotes) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ProposalVotes.Merge(m, src)
+}
+func (m *ProposalVotes) XXX_Size() int {
+	return m.Size()
+}
+func (m *ProposalVotes) XXX_DiscardUnknown() {
+	xxx_messageInfo_ProposalVotes.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ProposalVotes proto.InternalMessageInfo
+
+func (m *ProposalVotes) GetProposalId() uint64 {
+	if m != nil {
+		return m.ProposalId
+	}
+	return 0
+}
+
+func (m *ProposalVotes) GetVotes() []Vote {
+	if m != nil {
+		return m.Votes
 	}
 	return nil
 }
 
 func init() {
 	proto.RegisterType((*GenesisState)(nil), "sparkdream.commons.v1.GenesisState")
+	proto.RegisterType((*CouncilMembers)(nil), "sparkdream.commons.v1.CouncilMembers")
+	proto.RegisterType((*PolicyWithAddress)(nil), "sparkdream.commons.v1.PolicyWithAddress")
+	proto.RegisterType((*PolicyVersionEntry)(nil), "sparkdream.commons.v1.PolicyVersionEntry")
+	proto.RegisterType((*ProposalVotes)(nil), "sparkdream.commons.v1.ProposalVotes")
 }
 
 func init() {
@@ -95,27 +374,47 @@ func init() {
 }
 
 var fileDescriptor_0704360ba80b2ecf = []byte{
-	// 311 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x52, 0x2e, 0x2e, 0x48, 0x2c,
-	0xca, 0x4e, 0x29, 0x4a, 0x4d, 0xcc, 0xd5, 0x4f, 0xce, 0xcf, 0xcd, 0xcd, 0xcf, 0x2b, 0xd6, 0x2f,
-	0x33, 0xd4, 0x4f, 0x4f, 0xcd, 0x4b, 0x2d, 0xce, 0x2c, 0xd6, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17,
-	0x12, 0x45, 0x28, 0xd2, 0x83, 0x2a, 0xd2, 0x2b, 0x33, 0x94, 0x12, 0x4c, 0xcc, 0xcd, 0xcc, 0xcb,
-	0xd7, 0x07, 0x93, 0x10, 0x95, 0x52, 0x22, 0xe9, 0xf9, 0xe9, 0xf9, 0x60, 0xa6, 0x3e, 0x88, 0x05,
-	0x15, 0xd5, 0xc2, 0x6e, 0x49, 0x6a, 0x45, 0x49, 0x6a, 0x5e, 0x4a, 0x6a, 0x4a, 0x7c, 0x7a, 0x51,
-	0x7e, 0x69, 0x01, 0x54, 0xad, 0x12, 0x76, 0xb5, 0x05, 0x89, 0x45, 0x89, 0xb9, 0x50, 0xf7, 0x48,
-	0xe9, 0xe1, 0x50, 0x93, 0x9f, 0x93, 0x99, 0x5c, 0x19, 0x5f, 0x90, 0x5a, 0x94, 0x9b, 0x59, 0x5c,
-	0x9c, 0x09, 0x72, 0x25, 0x58, 0xbd, 0xd2, 0x04, 0x26, 0x2e, 0x1e, 0x77, 0x88, 0x8f, 0x82, 0x4b,
-	0x12, 0x4b, 0x52, 0x85, 0x1c, 0xb8, 0xd8, 0x20, 0x06, 0x4a, 0x30, 0x2a, 0x30, 0x6a, 0x70, 0x1b,
-	0xc9, 0xea, 0x61, 0xf5, 0xa1, 0x5e, 0x00, 0x58, 0x91, 0x13, 0xe7, 0x89, 0x7b, 0xf2, 0x0c, 0x2b,
-	0x9e, 0x6f, 0xd0, 0x62, 0x0c, 0x82, 0xea, 0x13, 0x4a, 0xe1, 0x12, 0xc3, 0xb4, 0x2e, 0x3e, 0x37,
-	0xb1, 0x40, 0x82, 0x49, 0x81, 0x59, 0x83, 0xdb, 0x48, 0x03, 0x97, 0x89, 0x60, 0x4d, 0x01, 0x08,
-	0x3d, 0x4e, 0x2c, 0x20, 0xc3, 0x83, 0x44, 0x0a, 0xd0, 0x25, 0x7c, 0x13, 0x0b, 0x84, 0x22, 0xb8,
-	0x84, 0x50, 0x03, 0x09, 0x6c, 0x03, 0x33, 0xd8, 0x06, 0x15, 0x1c, 0x36, 0xb8, 0x42, 0x35, 0xb8,
-	0x83, 0xd4, 0x43, 0x4d, 0x17, 0x48, 0x45, 0x16, 0xf4, 0x4d, 0x2c, 0x70, 0x32, 0x39, 0xf1, 0x48,
-	0x8e, 0xf1, 0xc2, 0x23, 0x39, 0xc6, 0x07, 0x8f, 0xe4, 0x18, 0x27, 0x3c, 0x96, 0x63, 0xb8, 0xf0,
-	0x58, 0x8e, 0xe1, 0xc6, 0x63, 0x39, 0x86, 0x28, 0x29, 0xa4, 0xc0, 0xad, 0x80, 0x07, 0x6f, 0x49,
-	0x65, 0x41, 0x6a, 0x71, 0x12, 0x1b, 0x38, 0x3c, 0x8d, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x11,
-	0xec, 0x5b, 0x6e, 0x36, 0x02, 0x00, 0x00,
+	// 628 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x94, 0xcb, 0x6e, 0xd3, 0x40,
+	0x14, 0x86, 0xe3, 0x36, 0xbd, 0xe4, 0xa4, 0x49, 0xda, 0x51, 0x41, 0x56, 0x00, 0xb7, 0x35, 0x14,
+	0x05, 0x16, 0x8e, 0x5a, 0x90, 0x58, 0x21, 0xa0, 0x05, 0x55, 0x5d, 0x14, 0x95, 0x50, 0x0a, 0x82,
+	0x85, 0x35, 0xb5, 0x47, 0x61, 0x44, 0xec, 0x19, 0xcd, 0xb8, 0x51, 0xf3, 0x16, 0x7d, 0x0c, 0x96,
+	0x3c, 0x46, 0x97, 0x5d, 0xb2, 0x42, 0x28, 0x59, 0xb0, 0xe3, 0x19, 0x90, 0x67, 0xc6, 0xb9, 0x90,
+	0x1a, 0xba, 0x89, 0x9c, 0xe3, 0xff, 0x7c, 0x73, 0x2e, 0xbf, 0x07, 0xee, 0x4a, 0x8e, 0xc5, 0x97,
+	0x50, 0x10, 0x1c, 0x35, 0x03, 0x16, 0x45, 0x2c, 0x96, 0xcd, 0xee, 0x56, 0xb3, 0x4d, 0x62, 0x22,
+	0xa9, 0xf4, 0xb8, 0x60, 0x09, 0x43, 0x37, 0x46, 0x22, 0xcf, 0x88, 0xbc, 0xee, 0x56, 0x7d, 0x05,
+	0x47, 0x34, 0x66, 0x4d, 0xf5, 0xab, 0x95, 0xf5, 0xd5, 0x36, 0x6b, 0x33, 0xf5, 0xd8, 0x4c, 0x9f,
+	0x4c, 0x74, 0x23, 0xe7, 0x10, 0xc1, 0x4e, 0xb9, 0x91, 0xb8, 0x57, 0x4b, 0x38, 0x16, 0x38, 0x32,
+	0x65, 0xd4, 0xbd, 0x1c, 0x0d, 0xeb, 0xd0, 0xa0, 0xe7, 0x73, 0x22, 0x22, 0x2a, 0x25, 0x4d, 0x8b,
+	0x53, 0x7a, 0xf7, 0xf7, 0x1c, 0x2c, 0xed, 0xe9, 0x46, 0xde, 0x26, 0x38, 0x21, 0xe8, 0x39, 0xcc,
+	0x6b, 0xa0, 0x6d, 0xad, 0x5b, 0x8d, 0xf2, 0xf6, 0x1d, 0xef, 0xca, 0xc6, 0xbc, 0x43, 0x25, 0xda,
+	0x29, 0x5d, 0xfc, 0x58, 0x2b, 0x7c, 0xfd, 0xf5, 0xed, 0xa1, 0xd5, 0x32, 0x79, 0x28, 0x84, 0x9b,
+	0xd3, 0xc7, 0xf9, 0x11, 0xe6, 0xf6, 0xcc, 0xfa, 0x6c, 0xa3, 0xbc, 0xdd, 0xc8, 0x23, 0xaa, 0xa4,
+	0xc3, 0x51, 0xce, 0x4e, 0x31, 0x85, 0xb7, 0x56, 0xf9, 0xdf, 0x2f, 0x0e, 0x30, 0x47, 0xcf, 0xa0,
+	0xa4, 0x66, 0xa3, 0xc0, 0xb3, 0x0a, 0x7c, 0x3b, 0x07, 0xbc, 0x97, 0xea, 0x0c, 0x6c, 0x51, 0x25,
+	0xa5, 0x80, 0x23, 0xa8, 0x05, 0xec, 0x34, 0x0e, 0x68, 0xc7, 0x8f, 0x48, 0x74, 0x42, 0x84, 0xb4,
+	0x8b, 0x0a, 0xb3, 0x99, 0x83, 0xd9, 0xd5, 0xea, 0x03, 0x2d, 0x36, 0xbc, 0x6a, 0x30, 0x11, 0x45,
+	0x9f, 0x60, 0x25, 0x24, 0x01, 0x4d, 0xcb, 0xf4, 0x55, 0xdd, 0x94, 0x48, 0x7b, 0xee, 0x1a, 0x7d,
+	0xbf, 0xa7, 0xc9, 0xe7, 0x17, 0x61, 0x28, 0x88, 0xcc, 0xd0, 0xcb, 0x19, 0xe8, 0xd0, 0x70, 0xd0,
+	0x2e, 0x94, 0xb8, 0x60, 0x9c, 0x49, 0xdc, 0x91, 0xf6, 0xbc, 0x82, 0xae, 0xe5, 0x41, 0x8d, 0xce,
+	0xb0, 0x46, 0x79, 0xa8, 0x01, 0xcb, 0x31, 0x39, 0x4b, 0xfc, 0x2c, 0xe2, 0xd3, 0xd0, 0x5e, 0x58,
+	0xb7, 0x1a, 0xc5, 0x56, 0x35, 0x8d, 0x67, 0x89, 0xfb, 0x21, 0xba, 0x0f, 0x35, 0xa5, 0xcc, 0xc6,
+	0x44, 0x43, 0x7b, 0x51, 0x09, 0x2b, 0x69, 0xd8, 0x8c, 0x63, 0x3f, 0x44, 0x1f, 0xa0, 0x66, 0x16,
+	0xde, 0x25, 0x42, 0x2d, 0xc8, 0x2e, 0xa9, 0xe2, 0x1e, 0xfc, 0xb3, 0xe3, 0x63, 0x2d, 0x7e, 0x15,
+	0x27, 0xa2, 0x97, 0x4d, 0x93, 0x8f, 0xbf, 0x91, 0xe8, 0x0d, 0x54, 0x87, 0x65, 0x76, 0x59, 0x42,
+	0xa4, 0x0d, 0x0a, 0x7c, 0xef, 0x3f, 0x5d, 0x1f, 0xa7, 0x5a, 0xc3, 0xac, 0xf0, 0xf1, 0xa0, 0x2b,
+	0xa0, 0x3a, 0xb9, 0x48, 0xb4, 0x01, 0x4b, 0x59, 0x87, 0x31, 0x8e, 0x88, 0xf2, 0x7d, 0xa9, 0x55,
+	0x36, 0xb1, 0xd7, 0x38, 0x22, 0xe8, 0x29, 0x2c, 0x64, 0x1e, 0xd1, 0x1e, 0xce, 0xfb, 0x2a, 0x34,
+	0xd3, 0x9c, 0x9c, 0xe5, 0xb8, 0xe7, 0x16, 0xac, 0x4c, 0x6d, 0x19, 0x6d, 0x82, 0x69, 0xd7, 0xc7,
+	0x3a, 0x62, 0x4e, 0xae, 0xe8, 0x68, 0x26, 0x3b, 0x82, 0xda, 0xa4, 0xa3, 0x7a, 0xf6, 0x8c, 0xfa,
+	0x32, 0xf3, 0x7c, 0xfa, 0x72, 0xdc, 0x36, 0xc3, 0xc9, 0x4e, 0x98, 0xa9, 0xe7, 0xbe, 0x03, 0x34,
+	0xbd, 0x85, 0xeb, 0x96, 0x64, 0xc3, 0x82, 0xd9, 0xb4, 0x2a, 0xa5, 0xd8, 0xca, 0xfe, 0xba, 0x14,
+	0x2a, 0x13, 0x3b, 0x40, 0x6b, 0x50, 0x1e, 0x37, 0x9a, 0xa5, 0xe4, 0xc0, 0x47, 0x26, 0x7b, 0x02,
+	0x73, 0x7a, 0xb3, 0x7a, 0xb0, 0xb7, 0x72, 0x9a, 0x4a, 0x69, 0xa6, 0x15, 0xad, 0xdf, 0x79, 0x7c,
+	0xd1, 0x77, 0xac, 0xcb, 0xbe, 0x63, 0xfd, 0xec, 0x3b, 0xd6, 0xf9, 0xc0, 0x29, 0x5c, 0x0e, 0x9c,
+	0xc2, 0xf7, 0x81, 0x53, 0xf8, 0x58, 0x1f, 0xbb, 0x03, 0xcf, 0x86, 0xb7, 0x60, 0xd2, 0xe3, 0x44,
+	0x9e, 0xcc, 0xab, 0x6b, 0xef, 0xd1, 0x9f, 0x00, 0x00, 0x00, 0xff, 0xff, 0x48, 0x48, 0x30, 0x66,
+	0xd4, 0x05, 0x00, 0x00,
 }
 
 func (m *GenesisState) Marshal() (dAtA []byte, err error) {
@@ -138,10 +437,90 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.ExtendedGroupMap) > 0 {
-		for iNdEx := len(m.ExtendedGroupMap) - 1; iNdEx >= 0; iNdEx-- {
+	if len(m.ProposalVotes) > 0 {
+		for iNdEx := len(m.ProposalVotes) - 1; iNdEx >= 0; iNdEx-- {
 			{
-				size, err := m.ExtendedGroupMap[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				size, err := m.ProposalVotes[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x52
+		}
+	}
+	if len(m.PolicyVersions) > 0 {
+		for iNdEx := len(m.PolicyVersions) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.PolicyVersions[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x4a
+		}
+	}
+	if m.NextCouncilId != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.NextCouncilId))
+		i--
+		dAtA[i] = 0x40
+	}
+	if m.NextProposalId != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.NextProposalId))
+		i--
+		dAtA[i] = 0x38
+	}
+	if len(m.Proposals) > 0 {
+		for iNdEx := len(m.Proposals) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Proposals[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x32
+		}
+	}
+	if len(m.DecisionPolicies) > 0 {
+		for iNdEx := len(m.DecisionPolicies) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.DecisionPolicies[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2a
+		}
+	}
+	if len(m.CouncilMembers) > 0 {
+		for iNdEx := len(m.CouncilMembers) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.CouncilMembers[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x22
+		}
+	}
+	if len(m.GroupMap) > 0 {
+		for iNdEx := len(m.GroupMap) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.GroupMap[iNdEx].MarshalToSizedBuffer(dAtA[:i])
 				if err != nil {
 					return 0, err
 				}
@@ -179,6 +558,167 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *CouncilMembers) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *CouncilMembers) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *CouncilMembers) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Members) > 0 {
+		for iNdEx := len(m.Members) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Members[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.CouncilName) > 0 {
+		i -= len(m.CouncilName)
+		copy(dAtA[i:], m.CouncilName)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.CouncilName)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PolicyWithAddress) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PolicyWithAddress) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PolicyWithAddress) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.DecisionPolicy.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintGenesis(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if len(m.PolicyAddress) > 0 {
+		i -= len(m.PolicyAddress)
+		copy(dAtA[i:], m.PolicyAddress)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.PolicyAddress)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PolicyVersionEntry) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PolicyVersionEntry) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PolicyVersionEntry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Version != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.Version))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.PolicyAddress) > 0 {
+		i -= len(m.PolicyAddress)
+		copy(dAtA[i:], m.PolicyAddress)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.PolicyAddress)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ProposalVotes) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ProposalVotes) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ProposalVotes) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Votes) > 0 {
+		for iNdEx := len(m.Votes) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Votes[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if m.ProposalId != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.ProposalId))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintGenesis(dAtA []byte, offset int, v uint64) int {
 	offset -= sovGenesis(v)
 	base := offset
@@ -204,8 +744,112 @@ func (m *GenesisState) Size() (n int) {
 			n += 1 + l + sovGenesis(uint64(l))
 		}
 	}
-	if len(m.ExtendedGroupMap) > 0 {
-		for _, e := range m.ExtendedGroupMap {
+	if len(m.GroupMap) > 0 {
+		for _, e := range m.GroupMap {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.CouncilMembers) > 0 {
+		for _, e := range m.CouncilMembers {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.DecisionPolicies) > 0 {
+		for _, e := range m.DecisionPolicies {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.Proposals) > 0 {
+		for _, e := range m.Proposals {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if m.NextProposalId != 0 {
+		n += 1 + sovGenesis(uint64(m.NextProposalId))
+	}
+	if m.NextCouncilId != 0 {
+		n += 1 + sovGenesis(uint64(m.NextCouncilId))
+	}
+	if len(m.PolicyVersions) > 0 {
+		for _, e := range m.PolicyVersions {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.ProposalVotes) > 0 {
+		for _, e := range m.ProposalVotes {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *CouncilMembers) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.CouncilName)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	if len(m.Members) > 0 {
+		for _, e := range m.Members {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *PolicyWithAddress) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.PolicyAddress)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	l = m.DecisionPolicy.Size()
+	n += 1 + l + sovGenesis(uint64(l))
+	return n
+}
+
+func (m *PolicyVersionEntry) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.PolicyAddress)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	if m.Version != 0 {
+		n += 1 + sovGenesis(uint64(m.Version))
+	}
+	return n
+}
+
+func (m *ProposalVotes) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ProposalId != 0 {
+		n += 1 + sovGenesis(uint64(m.ProposalId))
+	}
+	if len(m.Votes) > 0 {
+		for _, e := range m.Votes {
 			l = e.Size()
 			n += 1 + l + sovGenesis(uint64(l))
 		}
@@ -317,7 +961,7 @@ func (m *GenesisState) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ExtendedGroupMap", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field GroupMap", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -344,8 +988,651 @@ func (m *GenesisState) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.ExtendedGroupMap = append(m.ExtendedGroupMap, ExtendedGroup{})
-			if err := m.ExtendedGroupMap[len(m.ExtendedGroupMap)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			m.GroupMap = append(m.GroupMap, Group{})
+			if err := m.GroupMap[len(m.GroupMap)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CouncilMembers", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CouncilMembers = append(m.CouncilMembers, CouncilMembers{})
+			if err := m.CouncilMembers[len(m.CouncilMembers)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DecisionPolicies", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DecisionPolicies = append(m.DecisionPolicies, PolicyWithAddress{})
+			if err := m.DecisionPolicies[len(m.DecisionPolicies)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Proposals", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Proposals = append(m.Proposals, Proposal{})
+			if err := m.Proposals[len(m.Proposals)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NextProposalId", wireType)
+			}
+			m.NextProposalId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.NextProposalId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NextCouncilId", wireType)
+			}
+			m.NextCouncilId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.NextCouncilId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PolicyVersions", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PolicyVersions = append(m.PolicyVersions, PolicyVersionEntry{})
+			if err := m.PolicyVersions[len(m.PolicyVersions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ProposalVotes", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ProposalVotes = append(m.ProposalVotes, ProposalVotes{})
+			if err := m.ProposalVotes[len(m.ProposalVotes)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *CouncilMembers) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: CouncilMembers: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: CouncilMembers: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CouncilName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CouncilName = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Members", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Members = append(m.Members, Member{})
+			if err := m.Members[len(m.Members)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PolicyWithAddress) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PolicyWithAddress: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PolicyWithAddress: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PolicyAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PolicyAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DecisionPolicy", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.DecisionPolicy.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PolicyVersionEntry) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PolicyVersionEntry: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PolicyVersionEntry: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PolicyAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PolicyAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Version", wireType)
+			}
+			m.Version = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Version |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ProposalVotes) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ProposalVotes: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ProposalVotes: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ProposalId", wireType)
+			}
+			m.ProposalId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ProposalId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Votes", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Votes = append(m.Votes, Vote{})
+			if err := m.Votes[len(m.Votes)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

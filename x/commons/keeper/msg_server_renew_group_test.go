@@ -9,15 +9,13 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/group"
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
 
 func TestRenewGroup(t *testing.T) {
-	// Reusing the setup helper from safe_update_parent_test.go
-	k, ctx, groupK, commonsModuleAddr := setupSafeUpdateTest(t)
+	k, ctx, _ := setupSafeUpdateTest(t)
 	ms := keeper.NewMsgServerImpl(k)
 
 	// 1. Setup Addresses
@@ -32,13 +30,13 @@ func TestRenewGroup(t *testing.T) {
 	member3 := sdk.AccAddress([]byte("member3_____________"))
 	futarchyBot := sdk.AccAddress([]byte("futarchy_bot________"))
 
-	// 2. Setup CHILD Group
-	childRes, err := groupK.CreateGroup(ctx, &group.MsgCreateGroup{
-		Admin:   commonsModuleAddr.String(),
-		Members: []group.MemberRequest{{Address: member1.String(), Weight: "1"}},
-	})
-	require.NoError(t, err)
-	childGroupID := childRes.GroupId
+	// 2. Setup CHILD Group via native state
+	childPolicyAddr := keeper.DeriveCouncilAddress(1, "standard").String()
+
+	// Add initial member to simulate existing group state
+	require.NoError(t, k.AddMember(ctx, "ExpiredGroup", types.Member{
+		Address: member1.String(), Weight: "1",
+	}))
 
 	// 3. Define Timestamps
 	now := ctx.BlockTime().Unix()
@@ -48,8 +46,9 @@ func TestRenewGroup(t *testing.T) {
 	// 4. Register Extended Groups
 
 	// Case A: Expired Group (Ready for renewal)
-	expiredGroup := types.ExtendedGroup{
-		GroupId:               childGroupID,
+	expiredGroup := types.Group{
+		GroupId:               1,
+		PolicyAddress:         childPolicyAddr,
 		ParentPolicyAddress:   parentPolicyAddr.String(),
 		MinMembers:            2,
 		MaxMembers:            5,
@@ -57,22 +56,24 @@ func TestRenewGroup(t *testing.T) {
 		CurrentTermExpiration: expiredTime,
 		FutarchyEnabled:       false,
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "ExpiredGroup", expiredGroup))
+	require.NoError(t, k.Groups.Set(ctx, "ExpiredGroup", expiredGroup))
 
 	// Case B: Active Group
-	activeGroup := types.ExtendedGroup{
-		GroupId:               childGroupID,
+	activeGroup := types.Group{
+		GroupId:               1,
+		PolicyAddress:         childPolicyAddr,
 		ParentPolicyAddress:   parentPolicyAddr.String(),
 		MinMembers:            1,
 		MaxMembers:            5,
 		TermDuration:          86400,
 		CurrentTermExpiration: activeTime,
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "ActiveGroup", activeGroup))
+	require.NoError(t, k.Groups.Set(ctx, "ActiveGroup", activeGroup))
 
 	// Case C: Futarchy Enabled Group
-	futarchyGroup := types.ExtendedGroup{
-		GroupId:               childGroupID,
+	futarchyGroup := types.Group{
+		GroupId:               1,
+		PolicyAddress:         childPolicyAddr,
 		ParentPolicyAddress:   parentPolicyAddr.String(),
 		MinMembers:            1,
 		MaxMembers:            10,
@@ -80,20 +81,20 @@ func TestRenewGroup(t *testing.T) {
 		CurrentTermExpiration: expiredTime,
 		FutarchyEnabled:       true,
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "FutarchyGroup", futarchyGroup))
+	require.NoError(t, k.Groups.Set(ctx, "FutarchyGroup", futarchyGroup))
 
 	// Case D: Size Check Group (Specific for failure tests)
-	// We use this group solely to fail on size constraints.
 	// It is expired so we don't hit the time lock check first.
-	sizeCheckGroup := types.ExtendedGroup{
-		GroupId:               childGroupID,
+	sizeCheckGroup := types.Group{
+		GroupId:               1,
+		PolicyAddress:         childPolicyAddr,
 		ParentPolicyAddress:   parentPolicyAddr.String(),
 		MinMembers:            2,
 		MaxMembers:            5,
 		TermDuration:          86400,
 		CurrentTermExpiration: expiredTime,
 	}
-	require.NoError(t, k.ExtendedGroup.Set(ctx, "SizeCheckGroup", sizeCheckGroup))
+	require.NoError(t, k.Groups.Set(ctx, "SizeCheckGroup", sizeCheckGroup))
 
 	tests := []struct {
 		desc      string
@@ -112,12 +113,13 @@ func TestRenewGroup(t *testing.T) {
 			},
 			expectErr: false,
 			check: func(t *testing.T) {
-				g, _ := k.ExtendedGroup.Get(ctx, "ExpiredGroup")
+				g, _ := k.Groups.Get(ctx, "ExpiredGroup")
 				expectedExpiration := ctx.BlockTime().Unix() + g.TermDuration
 				require.Equal(t, expectedExpiration, g.CurrentTermExpiration)
 
-				resp, _ := groupK.GroupMembers(ctx, &group.QueryGroupMembersRequest{GroupId: childGroupID})
-				require.Len(t, resp.Members, 2)
+				members, err := k.GetCouncilMembers(ctx, "ExpiredGroup")
+				require.NoError(t, err)
+				require.Len(t, members, 2)
 			},
 		},
 		{
@@ -131,7 +133,7 @@ func TestRenewGroup(t *testing.T) {
 			},
 			expectErr: false,
 			check: func(t *testing.T) {
-				g, _ := k.ExtendedGroup.Get(ctx, "ActiveGroup")
+				g, _ := k.Groups.Get(ctx, "ActiveGroup")
 				require.True(t, g.CurrentTermExpiration > activeTime, "Expiration should have been pushed forward")
 			},
 		},

@@ -23,14 +23,14 @@ func (k msgServer) ResolveDispute(goCtx context.Context, msg *types.MsgResolveDi
 	authorized := msg.Authority == authorityAddr
 	if !authorized {
 		// Check if sender is Commons Council policy
-		councilGroup, err := k.commonsKeeper.GetExtendedGroup(ctx, "Commons Council")
+		councilGroup, err := k.commonsKeeper.GetGroup(ctx, "Commons Council")
 		if err == nil && msg.Authority == councilGroup.PolicyAddress {
 			authorized = true
 		}
 	}
 	if !authorized {
 		// Check if sender is Operations Committee policy
-		opsGroup, err := k.commonsKeeper.GetExtendedGroup(ctx, "Operations Committee")
+		opsGroup, err := k.commonsKeeper.GetGroup(ctx, "Operations Committee")
 		if err == nil && msg.Authority == opsGroup.PolicyAddress {
 			authorized = true
 		}

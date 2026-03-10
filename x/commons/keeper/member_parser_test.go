@@ -50,7 +50,7 @@ func TestParseMembers(t *testing.T) {
 			members:       []string{addr1},
 			weights:       []string{"1", "2"},
 			expectError:   true,
-			errorContains: "members count (1) does not match weights count (2)",
+			errorContains: "member count (1) does not match weight count (2)",
 		},
 		{
 			name:          "invalid address",
@@ -84,7 +84,7 @@ func TestParseMembers(t *testing.T) {
 				if tc.expectedLen > 0 {
 					require.Equal(t, tc.members[0], res[0].Address)
 					require.Equal(t, tc.weights[0], res[0].Weight)
-					require.Equal(t, "Added via x/commons", res[0].Metadata)
+					require.Equal(t, "", res[0].Metadata)
 				}
 			}
 		})

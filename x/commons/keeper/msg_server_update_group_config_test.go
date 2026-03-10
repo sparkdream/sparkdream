@@ -2,16 +2,13 @@ package keeper_test
 
 import (
 	"testing"
-	"time"
 
 	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/group"
 
 	"sparkdream/testutil"
 	"sparkdream/x/commons/keeper"
@@ -25,9 +22,9 @@ const (
 )
 
 // 2. Define Initial State Template Factory
-func createInitialGroupTemplate(ctx sdk.Context, parentPolicy string) types.ExtendedGroup {
+func createInitialGroupTemplate(ctx sdk.Context, parentPolicy string) types.Group {
 	maxSpendPerEpoch := math.NewInt(1000)
-	return types.ExtendedGroup{
+	return types.Group{
 		GroupId:               1,                                                       // Will be overwritten
 		PolicyAddress:         sdk.AccAddress([]byte("child_policy_addr___")).String(), // Will be overwritten
 		ParentPolicyAddress:   parentPolicy,
@@ -42,9 +39,7 @@ func createInitialGroupTemplate(ctx sdk.Context, parentPolicy string) types.Exte
 }
 
 func TestUpdateGroupConfig(t *testing.T) {
-	// k is the custom Commons Keeper, ctx is the SDK context
-	// groupK is the actual GroupKeeper used for creating the initial state
-	k, ctx, groupK, _ := setupSafeUpdateTest(t)
+	k, ctx, _ := setupSafeUpdateTest(t)
 	ms := keeper.NewMsgServerImpl(k)
 
 	// 1. Setup Addresses
@@ -53,50 +48,34 @@ func TestUpdateGroupConfig(t *testing.T) {
 	childGroup := "TechnicalGroup"
 	attacker := sdk.AccAddress([]byte("attacker_address____"))
 
-	// Use the keeper's address for the Group Admin since it's the module creating the group
-	moduleAddr := k.GetModuleAddress().String()
+	// Counter for generating unique council addresses
+	nextCouncilID := uint64(1)
 
 	// Helper to reset state for tests that modify the group or rely on a fresh start
 	resetState := func(t *testing.T) {
 		// Get a fresh copy of the template for this run
 		template := createInitialGroupTemplate(ctx, parentPolicy.String())
 
-		// Define a valid member address for group creation
+		// Generate a deterministic policy address
+		policyAddr := keeper.DeriveCouncilAddress(nextCouncilID, "standard").String()
+		nextCouncilID++
+
+		// Update template with generated data
+		template.PolicyAddress = policyAddr
+		template.GroupId = nextCouncilID
+
+		// Set the custom Group object in the Commons module's store
+		require.NoError(t, k.Groups.Set(ctx, childGroup, template))
+		require.NoError(t, k.PolicyToName.Set(ctx, policyAddr, childGroup))
+
+		// Add a member
 		member1Addr := sdk.AccAddress([]byte("group_member_1______")).String()
+		require.NoError(t, k.AddMember(ctx, childGroup, types.Member{
+			Address: member1Addr, Weight: "1", Metadata: "m1",
+		}))
 
-		// 1. Create Group (Group ID N) in Group Module Store
-		createGroupRes, err := groupK.CreateGroup(ctx, &group.MsgCreateGroup{
-			Admin:    moduleAddr,
-			Members:  []group.MemberRequest{{Address: member1Addr, Weight: "1", Metadata: "m1"}},
-			Metadata: childGroup,
-		})
-		require.NoError(t, err)
-		require.Greater(t, createGroupRes.GroupId, uint64(0))
-		actualGroupID := createGroupRes.GroupId
-
-		// 2. Create Policy (Links Group ID N to PolicyAddress) in Group Module Store
-		defaultPolicy := &group.ThresholdDecisionPolicy{
-			Threshold: "1", // Default threshold
-			Windows: &group.DecisionPolicyWindows{
-				VotingPeriod: 24 * time.Hour,
-			},
-		}
-		policyAny, err := codectypes.NewAnyWithValue(defaultPolicy)
-		require.NoError(t, err)
-
-		createPolicyRes, err := groupK.CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
-			Admin:          moduleAddr,
-			GroupId:        actualGroupID,
-			DecisionPolicy: policyAny,
-		})
-		require.NoError(t, err)
-
-		// 3. Update the fresh template copy with GroupKeeper's generated data
-		template.PolicyAddress = createPolicyRes.Address
-		template.GroupId = actualGroupID
-
-		// 4. Set the custom ExtendedGroup object in the Commons module's store
-		require.NoError(t, k.ExtendedGroup.Set(ctx, childGroup, template))
+		// Set initial policy version
+		require.NoError(t, k.PolicyVersion.Set(ctx, policyAddr, 1))
 	}
 
 	// Establish the base state before running the tests.
@@ -130,7 +109,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			},
 			expectErr: false,
 			checkState: func(t *testing.T) {
-				g, _ := k.ExtendedGroup.Get(ctx, childGroup)
+				g, _ := k.Groups.Get(ctx, childGroup)
 				require.Equal(t, math.NewInt(5000), *g.MaxSpendPerEpoch)
 				require.Equal(t, initialGroupTemplateRef.MinMembers, g.MinMembers)
 				require.True(t, g.FutarchyEnabled) // Must remain true
@@ -149,7 +128,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			},
 			expectErr: false,
 			checkState: func(t *testing.T) {
-				g, _ := k.ExtendedGroup.Get(ctx, childGroup)
+				g, _ := k.Groups.Get(ctx, childGroup)
 				require.Equal(t, uint64(5), g.MinMembers) // New state for sequential checks
 				require.Equal(t, uint64(15), g.MaxMembers)
 				require.Equal(t, int64(3600), g.UpdateCooldown)
@@ -170,7 +149,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			},
 			expectErr: false,
 			checkState: func(t *testing.T) {
-				g, _ := k.ExtendedGroup.Get(ctx, childGroup)
+				g, _ := k.Groups.Get(ctx, childGroup)
 				require.Equal(t, initialGroupTemplateRef.MaxSpendPerEpoch, g.MaxSpendPerEpoch)
 				require.True(t, g.FutarchyEnabled) // Must remain true
 			},
@@ -185,7 +164,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			},
 			expectErr: false,
 			checkState: func(t *testing.T) {
-				g, _ := k.ExtendedGroup.Get(ctx, childGroup)
+				g, _ := k.Groups.Get(ctx, childGroup)
 				require.False(t, g.FutarchyEnabled) // Must be false
 			},
 		},
@@ -203,7 +182,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			},
 			expectErr: false,
 			checkState: func(t *testing.T) {
-				g, _ := k.ExtendedGroup.Get(ctx, childGroup)
+				g, _ := k.Groups.Get(ctx, childGroup)
 				require.Equal(t, initialGroupTemplateRef.TermDuration, g.TermDuration)
 				require.True(t, g.FutarchyEnabled) // Must remain true
 			},
@@ -239,13 +218,13 @@ func TestUpdateGroupConfig(t *testing.T) {
 		{
 			desc: "Failure - Max Members < Existing Min (Partial Update)",
 			preCheck: func(t *testing.T) {
-				// 1. Reset state to establish Group/Policy in Group Module store
+				// 1. Reset state to establish Group in store
 				resetState(t)
 
-				// 2. Manually update the MinMembers in the ExtendedGroup store
-				g_new, _ := k.ExtendedGroup.Get(ctx, childGroup)
+				// 2. Manually update the MinMembers in the Group store
+				g_new, _ := k.Groups.Get(ctx, childGroup)
 				g_new.MinMembers = 5
-				require.NoError(t, k.ExtendedGroup.Set(ctx, childGroup, g_new))
+				require.NoError(t, k.Groups.Set(ctx, childGroup, g_new))
 			},
 			msg: &types.MsgUpdateGroupConfig{
 				Authority:  parentPolicy.String(),
@@ -298,7 +277,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			},
 			expectErr: false,
 			checkState: func(t *testing.T) {
-				g, _ := k.ExtendedGroup.Get(ctx, childGroup)
+				g, _ := k.Groups.Get(ctx, childGroup)
 				// The Rule changed:
 				require.Equal(t, int64(999999), g.TermDuration)
 				// The Deadline did NOT change (Safety Mechanism):

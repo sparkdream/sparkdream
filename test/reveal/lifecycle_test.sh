@@ -90,7 +90,7 @@ expect_tx_failure() {
     return 0
 }
 
-# Helper: extract group proposal ID from tx hash
+# Helper: extract commons proposal ID from tx hash
 get_group_proposal_id() {
     local tx_hash=$1
     local retries=0
@@ -101,7 +101,7 @@ get_group_proposal_id() {
         sleep 1
         TX_RES=$($BINARY query tx $tx_hash --output json 2>/dev/null)
         if [ $? -eq 0 ]; then
-            prop_id=$(echo $TX_RES | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+            prop_id=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
             if [ -n "$prop_id" ] && [ "$prop_id" != "null" ]; then
                 echo "$prop_id"
                 return 0
@@ -112,43 +112,37 @@ get_group_proposal_id() {
     return 1
 }
 
-# Helper: vote + execute a group proposal (council requires 2 of 3 votes)
+# Helper: vote + execute a commons proposal (council requires 2 of 3 votes)
 vote_and_execute() {
     local prop_id=$1
 
     echo "  Alice voting YES on proposal #$prop_id..."
-    $BINARY tx group vote $prop_id $ALICE_ADDR VOTE_OPTION_YES "Approve" \
+    $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --output json > /dev/null 2>&1
+        --fees 5000000uspark --output json > /dev/null 2>&1
     sleep 3
 
     echo "  Bob voting YES on proposal #$prop_id..."
-    $BINARY tx group vote $prop_id $BOB_ADDR VOTE_OPTION_YES "Approve" \
+    $BINARY tx commons vote-proposal $prop_id yes \
         --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --output json > /dev/null 2>&1
+        --fees 5000000uspark --output json > /dev/null 2>&1
     sleep 3
 
     echo "  Executing proposal #$prop_id..."
-    EXEC_RES=$($BINARY tx group exec $prop_id \
+    EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --output json)
+        --fees 5000000uspark --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
     EXEC_TX_JSON=$(wait_for_tx $EXEC_TX_HASH)
-    if echo "$EXEC_TX_JSON" | grep -q "PROPOSAL_EXECUTOR_RESULT_SUCCESS"; then
+    if check_tx_success "$EXEC_TX_JSON"; then
         echo "  Execution successful"
         return 0
     else
         echo "  Execution result:"
         echo "$EXEC_TX_JSON" | jq -r '.raw_log' 2>/dev/null | head -c 500
-        # Check if the proposal status shows success
-        PROP_STATUS=$($BINARY query group proposal $prop_id --output json 2>/dev/null | jq -r '.proposal.executor_result // empty')
-        if [ "$PROP_STATUS" == "PROPOSAL_EXECUTOR_RESULT_SUCCESS" ]; then
-            echo "  Proposal executed successfully (confirmed via query)"
-            return 0
-        fi
-        echo "  Execution may have failed (status: $PROP_STATUS)"
+        echo "  Execution may have failed"
         return 1
     fi
 }
@@ -227,10 +221,8 @@ jq -n \
     --arg alice "$ALICE_ADDR" \
     --arg contrib_id "$CONTRIB_ID" \
 '{
-    group_policy_address: $policy,
-    proposers: [$alice],
-    title: "Approve Contribution",
-    summary: "Approve contribution for lifecycle test",
+    policy_address: $policy,
+    metadata: "Approve contribution for lifecycle test",
     messages: [{
         "@type": "/sparkdream.reveal.v1.MsgApprove",
         authority: $policy,
@@ -240,7 +232,7 @@ jq -n \
 }' > "$PROPOSAL_DIR/approve_contribution.json"
 
 echo "  Submitting council approval proposal..."
-SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/approve_contribution.json" \
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/approve_contribution.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
     --fees 5000000uspark --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
@@ -812,10 +804,8 @@ if [ -n "$EMBER_ID" ]; then
         --arg alice "$ALICE_ADDR" \
         --arg contrib_id "$EMBER_ID" \
     '{
-        group_policy_address: $policy,
-        proposers: [$alice],
-        title: "Approve Ember",
-        summary: "Approve for non-contributor reveal test",
+        policy_address: $policy,
+        metadata: "Approve for non-contributor reveal test",
         messages: [{
             "@type": "/sparkdream.reveal.v1.MsgApprove",
             authority: $policy,
@@ -824,7 +814,7 @@ if [ -n "$EMBER_ID" ]; then
         }]
     }' > "$PROPOSAL_DIR/approve_ember.json"
 
-    SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/approve_ember.json" \
+    SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/approve_ember.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000000uspark --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')

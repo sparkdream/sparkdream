@@ -222,7 +222,7 @@ message MsgUpdateParams {
 ```go
 func (k Keeper) IsCommonsCouncilMember(ctx sdk.Context, memberAddr sdk.AccAddress) bool {
     // Get Commons Council group ID from x/commons
-    council, found := k.commonsKeeper.GetExtendedGroup(ctx, "Commons Council")
+    council, found := k.commonsKeeper.GetGroup(ctx, "Commons Council")
     if !found {
         return false
     }
@@ -311,7 +311,7 @@ This creates a simple inactivity-based expiration without oracles.
 
 ```go
 // Get Commons Council for membership check
-council, _ := k.commonsKeeper.GetExtendedGroup(ctx, "Commons Council")
+council, _ := k.commonsKeeper.GetGroup(ctx, "Commons Council")
 
 // Get council policy address for dispute fees
 policyAddr := k.GetCouncilAddress(ctx, council.GroupId)

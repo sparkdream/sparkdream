@@ -20,7 +20,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/group"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/name/keeper"
@@ -33,10 +32,9 @@ type fixture struct {
 	ctx          sdk.Context
 	keeper       keeper.Keeper
 	addressCodec address.Codec
-	mockBank     *MockBankKeeper
-	mockCommons  *MockCommonsKeeper
-	mockGroup    *MockGroupKeeperReg
-	mockRep      *MockRepKeeper
+	mockBank    *MockBankKeeper
+	mockCommons *MockCommonsKeeper
+	mockRep     *MockRepKeeper
 	councilAddr  string
 }
 
@@ -64,7 +62,6 @@ func initFixture(t *testing.T) *fixture {
 
 	// Inject Mocks
 	mockBK := NewMockBankKeeper()
-	mockGK := &MockGroupKeeperReg{members: make(map[string]bool)}
 	mockCK := NewMockCommonsKeeper()
 	mockRK := NewMockRepKeeper()
 
@@ -77,7 +74,6 @@ func initFixture(t *testing.T) *fixture {
 		authority,
 		mockBK, // BankKeeper
 		mockCK, // CommonsKeeper
-		mockGK, // GroupKeeper
 		mockRK, // RepKeeper
 	)
 
@@ -91,7 +87,6 @@ func initFixture(t *testing.T) *fixture {
 		addressCodec: addressCodec,
 		mockBank:     mockBK,
 		mockCommons:  mockCK,
-		mockGroup:    mockGK,
 		mockRep:      mockRK,
 		councilAddr:  councilAddrStr,
 	}
@@ -101,37 +96,40 @@ func initFixture(t *testing.T) *fixture {
 
 // MockCommonsKeeper (Used in dispute tests)
 type MockCommonsKeeper struct {
-	ExtendedGroups map[string]commonstypes.ExtendedGroup
+	Groups map[string]commonstypes.Group
 	PolicyPerms    map[string]commonstypes.PolicyPermissions
+	Members        map[string]bool // "councilName|address" -> isMember
 	getError       error
 }
 
 func NewMockCommonsKeeper() *MockCommonsKeeper {
 	return &MockCommonsKeeper{
-		ExtendedGroups: make(map[string]commonstypes.ExtendedGroup),
+		Groups: make(map[string]commonstypes.Group),
 		PolicyPerms:    make(map[string]commonstypes.PolicyPermissions),
+		Members:        make(map[string]bool),
 	}
 }
 
 func (m *MockCommonsKeeper) Reset() {
-	m.ExtendedGroups = make(map[string]commonstypes.ExtendedGroup)
+	m.Groups = make(map[string]commonstypes.Group)
 	m.PolicyPerms = make(map[string]commonstypes.PolicyPermissions)
+	m.Members = make(map[string]bool)
 	m.getError = nil
 }
 
-func (m *MockCommonsKeeper) GetExtendedGroup(ctx context.Context, name string) (commonstypes.ExtendedGroup, error) {
+func (m *MockCommonsKeeper) GetGroup(ctx context.Context, name string) (commonstypes.Group, error) {
 	if m.getError != nil {
-		return commonstypes.ExtendedGroup{}, m.getError
+		return commonstypes.Group{}, m.getError
 	}
 
-	if group, found := m.ExtendedGroups[name]; found {
+	if group, found := m.Groups[name]; found {
 		return group, nil
 	}
-	return commonstypes.ExtendedGroup{}, sdkerrors.ErrInvalidRequest.Wrap("group not found")
+	return commonstypes.Group{}, sdkerrors.ErrInvalidRequest.Wrap("group not found")
 }
 
-func (m *MockCommonsKeeper) SetExtendedGroup(ctx context.Context, name string, group commonstypes.ExtendedGroup) error {
-	m.ExtendedGroups[name] = group
+func (m *MockCommonsKeeper) SetGroup(ctx context.Context, name string, group commonstypes.Group) error {
+	m.Groups[name] = group
 	return nil
 }
 
@@ -151,34 +149,15 @@ func (m *MockCommonsKeeper) IsCouncilAuthorized(_ context.Context, _ string, _ s
 	return false
 }
 
-// MockGroupKeeperReg
-type MockGroupKeeperReg struct {
-	members        map[string]bool
-	CouncilGroupId uint64
+func (m *MockCommonsKeeper) HasMember(_ context.Context, councilName string, address string) (bool, error) {
+	key := councilName + "|" + address
+	return m.Members[key], nil
 }
 
-func (m *MockGroupKeeperReg) Reset() {
-	m.members = make(map[string]bool)
-	m.CouncilGroupId = 0
-}
-
-func (m *MockGroupKeeperReg) GroupsByMember(ctx context.Context, request *group.QueryGroupsByMemberRequest) (*group.QueryGroupsByMemberResponse, error) {
-	if m.members[request.Address] && m.CouncilGroupId > 0 {
-		return &group.QueryGroupsByMemberResponse{
-			Groups: []*group.GroupInfo{
-				{Id: m.CouncilGroupId},
-			},
-		}, nil
-	}
-	return &group.QueryGroupsByMemberResponse{Groups: []*group.GroupInfo{}}, nil
-}
-
-func (m *MockGroupKeeperReg) GroupPoliciesByGroup(ctx context.Context, request *group.QueryGroupPoliciesByGroupRequest) (*group.QueryGroupPoliciesByGroupResponse, error) {
-	return nil, nil
-}
-
-func (m *MockGroupKeeperReg) GetGroupSequence(ctx sdk.Context) uint64 {
-	return 1
+func (m *MockCommonsKeeper) AddMember(_ context.Context, councilName string, member commonstypes.Member) error {
+	key := councilName + "|" + member.Address
+	m.Members[key] = true
+	return nil
 }
 
 // MockBankKeeper

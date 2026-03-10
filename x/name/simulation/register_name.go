@@ -3,7 +3,6 @@ package simulation
 import (
 	"math/rand"
 	"strings"
-	"time"
 
 	commonstypes "sparkdream/x/commons/types"
 
@@ -12,8 +11,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/group"
-	groupkeeper "github.com/cosmos/cosmos-sdk/x/group/keeper"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/name/keeper"
@@ -27,7 +24,6 @@ func SimulateMsgRegisterName(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	ck types.CommonsKeeper,
-	gk groupkeeper.Keeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
@@ -38,83 +34,38 @@ func SimulateMsgRegisterName(
 		params := k.GetParams(ctx)
 		var simAccount simtypes.Account
 		var found bool
-		var councilID uint64
 
-		// 2. ATTEMPT 1: Try to find an existing Council Member by looking up the group name
-		council, err := ck.GetExtendedGroup(ctx, CouncilName)
+		// 2. ATTEMPT 1: Try to find an existing Council Member via native collections
+		council, err := ck.GetGroup(ctx, CouncilName)
 		if err == nil {
-			councilID = council.GroupId
-
-			membersQuery := &group.QueryGroupMembersRequest{
-				GroupId: councilID,
-			}
-			membersRes, err := gk.GroupMembers(ctx, membersQuery)
-
-			if err == nil {
-				rand.Shuffle(len(membersRes.Members), func(i, j int) {
-					membersRes.Members[i], membersRes.Members[j] = membersRes.Members[j], membersRes.Members[i]
-				})
-
-				for _, member := range membersRes.Members {
-					addr, _ := sdk.AccAddressFromBech32(member.Member.Address)
-					simAccount, found = simtypes.FindAccount(accs, addr)
-					if found {
-						break
-					}
+			// Shuffle accounts and find one that's a member
+			perm := r.Perm(len(accs))
+			for _, idx := range perm {
+				acc := accs[idx]
+				isMember, mErr := ck.HasMember(ctx, CouncilName, acc.Address.String())
+				if mErr == nil && isMember {
+					simAccount = acc
+					found = true
+					break
 				}
 			}
+			_ = council
 		}
 
-		// 3. ATTEMPT 2: Fallback (God Mode) - Create a new mock council if not found
+		// 3. ATTEMPT 2: Fallback (God Mode) - Create a mock council and add simAccount as member
 		if !found {
-			// Find a random account to be the admin
 			simAccount, _ = simtypes.RandomAcc(r, accs)
 
-			// 3a. Create a new Group
-			members := []group.MemberRequest{
-				{
-					Address:  simAccount.Address.String(),
-					Weight:   "1",
-					Metadata: "sim member",
-				},
+			mockGroup := commonstypes.Group{
+				GroupId:       uint64(simtypes.RandIntBetween(r, 1, 1000)),
+				PolicyAddress: simAccount.Address.String(),
 			}
-
-			createGroupMsg := &group.MsgCreateGroup{
-				Admin:    simAccount.Address.String(),
-				Members:  members,
-				Metadata: "sim council for registration",
-			}
-
-			groupRes, err := gk.CreateGroup(ctx, createGroupMsg)
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to create sim group"), nil, nil
-			}
-			councilID = groupRes.GroupId
-
-			// 3b. Create a dummy Policy
-			decisionPolicy := group.NewThresholdDecisionPolicy(
-				"1",
-				time.Hour*24,
-				time.Duration(0),
-			)
-
-			createPolicyMsg, err := group.NewMsgCreateGroupPolicy(simAccount.Address, groupRes.GroupId, "standard", decisionPolicy)
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to create policy msg"), nil, nil
-			}
-
-			policyRes, err := gk.CreateGroupPolicy(ctx, createPolicyMsg)
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to create sim policy"), nil, nil
-			}
-
-			// 3c. Register the Extended Group under the hardcoded name in the Commons Keeper
-			mockExtendedGroup := commonstypes.ExtendedGroup{
-				GroupId:       groupRes.GroupId,
-				PolicyAddress: policyRes.Address,
-			}
-			if err := ck.SetExtendedGroup(ctx, CouncilName, mockExtendedGroup); err != nil {
+			if err := ck.SetGroup(ctx, CouncilName, mockGroup); err != nil {
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to register extended group"), nil, err
+			}
+			// Add simAccount as a council member so HasMember check passes
+			if err := ck.AddMember(ctx, CouncilName, commonstypes.Member{Address: simAccount.Address.String(), Weight: "1"}); err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to add council member"), nil, err
 			}
 		}
 
@@ -129,8 +80,7 @@ func SimulateMsgRegisterName(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "insufficient funds for reg fee + gas"), nil, nil
 		}
 
-		// 4.5. CHECK NAME LIMIT (Updated to use GetOwnedNamesCount)
-		// We use a hard limit of 5 to match your chain's enforcement.
+		// 4.5. CHECK NAME LIMIT
 		const MaxNames = 5
 
 		count, err := k.GetOwnedNamesCount(ctx, simAccount.Address)
@@ -188,10 +138,8 @@ func SimulateMsgRegisterName(
 		}
 
 		// Define explicit high fees to satisfy the AnteHandler check (5M uspark)
-		// Random fees are usually too low for the x/commons spam protection.
 		fees := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(5000000)))
 
-		// Use GenAndDeliverTx (explicit fees) instead of GenAndDeliverTxWithRandFees
 		return simulation.GenAndDeliverTx(opMsg, fees)
 	}
 }

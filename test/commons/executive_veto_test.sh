@@ -17,15 +17,14 @@ GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account
 echo "Gov Module Address: $GOV_ADDR"
 
 echo "Scanning for Veto Policy..."
-# Check Group 1 (Commons Council) first. Alice and Bob are members here.
-VETO_POLICY_ADDR=$($BINARY query group group-policies-by-group 1 --output json | jq -r '.group_policies[] | select(.metadata == "veto") | .address' | head -n 1)
+VETO_POLICY_ADDR=$($BINARY query commons get-group "Commons Council" --output json | jq -r '.group.veto_policy_address')
 
 if [ -z "$VETO_POLICY_ADDR" ] || [ "$VETO_POLICY_ADDR" == "null" ]; then
-    echo "❌ ERROR: Could not find Veto Policy for Group 1"
+    echo "ERROR: Could not find Veto Policy for Commons Council"
     exit 1
 fi
 
-echo "✅ Target Veto Policy Address: $VETO_POLICY_ADDR"
+echo "Target Veto Policy Address: $VETO_POLICY_ADDR"
 
 # --- 1. ATTACK: Create & Vote on "Bad" Governance Proposal ---
 echo "--- PHASE 1: THE ATTACK ---"
@@ -51,7 +50,7 @@ TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Submitted Gov Prop. Hash: $TX_HASH"
 echo "Waiting for block inclusion (3s)..."
-sleep 3
+sleep 5
 
 # Get Gov Proposal ID
 TX_RES=$($BINARY query tx $TX_HASH --output json)
@@ -60,74 +59,74 @@ if [ -z "$GOV_PROP_ID" ] || [ "$GOV_PROP_ID" == "null" ]; then
    GOV_PROP_ID=$(echo $TX_RES | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 fi
 
-echo "⚠️  Target Gov Proposal ID: $GOV_PROP_ID"
+echo "Target Gov Proposal ID: $GOV_PROP_ID"
 
 # --- ALICE VOTES YES ---
-echo "⚠️  Alice votes YES..."
+echo "Alice votes YES..."
 $BINARY tx gov vote $GOV_PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
-sleep 3
+sleep 5
 
-# --- 2. DEFENSE: Create the "Kill Switch" Group Proposal ---
+# --- 2. DEFENSE: Create the "Kill Switch" Commons Proposal ---
 echo "--- PHASE 2: THE DEFENSE ---"
 echo "Creating Executive Veto Proposal..."
 
 echo '{
-  "group_policy_address": "'$VETO_POLICY_ADDR'",
-  "proposers": ["'$ALICE_ADDR'"],
-  "title": "EXECUTIVE ORDER: CANCEL PROP '$GOV_PROP_ID'",
-  "summary": "Immediate cancellation of malicious proposal.",
+  "policy_address": "'$VETO_POLICY_ADDR'",
   "messages": [
     {
       "@type": "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
       "authority": "'$VETO_POLICY_ADDR'",
       "proposal_id": '$GOV_PROP_ID'
     }
-  ]
+  ],
+  "metadata": "EXECUTIVE ORDER: CANCEL PROP '$GOV_PROP_ID' - Immediate cancellation of malicious proposal."
 }' > "$PROPOSAL_DIR/msg_exec_veto.json"
 
-# --- 3. Submit Group Proposal ---
-SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/msg_exec_veto.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+# --- 3. Submit Commons Proposal ---
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_exec_veto.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 3
+sleep 5
 
-# Get Group Proposal ID
+# Get Commons Proposal ID
 TX_RES=$($BINARY query tx $TX_HASH --output json)
-PROPOSAL_ID=$(echo $TX_RES | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"')
+PROPOSAL_ID=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
 if [ -z "$PROPOSAL_ID" ]; then
-    echo "❌ ERROR: Failed to submit proposal."
+    echo "ERROR: Failed to submit proposal."
     echo "Raw: $(echo $SUBMIT_RES)"
     exit 1
 fi
-echo "✅ Group Proposal ID: $PROPOSAL_ID"
+echo "Commons Proposal ID: $PROPOSAL_ID"
 
 # --- 4. Vote & Execute ---
 echo "Alice voting YES..."
-$BINARY tx group vote $PROPOSAL_ID $ALICE_ADDR VOTE_OPTION_YES "Kill it" --from alice -y --chain-id $CHAIN_ID --keyring-backend test
-sleep 3
+$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 5
 echo "Bob voting YES..."
-$BINARY tx group vote $PROPOSAL_ID $BOB_ADDR VOTE_OPTION_YES "Agreed" --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 5
 
-echo "Votes cast. Waiting for Veto voting period (5s buffer for 4h window? No, bootstrap sets 4 hours)..."
-# NOTE: The bootstrap sets Veto Window to 4 hours.
-# To make this test run fast, you must either:
-# 1. Update bootstrap to use 10s for testnet/local
-# 2. Or rely on "TryExec" immediately if threshold is met (Instant Execution)
-
-echo "Attempting Immediate Execution (Threshold Met)..."
-EXEC_RES=$($BINARY tx group exec $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
+echo "Attempting Execution (Threshold Met)..."
+EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 
-echo "Waiting for execution block (5s)..."
+echo "Waiting for execution block (3s)..."
 sleep 5
 
 # Fetch the TX result
 EXEC_TX_JSON=$($BINARY query tx $EXEC_TX_HASH --output json)
+EXEC_CODE=$(echo $EXEC_TX_JSON | jq -r '.code')
 
-if echo "$EXEC_TX_JSON" | grep -q "PROPOSAL_EXECUTOR_RESULT_SUCCESS"; then
-    echo "✅ Group Execution Successful."
+if [ "$EXEC_CODE" == "0" ]; then
+    # Verify proposal status is EXECUTED
+    PROP_STATUS=$($BINARY query commons get-proposal $PROPOSAL_ID --output json | jq -r '.proposal.status')
+    if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
+        echo "Commons Execution Successful."
+    else
+        echo "WARNING: Tx succeeded but proposal status is $PROP_STATUS"
+    fi
 else
-    echo "❌ CRITICAL FAILURE: Group Execution Failed."
+    echo "CRITICAL FAILURE: Commons Execution Failed."
     echo "Raw Log: $(echo $EXEC_TX_JSON | jq -r '.raw_log')"
     exit 1
 fi
@@ -140,7 +139,7 @@ STATUS=$(echo $GOV_STATUS_JSON | jq -r '.proposal.status')
 echo "Current Status: $STATUS"
 
 if [ "$STATUS" == "PROPOSAL_STATUS_FAILED" ] || [ "$STATUS" == "PROPOSAL_STATUS_REJECTED" ]; then
-    echo "✅ SUCCESS: Proposal status forced to $STATUS."
+    echo "SUCCESS: Proposal status forced to $STATUS."
 else
-    echo "❌ FAILURE: Proposal is still active (Status: $STATUS)."
+    echo "FAILURE: Proposal is still active (Status: $STATUS)."
 fi

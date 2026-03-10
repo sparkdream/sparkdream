@@ -7,10 +7,8 @@ import (
 	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/group"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/commons/keeper"
@@ -27,31 +25,25 @@ func SimulateMsgUpdateGroupConfig(
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		var (
 			simAccount  simtypes.Account
-			targetGroup types.ExtendedGroup
+			targetGroup types.Group
 			targetName  string
 			found       bool
 		)
 
 		simAccount, _ = simtypes.RandomAcc(r, accs)
-		moduleAddr := k.GetModuleAddress().String()
 
 		// 1. FIND CANDIDATE GROUP
 		// Find a group where simAccount is the PARENT (Authorized to update config)
-		err := k.ExtendedGroup.Walk(ctx, nil, func(name string, g types.ExtendedGroup) (bool, error) {
+		err := k.Groups.Walk(ctx, nil, func(name string, g types.Group) (bool, error) {
 			if g.ParentPolicyAddress == simAccount.Address.String() {
 				// SKIP INVALID GROUPS
 				if g.MinMembers == 0 {
 					return false, nil
 				}
-
-				// Verify backing x/group exists
-				_, err := k.GetGroupKeeper().GroupInfo(ctx, &group.QueryGroupInfoRequest{GroupId: g.GroupId})
-				if err == nil {
-					targetGroup = g
-					targetName = name
-					found = true
-					return true, nil
-				}
+				targetGroup = g
+				targetName = name
+				found = true
+				return true, nil
 			}
 			return false, nil
 		})
@@ -61,41 +53,32 @@ func SimulateMsgUpdateGroupConfig(
 
 		// 2. FALLBACK: CREATE GROUP
 		if !found {
-			// A. Create x/group (Module is Admin)
-			groupRes, err := k.GetGroupKeeper().CreateGroup(ctx, &group.MsgCreateGroup{
-				Admin:    moduleAddr,
-				Members:  []group.MemberRequest{{Address: simAccount.Address.String(), Weight: "1", Metadata: "sim-member"}},
-				Metadata: "sim-config-update-group",
-			})
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to create x/group"), nil, nil
-			}
+			targetName = "sim-config-group-" + simtypes.RandStringOfLength(r, 5)
+			policyAddr := "sim-config-policy-" + simtypes.RandStringOfLength(r, 10)
 
-			// B. Create Policy
-			decisionPolicy := group.NewThresholdDecisionPolicy("1", 3600, 0)
-			policyAny, _ := codectypes.NewAnyWithValue(decisionPolicy)
-			policyRes, err := k.GetGroupKeeper().CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
-				Admin:          moduleAddr,
-				GroupId:        groupRes.GroupId,
-				DecisionPolicy: policyAny,
-			})
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to create policy"), nil, nil
-			}
-
-			// C. Register ExtendedGroup
-			targetName = "sim_config_group_" + simtypes.RandStringOfLength(r, 5)
-			targetGroup = types.ExtendedGroup{
-				GroupId:             groupRes.GroupId,
-				PolicyAddress:       policyRes.Address,
+			targetGroup = types.Group{
+				GroupId:             uint64(simtypes.RandIntBetween(r, 1, 1000)),
+				PolicyAddress:       policyAddr,
 				ParentPolicyAddress: simAccount.Address.String(), // Key: simAccount is Parent
 				MinMembers:          1,
 				MaxMembers:          5,
 				TermDuration:        86400,
 				FutarchyEnabled:     true,
 			}
-			if err := k.ExtendedGroup.Set(ctx, targetName, targetGroup); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to set extended group"), nil, err
+			if err := k.Groups.Set(ctx, targetName, targetGroup); err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to set group"), nil, err
+			}
+			if err := k.PolicyToName.Set(ctx, policyAddr, targetName); err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to set policy index"), nil, err
+			}
+
+			// Add initial member
+			if err := k.AddMember(ctx, targetName, types.Member{
+				Address: simAccount.Address.String(),
+				Weight:  "1",
+				AddedAt: ctx.BlockTime().Unix(),
+			}); err != nil {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to add member"), nil, err
 			}
 		}
 
@@ -112,9 +95,6 @@ func SimulateMsgUpdateGroupConfig(
 			msg.MinMembers = newMin
 			msg.MaxMembers = newMax
 		}
-
-		// NOTE: VoteThreshold updates are handled in section E below along with PolicyType,
-		// as the backend requires both to be set together.
 
 		// C. Update Cooldown (50% chance)
 		if r.Intn(2) == 0 {
@@ -133,7 +113,6 @@ func SimulateMsgUpdateGroupConfig(
 				// Percentage
 				msg.PolicyType = keeper.PolicyTypePercentage
 
-				// Generate string -> Convert to Dec -> Take Address
 				strVal := fmt.Sprintf("0.%d", simtypes.RandIntBetween(r, 51, 99))
 				dec := math.LegacyMustNewDecFromStr(strVal)
 				msg.VoteThreshold = &dec
@@ -141,7 +120,6 @@ func SimulateMsgUpdateGroupConfig(
 				// Threshold
 				msg.PolicyType = keeper.PolicyTypeThreshold
 
-				// Generate int -> Convert to Dec -> Take Address
 				dec := math.LegacyNewDec(int64(simtypes.RandIntBetween(r, 1, 5)))
 				msg.VoteThreshold = &dec
 			}

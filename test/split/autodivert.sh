@@ -28,7 +28,7 @@ echo "Source (Community Pool): $DISTR_ADDR"
 # B. Destinations: Council Treasuries
 get_policy_addr() {
     local name="$1"
-    ADDR=$($BINARY query commons get-extended-group "$name" --output json 2>/dev/null | jq -r '.extended_group.policy_address // empty')
+    ADDR=$($BINARY query commons get-group "$name" --output json 2>/dev/null | jq -r '.group.policy_address // empty')
     if [ -z "$ADDR" ]; then echo "null"; else echo "$ADDR"; fi
 }
 

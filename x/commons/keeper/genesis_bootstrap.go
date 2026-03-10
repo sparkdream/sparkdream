@@ -7,35 +7,37 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/group"
 )
 
 // 5 Months in Seconds (assuming 30-day months)
-// 5 * 30 * 24 * 60 * 60 = 12,960,000
 const TermDuration5Months = 12960000
 
 // 1 Year in Seconds
 const TermDuration1Year = 31536000
 
 // --- PRODUCTION VOTING WINDOWS ---
-// How long the poll is open for voting.
 const WindowCouncil = 120 * time.Hour     // 5 Days
 const WindowCommittee = 120 * time.Hour   // 5 Days
-const WindowGovernance = 120 * time.Hour  // 5 Days (HR decisions should be slow)
+const WindowGovernance = 120 * time.Hour  // 5 Days
 const WindowSupervisory = 360 * time.Hour // 15 Days
-const WindowVeto = 48 * time.Hour         // 2 Days (Fast enough to block, slow enough to wake up)
+const WindowVeto = 48 * time.Hour         // 2 Days
+
+// MemberRequest is a local replacement for group.MemberRequest
+type MemberRequest struct {
+	Address  string
+	Weight   string
+	Metadata string
+}
 
 func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	logger := sdkCtx.Logger().With("module", "x/commons")
 	logger.Info("Bootstrapping 'Three Pillars' Governance...")
 
-	// 1. Gather Founding Members (Broad Community)
-	var foundingMembers []group.MemberRequest
-	var founderMembers []group.MemberRequest // Just the Founder
+	// 1. Gather Founding Members
+	var foundingMembers []MemberRequest
+	var founderMembers []MemberRequest
 
 	k.authKeeper.IterateAccounts(ctx, func(acc sdk.AccountI) bool {
 		if _, ok := acc.(sdk.ModuleAccountI); ok {
@@ -45,21 +47,18 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		addr := acc.GetAddress().String()
 		name, exists := GenesisNames[addr]
 		if !exists {
-			return false // Skip random accounts (validators, etc.)
+			return false
 		}
 
-		// Broad list for Commons Council
-		foundingMembers = append(foundingMembers, group.MemberRequest{Address: addr, Weight: "1", Metadata: name})
+		foundingMembers = append(foundingMembers, MemberRequest{Address: addr, Weight: "1", Metadata: name})
 
-		// Trusted Founder for Committees
 		if name == FounderName {
-			founderMembers = append(founderMembers, group.MemberRequest{Address: addr, Weight: "1", Metadata: "Founder"})
+			founderMembers = append(founderMembers, MemberRequest{Address: addr, Weight: "1", Metadata: "Founder"})
 		}
 		return false
 	})
 
 	if len(foundingMembers) == 0 {
-		// return // SAFEGUARD: In production, maybe panic here if no members found?
 		logger.Error("No founding members found in GenesisNames!")
 		return
 	}
@@ -67,11 +66,10 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		panic("Bootstrap Failed: Founder not found in genesis accounts")
 	}
 
-	govAddr := k.authKeeper.GetModuleAddress(govtypes.ModuleName).String()
-	moduleAddr := k.GetModuleAddress().String()
+	govAddr := k.authKeeper.GetModuleAddress(types.GovModuleName).String()
 
 	// =========================================================================
-	// STEP 1: CREATE THE COMMONS COUNCIL (HEAD ONLY)
+	// STEP 1: CREATE THE COMMONS COUNCIL
 	// =========================================================================
 
 	commonsConfig := GroupConfig{
@@ -82,12 +80,12 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 
 		PolicyType:           "percentage",
 		StandardValue:        "0.51",
-		StandardWindow:       WindowCouncil,                      // 5 Days
-		StandardMinExecution: CommonsCouncilStandardMinExecution, // 3 Days
+		StandardWindow:       WindowCouncil,
+		StandardMinExecution: CommonsCouncilStandardMinExecution,
 
-		VetoValue:        "0.49",     // Protects minority vote. Can be lowered for larger groups.
-		VetoWindow:       WindowVeto, // 2 Days
-		VetoMinExecution: 0,          // Vetoes execute immediately
+		VetoValue:        "0.49",
+		VetoWindow:       WindowVeto,
+		VetoMinExecution: 0,
 
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
@@ -98,7 +96,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
 			"/sparkdream.name.v1.MsgResolveDispute",
-			"/cosmos.group.v1.MsgVote",
+			"/sparkdream.name.v1.MsgUpdateOperationalParams",
+			"/sparkdream.commons.v1.MsgVoteProposal",
 		},
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
@@ -113,25 +112,17 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		MaxMembers:       1000,
 		TermDuration:     TermDuration1Year * 1000,
 	}
-	commonsPolicy := k.createExtendedGroup(ctx, commonsConfig, foundingMembers, moduleAddr)
+	commonsPolicy := k.createGroup(ctx, commonsConfig, foundingMembers)
 
 	// =========================================================================
-	// STEP 2: CREATE TECH & ECO COUNCILS (THE GUARDIANS)
+	// STEP 2: CREATE TECH & ECO COUNCILS
 	// =========================================================================
 
 	// --- A. TECHNICAL COUNCIL ---
-	techMembers := []group.MemberRequest{}
-	techMembers = append(techMembers, group.MemberRequest{
-		Address:  founderMembers[0].Address,
-		Weight:   "3",
-		Metadata: "Lead Core Dev",
-	})
-	// Golden Share: Commons Council
-	techMembers = append(techMembers, group.MemberRequest{
-		Address:  commonsPolicy,
-		Weight:   "3",
-		Metadata: "Guardian Veto (Commons Council)",
-	})
+	techMembers := []MemberRequest{
+		{Address: founderMembers[0].Address, Weight: "3", Metadata: "Lead Core Dev"},
+		{Address: commonsPolicy, Weight: "3", Metadata: "Guardian Veto (Commons Council)"},
+	}
 
 	techConfig := GroupConfig{
 		Name:          "Technical Council",
@@ -140,13 +131,13 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		ParentPolicy:  govAddr,
 
 		PolicyType:           "percentage",
-		StandardValue:        "0.66",                          // Consensus Required (Both must agree to PASS upgrades)
-		StandardWindow:       WindowCouncil,                   // 5 Days
-		StandardMinExecution: TechCouncilStandardMinExecution, // 3 Days
+		StandardValue:        "0.66",
+		StandardWindow:       WindowCouncil,
+		StandardMinExecution: TechCouncilStandardMinExecution,
 
-		VetoValue:        "0.49",     // UNILATERAL DEFENSE: 0.49 allows EITHER member (Weight 3/6) to Trigger Veto
-		VetoWindow:       WindowVeto, // 2 Days
-		VetoMinExecution: 0,          // Immediate
+		VetoValue:        "0.49",
+		VetoWindow:       WindowVeto,
+		VetoMinExecution: 0,
 
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
@@ -159,7 +150,6 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/cosmos.gov.v1.MsgUpdateParams",
 			"/sparkdream.commons.v1.MsgForceUpgrade",
 		},
-		// RESTRICTED: Veto Policy can ONLY Cancel or Delete a rogue child group. It cannot Create.
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
 			"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
@@ -172,62 +162,54 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		MaxMembers:       100,
 		TermDuration:     TermDuration1Year * 1000,
 	}
-	techPolicy := k.createExtendedGroup(ctx, techConfig, techMembers, moduleAddr)
+	techPolicy := k.createGroup(ctx, techConfig, techMembers)
 
 	// Tech Committees
-	k.createExtendedGroup(ctx, GroupConfig{
+	k.createGroup(ctx, GroupConfig{
 		Name:                 "Technical Operations Committee",
 		Description:          "Operational arm for Tech",
 		FundingWeight:        0,
 		ParentPolicy:         techPolicy,
 		PolicyType:           "threshold",
 		StandardValue:        "1",
-		StandardWindow:       WindowCommittee,     // 3 Days
-		StandardMinExecution: TechOpsMinExecution, // 1 Day
-		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgSpendFromCommons", "/cosmos.gov.v1.MsgVote", "/sparkdream.commons.v1.MsgUpdateGroupMembers"},
+		StandardWindow:       WindowCommittee,
+		StandardMinExecution: TechOpsMinExecution,
+		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgSpendFromCommons", "/sparkdream.commons.v1.MsgVoteProposal", "/sparkdream.commons.v1.MsgUpdateGroupMembers"},
 		MaxSpendPerEpoch:     math.NewInt(10000000000),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
-		MinMembers:           2, // Golden share: founder + parent council oversight
+		MinMembers:           2,
 		MaxMembers:           5,
 		TermDuration:         TermDuration5Months,
-	}, founderMembers, moduleAddr)
+	}, founderMembers)
 
-	techGovPolicy := k.createExtendedGroup(ctx, GroupConfig{
+	techGovPolicy := k.createGroup(ctx, GroupConfig{
 		Name:                 "Technical Governance Committee",
 		Description:          "Membership management for Tech",
 		FundingWeight:        0,
 		ParentPolicy:         techPolicy,
 		PolicyType:           "threshold",
 		StandardValue:        "1",
-		StandardWindow:       WindowGovernance,           // 5 Days
-		StandardMinExecution: TechMembershipMinExecution, // 7 Days
+		StandardWindow:       WindowGovernance,
+		StandardMinExecution: TechMembershipMinExecution,
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgUpdateGroupMembers"},
 		MaxSpendPerEpoch:     math.NewInt(0),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
-		MinMembers:           2, // Golden share: founder + parent council oversight
+		MinMembers:           2,
 		MaxMembers:           5,
 		TermDuration:         TermDuration5Months,
-	}, founderMembers, moduleAddr)
+	}, founderMembers)
 
 	if err := k.SetElectoralDelegation(ctx, "Technical Council", techGovPolicy); err != nil {
 		panic(err)
 	}
 
 	// --- B. ECOSYSTEM COUNCIL ---
-	ecoMembers := []group.MemberRequest{}
-	ecoMembers = append(ecoMembers, group.MemberRequest{
-		Address:  founderMembers[0].Address,
-		Weight:   "3",
-		Metadata: "Founder",
-	})
-	// Golden Share: Commons Council
-	ecoMembers = append(ecoMembers, group.MemberRequest{
-		Address:  commonsPolicy,
-		Weight:   "3",
-		Metadata: "Guardian Veto (Commons Council)",
-	})
+	ecoMembers := []MemberRequest{
+		{Address: founderMembers[0].Address, Weight: "3", Metadata: "Founder"},
+		{Address: commonsPolicy, Weight: "3", Metadata: "Guardian Veto (Commons Council)"},
+	}
 
 	ecoConfig := GroupConfig{
 		Name:          "Ecosystem Council",
@@ -236,11 +218,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		ParentPolicy:  govAddr,
 
 		PolicyType:           "percentage",
-		StandardValue:        "0.66",                         // Consensus Required
-		StandardWindow:       WindowCouncil,                  // 5 Days
-		StandardMinExecution: EcoCouncilStandardMinExecution, // 3 Days
+		StandardValue:        "0.66",
+		StandardWindow:       WindowCouncil,
+		StandardMinExecution: EcoCouncilStandardMinExecution,
 
-		VetoValue:        "0.49", // UNILATERAL DEFENSE: 0.49 allows EITHER member (Weight 3/6) to Trigger Veto
+		VetoValue:        "0.49",
 		VetoWindow:       WindowVeto,
 		VetoMinExecution: 0,
 
@@ -253,7 +235,6 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
 		},
-		// RESTRICTED: Same as Tech Council, Veto can ONLY Cancel or Delete a rogue child group.
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
 			"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
@@ -266,44 +247,44 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		MaxMembers:       1000,
 		TermDuration:     TermDuration1Year * 1000,
 	}
-	ecoPolicy := k.createExtendedGroup(ctx, ecoConfig, ecoMembers, moduleAddr)
+	ecoPolicy := k.createGroup(ctx, ecoConfig, ecoMembers)
 
 	// Eco Committees
-	k.createExtendedGroup(ctx, GroupConfig{
+	k.createGroup(ctx, GroupConfig{
 		Name:                 "Ecosystem Operations Committee",
 		Description:          "Operational arm for Ecosystem",
 		FundingWeight:        0,
 		ParentPolicy:         ecoPolicy,
 		PolicyType:           "threshold",
 		StandardValue:        "1",
-		StandardWindow:       WindowCommittee,    // 3 Days
-		StandardMinExecution: EcoOpsMinExecution, // 1 Day
+		StandardWindow:       WindowCommittee,
+		StandardMinExecution: EcoOpsMinExecution,
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgSpendFromCommons", "/sparkdream.commons.v1.MsgUpdateGroupConfig", "/sparkdream.commons.v1.MsgUpdateGroupMembers"},
 		MaxSpendPerEpoch:     math.NewInt(10000000000),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
-		MinMembers:           2, // Golden share: founder + parent council oversight
+		MinMembers:           2,
 		MaxMembers:           5,
 		TermDuration:         TermDuration5Months,
-	}, founderMembers, moduleAddr)
+	}, founderMembers)
 
-	ecoGovPolicy := k.createExtendedGroup(ctx, GroupConfig{
+	ecoGovPolicy := k.createGroup(ctx, GroupConfig{
 		Name:                 "Ecosystem Governance Committee",
 		Description:          "Membership management for Ecosystem",
 		FundingWeight:        0,
 		ParentPolicy:         ecoPolicy,
 		PolicyType:           "threshold",
 		StandardValue:        "1",
-		StandardWindow:       WindowGovernance,          // 5 Days
-		StandardMinExecution: EcoMembershipMinExecution, // 7 Days
+		StandardWindow:       WindowGovernance,
+		StandardMinExecution: EcoMembershipMinExecution,
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgUpdateGroupMembers"},
 		MaxSpendPerEpoch:     math.NewInt(0),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
-		MinMembers:           2, // Golden share: founder + parent council oversight
+		MinMembers:           2,
 		MaxMembers:           5,
 		TermDuration:         TermDuration5Months,
-	}, founderMembers, moduleAddr)
+	}, founderMembers)
 
 	if err := k.SetElectoralDelegation(ctx, "Ecosystem Council", ecoGovPolicy); err != nil {
 		panic(err)
@@ -313,20 +294,21 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	// STEP 3: CREATE THE COMMONS SUPERVISORY BOARD
 	// =========================================================================
 
-	var supervisorMembers []group.MemberRequest
-	supervisorMembers = append(supervisorMembers, group.MemberRequest{Address: techPolicy, Weight: "1", Metadata: "Tech Guardian"})
-	supervisorMembers = append(supervisorMembers, group.MemberRequest{Address: ecoPolicy, Weight: "1", Metadata: "Eco Guardian"})
+	supervisorMembers := []MemberRequest{
+		{Address: techPolicy, Weight: "1", Metadata: "Tech Guardian"},
+		{Address: ecoPolicy, Weight: "1", Metadata: "Eco Guardian"},
+	}
 
-	supervisorPolicy := k.createExtendedGroup(ctx, GroupConfig{
+	supervisorPolicy := k.createGroup(ctx, GroupConfig{
 		Name:          "Commons Supervisory Board",
 		Description:   "Oversees the Commons Governance Committee",
 		FundingWeight: 0,
-		ParentPolicy:  govAddr, // Ultimate fallback to x/gov
+		ParentPolicy:  govAddr,
 
 		PolicyType:           "threshold",
-		StandardValue:        "2",               // Both Tech and Eco must agree to fire the Recruiters
-		StandardWindow:       WindowSupervisory, // 15 Days
-		StandardMinExecution: 24 * time.Hour,    // 1 Day (Fast execution once consensus reached)
+		StandardValue:        "2",
+		StandardWindow:       WindowSupervisory,
+		StandardMinExecution: 24 * time.Hour,
 
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
@@ -339,14 +321,13 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		MinMembers:       2,
 		MaxMembers:       2,
 		TermDuration:     TermDuration1Year * 1000,
-	}, supervisorMembers, moduleAddr)
+	}, supervisorMembers)
 
 	// =========================================================================
 	// STEP 4: CREATE & WIRE COMMONS COMMITTEES
 	// =========================================================================
 
-	// -- A. Commons Operations (Spenders) --
-	commOpsPolicy := k.createExtendedGroup(ctx, GroupConfig{
+	commOpsPolicy := k.createGroup(ctx, GroupConfig{
 		Name:          "Commons Operations Committee",
 		Description:   "Day-to-day spending for Commons",
 		FundingWeight: 0,
@@ -354,27 +335,26 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 
 		PolicyType:           "threshold",
 		StandardValue:        "1",
-		StandardWindow:       WindowCommittee,        // 3 Days
-		StandardMinExecution: CommonsOpsMinExecution, // 1 Day
+		StandardWindow:       WindowCommittee,
+		StandardMinExecution: CommonsOpsMinExecution,
 
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
-			"/sparkdream.commons.v1.MsgUpdateGroupMembers", // Self-Manage
+			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 		},
 		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:  false,
-		MinMembers:       2, // Golden share: founder + parent council oversight
+		MinMembers:       2,
 		MaxMembers:       5,
 		TermDuration:     TermDuration5Months,
-	}, founderMembers, moduleAddr)
+	}, founderMembers)
 
 	if err := k.SetElectoralDelegation(ctx, "Commons Operations Committee", commOpsPolicy); err != nil {
 		panic(err)
 	}
 
-	// -- B. Commons Governance (HR/Gatekeepers) --
-	commonsGovPolicy := k.createExtendedGroup(ctx, GroupConfig{
+	commonsGovPolicy := k.createGroup(ctx, GroupConfig{
 		Name:          "Commons Governance Committee",
 		Description:   "Membership management for Commons (HR)",
 		FundingWeight: 0,
@@ -382,8 +362,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 
 		PolicyType:           "threshold",
 		StandardValue:        "1",
-		StandardWindow:       WindowGovernance,              // 5 Days
-		StandardMinExecution: CommonsMembershipMinExecution, // 21 Days
+		StandardWindow:       WindowGovernance,
+		StandardMinExecution: CommonsMembershipMinExecution,
 
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
@@ -391,27 +371,27 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		MaxSpendPerEpoch: math.NewInt(0),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:  false,
-		MinMembers:       2, // Golden share: founder + parent council oversight
+		MinMembers:       2,
 		MaxMembers:       5,
 		TermDuration:     TermDuration5Months,
-	}, founderMembers, moduleAddr)
+	}, founderMembers)
 
-	// WIRING: The HR Committee controls the Council
 	if err := k.SetElectoralDelegation(ctx, "Commons Council", commonsGovPolicy); err != nil {
 		panic(err)
 	}
 
+	_ = supervisorPolicy
 	logger.Info("Bootstrap Complete. Supervisory Structure Active.")
 }
 
-// Helper to wire up delegations safely
+// SetElectoralDelegation wires up electoral delegations
 func (k Keeper) SetElectoralDelegation(ctx context.Context, parentName string, childPolicy string) error {
-	group, err := k.ExtendedGroup.Get(ctx, parentName)
+	group, err := k.Groups.Get(ctx, parentName)
 	if err != nil {
 		return err
 	}
 	group.ElectoralPolicyAddress = childPolicy
-	return k.ExtendedGroup.Set(ctx, parentName, group)
+	return k.Groups.Set(ctx, parentName, group)
 }
 
 // GroupConfig struct
@@ -443,113 +423,127 @@ type GroupConfig struct {
 	TermDuration     int64
 }
 
-func (k Keeper) createExtendedGroup(ctx context.Context, cfg GroupConfig, members []group.MemberRequest, adminAddr string) string {
+// createGroup creates a council/committee with native state (no x/group).
+func (k Keeper) createGroup(ctx context.Context, cfg GroupConfig, members []MemberRequest) string {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// 1. Create Group
-	groupRes, err := k.groupKeeper.CreateGroup(ctx, &group.MsgCreateGroup{
-		Admin:    adminAddr,
-		Members:  members,
-		Metadata: cfg.Description,
-	})
+	// 1. Get next council ID
+	councilID, err := k.CouncilSeq.Next(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to create group %s: %v", cfg.Name, err))
+		panic(fmt.Sprintf("Failed to get next council ID for %s: %v", cfg.Name, err))
 	}
 
-	// 2. Create Standard Policy
-	var stdPolicy group.DecisionPolicy
-	if cfg.PolicyType == "percentage" {
-		stdPolicy = group.NewPercentageDecisionPolicy(cfg.StandardValue, cfg.StandardWindow, cfg.StandardMinExecution)
-	} else {
-		stdPolicy = &group.ThresholdDecisionPolicy{
-			Threshold: cfg.StandardValue,
-			Windows: &group.DecisionPolicyWindows{
-				VotingPeriod:       cfg.StandardWindow,
-				MinExecutionPeriod: cfg.StandardMinExecution,
-			},
+	// 2. Derive deterministic policy address
+	policyAddr := DeriveCouncilAddress(councilID, "standard")
+	mainPolicyAddr := policyAddr.String()
+
+	// 3. Store members in native collection
+	for _, m := range members {
+		member := types.Member{
+			Address:  m.Address,
+			Weight:   m.Weight,
+			Metadata: m.Metadata,
+			AddedAt:  sdkCtx.BlockTime().Unix(),
+		}
+		if err := k.AddMember(ctx, cfg.Name, member); err != nil {
+			panic(fmt.Sprintf("Failed to add member %s to %s: %v", m.Address, cfg.Name, err))
 		}
 	}
 
-	stdAny, _ := codectypes.NewAnyWithValue(stdPolicy)
-	stdRes, err := k.groupKeeper.CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
-		Admin:          adminAddr,
-		GroupId:        groupRes.GroupId,
-		Metadata:       "standard",
-		DecisionPolicy: stdAny,
-	})
-	if err != nil {
-		panic(err)
+	// 4. Store decision policy
+	stdPolicy := types.DecisionPolicy{
+		PolicyType:         cfg.PolicyType,
+		Threshold:          cfg.StandardValue,
+		VotingPeriod:       int64(cfg.StandardWindow.Seconds()),
+		MinExecutionPeriod: int64(cfg.StandardMinExecution.Seconds()),
 	}
-	mainPolicyAddr := stdRes.Address
-
-	// 3. Register Standard Permissions
-	if err := k.PolicyPermissions.Set(ctx, mainPolicyAddr, types.PolicyPermissions{
-		PolicyAddress:   mainPolicyAddr,
-		AllowedMessages: cfg.StandardPermissions,
-	}); err != nil {
+	if err := k.DecisionPolicies.Set(ctx, mainPolicyAddr, stdPolicy); err != nil {
 		panic(err)
 	}
 
-	// 4. Create Veto Policy
-	if len(cfg.VetoPermissions) > 0 {
-		var vetoPolicy group.DecisionPolicy
-		if cfg.PolicyType == "percentage" {
-			vetoPolicy = group.NewPercentageDecisionPolicy(cfg.VetoValue, cfg.VetoWindow, cfg.VetoMinExecution)
-		} else {
-			vetoPolicy = &group.ThresholdDecisionPolicy{
-				Threshold: cfg.VetoValue,
-				Windows: &group.DecisionPolicyWindows{
-					VotingPeriod:       cfg.VetoWindow,
-					MinExecutionPeriod: cfg.VetoMinExecution,
-				},
-			}
-		}
+	// 5. Initialize policy version
+	if err := k.PolicyVersion.Set(ctx, mainPolicyAddr, 0); err != nil {
+		panic(err)
+	}
 
-		vetoAny, _ := codectypes.NewAnyWithValue(vetoPolicy)
-		vetoRes, err := k.groupKeeper.CreateGroupPolicy(ctx, &group.MsgCreateGroupPolicy{
-			Admin:          adminAddr,
-			GroupId:        groupRes.GroupId,
-			Metadata:       "veto",
-			DecisionPolicy: vetoAny,
-		})
-		if err != nil {
-			panic(err)
-		}
-
-		if err := k.PolicyPermissions.Set(ctx, vetoRes.Address, types.PolicyPermissions{
-			PolicyAddress:   vetoRes.Address,
-			AllowedMessages: cfg.VetoPermissions,
+	// 6. Register Standard Permissions
+	if len(cfg.StandardPermissions) > 0 {
+		if err := k.PolicyPermissions.Set(ctx, mainPolicyAddr, types.PolicyPermissions{
+			PolicyAddress:   mainPolicyAddr,
+			AllowedMessages: cfg.StandardPermissions,
 		}); err != nil {
 			panic(err)
 		}
 	}
 
-	// 5. Funding & Metadata
+	// 7. Create Veto Policy if needed
+	if len(cfg.VetoPermissions) > 0 {
+		vetoPolicyAddr := DeriveCouncilAddress(councilID, "veto")
+		vetoAddr := vetoPolicyAddr.String()
+
+		vetoPolicy := types.DecisionPolicy{
+			PolicyType:         cfg.PolicyType,
+			Threshold:          cfg.VetoValue,
+			VotingPeriod:       int64(cfg.VetoWindow.Seconds()),
+			MinExecutionPeriod: int64(cfg.VetoMinExecution.Seconds()),
+		}
+		if err := k.DecisionPolicies.Set(ctx, vetoAddr, vetoPolicy); err != nil {
+			panic(err)
+		}
+
+		if err := k.PolicyVersion.Set(ctx, vetoAddr, 0); err != nil {
+			panic(err)
+		}
+
+		if err := k.PolicyPermissions.Set(ctx, vetoAddr, types.PolicyPermissions{
+			PolicyAddress:   vetoAddr,
+			AllowedMessages: cfg.VetoPermissions,
+		}); err != nil {
+			panic(err)
+		}
+
+		// Map this council's veto policy for sibling lookups
+		if err := k.VetoPolicies.Set(ctx, cfg.Name, vetoAddr); err != nil {
+			panic(err)
+		}
+
+		// Also index the veto policy -> council name
+		if err := k.PolicyToName.Set(ctx, vetoAddr, cfg.Name); err != nil {
+			panic(err)
+		}
+	}
+
+	// 8. Funding
 	if cfg.FundingWeight > 0 {
 		k.splitKeeper.SetShareByAddress(ctx, mainPolicyAddr, cfg.FundingWeight)
 	}
 
-	extendedGroup := types.ExtendedGroup{
-		GroupId:             groupRes.GroupId,
-		PolicyAddress:       mainPolicyAddr,
-		ParentPolicyAddress: cfg.ParentPolicy,
-		FundingWeight:       cfg.FundingWeight,
-
-		// Use Config values
+	// 9. Store Group
+	var vetoPolicyAddr string
+	if len(cfg.VetoPermissions) > 0 {
+		vetoPolicyAddr = DeriveCouncilAddress(councilID, "veto").String()
+	}
+	group := types.Group{
+		GroupId:               councilID,
+		PolicyAddress:         mainPolicyAddr,
+		ParentPolicyAddress:   cfg.ParentPolicy,
+		VetoPolicyAddress:     vetoPolicyAddr,
+		FundingWeight:         cfg.FundingWeight,
 		MaxSpendPerEpoch:      &cfg.MaxSpendPerEpoch,
 		UpdateCooldown:        cfg.UpdateCooldown,
 		FutarchyEnabled:       cfg.FutarchyEnabled,
 		MinMembers:            cfg.MinMembers,
 		MaxMembers:            cfg.MaxMembers,
 		TermDuration:          cfg.TermDuration,
-		CurrentTermExpiration: sdk.UnwrapSDKContext(ctx).BlockTime().Unix() + cfg.TermDuration,
+		CurrentTermExpiration: sdkCtx.BlockTime().Unix() + cfg.TermDuration,
 		ActivationTime:        0,
 	}
 
-	if err := k.ExtendedGroup.Set(ctx, cfg.Name, extendedGroup); err != nil {
+	if err := k.Groups.Set(ctx, cfg.Name, group); err != nil {
 		panic(err)
 	}
 
-	// Populate the Index so these groups can be found by Policy Address
+	// 10. Index: Policy Address -> Council Name
 	if err := k.PolicyToName.Set(ctx, mainPolicyAddr, cfg.Name); err != nil {
 		panic(err)
 	}

@@ -480,14 +480,14 @@ echo "   - Members: Tier 2 + Tier 3 founders"
 echo ""
 
 # Query x/commons groups if available
-COMMONS_GROUPS=$($BINARY query commons list-extended-group -o json 2>/dev/null)
+COMMONS_GROUPS=$($BINARY query commons list-group -o json 2>/dev/null)
 if [ -n "$COMMONS_GROUPS" ]; then
-    GROUP_COUNT=$(echo "$COMMONS_GROUPS" | jq -r '.extended_groups | length // 0')
-    echo "Found $GROUP_COUNT extended groups (councils)"
+    GROUP_COUNT=$(echo "$COMMONS_GROUPS" | jq -r '.group | length // 0')
+    echo "Found $GROUP_COUNT groups (councils)"
 
     for i in $(seq 0 $((GROUP_COUNT - 1)) 2>/dev/null); do
-        GROUP_NAME=$(echo "$COMMONS_GROUPS" | jq -r ".extended_groups[$i].name // empty")
-        GROUP_TYPE=$(echo "$COMMONS_GROUPS" | jq -r ".extended_groups[$i].group_type // empty")
+        GROUP_NAME=$(echo "$COMMONS_GROUPS" | jq -r ".group[$i].name // empty")
+        GROUP_TYPE=$(echo "$COMMONS_GROUPS" | jq -r ".group[$i].group_type // empty")
         if [ -n "$GROUP_NAME" ]; then
             echo "  - $GROUP_NAME (type: $GROUP_TYPE)"
         fi
@@ -498,7 +498,7 @@ fi
 
 echo ""
 echo "Council Genesis Properties:"
-echo "  ✓ ExtendedGroup structure (x/commons)"
+echo "  ✓ Group structure (x/commons)"
 echo "  ✓ MinMembers: 2 (golden share)"
 echo "  ✓ MaxMembers: Unlimited (for councils)"
 echo "  ✓ AllowedMessages: Permissions configuration"
@@ -753,7 +753,7 @@ echo "Projects:     Initial projects (if any)"
 echo "Initiatives:  Initial initiatives (if any)"
 echo "Stakes:      Initial stakes (if any)"
 echo "Invitations:  Initial invitations (if any)"
-echo "Counsils:    ExtendedGroup configuration (x/commons)"
+echo "Councils:    Group configuration (x/commons)"
 echo ""
 echo "🔄 GENESIS MIGRATION PROCESS:"
 echo ""

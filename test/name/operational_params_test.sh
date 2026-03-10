@@ -15,8 +15,8 @@ BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 # Name uses Commons Council for authorization
 COUNCIL_NAME="Commons Council"
 echo "Looking up '$COUNCIL_NAME'..."
-COUNCIL_INFO=$($BINARY query commons get-extended-group "$COUNCIL_NAME" --output json)
-COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.extended_group.policy_address')
+COUNCIL_INFO=$($BINARY query commons get-group "$COUNCIL_NAME" --output json)
+COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.group.policy_address')
 
 if [ -z "$COUNCIL_POLICY" ] || [ "$COUNCIL_POLICY" == "null" ]; then
     echo "SETUP ERROR: '$COUNCIL_NAME' not found. Run genesis/bootstrap first."
@@ -35,8 +35,8 @@ VERIFY_OPERATIONAL_RESULT="FAIL"
 VERIFY_GOVERNANCE_RESULT="FAIL"
 RESET_PARAMS_RESULT="FAIL"
 
-# Helper: extract group proposal ID from tx hash
-get_group_proposal_id() {
+# Helper: extract commons proposal ID from tx hash
+get_commons_proposal_id() {
     local tx_hash=$1
     local retries=0
     local max_retries=10
@@ -46,7 +46,7 @@ get_group_proposal_id() {
         sleep 1
         TX_RES=$($BINARY query tx $tx_hash --output json 2>/dev/null)
         if [ $? -eq 0 ]; then
-            prop_id=$(echo $TX_RES | jq -r '.events[] | select(.type=="cosmos.group.v1.EventSubmitProposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+            prop_id=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
             if [ ! -z "$prop_id" ] && [ "$prop_id" != "null" ]; then
                 echo "$prop_id"
                 return 0
@@ -57,35 +57,37 @@ get_group_proposal_id() {
     return 1
 }
 
-# Helper: vote + execute a group proposal
+# Helper: vote + execute a commons proposal
 vote_and_execute() {
     local prop_id=$1
 
     echo "  Alice voting YES..."
-    $BINARY tx group vote $prop_id $ALICE_ADDR VOTE_OPTION_YES "Approve" \
+    $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --output json > /dev/null 2>&1
-    sleep 3
+        --fees 5000000uspark --output json > /dev/null 2>&1
+    sleep 6
 
     echo "  Bob voting YES..."
-    $BINARY tx group vote $prop_id $BOB_ADDR VOTE_OPTION_YES "Approve" \
+    $BINARY tx commons vote-proposal $prop_id yes \
         --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
-        --output json > /dev/null 2>&1
-    sleep 3
+        --fees 5000000uspark --output json > /dev/null 2>&1
+    sleep 6
 
     echo "  Executing proposal $prop_id..."
-    EXEC_RES=$($BINARY tx group exec $prop_id \
+    EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --output json)
+        --fees 5000000uspark --gas 2000000 --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
-    sleep 3
+    sleep 6
 
-    EXEC_TX_JSON=$($BINARY query tx $EXEC_TX_HASH --output json 2>/dev/null)
-    if echo "$EXEC_TX_JSON" | grep -q "PROPOSAL_EXECUTOR_RESULT_SUCCESS"; then
+    # Verify execution by checking proposal status
+    PROP_STATUS=$($BINARY query commons get-proposal $prop_id --output json 2>/dev/null | jq -r '.proposal.status')
+    if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
         echo "  Execution successful"
         return 0
     else
-        echo "  Execution failed"
+        echo "  Execution failed (status: $PROP_STATUS)"
+        EXEC_TX_JSON=$($BINARY query tx $EXEC_TX_HASH --output json 2>/dev/null)
         echo "  Raw: $(echo $EXEC_TX_JSON | jq -r '.raw_log' 2>/dev/null)"
         return 1
     fi
@@ -143,27 +145,24 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     # Build the proposal JSON
     jq -n \
       --arg policy "$COUNCIL_POLICY" \
-      --arg alice "$ALICE_ADDR" \
       --argjson op_params "$OP_PARAMS" \
     '{
-      group_policy_address: $policy,
-      proposers: [$alice],
-      title: "Update Name Operational Params",
-      summary: "Adjust dispute timeout via Operations Committee",
+      policy_address: $policy,
       messages: [{
         "@type": "/sparkdream.name.v1.MsgUpdateOperationalParams",
         authority: $policy,
         operational_params: $op_params
-      }]
+      }],
+      metadata: "Update Name Operational Params - Adjust dispute timeout via Operations Committee"
     }' > "$PROPOSAL_DIR/update_name_op_params.json"
 
-    SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/update_name_op_params.json" \
+    SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_name_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000000uspark --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
     echo "Submitted tx: $TX_HASH"
-    PROPOSAL_ID=$(get_group_proposal_id $TX_HASH)
+    PROPOSAL_ID=$(get_commons_proposal_id $TX_HASH)
 
     if [ -z "$PROPOSAL_ID" ] || [ "$PROPOSAL_ID" == "null" ]; then
         echo "  FAIL: Could not submit operational params proposal"
@@ -253,26 +252,23 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
 
     jq -n \
       --arg policy "$COUNCIL_POLICY" \
-      --arg alice "$ALICE_ADDR" \
       --argjson op_params "$RESET_OP_PARAMS" \
     '{
-      group_policy_address: $policy,
-      proposers: [$alice],
-      title: "Reset Name Operational Params",
-      summary: "Restoring original values after test",
+      policy_address: $policy,
       messages: [{
         "@type": "/sparkdream.name.v1.MsgUpdateOperationalParams",
         authority: $policy,
         operational_params: $op_params
-      }]
+      }],
+      metadata: "Reset Name Operational Params - Restoring original values after test"
     }' > "$PROPOSAL_DIR/reset_name_op_params.json"
 
-    SUBMIT_RES=$($BINARY tx group submit-proposal "$PROPOSAL_DIR/reset_name_op_params.json" \
+    SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/reset_name_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000000uspark --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
-    PROPOSAL_ID=$(get_group_proposal_id $TX_HASH)
+    PROPOSAL_ID=$(get_commons_proposal_id $TX_HASH)
 
     if [ -z "$PROPOSAL_ID" ] || [ "$PROPOSAL_ID" == "null" ]; then
         echo "  FAIL: Could not submit reset proposal"

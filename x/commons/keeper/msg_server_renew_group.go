@@ -3,38 +3,30 @@ package keeper
 import (
 	"context"
 	"sort"
-	"strconv"
 
 	"sparkdream/x/commons/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/group"
 )
 
 func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (*types.MsgRenewGroupResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// 1. Retrieve Group
-	extGroup, err := k.ExtendedGroup.Get(ctx, msg.GroupName)
+	extGroup, err := k.Groups.Get(ctx, msg.GroupName)
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrGroupNotFound, "group %s not found", msg.GroupName)
 	}
 
-	// 2. Determine Authority Level
-	// Check if the signer is x/gov (The Supreme Authority)
 	isGov := msg.Authority == k.GetAuthorityString()
 
-	// 3. Validation: Input Integrity (Always Enforced)
 	if len(msg.NewMembers) != len(msg.NewMemberWeights) {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "new_members count (%d) does not match new_member_weights count (%d)", len(msg.NewMembers), len(msg.NewMemberWeights))
 	}
 
-	// 4. Strict Validation Rules (Enforced ONLY if signer is NOT Governance)
 	if !isGov {
-		// A. Authority Check:
-		// Allow Parent OR Designated Electoral Authority
 		isParent := (msg.Authority == extGroup.ParentPolicyAddress)
 		isElectoral := (extGroup.ElectoralPolicyAddress != "" && msg.Authority == extGroup.ElectoralPolicyAddress)
 
@@ -43,15 +35,11 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 				"signer %s is not the parent or designated electoral authority of %s", msg.Authority, msg.GroupName)
 		}
 
-		// B. Term Expiration Check (Time Lock)
 		currentTime := ctx.BlockTime().Unix()
 		if currentTime < extGroup.CurrentTermExpiration {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "current term has not expired yet (expires: %d, current: %d)", extGroup.CurrentTermExpiration, currentTime)
 		}
 
-		// C. Group Size Check
-		// Governance can override Min/Max constraints (e.g. install 1 dictator),
-		// but the group itself/electoral authority cannot break its own bounds.
 		newCount := uint64(len(msg.NewMembers))
 		if newCount < extGroup.MinMembers {
 			return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize, "count %d below min %d", newCount, extGroup.MinMembers)
@@ -61,67 +49,60 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 		}
 	}
 
-	// =========================================================================
-	// 5. CALCULATE FINAL STATE (Deduplication Logic)
-	// Map[Address] -> TargetWeight ("0" = Remove, ">0" = Add/Keep)
-	// =========================================================================
-
+	// Build final member state
 	finalState := make(map[string]string)
 
-	// Step A: Mark ALL current members for removal (Weight "0")
-	currentMembers, err := k.groupKeeper.GroupMembers(ctx, &group.QueryGroupMembersRequest{GroupId: extGroup.GroupId})
+	// Mark all current members for removal
+	currentMembers, err := k.GetCouncilMembers(ctx, msg.GroupName)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to fetch current group members")
 	}
-
-	for _, m := range currentMembers.Members {
-		finalState[m.Member.Address] = "0"
+	for _, m := range currentMembers {
+		finalState[m.Address] = "0"
 	}
 
-	// Step B: Apply New Members (Overwrite "0" with new weight)
+	// Apply new members
 	newMembersParsed, err := k.parseMembers(msg.NewMembers, msg.NewMemberWeights)
 	if err != nil {
 		return nil, err
 	}
-
-	var totalHumanWeight uint64 = 0
 	for _, m := range newMembersParsed {
 		finalState[m.Address] = m.Weight
-
-		// Sum weight for futarchy calculation
-		w, _ := strconv.ParseUint(m.Weight, 10, 64)
-		totalHumanWeight += w
 	}
 
-	// Step D: Convert Map to List
-	var memberUpdates []group.MemberRequest
+	// Sort for determinism
+	type memberUpdate struct {
+		Address string
+		Weight  string
+	}
+	var updates []memberUpdate
 	for addr, weight := range finalState {
-		memberUpdates = append(memberUpdates, group.MemberRequest{
-			Address:  addr,
-			Weight:   weight,
-			Metadata: "Renewed via x/commons",
-		})
+		updates = append(updates, memberUpdate{Address: addr, Weight: weight})
 	}
-
-	// Deterministic Ordering (Sort by Address)
-	sort.Slice(memberUpdates, func(i, j int) bool {
-		return memberUpdates[i].Address < memberUpdates[j].Address
+	sort.Slice(updates, func(i, j int) bool {
+		return updates[i].Address < updates[j].Address
 	})
 
-	// 6. Execute Update via x/group
-	_, err = k.groupKeeper.UpdateGroupMembers(ctx, &group.MsgUpdateGroupMembers{
-		Admin:         k.GetModuleAddress().String(),
-		GroupId:       extGroup.GroupId,
-		MemberUpdates: memberUpdates,
-	})
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "x/group update failed")
+	// Apply updates to native Members collection
+	for _, u := range updates {
+		key := collections.Join(msg.GroupName, u.Address)
+		if u.Weight == "0" {
+			_ = k.Members.Remove(ctx, key)
+		} else {
+			if err := k.Members.Set(ctx, key, types.Member{
+				Address:  u.Address,
+				Weight:   u.Weight,
+				Metadata: "Renewed via x/commons",
+				AddedAt:  ctx.BlockTime().Unix(),
+			}); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to update member")
+			}
+		}
 	}
 
-	// 7. Reset Term
-	// We reset the clock even if Gov forced it, to establish the new regime's term.
+	// Reset term
 	extGroup.CurrentTermExpiration = ctx.BlockTime().Unix() + extGroup.TermDuration
-	if err := k.ExtendedGroup.Set(ctx, msg.GroupName, extGroup); err != nil {
+	if err := k.Groups.Set(ctx, msg.GroupName, extGroup); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update extended group state")
 	}
 

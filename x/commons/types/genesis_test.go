@@ -40,7 +40,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					{PolicyAddress: sampleAddr},
 					{PolicyAddress: sampleAddr2},
 				},
-				ExtendedGroupMap: []types.ExtendedGroup{{Index: "0"}, {Index: "1"}}},
+				GroupMap: []types.Group{{Index: "0"}, {Index: "1"}}},
 			valid: true,
 		},
 		{
@@ -57,12 +57,12 @@ func TestGenesisState_Validate(t *testing.T) {
 						PolicyAddress: sampleAddr, // Duplicate!
 					},
 				},
-				ExtendedGroupMap: []types.ExtendedGroup{{Index: "0"}, {Index: "1"}}},
+				GroupMap: []types.Group{{Index: "0"}, {Index: "1"}}},
 			valid: false,
 		}, {
-			desc: "duplicated extendedGroup",
+			desc: "duplicated group",
 			genState: &types.GenesisState{
-				ExtendedGroupMap: []types.ExtendedGroup{
+				GroupMap: []types.Group{
 					{
 						Index: "0",
 					},
