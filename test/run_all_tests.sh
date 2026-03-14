@@ -52,7 +52,7 @@ ONLY_MODULE=""
 # Newer modules in dependency order:
 #   rep first (foundation), then content modules, reveal (needs commons council),
 #   season last (transitions are heavy)
-MODULE_ORDER="rep blog forum collect shield reveal season"
+MODULE_ORDER="gnovm rep blog forum collect shield reveal season"
 
 # Track results
 PASSED_TESTS=()

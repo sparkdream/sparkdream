@@ -19,16 +19,16 @@ import (
 )
 
 const (
-	FlagInnerMessage        = "inner-message"
-	FlagProof               = "proof"
-	FlagNullifier           = "nullifier"
-	FlagRateLimitNullifier  = "rate-limit-nullifier"
-	FlagMerkleRoot          = "merkle-root"
-	FlagProofDomain         = "proof-domain"
-	FlagMinTrustLevel       = "min-trust-level"
-	FlagExecMode            = "exec-mode"
-	FlagEncryptedPayload    = "encrypted-payload"
-	FlagTargetEpoch         = "target-epoch"
+	FlagInnerMessage       = "inner-message"
+	FlagProof              = "proof"
+	FlagNullifier          = "nullifier"
+	FlagRateLimitNullifier = "rate-limit-nullifier"
+	FlagMerkleRoot         = "merkle-root"
+	FlagProofDomain        = "proof-domain"
+	FlagMinTrustLevel      = "min-trust-level"
+	FlagExecMode           = "exec-mode"
+	FlagEncryptedPayload   = "encrypted-payload"
+	FlagTargetEpoch        = "target-epoch"
 )
 
 // CmdShieldedExec returns a CLI command to submit a shielded execution.

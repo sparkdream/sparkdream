@@ -7,9 +7,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	zkcrypto "sparkdream/tools/crypto"
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
-	zkcrypto "sparkdream/tools/crypto"
 )
 
 // setTestTreeDepth overrides the package-level trustTreeDepth for testing

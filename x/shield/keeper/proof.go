@@ -9,8 +9,8 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 
-	"sparkdream/x/shield/types"
 	"sparkdream/tools/zk/circuit"
+	"sparkdream/x/shield/types"
 )
 
 // verifyProof verifies a ZK proof (Groth16 over BN254) for an immediate mode shielded execution.

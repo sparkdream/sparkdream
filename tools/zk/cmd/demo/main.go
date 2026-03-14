@@ -38,13 +38,13 @@ type Member struct {
 
 // Action represents an anonymous shielded action.
 type Action struct {
-	MemberName string // Only for demo purposes — NOT visible on-chain!
-	Nullifier  []byte
+	MemberName  string // Only for demo purposes — NOT visible on-chain!
+	Nullifier   []byte
 	RLNullifier []byte
-	ProofBytes []byte
-	Scope      uint64
-	Verified   bool
-	VerifyTime time.Duration
+	ProofBytes  []byte
+	Scope       uint64
+	Verified    bool
+	VerifyTime  time.Duration
 }
 
 func main() {
@@ -307,11 +307,11 @@ func createMembers() []*Member {
 		name  string
 		trust uint64
 	}{
-		{"Phoenix", 3},  // CORE
-		{"Aurora", 2},   // ESTABLISHED
-		{"Zenith", 2},   // ESTABLISHED
-		{"Drift", 1},    // PROVISIONAL
-		{"Nova", 0},     // NEW — will fail minimum trust check
+		{"Phoenix", 3}, // CORE
+		{"Aurora", 2},  // ESTABLISHED
+		{"Zenith", 2},  // ESTABLISHED
+		{"Drift", 1},   // PROVISIONAL
+		{"Nova", 0},    // NEW — will fail minimum trust check
 	}
 
 	members := make([]*Member, len(memberData))

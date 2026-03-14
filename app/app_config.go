@@ -74,6 +74,8 @@ import (
 	icatypes "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/types"
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	ibcexported "github.com/cosmos/ibc-go/v10/modules/core/exported"
+	_ "github.com/ignite/gnovm/x/gnovm/module"
+	gnovmmoduletypes "github.com/ignite/gnovm/x/gnovm/types"
 )
 
 var (
@@ -94,9 +96,12 @@ var (
 		{Account: repmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
 		{Account: blogmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		{Account: shieldmoduletypes.ModuleName},
-		// this line is used by starport scaffolding # stargate/app/maccPerms
 		{Account: forummoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
-		{Account: seasonmoduletypes.ModuleName}, {Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}}
+		{Account: seasonmoduletypes.ModuleName},
+		{Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
+		{Account: gnovmmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
+		// this line is used by starport scaffolding # stargate/app/maccPerms
+	}
 
 	// blocked account addresses
 	blockAccAddrs = []string{
@@ -148,6 +153,7 @@ var (
 						revealmoduletypes.ModuleName,
 						collectmoduletypes.ModuleName,
 						shieldmoduletypes.ModuleName,
+						gnovmmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -167,6 +173,7 @@ var (
 						revealmoduletypes.ModuleName,
 						collectmoduletypes.ModuleName,
 						shieldmoduletypes.ModuleName,
+						gnovmmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -210,6 +217,7 @@ var (
 						revealmoduletypes.ModuleName,
 						collectmoduletypes.ModuleName,
 						shieldmoduletypes.ModuleName,
+						gnovmmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -335,6 +343,10 @@ var (
 			{
 				Name:   shieldmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&shieldmoduletypes.Module{}),
+			},
+			{
+				Name:   gnovmmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&gnovmmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

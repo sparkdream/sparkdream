@@ -473,4 +473,3 @@ func computeThreshold(state types.DKGState) uint64 {
 	}
 	return t
 }
-

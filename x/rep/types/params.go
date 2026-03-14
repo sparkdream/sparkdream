@@ -84,9 +84,9 @@ func DefaultParams() Params {
 		// Challenges
 		MinChallengeStake:    math.NewInt(50),
 		ChallengerRewardRate: math.LegacyNewDecWithPrec(20, 2), // 20%
-		JurySize:               5,
-		JurySuperMajority:      math.LegacyNewDecWithPrec(67, 2), // 67%
-		MinJurorReputation:     math.LegacyNewDec(50),
+		JurySize:             5,
+		JurySuperMajority:    math.LegacyNewDecWithPrec(67, 2), // 67%
+		MinJurorReputation:   math.LegacyNewDec(50),
 
 		// Interim compensation - PRODUCTION values (in micro-DREAM: 1 DREAM = 1e6 micro-DREAM)
 		SimpleComplexityBudget:   math.NewInt(50000000),            // 50 DREAM
@@ -499,9 +499,9 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		// Challenges
 		MinChallengeStake:    p.MinChallengeStake,
 		ChallengerRewardRate: p.ChallengerRewardRate,
-		JurySize:               p.JurySize,
-		JurySuperMajority:      p.JurySuperMajority,
-		MinJurorReputation:     p.MinJurorReputation,
+		JurySize:             p.JurySize,
+		JurySuperMajority:    p.JurySuperMajority,
+		MinJurorReputation:   p.MinJurorReputation,
 		// Interim compensation
 		SimpleComplexityBudget:   p.SimpleComplexityBudget,
 		StandardComplexityBudget: p.StandardComplexityBudget,

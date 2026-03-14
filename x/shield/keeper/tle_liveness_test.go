@@ -127,7 +127,7 @@ func TestTLELivenessSkippedWhenToleranceZero(t *testing.T) {
 	require.NoError(t, err)
 	params.EncryptedBatchEnabled = true
 	params.ShieldEpochInterval = 10
-	params.TleMissWindow = 0  // Disabled
+	params.TleMissWindow = 0    // Disabled
 	params.TleMissTolerance = 0 // Disabled
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 

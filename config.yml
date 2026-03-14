@@ -53,6 +53,12 @@ genesis:
     commons:
       params:
         proposal_fee: "5000000uspark"
+    gnovm:
+      params:
+        sysnames_pkgpath: ""
+        chain_domain: "gno.land"
+        default_deposit: "100000uspark"
+        storage_price: "1uspark"
     crisis:
       constant_fee:
         denom: uspark

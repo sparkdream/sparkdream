@@ -63,7 +63,7 @@ type KeygenOutput struct {
 
 // DecKeyInfo holds a decryption key and its derived ECIES public key.
 type DecKeyInfo struct {
-	DecryptionKeyB64 string `json:"decryption_key_b64"`
+	DecryptionKeyB64  string `json:"decryption_key_b64"`
 	ECIESPublicKeyB64 string `json:"ecies_public_key_b64"`
 }
 

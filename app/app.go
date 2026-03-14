@@ -43,11 +43,13 @@ import (
 	icahostkeeper "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/host/keeper"
 	ibctransferkeeper "github.com/cosmos/ibc-go/v10/modules/apps/transfer/keeper"
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
+	gnovmante "github.com/ignite/gnovm/x/gnovm/ante"
+	gnovmmodulekeeper "github.com/ignite/gnovm/x/gnovm/keeper"
 
 	"sparkdream/docs"
 	blogmodulekeeper "sparkdream/x/blog/keeper"
 	collectmodulekeeper "sparkdream/x/collect/keeper"
-	"sparkdream/x/commons/ante"
+	commonsante "sparkdream/x/commons/ante"
 	commonsmodulekeeper "sparkdream/x/commons/keeper"
 	ecosystemmodulekeeper "sparkdream/x/ecosystem/keeper"
 	forummodulekeeper "sparkdream/x/forum/keeper"
@@ -61,10 +63,11 @@ import (
 	shieldante "sparkdream/x/shield/ante"
 	shieldmodulekeeper "sparkdream/x/shield/keeper"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/spf13/cast"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
 	splitmodulekeeper "sparkdream/x/split/keeper"
+
+	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/spf13/cast"
 )
 
 const (
@@ -131,6 +134,7 @@ type App struct {
 	ForumKeeper   forummodulekeeper.Keeper
 	RevealKeeper  revealmodulekeeper.Keeper
 	CollectKeeper collectmodulekeeper.Keeper
+	GnoVMKeeper   gnovmmodulekeeper.Keeper
 }
 
 func init() {
@@ -216,7 +220,7 @@ func New(
 		&app.SeasonKeeper,
 		&app.RevealKeeper,
 		&app.CollectKeeper,
-		&app.ShieldKeeper,
+		&app.ShieldKeeper, &app.GnoVMKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -314,7 +318,8 @@ func New(
 
 	// 3. Insert the proposal fee decorator at the end
 	// This ensures the transaction is valid and signed before checking fees
-	decorators = append(decorators, ante.NewProposalFeeDecorator(app.CommonsKeeper))
+	decorators = append(decorators, commonsante.NewProposalFeeDecorator(app.CommonsKeeper))
+	decorators = append(decorators, gnovmante.NewAnteHandler())
 
 	// 4. Chain them together and set
 	app.SetAnteHandler(sdk.ChainAnteDecorators(decorators...))

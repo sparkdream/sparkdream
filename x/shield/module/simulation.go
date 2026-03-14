@@ -30,13 +30,13 @@ func (am AppModule) RegisterStoreDecoder(_ simtypes.StoreDecoderRegistry) {}
 func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
 	operations := make([]simtypes.WeightedOperation, 0)
 	const (
-		opWeightMsgShieldedExec              = "op_weight_msg_shield"
-		defaultWeightMsgShieldedExec     int = 100
-		opWeightMsgTriggerDkg                = "op_weight_msg_trigger_dkg"
-		defaultWeightMsgTriggerDkg       int = 5
-		opWeightMsgRegisterShieldedOp        = "op_weight_msg_register_shielded_op"
-		defaultWeightMsgRegisterShieldedOp int = 5
-		opWeightMsgDeregisterShieldedOp      = "op_weight_msg_deregister_shielded_op"
+		opWeightMsgShieldedExec                  = "op_weight_msg_shield"
+		defaultWeightMsgShieldedExec         int = 100
+		opWeightMsgTriggerDkg                    = "op_weight_msg_trigger_dkg"
+		defaultWeightMsgTriggerDkg           int = 5
+		opWeightMsgRegisterShieldedOp            = "op_weight_msg_register_shielded_op"
+		defaultWeightMsgRegisterShieldedOp   int = 5
+		opWeightMsgDeregisterShieldedOp          = "op_weight_msg_deregister_shielded_op"
 		defaultWeightMsgDeregisterShieldedOp int = 5
 	)
 
