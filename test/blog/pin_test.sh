@@ -110,182 +110,112 @@ record_result() {
 # ========================================================================
 # PREREQUISITE: Create ephemeral posts and replies for pinning tests
 # ========================================================================
-# Anonymous posts are ephemeral (have ExpiresAt > 0), so we use them.
-# Regular posts created with create-post are permanent (ExpiresAt=0) by default,
-# so we need anonymous posts or to configure ephemeral_content_ttl.
+# Posts created by non-members are ephemeral (ExpiresAt > 0) because the
+# blog module assigns a TTL (EphemeralContentTtl) when isActiveMember()
+# returns false. We use a dedicated non-member account for this.
 
-echo "=== PREREQUISITE: Create ephemeral content via anonymous posting ==="
+echo "=== PREREQUISITE: Create ephemeral content via non-member account ==="
 echo ""
 
-# We need ZK proof infrastructure (trust tree root, dummy proof)
-# Reuse the same pattern from anon_test.sh
-
-# Deterministic ZK keys (must be different from anon_test.sh to avoid conflicts)
-PIN_ZK_KEY1="c10c10c10c10c10c10c10c10c10c10c10c10c10c10c10c10c10c10c10c10c10c"
-PIN_ENC_KEY1="c111111111111111111111111111111111111111111111111111111111111111"
-PIN_ZK_KEY2="c20c20c20c20c20c20c20c20c20c20c20c20c20c20c20c20c20c20c20c20c20c"
-PIN_ENC_KEY2="c222222222222222222222222222222222222222222222222222222222222222"
-
-register_voter() {
-    local ACCOUNT=$1
-    local ZK_KEY_HEX=$2
-    local ENC_KEY_HEX=$3
-
-    local ZK_KEY_B64=$(echo "$ZK_KEY_HEX" | xxd -r -p | base64)
-    local ENC_KEY_B64=$(echo "$ENC_KEY_HEX" | xxd -r -p | base64)
-
-    echo "  Registering $ACCOUNT as voter..."
-
-    TX_RES=$($BINARY tx vote register-voter \
-        --zk-public-key "$ZK_KEY_B64" \
-        --encryption-public-key "$ENC_KEY_B64" \
-        --from $ACCOUNT \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  Failed to register $ACCOUNT: no txhash"
-        return 1
-    fi
-
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        echo "  Registered $ACCOUNT as voter"
-        return 0
-    else
-        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-        if echo "$RAW_LOG" | grep -qi "already.*regist\|use.*rotate"; then
-            echo "  $ACCOUNT is already registered as voter (OK)"
-            return 0
-        fi
-        echo "  Failed to register $ACCOUNT: $RAW_LOG"
-        return 1
-    fi
-}
-
-# Register voters (may already be registered from anon_test)
-register_voter "blogger1" "$PIN_ZK_KEY1" "$PIN_ENC_KEY1"
-register_voter "blogger2" "$PIN_ZK_KEY2" "$PIN_ENC_KEY2"
-
-echo ""
-
-# Get trust tree root
-echo "  Querying trust tree root..."
-ABCI_RESPONSE=$(curl -s "http://localhost:26657/abci_query?path=\"/store/rep/key\"&data=0x74727573745f747265652f726f6f74" 2>&1)
-TRUST_ROOT_B64=$(echo "$ABCI_RESPONSE" | jq -r '.result.response.value // ""')
-
-if [ -z "$TRUST_ROOT_B64" ] || [ "$TRUST_ROOT_B64" == "null" ]; then
-    echo "  Trust tree not found. Waiting for EndBlocker rebuild..."
-    sleep 12
-    ABCI_RESPONSE=$(curl -s "http://localhost:26657/abci_query?path=\"/store/rep/key\"&data=0x74727573745f747265652f726f6f74" 2>&1)
-    TRUST_ROOT_B64=$(echo "$ABCI_RESPONSE" | jq -r '.result.response.value // ""')
+# Create a non-member account for ephemeral content creation
+NONMEMBER_ACCOUNT="pintest_nonmember"
+if ! $BINARY keys show $NONMEMBER_ACCOUNT --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add $NONMEMBER_ACCOUNT --keyring-backend test --output json > /dev/null 2>&1
+    echo "  Created non-member key: $NONMEMBER_ACCOUNT"
 fi
+NONMEMBER_ADDR=$($BINARY keys show $NONMEMBER_ACCOUNT -a --keyring-backend test)
+echo "  Non-member account: $NONMEMBER_ADDR"
 
-if [ -z "$TRUST_ROOT_B64" ] || [ "$TRUST_ROOT_B64" == "null" ]; then
-    echo "  ERROR: Trust tree root not available. Pin tests need ephemeral content."
-    echo "  Attempting to use regular posts instead (will test ErrContentNotEphemeral)."
-    TRUST_ROOT_B64=""
-fi
-
-DUMMY_PROOF_B64=$(echo -n "deadbeef" | xxd -r -p | base64)
+# Fund the non-member account with SPARK (for gas)
+echo "  Funding non-member account..."
+TX_RES=$($BINARY tx bank send \
+    alice $NONMEMBER_ADDR \
+    10000000uspark \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000uspark \
+    -y \
+    --output json 2>&1)
+sleep 6
 
 # Create ephemeral post 1 (for pinning)
 EPHEMERAL_POST_ID=""
-if [ -n "$TRUST_ROOT_B64" ]; then
-    NULLIFIER_PIN1="dd01000000000000000000000000000000000000000000000000000000000001"
-    NULLIFIER_PIN1_B64=$(echo "$NULLIFIER_PIN1" | xxd -r -p | base64)
+echo "  Creating ephemeral post from non-member..."
+TX_RES=$($BINARY tx blog create-post \
+    "Ephemeral Post for Pinning" \
+    "This ephemeral post will be pinned to make it permanent." \
+    --min-reply-trust-level=-1 \
+    --from $NONMEMBER_ACCOUNT \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    -y \
+    --output json 2>&1)
 
-    TX_RES=$($BINARY tx blog create-anonymous-post \
-        "Ephemeral Post for Pinning" \
-        "This ephemeral post will be pinned to make it permanent." \
-        --proof "$DUMMY_PROOF_B64" \
-        --nullifier "$NULLIFIER_PIN1_B64" \
-        --merkle-root "$TRUST_ROOT_B64" \
-        --min-trust-level 2 \
-        --from blogger1 \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 500000uspark \
-        -y \
-        --output json 2>&1)
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    EPHEMERAL_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
+    echo "  Ephemeral post created: ID=$EPHEMERAL_POST_ID"
 
-    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-        EPHEMERAL_POST_ID=$(extract_event_value "$TX_RESULT" "blog.anonymous_post.created" "post_id")
-        echo "  Ephemeral post created: ID=$EPHEMERAL_POST_ID"
-    else
-        echo "  Failed to create ephemeral post"
-        echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
-    fi
+    # Verify it actually has a TTL (ExpiresAt > 0)
+    POST_Q=$($BINARY query blog show-post $EPHEMERAL_POST_ID --output json 2>&1)
+    EXPIRES_AT=$(echo "$POST_Q" | jq -r '(.post.expires_at // 0)')
+    echo "  ExpiresAt=$EXPIRES_AT (should be > 0 for ephemeral)"
+else
+    RAW_LOG=$(echo "${TX_RESULT:-$TX_RES}" | jq -r '.raw_log // .message // "unknown error"' 2>/dev/null)
+    echo "  Failed to create ephemeral post: $RAW_LOG"
 fi
 
 # Create ephemeral post 2 (for hiding + pin fail test)
 EPHEMERAL_POST_2_ID=""
-if [ -n "$TRUST_ROOT_B64" ]; then
-    NULLIFIER_PIN2="dd02000000000000000000000000000000000000000000000000000000000002"
-    NULLIFIER_PIN2_B64=$(echo "$NULLIFIER_PIN2" | xxd -r -p | base64)
+echo "  Creating ephemeral post 2 from non-member..."
+TX_RES=$($BINARY tx blog create-post \
+    "Ephemeral Post for Hide Test" \
+    "This post will be hidden, then we try to pin it." \
+    --from $NONMEMBER_ACCOUNT \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    -y \
+    --output json 2>&1)
 
-    TX_RES=$($BINARY tx blog create-anonymous-post \
-        "Ephemeral Post for Hide Test" \
-        "This post will be hidden, then we try to pin it." \
-        --proof "$DUMMY_PROOF_B64" \
-        --nullifier "$NULLIFIER_PIN2_B64" \
-        --merkle-root "$TRUST_ROOT_B64" \
-        --min-trust-level 2 \
-        --from blogger1 \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 500000uspark \
-        -y \
-        --output json 2>&1)
-
-    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-        EPHEMERAL_POST_2_ID=$(extract_event_value "$TX_RESULT" "blog.anonymous_post.created" "post_id")
-        echo "  Ephemeral post 2 created: ID=$EPHEMERAL_POST_2_ID"
-    else
-        echo "  Failed to create ephemeral post 2"
-    fi
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    EPHEMERAL_POST_2_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
+    echo "  Ephemeral post 2 created: ID=$EPHEMERAL_POST_2_ID"
+else
+    echo "  Failed to create ephemeral post 2"
 fi
 
 # Create ephemeral reply (for reply pinning)
 EPHEMERAL_REPLY_ID=""
-if [ -n "$EPHEMERAL_POST_ID" ] && [ -n "$TRUST_ROOT_B64" ]; then
-    NULLIFIER_PIN_R1="dd03000000000000000000000000000000000000000000000000000000000003"
-    NULLIFIER_PIN_R1_B64=$(echo "$NULLIFIER_PIN_R1" | xxd -r -p | base64)
-
-    TX_RES=$($BINARY tx blog create-anonymous-reply \
+if [ -n "$EPHEMERAL_POST_ID" ]; then
+    echo "  Creating ephemeral reply from non-member..."
+    TX_RES=$($BINARY tx blog create-reply \
         $EPHEMERAL_POST_ID \
         "Ephemeral reply to be pinned." \
-        --proof "$DUMMY_PROOF_B64" \
-        --nullifier "$NULLIFIER_PIN_R1_B64" \
-        --merkle-root "$TRUST_ROOT_B64" \
-        --min-trust-level 2 \
-        --from blogger2 \
+        --from $NONMEMBER_ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 500000uspark \
+        --fees 50000uspark \
         -y \
         --output json 2>&1)
 
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-        EPHEMERAL_REPLY_ID=$(extract_event_value "$TX_RESULT" "blog.anonymous_reply.created" "reply_id")
+        EPHEMERAL_REPLY_ID=$(extract_event_value "$TX_RESULT" "blog.reply.created" "reply_id")
         echo "  Ephemeral reply created: ID=$EPHEMERAL_REPLY_ID"
     else
-        echo "  Failed to create ephemeral reply"
+        RAW_LOG=$(echo "${TX_RESULT:-$TX_RES}" | jq -r '.raw_log // .message // "unknown error"' 2>/dev/null)
+        echo "  Failed to create ephemeral reply: $RAW_LOG"
     fi
 fi
 
+# Use alice for permanent post prerequisites — she's a founding member (posts are permanent)
+# and hasn't been used for post creation in prior test scripts, so no rate limit concern.
+
 # Create a regular (permanent) post for "not ephemeral" test.
-# Use blogger2 to avoid rate limiting blogger1 (who creates many posts in prior tests).
 TX_RES=$($BINARY tx blog create-post \
     "Permanent Post for Pin Fail" \
     "This permanent post cannot be pinned because it is not ephemeral." \
-    --from blogger2 \
+    --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 50000uspark \
@@ -301,14 +231,11 @@ else
     echo "  Failed to create permanent post: $RAW_LOG"
 fi
 
-# Create a second regular post that will be hidden (for TEST 7: pin-hidden-post)
-# NOTE: regular member posts are permanent (ExpiresAt=0), but PinPost checks HIDDEN status
-# BEFORE checking ephemeral, so we can test ErrPostHidden using a hidden permanent post.
-# Use reader1 to avoid rate limiting blogger1/blogger2 (who create many posts in prior tests).
+# Create a post that will be hidden (for TEST 7: pin-hidden-post)
 TX_RES=$($BINARY tx blog create-post \
     "Post to Hide for Pin Test" \
     "This post will be hidden so we can test that pinning a hidden post is rejected." \
-    --from reader1 \
+    --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 50000uspark \
@@ -320,10 +247,10 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     HIDDEN_POST_FOR_PIN_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
     echo "  Post to hide created: ID=$HIDDEN_POST_FOR_PIN_ID"
 
-    # Hide it immediately (reader1 is the creator, so they can hide it)
+    # Hide it immediately (alice is the creator, so she can hide it)
     TX_RES=$($BINARY tx blog hide-post \
         $HIDDEN_POST_FOR_PIN_ID \
-        --from reader1 \
+        --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 50000uspark \
@@ -341,11 +268,11 @@ else
     echo "  Failed to create post for hiding: $RAW_LOG"
 fi
 
-# Create a post to delete (for pin-deleted test) - use reader1 to avoid rate limits
+# Create a post to delete (for pin-deleted test)
 TX_RES=$($BINARY tx blog create-post \
     "Post to Delete for Pin Test" \
     "This post will be deleted." \
-    --from reader1 \
+    --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 50000uspark \
@@ -357,9 +284,9 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     DELETED_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
     echo "  Post to delete created: ID=$DELETED_POST_ID"
 
-    # Delete it (reader1 is the creator)
+    # Delete it (alice is the creator)
     TX_RES=$($BINARY tx blog delete-post $DELETED_POST_ID \
-        --from reader1 \
+        --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 50000uspark \

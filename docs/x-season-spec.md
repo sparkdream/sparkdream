@@ -56,7 +56,7 @@ The `x/season` module depends on:
 |--------|-------|
 | `x/rep` | Member validation, DREAM burning for guild creation, DREAM minting for retroactive rewards, challenge/jury hooks |
 | `x/name` | Display name and guild name uniqueness (see below) |
-| `x/gov` / `x/group` | Vote/proposal hooks for XP |
+| `x/gov` / `x/commons` | Vote/proposal hooks for XP |
 | `x/forum` | Forum calls `seasonKeeper.GrantXP()` directly for forum-sourced XP; content validation for nominations |
 | `x/blog` | Content validation for nominations (post existence, status, creator) |
 | `x/collect` | Content validation for nominations (collection existence, status, owner) |
@@ -109,7 +109,7 @@ The module validates authority for admin messages via `x/commons`:
 | Authority | Messages | Check Method |
 |-----------|----------|--------------|
 | Commons Operations Committee | Quest CRUD | `commonsKeeper.IsCommitteeMember(ctx, sender, "commons", "operations")` |
-| Commons Council | Season extension, naming | `commonsKeeper.IsCouncilMember(ctx, sender, "commons")` or via group proposal |
+| Commons Council | Season extension, naming | `commonsKeeper.IsCouncilMember(ctx, sender, "commons")` or via commons proposal |
 
 ## State
 
@@ -315,13 +315,9 @@ message GuildInvite {
 
 ### Quest
 
-**Design: Immutable Quests**
+**Design: Governance-Updatable Quests**
 
-Quests are immutable after creation. To "update" a quest:
-1. Deactivate the old quest (`MsgDeactivateQuest`)
-2. Create a new quest with desired changes (`MsgCreateQuest`)
-
-This simplifies implementation (no version tracking) and prevents edge cases where in-progress quests change mid-completion. Members with in-progress quests on a deactivated quest can still complete them.
+Quests can be updated after creation via `MsgUpdateQuest` (governance-gated). This allows the Operations Committee to adjust quest parameters without needing to deactivate and recreate. Members with in-progress quests on a deactivated quest can still complete them. Quests can also be deactivated via `MsgDeactivateQuest`.
 
 ```protobuf
 message Quest {
@@ -336,7 +332,6 @@ message Quest {
   int64 start_block = 9;
   int64 end_block = 10;
   bool active = 11;
-  // Note: Quests are immutable - no version field needed
 
   // Prerequisites
   uint32 min_level = 12;
@@ -424,22 +419,38 @@ This rewards the unexpected contributions that were never pre-planned as initiat
 ```protobuf
 message Nomination {
   uint64 id = 1;
-  string nominator = 2;                    // Member who submitted the nomination
-  string content_ref = 3;                  // Content reference (e.g., "blog/post/42", "forum/thread/7", "collect/collection/3")
-  string content_creator = 4;              // Address of the content creator (resolved at nomination time)
-  string rationale = 5;                    // Why this contribution deserves retroactive reward (max 500 chars)
-  uint32 season = 6;                       // Season the nomination is for
+  string nominator = 2;                    // Address of the nominator
+  string content_ref = 3;                  // e.g. "blog/post/42", "forum/post/7", "collect/collection/3", "rep/initiative/5", "rep/jury/addr"
+  string rationale = 4;
+  int64 created_at_block = 5;
+  uint64 season = 6;
 
   // Conviction tracking (uses same formula as content conviction staking)
-  string conviction_score = 7 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
-  uint32 stake_count = 8;                  // Number of distinct stakers
-  string total_staked = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string total_staked = 7 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+  string conviction = 8 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
 
   // Reward (set during PhaseRetroRewards)
-  string reward_amount = 10 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // DREAM minted (0 if not rewarded)
-  bool rewarded = 11;
+  string reward_amount = 9 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];  // DREAM minted (0 if not rewarded)
+  bool rewarded = 10;
+}
 
-  int64 created_at = 12;
+// NominationStake represents a DREAM stake on a nomination.
+message NominationStake {
+  uint64 nomination_id = 1;
+  string staker = 2;
+  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+  int64 staked_at_block = 4;
+}
+
+// RetroRewardRecord tracks the history of retroactive rewards distributed per season.
+message RetroRewardRecord {
+  uint64 season = 1;
+  uint64 nomination_id = 2;
+  string recipient = 3;                    // nominator address
+  string content_ref = 4;
+  string conviction = 5 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+  string reward_amount = 6 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+  int64 distributed_at_block = 7;
 }
 ```
 
@@ -596,22 +607,22 @@ func (k Keeper) EpochToBlock(ctx sdk.Context, epoch int64) int64 {
 ```protobuf
 // Display name: non-unique, cosmetic
 message MsgSetDisplayName {
-  string member = 1;
-  string name = 2;    // e.g., "Crypto Enthusiast 🚀", "John Smith"
+  string creator = 1;
+  string name = 2;    // e.g., "Crypto Enthusiast", "John Smith"
 }
 
 message MsgSetDisplayNameResponse {}
 
 // Username: unique, reserved via x/name
 message MsgSetUsername {
-  string member = 1;
+  string creator = 1;
   string username = 2;  // e.g., "alice", "crypto_whale"
 }
 
 message MsgSetUsernameResponse {}
 
 message MsgSetDisplayTitle {
-  string member = 1;
+  string creator = 1;
   string title_id = 2;
 }
 
@@ -620,33 +631,33 @@ message MsgSetDisplayTitleResponse {}
 
 ### Guild Management
 
+All guild messages use `creator` as the signer field name, following standard Cosmos SDK conventions.
+
 ```protobuf
 message MsgCreateGuild {
-  string founder = 1;
+  string creator = 1;
   string name = 2;
   string description = 3;
   bool invite_only = 4;
 }
 
-message MsgCreateGuildResponse {
-  uint64 guild_id = 1;
-}
+message MsgCreateGuildResponse {}
 
 message MsgJoinGuild {
-  string member = 1;
+  string creator = 1;
   uint64 guild_id = 2;
 }
 
 message MsgJoinGuildResponse {}
 
 message MsgLeaveGuild {
-  string member = 1;
+  string creator = 1;
 }
 
 message MsgLeaveGuildResponse {}
 
 message MsgTransferGuildFounder {
-  string current_founder = 1;
+  string creator = 1;
   uint64 guild_id = 2;
   string new_founder = 3;
 }
@@ -654,7 +665,7 @@ message MsgTransferGuildFounder {
 message MsgTransferGuildFounderResponse {}
 
 message MsgDissolveGuild {
-  string founder = 1;
+  string creator = 1;
   uint64 guild_id = 2;
 }
 
@@ -662,7 +673,7 @@ message MsgDissolveGuildResponse {}
 
 // Officer management (founder only)
 message MsgPromoteToOfficer {
-  string founder = 1;
+  string creator = 1;
   uint64 guild_id = 2;
   string member = 3;
 }
@@ -670,7 +681,7 @@ message MsgPromoteToOfficer {
 message MsgPromoteToOfficerResponse {}
 
 message MsgDemoteOfficer {
-  string founder = 1;
+  string creator = 1;
   uint64 guild_id = 2;
   string officer = 3;
 }
@@ -679,7 +690,7 @@ message MsgDemoteOfficerResponse {}
 
 // Invitation management (founder or officers)
 message MsgInviteToGuild {
-  string inviter = 1;
+  string creator = 1;
   uint64 guild_id = 2;
   string invitee = 3;
 }
@@ -687,14 +698,14 @@ message MsgInviteToGuild {
 message MsgInviteToGuildResponse {}
 
 message MsgAcceptGuildInvite {
-  string member = 1;
+  string creator = 1;
   uint64 guild_id = 2;
 }
 
 message MsgAcceptGuildInviteResponse {}
 
 message MsgRevokeGuildInvite {
-  string inviter = 1;
+  string creator = 1;
   uint64 guild_id = 2;
   string invitee = 3;
 }
@@ -702,7 +713,7 @@ message MsgRevokeGuildInvite {
 message MsgRevokeGuildInviteResponse {}
 
 message MsgSetGuildInviteOnly {
-  string founder = 1;
+  string creator = 1;
   uint64 guild_id = 2;
   bool invite_only = 3;
 }
@@ -710,7 +721,7 @@ message MsgSetGuildInviteOnly {
 message MsgSetGuildInviteOnlyResponse {}
 
 message MsgUpdateGuildDescription {
-  string founder = 1;
+  string creator = 1;
   uint64 guild_id = 2;
   string description = 3;
 }
@@ -719,7 +730,7 @@ message MsgUpdateGuildDescriptionResponse {}
 
 // Kick a member from guild (founder or officers)
 message MsgKickFromGuild {
-  string kicker = 1;          // Founder or officer
+  string creator = 1;         // Founder or officer
   uint64 guild_id = 2;
   string member = 3;
   string reason = 4;          // Required reason for transparency
@@ -729,7 +740,7 @@ message MsgKickFromGuildResponse {}
 
 // Claim founder status of a frozen guild (any member can claim, first-come-first-serve)
 message MsgClaimGuildFounder {
-  string member = 1;          // Must be a member of the frozen guild
+  string creator = 1;         // Must be a member of the frozen guild
   uint64 guild_id = 2;
 }
 
@@ -740,24 +751,22 @@ message MsgClaimGuildFounderResponse {}
 
 ```protobuf
 message MsgStartQuest {
-  string member = 1;
+  string creator = 1;
   string quest_id = 2;
 }
 
 message MsgStartQuestResponse {}
 
 message MsgClaimQuestReward {
-  string member = 1;
+  string creator = 1;
   string quest_id = 2;
 }
 
-message MsgClaimQuestRewardResponse {
-  uint64 xp_earned = 1;
-}
+message MsgClaimQuestRewardResponse {}
 
 // Abandon an in-progress quest (resets progress, applies cooldown for repeatable quests)
 message MsgAbandonQuest {
-  string member = 1;
+  string creator = 1;
   string quest_id = 2;
 }
 
@@ -771,11 +780,21 @@ Authority is split between the Commons Operations Committee (routine tasks) and 
 | Message | Authority | Rationale |
 |---------|-----------|-----------|
 | `MsgCreateQuest` | Operations Committee | Routine content management |
+| `MsgUpdateQuest` | Operations Committee | Routine content management |
 | `MsgDeactivateQuest` | Operations Committee | Routine content management |
+| `MsgCreateAchievement` | Operations Committee | Achievement management |
+| `MsgUpdateAchievement` | Operations Committee | Achievement management |
+| `MsgDeleteAchievement` | Operations Committee | Achievement management |
+| `MsgCreateTitle` | Operations Committee | Title management |
+| `MsgUpdateTitle` | Operations Committee | Title management |
+| `MsgDeleteTitle` | Operations Committee | Title management |
 | `MsgExtendSeason` | Commons Council | Significant scheduling decision |
 | `MsgSetNextSeasonInfo` | Commons Council | Community-wide visibility |
-
-**Note:** There is no `MsgUpdateQuest`. Quests are immutable. To change a quest, deactivate it and create a new one.
+| `MsgAbortSeasonTransition` | Commons Council | Emergency transition recovery |
+| `MsgRetrySeasonTransition` | Commons Council | Emergency transition recovery |
+| `MsgSkipTransitionPhase` | Commons Council | Emergency transition recovery |
+| `MsgResolveDisplayNameAppeal` | Commons Council / Operations Committee | Moderation resolution |
+| `MsgResolveUnappealedModeration` | Commons Council / Operations Committee | Moderation resolution |
 
 **Note:** Frozen guilds are handled by `MsgClaimGuildFounder` (any member can claim), not governance. This avoids delays and governance overhead for a common guild lifecycle event.
 
@@ -783,12 +802,42 @@ Authority is split between the Commons Operations Committee (routine tasks) and 
 // Quest management (Operations Committee)
 message MsgCreateQuest {
   string authority = 1;  // Commons Operations Committee
-  Quest quest = 2;
+  string quest_id = 2;
+  string name = 3;
+  string description = 4;
+  uint64 xp_reward = 5;
+  bool repeatable = 6;
+  uint64 cooldown_epochs = 7;
+  uint64 season = 8;
+  int64 start_block = 9;
+  int64 end_block = 10;
+  uint64 min_level = 11;
+  string required_achievement = 12;
+  string prerequisite_quest = 13;
+  string quest_chain = 14;
 }
 
-message MsgCreateQuestResponse {
-  string quest_id = 1;
+message MsgCreateQuestResponse {}
+
+message MsgUpdateQuest {
+  string authority = 1;  // Commons Operations Committee
+  string quest_id = 2;
+  string name = 3;
+  string description = 4;
+  uint64 xp_reward = 5;
+  bool repeatable = 6;
+  uint64 cooldown_epochs = 7;
+  uint64 season = 8;
+  int64 start_block = 9;
+  int64 end_block = 10;
+  uint64 min_level = 11;
+  string required_achievement = 12;
+  string prerequisite_quest = 13;
+  string quest_chain = 14;
+  bool active = 15;
 }
+
+message MsgUpdateQuestResponse {}
 
 message MsgDeactivateQuest {
   string authority = 1;  // Commons Operations Committee
@@ -804,9 +853,7 @@ message MsgExtendSeason {
   string reason = 3;
 }
 
-message MsgExtendSeasonResponse {
-  int64 new_end_block = 1;
-}
+message MsgExtendSeasonResponse {}
 
 // Season naming (submitted before season ends, takes effect at next season start)
 message MsgSetNextSeasonInfo {
@@ -816,6 +863,76 @@ message MsgSetNextSeasonInfo {
 }
 
 message MsgSetNextSeasonInfoResponse {}
+
+// Achievement management (Operations Committee)
+message MsgCreateAchievement {
+  string authority = 1;
+  string achievement_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 rarity = 5;
+  uint64 xp_reward = 6;
+  uint32 requirement_type = 7;
+  uint64 requirement_threshold = 8;
+}
+
+message MsgCreateAchievementResponse {}
+
+message MsgUpdateAchievement {
+  string authority = 1;
+  string achievement_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 rarity = 5;
+  uint64 xp_reward = 6;
+  uint32 requirement_type = 7;
+  uint64 requirement_threshold = 8;
+}
+
+message MsgUpdateAchievementResponse {}
+
+message MsgDeleteAchievement {
+  string authority = 1;
+  string achievement_id = 2;
+}
+
+message MsgDeleteAchievementResponse {}
+
+// Title management (Operations Committee)
+message MsgCreateTitle {
+  string authority = 1;
+  string title_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 rarity = 5;
+  uint32 requirement_type = 6;
+  uint64 requirement_threshold = 7;
+  uint64 requirement_season = 8;
+  bool seasonal = 9;
+}
+
+message MsgCreateTitleResponse {}
+
+message MsgUpdateTitle {
+  string authority = 1;
+  string title_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 rarity = 5;
+  uint32 requirement_type = 6;
+  uint64 requirement_threshold = 7;
+  uint64 requirement_season = 8;
+  bool seasonal = 9;
+}
+
+message MsgUpdateTitleResponse {}
+
+message MsgDeleteTitle {
+  string authority = 1;
+  string title_id = 2;
+}
+
+message MsgDeleteTitleResponse {}
 ```
 
 ### Retroactive Public Goods Nominations
@@ -824,8 +941,8 @@ message MsgSetNextSeasonInfoResponse {}
 // Nominate a contribution for retroactive DREAM rewards
 // Only available during SEASON_STATUS_NOMINATION window
 message MsgNominate {
-  string nominator = 1;                   // Must be active member at nomination_min_trust_level+
-  string content_ref = 2;                 // Content reference ("blog/post/42", "forum/thread/7", etc.)
+  string creator = 1;                     // Must be active member at nomination_min_trust_level+
+  string content_ref = 2;                 // Content reference ("blog/post/42", "forum/post/7", etc.)
   string rationale = 3;                   // Why this deserves retroactive reward (max nomination_rationale_max_length)
 }
 
@@ -836,9 +953,9 @@ message MsgNominateResponse {
 // Stake DREAM on a nomination to signal conviction
 // Only available during SEASON_STATUS_NOMINATION window
 message MsgStakeNomination {
-  string staker = 1;                      // Must be active member at nomination_stake_min_trust_level+
+  string creator = 1;                     // Must be active member at nomination_stake_min_trust_level+
   uint64 nomination_id = 2;
-  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Min: nomination_min_stake
+  string amount = 3;                      // DREAM amount as decimal string. Min: nomination_min_stake
 }
 
 message MsgStakeNominationResponse {}
@@ -846,7 +963,7 @@ message MsgStakeNominationResponse {}
 // Unstake DREAM from a nomination (conviction is recalculated)
 // Available during nomination window; stakes auto-returned after season transition
 message MsgUnstakeNomination {
-  string staker = 1;
+  string creator = 1;
   uint64 nomination_id = 2;
 }
 
@@ -860,21 +977,89 @@ message MsgUnstakeNominationResponse {}
 
 ## Queries
 
+The module exposes 68 queries. These are organized into CRUD-style queries (Get/List for each state type) and higher-level application queries.
+
 ```protobuf
 service Query {
+  // Params
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse);
+
+  // Season state (CRUD)
+  rpc GetSeason(QueryGetSeasonRequest) returns (QueryGetSeasonResponse);
+  rpc GetSeasonTransitionState(QueryGetSeasonTransitionStateRequest) returns (QueryGetSeasonTransitionStateResponse);
+  rpc GetTransitionRecoveryState(QueryGetTransitionRecoveryStateRequest) returns (QueryGetTransitionRecoveryStateResponse);
+  rpc GetNextSeasonInfo(QueryGetNextSeasonInfoRequest) returns (QueryGetNextSeasonInfoResponse);
+
+  // Season snapshots (CRUD)
+  rpc GetSeasonSnapshot(QueryGetSeasonSnapshotRequest) returns (QueryGetSeasonSnapshotResponse);
+  rpc ListSeasonSnapshot(QueryAllSeasonSnapshotRequest) returns (QueryAllSeasonSnapshotResponse);
+  rpc GetMemberSeasonSnapshot(QueryGetMemberSeasonSnapshotRequest) returns (QueryGetMemberSeasonSnapshotResponse);
+  rpc ListMemberSeasonSnapshot(QueryAllMemberSeasonSnapshotRequest) returns (QueryAllMemberSeasonSnapshotResponse);
+
+  // Member profiles (CRUD)
+  rpc GetMemberProfile(QueryGetMemberProfileRequest) returns (QueryGetMemberProfileResponse);
+  rpc ListMemberProfile(QueryAllMemberProfileRequest) returns (QueryAllMemberProfileResponse);
+  rpc GetMemberRegistration(QueryGetMemberRegistrationRequest) returns (QueryGetMemberRegistrationResponse);
+  rpc ListMemberRegistration(QueryAllMemberRegistrationRequest) returns (QueryAllMemberRegistrationResponse);
+
+  // Achievements (CRUD)
+  rpc GetAchievement(QueryGetAchievementRequest) returns (QueryGetAchievementResponse);
+  rpc ListAchievement(QueryAllAchievementRequest) returns (QueryAllAchievementResponse);
+
+  // Titles (CRUD)
+  rpc GetTitle(QueryGetTitleRequest) returns (QueryGetTitleResponse);
+  rpc ListTitle(QueryAllTitleRequest) returns (QueryAllTitleResponse);
+  rpc GetSeasonTitleEligibility(QueryGetSeasonTitleEligibilityRequest) returns (QueryGetSeasonTitleEligibilityResponse);
+  rpc ListSeasonTitleEligibility(QueryAllSeasonTitleEligibilityRequest) returns (QueryAllSeasonTitleEligibilityResponse);
+
+  // Guilds (CRUD)
+  rpc GetGuild(QueryGetGuildRequest) returns (QueryGetGuildResponse);
+  rpc ListGuild(QueryAllGuildRequest) returns (QueryAllGuildResponse);
+  rpc GetGuildMembership(QueryGetGuildMembershipRequest) returns (QueryGetGuildMembershipResponse);
+  rpc ListGuildMembership(QueryAllGuildMembershipRequest) returns (QueryAllGuildMembershipResponse);
+  rpc GetGuildInvite(QueryGetGuildInviteRequest) returns (QueryGetGuildInviteResponse);
+  rpc ListGuildInvite(QueryAllGuildInviteRequest) returns (QueryAllGuildInviteResponse);
+
+  // Quests (CRUD)
+  rpc GetQuest(QueryGetQuestRequest) returns (QueryGetQuestResponse);
+  rpc ListQuest(QueryAllQuestRequest) returns (QueryAllQuestResponse);
+  rpc GetMemberQuestProgress(QueryGetMemberQuestProgressRequest) returns (QueryGetMemberQuestProgressResponse);
+  rpc ListMemberQuestProgress(QueryAllMemberQuestProgressRequest) returns (QueryAllMemberQuestProgressResponse);
+
+  // XP tracking (CRUD)
+  rpc GetEpochXpTracker(QueryGetEpochXpTrackerRequest) returns (QueryGetEpochXpTrackerResponse);
+  rpc ListEpochXpTracker(QueryAllEpochXpTrackerRequest) returns (QueryAllEpochXpTrackerResponse);
+  rpc GetVoteXpRecord(QueryGetVoteXpRecordRequest) returns (QueryGetVoteXpRecordResponse);
+  rpc ListVoteXpRecord(QueryAllVoteXpRecordRequest) returns (QueryAllVoteXpRecordResponse);
+  rpc GetForumXpCooldown(QueryGetForumXpCooldownRequest) returns (QueryGetForumXpCooldownResponse);
+  rpc ListForumXpCooldown(QueryAllForumXpCooldownRequest) returns (QueryAllForumXpCooldownResponse);
+
+  // Display name moderation (CRUD)
+  rpc GetDisplayNameModeration(QueryGetDisplayNameModerationRequest) returns (QueryGetDisplayNameModerationResponse);
+  rpc ListDisplayNameModeration(QueryAllDisplayNameModerationRequest) returns (QueryAllDisplayNameModerationResponse);
+  rpc GetDisplayNameReportStake(QueryGetDisplayNameReportStakeRequest) returns (QueryGetDisplayNameReportStakeResponse);
+  rpc ListDisplayNameReportStake(QueryAllDisplayNameReportStakeRequest) returns (QueryAllDisplayNameReportStakeResponse);
+  rpc GetDisplayNameAppealStake(QueryGetDisplayNameAppealStakeRequest) returns (QueryGetDisplayNameAppealStakeResponse);
+  rpc ListDisplayNameAppealStake(QueryAllDisplayNameAppealStakeRequest) returns (QueryAllDisplayNameAppealStakeResponse);
+
+  // Retroactive public goods nominations (CRUD)
+  rpc GetNomination(QueryGetNominationRequest) returns (QueryGetNominationResponse);
+  rpc ListNominations(QueryListNominationsRequest) returns (QueryListNominationsResponse);
+  rpc ListNominationsByCreator(QueryListNominationsByCreatorRequest) returns (QueryListNominationsByCreatorResponse);
+  rpc ListNominationStakes(QueryListNominationStakesRequest) returns (QueryListNominationStakesResponse);
+  rpc ListRetroRewardHistory(QueryListRetroRewardHistoryRequest) returns (QueryListRetroRewardHistoryResponse);
+
+  // ===== Application-level queries =====
+
   // Season
   rpc CurrentSeason(QueryCurrentSeasonRequest) returns (QueryCurrentSeasonResponse);
-  rpc Season(QuerySeasonRequest) returns (QuerySeasonResponse);
-  rpc SeasonSnapshot(QuerySeasonSnapshotRequest) returns (QuerySeasonSnapshotResponse);
+  rpc SeasonByNumber(QuerySeasonByNumberRequest) returns (QuerySeasonByNumberResponse);
   rpc SeasonStats(QuerySeasonStatsRequest) returns (QuerySeasonStatsResponse);
-  rpc NextSeasonInfo(QueryNextSeasonInfoRequest) returns (QueryNextSeasonInfoResponse);
 
-  // Member profiles
-  rpc MemberProfile(QueryMemberProfileRequest) returns (QueryMemberProfileResponse);
+  // Member
   rpc MemberByDisplayName(QueryMemberByDisplayNameRequest) returns (QueryMemberByDisplayNameResponse);
   rpc MemberSeasonHistory(QueryMemberSeasonHistoryRequest) returns (QueryMemberSeasonHistoryResponse);
-  rpc MemberXPHistory(QueryMemberXPHistoryRequest) returns (QueryMemberXPHistoryResponse);
-  // Note: Leaderboard queries are handled by indexers, not on-chain
+  rpc MemberXpHistory(QueryMemberXpHistoryRequest) returns (QueryMemberXpHistoryResponse);
 
   // Achievements & Titles
   rpc Achievements(QueryAchievementsRequest) returns (QueryAchievementsResponse);
@@ -883,8 +1068,8 @@ service Query {
   rpc MemberTitles(QueryMemberTitlesRequest) returns (QueryMemberTitlesResponse);
 
   // Guilds
-  rpc Guild(QueryGuildRequest) returns (QueryGuildResponse);
-  rpc Guilds(QueryGuildsRequest) returns (QueryGuildsResponse);
+  rpc GuildById(QueryGuildByIdRequest) returns (QueryGuildByIdResponse);
+  rpc GuildsList(QueryGuildsListRequest) returns (QueryGuildsListResponse);
   rpc GuildsByFounder(QueryGuildsByFounderRequest) returns (QueryGuildsByFounderResponse);
   rpc GuildMembers(QueryGuildMembersRequest) returns (QueryGuildMembersResponse);
   rpc MemberGuild(QueryMemberGuildRequest) returns (QueryMemberGuildResponse);
@@ -892,21 +1077,13 @@ service Query {
   rpc MemberGuildInvites(QueryMemberGuildInvitesRequest) returns (QueryMemberGuildInvitesResponse);
 
   // Quests
-  rpc Quests(QueryQuestsRequest) returns (QueryQuestsResponse);
-  rpc Quest(QueryQuestRequest) returns (QueryQuestResponse);
+  rpc QuestsList(QueryQuestsListRequest) returns (QueryQuestsListResponse);
+  rpc QuestById(QueryQuestByIdRequest) returns (QueryQuestByIdResponse);
   rpc QuestChain(QueryQuestChainRequest) returns (QueryQuestChainResponse);
-  rpc MemberQuestProgress(QueryMemberQuestProgressRequest) returns (QueryMemberQuestProgressResponse);
+  rpc MemberQuestStatus(QueryMemberQuestStatusRequest) returns (QueryMemberQuestStatusResponse);
   rpc AvailableQuests(QueryAvailableQuestsRequest) returns (QueryAvailableQuestsResponse);
 
-  // Retroactive Public Goods Nominations
-  rpc Nomination(QueryNominationRequest) returns (QueryNominationResponse);
-  rpc Nominations(QueryNominationsRequest) returns (QueryNominationsResponse);
-  rpc NominationsByCreator(QueryNominationsByCreatorRequest) returns (QueryNominationsByCreatorResponse);
-  rpc NominationStakes(QueryNominationStakesRequest) returns (QueryNominationStakesResponse);
-  rpc RetroRewardHistory(QueryRetroRewardHistoryRequest) returns (QueryRetroRewardHistoryResponse);
-
-  // Params
-  rpc Params(QueryParamsRequest) returns (QueryParamsResponse);
+  // Note: Leaderboard queries are handled by indexers, not on-chain
 }
 
 // Season stats
@@ -1034,61 +1211,52 @@ message QueryMemberSeasonHistoryResponse {
 // - Guild membership + EventXPGranted (guild XP leaderboard)
 
 // Retroactive Public Goods Nominations
-message QueryNominationRequest {
-  uint64 nomination_id = 1;
+message QueryGetNominationRequest {
+  uint64 id = 1;
 }
 
-message QueryNominationResponse {
+message QueryGetNominationResponse {
   Nomination nomination = 1;
 }
 
-message QueryNominationsRequest {
-  uint32 season = 1;           // 0 = current season
-  string order_by = 2;         // "conviction" (default) or "created_at"
-  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+message QueryListNominationsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
 }
 
-message QueryNominationsResponse {
+message QueryListNominationsResponse {
   repeated Nomination nominations = 1;
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-message QueryNominationsByCreatorRequest {
-  string creator = 1;          // Content creator address — find nominations for a member's content
-  uint32 season = 2;           // 0 = current season
+message QueryListNominationsByCreatorRequest {
+  string creator = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
 }
 
-message QueryNominationsByCreatorResponse {
+message QueryListNominationsByCreatorResponse {
   repeated Nomination nominations = 1;
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-message QueryNominationStakesRequest {
+message QueryListNominationStakesRequest {
   uint64 nomination_id = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
 }
 
-message QueryNominationStakesResponse {
-  repeated NominationStakeEntry stakes = 1;
+message QueryListNominationStakesResponse {
+  repeated NominationStake stakes = 1;
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-message NominationStakeEntry {
-  string staker = 1;
-  string amount = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  string conviction = 3 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
-  int64 staked_at = 4;
-}
-
 // Historical retro rewards for past seasons
-message QueryRetroRewardHistoryRequest {
-  uint32 season = 1;           // Required — which season to query
+message QueryListRetroRewardHistoryRequest {
+  uint64 season = 1;           // Required — which season to query
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
 }
 
-message QueryRetroRewardHistoryResponse {
-  repeated Nomination rewarded_nominations = 1;  // Only nominations where rewarded = true
-  string total_dream_minted = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+message QueryListRetroRewardHistoryResponse {
+  repeated RetroRewardRecord records = 1;
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 ```
 
@@ -1194,8 +1362,9 @@ type Keeper interface {
     IterateGuilds(ctx, fn func(guild Guild) bool)
     ResetGuildXPForSeason(ctx)
 
-    // Quest management (quests are immutable - no UpdateQuest)
+    // Quest management
     CreateQuest(ctx, quest Quest) (string, error)
+    UpdateQuest(ctx, quest Quest) error
     DeactivateQuest(ctx, questID string) error
     StartQuest(ctx, member sdk.AccAddress, questID string) error
     // SECURITY: UpdateQuestProgress is NOT exposed via MsgServer.
@@ -1294,7 +1463,7 @@ The season module exposes hooks for other modules to trigger XP grants and achie
 
 ```go
 type SeasonHooks interface {
-    // From x/gov or x/group
+    // From x/gov or x/commons
     OnVoteCast(ctx sdk.Context, voter sdk.AccAddress, proposalID uint64) error
     OnProposalCreated(ctx sdk.Context, proposer sdk.AccAddress, proposalID uint64) error
 
@@ -1962,7 +2131,7 @@ During critical transition phases (reputation archival/reset), the system enters
 **Allowed Actions:**
 - All read queries
 - `MsgSetDisplayName` / `MsgSetDisplayTitle` - Profile cosmetics
-- Governance voting (x/gov, x/group)
+- Governance voting (x/gov, x/commons)
 - DREAM transfers (tips/gifts)
 
 **Duration:** Maintenance mode is only active during `PhaseArchiveReputation`, `PhaseResetReputation`, and `PhaseResetXP` phases. Other transition phases run without blocking.
@@ -2948,7 +3117,7 @@ Display names are not pre-moderated - offensive content is handled through commu
 
 ```protobuf
 message MsgReportDisplayName {
-    string reporter = 1;      // Member reporting the display name
+    string creator = 1;       // Member reporting the display name
     string target = 2;        // Member with offensive display name
     string reason = 3;        // Why the name is offensive
     // Reporter must stake display_name_report_stake_dream (from params)
@@ -2956,23 +3125,34 @@ message MsgReportDisplayName {
     // Stake is returned if report is upheld by jury
 }
 
-message MsgReportDisplayNameResponse {
-    string challenge_id = 1;  // x/rep challenge ID for jury review
-    string stake_amount = 2;  // Amount staked by reporter
-}
+message MsgReportDisplayNameResponse {}
 
 // Appeal a display name moderation decision
 message MsgAppealDisplayNameModeration {
-    string member = 1;         // Member appealing the moderation
+    string creator = 1;        // Member appealing the moderation
     string appeal_reason = 2;  // Why the moderation was incorrect
     // Appellant must stake display_name_appeal_stake_dream (from params)
     // Stake is burned if appeal fails, returned if appeal succeeds
 }
 
-message MsgAppealDisplayNameModerationResponse {
-    string challenge_id = 1;  // x/rep challenge ID for appeal review
-    string stake_amount = 2;  // Amount staked by appellant
+message MsgAppealDisplayNameModerationResponse {}
+
+// Resolve a display name appeal (governance-gated)
+message MsgResolveDisplayNameAppeal {
+    string authority = 1;
+    string member = 2;
+    bool appeal_succeeded = 3;
 }
+
+message MsgResolveDisplayNameAppealResponse {}
+
+// Resolve an unappealed display name moderation (governance-gated)
+message MsgResolveUnappealedModeration {
+    string authority = 1;
+    string member = 2;
+}
+
+message MsgResolveUnappealedModerationResponse {}
 ```
 
 ```go
@@ -4246,8 +4426,8 @@ nomination/{nomination_id}               -> Nomination
 nomination_by_season/{season}/{nomination_id} -> bool (index)
 nomination_by_content/{season}/{content_ref}  -> uint64 (nomination_id, dedup index)
 nomination_by_nominator/{season}/{nominator}/{nomination_id} -> bool (index for per-member limit)
-nomination_stake/{nomination_id}/{staker} -> NominationStakeEntry
-nomination_stake_count/{season}          -> uint64 (total stakes for cleanup tracking)
+nomination_stake/{nomination_id}/{staker} -> NominationStake
+retro_reward/{season}/{nomination_id}   -> RetroRewardRecord
 
 # Note: Leaderboards are NOT stored on-chain.
 # Indexers compute them from MemberProfile.season_xp and events.
@@ -4801,8 +4981,7 @@ message EventNominationCreated {
   uint64 nomination_id = 1;
   string nominator = 2;
   string content_ref = 3;
-  string content_creator = 4;
-  uint32 season = 5;
+  uint32 season = 4;
 }
 
 message EventNominationStaked {
@@ -4820,10 +4999,10 @@ message EventNominationUnstaked {
 message EventRetroRewardGranted {
   uint64 nomination_id = 1;
   string content_ref = 2;
-  string content_creator = 3;
-  string reward_amount = 4;           // DREAM minted
+  string recipient = 3;              // Nominator who receives the reward
+  string reward_amount = 4;          // DREAM minted
   string conviction_score = 5;
-  uint32 rank = 6;                     // Position among rewarded nominations
+  uint32 rank = 6;                   // Position among rewarded nominations
   uint32 season = 7;
 }
 

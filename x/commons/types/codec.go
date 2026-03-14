@@ -53,5 +53,10 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 		&MsgUpdateParams{},
 	)
 
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgSubmitAnonymousProposal{},
+		&MsgAnonymousVoteProposal{},
+	)
+
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

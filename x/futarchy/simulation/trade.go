@@ -68,7 +68,7 @@ func SimulateMsgTrade(
 				Index:              id,
 				Creator:            simAccount.Address.String(),
 				Symbol:             "SIMTRADE",
-				Denom:              "stake", // Default sim denom
+				Denom:              sdk.DefaultBondDenom,
 				Question:           "Will this trade succeed?",
 				EndBlock:           endBlock,
 				Status:             "ACTIVE",

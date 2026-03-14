@@ -419,6 +419,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgRespondToContentChallenge,
 		repsimulation.SimulateMsgRespondToContentChallenge(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgRegisterZkPublicKey          = "op_weight_msg_rep"
+		defaultWeightMsgRegisterZkPublicKey int = 100
+	)
+
+	var weightMsgRegisterZkPublicKey int
+	simState.AppParams.GetOrGenerate(opWeightMsgRegisterZkPublicKey, &weightMsgRegisterZkPublicKey, nil,
+		func(_ *rand.Rand) {
+			weightMsgRegisterZkPublicKey = defaultWeightMsgRegisterZkPublicKey
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRegisterZkPublicKey,
+		repsimulation.SimulateMsgRegisterZkPublicKey(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

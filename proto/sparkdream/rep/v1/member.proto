@@ -55,6 +55,11 @@ message Member {
   // Maps tag -> stringified Dec of reputation gained in the current epoch
   map<string, string> reputation_gained_this_epoch = 26;
   int64 last_rep_gain_epoch = 27; // Epoch when reputation gain counter was last reset
+
+  // ZK public key for anonymous operations (trust tree leaf computation).
+  // Set via MsgRegisterZkPublicKey. Used by the persistent Merkle tree
+  // to build leaves as MiMC(zk_public_key, trust_level).
+  bytes zk_public_key = 28;
 }
 
 enum TrustLevel {

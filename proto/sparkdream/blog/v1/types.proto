@@ -8,56 +8,56 @@ option go_package = "sparkdream/x/blog/types";
 // PostStatus defines the lifecycle status of a post.
 enum PostStatus {
   POST_STATUS_UNSPECIFIED = 0;
-  POST_STATUS_ACTIVE = 1;      // Visible and functional
-  POST_STATUS_DELETED = 2;     // Tombstoned — title/body cleared, replies/reactions preserved
-  POST_STATUS_HIDDEN = 3;      // Soft-deleted — title/body preserved in state, excluded from list queries
+  POST_STATUS_ACTIVE = 1; // Visible and functional
+  POST_STATUS_DELETED = 2; // Tombstoned — title/body cleared, replies/reactions preserved
+  POST_STATUS_HIDDEN = 3; // Soft-deleted — title/body preserved in state, excluded from list queries
 }
 
 // ReplyStatus defines the lifecycle status of a reply.
 enum ReplyStatus {
   REPLY_STATUS_UNSPECIFIED = 0;
-  REPLY_STATUS_ACTIVE = 1;      // Visible to all
-  REPLY_STATUS_DELETED = 2;     // Tombstoned — body cleared, structural metadata preserved
-  REPLY_STATUS_HIDDEN = 3;      // Soft-deleted by post author; excluded from all query results
+  REPLY_STATUS_ACTIVE = 1; // Visible to all
+  REPLY_STATUS_DELETED = 2; // Tombstoned — body cleared, structural metadata preserved
+  REPLY_STATUS_HIDDEN = 3; // Soft-deleted by post author; excluded from all query results
 }
 
 // ReactionType defines the fixed set of reactions.
 enum ReactionType {
   REACTION_TYPE_UNSPECIFIED = 0;
-  REACTION_TYPE_LIKE = 1;          // General positive sentiment
-  REACTION_TYPE_INSIGHTFUL = 2;    // Adds intellectual value
-  REACTION_TYPE_DISAGREE = 3;      // Respectful disagreement
-  REACTION_TYPE_FUNNY = 4;         // Humor appreciation
+  REACTION_TYPE_LIKE = 1; // General positive sentiment
+  REACTION_TYPE_INSIGHTFUL = 2; // Adds intellectual value
+  REACTION_TYPE_DISAGREE = 3; // Respectful disagreement
+  REACTION_TYPE_FUNNY = 4; // Humor appreciation
 }
 
 // Reply is a threaded reply to a blog post.
 message Reply {
-  uint64 id = 1;                                       // Global auto-incremented ID
-  uint64 post_id = 2;                                  // Parent blog post
-  uint64 parent_reply_id = 3;                          // 0 = top-level reply, >0 = nested under another reply
-  string creator = 4;                                  // Reply author
-  string body = 5;                                     // Reply content
-  sparkdream.common.v1.ContentType content_type = 6;   // Content encoding hint
-  int64 created_at = 7;                                // Unix timestamp of creation
-  bool edited = 8;                                     // Whether reply has been edited
-  int64 edited_at = 9;                                 // Unix timestamp of last edit (0 if never)
-  uint32 depth = 10;                                   // Nesting level (0 = top-level)
-  ReplyStatus status = 11;                             // ACTIVE, HIDDEN, or DELETED
-  string hidden_by = 12;                               // Address of post author who hid it
-  int64 hidden_at = 13;                                // Unix timestamp when hidden
-  int64 expires_at = 14;                               // Unix timestamp when reply auto-tombstones (0 = permanent)
-  string pinned_by = 15;                               // Address of member who pinned (empty if not pinned)
-  int64 pinned_at = 16;                                // Unix timestamp when pinned (0 if not pinned)
-  uint64 fee_bytes_high_water = 17;                    // Highest byte count for which storage fees have been paid
-  bool conviction_sustained = 18;                      // True if anonymous reply has entered conviction-sustained state
+  uint64 id = 1; // Global auto-incremented ID
+  uint64 post_id = 2; // Parent blog post
+  uint64 parent_reply_id = 3; // 0 = top-level reply, >0 = nested under another reply
+  string creator = 4; // Reply author
+  string body = 5; // Reply content
+  sparkdream.common.v1.ContentType content_type = 6; // Content encoding hint
+  int64 created_at = 7; // Unix timestamp of creation
+  bool edited = 8; // Whether reply has been edited
+  int64 edited_at = 9; // Unix timestamp of last edit (0 if never)
+  uint32 depth = 10; // Nesting level (0 = top-level)
+  ReplyStatus status = 11; // ACTIVE, HIDDEN, or DELETED
+  string hidden_by = 12; // Address of post author who hid it
+  int64 hidden_at = 13; // Unix timestamp when hidden
+  int64 expires_at = 14; // Unix timestamp when reply auto-tombstones (0 = permanent)
+  string pinned_by = 15; // Address of member who pinned (empty if not pinned)
+  int64 pinned_at = 16; // Unix timestamp when pinned (0 if not pinned)
+  uint64 fee_bytes_high_water = 17; // Highest byte count for which storage fees have been paid
+  bool conviction_sustained = 18; // True if anonymous reply has entered conviction-sustained state
 }
 
 // Reaction is an individual reaction record. One reaction per user per target.
 message Reaction {
-  string creator = 1;              // Reactor address (must be active member)
-  ReactionType reaction_type = 2;  // Selected reaction
-  uint64 post_id = 3;             // Target post ID
-  uint64 reply_id = 4;            // Target reply ID (0 = reacting to the post itself)
+  string creator = 1; // Reactor address (must be active member)
+  ReactionType reaction_type = 2; // Selected reaction
+  uint64 post_id = 3; // Target post ID
+  uint64 reply_id = 4; // Target reply ID (0 = reacting to the post itself)
 }
 
 // ReactionCounts holds denormalized aggregate counts per target.
@@ -70,23 +70,8 @@ message ReactionCounts {
 
 // RateLimitEntry is an internal storage type for per-address daily action counters.
 message RateLimitEntry {
-  uint32 count = 1;   // Number of actions taken today
-  uint64 day = 2;     // Day identifier: block_time / 86400
-}
-
-// AnonNullifierEntry tracks used anonymous posting nullifiers.
-message AnonNullifierEntry {
-  int64 used_at = 1;    // Block time when the nullifier was recorded
-  uint64 domain = 2;    // Nullifier domain (1 = anonymous post, 2 = anonymous reply)
-  uint64 scope = 3;     // Nullifier scope (epoch for domain 1, post_id for domain 2)
-}
-
-// AnonymousPostMetadata links an anonymous post or reply to its ZK proof parameters.
-message AnonymousPostMetadata {
-  uint64 content_id = 1;           // Post ID (for anonymous posts) or Reply ID (for anonymous replies)
-  bytes nullifier = 2;             // 32-byte nullifier used
-  bytes merkle_root = 3;           // Trust tree root at proof time
-  uint32 proven_trust_level = 4;   // Minimum trust level proven by the ZK proof
+  uint32 count = 1; // Number of actions taken today
+  uint64 day = 2; // Day identifier: block_time / 86400
 }
 
 // GenesisReactionCounts wraps reaction counts with their target key for genesis export.
@@ -94,12 +79,4 @@ message GenesisReactionCounts {
   uint64 post_id = 1;
   uint64 reply_id = 2;
   ReactionCounts counts = 3;
-}
-
-// GenesisNullifierEntry wraps a nullifier entry with its hex key for genesis export.
-message GenesisNullifierEntry {
-  string nullifier_hex = 1;
-  int64 used_at = 2;
-  uint64 domain = 3;
-  uint64 scope = 4;
 }

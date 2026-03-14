@@ -4,7 +4,20 @@ import (
 	"context"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
+
+// shieldModuleAddress is the deterministic address for the shield module account.
+// Computed once: SHA256("shield")[:20].
+var shieldModuleAddress = authtypes.NewModuleAddress("shield")
+
+// isShieldModuleAddress returns true if addr is the shield module account.
+// When the shield module routes a message, the ZK proof has already verified
+// the user's membership and trust level, so the target module should bypass
+// its own membership checks.
+func isShieldModuleAddress(addr sdk.AccAddress) bool {
+	return addr.Equals(shieldModuleAddress)
+}
 
 // meetsReplyTrustLevel checks if addr meets the post's min_reply_trust_level.
 //
@@ -19,6 +32,10 @@ import (
 func (k Keeper) meetsReplyTrustLevel(ctx context.Context, addr sdk.AccAddress, minLevel int32) bool {
 	if minLevel == -1 {
 		return true // open to all
+	}
+	// Shield module address: ZK proof already verified trust level
+	if isShieldModuleAddress(addr) {
+		return true
 	}
 	if !k.isActiveMember(ctx, addr) {
 		return false
@@ -35,7 +52,12 @@ func (k Keeper) meetsReplyTrustLevel(ctx context.Context, addr sdk.AccAddress, m
 }
 
 // isActiveMember checks if addr is an active member via RepKeeper.
+// The shield module address is always considered an active member because
+// the ZK proof verified membership before routing the message.
 func (k Keeper) isActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
+	if isShieldModuleAddress(addr) {
+		return true
+	}
 	if k.repKeeper == nil {
 		return false
 	}

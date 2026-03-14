@@ -109,6 +109,9 @@ service Msg {
 
   // RespondToContentChallenge allows the content author to respond to a challenge.
   rpc RespondToContentChallenge(MsgRespondToContentChallenge) returns (MsgRespondToContentChallengeResponse);
+
+  // RegisterZkPublicKey defines the RegisterZkPublicKey RPC.
+  rpc RegisterZkPublicKey(MsgRegisterZkPublicKey) returns (MsgRegisterZkPublicKeyResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -444,10 +447,6 @@ message MsgCreateChallenge {
   string reason = 3;
   repeated string evidence = 4;
   string staked_dream = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  bool is_anonymous = 6;
-  string payout_address = 7;
-  bytes membership_proof = 8;
-  bytes nullifier = 9;
 }
 
 // MsgCreateChallengeResponse defines the MsgCreateChallengeResponse message.
@@ -498,7 +497,7 @@ message MsgSubmitExpertTestimonyResponse {}
 message MsgChallengeContent {
   option (cosmos.msg.v1.signer) = "challenger";
   string challenger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  uint64 target_type = 2;  // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND)
+  uint64 target_type = 2; // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND)
   uint64 target_id = 3;
   string reason = 4;
   repeated string evidence = 5;
@@ -525,3 +524,13 @@ message MsgRespondToContentChallenge {
 
 // MsgRespondToContentChallengeResponse defines the response for RespondToContentChallenge.
 message MsgRespondToContentChallengeResponse {}
+
+// MsgRegisterZkPublicKey defines the MsgRegisterZkPublicKey message.
+message MsgRegisterZkPublicKey {
+  option (cosmos.msg.v1.signer) = "member";
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bytes zk_public_key = 2;
+}
+
+// MsgRegisterZkPublicKeyResponse defines the MsgRegisterZkPublicKeyResponse message.
+message MsgRegisterZkPublicKeyResponse {}

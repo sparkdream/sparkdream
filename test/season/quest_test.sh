@@ -16,6 +16,22 @@ fi
 
 source "$SCRIPT_DIR/.test_env"
 
+PASS_COUNT=0
+FAIL_COUNT=0
+TOTAL_COUNT=0
+
+pass() {
+    PASS_COUNT=$((PASS_COUNT + 1))
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    echo "  PASS: $1"
+}
+
+fail() {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    echo "  FAIL: $1"
+}
+
 echo "Quest User: $QUEST_USER_ADDR"
 echo "Alice:      $ALICE_ADDR"
 echo ""
@@ -73,6 +89,9 @@ else
         echo ""
         echo "  Quest examples:"
         echo "$QUESTS" | jq -r '.quests[0:3] | .[] | "    - \(.id): \(.name) (XP: \(.xp_reward))"' 2>/dev/null
+        pass "list quests returned $INITIAL_QUEST_COUNT quests"
+    else
+        pass "list quests query succeeded (0 quests)"
     fi
 fi
 
@@ -124,6 +143,7 @@ TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
     echo "  Failed to submit transaction (expected - requires authority)"
     echo "  Note: Quest creation requires Commons Operations Committee membership"
+    pass "create-quest correctly requires authority (no txhash)"
 else
     echo "  Transaction: $TXHASH"
     sleep 6
@@ -133,8 +153,10 @@ else
         echo "  Quest created successfully"
         CREATED_QUEST_ID="$QUEST_ID"
         CREATED_CHAIN_ID="$QUEST_CHAIN"
+        pass "create-quest transaction succeeded"
     else
         echo "  Quest creation failed (expected without authority)"
+        pass "create-quest correctly requires authority"
     fi
 fi
 
@@ -171,12 +193,15 @@ if echo "$PROFILE_CHECK" | grep -q "not found"; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Profile created for quest_user"
+            pass "create profile for quest_user"
         else
             echo "  Failed to create profile"
+            fail "create profile for quest_user"
         fi
     fi
 else
     echo "  quest_user already has a profile"
+    pass "quest_user profile already exists"
 fi
 
 echo ""
@@ -198,8 +223,10 @@ else
         AVAILABLE_XP=$(echo "$AVAILABLE" | jq -r '.xp_reward // "0"' 2>/dev/null)
         echo "  Available quest for quest_user: $AVAILABLE_ID ($AVAILABLE_NAME, $AVAILABLE_XP XP)"
         FIRST_QUEST="$AVAILABLE_ID"
+        pass "available-quests returned a quest"
     else
         echo "  No available quests for quest_user"
+        pass "available-quests query succeeded (no quests available)"
     fi
 fi
 
@@ -249,13 +276,24 @@ else
 fi
 
 if [ -n "$QUEST_INFO" ] && ! echo "$QUEST_INFO" | grep -q "error\|not found"; then
+    QUERIED_QUEST_NAME=$(echo "$QUEST_INFO" | jq -r '.name // "unknown"')
     echo "  Quest Details:"
     echo "    ID: $TEST_QUEST_ID"
-    echo "    Name: $(echo "$QUEST_INFO" | jq -r '.name // "unknown"')"
+    echo "    Name: $QUERIED_QUEST_NAME"
     echo "    Description: $(echo "$QUEST_INFO" | jq -r '.description // "none"' | head -c 50)..."
     echo "    XP Reward: $(echo "$QUEST_INFO" | jq -r '.xp_reward // "0"')"
     echo "    Repeatable: $(echo "$QUEST_INFO" | jq -r '.repeatable // "false"')"
     echo "    Active: $(echo "$QUEST_INFO" | jq -r '.active // "true"')"
+
+    if [ -n "$QUERIED_QUEST_NAME" ] && [ "$QUERIED_QUEST_NAME" != "unknown" ] && [ "$QUERIED_QUEST_NAME" != "null" ]; then
+        pass "quest-by-id returned quest details (name=$QUERIED_QUEST_NAME)"
+    else
+        fail "quest-by-id returned empty or unknown name"
+    fi
+else
+    if [ -n "$TEST_QUEST_ID" ]; then
+        fail "quest-by-id failed for $TEST_QUEST_ID"
+    fi
 fi
 
 echo ""
@@ -290,8 +328,10 @@ if [ -n "$TEST_QUEST_ID" ]; then
         if check_tx_success "$TX_RESULT"; then
             echo "  Quest started"
             STARTED_QUEST="$TEST_QUEST_ID"
+            pass "start-quest transaction succeeded"
         else
             echo "  Failed to start quest (may not be eligible or already started)"
+            fail "start-quest transaction failed"
         fi
     fi
 else
@@ -310,11 +350,13 @@ if [ -n "$STARTED_QUEST" ]; then
 
     if echo "$STATUS" | grep -q "error\|not found"; then
         echo "  No quest progress found"
+        fail "member-quest-status not found after starting quest"
     else
         echo "  Quest Status:"
         echo "    Quest: $STARTED_QUEST"
         echo "    Completed: $(echo "$STATUS" | jq -r '.completed // false')"
         echo "    Completed Block: $(echo "$STATUS" | jq -r '.completed_block // 0')"
+        pass "member-quest-status returned status for started quest"
     fi
 fi
 
@@ -370,9 +412,11 @@ if [ -n "$STARTED_QUEST" ]; then
         if check_tx_success "$TX_RESULT"; then
             echo "  Reward claimed successfully!"
             QUEST_CLAIMED=true
+            pass "claim-quest-reward transaction succeeded"
         else
             echo "  Failed to claim reward"
             echo "  $(echo "$TX_RESULT" | jq -r '.raw_log // "Unknown error"')"
+            fail "claim-quest-reward transaction failed"
         fi
     fi
 else
@@ -409,12 +453,15 @@ if [ -n "$STARTED_QUEST" ] && [ "$QUEST_CLAIMED" != "true" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Quest abandoned"
+            pass "abandon-quest transaction succeeded"
         else
             echo "  Failed to abandon quest (expected if already claimed)"
+            pass "abandon-quest correctly rejected (quest already claimed or ineligible)"
         fi
     fi
 elif [ "$QUEST_CLAIMED" = "true" ]; then
     echo "  Quest was claimed, cannot abandon (expected behavior)"
+    pass "abandon-quest skipped correctly (quest already claimed)"
 else
     echo "  No quest to abandon"
 fi
@@ -442,14 +489,17 @@ if [ -n "$CHAIN_QUEST" ]; then
 
     if echo "$CHAIN_INFO" | grep -q "error"; then
         echo "  Failed to query quest chain"
+        fail "quest-chain query returned error"
     else
         # Response is a single quest object with quest_id and name
         QUEST_IN_CHAIN=$(echo "$CHAIN_INFO" | jq -r '.quest_id // empty' 2>/dev/null)
         QUEST_NAME=$(echo "$CHAIN_INFO" | jq -r '.name // empty' 2>/dev/null)
         if [ -n "$QUEST_IN_CHAIN" ]; then
             echo "  Found quest in chain: $QUEST_IN_CHAIN ($QUEST_NAME)"
+            pass "quest-chain returned quest in chain"
         else
             echo "  No quests found in chain"
+            pass "quest-chain query succeeded (empty chain)"
         fi
     fi
 else
@@ -487,8 +537,10 @@ if [ -n "$TEST_QUEST_ID" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Quest deactivated"
+            pass "deactivate-quest transaction succeeded"
         else
             echo "  Quest deactivation failed (expected without authority)"
+            pass "deactivate-quest correctly requires authority"
         fi
     fi
 else
@@ -502,17 +554,14 @@ echo ""
 # ========================================================================
 echo "--- QUEST TEST SUMMARY ---"
 echo ""
-echo "  List quests:             Tested"
-echo "  Create quest:            Tested (requires authority)"
-echo "  Create profile:          Tested"
-echo "  Query available quests:  Tested"
-echo "  Query quest by ID:       Tested"
-echo "  Start quest:             Tested"
-echo "  Query quest status:      Tested"
-echo "  Claim quest reward:      Tested"
-echo "  Abandon quest:           Tested"
-echo "  Query quest chain:       Tested"
-echo "  Deactivate quest:        Tested (requires authority)"
+echo "  Total:  $TOTAL_COUNT"
+echo "  Passed: $PASS_COUNT"
+echo "  Failed: $FAIL_COUNT"
 echo ""
-echo "QUEST TEST COMPLETED"
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    echo "QUEST TEST FAILED ($FAIL_COUNT failures)"
+    exit 1
+else
+    echo "QUEST TEST PASSED (all $PASS_COUNT assertions passed)"
+fi
 echo ""

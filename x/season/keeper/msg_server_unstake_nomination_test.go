@@ -145,13 +145,13 @@ func TestUnstakeNomination(t *testing.T) {
 		// Create a nomination
 		nominationId := uint64(1)
 		nomination := types.Nomination{
-			Id:          nominationId,
-			Nominator:   "cosmos1nominator",
-			ContentRef:  "blog/1",
-			Rationale:   "Great content",
-			Season:      1,
-			TotalStaked: math.LegacyNewDec(100),
-			Conviction:  math.LegacyNewDec(50),
+			Id:           nominationId,
+			Nominator:    "cosmos1nominator",
+			ContentRef:   "blog/1",
+			Rationale:    "Great content",
+			Season:       1,
+			TotalStaked:  math.LegacyNewDec(100),
+			Conviction:   math.LegacyNewDec(50),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, nominationId, nomination)

@@ -16,29 +16,14 @@ import (
 	reptypes "sparkdream/x/rep/types"
 )
 
-// EndBlock runs at the end of each block. Handles TTL expiry, subsidy draw, and nullifier pruning.
+// EndBlock runs at the end of each block. Handles TTL expiry.
 func (k Keeper) EndBlock(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 
-	// Phase 1: TTL Expiry
 	k.processExpiredContent(ctx, blockTime)
 
-	// Phase 2: Subsidy Draw
-	k.processSubsidyDraw(ctx, blockTime)
-
-	// Phase 3: Nullifier Pruning
-	k.pruneNullifiers(ctx, blockTime)
-
 	return nil
-}
-
-// getEpochDuration returns the epoch duration from the season keeper, or the default.
-func (k Keeper) getEpochDuration(ctx context.Context) int64 {
-	if k.seasonKeeper != nil {
-		return k.seasonKeeper.GetEpochDuration(ctx)
-	}
-	return DefaultEpochDuration
 }
 
 // processExpiredContent iterates the expiry index and tombstones or upgrades expired content.
@@ -288,115 +273,4 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 		sdk.NewAttribute("id", fmt.Sprintf("%d", id)),
 		sdk.NewAttribute("post_id", fmt.Sprintf("%d", reply.PostId)),
 	))
-}
-
-// processSubsidyDraw draws anonymous posting subsidy from the commons treasury each epoch.
-func (k Keeper) processSubsidyDraw(ctx context.Context, blockTime int64) {
-	if k.commonsKeeper == nil {
-		return
-	}
-
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return
-	}
-
-	if params.AnonSubsidyBudgetPerEpoch.Amount.IsNil() || !params.AnonSubsidyBudgetPerEpoch.IsPositive() {
-		return
-	}
-
-	epochDuration := k.getEpochDuration(ctx)
-	if epochDuration <= 0 {
-		return
-	}
-
-	epoch := uint64(blockTime) / uint64(epochDuration)
-	lastEpoch := k.GetAnonSubsidyLastEpoch(ctx)
-
-	if epoch > lastEpoch {
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		moduleAddr := authtypes.NewModuleAddress(types.ModuleName)
-
-		err := k.commonsKeeper.SpendFromTreasury(
-			ctx,
-			"commons",
-			moduleAddr,
-			sdk.NewCoins(params.AnonSubsidyBudgetPerEpoch),
-		)
-		if err != nil {
-			// Don't fail the block; treasury may be empty
-			sdkCtx.Logger().Info("blog: failed to draw anon subsidy", "error", err)
-			return
-		}
-
-		k.SetAnonSubsidyLastEpoch(ctx, epoch)
-
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
-			"blog.subsidy.drawn",
-			sdk.NewAttribute("epoch", fmt.Sprintf("%d", epoch)),
-			sdk.NewAttribute("amount", params.AnonSubsidyBudgetPerEpoch.String()),
-			sdk.NewAttribute("source_treasury", "commons"),
-		))
-	}
-}
-
-// pruneNullifiers removes stale post nullifiers from past epochs.
-// Only prunes domain=1 (post nullifiers) since they're epoch-scoped.
-func (k Keeper) pruneNullifiers(ctx context.Context, blockTime int64) {
-	epochDuration := k.getEpochDuration(ctx)
-	if epochDuration <= 0 {
-		return
-	}
-
-	currentEpoch := uint64(blockTime) / uint64(epochDuration)
-	if currentEpoch <= 1 {
-		return
-	}
-
-	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
-	store := prefix.NewStore(storeAdapter, []byte(types.AnonNullifierKey))
-
-	// Build prefix for domain=1 nullifiers
-	domainPrefix := GetPostIDBytes(1) // domain=1
-
-	iter := store.Iterator(domainPrefix, nil)
-	defer iter.Close()
-
-	var keysToDelete [][]byte
-	pruneCount := 0
-
-	for ; iter.Valid(); iter.Next() {
-		key := iter.Key()
-		// Key format: domain(8) + scope(8) + nullifier_hex
-		if len(key) < 17 {
-			continue
-		}
-
-		// Verify we're still in domain=1
-		domain := binary.BigEndian.Uint64(key[:8])
-		if domain != 1 {
-			break // Past domain=1 entries
-		}
-
-		scope := binary.BigEndian.Uint64(key[8:16])
-		// Prune if scope is from more than 1 epoch ago
-		if scope < currentEpoch-1 {
-			keysToDelete = append(keysToDelete, append([]byte{}, key...))
-			pruneCount++
-		}
-	}
-
-	for _, key := range keysToDelete {
-		store.Delete(key)
-	}
-
-	if pruneCount > 0 {
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
-			"blog.nullifiers.pruned",
-			sdk.NewAttribute("domain", "1"),
-			sdk.NewAttribute("pruned_before_scope", fmt.Sprintf("%d", currentEpoch-1)),
-			sdk.NewAttribute("count", fmt.Sprintf("%d", pruneCount)),
-		))
-	}
 }

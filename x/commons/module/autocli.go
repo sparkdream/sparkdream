@@ -163,6 +163,14 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Execute an accepted proposal",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}},
 				},
+				{
+					RpcMethod: "SubmitAnonymousProposal",
+					Skip:      true, // routed through x/shield ShieldedExec, not directly invoked
+				},
+				{
+					RpcMethod: "AnonymousVoteProposal",
+					Skip:      true, // routed through x/shield ShieldedExec, not directly invoked
+				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},
 		},

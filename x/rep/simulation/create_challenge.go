@@ -75,18 +75,12 @@ func SimulateMsgCreateChallenge(
 			stakeAmount = minStake
 		}
 
-		// Always create non-anonymous challenges in simulation
-		// Anonymous challenges require cryptographic membership proofs that cannot be generated in sim
 		msg := &types.MsgCreateChallenge{
-			Challenger:      challenger.Address,
-			InitiativeId:    initID,
-			Reason:          "Simulation challenge",
-			Evidence:        []string{fmt.Sprintf("evidence-%d", r.Intn(1000))},
-			StakedDream:     &stakeAmount,
-			IsAnonymous:     false,
-			PayoutAddress:   challenger.Address,
-			MembershipProof: nil,
-			Nullifier:       nil,
+			Challenger:   challenger.Address,
+			InitiativeId: initID,
+			Reason:       "Simulation challenge",
+			Evidence:     []string{fmt.Sprintf("evidence-%d", r.Intn(1000))},
+			StakedDream:  &stakeAmount,
 		}
 
 		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{

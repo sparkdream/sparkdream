@@ -13,6 +13,13 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
+// lateKeepers holds dependencies wired after depinject via Set* methods.
+// Stored as a shared pointer so value-copies of Keeper (in AppModule, msgServer)
+// see updates made after NewAppModule().
+type lateKeepers struct {
+	distrKeeper types.DistrKeeper
+}
+
 type Keeper struct {
 	storeService corestore.KVStoreService
 	cdc          codec.Codec
@@ -26,6 +33,7 @@ type Keeper struct {
 
 	authKeeper types.AuthKeeper
 	bankKeeper types.BankKeeper
+	late       *lateKeepers
 	Share      collections.Map[string, types.Share]
 }
 
@@ -37,12 +45,15 @@ func NewKeeper(
 
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
+	distrKeeper types.DistrKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
 	}
 
 	sb := collections.NewSchemaBuilder(storeService)
+
+	late := &lateKeepers{distrKeeper: distrKeeper}
 
 	k := Keeper{
 		storeService: storeService,
@@ -52,6 +63,7 @@ func NewKeeper(
 
 		authKeeper: authKeeper,
 		bankKeeper: bankKeeper,
+		late:       late,
 		Params:     collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Share:      collections.NewMap(sb, types.ShareKey, "share", collections.StringKey, codec.CollValue[types.Share](cdc))}
 
@@ -67,6 +79,11 @@ func NewKeeper(
 // GetAuthority returns the module's authority.
 func (k Keeper) GetAuthority() []byte {
 	return k.authority
+}
+
+// SetDistrKeeper wires the DistrKeeper after depinject.
+func (k Keeper) SetDistrKeeper(dk types.DistrKeeper) {
+	k.late.distrKeeper = dk
 }
 
 // SetShareByAddress is a helper to satisfy the x/commons expected interface.

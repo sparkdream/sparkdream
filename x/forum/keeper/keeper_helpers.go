@@ -7,9 +7,15 @@ import (
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	reptypes "sparkdream/x/rep/types"
 )
+
+// shieldModuleAddress is the deterministic address for the shield module account.
+// When the shield module routes a message via MsgShieldedExec, the ZK proof has
+// already verified membership and trust level, so this module bypasses its own checks.
+var shieldModuleAddress = authtypes.NewModuleAddress("shield")
 
 // Cross-module integration with x/rep
 // These methods delegate to the RepKeeper for DREAM token operations and member management
@@ -24,6 +30,8 @@ func (k Keeper) IsGovAuthority(ctx context.Context, addr string) bool {
 }
 
 // IsMember checks if the given address is a registered member via x/rep.
+// The shield module address is always considered a member because the ZK proof
+// verified membership before routing the message.
 func (k Keeper) IsMember(ctx context.Context, addr string) bool {
 	if k.repKeeper == nil {
 		return true // Fallback: permissive mode when x/rep not wired
@@ -32,10 +40,14 @@ func (k Keeper) IsMember(ctx context.Context, addr string) bool {
 	if err != nil {
 		return false
 	}
+	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
+		return true
+	}
 	return k.repKeeper.IsMember(ctx, sdk.AccAddress(addrBytes))
 }
 
 // IsActiveMember checks if the given address is an active member (not zeroed).
+// The shield module address is always considered an active member.
 func (k Keeper) IsActiveMember(ctx context.Context, addr string) bool {
 	if k.repKeeper == nil {
 		return true // Fallback: permissive mode when x/rep not wired
@@ -43,6 +55,9 @@ func (k Keeper) IsActiveMember(ctx context.Context, addr string) bool {
 	addrBytes, err := k.addressCodec.StringToBytes(addr)
 	if err != nil {
 		return false
+	}
+	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
+		return true
 	}
 	return k.repKeeper.IsActiveMember(ctx, sdk.AccAddress(addrBytes))
 }
@@ -335,6 +350,7 @@ func (k Keeper) GetAuthorityString() string {
 }
 
 // GetTrustLevel returns the trust level for a member via x/rep.
+// The shield module address returns TRUSTED level since ZK proof verified trust.
 func (k Keeper) GetTrustLevel(ctx context.Context, addr string) uint64 {
 	if k.repKeeper == nil {
 		return uint64(reptypes.TrustLevel_TRUST_LEVEL_TRUSTED) // Fallback when x/rep not wired
@@ -342,6 +358,9 @@ func (k Keeper) GetTrustLevel(ctx context.Context, addr string) uint64 {
 	addrBytes, err := k.addressCodec.StringToBytes(addr)
 	if err != nil {
 		return 0
+	}
+	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
+		return uint64(reptypes.TrustLevel_TRUST_LEVEL_TRUSTED)
 	}
 	trustLevel, err := k.repKeeper.GetTrustLevel(ctx, sdk.AccAddress(addrBytes))
 	if err != nil {

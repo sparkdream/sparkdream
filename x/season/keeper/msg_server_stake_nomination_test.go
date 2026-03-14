@@ -125,12 +125,12 @@ func TestMsgServerStakeNomination(t *testing.T) {
 
 		// Create a nomination
 		nomination := types.Nomination{
-			Id:          1,
-			Nominator:   nominatorStr,
-			ContentRef:  "blog/post/1",
-			Season:      1,
-			TotalStaked: math.LegacyZeroDec(),
-			Conviction:  math.LegacyZeroDec(),
+			Id:           1,
+			Nominator:    nominatorStr,
+			ContentRef:   "blog/post/1",
+			Season:       1,
+			TotalStaked:  math.LegacyZeroDec(),
+			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
@@ -171,12 +171,12 @@ func TestMsgServerStakeNomination(t *testing.T) {
 
 		// Create a nomination
 		nomination := types.Nomination{
-			Id:          1,
-			Nominator:   nominatorStr,
-			ContentRef:  "blog/post/1",
-			Season:      1,
-			TotalStaked: math.LegacyZeroDec(),
-			Conviction:  math.LegacyZeroDec(),
+			Id:           1,
+			Nominator:    nominatorStr,
+			ContentRef:   "blog/post/1",
+			Season:       1,
+			TotalStaked:  math.LegacyZeroDec(),
+			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
@@ -225,12 +225,12 @@ func TestMsgServerStakeNomination(t *testing.T) {
 
 		// Create a nomination
 		nomination := types.Nomination{
-			Id:          1,
-			Nominator:   nominatorStr,
-			ContentRef:  "blog/post/1",
-			Season:      1,
-			TotalStaked: math.LegacyZeroDec(),
-			Conviction:  math.LegacyZeroDec(),
+			Id:           1,
+			Nominator:    nominatorStr,
+			ContentRef:   "blog/post/1",
+			Season:       1,
+			TotalStaked:  math.LegacyZeroDec(),
+			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
@@ -271,12 +271,12 @@ func TestMsgServerStakeNomination(t *testing.T) {
 
 		// Create a nomination
 		nomination := types.Nomination{
-			Id:          1,
-			Nominator:   nominatorStr,
-			ContentRef:  "blog/post/1",
-			Season:      1,
-			TotalStaked: math.LegacyZeroDec(),
-			Conviction:  math.LegacyZeroDec(),
+			Id:           1,
+			Nominator:    nominatorStr,
+			ContentRef:   "blog/post/1",
+			Season:       1,
+			TotalStaked:  math.LegacyZeroDec(),
+			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
@@ -319,12 +319,12 @@ func TestMsgServerStakeNomination(t *testing.T) {
 
 		// Create a nomination
 		nomination := types.Nomination{
-			Id:          1,
-			Nominator:   nominatorStr,
-			ContentRef:  "blog/post/1",
-			Season:      1,
-			TotalStaked: math.LegacyZeroDec(),
-			Conviction:  math.LegacyZeroDec(),
+			Id:           1,
+			Nominator:    nominatorStr,
+			ContentRef:   "blog/post/1",
+			Season:       1,
+			TotalStaked:  math.LegacyZeroDec(),
+			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
@@ -375,12 +375,12 @@ func TestMsgServerStakeNomination(t *testing.T) {
 
 		// Create a nomination where the nominator is TestAddrCreator
 		nomination := types.Nomination{
-			Id:          1,
-			Nominator:   nominatorStr,
-			ContentRef:  "blog/post/1",
-			Season:      1,
-			TotalStaked: math.LegacyZeroDec(),
-			Conviction:  math.LegacyZeroDec(),
+			Id:           1,
+			Nominator:    nominatorStr,
+			ContentRef:   "blog/post/1",
+			Season:       1,
+			TotalStaked:  math.LegacyZeroDec(),
+			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
@@ -426,12 +426,12 @@ func TestMsgServerStakeNomination(t *testing.T) {
 
 		// Create a nomination with zero stakes
 		nomination := types.Nomination{
-			Id:          1,
-			Nominator:   nominatorStr,
-			ContentRef:  "blog/post/1",
-			Season:      1,
-			TotalStaked: math.LegacyZeroDec(),
-			Conviction:  math.LegacyZeroDec(),
+			Id:           1,
+			Nominator:    nominatorStr,
+			ContentRef:   "blog/post/1",
+			Season:       1,
+			TotalStaked:  math.LegacyZeroDec(),
+			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
@@ -515,12 +515,12 @@ func TestMsgServerStakeNomination(t *testing.T) {
 
 		// Create a nomination that already has some staked amount
 		nomination := types.Nomination{
-			Id:          1,
-			Nominator:   nominatorStr,
-			ContentRef:  "blog/post/1",
-			Season:      1,
-			TotalStaked: math.LegacyNewDec(200),
-			Conviction:  math.LegacyNewDec(50),
+			Id:           1,
+			Nominator:    nominatorStr,
+			ContentRef:   "blog/post/1",
+			Season:       1,
+			TotalStaked:  math.LegacyNewDec(200),
+			Conviction:   math.LegacyNewDec(50),
 			RewardAmount: math.LegacyZeroDec(),
 		}
 		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)

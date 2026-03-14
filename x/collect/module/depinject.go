@@ -37,11 +37,8 @@ type ModuleInputs struct {
 	BankKeeper    types.BankKeeper
 	RepKeeper     types.RepKeeper     `optional:"true"`
 	CommonsKeeper types.CommonsKeeper `optional:"true"`
-	BlogKeeper    types.BlogKeeper   `optional:"true"`
-	ForumKeeper   types.ForumKeeper  `optional:"true"`
-	VoteKeeper    types.VoteKeeper   `optional:"true"`
-	// SeasonKeeper wired manually in app.go via SetSeasonKeeper to break
-	// cyclic dependency: collect → season → collect.
+	BlogKeeper    types.BlogKeeper    `optional:"true"`
+	ForumKeeper   types.ForumKeeper   `optional:"true"`
 }
 
 type ModuleOutputs struct {
@@ -74,10 +71,6 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 	if in.BlogKeeper != nil {
 		k.SetBlogKeeper(in.BlogKeeper)
 	}
-	if in.VoteKeeper != nil {
-		k.SetVoteKeeper(in.VoteKeeper)
-	}
-	// SeasonKeeper wired in app.go via SetSeasonKeeper
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 
 	return ModuleOutputs{CollectKeeper: k, Module: m}

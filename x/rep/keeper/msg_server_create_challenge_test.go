@@ -123,15 +123,11 @@ func TestMsgServerCreateChallenge(t *testing.T) {
 		})
 
 		_, err = ms.CreateChallenge(ctx, &types.MsgCreateChallenge{
-			Challenger:      challengerStr,
-			InitiativeId:    initID,
-			Reason:          "Poor quality",
-			Evidence:        []string{"http://example.com/evidence"},
-			StakedDream:     keeper.PtrInt(math.NewInt(100)),
-			IsAnonymous:     false,
-			PayoutAddress:   "",
-			MembershipProof: []byte{},
-			Nullifier:       []byte{},
+			Challenger:   challengerStr,
+			InitiativeId: initID,
+			Reason:       "Poor quality",
+			Evidence:     []string{"http://example.com/evidence"},
+			StakedDream:  keeper.PtrInt(math.NewInt(100)),
 		})
 		require.NoError(t, err)
 

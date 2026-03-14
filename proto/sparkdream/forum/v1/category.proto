@@ -10,5 +10,4 @@ message Category {
   string description = 3;
   bool members_only_write = 4;
   bool admin_only_write = 5;
-  bool allow_anonymous = 6;
 }

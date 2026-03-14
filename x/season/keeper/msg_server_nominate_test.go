@@ -40,12 +40,12 @@ func TestMsgServerNominate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		setup     func(t *testing.T) (keeper.Keeper, sdk.Context, *types.MsgNominate, *beginBlockFixture)
-		wantErr   bool
-		errIs     error
+		name        string
+		setup       func(t *testing.T) (keeper.Keeper, sdk.Context, *types.MsgNominate, *beginBlockFixture)
+		wantErr     bool
+		errIs       error
 		errContains string
-		validate  func(t *testing.T, f *beginBlockFixture, ctx sdk.Context, resp *types.MsgNominateResponse)
+		validate    func(t *testing.T, f *beginBlockFixture, ctx sdk.Context, resp *types.MsgNominateResponse)
 	}{
 		{
 			name: "invalid creator address",

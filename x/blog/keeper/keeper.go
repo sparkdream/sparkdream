@@ -12,10 +12,6 @@ import (
 	"sparkdream/x/blog/types"
 )
 
-// DefaultEpochDuration is the fallback epoch duration in seconds (~5 months)
-// used when no SeasonKeeper is configured.
-const DefaultEpochDuration int64 = 13_140_000
-
 type Keeper struct {
 	storeService corestore.KVStoreService
 	cdc          codec.Codec
@@ -26,8 +22,6 @@ type Keeper struct {
 	bankKeeper    types.BankKeeper
 	commonsKeeper types.CommonsKeeper
 	repKeeper     types.RepKeeper
-	voteKeeper    types.VoteKeeper
-	seasonKeeper  types.SeasonKeeper
 
 	Schema collections.Schema
 	Params collections.Item[types.Params]
@@ -82,20 +76,10 @@ func (k *Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
 	k.commonsKeeper = ck
 }
 
-// SetVoteKeeper sets the optional VoteKeeper for anonymous posting.
-func (k *Keeper) SetVoteKeeper(vk types.VoteKeeper) {
-	k.voteKeeper = vk
-}
-
 // SetRepKeeper sets the RepKeeper after depinject to break cyclic dependency
 // (season → blog → rep → season).
 func (k *Keeper) SetRepKeeper(rk types.RepKeeper) {
 	k.repKeeper = rk
-}
-
-// SetSeasonKeeper sets the optional SeasonKeeper for epoch duration.
-func (k *Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
-	k.seasonKeeper = sk
 }
 
 // HasPost returns true if a blog post with the given ID exists.

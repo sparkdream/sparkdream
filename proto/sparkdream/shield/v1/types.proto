@@ -1,0 +1,305 @@
+syntax = "proto3";
+package sparkdream.shield.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/shield/types";
+
+// ProofDomain identifies which Merkle tree the ZK proof targets.
+// All anonymous operations use the trust tree (leaves = MiMC(zk_pub_key, trust_level)).
+// The unified ShieldCircuit hides the exact trust level — only proves >= minimum.
+enum ProofDomain {
+  PROOF_DOMAIN_UNSPECIFIED = 0;
+  PROOF_DOMAIN_TRUST_TREE = 1;
+  // 2 was PROOF_DOMAIN_VOTER_TREE — removed (unified circuit makes it redundant)
+}
+
+// NullifierScopeType determines nullifier uniqueness granularity.
+enum NullifierScopeType {
+  // Scope = current epoch (one op per epoch)
+  NULLIFIER_SCOPE_EPOCH = 0;
+  // Scope = extracted from inner message (e.g. post_id for replies)
+  NULLIFIER_SCOPE_MESSAGE_FIELD = 1;
+  // No scoping (nullifier is globally unique)
+  NULLIFIER_SCOPE_GLOBAL = 2;
+}
+
+// ShieldBatchMode controls which execution modes an operation supports.
+enum ShieldBatchMode {
+  // Only immediate execution allowed
+  SHIELD_BATCH_MODE_IMMEDIATE_ONLY = 0;
+  // Only encrypted batch execution allowed
+  SHIELD_BATCH_MODE_ENCRYPTED_ONLY = 1;
+  // User chooses per-submission
+  SHIELD_BATCH_MODE_EITHER = 2;
+}
+
+// ShieldExecMode selects the execution mode for a shielded operation.
+enum ShieldExecMode {
+  SHIELD_EXEC_IMMEDIATE = 0;
+  SHIELD_EXEC_ENCRYPTED_BATCH = 1;
+}
+
+// ShieldedOpRegistration defines a registered shielded operation.
+message ShieldedOpRegistration {
+  // Full protobuf message type URL (e.g. "/sparkdream.blog.v1.MsgCreatePost")
+  string message_type_url = 1;
+
+  // Which proof domain is required
+  ProofDomain proof_domain = 2;
+
+  // Minimum trust level required (0 = any member)
+  uint32 min_trust_level = 3;
+
+  // Nullifier domain (scopes nullifiers to prevent cross-operation reuse)
+  uint32 nullifier_domain = 4;
+
+  // How the nullifier scope is determined
+  NullifierScopeType nullifier_scope_type = 5;
+
+  // Whether this operation is currently active
+  bool active = 6;
+
+  // Which execution modes this operation supports
+  ShieldBatchMode batch_mode = 7;
+
+  // Proto field name for scope extraction when nullifier_scope_type = MESSAGE_FIELD
+  // e.g. "post_id", "proposal_id", "collection_id"
+  // Must refer to a uint64 field in the inner message
+  string scope_field_path = 8;
+}
+
+// UsedNullifier records a nullifier that has been consumed.
+// Key: domain (uint32) + scope (uint64) + nullifier_hex (string)
+message UsedNullifier {
+  uint32 domain = 1;
+  uint64 scope = 2;
+  string nullifier_hex = 3;
+  int64 used_at_height = 4;
+}
+
+// DayFunding tracks funding per day to enforce the daily cap.
+// Day is calculated as block_height / 14400 (at 6s/block = 1 day).
+message DayFunding {
+  uint64 day = 1;
+  string amount_funded = 2 [
+    (cosmos_proto.scalar) = "cosmossdk.io/math.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// PendingShieldedOp is stored in queue until the shield epoch boundary triggers batch execution.
+message PendingShieldedOp {
+  uint64 id = 1;
+  uint64 target_epoch = 2;
+  bytes nullifier = 3;
+  bytes merkle_root = 4;
+  ProofDomain proof_domain = 5;
+  uint32 min_trust_level = 6;
+  bytes encrypted_payload = 7;
+  int64 submitted_at_height = 8;
+  uint64 submitted_at_epoch = 9;
+}
+
+// ShieldEpochState tracks the current shield epoch and decryption key availability.
+message ShieldEpochState {
+  uint64 current_epoch = 1;
+  int64 epoch_start_height = 2;
+  bool decryption_key_available = 3;
+}
+
+// ShieldEpochDecryptionKey is the reconstructed epoch decryption key.
+message ShieldEpochDecryptionKey {
+  uint64 epoch = 1;
+  bytes decryption_key = 2; // BN256 G1 point (reconstructed epoch secret)
+  int64 reconstructed_at_height = 3;
+}
+
+// ShieldDecryptionShare is a validator's decryption share for a shield epoch.
+message ShieldDecryptionShare {
+  uint64 epoch = 1;
+  string validator = 2;
+  bytes share = 3; // epoch-derived share: masterShare_i * H_to_G1(epoch)
+}
+
+// TLEKeySet stores the master public key and validator shares from the DKG ceremony.
+message TLEKeySet {
+  bytes master_public_key = 1; // BN256 G1 point
+  uint64 threshold_numerator = 2; // e.g. 2
+  uint64 threshold_denominator = 3; // e.g. 3 -> 2/3 threshold
+  repeated TLEValidatorPublicShare validator_shares = 4;
+  int64 created_at_height = 5;
+}
+
+// TLEValidatorPublicShare stores a validator's public key share from the DKG.
+message TLEValidatorPublicShare {
+  string validator_address = 1;
+  bytes public_share = 2; // BN256 G1 point
+  uint32 share_index = 3; // Shamir share index
+}
+
+// DKGPhase tracks the current phase of the distributed key generation ceremony.
+enum DKGPhase {
+  // No DKG running (not enough validators, or TLE not needed yet)
+  DKG_PHASE_INACTIVE = 0;
+  // Accepting BN256 G1 encryption key registrations from validators
+  DKG_PHASE_REGISTERING = 1;
+  // Key registration closed; accepting Feldman DKG contributions
+  DKG_PHASE_CONTRIBUTING = 2;
+  // DKG complete, master key available, encrypted batch enabled
+  DKG_PHASE_ACTIVE = 3;
+}
+
+// DKGState tracks the current state of the on-chain Feldman DKG ceremony.
+message DKGState {
+  // Monotonically increasing round number (new round = new ceremony)
+  uint64 round = 1;
+
+  // Current phase of the DKG
+  DKGPhase phase = 2;
+
+  // Block height when REGISTERING phase started
+  int64 open_at_height = 3;
+
+  // Block height when REGISTERING phase ends and CONTRIBUTING starts
+  int64 registration_deadline = 4;
+
+  // Block height when CONTRIBUTING phase ends
+  int64 contribution_deadline = 5;
+
+  // Threshold ratio for this DKG round
+  uint64 threshold_numerator = 6;
+  uint64 threshold_denominator = 7;
+
+  // Snapshot of bonded validator addresses at DKG start
+  repeated string expected_validators = 8;
+
+  // Number of contributions received so far
+  uint64 contributions_received = 9;
+}
+
+// DKGContribution is a validator's Feldman DKG contribution.
+message DKGContribution {
+  // Validator who submitted this contribution
+  string validator_address = 1;
+
+  // DKG round number (must match DKGState.round)
+  uint64 round = 2;
+
+  // Feldman commitments: [a₀*G, a₁*G, ..., a_{t-1}*G]
+  // where a_k are the polynomial coefficients and G is the BN256 G1 generator.
+  // Length must equal the threshold for this round.
+  repeated bytes feldman_commitments = 3;
+
+  // ECIES-encrypted polynomial evaluations, one per other expected validator.
+  // Target validator decrypts to get p_i(j) and verifies against commitments.
+  repeated EncryptedEvaluation encrypted_evaluations = 4;
+
+  // Schnorr proof of possession over validator address using a₀ as the secret key.
+  // Proves knowledge of the constant term (the validator's secret contribution).
+  bytes proof_of_possession = 5;
+}
+
+// EncryptedEvaluation is an ECIES-encrypted polynomial evaluation for a target validator.
+message EncryptedEvaluation {
+  // 1-based index of the target validator in DKGState.expected_validators
+  uint32 target_index = 1;
+
+  // ECIES ciphertext: Enc(target_pub_key, p_i(target_index))
+  bytes ciphertext = 2;
+}
+
+// DKGContributionEntry is a genesis helper for exporting DKG contributions.
+message DKGContributionEntry {
+  string validator_address = 1;
+  DKGContribution contribution = 2 [(gogoproto.nullable) = false];
+}
+
+// DKGVoteExtension is the payload validators embed in their vote extensions
+// during DKG ceremonies. The type field determines which data is present.
+message DKGVoteExtension {
+  // DKG round this extension relates to
+  uint64 round = 1;
+
+  // Which phase data this carries
+  DKGPhase phase = 2;
+
+  // --- REGISTERING phase data ---
+  // BN256 G1 public key for ECIES encryption of polynomial evaluations
+  bytes registration_pub_key = 3;
+  // Schnorr proof of possession over the validator address
+  bytes registration_pop = 4;
+
+  // --- CONTRIBUTING phase data ---
+  // Feldman commitments: [a₀*G, a₁*G, ..., a_{t-1}*G]
+  repeated bytes feldman_commitments = 5;
+  // ECIES-encrypted polynomial evaluations for other validators
+  repeated EncryptedEvaluation encrypted_evaluations = 6;
+  // Schnorr proof of possession over validator address using a₀
+  bytes contribution_pop = 7;
+
+  // --- Decryption share data (ACTIVE phase, when pending ops need decryption) ---
+  // The epoch for which this decryption share was computed
+  uint64 decryption_epoch = 8;
+  // Epoch decryption share: secret_share_i * H_to_G1(epoch)
+  bytes decryption_share = 9;
+}
+
+// InjectedDKGData is the aggregated shield data injected by the block proposer
+// as a pseudo-transaction at position 0 of the block.
+// Carries DKG ceremony data (during REGISTERING/CONTRIBUTING) and/or
+// epoch decryption shares (during ACTIVE phase with pending ops).
+message InjectedDKGData {
+  // DKG round this injection relates to
+  uint64 round = 1;
+
+  // DKG phase at the time of injection
+  DKGPhase phase = 2;
+
+  // Individual validator extensions (one per validator that provided data)
+  repeated ValidatorDKGExtension extensions = 3;
+
+  // Decryption shares for epoch key reconstruction (populated during ACTIVE phase)
+  repeated InjectedDecryptionShare decryption_shares = 4;
+}
+
+// InjectedDecryptionShare pairs a validator's consensus address with their
+// epoch decryption share for threshold reconstruction.
+message InjectedDecryptionShare {
+  // CometBFT validator address (consensus address)
+  bytes validator_address = 1;
+  // The shield epoch this share decrypts
+  uint64 epoch = 2;
+  // The decryption share: secret_share_i * H_to_G1(epoch)
+  bytes share = 3;
+}
+
+// ValidatorDKGExtension pairs a validator's consensus address with their DKG vote extension.
+message ValidatorDKGExtension {
+  // CometBFT validator address (consensus address, NOT operator address)
+  bytes validator_address = 1;
+  // The vote extension data from this validator
+  DKGVoteExtension extension = 2 [(gogoproto.nullable) = false];
+}
+
+// VerificationKey stores a ZK circuit verification key.
+message VerificationKey {
+  string circuit_id = 1; // e.g. "shield_v1"
+  bytes vk_bytes = 2; // serialized Groth16/PLONK verification key
+  string description = 3;
+}
+
+// IdentityRateLimitEntry is a genesis helper for exporting rate limit state.
+message IdentityRateLimitEntry {
+  uint64 epoch = 1;
+  string rate_limit_nullifier_hex = 2;
+  uint64 count = 3;
+}
+
+// TLEMissCounterEntry is a genesis helper for exporting TLE miss counters.
+message TLEMissCounterEntry {
+  string validator_address = 1;
+  uint64 miss_count = 2;
+}

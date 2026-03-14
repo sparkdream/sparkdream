@@ -357,17 +357,13 @@ MEMBERSHIP_PROOF="YW5vbnltb3VzX3Byb29mX3N0dWI=" # "anonymous_proof_stub" base64
 NULLIFIER=$(echo "nullifier_${TIMESTAMP}" | base64)
 
 echo "Step 1: Creating anonymous challenge on initiative #$INITIATIVE_ID..."
-# Anonymous challenge with 2.5x stake multiplier
+# Anonymous challenge (no DREAM stake, rate-limited by x/shield)
 # Stake: 1 DREAM (1000000 micro-DREAM)
 TX_RES=$($BINARY tx rep create-challenge \
     $INITIATIVE_ID \
     "This deliverable was copied from another project without attribution" \
     "1000000" \
-    "true" \
-    "$ANON_CHALLENGER_ADDR" \
     --evidence "https://github.com/original/repo" \
-    --membership-proof $MEMBERSHIP_PROOF \
-    --nullifier $NULLIFIER \
     --from anonymous_challenger \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -431,10 +427,6 @@ else
             $NULLIFIER_INIT_ID \
             "Duplicate nullifier challenge attempt" \
             "1000000" \
-            "true" \
-            "$ANON_CHALLENGER_ADDR" \
-            --membership-proof $MEMBERSHIP_PROOF \
-            --nullifier $NULLIFIER \
             --from anonymous_challenger \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -564,8 +556,6 @@ TX_RES=$($BINARY tx rep create-challenge \
     $INITIATIVE2_ID \
     "The deliverable does not meet the stated requirements. Missing API documentation and error handling." \
     "1000000" \
-    "false" \
-    "$CHALLENGER_ADDR" \
     --evidence "https://github.com/repo/issues/1","https://github.com/repo/issues/2" \
     --from challenger \
     --chain-id $CHAIN_ID \
@@ -878,8 +868,6 @@ TX_RES=$($BINARY tx rep create-challenge \
     $INITIATIVE3_ID \
     "This deliverable is completely broken. The code does not compile." \
     "1000000" \
-    "false" \
-    "$CHALLENGER_ADDR" \
     --evidence "https://github.com/repo/issues/broken" \
     --from challenger \
     --chain-id $CHAIN_ID \
@@ -1047,8 +1035,6 @@ TX_RES=$($BINARY tx rep create-challenge \
     $COMMITTEE_INITIATIVE_ID \
     "Quantum algorithm has errors" \
     "1000000" \
-    "false" \
-    "$CHALLENGER_ADDR" \
     --evidence "https://example.com/proof" \
     --from challenger \
     --chain-id $CHAIN_ID \

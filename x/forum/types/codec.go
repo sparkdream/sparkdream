@@ -207,16 +207,5 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 		&MsgUpdateOperationalParams{},
 	)
 
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgCreateAnonymousPost{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgCreateAnonymousReply{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgAnonymousReact{},
-	)
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

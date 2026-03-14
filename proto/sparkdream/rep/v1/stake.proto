@@ -36,13 +36,13 @@ enum StakeTargetType {
   STAKE_TARGET_TAG = 3; // Revenue share from tagged initiatives
 
   // Content conviction staking (no DREAM rewards, conviction signal only)
-  STAKE_TARGET_BLOG_CONTENT = 4;       // Community conviction on x/blog posts/replies
-  STAKE_TARGET_FORUM_CONTENT = 5;      // Community conviction on x/forum posts
+  STAKE_TARGET_BLOG_CONTENT = 4; // Community conviction on x/blog posts/replies
+  STAKE_TARGET_FORUM_CONTENT = 5; // Community conviction on x/forum posts
   STAKE_TARGET_COLLECTION_CONTENT = 6; // Community conviction on x/collect collections
 
   // Author bonds (no DREAM rewards, slashable on moderation)
-  STAKE_TARGET_BLOG_AUTHOR_BOND = 7;       // Author bond on x/blog content
-  STAKE_TARGET_FORUM_AUTHOR_BOND = 8;      // Author bond on x/forum content
+  STAKE_TARGET_BLOG_AUTHOR_BOND = 7; // Author bond on x/blog content
+  STAKE_TARGET_FORUM_AUTHOR_BOND = 8; // Author bond on x/forum content
   STAKE_TARGET_COLLECTION_AUTHOR_BOND = 9; // Author bond on x/collect content
 }
 

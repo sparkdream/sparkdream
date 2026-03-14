@@ -11,14 +11,21 @@ import (
 	"sparkdream/x/futarchy/types"
 )
 
+// lateKeepers holds keepers that are wired after depinject initialization
+// (to break cyclic dependencies). All value copies of Keeper share the same
+// pointer, so mutations via SetCommonsKeeper are visible everywhere.
+type lateKeepers struct {
+	commonsKeeper types.CommonsKeeper
+}
+
 type Keeper struct {
 	storeService corestore.KVStoreService
 	cdc          codec.Codec
 	addressCodec address.Codec
 	// Address capable of executing a MsgUpdateParams message.
 	// Typically, this should be the x/gov module account.
-	authority     []byte
-	commonsKeeper types.CommonsKeeper
+	authority []byte
+	late      *lateKeepers // shared across value copies
 
 	Schema collections.Schema
 	Params collections.Item[types.Params]
@@ -53,6 +60,7 @@ func NewKeeper(
 		cdc:          cdc,
 		addressCodec: addressCodec,
 		authority:    authority,
+		late:         &lateKeepers{},
 
 		authKeeper: authKeeper,
 		bankKeeper: bankKeeper,

@@ -170,7 +170,7 @@ func (k Keeper) UpdateInitiativeConvictionLazy(ctx context.Context, initiativeID
 	// By aggregating raw values first and applying sqrt to the aggregate,
 	// splitting provides zero advantage.
 	stakerRawConviction := make(map[string]math.LegacyDec) // staker -> total raw conviction
-	stakerIsExternal := make(map[string]bool)               // staker -> external flag
+	stakerIsExternal := make(map[string]bool)              // staker -> external flag
 
 	for _, stake := range stakes {
 		// Calculate RAW (pre-sqrt) conviction for correct per-staker aggregation

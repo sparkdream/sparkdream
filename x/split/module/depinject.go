@@ -57,6 +57,7 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		authority,
 		in.AuthKeeper,
 		in.BankKeeper,
+		nil, // DistrKeeper wired post-depinject via SetDistrKeeper
 	)
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 

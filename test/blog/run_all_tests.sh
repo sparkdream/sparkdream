@@ -11,7 +11,6 @@
 #   ./run_all_tests.sh --no-post    # Skip post tests
 #   ./run_all_tests.sh --no-reply   # Skip reply tests
 #   ./run_all_tests.sh --no-reaction # Skip reaction tests
-#   ./run_all_tests.sh --no-anon     # Skip anonymous post/reply tests
 #
 # Prerequisites:
 #   - sparkdreamd chain running locally
@@ -22,6 +21,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../check_testparams.sh"
 BINARY="sparkdreamd"
 
 # Parse command line arguments
@@ -29,8 +29,8 @@ RUN_SETUP=true
 RUN_POST=true
 RUN_REPLY=true
 RUN_REACTION=true
-RUN_ANON=true
 RUN_PIN=true
+RUN_ANON=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -48,18 +48,18 @@ for arg in "$@"; do
         --no-reaction)
             RUN_REACTION=false
             ;;
-        --no-anon)
-            RUN_ANON=false
-            ;;
         --no-pin)
             RUN_PIN=false
+            ;;
+        --no-anon)
+            RUN_ANON=false
             ;;
         --only-setup)
             RUN_POST=false
             RUN_REPLY=false
             RUN_REACTION=false
-            RUN_ANON=false
             RUN_PIN=false
+            RUN_ANON=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -67,8 +67,8 @@ for arg in "$@"; do
             RUN_POST=false
             RUN_REPLY=false
             RUN_REACTION=false
-            RUN_ANON=false
             RUN_PIN=false
+            RUN_ANON=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -78,8 +78,8 @@ for arg in "$@"; do
             RUN_POST=false
             RUN_REPLY=false
             RUN_REACTION=false
-            RUN_ANON=false
             RUN_PIN=false
+            RUN_ANON=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -89,8 +89,8 @@ for arg in "$@"; do
             echo "  --no-post        Skip post tests"
             echo "  --no-reply       Skip reply tests"
             echo "  --no-reaction    Skip reaction tests"
-            echo "  --no-anon        Skip anonymous post/reply tests"
             echo "  --no-pin         Skip pin post/reply tests"
+            echo "  --no-anon        Skip anonymous action tests (via x/shield)"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -360,14 +360,6 @@ else
     echo ""
 fi
 
-# Anonymous post/reply tests
-if [ "$RUN_ANON" = true ]; then
-    run_test "Anonymous Post/Reply Tests" "anon_test.sh"
-else
-    echo "Skipping anonymous tests (--no-anon)"
-    echo ""
-fi
-
 # Pin post/reply tests
 if [ "$RUN_PIN" = true ]; then
     run_test "Pin Post/Reply Tests" "pin_test.sh"
@@ -375,6 +367,23 @@ else
     echo "Skipping pin tests (--no-pin)"
     echo ""
 fi
+
+# Anonymous action tests (via x/shield)
+if [ "$RUN_ANON" = true ]; then
+    run_test "Anonymous Action Tests" "anon_test.sh"
+else
+    echo "Skipping anonymous action tests (--no-anon)"
+    echo ""
+fi
+
+# Content status gates tests (P2)
+run_test "Content Status Gates Tests" "content_status_test.sh"
+
+# Content expiry tests (P3)
+run_test "Content Expiry Tests" "expiry_test.sh"
+
+# Rate limit tests (P1)
+run_test "Rate Limit Tests" "rate_limit_test.sh"
 
 # ============================================================================
 # Final Summary

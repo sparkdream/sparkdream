@@ -31,7 +31,6 @@ import "sparkdream/forum/v1/thread_metadata.proto";
 import "sparkdream/forum/v1/thread_move_record.proto";
 import "sparkdream/forum/v1/user_rate_limit.proto";
 import "sparkdream/forum/v1/user_reaction_limit.proto";
-import "sparkdream/forum/v1/types.proto";
 
 option go_package = "sparkdream/x/forum/types";
 
@@ -435,21 +434,6 @@ service Query {
   // GovActionAppeals Queries a list of GovActionAppeals items.
   rpc GovActionAppeals(QueryGovActionAppealsRequest) returns (QueryGovActionAppealsResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/gov_action_appeals";
-  }
-
-  // AnonymousPostMeta returns the anonymous metadata for a post.
-  rpc AnonymousPostMeta(QueryAnonymousPostMetaRequest) returns (QueryAnonymousPostMetaResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/anonymous_post_meta/{post_id}";
-  }
-
-  // AnonymousReplyMeta returns the anonymous metadata for a reply.
-  rpc AnonymousReplyMeta(QueryAnonymousReplyMetaRequest) returns (QueryAnonymousReplyMetaResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/anonymous_reply_meta/{post_id}";
-  }
-
-  // IsNullifierUsed checks whether a nullifier has been used.
-  rpc IsNullifierUsed(QueryIsNullifierUsedRequest) returns (QueryIsNullifierUsedResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/is_nullifier_used/{nullifier_hex}/{domain}/{scope}";
   }
 }
 
@@ -1364,36 +1348,4 @@ message QueryGovActionAppealsResponse {
   uint64 action_type = 2;
   uint64 status = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
-}
-
-// QueryAnonymousPostMetaRequest defines the request for AnonymousPostMeta.
-message QueryAnonymousPostMetaRequest {
-  uint64 post_id = 1;
-}
-
-// QueryAnonymousPostMetaResponse defines the response for AnonymousPostMeta.
-message QueryAnonymousPostMetaResponse {
-  AnonymousPostMetadata metadata = 1;
-}
-
-// QueryAnonymousReplyMetaRequest defines the request for AnonymousReplyMeta.
-message QueryAnonymousReplyMetaRequest {
-  uint64 post_id = 1;
-}
-
-// QueryAnonymousReplyMetaResponse defines the response for AnonymousReplyMeta.
-message QueryAnonymousReplyMetaResponse {
-  AnonymousPostMetadata metadata = 1;
-}
-
-// QueryIsNullifierUsedRequest defines the request for IsNullifierUsed.
-message QueryIsNullifierUsedRequest {
-  string nullifier_hex = 1;
-  uint64 domain = 2;
-  uint64 scope = 3;
-}
-
-// QueryIsNullifierUsedResponse defines the response for IsNullifierUsed.
-message QueryIsNullifierUsedResponse {
-  bool used = 1;
 }

@@ -32,9 +32,9 @@ type fixture struct {
 	ctx          sdk.Context
 	keeper       keeper.Keeper
 	addressCodec address.Codec
-	mockBank    *MockBankKeeper
-	mockCommons *MockCommonsKeeper
-	mockRep     *MockRepKeeper
+	mockBank     *MockBankKeeper
+	mockCommons  *MockCommonsKeeper
+	mockRep      *MockRepKeeper
 	councilAddr  string
 }
 
@@ -96,17 +96,17 @@ func initFixture(t *testing.T) *fixture {
 
 // MockCommonsKeeper (Used in dispute tests)
 type MockCommonsKeeper struct {
-	Groups map[string]commonstypes.Group
-	PolicyPerms    map[string]commonstypes.PolicyPermissions
-	Members        map[string]bool // "councilName|address" -> isMember
-	getError       error
+	Groups      map[string]commonstypes.Group
+	PolicyPerms map[string]commonstypes.PolicyPermissions
+	Members     map[string]bool // "councilName|address" -> isMember
+	getError    error
 }
 
 func NewMockCommonsKeeper() *MockCommonsKeeper {
 	return &MockCommonsKeeper{
-		Groups: make(map[string]commonstypes.Group),
-		PolicyPerms:    make(map[string]commonstypes.PolicyPermissions),
-		Members:        make(map[string]bool),
+		Groups:      make(map[string]commonstypes.Group),
+		PolicyPerms: make(map[string]commonstypes.PolicyPermissions),
+		Members:     make(map[string]bool),
 	}
 }
 

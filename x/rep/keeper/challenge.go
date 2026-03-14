@@ -19,10 +19,6 @@ func (k Keeper) CreateChallenge(
 	reason string,
 	evidence []string,
 	stakedDream math.Int,
-	isAnonymous bool,
-	payoutAddress string,
-	membershipProof []byte,
-	nullifier []byte,
 ) (uint64, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	params, err := k.Params.Get(ctx)
@@ -60,43 +56,13 @@ func (k Keeper) CreateChallenge(
 		return 0, fmt.Errorf("initiative already has an active challenge")
 	}
 
-	// For anonymous challenges, validate proof, nullifier, and escrow SPARK
-	var sparkStake math.Int
-	if isAnonymous {
-		if len(membershipProof) == 0 || len(nullifier) == 0 {
-			return 0, fmt.Errorf("anonymous challenges require membership proof and nullifier")
-		}
-
-		// Check if nullifier was already used
-		used, err := k.IsNullifierUsed(ctx, nullifier)
-		if err != nil {
-			return 0, err
-		}
-		if used {
-			return 0, fmt.Errorf("nullifier already used")
-		}
-
-		// Verify ZK proof of membership
-		if valid, err := k.VerifyAnonymousEligibility(ctx, membershipProof, nullifier); err != nil || !valid {
-			return 0, fmt.Errorf("invalid anonymous eligibility proof: %v", err)
-		}
-
-		// Anonymous challenges escrow SPARK (native token) instead of DREAM.
-		// This preserves privacy: the alt account doesn't need a member record.
-		sparkStake = params.AnonymousChallengeSparkStake
-		sparkCoins := sdk.NewCoins(sdk.NewCoin("uspark", sparkStake))
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, challengerAddr, types.ModuleName, sparkCoins); err != nil {
-			return 0, fmt.Errorf("failed to escrow SPARK for anonymous challenge: %w", err)
-		}
-	} else {
-		// Non-anonymous: validate and lock DREAM stake
-		minStake := params.MinChallengeStake
-		if stakedDream.LT(minStake) {
-			return 0, fmt.Errorf("insufficient stake: %s, required: %s", stakedDream, minStake)
-		}
-		if err := k.LockDREAM(ctx, challengerAddr, stakedDream); err != nil {
-			return 0, err
-		}
+	// Validate and lock DREAM stake
+	minStake := params.MinChallengeStake
+	if stakedDream.LT(minStake) {
+		return 0, fmt.Errorf("insufficient stake: %s, required: %s", stakedDream, minStake)
+	}
+	if err := k.LockDREAM(ctx, challengerAddr, stakedDream); err != nil {
+		return 0, err
 	}
 
 	// Get next challenge ID
@@ -116,17 +82,9 @@ func (k Keeper) CreateChallenge(
 		Reason:           reason,
 		Evidence:         evidence,
 		StakedDream:      PtrInt(stakedDream),
-		IsAnonymous:      isAnonymous,
-		PayoutAddress:    payoutAddress,
-		MembershipProof:  membershipProof,
-		Nullifier:        nullifier,
 		Status:           types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
 		CreatedAt:        sdkCtx.BlockHeight(),
 		ResponseDeadline: responseDeadline,
-	}
-	// Store escrowed SPARK amount for anonymous challenges (handles param changes between creation/resolution)
-	if isAnonymous {
-		challenge.StakedSpark = &sparkStake
 	}
 
 	// Save challenge
@@ -145,20 +103,12 @@ func (k Keeper) CreateChallenge(
 		return 0, err
 	}
 
-	// Mark nullifier as used for anonymous challenges
-	if isAnonymous {
-		if err := k.MarkNullifierUsed(ctx, nullifier); err != nil {
-			return 0, err
-		}
-	}
-
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"challenge_created",
 			sdk.NewAttribute("challenge_id", fmt.Sprintf("%d", challengeID)),
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-			sdk.NewAttribute("is_anonymous", fmt.Sprintf("%t", isAnonymous)),
 		),
 	)
 
@@ -311,39 +261,26 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 	// Note: We don't call UpdateTrustLevel here since slashing only reduces reputation.
 	// Trust levels only increase, never decrease, so no update is needed.
 
-	// Reward challenger
+	// Reward challenger: unlock DREAM stake and mint DREAM reward
 	challengerAddr, err := sdk.AccAddressFromBech32(challenge.Challenger)
-	if err != nil && !challenge.IsAnonymous {
+	if err != nil {
 		return err
 	}
 
-	if challenge.IsAnonymous {
-		// Anonymous challenge upheld: return escrowed SPARK to the challenger's alt account.
-		// No DREAM reward — SPARK return is the sole incentive for anonymous challengers.
-		sparkAmount := DerefInt(challenge.StakedSpark)
-		if sparkAmount.IsPositive() {
-			sparkCoins := sdk.NewCoins(sdk.NewCoin("uspark", sparkAmount))
-			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, challengerAddr, sparkCoins); err != nil {
-				return fmt.Errorf("failed to return escrowed SPARK: %w", err)
-			}
-		}
-	} else {
-		// Non-anonymous: unlock DREAM stake and mint DREAM reward
-		stakedAmount := DerefInt(challenge.StakedDream)
-		rewardRate := params.ChallengerRewardRate
-		budgetAmount := DerefInt(initiative.Budget)
-		rewardAmount := budgetAmount.ToLegacyDec().Mul(rewardRate).TruncateInt()
+	stakedAmount := DerefInt(challenge.StakedDream)
+	rewardRate := params.ChallengerRewardRate
+	budgetAmount := DerefInt(initiative.Budget)
+	rewardAmount := budgetAmount.ToLegacyDec().Mul(rewardRate).TruncateInt()
 
-		// Unlock the staked DREAM (locked from challengerAddr)
-		if err := k.UnlockDREAM(ctx, challengerAddr, stakedAmount); err != nil {
+	// Unlock the staked DREAM (locked from challengerAddr)
+	if err := k.UnlockDREAM(ctx, challengerAddr, stakedAmount); err != nil {
+		return err
+	}
+
+	// Mint the reward amount (new DREAM for the challenger)
+	if rewardAmount.IsPositive() {
+		if err := k.MintDREAM(ctx, challengerAddr, rewardAmount); err != nil {
 			return err
-		}
-
-		// Mint the reward amount (new DREAM for the challenger)
-		if rewardAmount.IsPositive() {
-			if err := k.MintDREAM(ctx, challengerAddr, rewardAmount); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -395,26 +332,14 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
-	// Slash challenger's stake (burn it)
-	if challenge.IsAnonymous {
-		// Anonymous challenge rejected: burn the escrowed SPARK from module account
-		sparkAmount := DerefInt(challenge.StakedSpark)
-		if sparkAmount.IsPositive() {
-			sparkCoins := sdk.NewCoins(sdk.NewCoin("uspark", sparkAmount))
-			if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, sparkCoins); err != nil {
-				return fmt.Errorf("failed to burn escrowed SPARK: %w", err)
-			}
-		}
-	} else {
-		// Non-anonymous: burn the staked DREAM from the challenger
-		challengerAddr, err := sdk.AccAddressFromBech32(challenge.Challenger)
-		if err != nil {
-			return err
-		}
-		stakedAmount := DerefInt(challenge.StakedDream)
-		if err := k.BurnDREAM(ctx, challengerAddr, stakedAmount); err != nil {
-			return err
-		}
+	// Slash challenger's stake (burn the staked DREAM)
+	challengerAddr, err := sdk.AccAddressFromBech32(challenge.Challenger)
+	if err != nil {
+		return err
+	}
+	stakedAmount := DerefInt(challenge.StakedDream)
+	if err := k.BurnDREAM(ctx, challengerAddr, stakedAmount); err != nil {
+		return err
 	}
 
 	// Update challenge status
@@ -475,36 +400,6 @@ func (k Keeper) GetNextChallengeID(ctx context.Context) uint64 {
 // SetNextChallengeID sets the next challenge ID (deprecated - sequence auto-increments)
 func (k Keeper) SetNextChallengeID(ctx context.Context, id uint64) {
 	// Sequence is auto-incremented, no need to set manually
-}
-
-// IsNullifierUsed checks if a nullifier has been used
-func (k Keeper) IsNullifierUsed(ctx context.Context, nullifier []byte) (bool, error) {
-	return k.UsedNullifiers.Has(ctx, nullifier)
-}
-
-// MarkNullifierUsed marks a nullifier as used
-func (k Keeper) MarkNullifierUsed(ctx context.Context, nullifier []byte) error {
-	return k.UsedNullifiers.Set(ctx, nullifier)
-}
-
-// VerifyAnonymousEligibility verifies the ZK proof for anonymous challenges.
-// It delegates to x/vote's Groth16 verifier which proves the challenger is a
-// registered voter without revealing their identity. If x/vote is not wired
-// (nil keeper), falls back to accepting any non-empty proof for dev mode.
-func (k Keeper) VerifyAnonymousEligibility(ctx context.Context, proof []byte, nullifier []byte) (bool, error) {
-	if len(proof) == 0 {
-		return false, fmt.Errorf("empty proof")
-	}
-
-	if k.late.voteKeeper == nil {
-		// Dev mode: x/vote not available, accept any non-empty proof
-		return true, nil
-	}
-
-	if err := k.late.voteKeeper.VerifyMembershipProof(ctx, proof, nullifier); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 // HasActiveChallenges checks if an initiative has any active or in-review challenges

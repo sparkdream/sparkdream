@@ -522,27 +522,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 
-
-				{
-					RpcMethod:      "AnonymousPostMeta",
-					Use:            "anonymous-post-meta [post-id]",
-					Short:          "Query anonymous post metadata",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
-				},
-
-				{
-					RpcMethod:      "AnonymousReplyMeta",
-					Use:            "anonymous-reply-meta [post-id]",
-					Short:          "Query anonymous reply metadata",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
-				},
-
-				{
-					RpcMethod:      "IsNullifierUsed",
-					Use:            "is-nullifier-used [nullifier-hex] [domain] [scope]",
-					Short:          "Query whether a nullifier has been used",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "nullifier_hex"}, {ProtoField: "domain"}, {ProtoField: "scope"}},
-				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -853,26 +832,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "action_type"}, {ProtoField: "action_target"}, {ProtoField: "appeal_reason"}},
 				},
 
-				{
-					RpcMethod:      "CreateAnonymousPost",
-					Use:            "create-anonymous-post [category-id] [content] [--proof proof] [--nullifier nullifier] [--merkle-root root] [--min-trust-level level]",
-					Short:          "Send a create-anonymous-post tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}, {ProtoField: "content"}},
-				},
-
-				{
-					RpcMethod:      "CreateAnonymousReply",
-					Use:            "create-anonymous-reply [parent-id] [content] [--proof proof] [--nullifier nullifier] [--merkle-root root] [--min-trust-level level]",
-					Short:          "Send a create-anonymous-reply tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "parent_id"}, {ProtoField: "content"}},
-				},
-
-				{
-					RpcMethod:      "AnonymousReact",
-					Use:            "anonymous-react [post-id] [reaction-type] [--proof proof] [--nullifier nullifier] [--merkle-root root] [--min-trust-level level]",
-					Short:          "Send an anonymous-react tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "reaction_type"}},
-				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},
 		},

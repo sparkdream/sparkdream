@@ -54,10 +54,6 @@ var (
 )
 
 var (
-	UsedNullifierKey = collections.NewPrefix("usednullifier/")
-)
-
-var (
 	// GiftRecordKey: (sender, recipient) -> GiftRecord
 	// Tracks last gift timestamp for cooldown enforcement
 	GiftRecordKey = collections.NewPrefix("giftrecord/")

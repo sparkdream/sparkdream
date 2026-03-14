@@ -13,9 +13,8 @@ import (
 
 // lateKeepers holds keepers that are wired after depinject initialization
 // (to break cyclic dependencies). All value copies of Keeper share the same
-// pointer, so mutations via SetVoteKeeper/SetTagKeeper are visible everywhere.
+// pointer, so mutations via SetTagKeeper are visible everywhere.
 type lateKeepers struct {
-	voteKeeper   types.VoteKeeper
 	tagKeeper    types.TagKeeper
 	seasonKeeper types.SeasonKeeper
 }
@@ -31,10 +30,10 @@ type Keeper struct {
 	Schema collections.Schema
 	Params collections.Item[types.Params]
 
-	authKeeper    types.AuthKeeper
-	bankKeeper    types.BankKeeper
-	commonsKeeper types.CommonsKeeper
-	late          *lateKeepers // shared across value copies
+	authKeeper      types.AuthKeeper
+	bankKeeper      types.BankKeeper
+	commonsKeeper   types.CommonsKeeper
+	late            *lateKeepers // shared across value copies
 	Member          collections.Map[string, types.Member]
 	InvitationSeq   collections.Sequence
 	Invitation      collections.Map[uint64, types.Invitation]
@@ -51,7 +50,6 @@ type Keeper struct {
 	InterimSeq      collections.Sequence
 	Interim         collections.Map[uint64, types.Interim]
 	InterimTemplate collections.Map[string, types.InterimTemplate]
-	UsedNullifiers  collections.KeySet[[]byte]
 	GiftRecord      collections.Map[collections.Pair[string, string], types.GiftRecord]
 
 	// Secondary indexes for efficient lookups (avoid full table scans in EndBlocker)
@@ -70,8 +68,8 @@ type Keeper struct {
 	ProjectStakeInfo collections.Map[uint64, types.ProjectStakeInfo] // project ID -> info
 
 	// Content challenges
-	ContentChallengeSeq      collections.Sequence
-	ContentChallenge         collections.Map[uint64, types.ContentChallenge]
+	ContentChallengeSeq       collections.Sequence
+	ContentChallenge          collections.Map[uint64, types.ContentChallenge]
 	ContentChallengesByStatus collections.KeySet[collections.Pair[int32, uint64]]
 	// (targetType, targetID) -> challengeID — enforces one active challenge per content item
 	ContentChallengesByTarget collections.Map[collections.Pair[int32, uint64], uint64]
@@ -90,7 +88,6 @@ func NewKeeper(
 	authKeeper types.AuthKeeper,
 	bankKeeper types.BankKeeper,
 	commonsKeeper types.CommonsKeeper,
-	voteKeeper types.VoteKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -104,10 +101,10 @@ func NewKeeper(
 		addressCodec: addressCodec,
 		authority:    authority,
 
-		authKeeper:    authKeeper,
-		bankKeeper:    bankKeeper,
-		commonsKeeper: commonsKeeper,
-		late:          &lateKeepers{voteKeeper: voteKeeper},
+		authKeeper:      authKeeper,
+		bankKeeper:      bankKeeper,
+		commonsKeeper:   commonsKeeper,
+		late:            &lateKeepers{},
 		Params:          collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Member:          collections.NewMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc)),
 		Invitation:      collections.NewMap(sb, types.InvitationKey, "invitation", collections.Uint64Key, codec.CollValue[types.Invitation](cdc)),
@@ -125,7 +122,6 @@ func NewKeeper(
 		Interim:         collections.NewMap(sb, types.InterimKey, "interim", collections.Uint64Key, codec.CollValue[types.Interim](cdc)),
 		InterimSeq:      collections.NewSequence(sb, types.InterimCountKey, "interimSequence"),
 		InterimTemplate: collections.NewMap(sb, types.InterimTemplateKey, "interimTemplate", collections.StringKey, codec.CollValue[types.InterimTemplate](cdc)),
-		UsedNullifiers:  collections.NewKeySet(sb, types.UsedNullifierKey, "usedNullifier", collections.BytesKey),
 		GiftRecord: collections.NewMap(sb, types.GiftRecordKey, "giftRecord",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 			codec.CollValue[types.GiftRecord](cdc)),
@@ -183,13 +179,6 @@ func NewKeeper(
 	k.Schema = schema
 
 	return k
-}
-
-// SetVoteKeeper sets the vote keeper after depinject initialization.
-// This breaks the cyclic dependency: vote → rep → vote.
-// Uses the shared lateKeepers so all value copies see the update.
-func (k Keeper) SetVoteKeeper(vk types.VoteKeeper) {
-	k.late.voteKeeper = vk
 }
 
 // SetTagKeeper sets the tag keeper after depinject initialization.

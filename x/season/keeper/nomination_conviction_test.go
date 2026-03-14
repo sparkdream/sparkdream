@@ -15,7 +15,7 @@ func TestCalculateNominationConviction(t *testing.T) {
 	// Default params: EpochBlocks=17280, NominationConvictionHalfLifeEpochs=3
 	// halfLifeBlocks = 3 * 17280 = 51840
 	// twoHalfLife = 2 * 51840 = 103680
-	const halfLifeBlocks = 3 * 17280   // 51840
+	const halfLifeBlocks = 3 * 17280       // 51840
 	const twoHalfLife = 2 * halfLifeBlocks // 103680
 
 	t.Run("no stakes", func(t *testing.T) {

@@ -102,26 +102,11 @@ message Params {
   // ephemeral_ttl in seconds (TTL for non-member posts, default 86400 = 24h)
   int64 ephemeral_ttl = 30;
 
-  // anonymous_posting_enabled enables anonymous posting via ZK proofs
-  bool anonymous_posting_enabled = 31;
-
-  // anonymous_min_trust_level is the minimum trust level for anonymous posting (default: 2 = ESTABLISHED)
-  uint32 anonymous_min_trust_level = 32;
-
-  // private_reactions_enabled enables anonymous reactions via ZK proofs
-  bool private_reactions_enabled = 33;
-
-  // anon_subsidy_budget_per_epoch is the maximum SPARK subsidy per epoch for anonymous relay costs
-  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 34 [(gogoproto.nullable) = false];
-
-  // anon_subsidy_max_per_post is the maximum subsidy per individual anonymous action
-  cosmos.base.v1beta1.Coin anon_subsidy_max_per_post = 35 [(gogoproto.nullable) = false];
-
-  // anon_subsidy_approved_relays is the list of approved relay addresses eligible for subsidy
-  repeated string anon_subsidy_approved_relays = 36;
-
   // conviction_renewal_threshold is the minimum conviction score for TTL renewal
-  string conviction_renewal_threshold = 37 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+  string conviction_renewal_threshold = 37 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 
   // conviction_renewal_period is the TTL extension in seconds when conviction threshold is met
   int64 conviction_renewal_period = 38;
@@ -170,17 +155,11 @@ message ForumOperationalParams {
   int64 move_appeal_cooldown = 26;
   int64 ephemeral_ttl = 27;
 
-  // anonymous_posting_enabled enables anonymous posting via ZK proofs
-  bool anonymous_posting_enabled = 28;
-
-  // anonymous_min_trust_level is the minimum trust level for anonymous posting
-  uint32 anonymous_min_trust_level = 29;
-
-  // private_reactions_enabled enables anonymous reactions via ZK proofs
-  bool private_reactions_enabled = 30;
-
   // conviction_renewal_threshold is the minimum conviction score for TTL renewal
-  string conviction_renewal_threshold = 31 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+  string conviction_renewal_threshold = 31 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 
   // conviction_renewal_period is the TTL extension in seconds when conviction threshold is met
   int64 conviction_renewal_period = 32;

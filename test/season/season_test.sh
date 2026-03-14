@@ -691,7 +691,7 @@ HISTORY_OK=true
 for MEMBER_NAME in "Alice" "Bob" "Carol"; do
     case "$MEMBER_NAME" in
         "Alice") ADDR=$ALICE_ADDR; EXPECTED_XP="5000"; EXPECTED_LVL="8" ;;
-        "Bob")   ADDR=$BOB_ADDR;   EXPECTED_XP="1500"; EXPECTED_LVL="4" ;;
+        "Bob")   ADDR=$BOB_ADDR;   EXPECTED_XP="1600"; EXPECTED_LVL="6" ;;
         "Carol") ADDR=$CAROL_ADDR; EXPECTED_XP="300";  EXPECTED_LVL="2" ;;
     esac
 

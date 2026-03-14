@@ -5,26 +5,26 @@ import "fmt"
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
-		Params:             DefaultParams(),
-		MemberMap:          []Member{},
-		InvitationList:     []Invitation{},
-		InvitationCount:    1, // Start at 1 so first ID is 1 (0 is reserved for "unset")
-		ProjectList:        []Project{},
-		ProjectCount:       1,
-		InitiativeList:     []Initiative{},
-		InitiativeCount:    1,
-		StakeList:          []Stake{},
-		StakeCount:         1,
-		ChallengeList:      []Challenge{},
-		ChallengeCount:     1,
-		JuryReviewList:     []JuryReview{},
-		JuryReviewCount:    1,
-		InterimList:        []Interim{},
-		InterimCount:       1,
-		InterimTemplateMap:        []InterimTemplate{},
-		ContentChallengeList:      []ContentChallenge{},
-		ContentChallengeCount:     1,
-		ContentInitiativeLinks:    []ContentInitiativeLink{},
+		Params:                 DefaultParams(),
+		MemberMap:              []Member{},
+		InvitationList:         []Invitation{},
+		InvitationCount:        1, // Start at 1 so first ID is 1 (0 is reserved for "unset")
+		ProjectList:            []Project{},
+		ProjectCount:           1,
+		InitiativeList:         []Initiative{},
+		InitiativeCount:        1,
+		StakeList:              []Stake{},
+		StakeCount:             1,
+		ChallengeList:          []Challenge{},
+		ChallengeCount:         1,
+		JuryReviewList:         []JuryReview{},
+		JuryReviewCount:        1,
+		InterimList:            []Interim{},
+		InterimCount:           1,
+		InterimTemplateMap:     []InterimTemplate{},
+		ContentChallengeList:   []ContentChallenge{},
+		ContentChallengeCount:  1,
+		ContentInitiativeLinks: []ContentInitiativeLink{},
 	}
 }
 

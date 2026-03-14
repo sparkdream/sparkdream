@@ -21,17 +21,18 @@ func (k Keeper) IsGovAuthority(addr string) bool {
 // Delegates to x/commons IsCouncilAuthorized when available.
 // Falls back to IsGovAuthority when x/commons is not wired.
 func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
-	if k.commonsKeeper == nil {
+	if k.late.commonsKeeper == nil {
 		return k.IsGovAuthority(addr)
 	}
-	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
+	return k.late.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
 // SetCommonsKeeper sets the commons keeper dependency.
 // This is wired after depinject initialization to break the cyclic dependency
 // between x/commons (which depends on futarchy) and x/futarchy.
-func (k *Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
-	k.commonsKeeper = ck
+// Uses the shared lateKeepers so all value copies see the update.
+func (k Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
+	k.late.commonsKeeper = ck
 }
 
 // SetHooks sets the hooks for the futarchy module.

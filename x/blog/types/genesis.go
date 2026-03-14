@@ -5,17 +5,13 @@ import "fmt"
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
-		Params:               DefaultParams(),
-		Posts:                []Post{},
-		PostCount:            0,
-		Replies:              []Reply{},
-		ReplyCount:           0,
-		Reactions:            []Reaction{},
-		ReactionCounts:       []GenesisReactionCounts{},
-		AnonymousPostMeta:    []AnonymousPostMetadata{},
-		AnonymousReplyMeta:   []AnonymousPostMetadata{},
-		Nullifiers:           []GenesisNullifierEntry{},
-		AnonSubsidyLastEpoch: 0,
+		Params:         DefaultParams(),
+		Posts:          []Post{},
+		PostCount:      0,
+		Replies:        []Reply{},
+		ReplyCount:     0,
+		Reactions:      []Reaction{},
+		ReactionCounts: []GenesisReactionCounts{},
 	}
 }
 
@@ -193,41 +189,6 @@ func (gs GenesisState) Validate() error {
 					rc.PostId, rc.ReplyId, c.name, c.stored, exp)
 			}
 		}
-	}
-
-	// --- Anonymous metadata validation ---
-	for _, meta := range gs.AnonymousPostMeta {
-		post, ok := postMap[meta.ContentId]
-		if !ok {
-			return fmt.Errorf("anonymous post metadata references non-existent post %d", meta.ContentId)
-		}
-		// Anonymous posts must have module account as creator (check non-empty at least)
-		if post.Creator == "" {
-			return fmt.Errorf("anonymous post %d has empty creator", meta.ContentId)
-		}
-	}
-
-	for _, meta := range gs.AnonymousReplyMeta {
-		_, ok := replyMap[meta.ContentId]
-		if !ok {
-			return fmt.Errorf("anonymous reply metadata references non-existent reply %d", meta.ContentId)
-		}
-	}
-
-	// --- Nullifier uniqueness ---
-	type nullifierKey struct {
-		Domain       uint64
-		Scope        uint64
-		NullifierHex string
-	}
-	nullifierSeen := make(map[nullifierKey]bool, len(gs.Nullifiers))
-	for _, n := range gs.Nullifiers {
-		nk := nullifierKey{Domain: n.Domain, Scope: n.Scope, NullifierHex: n.NullifierHex}
-		if nullifierSeen[nk] {
-			return fmt.Errorf("duplicate nullifier: domain=%d scope=%d hex=%s",
-				n.Domain, n.Scope, n.NullifierHex)
-		}
-		nullifierSeen[nk] = true
 	}
 
 	return nil

@@ -315,8 +315,6 @@ TX_RES=$($BINARY tx rep create-challenge \
     $INITIATIVE_ID \
     "Quality issues found" \
     "1000000" \
-    "false" \
-    "$CHALLENGER_ADDR" \
     --evidence "https://example.com/issues" \
     --from challenger \
     --chain-id $CHAIN_ID \

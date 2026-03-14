@@ -106,16 +106,6 @@ service Query {
   rpc CollectionConviction(QueryCollectionConvictionRequest) returns (QueryCollectionConvictionResponse) {
     option (google.api.http).get = "/sparkdream/collect/v1/collection_conviction/{collection_id}";
   }
-
-  // AnonymousCollections returns paginated anonymous collections (owner = module account).
-  rpc AnonymousCollections(QueryAnonymousCollectionsRequest) returns (QueryAnonymousCollectionsResponse) {
-    option (google.api.http).get = "/sparkdream/collect/v1/anonymous_collections";
-  }
-
-  // IsCollectNullifierUsed checks if a nullifier has been used in x/collect domains.
-  rpc IsCollectNullifierUsed(QueryIsCollectNullifierUsedRequest) returns (QueryIsCollectNullifierUsedResponse) {
-    option (google.api.http).get = "/sparkdream/collect/v1/is_nullifier_used";
-  }
 }
 message QueryParamsRequest {}
 
@@ -366,27 +356,4 @@ message QueryCollectionConvictionResponse {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-}
-
-// QueryAnonymousCollectionsRequest defines the AnonymousCollections request.
-message QueryAnonymousCollectionsRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryAnonymousCollectionsResponse defines the AnonymousCollections response.
-message QueryAnonymousCollectionsResponse {
-  repeated Collection collections = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-// QueryIsCollectNullifierUsedRequest defines the IsCollectNullifierUsed request.
-message QueryIsCollectNullifierUsedRequest {
-  string nullifier_hex = 1;
-  uint64 domain = 2;
-  uint64 scope = 3;
-}
-
-// QueryIsCollectNullifierUsedResponse defines the IsCollectNullifierUsed response.
-message QueryIsCollectNullifierUsedResponse {
-  bool used = 1;
 }

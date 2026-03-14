@@ -372,9 +372,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "CreateChallenge",
-					Use:            "create-challenge [initiative-id] [reason] [staked-dream] [is-anonymous] [payout-address]",
+					Use:            "create-challenge [initiative-id] [reason] [staked-dream]",
 					Short:          "Send a create-challenge tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "reason"}, {ProtoField: "staked_dream"}, {ProtoField: "is_anonymous"}, {ProtoField: "payout_address"}},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "reason"}, {ProtoField: "staked_dream"}},
 				},
 				{
 					RpcMethod:      "RespondToChallenge",
@@ -444,6 +444,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "respond-to-content-challenge [content-challenge-id] [response]",
 					Short:          "Respond to a content challenge as the author",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "content_challenge_id"}, {ProtoField: "response"}},
+				},
+				{
+					RpcMethod:      "RegisterZkPublicKey",
+					Use:            "register-zk-public-key [zk-public-key]",
+					Short:          "Send a RegisterZkPublicKey tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "zk_public_key", Varargs: true}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

@@ -50,16 +50,6 @@ type CommonsKeeper interface {
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
 }
 
-// VoteKeeper defines the expected interface for the x/vote module.
-type VoteKeeper interface {
-	// VerifyMembershipProof verifies a ZK proof of voter registration membership.
-	VerifyMembershipProof(ctx context.Context, proof []byte, nullifier []byte) error
-	// GetActiveVoterZkPublicKeys returns the addresses and ZK public keys of all active voter registrations.
-	GetActiveVoterZkPublicKeys(ctx context.Context) (addresses []string, zkPubKeys [][]byte, err error)
-	// GetVoterZkPublicKey returns the ZK public key for a single active voter registration.
-	GetVoterZkPublicKey(ctx context.Context, address string) ([]byte, error)
-}
-
 // TagKeeper defines the expected interface for tag registry operations.
 // Implemented by x/forum. Wired manually via SetTagKeeper in app.go
 // to break the cyclic dependency: forum → rep → forum.

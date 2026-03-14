@@ -1,462 +1,366 @@
 #!/bin/bash
-# Anonymous collection, reaction, and pinning tests for x/collect
 
+echo "--- TESTING: ANONYMOUS COLLECT ACTIONS VIA X/SHIELD ---"
+echo ""
+echo "Tests full-stack anonymous collect operations through MsgShieldedExec:"
+echo "  1. Anonymous collection creation"
+echo "  2. Anonymous upvote on a collection"
+echo "  3. Anonymous downvote on a collection"
+echo "  4. Nullifier replay prevention"
+echo ""
+
+# === 0. SETUP ===
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source "$SCRIPT_DIR/test_helpers.sh"
-source "$SCRIPT_DIR/.test_env"
+BINARY="sparkdreamd"
+CHAIN_ID="sparkdream"
 
-echo "========================================================================="
-echo "  X/COLLECT - ANONYMOUS COLLECTIONS, REACTIONS & PINNING TESTS"
-echo "========================================================================="
-echo ""
-
-BLOCK_HEIGHT=$(get_block_height)
-FUTURE_BLOCK=$((BLOCK_HEIGHT + 5000))
-
-# =========================================================================
-# PREREQUISITE: Voter registration & trust tree (needed for ZK proofs)
-# =========================================================================
-echo "=== PREREQUISITE: Voter Registration & Trust Tree ==="
-echo ""
-
-# Deterministic ZK keys (unique to collect tests)
-COLL1_ZK_KEY="e10e10e10e10e10e10e10e10e10e10e10e10e10e10e10e10e10e10e10e10e10e"
-COLL1_ENC_KEY="e111111111111111111111111111111111111111111111111111111111111111"
-COLL2_ZK_KEY="e20e20e20e20e20e20e20e20e20e20e20e20e20e20e20e20e20e20e20e20e20e"
-COLL2_ENC_KEY="e222222222222222222222222222222222222222222222222222222222222222"
-
-register_voter_for_collect() {
-    local ACCOUNT=$1
-    local ZK_KEY_HEX=$2
-    local ENC_KEY_HEX=$3
-
-    local ZK_KEY_B64=$(echo "$ZK_KEY_HEX" | xxd -r -p | base64)
-    local ENC_KEY_B64=$(echo "$ENC_KEY_HEX" | xxd -r -p | base64)
-
-    echo "  Registering $ACCOUNT as voter..."
-
-    TX_OUT=$(send_tx vote register-voter \
-        --zk-public-key "$ZK_KEY_B64" \
-        --encryption-public-key "$ENC_KEY_B64" \
-        --from $ACCOUNT)
-
-    local txhash
-    txhash=$(get_txhash "$TX_OUT")
-    if [ -z "$txhash" ]; then
-        echo "  Failed to register $ACCOUNT: no txhash"
-        return 1
-    fi
-
-    local tx_result
-    tx_result=$(wait_for_tx "$txhash")
-    local code
-    code=$(get_tx_code "$tx_result")
-
-    if [ "$code" = "0" ]; then
-        echo "  Registered $ACCOUNT"
-        return 0
-    else
-        local raw_log
-        raw_log=$(echo "$tx_result" | jq -r '.raw_log // ""' 2>/dev/null)
-        if echo "$raw_log" | grep -qi "already.*regist\|use.*rotate"; then
-            echo "  $ACCOUNT already registered (OK)"
-            return 0
-        fi
-        echo "  Failed to register $ACCOUNT: $raw_log"
-        return 1
-    fi
-}
-
-register_voter_for_collect "collector1" "$COLL1_ZK_KEY" "$COLL1_ENC_KEY"
-register_voter_for_collect "collector2" "$COLL2_ZK_KEY" "$COLL2_ENC_KEY"
-
-echo ""
-
-# Get trust tree root
-echo "  Querying trust tree root..."
-ABCI_RESPONSE=$(curl -s "http://localhost:26657/abci_query?path=\"/store/rep/key\"&data=0x74727573745f747265652f726f6f74" 2>&1)
-TRUST_ROOT_B64=$(echo "$ABCI_RESPONSE" | jq -r '.result.response.value // ""')
-
-if [ -z "$TRUST_ROOT_B64" ] || [ "$TRUST_ROOT_B64" == "null" ]; then
-    echo "  Trust tree not found. Waiting for EndBlocker rebuild..."
-    sleep 12
-    ABCI_RESPONSE=$(curl -s "http://localhost:26657/abci_query?path=\"/store/rep/key\"&data=0x74727573745f747265652f726f6f74" 2>&1)
-    TRUST_ROOT_B64=$(echo "$ABCI_RESPONSE" | jq -r '.result.response.value // ""')
-fi
-
-if [ -z "$TRUST_ROOT_B64" ] || [ "$TRUST_ROOT_B64" == "null" ]; then
-    echo "  ERROR: Trust tree root not available. Anonymous tests cannot proceed."
-    echo "  ABCI response: $ABCI_RESPONSE"
+if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
+    echo "Test environment not found (.test_env missing)"
     exit 1
 fi
 
-TRUST_ROOT_HEX=$(echo "$TRUST_ROOT_B64" | base64 -d | xxd -p | tr -d '\n')
-echo "  Trust tree root (hex): ${TRUST_ROOT_HEX:0:16}..."
+source "$SCRIPT_DIR/.test_env"
+
+echo "Collector 1:  $COLLECTOR1_ADDR"
 echo ""
 
-DUMMY_PROOF_B64=$(echo -n "deadbeef" | xxd -r -p | base64)
+# === HELPERS ===
 
-# Generate a deterministic Ed25519 management key pair for anonymous collection management.
-# The seed is a fixed 32-byte value. We derive the Ed25519 public key using Python's cryptography.
-MGMT_SEED_HEX="aabb000000000000000000000000000000000000000000000000000000000001"
-MGMT_KEY_B64=$(python3 -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization
-import base64
-seed = bytes.fromhex('$MGMT_SEED_HEX')
-key = Ed25519PrivateKey.from_private_bytes(seed)
-pub = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-print(base64.b64encode(pub).decode())
-")
+wait_for_tx() {
+    local TXHASH=$1
+    local MAX_ATTEMPTS=20
+    local ATTEMPT=0
 
-BLOCK_HEIGHT=$(get_block_height)
-FUTURE_BLOCK=$((BLOCK_HEIGHT + 5000))
+    while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
+            echo "$RESULT"
+            return 0
+        fi
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 1
+    done
 
-# =========================================================================
-# Test 1: Create anonymous collection (happy path)
-# =========================================================================
-echo "--- Test 1: Create anonymous collection (happy path) ---"
+    echo "ERROR: Transaction $TXHASH not found after $MAX_ATTEMPTS attempts" >&2
+    return 1
+}
 
-NULLIFIER_AC1="ac01000000000000000000000000000000000000000000000000000000000001"
-NULLIFIER_AC1_B64=$(echo "$NULLIFIER_AC1" | xxd -r -p | base64)
+check_tx_success() {
+    local TX_RESULT=$1
+    local CODE=$(echo "$TX_RESULT" | jq -r '.code')
+    [ "$CODE" == "0" ]
+}
 
-TX_OUT=$(send_tx collect create-anonymous-collection \
-    "AnonGallery" "An anonymous art gallery" \
-    --management-public-key "$MGMT_KEY_B64" \
-    --expires-at "$FUTURE_BLOCK" \
-    --proof "$DUMMY_PROOF_B64" \
-    --nullifier "$NULLIFIER_AC1_B64" \
-    --merkle-root "$TRUST_ROOT_B64" \
-    --min-trust-level 2 \
-    --from collector1)
-assert_tx_success "Create anonymous collection" "$TX_OUT"
+submit_tx_and_wait() {
+    local TX_RES="$1"
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
-ANON_COLL_ID=$(extract_event_attr "$TX_RESULT_OUT" "anonymous_collection_created" "collection_id")
-if [ -z "$ANON_COLL_ID" ]; then
-    # Fallback: try querying anonymous collections
-    ANON_COLLS=$(query collect anonymous-collections)
-    ANON_COLL_ID=$(echo "$ANON_COLLS" | jq -r '.collections[-1].id // empty' 2>/dev/null)
+    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+        TX_RESULT=""
+        return 1
+    fi
+
+    local BROADCAST_CODE=$(echo "$TX_RES" | jq -r '.code // "0"')
+    if [ "$BROADCAST_CODE" != "0" ]; then
+        TX_RESULT="$TX_RES"
+        return 0
+    fi
+
+    sleep 6
+    TX_RESULT=$(wait_for_tx "$TXHASH")
+    return 0
+}
+
+extract_event_value() {
+    local TX_RESULT=$1
+    local EVENT_TYPE=$2
+    local ATTR_KEY=$3
+    echo "$TX_RESULT" | jq -r ".events[] | select(.type==\"$EVENT_TYPE\") | .attributes[] | select(.key==\"$ATTR_KEY\") | .value" | tr -d '"'
+}
+
+PASS_COUNT=0
+FAIL_COUNT=0
+RESULTS=()
+TEST_NAMES=()
+
+record_result() {
+    local NAME=$1
+    local RESULT=$2
+    TEST_NAMES+=("$NAME")
+    RESULTS+=("$RESULT")
+    if [ "$RESULT" == "PASS" ]; then
+        PASS_COUNT=$((PASS_COUNT + 1))
+    else
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+    echo "  => $RESULT"
+    echo ""
+}
+
+# === RESOLVE SHIELD MODULE ADDRESS ===
+SHIELD_MODULE_ADDR=$($BINARY query auth module-account shield --output json 2>/dev/null | jq -r '.account.value.address' 2>/dev/null)
+
+if [ -z "$SHIELD_MODULE_ADDR" ] || [ "$SHIELD_MODULE_ADDR" == "null" ]; then
+    echo "ERROR: Could not resolve shield module address"
+    exit 1
 fi
-echo "  Anonymous collection ID: $ANON_COLL_ID"
 
-# =========================================================================
-# Test 2: Query anonymous collections list
-# =========================================================================
+echo "Shield module: $SHIELD_MODULE_ADDR"
 echo ""
-echo "--- Test 2: Query anonymous collections list ---"
 
-ANON_LIST=$(query collect anonymous-collections)
-ANON_COUNT=$(echo "$ANON_LIST" | jq -r '.collections | length' 2>/dev/null || echo "0")
-assert_gt "Anonymous collections list has entries" "0" "$ANON_COUNT"
+# === FUND SHIELD MODULE (if needed) ===
+SHIELD_BAL=$($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount' 2>/dev/null || echo "0")
+if [ -z "$SHIELD_BAL" ] || [ "$SHIELD_BAL" == "0" ] || [ "$SHIELD_BAL" == "null" ]; then
+    echo "Shield module has no gas — funding from alice..."
+    ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test 2>/dev/null)
+    $BINARY tx bank send "$ALICE_ADDR" "$SHIELD_MODULE_ADDR" 50000000uspark \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 500000uspark -y --output json > /dev/null 2>&1
+    sleep 6
+    echo "  Shield balance: $($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount' 2>/dev/null) uspark"
+    echo ""
+fi
+
+# Dummy ZK values - proof verification is skipped when no VK is stored (test mode)
+DUMMY_PROOF="deadbeef"
+DUMMY_MERKLE_ROOT="0000000000000000000000000000000000000000000000000000000000000001"
 
 # =========================================================================
-# Test 3: Query is-nullifier-used (should be true)
+# PREREQUISITE: Create a regular collection for upvote/downvote tests
 # =========================================================================
-echo ""
-echo "--- Test 3: Query is-nullifier-used (should be true) ---"
+echo "--- PREREQUISITE: Create a regular collection for voting tests ---"
 
-# Determine current epoch for nullifier scope
-BLOCK_TIME=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_time // ""')
-if [ -n "$BLOCK_TIME" ]; then
-    UNIX_TIME=$(date -d "$BLOCK_TIME" +%s 2>/dev/null || echo "0")
-    EPOCH=$((UNIX_TIME / 13140000))
+# Use alice (CORE trust level) to avoid collection limit issues — collector1/collector2 may
+# have exhausted their PROVISIONAL limit (5) from earlier test suites.
+TX_RES=$($BINARY tx collect create-collection nft public false 0 "Vote Target" "A collection for anonymous voting tests" "" "anon-test" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 500000uspark --gas 300000 -y --output json 2>&1)
+
+submit_tx_and_wait "$TX_RES"
+
+if check_tx_success "$TX_RESULT"; then
+    VOTE_TARGET_ID=$(extract_event_value "$TX_RESULT" "collection_created" "id")
+    if [ -z "$VOTE_TARGET_ID" ]; then
+        VOTE_TARGET_ID="1"
+    fi
+    echo "  Regular collection created (ID: $VOTE_TARGET_ID) for vote tests"
 else
-    EPOCH=0
+    echo "  WARNING: Could not create regular collection, using ID=1"
+    VOTE_TARGET_ID="1"
 fi
-
-# Domain 6 = anonymous collection
-NULL_Q=$(query collect is-nullifier-used "$NULLIFIER_AC1" 6 "$EPOCH")
-IS_USED=$(echo "$NULL_Q" | jq -r '.used // "false"')
-
-if [ "$IS_USED" != "true" ]; then
-    # Try scope=0 as fallback
-    NULL_Q=$(query collect is-nullifier-used "$NULLIFIER_AC1" 6 0)
-    IS_USED=$(echo "$NULL_Q" | jq -r '.used // "false"')
-fi
-
-assert_equal "Nullifier is marked as used" "true" "$IS_USED"
-
-# =========================================================================
-# Test 4: Fail — duplicate nullifier (ErrNullifierUsed)
-# =========================================================================
 echo ""
-echo "--- Test 4: Fail — duplicate nullifier ---"
-
-BLOCK_HEIGHT=$(get_block_height)
-FUTURE_BLOCK2=$((BLOCK_HEIGHT + 5000))
-
-TX_OUT=$(send_tx collect create-anonymous-collection \
-    "DuplicateGallery" "Duplicate attempt" \
-    --management-public-key "$MGMT_KEY_B64" \
-    --expires-at "$FUTURE_BLOCK2" \
-    --proof "$DUMMY_PROOF_B64" \
-    --nullifier "$NULLIFIER_AC1_B64" \
-    --merkle-root "$TRUST_ROOT_B64" \
-    --min-trust-level 2 \
-    --from collector1)
-assert_tx_failure "Duplicate nullifier rejected" "$TX_OUT"
 
 # =========================================================================
-# Test 5: Manage anonymous collection — add item via Ed25519 signature
+# TEST 1: Anonymous collection creation via MsgShieldedExec
 # =========================================================================
-echo ""
-echo "--- Test 5: Manage anonymous collection — add item ---"
+echo "--- TEST 1: Anonymous collection creation ---"
 
-if [ -n "$ANON_COLL_ID" ]; then
-    # Build a real Ed25519 signature over the canonical payload:
-    #   SHA256(BE_uint64(collection_id) || BE_uint64(nonce) || BE_uint32(action))
-    # Action: ADD_ITEM = 1, Nonce: 1
-    MGMT_SIG_B64=$(python3 -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-import hashlib, struct, base64
-seed = bytes.fromhex('$MGMT_SEED_HEX')
-key = Ed25519PrivateKey.from_private_bytes(seed)
-buf = struct.pack('>QQI', int('$ANON_COLL_ID'), 1, 1)
-payload = hashlib.sha256(buf).digest()
-sig = key.sign(payload)
-print(base64.b64encode(sig).decode())
-")
+NULLIFIER_COLL="cc01000000000000000000000000000000000000000000000000000000000001"
+RATE_NULL_COLL=$(openssl rand -hex 32)
+# type=1 (CURATED), visibility=1 (PUBLIC), encrypted=false
+INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgCreateCollection\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"type\":1,\"visibility\":1,\"encrypted\":false,\"expires_at\":\"0\",\"name\":\"Anonymous Collection\",\"description\":\"Created anonymously via x/shield\",\"cover_uri\":\"\",\"tags\":[\"anon-test\"]}"
 
-    TX_OUT=$(send_tx collect manage-anonymous-collection \
-        "$ANON_COLL_ID" anon-manage-action-add-item 1 \
-        --management-signature "$MGMT_SIG_B64" \
-        --items '{"title":"Anonymous Artwork","description":"A beautiful piece","image_uri":"https://example.com/art1"}' \
-        --from collector1)
-    assert_tx_success "Manage anonymous collection — add item" "$TX_OUT"
-else
-    skip_test "Manage anonymous collection — add item" "No anonymous collection ID"
-fi
+TX_RES=$($BINARY tx shield shielded-exec \
+    --inner-message "$INNER_MSG" \
+    --proof "$DUMMY_PROOF" \
+    --nullifier "$NULLIFIER_COLL" \
+    --rate-limit-nullifier "$RATE_NULL_COLL" \
+    --merkle-root "$DUMMY_MERKLE_ROOT" \
+    --proof-domain 1 \
+    --min-trust-level 1 \
+    --exec-mode 0 \
+    --from collector1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 500000uspark \
+    --gas 500000 \
+    -y \
+    --output json 2>&1)
 
-# =========================================================================
-# Test 6: Fail — manage with invalid nonce (ErrInvalidNonce)
-# =========================================================================
-echo ""
-echo "--- Test 6: Fail — manage with invalid nonce ---"
+submit_tx_and_wait "$TX_RES"
 
-if [ -n "$ANON_COLL_ID" ]; then
-    # Nonce 0 should fail (must be > current stored nonce, which is now 1 after Test 5)
-    # Use a dummy 64-byte signature — the nonce check happens before signature verification
-    DUMMY_SIG_B64=$(python3 -c "import base64; print(base64.b64encode(b'\x00'*64).decode())")
-    TX_OUT=$(send_tx collect manage-anonymous-collection \
-        "$ANON_COLL_ID" anon-manage-action-add-item 0 \
-        --management-signature "$DUMMY_SIG_B64" \
-        --items '{"title":"Bad Nonce Item","description":"Should fail"}' \
-        --from collector1)
-    assert_tx_failure "Invalid nonce rejected" "$TX_OUT"
-else
-    skip_test "Invalid nonce rejected" "No anonymous collection ID"
-fi
+if check_tx_success "$TX_RESULT"; then
+    ANON_COLL_ID=$(extract_event_value "$TX_RESULT" "collection_created" "id")
+    echo "  Anonymous collection created (ID: ${ANON_COLL_ID:-unknown})"
 
-# =========================================================================
-# Test 7: Fail — manage non-anonymous collection (ErrNotAnonymousCollection)
-# =========================================================================
-echo ""
-echo "--- Test 7: Fail — manage non-anonymous collection ---"
+    # Verify collection creator is shield module address
+    if [ -n "$ANON_COLL_ID" ]; then
+        COLL_QUERY=$($BINARY query collect show-collection "$ANON_COLL_ID" --output json 2>&1)
+        COLL_CREATOR=$(echo "$COLL_QUERY" | jq -r '.collection.creator // empty')
 
-# Use an existing regular collection (COLL1_ID from collection_test.sh),
-# or create one if not available (e.g. when running anon_test.sh alone).
-REGULAR_COLL_ID="${COLL1_ID}"
-
-if [ -z "$REGULAR_COLL_ID" ]; then
-    REG_TX=$(send_tx collect create-collection \
-        "RegularColl" "A regular collection for test" \
-        --visibility public \
-        --collection-type general \
-        --from collector1)
-    reg_txhash=$(get_txhash "$REG_TX")
-    if [ -n "$reg_txhash" ]; then
-        reg_result=$(wait_for_tx "$reg_txhash")
-        reg_code=$(get_tx_code "$reg_result")
-        if [ "$reg_code" = "0" ]; then
-            REGULAR_COLL_ID=$(extract_event_attr "$reg_result" "collection_created" "collection_id")
+        if [ "$COLL_CREATOR" == "$SHIELD_MODULE_ADDR" ]; then
+            echo "  Collection creator is shield module (anonymous): confirmed"
+        else
+            echo "  Collection creator: $COLL_CREATOR"
         fi
     fi
-fi
 
-if [ -n "$REGULAR_COLL_ID" ]; then
-    TX_OUT=$(send_tx collect manage-anonymous-collection \
-        "$REGULAR_COLL_ID" anon-manage-action-add-item 1 \
-        --management-signature "$DUMMY_SIG_B64" \
-        --items '{"title":"Fake Item","description":"Should fail"}' \
-        --from collector1)
-    assert_tx_failure "Manage non-anonymous collection rejected" "$TX_OUT"
+    record_result "Anonymous collection creation" "PASS"
 else
-    skip_test "Manage non-anonymous collection rejected" "COLL1_ID not set (run collection_test.sh first)"
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
+    echo "  Transaction failed: ${RAW_LOG:0:200}"
+    record_result "Anonymous collection creation" "FAIL"
 fi
 
 # =========================================================================
-# Test 8: Anonymous upvote on collection (happy path)
+# TEST 2: Anonymous upvote on collection via MsgShieldedExec
 # =========================================================================
-echo ""
-echo "--- Test 8: Anonymous upvote on collection ---"
+echo "--- TEST 2: Anonymous collection upvote ---"
 
-if [ -n "$ANON_COLL_ID" ]; then
-    NULLIFIER_REACT1="ac10000000000000000000000000000000000000000000000000000000000010"
-    NULLIFIER_REACT1_B64=$(echo "$NULLIFIER_REACT1" | xxd -r -p | base64)
+NULLIFIER_UP="cc02000000000000000000000000000000000000000000000000000000000002"
+RATE_NULL_UP=$(openssl rand -hex 32)
+# target_type=1 (FLAG_TARGET_TYPE_COLLECTION)
+INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgUpvoteContent\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"target_id\":\"$VOTE_TARGET_ID\",\"target_type\":1}"
 
-    TX_OUT=$(send_tx collect anonymous-react \
-        "$ANON_COLL_ID" collection 1 \
-        --proof "$DUMMY_PROOF_B64" \
-        --nullifier "$NULLIFIER_REACT1_B64" \
-        --merkle-root "$TRUST_ROOT_B64" \
-        --min-trust-level 2 \
-        --from collector1)
-    assert_tx_success "Anonymous upvote on collection" "$TX_OUT"
+TX_RES=$($BINARY tx shield shielded-exec \
+    --inner-message "$INNER_MSG" \
+    --proof "$DUMMY_PROOF" \
+    --nullifier "$NULLIFIER_UP" \
+    --rate-limit-nullifier "$RATE_NULL_UP" \
+    --merkle-root "$DUMMY_MERKLE_ROOT" \
+    --proof-domain 1 \
+    --min-trust-level 1 \
+    --exec-mode 0 \
+    --from collector1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 500000uspark \
+    --gas 500000 \
+    -y \
+    --output json 2>&1)
+
+submit_tx_and_wait "$TX_RES"
+
+if check_tx_success "$TX_RESULT"; then
+    echo "  Anonymous upvote submitted successfully"
+    record_result "Anonymous collection upvote" "PASS"
 else
-    skip_test "Anonymous upvote on collection" "No anonymous collection ID"
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
+    echo "  Transaction failed: ${RAW_LOG:0:200}"
+    record_result "Anonymous collection upvote" "FAIL"
 fi
 
 # =========================================================================
-# Test 9: Anonymous downvote on collection (costs SPARK)
+# TEST 3: Anonymous downvote on collection via MsgShieldedExec
 # =========================================================================
-echo ""
-echo "--- Test 9: Anonymous downvote on collection ---"
+echo "--- TEST 3: Anonymous collection downvote ---"
 
-if [ -n "$ANON_COLL_ID" ]; then
-    NULLIFIER_REACT2="ac20000000000000000000000000000000000000000000000000000000000020"
-    NULLIFIER_REACT2_B64=$(echo "$NULLIFIER_REACT2" | xxd -r -p | base64)
+# Create a second collection to downvote (avoid "already voted" conflict with upvote target)
+# Use alice (CORE trust level) to avoid collection limit issues
+TX_RES=$($BINARY tx collect create-collection nft public false 0 "Downvote Target" "A second collection" "" "anon-test" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 500000uspark --gas 300000 -y --output json 2>&1)
 
-    TX_OUT=$(send_tx collect anonymous-react \
-        "$ANON_COLL_ID" collection 2 \
-        --proof "$DUMMY_PROOF_B64" \
-        --nullifier "$NULLIFIER_REACT2_B64" \
-        --merkle-root "$TRUST_ROOT_B64" \
-        --min-trust-level 2 \
-        --from collector2)
-    assert_tx_success "Anonymous downvote on collection" "$TX_OUT"
-else
-    skip_test "Anonymous downvote on collection" "No anonymous collection ID"
+DOWNVOTE_TARGET=""
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    DOWNVOTE_TARGET=$(extract_event_value "$TX_RESULT" "collection_created" "id")
+    echo "  Created fresh downvote target collection: $DOWNVOTE_TARGET"
 fi
 
-# =========================================================================
-# Test 10: Fail — duplicate nullifier on same target (ErrNullifierUsed)
-# =========================================================================
-echo ""
-echo "--- Test 10: Fail — duplicate reaction nullifier ---"
-
-if [ -n "$ANON_COLL_ID" ]; then
-    TX_OUT=$(send_tx collect anonymous-react \
-        "$ANON_COLL_ID" collection 1 \
-        --proof "$DUMMY_PROOF_B64" \
-        --nullifier "$NULLIFIER_REACT1_B64" \
-        --merkle-root "$TRUST_ROOT_B64" \
-        --min-trust-level 2 \
-        --from collector1)
-    assert_tx_failure "Duplicate reaction nullifier rejected" "$TX_OUT"
-else
-    skip_test "Duplicate reaction nullifier rejected" "No anonymous collection ID"
-fi
-
-# =========================================================================
-# Test 11: Fail — react on non-existent collection
-# =========================================================================
-echo ""
-echo "--- Test 11: Fail — react on non-existent collection ---"
-
-NULLIFIER_REACT3="ac30000000000000000000000000000000000000000000000000000000000030"
-NULLIFIER_REACT3_B64=$(echo "$NULLIFIER_REACT3" | xxd -r -p | base64)
-
-TX_OUT=$(send_tx collect anonymous-react \
-    999999 collection 1 \
-    --proof "$DUMMY_PROOF_B64" \
-    --nullifier "$NULLIFIER_REACT3_B64" \
-    --merkle-root "$TRUST_ROOT_B64" \
-    --min-trust-level 2 \
-    --from collector1)
-assert_tx_failure "React on non-existent collection rejected" "$TX_OUT"
-
-# =========================================================================
-# Test 12: Pin ephemeral collection (happy path)
-# =========================================================================
-echo ""
-echo "--- Test 12: Pin ephemeral collection ---"
-
-if [ -n "$ANON_COLL_ID" ]; then
-    # Pin requires TRUST_LEVEL_ESTABLISHED (level 2). Alice has TRUST_LEVEL_CORE.
-    TX_OUT=$(send_tx collect pin-collection \
-        "$ANON_COLL_ID" \
-        --from alice)
-    assert_tx_success "Pin ephemeral collection" "$TX_OUT"
-
-    # Verify collection is now permanent (expires_at=0 is omitted in proto3 JSON, so default to 0)
-    PINNED_Q=$(query collect collection "$ANON_COLL_ID")
-    PINNED_EXPIRES=$(echo "$PINNED_Q" | jq -r '(.collection.expires_at // 0) | tostring' 2>/dev/null)
-    assert_equal "Pinned collection ExpiresAt=0" "0" "$PINNED_EXPIRES"
-else
-    skip_test "Pin ephemeral collection" "No anonymous collection ID"
-fi
-
-# =========================================================================
-# Test 13: Fail — pin non-ephemeral collection (ErrCannotPinActive)
-# =========================================================================
-echo ""
-echo "--- Test 13: Fail — pin non-ephemeral (already permanent) collection ---"
-
-if [ -n "$ANON_COLL_ID" ]; then
-    # The collection was just pinned (ExpiresAt=0), so pinning again should fail
-    TX_OUT=$(send_tx collect pin-collection \
-        "$ANON_COLL_ID" \
-        --from alice)
-    assert_tx_failure "Pin already-permanent collection rejected" "$TX_OUT"
-else
-    skip_test "Pin already-permanent collection rejected" "No anonymous collection ID"
-fi
-
-# =========================================================================
-# Test 14: Fail — pin expired collection (ErrCollectionExpired)
-# =========================================================================
-echo ""
-echo "--- Test 14: Fail — pin expired collection ---"
-
-# Create a collection with a very short TTL (already expired)
-NULLIFIER_AC2="ac02000000000000000000000000000000000000000000000000000000000002"
-NULLIFIER_AC2_B64=$(echo "$NULLIFIER_AC2" | xxd -r -p | base64)
-MGMT_KEY2_SEED_HEX="aabb000000000000000000000000000000000000000000000000000000000002"
-MGMT_KEY2_B64=$(python3 -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization
-import base64
-seed = bytes.fromhex('$MGMT_KEY2_SEED_HEX')
-key = Ed25519PrivateKey.from_private_bytes(seed)
-pub = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-print(base64.b64encode(pub).decode())
-")
-
-# ExpiresAt = 1 (already passed in block height)
-TX_OUT=$(send_tx collect create-anonymous-collection \
-    "ExpiredGallery" "Will expire immediately" \
-    --management-public-key "$MGMT_KEY2_B64" \
-    --expires-at 1 \
-    --proof "$DUMMY_PROOF_B64" \
-    --nullifier "$NULLIFIER_AC2_B64" \
-    --merkle-root "$TRUST_ROOT_B64" \
-    --min-trust-level 2 \
-    --from collector1)
-
-# This might fail at creation time (expired TTL), which is fine
-txhash=$(get_txhash "$TX_OUT")
-EXPIRED_COLL_ID=""
-if [ -n "$txhash" ]; then
-    tx_result=$(wait_for_tx "$txhash")
-    code=$(get_tx_code "$tx_result")
-    if [ "$code" = "0" ]; then
-        EXPIRED_COLL_ID=$(extract_event_attr "$tx_result" "anonymous_collection_created" "collection_id")
+if [ -z "$DOWNVOTE_TARGET" ] || [ "$DOWNVOTE_TARGET" == "null" ]; then
+    # Fallback: use the anonymous collection from TEST 1 (created by shield module, so shield hasn't voted on it)
+    if [ -n "$ANON_COLL_ID" ] && [ "$ANON_COLL_ID" != "null" ] && [ "$ANON_COLL_ID" != "$VOTE_TARGET_ID" ]; then
+        DOWNVOTE_TARGET="$ANON_COLL_ID"
+        echo "  Using anonymous collection as downvote target: $DOWNVOTE_TARGET"
+    else
+        echo "  WARNING: No separate downvote target available, test may fail"
+        DOWNVOTE_TARGET="$VOTE_TARGET_ID"
     fi
 fi
+echo "  Downvote target collection: $DOWNVOTE_TARGET"
 
-if [ -n "$EXPIRED_COLL_ID" ]; then
-    TX_OUT=$(send_tx collect pin-collection \
-        "$EXPIRED_COLL_ID" \
-        --from collector1)
-    assert_tx_failure "Pin expired collection rejected" "$TX_OUT"
+NULLIFIER_DOWN="cc03000000000000000000000000000000000000000000000000000000000003"
+RATE_NULL_DOWN=$(openssl rand -hex 32)
+INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgDownvoteContent\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"target_id\":\"$DOWNVOTE_TARGET\",\"target_type\":1}"
+
+TX_RES=$($BINARY tx shield shielded-exec \
+    --inner-message "$INNER_MSG" \
+    --proof "$DUMMY_PROOF" \
+    --nullifier "$NULLIFIER_DOWN" \
+    --rate-limit-nullifier "$RATE_NULL_DOWN" \
+    --merkle-root "$DUMMY_MERKLE_ROOT" \
+    --proof-domain 1 \
+    --min-trust-level 1 \
+    --exec-mode 0 \
+    --from collector1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 500000uspark \
+    --gas 500000 \
+    -y \
+    --output json 2>&1)
+
+submit_tx_and_wait "$TX_RES"
+
+if check_tx_success "$TX_RESULT"; then
+    echo "  Anonymous downvote submitted successfully"
+    record_result "Anonymous collection downvote" "PASS"
 else
-    # Creation itself failed because ExpiresAt=1 is in the past — that's expected
-    echo "PASS: Pin expired collection rejected (creation blocked expired TTL)"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
+    echo "  Transaction failed: ${RAW_LOG:0:200}"
+    record_result "Anonymous collection downvote" "FAIL"
 fi
 
 # =========================================================================
-# Summary
+# TEST 4: Nullifier replay prevention
 # =========================================================================
-print_summary
-exit $?
+echo "--- TEST 4: Nullifier replay prevention ---"
+
+# Reuse the same nullifier from TEST 2 (upvote)
+RATE_NULL_REPLAY=$(openssl rand -hex 32)
+INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgUpvoteContent\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"target_id\":\"$VOTE_TARGET_ID\",\"target_type\":1}"
+
+TX_RES=$($BINARY tx shield shielded-exec \
+    --inner-message "$INNER_MSG" \
+    --proof "$DUMMY_PROOF" \
+    --nullifier "$NULLIFIER_UP" \
+    --rate-limit-nullifier "$RATE_NULL_REPLAY" \
+    --merkle-root "$DUMMY_MERKLE_ROOT" \
+    --proof-domain 1 \
+    --min-trust-level 1 \
+    --exec-mode 0 \
+    --from collector1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 500000uspark \
+    --gas 500000 \
+    -y \
+    --output json 2>&1)
+
+submit_tx_and_wait "$TX_RES"
+
+if check_tx_success "$TX_RESULT"; then
+    echo "  ERROR: Replay attack succeeded (should have failed)"
+    record_result "Nullifier replay prevention" "FAIL"
+else
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
+    if echo "$RAW_LOG" | grep -qi "nullifier"; then
+        echo "  Correctly rejected: nullifier already used"
+    else
+        echo "  Rejected (reason: ${RAW_LOG:0:150})"
+    fi
+    record_result "Nullifier replay prevention" "PASS"
+fi
+
+# =========================================================================
+# SUMMARY
+# =========================================================================
+echo "=========================================="
+echo "  ANONYMOUS COLLECT ACTIONS TEST SUMMARY"
+echo "=========================================="
+echo ""
+echo "  Passed: $PASS_COUNT"
+echo "  Failed: $FAIL_COUNT"
+echo ""
+
+for i in "${!TEST_NAMES[@]}"; do
+    echo "  ${RESULTS[$i]}  ${TEST_NAMES[$i]}"
+done
+echo ""
+
+if [ $FAIL_COUNT -gt 0 ]; then
+    echo ">>> SOME TESTS FAILED <<<"
+    exit 1
+else
+    echo ">>> ALL TESTS PASSED <<<"
+fi

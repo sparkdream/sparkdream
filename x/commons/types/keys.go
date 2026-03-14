@@ -48,4 +48,6 @@ var (
 	ProposalsByCouncilKey = collections.NewPrefix("proposalsByCouncil/value/")
 	// VetoPolicies: council_name -> veto_policy_address (maps council to its veto policy)
 	VetoPoliciesKey = collections.NewPrefix("vetoPolicies/value/")
+	// AnonVoteTallies: proposal_id -> AnonVoteTally (anonymous vote counts)
+	AnonVoteTalliesKey = collections.NewPrefix("anonVoteTallies/value/")
 )

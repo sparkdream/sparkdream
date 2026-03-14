@@ -166,15 +166,6 @@ service Msg {
 
   // AppealGovAction defines the AppealGovAction RPC.
   rpc AppealGovAction(MsgAppealGovAction) returns (MsgAppealGovActionResponse);
-
-  // CreateAnonymousPost creates a post with a ZK proof of membership.
-  rpc CreateAnonymousPost(MsgCreateAnonymousPost) returns (MsgCreateAnonymousPostResponse);
-
-  // CreateAnonymousReply creates a reply with a ZK proof of membership.
-  rpc CreateAnonymousReply(MsgCreateAnonymousReply) returns (MsgCreateAnonymousReplyResponse);
-
-  // AnonymousReact submits an anonymous reaction via ZK proof.
-  rpc AnonymousReact(MsgAnonymousReact) returns (MsgAnonymousReactResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -229,7 +220,6 @@ message MsgCreateCategory {
   string description = 3;
   bool members_only_write = 4;
   bool admin_only_write = 5;
-  bool allow_anonymous = 6;
 }
 
 // MsgCreateCategoryResponse defines the MsgCreateCategoryResponse message.
@@ -244,7 +234,7 @@ message MsgCreatePost {
   string content = 4;
   repeated string tags = 5;
   sparkdream.common.v1.ContentType content_type = 6;
-  string author_bond = 7 [           // Optional DREAM amount to lock as author bond
+  string author_bond = 7 [ // Optional DREAM amount to lock as author bond
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = true
@@ -754,56 +744,3 @@ message MsgAppealGovAction {
 
 // MsgAppealGovActionResponse defines the MsgAppealGovActionResponse message.
 message MsgAppealGovActionResponse {}
-
-// MsgCreateAnonymousPost creates an anonymous post using a ZK proof.
-message MsgCreateAnonymousPost {
-  option (cosmos.msg.v1.signer) = "submitter";
-  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  uint64 category_id = 2;
-  string content = 3;
-  repeated string tags = 4;
-  bytes proof = 5;
-  bytes nullifier = 6;
-  bytes merkle_root = 7;
-  uint32 min_trust_level = 8;
-  sparkdream.common.v1.ContentType content_type = 9;
-  uint64 initiative_id = 10;
-}
-
-// MsgCreateAnonymousPostResponse defines the response for MsgCreateAnonymousPost.
-message MsgCreateAnonymousPostResponse {
-  uint64 id = 1;
-}
-
-// MsgCreateAnonymousReply creates an anonymous reply using a ZK proof.
-message MsgCreateAnonymousReply {
-  option (cosmos.msg.v1.signer) = "submitter";
-  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  uint64 parent_id = 2;
-  string content = 3;
-  bytes proof = 4;
-  bytes nullifier = 5;
-  bytes merkle_root = 6;
-  uint32 min_trust_level = 7;
-  sparkdream.common.v1.ContentType content_type = 8;
-}
-
-// MsgCreateAnonymousReplyResponse defines the response for MsgCreateAnonymousReply.
-message MsgCreateAnonymousReplyResponse {
-  uint64 id = 1;
-}
-
-// MsgAnonymousReact submits an anonymous reaction using a ZK proof.
-message MsgAnonymousReact {
-  option (cosmos.msg.v1.signer) = "submitter";
-  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  uint64 post_id = 2;
-  uint32 reaction_type = 3;
-  bytes proof = 4;
-  bytes nullifier = 5;
-  bytes merkle_root = 6;
-  uint32 min_trust_level = 7;
-}
-
-// MsgAnonymousReactResponse defines the response for MsgAnonymousReact.
-message MsgAnonymousReactResponse {}

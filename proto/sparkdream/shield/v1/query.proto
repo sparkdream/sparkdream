@@ -1,0 +1,216 @@
+syntax = "proto3";
+package sparkdream.shield.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/shield/v1/params.proto";
+import "sparkdream/shield/v1/types.proto";
+
+option go_package = "sparkdream/x/shield/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Params returns module parameters.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/params";
+  }
+
+  // ShieldedOp returns the registration for a specific message type.
+  rpc ShieldedOp(QueryShieldedOpRequest) returns (QueryShieldedOpResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/shielded_op/{message_type_url}";
+  }
+
+  // ShieldedOps returns all registered shielded operations.
+  rpc ShieldedOps(QueryShieldedOpsRequest) returns (QueryShieldedOpsResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/shielded_ops";
+  }
+
+  // ModuleBalance returns the shield module account's current balance.
+  rpc ModuleBalance(QueryModuleBalanceRequest) returns (QueryModuleBalanceResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/module_balance";
+  }
+
+  // NullifierUsed checks if a nullifier has been used in a given domain+scope.
+  rpc NullifierUsed(QueryNullifierUsedRequest) returns (QueryNullifierUsedResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/nullifier_used/{domain}/{scope}/{nullifier_hex}";
+  }
+
+  // DayFunding returns the amount funded from community pool for a given day.
+  rpc DayFunding(QueryDayFundingRequest) returns (QueryDayFundingResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/day_funding/{day}";
+  }
+
+  // ShieldEpoch returns the current shield epoch state.
+  rpc ShieldEpoch(QueryShieldEpochRequest) returns (QueryShieldEpochResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/shield_epoch";
+  }
+
+  // PendingOps returns pending shielded operations (optionally filtered by epoch).
+  rpc PendingOps(QueryPendingOpsRequest) returns (QueryPendingOpsResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/pending_ops";
+  }
+
+  // PendingOpCount returns the count of pending operations.
+  rpc PendingOpCount(QueryPendingOpCountRequest) returns (QueryPendingOpCountResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/pending_op_count";
+  }
+
+  // TLEMasterPublicKey returns the TLE master public key (for client encryption).
+  rpc TLEMasterPublicKey(QueryTLEMasterPublicKeyRequest) returns (QueryTLEMasterPublicKeyResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/tle_master_public_key";
+  }
+
+  // TLEKeySet returns the full TLE key set (master key + validator shares).
+  rpc TLEKeySet(QueryTLEKeySetRequest) returns (QueryTLEKeySetResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/tle_key_set";
+  }
+
+  // VerificationKey returns a ZK verification key by circuit ID.
+  rpc VerificationKey(QueryVerificationKeyRequest) returns (QueryVerificationKeyResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/verification_key/{circuit_id}";
+  }
+
+  // TLEMissCount returns a validator's current TLE miss count.
+  rpc TLEMissCount(QueryTLEMissCountRequest) returns (QueryTLEMissCountResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/tle_miss_count/{validator_address}";
+  }
+
+  // DecryptionShares returns the decryption shares submitted for a given epoch.
+  rpc DecryptionShares(QueryDecryptionSharesRequest) returns (QueryDecryptionSharesResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/decryption_shares/{epoch}";
+  }
+
+  // IdentityRateLimit returns the remaining rate limit for a given rate-limit nullifier.
+  rpc IdentityRateLimit(QueryIdentityRateLimitRequest) returns (QueryIdentityRateLimitResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/identity_rate_limit/{rate_limit_nullifier_hex}";
+  }
+
+  // DKGState returns the current DKG ceremony state.
+  rpc DKGState(QueryDKGStateRequest) returns (QueryDKGStateResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/dkg_state";
+  }
+
+  // DKGContributions returns all DKG contributions for the current round.
+  rpc DKGContributions(QueryDKGContributionsRequest) returns (QueryDKGContributionsResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/dkg_contributions";
+  }
+}
+
+// --- Request/Response types ---
+
+message QueryParamsRequest {}
+message QueryParamsResponse {
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+message QueryShieldedOpRequest {
+  string message_type_url = 1;
+}
+message QueryShieldedOpResponse {
+  ShieldedOpRegistration registration = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryShieldedOpsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+message QueryShieldedOpsResponse {
+  repeated ShieldedOpRegistration registrations = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryModuleBalanceRequest {}
+message QueryModuleBalanceResponse {
+  cosmos.base.v1beta1.Coin balance = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryNullifierUsedRequest {
+  uint32 domain = 1;
+  uint64 scope = 2;
+  string nullifier_hex = 3;
+}
+message QueryNullifierUsedResponse {
+  bool used = 1;
+  int64 used_at_height = 2;
+}
+
+message QueryDayFundingRequest {
+  uint64 day = 1;
+}
+message QueryDayFundingResponse {
+  DayFunding day_funding = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryShieldEpochRequest {}
+message QueryShieldEpochResponse {
+  ShieldEpochState epoch_state = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryPendingOpsRequest {
+  uint64 epoch = 1; // optional filter; 0 = all epochs
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+message QueryPendingOpsResponse {
+  repeated PendingShieldedOp pending_ops = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryPendingOpCountRequest {}
+message QueryPendingOpCountResponse {
+  uint64 count = 1;
+}
+
+message QueryTLEMasterPublicKeyRequest {}
+message QueryTLEMasterPublicKeyResponse {
+  bytes master_public_key = 1;
+}
+
+message QueryTLEKeySetRequest {}
+message QueryTLEKeySetResponse {
+  TLEKeySet key_set = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryVerificationKeyRequest {
+  string circuit_id = 1;
+}
+message QueryVerificationKeyResponse {
+  VerificationKey verification_key = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryTLEMissCountRequest {
+  string validator_address = 1;
+}
+message QueryTLEMissCountResponse {
+  uint64 miss_count = 1;
+}
+
+message QueryDecryptionSharesRequest {
+  uint64 epoch = 1;
+}
+message QueryDecryptionSharesResponse {
+  repeated ShieldDecryptionShare shares = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryIdentityRateLimitRequest {
+  string rate_limit_nullifier_hex = 1;
+}
+message QueryIdentityRateLimitResponse {
+  uint64 used_count = 1;
+  uint64 max_count = 2;
+  uint64 remaining = 3;
+}
+
+message QueryDKGStateRequest {}
+message QueryDKGStateResponse {
+  DKGState dkg_state = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryDKGContributionsRequest {}
+message QueryDKGContributionsResponse {
+  repeated DKGContribution contributions = 1 [(gogoproto.nullable) = false];
+}

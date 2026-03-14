@@ -681,7 +681,7 @@ message MsgResolveUnappealedModerationResponse {}
 message MsgNominate {
   option (cosmos.msg.v1.signer) = "creator";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string content_ref = 2;    // e.g. "blog/post/42"
+  string content_ref = 2; // e.g. "blog/post/42"
   string rationale = 3;
 }
 
@@ -695,7 +695,7 @@ message MsgStakeNomination {
   option (cosmos.msg.v1.signer) = "creator";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 nomination_id = 2;
-  string amount = 3;  // DREAM amount as decimal string
+  string amount = 3; // DREAM amount as decimal string
 }
 
 // MsgStakeNominationResponse defines the response for MsgStakeNomination.

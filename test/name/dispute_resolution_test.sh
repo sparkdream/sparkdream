@@ -76,6 +76,17 @@ check_tx_success() {
 }
 
 FAILURES=0
+PASSES=0
+
+pass() {
+    echo "  PASS: $1"
+    PASSES=$((PASSES + 1))
+}
+
+fail() {
+    echo "  FAIL: $1"
+    FAILURES=$((FAILURES + 1))
+}
 
 assert_equals() {
     local LABEL=$1
@@ -83,10 +94,9 @@ assert_equals() {
     local ACTUAL=$3
 
     if [ "$EXPECTED" == "$ACTUAL" ]; then
-        echo "  PASS: $LABEL (=$ACTUAL)"
+        pass "$LABEL (=$ACTUAL)"
     else
-        echo "  FAIL: $LABEL (expected=$EXPECTED, actual=$ACTUAL)"
-        FAILURES=$((FAILURES + 1))
+        fail "$LABEL (expected=$EXPECTED, actual=$ACTUAL)"
     fi
 }
 
@@ -152,7 +162,13 @@ vote_and_execute_commons() {
     local PROP_ID=$1
 
     for VOTER in "alice" "bob" "carol"; do
-        VOTER_ADDR=$($BINARY keys show $VOTER -a --keyring-backend test)
+        # Check if proposal is already accepted (threshold met by earlier votes)
+        local PROP_STATUS=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
+        if [ "$PROP_STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
+            echo "  Skipping $VOTER vote (proposal already $PROP_STATUS)"
+            continue
+        fi
+
         echo "  $VOTER voting YES..."
         TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes \
             --from $VOTER -y \
@@ -272,17 +288,15 @@ else
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  FAIL: Could not submit file-dispute tx"
+        fail "Could not submit file-dispute tx"
         echo "  $TX_RES"
-        FAILURES=$((FAILURES + 1))
     else
         sleep 6
         TX_RESULT=$(wait_for_tx $TXHASH)
         if check_tx_success "$TX_RESULT"; then
-            echo "  Dispute filed successfully"
+            pass "Dispute filed successfully"
         else
-            echo "  FAIL: file-dispute transaction failed"
-            FAILURES=$((FAILURES + 1))
+            fail "file-dispute transaction failed"
         fi
     fi
 fi
@@ -340,8 +354,7 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/resolve_dispute.json"
     --output json 2>&1)
 
 if ! submit_and_wait "$TX_RES" "proposal submission"; then
-    FAILURES=$((FAILURES + 1))
-    echo "  ERROR: Cannot continue without proposal"
+    fail "Cannot continue without proposal"
     exit 1
 fi
 
@@ -363,7 +376,7 @@ echo "--- PART 4: VOTE & EXECUTE ---"
 
 vote_and_execute_commons $PROPOSAL_ID
 if [ $? -ne 0 ]; then
-    FAILURES=$((FAILURES + 1))
+    fail "Could not execute uncontested dispute proposal"
 fi
 
 echo ""
@@ -461,10 +474,9 @@ if [ "$PART6_READY" == "true" ]; then
             CONTEST_ID=$(echo "$DISPUTE_RES" | jq -r '.dispute.contest_challenge_id // ""')
 
             if [ -n "$CONTEST_ID" ] && [ "$CONTEST_ID" != "" ]; then
-                echo "  PASS: contest_challenge_id set ($CONTEST_ID)"
+                pass "contest_challenge_id set ($CONTEST_ID)"
             else
-                echo "  FAIL: contest_challenge_id not set"
-                FAILURES=$((FAILURES + 1))
+                fail "contest_challenge_id not set"
             fi
         else
             echo "  Failed to contest dispute"
@@ -513,11 +525,10 @@ EOF
 
         vote_and_execute_commons $PROPOSAL_ID2
         if [ $? -ne 0 ]; then
-            echo "  FAIL: Could not execute contest proposal"
-            FAILURES=$((FAILURES + 1))
+            fail "Could not execute contest proposal"
         fi
     else
-        echo "  Failed to submit contest proposal"
+        fail "Could not submit contest proposal"
         PART6_READY=false
     fi
 else
@@ -645,10 +656,9 @@ if [ "$PART9_READY" == "true" ]; then
             CONTEST_ID=$(echo "$DISPUTE_RES" | jq -r '.dispute.contest_challenge_id // ""')
 
             if [ -n "$CONTEST_ID" ] && [ "$CONTEST_ID" != "" ]; then
-                echo "  PASS: contest_challenge_id set ($CONTEST_ID)"
+                pass "contest_challenge_id set ($CONTEST_ID)"
             else
-                echo "  FAIL: contest_challenge_id not set"
-                FAILURES=$((FAILURES + 1))
+                fail "contest_challenge_id not set"
             fi
         else
             echo "  Failed to contest dispute"
@@ -699,11 +709,10 @@ EOF
 
         vote_and_execute_commons $PROPOSAL_ID3
         if [ $? -ne 0 ]; then
-            echo "  FAIL: Could not execute challenger-wins proposal"
-            FAILURES=$((FAILURES + 1))
+            fail "Could not execute challenger-wins proposal"
         fi
     else
-        echo "  Failed to submit challenger-wins proposal"
+        fail "Could not submit challenger-wins proposal"
         PART9_READY=false
     fi
 else
@@ -758,24 +767,15 @@ echo ""
 # ========================================================================
 echo "--- DISPUTE RESOLUTION TEST SUMMARY ---"
 echo ""
-echo "  Register names:                  Tested"
-echo "  File dispute (DREAM staking):    Tested"
-echo "  Council proposal (transfer):     Tested"
-echo "  Vote & execute:                  Tested"
-echo "  Verify transfer + inactive:      Tested"
-echo "  Contest dispute (DREAM stake):   Tested"
-echo "  Council resolve (owner wins):    Tested"
-echo "  Verify owner retains name:       Tested"
-echo "  Contest (challenger wins):       Tested"
-echo "  Verify name transfers:           Tested"
-echo "  Query dispute parameters:        Tested"
+echo "  Passed: $PASSES"
+echo "  Failed: $FAILURES"
 echo ""
 
 if [ "$FAILURES" -gt 0 ]; then
     echo "RESULT: $FAILURES ASSERTION(S) FAILED"
     exit 1
 else
-    echo "RESULT: ALL ASSERTIONS PASSED"
+    echo "RESULT: ALL $PASSES TESTS PASSED"
 fi
 
 echo ""

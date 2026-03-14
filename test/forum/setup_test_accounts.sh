@@ -153,10 +153,10 @@ for i in "${!ACCOUNTS[@]}"; do
 
     echo "  Inviting $ACCOUNT ($ADDR)..."
 
-    # Stake 100 DREAM (100000000 micro-DREAM) on the invitation
+    # Stake minimum (100 micro-DREAM) on the invitation
     TX_RES=$($BINARY tx rep invite-member \
         $ADDR \
-        "100000000" \
+        "100" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -256,16 +256,21 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         *) continue ;;
     esac
 
-    # Sentinels and bounty creator need more DREAM
-    if [ "$ACCOUNT" == "sentinel1" ] || [ "$ACCOUNT" == "sentinel2" ]; then
-        DREAM_AMOUNT="500000000"  # 500 DREAM
-        echo "  Sending 500 DREAM to $ACCOUNT (extra for sentinel bonding)..."
+    # Sentinel bonding requires 100 DREAM (100000000 micro-DREAM).
+    # Gift enough to cover the bond plus the 3% transfer tax.
+    # Alice (Tier 1 founder) has 50000 DREAM, so these amounts are fine.
+    if [ "$ACCOUNT" == "sentinel1" ]; then
+        DREAM_AMOUNT="200000000"  # 200 DREAM (covers 100 DREAM bond + tax + extra for sentinel2 unbond test)
+        echo "  Sending 200 DREAM to $ACCOUNT (for sentinel bonding)..."
+    elif [ "$ACCOUNT" == "sentinel2" ]; then
+        DREAM_AMOUNT="150000000"  # 150 DREAM (covers 100 DREAM bond + tax)
+        echo "  Sending 150 DREAM to $ACCOUNT (for sentinel bonding)..."
     elif [ "$ACCOUNT" == "bounty_creator" ]; then
-        DREAM_AMOUNT="500000000"  # 500 DREAM
-        echo "  Sending 500 DREAM to $ACCOUNT (extra for bounties)..."
+        DREAM_AMOUNT="200000"  # 0.2 DREAM
+        echo "  Sending 0.2 DREAM to $ACCOUNT (for bounties)..."
     else
-        DREAM_AMOUNT="250000000"  # 250 DREAM
-        echo "  Sending 250 DREAM to $ACCOUNT..."
+        DREAM_AMOUNT="100000"  # 0.1 DREAM
+        echo "  Sending 0.1 DREAM to $ACCOUNT..."
     fi
 
     # Gift DREAM to the new member
@@ -362,7 +367,7 @@ CATEGORY_COUNT=$(echo "$CATEGORIES" | jq -r '.category | length' 2>/dev/null || 
 
 if [ "$CATEGORY_COUNT" -gt 0 ]; then
     echo "  Categories already exist ($CATEGORY_COUNT found)"
-    FIRST_CATEGORY=$(echo "$CATEGORIES" | jq -r '.category[0].id')
+    FIRST_CATEGORY=$(echo "$CATEGORIES" | jq -r '.category[0].category_id')
     echo "  Using existing category ID: $FIRST_CATEGORY"
 else
     echo "  Creating a test category..."

@@ -38,6 +38,7 @@ SPARK Inflation + Tx Fees
 
 | Object | Key | Description |
 |--------|-----|-------------|
+| `Params` | `p_split` | Module parameters (currently empty) |
 | `Share` | `share/value/{address}` | Recipient address and weight |
 
 ## Messages
@@ -64,24 +65,37 @@ None defined. Placeholder for future governance-controlled distribution rules.
 |--------|----------|---------|
 | `x/auth` | Yes | Module address resolution |
 | `x/bank` | Yes | Balance queries and coin transfers |
+| `x/distribution` | Yes | Community pool queries (`GetCommunityPool`) and fund distribution (`DistributeFromFeePool`) |
+
+### Cyclic Dependency Breaking
+
+`DistrKeeper` is wired manually in `app.go` via `SetDistrKeeper()` after `depinject.Inject()` (using a `DistrKeeperAdapter` that wraps the SDK's distribution keeper). Held in a shared `lateKeepers` struct so value-copies of Keeper see updates.
 
 ## BeginBlocker
 
 Runs at the start of every block:
 
-1. Fetch all registered shares and compute total weight
-2. For each coin denomination in the distribution module's balance:
-   - Skip if balance <= number of recipients (dust protection)
-   - Calculate each recipient's proportional share
-   - Transfer coins from distribution module to recipient
-3. Log and continue on any transfer failures
+1. Fetch all registered shares and compute total weight (skip if zero)
+2. Query the community pool balance via `DistrKeeper.GetCommunityPool()` and truncate to integer coins
+3. For each coin denomination in the pool:
+   - Skip if amount <= number of recipients (dust protection)
+   - For each recipient, calculate `share_amount = (amount * weight) / total_weight`
+   - Call `DistrKeeper.DistributeFromFeePool()` to transfer coins to recipient
+   - If pool is exhausted mid-distribution, log and continue to next denomination
+4. All errors are non-fatal — the module logs but never panics
 
 ## Client
 
 ### CLI
 
 ```bash
-sparkdreamd q split get-share [address]
-sparkdreamd q split list-share
 sparkdreamd q split params
+sparkdreamd q split get-share [address]    # alias: show-share
+sparkdreamd q split list-share
 ```
+
+**Note:** `MsgUpdateParams` is authority-gated (`x/gov` only) and not exposed via CLI.
+
+### gRPC/REST
+
+All queries are available via gRPC and REST (grpc-gateway). See `proto/sparkdream/split/v1/query.proto` for the full API surface.

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	storetypes "cosmossdk.io/store/types"
 	"cosmossdk.io/math"
+	storetypes "cosmossdk.io/store/types"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	"github.com/cosmos/cosmos-sdk/testutil"
@@ -95,9 +95,9 @@ func TestRetroRewards_NominationsBelowMinConviction(t *testing.T) {
 	// With amount=5 and timeFactor=1.0, conviction = 5, which is below min of 50.
 	stakeKey := fmt.Sprintf("%d/%s", nom.Id, addr1)
 	stake := types.NominationStake{
-		NominationId: nom.Id,
-		Staker:       addr1,
-		Amount:       math.LegacyNewDec(5),
+		NominationId:  nom.Id,
+		Staker:        addr1,
+		Amount:        math.LegacyNewDec(5),
 		StakedAtBlock: 0,
 	}
 	err = f.keeper.NominationStake.Set(f.ctx, stakeKey, stake)
@@ -590,14 +590,14 @@ func TestReturnNominationStakes_UnlocksAndRemovesStakes(t *testing.T) {
 
 	// Create a nomination for season 1
 	nom := types.Nomination{
-		Id:             1,
-		Nominator:      addr1,
-		ContentRef:     "blog/post/1",
-		Season:         1,
-		TotalStaked:    math.LegacyNewDec(300),
-		Conviction:     math.LegacyNewDec(200),
-		RewardAmount:   math.LegacyZeroDec(),
-		Rewarded:       true,
+		Id:           1,
+		Nominator:    addr1,
+		ContentRef:   "blog/post/1",
+		Season:       1,
+		TotalStaked:  math.LegacyNewDec(300),
+		Conviction:   math.LegacyNewDec(200),
+		RewardAmount: math.LegacyZeroDec(),
+		Rewarded:     true,
 	}
 	err = f.keeper.Nomination.Set(f.ctx, nom.Id, nom)
 	require.NoError(t, err)

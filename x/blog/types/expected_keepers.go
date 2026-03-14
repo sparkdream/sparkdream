@@ -42,10 +42,6 @@ type RepKeeper interface {
 	// GetTrustLevel returns the trust level (0-4) for the given address.
 	// Returns 0 if the address is not a member.
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
-	// GetMemberTrustTreeRoot returns the current member trust tree Merkle root.
-	GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error)
-	// GetPreviousMemberTrustTreeRoot returns the previous member trust tree Merkle root.
-	GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte
 
 	// Content conviction staking & author bonds
 	GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
@@ -58,20 +54,6 @@ type RepKeeper interface {
 	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 	RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
-}
-
-// VoteKeeper defines the expected interface for the Vote module.
-// Optional — if nil, anonymous posting is unavailable.
-type VoteKeeper interface {
-	// VerifyAnonymousActionProof verifies a ZK proof for anonymous actions.
-	VerifyAnonymousActionProof(ctx context.Context, proof []byte, nullifier []byte, merkleRoot []byte, minTrustLevel uint32) error
-}
-
-// SeasonKeeper defines the expected interface for the Season module.
-// Optional — falls back to DefaultEpochDuration if nil.
-type SeasonKeeper interface {
-	// GetEpochDuration returns the current epoch duration in seconds.
-	GetEpochDuration(ctx context.Context) int64
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

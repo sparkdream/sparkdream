@@ -17,16 +17,14 @@ import (
 func createChallengeForInitiative(k keeper.Keeper, ctx context.Context, id uint64, initiativeID uint64, status types.ChallengeStatus) types.Challenge {
 	amount := math.NewInt(1000000)
 	challenge := types.Challenge{
-		Id:            id,
-		InitiativeId:  initiativeID,
-		Challenger:    "challenger" + strconv.FormatUint(id, 10),
-		Reason:        "Test challenge",
-		StakedDream:   &amount,
-		IsAnonymous:   true,
-		PayoutAddress: "sprkdr" + strconv.FormatUint(id, 10) + "address",
-		Status:        status,
-		CreatedAt:     1000,
-		ResolvedAt:    0,
+		Id:           id,
+		InitiativeId: initiativeID,
+		Challenger:   "challenger" + strconv.FormatUint(id, 10),
+		Reason:       "Test challenge",
+		StakedDream:  &amount,
+		Status:       status,
+		CreatedAt:    1000,
+		ResolvedAt:   0,
 	}
 	_ = k.Challenge.Set(ctx, id, challenge)
 	_ = k.ChallengeSeq.Set(ctx, id)

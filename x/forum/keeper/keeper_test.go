@@ -148,14 +148,12 @@ func (m *mockBankKeeper) MintCoins(ctx context.Context, moduleName string, amt s
 
 // mockRepKeeper implements types.RepKeeper for testing
 type mockRepKeeper struct {
-	CreateAppealInitiativeFn         func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
-	IsMemberFn                       func(ctx context.Context, addr sdk.AccAddress) bool
-	GetMemberTrustTreeRootFn         func(ctx context.Context) ([]byte, error)
-	GetPreviousMemberTrustTreeRootFn func(ctx context.Context) []byte
-	ValidateInitiativeReferenceFn    func(ctx context.Context, initiativeID uint64) error
-	RegisterContentInitiativeLinkFn  func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
-	RemoveContentInitiativeLinkFn    func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
-	nextInitiativeID                 uint64
+	CreateAppealInitiativeFn        func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
+	IsMemberFn                      func(ctx context.Context, addr sdk.AccAddress) bool
+	ValidateInitiativeReferenceFn   func(ctx context.Context, initiativeID uint64) error
+	RegisterContentInitiativeLinkFn func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+	RemoveContentInitiativeLinkFn   func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+	nextInitiativeID                uint64
 }
 
 func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
@@ -250,20 +248,6 @@ func (m *mockRepKeeper) GetAuthorBond(ctx context.Context, targetType reptypes.S
 	return reptypes.Stake{}, reptypes.ErrAuthorBondNotFound
 }
 
-func (m *mockRepKeeper) GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error) {
-	if m.GetMemberTrustTreeRootFn != nil {
-		return m.GetMemberTrustTreeRootFn(ctx)
-	}
-	return bytes.Repeat([]byte{0xAA}, 32), nil
-}
-
-func (m *mockRepKeeper) GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte {
-	if m.GetPreviousMemberTrustTreeRootFn != nil {
-		return m.GetPreviousMemberTrustTreeRootFn(ctx)
-	}
-	return bytes.Repeat([]byte{0xBB}, 32)
-}
-
 func (m *mockRepKeeper) ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error {
 	if m.ValidateInitiativeReferenceFn != nil {
 		return m.ValidateInitiativeReferenceFn(ctx, initiativeID)
@@ -311,35 +295,6 @@ func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string
 		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
 	}
 	return false
-}
-
-// mockVoteKeeper implements types.VoteKeeper for testing
-type mockVoteKeeper struct {
-	VerifyAnonymousActionProofFn func(ctx context.Context, proof, nullifier, merkleRoot []byte, minTrustLevel uint32) error
-}
-
-func (m *mockVoteKeeper) VerifyAnonymousActionProof(ctx context.Context, proof, nullifier, merkleRoot []byte, minTrustLevel uint32) error {
-	if m.VerifyAnonymousActionProofFn != nil {
-		return m.VerifyAnonymousActionProofFn(ctx, proof, nullifier, merkleRoot, minTrustLevel)
-	}
-	return nil // Default: proof passes
-}
-
-// mockSeasonKeeper implements types.SeasonKeeper for testing
-type mockSeasonKeeper struct{}
-
-func (m *mockSeasonKeeper) GetEpochDuration(ctx context.Context) int64 {
-	return 13_140_000
-}
-
-func initFixtureWithVoteKeeper(t *testing.T) (*fixture, *mockVoteKeeper) {
-	t.Helper()
-	f := initFixture(t)
-	vk := &mockVoteKeeper{}
-	f.keeper.SetVoteKeeper(vk)
-	// Re-create msgServer since it embeds Keeper by value
-	f.msgServer = keeper.NewMsgServerImpl(f.keeper)
-	return f, vk
 }
 
 func initFixtureWithCommons(t *testing.T, commonsKeeper types.CommonsKeeper) *fixture {

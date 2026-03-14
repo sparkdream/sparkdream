@@ -22,10 +22,10 @@ This module serves as:
 | `x/gov` | Authority for full parameter updates (`MsgUpdateParams`) |
 | `x/auth` | Address codec for bech32 conversion |
 | `x/bank` | Storage fee collection and burning |
-| `x/rep` | Membership and trust-level checks for replies, reactions, member trust tree for anonymous posting, content conviction staking queries, and author bond creation |
-| `x/vote` | *(optional)* ZK proof verification for anonymous posting (`VerifyAnonymousActionProof`) |
-| `x/commons` | *(optional)* Council-gated operational parameter updates; treasury draws for anonymous posting subsidy (`SpendFromTreasury`) |
-| `x/season` | *(optional)* Epoch duration for anonymous posting nullifier scoping and subsidy draw timing (`GetEpochDuration`); falls back to `DefaultEpochDuration` constant if not wired |
+| `x/rep` | Membership and trust-level checks for replies, reactions, content conviction staking queries, and author bond creation |
+| `x/shield` | Unified privacy layer -- all anonymous blog operations (create post, reply, react) are routed through `MsgShieldedExec`. x/blog implements the `ShieldAware` interface to opt in. x/blog no longer manages its own nullifier store or ZK proof verification; these are owned by x/shield. See `docs/x-shield-spec.md` |
+| `x/commons` | *(optional)* Council-gated operational parameter updates via native proposal system (`SubmitProposal`/`VoteProposal`/`ExecuteProposal`) |
+| `x/season` | *(optional)* Epoch duration for nullifier scoping (`GetEpochDuration`); falls back to `DefaultEpochDuration` constant if not wired |
 
 ---
 
@@ -184,11 +184,10 @@ message Params {
   uint32 max_posts_per_day = 9;                   // Max posts per address per day (default: 10)
   uint32 max_replies_per_day = 10;                // Max replies per address per day (default: 50)
   uint32 max_reactions_per_day = 11;              // Max reactions per address per day (default: 100)
-  bool anonymous_posting_enabled = 12;            // Master toggle for anonymous posting (default: true)
-  uint32 anonymous_min_trust_level = 13;          // Minimum trust level for anonymous posting (default: 2 = ESTABLISHED)
-  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 14;  // Auto-transferred from Commons Council treasury each epoch (default: 100spark)
-  cosmos.base.v1beta1.Coin anon_subsidy_max_per_post = 15;      // Max subsidy per anonymous post/reply (default: 2spark)
-  repeated string anon_subsidy_relay_addresses = 16;             // Approved relay addresses eligible for subsidy (default: [])
+  // Fields 12-16 removed — anonymous posting parameters (anonymous_posting_enabled,
+  // anonymous_min_trust_level, anon_subsidy_budget_per_epoch, anon_subsidy_max_per_post,
+  // anon_subsidy_relay_addresses) have been eliminated. Anonymous operations are now
+  // managed entirely by x/shield. See docs/x-shield-spec.md.
   int64 ephemeral_content_ttl = 17;                                 // TTL in seconds for ephemeral content: anonymous and non-member posts/replies (default: 604800 = 7 days; 0 = no expiry)
   uint32 pin_min_trust_level = 18;                               // Minimum trust level to pin ephemeral content (default: 2 = ESTABLISHED)
   uint32 max_pins_per_day = 19;                                  // Max pins per address per day (default: 20)
@@ -215,10 +214,9 @@ message BlogOperationalParams {
   uint32 max_posts_per_day = 5;                    // Max posts per address per day
   uint32 max_replies_per_day = 6;                  // Max replies per address per day
   uint32 max_reactions_per_day = 7;                // Max reactions per address per day
-  uint32 anonymous_min_trust_level = 8;            // Operations Committee can adjust anonymous trust threshold
-  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 9;   // Epoch subsidy draw amount
-  cosmos.base.v1beta1.Coin anon_subsidy_max_per_post = 10;      // Per-post subsidy cap
-  repeated string anon_subsidy_relay_addresses = 11;             // Approved relay addresses
+  // Fields 8-11 removed — anonymous posting parameters (anonymous_min_trust_level,
+  // anon_subsidy_budget_per_epoch, anon_subsidy_max_per_post, anon_subsidy_relay_addresses)
+  // have been eliminated. Anonymous operations are now managed entirely by x/shield.
   int64 ephemeral_content_ttl = 12;                                 // TTL for ephemeral content (anonymous + non-member)
   uint32 max_pins_per_day = 13;                                  // Max pins per address per day
   string conviction_renewal_threshold = 14 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Operations Committee can adjust conviction renewal threshold
@@ -237,30 +235,13 @@ message RateLimitEntry {
 }
 ```
 
-### 3.11. AnonNullifierEntry
+### 3.11. AnonNullifierEntry [REMOVED]
 
-Internal storage type for tracking used anonymous posting nullifiers. Defined in `x/common/types` and shared across all content modules (x/blog, x/forum, x/collect). Storage and lookup are handled by shared helpers in `x/common/keeper/anon.go` — see [anonymous-posting.md](anonymous-posting.md) § Nullifier Storage. Each module passes its own store to the helpers, so nullifiers are physically stored in the module's KV store.
+Removed -- nullifier storage is now managed by x/shield's centralized nullifier management with per-domain scoping. x/blog no longer maintains its own nullifier store. See `docs/x-shield-spec.md`.
 
-```protobuf
-message AnonNullifierEntry {
-  int64 used_at = 1;    // Block time when the nullifier was recorded
-  uint64 domain = 2;    // Nullifier domain (1 = anonymous post, 2 = anonymous reply)
-  uint64 scope = 3;     // Nullifier scope (epoch for domain 1, post_id for domain 2)
-}
-```
+### 3.12. AnonymousPostMetadata [REMOVED]
 
-### 3.12. AnonymousPostMetadata
-
-Metadata linking an anonymous post or reply to its ZK proof parameters. Stored separately from the Post/Reply record so that standard content queries don't carry proof data.
-
-```protobuf
-message AnonymousPostMetadata {
-  uint64 content_id = 1;           // Post ID (for anonymous posts) or Reply ID (for anonymous replies)
-  bytes nullifier = 2;             // 32-byte nullifier used
-  bytes merkle_root = 3;           // Trust tree root at proof time
-  uint32 proven_trust_level = 4;   // Minimum trust level proven by the ZK proof
-}
-```
+Removed -- anonymous post metadata (nullifiers, merkle roots, proven trust levels) is now tracked by x/shield as part of its centralized shielded execution records. x/blog no longer stores per-post ZK proof metadata. Clients should query x/shield for shielded execution audit trails.
 
 ---
 
@@ -277,10 +258,6 @@ message AnonymousPostMetadata {
 | Reaction | `Reaction/value/{post_id}/{reply_id}/{creator}` | Reaction | Individual reaction (one per user per target) |
 | ReactionCounts | `Reaction/counts/{post_id}/{reply_id}` | ReactionCounts | Aggregate counts per target |
 | RateLimit | `RateLimit/{action_type}/{address}` | RateLimitEntry | Per-address daily action counter |
-| AnonPostMeta | `AnonMeta/post/{post_id}` | AnonymousPostMetadata | Metadata for anonymous posts |
-| AnonReplyMeta | `AnonMeta/reply/{reply_id}` | AnonymousPostMetadata | Metadata for anonymous replies |
-| AnonNullifier | `AnonNullifier/{domain}/{scope}/{nullifier_hex}` | AnonNullifierEntry | Tracks used anonymous nullifiers (keyed by domain/scope for efficient pruning) |
-| AnonSubsidyLastEpoch | `AnonSubsidy/last_epoch` | uint64 | Last epoch for which subsidy was drawn from treasury |
 | ExpiryIndex | `Expiry/{expires_at}/{type}/{id}` | []byte | Index: content by expiry time (type = `post` or `reply`) |
 | CreatorPostIndex | `Post/creator/{creator}/{post_id}` | []byte | Index: all posts by a specific creator |
 | ReactorIndex | `Reaction/creator/{creator}/{post_id}/{reply_id}` | []byte | Index: all reactions by a specific creator |
@@ -832,9 +809,6 @@ message MsgPinReplyResponse {}
 | `ListReactions` | `/sparkdream/blog/v1/list_reactions/{post_id}` | post_id, reply_id, pagination | []Reaction |
 | `ListReactionsByCreator` | `/sparkdream/blog/v1/list_reactions_by_creator/{creator}` | creator, pagination | []Reaction |
 | `ListPostsByCreator` | `/sparkdream/blog/v1/list_posts_by_creator/{creator}` | creator, include_hidden, pagination | []Post |
-| `AnonymousPostMeta` | `/sparkdream/blog/v1/anonymous_post_meta/{post_id}` | post_id | AnonymousPostMetadata |
-| `AnonymousReplyMeta` | `/sparkdream/blog/v1/anonymous_reply_meta/{reply_id}` | reply_id | AnonymousPostMetadata |
-| `IsNullifierUsed` | `/sparkdream/blog/v1/is_nullifier_used` | domain, scope, nullifier (hex) | bool |
 | `ListExpiringContent` | `/sparkdream/blog/v1/list_expiring_content` | expires_before, content_type, pagination | []Post + []Reply |
 
 ### 6.1. Params
@@ -973,45 +947,7 @@ message QueryUserReactionResponse {
 }
 ```
 
-### 6.9. AnonymousPostMeta
-
-Returns the anonymous posting metadata for a post, if the post was created anonymously.
-
-```protobuf
-message QueryAnonymousPostMetaRequest {
-  uint64 post_id = 1;
-}
-
-message QueryAnonymousPostMetaResponse {
-  AnonymousPostMetadata metadata = 1;  // nil if post is not anonymous
-}
-```
-
-**Errors:**
-- Returns `ErrKeyNotFound` if post doesn't exist
-- Returns nil `metadata` (not an error) if the post exists but was not created anonymously
-
-**Tombstoned posts:** Anonymous metadata is intentionally retained after a post is tombstoned (whether by manual delete, TTL expiry, or EndBlocker). The metadata serves as an audit trail — it records the nullifier (for spam pattern detection) and proven trust level. Queries return metadata for tombstoned posts normally.
-
-### 6.10. AnonymousReplyMeta
-
-Returns the anonymous posting metadata for a reply, if the reply was created anonymously.
-
-```protobuf
-message QueryAnonymousReplyMetaRequest {
-  uint64 reply_id = 1;
-}
-
-message QueryAnonymousReplyMetaResponse {
-  AnonymousPostMetadata metadata = 1;  // nil if reply is not anonymous
-}
-```
-
-**Errors:**
-- Returns `ErrKeyNotFound` if reply doesn't exist
-- Returns nil `metadata` (not an error) if the reply exists but was not created anonymously
-
-### 6.11. ListExpiringContent
+### 6.9. ListExpiringContent
 
 Returns paginated list of ephemeral content expiring before a given timestamp. Useful for curators who want to review and pin valuable content before it expires. Uses the `ExpiryIndex` for efficient prefix iteration.
 
@@ -1035,23 +971,7 @@ message QueryListExpiringContentResponse {
 - Results are ordered by `expires_at` ascending (soonest to expire first)
 - **Pagination** operates on the `ExpiryIndex` (timestamp-ordered, interleaving posts and replies). The `content_type` filter is applied as a post-processing step after index iteration — when filtering by type, some pages may contain fewer results than the requested page size. The `pagination.next_key` token always points into the `ExpiryIndex`, so subsequent pages resume correctly regardless of filtering
 
-### 6.12. IsNullifierUsed
-
-Check if a nullifier has already been used. Clients can call this before submitting an anonymous post/reply to avoid wasting gas on a duplicate. The client must provide the domain and scope matching the intended action (these are known at proof generation time).
-
-```protobuf
-message QueryIsNullifierUsedRequest {
-  string nullifier_hex = 1;   // Hex-encoded 32-byte nullifier
-  uint64 domain = 2;          // Nullifier domain (1 = anonymous post, 2 = anonymous reply)
-  uint64 scope = 3;           // Nullifier scope (epoch for domain 1, post_id for domain 2)
-}
-
-message QueryIsNullifierUsedResponse {
-  bool used = 1;
-}
-```
-
-### 6.13. ListReactions
+### 6.10. ListReactions
 
 Returns paginated individual reaction records for a post or reply. Useful for clients that want to display reactor identities alongside aggregate counts (e.g., "Alice, Bob, and 3 others liked this").
 
@@ -1076,7 +996,7 @@ message QueryListReactionsResponse {
 - Reactions on tombstoned content are returned (reactions are preserved across tombstoning)
 - Reactions on hidden content are returned (reactions are not affected by hide/unhide)
 
-### 6.14. ListReactionsByCreator
+### 6.11. ListReactionsByCreator
 
 Returns paginated reactions by a specific creator address. Useful for "my reactions" views where a user wants to see everything they've reacted to.
 
@@ -1256,18 +1176,16 @@ func (k Keeper) TombstoneExpiredContent(ctx context.Context) uint64
 ```go
 // ApplyOperationalParams copies cost_per_byte, cost_per_byte_exempt, reaction_fee,
 // reaction_fee_exempt, max_posts_per_day, max_replies_per_day, max_reactions_per_day,
-// anonymous_min_trust_level, anon_subsidy_budget_per_epoch, anon_subsidy_max_per_post,
-// anon_subsidy_relay_addresses, ephemeral_content_ttl, and max_pins_per_day from op,
-// preserving all other fields (max_title_length, max_body_length, max_reply_length,
-// max_reply_depth, anonymous_posting_enabled, pin_min_trust_level,
+// ephemeral_content_ttl, max_pins_per_day, conviction_renewal_threshold, and
+// conviction_renewal_period from op, preserving all other fields (max_title_length,
+// max_body_length, max_reply_length, max_reply_depth, pin_min_trust_level,
 // min_ephemeral_content_ttl, max_cost_per_byte, max_reaction_fee)
 func (p Params) ApplyOperationalParams(op BlogOperationalParams) Params
 
 // ExtractOperationalParams extracts cost_per_byte, cost_per_byte_exempt, reaction_fee,
 // reaction_fee_exempt, max_posts_per_day, max_replies_per_day, max_reactions_per_day,
-// anonymous_min_trust_level, anon_subsidy_budget_per_epoch, anon_subsidy_max_per_post,
-// anon_subsidy_relay_addresses, ephemeral_content_ttl, and max_pins_per_day
-// from the full params
+// ephemeral_content_ttl, max_pins_per_day, conviction_renewal_threshold, and
+// conviction_renewal_period from the full params
 func (p Params) ExtractOperationalParams() BlogOperationalParams
 ```
 
@@ -1288,11 +1206,6 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 | `max_posts_per_day` | 10 | Prevents post flooding; reasonable for active authors |
 | `max_replies_per_day` | 50 | Prevents reply spam; allows active discussion participation |
 | `max_reactions_per_day` | 100 | Prevents mass reaction manipulation; generous for normal use |
-| `anonymous_posting_enabled` | true | **Governance-only.** Anonymous posting enabled by default (requires VoteKeeper to be wired). Only disableable via `MsgUpdateParams` (x/gov) — prevents the Operations Committee from silencing anonymous speech, which is the primary whistleblowing mechanism |
-| `anonymous_min_trust_level` | 2 | ESTABLISHED — ensures sufficient anonymity set and reputation at stake |
-| `anon_subsidy_budget_per_epoch` | 100spark | Epoch draw from Commons Council treasury; zero disables subsidy |
-| `anon_subsidy_max_per_post` | 2spark | Caps per-transaction subsidy to prevent budget drain |
-| `anon_subsidy_relay_addresses` | [] | No approved relays by default; Operations Committee adds them |
 | `ephemeral_content_ttl` | 604,800 (7 days) | Ephemeral content (anonymous + non-member) expires unless pinned; balances free speech with no obligation to preserve bad content |
 | `pin_min_trust_level` | 2 (ESTABLISHED) | Ensures only members with meaningful reputation can preserve ephemeral content |
 | `max_pins_per_day` | 20 | Prevents mass-pinning of ephemeral content; generous for legitimate curation |
@@ -1312,10 +1225,6 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 - `max_posts_per_day` must be > 0
 - `max_replies_per_day` must be > 0
 - `max_reactions_per_day` must be > 0
-- `anonymous_min_trust_level` must be between 0 and 4 inclusive
-- `anon_subsidy_budget_per_epoch` amount must be ≥ 0 (or nil); zero disables subsidy
-- `anon_subsidy_max_per_post` amount must be ≥ 0 (or nil)
-- `anon_subsidy_relay_addresses` must all be valid bech32 addresses (no duplicates); list length ≤ `MaxRelayAddresses` (50)
 - `ephemeral_content_ttl` must be ≥ 0; zero disables TTL (all content is permanent regardless of authorship)
 - `pin_min_trust_level` must be between 0 and 4 inclusive
 - `max_pins_per_day` must be > 0
@@ -1334,16 +1243,12 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 - `max_posts_per_day` must be > 0
 - `max_replies_per_day` must be > 0
 - `max_reactions_per_day` must be > 0
-- `anonymous_min_trust_level` must be between 0 and 4 inclusive
-- `anon_subsidy_budget_per_epoch` amount must be ≥ 0 (or nil)
-- `anon_subsidy_max_per_post` amount must be ≥ 0 (or nil)
-- `anon_subsidy_relay_addresses` must all be valid bech32 addresses (no duplicates); list length ≤ `MaxRelayAddresses` (50)
 - `ephemeral_content_ttl` must be ≥ 0
 - `max_pins_per_day` must be > 0
 - `conviction_renewal_threshold` must be ≥ 0
 - `conviction_renewal_period` must be ≥ 0
 
-Note: `BlogOperationalParams.Validate()` is a subset of `Params.Validate()` covering only the operational fields. In `MsgUpdateOperationalParams`, both `BlogOperationalParams.Validate()` and the merged `Params.Validate()` are called (Section 5.7), so structural constraints (e.g., all lengths > 0, reply depth ≤ 20) and **cross-field constraints** (e.g., `ephemeral_content_ttl >= min_ephemeral_content_ttl`, `cost_per_byte <= max_cost_per_byte`, `reaction_fee <= max_reaction_fee`) are enforced on the final merged result. The governance-only params (`anonymous_posting_enabled`, `min_ephemeral_content_ttl`, `max_cost_per_byte`, `max_reaction_fee`, `pin_min_trust_level`) cannot be changed via `MsgUpdateOperationalParams`, so the Operations Committee cannot bypass these guardrails.
+Note: `BlogOperationalParams.Validate()` is a subset of `Params.Validate()` covering only the operational fields. In `MsgUpdateOperationalParams`, both `BlogOperationalParams.Validate()` and the merged `Params.Validate()` are called (Section 5.7), so structural constraints (e.g., all lengths > 0, reply depth ≤ 20) and **cross-field constraints** (e.g., `ephemeral_content_ttl >= min_ephemeral_content_ttl`, `cost_per_byte <= max_cost_per_byte`, `reaction_fee <= max_reaction_fee`) are enforced on the final merged result. The governance-only params (`min_ephemeral_content_ttl`, `max_cost_per_byte`, `max_reaction_fee`, `pin_min_trust_level`) cannot be changed via `MsgUpdateOperationalParams`, so the Operations Committee cannot bypass these guardrails.
 
 ---
 
@@ -1353,14 +1258,13 @@ Note: `BlogOperationalParams.Validate()` is a subset of `Params.Validate()` cove
 |-------|------|-------------|
 | `ErrInvalidSigner` | 1100 | Non-governance/non-council signer for parameter updates |
 | `ErrNotMember` | 1200 | Creator is not an active member (required for reactions, and replies when trust level ≥ 0) |
-| `ErrInsufficientTrustLevel` | 1201 | Creator's trust level is below the post's `min_reply_trust_level` or anonymous `min_trust_level` |
 | `ErrPostNotFound` | 1202 | Post ID doesn't exist |
 | `ErrPostDeleted` | 1203 | Post is tombstoned and cannot be updated, replied to, or reacted to |
-| `ErrPostHidden` | 1204 | Post is hidden and cannot be updated, replied to, or reacted to (note: queries return hidden posts with HIDDEN status — see Sections 6.2, 6.6) |
+| `ErrPostHidden` | 1204 | Post is hidden and cannot be updated, replied to, or reacted to (note: queries return hidden posts with HIDDEN status -- see Sections 6.2, 6.6) |
 | `ErrPostNotHidden` | 1205 | Cannot unhide a post that is not hidden |
 | `ErrReplyNotFound` | 1206 | Reply ID doesn't exist |
 | `ErrReplyDeleted` | 1207 | Reply is tombstoned and cannot be updated, replied to, or reacted to |
-| `ErrReplyHidden` | 1208 | Reply is hidden and cannot be updated, replied to, or reacted to (note: queries return hidden replies with HIDDEN status — see Sections 6.4, 6.5) |
+| `ErrReplyHidden` | 1208 | Reply is hidden and cannot be updated, replied to, or reacted to (note: queries return hidden replies with HIDDEN status -- see Sections 6.4, 6.5) |
 | `ErrReplyNotHidden` | 1209 | Cannot unhide a reply that is not hidden |
 | `ErrRepliesDisabled` | 1210 | Post has replies disabled |
 | `ErrMaxReplyDepth` | 1211 | Reply nesting exceeds `max_reply_depth` |
@@ -1370,10 +1274,7 @@ Note: `BlogOperationalParams.Validate()` is a subset of `Params.Validate()` cove
 | `ErrReactionNotFound` | 1215 | No reaction to remove for this user on this target |
 | `ErrContentNotEphemeral` | 1216 | Content is already permanent (`expires_at == 0`) and cannot be pinned |
 | `ErrAlreadyPinned` | 1217 | Content is already pinned |
-| `ErrAnonPostingDisabled` | 1218 | Anonymous posting is disabled via params or VoteKeeper not wired |
-| `ErrInvalidProof` | 1219 | ZK proof verification failed or stale/invalid merkle root |
-| `ErrNullifierUsed` | 1220 | Nullifier already used (duplicate anonymous post/reply/reaction) |
-| `ErrInvalidNullifier` | 1221 | Invalid nullifier format |
+| `ErrInsufficientTrustLevel` | 1218 | Creator's trust level is below the required minimum (e.g., post's `min_reply_trust_level` or `pin_min_trust_level`) |
 | `ErrPostExpired` | 1222 | Post has expired (TTL elapsed, not yet tombstoned by EndBlocker) |
 | `ErrReplyExpired` | 1223 | Reply has expired |
 | `ErrInvalidInitiativeRef` | 1224 | Invalid initiative reference for conviction propagation |
@@ -1394,8 +1295,7 @@ Standard SDK errors used inline:
 | DeletePost | Original creator only |
 | HidePost | Post author only (self-moderation) |
 | UnhidePost | Post author only |
-| CreateAnonymousPost | Any address as submitter; ZK proof must prove membership at `anonymous_min_trust_level` |
-| PinPost | Active member at `pin_min_trust_level` or above (ephemeral posts only — anonymous or non-member) |
+| PinPost | Active member at `pin_min_trust_level` or above (ephemeral posts only -- anonymous or non-member) |
 | UpdateParams | Governance authority only |
 | UpdateOperationalParams | Operations Committee member (or governance authority as fallback) |
 
@@ -1404,7 +1304,6 @@ Standard SDK errors used inline:
 | Operation | Who Can Execute |
 |-----------|-----------------|
 | CreateReply | Depends on post's `min_reply_trust_level` (-1 = anyone, 0 = any member, 1-4 = member at that trust level+) |
-| CreateAnonymousReply | Any address as submitter; ZK proof must prove membership at max(anonymous_min_trust_level, post.min_reply_trust_level) |
 | UpdateReply | Reply author only |
 | DeleteReply | Reply author OR post author |
 | HideReply | Post author only |
@@ -1514,35 +1413,11 @@ sparkdreamd tx blog pin-post 1 --from alice
 sparkdreamd tx blog pin-reply 3 --from alice
 ```
 
-### 11.5. Anonymous Posting Transactions
+### 11.5. Anonymous Posting [REMOVED]
 
-Anonymous posting requires a client-side ZK proof. The CLI commands accept hex-encoded proof data — in practice, a frontend or dedicated tool generates the proof and calls these commands programmatically.
+Removed -- per-module anonymous posting CLI commands no longer exist. All anonymous blog operations are now submitted through x/shield's unified `MsgShieldedExec` entry point. The shield module handles ZK proof verification, nullifier management, and module-paid gas. See `docs/x-shield-spec.md` for the CLI interface.
 
-```bash
-# Create an anonymous post (proof, nullifier, merkle_root are hex-encoded)
-sparkdreamd tx blog create-anonymous-post "Title" "Body" \
-  --proof <hex> --nullifier <hex> --merkle-root <hex> --min-trust-level 2 \
-  --from relay_address
-
-# Create an anonymous reply (always top-level)
-sparkdreamd tx blog create-anonymous-reply 1 "Reply body" \
-  --proof <hex> --nullifier <hex> --merkle-root <hex> --min-trust-level 2 \
-  --from relay_address
-```
-
-### 11.6. Subsidy Queries
-
-```bash
-# Check current subsidy account balance
-sparkdreamd query bank balances $(sparkdreamd query blog module-address --output json | jq -r '.address')
-
-# View subsidy params (part of module params)
-sparkdreamd query blog params
-```
-
-Subsidy parameters (budget, max per post, relay addresses) are managed via `MsgUpdateOperationalParams` — no separate subsidy commands are needed. The subsidy account balance is the blog module account's bank balance, queryable via `x/bank`.
-
-### 11.7. Queries
+### 11.6. Queries
 
 ```bash
 # Get module parameters
@@ -1596,18 +1471,6 @@ sparkdreamd query blog list-reactions 1 --reply-id 5
 # List all your reactions across all posts/replies
 sparkdreamd query blog list-reactions-by-creator sprkdrm1abc...
 
-# Get anonymous post metadata
-sparkdreamd query blog anonymous-post-meta 1
-
-# Get anonymous reply metadata
-sparkdreamd query blog anonymous-reply-meta 3
-
-# Check if an epoch-scoped nullifier has been used (domain 1 = anonymous post)
-sparkdreamd query blog is-nullifier-used <nullifier_hex> --domain 1 --scope <epoch>
-
-# Check if a post-scoped nullifier has been used (domain 2 = anonymous reply)
-sparkdreamd query blog is-nullifier-used <nullifier_hex> --domain 2 --scope <post_id>
-
 # List ephemeral content expiring in the next 24 hours
 sparkdreamd query blog list-expiring-content --expires-before $(date -d '+1 day' +%s)
 
@@ -1634,13 +1497,11 @@ Posts and replies incur a per-byte storage fee that is burned, creating deflatio
 | React (new) | `reaction_fee` flat fee (burned) |
 | React (change type) | No fee |
 | RemoveReaction | No fee |
-| CreateAnonymousPost | `cost_per_byte * (len(title) + len(body))` (charged to submitter, or subsidized — see below) |
-| CreateAnonymousReply | `cost_per_byte * len(body)` (charged to submitter, or subsidized — see below) |
 | PinPost | No fee |
 | PinReply | No fee |
 
 - Fees are sent from the creator to the `blog` module account and immediately burned
-- **Anonymous posting subsidy:** If the submitter is in `params.anon_subsidy_relay_addresses` and the module's subsidy balance is sufficient, storage fees are deducted from the module account (up to `anon_subsidy_max_per_post`) instead of the submitter. Any excess beyond the cap is charged to the submitter. See Section 21.6 for the full mechanism
+- For anonymous operations routed through x/shield's `MsgShieldedExec`, the shield module account pays gas fees; storage fees for the inner message (e.g., `MsgCreatePost`) are paid by the shield module account as the sender
 - Setting `cost_per_byte_exempt = true` disables storage fees (posts and replies)
 - Setting `reaction_fee_exempt = true` disables reaction fees (independent of storage fees)
 - The Operations Committee can adjust fees and rate limits via `MsgUpdateOperationalParams` without a governance vote
@@ -1658,10 +1519,8 @@ message GenesisState {
   uint64 reply_count = 5;
   repeated Reaction reactions = 6;
   repeated GenesisReactionCounts reaction_counts = 7;
-  repeated AnonymousPostMetadata anonymous_post_meta = 8;    // Metadata for anonymous posts
-  repeated AnonymousPostMetadata anonymous_reply_meta = 9;   // Metadata for anonymous replies
-  repeated GenesisNullifierEntry nullifiers = 10;            // Used anonymous nullifiers
-  uint64 anon_subsidy_last_epoch = 11;                       // Last epoch for which subsidy was drawn
+  // Fields 8-11 reserved — formerly anonymous metadata, nullifiers, and subsidy epoch
+  // tracker, now managed by x/shield.
 }
 
 // Wrapper to store keyed ReactionCounts in genesis
@@ -1670,22 +1529,14 @@ message GenesisReactionCounts {
   uint64 reply_id = 2;
   ReactionCounts counts = 3;
 }
-
-// Wrapper to store keyed nullifier entries in genesis
-message GenesisNullifierEntry {
-  string nullifier_hex = 1;   // Hex-encoded 32-byte nullifier
-  int64 used_at = 2;          // Block time when recorded
-  uint64 domain = 3;          // Nullifier domain (1 = anonymous post, 2 = anonymous reply)
-  uint64 scope = 4;           // Nullifier scope (epoch for domain 1, post_id for domain 2)
-}
 ```
 
 | Hook | Implementation |
 |------|----------------|
-| `InitGenesis` | Sets params, restores all posts, replies, reactions, reaction counts, counters, anonymous metadata, nullifiers, subsidy epoch tracker; rebuilds derived indexes |
-| `ExportGenesis` | Exports params and all state (posts, replies, reactions, reaction counts, counters, anonymous metadata, nullifiers, subsidy epoch tracker) |
+| `InitGenesis` | Sets params, restores all posts, replies, reactions, reaction counts, counters; rebuilds derived indexes |
+| `ExportGenesis` | Exports params and all state (posts, replies, reactions, reaction counts, counters) |
 
-All state is preserved across genesis import/export. This includes tombstoned posts, hidden posts, hidden replies, tombstoned replies, anonymous post metadata, used nullifiers, subsidy epoch tracker, and pin/expiry fields on posts and replies — the full state is exported and restored faithfully. The subsidy account balance is preserved by the bank module's own genesis (it is the blog module account balance).
+All state is preserved across genesis import/export. This includes tombstoned posts, hidden posts, hidden replies, tombstoned replies, and pin/expiry fields on posts and replies -- the full state is exported and restored faithfully.
 
 **Derived indexes are not exported.** `ReplyPostIndex`, `CreatorPostIndex`, `ExpiryIndex`, and `ReactorIndex` are rebuilt during `InitGenesis` by iterating imported posts, replies, and reactions.
 
@@ -1702,9 +1553,6 @@ All state is preserved across genesis import/export. This includes tombstoned po
 - All reaction targets must reference existing posts/replies
 - All `reaction_counts` entries must match recomputed counts from individual reactions
 - `post.reply_count` must match the count of `REPLY_STATUS_ACTIVE` replies for each post
-- All `anonymous_post_meta` entries must reference an existing post with `creator == module_account_address`
-- All `anonymous_reply_meta` entries must reference an existing reply with `creator == module_account_address`
-- No duplicate nullifiers in `nullifiers` list
 - All posts with `pinned_by != ""` must have `expires_at == 0` (pinned content has cleared TTL)
 - All replies with `pinned_by != ""` must have `expires_at == 0`
 - No active member-authored post or reply should have `expires_at > 0` (member content is permanent at creation; note: this is a soft invariant — membership may have changed since creation, so genesis validation only warns, does not reject)
@@ -1720,7 +1568,7 @@ All state is preserved across genesis import/export. This includes tombstoned po
 | Hook | Implementation |
 |------|----------------|
 | `BeginBlock` | No-op |
-| `EndBlock` | (1) Process expired ephemeral content (auto-upgrade or tombstone); (2) Anonymous posting subsidy draw; (3) Prune stale epoch-scoped nullifiers |
+| `EndBlock` | Process expired ephemeral content (auto-upgrade or tombstone) |
 
 **EndBlock — TTL Expiry:**
 
@@ -1745,33 +1593,6 @@ Iterates the `ExpiryIndex` for all entries where `expires_at <= block_time`. For
 
 The expiry scan is bounded by the number of entries with `expires_at <= block_time`. With the default 7-day TTL and moderate ephemeral content volume (anonymous + non-member posts), this is a small number per block. The `ExpiryIndex` key is ordered by timestamp, enabling efficient prefix iteration up to the current block time. The membership check (step 4) adds one keeper call per non-anonymous expiring item. The conviction check (step 5) adds one keeper call per anonymous expiring item. Non-expired content incurs zero overhead.
 
-**EndBlock — Subsidy Draw:**
-
-If `CommonsKeeper` is wired and `anon_subsidy_budget_per_epoch` is non-zero:
-
-1. Compute `current_epoch = block_time / epoch_duration`, where `epoch_duration` is queried via `SeasonKeeper.GetEpochDuration(ctx)` if wired, or falls back to the module constant `DefaultEpochDuration = 13_140_000` seconds (152.08 days, ~5 months)
-2. If `current_epoch > last_drawn_epoch` (stored as `AnonSubsidyLastEpoch`):
-   - Call `CommonsKeeper.SpendFromTreasury(ctx, "commons", moduleAddress, anon_subsidy_budget_per_epoch)`
-   - If treasury has insufficient funds, the transfer is partial or skipped — no error
-   - Update `AnonSubsidyLastEpoch = current_epoch`
-   - Emit `blog.subsidy.drawn` event
-3. Otherwise: no-op
-
-If `CommonsKeeper` is nil or `anon_subsidy_budget_per_epoch` is zero/nil: no-op.
-
-**EndBlock — Nullifier Pruning:**
-
-Epoch-scoped nullifiers (domain 1) from past epochs serve no purpose — a new epoch produces different nullifiers for the same member. To prevent unbounded state growth, the EndBlocker prunes stale epoch-scoped nullifiers using the shared `x/common` helper:
-
-1. Compute `current_epoch = block_time / epoch_duration` (same calculation as subsidy draw)
-2. Call `commonkeeper.PruneEpochNullifiers(ctx, store, domain=1, currentEpoch)` — iterates prefix `AnonNullifier/1/`, deletes entries where `scope < currentEpoch - 1`, returns count of pruned entries
-
-This retains nullifiers from the current and previous epoch (grace period for in-flight transactions) and deletes everything older. The pruning cost is proportional to the number of stale entries — after the first prune at each epoch boundary, subsequent blocks in the same epoch find nothing to delete.
-
-**Post-scoped nullifiers (domain 2)** are not pruned by the EndBlocker. They remain valid as long as the referenced post exists and accepts anonymous replies. State growth is bounded by the number of unique anonymous reply actions (one per member per post). If nullifier accumulation becomes a concern, a governance-initiated migration can prune nullifiers referencing tombstoned posts.
-
-**Reaction nullifiers (domains 8–9)** are scope-keyed to `post_id` / `reply_id` and follow the same retention policy as domain 2 — not pruned by the EndBlocker.
-
 ---
 
 ## 15. Dependency Injection
@@ -1787,9 +1608,10 @@ The module is wired via `depinject` with the following inputs:
 | `AuthKeeper` | yes | Address codec, account lookups (simulation) |
 | `BankKeeper` | yes | Storage fee collection and burning |
 | `RepKeeper` | **yes** | Membership and trust-level checks for replies and reactions; author bond creation on post/reply; content conviction staking queries |
-| `VoteKeeper` | **no** | ZK proof verification for anonymous posting (if nil, anonymous posting is unavailable) |
-| `CommonsKeeper` | **no** | Council authorization for operational params; treasury draws for subsidy (`SpendFromTreasury`) |
-| `SeasonKeeper` | **no** | Epoch duration for nullifier scoping and subsidy draw timing (`GetEpochDuration`); falls back to `DefaultEpochDuration = 13_140_000s` if nil |
+| `CommonsKeeper` | **no** | Council authorization for operational params via native proposal system |
+| `SeasonKeeper` | **no** | Epoch duration for nullifier scoping (`GetEpochDuration`); falls back to `DefaultEpochDuration = 13_140_000s` if nil |
+
+> **Note:** Anonymous blog operations are handled by x/shield. ZK proof verification, nullifier management, and module-paid gas are owned by x/shield. Anonymous operations are routed through x/shield's `MsgShieldedExec`, which verifies the ZK proof, checks nullifiers, and then dispatches the inner message (e.g., `MsgCreatePost`) to x/blog with the shield module account as sender. x/blog implements the `ShieldAware` interface (see Section 23) to opt into this execution path.
 
 If `Config.Authority` is not set, defaults to the `x/gov` module account.
 
@@ -1813,15 +1635,12 @@ If `Config.Authority` is not set, defaults to the `x/gov` module account.
 | `SimulateMsgUnhideReply` | 20 | Post author unhides previously hidden reply |
 | `SimulateMsgReact` | 80 | Random reaction on existing post/reply |
 | `SimulateMsgRemoveReaction` | 30 | Remove existing reaction |
-| `SimulateMsgCreateAnonymousPost` | 20 | Anonymous post with mock ZK proof (simulation mode only) |
-| `SimulateMsgCreateAnonymousReply` | 20 | Anonymous reply with mock ZK proof (simulation mode only) |
-| `SimulateMsgAnonymousReact` | 20 | Anonymous reaction with mock ZK proof (simulation mode only) |
 | `SimulateMsgPinPost` | 15 | ESTABLISHED+ member pins random unpinned ephemeral post |
 | `SimulateMsgPinReply` | 15 | ESTABLISHED+ member pins random unpinned ephemeral reply |
 
 Each operation has a unique configuration key (`op_weight_msg_blog_<operation>`) so weights can be individually tuned via simulation app params.
 
-The EndBlocker subsidy draw is exercised automatically during simulation when `CommonsKeeper` is wired and `anon_subsidy_budget_per_epoch` is non-zero. No separate simulation operation is needed — the draw triggers at epoch boundaries during the simulated block progression.
+Anonymous operations are simulated via x/shield's `SimulateMsgShieldedExec` -- x/blog does not have separate anonymous simulation operations.
 
 ---
 
@@ -1844,9 +1663,6 @@ Each state-changing message handler emits an event for off-chain indexers and fr
 | `blog.reaction.added` | `creator`, `post_id`, `reply_id`, `reaction_type` | React (new) |
 | `blog.reaction.changed` | `creator`, `post_id`, `reply_id`, `old_type`, `new_type` | React (change) |
 | `blog.reaction.removed` | `creator`, `post_id`, `reply_id`, `reaction_type` | RemoveReaction |
-| `blog.anonymous_post.created` | `post_id`, `proven_trust_level`, `nullifier_hex`, `expires_at` | CreateAnonymousPost |
-| `blog.anonymous_reply.created` | `reply_id`, `post_id`, `proven_trust_level`, `nullifier_hex`, `expires_at` | CreateAnonymousReply |
-| `blog.anonymous_reaction.added` | `post_id`, `reply_id`, `reaction_type`, `proven_trust_level` | AnonymousReact |
 | `blog.post.pinned` | `post_id`, `pinned_by` | PinPost |
 | `blog.reply.pinned` | `reply_id`, `post_id`, `pinned_by` | PinReply |
 | `blog.post.upgraded` | `post_id`, `creator` | EndBlock membership auto-upgrade (non-member → member) |
@@ -1858,8 +1674,6 @@ Each state-changing message handler emits an event for off-chain indexers and fr
 | `blog.post.expired` | `post_id` | EndBlock TTL expiry |
 | `blog.reply.expired` | `reply_id`, `post_id` | EndBlock TTL expiry |
 | `blog.params.updated` | `authority` | UpdateParams |
-| `blog.subsidy.drawn` | `epoch`, `amount`, `source_treasury` | EndBlock subsidy draw |
-| `blog.nullifiers.pruned` | `domain`, `pruned_before_scope`, `count` | EndBlock nullifier pruning (only emitted when count > 0) |
 | `blog.operational_params.updated` | `authority` | UpdateOperationalParams |
 
 ---
@@ -1963,34 +1777,35 @@ If `ephemeral_content_ttl` is set to 0, all content is permanent regardless of a
 
 The Operations Committee can adjust fees, rate limits, TTL, and anonymous posting parameters without governance. This operational agility is valuable for responding to spam waves, but creates a censorship surface: a hostile committee could combine parameter changes to suppress speech classes without deleting individual posts.
 
-Five governance-only parameters bound the committee's power:
+Four governance-only parameters bound the committee's power:
 
 | Guardrail | Protects Against | Mechanism |
 |-----------|------------------|-----------|
-| `anonymous_posting_enabled` (default: true) | Silencing whistleblowers — disabling anonymous posting removes the primary mechanism for members to critique leadership without retaliation | Not in `BlogOperationalParams`; only changeable via `MsgUpdateParams` (x/gov). The committee retains `anonymous_min_trust_level` for proportional abuse response |
-| `min_ephemeral_content_ttl` (default: 1 day) | TTL suppression — setting TTL near-zero to make ephemeral content expire before anyone can read or pin it | `ephemeral_content_ttl` must be 0 (disabled) or ≥ `min_ephemeral_content_ttl` |
-| `max_cost_per_byte` (default: 1,000uspark) | Economic censorship — setting storage fees prohibitively high to price out posting | `cost_per_byte.amount` ≤ `max_cost_per_byte.amount` |
-| `max_reaction_fee` (default: 500uspark) | Economic censorship — setting reaction fees prohibitively high to suppress engagement | `reaction_fee.amount` ≤ `max_reaction_fee.amount` |
-| `pin_min_trust_level` (governance-only) | Pin suppression — raising the trust level required to preserve ephemeral content, concentrating preservation power in a small group aligned with the committee | Not in `BlogOperationalParams`; only changeable via `MsgUpdateParams` (x/gov) |
+| `min_ephemeral_content_ttl` (default: 1 day) | TTL suppression -- setting TTL near-zero to make ephemeral content expire before anyone can read or pin it | `ephemeral_content_ttl` must be 0 (disabled) or >= `min_ephemeral_content_ttl` |
+| `max_cost_per_byte` (default: 1,000uspark) | Economic censorship -- setting storage fees prohibitively high to price out posting | `cost_per_byte.amount` <= `max_cost_per_byte.amount` |
+| `max_reaction_fee` (default: 500uspark) | Economic censorship -- setting reaction fees prohibitively high to suppress engagement | `reaction_fee.amount` <= `max_reaction_fee.amount` |
+| `pin_min_trust_level` (governance-only) | Pin suppression -- raising the trust level required to preserve ephemeral content, concentrating preservation power in a small group aligned with the committee | Not in `BlogOperationalParams`; only changeable via `MsgUpdateParams` (x/gov) |
+
+Anonymous posting enablement is now controlled by x/shield's `ShieldedOpRegistration` governance whitelist rather than a per-module parameter.
 
 **What the committee can still do:**
-- Raise `anonymous_min_trust_level` to shrink the anonymity set (e.g., to TRUSTED or CORE during abuse)
 - Set `max_posts_per_day = 1` to throttle output
-- Remove subsidy relay addresses (anonymous posters pay their own gas)
 - Adjust storage fees and reaction fees (within governance ceilings)
+- Adjust conviction renewal threshold and period
 
 **What the committee cannot do:**
-- Disable anonymous posting (`anonymous_posting_enabled` is governance-only)
-- Set `ephemeral_content_ttl` below the governance floor (unless they set it to 0, which makes all content permanent — the opposite of censorship)
+- Set `ephemeral_content_ttl` below the governance floor (unless they set it to 0, which makes all content permanent -- the opposite of censorship)
 - Set `cost_per_byte` or `reaction_fee` above the governance ceiling
 - Change who can pin ephemeral content (`pin_min_trust_level` is governance-only)
 - Delete, hide, or modify any post or reply
 
-The remaining committee levers (`anonymous_min_trust_level`, rate limits, subsidy controls) are intentionally left as operational parameters. Raising the trust level is a proportional response to abuse scenarios (e.g., sustained anonymous harassment) — it restricts anonymous posting to more trusted members rather than eliminating it entirely. The Three Pillars hierarchy (Section 19.2 of the architecture spec) provides accountability: the Commons Council can override committee actions, and governance can override the council. The x/futarchy confidence vote mechanism provides ongoing accountability pressure on all councils.
+The remaining committee levers (rate limits, fee adjustments, conviction parameters) are intentionally left as operational parameters. The Three Pillars hierarchy (Section 19.2 of the architecture spec) provides accountability: the Commons Council can override committee actions, and governance can override the council. The x/futarchy confidence vote mechanism provides ongoing accountability pressure on all councils.
 
 ### 19.8. Anonymous Post Mempool Visibility
 
-Anonymous post and reply transactions are submitted to the mempool in cleartext. The ZK proof protects the **author's identity** but not the **content**: a validator or mempool observer can read the title, body, and content_type before the transaction is confirmed. This creates two risks:
+> **Note:** With the migration to x/shield, anonymous operations now have two execution modes. **Immediate mode** submits in cleartext (same visibility as before). **Encrypted Batch mode** uses TLE (timelock encryption) — content is encrypted in the mempool and only decrypted after block inclusion, providing maximum privacy. See `docs/x-shield-spec.md` for details.
+
+Anonymous post and reply transactions submitted in **Immediate mode** are visible in the mempool in cleartext. The ZK proof protects the **author's identity** but not the **content**: a validator or mempool observer can read the title, body, and content_type before the transaction is confirmed. This creates two risks:
 
 1. **Content front-running:** An observer could extract the content and publish it non-anonymously (under their own name) in a transaction with higher gas, landing it on-chain first. The anonymous post would still land (different nullifier), but the observer claims "first post."
 2. **Targeted censorship:** A validator could selectively exclude anonymous transactions from their blocks based on content inspection.
@@ -2012,13 +1827,17 @@ See **[docs/session-keys.md](session-keys.md)** for the full specification, gran
 
 ---
 
-## 21. Anonymous Posting via ZK Proofs
+## 21. Anonymous Posting [REMOVED]
 
-Members can create blog posts and replies without revealing their identity, using the ZK-SNARK infrastructure from x/vote. The poster proves they are an active member meeting a minimum trust level — without revealing *which* member they are. A nullifier system prevents spam: one anonymous reply per post per identity, one anonymous top-level post per epoch per identity.
+Per-module anonymous posting has been fully removed from x/blog. The legacy messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) no longer exist. All anonymous blog operations are now routed through x/shield's single `MsgShieldedExec` entry point, which handles ZK proof verification (PLONK over BN254), nullifier management, and module-paid gas. x/blog implements the `ShieldAware` interface (Section 23) to opt into shielded execution.
 
-See **[docs/anonymous-posting.md](anonymous-posting.md)** for the full specification covering the member trust tree, anonymous action circuit, nullifier system, relay pattern, VoteKeeper interface, client workflow, and security considerations.
+For the current architecture, see `docs/x-shield-spec.md`.
 
-### 21.1. Blog-Specific Nullifier Domains
+The following subsections document the anonymous content behavior now that operations are routed through x/shield.
+
+### 21.1. Nullifier Domains
+
+Nullifier domains for blog operations are registered with and enforced by x/shield's centralized nullifier management system:
 
 | Domain | Action | Scope | Effect |
 |--------|--------|-------|--------|
@@ -2027,218 +1846,24 @@ See **[docs/anonymous-posting.md](anonymous-posting.md)** for the full specifica
 | `8` | Anonymous post reaction | `post_id` | One anonymous reaction per member per post |
 | `9` | Anonymous reply reaction | `reply_id` | One anonymous reaction per member per reply |
 
-### 21.2. Messages
-
-#### MsgCreateAnonymousPost
-
-```protobuf
-message MsgCreateAnonymousPost {
-  string submitter = 1;                                // Transaction signer (pays gas + storage fee; identity NOT linked to content)
-  string title = 2;                                    // Post title
-  string body = 3;                                     // Post content
-  sparkdream.common.v1.ContentType content_type = 4;   // Content encoding hint
-  bytes proof = 5;                                     // ~500-byte Groth16 proof
-  bytes nullifier = 6;                                 // 32-byte nullifier
-  bytes merkle_root = 7;                               // Trust tree root used for proof
-  uint32 min_trust_level = 8;                          // Trust level proven (must meet anonymous_min_trust_level param)
-}
-
-message MsgCreateAnonymousPostResponse {
-  uint64 id = 1;  // Assigned post ID
-}
-```
-
-**Validation:**
-1. `submitter` is valid bech32 (pays gas; not recorded as author)
-2. Title non-empty, `len(title)` ≤ `params.max_title_length`
-3. Body non-empty, `len(body)` ≤ `params.max_body_length`
-4. `VoteKeeper` must not be nil (`ErrAnonymousPostingUnavailable` otherwise)
-5. `params.anonymous_posting_enabled` must be true (`ErrAnonymousPostingDisabled` otherwise)
-6. `min_trust_level` ≥ `params.anonymous_min_trust_level` (`ErrInsufficientAnonTrustLevel` otherwise)
-7. `merkle_root` matches the current or previous `MemberTrustTreeRoot` from x/rep (`ErrStaleMerkleRoot` otherwise). Accepting the previous root provides a one-rebuild-cycle grace period so that proofs generated between tree rebuilds remain valid
-8. Nullifier not already used (`ErrNullifierUsed` otherwise)
-9. `scope` = current epoch, where `epoch = block_time / epoch_duration` and `epoch_duration` is queried via `SeasonKeeper.GetEpochDuration(ctx)` (falls back to `DefaultEpochDuration = 13_140_000` seconds / ~5 months)
-10. ZK proof verification via `VoteKeeper.VerifyAnonymousActionProof(proof, merkle_root, nullifier, min_trust_level, domain=1, scope=epoch)` (`ErrInvalidZKProof` otherwise)
-11. `submitter` must not exceed `params.max_posts_per_day` (shared counter with regular posts)
-
-**Logic:**
-1. Validate content inputs (title, body, content_type)
-2. Call `commonkeeper.VerifyAndStoreAnonymousAction(ctx, store, voteKeeper, repKeeper, anonParams, proof, merkleRoot, nullifier, minTrustLevel, domain=1, scope=epoch, blockTime)` — handles steps 4–10 of validation above (param checks, root verification, nullifier dedup, ZK proof verification, nullifier recording)
-3. Check submitter rate limit (`params.max_posts_per_day` — shared with regular posts)
-4. Compute storage fee: `cost_per_byte * (len(title) + len(body))`
-5. If `submitter` is in `params.anon_subsidy_relay_addresses` and module subsidy balance ≥ min(fee, `anon_subsidy_max_per_post`): deduct min(fee, `anon_subsidy_max_per_post`) from module account and burn; charge any excess to submitter. Otherwise: charge full fee to submitter and burn
-6. Create Post with `creator = module_account_address`, `replies_enabled = true`, `min_reply_trust_level = 0` (hardcoded to "any active member" — not `-1` (open) because anonymous posts lack author-moderation, so allowing non-member replies would create unmoderable content on unmoderable posts; not configurable by the anonymous author because they cannot later moderate replies, so restrictive settings would create unmoderable locked-down threads), `fee_bytes_high_water = len(title) + len(body)`, `expires_at = block_time + params.ephemeral_content_ttl` (0 if `ephemeral_content_ttl == 0`)
-7. If `expires_at > 0`: add to `ExpiryIndex`
-8. Store `AnonymousPostMetadata` linked to post ID
-9. Record nullifier as used
-10. Emit `blog.anonymous_post.created` event (includes `post_id`, `proven_trust_level`, `expires_at`; does NOT include submitter)
-
-The `submitter` pays gas and storage fees but is **not** recorded as the post author. The `creator` field on the stored Post is set to the blog module account address. See the relay pattern in [anonymous-posting.md](anonymous-posting.md) for details.
-
-#### MsgCreateAnonymousReply
-
-```protobuf
-message MsgCreateAnonymousReply {
-  string submitter = 1;                                // Transaction signer (pays gas; not the author)
-  uint64 post_id = 2;                                 // Target blog post
-  string body = 3;                                     // Reply content
-  sparkdream.common.v1.ContentType content_type = 4;   // Content encoding hint
-  bytes proof = 5;                                     // ~500-byte Groth16 proof
-  bytes nullifier = 6;                                 // 32-byte nullifier
-  bytes merkle_root = 7;                               // Trust tree root used for proof
-  uint32 min_trust_level = 8;                          // Trust level proven
-}
-
-message MsgCreateAnonymousReplyResponse {
-  uint64 id = 1;  // Assigned reply ID
-}
-```
-
-**Validation:**
-1. `submitter` is valid bech32
-2. Post must exist and have `status = POST_STATUS_ACTIVE` (`ErrPostDeleted` if tombstoned, `ErrPostHidden` if hidden)
-3. `post.replies_enabled` must be true (`ErrRepliesDisabled` otherwise)
-4. Body non-empty, `len(body)` ≤ `params.max_reply_length`
-5. `VoteKeeper` must not be nil (`ErrAnonymousPostingUnavailable` otherwise)
-6. `params.anonymous_posting_enabled` must be true (`ErrAnonymousPostingDisabled` otherwise)
-7. `min_trust_level` ≥ max(`params.anonymous_min_trust_level`, `post.min_reply_trust_level`) (`ErrInsufficientAnonTrustLevel` otherwise)
-8. `merkle_root` matches the current or previous `MemberTrustTreeRoot` (`ErrStaleMerkleRoot` otherwise) — same one-rebuild-cycle grace period as anonymous posts
-9. Nullifier not already used (`ErrNullifierUsed` otherwise)
-10. `scope` = `post_id` (verified against nullifier)
-11. ZK proof verification via `VoteKeeper.VerifyAnonymousActionProof(proof, merkle_root, nullifier, min_trust_level, domain=2, scope=post_id)` (`ErrInvalidZKProof` otherwise)
-12. `submitter` must not exceed `params.max_replies_per_day` (shared counter with regular replies)
-
-**Logic:**
-1. Validate content inputs (post exists, replies enabled, body length)
-2. Call `commonkeeper.VerifyAndStoreAnonymousAction(ctx, store, voteKeeper, repKeeper, anonParams, proof, merkleRoot, nullifier, minTrustLevel, domain=2, scope=postId, blockTime)` — handles steps 5–11 of validation above
-3. Check submitter rate limit (`params.max_replies_per_day`)
-4. Compute storage fee: `cost_per_byte * len(body)`
-5. If `submitter` is in `params.anon_subsidy_relay_addresses` and module subsidy balance ≥ min(fee, `anon_subsidy_max_per_post`): deduct min(fee, `anon_subsidy_max_per_post`) from module account and burn; charge any excess to submitter. Otherwise: charge full fee to submitter and burn
-6. Create Reply with `creator = module_account_address`, `depth = 0` (anonymous replies are always top-level), `parent_reply_id = 0`, `fee_bytes_high_water = len(body)`, `expires_at = block_time + params.ephemeral_content_ttl` (0 if `ephemeral_content_ttl == 0`)
-7. If `expires_at > 0`: add to `ExpiryIndex`
-8. Store `AnonymousPostMetadata` linked to reply ID
-9. Record nullifier, increment `post.reply_count`
-10. Emit `blog.anonymous_reply.created` event
-
-**Anonymous replies are always top-level.** Nesting is not supported because threading creates correlation patterns (if only one member replied to a specific sub-thread, they're identifiable). Flat anonymous replies maximize the anonymity set.
-
-### 21.3. State Objects and Storage
-
-Anonymous posting state objects are defined in Section 3: `AnonymousPostMetadata` (3.12), `AnonNullifierEntry` (3.11). Storage keys are listed in the main storage schema (Section 4).
-
-### 21.4. Parameters
-
-Anonymous posting parameters are included in the canonical `Params` (Section 3.8, fields 12-13, 17-19) and `BlogOperationalParams` (Section 3.9, fields 8, 12). Governance-only guardrails affecting anonymous content are in `Params` fields 12 (`anonymous_posting_enabled`), 18 (`pin_min_trust_level`), and 20 (`min_ephemeral_content_ttl`). Defaults and validation rules are in Section 8.
-
-### 21.5. Access Control
+### 21.2. Access Control for Anonymous Content
 
 | Operation | Who Can Execute |
 |-----------|-----------------|
-| CreateAnonymousPost | Any address as submitter; ZK proof must prove membership at `anonymous_min_trust_level` |
-| CreateAnonymousReply | Any address as submitter; ZK proof must prove membership at max(anonymous_min_trust_level, post.min_reply_trust_level) |
-| Update anonymous post/reply | **Nobody** — anonymous content is immutable |
-| Delete/hide anonymous post | **Nobody** directly — creator is module account (cannot sign). Content is naturally tombstoned by TTL expiry (see below) |
-| Pin anonymous post | Active member at `pin_min_trust_level`+ (clears TTL, makes permanent) |
-| Pin anonymous reply | Active member at `pin_min_trust_level`+ (clears TTL, makes permanent) |
-| Hide anonymous reply | Post author (same as regular replies — only available when post has an identified author) |
-| Delete anonymous reply | Post author only (reply author path is module account, so only post author path applies) |
+| Create anonymous post/reply/reaction | Via x/shield `MsgShieldedExec` wrapping the regular message |
+| Update anonymous post/reply | **Nobody** -- anonymous content is immutable |
+| Delete/hide anonymous post | **Nobody** directly -- creator is shield module account (cannot sign). Content is naturally tombstoned by TTL expiry |
+| Pin anonymous post/reply | Active member at `pin_min_trust_level`+ (clears TTL, makes permanent) |
+| Hide anonymous reply | Post author (same as regular replies -- only available when post has an identified author) |
+| Delete anonymous reply | Post author only (reply author path is shield module account, so only post author path applies) |
 
-Anonymous posts and replies cannot be updated, deleted, or hidden by their author (there is no known author). Like all ephemeral content (see Section 19.6), anonymous posts carry a TTL (`params.ephemeral_content_ttl`, default 7 days). At TTL expiry, the EndBlocker checks the content's community conviction score (via x/rep's content staking system). If conviction ≥ `params.conviction_renewal_threshold`, the TTL is extended by `params.conviction_renewal_period` instead of tombstoning — the content survives as long as the community actively supports it. If conviction is below the threshold, the content is tombstoned normally. Additionally, an ESTABLISHED+ member can **pin** the content at any time via `MsgPinPost`/`MsgPinReply`, clearing the TTL entirely and making it permanent. See [anonymous-posting.md](anonymous-posting.md) § "Conviction-Based Lifetime Extension" for the full cross-module pattern.
+Anonymous posts and replies cannot be updated, deleted, or hidden by their author (there is no known author). Like all ephemeral content (see Section 19.6), anonymous posts carry a TTL (`params.ephemeral_content_ttl`, default 7 days). At TTL expiry, the EndBlocker checks the content's community conviction score (via x/rep's content staking system). If conviction >= `params.conviction_renewal_threshold`, the TTL is extended by `params.conviction_renewal_period` instead of tombstoning. If conviction is below the threshold, the content is tombstoned normally. Additionally, an ESTABLISHED+ member can **pin** the content at any time via `MsgPinPost`/`MsgPinReply`, clearing the TTL entirely and making it permanent.
 
-Anonymous posts hardcode `replies_enabled = true` and `min_reply_trust_level = 0`, so the membership requirement (active members only), rate limits, and TTL provide the primary spam and abuse protection.
-
-**Moderation on anonymous posts:** Since the post author is the module account (which cannot sign transactions), the "post author" moderation path is unavailable for replies on anonymous posts. This means:
-- **Regular replies on anonymous posts** can only be self-deleted by the reply author — post-author hide/delete is inaccessible
-- **Anonymous replies on anonymous posts** cannot be hidden/deleted by anyone — they expire via TTL unless pinned
-- **Non-member replies on anonymous posts** (when `min_reply_trust_level = -1` on a non-anonymous post that allows open replies) also expire via TTL unless pinned
+**Moderation on anonymous posts:** Since the post author is the shield module account (which cannot sign transactions), the "post author" moderation path is unavailable for replies on anonymous posts. This means:
+- **Regular replies on anonymous posts** can only be self-deleted by the reply author
+- **Anonymous replies on anonymous posts** cannot be hidden/deleted by anyone -- they expire via TTL unless pinned
 
 For use cases needing stronger moderation of anonymous or non-member content, x/forum provides platform-level tools (sentinel bonds, appeals, council oversight).
-
-### 21.6. Anonymous Posting Subsidy
-
-The Commons Council can subsidize anonymous posting costs to encourage democratic dialogue. The subsidy is funded from the Commons Council group treasury (which receives its allocation via x/split) and covers **storage fees** for approved relay addresses. Gas subsidization is handled separately via `x/feegrant` grants to approved relays (outside this module's scope).
-
-See **[docs/anonymous-posting.md](anonymous-posting.md)** § "Anonymous Posting Subsidy" for the full specification covering the funding flow, governance surface, and comparison with x/feegrant.
-
-Subsidy parameters are included in the canonical `Params` (Section 3.8, fields 14-16) and `BlogOperationalParams` (Section 3.9, fields 10-12). Defaults and validation rules are in Section 8. The EndBlocker draw mechanism is described in Section 14.
-
-**Mechanism summary:**
-1. Each epoch, the EndBlocker draws `anon_subsidy_budget_per_epoch` from Commons Council treasury via `CommonsKeeper.SpendFromTreasury()` (Section 14)
-2. When an approved relay (listed in `anon_subsidy_relay_addresses`) submits an anonymous post/reply, storage fees are paid from the subsidy account instead of the relay (Section 21.2, Logic steps 4-5)
-3. Per-post cost capped at `anon_subsidy_max_per_post`; excess charged to relay
-4. When budget is exhausted, relays pay normally until next epoch
-5. Unspent budget rolls over (accumulates in the blog module account)
-6. If `CommonsKeeper` is nil or `anon_subsidy_budget_per_epoch` is zero, subsidy is disabled — relays always pay their own costs
-
-**Within-block ordering:** When multiple anonymous posts from approved relays land in the same block, subsidy is applied first-come-first-served in transaction execution order. If the subsidy balance is exhausted mid-block, later transactions in that block charge the relay directly. Relay operators should account for this when estimating costs.
-
-### 21.7. Anonymous Reactions
-
-Members can react to posts and replies without revealing their identity, using the same ZK-SNARK infrastructure as anonymous posting. A nullifier scoped to the target enforces one reaction per member per target — the same constraint as public reactions.
-
-#### Blog-Specific Nullifier Domains
-
-| Domain | Action | Scope | Effect |
-|--------|--------|-------|--------|
-| `8` | Anonymous post reaction | `post_id` | One anonymous reaction per member per post |
-| `9` | Anonymous reply reaction | `reply_id` | One anonymous reaction per member per reply |
-
-#### MsgAnonymousReact
-
-```protobuf
-message MsgAnonymousReact {
-  string submitter = 1;                                // Transaction signer (pays gas + fees; NOT the reactor)
-  uint64 post_id = 2;                                 // Target post
-  uint64 reply_id = 3;                                // Target reply (0 = reacting to the post)
-  ReactionType reaction_type = 4;                      // Selected reaction (LIKE, INSIGHTFUL, DISAGREE, FUNNY)
-  bytes proof = 5;                                     // ~500-byte Groth16 proof
-  bytes nullifier = 6;                                 // 32-byte nullifier
-  bytes merkle_root = 7;                               // Trust tree root used for proof
-  uint32 min_trust_level = 8;                          // Trust level proven
-}
-
-message MsgAnonymousReactResponse {}
-```
-
-**Validation:**
-1. `VoteKeeper` must not be nil (`ErrAnonymousPostingUnavailable`)
-2. `params.anonymous_posting_enabled` must be true (`ErrAnonymousPostingDisabled`)
-3. Post must exist and have `status = POST_STATUS_ACTIVE`
-4. If `reply_id > 0`: reply must exist, belong to the post, and have `status = REPLY_STATUS_ACTIVE`
-5. `reaction_type` must not be `UNSPECIFIED`
-6. `min_trust_level` >= `params.anonymous_min_trust_level`
-7. `merkle_root` matches current or previous `MemberTrustTreeRoot` from x/rep
-8. Nullifier domain and scope: if `reply_id == 0`, domain=8, scope=`post_id`; if `reply_id > 0`, domain=9, scope=`reply_id`
-9. Nullifier not already used (`ErrNullifierUsed`)
-10. ZK proof verified via `VoteKeeper.VerifyAnonymousActionProof(proof, merkle_root, nullifier, min_trust_level, domain, scope)`
-11. `submitter` must not exceed `params.max_reactions_per_day` (shared counter with regular reactions)
-
-**Fee logic:**
-- `params.reaction_fee` charged to `submitter` and burned (same as regular new reaction)
-- Anonymous posting subsidy applies if `submitter` is an approved relay
-
-**Logic:**
-1. Validate content inputs (post/reply exists, reaction_type valid)
-2. Determine domain and scope (domain=8 + scope=post_id, or domain=9 + scope=reply_id)
-3. Call `commonkeeper.VerifyAndStoreAnonymousAction(ctx, store, voteKeeper, repKeeper, anonParams, proof, merkleRoot, nullifier, minTrustLevel, domain, scope, blockTime)` — handles steps 1–2, 6–10 of validation above
-4. Check submitter rate limit
-5. Charge and burn reaction fee from submitter
-6. Increment the appropriate count in `ReactionCounts` for the target (like_count, insightful_count, disagree_count, or funny_count)
-7. Emit `blog.anonymous_reaction.added` event (includes `post_id`, `reply_id`, `reaction_type`, `proven_trust_level`; does NOT include `submitter`)
-
-**Parity with public reactions:**
-
-| Property | Public | Anonymous |
-|----------|--------|-----------|
-| One reaction per user per target | `Reaction` keyed storage | ZK nullifier (domain=8/9, scope=target_id) |
-| Reaction type | Any of 4 types | Same 4 types |
-| Changeable | Yes (replace with different type) | No — nullifier is permanent |
-| Removable | Yes (`MsgRemoveReaction`) | No — nullifier is permanent |
-| Rate limit | `max_reactions_per_day` | Same (shared budget via submitter) |
-| Fee | `reaction_fee` | Same (charged to submitter) |
-| Reactor identity | Stored in `Reaction` record | Hidden by ZK proof |
-
-**Note:** Anonymous reactions are strictly additive — they increment counters but cannot be changed or removed. This is simpler than public reactions (which support type changes and removal) because there is no author identity to verify for subsequent operations.
 
 ---
 
@@ -2257,11 +1882,63 @@ message MsgAnonymousReactResponse {}
 
 ---
 
-## 23. File References
+## 23. x/shield Integration (ShieldAware Interface)
+
+x/blog implements the `ShieldAware` interface defined in `x/shield/types/shield_aware.go` to opt into anonymous execution via x/shield's unified privacy layer. This replaces the per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) that were removed in the x/shield migration.
+
+### 23.1. How It Works
+
+1. A user submits `MsgShieldedExec` to x/shield with an inner message (e.g., `MsgCreatePost`) and a ZK proof
+2. x/shield verifies the ZK proof (PLONK over BN254), checks the nullifier, and validates the proof against the trust tree
+3. x/shield checks that the inner message type is registered in the governance whitelist (`ShieldedOpRegistration`)
+4. x/shield calls `IsShieldCompatible(ctx, innerMsg)` on x/blog's msg server — **both gates must pass**
+5. x/shield dispatches the inner message to x/blog's normal message handler with the **shield module account** as the `creator`/sender
+6. x/blog processes the message normally (e.g., creates a post with `creator = shield_module_account_address`)
+7. The shield module account pays all tx fees (module-paid gas)
+
+### 23.2. Whitelisted Messages
+
+x/blog's `IsShieldCompatible` implementation (in `x/blog/keeper/shield_aware.go`) whitelists the following message types for shielded execution:
+
+| Message Type | Anonymous Operation |
+|-------------|-------------------|
+| `MsgCreatePost` | Anonymous blog post creation (replaces `MsgCreateAnonymousPost`) |
+| `MsgCreateReply` | Anonymous reply creation (replaces `MsgCreateAnonymousReply`) |
+| `MsgReact` | Anonymous reaction (replaces `MsgAnonymousReact`) |
+
+All other message types (e.g., `MsgUpdatePost`, `MsgDeletePost`, `MsgHidePost`) return `false` from `IsShieldCompatible` and cannot be executed via `MsgShieldedExec`. This prevents anonymous users from performing operations that require author identity (updates, deletes, moderation).
+
+### 23.3. What x/blog No Longer Manages
+
+With the migration to x/shield, x/blog no longer:
+
+- **Stores or verifies ZK proofs** — x/shield owns all PLONK/BN254 verification
+- **Manages nullifiers** — x/shield's centralized nullifier store with per-domain scoping replaces the per-module `AnonNullifier/` KV entries
+- **Stores anonymous post metadata** — x/shield tracks shielded execution records (nullifiers, merkle roots, proven trust levels)
+- **Draws subsidy from council treasury** — x/shield's module account is auto-funded from the community pool via BeginBlocker
+- **Prunes stale nullifiers in EndBlocker** — x/shield's EndBlocker handles nullifier pruning
+- **Defines per-module anonymous messages** — all anonymous operations use x/shield's `MsgShieldedExec` as the single entry point
+
+### 23.4. Anonymous Content Behavior
+
+When x/shield dispatches an inner message to x/blog, the resulting content behaves identically to the old per-module anonymous posts:
+
+- **Creator** is set to the shield module account address (functionally equivalent to the old blog module account address for anonymous posts)
+- **Ephemeral TTL** applies: `expires_at = block_time + params.ephemeral_content_ttl` (because the shield module account is not an active x/rep member)
+- **Replies enabled** with `min_reply_trust_level = 0` (any active member can reply)
+- **Immutable** — anonymous content cannot be updated, hidden, or deleted by the author (shield module account cannot sign follow-up transactions)
+- **Pinning** by ESTABLISHED+ members still works (clears TTL, makes permanent)
+- **Conviction-based renewal** at TTL expiry still works (community stakes extend lifetime)
+
+---
+
+## 24. File References
 
 - Proto definitions: `proto/sparkdream/blog/v1/*.proto`
 - Keeper logic: `x/blog/keeper/`
 - Types and errors: `x/blog/types/`
 - Module setup: `x/blog/module/`
+- ShieldAware implementation: `x/blog/keeper/shield_aware.go`
 - Session key pattern: `docs/session-keys.md`
-- Anonymous posting: `docs/anonymous-posting.md`
+- Shield module spec: `docs/x-shield-spec.md`
+- Anonymous posting (legacy reference): `docs/anonymous-posting.md`

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 var (
@@ -75,25 +74,12 @@ var (
 	DefaultEndorsementDeletionBurnFraction       = math.LegacyNewDecWithPrec(10, 2) // 10%
 
 	// Conviction renewal defaults
-	DefaultConvictionRenewalThreshold        = math.LegacyZeroDec() // 0 = disabled by default
-	DefaultConvictionRenewalPeriod     int64 = 432000               // ~30 days (same as MaxNonMemberTTLBlocks)
-
-	// Anonymous collection defaults
-	DefaultAnonymousPostingEnabled              = true
-	DefaultAnonymousMinTrustLevel        uint32 = 2 // ESTABLISHED
-	DefaultMaxAnonymousCollectionsPerKey uint32 = 3
+	DefaultConvictionRenewalThreshold       = math.LegacyZeroDec() // 0 = disabled by default
+	DefaultConvictionRenewalPeriod    int64 = 432000               // ~30 days (same as MaxNonMemberTTLBlocks)
 
 	// Pinning defaults
-	DefaultPinMinTrustLevel uint32 = 2  // ESTABLISHED
+	DefaultPinMinTrustLevel uint32 = 2 // ESTABLISHED
 	DefaultMaxPinsPerDay    uint32 = 10
-
-	// Anonymous subsidy defaults
-	DefaultFeeDenom                          = "uspark"
-	DefaultAnonSubsidyBudgetPerEpochAmount   = math.NewInt(50_000_000) // 50 SPARK
-	DefaultAnonSubsidyMaxPerActionAmount     = math.NewInt(2_000_000)  // 2 SPARK
-
-	// MaxRelayAddresses is the maximum number of approved relay addresses
-	MaxRelayAddresses = 50
 )
 
 // DefaultParams returns a default set of parameters.
@@ -153,16 +139,10 @@ func DefaultParams() Params {
 		EndorsementExpiryBlocks:         DefaultEndorsementExpiryBlocks,
 		EndorsementFeeEndorserShare:     DefaultEndorsementFeeEndorserShare,
 		EndorsementDeletionBurnFraction: DefaultEndorsementDeletionBurnFraction,
-		ConvictionRenewalThreshold:         DefaultConvictionRenewalThreshold,
-		ConvictionRenewalPeriod:            DefaultConvictionRenewalPeriod,
-		AnonymousPostingEnabled:            DefaultAnonymousPostingEnabled,
-		AnonymousMinTrustLevel:             DefaultAnonymousMinTrustLevel,
-		MaxAnonymousCollectionsPerKey:      DefaultMaxAnonymousCollectionsPerKey,
-		PinMinTrustLevel:                   DefaultPinMinTrustLevel,
-		MaxPinsPerDay:                      DefaultMaxPinsPerDay,
-		AnonSubsidyBudgetPerEpoch:         sdk.NewCoin(DefaultFeeDenom, DefaultAnonSubsidyBudgetPerEpochAmount),
-		AnonSubsidyMaxPerAction:           sdk.NewCoin(DefaultFeeDenom, DefaultAnonSubsidyMaxPerActionAmount),
-		AnonSubsidyRelayAddresses:         nil,
+		ConvictionRenewalThreshold:      DefaultConvictionRenewalThreshold,
+		ConvictionRenewalPeriod:         DefaultConvictionRenewalPeriod,
+		PinMinTrustLevel:                DefaultPinMinTrustLevel,
+		MaxPinsPerDay:                   DefaultMaxPinsPerDay,
 	}
 }
 
@@ -339,26 +319,6 @@ func (p Params) Validate() error {
 	if p.ConvictionRenewalPeriod < 0 {
 		return fmt.Errorf("conviction_renewal_period must be non-negative: %d", p.ConvictionRenewalPeriod)
 	}
-	if !p.AnonSubsidyBudgetPerEpoch.Amount.IsNil() && p.AnonSubsidyBudgetPerEpoch.IsNegative() {
-		return fmt.Errorf("anon_subsidy_budget_per_epoch cannot be negative: %s", p.AnonSubsidyBudgetPerEpoch)
-	}
-	if !p.AnonSubsidyMaxPerAction.Amount.IsNil() && p.AnonSubsidyMaxPerAction.IsNegative() {
-		return fmt.Errorf("anon_subsidy_max_per_action cannot be negative: %s", p.AnonSubsidyMaxPerAction)
-	}
-	if len(p.AnonSubsidyRelayAddresses) > MaxRelayAddresses {
-		return fmt.Errorf("anon_subsidy_relay_addresses exceeds max (%d > %d)",
-			len(p.AnonSubsidyRelayAddresses), MaxRelayAddresses)
-	}
-	seenAddrs := make(map[string]bool, len(p.AnonSubsidyRelayAddresses))
-	for _, addr := range p.AnonSubsidyRelayAddresses {
-		if addr == "" {
-			return fmt.Errorf("anon_subsidy_relay_addresses contains empty address")
-		}
-		if seenAddrs[addr] {
-			return fmt.Errorf("anon_subsidy_relay_addresses contains duplicate: %s", addr)
-		}
-		seenAddrs[addr] = true
-	}
 	return nil
 }
 
@@ -411,26 +371,6 @@ func (op CollectOperationalParams) Validate() error {
 	}
 	if !op.ConvictionRenewalThreshold.IsNil() && op.ConvictionRenewalThreshold.IsNegative() {
 		return fmt.Errorf("conviction_renewal_threshold must be non-negative: %s", op.ConvictionRenewalThreshold)
-	}
-	if !op.AnonSubsidyBudgetPerEpoch.Amount.IsNil() && op.AnonSubsidyBudgetPerEpoch.IsNegative() {
-		return fmt.Errorf("anon_subsidy_budget_per_epoch cannot be negative: %s", op.AnonSubsidyBudgetPerEpoch)
-	}
-	if !op.AnonSubsidyMaxPerAction.Amount.IsNil() && op.AnonSubsidyMaxPerAction.IsNegative() {
-		return fmt.Errorf("anon_subsidy_max_per_action cannot be negative: %s", op.AnonSubsidyMaxPerAction)
-	}
-	if len(op.AnonSubsidyRelayAddresses) > MaxRelayAddresses {
-		return fmt.Errorf("anon_subsidy_relay_addresses exceeds max (%d > %d)",
-			len(op.AnonSubsidyRelayAddresses), MaxRelayAddresses)
-	}
-	seenAddrs := make(map[string]bool, len(op.AnonSubsidyRelayAddresses))
-	for _, addr := range op.AnonSubsidyRelayAddresses {
-		if addr == "" {
-			return fmt.Errorf("anon_subsidy_relay_addresses contains empty address")
-		}
-		if seenAddrs[addr] {
-			return fmt.Errorf("anon_subsidy_relay_addresses contains duplicate: %s", addr)
-		}
-		seenAddrs[addr] = true
 	}
 	return nil
 }
@@ -552,29 +492,12 @@ func (p Params) ApplyOperationalParams(op CollectOperationalParams) Params {
 	if op.ConvictionRenewalPeriod > 0 {
 		p.ConvictionRenewalPeriod = op.ConvictionRenewalPeriod
 	}
-	// Anonymous collection params use explicit bool check via toggle
-	if op.AnonymousMinTrustLevel > 0 {
-		p.AnonymousMinTrustLevel = op.AnonymousMinTrustLevel
-	}
-	if op.MaxAnonymousCollectionsPerKey > 0 {
-		p.MaxAnonymousCollectionsPerKey = op.MaxAnonymousCollectionsPerKey
-	}
 	// Pinning params
 	if op.PinMinTrustLevel > 0 {
 		p.PinMinTrustLevel = op.PinMinTrustLevel
 	}
 	if op.MaxPinsPerDay > 0 {
 		p.MaxPinsPerDay = op.MaxPinsPerDay
-	}
-	// Anonymous subsidy params
-	if !op.AnonSubsidyBudgetPerEpoch.Amount.IsNil() {
-		p.AnonSubsidyBudgetPerEpoch = op.AnonSubsidyBudgetPerEpoch
-	}
-	if !op.AnonSubsidyMaxPerAction.Amount.IsNil() {
-		p.AnonSubsidyMaxPerAction = op.AnonSubsidyMaxPerAction
-	}
-	if op.AnonSubsidyRelayAddresses != nil {
-		p.AnonSubsidyRelayAddresses = op.AnonSubsidyRelayAddresses
 	}
 	return p
 }

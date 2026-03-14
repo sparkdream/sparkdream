@@ -36,12 +36,6 @@ const (
 	// Rate limiting
 	RateLimitKey = "RateLimit/"
 
-	// Anonymous posting
-	AnonMetaPostKey  = "AnonMeta/post/"
-	AnonMetaReplyKey = "AnonMeta/reply/"
-	AnonNullifierKey = "AnonNullifier/"
-	AnonSubsidyKey   = "AnonSubsidy/last_epoch"
-
 	// Expiry index
 	ExpiryKey = "Expiry/"
 )

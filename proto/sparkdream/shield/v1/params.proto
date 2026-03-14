@@ -1,0 +1,81 @@
+syntax = "proto3";
+package sparkdream.shield.v1;
+
+import "amino/amino.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/shield/types";
+
+// Params defines the parameters for the shield module.
+message Params {
+  option (amino.name) = "sparkdream/x/shield/Params";
+  option (gogoproto.equal) = true;
+
+  // Whether shielded execution is enabled globally
+  bool enabled = 1;
+
+  // Maximum uspark to skim from community pool per day (14400 blocks at 6s/block)
+  string max_funding_per_day = 2 [
+    (cosmos_proto.scalar) = "cosmossdk.io/math.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Target minimum balance for the shield module account
+  string min_gas_reserve = 3 [
+    (cosmos_proto.scalar) = "cosmossdk.io/math.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Maximum gas allowed per shielded execution
+  uint64 max_gas_per_exec = 4;
+
+  // Per-identity rate limit: max shielded executions per epoch per nullifier-identity
+  uint64 max_execs_per_identity_per_epoch = 5;
+
+  // --- Encrypted Batch Mode params ---
+
+  // Whether encrypted batch mode is enabled (requires TLE DKG ceremony completed)
+  bool encrypted_batch_enabled = 6;
+
+  // Shield epoch interval in blocks
+  uint64 shield_epoch_interval = 7;
+
+  // Minimum number of operations in a batch before it executes
+  uint32 min_batch_size = 8;
+
+  // Maximum epochs an operation can remain pending before force-executing
+  uint32 max_pending_epochs = 9;
+
+  // Maximum number of pending operations in the queue
+  uint32 max_pending_queue_size = 10;
+
+  // Maximum size of encrypted_payload in bytes
+  uint32 max_encrypted_payload_size = 11;
+
+  // Maximum operations to execute in a single EndBlocker batch
+  uint32 max_ops_per_batch = 12;
+
+  // --- TLE liveness enforcement params ---
+
+  // Rolling window in shield epochs for tracking validator TLE misses
+  uint64 tle_miss_window = 13;
+  // Max misses within window before validator is jailed
+  uint64 tle_miss_tolerance = 14;
+  // Jail duration in seconds for TLE liveness violations
+  int64 tle_jail_duration = 15;
+
+  // --- DKG automation params ---
+
+  // Minimum bonded validators required to auto-open a DKG ceremony
+  uint32 min_tle_validators = 16;
+
+  // Total DKG window in blocks (split: first half = key registration, second half = contributions)
+  uint64 dkg_window_blocks = 17;
+
+  // Validator set drift percentage (0-100) that triggers automatic re-keying.
+  // e.g. 33 means re-key if >33% of DKG participants are no longer in the bonded set.
+  uint32 max_validator_set_drift = 18;
+}

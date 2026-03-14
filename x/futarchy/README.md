@@ -27,22 +27,38 @@ The market uses a Logarithmic Market Scoring Rule:
 ### Market Lifecycle
 
 ```
-CREATE → TRADING → CLOSED → RESOLVED → REDEEMED
-  │                   │         │
-  │    Buy/sell       │  Wait   │  Claim
-  │    yes/no shares  │  redemp │  winnings
-  │                   │  blocks │
-  └───────────────────┴─────────┘
+CREATE → ACTIVE → RESOLVED_YES / RESOLVED_NO / RESOLVED_INVALID
+  │         │                      │
+  │  Buy/sell yes/no shares        │  Wait redemption_blocks
+  │  (conditional tokens minted)   │  then MsgRedeem
+  │                                │
+  └── MsgCancelMarket ──► CANCELLED (refund remaining liquidity)
 ```
+
+### Conditional Tokens
+
+Trading mints conditional tokens with denom `f/{marketId}/{outcome}` (e.g. `f/1/yes`, `f/1/no`). These are 1:1 redeemable for collateral after resolution if the outcome matches.
 
 ### Confidence Voting Integration
 
-When integrated with `x/commons`:
+When integrated with `x/commons` via `FutarchyHooks`:
 
 - A confidence market is created at 50% of a council's term duration
-- **"Yes" outcome**: term extends by +20% (incentivizes good performance)
-- **"No" outcome**: term slashed by -50% (forces re-election)
-- **No quorum**: neutral (no tenure change)
+- **"Yes" outcome** (`RESOLVED_YES`): term extends by +20% (incentivizes good performance)
+- **"No" outcome** (`RESOLVED_NO`): term slashed by -50% (forces re-election)
+- **Invalid** (`RESOLVED_INVALID`): both pools at zero, no tenure change
+
+### Hooks
+
+The module exposes a `FutarchyHooks` interface called on market resolution:
+
+```go
+type FutarchyHooks interface {
+    AfterMarketResolved(ctx context.Context, marketId uint64, winner string) error
+}
+```
+
+Multiple hooks can be combined via `MultiFutarchyHooks`.
 
 ## State
 
@@ -62,13 +78,16 @@ When integrated with `x/commons`:
 | `creator` | string | Market creator address |
 | `symbol` | string | Market identifier |
 | `question` | string | What's being voted on |
-| `b_value` | Dec | Liquidity parameter |
-| `pool_yes` / `pool_no` | Int | Share pools |
+| `denom` | string | Collateral token denomination |
+| `min_tick` | Int | Minimum trade size |
+| `b_value` | LegacyDec | Liquidity parameter (`initial_liquidity / ln(2)`) |
+| `pool_yes` / `pool_no` | Int | Shares minted per outcome |
 | `end_block` | int64 | When voting ends |
 | `redemption_blocks` | int64 | Wait period after end |
 | `resolution_height` | int64 | Block of resolution |
-| `status` | enum | ACTIVE, CLOSED, RESOLVED, CANCELLED |
+| `status` | string | ACTIVE, RESOLVED_YES, RESOLVED_NO, RESOLVED_INVALID, CANCELLED |
 | `initial_liquidity` | Int | Seed liquidity amount |
+| `liquidity_withdrawn` | Int | Amount withdrawn by creator |
 
 ## Messages
 
@@ -119,10 +138,11 @@ When integrated with `x/commons`:
 
 ## EndBlocker
 
-- Resolves markets when `end_block` is reached
-- Transitions markets to redemption window
-- Cleans up expired markets
-- Triggers confidence vote markets on schedule (via `x/commons` hook)
+Walks the `ActiveMarkets` index each block and resolves any markets where `end_block <= current_block`:
+
+1. **Resolution**: `pool_yes > pool_no` → `RESOLVED_YES`; `pool_no > pool_yes` → `RESOLVED_NO`; both zero → `RESOLVED_INVALID`
+2. **Cleanup**: removes resolved markets from the active index, sets `resolution_height`
+3. **Hooks**: calls `AfterMarketResolved()` on registered `FutarchyHooks` (e.g. confidence voting integration)
 
 ## Client
 
@@ -130,14 +150,15 @@ When integrated with `x/commons`:
 
 ```bash
 # Trading
-sparkdreamd tx futarchy create-market --symbol "Q1-TECH" --question "Confidence in Technical Council?" --initial-liquidity 100000 --end-block 1000000 --from alice
-sparkdreamd tx futarchy trade 1 --is-yes true --amount-in 1000 --from bob
+sparkdreamd tx futarchy create-market "Q1-TECH" 100000 "Confidence in Technical Council?" 1000000 --from alice
+sparkdreamd tx futarchy trade 1 true 1000 --from bob
 sparkdreamd tx futarchy redeem 1 --from bob
+sparkdreamd tx futarchy withdraw-liquidity 1 --from alice
+sparkdreamd tx futarchy cancel-market 1 --reason "emergency" --from authority
 
 # Queries
 sparkdreamd q futarchy get-market 1
 sparkdreamd q futarchy list-market
-sparkdreamd q futarchy get-market-price 1 true 1000
 sparkdreamd q futarchy params
 ```
 

@@ -9,6 +9,7 @@ echo ""
 # Configuration
 # ========================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../check_testparams.sh"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 
@@ -26,6 +27,7 @@ RUN_EDGE_CASES_TEST=true
 RUN_ENDBLOCKER_TEST=true
 RUN_OPERATIONAL_PARAMS_TEST=true
 RUN_CONTENT_CHALLENGE_TEST=true
+RUN_BOND_LOCKED_TEST=true
 FUND_ALICE=true
 RESET_CHAIN=false
 SAVE_SETUP=false
@@ -88,7 +90,12 @@ while [[ $# -gt 0 ]]; do
             RUN_CONTENT_CHALLENGE_TEST=false
             shift
             ;;
+        --no-bond-locked)
+            RUN_BOND_LOCKED_TEST=false
+            shift
+            ;;
         --no-funding)
+
             FUND_ALICE=false
             shift
             ;;
@@ -111,6 +118,7 @@ while [[ $# -gt 0 ]]; do
             RUN_ENDBLOCKER_TEST=false
             RUN_OPERATIONAL_PARAMS_TEST=false
             RUN_CONTENT_CHALLENGE_TEST=false
+            RUN_BOND_LOCKED_TEST=false
             shift
             ;;
         --restore-setup)
@@ -131,6 +139,7 @@ while [[ $# -gt 0 ]]; do
             RUN_ENDBLOCKER_TEST=false
             RUN_OPERATIONAL_PARAMS_TEST=false
             RUN_CONTENT_CHALLENGE_TEST=false
+            RUN_BOND_LOCKED_TEST=false
             shift
             ;;
         --help)
@@ -352,6 +361,7 @@ echo " 11. Complex scenarios test:   $([ "$RUN_COMPLEX_TEST" = true ] && echo "�
 echo " 12. Edge cases test:          $([ "$RUN_EDGE_CASES_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo " 13. EndBlocker test:          $([ "$RUN_ENDBLOCKER_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo " 14. Operational params test:  $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo " 15. Bond locked test (P0):   $([ "$RUN_BOND_LOCKED_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
 echo ""
 
 # ========================================================================
@@ -889,6 +899,119 @@ else
 fi
 
 # ========================================================================
+# Step 15: Run Bond Locked Test (P0 Security)
+# ========================================================================
+if [ "$RUN_BOND_LOCKED_TEST" = true ]; then
+    echo "========================================================================="
+    echo "STEP 15: BOND LOCKED TEST (P0 Security)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/bond_locked_test.sh"
+    BOND_LOCKED_EXIT_CODE=$?
+
+    echo ""
+    if [ $BOND_LOCKED_EXIT_CODE -eq 0 ]; then
+        echo "✅ Bond locked test completed"
+    else
+        echo "⚠️  Bond locked test exited with code: $BOND_LOCKED_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+else
+    echo "========================================================================="
+    echo "STEP 15: BOND LOCKED TEST (SKIPPED)"
+    echo "========================================================================="
+    echo ""
+fi
+
+# ========================================================================
+# Step 16: Run Staking Errors Test (P1)
+# ========================================================================
+echo "========================================================================="
+echo "STEP 16: STAKING ERRORS TEST (P1)"
+echo "========================================================================="
+echo ""
+
+bash "$SCRIPT_DIR/staking_errors_test.sh"
+STAKING_ERRORS_EXIT_CODE=$?
+
+echo ""
+if [ $STAKING_ERRORS_EXIT_CODE -eq 0 ]; then
+    echo "Staking errors test completed"
+else
+    echo "Staking errors test exited with code: $STAKING_ERRORS_EXIT_CODE"
+fi
+echo ""
+sleep 2
+
+# ========================================================================
+# Step 17: Run Validation Test (P2)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/validation_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 17: VALIDATION TEST (P2)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/validation_test.sh"
+    VALIDATION_EXIT_CODE=$?
+
+    echo ""
+    if [ $VALIDATION_EXIT_CODE -eq 0 ]; then
+        echo "Validation test completed"
+    else
+        echo "Validation test exited with code: $VALIDATION_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 18: Run Anonymous Challenge Test (Shield integration)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/anon_challenge_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 18: ANONYMOUS CHALLENGE TEST (Shield integration)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/anon_challenge_test.sh"
+    ANON_CHALLENGE_EXIT_CODE=$?
+
+    echo ""
+    if [ $ANON_CHALLENGE_EXIT_CODE -eq 0 ]; then
+        echo "Anonymous challenge test completed"
+    else
+        echo "Anonymous challenge test exited with code: $ANON_CHALLENGE_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 19: Run Trust Level Test (P2)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/trust_level_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 19: TRUST LEVEL TEST (P2)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/trust_level_test.sh"
+    TRUST_LEVEL_EXIT_CODE=$?
+
+    echo ""
+    if [ $TRUST_LEVEL_EXIT_CODE -eq 0 ]; then
+        echo "Trust level test completed"
+    else
+        echo "Trust level test exited with code: $TRUST_LEVEL_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo "========================================================================="
@@ -910,6 +1033,7 @@ echo "  Complex Test:       $([ "$RUN_COMPLEX_TEST" = true ] && ([ $COMPLEX_EXIT
 echo "  Edge Cases Test:    $([ "$RUN_EDGE_CASES_TEST" = true ] && ([ $EDGE_CASES_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  EndBlocker Test:    $([ "$RUN_ENDBLOCKER_TEST" = true ] && ([ $ENDBLOCKER_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo "  Op Params Test:     $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
+echo "  Bond Locked Test:   $([ "$RUN_BOND_LOCKED_TEST" = true ] && ([ ${BOND_LOCKED_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
 echo ""
 
 # Final Alice balance

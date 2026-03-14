@@ -36,18 +36,22 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	logger.Info("Bootstrapping 'Three Pillars' Governance...")
 
 	// 1. Gather Founding Members
+	// Look up each GenesisNames address directly via GetAccount.
+	// IterateAccounts may return empty results during InitGenesis in SDK v0.53
+	// because the account iterator index is not yet flushed at that point.
 	var foundingMembers []MemberRequest
 	var founderMembers []MemberRequest
 
-	k.authKeeper.IterateAccounts(ctx, func(acc sdk.AccountI) bool {
-		if _, ok := acc.(sdk.ModuleAccountI); ok {
-			return false
+	for addr, name := range GenesisNames {
+		accAddr, err := sdk.AccAddressFromBech32(addr)
+		if err != nil {
+			logger.Error("Invalid address in GenesisNames", "address", addr, "error", err)
+			continue
 		}
-
-		addr := acc.GetAddress().String()
-		name, exists := GenesisNames[addr]
-		if !exists {
-			return false
+		acc := k.authKeeper.GetAccount(ctx, accAddr)
+		if acc == nil {
+			logger.Warn("Account not found in auth store", "address", addr, "name", name)
+			continue
 		}
 
 		foundingMembers = append(foundingMembers, MemberRequest{Address: addr, Weight: "1", Metadata: name})
@@ -55,8 +59,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		if name == FounderName {
 			founderMembers = append(founderMembers, MemberRequest{Address: addr, Weight: "1", Metadata: "Founder"})
 		}
-		return false
-	})
+	}
 
 	if len(foundingMembers) == 0 {
 		logger.Error("No founding members found in GenesisNames!")
@@ -96,7 +99,6 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
 			"/sparkdream.name.v1.MsgResolveDispute",
-			"/sparkdream.name.v1.MsgUpdateOperationalParams",
 			"/sparkdream.commons.v1.MsgVoteProposal",
 		},
 		VetoPermissions: []string{
@@ -308,7 +310,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		PolicyType:           "threshold",
 		StandardValue:        "2",
 		StandardWindow:       WindowSupervisory,
-		StandardMinExecution: 24 * time.Hour,
+		StandardMinExecution: SupervisoryMinExecution,
 
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
@@ -341,6 +343,16 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
+			"/sparkdream.blog.v1.MsgUpdateOperationalParams",
+			"/sparkdream.collect.v1.MsgUpdateOperationalParams",
+			"/sparkdream.forum.v1.MsgCreateTagBudget",
+			"/sparkdream.forum.v1.MsgToggleTagBudget",
+			"/sparkdream.forum.v1.MsgUpdateOperationalParams",
+			"/sparkdream.forum.v1.MsgWithdrawTagBudget",
+			"/sparkdream.futarchy.v1.MsgUpdateOperationalParams",
+			"/sparkdream.name.v1.MsgUpdateOperationalParams",
+			"/sparkdream.rep.v1.MsgUpdateOperationalParams",
+			"/sparkdream.season.v1.MsgUpdateOperationalParams",
 		},
 		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),

@@ -31,7 +31,7 @@ message Member {
   string address = 1;
   string weight = 2;
   string metadata = 3;
-  int64  added_at = 4;
+  int64 added_at = 4;
 }
 
 // DecisionPolicy defines the voting rules for a council policy.
@@ -41,9 +41,9 @@ message DecisionPolicy {
   // threshold is the vote threshold value (e.g., "0.51" for percentage, "3" for threshold)
   string threshold = 2;
   // voting_period is the duration in seconds for which voting is open
-  int64  voting_period = 3;
+  int64 voting_period = 3;
   // min_execution_period is the minimum time after voting ends before execution
-  int64  min_execution_period = 4;
+  int64 min_execution_period = 4;
 }
 
 // ProposalStatus defines the possible states of a council proposal.
@@ -121,4 +121,14 @@ message TallyResult {
   string no_weight = 2;
   string abstain_weight = 3;
   string no_with_veto_weight = 4;
+}
+
+// AnonVoteTally stores the anonymous vote counts for a proposal.
+// Anonymous votes have uniform weight=1 and are tallied separately from
+// regular council member votes.
+message AnonVoteTally {
+  uint64 yes_count = 1;
+  uint64 no_count = 2;
+  uint64 abstain_count = 3;
+  uint64 no_with_veto_count = 4;
 }

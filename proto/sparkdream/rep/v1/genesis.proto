@@ -58,6 +58,6 @@ message GenesisState {
 // ContentInitiativeLink defines a link between content and an initiative for conviction propagation.
 message ContentInitiativeLink {
   uint64 initiative_id = 1;
-  int32 target_type = 2;   // StakeTargetType (4=BLOG_CONTENT, 5=FORUM_CONTENT)
-  uint64 target_id = 3;    // Content ID
+  int32 target_type = 2; // StakeTargetType (4=BLOG_CONTENT, 5=FORUM_CONTENT)
+  uint64 target_id = 3; // Content ID
 }

@@ -21,6 +21,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../check_testparams.sh"
 BINARY="sparkdreamd"
 
 # Parse command line arguments
@@ -38,7 +39,7 @@ RUN_ADV_VOTING_TEST=true
 RUN_CURATION_TEST=true
 RUN_IMMUTABILITY_TEST=true
 RUN_SPONSORSHIP_FLOW_TEST=true
-RUN_ANON_TEST=true
+RUN_ANON=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -87,7 +88,7 @@ for arg in "$@"; do
             RUN_SPONSORSHIP_FLOW_TEST=false
             ;;
         --no-anon)
-            RUN_ANON_TEST=false
+            RUN_ANON=false
             ;;
         --only-setup)
             RUN_COLLECTION_TEST=false
@@ -103,7 +104,7 @@ for arg in "$@"; do
             RUN_CURATION_TEST=false
             RUN_IMMUTABILITY_TEST=false
             RUN_SPONSORSHIP_FLOW_TEST=false
-            RUN_ANON_TEST=false
+            RUN_ANON=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -121,7 +122,7 @@ for arg in "$@"; do
             RUN_CURATION_TEST=false
             RUN_IMMUTABILITY_TEST=false
             RUN_SPONSORSHIP_FLOW_TEST=false
-            RUN_ANON_TEST=false
+            RUN_ANON=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -141,7 +142,7 @@ for arg in "$@"; do
             RUN_CURATION_TEST=false
             RUN_IMMUTABILITY_TEST=false
             RUN_SPONSORSHIP_FLOW_TEST=false
-            RUN_ANON_TEST=false
+            RUN_ANON=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -161,7 +162,7 @@ for arg in "$@"; do
             echo "  --no-curation          Skip curation_test.sh"
             echo "  --no-immutability      Skip immutability_test.sh"
             echo "  --no-sponsorship-flow  Skip sponsorship_flow_test.sh"
-            echo "  --no-anon              Skip anon_test.sh"
+            echo "  --no-anon              Skip anonymous action tests (via x/shield)"
             echo "  --only-setup       Run only setup (skip all tests)"
             echo "  --save-setup       Run setup, save chain state, then exit"
             echo "  --restore-setup    Restore saved setup state, then run tests"
@@ -516,11 +517,11 @@ else
     echo ""
 fi
 
-# Anonymous collection/reaction/pin tests
-if [ "$RUN_ANON_TEST" = true ]; then
-    run_test "Anonymous Collection Tests" "anon_test.sh"
+# Anonymous action tests (via x/shield)
+if [ "$RUN_ANON" = true ]; then
+    run_test "Anonymous Action Tests" "anon_test.sh"
 else
-    echo "Skipping anonymous tests (--no-anon)"
+    echo "Skipping anonymous action tests (--no-anon)"
     echo ""
 fi
 

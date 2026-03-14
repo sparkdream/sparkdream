@@ -147,7 +147,7 @@ for i in "${!ACCOUNTS[@]}"; do
 
     TX_RES=$($BINARY tx rep invite-member \
         $ADDR \
-        "100000000" \
+        "100" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

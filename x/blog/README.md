@@ -1,6 +1,6 @@
 # `x/blog`
 
-The `x/blog` module is an on-chain content management system for blog posts with threaded replies, reactions, anonymous posting via ZK proofs, and ephemeral content lifecycle management.
+The `x/blog` module is an on-chain content management system for blog posts with threaded replies, reactions, anonymous posting via `x/shield`, and ephemeral content lifecycle management.
 
 ## Overview
 
@@ -30,9 +30,7 @@ Posts and replies are **tombstoned** rather than fully removed — content is cl
 
 ### Anonymous Posting
 
-Members with sufficient trust level can post anonymously using ZK proofs that demonstrate membership and minimum trust level without revealing identity. Anonymous actions use **nullifiers** (scoped per epoch for posts, per post for replies) to prevent double-posting while preserving privacy.
-
-Approved relay addresses can receive subsidies from the Commons treasury to cover storage fees for anonymous content.
+Members with sufficient trust level can post anonymously via `x/shield`'s `MsgShieldedExec`, which wraps blog messages with ZK proofs demonstrating membership and minimum trust level without revealing identity. Nullifiers (scoped per epoch for posts, per post for replies) prevent double-posting while preserving privacy. The shield module pays gas fees so submitters need zero balance.
 
 ### Conviction-Sustained Content
 
@@ -56,9 +54,6 @@ Posts can reference an `x/rep` initiative (set at creation, immutable). This ena
 | `Reply` | Threaded reply with nesting up to configurable depth | `Reply/value/{id}` |
 | `Reaction` | Per-user reaction on a post or reply (one per target) | `Reaction/value/{post_id}/{reply_id}/{creator}` |
 | `ReactionCounts` | Denormalized aggregate counts per target | `Reaction/counts/{post_id}/{reply_id}` |
-| `AnonymousPostMetadata` | ZK proof metadata for anonymous posts | `AnonMeta/post/{id}` |
-| `AnonymousReplyMetadata` | ZK proof metadata for anonymous replies | `AnonMeta/reply/{id}` |
-| `AnonNullifierEntry` | Used nullifier tracking | `AnonNullifier/{domain}/{scope}/{nullifier}` |
 | `RateLimitEntry` | Per-address daily action counter | `RateLimit/{action_type}/{address}` |
 
 ### Indexes
@@ -124,13 +119,9 @@ Each user can have at most one reaction per target. Reacting again changes the r
 | `MsgReact` | Add or change reaction on a post or reply | Active members |
 | `MsgRemoveReaction` | Remove your reaction | Reaction creator only |
 
-### Anonymous Operations
+### Anonymous Operations (via x/shield)
 
-| Message | Description | Access |
-|---------|-------------|--------|
-| `MsgCreateAnonymousPost` | Create post with ZK proof of membership | Proven trust level via ZK |
-| `MsgCreateAnonymousReply` | Create reply with ZK proof | Proven trust level via ZK |
-| `MsgAnonymousReact` | React anonymously with ZK proof | Proven trust level via ZK |
+Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShieldedExec` wrapping the standard blog messages (`MsgCreatePost`, `MsgCreateReply`, `MsgReact`). The shield module handles ZK proof verification, nullifier management, and module-paid gas. The blog module implements the `ShieldAware` interface to validate shielded messages.
 
 ### Parameter Updates
 
@@ -153,9 +144,6 @@ Each user can have at most one reaction per target. Reacting again changes the r
 | `UserReaction` | Check a user's reaction on a target |
 | `ListReactions` | Individual reaction records for a target |
 | `ListReactionsByCreator` | All reactions by a specific user |
-| `AnonymousPostMeta` | ZK metadata for an anonymous post |
-| `AnonymousReplyMeta` | ZK metadata for an anonymous reply |
-| `IsNullifierUsed` | Check if a nullifier has been used (by domain and scope) |
 | `ListExpiringContent` | Find ephemeral content expiring before a given timestamp |
 
 ## Parameters
@@ -170,11 +158,10 @@ These can only be changed via `x/gov` proposal (`MsgUpdateParams`).
 | `max_body_length` | uint64 | 10,000 | Maximum post body length (chars) |
 | `max_reply_length` | uint64 | 2,000 | Maximum reply body length (bytes) |
 | `max_reply_depth` | uint32 | 5 | Maximum reply nesting depth |
-| `anonymous_posting_enabled` | bool | true | Master toggle for anonymous operations |
-| `pin_min_trust_level` | int32 | 2 | Minimum trust level to pin content |
+| `pin_min_trust_level` | uint32 | 2 | Minimum trust level to pin content |
 | `min_ephemeral_content_ttl` | int64 | 86,400 | Floor for ephemeral TTL (seconds) |
-| `max_cost_per_byte` | uint64 | 1,000 | Ceiling for storage fee (uspark/byte) |
-| `max_reaction_fee` | uint64 | 500 | Ceiling for reaction fee (uspark) |
+| `max_cost_per_byte` | Coin | 1,000 uspark | Ceiling for storage fee |
+| `max_reaction_fee` | Coin | 500 uspark | Ceiling for reaction fee |
 
 ### Operationally-Controlled
 
@@ -182,20 +169,16 @@ These can be updated by the Commons Council Operations Committee via `MsgUpdateO
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `cost_per_byte` | uint64 | 100 | Storage fee per byte (uspark), burned |
+| `cost_per_byte` | Coin | 100 uspark | Storage fee per byte, burned |
 | `cost_per_byte_exempt` | bool | false | Disable storage fees entirely |
-| `reaction_fee` | uint64 | 50 | Flat fee per reaction (uspark), burned |
+| `reaction_fee` | Coin | 50 uspark | Flat fee per reaction, burned |
 | `reaction_fee_exempt` | bool | false | Disable reaction fees entirely |
 | `max_posts_per_day` | uint32 | 10 | Per-address daily post limit |
 | `max_replies_per_day` | uint32 | 50 | Per-address daily reply limit |
 | `max_reactions_per_day` | uint32 | 100 | Per-address daily reaction limit |
 | `max_pins_per_day` | uint32 | 20 | Per-address daily pin limit |
-| `anonymous_min_trust_level` | int32 | 2 | Minimum proven trust for anonymous posting |
-| `anon_subsidy_budget_per_epoch` | uint64 | 100,000,000 | Subsidy budget per epoch (uspark) |
-| `anon_subsidy_max_per_post` | uint64 | 2,000,000 | Max subsidy per anonymous post (uspark) |
-| `anon_subsidy_relay_addresses` | []string | [] | Approved relay addresses for subsidy |
 | `ephemeral_content_ttl` | int64 | 604,800 | TTL for ephemeral content (seconds, default 7 days) |
-| `conviction_renewal_threshold` | string | "100.0" | Minimum conviction score to extend TTL |
+| `conviction_renewal_threshold` | LegacyDec | 100.0 | Minimum conviction score to extend TTL |
 | `conviction_renewal_period` | int64 | 604,800 | Duration to extend TTL by (seconds) |
 
 ## Dependencies
@@ -205,20 +188,16 @@ These can be updated by the Commons Council Operations Committee via `MsgUpdateO
 | `x/auth` | Yes | Address codec, account access |
 | `x/bank` | Yes | Storage fee collection and burning |
 | `x/rep` | Yes | Membership, trust levels, conviction staking, author bonds |
-| `x/vote` | No | ZK proof verification for anonymous posting |
-| `x/commons` | No | Council-gated operational params, treasury for anon subsidy |
-| `x/season` | No | Epoch duration for nullifier scoping and subsidy timing |
+| `x/shield` | No | ZK proof verification and module-paid gas for anonymous posting |
+| `x/commons` | No | Council-gated operational parameter updates |
 
 ## EndBlocker
 
-The EndBlocker runs each block and handles:
+The EndBlocker runs each block and processes content past its `expires_at` timestamp:
 
-1. **TTL Expiry** — processes content past its `expires_at` timestamp:
-   - If the non-anonymous creator is now a member: upgrade to permanent
-   - If anonymous with sufficient conviction: renew TTL for another period
-   - Otherwise: tombstone (clear content)
-2. **Subsidy Draw** — draws from Commons treasury for anonymous posting subsidy budget
-3. **Nullifier Pruning** — garbage collection of expired nullifier entries
+1. **Member upgrade** — if a non-anonymous creator is now an active `x/rep` member, the content is upgraded to permanent (`expires_at = 0`)
+2. **Conviction renewal** — if anonymous content has community conviction staking at or above `conviction_renewal_threshold`, the TTL is extended by `conviction_renewal_period`; on first renewal the `conviction_sustained` flag is set
+3. **Tombstoning** — otherwise, content is cleared and marked DELETED; reply counts on parent posts are decremented
 
 ## Events
 

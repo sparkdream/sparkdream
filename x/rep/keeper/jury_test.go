@@ -81,7 +81,7 @@ func TestJuryWorkflow(t *testing.T) {
 	})
 	k.MintDREAM(ctx, challenger, math.NewInt(1000))
 
-	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Reason", nil, math.NewInt(50), false, "", nil, nil)
+	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Reason", nil, math.NewInt(50))
 	require.NoError(t, err)
 
 	// Create some potential jurors with reputation
@@ -470,7 +470,7 @@ func TestTallyJuryVotes(t *testing.T) {
 		})
 		k.MintDREAM(ctx, challenger, math.NewInt(1000))
 
-		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50), false, "", nil, nil)
+		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50))
 		require.NoError(t, err)
 
 		// Set challenge to IN_JURY_REVIEW status

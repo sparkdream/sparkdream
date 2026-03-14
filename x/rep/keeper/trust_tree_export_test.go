@@ -1,6 +1,6 @@
 package keeper
 
-import zkcrypto "sparkdream/zkprivatevoting/crypto"
+import zkcrypto "sparkdream/tools/crypto"
 
 // SetTestTreeDepth sets a small tree depth for testing and reinitializes zero hashes.
 func SetTestTreeDepth(depth int) {

@@ -159,160 +159,148 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string anonymous_fee_multiplier = 28 [
+  string challenger_reward_rate = 28 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string challenger_reward_rate = 29 [
+  uint32 jury_size = 29;
+  string jury_super_majority = 30 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint32 jury_size = 30;
-  string jury_super_majority = 31 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
-  string min_juror_reputation = 32 [
+  string min_juror_reputation = 31 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Interim compensation
-  string simple_complexity_budget = 33 [
+  string simple_complexity_budget = 32 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string standard_complexity_budget = 34 [
+  string standard_complexity_budget = 33 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string complex_complexity_budget = 35 [
+  string complex_complexity_budget = 34 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string expert_complexity_budget = 36 [
+  string expert_complexity_budget = 35 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string solo_expert_bonus_rate = 37 [
+  string solo_expert_bonus_rate = 36 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 interim_deadline_epochs = 38;
+  int64 interim_deadline_epochs = 37;
 
   // Rate limits
-  uint32 max_active_challenges_per_committee = 39;
-  uint32 max_new_challenges_per_epoch = 40;
-  uint32 challenge_queue_max_size = 41;
+  uint32 max_active_challenges_per_committee = 38;
+  uint32 max_new_challenges_per_epoch = 39;
+  uint32 challenge_queue_max_size = 40;
 
   // Slashing
-  string minor_slash_penalty = 42 [
+  string minor_slash_penalty = 41 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string moderate_slash_penalty = 43 [
+  string moderate_slash_penalty = 42 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string severe_slash_penalty = 44 [
+  string severe_slash_penalty = 43 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string zeroing_slash_penalty = 45 [
+  string zeroing_slash_penalty = 44 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Extended staking
-  string project_staking_apy = 46 [
+  string project_staking_apy = 45 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string project_completion_bonus_rate = 47 [
+  string project_completion_bonus_rate = 46 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string member_stake_revenue_share = 48 [
+  string member_stake_revenue_share = 47 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string tag_stake_revenue_share = 49 [
+  string tag_stake_revenue_share = 48 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 min_stake_duration_seconds = 50;
-  bool allow_self_member_stake = 51;
+  int64 min_stake_duration_seconds = 49;
+  bool allow_self_member_stake = 50;
 
   // Challenge response deadline (epochs)
   // If assignee doesn't respond within this time, challenge is auto-upheld
-  int64 challenge_response_deadline_epochs = 52;
+  int64 challenge_response_deadline_epochs = 51;
 
   // Gift rate limiting
   // Cooldown period in blocks before same sender can gift same recipient again
-  int64 gift_cooldown_blocks = 53;
+  int64 gift_cooldown_blocks = 52;
   // Maximum total DREAM a sender can gift per epoch (across all recipients)
-  string max_gifts_per_sender_epoch = 54 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-
-  // Anonymous challenge SPARK stake (uspark amount).
-  // Anonymous challenges use SPARK instead of DREAM for privacy.
-  string anonymous_challenge_spark_stake = 55 [
+  string max_gifts_per_sender_epoch = 53 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Content conviction staking
-  int64 content_conviction_half_life_epochs = 56; // Half-life for content conviction decay (default: 14 epochs)
-  string max_content_stake_per_member = 57 [      // Max DREAM one member can stake on a single content item
+  int64 content_conviction_half_life_epochs = 54; // Half-life for content conviction decay (default: 14 epochs)
+  string max_content_stake_per_member = 55 [ // Max DREAM one member can stake on a single content item
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_author_bond_per_content = 58 [       // Max DREAM an author can bond on their own content
+  string max_author_bond_per_content = 56 [ // Max DREAM an author can bond on their own content
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  bool author_bond_slash_on_moderation = 59;      // Whether to slash author bonds when content is moderated
-  string content_challenge_reward_share = 60 [    // Fraction of slashed author bond given to challenger (rest burned), default 0.5
+  bool author_bond_slash_on_moderation = 57; // Whether to slash author bonds when content is moderated
+  string content_challenge_reward_share = 58 [ // Fraction of slashed author bond given to challenger (rest burned), default 0.5
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string conviction_propagation_ratio = 61 [      // Fraction of linked content conviction propagated to initiative (default 0.10)
+  string conviction_propagation_ratio = 59 [ // Fraction of linked content conviction propagated to initiative (default 0.10)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Tag anti-gaming
-  uint32 max_tags_per_initiative = 66;            // Max tags allowed per initiative (default 3, prevents tag stuffing)
+  uint32 max_tags_per_initiative = 60; // Max tags allowed per initiative (default 3, prevents tag stuffing)
 
   // Anti-gaming parameters
-  string reputation_decay_rate = 62 [             // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
+  string reputation_decay_rate = 61 [ // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_conviction_share_per_member = 63 [   // Max fraction of required conviction any single member can contribute (default 0.33)
+  string max_conviction_share_per_member = 62 [ // Max fraction of required conviction any single member can contribute (default 0.33)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string invitation_stake_burn_rate = 64 [        // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
+  string invitation_stake_burn_rate = 63 [ // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_reputation_gain_per_epoch = 65 [     // Max reputation any member can earn per tag per epoch (default 50)
+  string max_reputation_gain_per_epoch = 64 [ // Max reputation any member can earn per tag per epoch (default 50)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
@@ -388,138 +376,127 @@ message RepOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string anonymous_fee_multiplier = 18 [
+  string challenger_reward_rate = 18 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string challenger_reward_rate = 19 [
+  uint32 jury_size = 19;
+  string jury_super_majority = 20 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint32 jury_size = 20;
-  string jury_super_majority = 21 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
-  string min_juror_reputation = 22 [
+  string min_juror_reputation = 21 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Interim compensation
-  string simple_complexity_budget = 23 [
+  string simple_complexity_budget = 22 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string standard_complexity_budget = 24 [
+  string standard_complexity_budget = 23 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string complex_complexity_budget = 25 [
+  string complex_complexity_budget = 24 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string expert_complexity_budget = 26 [
+  string expert_complexity_budget = 25 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string solo_expert_bonus_rate = 27 [
+  string solo_expert_bonus_rate = 26 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 interim_deadline_epochs = 28;
+  int64 interim_deadline_epochs = 27;
 
   // Rate limits
-  uint32 max_active_challenges_per_committee = 29;
-  uint32 max_new_challenges_per_epoch = 30;
-  uint32 challenge_queue_max_size = 31;
+  uint32 max_active_challenges_per_committee = 28;
+  uint32 max_new_challenges_per_epoch = 29;
+  uint32 challenge_queue_max_size = 30;
 
   // Extended staking
-  string project_staking_apy = 32 [
+  string project_staking_apy = 31 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string project_completion_bonus_rate = 33 [
+  string project_completion_bonus_rate = 32 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string member_stake_revenue_share = 34 [
+  string member_stake_revenue_share = 33 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string tag_stake_revenue_share = 35 [
+  string tag_stake_revenue_share = 34 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 min_stake_duration_seconds = 36;
-  bool allow_self_member_stake = 37;
+  int64 min_stake_duration_seconds = 35;
+  bool allow_self_member_stake = 36;
 
   // Challenge response deadline (epochs)
-  int64 challenge_response_deadline_epochs = 38;
+  int64 challenge_response_deadline_epochs = 37;
 
   // Gift rate limiting
-  int64 gift_cooldown_blocks = 39;
-  string max_gifts_per_sender_epoch = 40 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-
-  // Anonymous challenge SPARK stake (uspark amount)
-  string anonymous_challenge_spark_stake = 41 [
+  int64 gift_cooldown_blocks = 38;
+  string max_gifts_per_sender_epoch = 39 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Content conviction staking
-  int64 content_conviction_half_life_epochs = 42;
-  string max_content_stake_per_member = 43 [
+  int64 content_conviction_half_life_epochs = 40;
+  string max_content_stake_per_member = 41 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_author_bond_per_content = 44 [
+  string max_author_bond_per_content = 42 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  bool author_bond_slash_on_moderation = 45;
-  string content_challenge_reward_share = 46 [    // Fraction of slashed author bond given to challenger (rest burned), default 0.5
+  bool author_bond_slash_on_moderation = 43;
+  string content_challenge_reward_share = 44 [ // Fraction of slashed author bond given to challenger (rest burned), default 0.5
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string conviction_propagation_ratio = 47 [      // Fraction of linked content conviction propagated to initiative (default 0.10)
+  string conviction_propagation_ratio = 45 [ // Fraction of linked content conviction propagated to initiative (default 0.10)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Tag anti-gaming
-  uint32 max_tags_per_initiative = 52;            // Max tags allowed per initiative (default 3, prevents tag stuffing)
+  uint32 max_tags_per_initiative = 46; // Max tags allowed per initiative (default 3, prevents tag stuffing)
 
   // Anti-gaming parameters
-  string reputation_decay_rate = 48 [             // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
+  string reputation_decay_rate = 47 [ // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_conviction_share_per_member = 49 [   // Max fraction of required conviction any single member can contribute (default 0.33)
+  string max_conviction_share_per_member = 48 [ // Max fraction of required conviction any single member can contribute (default 0.33)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string invitation_stake_burn_rate = 50 [        // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
+  string invitation_stake_burn_rate = 49 [ // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_reputation_gain_per_epoch = 51 [     // Max reputation any member can earn per tag per epoch (default 50)
+  string max_reputation_gain_per_epoch = 50 [ // Max reputation any member can earn per tag per epoch (default 50)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false

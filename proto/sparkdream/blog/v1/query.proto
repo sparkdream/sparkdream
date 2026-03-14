@@ -64,21 +64,6 @@ service Query {
     option (google.api.http).get = "/sparkdream/blog/v1/list_reactions_by_creator/{creator}";
   }
 
-  // AnonymousPostMeta returns anonymous posting metadata for a post.
-  rpc AnonymousPostMeta(QueryAnonymousPostMetaRequest) returns (QueryAnonymousPostMetaResponse) {
-    option (google.api.http).get = "/sparkdream/blog/v1/anonymous_post_meta/{post_id}";
-  }
-
-  // AnonymousReplyMeta returns anonymous posting metadata for a reply.
-  rpc AnonymousReplyMeta(QueryAnonymousReplyMetaRequest) returns (QueryAnonymousReplyMetaResponse) {
-    option (google.api.http).get = "/sparkdream/blog/v1/anonymous_reply_meta/{reply_id}";
-  }
-
-  // IsNullifierUsed checks if a nullifier has been used.
-  rpc IsNullifierUsed(QueryIsNullifierUsedRequest) returns (QueryIsNullifierUsedResponse) {
-    option (google.api.http).get = "/sparkdream/blog/v1/is_nullifier_used";
-  }
-
   // ListExpiringContent returns paginated ephemeral content expiring before a timestamp.
   rpc ListExpiringContent(QueryListExpiringContentRequest) returns (QueryListExpiringContentResponse) {
     option (google.api.http).get = "/sparkdream/blog/v1/list_expiring_content";
@@ -176,7 +161,7 @@ message QueryUserReactionRequest {
 
 // QueryUserReactionResponse defines the QueryUserReactionResponse message.
 message QueryUserReactionResponse {
-  Reaction reaction = 1;  // nil if user has not reacted
+  Reaction reaction = 1; // nil if user has not reacted
 }
 
 // QueryListReactionsRequest defines the QueryListReactionsRequest message.
@@ -202,38 +187,6 @@ message QueryListReactionsByCreatorRequest {
 message QueryListReactionsByCreatorResponse {
   repeated Reaction reactions = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-// QueryAnonymousPostMetaRequest defines the QueryAnonymousPostMetaRequest message.
-message QueryAnonymousPostMetaRequest {
-  uint64 post_id = 1;
-}
-
-// QueryAnonymousPostMetaResponse defines the QueryAnonymousPostMetaResponse message.
-message QueryAnonymousPostMetaResponse {
-  AnonymousPostMetadata metadata = 1;  // nil if post is not anonymous
-}
-
-// QueryAnonymousReplyMetaRequest defines the QueryAnonymousReplyMetaRequest message.
-message QueryAnonymousReplyMetaRequest {
-  uint64 reply_id = 1;
-}
-
-// QueryAnonymousReplyMetaResponse defines the QueryAnonymousReplyMetaResponse message.
-message QueryAnonymousReplyMetaResponse {
-  AnonymousPostMetadata metadata = 1;  // nil if reply is not anonymous
-}
-
-// QueryIsNullifierUsedRequest defines the QueryIsNullifierUsedRequest message.
-message QueryIsNullifierUsedRequest {
-  string nullifier_hex = 1;
-  uint64 domain = 2;
-  uint64 scope = 3;
-}
-
-// QueryIsNullifierUsedResponse defines the QueryIsNullifierUsedResponse message.
-message QueryIsNullifierUsedResponse {
-  bool used = 1;
 }
 
 // QueryListExpiringContentRequest defines the QueryListExpiringContentRequest message.

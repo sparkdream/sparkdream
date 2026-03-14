@@ -95,19 +95,6 @@ type ForumKeeper interface {
 	HasPost(ctx context.Context, id uint64) bool
 }
 
-// VoteKeeper defines the expected interface for the x/vote module.
-// Used for ZK proof verification in anonymous collection operations.
-// This is optional — if nil, anonymous operations return ErrAnonymousPostingUnavailable.
-type VoteKeeper interface {
-	VerifyAnonymousActionProof(ctx context.Context, proof []byte, nullifier []byte, merkleRoot []byte, minTrustLevel uint32) error
-}
-
-// SeasonKeeper defines the expected interface for the x/season module.
-// Used for epoch duration in anonymous collection nullifier scoping.
-type SeasonKeeper interface {
-	GetEpochDuration(ctx context.Context) int64
-}
-
 // ParamSubspace defines the expected Subspace interface for parameters.
 type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})

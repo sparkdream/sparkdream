@@ -7,25 +7,23 @@ import (
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 )
 
-// SplitFunds performs the dynamic split based on registered shares using Collections.
+// SplitFunds distributes community pool funds to registered share recipients.
+// It uses DistributeFromFeePool to ensure only the community pool portion of the
+// distribution module account is spent — outstanding validator/delegator rewards
+// are left untouched.
 func (k Keeper) SplitFunds(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	logger := sdkCtx.Logger().With("module", "x/split")
 
-	// 1. Get Source (Community Pool)
-	sourceAddr := k.authKeeper.GetModuleAddress(distrtypes.ModuleName)
-	balance := k.bankKeeper.GetAllBalances(sdkCtx, sourceAddr)
-	if balance.IsZero() {
+	if k.late.distrKeeper == nil {
 		return nil
 	}
 
-	// 2. Fetch All Shares using Collections Walk
+	// 1. Fetch All Shares using Collections Walk
 	var allShares []types.Share
 
-	// Walk iterates over the map.
 	err := k.Share.Walk(ctx, nil, func(address string, share types.Share) (bool, error) {
 		allShares = append(allShares, share)
 		return false, nil
@@ -38,7 +36,7 @@ func (k Keeper) SplitFunds(ctx context.Context) error {
 		return nil
 	}
 
-	// 3. Calculate Total Weight
+	// 2. Calculate Total Weight
 	var totalWeight uint64
 	for _, share := range allShares {
 		totalWeight += share.Weight
@@ -48,11 +46,26 @@ func (k Keeper) SplitFunds(ctx context.Context) error {
 		return nil
 	}
 
-	// 4. Distribute Funds
-	for _, coin := range balance {
+	// 3. Query the actual community pool balance (not the full distribution
+	// module account, which also holds outstanding validator/delegator rewards).
+	pool, err := k.late.distrKeeper.GetCommunityPool(ctx)
+	if err != nil {
+		return err
+	}
+	if pool.IsZero() {
+		return nil
+	}
+
+	// Truncate DecCoins to whole Coins for distribution.
+	poolCoins, _ := pool.TruncateDecimal()
+	if poolCoins.IsZero() {
+		return nil
+	}
+
+	for _, coin := range poolCoins {
 		totalAmount := coin.Amount
 
-		// Optimization: Skip dust to save gas
+		// Skip dust
 		if totalAmount.LTE(math.NewInt(int64(len(allShares)))) {
 			continue
 		}
@@ -67,23 +80,19 @@ func (k Keeper) SplitFunds(ctx context.Context) error {
 			// Math: (Balance * ShareWeight) / TotalWeight
 			shareAmount := totalAmount.Mul(math.NewIntFromUint64(share.Weight)).Quo(math.NewIntFromUint64(totalWeight))
 
-			if shareAmount.IsPositive() {
-				k.safeSend(sdkCtx, sourceAddr, receiverAddr, coin.Denom, shareAmount)
+			if !shareAmount.IsPositive() {
+				continue
+			}
+
+			coins := sdk.NewCoins(sdk.NewCoin(coin.Denom, shareAmount))
+			if err := k.late.distrKeeper.DistributeFromFeePool(ctx, coins, receiverAddr); err != nil {
+				// Community pool exhausted — stop distributing this denom
+				logger.Debug("Split distribution stopped: community pool exhausted",
+					"share", share.Address, "requested", shareAmount.String(), "err", err)
+				break
 			}
 		}
 	}
 
 	return nil
-}
-
-// safeSend is a helper to reduce error handling boilerplate
-func (k Keeper) safeSend(ctx sdk.Context, from, to sdk.AccAddress, denom string, amount math.Int) {
-	if !amount.IsPositive() {
-		return
-	}
-	coins := sdk.NewCoins(sdk.NewCoin(denom, amount))
-
-	if err := k.bankKeeper.SendCoins(ctx, from, to, coins); err != nil {
-		ctx.Logger().With("module", "x/split").Error("Split transfer failed", "to", to.String(), "amount", amount.String(), "err", err)
-	}
 }

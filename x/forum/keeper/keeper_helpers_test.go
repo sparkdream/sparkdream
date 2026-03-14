@@ -9,7 +9,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
-	"sparkdream/x/forum/types"
 
 	"github.com/stretchr/testify/require"
 )
@@ -463,18 +462,4 @@ func TestGetBackerMembershipDuration(t *testing.T) {
 	// Mock GetMember returns JoinedAt=0, so the fallback kicks in (31536000 = 1 year)
 	dur := f.keeper.GetBackerMembershipDuration(f.ctx, testCreator)
 	require.Equal(t, int64(31536000), dur)
-}
-
-// --- Verify UpdateOperationalParams applies anonymous params ---
-
-func TestParams_AnonymousDefaults(t *testing.T) {
-	f := initFixture(t)
-
-	params, err := f.keeper.Params.Get(f.ctx)
-	require.NoError(t, err)
-
-	// Verify defaults are applied
-	require.Equal(t, types.DefaultParams().AnonymousPostingEnabled, params.AnonymousPostingEnabled)
-	require.Equal(t, types.DefaultParams().AnonymousMinTrustLevel, params.AnonymousMinTrustLevel)
-	require.Equal(t, types.DefaultParams().PrivateReactionsEnabled, params.PrivateReactionsEnabled)
 }

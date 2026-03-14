@@ -24,6 +24,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../check_testparams.sh"
 BINARY="sparkdreamd"
 
 # Parse command line arguments
@@ -140,6 +141,7 @@ for arg in "$@"; do
             echo "  --no-advanced    Skip advanced tests"
             echo "  --no-archive     Skip archive tests"
             echo "  --no-operational-params  Skip operational params tests"
+            echo "  --no-anon        Skip anonymous action tests (via x/shield)"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -404,6 +406,7 @@ fi
 # Sentinel tests
 if [ "$RUN_SENTINEL" = true ]; then
     run_test "Sentinel Tests" "sentinel_test.sh"
+    run_test "Sentinel Limit Tests" "sentinel_limit_test.sh"
 else
     echo "Skipping sentinel tests (--no-sentinel)"
     echo ""
@@ -465,13 +468,22 @@ else
     echo ""
 fi
 
-# Anonymous posting/reply/reaction tests
+# Anonymous action tests (via x/shield)
 if [ "$RUN_ANON" = true ]; then
-    run_test "Anonymous Post/Reply/Reaction Tests" "anon_test.sh"
+    run_test "Anonymous Action Tests" "anon_test.sh"
 else
-    echo "Skipping anonymous tests (--no-anon)"
+    echo "Skipping anonymous action tests (--no-anon)"
     echo ""
 fi
+
+# Pause flags tests (P1)
+run_test "Pause Flags Tests" "pause_flags_test.sh"
+
+# Content status gates tests (P2)
+run_test "Content Status Gates Tests" "content_status_test.sh"
+
+# Archive cycle limit tests (P3)
+run_test "Archive Cycle Limit Tests" "archive_cycle_test.sh"
 
 # ============================================================================
 # Final Summary

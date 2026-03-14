@@ -110,10 +110,3 @@ var (
 	// CollectionsByStatusKey: (status, collectionID) → empty - for querying by status
 	CollectionsByStatusKey = collections.NewPrefix("collection/by_status/")
 )
-
-// Anonymous collection keys (prefix-based, not collections framework)
-const (
-	AnonCollectionMetaKey = "AnonMeta/collection/"
-	AnonNullifierKey      = "AnonNullifier/"
-	AnonMgmtKeyIndexKey   = "AnonMgmtKeyIndex/"
-)

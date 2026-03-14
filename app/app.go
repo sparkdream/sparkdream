@@ -57,9 +57,14 @@ import (
 	repmodulekeeper "sparkdream/x/rep/keeper"
 	revealmodulekeeper "sparkdream/x/reveal/keeper"
 	seasonmodulekeeper "sparkdream/x/season/keeper"
+	shieldabci "sparkdream/x/shield/abci"
+	shieldante "sparkdream/x/shield/ante"
+	shieldmodulekeeper "sparkdream/x/shield/keeper"
+
+	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/spf13/cast"
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
 	splitmodulekeeper "sparkdream/x/split/keeper"
-	votemodulekeeper "sparkdream/x/vote/keeper"
 )
 
 const (
@@ -118,6 +123,7 @@ type App struct {
 	FutarchyKeeper   futarchymodulekeeper.Keeper
 	RepKeeper        repmodulekeeper.Keeper
 	SeasonKeeper     seasonmodulekeeper.Keeper
+	ShieldKeeper     shieldmodulekeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
@@ -125,7 +131,6 @@ type App struct {
 	ForumKeeper   forummodulekeeper.Keeper
 	RevealKeeper  revealmodulekeeper.Keeper
 	CollectKeeper collectmodulekeeper.Keeper
-	VoteKeeper    votemodulekeeper.Keeper
 }
 
 func init() {
@@ -211,7 +216,7 @@ func New(
 		&app.SeasonKeeper,
 		&app.RevealKeeper,
 		&app.CollectKeeper,
-		&app.VoteKeeper,
+		&app.ShieldKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -233,24 +238,25 @@ func New(
 
 	// Wire cross-module keepers into Blog after depinject.
 	app.BlogKeeper.SetRepKeeper(app.RepKeeper)
-	app.BlogKeeper.SetVoteKeeper(app.VoteKeeper)
-	app.BlogKeeper.SetSeasonKeeper(app.SeasonKeeper)
 
-	// Wire SeasonKeeper into Forum/Collect after depinject.
-	app.ForumKeeper.SetSeasonKeeper(app.SeasonKeeper)
-	app.CollectKeeper.SetSeasonKeeper(app.SeasonKeeper)
+	// Wire RepKeeper into Collect after depinject.
 	app.CollectKeeper.SetRepKeeper(app.RepKeeper)
 
 	// Wire SeasonKeeper into Rep after depinject.
 	app.RepKeeper.SetSeasonKeeper(app.SeasonKeeper)
 
-	// Wire VoteKeeper into Rep after depinject to break cyclic dependency
-	// (vote → rep → vote).
-	app.RepKeeper.SetVoteKeeper(app.VoteKeeper)
-
 	// Wire TagKeeper into Rep after depinject to break cyclic dependency
 	// (forum → rep → forum).
 	app.RepKeeper.SetTagKeeper(app.ForumKeeper)
+
+	// Wire DistrKeeper into Split after depinject (adapter adds GetCommunityPool).
+	app.SplitKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
+
+	// Wire cross-module keepers into Shield after depinject.
+	app.ShieldKeeper.SetRepKeeper(app.RepKeeper)
+	app.ShieldKeeper.SetDistrKeeper(app.DistrKeeper)
+	app.ShieldKeeper.SetSlashingKeeper(app.SlashingKeeper)
+	app.ShieldKeeper.SetStakingKeeper(app.StakingKeeper)
 
 	// We explicitly tell Futarchy to call Commons when markets resolve.
 	app.FutarchyKeeper.SetHooks(
@@ -269,6 +275,17 @@ func New(
 	// Wire MsgServiceRouter into Commons for proposal message execution.
 	app.CommonsKeeper.SetRouter(app.MsgServiceRouter())
 
+	// Wire MsgServiceRouter into Shield for inner message dispatch.
+	app.ShieldKeeper.SetRouter(app.MsgServiceRouter())
+
+	// Register ShieldAware modules for the double-gate security model.
+	// Each module that accepts shielded operations must explicitly opt in.
+	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.blog.v1.", app.BlogKeeper)
+	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.forum.v1.", app.ForumKeeper)
+	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.collect.v1.", app.CollectKeeper)
+	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.rep.v1.", app.RepKeeper)
+	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.commons.v1.", app.CommonsKeeper)
+
 	anteOptions := cosmos_ante.HandlerOptions{
 		SignModeHandler: app.txConfig.SignModeHandler(),
 		SigGasConsumer:  cosmos_ante.DefaultSigVerificationGasConsumer,
@@ -282,8 +299,12 @@ func New(
 		cosmos_ante.NewTxTimeoutHeightDecorator(),
 		cosmos_ante.NewValidateMemoDecorator(app.AuthKeeper),
 		cosmos_ante.NewConsumeGasForTxSizeDecorator(app.AuthKeeper),
-		// We pass nil for FeegrantKeeper since it's not exposed in the App struct.
-		cosmos_ante.NewDeductFeeDecorator(app.AuthKeeper, app.BankKeeper, nil, anteOptions.TxFeeChecker),
+		// Shield gas decorator: deducts fees from shield module for MsgShieldedExec txs.
+		shieldante.NewShieldGasDecorator(app.ShieldKeeper, app.BankKeeper),
+		// Wrap DeductFeeDecorator to skip fee deduction when shield module already paid.
+		shieldante.NewSkipIfFeePaidDecorator(
+			cosmos_ante.NewDeductFeeDecorator(app.AuthKeeper, app.BankKeeper, nil, anteOptions.TxFeeChecker),
+		),
 		cosmos_ante.NewSetPubKeyDecorator(app.AuthKeeper), // Set pub key
 		cosmos_ante.NewValidateSigCountDecorator(app.AuthKeeper),
 		cosmos_ante.NewSigGasConsumeDecorator(app.AuthKeeper, anteOptions.SigGasConsumer),
@@ -297,6 +318,31 @@ func New(
 
 	// 4. Chain them together and set
 	app.SetAnteHandler(sdk.ChainAnteDecorators(decorators...))
+
+	// -------------------------------------------------------------------------
+	// Wire ABCI++ Vote Extension handlers for DKG automation.
+	// Validators automatically participate in DKG ceremonies via vote extensions
+	// without needing to submit manual transactions.
+	// -------------------------------------------------------------------------
+
+	homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
+	if homeDir == "" {
+		homeDir = DefaultNodeHome
+	}
+
+	dkgHandler := shieldabci.NewDKGVoteExtensionHandler(app.ShieldKeeper, homeDir)
+	app.SetExtendVoteHandler(dkgHandler.ExtendVoteHandler())
+	app.SetVerifyVoteExtensionHandler(dkgHandler.VerifyVoteExtensionHandler())
+	app.SetPrepareProposal(shieldabci.PrepareProposalHandler(app.ShieldKeeper))
+	app.SetProcessProposal(shieldabci.ProcessProposalHandler(app.ShieldKeeper))
+
+	// Custom PreBlocker: process DKG vote extension injections (tx[0] with magic prefix),
+	// then run module-level PreBlockers. The injection is stripped from req.Txs so it
+	// doesn't go through normal tx delivery.
+	app.SetPreBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+		shieldabci.ProcessDKGInjection(ctx, app.ShieldKeeper, req)
+		return app.ModuleManager.PreBlock(ctx)
+	})
 
 	// -------------------------------------------------------------------------
 

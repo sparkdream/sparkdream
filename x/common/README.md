@@ -6,11 +6,32 @@ The `x/common` package provides shared type definitions and interfaces used acro
 
 This package provides:
 
+- **Content types** — standardized `ContentType` enum for post body format interpretation (text, HTML, markdown, compressed, off-chain references)
 - **Tag system** — consistent tag format validation and the `TagKeeper` interface for cross-module tag operations
 - **Moderation vocabulary** — standardized `ModerationReason` enum and `FlagRecord` struct used by content modules
 - **Reserved tags** — governance-controlled tag reservation with member-use permissions
 
 ## Types
+
+### ContentType
+
+Tells the frontend how to interpret post/reply body content. Used by `x/blog` and `x/forum`.
+
+| Range | Type | Description |
+|-------|------|-------------|
+| 0 | `UNSPECIFIED` | Default/unknown |
+| 1-9 | On-chain text | Human-readable strings |
+| 1 | `TEXT` | Plain text |
+| 2 | `HTML` | HTML markup |
+| 3 | `MARKDOWN` | Markdown |
+| 10-19 | On-chain compressed | Base64-encoded binary strings |
+| 10 | `GZIP` | Gzip-compressed |
+| 11 | `ZSTD` | Zstandard-compressed |
+| 20+ | Off-chain references | URI/hash strings |
+| 20 | `IPFS` | IPFS CID |
+| 21 | `ARWEAVE` | Arweave transaction ID |
+| 22 | `FILECOIN` | Filecoin CID |
+| 23 | `JACKAL` | Jackal Protocol reference |
 
 ### Tag
 
@@ -75,25 +96,29 @@ The `TagKeeper` interface is implemented by `x/forum` (which owns tag storage) a
 ```go
 type TagKeeper interface {
     TagExists(ctx context.Context, name string) (bool, error)
-    IncrementTagUsage(ctx context.Context, name string) error
-    DecrementTagUsage(ctx context.Context, name string) error
-    GetTag(ctx context.Context, name string) (*Tag, error)
+    IsReservedTag(ctx context.Context, name string) (bool, error)
+    GetTag(ctx context.Context, name string) (Tag, error)
+    IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
 }
 ```
 
 ### Tag Validation
 
-The `ValidateTagFormat` function provides consistent tag format checking across all modules:
+Two helper functions provide consistent tag checking across all modules:
 
 ```go
-func ValidateTagFormat(name string, maxLength int) error
+// ValidateTagFormat checks if a tag name matches the required pattern.
+func ValidateTagFormat(name string) bool
+
+// ValidateTagLength checks if a tag name is within the maximum length.
+func ValidateTagLength(name string, maxLen uint64) bool
 ```
 
 ## Consumers
 
 | Module | Uses |
 |--------|------|
-| `x/forum` | Implements `TagKeeper`; uses `ModerationReason`, `FlagRecord` |
-| `x/blog` | Uses `TagKeeper` for tag validation |
+| `x/blog` | Uses `ContentType` for post/reply body format |
+| `x/forum` | Implements `TagKeeper`; uses `ContentType`, `ModerationReason`, `FlagRecord` |
 | `x/collect` | Uses `ModerationReason`, `FlagRecord` for content flagging |
 | `x/rep` | Uses `TagKeeper` for initiative/reputation tag validation |

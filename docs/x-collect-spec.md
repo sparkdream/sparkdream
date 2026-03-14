@@ -36,10 +36,11 @@ Key principles:
 | `x/gov` | Authority for full parameter updates |
 | `x/auth` | Address codec for bech32 conversion |
 | `x/bank` | Storage deposit collection, per-item fees, endorsement fee escrow, per-item spam tax burns, deposit refunds, downvote cost burns |
-| `x/commons` | Optional: council/committee authorization for operational parameter updates |
+| `x/commons` | Council/committee authorization for operational parameter updates; anonymous proposal/voting (replaces x/group) |
 | `x/name` | Optional: resolve owner names for display |
-| `x/rep` | Membership verification, trust level checks, per-item spam tax exemption, curator bonding, jury resolution, endorser DREAM staking |
+| `x/rep` | Membership verification, trust level checks, per-item spam tax exemption, curator bonding, jury resolution, endorser DREAM staking, content conviction staking, author bonds, trust tree Merkle roots for ZK proof validation |
 | `x/forum` | Sentinel bond system: sentinel status checks, bond commitment/release/slash for content moderation |
+| `x/shield` | Unified privacy layer: all anonymous collection operations (creation, reactions) go through `MsgShieldedExec`. Owns ZK proof verification, nullifier management, TLE infrastructure, and module-paid gas. x/collect implements the `ShieldAware` interface to register compatible operations. See `docs/x-shield-spec.md` |
 
 ---
 
@@ -99,6 +100,9 @@ message Collection {
 
   // --- Conviction-sustained state (anonymous collections only) ---
   bool conviction_sustained = 27;       // True if anonymous collection has entered conviction-sustained state
+
+  // --- Cross-module conviction propagation ---
+  uint64 initiative_id = 28;            // x/rep initiative referenced by this collection (0 = none, immutable)
 }
 ```
 
@@ -607,8 +611,12 @@ message Params {
   string endorsement_deletion_burn_fraction = 55 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Fraction of endorsement fee burned on PENDING deletion (default 0.10)
 
   // --- Conviction renewal parameters — OPERATIONAL ---
-  string conviction_renewal_threshold = 56 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Min conviction score to renew anonymous collections at TTL expiry (default: 100.0; 0 = disabled)
+  string conviction_renewal_threshold = 56 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Min conviction score to renew anonymous collections at TTL expiry (default: 0 = disabled)
   int64 conviction_renewal_period = 57;                          // Blocks to extend TTL by when conviction-renewed (default: same as collection's original TTL)
+
+  // --- Pinning parameters — OPERATIONAL ---
+  uint32 pin_min_trust_level = 61;    // Min trust level to pin collections (default: 2 = ESTABLISHED)
+  uint32 max_pins_per_day = 62;       // Max pins per address per day (default: 10)
 }
 ```
 
@@ -671,6 +679,10 @@ message CollectOperationalParams {
   // --- Conviction renewal parameters ---
   string conviction_renewal_threshold = 38 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   int64 conviction_renewal_period = 39;
+
+  // --- Pinning parameters ---
+  uint32 pin_min_trust_level = 43;
+  uint32 max_pins_per_day = 44;
 }
 ```
 
@@ -713,6 +725,7 @@ message CollectOperationalParams {
 | `ReactionLimit/{address}/{day}` | `ReactionCount` | Daily reaction counter (upvotes, downvotes, flags) |
 | `ReactionDedup/{address}/{target_type}/{target_id}` | `uint8` | Dedup: 1 = upvoted, 2 = downvoted. Prevents same member from voting same target twice |
 | `Item/by_onchain_ref/{module}:{entity_type}:{entity_id}/{item_id}` | `[]byte{}` | Reverse index for OnChainReference lookups |
+| `Collection/by_status/{status}/{id}` | `[]byte{}` | Index: collections by status (for PendingCollections query) |
 
 **Module account** (`x/collect`): Holds **SPARK** (TTL collection deposits, TTL per-item deposits, sponsorship escrow deposits, appeal fee escrow, endorsement creation fee escrow) and **DREAM** (curator bonds, challenge deposits). Endorser DREAM stakes are held via x/rep keeper (not in the module account directly). Permanent deposits, sponsor fees, downvote costs, and all spam taxes are sent directly to the burn address.
 
@@ -738,6 +751,12 @@ message MsgCreateCollection {
 
   // Private content (encrypted = true)
   bytes encrypted_data = 10;
+
+  // Optional DREAM amount to lock as author bond
+  string author_bond = 11 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = true];
+
+  // Optional x/rep initiative to link for conviction propagation (0 = none, immutable)
+  uint64 initiative_id = 12;
 }
 
 message MsgCreateCollectionResponse {
@@ -784,7 +803,8 @@ message MsgUpdateCollection {
   bytes encrypted_data = 9;
 
   // Community feedback toggle
-  google.protobuf.BoolValue community_feedback_enabled = 10;  // nil = no change; wraps bool to distinguish "set false" from "not provided"
+  bool community_feedback_enabled = 10;
+  bool update_community_feedback = 11;  // true to apply community_feedback_enabled value
 }
 
 message MsgUpdateCollectionResponse {}
@@ -796,7 +816,7 @@ message MsgUpdateCollectionResponse {}
 - Collection must have `status = ACTIVE` or `status = PENDING` (hidden collections cannot be edited)
 - Same size constraints as create
 - `visibility` and `encrypted` are immutable (not present in message)
-- `community_feedback_enabled`: if provided (non-nil), updates the collection's `community_feedback_enabled` flag. Disabling freezes existing reaction/curation data (no new reactions or reviews accepted). Re-enabling allows new reactions and reviews. No effect on sentinel moderation — flagging and hiding always apply
+- `community_feedback_enabled`: if `update_community_feedback = true`, applies the `community_feedback_enabled` value. Disabling freezes existing reaction/curation data (no new reactions or reviews accepted). Re-enabling allows new reactions and reviews. No effect on sentinel moderation — flagging and hiding always apply
 - **Non-members cannot set `expires_at = 0`** — TTL→permanent conversion requires membership (or sponsorship via §5.17–5.19)
 - **Permanent collections cannot set `expires_at > 0`** — permanent→TTL conversion is not allowed (deposits already burned; use MsgDeleteCollection instead)
 - If `expires_at > 0`, must be in the future
@@ -1510,6 +1530,32 @@ message MsgSetSeekingEndorsementResponse {}
 1. Set `seeking_endorsement = seeking` on the collection
 2. Emit `seeking_endorsement_updated` event
 
+### 5.29. MsgPinCollection
+
+Makes an ephemeral collection permanent by burning its deposits. See §18.12 for full details.
+
+```protobuf
+message MsgPinCollection {
+  string creator = 1;           // Member pinning the collection
+  uint64 collection_id = 2;
+}
+
+message MsgPinCollectionResponse {}
+```
+
+**Validation:**
+1. `creator` must be an active x/rep member at or above `pin_min_trust_level`
+2. Collection must exist and have `expires_at > 0` (TTL collection)
+3. Collection must have `status = ACTIVE`
+4. `creator` must not exceed `max_pins_per_day` (rolling 24h window)
+
+**Logic:**
+1. Set `expires_at = 0` (permanent)
+2. If `conviction_sustained == true`: set `conviction_sustained = false`
+3. Burn the held collection deposit + item deposits from module account (`deposit_burned = true`)
+4. Remove from expiry index
+5. Emit `collection_pinned` event with `collection_id`, `pinned_by`
+
 ---
 
 ## 6. Queries
@@ -1539,8 +1585,8 @@ message MsgSetSeekingEndorsementResponse {}
 | `PendingCollections` | pagination | `[]Collection` | Non-member collections with `seeking_endorsement = true` (endorsement discovery feed) |
 | `Endorsement` | `uint64 collection_id` | `Endorsement` | Endorsement record for a collection |
 | `CollectionConviction` | `uint64 collection_id` | `ConvictionResponse` | Current conviction score, stake count, total staked, and author bond for any collection (delegates to x/rep) |
-| `AnonymousCollections` | pagination, optional `order_by` | `[]Collection` | Paginated anonymous collections (owner = module account), optionally ranked by conviction (see §18.11) |
-| `IsCollectNullifierUsed` | `string nullifier_hex`, `uint64 domain`, `uint64 scope` | `bool used` | Check if a nullifier has been used for a given domain and scope (see §18.11) |
+| ~~`AnonymousCollections`~~ | — | — | **REMOVED** — not implemented. Anonymous collections can be found via `CollectionsByOwner` with the module account address |
+| ~~`IsCollectNullifierUsed`~~ | — | — | **REMOVED** — nullifier queries are now centralized in x/shield (`QueryNullifierUsed`) |
 | `CollectionsByContent` | `string module`, `string entity_type`, `string entity_id`, pagination | `[]Collection` | Collections containing items with the given `OnChainReference` (uses `Item/by_onchain_ref` index) |
 | `Params` | — | `Params` | Current parameters |
 
@@ -1667,11 +1713,17 @@ type Keeper interface {
     SetParams(ctx context.Context, params Params) error
     UpdateOperationalParams(ctx context.Context, msg *MsgUpdateOperationalParams) error
 
+    // Pinning
+    PinCollection(ctx context.Context, msg *MsgPinCollection) error
+
     // Conviction (delegates to x/rep)
     GetCollectionConviction(ctx context.Context, collectionID uint64) (ConvictionResponse, error)
 
     // Council authorization (delegates to x/commons)
     IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+
+    // ShieldAware interface (see x/collect/keeper/shield_aware.go)
+    IsShieldCompatible(ctx context.Context, msg sdk.Msg) bool
 }
 ```
 
@@ -1737,6 +1789,10 @@ type Keeper interface {
 | `endorsement_expiry_blocks` | `432000` (~30 days) | Ops | Blocks before unendorsed collection auto-prunes |
 | `endorsement_fee_endorser_share` | `0.80` (80%) | Ops | Fraction of creation fee sent to endorser |
 | `endorsement_deletion_burn_fraction` | `0.10` (10%) | Ops | Fraction of endorsement fee burned when owner deletes PENDING collection (remainder refunded) |
+| `conviction_renewal_threshold` | `0` (disabled) | Ops | Min conviction score to renew anonymous collections at TTL expiry (0 = disabled) |
+| `conviction_renewal_period` | `432000` (~30 days) | Ops | Blocks to extend TTL by when conviction-renewed |
+| `pin_min_trust_level` | `2` (ESTABLISHED) | Ops | Minimum trust level to pin anonymous collections |
+| `max_pins_per_day` | `10` | Ops | Max pins per address per rolling 24h |
 
 ---
 
@@ -1938,6 +1994,7 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | Flag content | Any x/rep member (public content only) |
 | Hide content | Active x/forum sentinel (bonded, not demoted, not in cooldown) |
 | Appeal hide | Owner of hidden content (pays 5 SPARK) |
+| Pin collection | Active x/rep member at `pin_min_trust_level`+ |
 | Update params | Governance (`x/gov`) |
 | Update operational params | Commons Operations Committee (via `x/commons`), or governance |
 
@@ -1989,6 +2046,7 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `endorsement_stake_slashed` | `collection_id`, `endorser`, `amount` | Sentinel hide during stake period |
 | `unendorsed_collection_pruned` | `collection_id`, `owner`, `deposit_refunded` | EndBlocker |
 | `flags_expired` | `target_id`, `target_type` | EndBlocker |
+| `collection_pinned` | `collection_id`, `pinned_by` | MsgPinCollection |
 
 ---
 
@@ -2060,19 +2118,19 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `ErrNotSentinel` | 1161 | Caller is not an active x/forum sentinel |
 | `ErrNotPublicActive` | 1162 | Target must be a public, active collection or item |
 | `ErrSentinelInCooldown` | 1163 | Sentinel is in overturn cooldown |
-| `ErrInsufficientSentinelBond` | 1164 | Sentinel available bond < commit amount |
-| `ErrContentAlreadyHidden` | 1165 | Target is already hidden |
+| `ErrInsufficientBondAvailable` | 1164 | Sentinel bond insufficient for commit |
+| `ErrAlreadyHidden` | 1165 | Content is already hidden |
 | `ErrContentNotHidden` | 1166 | Target is not hidden (cannot appeal) |
 | `ErrHideRecordNotFound` | 1167 | Hide record does not exist |
-| `ErrAlreadyAppealed` | 1168 | Hide record already appealed |
+| `ErrAppealAlreadyFiled` | 1168 | Appeal already filed for this hide record |
 | `ErrAppealCooldown` | 1169 | Must wait `appeal_cooldown_blocks` after hide before appealing |
 | `ErrAppealDeadlinePassed` | 1170 | Appeal deadline has passed |
 | `ErrAlreadyFlagged` | 1171 | Caller has already flagged this target |
 | `ErrFlagRateLimitExceeded` | 1172 | Caller has exceeded `max_flags_per_day` |
-| `ErrUpvoteRateLimitExceeded` | 1173 | Caller has exceeded `max_upvotes_per_day` |
-| `ErrDownvoteRateLimitExceeded` | 1174 | Caller has exceeded `max_downvotes_per_day` |
-| `ErrCommunityFeedbackDisabled` | 1175 | Collection has `community_feedback_enabled = false` |
-| `ErrCannotReactOwnContent` | 1176 | Cannot upvote/downvote/react to own collection or items |
+| `ErrMaxDailyReactions` | 1173 | Daily reaction limit reached |
+| `ErrDownvoteRateLimitExceeded` | 1174 | Downvote rate limit exceeded |
+| `ErrNotContentOwner` | 1175 | Only content owner can appeal |
+| `ErrCannotVoteOwnContent` | 1176 | Cannot vote on own content |
 | `ErrCollectionNotPending` | 1177 | Collection is not in PENDING state (cannot endorse) |
 | `ErrNotSeekingEndorsement` | 1178 | Collection is not seeking endorsement |
 | `ErrAlreadyEndorsed` | 1179 | Collection has already been endorsed |
@@ -2087,10 +2145,11 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `ErrFlagReasonTextTooLong` | 1188 | `reason_text` exceeds `max_flag_reason_length` |
 | `ErrInvalidOnChainRef` | 1189 | Invalid on-chain reference: unknown `entity_type` or malformed `entity_id` |
 | `ErrOnChainRefNotFound` | 1190 | On-chain referenced content not found |
-| `ErrInvalidReactionType` | 1213 | Reaction type must be 1 (upvote) or 2 (downvote) |
-| `ErrInvalidInitiativeRef` | 1230 | Invalid initiative reference |
+| `ErrCannotPinActive` | 1214 | Collection is already permanent |
+| `ErrPinTrustLevelTooLow` | 1215 | Below required pin trust level |
+| `ErrInvalidInitiativeRef` | 1230 | Invalid initiative reference for conviction propagation |
 
-**Rate-limit error note:** Errors 1172 (`ErrFlagRateLimitExceeded`), 1173 (`ErrUpvoteRateLimitExceeded`), and 1174 (`ErrDownvoteRateLimitExceeded`) cover distinct rate-limiting aspects: flagging, upvotes, and downvotes respectively. Each has an independent daily counter tracked in `ReactionLimit/{address}/{day}`.
+**Rate-limit error note:** Errors 1172 (`ErrFlagRateLimitExceeded`), 1173 (`ErrMaxDailyReactions`), and 1174 (`ErrDownvoteRateLimitExceeded`) cover distinct rate-limiting aspects: flagging, general daily reactions, and downvotes respectively. Each has an independent daily counter tracked in `ReactionLimit/{address}/{day}`.
 
 ---
 
@@ -2226,7 +2285,20 @@ Client-side join: resolve `owner` → name for display. No keeper dependency.
 - **Community conviction staking**: Any active member can stake DREAM on a public collection via `MsgStake` (x/rep) with `target_type = STAKE_TARGET_CONTENT` and `target_identifier = "collect/collection/{id}"`. Conviction builds over time using the `content_conviction_half_life_epochs` half-life formula (see x/rep spec §Content Staking). No DREAM rewards — conviction is the only output. Authors cannot stake conviction on their own collections (use author bonds instead). `max_content_stake_per_member` caps individual whale influence. Works for both anonymous and regular collections.
 - **Author bonds**: Collection creators can deposit DREAM as an author bond via x/rep's `CreateAuthorBond()`, keyed to `"collect/collection/{id}"`. Bonds signal skin-in-the-game quality commitment; slashable via sentinel moderation. Author bonds do NOT contribute to conviction score — the two signals are independent (see x/rep spec §Author Bonds).
 
-### 15.4. x/forum (Sentinel Moderation)
+### 15.4. x/blog (OnChainReference Validation)
+- **Post/reply existence checks**: `BlogKeeper.HasPost()` and `BlogKeeper.HasReply()` validate OnChainReference entries pointing to blog posts and replies.
+- **Optional dependency**: If `BlogKeeper` is nil (e.g., during early development), blog references are accepted without validation.
+
+**BlogKeeper interface** (defined in `x/collect/types/expected_keepers.go`):
+
+```go
+type BlogKeeper interface {
+    HasPost(ctx context.Context, id uint64) bool
+    HasReply(ctx context.Context, id uint64) bool
+}
+```
+
+### 15.5. x/forum (Sentinel Moderation)
 - **Shared sentinel identity**: x/collect uses the same sentinel bond system as x/forum. Sentinels bonded in x/forum automatically have moderation authority in x/collect.
 - **Cross-module bond tracking**: Bond commitments in x/collect are tracked alongside x/forum commitments. A sentinel's available bond = current bond - total committed (x/forum + x/collect).
 - **Sentinel state reads**: x/collect reads sentinel bond status, backing, cooldown, and metrics via `ForumKeeper` interface.
@@ -2238,18 +2310,24 @@ Client-side join: resolve `owner` → name for display. No keeper dependency.
 ```go
 type ForumKeeper interface {
     // Sentinel status checks
-    GetSentinel(ctx context.Context, address string) (forumtypes.Sentinel, error)
-    IsSentinelActive(ctx context.Context, address string) (bool, error)
-    GetAvailableBond(ctx context.Context, address string) (math.Int, error)  // current bond - total committed across all modules
+    IsSentinelActive(ctx context.Context, sentinel string) (bool, error)
+    GetAvailableBond(ctx context.Context, sentinel string) (math.Int, error)  // current bond - total committed across all modules
 
     // Bond commitment operations
     CommitBond(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
     ReleaseBondCommitment(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
     SlashBondCommitment(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
+
+    // Tag registry operations (shared tag system)
+    TagExists(ctx context.Context, name string) (bool, error)
+    IsReservedTag(ctx context.Context, name string) (bool, error)
+
+    // Post existence check for OnChainReference validation
+    HasPost(ctx context.Context, id uint64) bool
 }
 ```
 
-### 15.5. x/reveal (Progressive Open-Source)
+### 15.6. x/reveal (Progressive Open-Source)
 Track contributions via `OnChainReference` with `module: "reveal"`.
 
 ---
@@ -2306,17 +2384,13 @@ message Collection {
 ```protobuf
 message MsgCreateCollection {
   // ... existing fields ...
-  uint64 initiative_id = 11;           // Optional: reference an x/rep initiative (0 = none, immutable)
+  string author_bond = 11;             // Optional DREAM amount to lock as author bond
+  uint64 initiative_id = 12;           // Optional: reference an x/rep initiative (0 = none, immutable)
 }
 ```
 
-**MsgCreateAnonymousCollection** (add to §18.7):
-```protobuf
-message MsgCreateAnonymousCollection {
-  // ... existing fields ...
-  uint64 initiative_id = 15;           // Optional: reference an x/rep initiative (0 = none, immutable)
-}
-```
+**Anonymous collection creation via x/shield** (replaces MsgCreateAnonymousCollection §18.7):
+When `MsgCreateCollection` is executed via `MsgShieldedExec`, the `initiative_id` field works the same way — it is part of the standard `MsgCreateCollection` message.
 
 *Note: `conviction_sustained` (field 27) and conviction renewal params already exist — see §18.9 and §18.15.*
 
@@ -2355,13 +2429,7 @@ if msg.InitiativeId > 0 and repKeeper is not nil:
     register link via repKeeper.RegisterContentInitiativeLink(msg.InitiativeId, STAKE_TARGET_COLLECT_CONTENT, collection_id)
 ```
 
-**MsgCreateAnonymousCollection:** After ZK proof verification and collection storage:
-```
-if msg.InitiativeId > 0 and repKeeper is not nil:
-    validate initiative reference via repKeeper.ValidateInitiativeReference(msg.InitiativeId)
-    set collection.InitiativeId = msg.InitiativeId
-    register link via repKeeper.RegisterContentInitiativeLink(msg.InitiativeId, STAKE_TARGET_COLLECT_CONTENT, collection_id)
-```
+**Anonymous collection creation (via x/shield → MsgCreateCollection):** The same `MsgCreateCollection` handler logic above applies when the message is dispatched via `MsgShieldedExec`. No separate handler needed.
 
 **MsgDeleteCollection:** Before cleanup:
 ```
@@ -2512,11 +2580,26 @@ sparkdreamd query collect params
 
 ---
 
-## 18. Anonymous Collections via ZK Proofs
+## 18. Anonymous Collections via x/shield
 
-Members can create and manage collections without revealing their identity, using the same ZK-SNARK infrastructure as x/blog and x/forum anonymous posting. The creator proves they are an active member meeting a minimum trust level without revealing *which* member they are. A pseudonymous management key allows ongoing curation without re-proving identity for each action. Community conviction staking (via x/rep's existing content staking system) provides a complementary quality signal alongside expert curation — bonded curators can rate anonymous collections just like any other public collection.
+> **Architecture change (x/shield migration):** All per-module anonymous messages (`MsgCreateAnonymousCollection`, `MsgManageAnonymousCollection`, `MsgAnonymousReact`) and their corresponding query endpoints (`AnonymousCollectionMeta`, `IsCollectNullifierUsed`) have been **removed** from x/collect. Anonymous operations now go through x/shield's unified `MsgShieldedExec` entry point, which handles ZK proof verification, nullifier management, and module-paid gas centrally. x/collect implements the **ShieldAware interface** (see `x/collect/keeper/shield_aware.go`) to register which messages support anonymous execution via shield. The proto definitions, keeper code, and simulation files for the removed messages have been deleted.
+>
+> **What moved to x/shield:**
+> - ZK proof verification (PLONK over BN254, verification keys stored on-chain)
+> - Nullifier storage and dedup (centralized per-domain scoping replaces per-module stores)
+> - TLE infrastructure (DKG ceremony, epoch decryption, encrypted batching)
+> - Module-paid gas (shield module account pays tx fees; submitter needs zero balance)
+> - Relay/subsidy infrastructure
+>
+> **What remains in x/collect:**
+> - ShieldAware interface implementation (`IsShieldCompatible()`)
+> - Regular (non-anonymous) message handlers for all collection operations
+> - Conviction staking, curation, endorsement, sentinel moderation (unchanged)
+> - Anonymous collection properties (module-account ownership, TTL requirement, public-only) still apply when collections are created via `MsgShieldedExec`
 
-See **[docs/anonymous-posting.md](anonymous-posting.md)** for the full specification covering the member trust tree, anonymous action circuit, nullifier system, relay pattern, VoteKeeper interface, client workflow, and security considerations.
+Members can create and manage collections without revealing their identity, using x/shield's unified privacy infrastructure. The submitter sends a `MsgShieldedExec` to x/shield, which verifies the ZK proof, checks nullifiers, and dispatches the inner message (e.g., `MsgCreateCollection`, `MsgUpvoteContent`, `MsgDownvoteContent`) to x/collect. The creator proves they are an active member meeting a minimum trust level without revealing *which* member they are. Community conviction staking (via x/rep's existing content staking system) provides a complementary quality signal alongside expert curation — bonded curators can rate anonymous collections just like any other public collection.
+
+See **[docs/x-shield-spec.md](x-shield-spec.md)** for the full specification covering ZK proof verification, nullifier management, shielded execution modes, and the ShieldAware interface.
 
 ### 18.1. Design Rationale
 
@@ -2530,74 +2613,35 @@ Anonymous collections benefit from two quality signals working together: **exper
 
 ### 18.2. Collect-Specific Nullifier Domains
 
-| Domain | Action | Scope | Effect |
-|--------|--------|-------|--------|
-| `6` | Anonymous collection creation | Current epoch | One anonymous collection per member per epoch |
-| `7` | Anonymous item addition | `collection_id * epoch_multiplier + epoch` | One anonymous item per member per collection per epoch |
-| `10` | Anonymous collection reaction | `collection_id` | One anonymous reaction per member per collection |
-| `11` | Anonymous item reaction | `item_id` | One anonymous reaction per member per item |
+> **Note:** Nullifier storage and dedup are now managed centrally by x/shield. The per-module `AnonNullifier/` store prefix and `IsCollectNullifierUsed` query have been removed from x/collect. x/shield uses the same domain/scope scheme below but stores nullifiers in its own centralized store with per-domain scoping.
 
-Domains 1–5 are reserved for x/blog, domains 8–9 for x/blog reactions (see [anonymous-posting.md](anonymous-posting.md) § Domain Registry).
+The following shielded operations are registered via x/collect's ShieldAware interface (see `x/collect/keeper/shield_aware.go`):
 
-**Item addition scope**: The scope for domain 7 is `collection_id * epoch_multiplier + epoch`, where `epoch_multiplier` is a large constant (e.g., `1_000_000_000`). This allows one anonymous item per collection per epoch, preventing bulk spam while allowing the creator to build lists over time.
+| Domain | Inner Message | Scope | Effect | Proof Domain |
+|--------|--------------|-------|--------|-------------|
+| `21` | `MsgCreateCollection` | Current epoch (epoch-scoped) | One anonymous collection per member per epoch | `PROOF_DOMAIN_TRUST_TREE` |
+| `22` | `MsgUpvoteContent` | `target_id`-scoped | One anonymous upvote per member per target | `PROOF_DOMAIN_TRUST_TREE` |
+| `23` | `MsgDownvoteContent` | `target_id`-scoped | One anonymous downvote per member per target | `PROOF_DOMAIN_TRUST_TREE` |
+
+All operations require `min_trust_level=1` and support `batch_mode=EITHER` (both immediate and encrypted batch execution).
+
+**Removed domains (legacy):** Domains 6, 7, 10, 11 were previously used by the per-module anonymous messages (`MsgCreateAnonymousCollection`, `MsgManageAnonymousCollection`, `MsgAnonymousReact`). These have been replaced by the shield-managed domains above.
 
 ### 18.3. Management Key
 
-Anonymous collections use a **pseudonymous management key** for ongoing curation. This avoids requiring a ZK proof for every item add/remove/reorder operation, which would be both expensive and leak timing patterns.
+> **Status: REMOVED.** The `AnonymousCollectionMeta` proto and management key infrastructure have been removed from x/collect. Anonymous collection management now goes through x/shield's `MsgShieldedExec`, which provides its own session management and replay protection. The management key pattern described below is historical context only.
 
-```protobuf
-message AnonymousCollectionMeta {
-  uint64 collection_id = 1;
-  bytes management_public_key = 2;    // Ed25519 public key (32 bytes); generated per-collection, no link to real identity
-  bytes nullifier = 3;                // 32-byte nullifier from creation proof
-  bytes merkle_root = 4;              // Trust tree root at creation time
-  uint32 proven_trust_level = 5;      // Minimum trust level proven at creation
-}
-```
+~~Anonymous collections used a **pseudonymous management key** for ongoing curation. This avoided requiring a ZK proof for every item add/remove/reorder operation.~~
 
-**Key lifecycle:**
-1. At creation, the anonymous member generates a fresh Ed25519 keypair
-2. The public key is stored on-chain in `AnonymousCollectionMeta`
-3. For all management operations (add/remove/update/reorder items, update metadata), the creator signs the action with the private key
-4. The management key is a disposable keypair used only for this collection — no link to the creator's main address
-5. The relay pattern still applies: management transactions are broadcast by a relay to prevent address correlation
-
-**Key compromise:** If the management private key is lost, the collection becomes unmanageable (items cannot be added/removed). The collection continues to exist and can still receive community conviction stakes, be flagged, or be moderated. If the key is stolen, the thief can modify the collection but cannot prove they are the original creator (no identity to steal). Sentinel moderation provides the ultimate safety net for compromised anonymous collections.
+With x/shield, anonymous management operations (adding/removing/reordering items, updating metadata) are submitted as `MsgShieldedExec` wrapping the appropriate inner message. x/shield handles proof verification, nullifier checks, and replay protection centrally. The two execution modes (Immediate and Encrypted Batch) provide different privacy/latency tradeoffs — see `docs/x-shield-spec.md`.
 
 ### 18.4. State Objects
 
-#### AnonymousCollectionMeta
-
-Stored per anonymous collection. Links the collection to its ZK creation proof and management key.
-
-```protobuf
-message AnonymousCollectionMeta {
-  uint64 collection_id = 1;
-  bytes management_public_key = 2;    // 32-byte Ed25519 public key
-  bytes nullifier = 3;                // 32-byte creation nullifier
-  bytes merkle_root = 4;              // Trust tree root at proof time
-  uint32 proven_trust_level = 5;      // Minimum trust level proven
-}
-```
-
-#### AnonNullifierEntry
-
-Defined in `x/common/types` and shared across all content modules (x/blog, x/forum, x/collect). Storage and lookup use the shared helpers in `x/common/keeper/anon.go` — see [anonymous-posting.md](anonymous-posting.md) § Nullifier Storage.
-
-```protobuf
-message AnonNullifierEntry {
-  int64 used_at = 1;
-  uint64 domain = 2;
-  uint64 scope = 3;
-}
-```
+> **Status: REMOVED.** The `AnonymousCollectionMeta`, `AnonNullifierEntry`, and `AnonCollectionNonce` state objects have been removed from x/collect. Nullifier state is now managed centrally by x/shield. Anonymous collection metadata (proof context, session tracking) is tracked by x/shield's shielded operation registration system.
 
 ### 18.5. Storage Schema Additions
 
-| Key Prefix | Value | Description |
-|------------|-------|-------------|
-| `AnonCollectionMeta/{collection_id}` | `AnonymousCollectionMeta` | Anonymous collection metadata |
-| `AnonNullifier/{domain}/{scope}/{nullifier_hex}` | `AnonNullifierEntry` | Nullifier dedup via `x/common` helpers (domains 6, 7, 10, 11) |
+> **Status: REMOVED.** The `AnonCollectionMeta/` and `AnonNullifier/` key prefixes have been removed from x/collect's store. Nullifier storage is now centralized in x/shield. No anonymous-specific storage remains in x/collect.
 
 ### 18.6. Collection Properties
 
@@ -2614,180 +2658,38 @@ Anonymous collections have specific constraints that differ from regular collect
 
 ### 18.7. Messages
 
-#### MsgCreateAnonymousCollection
-
-```protobuf
-message MsgCreateAnonymousCollection {
-  string submitter = 1;                                // Transaction signer (pays gas + deposits; NOT the creator)
-  CollectionType type = 2;
-  int64 expires_at = 3;                                // Must be > 0 (ephemeral only)
-
-  // Public content
-  string name = 4;
-  string description = 5;
-  string cover_uri = 6;
-  repeated string tags = 7;
-
-  // Management key
-  bytes management_public_key = 8;                     // 32-byte Ed25519 public key
-
-  // ZK proof
-  bytes proof = 9;                                     // ~500-byte Groth16 proof
-  bytes nullifier = 10;                                // 32-byte nullifier
-  bytes merkle_root = 11;                              // Trust tree root
-  uint32 min_trust_level = 12;                         // Trust level proven
-
-  // Optional initial items (batch-added at creation)
-  repeated AddItemEntry initial_items = 13;
-
-  // Optional author bond
-  string author_bond_amount = 14 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // DREAM bond (0 = no bond)
-}
-
-message MsgCreateAnonymousCollectionResponse {
-  uint64 id = 1;
-  repeated uint64 item_ids = 2;                        // IDs of initial items (if any)
-}
-```
-
-**Validation:**
-1. `submitter` is valid bech32 (pays gas + deposits; not recorded as owner)
-2. `VoteKeeper` must not be nil (`ErrAnonymousPostingUnavailable`)
-3. `params.anonymous_posting_enabled` must be true (`ErrAnonymousPostingDisabled`)
-4. `min_trust_level` >= `params.anonymous_min_trust_level` (`ErrInsufficientAnonTrustLevel`)
-5. `merkle_root` matches current or previous `MemberTrustTreeRoot` from x/rep (`ErrStaleMerkleRoot`)
-6. Nullifier not already used in domain 6 (`ErrNullifierUsed`)
-7. Scope = current epoch. ZK proof verified via `VoteKeeper.VerifyAnonymousActionProof(proof, merkle_root, nullifier, min_trust_level, domain=6, scope=epoch)`
-8. `expires_at > 0` and in the future (`ErrAnonymousRequiresTTL`)
-9. TTL ≤ `max_ttl_blocks` (when `max_ttl_blocks > 0`)
-10. `management_public_key` must be exactly 32 bytes (`ErrInvalidManagementKey`)
-11. Same content validation as `MsgCreateCollection`: name, description, tags, cover_uri
-12. `initial_items` count ≤ `max_batch_size`; each item validated per `MsgAddItem` rules (public items only — no encrypted items)
-13. `submitter` rate limit check (shared with regular collection creation)
-14. Anonymous collection count for this management key must not exceed `params.max_anonymous_collections_per_key` (prevents key reuse abuse)
-
-**Fee logic:**
-1. `base_collection_deposit` charged to `submitter` — held in module account (TTL, refunded at expiry)
-2. If `initial_items` provided: `initial_items.length * per_item_deposit` charged to `submitter` — held in module account
-3. If `author_bond_amount > 0`: charged to `submitter` in DREAM, forwarded to x/rep as author bond keyed to `"collect/collection/{id}"`
-
-**Logic:**
-1. Validate content inputs (name, description, tags, TTL, management key, initial items)
-2. Call `commonkeeper.VerifyAndStoreAnonymousAction(ctx, store, voteKeeper, repKeeper, anonParams, proof, merkleRoot, nullifier, minTrustLevel, domain=6, scope=epoch, blockTime)` — handles validation steps 2–7 above (param checks, root verification, nullifier dedup, ZK proof verification, nullifier recording)
-3. Create Collection with `owner = module_account_address`, `visibility = PUBLIC`, `encrypted = false`, `community_feedback_enabled = true`, `status = ACTIVE`
-4. If `initial_items` provided: create items with `added_by = module_account_address`
-5. Store `AnonymousCollectionMeta` with management key and proof metadata
-6. If `author_bond_amount > 0`: call `repKeeper.CreateAuthorBond(ctx, "collect/collection/{id}", author_bond_amount)` with bond holder keyed to the management public key
-7. Emit `anonymous_collection_created` event (includes `collection_id`, `proven_trust_level`, `expires_at`, `item_count`; does NOT include `submitter`)
-
-#### MsgManageAnonymousCollection
-
-All management operations on anonymous collections — adding/removing/updating/reordering items and updating collection metadata — use a single message type with a management key signature.
-
-```protobuf
-enum AnonymousManageAction {
-  ANON_MANAGE_ACTION_UNSPECIFIED = 0;
-  ANON_MANAGE_ACTION_ADD_ITEM = 1;
-  ANON_MANAGE_ACTION_REMOVE_ITEM = 2;
-  ANON_MANAGE_ACTION_UPDATE_ITEM = 3;
-  ANON_MANAGE_ACTION_REORDER_ITEM = 4;
-  ANON_MANAGE_ACTION_UPDATE_METADATA = 5;
-  ANON_MANAGE_ACTION_ADD_ITEMS = 6;
-  ANON_MANAGE_ACTION_REMOVE_ITEMS = 7;
-}
-
-message MsgManageAnonymousCollection {
-  string submitter = 1;                // Transaction signer (pays gas + fees)
-  uint64 collection_id = 2;
-  AnonymousManageAction action = 3;
-
-  // Management key signature
-  bytes management_signature = 4;      // Ed25519 signature over canonical action payload
-  uint64 nonce = 5;                    // Replay protection (monotonically increasing per collection)
-
-  // Action-specific fields (only relevant fields populated per action)
-  // --- ADD_ITEM / ADD_ITEMS ---
-  repeated AddItemEntry items = 6;     // Items to add (ADD_ITEM uses items[0])
-
-  // --- REMOVE_ITEM / REMOVE_ITEMS ---
-  repeated uint64 item_ids = 7;        // Item IDs to remove
-
-  // --- UPDATE_ITEM ---
-  uint64 target_item_id = 8;
-  string title = 9;
-  string description = 10;
-  string image_uri = 11;
-  ReferenceType reference_type = 12;
-  NftReference nft = 13;
-  LinkReference link = 14;
-  OnChainReference on_chain = 15;
-  CustomReference custom = 16;
-  map<string, string> attributes = 17;
-
-  // --- REORDER_ITEM ---
-  // target_item_id (field 8) + new_position (below)
-  uint64 new_position = 18;
-
-  // --- UPDATE_METADATA ---
-  string name = 19;
-  string collection_description = 20;  // Avoids conflict with item description field
-  string cover_uri = 21;
-  repeated string metadata_tags = 22;  // Avoids conflict with item tags
-}
-
-message MsgManageAnonymousCollectionResponse {
-  repeated uint64 item_ids = 1;        // IDs of added items (for ADD_ITEM / ADD_ITEMS)
-}
-```
-
-**Signature payload:** The canonical payload signed by the management key is: `SHA256(chain_id || collection_id || nonce || action || action_specific_data)`. The exact encoding uses protobuf deterministic marshaling of the action-specific fields. The `nonce` prevents replay attacks and must be strictly greater than the last used nonce for this collection.
-
-**Validation (common):**
-1. Collection must exist and have `AnonymousCollectionMeta`
-2. `management_signature` must verify against the stored `management_public_key` over the canonical payload
-3. `nonce` must be strictly greater than the last used nonce for this collection (`ErrInvalidNonce`)
-4. Collection must have `status = ACTIVE` (not HIDDEN)
-5. Collection must not be expired
-
-**Validation (per action):**
-- **ADD_ITEM / ADD_ITEMS**: Same item validation as `MsgAddItem` / `MsgAddItems`; item count ≤ `max_items_per_collection`; batch ≤ `max_batch_size`
-- **REMOVE_ITEM / REMOVE_ITEMS**: Items must exist in this collection; batch ≤ `max_batch_size`
-- **UPDATE_ITEM**: Item must exist in this collection; same size constraints as `MsgUpdateItem`
-- **REORDER_ITEM**: Item must exist in this collection; `new_position` in range
-- **UPDATE_METADATA**: Same constraints as `MsgUpdateCollection` content fields
-
-**Fee logic:**
-- ADD_ITEM / ADD_ITEMS: `per_item_deposit` per item charged to `submitter` (held for TTL, refunded at expiry)
-- All other actions: no additional deposit
-- No spam tax (anonymous collections require ZK membership proof at creation; ongoing management is authenticated via management key)
-
-**Logic:**
-1. Validate inputs and management key signature
-2. Update stored nonce
-3. Execute the action (add/remove/update/reorder items, or update metadata)
-4. If ADD: create items with `added_by = module_account_address`; increment `item_count` and `item_deposit_total`
-5. If REMOVE: remove items, compact positions, decrement `item_count`; refund `per_item_deposit` per removed item to collection deposit pool (refunded to submitter at TTL expiry is not possible since submitter varies — see §18.13)
-6. Emit appropriate event (e.g., `anonymous_item_added`, `anonymous_item_removed`, `anonymous_collection_updated`)
+> **Status: REMOVED.** `MsgCreateAnonymousCollection`, `MsgManageAnonymousCollection`, and `MsgAnonymousReact` (see §18.10) have been **deleted** from x/collect. Their proto definitions, keeper handlers, simulation files, and CLI commands have been removed.
+>
+> **Replacement:** Anonymous collection operations now use x/shield's `MsgShieldedExec`, which wraps a standard inner message:
+>
+> | Old Message (REMOVED) | Replacement via x/shield |
+> |----------------------|--------------------------|
+> | `MsgCreateAnonymousCollection` | `MsgShieldedExec` wrapping `MsgCreateCollection` (domain 21, epoch-scoped) |
+> | `MsgManageAnonymousCollection` (ADD_ITEM) | `MsgShieldedExec` wrapping `MsgAddItem` or `MsgAddItems` |
+> | `MsgManageAnonymousCollection` (REMOVE_ITEM) | `MsgShieldedExec` wrapping `MsgRemoveItem` or `MsgRemoveItems` |
+> | `MsgManageAnonymousCollection` (UPDATE_ITEM) | `MsgShieldedExec` wrapping `MsgUpdateItem` |
+> | `MsgManageAnonymousCollection` (REORDER_ITEM) | `MsgShieldedExec` wrapping `MsgReorderItem` |
+> | `MsgManageAnonymousCollection` (UPDATE_METADATA) | `MsgShieldedExec` wrapping `MsgUpdateCollection` |
+> | `MsgAnonymousReact` (upvote) | `MsgShieldedExec` wrapping `MsgUpvoteContent` (domain 22, target_id-scoped) |
+> | `MsgAnonymousReact` (downvote) | `MsgShieldedExec` wrapping `MsgDownvoteContent` (domain 23, target_id-scoped) |
+>
+> x/shield sets the inner message's `creator` field to the shield module account address before dispatching to x/collect, preserving the anonymous-owner pattern (collection `owner = module_account_address`). x/shield handles ZK proof verification, nullifier dedup, module-paid gas, and rate limiting. x/collect's standard message handlers execute the inner message as if it came from a regular sender.
+>
+> See `docs/x-shield-spec.md` for `MsgShieldedExec` details.
 
 ### 18.8. Nonce Management
 
-Each anonymous collection tracks a monotonically increasing nonce to prevent replay attacks on management operations.
-
-| Key Prefix | Value | Description |
-|------------|-------|-------------|
-| `AnonCollectionNonce/{collection_id}` | `uint64` | Last used nonce for management signature verification |
-
-The nonce starts at 0 when the collection is created. Each `MsgManageAnonymousCollection` must include a nonce strictly greater than the stored value. After successful execution, the stored nonce is updated.
+> **Status: REMOVED.** The `AnonCollectionNonce/` store prefix has been removed from x/collect. Replay protection for anonymous operations is now handled by x/shield's nullifier system — each `MsgShieldedExec` includes a unique nullifier that is checked and stored centrally by x/shield.
 
 ### 18.9. Conviction, Curation, and Lifetime Extension
 
 Anonymous collections participate in the same conviction staking and expert curation systems as regular collections (see §6 `CollectionConviction` query, §15.3 x/rep integration). The only anonymous-specific constraint:
 
-- Authors of anonymous collections cannot create community conviction stakes on their own collection. This is enforced via x/rep's author exclusion rule — the author's management key is recorded as the author bond holder, and x/rep prevents the same identity from holding both an author bond and a community conviction stake on the same content.
+- Authors of anonymous collections cannot create community conviction stakes on their own collection. This is enforced via x/rep's author exclusion rule — the author bond is keyed to the anonymous identity, and x/rep prevents the same identity from holding both an author bond and a community conviction stake on the same content.
 
 For anonymous collections where the curator's identity is unknown, conviction score and curation reviews together provide the quality signal that curator identity would normally reinforce for regular collections.
 
-**Conviction-based lifetime extension:** Anonymous collections are ephemeral by default (TTL required, §18.6). When a collection's TTL expires, the EndBlocker (§10.1) checks its community conviction score. If the score meets or exceeds `params.conviction_renewal_threshold`, the TTL is extended by `params.conviction_renewal_period` instead of pruning — the collection survives as long as the community actively supports it with staked DREAM. Deposits remain held through renewals and are only refunded when the collection is finally pruned (conviction dropped below threshold) or pinned (§18.12). See [anonymous-posting.md](anonymous-posting.md) § "Conviction-Based Lifetime Extension" for the full cross-module pattern.
+**Conviction-based lifetime extension:** Anonymous collections are ephemeral by default (TTL required, §18.6). When a collection's TTL expires, the EndBlocker (§10.1) checks its community conviction score. If the score meets or exceeds `params.conviction_renewal_threshold`, the TTL is extended by `params.conviction_renewal_period` instead of pruning — the collection survives as long as the community actively supports it with staked DREAM. Deposits remain held through renewals and are only refunded when the collection is finally pruned (conviction dropped below threshold) or pinned (§18.12). See [x-shield-spec.md](x-shield-spec.md) for the unified privacy architecture.
 
 This creates a three-tier lifecycle for anonymous collections:
 
@@ -2799,82 +2701,30 @@ This creates a three-tier lifecycle for anonymous collections:
 
 ### 18.10. Anonymous Reactions (Upvote/Downvote)
 
-Members can upvote or downvote any public collection or item without revealing their identity. This applies to **all** public collections — both anonymous and regular. The mechanism uses the same ZK-SNARK infrastructure as anonymous posting.
+> **Status: `MsgAnonymousReact` REMOVED.** Anonymous reactions now use x/shield's `MsgShieldedExec` wrapping the standard `MsgUpvoteContent` (domain 22) or `MsgDownvoteContent` (domain 23). x/shield handles ZK proof verification, nullifier dedup (one anonymous reaction per member per target via target_id-scoped nullifiers), and module-paid gas.
 
-#### Collect-Specific Reaction Domains
+Members can upvote or downvote any public collection or item without revealing their identity. This applies to **all** public collections — both anonymous and regular. The mechanism uses x/shield's unified privacy infrastructure.
 
-| Domain | Action | Scope | Effect |
-|--------|--------|-------|--------|
-| `10` | Anonymous collection reaction | `collection_id` | One anonymous reaction per member per collection |
-| `11` | Anonymous item reaction | `item_id` | One anonymous reaction per member per item |
-
-#### MsgAnonymousReact
-
-```protobuf
-message MsgAnonymousReact {
-  string submitter = 1;                // Transaction signer (pays gas + fees; NOT the voter)
-  uint64 target_id = 2;               // Collection ID or Item ID
-  FlagTargetType target_type = 3;     // COLLECTION or ITEM
-  uint32 reaction_type = 4;           // 1 = upvote, 2 = downvote
-  bytes proof = 5;                     // ~500-byte Groth16 proof
-  bytes nullifier = 6;                 // 32-byte nullifier
-  bytes merkle_root = 7;              // Trust tree root used for proof
-  uint32 min_trust_level = 8;         // Trust level proven
-}
-
-message MsgAnonymousReactResponse {}
-```
-
-**Validation:**
-1. `VoteKeeper` must not be nil (`ErrAnonymousPostingUnavailable`)
-2. `params.anonymous_posting_enabled` must be true (`ErrAnonymousPostingDisabled`)
-3. Target must exist, be public (`visibility = PUBLIC`), have `status = ACTIVE`
-4. If `target_type = COLLECTION`: collection must have `community_feedback_enabled = true`
-5. If `target_type = ITEM`: parent collection must have `community_feedback_enabled = true`
-6. `reaction_type` must be 1 (upvote) or 2 (downvote)
-7. `min_trust_level` >= `params.anonymous_min_trust_level`
-8. `merkle_root` matches current or previous `MemberTrustTreeRoot` from x/rep
-9. Nullifier domain: if `target_type = COLLECTION`, domain=10, scope=`target_id`; if `target_type = ITEM`, domain=11, scope=`target_id`
-10. Nullifier not already used (`ErrNullifierUsed`)
-11. ZK proof verified via `VoteKeeper.VerifyAnonymousActionProof(proof, merkle_root, nullifier, min_trust_level, domain, scope)`
-12. `submitter` must not exceed `max_upvotes_per_day` or `max_downvotes_per_day` (shared counter with regular reactions)
-
-**Fee logic:**
-- If `reaction_type == 2` (downvote): burn `downvote_cost` (25 SPARK) from `submitter`
-- Upvotes are free (same as regular upvotes)
-- Anonymous posting subsidy applies if `submitter` is an approved relay
-
-**Logic:**
-1. Validate content inputs (target exists, public, active, feedback enabled, reaction_type valid)
-2. Determine domain and scope (domain=10 + scope=collection_id, or domain=11 + scope=item_id)
-3. Call `commonkeeper.VerifyAndStoreAnonymousAction(ctx, store, voteKeeper, repKeeper, anonParams, proof, merkleRoot, nullifier, minTrustLevel, domain, scope, blockTime)` — handles validation steps 1–2, 7–11 above
-4. Check submitter rate limit
-5. If downvote: burn `downvote_cost` from `submitter`
-6. Increment `upvote_count` or `downvote_count` on the target
-7. Emit `anonymous_content_upvoted` or `anonymous_content_downvoted` event (includes `target_id`, `target_type`, `proven_trust_level`; does NOT include `submitter`)
+**How it works:** The anonymous member submits a `MsgShieldedExec` to x/shield with the inner message set to `MsgUpvoteContent` or `MsgDownvoteContent`. x/shield verifies the ZK proof (PLONK/BN254, `PROOF_DOMAIN_TRUST_TREE`, `min_trust_level=1`), checks the nullifier (domain 22 or 23, scoped to `target_id`), and dispatches the inner message to x/collect with the `creator` field set to the shield module account. x/collect's standard `MsgUpvoteContent` / `MsgDownvoteContent` handlers execute normally.
 
 **Parity with public reactions:**
 
-| Property | Public | Anonymous |
-|----------|--------|-----------|
-| One vote per user per target | `ReactionDedup` keyed storage | ZK nullifier (domain=10/11, scope=target_id) |
+| Property | Public | Anonymous (via x/shield) |
+|----------|--------|--------------------------|
+| One vote per user per target | `ReactionDedup` keyed storage | x/shield nullifier (domain=22/23, scope=target_id) |
 | Removable | No (public votes are also permanent) | No — nullifier is permanent |
-| Rate limit | `max_upvotes_per_day` / `max_downvotes_per_day` | Same (shared budget via submitter) |
-| Downvote cost | 25 SPARK burned | Same (charged to submitter) |
+| Rate limit | `max_upvotes_per_day` / `max_downvotes_per_day` | x/shield per-identity rate limiting |
+| Downvote cost | 25 SPARK burned | Module-paid gas via x/shield; downvote SPARK cost charged to shield module account |
 | Voter identity | Stored in `ReactionDedup` | Hidden by ZK proof |
-| Self-vote prevention | Owner/collaborator check | Not enforced (ZK proof hides identity; economic cost of downvote + nullifier uniqueness provide sufficient spam deterrence) |
-
-**Note on self-vote prevention:** Public reactions prevent owner/collaborator self-voting via address check. Anonymous reactions cannot enforce this because the voter's identity is hidden by design. This is acceptable because: (1) upvotes are counter-only signals with no economic impact, (2) downvotes cost 25 SPARK burned — self-downvoting is self-destructive, and (3) the nullifier limits each member to one anonymous reaction per target, capping any gaming to a single vote.
+| Self-vote prevention | Owner/collaborator check | Not enforced (ZK proof hides identity; economic cost + nullifier uniqueness provide sufficient spam deterrence) |
 
 ### 18.11. Queries
 
-| Query | Input | Output | Description |
-|-------|-------|--------|-------------|
-| `AnonymousCollectionMeta` | `uint64 collection_id` | `AnonymousCollectionMeta` | Anonymous metadata for a collection |
-| `IsCollectNullifierUsed` | `uint64 domain`, `uint64 scope`, `bytes nullifier` | `bool used` | Check if a nullifier has been used |
-| `AnonymousCollections` | pagination, optional `order_by` | `[]Collection` | All anonymous collections (owner = module account), optionally ranked by conviction |
+> **Status: `AnonymousCollectionMeta` and `IsCollectNullifierUsed` queries REMOVED.** These have been replaced by x/shield queries:
+> - Nullifier status: use x/shield's `QueryNullifierUsed` (centralized nullifier store)
+> - Shielded operation registration: use x/shield's `QueryShieldedOps` to discover registered operations for x/collect
 
-See §6 for the general `CollectionConviction` query (works for all collections).
+The `AnonymousCollections` query has been removed. Anonymous collections (where `owner = module_account_address`) can be found via `CollectionsByOwner` with the module account address. The `CollectionConviction` query remains (works for all collections).
 
 ### 18.12. Pinning (TTL Override)
 
@@ -2893,6 +2743,7 @@ message MsgPinCollectionResponse {}
 1. `creator` must be an active x/rep member at or above `pin_min_trust_level`
 2. Collection must exist and have `expires_at > 0` (TTL collection)
 3. Collection must have `status = ACTIVE`
+4. `creator` must not exceed `max_pins_per_day` (rolling 24h window)
 
 **Logic:**
 1. Set `expires_at = 0` (permanent)
@@ -2908,7 +2759,7 @@ message MsgPinCollectionResponse {}
 Deposit refunds for anonymous collections work slightly differently from regular collections because the owner is the module account:
 
 - **TTL expiry refund**: Collection deposit + item deposits are refunded to the **module account** (which already holds them) — effectively a no-op. The deposits are simply released from the module account's balance when the collection and its bookkeeping are deleted.
-- **Item removal refund** (via `MsgManageAnonymousCollection` REMOVE_ITEM): The `per_item_deposit` for removed items stays in the module account (held for future expiry cleanup). `item_deposit_total` is decremented on the collection.
+- **Item removal refund** (via `MsgShieldedExec` wrapping `MsgRemoveItem`): The `per_item_deposit` for removed items stays in the module account (held for future expiry cleanup). `item_deposit_total` is decremented on the collection.
 - **Pinning**: When an anonymous collection is pinned (§18.12), held deposits are burned — same as when a member converts TTL → permanent.
 - **Sentinel hide/deletion**: Standard deposit handling applies — deposits are released or burned per the hide/appeal resolution rules (§5.25, §5.26).
 
@@ -2934,93 +2785,81 @@ The anonymous author can also add items over time as new evidence emerges, using
 
 ### 18.15. Parameters
 
-New parameters added to `Params` and `CollectOperationalParams`:
+> **Status: Partially removed.** Parameters related to per-module anonymous infrastructure have been removed or moved:
+> - **Removed from x/collect**: `anonymous_posting_enabled`, `anonymous_min_trust_level`, `max_anonymous_collections_per_key`, `anon_subsidy_budget_per_epoch`, `anon_subsidy_max_per_action`, `anon_subsidy_relay_addresses` — these are now controlled by x/shield's params (shielded operation registration, rate limiting, funding)
+> - **Retained in x/collect**: `pin_min_trust_level`, `conviction_renewal_threshold`, `conviction_renewal_period` — these control x/collect-specific behavior (pinning and conviction renewal)
+
+Remaining parameters in `Params` and `CollectOperationalParams`:
 
 | Parameter | Default | Gov/Ops | Description |
 |-----------|---------|---------|-------------|
-| `anonymous_posting_enabled` | `true` | Gov | Master toggle for anonymous collections |
-| `anonymous_min_trust_level` | `2` (ESTABLISHED) | Ops | Minimum trust level for anonymous collection creation |
-| `max_anonymous_collections_per_key` | `3` | Ops | Max anonymous collections per management key (prevents key reuse abuse) |
 | `pin_min_trust_level` | `2` (ESTABLISHED) | Ops | Minimum trust level to pin anonymous collections |
-| `anon_subsidy_budget_per_epoch` | `50spark` | Ops | Subsidy budget from Commons Council treasury per epoch |
-| `anon_subsidy_max_per_action` | `2spark` | Ops | Max subsidy per anonymous action (creation or management) |
-| `anon_subsidy_relay_addresses` | `[]` | Ops | Approved relay addresses eligible for subsidy |
-| `conviction_renewal_threshold` | `100.0` | Ops | Min conviction score to renew anonymous collections at TTL expiry (0 = disabled). See §18.9 and §10.1 |
-| `conviction_renewal_period` | Same as collection TTL | Ops | Blocks to extend TTL by when conviction-renewed |
+| `max_pins_per_day` | `10` | Ops | Max pins per address per rolling 24h |
+| `conviction_renewal_threshold` | `0` (disabled) | Ops | Min conviction score to renew anonymous collections at TTL expiry (0 = disabled). See §18.9 and §10.1 |
+| `conviction_renewal_period` | `432000` (~30 days) | Ops | Blocks to extend TTL by when conviction-renewed |
 
 ### 18.16. Events
 
+> **Status: Partially removed.** Events for deleted messages (`anonymous_collection_created`, `anonymous_item_*`, `anonymous_collection_updated`, `anonymous_content_upvoted`, `anonymous_content_downvoted`) are no longer emitted by x/collect. x/shield emits its own `shielded_exec_dispatched` events when executing anonymous operations. The standard x/collect events (`collection_created`, `item_added`, `content_upvoted`, etc.) are still emitted by the inner message handlers when dispatched via x/shield.
+
+Remaining anonymous-specific events:
+
 | Event | Attributes | Trigger |
 |-------|------------|---------|
-| `anonymous_collection_created` | `collection_id`, `proven_trust_level`, `expires_at`, `item_count`, `author_bond_amount` | MsgCreateAnonymousCollection |
-| `anonymous_item_added` | `collection_id`, `item_id`, `reference_type` | MsgManageAnonymousCollection (ADD_ITEM) |
-| `anonymous_items_added` | `collection_id`, `count` | MsgManageAnonymousCollection (ADD_ITEMS) |
-| `anonymous_item_removed` | `collection_id`, `item_id` | MsgManageAnonymousCollection (REMOVE_ITEM) |
-| `anonymous_items_removed` | `collection_id`, `count` | MsgManageAnonymousCollection (REMOVE_ITEMS) |
-| `anonymous_item_updated` | `collection_id`, `item_id` | MsgManageAnonymousCollection (UPDATE_ITEM) |
-| `anonymous_item_reordered` | `collection_id`, `item_id`, `old_position`, `new_position` | MsgManageAnonymousCollection (REORDER_ITEM) |
-| `anonymous_collection_updated` | `collection_id` | MsgManageAnonymousCollection (UPDATE_METADATA) |
 | `collection_pinned` | `collection_id`, `pinned_by` | MsgPinCollection |
-| `anonymous_content_upvoted` | `target_id`, `target_type`, `proven_trust_level` | MsgAnonymousReact (upvote) |
-| `anonymous_content_downvoted` | `target_id`, `target_type`, `proven_trust_level`, `cost_burned` | MsgAnonymousReact (downvote) |
-
-**Privacy note:** Anonymous events intentionally exclude the `submitter` address to prevent indexer-based correlation.
+| `collection_conviction_sustained` | `id`, `conviction_score`, `new_expires_at` | EndBlocker: first entry into conviction-sustained state |
+| `collection_renewed` | `id`, `conviction_score`, `new_expires_at` | EndBlocker: subsequent conviction renewal |
 
 ### 18.17. Error Codes
 
-| Error | Code | Description |
-|-------|------|-------------|
-| `ErrAnonymousPostingUnavailable` | 1200 | VoteKeeper is nil (x/vote not wired) |
-| `ErrAnonymousPostingDisabled` | 1201 | `anonymous_posting_enabled = false` |
-| `ErrInsufficientAnonTrustLevel` | 1202 | `min_trust_level` below `anonymous_min_trust_level` param |
-| `ErrStaleMerkleRoot` | 1203 | Merkle root doesn't match current or previous trust tree root |
-| `ErrNullifierUsed` | 1204 | Nullifier already used in this domain/scope |
-| `ErrInvalidZKProof` | 1205 | Groth16 proof verification failed |
-| `ErrAnonymousRequiresTTL` | 1206 | Anonymous collections must have `expires_at > 0` |
-| `ErrInvalidManagementKey` | 1207 | Management public key is not exactly 32 bytes |
-| `ErrInvalidManagementSignature` | 1208 | Ed25519 signature verification failed |
-| `ErrInvalidNonce` | 1209 | Nonce is not strictly greater than the last used nonce |
-| `ErrNotAnonymousCollection` | 1210 | Collection does not have anonymous metadata |
-| `ErrMaxAnonymousCollections` | 1211 | Management key has reached `max_anonymous_collections_per_key` |
-| `ErrAnonymousCannotBePrivate` | 1212 | Anonymous collections must be public |
-| `ErrCannotAddCollaboratorAnonymous` | 1213 | Anonymous collections do not support collaborators |
-| `ErrCannotPinActive` | 1214 | Collection is already permanent (`expires_at = 0`) |
-| `ErrPinTrustLevelTooLow` | 1215 | Caller below `pin_min_trust_level` |
+> **Status: Partially removed.** Error codes related to per-module ZK verification, nullifiers, management keys, and nonces (1200-1212) have been removed from x/collect. These error conditions are now handled by x/shield. Remaining errors relate to pinning and collection-level constraints.
+
+| Error | Code | Status | Description |
+|-------|------|--------|-------------|
+| `ErrAnonymousPostingUnavailable` | 1200 | REMOVED | Now handled by x/shield |
+| `ErrAnonymousPostingDisabled` | 1201 | REMOVED | Now handled by x/shield params |
+| `ErrInsufficientAnonTrustLevel` | 1202 | REMOVED | Now handled by x/shield shielded op registration (`min_trust_level`) |
+| `ErrStaleMerkleRoot` | 1203 | REMOVED | Now handled by x/shield |
+| `ErrNullifierUsed` | 1204 | REMOVED | Now handled by x/shield centralized nullifier store |
+| `ErrInvalidZKProof` | 1205 | REMOVED | Now handled by x/shield |
+| `ErrAnonymousRequiresTTL` | 1206 | REMOVED | Enforced by x/shield shielded op constraints |
+| `ErrInvalidManagementKey` | 1207 | REMOVED | Management key pattern eliminated |
+| `ErrInvalidManagementSignature` | 1208 | REMOVED | Management key pattern eliminated |
+| `ErrInvalidNonce` | 1209 | REMOVED | Replay protection handled by x/shield nullifiers |
+| `ErrNotAnonymousCollection` | 1210 | REMOVED | No per-module anonymous metadata |
+| `ErrMaxAnonymousCollections` | 1211 | REMOVED | Rate limiting handled by x/shield |
+| `ErrAnonymousCannotBePrivate` | 1212 | REMOVED | Enforced by x/shield shielded op registration |
+| `ErrCannotPinActive` | 1214 | Retained | Collection is already permanent (`expires_at = 0`) |
+| `ErrPinTrustLevelTooLow` | 1215 | Retained | Caller below `pin_min_trust_level` |
 
 ### 18.18. Access Control
 
 | Operation | Who Can Execute |
 |-----------|-----------------|
-| Create anonymous collection | Any address as submitter; ZK proof must prove membership at `anonymous_min_trust_level` |
-| Manage anonymous collection (add/remove/update/reorder items, update metadata) | Any address as submitter; must provide valid Ed25519 signature from collection's management key |
+| Create anonymous collection | Via `MsgShieldedExec` wrapping `MsgCreateCollection`; x/shield verifies ZK proof (domain 21, `min_trust_level=1`) |
+| Manage anonymous collection (add/remove/update/reorder items, update metadata) | Via `MsgShieldedExec` wrapping the appropriate inner message; x/shield handles proof/nullifier verification |
 | Pin anonymous collection | Active x/rep member at `pin_min_trust_level`+ |
 | Flag anonymous collection | Any x/rep member (same as regular collections) |
 | Hide anonymous collection | Active x/forum sentinel (same as regular collections) |
 | Appeal hide on anonymous collection | **Nobody** — owner is module account (cannot sign). Anonymous collections rely on TTL expiry or sentinel discretion |
-| Upvote/downvote anonymous collection | Any x/rep member (same as regular collections) |
+| Upvote/downvote anonymous collection | Any x/rep member (regular), or via `MsgShieldedExec` wrapping `MsgUpvoteContent`/`MsgDownvoteContent` (anonymous, domains 22/23) |
 | Rate anonymous collection (curator) | Active curator (same as regular collections) |
 | Stake conviction on anonymous collection | Any active x/rep member except the author (via x/rep content staking) |
 | Delete anonymous collection | **Nobody** directly — expires via TTL, or deleted by sentinel moderation |
 
-**Appeal limitation:** Since the collection owner is the module account, no one can sign an `MsgAppealHide` on behalf of an anonymous collection. If a sentinel hides an anonymous collection unfairly, the community's recourse is: (1) flag the sentinel for abuse via x/forum sentinel accountability mechanisms, (2) re-create the collection anonymously after the hide expires, or (3) raise the issue through governance. This tradeoff is inherent to anonymity — accountability and anonymity are in tension, and sentinel moderation provides the safety net.
+**Appeal limitation:** Since the collection owner is the module account (set by x/shield during shielded execution), no one can sign an `MsgAppealHide` on behalf of an anonymous collection. If a sentinel hides an anonymous collection unfairly, the community's recourse is: (1) flag the sentinel for abuse via x/forum sentinel accountability mechanisms, (2) re-create the collection anonymously after the hide expires, or (3) raise the issue through governance. This tradeoff is inherent to anonymity — accountability and anonymity are in tension, and sentinel moderation provides the safety net.
 
 ### 18.19. Security Considerations
 
-#### 18.18.1. Management Key vs. ZK Proof Tradeoff
+> **Note:** Many security concerns previously handled per-module (ZK proof verification, nullifier uniqueness, management key security, relay correlation) are now handled centrally by x/shield. The considerations below reflect the current architecture.
 
-Management operations use Ed25519 signatures rather than ZK proofs for two reasons:
-1. **Performance**: ZK proof generation takes 2-3 seconds client-side. For frequent curation operations (adding items one by one), this would be prohibitively slow.
-2. **Privacy**: Repeated ZK proofs from the same member create timing patterns that can narrow the anonymity set. A single creation proof + pseudonymous key minimizes information leakage.
+#### 18.19.1. Anonymity Set
 
-The tradeoff: anyone who obtains the management private key can manage the collection. This is mitigated by the key being disposable (used only for one collection) and the relay pattern (management transactions don't come from the key holder's address).
+The anonymity set for anonymous collection creation is all active members at or above the proven trust level. With x/shield's registered shielded ops, x/collect uses `min_trust_level=1` (PROVISIONAL). x/shield governance can adjust the minimum trust level per registered operation if the anonymity set is too small or quality guarantees need tightening.
 
-#### 18.18.2. Anonymity Set
+#### 18.19.2. Execution Mode Privacy
 
-The anonymity set for anonymous collection creation is all active members at or above the proven trust level. At ESTABLISHED (default), this should be a substantial portion of the community. If the set is too small, the Operations Committee can lower `anonymous_min_trust_level` (increasing the set but reducing quality guarantees).
-
-#### 18.18.3. Management Key Correlation
-
-If the same management key is used across multiple collections, it creates a linkability signal. The `max_anonymous_collections_per_key` parameter (default 3) limits this exposure. Clients should generate a fresh keypair per collection for maximum privacy.
+x/shield offers two execution modes: **Immediate** (lower latency, inner message content visible on-chain) and **Encrypted Batch** (maximum privacy via TLE + batching, inner message content hidden until epoch decryption). For sensitive anonymous collections (e.g., fraud watchlists), encrypted batch mode prevents observers from correlating submission timing with content. See `docs/x-shield-spec.md` for details.
 
 #### 18.18.4. Conviction Gaming
 
@@ -3034,98 +2873,65 @@ Anonymous fraud watchlists can themselves be weaponized (false accusations to da
 - Ephemeral TTL ensures false watchlists expire naturally without community support (pinning)
 - ESTABLISHED+ trust level requirement raises the Sybil cost for creating malicious watchlists
 
-### 18.20. Anonymous Posting Subsidy
+### 18.20. Module-Paid Gas (via x/shield)
 
-The Commons Council can subsidize anonymous collection operations, following the same pattern as x/blog and x/forum.
+> **Status: Per-module subsidy REMOVED.** The per-module anonymous posting subsidy (`anon_subsidy_budget_per_epoch`, `anon_subsidy_max_per_action`, `anon_subsidy_relay_addresses`) has been removed from x/collect. Gas subsidies for anonymous operations are now handled centrally by x/shield's module-paid gas system.
 
-See **[docs/anonymous-posting.md](anonymous-posting.md)** § "Anonymous Posting Subsidy" for the full specification. The subsidy covers storage deposits for approved relay addresses. Parameters `anon_subsidy_budget_per_epoch`, `anon_subsidy_max_per_action`, and `anon_subsidy_relay_addresses` are included in `CollectOperationalParams`.
+x/shield's module account pays transaction fees for all `MsgShieldedExec` operations, funded automatically from the community pool via BeginBlocker with a governance-controlled epoch cap (`max_funding_per_epoch`). The submitter of a shielded execution needs zero balance. Per-identity rate limiting in x/shield prevents gas abuse. See `docs/x-shield-spec.md` for details.
 
 ### 18.21. CLI Commands
 
+> **Status: Partially removed.** CLI commands for `create-anonymous-collection`, `manage-anonymous-collection`, `anonymous-react`, and queries `anonymous-collection-meta` and `is-collect-nullifier-used` have been removed. Anonymous operations are now submitted via x/shield CLI.
+
 ```bash
-# Anonymous collection creation
-sparkdreamd tx collect create-anonymous-collection "Fraud Watchlist" \
-  --description "Suspected fraudulent art" \
-  --type mixed --tags "fraud,watchlist" \
-  --expires-at 432000 \
-  --management-key <base64-pubkey> \
+# Anonymous collection creation (via x/shield)
+sparkdreamd tx shield shielded-exec \
+  --inner-msg '{"@type":"/sparkdream.collect.v1.MsgCreateCollection","creator":"","type":1,"visibility":1,"name":"Fraud Watchlist","description":"Suspected fraudulent art","tags":["fraud","watchlist"],"expires_at":432000}' \
   --proof <base64-proof> --nullifier <hex> --merkle-root <hex> \
-  --min-trust-level 2 \
   --from relay1
 
-# Anonymous collection management (add item)
-sparkdreamd tx collect manage-anonymous-collection 42 add-item \
-  --title "Suspected copy of Artwork #123" \
-  --reference-type on-chain --module blog --entity-type post --entity-id 99 \
-  --nonce 1 --management-signature <base64-sig> \
-  --from relay1
-
-# Anonymous collection management (remove item)
-sparkdreamd tx collect manage-anonymous-collection 42 remove-item \
-  --item-ids 5 \
-  --nonce 2 --management-signature <base64-sig> \
-  --from relay1
-
-# Anonymous collection management (update metadata)
-sparkdreamd tx collect manage-anonymous-collection 42 update-metadata \
-  --name "Updated Watchlist" --description "New evidence added" \
-  --nonce 3 --management-signature <base64-sig> \
-  --from relay1
-
-# Pin anonymous collection (member action)
+# Pin anonymous collection (member action — remains in x/collect)
 sparkdreamd tx collect pin-collection 42 --from alice
 
-# Queries
-sparkdreamd query collect anonymous-collection-meta 42
-sparkdreamd query collect is-collect-nullifier-used --domain 6 --scope 12345 --nullifier <hex>
+# Queries (remaining in x/collect)
 sparkdreamd query collect collection-conviction 42
-sparkdreamd query collect anonymous-collections
-sparkdreamd query collect anonymous-collections --order-by conviction
 
-# Anonymous reactions (on any public collection/item)
-sparkdreamd tx collect anonymous-react 1 --target-type collection --reaction-type upvote \
-  --proof <base64-proof> --nullifier <hex> --merkle-root <hex> \
-  --min-trust-level 2 --from relay1
-sparkdreamd tx collect anonymous-react 5 --target-type item --reaction-type downvote \
-  --proof <base64-proof> --nullifier <hex> --merkle-root <hex> \
-  --min-trust-level 2 --from relay1
+# Nullifier queries (now via x/shield)
+sparkdreamd query shield nullifier-used --domain 21 --scope 12345 --nullifier <hex>
 ```
 
 ### 18.22. Genesis State Additions
 
-```protobuf
-// Added to existing GenesisState
-repeated AnonymousCollectionMeta anonymous_collection_metas = 16;
-repeated AnonNullifierEntry anon_nullifiers = 17;
-map<uint64, uint64> anon_collection_nonces = 18;       // collection_id -> last nonce
-```
+> **Status: REMOVED.** The `anonymous_collection_metas`, `anon_nullifiers`, and `anon_collection_nonces` genesis fields have been removed from x/collect's `GenesisState`. Nullifier state is now part of x/shield's genesis. No anonymous-specific genesis fields remain in x/collect.
 
 ### 18.23. Keeper Interface Additions
 
-```go
-// Anonymous collections
-CreateAnonymousCollection(ctx context.Context, msg *MsgCreateAnonymousCollection) (uint64, []uint64, error)
-ManageAnonymousCollection(ctx context.Context, msg *MsgManageAnonymousCollection) ([]uint64, error)
-GetAnonymousCollectionMeta(ctx context.Context, collectionID uint64) (AnonymousCollectionMeta, error)
-IsCollectNullifierUsed(ctx context.Context, domain uint64, scope uint64, nullifier []byte) (bool, error)
-SetCollectNullifierUsed(ctx context.Context, domain uint64, scope uint64, nullifier []byte) error
-GetAnonymousCollections(ctx context.Context, pagination *query.PageRequest, orderBy string) ([]Collection, *query.PageResponse, error)
+> **Status: Partially removed.** The `CreateAnonymousCollection`, `ManageAnonymousCollection`, `GetAnonymousCollectionMeta`, `IsCollectNullifierUsed`, and `SetCollectNullifierUsed` methods have been removed from x/collect's keeper. Anonymous operations are dispatched by x/shield to x/collect's standard message handlers.
 
+Remaining keeper additions:
+
+```go
 // Pinning
 PinCollection(ctx context.Context, msg *MsgPinCollection) error
+
+// ShieldAware interface (see x/collect/keeper/shield_aware.go)
+IsShieldCompatible(ctx context.Context, msg sdk.Msg) bool
 ```
+
+The `IsShieldCompatible` method implements x/shield's `ShieldAware` interface, returning `true` for `MsgCreateCollection`, `MsgUpvoteContent`, and `MsgDownvoteContent` — the messages that support anonymous execution via `MsgShieldedExec`.
 
 ### 18.24. Dependencies
 
-New dependencies (in addition to existing §2):
+> **Status: Updated.** x/vote has been eliminated. x/common anonymous helpers are no longer used by x/collect (nullifiers are centralized in x/shield).
+
+New dependencies for anonymous functionality (in addition to existing §2):
 
 | Module | Purpose |
 |--------|---------|
-| `x/vote` | `VoteKeeper.VerifyAnonymousActionProof()` — ZK proof verification (optional; nil disables anonymous collections) |
-| `x/rep` | `GetMemberTrustTreeRoot()`, `GetPreviousMemberTrustTreeRoot()` for proof validation; `CreateAuthorBond()` for optional author bonds; content conviction staking queries |
-| `x/common` | Shared anonymous infrastructure: nullifier storage/lookup (`StoreNullifier`, `IsNullifierUsed`), epoch nullifier pruning (`PruneEpochNullifiers`), and the unified `VerifyAndStoreAnonymousAction` helper — imported as library functions (no keeper dependency) |
+| `x/shield` | Unified privacy layer: handles `MsgShieldedExec` dispatch, ZK proof verification, nullifier management, module-paid gas. x/collect implements x/shield's `ShieldAware` interface |
+| `x/rep` | `GetMemberTrustTreeRoot()`, `GetPreviousMemberTrustTreeRoot()` for trust tree roots (used by x/shield for proof validation); `CreateAuthorBond()` for optional author bonds; content conviction staking queries |
 
-`x/vote` and `x/rep` are wired as **optional** dependencies. If either is nil, all anonymous collection messages return `ErrAnonymousPostingUnavailable`. `x/common` helpers operate on the caller's store and require no runtime wiring.
+x/shield is a **leaf dependency** (depends on x/rep, x/distribution, bank, auth; nothing depends on x/shield). x/collect does not directly import x/shield — the integration is via the `ShieldAware` interface that x/shield queries at runtime.
 
 ---
 

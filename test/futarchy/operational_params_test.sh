@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "--- TESTING: FUTARCHY OPERATIONAL PARAMS UPDATE (COUNCIL-GATED) ---"
+echo "--- TESTING: FUTARCHY OPERATIONAL PARAMS UPDATE (COMMITTEE-GATED) ---"
 
 # --- 0. SETUP ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -12,20 +12,20 @@ CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
-# Futarchy uses Technical Council for authorization
-COUNCIL_NAME="Technical Council"
-echo "Looking up '$COUNCIL_NAME'..."
-COUNCIL_INFO=$($BINARY query commons get-group "$COUNCIL_NAME" --output json)
-COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.group.policy_address')
+# Operational params are gated by the Commons Operations Committee
+COMMITTEE_NAME="Commons Operations Committee"
+echo "Looking up '$COMMITTEE_NAME'..."
+COMMITTEE_INFO=$($BINARY query commons get-group "$COMMITTEE_NAME" --output json)
+COMMITTEE_POLICY=$(echo $COMMITTEE_INFO | jq -r '.group.policy_address')
 
-if [ -z "$COUNCIL_POLICY" ] || [ "$COUNCIL_POLICY" == "null" ]; then
-    echo "SETUP ERROR: '$COUNCIL_NAME' not found. Run genesis/bootstrap first."
+if [ -z "$COMMITTEE_POLICY" ] || [ "$COMMITTEE_POLICY" == "null" ]; then
+    echo "SETUP ERROR: '$COMMITTEE_NAME' not found. Run genesis/bootstrap first."
     exit 1
 fi
 
-echo "Alice Address:    $ALICE_ADDR"
-echo "Bob Address:      $BOB_ADDR"
-echo "Council Policy:   $COUNCIL_POLICY"
+echo "Alice Address:      $ALICE_ADDR"
+echo "Bob Address:        $BOB_ADDR"
+echo "Committee Policy:   $COMMITTEE_POLICY"
 echo ""
 
 # --- Result Tracking ---
@@ -39,25 +39,38 @@ RESET_PARAMS_RESULT="FAIL"
 get_group_proposal_id() {
     local tx_hash=$1
     local retries=0
-    local max_retries=10
+    local max_retries=15
     local prop_id=""
 
+    sleep 6  # wait for tx to be included in a block
     while [ $retries -lt $max_retries ]; do
-        sleep 1
         TX_RES=$($BINARY query tx $tx_hash --output json 2>/dev/null)
         if [ $? -eq 0 ]; then
+            # Try top-level events first
             prop_id=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+            # Fallback to logs[0].events
+            if [ -z "$prop_id" ] || [ "$prop_id" == "null" ]; then
+                prop_id=$(echo $TX_RES | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+            fi
             if [ ! -z "$prop_id" ] && [ "$prop_id" != "null" ]; then
                 echo "$prop_id"
                 return 0
             fi
+            # If tx found but no event, check if it failed
+            local code=$(echo $TX_RES | jq -r '.code // "0"')
+            if [ "$code" != "0" ]; then
+                echo "TX FAILED (code $code): $(echo $TX_RES | jq -r '.raw_log' 2>/dev/null)" >&2
+                return 1
+            fi
         fi
+        sleep 1
         ((retries++))
     done
     return 1
 }
 
-# Helper: vote + execute a commons proposal
+# Helper: vote + execute a Commons Operations Committee proposal
+# Threshold=1, so a single vote from any member suffices.
 vote_and_execute() {
     local prop_id=$1
 
@@ -65,31 +78,22 @@ vote_and_execute() {
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000000uspark --output json > /dev/null 2>&1
-    sleep 5
-
-    echo "  Bob voting YES..."
-    $BINARY tx commons vote-proposal $prop_id yes \
-        --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
-    sleep 5
+    sleep 6
 
     echo "  Executing proposal $prop_id..."
     EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
         --gas 2000000 --fees 5000000uspark --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
-    sleep 3
+    sleep 6
 
-    EXEC_TX_JSON=$($BINARY query tx $EXEC_TX_HASH --output json 2>/dev/null)
     # Check proposal status
     PROP_STATUS=$($BINARY query commons get-proposal $prop_id --output json 2>/dev/null | jq -r '.proposal.status // empty')
     if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
         echo "  Proposal executed successfully"
         return 0
-    elif check_tx_success "$EXEC_TX_JSON" 2>/dev/null; then
-        echo "  Execution tx succeeded (status: $PROP_STATUS)"
-        return 0
     else
+        EXEC_TX_JSON=$($BINARY query tx $EXEC_TX_HASH --output json 2>/dev/null)
         echo "  Execution failed (status: $PROP_STATUS)"
         echo "  Raw: $(echo $EXEC_TX_JSON | jq -r '.raw_log' 2>/dev/null)"
         return 1
@@ -127,8 +131,8 @@ else
 fi
 echo ""
 
-# --- 2. UPDATE OPERATIONAL PARAMS VIA COUNCIL PROPOSAL ---
-echo "--- TEST 2: UPDATE OPERATIONAL PARAMS VIA COUNCIL PROPOSAL ---"
+# --- 2. UPDATE OPERATIONAL PARAMS VIA COMMITTEE PROPOSAL ---
+echo "--- TEST 2: UPDATE OPERATIONAL PARAMS VIA COMMITTEE PROPOSAL ---"
 
 if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     # Double the trading fee and max duration
@@ -137,12 +141,12 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     NEW_MAX_REDEMPTION="7200"
 
     echo '{
-      "policy_address": "'$COUNCIL_POLICY'",
+      "policy_address": "'$COMMITTEE_POLICY'",
       "metadata": "Adjust trading fee and duration limits via Operations Committee",
       "messages": [
         {
           "@type": "/sparkdream.futarchy.v1.MsgUpdateOperationalParams",
-          "authority": "'$COUNCIL_POLICY'",
+          "authority": "'$COMMITTEE_POLICY'",
           "operational_params": {
             "trading_fee_bps": "'$NEW_TRADING_FEE'",
             "max_duration": "'$NEW_MAX_DURATION'",
@@ -257,12 +261,12 @@ echo "--- TEST 5: RESET OPERATIONAL PARAMS TO ORIGINAL ---"
 
 if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     echo '{
-      "policy_address": "'$COUNCIL_POLICY'",
+      "policy_address": "'$COMMITTEE_POLICY'",
       "metadata": "Restoring original values after test",
       "messages": [
         {
           "@type": "/sparkdream.futarchy.v1.MsgUpdateOperationalParams",
-          "authority": "'$COUNCIL_POLICY'",
+          "authority": "'$COMMITTEE_POLICY'",
           "operational_params": {
             "trading_fee_bps": "'$INITIAL_TRADING_FEE'",
             "max_duration": "'$INITIAL_MAX_DURATION'",

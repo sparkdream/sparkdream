@@ -260,11 +260,11 @@ func TestHighWaterMarkInvariant_NoViolation(t *testing.T) {
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 
 	f.keeper.SetPost(f.ctx, types.Post{
-		Id:                 0,
-		Title:              "Hello",
-		Body:               "World",
-		Status:             types.PostStatus_POST_STATUS_ACTIVE,
-		FeeBytesHighWater:  100, // >= len("Hello") + len("World") = 10
+		Id:                0,
+		Title:             "Hello",
+		Body:              "World",
+		Status:            types.PostStatus_POST_STATUS_ACTIVE,
+		FeeBytesHighWater: 100, // >= len("Hello") + len("World") = 10
 	})
 	f.keeper.SetPostCount(f.ctx, 1)
 
@@ -278,11 +278,11 @@ func TestHighWaterMarkInvariant_PostViolation(t *testing.T) {
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 
 	f.keeper.SetPost(f.ctx, types.Post{
-		Id:                 0,
-		Title:              "Hello",
-		Body:               "World",
-		Status:             types.PostStatus_POST_STATUS_ACTIVE,
-		FeeBytesHighWater:  5, // < len("Hello") + len("World") = 10
+		Id:                0,
+		Title:             "Hello",
+		Body:              "World",
+		Status:            types.PostStatus_POST_STATUS_ACTIVE,
+		FeeBytesHighWater: 5, // < len("Hello") + len("World") = 10
 	})
 	f.keeper.SetPostCount(f.ctx, 1)
 
@@ -298,11 +298,11 @@ func TestHighWaterMarkInvariant_ReplyViolation(t *testing.T) {
 
 	f.keeper.SetPostCount(f.ctx, 0)
 	f.keeper.SetReply(f.ctx, types.Reply{
-		Id:                 0,
-		PostId:             0,
-		Body:               "This is a reply body",
-		Status:             types.ReplyStatus_REPLY_STATUS_ACTIVE,
-		FeeBytesHighWater:  5, // < len("This is a reply body") = 20
+		Id:                0,
+		PostId:            0,
+		Body:              "This is a reply body",
+		Status:            types.ReplyStatus_REPLY_STATUS_ACTIVE,
+		FeeBytesHighWater: 5, // < len("This is a reply body") = 20
 	})
 	f.keeper.SetReplyCount(f.ctx, 1)
 
@@ -318,11 +318,11 @@ func TestHighWaterMarkInvariant_DeletedPostSkipped(t *testing.T) {
 
 	// Deleted post with low high water - should be skipped
 	f.keeper.SetPost(f.ctx, types.Post{
-		Id:                 0,
-		Title:              "Hello",
-		Body:               "World",
-		Status:             types.PostStatus_POST_STATUS_DELETED,
-		FeeBytesHighWater:  0, // normally a violation, but deleted posts are skipped
+		Id:                0,
+		Title:             "Hello",
+		Body:              "World",
+		Status:            types.PostStatus_POST_STATUS_DELETED,
+		FeeBytesHighWater: 0, // normally a violation, but deleted posts are skipped
 	})
 	f.keeper.SetPostCount(f.ctx, 1)
 

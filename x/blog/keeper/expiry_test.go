@@ -84,11 +84,11 @@ func TestMultipleExpiryEntries(t *testing.T) {
 	k.AddToExpiryIndex(ctx, 1000, "reply", replyId)
 
 	tests := []struct {
-		name             string
-		expiresBefore    int64
-		contentType      string
-		expectedPosts    int
-		expectedReplies  int
+		name            string
+		expiresBefore   int64
+		contentType     string
+		expectedPosts   int
+		expectedReplies int
 	}{
 		{
 			name:            "all content before 2000",

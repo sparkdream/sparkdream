@@ -14,7 +14,7 @@ This module provides:
 - **Community reactions** — members upvote (free) or downvote (25 SPARK cost) public collections and items
 - **Sentinel moderation** — `x/forum` sentinels can hide inappropriate content with appeal mechanism and bond accountability
 - **Tiered collection limits** — capacity scales with `x/rep` trust level
-- **Anonymous operations** — ZK-proof-authenticated anonymous collections and reactions
+- **Anonymous operations** — anonymous collections and reactions via `x/shield`'s `MsgShieldedExec`
 - **Conviction renewal** — anonymous collections can be sustained if community conviction staking meets threshold
 
 ## Concepts
@@ -62,11 +62,7 @@ Non-member requests sponsorship → escrowed deposit paid → member sponsors (p
 
 ### Anonymous Collections
 
-- Creator generates Ed25519 keypair, derives management key (32 bytes)
-- Creates collection with ZK proof (trust level verified via Merkle tree snapshot)
-- Uses nullifiers scoped per epoch and management key to prevent double-creation
-- Management operations (add/remove items, metadata updates) signed with management key
-- Pinning converts anonymous ephemeral collection to permanent; new owner is the address performing the pin
+Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `MsgCreateCollection`. The shield module verifies ZK proofs demonstrating membership and minimum trust level without revealing identity. Nullifiers prevent double-creation while preserving privacy. The shield module pays gas fees so submitters need zero balance. Pinning converts anonymous ephemeral collections to permanent; the pinner becomes the new owner.
 
 ## State
 
@@ -97,9 +93,15 @@ Non-member requests sponsorship → escrowed deposit paid → member sponsors (p
 | `ItemsByOnChainRef` | Collections referencing specific on-chain content |
 | `CollaboratorReverse` | Collections where address is collaborator |
 | `CurationReviewsByCollection` | Reviews for specific collection |
+| `CurationReviewsByCurator` | Reviews by specific curator |
 | `SponsorshipRequestsByExpiry` | TTL pruning of expired requests |
+| `FlagReviewQueue` | Flagged content in review queue |
+| `FlagExpiry` | Flag expiration index |
 | `HideRecordByTarget` | Hide records for specific content |
+| `HideRecordExpiry` | Hide/appeal timeout index |
 | `EndorsementPending` | Unendorsed collections auto-prune |
+| `EndorsementStakeExpiry` | Endorser stake release index |
+| `ReactionLimit` | Per-address daily reaction counter |
 
 ## Messages
 
@@ -169,14 +171,15 @@ Non-member requests sponsorship → escrowed deposit paid → member sponsors (p
 | `MsgHideContent` | Hide flagged content (requires sentinel bond) | Active sentinel (`x/forum`) |
 | `MsgAppealHide` | Appeal hide decision; 50% fee refunded on timeout | Content owner |
 
-### Anonymous Operations
+### Anonymous Operations (via x/shield)
+
+Anonymous collections and reactions are submitted via `x/shield`'s `MsgShieldedExec` wrapping standard collect messages (`MsgCreateCollection`, `MsgUpvoteContent`, `MsgDownvoteContent`). The shield module handles ZK proof verification, nullifier management, and module-paid gas. The collect module implements the `ShieldAware` interface to validate shielded messages.
+
+### Pinning
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgCreateAnonymousCollection` | Create anonymous collection with ZK proof | Proven trust level via ZK |
-| `MsgManageAnonymousCollection` | Add/remove items, update metadata via Ed25519 sig | Management key holder |
-| `MsgAnonymousReact` | React anonymously with ZK proof | Proven trust level via ZK |
-| `MsgPinCollection` | Convert ephemeral anonymous collection to permanent | ESTABLISHED+ trust level |
+| `MsgPinCollection` | Convert ephemeral collection to permanent (burns deposits) | ESTABLISHED+ trust level |
 
 ### Parameter Updates
 
@@ -206,14 +209,14 @@ Non-member requests sponsorship → escrowed deposit paid → member sponsors (p
 | `ActiveCurators` | Paginated list of active curators |
 | `CurationSummary` | Aggregated verdict counts and top tags |
 | `CurationReviews` | Individual reviews for a collection |
+| `CurationReviewsByCurator` | Reviews by a specific curator |
 | `SponsorshipRequest` | Current sponsorship request |
+| `SponsorshipRequests` | Paginated list of all pending sponsorship requests |
 | `Endorsement` | Endorsement record for collection |
 | `ContentFlag` | Flag record and metadata for target |
 | `FlaggedContent` | Paginated flagged content in review queue |
 | `HideRecord` | Single hide record by ID |
 | `HideRecordsByTarget` | Hide records for specific content |
-| `AnonymousCollections` | Paginated anonymous collections |
-| `IsCollectNullifierUsed` | Check if nullifier used |
 
 ## Parameters
 
@@ -226,12 +229,19 @@ These can only be changed via `x/gov` proposal (`MsgUpdateParams`).
 | `max_collections_base` | uint32 | 5 | Non-member base collection limit |
 | `max_collections_per_trust_level` | uint32 | 15 | Additional collections per trust level |
 | `max_items_per_collection` | uint32 | 500 | Items per collection ceiling |
+| `max_title_length` | uint32 | 128 | Item title max length |
 | `max_name_length` | uint32 | 128 | Collection name max length |
-| `max_description_length` | uint32 | 1,024 | Collection description max length |
+| `max_description_length` | uint32 | 1,024 | Collection/item description max length |
+| `max_tag_length` | uint32 | 32 | Tag max length |
 | `max_tags_per_collection` | uint32 | 10 | Tags per collection ceiling |
+| `max_attributes_per_item` | uint32 | 20 | Attributes per item ceiling |
+| `max_attribute_key_length` | uint32 | 64 | Attribute key max length |
+| `max_attribute_value_length` | uint32 | 256 | Attribute value max length |
+| `max_reference_field_length` | uint32 | 256 | Reference field max length |
 | `max_collaborators_per_collection` | uint32 | 20 | Collaborators per collection ceiling |
 | `max_batch_size` | uint32 | 50 | Max items in batch operations |
 | `max_encrypted_data_size` | uint32 | 4,096 | Encrypted blob max size |
+| `max_ttl_blocks` | int64 | 0 | Member TTL ceiling (0 = unlimited) |
 | `max_non_member_ttl_blocks` | int64 | 432,000 | Non-member TTL ceiling (~30 days) |
 | `max_prune_per_block` | uint32 | 100 | EndBlocker prune operations per block |
 
@@ -248,20 +258,39 @@ These can be updated by the Commons Council Operations Committee via `MsgUpdateO
 | `min_sponsor_trust_level` | string | ESTABLISHED | Min trust to sponsor |
 | `sponsorship_request_ttl_blocks` | int64 | 100,800 | Sponsorship request expiry (~7 days) |
 | `min_curator_bond` | Int | 500 | Min DREAM bond for curator registration |
-| `curator_slash_fraction` | Dec | 10% | Curator bond slash on challenge |
+| `min_curator_trust_level` | string | PROVISIONAL | Min trust to register as curator |
+| `min_curator_age_blocks` | int64 | 14,400 | Min curator registration age (~1 day) |
+| `max_tags_per_review` | uint32 | 5 | Tags per curation review |
+| `max_review_comment_length` | uint32 | 512 | Review comment max length |
+| `max_reviews_per_collection` | uint32 | 20 | Reviews per collection ceiling |
+| `curator_slash_fraction` | LegacyDec | 10% | Curator bond slash on challenge |
+| `challenge_reward_fraction` | LegacyDec | 80% | Fraction of slashed bond to challenger |
 | `challenge_window_blocks` | int64 | 100,800 | Review challenge window (~7 days) |
+| `challenge_deposit` | Int | 250 | DREAM deposit to challenge a review |
+| `max_challenge_reason_length` | uint32 | 1,024 | Challenge reason max length |
 | `downvote_cost` | Int | 25,000,000 | Downvote fee in uspark (burned) |
 | `max_upvotes_per_day` | uint32 | 100 | Per-address daily upvote limit |
 | `max_downvotes_per_day` | uint32 | 20 | Per-address daily downvote limit |
 | `flag_review_threshold` | uint32 | 5 | Flag count to enter review queue |
+| `max_flags_per_day` | uint32 | 20 | Per-address daily flag limit |
+| `max_flaggers_per_target` | uint32 | 50 | Max flaggers per target |
+| `flag_expiration_blocks` | int64 | 100,800 | Flag expiry (~7 days) |
+| `max_flag_reason_length` | uint32 | 512 | Flag reason text max length |
 | `sentinel_commit_amount` | Int | 100 | DREAM sentinel commits to hide |
+| `hide_expiry_blocks` | int64 | 100,800 | Unappealed hide expiry (~7 days) |
 | `appeal_fee` | Int | 5,000,000 | SPARK fee to appeal hide |
+| `appeal_cooldown_blocks` | int64 | 600 | Appeal cooldown period (~1 hour) |
+| `appeal_deadline_blocks` | int64 | 201,600 | Appeal deadline (~14 days) |
 | `endorsement_creation_fee` | Int | 10,000,000 | Escrowed non-member collection fee |
 | `endorsement_dream_stake` | Int | 100 | DREAM endorser stakes |
-| `conviction_renewal_threshold` | Dec | 0 | Conviction to sustain anonymous TTL |
-| `anonymous_posting_enabled` | bool | true | Master toggle for anonymous operations |
-| `anonymous_min_trust_level` | uint32 | 2 | Min proven trust for anon actions |
-| `pin_min_trust_level` | uint32 | 2 | Min trust to pin anonymous collections |
+| `endorsement_stake_duration` | int64 | 432,000 | Endorser stake lock period (~30 days) |
+| `endorsement_expiry_blocks` | int64 | 432,000 | Unendorsed collection expiry (~30 days) |
+| `endorsement_fee_endorser_share` | LegacyDec | 80% | Endorser's share of endorsement fee |
+| `endorsement_deletion_burn_fraction` | LegacyDec | 10% | Fraction burned on endorsed collection deletion |
+| `conviction_renewal_threshold` | LegacyDec | 0 | Conviction to sustain anonymous TTL (0 = disabled) |
+| `conviction_renewal_period` | int64 | 432,000 | TTL extension period (~30 days) |
+| `pin_min_trust_level` | uint32 | 2 | Min trust to pin collections |
+| `max_pins_per_day` | uint32 | 10 | Per-address daily pin limit |
 
 ## Dependencies
 
@@ -269,12 +298,11 @@ These can be updated by the Commons Council Operations Committee via `MsgUpdateO
 |--------|----------|---------|
 | `x/auth` | Yes | Address codec |
 | `x/bank` | Yes | Deposit/fee collection, burning, refunds |
-| `x/rep` | Yes | Membership, trust levels, curator bonding, conviction staking, jury, author bonds |
-| `x/commons` | No | Council authorization for operational params |
-| `x/blog` | No | Validate on-chain reference items pointing to blog posts |
-| `x/forum` | No | Sentinel status checks, bond commitment/release/slash |
-| `x/vote` | No | ZK proof verification for anonymous operations |
-| `x/season` | No | Epoch duration for nullifier scoping, anonymous subsidy timing |
+| `x/rep` | Yes | Membership, trust levels, DREAM bonding, conviction staking, author bonds |
+| `x/commons` | No | Council authorization for operational parameter updates |
+| `x/blog` | No | Validate on-chain reference items pointing to blog posts/replies |
+| `x/forum` | No | Sentinel status checks, bond commitment/release/slash, tag registry, forum post references |
+| `x/shield` | No | ZK proof verification and module-paid gas for anonymous operations |
 
 ## EndBlocker
 

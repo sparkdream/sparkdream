@@ -44,11 +44,7 @@ func TestGenerateGenesisState(t *testing.T) {
 	require.Equal(t, defaults.MaxTitleLength, p.MaxTitleLength)
 	require.Equal(t, defaults.MaxDescriptionLength, p.MaxDescriptionLength)
 	require.Equal(t, defaults.BaseCollectionDeposit, p.BaseCollectionDeposit)
-	require.Equal(t, defaults.AnonymousPostingEnabled, p.AnonymousPostingEnabled)
 	require.Equal(t, defaults.PinMinTrustLevel, p.PinMinTrustLevel)
-	// AnonSubsidyRelayAddresses: DefaultParams returns nil; proto3 JSON round-trip
-	// produces an empty (non-nil) slice. Both are semantically empty.
-	require.Empty(t, p.AnonSubsidyRelayAddresses)
 }
 
 func TestWeightedOperations(t *testing.T) {
@@ -61,16 +57,15 @@ func TestWeightedOperations(t *testing.T) {
 	}
 
 	ops := am.WeightedOperations(simState)
-	// 30 operations:
+	// 27 operations:
 	// CreateCollection, UpdateCollection, DeleteCollection,
 	// AddItem, AddItems, UpdateItem, RemoveItem, RemoveItems, ReorderItem,
 	// AddCollaborator, RemoveCollaborator, UpdateCollaboratorRole,
 	// RegisterCurator, UnregisterCurator, RateCollection, ChallengeReview,
 	// RequestSponsorship, CancelSponsorshipRequest, SponsorCollection,
 	// UpvoteContent, DownvoteContent, FlagContent, HideContent, AppealHide,
-	// EndorseCollection, SetSeekingEndorsement,
-	// PinCollection, CreateAnonymousCollection, ManageAnonymousCollection, AnonymousReact
-	require.Len(t, ops, 30)
+	// EndorseCollection, SetSeekingEndorsement, PinCollection
+	require.Len(t, ops, 27)
 }
 
 func TestProposalMsgs(t *testing.T) {

@@ -1,4 +1,4 @@
-# Anonymous Posting via ZK Proofs
+# Anonymous Posting via x/shield
 
 ## Problem
 
@@ -6,9 +6,39 @@ Members may need to post content without revealing their identity — for whistl
 
 ## Solution
 
-Reuse the ZK-SNARK infrastructure from `x/vote` (Groth16 on BN254, MiMC hashing, Merkle trees) to let members prove they are an active member meeting a minimum trust level — without revealing *which* member they are. A nullifier system prevents spam: one anonymous action per scope per identity.
+The `x/shield` module provides a **unified privacy layer** that any content module can use for anonymous operations. Members prove they are an active member meeting a minimum trust level — without revealing *which* member they are — via a single `MsgShieldedExec` entry point. A nullifier system prevents spam: one anonymous action per scope per identity.
 
-This is a **cross-module pattern**. Any content module (`x/blog`, `x/forum`, `x/collect`, etc.) can integrate anonymous posting by adding the message types described below and calling into the shared verification infrastructure.
+Content modules (`x/blog`, `x/forum`, `x/collect`, etc.) integrate anonymous posting by implementing the `ShieldAware` interface. They do **not** need their own anonymous message types, nullifier storage, or proof verification logic.
+
+---
+
+## Architecture
+
+```
+Client generates ZK proof (Groth16/BN254)
+    │
+    ▼
+MsgShieldedExec { inner_message, proof, nullifier, ... }
+    │
+    ▼
+x/shield:
+    ├── Verify ZK proof against trust tree root
+    ├── Check nullifier not used (centralized store)
+    ├── Check per-identity rate limit
+    ├── Pay gas from shield module account
+    └── Dispatch inner message to target module
+            │
+            ▼
+Target module (e.g., x/blog):
+    ├── ShieldAware.IsShieldCompatible() → true
+    └── Execute message with creator = shield module account
+```
+
+### Two Execution Modes
+
+**Immediate mode**: Inner message and ZK proof are submitted in cleartext. The operation executes in the same block. Best for latency-sensitive actions (posts, reactions) where content visibility is acceptable — the submitter address is visible but has no provable link to the anonymous author.
+
+**Encrypted Batch mode**: The inner message and proof are encrypted with the TLE master public key. The encrypted payload is queued. At epoch boundaries, validators produce decryption shares; once threshold is reached, the batch is decrypted, shuffled deterministically, and executed. Best for voting and actions where both identity AND content must be hidden until decryption.
 
 ---
 
@@ -16,280 +46,164 @@ This is a **cross-module pattern**. Any content module (`x/blog`, `x/forum`, `x/
 
 | Module | Purpose |
 |--------|---------|
-| `x/vote` | `VoteKeeper.VerifyAnonymousActionProof()` — Groth16 proof verification and verifying key storage |
+| `x/shield` | ZK proof verification, nullifier management, module-paid gas, shielded execution dispatch |
 | `x/rep` | Maintains the **member trust tree** (Merkle tree with trust-level-encoded leaves) |
 
-Both are required. If either keeper is nil, all anonymous posting messages should return an "unavailable" error.
+Content modules depend only on implementing the `ShieldAware` interface. They do **not** need a direct keeper dependency on x/shield.
 
 ---
 
 ## Member Trust Tree (maintained by x/rep)
 
-A separate Merkle tree from x/vote's voter tree, maintained by x/rep and available to any module needing trust-level-aware ZK proofs.
+A persistent KV-based sparse Merkle tree maintained by x/rep, providing trust-level-aware ZK proofs for x/shield.
 
 ```
 Leaf = MiMC_hash(zk_public_key, trust_level)
 Tree depth: 20 (~1,048,576 members)
-Hash function: MiMC (SNARK-friendly, matches x/vote circuit)
+Hash function: MiMC (SNARK-friendly)
 ```
 
 **Lifecycle:**
-1. Tree is marked dirty when a member's trust level changes, a new voter registers, or a member is deactivated
-2. x/rep's EndBlocker rebuilds the tree when dirty (same pattern as x/vote's voter tree)
-3. The current root is stored in x/rep state as `MemberTrustTreeRoot`
-4. Each anonymous post/reply records the root used at proof time for auditability
+1. Tree is marked dirty when a member's trust level changes, a ZK public key is registered/updated, or a member is deactivated
+2. x/rep's EndBlocker incrementally rebuilds the tree when dirty (O(depth) updates via dirty member tracking)
+3. The current root is stored in x/rep state as `MemberTrustTreeRoot`; the previous root is retained for a one-cycle grace period
+4. x/shield accepts proofs against either the current or previous root
 
-**Why a separate tree from x/vote's voter tree:**
-- Voter tree leaves encode `hash(pubkey, voting_power=1)` — no trust level information
-- Trust tree leaves encode `hash(pubkey, trust_level)` — enables range proofs on trust level
-- Both trees use the same ZK public keys from voter registration (no new key management)
-
-**RepKeeper interface addition:**
+**RepKeeper interface (used by x/shield):**
 ```go
-// GetMemberTrustTreeRoot returns the current Merkle root of the member trust tree.
-// Returns error if tree has not been built yet.
-func (k Keeper) GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error)
-
-// GetPreviousMemberTrustTreeRoot returns the root from the last rebuild cycle.
-// Used by consuming modules to provide a one-cycle grace period for proof validation.
-// Returns nil (not error) if no previous root exists (first rebuild).
-func (k Keeper) GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte
+func (k Keeper) GetTrustTreeRoot(ctx context.Context) ([]byte, error)
+func (k Keeper) GetPreviousTrustTreeRoot(ctx context.Context) []byte
 ```
 
-**x/rep query additions for client support:**
-
+**x/rep queries for client support:**
 ```protobuf
-// Returns the current member trust tree root and voter count
 rpc GetMemberTrustTree(QueryGetMemberTrustTreeRequest) returns (QueryGetMemberTrustTreeResponse);
-
-// Returns the Merkle proof for a specific voter's leaf in the trust tree
 rpc GetMemberTrustProof(QueryGetMemberTrustProofRequest) returns (QueryGetMemberTrustProofResponse);
 ```
 
 ---
 
-## Anonymous Action Circuit
+## ShieldCircuit (Unified ZK Circuit)
 
-A new Groth16 circuit (BN254) proving membership and minimum trust level without revealing identity. Stored alongside the vote circuit in `zkprivatevoting/`.
+A single Groth16 circuit (BN254) proving membership and minimum trust level without revealing identity. Located in `tools/zk/circuit/shield_circuit.go`.
 
 ### Public Inputs (revealed on-chain)
 
 | Field | Size | Description |
 |-------|------|-------------|
-| `merkle_root` | 32 bytes | x/rep member trust tree root |
-| `nullifier` | 32 bytes | Spam prevention token |
-| `min_trust_level` | uint32 | Minimum trust level being proven |
-| `domain` | uint64 | Action domain (see Nullifier Scoping below) |
-| `scope` | uint64 | Scoping value (epoch, post_id, thread_id, etc.) |
+| `MerkleRoot` | 32 bytes | x/rep member trust tree root (current or previous) |
+| `Nullifier` | 32 bytes | Action-specific replay prevention |
+| `RateLimitNullifier` | 32 bytes | Per-identity epoch-scoped rate limiting |
+| `MinTrustLevel` | uint32 | Minimum trust level being proven |
+| `Scope` | uint64 | Nullifier scope value (epoch, post_id, etc.) |
+| `RateLimitEpoch` | uint64 | Current shield epoch |
 
 ### Private Inputs (known only to prover)
 
 | Field | Size | Description |
 |-------|------|-------------|
-| `secret_key` | 32 bytes | Voter's secret key (same as x/vote) |
+| `secret_key` | 32 bytes | Member's ZK secret key |
 | `trust_level` | uint32 | Member's actual trust level |
-| `path_elements` | [20]×32 bytes | Merkle proof sibling hashes |
-| `path_indices` | [20]×1 bit | Left/right position at each level |
+| `path_elements` | [20]x32 bytes | Merkle proof sibling hashes |
+| `path_indices` | [20]x1 bit | Left/right position at each level |
 
 ### Circuit Constraints
 
 1. **Public key derivation:** `publicKey = MiMC_hash(secretKey)`
 2. **Leaf computation:** `leaf = MiMC_hash(publicKey, trustLevel)`
-3. **Merkle proof:** Computed root from leaf + path must equal `merkle_root`
-4. **Trust level range:** `trustLevel >= minTrustLevel` (range check)
+3. **Merkle proof:** Computed root from leaf + path must equal `MerkleRoot`
+4. **Trust level range:** `trustLevel >= MinTrustLevel` (range check)
 5. **Nullifier:** `nullifier = MiMC_hash(domain, secretKey, scope)`
-6. **Path index binary:** All `pathIndices[i] ∈ {0, 1}`
+6. **Rate limit nullifier:** `rateLimitNullifier = MiMC_hash(secretKey, rateLimitEpoch)`
+7. **Path index binary:** All `pathIndices[i] in {0, 1}`
 
-**Estimated constraints:** ~14,000 (comparable to vote circuit)
-
-**Verifying key:** Stored in x/vote params as `anon_action_verifying_key` (separate from `vote_verifying_key`). Derived from the same SRS ceremony.
+**Verification key:** Stored on-chain in x/shield state by circuit ID (`shield_v1`). Updated via governance.
 
 ---
 
 ## Nullifier Scoping
 
-Nullifiers are deterministic: the same member performing the same action in the same scope always produces the same nullifier. This is what prevents double-posting.
+Nullifiers are deterministic: the same member performing the same action in the same scope always produces the same nullifier. This prevents double-posting.
 
 ```
 nullifier = MiMC_hash(domain, secretKey, scope)
 ```
 
-### Domain Registry
+All nullifiers are stored centrally in x/shield (not per-module). Each registered operation specifies its nullifier domain, scope type, and optional scope field path.
 
-Each module registers its own domain values to prevent cross-module nullifier collisions:
+### Scope Types
+
+| Scope Type | Scope Value | Meaning |
+|------------|-------------|---------|
+| `NULLIFIER_SCOPE_GLOBAL` | 0 | One action ever (e.g., anonymous challenges) |
+| `NULLIFIER_SCOPE_EPOCH` | epoch number | One action per epoch (e.g., anonymous posts) |
+| `NULLIFIER_SCOPE_MESSAGE_FIELD` | hash of field value | One action per unique field (e.g., one reaction per post) |
+
+### Domain Registry (Genesis Defaults)
 
 | Domain | Module | Action | Scope | Effect |
 |--------|--------|--------|-------|--------|
-| `1` | x/blog | Anonymous post | Current epoch | One anonymous post per member per epoch |
-| `2` | x/blog | Anonymous reply | `post_id` | One anonymous reply per member per post |
-| `3` | x/forum | Anonymous thread | Current epoch | One anonymous thread per member per epoch |
-| `4` | x/forum | Anonymous reply | `thread_id` | One anonymous reply per member per thread |
-| `5` | x/forum | Anonymous reaction | `post_id` | One anonymous reaction (upvote or downvote) per member per post |
-| `6` | x/collect | Anonymous collection creation | Current epoch | One anonymous collection per member per epoch |
-| `7` | x/collect | Anonymous item addition | `collection_id * epoch_multiplier + epoch` | One anonymous item per member per collection per epoch |
-| `8` | x/blog | Anonymous post reaction | `post_id` | One anonymous reaction per member per post |
-| `9` | x/blog | Anonymous reply reaction | `reply_id` | One anonymous reaction per member per reply |
-| `10` | x/collect | Anonymous collection reaction | `collection_id` | One anonymous reaction per member per collection |
-| `11` | x/collect | Anonymous item reaction | `item_id` | One anonymous reaction per member per item |
+| `1` | x/blog | Anonymous post | EPOCH | One anonymous post per member per epoch |
+| `2` | x/blog | Anonymous reply | MESSAGE_FIELD (`post_id`) | One anonymous reply per member per post |
+| `8` | x/blog | Anonymous reaction | MESSAGE_FIELD (`post_id`) | One anonymous reaction per member per post |
+| `11` | x/forum | Anonymous post | EPOCH | One anonymous post per member per epoch |
+| `12` | x/forum | Anonymous upvote | MESSAGE_FIELD (`post_id`) | One anonymous upvote per member per post |
+| `13` | x/forum | Anonymous downvote | MESSAGE_FIELD (`post_id`) | One anonymous downvote per member per post |
+| `21` | x/collect | Anonymous collection | EPOCH | One anonymous collection per member per epoch |
+| `22` | x/collect | Anonymous upvote | MESSAGE_FIELD (`target_id`) | One anonymous upvote per member per item |
+| `23` | x/collect | Anonymous downvote | MESSAGE_FIELD (`target_id`) | One anonymous downvote per member per item |
+| `31` | x/commons | Anonymous proposal | EPOCH | One anonymous proposal per member per epoch |
+| `32` | x/commons | Anonymous vote | MESSAGE_FIELD (`proposal_id`) | One anonymous vote per member per proposal |
+| `41` | x/rep | Anonymous challenge | GLOBAL | One anonymous challenge per member ever |
 
-Additional domains can be added by any module. The domain value is a public circuit input and part of the nullifier computation, so nullifiers from different domains never collide even with the same secret key and scope.
-
-### Nullifier Storage (x/common)
-
-Nullifier storage and lookup is provided by **`x/common/keeper/anon.go`** — a shared helper layer that all content modules (x/blog, x/forum, x/collect) import. Each module passes its own `StoreService` to the helpers, so nullifiers are still physically stored in the consuming module's KV store (not in a separate x/common store). This avoids cross-module store access while eliminating code duplication.
-
-**Canonical key structure:**
-
-```
-AnonNullifier/{domain}/{scope}/{nullifier_hex} → AnonNullifierEntry { used_at: int64, domain: uint64, scope: uint64 }
-```
-
-**Shared helper interface (`x/common/keeper/anon.go`):**
-
-```go
-// StoreNullifier records a nullifier as used. Returns ErrNullifierUsed if already present.
-func StoreNullifier(ctx context.Context, store storetypes.KVStore, domain uint64, scope uint64, nullifierHex string, blockTime int64) error
-
-// IsNullifierUsed checks whether a nullifier has already been recorded.
-func IsNullifierUsed(ctx context.Context, store storetypes.KVStore, domain uint64, scope uint64, nullifierHex string) bool
-
-// PruneEpochNullifiers deletes epoch-scoped nullifiers where scope < currentEpoch - 1.
-// Retains current and previous epoch (grace period for in-flight transactions).
-func PruneEpochNullifiers(ctx context.Context, store storetypes.KVStore, domain uint64, currentEpoch uint64) uint64
-
-// VerifyAndStoreAnonymousAction performs the full validation sequence shared across all
-// anonymous message handlers: param check, trust level check, root verification,
-// nullifier dedup, ZK proof verification, and nullifier recording.
-func VerifyAndStoreAnonymousAction(
-    ctx context.Context,
-    store storetypes.KVStore,
-    voteKeeper VoteKeeper,
-    repKeeper RepKeeper,
-    params AnonymousParams,
-    proof []byte,
-    merkleRoot []byte,
-    nullifier []byte,
-    minTrustLevel uint32,
-    domain uint64,
-    scope uint64,
-    blockTime int64,
-) error
-```
-
-Each module calls these helpers from its own message handlers. The module-specific logic (content creation, metadata storage, event emission) remains in the module.
-
-See each module's spec for pruning strategy and EndBlocker integration.
+Additional domains can be registered via governance (`MsgRegisterShieldedOp`).
 
 ---
 
-## VoteKeeper Interface Extension
+## Module-Paid Gas
 
-x/vote exposes a new verification method for the anonymous action circuit:
+The x/shield module account holds gas reserves (uspark) and pays transaction fees for all `MsgShieldedExec` transactions. Submitters need zero balance. This replaces the old per-module anonymous posting subsidy.
 
-```go
-type VoteKeeper interface {
-    // Existing
-    VerifyMembershipProof(ctx context.Context, proof []byte, nullifier []byte) error
+**Funding:** BeginBlocker auto-refills from the community pool when balance drops below `min_gas_reserve`, capped at `max_funding_per_day`.
 
-    // New — verifies the anonymous action circuit proof
-    VerifyAnonymousActionProof(
-        ctx context.Context,
-        proof []byte,
-        merkleRoot []byte,
-        nullifier []byte,
-        minTrustLevel uint32,
-        domain uint64,
-        scope uint64,
-    ) error
-}
-```
-
----
-
-## Relay Pattern
-
-All anonymous posting messages include a `submitter` field that decouples the transaction signer from the anonymous author:
-
-1. Author generates the ZK proof client-side (using their secret key)
-2. Author sends the proof + content to a relay (friend, service, or themselves from a different address)
-3. Relay signs and broadcasts the transaction, paying gas and storage fees
-4. On-chain, the submitter is visible but has no provable link to the anonymous content
-
-**Why this matters:** On-chain transaction analysis can correlate addresses with behavior patterns. Using a relay breaks this correlation.
-
-**Without a relay:** Members can still submit directly from their own address. The ZK proof guarantees the post could have come from *any* active member at the proven trust level — the submitter address doesn't prove authorship.
+**Rate limiting:** Per-identity rate limiting (via `RateLimitNullifier`) prevents gas abuse without revealing identity. Each identity is limited to `max_execs_per_identity_per_epoch` operations per shield epoch.
 
 ---
 
 ## Integration Guide for Content Modules
 
-To add anonymous posting to a content module:
+To add anonymous posting support to a content module via x/shield:
 
-### 1. Add Dependencies
-
-```go
-// In expected_keepers.go
-type VoteKeeper interface {
-    VerifyAnonymousActionProof(ctx context.Context, proof []byte, merkleRoot []byte, nullifier []byte, minTrustLevel uint32, domain uint64, scope uint64) error
-}
-
-type RepKeeper interface {
-    // ... existing methods ...
-    GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error)
-}
-```
-
-Wire `VoteKeeper` as an **optional** dependency via depinject. If nil, anonymous messages return `ErrAnonymousPostingUnavailable`.
-
-### 2. Add Parameters
-
-```protobuf
-bool anonymous_posting_enabled = N;       // Master toggle (default: true)
-uint32 anonymous_min_trust_level = N+1;   // Minimum trust level (default: 2 = ESTABLISHED)
-```
-
-Include both in the module's `OperationalParams` so the Operations Committee can adjust them without governance.
-
-### 3. Add Message Types
-
-Each anonymous message should include:
-
-```protobuf
-message MsgCreateAnonymous<Action> {
-  string submitter = 1;         // Tx signer (pays gas; NOT the author)
-  // ... content fields ...
-  bytes proof = N;              // ~500-byte Groth16 proof
-  bytes nullifier = N+1;        // 32-byte nullifier
-  bytes merkle_root = N+2;      // Trust tree root used for proof
-  uint32 min_trust_level = N+3; // Trust level proven
-}
-```
-
-### 4. Add Validation Logic
-
-In the message handler, use the shared `x/common` helper for the ZK verification sequence, then add module-specific logic:
+### 1. Implement ShieldAware Interface
 
 ```go
-func (k msgServer) CreateAnonymousPost(ctx context.Context, msg *types.MsgCreateAnonymousPost) (*types.MsgCreateAnonymousPostResponse, error) {
-    // Steps 1–5 handled by x/common shared helper:
-    err := commonkeeper.VerifyAndStoreAnonymousAction(
-        ctx, k.storeService, k.voteKeeper, k.repKeeper,
-        anonParams, msg.Proof, msg.MerkleRoot, msg.Nullifier,
-        msg.MinTrustLevel, domain, scope, blockTime,
-    )
-    if err != nil {
-        return nil, err
+// In keeper/shield_aware.go
+func (k msgServer) IsShieldCompatible(ctx context.Context, msg sdk.Msg) bool {
+    switch msg.(type) {
+    case *types.MsgCreatePost, *types.MsgCreateReply, *types.MsgReact:
+        return true
+    default:
+        return false
     }
-
-    // Module-specific logic:
-    // 6. Charge storage fee from submitter
-    // 7. Create content with creator = module_account_address (sentinel)
-    // 8. Store anonymous metadata (nullifier, merkle_root, proven_trust_level)
-    // 9. Emit event (WITHOUT submitter — exclude from indexer correlation)
 }
 ```
 
-The `VerifyAndStoreAnonymousAction` helper performs: param enabled check, trust level validation, Merkle root verification (current + previous root grace period), nullifier dedup, ZK proof verification via `VoteKeeper.VerifyAnonymousActionProof`, and nullifier recording. See § Nullifier Storage above for the full interface.
+This is the only code change needed in the content module. The module opts in to specific message types being callable via `MsgShieldedExec`.
+
+### 2. Register ShieldAware in app.go
+
+```go
+// In app.go, after depinject:
+app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.blog.v1.", &app.BlogKeeper)
+```
+
+### 3. Register Operations at Genesis
+
+Operations are registered in x/shield's genesis state (see `x/shield/types/genesis.go`). Each operation specifies the message type URL, proof domain, minimum trust level, nullifier domain, scope type, and batch mode.
+
+### 4. Content Creation
+
+When a shielded operation executes, the inner message's `creator` field is set to the **shield module account address**. The content module creates the content normally — the creator being the shield module address is what marks it as anonymous.
 
 ### 5. Access Control Rules
 
@@ -298,55 +212,42 @@ The `VerifyAndStoreAnonymousAction` helper performs: param enabled check, trust 
 - **Operations Committee** — can delete anonymous content for policy violations
 - **Reactions** — regular identified members can react to anonymous content normally
 
-### 6. Metadata Storage
-
-Store `AnonymousPostMetadata` linked to the content item:
-
-```protobuf
-message AnonymousPostMetadata {
-  uint64 content_id = 1;           // References the post/reply/thread
-  bytes nullifier = 2;             // 32-byte nullifier
-  bytes merkle_root = 3;           // Trust tree root at proof time
-  uint32 proven_trust_level = 4;   // Minimum trust level proven
-}
-```
-
-### 7. Queries
-
-Add queries for anonymous metadata:
-
-```protobuf
-rpc AnonymousPostMeta(QueryAnonymousPostMetaRequest) returns (QueryAnonymousPostMetaResponse);
-rpc IsNullifierUsed(QueryIsNullifierUsedRequest) returns (QueryIsNullifierUsedResponse);
-```
-
-Anonymous content appears in standard list queries with `creator` set to the module account address. Clients detect anonymous content by checking `creator == module_account` and then fetching metadata.
-
 ---
 
 ## Client Workflow
 
 **Proof generation (client-side, ~2-3 seconds on modern hardware):**
 
-1. **Derive ZK keys** from account signature (same as x/vote voter registration):
-   ```
-   secretKey = derive_from_signature(account_key)
-   publicKey = MiMC_hash(secretKey)
-   ```
+1. **Register ZK public key** (one-time): Call `MsgRegisterZkPublicKey` in x/rep to store the public key on-chain and add to the trust tree.
 
 2. **Fetch trust tree data** from x/rep:
    - Current `MemberTrustTreeRoot`
-   - Merkle proof for the voter's leaf (path elements + indices)
-   - Voter's current trust level
+   - Merkle proof for the member's leaf (path elements + indices)
+   - Member's current trust level
 
-3. **Compute nullifier:**
+3. **Compute nullifiers:**
    ```
    nullifier = MiMC_hash(domain, secretKey, scope)
+   rateLimitNullifier = MiMC_hash(secretKey, currentEpoch)
    ```
 
-4. **Generate Groth16 proof** with the anonymous action circuit
+4. **Generate Groth16 proof** with the ShieldCircuit
 
-5. **Submit transaction** (directly or via relay)
+5. **Submit transaction:**
+   ```bash
+   sparkdreamd tx shield shielded-exec \
+     --inner-message '{"@type":"/sparkdream.blog.v1.MsgCreatePost","creator":"<shield-module-addr>","title":"Anon","body":"Hello"}' \
+     --proof <hex> \
+     --nullifier <hex> \
+     --rate-limit-nullifier <hex> \
+     --merkle-root <hex> \
+     --proof-domain 1 \
+     --min-trust-level 1 \
+     --exec-mode 0 \
+     --from <submitter>
+   ```
+
+The submitter can be any address (including the member's own address). Since x/shield pays gas, the submitter doesn't need any balance.
 
 ---
 
@@ -358,25 +259,27 @@ Anonymous content appears in standard list queries with `creator` set to the mod
 - The anonymity set is all active members at that trust level — the larger the set, the stronger the anonymity
 - Nullifiers are unlinkable across different scopes (different scopes produce different nullifiers)
 - Same-scope nullifiers are deterministic (prevents double-posting) but don't reveal identity
+- Rate limit nullifiers are scoped per epoch — they identify "the same person" for rate limiting within an epoch but are unlinkable across epochs
 
 ### Anonymity Limitations
 
-- **Transaction timing:** The submitter address and submission timestamp are visible on-chain. Using a relay mitigates this.
+- **Transaction timing:** The submitter address and submission timestamp are visible on-chain. In immediate mode, content is visible. Using encrypted batch mode and/or a relay mitigates this.
 - **Writing style:** Stylometric analysis of post content could deanonymize frequent anonymous posters. This is outside the protocol's threat model.
-- **Small anonymity sets:** If only 3 members are ESTABLISHED+, anonymity is weak. The `anonymous_min_trust_level` param should be set to a level with sufficient membership.
-- **Merkle root freshness:** Consuming modules accept the current root or the immediately previous root (one-rebuild-cycle grace period). If a member's trust level was just upgraded, they must wait for the next EndBlocker tree rebuild. Roots older than one cycle are rejected.
+- **Small anonymity sets:** If only 3 members are ESTABLISHED+, anonymity is weak. The minimum trust level should be set to a level with sufficient membership.
+- **Merkle root freshness:** x/shield accepts the current root or the immediately previous root (one-rebuild-cycle grace period). Roots older than one cycle are rejected.
 
 ### Spam Prevention
 
 - One anonymous action per scope per identity (nullifier-enforced)
-- Storage fees apply (paid by submitter)
-- Rate limits apply to the submitter address (shared with regular actions)
-- Trust level minimum (ESTABLISHED by default) raises the Sybil cost
+- Per-identity rate limiting via `RateLimitNullifier` (max operations per epoch)
+- Module-paid gas funded from community pool with daily cap
+- Trust level minimum raises the Sybil cost
+- Governance can deregister abused operations
 
 ### Proof Soundness
 
 - Groth16 proofs are computationally sound under the knowledge-of-exponent assumption
-- Verifying key derived from trusted SRS ceremony (same as x/vote)
+- Verification key stored on-chain and updateable only via governance
 - Proof verification is ~2ms on-chain (negligible gas overhead)
 - Invalid proofs are rejected deterministically — no false positives
 
@@ -386,9 +289,9 @@ Anonymous content appears in standard list queries with `creator` set to the mod
 - Persistent abuse from the same nullifier pattern can be flagged (same nullifier = same member, even if identity unknown)
 - In extreme cases (illegal content), the chain's governance can coordinate with law enforcement — the ZK proof guarantees the poster *is* a registered member, narrowing the search space
 
-### Recommended Default: ESTABLISHED (Trust Level 2)
+### Recommended Default: PROVISIONAL (Trust Level 1)
 
-Anonymous posting is a powerful tool that can be abused for harassment or manipulation. Requiring ESTABLISHED trust ensures the poster has a meaningful reputation at stake — even though their identity is hidden per-post, systematic abuse patterns can be investigated and the ZK proof guarantees they *are* a real member who could be identified through other means if warranted.
+Most genesis-registered operations require trust level 1 (PROVISIONAL). Modules can require higher trust levels by registering operations with a higher `min_trust_level`.
 
 ---
 
@@ -400,7 +303,7 @@ Anonymous content is ephemeral by default — it carries a TTL and is automatica
 
 This creates a three-tier lifecycle for anonymous content:
 1. **Ephemeral** (default): expires after `ephemeral_content_ttl` / collection TTL
-2. **Conviction-sustained**: conviction must stay ≥ threshold continuously; expires if it drops
+2. **Conviction-sustained**: conviction must stay >= threshold continuously; expires if it drops
 3. **Pinned** (permanent): member-initiated `MsgPinPost` / `MsgPinCollection` clears the TTL entirely
 
 ### Parameters
@@ -410,136 +313,21 @@ Each content module adds these operational params:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `conviction_renewal_threshold` | `sdk.Dec` | `100.0` | Minimum conviction score to enter and maintain conviction-sustained state |
-| `conviction_renewal_period` | `int64` | Same as `ephemeral_content_ttl` | Duration (seconds or blocks) of each renewal period; conviction is verified again at each deadline |
-
-`conviction_renewal_threshold` is an operational param (Operations Committee can adjust). `conviction_renewal_period` is also operational.
+| `conviction_renewal_period` | `int64` | Same as `ephemeral_content_ttl` | Duration of each renewal period; conviction is verified again at each deadline |
 
 Setting `conviction_renewal_threshold = 0` disables conviction renewal (all expired content is tombstoned regardless of conviction). Setting it very high limits renewal to only the most endorsed content.
 
-### State Transition
-
-When anonymous content's initial TTL expires (the first `expires_at` set at creation time):
-
-```
-// In EndBlocker, when expires_at <= block_time for anonymous content:
-conviction = repKeeper.GetContentConviction(ctx, targetType, targetID)
-if conviction.Score >= params.conviction_renewal_threshold:
-    content.conviction_sustained = true
-    content.expires_at = block_time + params.conviction_renewal_period
-    update ExpiryIndex (remove old, add new)
-    emit content.conviction_sustained event
-else:
-    proceed with normal expiry (tombstone or prune)
-```
-
-### Renewal Deadline Check
-
-At each renewal deadline (when `expires_at` elapses for conviction-sustained content), the EndBlocker re-verifies conviction:
-
-```
-// In EndBlocker, when expires_at <= block_time for conviction-sustained content:
-conviction = repKeeper.GetContentConviction(ctx, targetType, targetID)
-if conviction.Score >= params.conviction_renewal_threshold:
-    content.expires_at = block_time + params.conviction_renewal_period
-    update ExpiryIndex
-    emit content.renewed event (conviction_score, new_expires_at)
-else:
-    // Conviction has decayed below threshold
-    content.conviction_sustained = false
-    proceed with normal expiry (tombstone or prune)
-```
-
-**Why this is safe without unstake enforcement:** Time-weighted conviction (`conviction(t) = stake_amount * (1 - 2^(-t / half_life))`) means a stake placed moments before a renewal check contributes near-zero conviction. Flash-staking is ineffective because meaningful conviction requires stakes held for a significant fraction of the half-life. Stakers can freely unstake at any time — if conviction drops below threshold, the content simply expires at the next renewal check. The market speaks.
-
-### Staking Freedom
-
-Stakers can stake and unstake content conviction at any time with no restrictions. If a whale unstakes and conviction drops below threshold, the content dies at the next renewal check. This is the correct outcome — community support has been withdrawn. No lock-in mechanism is needed because time-weighting already ensures that only sustained commitment produces meaningful conviction.
-
 ### Key Rules
 
-- **Anonymous content only**: Non-anonymous ephemeral content (non-member posts) is not eligible for conviction renewal — it uses the membership auto-upgrade path instead (if the creator later joins x/rep, the content becomes permanent). Conviction renewal is specifically for content that has no known author to upgrade
-- **Initial TTL must elapse**: Conviction-sustained state is only entered at the first TTL expiry. Content cannot skip its initial ephemeral period — this ensures the community has time to evaluate the content before it can enter the sustained state
-- **Deposits held through renewals**: For x/collect, the collection deposit and per-item deposits remain held in the module account through renewals. They are refunded only when the content finally expires (conviction dropped), is pinned, or is deleted
-- **Free unstaking**: Stakers can unstake at any time. If conviction drops below threshold, the content expires at the next renewal check. No lock-in or floor enforcement is needed — time-weighted conviction already prevents flash-staking
-- **Pinning overrides renewal**: If a member pins conviction-sustained content, the TTL is cleared permanently and the content leaves the renewal cycle
-
-### Interaction with Other Mechanisms
-
-| Mechanism | Interaction |
-|-----------|-------------|
-| **Pinning** | Pinning makes content permanent. A member observing high-conviction content may choose to pin it, making the conviction signal moot (content persists regardless) |
-| **Sentinel moderation** | Hidden content is still eligible for conviction renewal. If anonymous content is hidden by a sentinel but maintains high conviction, it survives. The community and the sentinel may disagree — the hide remains visible, but the content is not tombstoned |
-| **Author bonds** | Author bonds are independent of conviction renewal. A bonded anonymous collection with low conviction still expires; an unbonded one with high conviction still gets renewed. Bonds signal creator commitment, conviction signals community endorsement — different axes |
-| **Staker incentives** | Stakers commit real DREAM as a quality signal. Time-weighted conviction rewards early, sustained stakers (higher conviction per DREAM over time). Stakers can freely exit at any time — if conviction drops, the content dies at the next renewal check |
+- **Anonymous content only**: Non-anonymous ephemeral content uses the membership auto-upgrade path instead (if the creator later joins x/rep, the content becomes permanent). Conviction renewal is specifically for content that has no known author to upgrade
+- **Initial TTL must elapse**: Conviction-sustained state is only entered at the first TTL expiry
+- **Deposits held through renewals**: For x/collect, deposits remain held through renewals and refunded only when content finally expires, is pinned, or is deleted
+- **Free unstaking**: Stakers can unstake at any time. If conviction drops below threshold, the content expires at the next renewal check
+- **Pinning overrides renewal**: Pinning makes content permanent, leaving the renewal cycle
 
 ### Security Considerations
 
-- **No flash-staking**: Time-weighted conviction (`conviction(t) = stake_amount * (1 - 2^(-t / half_life))`) makes flash-staking ineffective. A stake placed moments before a renewal check contributes near-zero conviction. Meaningful conviction requires stakes held for a significant duration relative to the half-life
-- **Grief prevention**: The conviction threshold should be high enough that a single member's stake cannot sustain content indefinitely. With `max_content_stake_per_member` caps and the time-weighted conviction formula, sustaining content requires broad community support
-- **Free unstaking**: Stakers can unstake at any time with no restrictions. If conviction drops below threshold, the content expires at the next renewal check. No lock-in mechanism is needed
-- **Cost of sustaining spam**: Stakers lock DREAM for as long as they choose to stake. Sustaining unwanted content has a real economic cost — the DREAM is illiquid while staked, subject to unstaked decay, and earns no staking rewards (conviction staking has no yield)
-- **Threshold governance**: The Operations Committee can raise `conviction_renewal_threshold` if conviction renewal is being abused, or lower it to make it easier for minority-interest content to survive
-- **No cross-module state**: Content modules query x/rep for conviction on demand in their EndBlockers. No floors, locks, or other cross-module state needs cleanup — x/rep stores stakes and computes conviction, content modules make keep-or-flush decisions
-
----
-
-## Anonymous Posting Subsidy
-
-To encourage balanced democratic dialogue, the Commons Council can subsidize the cost of anonymous posting so that members (via approved relays) don't bear gas or spam tax costs.
-
-### Funding Source
-
-The subsidy is funded from the **Commons Council group treasury**, which receives its allocation via x/split (50% of community pool revenue). This keeps the subsidy within the Three Pillars governance hierarchy — the Operations Committee controls the budget and relay list without requiring x/distribution or x/gov involvement.
-
-```
-x/distribution community pool
-    → x/split (50% to Commons Council)
-        → Commons Council group treasury
-            → anon subsidy module account (per epoch)
-                → covers relay gas + spam tax for anonymous posts
-```
-
-### Parameters
-
-Each content module (x/blog, x/forum) adds these operational params:
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `anon_subsidy_budget_per_epoch` | `sdk.Coin` | `100spark` | Amount auto-transferred from Commons Council treasury to the module's subsidy account each epoch |
-| `anon_subsidy_max_per_post` | `sdk.Coin` | `2spark` | Maximum subsidy per anonymous post/reply (caps per-transaction cost) |
-| `anon_subsidy_relay_addresses` | `[]string` | `[]` | Approved relay addresses eligible for subsidy (Operations Committee managed) |
-
-### Mechanism
-
-1. **Epoch funding:** At each epoch boundary (in EndBlocker), the module requests `anon_subsidy_budget_per_epoch` from the Commons Council treasury via `x/commons` spending interface. If the treasury has insufficient funds, the transfer is partial or skipped — no error.
-2. **Subsidized submission:** When a transaction signer is in `anon_subsidy_relay_addresses` and submits an anonymous post/reply, the module pays gas refund + spam tax from the subsidy account instead of charging the relay.
-3. **Per-post cap:** The subsidy per transaction is capped at `anon_subsidy_max_per_post` to prevent a single expensive operation from draining the budget. Any cost above the cap is charged to the relay.
-4. **Budget exhaustion:** When the epoch budget is spent, approved relays pay normally until the next epoch refill.
-5. **Rollover:** Unspent budget carries over to the next epoch (accumulates in the module's subsidy account).
-6. **Non-approved relays:** Addresses not in `anon_subsidy_relay_addresses` always pay their own costs, regardless of budget.
-
-### Governance Surface
-
-The Operations Committee (under Commons Council) manages all subsidy params:
-
-- **Add/remove relay addresses:** Operational param update, no full governance proposal needed
-- **Adjust budget:** Operational param update
-- **Emergency disable:** Set `anon_subsidy_budget_per_epoch` to zero
-
-This is intentionally minimal — the only governance action needed to bootstrap the subsidy is voting to approve the initial relay addresses. Budget flows automatically from the existing treasury allocation.
-
-### Integration with x/commons
-
-The module uses the existing `CommonsKeeper.SpendFromTreasury()` interface to draw funds:
-
-```go
-// In EndBlocker, once per epoch:
-err := k.commonsKeeper.SpendFromTreasury(ctx, "commons", k.moduleAddress, subsidyBudget)
-if err != nil {
-    // Treasury insufficient — skip, no error
-}
-```
-
-### Why Not x/feegrant?
-
-`x/feegrant` covers gas costs but not protocol-level fees (spam tax, storage fees) that are charged inside message handlers. The subsidy mechanism operates at the module level, covering the full cost of anonymous posting in a single, self-renewing system without requiring repeated governance proposals for grant renewals.
+- **No flash-staking**: Time-weighted conviction (`conviction(t) = stake_amount * (1 - 2^(-t / half_life))`) makes flash-staking ineffective
+- **Grief prevention**: The conviction threshold should be high enough that a single member's stake cannot sustain content indefinitely
+- **Cost of sustaining spam**: DREAM is illiquid while staked, subject to unstaked decay, and earns no staking rewards
+- **Threshold governance**: The Operations Committee can adjust `conviction_renewal_threshold` via operational params

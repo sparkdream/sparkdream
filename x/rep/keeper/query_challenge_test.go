@@ -26,8 +26,6 @@ func createNChallenge(keeper keeper.Keeper, ctx context.Context, n int) []types.
 		items[i].Reason = strconv.Itoa(i)
 		amount := math.NewInt(int64(i))
 		items[i].StakedDream = &amount
-		items[i].IsAnonymous = true
-		items[i].PayoutAddress = strconv.Itoa(i)
 		items[i].Status = types.ChallengeStatus(i)
 		items[i].CreatedAt = int64(i)
 		items[i].ResolvedAt = int64(i)

@@ -9,6 +9,7 @@ echo ""
 # Configuration
 # ========================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../check_testparams.sh"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 

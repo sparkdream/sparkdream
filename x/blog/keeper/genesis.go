@@ -44,31 +44,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Import anonymous post metadata
-	for _, meta := range genState.AnonymousPostMeta {
-		k.SetAnonymousPostMeta(ctx, meta.ContentId, meta)
-	}
-
-	// Import anonymous reply metadata
-	for _, meta := range genState.AnonymousReplyMeta {
-		k.SetAnonymousReplyMeta(ctx, meta.ContentId, meta)
-	}
-
-	// Import nullifiers
-	for _, n := range genState.Nullifiers {
-		entry := types.AnonNullifierEntry{
-			UsedAt: n.UsedAt,
-			Domain: n.Domain,
-			Scope:  n.Scope,
-		}
-		k.SetNullifierUsed(ctx, n.Domain, n.Scope, n.NullifierHex, entry)
-	}
-
-	// Import anon subsidy last epoch
-	if genState.AnonSubsidyLastEpoch > 0 {
-		k.SetAnonSubsidyLastEpoch(ctx, genState.AnonSubsidyLastEpoch)
-	}
-
 	// Rebuild derived indexes that SetPost/SetReply don't create
 	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
 
@@ -160,51 +135,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		})
 	}
 	countsIter.Close()
-
-	// Export anonymous post metadata
-	anonPostStore := prefix.NewStore(storeAdapter, []byte(types.AnonMetaPostKey))
-	anonPostIter := anonPostStore.Iterator(nil, nil)
-	for ; anonPostIter.Valid(); anonPostIter.Next() {
-		var meta types.AnonymousPostMetadata
-		k.cdc.MustUnmarshal(anonPostIter.Value(), &meta)
-		genesis.AnonymousPostMeta = append(genesis.AnonymousPostMeta, meta)
-	}
-	anonPostIter.Close()
-
-	// Export anonymous reply metadata
-	anonReplyStore := prefix.NewStore(storeAdapter, []byte(types.AnonMetaReplyKey))
-	anonReplyIter := anonReplyStore.Iterator(nil, nil)
-	for ; anonReplyIter.Valid(); anonReplyIter.Next() {
-		var meta types.AnonymousPostMetadata
-		k.cdc.MustUnmarshal(anonReplyIter.Value(), &meta)
-		genesis.AnonymousReplyMeta = append(genesis.AnonymousReplyMeta, meta)
-	}
-	anonReplyIter.Close()
-
-	// Export nullifiers
-	nullifierStore := prefix.NewStore(storeAdapter, []byte(types.AnonNullifierKey))
-	nullifierIter := nullifierStore.Iterator(nil, nil)
-	for ; nullifierIter.Valid(); nullifierIter.Next() {
-		key := nullifierIter.Key()
-		// Key format: domain(8) + scope(8) + nullifier_hex_string
-		if len(key) < 17 {
-			continue
-		}
-		domain := binary.BigEndian.Uint64(key[:8])
-		scope := binary.BigEndian.Uint64(key[8:16])
-		nullifierHex := string(key[16:])
-		var entry types.AnonNullifierEntry
-		k.cdc.MustUnmarshal(nullifierIter.Value(), &entry)
-		genesis.Nullifiers = append(genesis.Nullifiers, types.GenesisNullifierEntry{
-			NullifierHex: nullifierHex,
-			Domain:       domain,
-			Scope:        scope,
-			UsedAt:       entry.UsedAt,
-		})
-	}
-	nullifierIter.Close()
-
-	genesis.AnonSubsidyLastEpoch = k.GetAnonSubsidyLastEpoch(ctx)
 
 	return genesis, nil
 }

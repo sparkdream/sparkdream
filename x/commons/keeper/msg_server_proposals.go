@@ -314,13 +314,14 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 }
 
 // checkThreshold checks if a proposal has met its decision policy threshold.
+// Includes both regular council votes (weighted) and anonymous votes (weight=1 each).
 func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bool, error) {
 	decPolicy, err := k.DecisionPolicies.Get(ctx, proposal.PolicyAddress)
 	if err != nil {
 		return false, err
 	}
 
-	// Tally votes
+	// Tally regular (council member) votes
 	var yesWeight, totalWeight math.LegacyDec
 	yesWeight = math.LegacyZeroDec()
 	totalWeight = math.LegacyZeroDec()
@@ -348,6 +349,14 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 		return false, err
 	}
 
+	// Include anonymous votes (weight=1 each)
+	anonTally, anonErr := k.AnonVoteTallies.Get(ctx, proposal.Id)
+	if anonErr == nil {
+		anonTotal := anonTally.YesCount + anonTally.NoCount + anonTally.AbstainCount + anonTally.NoWithVetoCount
+		yesWeight = yesWeight.Add(math.LegacyNewDec(int64(anonTally.YesCount)))
+		totalWeight = totalWeight.Add(math.LegacyNewDec(int64(anonTotal)))
+	}
+
 	if totalWeight.IsZero() {
 		return false, nil
 	}
@@ -358,20 +367,23 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 	}
 
 	if decPolicy.PolicyType == "percentage" {
-		// Percentage: yesWeight / totalGroupWeight >= threshold
-		// Need total group weight (all members, not just voters)
+		// Percentage: yesWeight / (totalGroupWeight + anonTotal) >= threshold
 		allMembers, err := k.GetCouncilMembers(ctx, proposal.CouncilName)
 		if err != nil {
 			return false, err
 		}
-		var groupWeight math.LegacyDec
-		groupWeight = math.LegacyZeroDec()
+		groupWeight := math.LegacyZeroDec()
 		for _, m := range allMembers {
 			w, err := math.LegacyNewDecFromStr(m.Weight)
 			if err != nil {
 				continue
 			}
 			groupWeight = groupWeight.Add(w)
+		}
+		// Add anonymous votes to the denominator
+		if anonErr == nil {
+			anonTotal := anonTally.YesCount + anonTally.NoCount + anonTally.AbstainCount + anonTally.NoWithVetoCount
+			groupWeight = groupWeight.Add(math.LegacyNewDec(int64(anonTotal)))
 		}
 		if groupWeight.IsZero() {
 			return false, nil

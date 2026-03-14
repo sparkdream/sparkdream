@@ -1,0 +1,127 @@
+syntax = "proto3";
+package sparkdream.shield.v1;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+import "sparkdream/shield/v1/params.proto";
+import "sparkdream/shield/v1/types.proto";
+
+option go_package = "sparkdream/x/shield/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module parameters.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // ShieldedExec is the single entry point for all anonymous operations.
+  rpc ShieldedExec(MsgShieldedExec) returns (MsgShieldedExecResponse);
+
+  // TriggerDKG manually triggers a new DKG ceremony (governance-gated).
+  // Normally DKG is auto-triggered by BeginBlocker when validator count >= min_tle_validators.
+  // Use this to force re-keying or restart a failed DKG.
+  rpc TriggerDKG(MsgTriggerDkg) returns (MsgTriggerDkgResponse);
+
+  // RegisterShieldedOp registers or updates a shielded operation (governance-gated).
+  rpc RegisterShieldedOp(MsgRegisterShieldedOp) returns (MsgRegisterShieldedOpResponse);
+
+  // DeregisterShieldedOp fully removes a shielded operation registration (governance-gated).
+  rpc DeregisterShieldedOp(MsgDeregisterShieldedOp) returns (MsgDeregisterShieldedOpResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/shield/MsgUpdateParams";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  Params params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+message MsgUpdateParamsResponse {}
+
+// MsgShieldedExec is the single entry point for all anonymous operations.
+message MsgShieldedExec {
+  option (cosmos.msg.v1.signer) = "submitter";
+
+  // Any account — does not need funds, identity is irrelevant
+  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // --- Immediate mode fields (cleartext) ---
+
+  // The operation to execute, encoded as Any.
+  // The inner message's signer field MUST be set to the shield module account address.
+  // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
+  google.protobuf.Any inner_message = 2;
+
+  // ZK proof bytes (PLONK over BN254).
+  // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
+  bytes proof = 3;
+
+  // --- Always cleartext (both modes) ---
+
+  // 32-byte nullifier (prevents replay)
+  bytes nullifier = 4;
+
+  // 32-byte rate-limit nullifier: H(secret, "rate_limit", epoch)
+  bytes rate_limit_nullifier = 5;
+
+  // Merkle root the proof was generated against
+  bytes merkle_root = 6;
+
+  // Proof domain (trust tree)
+  ProofDomain proof_domain = 7;
+
+  // Minimum trust level being proven (0 = any member)
+  uint32 min_trust_level = 8;
+
+  // --- Execution mode selection ---
+  ShieldExecMode exec_mode = 9;
+
+  // --- Encrypted batch mode fields ---
+
+  // IBE-encrypted payload containing (inner_message + proof)
+  // REQUIRED for ENCRYPTED_BATCH mode, EMPTY for IMMEDIATE mode
+  bytes encrypted_payload = 10;
+
+  // Target shield epoch for batch execution
+  uint64 target_epoch = 11;
+}
+
+message MsgShieldedExecResponse {
+  // For IMMEDIATE mode: the response from the inner message execution
+  google.protobuf.Any inner_response = 1;
+  // For ENCRYPTED_BATCH mode: the pending operation ID for tracking
+  uint64 pending_op_id = 2;
+}
+
+// MsgTriggerDkg manually triggers a new DKG ceremony (governance-gated).
+message MsgTriggerDkg {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 threshold_numerator = 2;
+  uint64 threshold_denominator = 3;
+}
+message MsgTriggerDkgResponse {}
+
+// MsgRegisterShieldedOp registers or updates a shielded operation (governance-gated).
+message MsgRegisterShieldedOp {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  ShieldedOpRegistration registration = 2 [(gogoproto.nullable) = false];
+}
+message MsgRegisterShieldedOpResponse {}
+
+// MsgDeregisterShieldedOp fully removes a shielded operation registration (governance-gated).
+message MsgDeregisterShieldedOp {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string message_type_url = 2;
+}
+message MsgDeregisterShieldedOpResponse {}

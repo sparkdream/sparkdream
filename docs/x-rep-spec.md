@@ -19,10 +19,10 @@ The `x/rep` module is the core coordination layer for Spark Dream, managing:
 | Module | Usage |
 |--------|-------|
 | `x/auth` | Address codec, account lookups (simulation) |
-| `x/bank` | SPARK escrow for anonymous challenges, coin transfers |
+| `x/bank` | Coin transfers |
 | `x/commons` | Council/committee authorization for operations, HR, governance |
 | `x/season` | Current season state, display name appeal resolution |
-| `x/vote` | ZK membership proof verification for anonymous challenges |
+| `x/shield` | Unified privacy layer: anonymous challenges are submitted via `MsgShieldedExec` wrapping `MsgCreateChallenge`. x/shield owns ZK proof verification, nullifier checking, and module-paid gas. x/rep maintains the trust tree (MiMC Merkle tree over member ZK public keys + trust levels) that x/shield uses for proof root validation. |
 
 ## State
 
@@ -77,6 +77,15 @@ message Member {
 
   // Invitation credit tracking for lazy seasonal reset
   int64 last_credit_reset_season = 25;
+
+  // Per-epoch reputation gain cap tracking
+  map<string, string> reputation_gained_this_epoch = 26;
+  int64 last_rep_gain_epoch = 27;
+
+  // ZK public key for anonymous operations (trust tree leaf computation).
+  // Set via MsgRegisterZkPublicKey. Used by the persistent Merkle tree
+  // to build leaves as MiMC(zk_public_key, trust_level).
+  bytes zk_public_key = 28;
 }
 
 enum TrustLevel {
@@ -229,6 +238,8 @@ message Initiative {
   InitiativeStatus status = 22;
   int64 created_at = 23;
   int64 completed_at = 24;
+
+  string propagated_conviction = 25 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // Conviction propagated from linked content
 }
 
 enum InitiativeTier {
@@ -409,8 +420,8 @@ message Stake {
   uint64 id = 1;
   string staker = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   StakeTargetType target_type = 3;
-  uint64 target_id = 4;              // For INITIATIVE/PROJECT
-  string target_identifier = 5;      // For MEMBER (address), TAG (name), CONTENT ("module/type/id"), or AUTHOR_BOND ("module/type/id")
+  uint64 target_id = 4;              // For INITIATIVE/PROJECT/CONTENT/AUTHOR_BOND: the entity ID
+  string target_identifier = 5;      // For MEMBER: address; For TAG: tag name
   string amount = 6 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];
   int64 created_at = 7;
   int64 last_claimed_at = 8;         // Last reward claim timestamp (lazy calculation)
@@ -418,12 +429,20 @@ message Stake {
 }
 
 enum StakeTargetType {
-  STAKE_TARGET_INITIATIVE = 0;    // Conviction voting, rewards on completion
-  STAKE_TARGET_PROJECT = 1;       // APY while active, bonus on completion
-  STAKE_TARGET_MEMBER = 2;        // Revenue share from member's earnings
-  STAKE_TARGET_TAG = 3;           // Revenue share from tagged initiatives
-  STAKE_TARGET_CONTENT = 4;       // Community conviction staking (no DREAM rewards, conviction signal only)
-  STAKE_TARGET_AUTHOR_BOND = 5;   // Author bond on own content (skin-in-the-game signal, no rewards)
+  STAKE_TARGET_INITIATIVE = 0;           // Conviction voting, rewards on completion
+  STAKE_TARGET_PROJECT = 1;              // APY while active, bonus on completion
+  STAKE_TARGET_MEMBER = 2;               // Revenue share from member's earnings
+  STAKE_TARGET_TAG = 3;                  // Revenue share from tagged initiatives
+
+  // Content conviction staking (no DREAM rewards, conviction signal only)
+  STAKE_TARGET_BLOG_CONTENT = 4;         // Community conviction on x/blog posts/replies
+  STAKE_TARGET_FORUM_CONTENT = 5;        // Community conviction on x/forum posts
+  STAKE_TARGET_COLLECTION_CONTENT = 6;   // Community conviction on x/collect collections
+
+  // Author bonds (no DREAM rewards, slashable on moderation)
+  STAKE_TARGET_BLOG_AUTHOR_BOND = 7;     // Author bond on x/blog content
+  STAKE_TARGET_FORUM_AUTHOR_BOND = 8;    // Author bond on x/forum content
+  STAKE_TARGET_COLLECTION_AUTHOR_BOND = 9; // Author bond on x/collect content
 }
 ```
 
@@ -456,16 +475,9 @@ message ProjectStakeInfo {
   string completion_bonus_pool = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];
 }
 
-// Tracks content staking totals (community conviction + author bond)
-message ContentStakePool {
-  string content_ref = 1;        // "module/type/id" (e.g., "blog/post/42")
-  string total_staked = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];   // community stakes only
-  string conviction_score = 3 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false]; // community conviction only
-  int64 last_updated = 4;
-  string author_bond = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];    // author's bonded DREAM (separate from conviction)
-  uint64 author_bond_stake_id = 6; // Stake ID for the author bond (0 if none)
-}
 ```
+
+> **Note:** There is no `ContentStakePool` collection. Content conviction is calculated on-demand from individual Stake records with content target types (BLOG_CONTENT, FORUM_CONTENT, COLLECTION_CONTENT). Author bond information is similarly computed from Stake records with author bond target types (BLOG_AUTHOR_BOND, FORUM_AUTHOR_BOND, COLLECTION_AUTHOR_BOND).
 
 ### Reward Mechanics by Target Type
 
@@ -475,8 +487,8 @@ message ContentStakePool {
 | Project | Time-based APY + bonus | APY while ACTIVE, bonus on completion | On claim or completion |
 | Member | Revenue share | `member_earnings * revenue_share_rate` | Accumulated on initiative completion, claimed anytime |
 | Tag | Revenue share | `tagged_initiative_earnings * tag_share_rate` | Accumulated per-tag, claimed anytime |
-| Content | None (conviction only) | Time-weighted conviction score | DREAM returned on unstake after cooldown |
-| Author Bond | None (signal only) | Flat bond amount (no conviction score) | DREAM returned on unstake, or slashed on moderation |
+| Blog/Forum/Collection Content | None (conviction only) | Time-weighted conviction score | DREAM returned on unstake after cooldown |
+| Blog/Forum/Collection Author Bond | None (signal only) | Flat bond amount (no conviction score) | DREAM returned on unstake, or slashed on moderation |
 
 ### Challenge
 
@@ -490,20 +502,13 @@ message Challenge {
   repeated string evidence = 5;
   string staked_dream = 6 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
-  bool is_anonymous = 7;
-  string payout_address = 8;
-  bytes membership_proof = 9;
-  bytes nullifier = 10;
+  // Fields 7-10 reserved (anonymous challenge fields removed;
+  // anonymous challenges are handled entirely by x/shield via MsgShieldedExec)
 
   ChallengeStatus status = 11;
   int64 created_at = 12;
   int64 resolved_at = 13;
   int64 response_deadline = 14;   // Block height; auto-uphold if assignee doesn't respond
-
-  // SPARK escrowed for anonymous challenges (uspark amount).
-  // Only set when is_anonymous=true. Stored to handle param changes between
-  // challenge creation and resolution.
-  string staked_spark = 15 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 enum ChallengeStatus {
@@ -511,6 +516,72 @@ enum ChallengeStatus {
   CHALLENGE_STATUS_IN_JURY_REVIEW = 1;
   CHALLENGE_STATUS_UPHELD = 2;
   CHALLENGE_STATUS_REJECTED = 3;
+}
+```
+
+> **Note:** Anonymous challenges no longer carry ZK proof fields (`is_anonymous`, `payout_address`, `membership_proof`, `nullifier`) on the Challenge proto. Anonymous challenge submission is handled entirely by x/shield: the challenger submits `MsgShieldedExec` wrapping `MsgCreateChallenge`, and x/shield handles ZK proof verification, nullifier management, and module-paid gas. The resulting Challenge stored in x/rep is structurally identical to a non-anonymous challenge (the `challenger` field is set to x/shield's module address).
+
+### ContentChallenge
+
+ContentChallenge defines a challenge against bonded content (author bonds). Any member can challenge content that has an author bond, routing through the jury system for resolution.
+
+```protobuf
+message ContentChallenge {
+  uint64 id = 1;
+
+  // Target content identification (author bond type: 7=BLOG, 8=FORUM, 9=COLLECTION)
+  StakeTargetType target_type = 2;
+  uint64 target_id = 3;
+
+  // Challenger info
+  string challenger = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string reason = 5;
+  repeated string evidence = 6;
+  string staked_dream = 7 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Content author (resolved from author bond at challenge creation time)
+  string author = 8 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // Status tracking
+  ContentChallengeStatus status = 9;
+  int64 created_at = 10;   // block height
+  int64 resolved_at = 11;  // block height (0 if unresolved)
+  int64 response_deadline = 12; // block height
+  uint64 jury_review_id = 13;   // 0 if not yet in jury review
+
+  // Author response (set when author responds)
+  string author_response = 14;
+  repeated string author_evidence = 15;
+
+  // Bond amount snapshot (for reward calculation even after bond removal)
+  string bond_amount = 16 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+enum ContentChallengeStatus {
+  CONTENT_CHALLENGE_STATUS_ACTIVE = 0;
+  CONTENT_CHALLENGE_STATUS_IN_JURY_REVIEW = 1;
+  CONTENT_CHALLENGE_STATUS_UPHELD = 2;
+  CONTENT_CHALLENGE_STATUS_REJECTED = 3;
+}
+```
+
+### ContentInitiativeLink
+
+ContentInitiativeLink defines a link between content and an initiative for conviction propagation. Stored in a KeySet indexed by `(initiativeID, (targetType, targetID))`, enabling prefix scan by initiative to find all linked content items. Used in genesis export/import.
+
+```protobuf
+message ContentInitiativeLink {
+  uint64 initiative_id = 1;
+  int32 target_type = 2;  // StakeTargetType (4=BLOG_CONTENT, 5=FORUM_CONTENT)
+  uint64 target_id = 3;   // Content ID
 }
 ```
 
@@ -647,6 +718,16 @@ enum TransferPurpose {
   TRANSFER_PURPOSE_TIP = 0;
   TRANSFER_PURPOSE_GIFT = 1;
   TRANSFER_PURPOSE_BOUNTY = 2;
+}
+
+// Register a ZK public key for anonymous operations.
+// The key is stored on the Member proto (field 28) and used by the trust tree
+// to build leaves as MiMC(zk_public_key, trust_level). Once registered,
+// the member can participate in anonymous operations via x/shield's MsgShieldedExec.
+message MsgRegisterZkPublicKey {
+  option (cosmos.msg.v1.signer) = "member";
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bytes zk_public_key = 2;
 }
 ```
 
@@ -791,15 +872,15 @@ message MsgCompleteInterim {
 
 ### Stake Messages
 
-Content conviction staking uses the same `MsgStake`/`MsgUnstake` with `target_type = STAKE_TARGET_CONTENT` and `target_identifier = "module/type/id"`. Author bonds are created via keeper methods (called by content modules during content creation) and released via `MsgUnstake`.
+Content conviction staking uses the same `MsgStake`/`MsgUnstake` with module-specific target types (`STAKE_TARGET_BLOG_CONTENT`, `STAKE_TARGET_FORUM_CONTENT`, `STAKE_TARGET_COLLECTION_CONTENT`) and `target_id` set to the content item's ID. Author bonds use `STAKE_TARGET_BLOG_AUTHOR_BOND`, `STAKE_TARGET_FORUM_AUTHOR_BOND`, or `STAKE_TARGET_COLLECTION_AUTHOR_BOND`. Author bonds are created via keeper methods (called by content modules during content creation) and released via `MsgUnstake`.
 
 ```protobuf
 message MsgStake {
   option (cosmos.msg.v1.signer) = "staker";
   string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   StakeTargetType target_type = 2;
-  uint64 target_id = 3;             // For INITIATIVE/PROJECT
-  string target_identifier = 4;     // For MEMBER (address), TAG (name), CONTENT ("blog/post/42"), or AUTHOR_BOND ("blog/post/42")
+  uint64 target_id = 3;             // For INITIATIVE/PROJECT/CONTENT/AUTHOR_BOND
+  string target_identifier = 4;     // For MEMBER (address) or TAG (name)
   string amount = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
@@ -851,10 +932,6 @@ message MsgCreateChallenge {
   string reason = 3;
   repeated string evidence = 4;
   string staked_dream = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  bool is_anonymous = 6;
-  string payout_address = 7;
-  bytes membership_proof = 8;
-  bytes nullifier = 9;
 }
 
 message MsgRespondToChallenge {
@@ -882,6 +959,49 @@ message MsgSubmitExpertTestimony {
   string opinion = 3;
   string reasoning = 4;
 }
+```
+
+#### Anonymous Challenge Flow (via x/shield)
+
+Anonymous challenges are not submitted directly to x/rep with per-module ZK proof verification. Instead, they go through x/shield's unified privacy layer:
+
+1. **Submission**: The challenger submits `MsgShieldedExec` to x/shield, wrapping a standard `MsgCreateChallenge`. x/shield handles ZK proof verification (PLONK over BN254), nullifier checking (domain 41, GLOBAL scope), and module-paid gas.
+2. **Proof verification**: x/shield verifies the ZK proof against the trust tree root maintained by x/rep (`GetTrustTreeRoot()`). The proof demonstrates membership and sufficient trust level without revealing the challenger's identity.
+3. **Execution**: x/shield unwraps and dispatches the inner `MsgCreateChallenge` to x/rep's message server. The `challenger` field is set to x/shield's module address (not the real challenger).
+4. **Batch mode**: Anonymous challenges use ENCRYPTED_ONLY batch mode -- the inner message is TLE-encrypted and only decrypted/executed after epoch key revelation, providing maximum privacy.
+
+x/rep's `IsShieldCompatible()` method (in `shield_aware.go`) identifies `MsgCreateChallenge` as eligible for shielded execution.
+
+### Content Challenge Messages
+
+```protobuf
+message MsgChallengeContent {
+  option (cosmos.msg.v1.signer) = "challenger";
+  string challenger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 target_type = 2; // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND)
+  uint64 target_id = 3;
+  string reason = 4;
+  repeated string evidence = 5;
+  string staked_dream = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = true
+  ];
+}
+
+message MsgChallengeContentResponse {
+  uint64 content_challenge_id = 1;
+}
+
+message MsgRespondToContentChallenge {
+  option (cosmos.msg.v1.signer) = "author";
+  string author = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 content_challenge_id = 2;
+  string response = 3;
+  repeated string evidence = 4;
+}
+
+message MsgRespondToContentChallengeResponse {}
 ```
 
 ## Queries
@@ -935,13 +1055,20 @@ service Query {
 
   // Content Staking
   rpc ContentConviction(QueryContentConvictionRequest) returns (QueryContentConvictionResponse);
-  rpc GetContentStakePool(QueryGetContentStakePoolRequest) returns (QueryGetContentStakePoolResponse);
-  rpc GetAuthorBond(QueryGetAuthorBondRequest) returns (QueryGetAuthorBondResponse);
+  rpc AuthorBond(QueryAuthorBondRequest) returns (QueryAuthorBondResponse);
 
   // Challenges
   rpc GetChallenge(QueryGetChallengeRequest) returns (QueryGetChallengeResponse);
   rpc ListChallenge(QueryAllChallengeRequest) returns (QueryAllChallengeResponse);
   rpc ChallengesByInitiative(QueryChallengesByInitiativeRequest) returns (QueryChallengesByInitiativeResponse);
+
+  // Content Challenges
+  rpc GetContentChallenge(QueryGetContentChallengeRequest) returns (QueryGetContentChallengeResponse);
+  rpc ListContentChallenge(QueryAllContentChallengeRequest) returns (QueryAllContentChallengeResponse);
+  rpc ContentChallengesByTarget(QueryContentChallengesByTargetRequest) returns (QueryContentChallengesByTargetResponse);
+
+  // Content-Initiative Links
+  rpc ContentByInitiative(QueryContentByInitiativeRequest) returns (QueryContentByInitiativeResponse);
 
   // Jury Reviews
   rpc GetJuryReview(QueryGetJuryReviewRequest) returns (QueryGetJuryReviewResponse);
@@ -982,11 +1109,11 @@ type SeasonKeeper interface {
     ResolveDisplayNameAppealInternal(ctx context.Context, member string, appealSucceeded bool) error
 }
 
-// VoteKeeper defines the expected interface for the x/vote module.
-// Wired manually via SetVoteKeeper in app.go to break cyclic dependency (vote -> rep -> vote).
-type VoteKeeper interface {
-    VerifyMembershipProof(ctx context.Context, proof []byte, nullifier []byte) error
-}
+// Note: x/rep no longer depends on a VoteKeeper. Anonymous challenge submission
+// (ZK proof verification, nullifier checking, module-paid gas) is handled entirely
+// by x/shield via MsgShieldedExec. x/rep exports trust tree roots for x/shield to
+// use during proof verification — see GetTrustTreeRoot() and GetPreviousTrustTreeRoot()
+// in merkle_trees.go.
 ```
 
 ## Keeper Struct
@@ -1007,8 +1134,7 @@ type Keeper struct {
     authKeeper    types.AuthKeeper
     bankKeeper    types.BankKeeper
     commonsKeeper types.CommonsKeeper
-    seasonKeeper  types.SeasonKeeper
-    voteKeeper    types.VoteKeeper // wired via SetVoteKeeper to break cyclic dependency
+    late          *lateKeepers // shared across value copies (tagKeeper, seasonKeeper)
 
     // Primary collections
     Member          collections.Map[string, types.Member]
@@ -1027,7 +1153,6 @@ type Keeper struct {
     InterimSeq      collections.Sequence
     Interim         collections.Map[uint64, types.Interim]
     InterimTemplate collections.Map[string, types.InterimTemplate]
-    UsedNullifiers  collections.KeySet[[]byte]
     GiftRecord      collections.Map[collections.Pair[string, string], types.GiftRecord]
 
     // Secondary indexes (avoid full table scans in EndBlocker)
@@ -1041,7 +1166,17 @@ type Keeper struct {
     MemberStakePool  collections.Map[string, types.MemberStakePool]  // member address -> pool
     TagStakePool     collections.Map[string, types.TagStakePool]     // tag name -> pool
     ProjectStakeInfo collections.Map[uint64, types.ProjectStakeInfo] // project ID -> info
-    ContentStakePool collections.Map[string, types.ContentStakePool] // content ref -> pool (community conviction + author bonds)
+
+    // Content challenges
+    ContentChallengeSeq       collections.Sequence
+    ContentChallenge          collections.Map[uint64, types.ContentChallenge]
+    ContentChallengesByStatus collections.KeySet[collections.Pair[int32, uint64]]
+    // (targetType, targetID) -> challengeID -- enforces one active challenge per content item
+    ContentChallengesByTarget collections.Map[collections.Pair[int32, uint64], uint64]
+
+    // Content-initiative links for conviction propagation
+    // Key: (initiativeID, (targetType, targetID)) -- enables prefix scan by initiative
+    ContentInitiativeLinks collections.KeySet[collections.Pair[uint64, collections.Pair[int32, uint64]]]
 }
 ```
 
@@ -1134,9 +1269,61 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
     // When a member tries to invite, credits are reset if current season > last reset season
     // Scales O(1) per block instead of O(n)
 
+    // 12. Rebuild trust tree incrementally if any members are dirty
+    // Only updates leaves for members whose ZK public key or trust level changed
+    k.MaybeRebuildTrustTree(ctx)
+
     return nil
 }
 ```
+
+## Trust Tree (MiMC Merkle Tree)
+
+x/rep maintains a persistent KV-based sparse Merkle tree used by x/shield for ZK proof verification. This is the **trust tree** — a binary tree where each leaf represents a member's anonymous identity and trust level.
+
+### Leaf Construction
+
+Each leaf is computed as:
+
+```
+leaf = MiMC(zk_public_key, trust_level)
+```
+
+where `zk_public_key` is the member's registered ZK public key (field 28 on Member proto) and `trust_level` is their current trust level as an integer (0-4). Members without a registered ZK public key are excluded from the tree.
+
+### Tree Structure
+
+- **Depth**: 20 (supports up to 2^20 = ~1M members)
+- **Hash function**: MiMC (BN254-compatible, same as the ZK circuits)
+- **Storage**: Persistent KV store with prefixed keys for nodes, member-to-index mappings, and dirty member tracking
+- **Root**: Stored at `trust_tree/root`, previous root at `trust_tree/prev_root`
+
+### Incremental Updates
+
+The tree is rebuilt incrementally in EndBlocker via `MaybeRebuildTrustTree()`:
+
+1. **Dirty tracking**: When a member's ZK public key or trust level changes, they are marked dirty via `MarkMemberDirty(ctx, address)`. This is O(1) per change.
+2. **Batch update**: EndBlocker iterates only dirty members, recomputes their leaf hash, and updates the affected path from leaf to root. This is O(dirty_count * tree_depth) per block.
+3. **Previous root preserved**: Before updating, the current root is saved as `previous_root`. x/shield accepts proofs against either the current or previous root (handles race conditions where a proof was generated against a slightly stale root).
+4. **Full rebuild**: On genesis import or upgrade, a full rebuild flag triggers recomputation of all leaves.
+
+### Exported API (used by x/shield)
+
+```go
+// GetTrustTreeRoot returns the current trust tree Merkle root.
+// Used by x/shield for ZK proof root validation (PROOF_DOMAIN_TRUST_TREE).
+func (k Keeper) GetTrustTreeRoot(ctx context.Context) ([]byte, error)
+
+// GetPreviousTrustTreeRoot returns the previous trust tree Merkle root.
+// Used by x/shield to accept proofs generated against slightly stale roots.
+func (k Keeper) GetPreviousTrustTreeRoot(ctx context.Context) ([]byte, error)
+```
+
+These are thin wrappers (in `merkle_trees.go`) over the underlying `GetMemberTrustTreeRoot()` and `GetPreviousMemberTrustTreeRoot()` methods in `trust_tree.go`.
+
+### Shield Compatibility
+
+x/rep implements the `IsShieldCompatible()` method (in `shield_aware.go`) which identifies `MsgCreateChallenge` as eligible for shielded execution. This allows x/shield to route anonymous challenges through x/rep's message server.
 
 ## Genesis State
 
@@ -1164,6 +1351,13 @@ message GenesisState {
   repeated MemberStakePool member_stake_pool_list = 18 [(gogoproto.nullable) = false];
   repeated TagStakePool tag_stake_pool_list = 19 [(gogoproto.nullable) = false];
   repeated ProjectStakeInfo project_stake_info_list = 20 [(gogoproto.nullable) = false];
+
+  // Content challenges
+  repeated ContentChallenge content_challenge_list = 21 [(gogoproto.nullable) = false];
+  uint64 content_challenge_count = 22;
+
+  // Content initiative links for conviction propagation
+  repeated ContentInitiativeLink content_initiative_links = 23 [(gogoproto.nullable) = false];
 }
 ```
 
@@ -1254,12 +1448,10 @@ var DefaultParams = Params{
 
     // Challenges
     MinChallengeStake:                  math.NewInt(50),
-    AnonymousFeeMultiplier:             math.LegacyNewDecWithPrec(250, 2), // 2.5x
     ChallengerRewardRate:               math.LegacyNewDecWithPrec(20, 2),  // 20%
     JurySize:                           5,
     JurySuperMajority:                  math.LegacyNewDecWithPrec(67, 2),  // 67%
     MinJurorReputation:                 math.LegacyNewDec(50),
-    AnonymousChallengeSparkStake:       math.NewInt(1_000_000),            // 1 SPARK (1e6 uspark)
     ChallengeResponseDeadlineEpochs:    3,                                  // ~3 days
 
     // Interim compensation (micro-DREAM)
@@ -1293,13 +1485,11 @@ var DefaultParams = Params{
     GiftCooldownBlocks:     14400,                          // 1 day
     MaxGiftsPerSenderEpoch: math.NewInt(2_000_000_000),     // 2000 DREAM per epoch
 
-    // Content staking
-    ContentStakingEnabled:              true,
+    // Content staking (set MaxContentStakePerMember to 0 to disable)
     MaxContentStakePerMember:           math.NewInt(10_000_000_000), // 10000 DREAM per content item
     ContentConvictionHalfLifeEpochs:    14,                          // 14 days (slower decay than initiatives)
 
-    // Author bond staking
-    AuthorBondEnabled:                  true,
+    // Author bond staking (set MaxAuthorBondPerContent to 0 to disable)
     MaxAuthorBondPerContent:            math.NewInt(1_000_000_000),  // 1000 DREAM per content item
     AuthorBondSlashOnModeration:        true,                        // slash bond if content is moderated/removed
 }
@@ -1382,13 +1572,15 @@ Traditional upvote/like systems are free and therefore low-signal. Content staki
 3. **Community conviction stakes** (DREAM locked by others) — economic quality signals with time-weighted conviction
 4. **Tips/gifts** (DREAM transferred) — direct creator compensation
 
-### Content Reference Format
+### Content Identification
 
-Both mechanisms use the same content reference format — a string in the format `"module/type/id"`:
-- `"blog/post/42"` — blog post #42
-- `"blog/reply/108"` — blog reply #108
-- `"forum/thread/7"` — forum thread #7
-- `"collect/collection/3"` — collection #3
+Both mechanisms identify content items via a `(target_type, target_id)` pair using module-specific `StakeTargetType` enum values:
+- `(STAKE_TARGET_BLOG_CONTENT, 42)` — blog post #42 (community conviction)
+- `(STAKE_TARGET_FORUM_CONTENT, 7)` — forum thread #7 (community conviction)
+- `(STAKE_TARGET_COLLECTION_CONTENT, 3)` — collection #3 (community conviction)
+- `(STAKE_TARGET_BLOG_AUTHOR_BOND, 42)` — author bond on blog post #42
+- `(STAKE_TARGET_FORUM_AUTHOR_BOND, 7)` — author bond on forum thread #7
+- `(STAKE_TARGET_COLLECTION_AUTHOR_BOND, 3)` — author bond on collection #3
 
 ### Community Conviction Staking
 
@@ -1396,10 +1588,10 @@ Community conviction staking allows any active member to stake DREAM on content 
 
 **How it works:**
 
-1. Member calls `MsgStake` with `target_type = STAKE_TARGET_CONTENT` and `target_identifier = "blog/post/42"`
+1. Member calls `MsgStake` with `target_type = STAKE_TARGET_BLOG_CONTENT` (or `FORUM_CONTENT`/`COLLECTION_CONTENT`) and `target_id = 42`
 2. DREAM is locked from the member's balance (same as initiative staking)
 3. Conviction builds over time using the same half-life formula as initiative conviction, but with a separate `content_conviction_half_life_epochs` parameter (default 14 epochs = 2 weeks, slower decay than initiative conviction's 7 epochs)
-4. Any module can query `GetContentConviction(ctx, "blog/post/42")` to get the current score
+4. Any module can query `ContentConviction(target_type, target_id)` to get the current score
 5. When the member unstakes, DREAM is returned after `min_stake_duration_seconds` cooldown
 6. No DREAM rewards are minted — conviction is the only output
 
@@ -1426,7 +1618,7 @@ Author bond staking allows content creators to lock DREAM on their own content a
 **How it works:**
 
 1. Author creates content via a content module (x/blog, x/forum, x/collect) with an optional `author_bond` amount in the creation message
-2. The content module calls `repKeeper.CreateAuthorBond(ctx, author, contentRef, amount)` during content creation
+2. The content module calls `repKeeper.CreateAuthorBond(ctx, author, targetType, targetID, amount)` during content creation
 3. DREAM is locked from the author's balance
 4. The bond amount is visible on the content item (queryable via `GetAuthorBond`)
 5. Author can release the bond after `min_stake_duration_seconds` by calling `MsgUnstake` on the bond's stake ID
@@ -1443,10 +1635,10 @@ Author bond staking allows content creators to lock DREAM on their own content a
 
 **Slashing integration:**
 
-Content modules that support moderation (x/forum sentinel system, x/collect curation) can call `repKeeper.SlashAuthorBond(ctx, contentRef)` when content is removed. This burns the bonded DREAM. The flow:
+Content modules that support moderation (x/forum sentinel system, x/collect curation) can call `repKeeper.SlashAuthorBond(ctx, targetType, targetID)` when content is removed. This burns the bonded DREAM. The flow:
 
 1. x/forum sentinel flags content for removal
-2. If appeal fails or no appeal filed, x/forum calls `repKeeper.SlashAuthorBond(ctx, "forum/thread/7")`
+2. If appeal fails or no appeal filed, x/forum calls `repKeeper.SlashAuthorBond(ctx, STAKE_TARGET_FORUM_AUTHOR_BOND, 7)`
 3. x/rep burns the bonded DREAM and marks the stake as resolved
 4. If the author had already unstaked (bond released), there is nothing to slash
 
@@ -1462,12 +1654,12 @@ Each module that wants to use content staking adds a `RepKeeper` interface:
 // In x/blog/types/expected_keepers.go, x/forum/types/expected_keepers.go, x/collect/types/expected_keepers.go
 type RepKeeper interface {
     // Community conviction
-    GetContentConviction(ctx context.Context, contentRef string) (math.LegacyDec, error)
+    GetContentConviction(ctx context.Context, targetType int32, targetID uint64) (math.LegacyDec, error)
 
     // Author bonds
-    CreateAuthorBond(ctx context.Context, author sdk.AccAddress, contentRef string, amount math.Int) (uint64, error)
-    SlashAuthorBond(ctx context.Context, contentRef string) error
-    GetAuthorBond(ctx context.Context, contentRef string) (math.Int, error)
+    CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType int32, targetID uint64, amount math.Int) (uint64, error)
+    SlashAuthorBond(ctx context.Context, targetType int32, targetID uint64) error
+    GetAuthorBond(ctx context.Context, targetType int32, targetID uint64) (math.Int, error)
 
     // Membership checks
     IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
@@ -1507,9 +1699,9 @@ type ModuleInputs struct {
     AuthKeeper   types.AuthKeeper
     BankKeeper   types.BankKeeper
     CommonsKeeper types.CommonsKeeper `optional:"true"`
-    SeasonKeeper  types.SeasonKeeper  `optional:"true"`
-    // VoteKeeper is wired manually in app.go via SetVoteKeeper
-    // to break the cyclic dependency: vote -> rep -> vote
+    // SeasonKeeper is wired manually in app.go via SetSeasonKeeper to break
+    // the cyclic dependency: rep -> season -> collect/blog/forum -> rep.
+    // TagKeeper is wired manually via SetTagKeeper to break: forum -> rep -> forum.
 }
 ```
 
@@ -1518,6 +1710,7 @@ type ModuleInputs struct {
 - `proto/sparkdream/rep/v1/params.proto` — Params and RepOperationalParams definitions
 - `proto/sparkdream/rep/v1/member.proto` — Member, GiftRecord, TrustLevel, MemberStatus
 - `proto/sparkdream/rep/v1/challenge.proto` — Challenge, ChallengeStatus
+- `proto/sparkdream/rep/v1/content_challenge.proto` — ContentChallenge, ContentChallengeStatus
 - `proto/sparkdream/rep/v1/interim.proto` — Interim, InterimType, InterimComplexity, InterimStatus
 - `proto/sparkdream/rep/v1/stake.proto` — Stake, StakeTargetType, MemberStakePool, TagStakePool, ProjectStakeInfo
 - `proto/sparkdream/rep/v1/tx.proto` — All Msg definitions
@@ -1525,6 +1718,11 @@ type ModuleInputs struct {
 - `proto/sparkdream/rep/v1/genesis.proto` — GenesisState
 - `x/rep/keeper/keeper.go` — Keeper struct and NewKeeper
 - `x/rep/keeper/abci.go` — EndBlocker logic
+- `x/rep/keeper/trust_tree.go` — Persistent MiMC Merkle tree implementation (MaybeRebuildTrustTree, incremental updates)
+- `x/rep/keeper/merkle_trees.go` — Exported API wrappers (GetTrustTreeRoot, GetPreviousTrustTreeRoot) used by x/shield
+- `x/rep/keeper/shield_aware.go` — IsShieldCompatible() for x/shield integration
+- `x/rep/keeper/content_challenge.go` — Content challenge creation, response, and resolution logic
+- `x/rep/keeper/msg_server_register_zk_public_key.go` — MsgRegisterZkPublicKey handler
 - `x/rep/types/params.go` — DefaultParams, Validate, ApplyOperationalParams
 - `x/rep/types/params_vals.go` — TrustLevelConfig (production vs testing values)
 - `x/rep/types/errors.go` — All error codes

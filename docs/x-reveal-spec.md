@@ -18,8 +18,8 @@ All participants must be active x/rep members:
 - **Proposing**: Requires `TRUST_LEVEL_ESTABLISHED` or higher
 - **Staking**: Requires `TRUST_LEVEL_PROVISIONAL` or higher (any active member). **Contributors cannot stake to their own contributions** (prevents self-staking → self-verification loop).
 - **Voting on verification**: Only stakers for that tranche may vote. **Contributors cannot vote on their own contributions** (prevents self-dealing).
-- **Approving proposals**: Requires a **Commons Council group proposal** (verified via `x/commons`). An Operations Committee member submits `MsgApprove` which creates a council proposal; the council votes to approve or reject. This prevents single-member collusion with contributors.
-- **Resolving disputes**: Requires a **Commons Council group proposal** (verified via `x/commons`). Same mechanism as approvals — prevents a single committee member from unilaterally resolving disputes in a contributor's favor.
+- **Approving proposals**: Requires a **Commons Council proposal** (via `x/commons` native `SubmitProposal`/`VoteProposal`/`ExecuteProposal`). An Operations Committee member submits `MsgApprove` which creates a council proposal; the council votes to approve or reject. This prevents single-member collusion with contributors.
+- **Resolving disputes**: Requires a **Commons Council proposal** (via `x/commons` native `SubmitProposal`/`VoteProposal`/`ExecuteProposal`). Same mechanism as approvals — prevents a single committee member from unilaterally resolving disputes in a contributor's favor.
 
 ## State
 
@@ -52,6 +52,8 @@ message Contribution {
 
   ContributionStatus status = 14;
   uint64 council_id = 15;          // Commons Council that approved (used for project transition)
+                                    // NOTE: Currently not populated by implementation — MsgApprove handler
+                                    // records approved_by but does not set council_id.
   string approved_by = 16;         // Operations Committee member who initiated approval
   int64 approved_at = 17;
   int64 created_at = 18;
@@ -240,7 +242,7 @@ message TrancheDef {
 // The council votes to approve — prevents single-member collusion with contributors.
 // Accept-or-reject only (no term modification by committee or council).
 message MsgApprove {
-  string authority = 1;            // Commons Council group policy account (executed via proposal)
+  string authority = 1;            // Commons Council policy_address (executed via x/commons proposal)
   string proposer = 2;            // Operations Committee member who initiated the proposal
   uint64 contribution_id = 3;
 }
@@ -248,7 +250,7 @@ message MsgApprove {
 // Operations Committee member initiates rejection; routed as Commons Council proposal.
 // Contributor may re-propose after proposal_cooldown_epochs.
 message MsgReject {
-  string authority = 1;            // Commons Council group policy account (executed via proposal)
+  string authority = 1;            // Commons Council policy_address (executed via x/commons proposal)
   string proposer = 2;            // Operations Committee member who initiated the proposal
   uint64 contribution_id = 3;
   string reason = 4;
@@ -306,7 +308,7 @@ message MsgCancel {
 // Dispute resolution routed as Commons Council proposal (same as approvals).
 // Prevents a single committee member from unilaterally siding with a contributor.
 message MsgResolveDispute {
-  string authority = 1;            // Commons Council group policy account (executed via proposal)
+  string authority = 1;            // Commons Council policy_address (executed via x/commons proposal)
   string proposer = 2;            // Operations Committee member who initiated the proposal
   uint64 contribution_id = 3;
   uint32 tranche_id = 4;
@@ -992,7 +994,7 @@ This section documents the attack vectors addressed by the spec and the mitigati
 
 **Attack**: A single Operations Committee member colludes with a contributor — approving inflated valuations or resolving disputes in their favor.
 
-**Mitigation**: All approvals, rejections, and dispute resolutions (ACCEPT/IMPROVE/REJECT) are routed as Commons Council group proposals. The Operations Committee member *initiates* the proposal, but the full council votes on it. This requires majority consensus for any action that moves DREAM or changes tranche state.
+**Mitigation**: All approvals, rejections, and dispute resolutions (ACCEPT/IMPROVE/REJECT) are routed as Commons Council proposals via the native `x/commons` `SubmitProposal`/`VoteProposal`/`ExecuteProposal` flow. The Operations Committee member *initiates* the proposal, but the full council votes on it. This requires majority consensus for any action that moves DREAM or changes tranche state.
 
 ### Dust Stake Griefing Prevention
 

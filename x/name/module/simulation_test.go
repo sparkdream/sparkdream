@@ -10,8 +10,8 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/stretchr/testify/require"
 
-	name "sparkdream/x/name/module"
 	"sparkdream/x/name/keeper"
+	name "sparkdream/x/name/module"
 	"sparkdream/x/name/types"
 )
 

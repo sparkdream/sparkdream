@@ -12,7 +12,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	zkcrypto "sparkdream/zkprivatevoting/crypto"
+	zkcrypto "sparkdream/tools/crypto"
 )
 
 // Store keys for the member trust tree.
@@ -115,14 +115,10 @@ func (k Keeper) MarkMemberDirty(ctx context.Context, address string) {
 }
 
 // MaybeRebuildTrustTree is called from EndBlocker. It handles:
-//  1. First-time initialization (populates tree from all active voter-members).
+//  1. First-time initialization (populates tree from all active members with ZK keys).
 //  2. Full rebuild (after genesis import or upgrade).
 //  3. Incremental updates (processes only dirty members).
 func (k Keeper) MaybeRebuildTrustTree(ctx context.Context) error {
-	if k.late.voteKeeper == nil {
-		return nil
-	}
-
 	// 1. First-time initialization.
 	if !k.isTrustTreeInitialized(ctx) {
 		return k.initializeTrustTree(ctx)
@@ -144,10 +140,6 @@ func (k Keeper) MaybeRebuildTrustTree(ctx context.Context) error {
 // RebuildMemberTrustTree forces a full rebuild of the trust tree.
 // Kept for backward compatibility; prefer MarkTrustTreeDirty + EndBlocker.
 func (k Keeper) RebuildMemberTrustTree(ctx context.Context) error {
-	if k.late.voteKeeper == nil {
-		return nil
-	}
-	// Clear existing tree and reinitialize from scratch.
 	k.clearAllTreeState(ctx)
 	return k.initializeTrustTree(ctx)
 }
@@ -240,7 +232,7 @@ func (k Keeper) setMemberLeafIndex(ctx context.Context, address string, index ui
 	store := k.storeService.OpenKVStore(ctx)
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, index)
-	store.Set(memberIdxKey(address), bz)   //nolint:errcheck
+	store.Set(memberIdxKey(address), bz)            //nolint:errcheck
 	store.Set(idxMemberKey(index), []byte(address)) //nolint:errcheck
 }
 
@@ -353,28 +345,35 @@ func (k Keeper) updateLeafPath(ctx context.Context, leafIndex uint64, newLeafHas
 // First-time initialization: populate tree from all active voter-members
 // ---------------------------------------------------------------------------
 
+// initializeTrustTree populates the trust tree from all active members that
+// have registered ZK public keys. Called on first EndBlocker or after full rebuild.
 func (k Keeper) initializeTrustTree(ctx context.Context) error {
-	addresses, zkPubKeys, err := k.late.voteKeeper.GetActiveVoterZkPublicKeys(ctx)
+	iter, err := k.Member.Iterate(ctx, nil)
 	if err != nil {
 		return err
 	}
+	defer iter.Close()
 
 	var root []byte
 	leafCount := 0
-	for i, addr := range addresses {
-		member, err := k.Member.Get(ctx, addr)
+	for ; iter.Valid(); iter.Next() {
+		kv, err := iter.KeyValue()
 		if err != nil {
-			continue // not an x/rep member
+			continue
 		}
+		member := kv.Value
 		if member.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+			continue
+		}
+		if len(member.ZkPublicKey) == 0 {
 			continue
 		}
 
 		leafIndex := k.allocLeafIndex(ctx)
-		k.setMemberLeafIndex(ctx, addr, leafIndex)
+		k.setMemberLeafIndex(ctx, member.Address, leafIndex)
 
 		trustLevel := uint64(member.TrustLevel)
-		leaf := zkcrypto.ComputeLeaf(zkPubKeys[i], trustLevel)
+		leaf := zkcrypto.ComputeLeaf(member.ZkPublicKey, trustLevel)
 		root = k.updateLeafPath(ctx, leafIndex, leaf)
 		leafCount++
 	}
@@ -386,11 +385,10 @@ func (k Keeper) initializeTrustTree(ctx context.Context) error {
 	}
 
 	// Only commit the initialized flag when we actually built a non-empty tree.
-	// If leafCount == 0 (no voter-members yet), leave initialized=false so we
-	// retry on the next EndBlocker once voters have registered.
+	// If leafCount == 0 (no members with ZK keys yet), leave initialized=false
+	// so we retry on the next EndBlocker once keys are registered.
 	if leafCount > 0 {
 		k.setTrustTreeInitialized(ctx)
-		// Clear any pending dirty members/flags since we just built from scratch.
 		k.clearFullRebuildFlag(ctx)
 		k.getDirtyMembers(ctx) // discard — just clears the set
 	}
@@ -490,16 +488,17 @@ func (k Keeper) incrementalUpdateTrustTree(ctx context.Context, dirtyAddrs []str
 	return nil
 }
 
-// getZkPubKeyForMember looks up a single member's ZK public key via VoteKeeper.
+// getZkPubKeyForMember looks up a single member's ZK public key from their
+// Member record. Returns nil if the member has no ZK key registered.
 func (k Keeper) getZkPubKeyForMember(ctx context.Context, addr string) []byte {
-	if k.late.voteKeeper == nil {
-		return nil
-	}
-	zkPubKey, err := k.late.voteKeeper.GetVoterZkPublicKey(ctx, addr)
+	member, err := k.Member.Get(ctx, addr)
 	if err != nil {
 		return nil
 	}
-	return zkPubKey
+	if len(member.ZkPublicKey) == 0 {
+		return nil
+	}
+	return member.ZkPublicKey
 }
 
 // ---------------------------------------------------------------------------

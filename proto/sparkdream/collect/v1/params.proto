@@ -2,7 +2,6 @@ syntax = "proto3";
 package sparkdream.collect.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/collect/types";
@@ -139,17 +138,7 @@ message Params {
   ];
   int64 conviction_renewal_period = 57;
 
-  // --- Anonymous collection parameters — OPERATIONAL ---
-  bool anonymous_posting_enabled = 58;
-  uint32 anonymous_min_trust_level = 59;
-  uint32 max_anonymous_collections_per_key = 60;
-
   // --- Pinning parameters — OPERATIONAL ---
-  uint32 pin_min_trust_level = 61;   // Min trust level to pin anonymous collections (default: 2 = ESTABLISHED)
-  uint32 max_pins_per_day = 62;      // Max pins per address per day (default: 10)
-
-  // --- Anonymous subsidy parameters — OPERATIONAL ---
-  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 63 [(gogoproto.nullable) = false];   // Subsidy budget from treasury per epoch
-  cosmos.base.v1beta1.Coin anon_subsidy_max_per_action = 64 [(gogoproto.nullable) = false];     // Max subsidy per anonymous action
-  repeated string anon_subsidy_relay_addresses = 65;                                             // Approved relay addresses eligible for subsidy
+  uint32 pin_min_trust_level = 61; // Min trust level to pin collections (default: 2 = ESTABLISHED)
+  uint32 max_pins_per_day = 62; // Max pins per address per day (default: 10)
 }

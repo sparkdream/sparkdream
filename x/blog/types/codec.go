@@ -8,18 +8,6 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgCreateAnonymousReply{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgCreateAnonymousPost{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgAnonymousReact{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgPinReply{},
 	)
 

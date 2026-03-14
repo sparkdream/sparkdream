@@ -8,10 +8,16 @@ import (
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/collect/types"
 	reptypes "sparkdream/x/rep/types"
 )
+
+// shieldModuleAddress is the deterministic address for the shield module account.
+// When the shield module routes a message via MsgShieldedExec, the ZK proof has
+// already verified membership and trust level, so this module bypasses its own checks.
+var shieldModuleAddress = authtypes.NewModuleAddress("shield")
 
 const (
 	SparkDenom = "uspark"
@@ -631,19 +637,28 @@ func (k Keeper) getMaxCollections(ctx context.Context, address string, params ty
 }
 
 // isMember checks if the address is an active x/rep member.
+// The shield module address is always considered a member because the ZK proof
+// verified membership before routing the message.
 func (k Keeper) isMember(ctx context.Context, address string) bool {
 	addrBytes, err := k.addressCodec.StringToBytes(address)
 	if err != nil {
 		return false
 	}
+	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
+		return true
+	}
 	return k.repKeeper.IsMember(ctx, addrBytes)
 }
 
 // meetsMinTrustLevel checks if address is at or above the required trust level string.
+// The shield module address always meets the minimum trust level.
 func (k Keeper) meetsMinTrustLevel(ctx context.Context, address string, minLevel string) bool {
 	addrBytes, err := k.addressCodec.StringToBytes(address)
 	if err != nil {
 		return false
+	}
+	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
+		return true
 	}
 	if !k.repKeeper.IsMember(ctx, addrBytes) {
 		return false

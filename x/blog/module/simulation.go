@@ -31,41 +31,35 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations := make([]simtypes.WeightedOperation, 0)
 
 	const (
-		opWeightMsgCreatePost              = "op_weight_msg_blog_create_post"
-		opWeightMsgUpdatePost              = "op_weight_msg_blog_update_post"
-		opWeightMsgDeletePost              = "op_weight_msg_blog_delete_post"
-		opWeightMsgHidePost                = "op_weight_msg_blog_hide_post"
-		opWeightMsgUnhidePost              = "op_weight_msg_blog_unhide_post"
-		opWeightMsgCreateReply             = "op_weight_msg_blog_create_reply"
-		opWeightMsgUpdateReply             = "op_weight_msg_blog_update_reply"
-		opWeightMsgDeleteReply             = "op_weight_msg_blog_delete_reply"
-		opWeightMsgHideReply               = "op_weight_msg_blog_hide_reply"
-		opWeightMsgUnhideReply             = "op_weight_msg_blog_unhide_reply"
-		opWeightMsgReact                   = "op_weight_msg_blog_react"
-		opWeightMsgRemoveReaction          = "op_weight_msg_blog_remove_reaction"
-		opWeightMsgPinPost                 = "op_weight_msg_blog_pin_post"
-		opWeightMsgPinReply                = "op_weight_msg_blog_pin_reply"
-		opWeightMsgCreateAnonymousPost     = "op_weight_msg_blog_create_anonymous_post"
-		opWeightMsgCreateAnonymousReply    = "op_weight_msg_blog_create_anonymous_reply"
-		opWeightMsgAnonymousReact          = "op_weight_msg_blog_anonymous_react"
+		opWeightMsgCreatePost     = "op_weight_msg_blog_create_post"
+		opWeightMsgUpdatePost     = "op_weight_msg_blog_update_post"
+		opWeightMsgDeletePost     = "op_weight_msg_blog_delete_post"
+		opWeightMsgHidePost       = "op_weight_msg_blog_hide_post"
+		opWeightMsgUnhidePost     = "op_weight_msg_blog_unhide_post"
+		opWeightMsgCreateReply    = "op_weight_msg_blog_create_reply"
+		opWeightMsgUpdateReply    = "op_weight_msg_blog_update_reply"
+		opWeightMsgDeleteReply    = "op_weight_msg_blog_delete_reply"
+		opWeightMsgHideReply      = "op_weight_msg_blog_hide_reply"
+		opWeightMsgUnhideReply    = "op_weight_msg_blog_unhide_reply"
+		opWeightMsgReact          = "op_weight_msg_blog_react"
+		opWeightMsgRemoveReaction = "op_weight_msg_blog_remove_reaction"
+		opWeightMsgPinPost        = "op_weight_msg_blog_pin_post"
+		opWeightMsgPinReply       = "op_weight_msg_blog_pin_reply"
 
-		defaultWeightMsgCreatePost           int = 100
-		defaultWeightMsgUpdatePost           int = 100
-		defaultWeightMsgDeletePost           int = 100
-		defaultWeightMsgHidePost             int = 30
-		defaultWeightMsgUnhidePost           int = 20
-		defaultWeightMsgCreateReply          int = 80
-		defaultWeightMsgUpdateReply          int = 50
-		defaultWeightMsgDeleteReply          int = 50
-		defaultWeightMsgHideReply            int = 30
-		defaultWeightMsgUnhideReply          int = 20
-		defaultWeightMsgReact                int = 80
-		defaultWeightMsgRemoveReaction       int = 30
-		defaultWeightMsgPinPost              int = 15
-		defaultWeightMsgPinReply             int = 15
-		defaultWeightMsgCreateAnonymousPost  int = 20
-		defaultWeightMsgCreateAnonymousReply int = 20
-		defaultWeightMsgAnonymousReact       int = 20
+		defaultWeightMsgCreatePost     int = 100
+		defaultWeightMsgUpdatePost     int = 100
+		defaultWeightMsgDeletePost     int = 100
+		defaultWeightMsgHidePost       int = 30
+		defaultWeightMsgUnhidePost     int = 20
+		defaultWeightMsgCreateReply    int = 80
+		defaultWeightMsgUpdateReply    int = 50
+		defaultWeightMsgDeleteReply    int = 50
+		defaultWeightMsgHideReply      int = 30
+		defaultWeightMsgUnhideReply    int = 20
+		defaultWeightMsgReact          int = 80
+		defaultWeightMsgRemoveReaction int = 30
+		defaultWeightMsgPinPost        int = 15
+		defaultWeightMsgPinReply       int = 15
 	)
 
 	var weightMsgCreatePost int
@@ -192,33 +186,6 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgPinReply,
 		blogsimulation.SimulateMsgPinReply(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	var weightMsgCreateAnonymousPost int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateAnonymousPost, &weightMsgCreateAnonymousPost, nil,
-		func(_ *rand.Rand) { weightMsgCreateAnonymousPost = defaultWeightMsgCreateAnonymousPost },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateAnonymousPost,
-		blogsimulation.SimulateMsgCreateAnonymousPost(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	var weightMsgCreateAnonymousReply int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateAnonymousReply, &weightMsgCreateAnonymousReply, nil,
-		func(_ *rand.Rand) { weightMsgCreateAnonymousReply = defaultWeightMsgCreateAnonymousReply },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateAnonymousReply,
-		blogsimulation.SimulateMsgCreateAnonymousReply(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	var weightMsgAnonymousReact int
-	simState.AppParams.GetOrGenerate(opWeightMsgAnonymousReact, &weightMsgAnonymousReact, nil,
-		func(_ *rand.Rand) { weightMsgAnonymousReact = defaultWeightMsgAnonymousReact },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgAnonymousReact,
-		blogsimulation.SimulateMsgAnonymousReact(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

@@ -62,6 +62,17 @@ check_tx_success() {
 }
 
 FAILURES=0
+PASSES=0
+
+pass() {
+    echo "  PASS: $1"
+    PASSES=$((PASSES + 1))
+}
+
+fail() {
+    echo "  FAIL: $1"
+    FAILURES=$((FAILURES + 1))
+}
 
 assert_equals() {
     local LABEL=$1
@@ -69,10 +80,9 @@ assert_equals() {
     local ACTUAL=$3
 
     if [ "$EXPECTED" == "$ACTUAL" ]; then
-        echo "  PASS: $LABEL (=$ACTUAL)"
+        pass "$LABEL (=$ACTUAL)"
     else
-        echo "  FAIL: $LABEL (expected=$EXPECTED, actual=$ACTUAL)"
-        FAILURES=$((FAILURES + 1))
+        fail "$LABEL (expected=$EXPECTED, actual=$ACTUAL)"
     fi
 }
 
@@ -382,8 +392,7 @@ else
                 assert_equals "report stake cleaned up (decreased by 1)" "1" "$REPORT_DECREASED"
                 assert_equals "appeal stake cleaned up (decreased by 1)" "1" "$APPEAL_DECREASED"
             else
-                echo "  FAIL: Transaction failed"
-                FAILURES=$((FAILURES + 1))
+                fail "Resolve appeal transaction failed"
             fi
         fi
     else
@@ -486,8 +495,7 @@ if [ "$PART9_READY" == "true" ]; then
             echo "  Pre-resolve appeal_challenge_id: $PRE_APPEAL_ID"
 
             if [ -z "$PRE_APPEAL_ID" ] || [ "$PRE_APPEAL_ID" == "" ]; then
-                echo "  FAIL: No appeal challenge ID set"
-                FAILURES=$((FAILURES + 1))
+                fail "No appeal challenge ID set"
                 PART9_READY=false
             fi
         else
@@ -556,8 +564,7 @@ if [ "$PART9_READY" == "true" ]; then
             assert_equals "report stake cleaned up (decreased by 1)" "1" "$REPORT9_DECREASED"
             assert_equals "appeal stake cleaned up (decreased by 1)" "1" "$APPEAL9_DECREASED"
         else
-            echo "  FAIL: Transaction failed"
-            FAILURES=$((FAILURES + 1))
+            fail "Resolve appeal (fails) transaction failed"
         fi
     fi
 fi
@@ -690,9 +697,8 @@ if [ "$PART10_READY" == "true" ]; then
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  FAIL: Could not submit transaction (command not recognized?)"
+        fail "Could not submit resolve-unappealed-moderation tx"
         echo "  $TX_RES"
-        FAILURES=$((FAILURES + 1))
     else
         sleep 6
         TX_RESULT=$(wait_for_tx $TXHASH)
@@ -702,9 +708,9 @@ if [ "$PART10_READY" == "true" ]; then
             # Expected failure — appeal period not expired
             RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
             if echo "$RAW_LOG" | grep -qi "appeal period\|not.*expired\|not yet expired"; then
-                echo "  PASS: Correctly rejected (appeal period not expired)"
+                pass "Correctly rejected (appeal period not expired)"
             else
-                echo "  PASS: Transaction failed as expected (code=$TX_CODE)"
+                pass "Transaction failed as expected (code=$TX_CODE)"
                 echo "    Log: $RAW_LOG"
             fi
         else
@@ -728,9 +734,9 @@ if [ "$PART10_READY" == "true" ]; then
     echo "  Report stakes still locked: $REPORT_STAKE_COUNT"
 
     if [ "$REPORT_STAKE_COUNT" -gt 0 ]; then
-        echo "  PASS: Reporter's stake remains locked while awaiting resolution"
+        pass "Reporter's stake remains locked while awaiting resolution"
     else
-        echo "  WARN: No report stakes found (may have been cleaned up)"
+        fail "No report stakes found (expected stake to be locked)"
     fi
 fi
 
@@ -758,8 +764,7 @@ if [ "$PART10_READY" == "true" ]; then
             break
         fi
         if [ $i -eq 60 ]; then
-            echo "  FAIL: Timed out waiting for appeal period to expire (block $CURRENT_BLOCK < $EXPIRY_BLOCK)"
-            FAILURES=$((FAILURES + 1))
+            fail "Timed out waiting for appeal period to expire (block $CURRENT_BLOCK < $EXPIRY_BLOCK)"
             PART10_READY=false
         fi
         sleep 1
@@ -791,17 +796,15 @@ if [ "$PART10_READY" == "true" ]; then
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
         if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-            echo "  FAIL: Could not submit transaction"
+            fail "Could not submit resolve-unappealed-moderation tx"
             echo "  $TX_RES"
-            FAILURES=$((FAILURES + 1))
             PART10_READY=false
         else
             sleep 6
             TX_RESULT=$(wait_for_tx $TXHASH)
 
             if ! check_tx_success "$TX_RESULT"; then
-                echo "  FAIL: Transaction failed"
-                FAILURES=$((FAILURES + 1))
+                fail "Resolve unappealed moderation transaction failed"
                 PART10_READY=false
             fi
         fi
@@ -839,24 +842,15 @@ echo ""
 # ========================================================================
 echo "--- DISPLAY NAME MODERATION TEST SUMMARY ---"
 echo ""
-echo "  Set display name:                Tested"
-echo "  Query moderations:               Tested"
-echo "  Report display name:             Tested"
-echo "  Query report stakes:             Tested"
-echo "  Appeal moderation:               Tested"
-echo "  Query appeal stakes:             Tested"
-echo "  Moderation parameters:           Tested"
-echo "  Resolve appeal (succeeds):       Tested"
-echo "  Full cycle (appeal fails):       Tested"
-echo "  Unappealed moderation (early):   Tested (rejection before expiry)"
-echo "  Unappealed moderation (expired): Tested (auto-resolve/manual after expiry)"
+echo "  Passed: $PASSES"
+echo "  Failed: $FAILURES"
 echo ""
 
 if [ "$FAILURES" -gt 0 ]; then
     echo "RESULT: $FAILURES ASSERTION(S) FAILED"
     exit 1
 else
-    echo "RESULT: ALL ASSERTIONS PASSED"
+    echo "RESULT: ALL $PASSES TESTS PASSED"
 fi
 
 echo ""

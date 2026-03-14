@@ -2,7 +2,6 @@ package keeper_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"cosmossdk.io/core/address"
@@ -62,39 +61,6 @@ func (m mockSeasonKeeper) ResolveDisplayNameAppealInternal(ctx context.Context, 
 	return nil
 }
 
-type mockVoteKeeper struct {
-	VerifyMembershipProofFn      func(ctx context.Context, proof []byte, nullifier []byte) error
-	GetActiveVoterZkPublicKeysFn func(ctx context.Context) ([]string, [][]byte, error)
-	GetVoterZkPublicKeyFn        func(ctx context.Context, address string) ([]byte, error)
-}
-
-func (m mockVoteKeeper) VerifyMembershipProof(ctx context.Context, proof []byte, nullifier []byte) error {
-	if m.VerifyMembershipProofFn != nil {
-		return m.VerifyMembershipProofFn(ctx, proof, nullifier)
-	}
-	// Default: accept any non-empty proof (dev mode behavior)
-	if len(proof) == 0 {
-		return fmt.Errorf("empty proof")
-	}
-	return nil
-}
-
-func (m mockVoteKeeper) GetActiveVoterZkPublicKeys(ctx context.Context) ([]string, [][]byte, error) {
-	if m.GetActiveVoterZkPublicKeysFn != nil {
-		return m.GetActiveVoterZkPublicKeysFn(ctx)
-	}
-	// Default: no registered voters
-	return nil, nil, nil
-}
-
-func (m mockVoteKeeper) GetVoterZkPublicKey(ctx context.Context, address string) ([]byte, error) {
-	if m.GetVoterZkPublicKeyFn != nil {
-		return m.GetVoterZkPublicKeyFn(ctx, address)
-	}
-	// Default: no registration found
-	return nil, fmt.Errorf("no voter registration for %s", address)
-}
-
 type fixture struct {
 	ctx           sdk.Context
 	keeper        keeper.Keeper
@@ -102,7 +68,6 @@ type fixture struct {
 	bankKeeper    *mockBankKeeper
 	commonsKeeper *mockCommonsKeeper
 	seasonKeeper  *mockSeasonKeeper
-	voteKeeper    *mockVoteKeeper
 }
 
 // fixtureOptions allows customization of test fixture
@@ -196,9 +161,6 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		},
 	}
 
-	// Mock VoteKeeper (accepts any non-empty proof by default)
-	voteKeeper := &mockVoteKeeper{}
-
 	// Mock BankKeeper (all operations succeed by default)
 	bankKeeper := &mockBankKeeper{}
 
@@ -210,7 +172,6 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		nil,
 		bankKeeper,
 		commonsKeeper,
-		voteKeeper,
 	)
 	k.SetSeasonKeeper(seasonKeeper)
 
@@ -230,6 +191,5 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		bankKeeper:    bankKeeper,
 		commonsKeeper: commonsKeeper,
 		seasonKeeper:  seasonKeeper,
-		voteKeeper:    voteKeeper,
 	}
 }

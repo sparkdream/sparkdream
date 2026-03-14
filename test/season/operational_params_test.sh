@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "--- TESTING: SEASON OPERATIONAL PARAMS UPDATE (COUNCIL-GATED) ---"
+echo "--- TESTING: SEASON OPERATIONAL PARAMS UPDATE (COMMITTEE-GATED) ---"
 
 # --- 0. SETUP ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -12,76 +12,28 @@ CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
-# Season uses Commons Council for authorization
-COUNCIL_NAME="Commons Council"
-echo "Looking up '$COUNCIL_NAME'..."
-COUNCIL_INFO=$($BINARY query commons get-group "$COUNCIL_NAME" --output json)
-COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.group.policy_address')
+# Operational params are gated by the Commons Operations Committee
+COMMITTEE_NAME="Commons Operations Committee"
+echo "Looking up '$COMMITTEE_NAME'..."
+COMMITTEE_INFO=$($BINARY query commons get-group "$COMMITTEE_NAME" --output json)
+COMMITTEE_POLICY=$(echo $COMMITTEE_INFO | jq -r '.group.policy_address')
 
-if [ -z "$COUNCIL_POLICY" ] || [ "$COUNCIL_POLICY" == "null" ]; then
-    echo "SETUP ERROR: '$COUNCIL_NAME' not found. Run genesis/bootstrap first."
+if [ -z "$COMMITTEE_POLICY" ] || [ "$COMMITTEE_POLICY" == "null" ]; then
+    echo "SETUP ERROR: '$COMMITTEE_NAME' not found. Run genesis/bootstrap first."
     exit 1
 fi
 
-# Governance module address (for MsgUpdatePolicyPermissions)
-GOV_MODULE_ADDR=$($BINARY query auth module-account gov --output json 2>/dev/null | jq -r '.account.base_account.address // empty')
-if [ -z "$GOV_MODULE_ADDR" ]; then
-    GOV_MODULE_ADDR="sprkdrm10d07y265gmmuvt4z0w9aw880jnsr700j865qcw"
-fi
-
-echo "Alice Address:    $ALICE_ADDR"
-echo "Bob Address:      $BOB_ADDR"
-echo "Council Policy:   $COUNCIL_POLICY"
-echo "Gov Module:       $GOV_MODULE_ADDR"
+echo "Alice Address:      $ALICE_ADDR"
+echo "Bob Address:        $BOB_ADDR"
+echo "Committee Policy:   $COMMITTEE_POLICY"
 echo ""
 
 # --- Result Tracking ---
-GOV_SETUP_RESULT="FAIL"
 QUERY_PARAMS_RESULT="FAIL"
 UPDATE_PARAMS_RESULT="FAIL"
 VERIFY_OPERATIONAL_RESULT="FAIL"
 VERIFY_GOVERNANCE_RESULT="FAIL"
 RESET_PARAMS_RESULT="FAIL"
-
-# Helper: wait for tx to be indexed
-wait_for_tx() {
-    local TXHASH=$1
-    local MAX_ATTEMPTS=20
-    local ATTEMPT=0
-
-    while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
-        if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
-            echo "$RESULT"
-            return 0
-        fi
-        ATTEMPT=$((ATTEMPT + 1))
-        sleep 1
-    done
-
-    echo "ERROR: Transaction $TXHASH not found after $MAX_ATTEMPTS attempts" >&2
-    return 1
-}
-
-check_tx_success() {
-    local TX_RESULT=$1
-    local CODE=$(echo "$TX_RESULT" | jq -r '.code')
-
-    if [ "$CODE" != "0" ]; then
-        echo "Transaction failed with code: $CODE"
-        echo "$TX_RESULT" | jq -r '.raw_log'
-        return 1
-    fi
-    return 0
-}
-
-extract_event_value() {
-    local TX_RESULT=$1
-    local EVENT_TYPE=$2
-    local ATTR_KEY=$3
-
-    echo "$TX_RESULT" | jq -r ".events[] | select(.type==\"$EVENT_TYPE\") | .attributes[] | select(.key==\"$ATTR_KEY\") | .value" | tr -d '"'
-}
 
 # Helper: Fix LegacyDec fields in operational params JSON.
 # The query output shows LegacyDec values as their internal integer representation
@@ -141,7 +93,8 @@ get_group_proposal_id() {
     return 1
 }
 
-# Helper: vote + execute a commons proposal (council requires 2 of 3 votes)
+# Helper: vote + execute a Commons Operations Committee proposal
+# Threshold=1, so a single vote from any member suffices.
 vote_and_execute() {
     local prop_id=$1
 
@@ -149,13 +102,7 @@ vote_and_execute() {
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000000uspark --output json > /dev/null 2>&1
-    sleep 5
-
-    echo "  Bob voting YES..."
-    $BINARY tx commons vote-proposal $prop_id yes \
-        --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
-    sleep 5
+    sleep 6
 
     echo "  Executing proposal $prop_id..."
     EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
@@ -164,149 +111,18 @@ vote_and_execute() {
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
-    EXEC_TX_JSON=$(wait_for_tx $EXEC_TX_HASH)
     # Check proposal status
     PROP_STATUS=$($BINARY query commons get-proposal $prop_id --output json 2>/dev/null | jq -r '.proposal.status // empty')
     if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
         echo "  Proposal executed successfully"
         return 0
-    elif check_tx_success "$EXEC_TX_JSON" 2>/dev/null; then
-        echo "  Execution tx succeeded (status: $PROP_STATUS)"
-        return 0
     else
+        EXEC_TX_JSON=$($BINARY query tx $EXEC_TX_HASH --output json 2>/dev/null)
         echo "  Execution failed (status: $PROP_STATUS)"
         echo "  Raw: $(echo $EXEC_TX_JSON | jq -r '.raw_log' 2>/dev/null)"
         return 1
     fi
 }
-
-# ========================================================================
-# PART 0: GOVERNANCE SETUP
-# Add MsgUpdateOperationalParams to Commons Council's AllowedMessages
-# ========================================================================
-echo "--- TEST 0: GOVERNANCE SETUP (ADD PERMISSION) ---"
-echo "Adding MsgUpdateOperationalParams permission to Commons Council via governance..."
-
-# Get current allowed messages and append the new one
-CURRENT_PERMS=$($BINARY query commons get-policy-permissions "$COUNCIL_POLICY" --output json 2>&1)
-CURRENT_MSGS=$(echo "$CURRENT_PERMS" | jq -c '.policy_permissions.allowed_messages // []')
-
-# Check if permission already exists
-if echo "$CURRENT_MSGS" | jq -e 'index("/sparkdream.season.v1.MsgUpdateOperationalParams")' > /dev/null 2>&1; then
-    echo "  Permission already exists, skipping governance setup"
-    GOV_SETUP_RESULT="PASS"
-else
-    # Build the new allowed messages list (current + new)
-    NEW_MSGS=$(echo "$CURRENT_MSGS" | jq '. + ["/sparkdream.season.v1.MsgUpdateOperationalParams"]')
-
-    GOV_PROPOSAL_FILE="$PROPOSAL_DIR/add_season_op_params_perm.json"
-    jq -n \
-      --arg policy "$COUNCIL_POLICY" \
-      --arg gov "$GOV_MODULE_ADDR" \
-      --argjson msgs "$NEW_MSGS" \
-    '{
-      messages: [{
-        "@type": "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
-        authority: $gov,
-        policy_address: $policy,
-        allowed_messages: $msgs
-      }],
-      metadata: "",
-      deposit: "50000000uspark",
-      title: "Add season operational params permission to Commons Council",
-      summary: "Enable Commons Council to update season operational params",
-      expedited: false
-    }' > "$GOV_PROPOSAL_FILE"
-
-    echo "  Submitting governance proposal..."
-    TX_RES=$($BINARY tx gov submit-proposal \
-        "$GOV_PROPOSAL_FILE" \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --gas 500000 \
-        --fees 10000uspark \
-        -y \
-        --output json 2>&1)
-
-    GOV_TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-    if [ -z "$GOV_TXHASH" ] || [ "$GOV_TXHASH" == "null" ]; then
-        echo "  FATAL: Failed to submit governance proposal"
-        echo "  $TX_RES"
-        exit 1
-    fi
-
-    sleep 6
-    GOV_TX_RESULT=$(wait_for_tx $GOV_TXHASH)
-
-    if ! check_tx_success "$GOV_TX_RESULT"; then
-        echo "  FATAL: Governance proposal submission failed"
-        exit 1
-    fi
-
-    # Extract proposal ID
-    GOV_PROPOSAL_ID=$(extract_event_value "$GOV_TX_RESULT" "submit_proposal" "proposal_id")
-    if [ -z "$GOV_PROPOSAL_ID" ]; then
-        GOV_PROPOSAL_ID=$($BINARY query gov proposals --status voting_period --output json 2>&1 | jq -r '.proposals[-1].id // empty')
-    fi
-    if [ -z "$GOV_PROPOSAL_ID" ]; then
-        GOV_PROPOSAL_ID=$($BINARY query gov proposals --output json 2>&1 | jq -r '.proposals[-1].id // empty')
-    fi
-
-    if [ -z "$GOV_PROPOSAL_ID" ]; then
-        echo "  FATAL: Could not determine governance proposal ID"
-        exit 1
-    fi
-
-    echo "  Governance proposal #$GOV_PROPOSAL_ID submitted"
-
-    # Alice votes YES (she controls ~75% of bonded stake)
-    echo "  Alice voting YES..."
-    TX_RES=$($BINARY tx gov vote \
-        "$GOV_PROPOSAL_ID" \
-        yes \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --gas 300000 \
-        --fees 10000uspark \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-        sleep 6
-        wait_for_tx $TXHASH > /dev/null 2>&1
-    fi
-
-    # Wait for voting period (60s in genesis config)
-    echo "  Waiting for voting period (65s)..."
-    sleep 65
-
-    # Verify proposal passed
-    PROPOSAL_STATUS=$($BINARY query gov proposal "$GOV_PROPOSAL_ID" --output json 2>&1 | jq -r '.proposal.status // .status // "unknown"')
-    echo "  Proposal status: $PROPOSAL_STATUS"
-
-    if [ "$PROPOSAL_STATUS" != "PROPOSAL_STATUS_PASSED" ] && [ "$PROPOSAL_STATUS" != "3" ]; then
-        echo "  FATAL: Governance proposal did not pass (status=$PROPOSAL_STATUS)"
-        exit 1
-    fi
-
-    # Verify updated permissions
-    echo "  Verifying permissions..."
-    PERMS=$($BINARY query commons get-policy-permissions "$COUNCIL_POLICY" --output json 2>&1)
-    echo "  Permissions: $(echo "$PERMS" | jq -c '.policy_permissions.allowed_messages' 2>/dev/null)"
-
-    if echo "$PERMS" | jq -e '.policy_permissions.allowed_messages | index("/sparkdream.season.v1.MsgUpdateOperationalParams")' > /dev/null 2>&1; then
-        GOV_SETUP_RESULT="PASS"
-        echo "  PASS: Permission added successfully"
-    else
-        echo "  FATAL: Permission not found after governance proposal passed"
-        exit 1
-    fi
-fi
-echo ""
 
 # --- 1. QUERY INITIAL PARAMETERS ---
 echo "--- TEST 1: QUERY INITIAL SEASON PARAMETERS ---"
@@ -421,7 +237,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
 
     # Build the proposal JSON
     jq -n \
-      --arg policy "$COUNCIL_POLICY" \
+      --arg policy "$COMMITTEE_POLICY" \
       --arg alice "$ALICE_ADDR" \
       --argjson op_params "$OP_PARAMS" \
     '{
@@ -608,7 +424,7 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     RESET_OP_PARAMS=$(fix_legacy_dec_fields "$RESET_OP_PARAMS")
 
     jq -n \
-      --arg policy "$COUNCIL_POLICY" \
+      --arg policy "$COMMITTEE_POLICY" \
       --arg alice "$ALICE_ADDR" \
       --argjson op_params "$RESET_OP_PARAMS" \
     '{
@@ -662,7 +478,7 @@ TOTAL_COUNT=0
 PASS_COUNT=0
 FAIL_COUNT=0
 
-for RESULT in "$GOV_SETUP_RESULT" "$QUERY_PARAMS_RESULT" "$UPDATE_PARAMS_RESULT" "$VERIFY_OPERATIONAL_RESULT" "$VERIFY_GOVERNANCE_RESULT" "$RESET_PARAMS_RESULT"; do
+for RESULT in "$QUERY_PARAMS_RESULT" "$UPDATE_PARAMS_RESULT" "$VERIFY_OPERATIONAL_RESULT" "$VERIFY_GOVERNANCE_RESULT" "$RESET_PARAMS_RESULT"; do
     TOTAL_COUNT=$((TOTAL_COUNT + 1))
     if [ "$RESULT" == "PASS" ]; then
         PASS_COUNT=$((PASS_COUNT + 1))
@@ -671,7 +487,6 @@ for RESULT in "$GOV_SETUP_RESULT" "$QUERY_PARAMS_RESULT" "$UPDATE_PARAMS_RESULT"
     fi
 done
 
-echo "  0. Governance Setup (Add Perm):   $GOV_SETUP_RESULT"
 echo "  1. Query Initial Params:          $QUERY_PARAMS_RESULT"
 echo "  2. Update Operational Params:      $UPDATE_PARAMS_RESULT"
 echo "  3. Verify Operational Updated:     $VERIFY_OPERATIONAL_RESULT"

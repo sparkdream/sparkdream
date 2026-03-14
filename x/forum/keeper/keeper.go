@@ -13,10 +13,6 @@ import (
 	"sparkdream/x/forum/types"
 )
 
-// DefaultEpochDuration is the fallback epoch duration in seconds (~5 months)
-// used when no SeasonKeeper is configured.
-const DefaultEpochDuration int64 = 13_140_000
-
 type Keeper struct {
 	storeService corestore.KVStoreService
 	cdc          codec.Codec
@@ -31,8 +27,6 @@ type Keeper struct {
 	bankKeeper            types.BankKeeper
 	repKeeper             types.RepKeeper
 	commonsKeeper         types.CommonsKeeper
-	voteKeeper            types.VoteKeeper
-	seasonKeeper          types.SeasonKeeper
 	Post                  collections.Map[uint64, types.Post]
 	PostSeq               collections.Sequence
 	Category              collections.Map[uint64, types.Category]
@@ -133,16 +127,6 @@ func NewKeeper(
 // GetAuthority returns the module's authority.
 func (k Keeper) GetAuthority() []byte {
 	return k.authority
-}
-
-// SetVoteKeeper sets the optional VoteKeeper for ZK proof verification.
-func (k *Keeper) SetVoteKeeper(vk types.VoteKeeper) {
-	k.voteKeeper = vk
-}
-
-// SetSeasonKeeper sets the optional SeasonKeeper for epoch duration.
-func (k *Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
-	k.seasonKeeper = sk
 }
 
 // HasPost returns true if a post (or reply, which is a post with ParentId > 0) exists.

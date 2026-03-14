@@ -1199,6 +1199,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     fi
 fi
 
+LOCK_SENTINEL="sentinel1"
 if [ -n "$LOCK_THREAD_ID" ]; then
     TX_RES=$($BINARY tx forum lock-thread \
         "$LOCK_THREAD_ID" \
@@ -1220,7 +1221,33 @@ if [ -n "$LOCK_THREAD_ID" ]; then
             echo "  Thread locked successfully by sentinel1"
             PART25_RESULT="PASS"
         else
-            echo "  Failed to lock thread"
+            RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
+            echo "  sentinel1 lock failed: $RAW_LOG"
+            # Retry with second sentinel if sentinel1 hit epoch limit
+            if echo "$RAW_LOG" | grep -qi "lock limit exceeded"; then
+                echo "  Retrying with $SECOND_SENTINEL_ACCOUNT..."
+                TX_RES=$($BINARY tx forum lock-thread \
+                    "$LOCK_THREAD_ID" \
+                    "Thread locked for moderation review" \
+                    --from $SECOND_SENTINEL_ACCOUNT \
+                    --chain-id $CHAIN_ID \
+                    --keyring-backend test \
+                    --fees 5000uspark \
+                    -y \
+                    --output json 2>&1)
+                TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+                if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+                    sleep 6
+                    TX_RESULT=$(wait_for_tx $TXHASH)
+                    if check_tx_success "$TX_RESULT"; then
+                        echo "  Thread locked successfully by $SECOND_SENTINEL_ACCOUNT"
+                        LOCK_SENTINEL="$SECOND_SENTINEL_ACCOUNT"
+                        PART25_RESULT="PASS"
+                    else
+                        echo "  Failed to lock thread with $SECOND_SENTINEL_ACCOUNT"
+                    fi
+                fi
+            fi
         fi
     fi
 fi
@@ -1250,10 +1277,10 @@ echo ""
 echo "--- PART 27: UNLOCK THREAD (SENTINEL) ---"
 PART27_RESULT="FAIL"
 
-if [ -n "$LOCK_THREAD_ID" ]; then
+if [ -n "$LOCK_THREAD_ID" ] && [ "$PART25_RESULT" = "PASS" ]; then
     TX_RES=$($BINARY tx forum unlock-thread \
         "$LOCK_THREAD_ID" \
-        --from sentinel1 \
+        --from $LOCK_SENTINEL \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 5000uspark \
@@ -1267,7 +1294,7 @@ if [ -n "$LOCK_THREAD_ID" ]; then
         TX_RESULT=$(wait_for_tx $TXHASH)
 
         if check_tx_success "$TX_RESULT"; then
-            echo "  Thread unlocked successfully by sentinel1"
+            echo "  Thread unlocked successfully by $LOCK_SENTINEL"
             PART27_RESULT="PASS"
         else
             echo "  Failed to unlock thread"

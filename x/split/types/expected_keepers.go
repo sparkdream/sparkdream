@@ -25,6 +25,12 @@ type BankKeeper interface {
 	SendCoinsFromModuleToAccount(context.Context, string, sdk.AccAddress, sdk.Coins) error
 }
 
+// DistrKeeper defines the expected interface for the Distribution module.
+type DistrKeeper interface {
+	DistributeFromFeePool(ctx context.Context, amount sdk.Coins, receiveAddr sdk.AccAddress) error
+	GetCommunityPool(ctx context.Context) (sdk.DecCoins, error)
+}
+
 // ParamSubspace defines the expected Subspace interface for parameters.
 type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})

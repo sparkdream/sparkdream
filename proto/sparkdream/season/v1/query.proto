@@ -20,6 +20,7 @@ import "sparkdream/season/v1/member_quest_progress.proto";
 import "sparkdream/season/v1/member_registration.proto";
 import "sparkdream/season/v1/member_season_snapshot.proto";
 import "sparkdream/season/v1/next_season_info.proto";
+import "sparkdream/season/v1/nomination.proto";
 import "sparkdream/season/v1/params.proto";
 import "sparkdream/season/v1/quest.proto";
 import "sparkdream/season/v1/season.proto";
@@ -29,7 +30,6 @@ import "sparkdream/season/v1/season_transition_state.proto";
 import "sparkdream/season/v1/title.proto";
 import "sparkdream/season/v1/transition_recovery_state.proto";
 import "sparkdream/season/v1/vote_xp_record.proto";
-import "sparkdream/season/v1/nomination.proto";
 
 option go_package = "sparkdream/x/season/types";
 

@@ -9,6 +9,7 @@ echo ""
 # Configuration
 # ========================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../check_testparams.sh"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 
@@ -23,6 +24,8 @@ RUN_MODERATION_TEST=true
 RUN_XP_TRACKING_TEST=true
 RUN_OPERATIONAL_PARAMS_TEST=true
 RUN_NOMINATION_TEST=true
+RUN_GUILD_ERRORS_TEST=true
+RUN_QUEST_ERRORS_TEST=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -71,11 +74,21 @@ while [[ $# -gt 0 ]]; do
             RUN_NOMINATION_TEST=false
             shift
             ;;
+        --no-guild-errors)
+            RUN_GUILD_ERRORS_TEST=false
+            shift
+            ;;
+        --no-quest-errors)
+            RUN_QUEST_ERRORS_TEST=false
+            shift
+            ;;
         --only-setup)
             RUN_PROFILE_TEST=false
             RUN_GUILD_TEST=false
             RUN_GUILD_ADVANCED_TEST=false
+            RUN_GUILD_ERRORS_TEST=false
             RUN_QUEST_TEST=false
+            RUN_QUEST_ERRORS_TEST=false
             RUN_SEASON_TEST=false
             RUN_MODERATION_TEST=false
             RUN_XP_TRACKING_TEST=false
@@ -89,7 +102,9 @@ while [[ $# -gt 0 ]]; do
             RUN_PROFILE_TEST=false
             RUN_GUILD_TEST=false
             RUN_GUILD_ADVANCED_TEST=false
+            RUN_GUILD_ERRORS_TEST=false
             RUN_QUEST_TEST=false
+            RUN_QUEST_ERRORS_TEST=false
             RUN_SEASON_TEST=false
             RUN_MODERATION_TEST=false
             RUN_XP_TRACKING_TEST=false
@@ -106,7 +121,9 @@ while [[ $# -gt 0 ]]; do
             RUN_PROFILE_TEST=false
             RUN_GUILD_TEST=false
             RUN_GUILD_ADVANCED_TEST=false
+            RUN_GUILD_ERRORS_TEST=false
             RUN_QUEST_TEST=false
+            RUN_QUEST_ERRORS_TEST=false
             RUN_SEASON_TEST=false
             RUN_MODERATION_TEST=false
             RUN_XP_TRACKING_TEST=false
@@ -122,7 +139,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-profile        Skip profile_test.sh"
             echo "  --no-guild          Skip guild_test.sh"
             echo "  --no-guild-advanced Skip guild_advanced_test.sh"
+            echo "  --no-guild-errors   Skip guild_errors_test.sh"
             echo "  --no-quest          Skip quest_test.sh"
+            echo "  --no-quest-errors   Skip quest_errors_test.sh"
             echo "  --no-season         Skip season_test.sh"
             echo "  --no-moderation     Skip display_name_moderation_test.sh"
             echo "  --no-xp-tracking    Skip xp_tracking_test.sh"
@@ -296,7 +315,9 @@ echo "  1. Setup test accounts:       $([ "$RUN_SETUP" = true ] && echo "YES" ||
 echo "  2. Profile test:              $([ "$RUN_PROFILE_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  3. Guild test:                $([ "$RUN_GUILD_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  4. Guild advanced test:       $([ "$RUN_GUILD_ADVANCED_TEST" = true ] && echo "YES" || echo "SKIP")"
+echo " 4b. Guild errors test:         $([ "$RUN_GUILD_ERRORS_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  5. Quest test:                $([ "$RUN_QUEST_TEST" = true ] && echo "YES" || echo "SKIP")"
+echo " 5b. Quest errors test:         $([ "$RUN_QUEST_ERRORS_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  6. Display name moderation:   $([ "$RUN_MODERATION_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  7. XP tracking test:          $([ "$RUN_XP_TRACKING_TEST" = true ] && echo "YES" || echo "SKIP")"
 echo "  8. Operational params test:   $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "YES" || echo "SKIP")"
@@ -309,7 +330,9 @@ SETUP_EXIT_CODE=0
 PROFILE_EXIT_CODE=0
 GUILD_EXIT_CODE=0
 GUILD_ADVANCED_EXIT_CODE=0
+GUILD_ERRORS_EXIT_CODE=0
 QUEST_EXIT_CODE=0
+QUEST_ERRORS_EXIT_CODE=0
 SEASON_EXIT_CODE=0
 MODERATION_EXIT_CODE=0
 NOMINATION_EXIT_CODE=0
@@ -484,6 +507,33 @@ else
 fi
 
 # ========================================================================
+# Step 4b: Guild Errors Test
+# ========================================================================
+if [ "$RUN_GUILD_ERRORS_TEST" = true ]; then
+    echo "========================================================================="
+    echo "STEP 4b: GUILD ERRORS TEST"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/guild_errors_test.sh"
+    GUILD_ERRORS_EXIT_CODE=$?
+
+    echo ""
+    if [ $GUILD_ERRORS_EXIT_CODE -eq 0 ]; then
+        echo "Guild errors test completed"
+    else
+        echo "Guild errors test exited with code: $GUILD_ERRORS_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+else
+    echo "========================================================================="
+    echo "STEP 4b: GUILD ERRORS TEST (SKIPPED)"
+    echo "========================================================================="
+    echo ""
+fi
+
+# ========================================================================
 # Step 5: Quest Test
 # ========================================================================
 if [ "$RUN_QUEST_TEST" = true ]; then
@@ -506,6 +556,33 @@ if [ "$RUN_QUEST_TEST" = true ]; then
 else
     echo "========================================================================="
     echo "STEP 5: QUEST TEST (SKIPPED)"
+    echo "========================================================================="
+    echo ""
+fi
+
+# ========================================================================
+# Step 5b: Quest Errors Test
+# ========================================================================
+if [ "$RUN_QUEST_ERRORS_TEST" = true ]; then
+    echo "========================================================================="
+    echo "STEP 5b: QUEST ERRORS TEST"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/quest_errors_test.sh"
+    QUEST_ERRORS_EXIT_CODE=$?
+
+    echo ""
+    if [ $QUEST_ERRORS_EXIT_CODE -eq 0 ]; then
+        echo "Quest errors test completed"
+    else
+        echo "Quest errors test exited with code: $QUEST_ERRORS_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+else
+    echo "========================================================================="
+    echo "STEP 5b: QUEST ERRORS TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi
@@ -646,6 +723,28 @@ else
 fi
 
 # ========================================================================
+# Step 10: Run Validation Test (P2)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/validation_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 10: VALIDATION TEST (P2)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/validation_test.sh"
+    VALIDATION_EXIT_CODE=$?
+
+    echo ""
+    if [ $VALIDATION_EXIT_CODE -eq 0 ]; then
+        echo "Validation test completed"
+    else
+        echo "Validation test exited with code: $VALIDATION_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo "========================================================================="
@@ -657,7 +756,9 @@ echo "  Setup:                  $([ "$RUN_SETUP" = true ] && echo "Completed" ||
 echo "  Profile Test:           $([ "$RUN_PROFILE_TEST" = true ] && ([ $PROFILE_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Guild Test:             $([ "$RUN_GUILD_TEST" = true ] && ([ $GUILD_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Guild Advanced Test:    $([ "$RUN_GUILD_ADVANCED_TEST" = true ] && ([ $GUILD_ADVANCED_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
+echo "  Guild Errors Test:      $([ "$RUN_GUILD_ERRORS_TEST" = true ] && ([ ${GUILD_ERRORS_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Quest Test:             $([ "$RUN_QUEST_TEST" = true ] && ([ $QUEST_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
+echo "  Quest Errors Test:      $([ "$RUN_QUEST_ERRORS_TEST" = true ] && ([ ${QUEST_ERRORS_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Moderation Test:        $([ "$RUN_MODERATION_TEST" = true ] && ([ $MODERATION_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  XP Tracking Test:       $([ "$RUN_XP_TRACKING_TEST" = true ] && ([ $XP_TRACKING_EXIT_CODE -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
 echo "  Op Params Test:         $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"

@@ -10,8 +10,8 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/stretchr/testify/require"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // makeTestAccounts builds n simtypes.Account values using a deterministic rand.

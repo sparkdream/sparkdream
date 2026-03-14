@@ -52,7 +52,7 @@ ONLY_MODULE=""
 # Newer modules in dependency order:
 #   rep first (foundation), then content modules, reveal (needs commons council),
 #   season last (transitions are heavy)
-MODULE_ORDER="rep blog forum collect vote reveal season"
+MODULE_ORDER="rep blog forum collect shield reveal season"
 
 # Track results
 PASSED_TESTS=()
@@ -160,7 +160,7 @@ run_module() {
     echo -e "${BLUE}>>> Reinitializing chain for x/$module...${NC}"
     stop_chain
     rm -rf "$CHAIN_HOME"
-    (cd "$PROJECT_DIR" && ignite chain init) || {
+    (cd "$PROJECT_DIR" && ignite chain init -y --build.tags testparams) || {
         echo -e "${RED}>>> FAILED: chain init for x/$module${NC}"
         FAILED_TESTS+=("x/$module (chain init)")
         return 1
@@ -380,7 +380,7 @@ if [ "$RUN_BUILD" = true ]; then
     rm -f "$HOME/.ignite/local-chains/sparkdream/exported_genesis.json"
 
     echo "Building..."
-    (cd "$PROJECT_DIR" && ignite chain build)
+    (cd "$PROJECT_DIR" && ignite chain build --build.tags testparams)
     echo -e "${GREEN}Build complete.${NC}"
 
     # Verify binary is at expected location
@@ -400,8 +400,8 @@ fi
 # --- Step 3: Init fresh chain ---
 echo -e "\n${BLUE}=== STEP 3: INIT CHAIN ===${NC}"
 rm -rf "$CHAIN_HOME"
-(cd "$PROJECT_DIR" && ignite chain init)
-echo -e "${GREEN}Chain initialized.${NC}"
+(cd "$PROJECT_DIR" && ignite chain init -y --build.tags testparams)
+echo -e "${GREEN}Chain initialized with testparams.${NC}"
 
 # --- Step 4: Start chain ---
 echo -e "\n${BLUE}=== STEP 4: START CHAIN ===${NC}"
@@ -436,6 +436,7 @@ if [ "$RUN_LEGACY" = true ]; then
     run_test "name/name_registration_test.sh"
     run_test "name/primary_name_test.sh"
     run_test "name/dispute_resolution_test.sh"
+    run_test "name/operational_params_test.sh"
 
     # Ecosystem
     run_test "ecosystem/ecosystem_spend.sh"
@@ -450,6 +451,7 @@ if [ "$RUN_LEGACY" = true ]; then
     run_test "futarchy/params_update_test.sh"
     run_test "futarchy/liquidity_withdrawal_test.sh"
     run_test "futarchy/emergency_cancel_test.sh"
+    run_test "futarchy/operational_params_test.sh"
 
     echo -e "\n${BLUE}=== PHASE 4: SECURITY ===${NC}"
     run_test "commons/group_security_test.sh"
@@ -459,10 +461,12 @@ if [ "$RUN_LEGACY" = true ]; then
     run_test "commons/unauthorized_handover.sh"
     run_test "ecosystem/ecosystem_security_test.sh"
     run_test "gov/inflation_immutable_test.sh"
+    run_test "commons/anon_test.sh"
 
     echo -e "\n${BLUE}=== PHASE 5: VETOS ===${NC}"
     run_test "commons/executive_veto_test.sh"
     run_test "commons/social_veto_vote_test.sh"
+    run_test "commons/parent_veto_test.sh"
     run_test "commons/veto_vote_test.sh"
 fi
 

@@ -175,16 +175,18 @@ else
 
     echo "  Bob: Level $BOB_LEVEL, $BOB_XP season XP"
 
-    if [ "$BOB_XP" = "1500" ]; then
-        pass "Bob season XP is 1500"
+    # Bob's genesis season_xp=1500 + (votes_cast=5 * xp_vote_cast=5) + (forum_helpful=15 * xp_forum_helpful=5) = 1600
+    if [ "$BOB_XP" = "1600" ]; then
+        pass "Bob season XP is 1600"
     else
-        fail "Bob season XP expected 1500, got $BOB_XP"
+        fail "Bob season XP expected 1600, got $BOB_XP"
     fi
 
-    if [ "$BOB_LEVEL" = "4" ]; then
-        pass "Bob season level is 4"
+    # Level thresholds: [0,100,300,600,1000,1500,2100,...] → 1600 XP = level 6
+    if [ "$BOB_LEVEL" = "6" ]; then
+        pass "Bob season level is 6"
     else
-        fail "Bob season level expected 4, got $BOB_LEVEL"
+        fail "Bob season level expected 6, got $BOB_LEVEL"
     fi
 fi
 
@@ -906,29 +908,14 @@ echo ""
 # ========================================================================
 echo "--- XP TRACKING AND TITLE ELIGIBILITY TEST SUMMARY ---"
 echo ""
-echo "  Results: $PASS_COUNT passed, $FAIL_COUNT failed (out of $TOTAL_COUNT)"
-echo ""
-echo "  Genesis profiles (Alice/Bob/Carol):  Verified"
-echo "  Level thresholds:                    Verified"
-echo "  Title bootstrap:                     Verified"
-echo "  Member titles query:                 Verified"
-echo "  Quest XP generation:                 Tested"
-echo "  XP increment verification:           Tested"
-echo "  Level-up calculation:                Tested"
-echo "  Cumulative XP tracking:              Tested"
-echo "  Epoch XP trackers:                   Queried"
-echo "  Vote/Forum XP records:               Queried"
-echo "  Member registrations:                Queried"
-echo "  XP history:                          Queried"
-echo "  Recovery state:                      Queried"
-echo "  Title eligibility:                   Queried"
-echo "  Quest completion status:             Verified"
+echo "  Passed: $PASS_COUNT"
+echo "  Failed: $FAIL_COUNT"
 echo ""
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
-    echo "XP TRACKING TEST: $FAIL_COUNT FAILURES"
+    echo "RESULT: $FAIL_COUNT ASSERTION(S) FAILED"
     exit 1
 else
-    echo "XP TRACKING TEST PASSED ($PASS_COUNT assertions)"
+    echo "RESULT: ALL $PASS_COUNT TESTS PASSED"
     exit 0
 fi

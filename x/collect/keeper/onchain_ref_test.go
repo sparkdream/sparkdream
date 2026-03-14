@@ -47,9 +47,9 @@ func TestOnChainRef_BlogPost_Exists(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "blog-ref-item",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "blog-ref-item",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "blog",
@@ -73,9 +73,9 @@ func TestOnChainRef_BlogPost_NotFound(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "missing-ref",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "missing-ref",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "blog",
@@ -99,9 +99,9 @@ func TestOnChainRef_BlogReply_Exists(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "reply-ref",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "reply-ref",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "blog",
@@ -125,9 +125,9 @@ func TestOnChainRef_BlogReply_NotFound(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "missing-reply-ref",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "missing-reply-ref",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "blog",
@@ -149,9 +149,9 @@ func TestOnChainRef_Blog_InvalidEntityType(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "bad-entity-type",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "bad-entity-type",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "blog",
@@ -173,9 +173,9 @@ func TestOnChainRef_Blog_InvalidEntityId(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "bad-id",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "bad-id",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "blog",
@@ -195,9 +195,9 @@ func TestOnChainRef_Blog_NilKeeper(t *testing.T) {
 
 	// Should pass (skip validation when keeper is nil)
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "nil-blog-keeper",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "nil-blog-keeper",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "blog",
@@ -216,9 +216,9 @@ func TestOnChainRef_ForumPost_Exists(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "forum-ref",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "forum-ref",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "forum",
@@ -236,9 +236,9 @@ func TestOnChainRef_ForumReply_Exists(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "forum-reply-ref",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "forum-reply-ref",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "forum",
@@ -256,9 +256,9 @@ func TestOnChainRef_Forum_InvalidEntityType(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "bad-forum-entity",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "bad-forum-entity",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "forum",
@@ -276,9 +276,9 @@ func TestOnChainRef_Forum_InvalidEntityId(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "bad-forum-id",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "bad-forum-id",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "forum",
@@ -297,9 +297,9 @@ func TestOnChainRef_UnknownModule(t *testing.T) {
 
 	// Unknown modules should pass (forward-compatible)
 	_, err := f.msgServer.AddItem(f.ctx, &types.MsgAddItem{
-		Creator:      f.owner,
-		CollectionId: collID,
-		Title:        "unknown-module-ref",
+		Creator:       f.owner,
+		CollectionId:  collID,
+		Title:         "unknown-module-ref",
 		ReferenceType: types.ReferenceType_REFERENCE_TYPE_ON_CHAIN,
 		OnChain: &types.OnChainReference{
 			Module:     "custom_module",

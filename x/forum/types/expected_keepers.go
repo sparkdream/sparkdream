@@ -92,22 +92,4 @@ type RepKeeper interface {
 	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 	RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
-
-	// Trust tree for anonymous posting
-	GetMemberTrustTreeRoot(ctx context.Context) ([]byte, error)
-	GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte
-}
-
-// VoteKeeper defines the expected interface for the Vote module.
-// Optional — if nil, anonymous posting is unavailable.
-type VoteKeeper interface {
-	// VerifyAnonymousActionProof verifies a ZK proof for anonymous actions.
-	VerifyAnonymousActionProof(ctx context.Context, proof []byte, nullifier []byte, merkleRoot []byte, minTrustLevel uint32) error
-}
-
-// SeasonKeeper defines the expected interface for the Season module.
-// Optional — falls back to DefaultEpochDuration if nil.
-type SeasonKeeper interface {
-	// GetEpochDuration returns the current epoch duration in seconds.
-	GetEpochDuration(ctx context.Context) int64
 }

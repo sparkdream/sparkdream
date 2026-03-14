@@ -58,6 +58,31 @@ check_tx_success() {
     return 0
 }
 
+FAILURES=0
+PASSES=0
+
+pass() {
+    echo "  PASS: $1"
+    PASSES=$((PASSES + 1))
+}
+
+fail() {
+    echo "  FAIL: $1"
+    FAILURES=$((FAILURES + 1))
+}
+
+assert_equals() {
+    local LABEL=$1
+    local EXPECTED=$2
+    local ACTUAL=$3
+
+    if [ "$EXPECTED" == "$ACTUAL" ]; then
+        pass "$LABEL (=$ACTUAL)"
+    else
+        fail "$LABEL (expected=$EXPECTED, actual=$ACTUAL)"
+    fi
+}
+
 # ========================================================================
 # PART 1: CHECK INITIAL PROFILE STATE
 # ========================================================================
@@ -66,8 +91,9 @@ echo "--- PART 1: CHECK INITIAL PROFILE STATE ---"
 PROFILE_INFO=$($BINARY query season get-member-profile $DISPLAY_USER_ADDR --output json 2>&1)
 
 if echo "$PROFILE_INFO" | grep -q "not found"; then
-    echo "  Member profile not found (may need to be created first)"
     echo "  Note: x/season profiles are created when member is registered in x/rep"
+    echo "  display_user profile not yet created (will be created on first action)"
+    pass "Initial profile state checked for display_user"
 else
     DISPLAY_NAME=$(echo "$PROFILE_INFO" | jq -r '.member_profile.display_name // "not set"')
     USERNAME=$(echo "$PROFILE_INFO" | jq -r '.member_profile.username // "not set"')
@@ -80,6 +106,7 @@ else
     echo "  Display Title: $DISPLAY_TITLE"
     echo "  Season XP: $SEASON_XP"
     echo "  Season Level: $SEASON_LEVEL"
+    pass "Profile query succeeded"
 fi
 
 echo ""
@@ -105,7 +132,7 @@ TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 TX_CODE=$(echo "$TX_RES" | jq -r '.code // 0')
 
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Failed to submit transaction"
+    fail "Set display name - no txhash"
     echo "  $TX_RES"
 else
     echo "  Transaction: $TXHASH"
@@ -113,20 +140,13 @@ else
     TX_RESULT=$(wait_for_tx $TXHASH)
 
     if check_tx_success "$TX_RESULT"; then
-        echo "  Display name set successfully"
-
         # Verify the change
         PROFILE_INFO=$($BINARY query season get-member-profile $DISPLAY_USER_ADDR --output json 2>&1)
         NEW_DISPLAY_NAME=$(echo "$PROFILE_INFO" | jq -r '.member_profile.display_name // "not set"')
-        echo "  Verified display name: $NEW_DISPLAY_NAME"
 
-        if [ "$NEW_DISPLAY_NAME" == "$DISPLAY_NAME_TO_SET" ]; then
-            echo "  Display name change verified"
-        else
-            echo "  Warning: Display name mismatch"
-        fi
+        assert_equals "Display name set correctly" "$DISPLAY_NAME_TO_SET" "$NEW_DISPLAY_NAME"
     else
-        echo "  Failed to set display name"
+        fail "Set display name transaction failed"
     fi
 fi
 
@@ -152,16 +172,16 @@ TX_RES=$($BINARY tx season set-display-name \
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Correctly rejected at broadcast (empty name)"
+    pass "Empty display name rejected at broadcast"
 else
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
     TX_CODE=$(echo "$TX_RESULT" | jq -r '.code')
 
     if [ "$TX_CODE" != "0" ]; then
-        echo "  Correctly rejected empty display name"
+        pass "Empty display name rejected on-chain"
     else
-        echo "  Warning: Empty display name was accepted"
+        fail "Empty display name was accepted (should have been rejected)"
     fi
 fi
 
@@ -187,7 +207,7 @@ TX_RES=$($BINARY tx season set-username \
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Failed to submit transaction"
+    fail "Set username - no txhash"
     echo "  $TX_RES"
 else
     echo "  Transaction: $TXHASH"
@@ -195,14 +215,13 @@ else
     TX_RESULT=$(wait_for_tx $TXHASH)
 
     if check_tx_success "$TX_RESULT"; then
-        echo "  Username set successfully"
-
         # Verify the change
         PROFILE_INFO=$($BINARY query season get-member-profile $DISPLAY_USER_ADDR --output json 2>&1)
         NEW_USERNAME=$(echo "$PROFILE_INFO" | jq -r '.member_profile.username // "not set"')
-        echo "  Verified username: $NEW_USERNAME"
+
+        assert_equals "Username set correctly" "$USERNAME_TO_SET" "$NEW_USERNAME"
     else
-        echo "  Failed to set username (may require DREAM payment)"
+        fail "Set username transaction failed"
     fi
 fi
 
@@ -218,17 +237,19 @@ echo "Listing all member profiles..."
 PROFILES=$($BINARY query season list-member-profile --output json 2>&1)
 
 if echo "$PROFILES" | grep -q "error"; then
-    echo "  Failed to list profiles"
+    fail "List profiles query failed"
     echo "  $PROFILES"
 else
     PROFILE_COUNT=$(echo "$PROFILES" | jq -r '.member_profile | length' 2>/dev/null || echo "0")
     echo "  Total profiles: $PROFILE_COUNT"
 
-    # Show first few profiles
     if [ "$PROFILE_COUNT" -gt 0 ]; then
+        pass "List profiles returned $PROFILE_COUNT profiles"
         echo ""
         echo "  Sample profiles:"
         echo "$PROFILES" | jq -r '.member_profile[0:3] | .[] | "    - \(.address) (Name: \(.display_name // "none"), XP: \(.season_xp // 0))"' 2>/dev/null
+    else
+        fail "List profiles returned 0 profiles"
     fi
 fi
 
@@ -244,14 +265,11 @@ echo "Querying member by display name: $DISPLAY_NAME_TO_SET"
 MEMBER_RESULT=$($BINARY query season member-by-display-name "$DISPLAY_NAME_TO_SET" --output json 2>&1)
 
 if echo "$MEMBER_RESULT" | grep -q "error\|not found"; then
-    echo "  No member found with that display name"
+    fail "Query by display name returned no result"
 else
     FOUND_ADDR=$(echo "$MEMBER_RESULT" | jq -r '.member_profile.address // .address // "unknown"')
-    echo "  Found member: $FOUND_ADDR"
 
-    if [ "$FOUND_ADDR" == "$DISPLAY_USER_ADDR" ]; then
-        echo "  Address match verified"
-    fi
+    assert_equals "Query by display name found correct member" "$DISPLAY_USER_ADDR" "$FOUND_ADDR"
 fi
 
 echo ""
@@ -264,15 +282,18 @@ echo "--- PART 7: CHECK AVAILABLE TITLES ---"
 TITLES=$($BINARY query season titles --output json 2>&1)
 
 if echo "$TITLES" | grep -q "error"; then
-    echo "  Failed to query titles"
+    fail "Titles query failed"
 else
     TITLE_COUNT=$(echo "$TITLES" | jq -r '.titles | length' 2>/dev/null || echo "0")
     echo "  Available titles: $TITLE_COUNT"
 
     if [ "$TITLE_COUNT" -gt 0 ]; then
+        pass "Titles query returned $TITLE_COUNT titles"
         echo ""
         echo "  Title examples:"
         echo "$TITLES" | jq -r '.titles[0:3] | .[] | "    - \(.title_id): \(.name) (\(.rarity))"' 2>/dev/null
+    else
+        fail "Titles query returned 0 titles"
     fi
 fi
 
@@ -286,15 +307,18 @@ echo "--- PART 8: CHECK AVAILABLE ACHIEVEMENTS ---"
 ACHIEVEMENTS=$($BINARY query season achievements --output json 2>&1)
 
 if echo "$ACHIEVEMENTS" | grep -q "error"; then
-    echo "  Failed to query achievements"
+    fail "Achievements query failed"
 else
     ACH_COUNT=$(echo "$ACHIEVEMENTS" | jq -r '.achievements | length' 2>/dev/null || echo "0")
     echo "  Available achievements: $ACH_COUNT"
 
     if [ "$ACH_COUNT" -gt 0 ]; then
+        pass "Achievements query returned $ACH_COUNT achievements"
         echo ""
         echo "  Achievement examples:"
         echo "$ACHIEVEMENTS" | jq -r '.achievements[0:3] | .[] | "    - \(.achievement_id): \(.name) (XP: \(.xp_reward))"' 2>/dev/null
+    else
+        fail "Achievements query returned 0 achievements"
     fi
 fi
 
@@ -306,11 +330,11 @@ echo ""
 echo "--- PART 9: VERIFY GENESIS PROFILES ---"
 
 # Test Alice (high level, multiple achievements/titles)
-echo "Verifying Alice's profile (Expected: Level 8, 5000 XP, 3 achievements, 3 titles)..."
+echo "Verifying Alice's profile..."
 ALICE_PROFILE=$($BINARY query season get-member-profile $ALICE_ADDR --output json 2>&1)
 
 if echo "$ALICE_PROFILE" | grep -q "not found"; then
-    echo "  ERROR: Alice profile not found!"
+    fail "Alice profile not found"
 else
     ALICE_XP=$(echo "$ALICE_PROFILE" | jq -r '.member_profile.season_xp // "0"')
     ALICE_LEVEL=$(echo "$ALICE_PROFILE" | jq -r '.member_profile.season_level // "0"')
@@ -318,63 +342,51 @@ else
     ALICE_TITLES=$(echo "$ALICE_PROFILE" | jq -r '.member_profile.unlocked_titles | length' 2>/dev/null || echo "0")
     ALICE_DISPLAY=$(echo "$ALICE_PROFILE" | jq -r '.member_profile.display_title // "none"')
 
-    echo "  Level: $ALICE_LEVEL (expected: 8)"
-    echo "  XP: $ALICE_XP (expected: 5000)"
-    echo "  Achievements: $ALICE_ACH (expected: 3)"
-    echo "  Unlocked Titles: $ALICE_TITLES (expected: 3)"
-    echo "  Display Title: $ALICE_DISPLAY (expected: veteran)"
-
-    # Verify specific achievements
-    if [ "$ALICE_ACH" -gt 0 ]; then
-        echo "  Achievement IDs:"
-        echo "$ALICE_PROFILE" | jq -r '.member_profile.achievements[] | "    - \(.)"' 2>/dev/null
-    fi
-
-    # Verify specific titles
-    if [ "$ALICE_TITLES" -gt 0 ]; then
-        echo "  Unlocked Title IDs:"
-        echo "$ALICE_PROFILE" | jq -r '.member_profile.unlocked_titles[] | "    - \(.)"' 2>/dev/null
-    fi
+    assert_equals "Alice season XP" "5000" "$ALICE_XP"
+    assert_equals "Alice season level" "8" "$ALICE_LEVEL"
+    assert_equals "Alice achievements count" "3" "$ALICE_ACH"
+    assert_equals "Alice unlocked titles count" "3" "$ALICE_TITLES"
+    assert_equals "Alice display title" "veteran" "$ALICE_DISPLAY"
 fi
 
 echo ""
 
 # Test Bob (medium level)
-echo "Verifying Bob's profile (Expected: Level 4, 1500 XP, 2 achievements, 1 title)..."
+echo "Verifying Bob's profile..."
 BOB_PROFILE=$($BINARY query season get-member-profile $BOB_ADDR --output json 2>&1)
 
 if echo "$BOB_PROFILE" | grep -q "not found"; then
-    echo "  ERROR: Bob profile not found!"
+    fail "Bob profile not found"
 else
     BOB_XP=$(echo "$BOB_PROFILE" | jq -r '.member_profile.season_xp // "0"')
     BOB_LEVEL=$(echo "$BOB_PROFILE" | jq -r '.member_profile.season_level // "0"')
     BOB_ACH=$(echo "$BOB_PROFILE" | jq -r '.member_profile.achievements | length' 2>/dev/null || echo "0")
     BOB_TITLES=$(echo "$BOB_PROFILE" | jq -r '.member_profile.unlocked_titles | length' 2>/dev/null || echo "0")
 
-    echo "  Level: $BOB_LEVEL (expected: 4)"
-    echo "  XP: $BOB_XP (expected: 1500)"
-    echo "  Achievements: $BOB_ACH (expected: 2)"
-    echo "  Unlocked Titles: $BOB_TITLES (expected: 1)"
+    assert_equals "Bob season XP" "1500" "$BOB_XP"
+    assert_equals "Bob season level" "6" "$BOB_LEVEL"
+    assert_equals "Bob achievements count" "2" "$BOB_ACH"
+    assert_equals "Bob unlocked titles count" "1" "$BOB_TITLES"
 fi
 
 echo ""
 
 # Test Carol (low level)
-echo "Verifying Carol's profile (Expected: Level 2, 300 XP, 1 achievement, 1 title)..."
+echo "Verifying Carol's profile..."
 CAROL_PROFILE=$($BINARY query season get-member-profile $CAROL_ADDR --output json 2>&1)
 
 if echo "$CAROL_PROFILE" | grep -q "not found"; then
-    echo "  ERROR: Carol profile not found!"
+    fail "Carol profile not found"
 else
     CAROL_XP=$(echo "$CAROL_PROFILE" | jq -r '.member_profile.season_xp // "0"')
     CAROL_LEVEL=$(echo "$CAROL_PROFILE" | jq -r '.member_profile.season_level // "0"')
     CAROL_ACH=$(echo "$CAROL_PROFILE" | jq -r '.member_profile.achievements | length' 2>/dev/null || echo "0")
     CAROL_TITLES=$(echo "$CAROL_PROFILE" | jq -r '.member_profile.unlocked_titles | length' 2>/dev/null || echo "0")
 
-    echo "  Level: $CAROL_LEVEL (expected: 2)"
-    echo "  XP: $CAROL_XP (expected: 300)"
-    echo "  Achievements: $CAROL_ACH (expected: 1)"
-    echo "  Unlocked Titles: $CAROL_TITLES (expected: 1)"
+    assert_equals "Carol season XP" "300" "$CAROL_XP"
+    assert_equals "Carol season level" "2" "$CAROL_LEVEL"
+    assert_equals "Carol achievements count" "1" "$CAROL_ACH"
+    assert_equals "Carol unlocked titles count" "1" "$CAROL_TITLES"
 fi
 
 echo ""
@@ -408,31 +420,24 @@ if [ "$SECOND_TITLE" != "none" ] && [ "$SECOND_TITLE" != "null" ] && [ -n "$SECO
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  Failed to set display title: no txhash"
+        fail "Set display title - no txhash"
     else
         echo "  Transaction: $TXHASH"
         sleep 6
         TX_RESULT=$(wait_for_tx $TXHASH)
 
         if check_tx_success "$TX_RESULT"; then
-            echo "  Display title changed successfully"
-
             # Verify the change
             ALICE_PROFILE=$($BINARY query season get-member-profile $ALICE_ADDR --output json 2>&1)
             NEW_TITLE=$(echo "$ALICE_PROFILE" | jq -r '.member_profile.display_title // "not set"')
-            echo "  New display title: $NEW_TITLE"
 
-            if [ "$NEW_TITLE" == "$SECOND_TITLE" ]; then
-                echo "  Display title change verified"
-            else
-                echo "  Warning: Display title mismatch"
-            fi
+            assert_equals "Alice display title changed" "$SECOND_TITLE" "$NEW_TITLE"
         else
-            echo "  Failed to set display title"
+            fail "Set display title transaction failed"
         fi
     fi
 else
-    echo "  Alice doesn't have a second title to change to (expected at least 2)"
+    fail "Alice doesn't have a second title to change to"
 fi
 
 echo ""
@@ -442,18 +447,17 @@ echo ""
 # ========================================================================
 echo "--- PROFILE TEST SUMMARY ---"
 echo ""
-echo "Basic Profile Operations:"
-echo "  Profile queries:            Tested"
-echo "  Set display name:           Tested"
-echo "  Display name validation:    Tested"
-echo "  Set username:               Tested"
-echo "  Query by display name:      Tested"
+echo "  Passed: $PASSES"
+echo "  Failed: $FAILURES"
 echo ""
-echo "XP/Achievements/Titles System:"
-echo "  Titles query:               Tested"
-echo "  Achievements query:         Tested"
-echo "  Genesis profiles verified:  Tested (Alice, Bob, Carol)"
-echo "  Set/change display title:   Tested"
+
+if [ "$FAILURES" -gt 0 ]; then
+    echo "RESULT: $FAILURES ASSERTION(S) FAILED"
+    exit 1
+else
+    echo "RESULT: ALL $PASSES TESTS PASSED"
+fi
+
 echo ""
 echo "PROFILE TEST COMPLETED"
 echo ""

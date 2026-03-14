@@ -1371,7 +1371,6 @@ func TestApproveInterim_UnauthorizedApprover(t *testing.T) {
 		nil,
 		nil,
 		commonsKeeper,
-		nil, // voteKeeper
 	)
 	testKeeper.SetSeasonKeeper(seasonKeeper)
 

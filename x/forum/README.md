@@ -1,6 +1,6 @@
 # `x/forum`
 
-The `x/forum` module implements a decentralized, censorship-resistant discussion platform with hierarchical content organization, dual-token sentinel moderation, bounties, anonymous posting via ZK proofs, and conviction-based content persistence.
+The `x/forum` module implements a decentralized, censorship-resistant discussion platform with hierarchical content organization, dual-token sentinel moderation, bounties, anonymous posting via `x/shield`, and conviction-based content persistence.
 
 ## Overview
 
@@ -10,10 +10,12 @@ This module provides:
 - **Dual-token moderation** — sentinels stake DREAM as collateral for moderation authority; earn rewards for accurate decisions
 - **Content lifecycle** — ephemeral TTL for non-member posts, permanent storage for members, archival for inactive threads
 - **Bounties and tag budgets** — economic incentives for quality content
-- **Anonymous posting** — ZK-proof-based anonymous posts, replies, and reactions
+- **Anonymous posting** — anonymous posts, replies, and reactions via `x/shield`'s `MsgShieldedExec`
 - **Conviction renewal** — posts linked to `x/rep` initiatives can extend their TTL based on community conviction staking
 - **Author bonds** — optional DREAM bonds on content creation, slashable via challenges
 - **Appeals system** — jury-based appeals via `x/rep` for overturning moderation actions
+- **Thread following** — members can follow threads and track activity
+- **Member reports** — community-driven accountability with cosigning, defense, and resolution
 
 ## Concepts
 
@@ -58,6 +60,14 @@ Tags are owned by the `x/common` `TagKeeper` interface (implemented by this modu
 - Maximum 10,000 system-wide tags (configurable)
 - Reserved tags controlled by governance
 
+### Shield-Aware Messages
+
+The following messages support anonymous execution via `x/shield`'s `MsgShieldedExec`:
+
+- `MsgCreatePost` — anonymous posts
+- `MsgUpvotePost` — anonymous upvotes
+- `MsgDownvotePost` — anonymous downvotes
+
 ## State
 
 ### Objects
@@ -71,10 +81,23 @@ Tags are owned by the `x/common` `TagKeeper` interface (implemented by this modu
 | `SentinelActivity` | `sentinel/value/{address}` | Sentinel bond and activity tracking |
 | `HideRecord` | `hide_record/value/{post_id}` | Sentinel hide action record |
 | `ThreadLockRecord` | `thread_lock/value/{root_id}` | Thread lock record |
+| `ThreadMetadata` | `threadmeta/value/{root_id}` | Thread-level metadata (reply count, last activity) |
+| `ThreadFollow` | `threadfollow/value/{root_id}/{address}` | Thread follow subscription |
+| `ThreadFollowCount` | `threadfollowcount/value/{root_id}` | Follower count per thread |
+| `ThreadMoveRecord` | `threadmove/value/{root_id}` | Thread move history |
+| `ArchiveMetadata` | `archivemeta/value/{root_id}` | Archival state and cycle tracking |
 | `Bounty` | `bounty/value/{id}` | Escrowed SPARK bounty on a thread |
-| `TagBudget` | `tag_budget/value/{id}` | Reward pool for quality posts with specific tag |
-| `AnonymousPostMetadata` | `anon_meta/post/{id}` | ZK proof metadata for anonymous posts |
-| `AnonNullifierEntry` | `anon_nullifier/{domain}/{scope}/{nullifier}` | Nullifier replay prevention |
+| `TagBudget` | `tagbudget/value/{id}` | Reward pool for quality posts with specific tag |
+| `TagBudgetAward` | `tagbudgetaward/value/{id}` | Award record from a tag budget |
+| `TagReport` | `tagreport/value/{name}` | Tag report with evidence |
+| `PostFlag` | `postflag/value/{post_id}/{flagger}` | Flag record on a post |
+| `UserRateLimit` | `userratelimit/value/{address}` | Per-user daily post tracking |
+| `UserReactionLimit` | `userreactionlimit/value/{address}` | Per-user daily reaction tracking |
+| `MemberReport` | `memberreport/value/{id}` | Report against a member with cosigning |
+| `MemberWarning` | `memberwarning/value/{id}` | Warning issued to a member |
+| `MemberSalvationStatus` | `membersalvation/value/{address}` | Member salvation/rehabilitation tracking |
+| `JuryParticipation` | `jurypart/value/{address}` | Jury service participation record |
+| `GovActionAppeal` | `govactionappeal/value/{id}` | Appeal against a governance action |
 
 ### Post Fields
 
@@ -103,9 +126,9 @@ Tags are owned by the `x/common` `TagKeeper` interface (implemented by this modu
 | `MsgCreatePost` | Create post or reply; pays spam tax + storage cost | Any address (member or non-member) |
 | `MsgEditPost` | Edit within grace period (free) or after (edit fee) | Post author only |
 | `MsgDeletePost` | Soft-delete (tombstone) | Post author only |
-| `MsgCreateAnonymousPost` | Create anonymous post with ZK proof | Proven trust level via ZK |
-| `MsgCreateAnonymousReply` | Create anonymous reply with ZK proof | Proven trust level via ZK |
-| `MsgAnonymousReact` | React anonymously with ZK proof | Proven trust level via ZK |
+| `MsgCreateCategory` | Create a governance-controlled category | Governance |
+
+Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShieldedExec` wrapping standard forum messages. See [x/shield](../shield/README.md) for details.
 
 ### Reactions and Flags
 
@@ -134,7 +157,10 @@ Tags are owned by the `x/common` `TagKeeper` interface (implemented by this modu
 | `MsgPinPost` | Pin post (up to 5 per category) | Governance or author |
 | `MsgUnpinPost` | Unpin post | Pin creator or governance |
 | `MsgPinReply` / `MsgUnpinReply` | Pin/unpin reply (3 max per thread) | Thread author |
+| `MsgDisputePin` | Dispute a pin decision | Any member |
 | `MsgMarkAcceptedReply` | Mark reply as "accepted answer" | Thread author |
+| `MsgConfirmProposedReply` / `MsgRejectProposedReply` | Accept or reject a proposed reply | Thread author |
+| `MsgFollowThread` / `MsgUnfollowThread` | Follow or unfollow a thread | Any member |
 
 ### Appeals
 
@@ -153,6 +179,7 @@ Tags are owned by the `x/common` `TagKeeper` interface (implemented by this modu
 | `MsgAwardBounty` | Award bounty to reply | Bounty creator |
 | `MsgIncreaseBounty` | Add more SPARK to active bounty | Bounty creator |
 | `MsgCancelBounty` | Cancel (refund minus 10% fee) | Bounty creator |
+| `MsgAssignBountyToReply` | Assign bounty to a specific reply | Bounty creator |
 
 ### Tag Budgets
 
@@ -162,6 +189,7 @@ Tags are owned by the `x/common` `TagKeeper` interface (implemented by this modu
 | `MsgAwardFromTagBudget` | Award SPARK from budget for quality post | Budget creator |
 | `MsgTopUpTagBudget` | Add more SPARK | Budget creator |
 | `MsgWithdrawTagBudget` | Withdraw unused funds | Budget creator |
+| `MsgToggleTagBudget` | Enable or disable a tag budget | Budget creator |
 
 ### Tag Management
 
@@ -169,6 +197,15 @@ Tags are owned by the `x/common` `TagKeeper` interface (implemented by this modu
 |---------|-------------|--------|
 | `MsgReportTag` | Report tag as problematic | Any member |
 | `MsgResolveTagReport` | Resolve tag report (reserve/ban/restore) | Governance |
+
+### Member Reports
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgReportMember` | Report a member with evidence | Any member |
+| `MsgCosignMemberReport` | Cosign an existing member report | Any member |
+| `MsgResolveMemberReport` | Resolve a member report (warn/demote/zero) | Governance or sentinel |
+| `MsgDefendMemberReport` | Submit defense against a report | Reported member |
 
 ### Archival
 
@@ -188,92 +225,217 @@ Tags are owned by the `x/common` `TagKeeper` interface (implemented by this modu
 
 ## Queries
 
+### Content
+
 | Query | Description |
 |-------|-------------|
 | `Params` | Module parameters |
+| `Post` | Single post by ID |
 | `Posts` | Filter by category and status |
 | `Thread` | Full thread (root + all replies) |
 | `Categories` | List all categories |
 | `UserPosts` | Posts by author |
-| `SentinelStatus` | Sentinel bond and activity |
-| `PinnedPosts` | Category's pinned posts |
-| `LockedThreads` | All locked threads |
 | `TopPosts` | Posts by score within time range |
-| `BountyByThread` / `ActiveBounties` / `UserBounties` | Bounty queries |
-| `TagBudgetByTag` / `TagBudgets` | Budget queries |
-| `PostFlags` / `FlagReviewQueue` | Flag review state |
+| `PinnedPosts` | Category's pinned posts |
 | `ForumStatus` | Paused/enabled flags |
-| `MemberReports` / `MemberWarnings` / `MemberStanding` | Member accountability |
-| `TagExists` / `TagReports` | Tag queries |
-| `AnonymousPostMeta` / `AnonymousReplyMeta` | Anonymous metadata |
-| `IsNullifierUsed` | Nullifier replay check |
+
+### Thread Management
+
+| Query | Description |
+|-------|-------------|
+| `ThreadMetadata` | Thread-level metadata (reply count, last activity) |
+| `ThreadLockRecord` | Lock record for a thread |
+| `ThreadLockStatus` | Whether a thread is locked |
+| `LockedThreads` | All locked threads |
+| `ThreadMoveRecord` | Move history for a thread |
+| `ThreadFollow` | Whether a user follows a thread |
+| `ThreadFollowers` | List of followers for a thread |
+| `ThreadFollowCount` | Number of followers for a thread |
+| `UserFollowedThreads` | Threads followed by a user |
+
+### Moderation
+
+| Query | Description |
+|-------|-------------|
+| `SentinelStatus` | Sentinel bond and activity |
+| `SentinelActivity` | Sentinel moderation actions |
+| `SentinelBondCommitment` | Sentinel bond commitment details |
+| `HideRecord` | Hide action record for a post |
+| `PostFlag` | Single flag record |
+| `PostFlags` | All flags on a post |
+| `FlagReviewQueue` | Posts pending flag review |
+
+### Bounties
+
+| Query | Description |
+|-------|-------------|
+| `Bounty` | Single bounty by ID |
+| `BountyByThread` | Bounty on a specific thread |
+| `ActiveBounties` | All active bounties |
+| `UserBounties` | Bounties created by a user |
+| `BountyExpiringSoon` | Bounties near expiration |
+
+### Tag Budgets
+
+| Query | Description |
+|-------|-------------|
+| `TagBudget` | Single tag budget by ID |
+| `TagBudgetByTag` | Budget for a specific tag |
+| `TagBudgets` | All tag budgets |
+| `TagBudgetAward` | Single award record |
+| `TagBudgetAwards` | All awards for a budget |
+
+### Tags
+
+| Query | Description |
+|-------|-------------|
+| `TagExists` | Whether a tag exists |
+| `TagReport` | Report on a specific tag |
+| `TagReports` | All tag reports |
+
+### Archives
+
+| Query | Description |
+|-------|-------------|
+| `ArchiveMetadata` | Archival state for a thread |
+| `AppealCooldown` | Remaining appeal cooldown |
+| `ArchiveCooldown` | Remaining archive cooldown |
+
+### Member Accountability
+
+| Query | Description |
+|-------|-------------|
+| `MemberReport` | Single member report |
+| `MemberReports` | All member reports |
+| `MemberWarning` | Single member warning |
+| `MemberWarnings` | All warnings for a member |
+| `MemberStanding` | Overall member standing |
+| `MemberSalvationStatus` | Member salvation/rehabilitation status |
+| `JuryParticipation` | Jury service participation for a member |
+
+### Appeals
+
+| Query | Description |
+|-------|-------------|
+| `GovActionAppeal` | Single governance action appeal |
+| `GovActionAppeals` | All governance action appeals |
+
+### Rate Limits
+
+| Query | Description |
+|-------|-------------|
+| `UserRateLimit` | User's daily post usage |
+| `UserReactionLimit` | User's daily reaction usage |
 
 ## Parameters
 
-### Fees (SPARK)
+### Governance-Only (via `MsgUpdateParams`)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `forum_paused` | bool | false | Stop all new posts |
+| `moderation_paused` | bool | false | Stop moderation actions |
+| `appeals_paused` | bool | false | Stop appeal submissions |
+
+### Operational (via `MsgUpdateOperationalParams`)
+
+#### Feature Toggles
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `bounties_enabled` | bool | true | Enable bounty system |
+| `reactions_enabled` | bool | true | Enable reactions |
+| `editing_enabled` | bool | true | Enable post editing |
+| `cost_per_byte_exempt` | bool | false | Exempt members from storage cost |
+
+#### Fees (SPARK)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `spam_tax` | Coin | 1.0 SPARK | Non-member post tax |
+| `reaction_spam_tax` | Coin | 0.1 SPARK | Non-member reaction tax |
+| `flag_spam_tax` | Coin | 0.1 SPARK | Non-member flag tax |
+| `downvote_deposit` | Coin | 0.05 SPARK | Burned on downvote |
+| `appeal_fee` | Coin | 5.0 SPARK | Hide appeal submission fee |
+| `lock_appeal_fee` | Coin | 5.0 SPARK | Lock appeal fee |
+| `move_appeal_fee` | Coin | 5.0 SPARK | Move appeal fee |
+| `edit_fee` | Coin | 0.01 SPARK | Edit after grace period |
+| `cost_per_byte` | Coin | 100 uspark/byte | Storage cost |
+
+#### Content Limits
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `max_content_size` | uint64 | 10,240 bytes | Post content limit |
+| `max_reply_depth` | uint32 | 10 | Max reply nesting |
+| `daily_post_limit` | uint64 | 50 | Posts per user per day |
+| `max_follows_per_day` | uint64 | 50 | Thread follows per user per day |
+| `bounty_cancellation_fee_percent` | uint64 | 10% | Fee on bounty cancellation |
+
+#### Time Windows
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `ephemeral_ttl` | int64 | 86,400 (24h) | Non-member post TTL |
+| `edit_grace_period` | int64 | 300 (5m) | Free edit window |
+| `edit_max_window` | int64 | 86,400 (24h) | Maximum edit window |
+| `archive_threshold` | int64 | 2,592,000 (30d) | Inactivity before archival |
+| `archive_cooldown` | int64 | 2,592,000 (30d) | Cooldown between archive cycles |
+| `unarchive_cooldown` | int64 | 86,400 (1d) | Cooldown after unarchive |
+| `hide_appeal_cooldown` | int64 | 3,600 (1h) | Cooldown between hide appeals |
+| `lock_appeal_cooldown` | int64 | 3,600 (1h) | Cooldown between lock appeals |
+| `move_appeal_cooldown` | int64 | 3,600 (1h) | Cooldown between move appeals |
+
+#### Conviction Renewal
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `conviction_renewal_threshold` | LegacyDec | 100 | Min conviction to renew TTL |
+| `conviction_renewal_period` | int64 | 604,800 (7d) | TTL extension on renewal |
+
+### Non-Operational (hardcoded defaults, not in `ForumOperationalParams`)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `spam_tax` | 1.0 SPARK | Non-member post tax |
-| `downvote_deposit` | 0.05 SPARK | Burned on downvote |
-| `appeal_fee` | 5.0 SPARK | Appeal submission fee |
-| `edit_fee` | 0.01 SPARK | Edit after grace period |
-| `cost_per_byte` | 100 uspark/byte | Storage cost |
-
-### Content Limits
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_content_size` | 10,240 bytes | Post content limit |
-| `max_reply_depth` | 10 | Max reply nesting |
 | `max_tags_per_post` | 5 | Tags per post |
+| `max_tag_length` | 32 | Max tag name length |
 | `max_total_tags` | 10,000 | System-wide tag limit |
-
-### Rate Limits (per 24h)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `daily_post_limit` | 50 | Posts per user per day |
 | `max_reactions_per_day` | 100 | Reactions per user per day |
 | `max_downvotes_per_day` | 20 | Downvotes per user per day |
 | `max_flags_per_day` | 20 | Flags per user per day |
-
-### Time Windows
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `ephemeral_ttl` | 86,400 (24h) | Non-member post TTL |
-| `archive_threshold` | 2,592,000 (30d) | Inactivity before archival |
-| `edit_grace_period` | 300 (5m) | Free edit window |
+| `max_salvations_per_day` | 10 | Salvations per user per day |
+| `hidden_expiration` | 604,800 (7d) | Time before hidden post deleted |
+| `tag_expiration` | 2,592,000 (30d) | Unused tag TTL |
 | `appeal_deadline` | 1,209,600 (14d) | Appeal submission deadline |
-
-### Sentinel Requirements
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
 | `min_sentinel_bond` | 500 DREAM | Minimum to become sentinel |
 | `sentinel_slash_amount` | 100 DREAM | Per overturned appeal |
-| `max_hides_per_epoch` | 50 | Hide limit per epoch |
-
-### Anonymous Posting
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `anonymous_posting_enabled` | true | Enable ZK anonymous posts |
-| `anonymous_min_trust_level` | 2 | Min trust for anon posting |
-| `conviction_renewal_threshold` | 100 | Min conviction to renew TTL |
-| `conviction_renewal_period` | 604,800 (7d) | TTL extension on renewal |
+| `min_rep_tier_sentinel` | 3 | Rep tier required to be sentinel |
+| `min_rep_tier_tags` | 2 | Rep tier required to create tags |
+| `min_rep_tier_thread_lock` | 4 | Rep tier required to lock threads |
+| `max_hides_per_epoch` | 50 | Sentinel hide limit per epoch |
+| `max_sentinel_locks_per_epoch` | 5 | Sentinel lock limit per epoch |
+| `max_sentinel_moves_per_epoch` | 10 | Sentinel move limit per epoch |
+| `max_pinned_per_category` | 5 | Pinned posts per category |
+| `max_pinned_replies_per_thread` | 3 | Pinned replies per thread |
+| `max_bounty_winners` | 5 | Max winners per bounty |
+| `bounty_duration` | 1,209,600 (14d) | Default bounty duration |
+| `max_bounty_duration` | 2,592,000 (30d) | Maximum bounty duration |
+| `flag_review_threshold` | 5 | Flags needed for review queue |
+| `max_archive_cycles` | 5 | Maximum archive/unarchive cycles |
+| `max_salvation_depth` | 10 | Maximum salvation chain depth |
+| `min_evidence_posts` | 3 | Minimum evidence for member report |
+| `member_report_cosign_threshold` | 3 | Cosigns needed for report action |
+| `max_warnings_before_demotion` | 3 | Warnings before auto-demotion |
 
 ## Dependencies
 
 | Module | Required | Purpose |
 |--------|----------|---------|
 | `x/auth` | Yes | Address codec |
-| `x/bank` | Yes | Fee collection, bounty escrow, burning |
-| `x/rep` | Yes | Membership, trust levels, DREAM operations, jury appeals, author bonds, conviction |
+| `x/bank` | Yes | Fee collection, bounty escrow, burning, DREAM transfers |
+| `x/rep` | Yes | Membership, trust levels, DREAM operations, jury appeals, author bonds, conviction, initiative linking |
 | `x/commons` | No | Council authorization for categories and operational params |
-| `x/vote` | No | ZK proof verification for anonymous posting |
-| `x/season` | No | Epoch duration for nullifier scoping |
+| `x/shield` | No | ZK proof verification and module-paid gas for anonymous posting (via ShieldAware interface) |
 
 ## EndBlocker
 
@@ -298,6 +460,10 @@ sparkdreamd tx forum create-post --category-id 1 --content "Hello World" --tags 
 sparkdreamd tx forum edit-post 1 --content "Updated" --from alice
 sparkdreamd tx forum delete-post 1 --from alice
 
+# Thread following
+sparkdreamd tx forum follow-thread 1 --from alice
+sparkdreamd tx forum unfollow-thread 1 --from alice
+
 # Moderation
 sparkdreamd tx forum bond-sentinel --amount 1000 --from bob
 sparkdreamd tx forum hide-post 1 --reason-code SPAM --from sentinel
@@ -305,6 +471,10 @@ sparkdreamd tx forum hide-post 1 --reason-code SPAM --from sentinel
 # Bounties
 sparkdreamd tx forum create-bounty 1 --amount 100spark --from alice
 sparkdreamd tx forum award-bounty 1 --reply-id 5 --from alice
+
+# Member reports
+sparkdreamd tx forum report-member [address] --evidence "post:1,post:2,post:3" --from alice
+sparkdreamd tx forum cosign-member-report 1 --from bob
 
 # Queries
 sparkdreamd q forum posts --category-id 1

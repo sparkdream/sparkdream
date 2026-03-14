@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "--- TESTING: NAME OPERATIONAL PARAMS UPDATE (COUNCIL-GATED) ---"
+echo "--- TESTING: NAME OPERATIONAL PARAMS UPDATE (COMMITTEE-GATED) ---"
 
 # --- 0. SETUP ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -12,20 +12,20 @@ CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
-# Name uses Commons Council for authorization
-COUNCIL_NAME="Commons Council"
-echo "Looking up '$COUNCIL_NAME'..."
-COUNCIL_INFO=$($BINARY query commons get-group "$COUNCIL_NAME" --output json)
-COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.group.policy_address')
+# Operational params are gated by the Commons Operations Committee
+COMMITTEE_NAME="Commons Operations Committee"
+echo "Looking up '$COMMITTEE_NAME'..."
+COMMITTEE_INFO=$($BINARY query commons get-group "$COMMITTEE_NAME" --output json)
+COMMITTEE_POLICY=$(echo $COMMITTEE_INFO | jq -r '.group.policy_address')
 
-if [ -z "$COUNCIL_POLICY" ] || [ "$COUNCIL_POLICY" == "null" ]; then
-    echo "SETUP ERROR: '$COUNCIL_NAME' not found. Run genesis/bootstrap first."
+if [ -z "$COMMITTEE_POLICY" ] || [ "$COMMITTEE_POLICY" == "null" ]; then
+    echo "SETUP ERROR: '$COMMITTEE_NAME' not found. Run genesis/bootstrap first."
     exit 1
 fi
 
-echo "Alice Address:    $ALICE_ADDR"
-echo "Bob Address:      $BOB_ADDR"
-echo "Council Policy:   $COUNCIL_POLICY"
+echo "Alice Address:      $ALICE_ADDR"
+echo "Bob Address:        $BOB_ADDR"
+echo "Committee Policy:   $COMMITTEE_POLICY"
 echo ""
 
 # --- Result Tracking ---
@@ -57,19 +57,14 @@ get_commons_proposal_id() {
     return 1
 }
 
-# Helper: vote + execute a commons proposal
+# Helper: vote + execute a Commons Operations Committee proposal
+# Threshold=1, so a single vote from any member suffices.
 vote_and_execute() {
     local prop_id=$1
 
     echo "  Alice voting YES..."
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
-    sleep 6
-
-    echo "  Bob voting YES..."
-    $BINARY tx commons vote-proposal $prop_id yes \
-        --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000000uspark --output json > /dev/null 2>&1
     sleep 6
 
@@ -144,7 +139,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
 
     # Build the proposal JSON
     jq -n \
-      --arg policy "$COUNCIL_POLICY" \
+      --arg policy "$COMMITTEE_POLICY" \
       --argjson op_params "$OP_PARAMS" \
     '{
       policy_address: $policy,
@@ -251,7 +246,7 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     }')
 
     jq -n \
-      --arg policy "$COUNCIL_POLICY" \
+      --arg policy "$COMMITTEE_POLICY" \
       --argjson op_params "$RESET_OP_PARAMS" \
     '{
       policy_address: $policy,

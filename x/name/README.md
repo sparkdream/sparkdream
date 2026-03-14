@@ -37,13 +37,18 @@ Any address can file a dispute by staking 50 DREAM. The current owner can contes
 | `OwnerInfo` | `owner/value/{address}` | Primary name, last active time |
 | `Dispute` | `dispute/value/{name}` | Active dispute with claimant, stakes, jury reference |
 
+### Additional Collections
+
+| Object | Key | Description |
+|--------|-----|-------------|
+| `DisputeStake` | `dispute_stakes/{challenge_id}` | Claimant DREAM stake record |
+| `ContestStake` | `contest_stakes/{challenge_id}` | Owner DREAM contest stake record |
+
 ### Indexes
 
 | Index | Purpose |
 |-------|---------|
 | `OwnerNames` (address, name) | List names owned by address |
-| `DisputeStakes` (challenge_id) | Track claimant DREAM stakes |
-| `ContestStakes` (challenge_id) | Track owner DREAM stakes |
 
 ## Messages
 
@@ -96,9 +101,17 @@ Any address can file a dispute by staking 50 DREAM. The current owner can contes
 |--------|----------|---------|
 | `x/auth` | Yes | Address codec |
 | `x/bank` | Yes | Registration fee collection |
-| `x/commons` | Yes | Council group ID and membership checks |
-| `x/group` | Yes | Verify council membership for registration |
+| `x/commons` | Yes | Council membership checks, authorization, group/policy management |
 | `x/rep` | Yes | DREAM lock/unlock/burn for disputes; jury integration |
+
+## BeginBlocker
+
+Processes expired disputes each block:
+
+- Iterates all active uncontested disputes
+- Auto-upholds disputes where `current_height > filed_at + dispute_timeout_blocks`
+- Uncontested expired disputes: name transfers to claimant, claimant's DREAM stake unlocked
+- Contested disputes are skipped (await jury/council resolution via `MsgResolveDispute`)
 
 ## Client
 

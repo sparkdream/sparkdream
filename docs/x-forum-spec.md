@@ -1,20 +1,25 @@
 # Technical Specification: `x/forum`
 
-> **Spec-Implementation Sync Status (February 2026)**
+> **Spec-Implementation Sync Status (March 2026)**
 >
 > This spec serves as both the design document and the implementation reference. Sections that diverge from the current implementation are annotated with `> **Implementation status:**` or `> **Implementation note:**` callouts. Key differences:
 >
 > | Area | Spec | Implementation |
 > |------|------|----------------|
-> | **Parameters** | ~136 fields across economics, sentinel, anti-gaming | 30 fields (Section 4.6.1) — many design params hardcoded in keeper |
+> | **Parameters** | ~136 fields across economics, sentinel, anti-gaming | ~30 fields in `Params` + `ForumOperationalParams` (Section 4.6.1) — many design params hardcoded in keeper |
 > | **Genesis** | Includes reward_pool, epoch tracking | 31 entities via Ignite CRUD pattern (Section 4.7.1) |
 > | **EndBlocker** | Multi-phase: GC + reward distribution + accuracy decay | Ephemeral post pruning only (Section 7.2.1) |
 > | **Queries** | Custom query names | Ignite CRUD `Get/List` pairs (26 entities) + composite queries |
 > | **Tags/ModerationReason** | In `forum/v1/` | Moved to `sparkdream.common.v1.*` shared module |
-> | **Anonymous features** | Full ZK-SNARK anonymous posting (Section 16) | **Implemented** — `MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact` in `tx.proto`; anonymous params in `params.proto`; `VoteKeeper`/`SeasonKeeper` wired |
+> | **Anonymous features** | Full ZK-SNARK anonymous posting (Section 16) | **REMOVED** — Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) deleted. Anonymous operations now routed through `x/shield`'s unified `MsgShieldedExec`. Forum implements `ShieldAware` interface (see `x/forum/keeper/shield_aware.go`). |
+> | **Post proto** | Design uses `id` (field 1), `tags` (field 7), `archive_count` (field 26) | Implementation uses `post_id` (field 1), `tags` (field 30), no `archive_count`. Added: `content_type` (field 31), `initiative_id` (field 32), `conviction_sustained` (field 33) |
+> | **Category proto** | Design includes `allow_anonymous` (field 6) | Implementation does NOT have `allow_anonymous` — per-category anonymous toggle is design-only |
+> | **Error codes** | Sequential 1-166 | Organized by category 1100-2499 (see Section 10) |
+> | **Messages** | ~30 messages in original design | 50+ Msg RPCs including: `MsgFreezeThread`, `MsgUnarchiveThread`, `MsgDismissFlags`, `MsgAppealThreadLock/Move`, `MsgAssignBountyToReply`, `MsgPinReply/UnpinReply`, `MsgDisputePin`, `MsgMarkAcceptedReply`, `MsgConfirmProposedReply/RejectProposedReply`, `MsgSetForumPaused/SetModerationPaused`, `MsgReportTag/ResolveTagReport`, `MsgBondSentinel/UnbondSentinel`, `MsgReportMember/CosignMemberReport/ResolveMemberReport/DefendMemberReport`, `MsgAppealGovAction`, `MsgUpdateOperationalParams` |
+> | **Conviction renewal** | Not in original design | Added: `conviction_renewal_threshold`, `conviction_renewal_period` params; `conviction_sustained` field on Post |
 > | **ForumHooks** | Interface for x/season XP integration | **Not yet implemented** |
 > | **Module invariants** | Balance, bond, state invariants | **Not yet implemented** |
-> | **New in implementation** | — | `MsgUpdateOperationalParams`, `ForumOperationalParams`, `cost_per_byte`, `author_bond` field on `MsgCreatePost`, `ContentType` enum |
+> | **New in implementation** | — | `MsgUpdateOperationalParams`, `ForumOperationalParams`, `cost_per_byte`, `cost_per_byte_exempt`, `author_bond` field on `MsgCreatePost`, `ContentType` enum from `sparkdream.common.v1` |
 
 ## 1. Abstract
 
@@ -32,10 +37,10 @@ The module outsources dispute resolution to `x/rep` and membership status to `x/
 | `x/rep` | Source of Truth for User Reputation Tiers, DREAM token operations (mint/burn/lock/transfer), member management, appeal initiatives, author bonds, content conviction staking, and cross-module conviction propagation (initiative link registration, propagated conviction scoring) |
 | `x/bank` | Manages `SPARK` token transfers for taxes, fees, bounties, and tag budgets |
 | `x/common` | Shared proto types: `Tag`, `ReservedTag`, `ModerationReason`, `FlagRecord`, `ContentType` |
-| `x/vote` | **Optional** — `VoteKeeper.VerifyAnonymousActionProof()` for ZK-SNARK anonymous posting/reply/react proof verification (Groth16/BN254). If nil, anonymous features return `ErrAnonPostingDisabled` |
-| `x/season` | **Optional** — `SeasonKeeper.GetEpochDuration()` for anonymous posting epoch-based nullifier scoping. Falls back to `DefaultEpochDuration` (7 days) if nil |
+| `x/shield` | **Indirect** — Anonymous operations (posting, replying, reacting) are routed through `x/shield`'s unified `MsgShieldedExec` entry point. Forum implements the `ShieldAware` interface so x/shield can dispatch shielded operations to it. Forum does NOT depend on x/shield directly; x/shield calls into forum. See [Section 16](#16-anonymous-features-via-xshield). |
+| `x/season` | **Optional** — `SeasonKeeper.GetEpochDuration()` for epoch-based scoping. Falls back to `DefaultEpochDuration` (7 days) if nil |
 
-> **Note:** The `x/vote` and `x/season` keeper integrations are **implemented**. The forum keeper accepts optional `VoteKeeper` and `SeasonKeeper` via `SetVoteKeeper()` and `SetSeasonKeeper()` setters in `depinject`. See [Section 16](#16-anonymous-features-via-zk-proofs) for anonymous feature details.
+> **Note:** Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) have been **removed**. All anonymous operations are now routed through `x/shield`'s unified `MsgShieldedExec`. The forum keeper implements the `ShieldAware` interface (`x/forum/keeper/shield_aware.go`) to declare which messages are shield-compatible. ZK proof verification, nullifier management, and TLE infrastructure are all owned by x/shield. The `x/commons` module (not `x/group`) provides council authorization and proposal execution.
 
 ---
 
@@ -99,13 +104,64 @@ This model is simpler than debt-based systems because DREAM pools don't overlap 
 
 ### 4.1. Post
 
+> **Implementation note:** The actual proto (`proto/sparkdream/forum/v1/post.proto`) uses `post_id` instead of `id`, and does not have an `archive_count` field. Field numbering differs from the design spec below. The `tags` field is at field 30 (not 7), `content_type` is at field 31, `initiative_id` at field 32, and `conviction_sustained` at field 33.
+
 ```protobuf
-// proto/forum/v1/post.proto
+// proto/sparkdream/forum/v1/post.proto (actual implementation)
 syntax = "proto3";
-package forum.v1;
+package sparkdream.forum.v1;
 
-import "cosmos_proto/cosmos.proto";
+import "sparkdream/common/v1/content_type.proto";
+import "sparkdream/forum/v1/types.proto";
 
+message Post {
+  uint64 post_id = 1;
+  uint64 category_id = 2;
+  uint64 root_id = 3;                                    // ID of the thread starter (0 if this is root)
+  uint64 parent_id = 4;                                  // Direct parent (0 if root)
+  string author = 5;
+  string content = 6;                                    // Post text content
+
+  // Lifecycle
+  int64 created_at = 7;
+  int64 expiration_time = 8;                             // 0 = Permanent, >0 = Ephemeral
+
+  // Moderation Metadata
+  PostStatus status = 9;
+  string hidden_by = 10;                                 // Sentinel (if HIDDEN)
+  int64 hidden_at = 11;                                  // Timestamp when hidden (0 if not hidden)
+
+  // Pin/Lock State (root posts only - these fields are ignored on replies)
+  bool   pinned = 12;                                    // Pinned to top of category (root posts only)
+  string pinned_by = 13;                                 // Who pinned it
+  int64  pinned_at = 14;                                 // When pinned (0 if not pinned)
+  uint64 pin_priority = 15;                              // Sort order among pinned posts (lower = higher)
+  bool   locked = 16;                                    // Thread locked - no new replies to ANY post in thread
+  string locked_by = 17;                                 // Who locked it
+  int64  locked_at = 18;                                 // When locked (0 if not locked)
+  string lock_reason = 19;                               // Optional reason for locking (displayed to users)
+
+  // Reactions (aggregate counters — maintained alongside individual ReactionRecords)
+  uint64 upvote_count = 20;                              // Total upvotes on this post (public + private)
+  uint64 downvote_count = 21;                            // Total downvotes on this post (public + private)
+
+  // Reply depth tracking (for max_reply_depth enforcement)
+  uint64 depth = 22;                                     // 0 for root posts, parent.depth + 1 for replies
+
+  // Edit tracking (for client display - no version history stored)
+  bool   edited = 23;                                    // True if post has been edited
+  int64  edited_at = 24;                                 // Timestamp of last edit (0 if never edited)
+
+  // Tags and content type
+  repeated string tags = 30;
+  sparkdream.common.v1.ContentType content_type = 31;    // Content type enum from shared module
+
+  // Cross-Module Conviction Propagation (optional initiative reference)
+  uint64 initiative_id = 32;                              // x/rep initiative referenced by this post (0 = none, immutable after creation)
+  bool conviction_sustained = 33;                         // True if content has entered conviction-sustained state (TTL extended by community conviction)
+}
+
+// PostStatus is defined in types.proto
 enum PostStatus {
   POST_STATUS_UNSPECIFIED = 0;
   POST_STATUS_ACTIVE      = 1;
@@ -113,70 +169,23 @@ enum PostStatus {
   POST_STATUS_DELETED     = 3; // Soft deleted (Tombstone)
   POST_STATUS_ARCHIVED    = 4; // Compressed (Root posts only)
 }
-
-message Post {
-  uint64 id = 1;
-  uint64 category_id = 2;
-  uint64 root_id = 3;                                    // ID of the thread starter (0 if this is root)
-  uint64 parent_id = 4;                                  // Direct parent (0 if root)
-  string author = 5 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string content = 6;                                    // Post text content
-  repeated string tags = 7;
-
-  // Lifecycle
-  int64 created_at = 8;
-  int64 expiration_time = 9;                             // 0 = Permanent, >0 = Ephemeral
-
-  // Moderation Metadata
-  PostStatus status = 10;
-  string hidden_by = 11 [(cosmos_proto.scalar) = "cosmos.AddressString"]; // Sentinel (if HIDDEN)
-  int64 hidden_at = 12;                                  // Timestamp when hidden (0 if not hidden)
-
-  // Pin/Lock State (root posts only - these fields are ignored on replies)
-  bool   pinned = 13;                                    // Pinned to top of category (root posts only)
-  string pinned_by = 14 [(cosmos_proto.scalar) = "cosmos.AddressString"]; // Who pinned it
-  int64  pinned_at = 15;                                 // When pinned (0 if not pinned)
-  uint32 pin_priority = 16;                              // Sort order among pinned posts (lower = higher)
-  bool   locked = 17;                                    // Thread locked - no new replies to ANY post in thread
-  string locked_by = 18 [(cosmos_proto.scalar) = "cosmos.AddressString"]; // Who locked it
-  int64  locked_at = 19;                                 // When locked (0 if not locked)
-  string lock_reason = 20;                               // Optional reason for locking (displayed to users)
-
-  // Reactions (aggregate counters — maintained alongside individual ReactionRecords)
-  uint64 upvote_count = 21;                              // Total upvotes on this post (public + private)
-  uint64 downvote_count = 22;                            // Total downvotes on this post (public + private)
-
-  // Reply depth tracking (for max_reply_depth enforcement)
-  uint64 depth = 23;                                     // 0 for root posts, parent.depth + 1 for replies
-
-  // Edit tracking (for client display - no version history stored)
-  bool   edited = 24;                                    // True if post has been edited
-  int64  edited_at = 25;                                 // Timestamp of last edit (0 if never edited)
-
-  // DEPRECATED: archive_count moved to separate ArchiveMetadata storage for security
-  // Kept for backwards compatibility but NOT authoritative - use ArchiveMetadata instead
-  uint64 archive_count = 26 [deprecated = true];         // Use archive_metadata/{root_id}.archive_count instead
-
-  // Cross-Module Conviction Propagation (optional initiative reference)
-  uint64 initiative_id = 27;                              // x/rep initiative referenced by this post (0 = none, immutable after creation)
-  bool conviction_sustained = 28;                         // True if content has entered conviction-sustained state (TTL extended by community conviction)
-}
 ```
 
 ### 4.2. Category
 
+> **Implementation note:** The actual proto (`proto/sparkdream/forum/v1/category.proto`) uses `category_id` instead of `id`, and does **not** have an `allow_anonymous` field. The `allow_anonymous` per-category toggle described in Section 16.3 is a design-only feature not yet implemented.
+
 ```protobuf
-// proto/forum/v1/category.proto
+// proto/sparkdream/forum/v1/category.proto (actual implementation)
 syntax = "proto3";
-package forum.v1;
+package sparkdream.forum.v1;
 
 message Category {
-  uint64 id = 1;
+  uint64 category_id = 1;
   string title = 2;
   string description = 3;
   bool   members_only_write = 4;                         // Restrict posting to Members
   bool   admin_only_write = 5;                           // Restrict posting to HR Committee
-  bool   allow_anonymous = 6;                            // Whether anonymous posts are permitted (requires global anonymous_posting_enabled)
 }
 ```
 
@@ -234,7 +243,7 @@ message UserReactionLimit {
 }
 
 // Individual reaction record — enforces one reaction per user per post
-// Stored for public reactions only; private reactions use ZK nullifiers instead
+// Stored for public reactions only; private reactions routed via x/shield (nullifiers managed by x/shield)
 enum ReactionType {
   REACTION_TYPE_UNSPECIFIED = 0;
   REACTION_TYPE_UPVOTE     = 1;
@@ -248,14 +257,8 @@ message ReactionRecord {
   int64  created_at = 4;                                 // Timestamp of reaction
 }
 
-// Anonymous reaction metadata — stored per private reaction for auditability
-message AnonymousReactionMetadata {
-  uint64 post_id = 1;                                    // Post reacted to
-  ReactionType reaction_type = 2;                        // UPVOTE or DOWNVOTE
-  bytes nullifier = 3;                                   // 32-byte nullifier
-  bytes merkle_root = 4;                                 // Trust tree root at proof time
-  uint32 proven_trust_level = 5;                         // Minimum trust level proven
-}
+// REMOVED — AnonymousReactionMetadata deleted. Private reactions now routed through
+// x/shield's MsgShieldedExec. Nullifier tracking managed by x/shield's centralized store.
 
 // Sentinel bond status for recovery mode tracking
 enum SentinelBondStatus {
@@ -752,7 +755,7 @@ message Params {
   uint64 max_reactions_per_day = 130;                    // Max reactions (upvotes + downvotes, public + private) per user per 24h (e.g., 100)
   bool   reactions_enabled = 131;                        // Toggle to enable/disable all reactions (default true)
   cosmos.base.v1beta1.Coin downvote_deposit = 132;       // SPARK burned to downvote (e.g., 50 SPARK) — no refund, applies to both public and private
-  bool   private_reactions_enabled = 133;                // Toggle to enable/disable private (ZK) reactions (default true; requires reactions_enabled)
+  bool   private_reactions_enabled = 133;                // Toggle to enable/disable private reactions via x/shield (default true; requires reactions_enabled)
 
   // Post Editing (time-limited, fee-based after grace period)
   int64  edit_grace_period = 89;                         // Seconds after creation for free edits (e.g., 300 = 5 minutes)
@@ -956,9 +959,9 @@ lock_appeal_cooldown/{root_id} -> int64 (earliest appeal timestamp)
 reaction_records/{post_id}/{voter_address}          -> ReactionRecord (public reaction — one per user per post)
 user_reaction_count/{address}                       -> UserReactionLimit (unified daily budget: all reaction types, public + private)
 
-# Private (anonymous) reactions — stored under post_id prefix for archival cleanup
-anon_reaction_nullifiers/{post_id}/{nullifier_hex}  -> AnonymousReactionMetadata (private reaction record)
-anon_reaction_meta/{post_id}/{nullifier_hex}        -> AnonymousReactionMetadata (alias for queries)
+# Private (anonymous) reactions — REMOVED from x/forum state
+# Nullifier tracking and anonymous reaction metadata are now managed by x/shield
+# (nullifiers scoped per-domain in x/shield's centralized store)
 
 # Thread move records (sentinel moves only - for appeal/slashing)
 thread_move_records/{root_id} -> ThreadMoveRecord (sentinel move snapshot)
@@ -1016,13 +1019,15 @@ jury_participation_rate/{juror}          -> JuryParticipation (participation sta
 
 Creates a new permanent Category.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `creator` | `string` | Must match `x/commons` HR Committee Address (signer) |
-| `title` | `string` | Category title |
-| `description` | `string` | Category description |
-| `members_only_write` | `bool` | Restrict posting to members |
-| `admin_only_write` | `bool` | Restrict posting to HR Committee |
+| Field | Type | Proto # | Description |
+|-------|------|---------|-------------|
+| `creator` | `string` | 1 | Must match `x/commons` HR Committee Address (signer) |
+| `title` | `string` | 2 | Category title |
+| `description` | `string` | 3 | Category description |
+| `members_only_write` | `bool` | 4 | Restrict posting to members |
+| `admin_only_write` | `bool` | 5 | Restrict posting to HR Committee |
+
+> **Note:** The design-only `allow_anonymous` field (Section 16.3) is not in the current proto.
 
 **Authorization:** Signer must be authorized via `CommonsKeeper.IsCouncilAuthorized`.
 **Fees:** Standard Gas Fee.
@@ -1033,16 +1038,16 @@ Creates a new permanent Category.
 
 Creates a new post or reply.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `creator` | `string` | Post author (signer) |
-| `category_id` | `uint64` | Target category |
-| `parent_id` | `uint64` | Parent post ID (0 if root) |
-| `content` | `string` | Post text content |
-| `tags` | `[]string` | Associated tags |
-| `content_type` | `ContentType` | Content type enum from `sparkdream.common.v1` |
-| `author_bond` | `math.Int` | Optional DREAM amount to lock as author bond (via x/rep `CreateAuthorBond`) |
-| `initiative_id` | `uint64` | Optional x/rep initiative ID for conviction propagation (0 = none, immutable after creation) |
+| Field | Type | Proto # | Description |
+|-------|------|---------|-------------|
+| `creator` | `string` | 1 | Post author (signer) |
+| `category_id` | `uint64` | 2 | Target category |
+| `parent_id` | `uint64` | 3 | Parent post ID (0 if root) |
+| `content` | `string` | 4 | Post text content |
+| `tags` | `[]string` | 5 | Associated tags |
+| `content_type` | `ContentType` | 6 | Content type enum from `sparkdream.common.v1` |
+| `author_bond` | `math.Int` | 7 | Optional DREAM amount to lock as author bond (via x/rep `CreateAuthorBond`) |
+| `initiative_id` | `uint64` | 8 | Optional x/rep initiative ID for conviction propagation (0 = none, immutable after creation) |
 
 **Fees:**
 - **Gas Fee:** Paid by all users (Standard Cosmos SDK Execution Cost).
@@ -1969,7 +1974,7 @@ Create a tag budget for a group's reserved tag. Simpler alternative to recurring
 | `initial_pool` | `Coin` | Initial SPARK to fund the pool |
 | `members_only` | `bool` | Only group members can receive awards |
 
-**Authorization:** Must be executed by group account (via x/group proposal).
+**Authorization:** Must be executed by group account (via x/commons proposal).
 
 **Logic:**
 1. **Validation:**
@@ -2472,7 +2477,7 @@ Upvote a post (public reaction). Enforces one reaction per user per post — if 
 
 **Design Note — Public vs Private Reactions:**
 - Public reactions store a `ReactionRecord` keyed by `{post_id}/{voter}`, enabling one-per-target enforcement and voter identity visibility
-- Private reactions use ZK nullifiers for the same one-per-target guarantee without revealing identity (see `MsgAnonymousReact` below)
+- Private reactions use ZK nullifiers for the same one-per-target guarantee without revealing identity (routed via `x/shield`'s `MsgShieldedExec`)
 - Both modes share the unified `max_reactions_per_day` budget
 - Reactions are non-removable in both modes (parity — private reactions cannot be undone via nullifier, so public reactions are also permanent)
 
@@ -2547,13 +2552,13 @@ Downvote a post (public reaction). Requires SPARK deposit which is burned immedi
 
 Edits post content within time window. Free during grace period, SPARK fee required after.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `creator` | `string` | Post author (signer) |
-| `post_id` | `uint64` | Post to edit |
-| `new_content` | `string` | Updated content |
-| `tags` | `[]string` | Updated tags |
-| `content_type` | `ContentType` | Updated content type enum from `sparkdream.common.v1` |
+| Field | Type | Proto # | Description |
+|-------|------|---------|-------------|
+| `creator` | `string` | 1 | Post author (signer) |
+| `post_id` | `uint64` | 2 | Post to edit |
+| `new_content` | `string` | 3 | Updated content |
+| `tags` | `[]string` | 4 | Updated tags |
+| `content_type` | `ContentType` | 5 | Updated content type enum from `sparkdream.common.v1` |
 
 **Authorization:** Original post author only.
 
@@ -4755,15 +4760,10 @@ message EventPostDownvoted {
   string deposit_burned = 4;                             // SPARK burned for this downvote
 }
 
-// Emitted when a post receives an anonymous reaction (private — voter identity hidden)
-message EventAnonymousReaction {
-  uint64 post_id = 1;
-  uint32 reaction_type = 2;                              // 1=UPVOTE, 2=DOWNVOTE
-  uint64 new_count = 3;                                  // Updated upvote or downvote count
-  uint32 proven_trust_level = 4;                         // Trust level proven by ZK proof
-  string nullifier_hex = 5;                              // Nullifier (for pattern tracking, NOT identity)
-  // NOTE: submitter address deliberately excluded to prevent indexer correlation
-}
+// REMOVED — EventAnonymousReaction no longer emitted by x/forum.
+// Anonymous reactions are routed through x/shield's MsgShieldedExec, which emits
+// its own shield-level events. The forum keeper emits standard EventUpvote/EventDownvote
+// events when processing the dispatched message.
 
 // ============================================
 // ANTI-GAMING EVENTS
@@ -5134,173 +5134,192 @@ message EventInitiativeLinkRemoved {
 
 ## 10. Errors
 
-| Error | Code | Description |
-|-------|------|-------------|
-| `ErrPostNotFound` | 1 | Post with given ID does not exist |
-| `ErrCategoryNotFound` | 2 | Category with given ID does not exist |
-| `ErrUnauthorized` | 3 | Signer lacks required permissions |
-| `ErrRateLimitExceeded` | 4 | User exceeded daily post limit (rolling 24h window) |
-| `ErrInsufficientReputation` | 5 | User's reputation tier too low for action |
-| `ErrInsufficientBond` | 6 | Sentinel DREAM bond below minimum |
-| `ErrInsufficientBacking` | 7 | Sentinel delegated DREAM backing below minimum |
-| `ErrPostNotHidden` | 8 | Cannot appeal a post that is not hidden |
-| `ErrNotPostAuthor` | 9 | Only post author can appeal |
-| `ErrThreadNotInactive` | 10 | Thread has recent activity, cannot archive |
-| `ErrInvalidTag` | 11 | Tag contains invalid characters or exceeds length limit |
-| `ErrCategoryRestricted` | 12 | Category restricts posting to members/admins |
-| `ErrAppealAlreadyFiled` | 13 | Appeal already pending for this post |
-| `ErrThreadTooLarge` | 14 | Thread exceeds max_archive_post_count or max_archive_size_bytes |
-| `ErrTagLimitExceeded` | 15 | Post exceeds max_tags_per_post or system exceeds max_total_tags |
-| `ErrContentTooLarge` | 16 | Post content exceeds max_content_size |
-| `ErrSalvationDepthExceeded` | 17 | Recursive salvation hit max_salvation_depth (partial salvation) |
-| `ErrHideRecordNotFound` | 19 | Hide record not found for post (already resolved or expired) |
-| `ErrArchivedThreadNotFound` | 20 | Archived thread with given root_id does not exist |
-| `ErrForumPaused` | 21 | Forum is paused, action not allowed |
-| `ErrModerationPaused` | 22 | Moderation is paused, sentinel actions not allowed |
-| `ErrArchiveCooldown` | 23 | Thread in archive cooldown, cannot re-archive yet |
-| `ErrUnarchiveCooldown` | 24 | Thread in unarchive cooldown, must wait before unarchiving |
-| `ErrAppealCooldown` | 25 | Post in appeal cooldown, must wait before appealing |
-| `ErrSentinelDemoted` | 26 | Sentinel is demoted (bond below threshold), cannot perform moderation |
-| `ErrSentinelNotFound` | 27 | Sentinel activity record not found |
-| `ErrActiveChallenges` | 57 | Sentinel has pending appeals, cannot unbond |
-| `ErrTagNotFound` | 28 | Tag does not exist |
-| `ErrAlreadyReported` | 29 | User already reported this tag |
-| `ErrTagNotUnderReview` | 30 | Tag has not reached report threshold |
-| `ErrInsufficientEvidence` | 31 | Member report requires minimum evidence posts |
-| `ErrInvalidEvidence` | 34 | Evidence post invalid (wrong author or restored on appeal) |
-| `ErrMemberReportExists` | 35 | Active report already exists for this member |
-| `ErrNoMemberReport` | 36 | No active member report exists |
-| `ErrAlreadyCoSigned` | 37 | Sentinel already co-signed this member report |
-| `ErrDefenseAlreadySubmitted` | 38 | Member already submitted defense |
-| `ErrCannotReportSelf` | 39 | Sentinel cannot report themselves |
-| `ErrMemberReportExpired` | 40 | Member report has expired |
-| `ErrNewPostsPaused` | 41 | New posts are paused (appeals may still work) |
-| `ErrAppealsPaused` | 42 | Appeals are paused |
-| `ErrSentinelCooldown` | 43 | Sentinel in cooldown period after losing appeal |
-| `ErrHideLimitExceeded` | 45 | Sentinel exceeded max hides per epoch |
-| `ErrReportTooRecent` | 46 | Member report too recent, must wait min_report_duration |
-| `ErrDefenseWaitRequired` | 47 | Must wait min_defense_wait after defense submission |
-| `ErrArchiveCycleLimit` | 48 | Thread exceeded max_archive_cycles, requires HR approval |
-| `ErrCannotArchiveThreadWithPendingAppeal` | 75 | Cannot archive thread with pending lock or move appeal |
-| `ErrActionNotAppealable` | 49 | HR action type cannot be appealed |
-| `ErrNotAffectedParty` | 50 | Only affected party can appeal HR action |
-| `ErrAppealWindowExpired` | 51 | Gov action appeal window (14d) has expired |
-| `ErrSalvationRateLimited` | 52 | Member exceeded max_salvations_per_day |
-| `ErrMaxTagReporters` | 53 | Tag report has reached max_tag_reporters limit |
-| `ErrMaxMemberReporters` | 54 | Member report has reached max_member_reporters limit |
-| `ErrDreamMintCapReached` | 55 | Epoch DREAM mint cap reached, rewards reduced |
-| `ErrNotRootPost` | 56 | Operation requires a root post (thread starter), not a reply |
-| `ErrPostAlreadyPinned` | 58 | Post is already pinned |
-| `ErrPostNotPinned` | 59 | Post is not pinned |
-| `ErrMaxPinnedPosts` | 60 | Category has reached max_pinned_per_category limit |
-| `ErrThreadAlreadyLocked` | 61 | Thread is already locked |
-| `ErrThreadNotLocked` | 62 | Thread is not locked |
-| `ErrThreadLocked` | 63 | Cannot reply to a locked thread |
-| `ErrInsufficientLockBond` | 64 | Sentinel DREAM bond below minimum for thread locking |
-| `ErrInsufficientLockBacking` | 65 | Sentinel delegated backing below minimum for thread locking |
-| `ErrLockLimitExceeded` | 66 | Sentinel exceeded max thread locks per epoch |
-| `ErrLockReasonRequired` | 67 | Sentinels must provide a reason when locking threads |
-| `ErrNotThreadAuthor` | 68 | Only thread author can appeal a lock |
-| `ErrHRLockNotAppealable` | 69 | HR Committee locks cannot be appealed via MsgAppealThreadLock (use MsgAppealGovAction) |
-| `ErrLockAppealAlreadyFiled` | 70 | Appeal already pending for this thread lock |
-| `ErrAppealPending` | 71 | Cannot unlock thread while appeal is pending |
-| `ErrLockAppealExpired` | 72 | Sentinel can only self-unlock before appeal deadline expires |
-| `ErrReactionsDisabled` | 73 | Reactions are currently disabled via params |
-| `ErrReactionLimitExceeded` | 76 | User exceeded unified `max_reactions_per_day` (covers all reaction types) |
-| `ErrCannotReactToHidden` | 77 | Cannot react to a hidden post |
-| `ErrAlreadyReacted` | 80 | User already has a reaction (upvote or downvote) on this post |
-| `ErrCannotDownvoteOwnPost` | 81 | Cannot downvote your own post |
-| `ErrInsufficientDownvoteDeposit` | 82 | Insufficient balance for downvote deposit |
-| `ErrPrivateReactionsDisabled` | 83 | Private reactions disabled via `private_reactions_enabled` param |
-| `ErrAnonymousReactionNullifierUsed` | 84 | Nullifier already used for this post (one private reaction per member per post) |
-| `ErrEditingDisabled` | 86 | Post editing is currently disabled via params |
-| `ErrEditWindowExpired` | 87 | Edit window (24 hours) has expired, post can no longer be edited |
-| `ErrCannotEditHiddenPost` | 88 | Cannot edit a post that is currently hidden by sentinel |
-| `ErrCannotEditDeletedPost` | 89 | Cannot edit a post that has been deleted |
-| `ErrCannotEditArchivedPost` | 90 | Cannot edit a post in an archived thread |
-| `ErrNoContentChange` | 91 | New content is identical to existing content |
-| `ErrInsufficientEditFee` | 92 | Insufficient balance to pay edit fee |
-| `ErrSameCategory` | 93 | Thread is already in the target category |
-| `ErrCannotMovePinnedThread` | 94 | Cannot move a pinned thread (must unpin first) |
-| `ErrCannotMoveLockedThread` | 95 | Cannot move a locked thread with pending appeal |
-| `ErrCannotMoveReservedTagThread` | 96 | Sentinels cannot move threads with reserved tags (HR Committee only) |
-| `ErrMoveLimitExceeded` | 97 | Sentinel exceeded max thread moves per epoch |
-| `ErrMoveReasonRequired` | 98 | Sentinels must provide a reason when moving threads |
-| `ErrHRMoveNotAppealable` | 99 | HR Committee moves cannot be appealed via MsgAppealThreadMove (use MsgAppealGovAction) |
-| `ErrMoveAppealAlreadyFiled` | 100 | Appeal already pending for this thread move |
-| `ErrCannotFlagHiddenPost` | 101 | Cannot flag a post that is already hidden |
-| `ErrCannotFlagOwnPost` | 102 | Cannot flag your own post |
-| `ErrAlreadyFlagged` | 103 | User has already flagged this post |
-| `ErrMaxFlaggers` | 104 | Post has reached max_post_flaggers limit |
-| `ErrFlagLimitExceeded` | 105 | User exceeded max_flags_per_day |
-| `ErrNoFlagsToReview` | 106 | Post has no flags to dismiss |
-| `ErrInsufficientFlagFee` | 107 | Insufficient balance to pay flag spam tax |
-| `ErrBountiesDisabled` | 108 | Bounties are currently disabled via params |
-| `ErrBountyAlreadyExists` | 109 | Thread already has an active bounty |
-| `ErrBountyTooSmall` | 110 | Bounty amount below minimum |
-| `ErrBountyNotFound` | 111 | Bounty with given ID does not exist |
-| `ErrNotBountyCreator` | 112 | Only bounty creator can perform this action |
-| `ErrBountyNotActive` | 113 | Bounty is not active (already awarded, expired, or cancelled) |
-| `ErrTooManyWinners` | 114 | Exceeds max_bounty_winners |
-| `ErrNotReplyToThread` | 115 | Post is not a reply to the bounty's thread |
-| `ErrCannotAwardSelf` | 116 | Cannot award bounty to yourself |
-| `ErrAwardReasonRequired` | 117 | Award reason is required |
-| `ErrAwardAmountMismatch` | 118 | Sum of award amounts must equal bounty amount |
-| `ErrBountyHasAwards` | 119 | Cannot cancel bounty after partial awards |
-| `ErrTagNotReserved` | 120 | Tag budget requires a reserved tag |
-| `ErrTagNotOwnedByGroup` | 121 | Group does not own this reserved tag |
-| `ErrTagBudgetExists` | 122 | Tag budget already exists for this tag |
-| `ErrBudgetTooSmall` | 123 | Tag budget initial pool below minimum |
-| `ErrTagBudgetNotFound` | 124 | Tag budget with given ID does not exist |
-| `ErrTagBudgetNotActive` | 125 | Tag budget is not active |
-| `ErrNotGroupMember` | 126 | User is not a member of the group |
-| `ErrInsufficientPool` | 127 | Pool balance insufficient for award |
-| `ErrPostMissingTag` | 128 | Post does not use the budget's required tag |
-| `ErrAwardTooSmall` | 129 | Award amount below minimum |
-| `ErrThreadNotFound` | 130 | Thread (root post) with given ID does not exist |
-| `ErrCannotPinHiddenPost` | 136 | Cannot pin a reply that is currently hidden |
-| `ErrCannotPinBountyThread` | 137 | Sentinels cannot pin replies in threads with active bounties |
-| `ErrCannotPinRestrictedTag` | 138 | Sentinels cannot pin replies in threads with restricted tags |
-| `ErrTooManyPinnedReplies` | 139 | Thread has reached max_pinned_replies_per_thread limit |
-| `ErrAlreadyPinned` | 140 | Reply is already pinned in this thread |
-| `ErrReplyNotPinned` | 141 | Reply is not pinned in this thread |
-| `ErrCannotAcceptHiddenPost` | 142 | Cannot mark a hidden reply as accepted |
-| `ErrCannotMarkBountyThread` | 143 | Sentinels cannot mark accepted in threads with active bounties |
-| `ErrCannotMarkRestrictedTag` | 144 | Sentinels cannot mark accepted in threads with restricted tags |
-| `ErrNoAcceptedReply` | 145 | No reply is currently marked as accepted |
-| `ErrNoBountyOnThread` | 146 | Thread does not have an active bounty |
-| `ErrNotSentinel` | 147 | User is not an active sentinel |
-| `ErrInvalidRank` | 148 | Rank must be >= 1 and <= number of winners; at least one rank=1 required |
-| `ErrPinDisputePending` | 149 | Cannot unpin while dispute is pending |
-| `ErrCannotDisputeAuthorPin` | 150 | Only sentinel pins can be disputed |
-| `ErrPinAlreadyDisputed` | 151 | This pin is already being disputed |
-| `ErrDisputeReasonRequired` | 152 | Dispute reason is required |
-| `ErrProposalAlreadyPending` | 153 | An accept proposal is already pending for this thread |
-| `ErrAlreadyAccepted` | 154 | This reply is already marked as accepted |
-| `ErrSentinelCannotClearAccepted` | 155 | Only thread author can clear accepted reply |
-| `ErrNoProposalPending` | 156 | No accept proposal is pending for this thread |
-| `ErrInvalidFlagCategory` | 157 | Flag category must not be UNSPECIFIED |
-| `ErrFlagReasonRequired` | 158 | Custom reason required when flag category is OTHER |
-| `ErrFlagReasonTooLong` | 159 | Flag reason exceeds max length (256 chars) |
-| `ErrAlreadyFollowing` | 160 | User is already following this thread |
-| `ErrNotFollowing` | 161 | User is not following this thread |
-| `ErrFollowLimitExceeded` | 162 | User exceeded max_follows_per_day |
-| `ErrMaxReplyDepthExceeded` | 163 | Reply exceeds max_reply_depth limit |
-| `ErrCannotDeleteHiddenPost` | 164 | Cannot delete post while under moderation review |
-| `ErrPostAlreadyDeleted` | 165 | Post has already been deleted |
-| `ErrCannotDeleteArchivedPost` | 166 | Cannot delete an archived post |
-| | | |
-| **Anonymous Posting Errors (2300-2399)** | | |
-| `ErrAnonPostingDisabled` | 2300 | Anonymous posting is disabled (global `anonymous_posting_enabled` is false or `VoteKeeper` is nil) |
-| `ErrInvalidProof` | 2301 | Invalid ZK proof — Groth16 verification failed |
-| `ErrNullifierUsed` | 2302 | Nullifier already used (one anonymous action per domain/scope) |
-| `ErrInsufficientTrustLevel` | 2303 | Insufficient trust level for anonymous action (below `anonymous_min_trust_level`) |
-| `ErrCategoryAnonNotAllowed` | 2304 | Anonymous posting not allowed in this category (`allow_anonymous` is false) |
-| `ErrPrivateReactionsDisabled` | 2305 | Private reactions are disabled (global `private_reactions_enabled` is false) |
-| `ErrInvalidReactionType` | 2306 | Invalid reaction type (must be UPVOTE or DOWNVOTE, not UNSPECIFIED) |
-| | | |
-| **Conviction Propagation Errors (2400-2499)** | | |
-| `ErrInvalidInitiativeRef` | 2400 | Invalid initiative reference — initiative does not exist or is in terminal status (COMPLETED, FAILED, CANCELLED) |
+> **Implementation note:** The actual error codes in `x/forum/types/errors.go` use the range 1100-2499, organized by category. The design spec previously used codes 1-166. The table below reflects the **actual implementation**.
+
+| Category | Error | Code | Description |
+|----------|-------|------|-------------|
+| **Base (1100-1199)** | | | |
+| | `ErrInvalidSigner` | 1100 | Expected gov account as only signer for proposal message |
+| | `ErrUnauthorized` | 1101 | Unauthorized |
+| | `ErrInvalidParam` | 1102 | Invalid parameter |
+| **Content (1200-1299)** | | | |
+| | `ErrContentTooLarge` | 1200 | Content exceeds maximum size |
+| | `ErrInvalidTag` | 1201 | Invalid tag format |
+| | `ErrTagLimitExceeded` | 1202 | Tag limit exceeded for post |
+| | `ErrTotalTagsExceeded` | 1203 | System-wide tag limit exceeded |
+| | `ErrTagNotFound` | 1204 | Tag not found |
+| | `ErrTagAlreadyExists` | 1205 | Tag already exists |
+| | `ErrReservedTag` | 1206 | Tag is reserved |
+| | `ErrTagExpired` | 1207 | Tag has expired |
+| | `ErrInvalidContent` | 1208 | Invalid content |
+| | `ErrEmptyContent` | 1209 | Content cannot be empty |
+| | `ErrInvalidReasonCode` | 1210 | Invalid reason code |
+| | `ErrReasonTextRequired` | 1211 | Custom reason text required for OTHER reason code |
+| | `ErrMaxTagLength` | 1212 | Tag exceeds maximum length |
+| **Post (1300-1399)** | | | |
+| | `ErrPostNotFound` | 1300 | Post not found |
+| | `ErrNotPostAuthor` | 1301 | Not the post author |
+| | `ErrPostAlreadyHidden` | 1302 | Post is already hidden |
+| | `ErrPostNotHidden` | 1303 | Post is not hidden |
+| | `ErrPostDeleted` | 1304 | Post has been deleted |
+| | `ErrPostArchived` | 1305 | Post has been archived |
+| | `ErrNotRootPost` | 1306 | Operation only allowed on root posts |
+| | `ErrIsRootPost` | 1307 | Operation not allowed on root posts |
+| | `ErrPostAlreadyPinned` | 1308 | Post is already pinned |
+| | `ErrPostNotPinned` | 1309 | Post is not pinned |
+| | `ErrMaxPinnedPosts` | 1310 | Maximum pinned posts reached for category |
+| | `ErrCannotDeleteHiddenPost` | 1311 | Cannot delete hidden post |
+| | `ErrMaxReplyDepthExceeded` | 1312 | Maximum reply depth exceeded |
+| | `ErrParentPostNotFound` | 1313 | Parent post not found |
+| | `ErrInvalidPostStatus` | 1314 | Invalid post status for this operation |
+| **Thread (1400-1449)** | | | |
+| | `ErrThreadLocked` | 1400 | Thread is locked |
+| | `ErrThreadNotLocked` | 1401 | Thread is not locked |
+| | `ErrThreadAlreadyLocked` | 1402 | Thread is already locked |
+| | `ErrNotThreadAuthor` | 1403 | Not the thread author |
+| | `ErrLockReasonRequired` | 1404 | Lock reason required for sentinels |
+| | `ErrMoveReasonRequired` | 1405 | Move reason required |
+| | `ErrCannotMoveReservedTag` | 1406 | Cannot move thread with reserved tag |
+| **Category (1450-1499)** | | | |
+| | `ErrCategoryNotFound` | 1450 | Category not found |
+| | `ErrCategoryAlreadyExists` | 1451 | Category already exists |
+| | `ErrMembersOnlyWrite` | 1452 | Category restricted to members only |
+| | `ErrAdminOnlyWrite` | 1453 | Category restricted to admins only |
+| | `ErrInvalidCategoryId` | 1454 | Invalid category ID |
+| **Rate Limit (1500-1549)** | | | |
+| | `ErrRateLimitExceeded` | 1500 | Rate limit exceeded |
+| | `ErrReactionLimitExceeded` | 1501 | Reaction rate limit exceeded |
+| | `ErrFlagLimitExceeded` | 1502 | Flag rate limit exceeded |
+| | `ErrFollowLimitExceeded` | 1503 | Follow rate limit exceeded |
+| | `ErrSalvationLimitExceeded` | 1504 | Salvation rate limit exceeded |
+| | `ErrDownvoteLimitExceeded` | 1505 | Downvote rate limit exceeded |
+| **Moderation (1550-1649)** | | | |
+| | `ErrSentinelCooldown` | 1550 | Sentinel is in cooldown period |
+| | `ErrInsufficientBond` | 1551 | Insufficient sentinel bond |
+| | `ErrInsufficientBacking` | 1552 | Insufficient sentinel backing |
+| | `ErrInsufficientReputation` | 1553 | Insufficient reputation tier |
+| | `ErrSentinelDemoted` | 1554 | Sentinel is demoted |
+| | `ErrNotSentinel` | 1555 | Not a registered sentinel |
+| | `ErrAlreadySentinel` | 1556 | Already registered as sentinel |
+| | `ErrHideLimitExceeded` | 1557 | Sentinel hide limit exceeded for epoch |
+| | `ErrLockLimitExceeded` | 1558 | Sentinel lock limit exceeded for epoch |
+| | `ErrMoveLimitExceeded` | 1559 | Sentinel move limit exceeded for epoch |
+| | `ErrInsufficientLockBond` | 1560 | Insufficient bond for thread locking |
+| | `ErrInsufficientLockBacking` | 1561 | Insufficient backing for thread locking |
+| | `ErrSentinelNotFound` | 1562 | Sentinel activity record not found |
+| | `ErrCannotUnbondPendingHides` | 1563 | Cannot unbond with pending hide appeals |
+| | `ErrDemotionCooldown` | 1564 | Sentinel is in demotion cooldown |
+| | `ErrBondAmountTooSmall` | 1565 | Bond amount too small |
+| | `ErrNotGovAuthority` | 1566 | Not governance authority |
+| | `ErrNotAuthorized` | 1567 | Not authorized for this action |
+| | `ErrPostStatus` | 1568 | Invalid post status for this operation |
+| **Appeal (1650-1699)** | | | |
+| | `ErrAppealCooldown` | 1650 | Appeal cooldown not yet passed |
+| | `ErrAppealAlreadyFiled` | 1651 | Appeal already filed for this action |
+| | `ErrAppealNotFound` | 1652 | Appeal not found |
+| | `ErrAppealPending` | 1653 | Appeal is pending |
+| | `ErrAppealExpired` | 1654 | Appeal deadline has passed |
+| | `ErrGovLockNotAppealable` | 1655 | Governance locks must be appealed via gov action appeal |
+| | `ErrLockAppealAlreadyFiled` | 1656 | Lock appeal already filed |
+| | `ErrLockAppealExpired` | 1657 | Lock appeal window has expired |
+| | `ErrMoveAppealAlreadyFiled` | 1658 | Move appeal already filed |
+| | `ErrMoveAppealExpired` | 1659 | Move appeal window has expired |
+| | `ErrPinDisputeAlreadyFiled` | 1660 | Pin dispute already filed |
+| | `ErrNotSentinelPin` | 1661 | Cannot dispute non-sentinel pins |
+| **Archive (1700-1749)** | | | |
+| | `ErrThreadNotInactive` | 1700 | Thread is not inactive enough to archive |
+| | `ErrArchiveCooldown` | 1701 | Archive cooldown not yet passed |
+| | `ErrUnarchiveCooldown` | 1702 | Unarchive cooldown not yet passed |
+| | `ErrArchiveCycleLimit` | 1703 | Archive cycle limit reached, requires governance approval |
+| | `ErrArchivedThreadNotFound` | 1704 | Archived thread not found |
+| | `ErrCannotArchiveThreadWithPendingAppeal` | 1706 | Cannot archive thread with pending appeal |
+| **Bounty (1750-1799)** | | | |
+| | `ErrBountyNotFound` | 1750 | Bounty not found |
+| | `ErrBountyNotActive` | 1751 | Bounty is not active |
+| | `ErrBountyExpired` | 1752 | Bounty has expired |
+| | `ErrBountyAlreadyExists` | 1753 | Bounty already exists for this thread |
+| | `ErrNotBountyCreator` | 1754 | Not the bounty creator |
+| | `ErrBountyAmountTooSmall` | 1755 | Bounty amount below minimum |
+| | `ErrBountyAlreadyAwarded` | 1756 | Bounty has already been awarded |
+| | `ErrMaxBountyWinners` | 1757 | Maximum bounty winners reached |
+| | `ErrInvalidBountyDuration` | 1758 | Bounty duration exceeds maximum |
+| | `ErrBountyInModeration` | 1759 | Bounty is pending moderation resolution |
+| | `ErrNotReplyInThread` | 1760 | Post is not a reply in the bounty thread |
+| | `ErrBountyFullyAwarded` | 1761 | Bounty has been fully awarded |
+| **Tag Budget (1800-1849)** | | | |
+| | `ErrTagBudgetNotFound` | 1800 | Tag budget not found |
+| | `ErrTagBudgetNotActive` | 1801 | Tag budget is not active |
+| | `ErrTagBudgetInsufficient` | 1802 | Insufficient funds in tag budget |
+| | `ErrNotGroupMember` | 1803 | Not a member of the budget group |
+| | `ErrNotGroupAccount` | 1804 | Not a valid group account |
+| | `ErrTagNotReserved` | 1805 | Tag is not reserved |
+| | `ErrTagBudgetAlreadyExists` | 1806 | Tag budget already exists for this tag |
+| | `ErrAwardAmountTooSmall` | 1807 | Award amount below minimum |
+| | `ErrMembersOnlyAward` | 1808 | Award restricted to group members only |
+| | `ErrPostNotInTag` | 1809 | Post does not have the required tag |
+| **Flag (1850-1899)** | | | |
+| | `ErrAlreadyFlagged` | 1850 | Already flagged this post |
+| | `ErrFlagNotFound` | 1851 | Flag record not found |
+| | `ErrNotInReviewQueue` | 1852 | Post not in review queue |
+| | `ErrFlagExpired` | 1853 | Flags have expired |
+| | `ErrMaxFlaggersReached` | 1854 | Maximum flaggers reached for this post |
+| **Thread Metadata (1900-1949)** | | | |
+| | `ErrNoAcceptedReply` | 1900 | No accepted reply for this thread |
+| | `ErrAlreadyAccepted` | 1901 | Thread already has an accepted reply |
+| | `ErrNoProposedReply` | 1902 | No proposed reply for this thread |
+| | `ErrProposalAlreadyPending` | 1903 | Accept proposal already pending |
+| | `ErrMaxPinnedReplies` | 1904 | Maximum pinned replies reached |
+| | `ErrAlreadyPinned` | 1905 | Post is already pinned |
+| | `ErrNotPinned` | 1906 | Post is not pinned |
+| | `ErrCannotPinOwnReply` | 1907 | Cannot pin own reply |
+| | `ErrPinDisputed` | 1908 | Pin is being disputed |
+| | `ErrCannotDisputeGovPin` | 1909 | Cannot dispute governance pins |
+| | `ErrAlreadyDisputed` | 1910 | Pin is already disputed |
+| **Follow (1950-1999)** | | | |
+| | `ErrAlreadyFollowing` | 1950 | Already following this thread |
+| | `ErrNotFollowing` | 1951 | Not following this thread |
+| | `ErrCannotVoteOwnPost` | 1952 | Cannot vote on your own post |
+| **Report (2000-2049)** | | | |
+| | `ErrReportNotFound` | 2000 | Report not found |
+| | `ErrReportAlreadyExists` | 2001 | Report already exists |
+| | `ErrReportExpired` | 2002 | Report has expired |
+| | `ErrInsufficientEvidence` | 2003 | Insufficient evidence posts |
+| | `ErrMaxReportersReached` | 2004 | Maximum reporters reached |
+| | `ErrAlreadyCosigned` | 2005 | Already co-signed this report |
+| | `ErrDefenseAlreadySubmitted` | 2006 | Defense already submitted |
+| | `ErrDefenseWaitPeriod` | 2007 | Must wait after defense before resolution |
+| | `ErrMinReportDuration` | 2008 | Minimum report duration not yet passed |
+| | `ErrReportNotPending` | 2009 | Report is not pending |
+| | `ErrCannotReportSelf` | 2010 | Cannot report yourself |
+| | `ErrTagReportNotFound` | 2011 | Tag report not found |
+| | `ErrTagReportAlreadyExists` | 2012 | Tag report already exists |
+| **Gov Action Appeal (2050-2099)** | | | |
+| | `ErrGovAppealNotFound` | 2050 | Governance action appeal not found |
+| | `ErrGovAppealNotPending` | 2051 | Governance action appeal is not pending |
+| | `ErrCannotAppealAction` | 2052 | This action type cannot be appealed |
+| | `ErrPauseNotLongEnough` | 2053 | Pause duration not long enough to appeal |
+| | `ErrGovAppealAlreadyFiled` | 2054 | Governance action appeal already filed |
+| **Emergency Pause (2100-2149)** | | | |
+| | `ErrForumPaused` | 2100 | Forum is paused |
+| | `ErrModerationPaused` | 2101 | Moderation is paused |
+| | `ErrNewPostsPaused` | 2102 | New posts are paused |
+| | `ErrAppealsPaused` | 2103 | Appeals are paused |
+| | `ErrBountiesDisabled` | 2104 | Bounties are disabled |
+| | `ErrReactionsDisabled` | 2105 | Reactions are disabled |
+| | `ErrEditingDisabled` | 2106 | Post editing is disabled |
+| **Edit (2150-2199)** | | | |
+| | `ErrEditWindowExpired` | 2150 | Edit window has expired |
+| | `ErrCannotEditHiddenPost` | 2151 | Cannot edit hidden post |
+| | `ErrCannotEditDeletedPost` | 2152 | Cannot edit deleted post |
+| **Payment (2200-2249)** | | | |
+| | `ErrInsufficientFunds` | 2200 | Insufficient funds |
+| | `ErrInvalidAmount` | 2201 | Invalid amount |
+| | `ErrInvalidDenom` | 2202 | Invalid denomination |
+| **Member (2250-2299)** | | | |
+| | `ErrNotMember` | 2250 | Not a member |
+| | `ErrMembershipTooNew` | 2251 | Membership too recent for this operation |
+| **Conviction Propagation (2400-2499)** | | | |
+| | `ErrInvalidInitiativeRef` | 2400 | Invalid initiative reference |
 
 ---
 
@@ -5402,14 +5421,14 @@ message EventInitiativeLinkRemoved {
 | **Lock Overturn Penalty** | Same escalating cooldown as hide overturns. Repeated bad locks progressively restrict sentinel's moderation ability. |
 | **Reaction Spam** | Unified `max_reactions_per_day` (100) limits all reactions per user per 24h. Non-member `reaction_spam_tax` (10 SPARK) creates cost barrier. One reaction per user per post prevents vote-stacking. |
 | **Reaction Sybil** | Rate limit + spam tax + one-per-target makes Sybil attacks expensive. Membership requirement for free reactions ties votes to earned status. |
-| **Reaction State Bloat** | `ReactionRecord` per public vote + `AnonymousReactionMetadata` per private vote. Both cleaned up on thread archival (§16.15), leaving only aggregate counters. |
-| **Vote Brigading** | One reaction per user per post (enforced by keyed storage for public, ZK nullifier for private). Unified daily budget caps total reactions. |
+| **Reaction State Bloat** | `ReactionRecord` per public vote (cleaned up on thread archival §16.15, leaving only aggregate counters). Private reaction nullifiers managed by x/shield's centralized store. |
+| **Vote Brigading** | One reaction per user per post (enforced by keyed storage for public, x/shield nullifier for private). Unified daily budget caps total reactions. |
 | **Upvote Farming** | No direct economic benefit to post authors from upvotes. Reactions are engagement signals only, not rewards. One-per-target prevents vote inflation. |
 | **Downvote Harassment** | `downvote_deposit` (50 SPARK) creates significant cost for both public and private downvotes. Deposit burned immediately. |
 | **Downvote Brigading** | Unified `max_reactions_per_day` limits all reactions. Each downvote burns deposit. Coordinated attacks require large capital commitment. |
 | **Self-Downvote Exploit** | `ErrCannotDownvoteOwnPost` prevents gaming via self-downvotes (public mode). Private downvotes cannot check authorship but trust-level requirement + deposit cost make self-gaming expensive and pointless. |
-| **Private Reaction Privacy** | ZK proof reveals nothing about the voter except membership at minimum trust level. Nullifiers are scoped to individual posts — reactions on different posts cannot be correlated. Relay pattern breaks transaction-level correlation. |
-| **Private Reaction Relay Trust** | The reaction type (up/down) is not part of the ZK proof — a malicious relay could change it. Mitigated by: approved relays vetted by Operations Committee, users can self-submit, and the consequence (wrong vote direction) is low-severity. |
+| **Private Reaction Privacy** | ZK proof reveals nothing about the voter except membership at minimum trust level. Nullifiers are scoped to individual posts — reactions on different posts cannot be correlated. All privacy infrastructure (proof verification, nullifiers) now managed by x/shield. |
+| **Private Reaction Relay Trust** | Shielded execution via x/shield's `MsgShieldedExec` handles relay trust. Module-paid gas eliminates the need for submitter balance, reducing relay trust assumptions. |
 | **Archival Re-reaction** | After archival, reaction uniqueness data is deleted. Unarchived threads allow re-reactions. Acceptable: unarchival is rare, gas-expensive, and aggregate counts are preserved. |
 | **Edit Context Manipulation** | `edit_max_window` (24h) prevents late edits that change discussion context. Readers can trust posts older than 24h won't change. |
 | **Edit Abuse** | `edit_fee` (25 SPARK) after 5-minute grace period discourages frivolous edits. Fee funds reward pool. |
@@ -5585,12 +5604,13 @@ func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 
 ## 12. Implementation Phases
 
-> **Current status as of February 2026:** All phases through Phase 7 have their **messages and queries scaffolded and implemented**. The module has 50 Msg RPCs and 80+ Query RPCs. Key areas still in design-only status:
+> **Current status as of March 2026:** All phases through Phase 7 have their **messages and queries scaffolded and implemented**. The module has 50+ Msg RPCs and 80+ Query RPCs. Key areas still in design-only status:
 > - EndBlocker: Only ephemeral post pruning implemented (no reward distribution, accuracy decay, or bounty expiration)
 > - ForumHooks interface: Not yet implemented
 > - OnInitiativeFinalized callback: Not yet implemented
 > - Module invariants: Not yet implemented
-> - Anonymous features (Phase 8): **Implemented** — MsgCreateAnonymousPost, MsgCreateAnonymousReply, MsgAnonymousReact with VoteKeeper/SeasonKeeper integration
+> - Anonymous features (Phase 8): **Migrated to x/shield** — Per-module messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) removed. Anonymous operations now use `x/shield`'s unified `MsgShieldedExec`. Forum implements `ShieldAware` interface (`IsShieldCompatible` returns `true` for `MsgCreatePost`, `MsgUpvotePost`, `MsgDownvotePost`).
+> - Per-category `allow_anonymous` toggle: Design-only, not in Category proto
 > - Many spec parameters not yet on-chain (hardcoded or via x/rep integration)
 
 The x/forum module should be implemented in phases to manage complexity and allow incremental testing.
@@ -5661,17 +5681,17 @@ The x/forum module should be implemented in phases to manage complexity and allo
 ### Phase 4: Reactions & Editing (Weeks 13-16) — PARTIALLY IMPLEMENTED
 
 **Proto & Types:**
-- ReactionRecord, ReactionType, AnonymousReactionMetadata
+- ReactionRecord, ReactionType (AnonymousReactionMetadata removed — private reactions via x/shield)
 - UserReactionLimit (unified budget)
 
 **Messages:**
 - MsgUpvotePost (one-per-target, stores ReactionRecord)
 - MsgDownvotePost (one-per-target, stores ReactionRecord)
-- MsgAnonymousReact (private reaction via ZK proof — implemented with VoteKeeper integration)
+- ~~MsgAnonymousReact~~ (REMOVED — private reactions now routed via `x/shield`'s `MsgShieldedExec`)
 - MsgEditPost
 
 **State Management:**
-- Reaction records per post per user (public: ReactionRecord, private: nullifier)
+- Reaction records per post per user (public: ReactionRecord; private: nullifier managed by x/shield)
 - Aggregate counters on Post (upvote_count, downvote_count — maintained alongside records)
 - Unified daily rate limits (UserReactionLimit)
 - Reaction record cleanup on thread archival (§16.15)
@@ -5897,38 +5917,44 @@ See **[docs/session-keys.md](session-keys.md)** for the full specification, gran
 
 ---
 
-## 16. Anonymous Features via ZK Proofs
+## 16. Anonymous Features via x/shield
 
-> **Implementation status:** Anonymous posting, anonymous replies, and anonymous reactions are **implemented**. The messages `MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, and `MsgAnonymousReact` are defined in `tx.proto`. Anonymous posting parameters (`anonymous_posting_enabled`, `anonymous_min_trust_level`, `anonymous_post_rate_limit`, `private_reactions_enabled`) are in `params.proto`. The `VoteKeeper` interface (`VerifyAnonymousActionProof`) and `SeasonKeeper` interface (`GetEpochDuration`) are wired into the keeper. Nullifier storage, per-category `allow_anonymous` gating, and all validation logic described below are operational.
+> **Implementation status (March 2026):** Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) have been **REMOVED**. All anonymous operations are now routed through `x/shield`'s unified `MsgShieldedExec` entry point. The forum keeper implements the `ShieldAware` interface (see `x/forum/keeper/shield_aware.go`) to declare which messages are shield-compatible: `MsgCreatePost`, `MsgUpvotePost`, `MsgDownvotePost`. ZK proof verification (PLONK over BN254), nullifier management, TLE infrastructure, and module-paid gas are all owned by x/shield. The anonymous posting subsidy system has also been removed (replaced by x/shield's module-paid gas model). See `docs/x-shield-spec.md` for the unified privacy architecture.
 
-Members can create forum posts, replies, and reactions without revealing their identity, using the ZK-SNARK infrastructure from x/vote. The member proves they meet a minimum trust level — without revealing *which* member they are. Nullifiers prevent spam: one anonymous thread per epoch, one anonymous reply per thread, and one anonymous reaction per post per identity.
+Members can create forum posts, replies, and reactions without revealing their identity via `x/shield`'s `MsgShieldedExec`. The member proves they meet a minimum trust level — without revealing *which* member they are. Nullifiers prevent spam and are managed centrally by x/shield with per-domain scoping. Two execution modes are available: **Immediate** (low latency, content visible on-chain) and **Encrypted Batch** (TLE + batching for maximum privacy).
 
-See **[docs/anonymous-posting.md](anonymous-posting.md)** for the full specification covering the member trust tree, anonymous action circuit, nullifier system, relay pattern, VoteKeeper interface, client workflow, and security considerations.
+See **[docs/x-shield-spec.md](x-shield-spec.md)** for the full specification covering ZK proof verification, TLE infrastructure, nullifier management, shielded execution modes, and module-paid gas.
 
 ### 16.1. Dependencies
 
 | Module | Purpose |
 |--------|---------|
-| `x/vote` | `VoteKeeper.VerifyAnonymousActionProof()` — Groth16 proof verification |
-| `x/rep` | `RepKeeper.GetMemberTrustTreeRoot()` — Merkle root for trust-level proofs |
-| `x/common` | Shared anonymous infrastructure: nullifier storage/lookup (`StoreNullifier`, `IsNullifierUsed`), epoch nullifier pruning (`PruneEpochNullifiers`), and the unified `VerifyAndStoreAnonymousAction` helper |
+| `x/shield` | Owns all ZK proof verification (PLONK/BN254), nullifier management, TLE infrastructure, and module-paid gas. Dispatches shielded operations to forum via the `ShieldAware` interface. |
+| `x/rep` | `RepKeeper.GetMemberTrustTreeRoot()` — Merkle root for trust-level proofs (read by x/shield during proof verification) |
 
-`x/vote` and `x/rep` are required. If either keeper is nil, all anonymous posting messages return `ErrAnonymousPostingUnavailable`. `x/common` helpers are imported as library functions (no keeper dependency).
+x/forum does NOT depend on x/shield directly. Instead, x/shield calls into forum when processing a `MsgShieldedExec` that wraps a forum message. The forum keeper declares shield-compatible messages via the `ShieldAware` interface (`IsShieldCompatible()`). All ZK proof verification, nullifier deduplication, and trust tree root validation are performed by x/shield before dispatching to the forum keeper.
 
-### 16.2. Forum-Specific Nullifier Domains
+> **ShieldAware interface** (`x/forum/keeper/shield_aware.go`): The forum keeper implements `IsShieldCompatible(ctx, msg) bool` which returns `true` for `MsgCreatePost`, `MsgUpvotePost`, and `MsgDownvotePost`. These are the three operations that can be executed anonymously via x/shield.
+
+### 16.2. Forum-Specific Nullifier Domains (Managed by x/shield)
+
+> **Note:** Nullifier domains are now registered in x/shield via `MsgRegisterShieldedOp` and managed centrally. The per-module `AnonNullifier/` stores have been removed.
 
 | Domain | Action | Scope | Effect |
 |--------|--------|-------|--------|
-| `3` | Anonymous thread | Current epoch | One anonymous thread per member per epoch |
-| `4` | Anonymous reply | `root_id` (thread root post ID) | One anonymous reply per member per thread |
+| `11` | Shielded post (MsgCreatePost) | Current epoch | One anonymous thread per member per epoch |
+| `12` | Shielded upvote (MsgUpvotePost) | `post_id` | One anonymous upvote per member per post |
+| `13` | Shielded downvote (MsgDownvotePost) | `post_id` | One anonymous downvote per member per post |
 
-Scoping replies to the thread root (not individual parent posts) prevents correlation via threading depth — the same member can't be identified by their unique position in a reply chain.
+All domains use `PROOF_DOMAIN_TRUST_TREE` with `min_trust_level=1` and `batch_mode=EITHER`. Nullifier storage and deduplication are handled by x/shield's centralized nullifier store with per-domain scoping.
 
 ### 16.3. Per-Category Anonymous Toggle
 
+> **Implementation status:** This feature is **design-only**. The `allow_anonymous` field does NOT exist in the actual `Category` proto (`proto/sparkdream/forum/v1/category.proto`). The `anonymous_posting_enabled` parameter also does not exist in the `Params` proto. Anonymous operations are currently handled entirely at the x/shield layer without per-category gating. The design below is preserved for future implementation.
+
 Anonymous posting is gated per-category rather than a single global flag. This allows governance to enable anonymity in categories where it makes sense (governance, feedback, whistleblowing) while keeping it off in others (support, introductions).
 
-New field on `Category`:
+New field on `Category` (design target):
 
 ```protobuf
 message Category {
@@ -5943,144 +5969,49 @@ The global `anonymous_posting_enabled` param acts as a master kill-switch. If fa
 
 ### 16.4. Messages
 
-#### MsgCreateAnonymousPost
-
-Creates a new anonymous thread (root post) in a category.
-
-```protobuf
-message MsgCreateAnonymousPost {
-  string submitter = 1;                                // Transaction signer (pays gas + spam tax; NOT linked to content)
-  uint64 category_id = 2;                             // Target category
-  string content = 3;                                  // Post text content
-  repeated string tags = 4;                            // Associated tags
-  bytes proof = 5;                                     // ~500-byte Groth16 proof
-  bytes nullifier = 6;                                 // 32-byte nullifier
-  bytes merkle_root = 7;                               // Trust tree root used for proof
-  uint32 min_trust_level = 8;                          // Trust level proven (must meet anonymous_min_trust_level param)
-  uint64 initiative_id = 9;                            // Optional x/rep initiative for conviction propagation (0 = none)
-}
-
-message MsgCreateAnonymousPostResponse {
-  uint64 id = 1;  // Assigned post ID
-}
-```
-
-**Validation:**
-1. `submitter` is valid bech32 (pays gas and fees; not recorded as author)
-2. `params.anonymous_posting_enabled` must be true
-3. Category must exist; `category.allow_anonymous` must be true
-4. `category.admin_only_write` must be false (anonymous posts cannot impersonate authority)
-5. Content non-empty, `len(content)` ≤ `params.max_content_size`
-6. Tags validated same as regular posts (count ≤ `params.max_tags_per_post`, tag creation fee applies)
-7. `min_trust_level` ≥ `params.anonymous_min_trust_level`
-8. `merkle_root` matches current `MemberTrustTreeRoot` from x/rep (stale roots rejected)
-9. Nullifier not already used (check `AnonNullifier/` store)
-10. `scope` = current epoch (derived from block time, verified against nullifier)
-11. ZK proof verification via `VoteKeeper.VerifyAnonymousActionProof(proof, merkle_root, nullifier, min_trust_level, domain=3, scope=epoch)`
-
-**Logic:**
-1. Validate content inputs (category exists, allow_anonymous, content length, tags)
-2. Call `commonkeeper.VerifyAndStoreAnonymousAction(ctx, store, voteKeeper, repKeeper, anonParams, proof, merkleRoot, nullifier, minTrustLevel, domain=3, scope=epoch, blockTime)` — handles validation steps 2, 7–11 above (param checks, root verification, nullifier dedup, ZK proof verification, nullifier recording)
-3. Charge and burn spam tax from `submitter` (same as non-member rate, since membership can't be attributed)
-4. Check submitter rate limit (`params.max_posts_per_day` — shared with regular posts)
-5. **Initiative reference validation** (if `initiative_id > 0`):
-   - Call `repKeeper.ValidateInitiativeReference(ctx, initiative_id)`
-   - Fail with `ErrInvalidInitiativeRef` if initiative does not exist or is in terminal status
-6. Create Post with `author = module_account_address`, `parent_id = 0`, `root_id = 0`, `depth = 0`, `initiative_id = msg.initiative_id`
-7. Post is **permanent** (not ephemeral) — `expiration_time = 0`
-8. Store `AnonymousPostMetadata` linked to post ID
-9. **Register initiative link** (if `initiative_id > 0`): call `repKeeper.RegisterContentInitiativeLink(ctx, initiative_id, STAKE_TARGET_FORUM_CONTENT, post_id)` for conviction propagation
-10. Emit `forum.anonymous_post.created` event (includes `post_id`, `category_id`, `proven_trust_level`, `initiative_id`; does NOT include submitter)
-
-#### MsgCreateAnonymousReply
-
-Creates an anonymous reply to any post in a thread.
-
-```protobuf
-message MsgCreateAnonymousReply {
-  string submitter = 1;                                // Transaction signer (pays gas; NOT the author)
-  uint64 parent_id = 2;                               // Direct parent post ID
-  string content = 3;                                  // Reply content
-  bytes proof = 4;                                     // ~500-byte Groth16 proof
-  bytes nullifier = 5;                                 // 32-byte nullifier
-  bytes merkle_root = 6;                               // Trust tree root used for proof
-  uint32 min_trust_level = 7;                          // Trust level proven
-}
-
-message MsgCreateAnonymousReplyResponse {
-  uint64 id = 1;  // Assigned reply post ID
-}
-```
-
-**Validation:**
-1. `submitter` is valid bech32
-2. `params.anonymous_posting_enabled` must be true
-3. Parent post must exist and have `status = POST_STATUS_ACTIVE`
-4. Determine `root_id`: if `parent.parent_id == 0`, then `root_id = parent_id`; else `root_id = parent.root_id`
-5. Root post must not be locked (`root_post.locked == false`)
-6. Category of root post must have `allow_anonymous = true`
-7. Content non-empty, `len(content)` ≤ `params.max_content_size`
-8. Depth check: `parent.depth + 1` ≤ `params.max_reply_depth`
-9. `min_trust_level` ≥ `params.anonymous_min_trust_level`
-10. `merkle_root` matches current `MemberTrustTreeRoot`
-11. Nullifier not already used
-12. `scope` = `root_id` (thread root, verified against nullifier)
-13. ZK proof verification via `VoteKeeper.VerifyAnonymousActionProof(proof, merkle_root, nullifier, min_trust_level, domain=4, scope=root_id)`
-
-**Logic:**
-1. Validate content inputs (parent exists, thread not locked, category allows anonymous, content length, depth)
-2. Call `commonkeeper.VerifyAndStoreAnonymousAction(ctx, store, voteKeeper, repKeeper, anonParams, proof, merkleRoot, nullifier, minTrustLevel, domain=4, scope=rootId, blockTime)` — handles validation steps 2, 9–13 above
-3. Charge and burn spam tax from `submitter`
-4. Check submitter rate limit (`params.max_replies_per_day`)
-5. Create Post with `author = module_account_address`, `parent_id = msg.parent_id`, `root_id` computed, `depth = parent.depth + 1`
-6. Post is **permanent** — `expiration_time = 0`
-7. Store `AnonymousPostMetadata` linked to reply post ID
-8. Emit `forum.anonymous_reply.created` event
-
-**Note on threading:** Unlike x/blog (which forces anonymous replies to be top-level), x/forum allows anonymous replies at any depth. The deanonymization risk from threading is mitigated by scoping the nullifier to the thread root — an observer can see one anonymous reply per thread per anonymous identity but cannot link replies across threads.
+> **REMOVED:** The per-module anonymous messages `MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, and `MsgAnonymousReact` have been **deleted** from `tx.proto`. Anonymous operations are now executed by wrapping standard forum messages (`MsgCreatePost`, `MsgUpvotePost`, `MsgDownvotePost`) inside `x/shield`'s `MsgShieldedExec`.
+>
+> **How it works:** A user submits `MsgShieldedExec` containing a ZK proof and the inner message (e.g., `MsgCreatePost`). x/shield verifies the proof, checks the nullifier, and dispatches the inner message to the forum keeper with the `creator` field set to the shield module account address. The forum keeper processes it as a normal message — the anonymous identity is enforced at the shield layer, not the forum layer.
+>
+> **Registered shielded operations for x/forum:**
+>
+> | Inner Message | Domain | Scope | Proof Domain | Min Trust Level | Batch Mode |
+> |--------------|--------|-------|-------------|----------------|------------|
+> | `MsgCreatePost` | 11 | epoch-scoped | `PROOF_DOMAIN_TRUST_TREE` | 1 | EITHER |
+> | `MsgUpvotePost` | 12 | `post_id`-scoped | `PROOF_DOMAIN_TRUST_TREE` | 1 | EITHER |
+> | `MsgDownvotePost` | 13 | `post_id`-scoped | `PROOF_DOMAIN_TRUST_TREE` | 1 | EITHER |
+>
+> See `x/shield/keeper/registration.go` and `docs/x-shield-spec.md` for details on `MsgShieldedExec` processing.
 
 ### 16.5. State Objects
 
-```protobuf
-message AnonymousPostMetadata {
-  uint64 post_id = 1;              // References the Post
-  bytes nullifier = 2;             // 32-byte nullifier used
-  bytes merkle_root = 3;           // Trust tree root at proof time
-  uint32 proven_trust_level = 4;   // Minimum trust level proven by the ZK proof
-}
-```
-
-| Key | Value | Purpose |
-|-----|-------|---------|
-| `AnonMeta/{post_id}` | AnonymousPostMetadata | Metadata for anonymous posts and replies |
-| `AnonNullifier/{domain}/{scope}/{nullifier_hex}` | AnonNullifierEntry | Tracks used nullifiers (keyed by domain/scope for efficient pruning; managed by `x/common` shared helpers) |
-
-`AnonNullifierEntry` is defined in `x/common/types` and shared across x/blog, x/forum, and x/collect. Storage and lookup use the helpers in `x/common/keeper/anon.go` — see [anonymous-posting.md](anonymous-posting.md) § Nullifier Storage.
+> **REMOVED:** The `AnonymousPostMetadata` proto and the per-module `AnonMeta/` and `AnonNullifier/` state stores have been **deleted** from x/forum. Nullifier tracking and anonymous action metadata are now managed centrally by x/shield's nullifier store with per-domain scoping.
+>
+> The `AnonymousReactionMetadata` type has also been removed — reaction anonymity is handled entirely at the x/shield layer.
+>
+> See `x/shield/keeper/nullifier.go` for centralized nullifier management and `docs/x-shield-spec.md` for the nullifier scoping model.
 
 ### 16.6. Parameters
 
-New fields added to `Params`:
+> **Implementation status:** The `anonymous_posting_enabled` parameter does **not** exist in the current `Params` proto. Anonymous feature control is handled entirely at the x/shield layer. The design below is preserved for potential future per-module opt-out.
+
+Forum-level parameters controlling anonymous feature availability (design target):
 
 ```protobuf
-bool anonymous_posting_enabled = N;       // Master toggle (default: true)
-uint32 anonymous_min_trust_level = N+1;   // Minimum trust level (default: 2 = ESTABLISHED)
+bool anonymous_posting_enabled = N;       // Master toggle — if false, x/shield rejects shielded forum ops (default: true)
 ```
 
-New fields added to `ForumOperationalParams`:
-
-```protobuf
-bool anonymous_posting_enabled = N;       // Operations Committee can toggle
-uint32 anonymous_min_trust_level = N+1;   // Operations Committee can adjust threshold
-```
+ZK proof parameters (min trust level, proof domain, verification keys) are configured in x/shield via `MsgRegisterShieldedOp` and stored in x/shield's state. The per-operation `min_trust_level` is set to `1` for all forum shielded ops (see Section 16.4).
 
 ### 16.7. Access Control
 
 | Operation | Who Can Execute |
 |-----------|-----------------|
-| CreateAnonymousPost | Any address as submitter; ZK proof must prove membership at `anonymous_min_trust_level`; category must have `allow_anonymous = true` |
-| CreateAnonymousReply | Any address as submitter; ZK proof must prove membership at `anonymous_min_trust_level`; thread's category must have `allow_anonymous = true` |
+| Shielded MsgCreatePost | Any user via `MsgShieldedExec`; ZK proof verified by x/shield. (Design target: category must have `allow_anonymous = true`, but this field is not yet implemented.) |
+| Shielded MsgUpvotePost | Any user via `MsgShieldedExec`; ZK proof verified by x/shield |
+| Shielded MsgDownvotePost | Any user via `MsgShieldedExec`; ZK proof verified by x/shield |
 | Update anonymous post/reply | **Nobody** — anonymous content is immutable (no edit) |
-| Delete anonymous post/reply | **Nobody** — author is module account, cannot sign |
+| Delete anonymous post/reply | **Nobody** — author is shield module account, cannot sign |
 | Hide anonymous post/reply | **Sentinels** — standard sentinel flow applies (bond commitment, appeal window) |
 | Flag anonymous post/reply | **Members** — standard flag flow applies |
 
@@ -6092,7 +6023,7 @@ Anonymous posts interact with the sentinel moderation system normally with one e
 
 - **Hiding:** Sentinels hide anonymous posts the same way as regular posts. The `hidden_by` field records the sentinel.
 - **Appeals:** Since the anonymous author cannot appeal their own post (module account can't sign), appeals must come from other members. Any member can appeal a hidden anonymous post via `MsgAppealPost`.
-- **Reputation impact:** No reputation deduction on the anonymous author if a hide is upheld (identity unknown). The deterrent is the nullifier — the anonymous author's one post/reply for that scope is gone.
+- **Reputation impact:** No reputation deduction on the anonymous author if a hide is upheld (identity unknown). The deterrent is the nullifier (managed by x/shield) — the anonymous author's one post/reply for that scope is gone.
 - **Flagging:** Members flag anonymous posts normally. The flag weight system and review queue work identically.
 
 ### 16.9. Content Lifecycle
@@ -6111,7 +6042,7 @@ Anonymous posts differ from regular posts in lifecycle:
 | Initiative reference | Optional (via `initiative_id`) | Optional (via `initiative_id`) |
 | Conviction propagation | Yes (if initiative linked) | Yes (if initiative linked) |
 
-Anonymous posts are always permanent because ephemeral posts require author interaction (member replies to "promote" them), and the anonymous author's identity is unknown. The spam tax and nullifier scoping (one per epoch/thread) prevent abuse of permanent storage.
+Anonymous posts are always permanent because ephemeral posts require author interaction (member replies to "promote" them), and the anonymous author's identity is unknown. x/shield's nullifier scoping (one per epoch/thread) and per-identity rate limiting prevent abuse of permanent storage.
 
 **Conviction propagation:** Both regular and anonymous posts can reference an x/rep initiative via `initiative_id`. When a post accumulates community conviction stakes (via `STAKE_TARGET_FORUM_CONTENT`), x/rep's `GetPropagatedConviction()` multiplies the content's total conviction by `conviction_propagation_ratio` (default 10%) and adds it as external conviction to the referenced initiative. This creates a virtuous cycle: popular discussion content accelerates the linked initiative's completion.
 
@@ -6119,108 +6050,44 @@ Anonymous posts are always permanent because ephemeral posts require author inte
 
 ### 16.10. Queries
 
-```protobuf
-// Returns anonymous metadata for a post
-rpc AnonymousPostMeta(QueryAnonymousPostMetaRequest) returns (QueryAnonymousPostMetaResponse);
-
-// Checks if a nullifier has been used
-rpc IsNullifierUsed(QueryIsNullifierUsedRequest) returns (QueryIsNullifierUsedResponse);
-```
+> **REMOVED:** The `AnonymousPostMeta`, `AnonymousReplyMeta`, and `IsNullifierUsed` query endpoints have been **deleted** from x/forum's `query.proto`. Nullifier status can be queried via x/shield's `QueryIsNullifierUsed` endpoint. Anonymous post metadata is no longer stored in x/forum state.
 
 ### 16.11. Events
 
-| Event | Attributes | Notes |
-|-------|-----------|-------|
-| `forum.anonymous_post.created` | `post_id`, `category_id`, `proven_trust_level`, `nullifier_hex` | Does NOT include submitter |
-| `forum.anonymous_reply.created` | `post_id`, `parent_id`, `root_id`, `proven_trust_level`, `nullifier_hex` | Does NOT include submitter |
+> **REMOVED:** The `forum.anonymous_post.created` and `forum.anonymous_reply.created` events are no longer emitted by x/forum. When a shielded operation is dispatched, x/shield emits shield-level events (including `shield.shielded_exec.dispatched`), and the forum keeper emits standard events for the inner message (e.g., `forum.post.created`, `forum.upvote`, `forum.downvote`). The `creator` field in forum events will contain the shield module account address for anonymous operations.
 
 ### 16.12. Security Considerations
 
-- **Anonymity set size:** The anonymity set equals all active members at or above the proven trust level. At ESTABLISHED=2 (default), this includes most active members, providing strong anonymity.
-- **Nullifier unlinkability:** Nullifiers from different scopes (different threads, different epochs) cannot be correlated to the same member.
-- **Threading risk mitigation:** Nullifiers are scoped to thread root, not individual parent posts. An observer knows at most one anonymous reply per thread per identity — they cannot track a member's replies across threads.
-- **Spam prevention:** One thread per epoch + one reply per thread + spam tax + rate limits.
+- **Anonymity set size:** The anonymity set equals all active members at or above the proven trust level. With `min_trust_level=1`, this includes most active members, providing strong anonymity.
+- **Nullifier unlinkability:** Nullifiers from different scopes (different posts, different epochs) cannot be correlated to the same member. Nullifier management is centralized in x/shield.
+- **Module-paid gas:** x/shield's module account pays transaction fees for shielded operations, so the submitter needs zero balance. This eliminates balance-based deanonymization attacks.
+- **Encrypted Batch mode:** For maximum privacy, users can submit via TLE-encrypted batch mode. Content is encrypted until the epoch decryption key is released, preventing transaction ordering analysis.
+- **Spam prevention:** Per-identity rate limiting in x/shield + nullifier scoping (one per epoch/post_id) + forum-level rate limits.
 - **No edit/delete as feature:** Immutability prevents behavioral deanonymization (edit timing, deletion patterns).
 - **Sentinel moderation preserved:** Unlike x/blog, forum anonymous posts are subject to full sentinel moderation, preventing abuse without sacrificing anonymity.
-- **Admin-only categories excluded:** Categories with `admin_only_write = true` cannot have `allow_anonymous = true`, preventing impersonation of governance authority.
+- **Admin-only categories excluded:** (Design target) Categories with `admin_only_write = true` should not allow anonymous posting, preventing impersonation of governance authority. The `allow_anonymous` field is not yet implemented.
 
 ### 16.13. Anonymous Posting Subsidy
 
-The Commons Council can subsidize anonymous posting costs to encourage democratic dialogue. The subsidy is funded from the Commons Council group treasury (via x/split) and covers gas + spam tax for approved relay addresses.
-
-See **[docs/anonymous-posting.md](anonymous-posting.md)** § "Anonymous Posting Subsidy" for the full mechanism, funding flow, and governance surface.
-
-**Forum-specific operational params:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `anon_subsidy_budget_per_epoch` | `sdk.Coin` | `100spark` | Auto-transferred from Commons Council treasury each epoch |
-| `anon_subsidy_max_per_post` | `sdk.Coin` | `2spark` | Max subsidy per anonymous post/reply |
-| `anon_subsidy_relay_addresses` | `[]string` | `[]` | Approved relay addresses (Operations Committee managed) |
-
-**Mechanism summary:**
-1. Each epoch, the module draws `anon_subsidy_budget_per_epoch` from Commons Council treasury
-2. When an approved relay submits an anonymous post/reply, gas + spam tax are paid from the subsidy account
-3. Per-post cost capped at `anon_subsidy_max_per_post`; excess charged to relay
-4. When budget is exhausted, relays pay normally until next epoch
-5. Unspent budget rolls over
-
-**Forum-specific note:** The subsidy covers the spam tax that is normally charged to all anonymous post submitters (since membership can't be attributed). This removes the financial barrier to anonymous participation while the nullifier system and per-category toggles prevent abuse.
+> **REMOVED:** The per-module anonymous posting subsidy system (`anon_subsidy_budget_per_epoch`, `anon_subsidy_max_per_post`, `anon_subsidy_relay_addresses`) has been **deleted**. This is replaced by x/shield's **module-paid gas** model: the shield module account pays transaction fees for all `MsgShieldedExec` operations, funded automatically from the community pool via BeginBlocker with a governance-controlled epoch cap (`max_funding_per_epoch`). Per-identity rate limiting in x/shield prevents gas abuse. See `docs/x-shield-spec.md` for the funding model.
 
 ### 16.14. Anonymous Reactions (Private Upvote/Downvote)
 
-Members can upvote or downvote posts without revealing their identity, using the same ZK-SNARK infrastructure as anonymous posting. A nullifier scoped to the post ID enforces one reaction per member per post — the same constraint as public reactions.
+> **REMOVED:** `MsgAnonymousReact` has been **deleted** from `tx.proto`. Private reactions are now executed by wrapping `MsgUpvotePost` (domain 12) or `MsgDownvotePost` (domain 13) inside `x/shield`'s `MsgShieldedExec`.
 
-**Why this matters:** On-chain transactions reveal the voter's address. Even though the current system stores individual `ReactionRecord`s for public reactions, users who want voting privacy comparable to X/Twitter's private likes can use this mode. The relay/subsidy system from anonymous posting applies identically.
+Members can upvote or downvote posts without revealing their identity via x/shield's `MsgShieldedExec`. A nullifier scoped to the `post_id` (managed by x/shield) enforces one reaction per member per post — the same constraint as public reactions.
 
-#### MsgAnonymousReact
-
-```protobuf
-message MsgAnonymousReact {
-  string submitter = 1;             // Transaction signer (pays gas + fees; NOT the voter)
-  uint64 post_id = 2;              // Post to react to
-  ReactionType reaction_type = 3;  // UPVOTE or DOWNVOTE
-  bytes proof = 4;                  // ~500-byte Groth16 proof
-  bytes nullifier = 5;              // 32-byte nullifier
-  bytes merkle_root = 6;            // Trust tree root used for proof
-  uint32 min_trust_level = 7;       // Trust level proven
-}
-
-message MsgAnonymousReactResponse {}
-```
-
-**Nullifier Domain:** `5` (anonymous forum reaction), scope = `post_id`. One reaction per member per post regardless of reaction type.
-
-**Validation:**
-1. `params.reactions_enabled` AND `params.private_reactions_enabled` must both be true
-2. Post must exist and have `status == ACTIVE`
-3. `reaction_type` must be `UPVOTE` or `DOWNVOTE`
-4. If `reaction_type == DOWNVOTE`: burn `downvote_deposit` from `submitter`
-5. `min_trust_level` ≥ `params.anonymous_min_trust_level`
-6. `merkle_root` matches current `MemberTrustTreeRoot` from x/rep
-7. Nullifier not already used (via `commonkeeper.IsNullifierUsed(ctx, store, domain=5, scope=post_id, nullifier)`)
-8. ZK proof verification via `VoteKeeper.VerifyAnonymousActionProof(proof, merkle_root, nullifier, min_trust_level, domain=5, scope=post_id)`
-9. Submitter rate limit check against unified `max_reactions_per_day`
-
-**Logic:**
-1. Validate content inputs (post exists, reaction_type valid, downvote deposit if applicable)
-2. Call `commonkeeper.VerifyAndStoreAnonymousAction(ctx, store, voteKeeper, repKeeper, anonParams, proof, merkleRoot, nullifier, minTrustLevel, domain=5, scope=postId, blockTime)` — handles validation steps 1, 5–8 above (param checks, root verification, nullifier dedup, ZK proof verification, nullifier recording)
-3. Charge spam tax from `submitter` (same as non-member rate)
-4. Increment `post.upvote_count` or `post.downvote_count` based on `reaction_type`
-5. Increment submitter's `UserReactionLimit`
-6. Emit `EventAnonymousReaction` (includes `post_id`, `reaction_type`, `proven_trust_level`; does NOT include submitter)
+**Why this matters:** On-chain transactions reveal the voter's address. Even though the current system stores individual `ReactionRecord`s for public reactions, users who want voting privacy comparable to X/Twitter's private likes can use the shielded execution mode. x/shield's module-paid gas eliminates any balance-based correlation.
 
 **Parity with public reactions:**
 
-| Property | Public | Private |
+| Property | Public | Private (via x/shield) |
 |----------|--------|---------|
-| One reaction per user per post | `ReactionRecord` keyed storage | ZK nullifier (domain=5, scope=post_id) |
+| One reaction per user per post | `ReactionRecord` keyed storage | ZK nullifier managed by x/shield (domain 12/13, scope=post_id) |
 | Non-removable | No removal message | Nullifier permanent |
-| Daily budget | `max_reactions_per_day` | Same (shared budget via submitter) |
-| Downvote cost | `downvote_deposit` burned | Same (charged to submitter) |
+| Daily budget | `max_reactions_per_day` | Same (shared budget) |
+| Downvote cost | `downvote_deposit` burned | Same (charged to shield module account) |
 | Voter identity | Stored in `ReactionRecord` | Hidden by ZK proof |
-
-**Relay/subsidy:** The anonymous posting subsidy (§16.13) covers anonymous reactions identically. Approved relay addresses pay no spam tax or gas from the subsidy account, subject to the same per-action cap and epoch budget.
 
 ### 16.15. Reaction Aggregation on Thread Archival
 
@@ -6230,8 +6097,8 @@ When a thread is archived via `MsgFreezeThread`, individual reaction records are
 
 1. For each post in the thread:
    - Delete all `reaction_records/{post_id}/*` (public reaction records)
-   - Delete all `AnonNullifier/5/{post_id}/*` (private reaction nullifiers, domain 5)
    - The `upvote_count` and `downvote_count` on the Post object are already correct aggregate counters and are preserved in the compressed archive
+   - Note: Private reaction nullifiers are stored in x/shield's centralized store and are pruned by x/shield's own lifecycle management
 
 2. **Effect:** After archival, per-user reaction uniqueness data is lost. If the thread is later unarchived, users could theoretically re-react to posts. This is acceptable because:
    - Archival is for inactive threads (no recent activity)
@@ -6239,7 +6106,7 @@ When a thread is archived via `MsgFreezeThread`, individual reaction records are
    - The aggregate counts are the data that matters for display
    - Re-reactions would still be subject to the daily rate limit
 
-**Storage savings:** For a thread with 200 posts averaging 15 reactions each, this deletes ~3,000 ReactionRecord entries and any associated nullifier entries on archival.
+**Storage savings:** For a thread with 200 posts averaging 15 reactions each, this deletes ~3,000 ReactionRecord entries on archival.
 
 ### 16.16. Cross-Module Conviction Propagation
 

@@ -82,9 +82,8 @@ func DefaultParams() Params {
 		TrustLevelConfig: getTrustLevelConfig(),
 
 		// Challenges
-		MinChallengeStake:      math.NewInt(50),
-		AnonymousFeeMultiplier: math.LegacyNewDecWithPrec(250, 2), // 2.5x
-		ChallengerRewardRate:   math.LegacyNewDecWithPrec(20, 2),  // 20%
+		MinChallengeStake:    math.NewInt(50),
+		ChallengerRewardRate: math.LegacyNewDecWithPrec(20, 2), // 20%
 		JurySize:               5,
 		JurySuperMajority:      math.LegacyNewDecWithPrec(67, 2), // 67%
 		MinJurorReputation:     math.LegacyNewDec(50),
@@ -116,11 +115,6 @@ func DefaultParams() Params {
 		MinStakeDurationSeconds:    86400,                           // 24 hours minimum
 		AllowSelfMemberStake:       false,                           // Cannot stake on yourself
 
-		// Anonymous challenge SPARK stake (uspark)
-		// This is the amount of native SPARK tokens escrowed from the anonymous challenger.
-		// Returned if challenge is upheld; burned if rejected.
-		AnonymousChallengeSparkStake: math.NewInt(1000000), // 1 SPARK (1e6 uspark)
-
 		// Challenge response deadline - PRODUCTION values
 		ChallengeResponseDeadlineEpochs: 3, // 3 epochs = ~3 days
 
@@ -129,10 +123,10 @@ func DefaultParams() Params {
 		MaxGiftsPerSenderEpoch: math.NewInt(2000000000), // 2000 DREAM per epoch total (2000 * 1e6 micro-DREAM)
 
 		// Content conviction staking
-		ContentConvictionHalfLifeEpochs: 14,                             // 14 epochs = ~2 weeks (slower than initiative conviction)
-		MaxContentStakePerMember:        math.NewInt(10000000000),       // 10,000 DREAM per member per content item
-		MaxAuthorBondPerContent:         math.NewInt(1000000000),        // 1,000 DREAM max author bond per content item
-		AuthorBondSlashOnModeration:     true,                           // Slash author bonds when content is moderated
+		ContentConvictionHalfLifeEpochs: 14,                       // 14 epochs = ~2 weeks (slower than initiative conviction)
+		MaxContentStakePerMember:        math.NewInt(10000000000), // 10,000 DREAM per member per content item
+		MaxAuthorBondPerContent:         math.NewInt(1000000000),  // 1,000 DREAM max author bond per content item
+		AuthorBondSlashOnModeration:     true,                     // Slash author bonds when content is moderated
 
 		// Content challenge reward share (fraction of slashed bond minted to challenger)
 		ContentChallengeRewardShare: math.LegacyNewDecWithPrec(50, 2), // 50%
@@ -144,10 +138,10 @@ func DefaultParams() Params {
 		MaxTagsPerInitiative: 3, // Max 3 tags per initiative (prevents tag stuffing for rep/revenue inflation)
 
 		// Anti-gaming parameters
-		ReputationDecayRate:          math.LegacyNewDecWithPrec(5, 3),  // 0.5% per epoch (~47% retained over a 5-month season)
-		MaxConvictionSharePerMember:  math.LegacyNewDecWithPrec(33, 2), // 33% — no single member can contribute more than 1/3 of required conviction
-		InvitationStakeBurnRate:      math.LegacyNewDecWithPrec(10, 2), // 10% of invitation stake burned on acceptance
-		MaxReputationGainPerEpoch:    math.LegacyNewDec(50),            // Max 50 reputation per tag per epoch (prevents interim grinding)
+		ReputationDecayRate:         math.LegacyNewDecWithPrec(5, 3),  // 0.5% per epoch (~47% retained over a 5-month season)
+		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(33, 2), // 33% — no single member can contribute more than 1/3 of required conviction
+		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10% of invitation stake burned on acceptance
+		MaxReputationGainPerEpoch:   math.LegacyNewDec(50),            // Max 50 reputation per tag per epoch (prevents interim grinding)
 	}
 }
 
@@ -277,12 +271,11 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		ReferralRewardRate:             math.LegacyNewDecWithPrec(5, 2),   // 5%
 		InvitationCostMultiplier:       math.LegacyNewDecWithPrec(110, 2), // 1.1x
 		// Challenges
-		MinChallengeStake:      math.NewInt(50),
-		AnonymousFeeMultiplier: math.LegacyNewDecWithPrec(250, 2), // 2.5x
-		ChallengerRewardRate:   math.LegacyNewDecWithPrec(20, 2),  // 20%
-		JurySize:               5,
-		JurySuperMajority:      math.LegacyNewDecWithPrec(67, 2), // 67%
-		MinJurorReputation:     math.LegacyNewDec(50),
+		MinChallengeStake:    math.NewInt(50),
+		ChallengerRewardRate: math.LegacyNewDecWithPrec(20, 2), // 20%
+		JurySize:             5,
+		JurySuperMajority:    math.LegacyNewDecWithPrec(67, 2), // 67%
+		MinJurorReputation:   math.LegacyNewDec(50),
 		// Interim compensation
 		SimpleComplexityBudget:   math.NewInt(50000000),            // 50 DREAM
 		StandardComplexityBudget: math.NewInt(150000000),           // 150 DREAM
@@ -301,8 +294,6 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		TagStakeRevenueShare:       math.LegacyNewDecWithPrec(2, 2), // 2%
 		MinStakeDurationSeconds:    86400,                           // 24 hours
 		AllowSelfMemberStake:       false,
-		// Anonymous challenge SPARK stake
-		AnonymousChallengeSparkStake: math.NewInt(1000000), // 1 SPARK (1e6 uspark)
 		// Challenge response deadline
 		ChallengeResponseDeadlineEpochs: 3,
 		// Gift rate limiting
@@ -435,7 +426,6 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.InvitationCostMultiplier = op.InvitationCostMultiplier
 	// Challenges
 	p.MinChallengeStake = op.MinChallengeStake
-	p.AnonymousFeeMultiplier = op.AnonymousFeeMultiplier
 	p.ChallengerRewardRate = op.ChallengerRewardRate
 	p.JurySize = op.JurySize
 	p.JurySuperMajority = op.JurySuperMajority
@@ -458,8 +448,6 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.TagStakeRevenueShare = op.TagStakeRevenueShare
 	p.MinStakeDurationSeconds = op.MinStakeDurationSeconds
 	p.AllowSelfMemberStake = op.AllowSelfMemberStake
-	// Anonymous challenge SPARK stake
-	p.AnonymousChallengeSparkStake = op.AnonymousChallengeSparkStake
 	// Challenge response deadline
 	p.ChallengeResponseDeadlineEpochs = op.ChallengeResponseDeadlineEpochs
 	// Gift rate limiting
@@ -509,9 +497,8 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		ReferralRewardRate:             p.ReferralRewardRate,
 		InvitationCostMultiplier:       p.InvitationCostMultiplier,
 		// Challenges
-		MinChallengeStake:      p.MinChallengeStake,
-		AnonymousFeeMultiplier: p.AnonymousFeeMultiplier,
-		ChallengerRewardRate:   p.ChallengerRewardRate,
+		MinChallengeStake:    p.MinChallengeStake,
+		ChallengerRewardRate: p.ChallengerRewardRate,
 		JurySize:               p.JurySize,
 		JurySuperMajority:      p.JurySuperMajority,
 		MinJurorReputation:     p.MinJurorReputation,
@@ -533,8 +520,6 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		TagStakeRevenueShare:       p.TagStakeRevenueShare,
 		MinStakeDurationSeconds:    p.MinStakeDurationSeconds,
 		AllowSelfMemberStake:       p.AllowSelfMemberStake,
-		// Anonymous challenge SPARK stake
-		AnonymousChallengeSparkStake: p.AnonymousChallengeSparkStake,
 		// Challenge response deadline
 		ChallengeResponseDeadlineEpochs: p.ChallengeResponseDeadlineEpochs,
 		// Gift rate limiting

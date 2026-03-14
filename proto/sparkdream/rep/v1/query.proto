@@ -679,7 +679,7 @@ message QueryGetProjectStakeInfoResponse {
 // QueryContentConvictionRequest defines the request for content conviction score
 message QueryContentConvictionRequest {
   uint64 target_type = 1; // StakeTargetType (4=BLOG_CONTENT, 5=FORUM_CONTENT, 6=COLLECTION_CONTENT)
-  uint64 target_id = 2;   // Content ID (post ID, collection ID, etc.)
+  uint64 target_id = 2; // Content ID (post ID, collection ID, etc.)
 }
 
 // QueryContentConvictionResponse defines the response for content conviction score
@@ -698,7 +698,7 @@ message QueryContentConvictionResponse {
 // QueryAuthorBondRequest defines the request for author bond info
 message QueryAuthorBondRequest {
   uint64 target_type = 1; // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND)
-  uint64 target_id = 2;   // Content ID
+  uint64 target_id = 2; // Content ID
 }
 
 // QueryAuthorBondResponse defines the response for author bond info
@@ -750,8 +750,8 @@ message QueryContentByInitiativeRequest {
 
 // ContentInitiativeLinkEntry represents a content item linked to an initiative with its conviction
 message ContentInitiativeLinkEntry {
-  int32 target_type = 1;  // StakeTargetType (4=BLOG_CONTENT, 5=FORUM_CONTENT)
-  uint64 target_id = 2;   // Content ID
+  int32 target_type = 1; // StakeTargetType (4=BLOG_CONTENT, 5=FORUM_CONTENT)
+  uint64 target_id = 2; // Content ID
   string conviction = 3 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false

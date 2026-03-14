@@ -9,7 +9,7 @@ import (
 )
 
 func (k msgServer) UpdateOperationalParams(ctx context.Context, req *types.MsgUpdateOperationalParams) (*types.MsgUpdateOperationalParamsResponse, error) {
-	if !k.isCouncilAuthorized(ctx, req.Authority, "technical", "operations") {
+	if !k.isCouncilAuthorized(ctx, req.Authority, "commons", "operations") {
 		return nil, errorsmod.Wrapf(types.ErrInvalidSigner, "address %s is not authorized to update operational params", req.Authority)
 	}
 

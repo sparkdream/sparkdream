@@ -220,116 +220,24 @@ expect_tx_failure() {
 }
 
 # ========================================================================
-# PART 0: GOVERNANCE SETUP
-# Add forum tag budget permissions to Group 9 (Commons Ops Committee)
+# PART 0: VERIFY PERMISSIONS (set in genesis bootstrap)
+# Tag budget permissions are included in StandardPermissions for the
+# Commons Operations Committee via genesis_bootstrap.go.
 # ========================================================================
-echo "--- PART 0: GOVERNANCE SETUP ---"
-echo "Adding forum tag budget permissions to Commons Ops committee via governance..."
+echo "--- PART 0: VERIFY PERMISSIONS ---"
+echo "Checking tag budget permissions exist from genesis..."
 
-GOV_PROPOSAL_FILE="/tmp/tag_budget_gov_proposal.json"
-cat > "$GOV_PROPOSAL_FILE" <<EOF
-{
-  "messages": [
-    {
-      "@type": "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
-      "authority": "$GOV_MODULE_ADDR",
-      "policy_address": "$GROUP_POLICY_ADDR",
-      "allowed_messages": [
-        "/sparkdream.commons.v1.MsgSpendFromCommons",
-        "/sparkdream.commons.v1.MsgUpdateGroupMembers",
-        "/sparkdream.forum.v1.MsgCreateTagBudget",
-        "/sparkdream.forum.v1.MsgToggleTagBudget",
-        "/sparkdream.forum.v1.MsgWithdrawTagBudget"
-      ]
-    }
-  ],
-  "metadata": "",
-  "deposit": "100000000uspark",
-  "title": "Add forum tag budget permissions to Commons Ops",
-  "summary": "Enable Commons Ops committee to manage tag budgets",
-  "expedited": true
-}
-EOF
+PERMS=$($BINARY query commons show-policy-permissions "$GROUP_POLICY_ADDR" --output json 2>/dev/null)
+HAS_CREATE=$(echo "$PERMS" | jq -r '.policy_permissions.allowed_messages[] | select(. == "/sparkdream.forum.v1.MsgCreateTagBudget")' 2>/dev/null)
+HAS_TOGGLE=$(echo "$PERMS" | jq -r '.policy_permissions.allowed_messages[] | select(. == "/sparkdream.forum.v1.MsgToggleTagBudget")' 2>/dev/null)
+HAS_WITHDRAW=$(echo "$PERMS" | jq -r '.policy_permissions.allowed_messages[] | select(. == "/sparkdream.forum.v1.MsgWithdrawTagBudget")' 2>/dev/null)
 
-echo "  Submitting governance proposal..."
-TX_RES=$($BINARY tx gov submit-proposal \
-    "$GOV_PROPOSAL_FILE" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --gas 500000 \
-    --fees 10000uspark \
-    -y \
-    --output json 2>&1)
-
-GOV_TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -z "$GOV_TXHASH" ] || [ "$GOV_TXHASH" == "null" ]; then
-    echo "  FATAL: Failed to submit governance proposal"
-    echo "  $TX_RES"
+if [ -z "$HAS_CREATE" ] || [ -z "$HAS_TOGGLE" ] || [ -z "$HAS_WITHDRAW" ]; then
+    echo "  FATAL: Tag budget permissions missing from genesis bootstrap"
+    echo "  Permissions: $(echo "$PERMS" | jq -c '.policy_permissions.allowed_messages' 2>/dev/null)"
     exit 1
 fi
-
-sleep 6
-GOV_TX_RESULT=$(wait_for_tx $GOV_TXHASH)
-
-if ! check_tx_success "$GOV_TX_RESULT"; then
-    echo "  FATAL: Governance proposal submission failed"
-    exit 1
-fi
-
-# Extract proposal ID
-GOV_PROPOSAL_ID=$(extract_event_value "$GOV_TX_RESULT" "submit_proposal" "proposal_id")
-if [ -z "$GOV_PROPOSAL_ID" ]; then
-    GOV_PROPOSAL_ID=$($BINARY query gov proposals --status voting_period --output json 2>&1 | jq -r '.proposals[-1].id // empty')
-fi
-if [ -z "$GOV_PROPOSAL_ID" ]; then
-    GOV_PROPOSAL_ID=$($BINARY query gov proposals --output json 2>&1 | jq -r '.proposals[-1].id // empty')
-fi
-
-if [ -z "$GOV_PROPOSAL_ID" ]; then
-    echo "  FATAL: Could not determine governance proposal ID"
-    exit 1
-fi
-
-echo "  Governance proposal #$GOV_PROPOSAL_ID submitted"
-
-# Alice votes YES (she controls ~75% of bonded stake)
-echo "  Alice voting YES..."
-TX_RES=$($BINARY tx gov vote \
-    "$GOV_PROPOSAL_ID" \
-    yes \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --gas 300000 \
-    --fees 10000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    wait_for_tx $TXHASH > /dev/null 2>&1
-fi
-
-# Wait for expedited voting period (40s)
-echo "  Waiting for voting period (45s)..."
-sleep 45
-
-# Verify proposal passed
-PROPOSAL_STATUS=$($BINARY query gov proposal "$GOV_PROPOSAL_ID" --output json 2>&1 | jq -r '.proposal.status // .status // "unknown"')
-echo "  Proposal status: $PROPOSAL_STATUS"
-
-if [ "$PROPOSAL_STATUS" != "PROPOSAL_STATUS_PASSED" ] && [ "$PROPOSAL_STATUS" != "3" ]; then
-    echo "  WARNING: Governance proposal may not have passed (status=$PROPOSAL_STATUS)"
-    echo "  Continuing anyway..."
-fi
-
-# Verify updated permissions
-echo "  Verifying permissions..."
-PERMS=$($BINARY query commons get-policy-permissions "$GROUP_POLICY_ADDR" --output json 2>&1)
-echo "  Permissions: $(echo "$PERMS" | jq -c '.policy_permissions.allowed_messages' 2>/dev/null)"
+echo "  All tag budget permissions present"
 
 # Fund group policy address with SPARK (needed for tag budget pool)
 echo "  Funding group policy with SPARK..."

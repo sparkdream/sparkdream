@@ -99,6 +99,7 @@ LOCKED → STAKING → BACKED → REVEALED → VERIFIED
 |-------|------|-------------|
 | `contributor` | string | Proposer address |
 | `project_name` / `description` | string | Metadata |
+| `initial_license` / `final_license` | string | License before and after reveal completion |
 | `tranches` | []RevealTranche | Sequential code chunks |
 | `current_tranche` | uint32 | Active tranche index |
 | `total_valuation` | Int | Total DREAM to be minted |
@@ -189,22 +190,34 @@ All state-changing operations emit typed events for indexing and client notifica
 ### CLI
 
 ```bash
-# Propose
-sparkdreamd tx reveal propose --project-name "Widget Engine" --total-valuation 30000 --from contributor
+# Propose (positional: project-name, description, total-valuation, initial-license, final-license)
+sparkdreamd tx reveal propose "Widget Engine" "Progressive reveal of rendering core" 30000 "proprietary" "apache-2.0" --from contributor
 
-# Staking
-sparkdreamd tx reveal stake [contribution_id] [tranche_id] --amount 500 --from staker
+# Staking (positional: contribution-id, tranche-id, amount)
+sparkdreamd tx reveal stake 1 0 500 --from staker
 
-# Reveal
-sparkdreamd tx reveal reveal [contribution_id] [tranche_id] --code-uri "ipfs://..." --commit-hash "abc123" --from contributor
+# Reveal (positional: contribution-id, tranche-id, code-uri, docs-uri, commit-hash)
+sparkdreamd tx reveal reveal 1 0 "ipfs://Qm..." "ipfs://Qm..." "abc123def" --from contributor
 
-# Verify
-sparkdreamd tx reveal verify [contribution_id] [tranche_id] --value-confirmed true --quality-rating 4 --from staker
+# Verify (positional: contribution-id, tranche-id, value-confirmed, quality-rating, comments)
+sparkdreamd tx reveal verify 1 0 true 4 "Clean implementation" --from staker
+
+# Cancel
+sparkdreamd tx reveal cancel 1 "No longer needed" --from contributor
+
+# Withdraw stake
+sparkdreamd tx reveal withdraw 1 --from staker
 
 # Queries
 sparkdreamd q reveal contribution 1
+sparkdreamd q reveal contributions-by-status IN_PROGRESS
+sparkdreamd q reveal contributions-by-contributor [address]
+sparkdreamd q reveal tranche 1 0
 sparkdreamd q reveal tranche-tally 1 0
 sparkdreamd q reveal tranche-stakes 1 0
+sparkdreamd q reveal stake-detail 1
+sparkdreamd q reveal stakes-by-staker [address]
+sparkdreamd q reveal votes-by-voter [address]
 sparkdreamd q reveal params
 ```
 

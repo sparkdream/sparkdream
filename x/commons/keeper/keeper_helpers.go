@@ -39,6 +39,35 @@ func normalizeCouncilName(council string) string {
 	}
 }
 
+// resolveCommitteeName returns the full committee group name for a council/committee pair.
+func resolveCommitteeName(council string, committee string) string {
+	normalizedCouncil := normalizeCouncilName(council)
+	switch normalizedCouncil {
+	case "Technical Council":
+		switch committee {
+		case "operations":
+			return "Technical Operations Committee"
+		case "governance", "hr":
+			return "Technical Governance Committee"
+		}
+	case "Ecosystem Council":
+		switch committee {
+		case "operations":
+			return "Ecosystem Operations Committee"
+		case "governance", "hr":
+			return "Ecosystem Governance Committee"
+		}
+	case "Commons Council":
+		switch committee {
+		case "operations":
+			return "Commons Operations Committee"
+		case "governance", "hr":
+			return "Commons Governance Committee"
+		}
+	}
+	return ""
+}
+
 // IsCouncilAuthorized checks if the given address is authorized to act on behalf
 // of a council/committee.
 func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
@@ -57,7 +86,18 @@ func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council st
 		return true
 	}
 
-	// 3. Check committee membership
+	// 3. Check committee policy address
+	if committee != "" {
+		committeeName := resolveCommitteeName(council, committee)
+		if committeeName != "" {
+			committeeGroup, err := k.Groups.Get(ctx, committeeName)
+			if err == nil && committeeGroup.PolicyAddress == addr {
+				return true
+			}
+		}
+	}
+
+	// 4. Check committee membership
 	isMember, err := k.IsCommitteeMember(ctx, sdk.AccAddress(addrBytes), council, committee)
 	if err == nil && isMember {
 		return true

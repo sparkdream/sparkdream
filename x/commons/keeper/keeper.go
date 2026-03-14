@@ -68,6 +68,8 @@ type Keeper struct {
 	ProposalsByCouncil collections.KeySet[collections.Pair[string, uint64]]
 	// VetoPolicies maps a council name to its veto policy address
 	VetoPolicies collections.Map[string, string]
+	// AnonVoteTallies stores anonymous vote counts per proposal: proposal_id -> AnonVoteTally
+	AnonVoteTallies collections.Map[uint64, types.AnonVoteTally]
 }
 
 func NewKeeper(
@@ -151,6 +153,11 @@ func NewKeeper(
 			sb, types.VetoPoliciesKey, "vetoPolicies",
 			collections.StringKey,
 			collections.StringValue,
+		),
+		AnonVoteTallies: collections.NewMap(
+			sb, types.AnonVoteTalliesKey, "anonVoteTallies",
+			collections.Uint64Key,
+			codec.CollValue[types.AnonVoteTally](cdc),
 		),
 	}
 

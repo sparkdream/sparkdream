@@ -24,6 +24,22 @@ GUILD_OFFICER_KEY="bob"
 GUILD_MEMBER1_ADDR=$CAROL_ADDR
 GUILD_MEMBER1_KEY="carol"
 
+PASS_COUNT=0
+FAIL_COUNT=0
+TOTAL_COUNT=0
+
+pass() {
+    PASS_COUNT=$((PASS_COUNT + 1))
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    echo "  PASS: $1"
+}
+
+fail() {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    echo "  FAIL: $1"
+}
+
 echo "Guild Founder (Alice):  $GUILD_FOUNDER_ADDR"
 echo "Guild Officer (Bob):    $GUILD_OFFICER_ADDR"
 echo "Guild Member 1 (Carol): $GUILD_MEMBER1_ADDR"
@@ -141,8 +157,15 @@ else
 
         echo "  Guild created successfully"
         echo "  Guild ID: $GUILD_ID"
+
+        if [ -n "$GUILD_ID" ] && [ "$GUILD_ID" != "null" ]; then
+            pass "create-guild returned non-empty guild ID"
+        else
+            fail "create-guild returned empty or null guild ID"
+        fi
     else
         echo "  Failed to create guild (may need DREAM balance)"
+        fail "create-guild transaction failed"
         GUILD_ID=""
     fi
 fi
@@ -164,13 +187,21 @@ if [ -n "$GUILD_ID" ]; then
 
     if echo "$GUILD_INFO" | grep -q "error"; then
         echo "  Failed to query guild $GUILD_ID"
+        fail "query guild-by-id returned error"
     else
+        QUERIED_NAME=$(echo "$GUILD_INFO" | jq -r '.name')
         echo "  Guild Details:"
         echo "    ID: $GUILD_ID"
-        echo "    Name: $(echo "$GUILD_INFO" | jq -r '.name')"
+        echo "    Name: $QUERIED_NAME"
         echo "    Founder: $(echo "$GUILD_INFO" | jq -r '.founder')"
         echo "    Status: $(echo "$GUILD_INFO" | jq -r '.status')"
         echo "    Invite Only: $(echo "$GUILD_INFO" | jq -r '.invite_only // false')"
+
+        if [ "$QUERIED_NAME" = "$GUILD_NAME" ]; then
+            pass "guild name matches what was created ($GUILD_NAME)"
+        else
+            fail "guild name mismatch: expected=$GUILD_NAME got=$QUERIED_NAME"
+        fi
     fi
 else
     echo "  No guild ID available, skipping query"
@@ -212,8 +243,15 @@ if [ -n "$GUILD_ID" ]; then
             MEMBERSHIP=$($BINARY query season get-guild-membership $GUILD_MEMBER1_ADDR --output json 2>&1)
             MEMBER_GUILD=$(echo "$MEMBERSHIP" | jq -r '.guild_membership.guild_id // "none"')
             echo "  Verified guild membership: $MEMBER_GUILD"
+
+            if [ "$MEMBER_GUILD" = "$GUILD_ID" ]; then
+                pass "join-guild: Carol membership shows guild ID $GUILD_ID"
+            else
+                fail "join-guild: expected guild_id=$GUILD_ID got=$MEMBER_GUILD"
+            fi
         else
             echo "  Failed to join guild"
+            fail "join-guild transaction failed"
         fi
     fi
 else
@@ -256,8 +294,15 @@ if [ -n "$GUILD_ID" ]; then
             GUILD_INFO=$($BINARY query season guild-by-id $GUILD_ID --output json 2>&1)
             INVITE_ONLY=$(echo "$GUILD_INFO" | jq -r '.invite_only')
             echo "  Verified invite_only: $INVITE_ONLY"
+
+            if [ "$INVITE_ONLY" = "true" ]; then
+                pass "set-invite-only: invite_only is true"
+            else
+                fail "set-invite-only: expected invite_only=true got=$INVITE_ONLY"
+            fi
         else
             echo "  Failed to set invite-only"
+            fail "set-invite-only transaction failed"
         fi
     fi
 else
@@ -295,6 +340,7 @@ if [ -n "$GUILD_ID" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Invitation sent to Bob"
+            pass "invite-to-guild transaction succeeded"
 
             # Check pending invites
             INVITES=$($BINARY query season member-guild-invites $GUILD_OFFICER_ADDR --output json 2>&1)
@@ -302,6 +348,7 @@ if [ -n "$GUILD_ID" ]; then
             echo "  Pending invite for Bob from guild: $INVITE_GUILD"
         else
             echo "  Failed to send invitation"
+            fail "invite-to-guild transaction failed"
         fi
     fi
 else
@@ -338,8 +385,10 @@ if [ -n "$GUILD_ID" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Bob joined the guild"
+            pass "accept-guild-invite transaction succeeded"
         else
             echo "  Failed to accept invite"
+            fail "accept-guild-invite transaction failed"
         fi
     fi
 else
@@ -377,8 +426,10 @@ if [ -n "$GUILD_ID" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Bob promoted to officer"
+            pass "promote-to-officer transaction succeeded"
         else
             echo "  Failed to promote"
+            fail "promote-to-officer transaction failed"
         fi
     fi
 else
@@ -442,8 +493,10 @@ if [ -n "$GUILD_ID" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Description updated"
+            pass "update-guild-description transaction succeeded"
         else
             echo "  Failed to update description"
+            fail "update-guild-description transaction failed"
         fi
     fi
 else
@@ -481,8 +534,10 @@ if [ -n "$GUILD_ID" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Bob demoted"
+            pass "demote-officer transaction succeeded"
         else
             echo "  Failed to demote"
+            fail "demote-officer transaction failed"
         fi
     fi
 else
@@ -518,8 +573,10 @@ if [ -n "$GUILD_ID" ]; then
 
         if check_tx_success "$TX_RESULT"; then
             echo "  Carol left the guild"
+            pass "leave-guild transaction succeeded"
         else
             echo "  Failed to leave guild"
+            fail "leave-guild transaction failed"
         fi
     fi
 else
@@ -543,8 +600,10 @@ else
     GUILD_NAME_FOUND=$(echo "$FOUNDER_GUILDS" | jq -r '.name // "none"')
     if [ "$GUILD_ID_FOUND" != "none" ] && [ "$GUILD_ID_FOUND" != "0" ]; then
         echo "  Found guild: ID=$GUILD_ID_FOUND, Name=$GUILD_NAME_FOUND"
+        pass "guilds-by-founder returned guild for Alice"
     else
         echo "  No guilds found for Alice"
+        fail "guilds-by-founder returned no guild for Alice"
     fi
 fi
 
@@ -555,19 +614,14 @@ echo ""
 # ========================================================================
 echo "--- GUILD TEST SUMMARY ---"
 echo ""
-echo "  List guilds:             Tested"
-echo "  Create guild:            Tested"
-echo "  Query guild details:     Tested"
-echo "  Join guild (public):     Tested"
-echo "  Set invite-only:         Tested"
-echo "  Invite to guild:         Tested"
-echo "  Accept invite:           Tested"
-echo "  Promote to officer:      Tested"
-echo "  Query guild members:     Tested"
-echo "  Update description:      Tested"
-echo "  Demote officer:          Tested"
-echo "  Leave guild:             Tested"
-echo "  Query by founder:        Tested"
+echo "  Total:  $TOTAL_COUNT"
+echo "  Passed: $PASS_COUNT"
+echo "  Failed: $FAIL_COUNT"
 echo ""
-echo "GUILD TEST COMPLETED"
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    echo "GUILD TEST FAILED ($FAIL_COUNT failures)"
+    exit 1
+else
+    echo "GUILD TEST PASSED (all $PASS_COUNT assertions passed)"
+fi
 echo ""

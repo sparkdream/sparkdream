@@ -1,0 +1,66 @@
+syntax = "proto3";
+package sparkdream.shield.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/shield/v1/params.proto";
+import "sparkdream/shield/v1/types.proto";
+
+option go_package = "sparkdream/x/shield/types";
+
+// GenesisState defines the shield module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+
+  // Registered shielded operations
+  repeated ShieldedOpRegistration registered_ops = 2 [(gogoproto.nullable) = false];
+
+  // Used nullifiers
+  repeated UsedNullifier used_nullifiers = 3 [(gogoproto.nullable) = false];
+
+  // Day funding entries
+  repeated DayFunding day_fundings = 4 [(gogoproto.nullable) = false];
+
+  // ZK proof verification keys
+  repeated VerificationKey verification_keys = 5 [(gogoproto.nullable) = false];
+
+  // TLE key set from DKG ceremony
+  TLEKeySet tle_key_set = 6 [(gogoproto.nullable) = false];
+
+  // Pending encrypted batch operations
+  repeated PendingShieldedOp pending_ops = 7 [(gogoproto.nullable) = false];
+
+  // Shield epoch state
+  ShieldEpochState shield_epoch_state = 8 [(gogoproto.nullable) = false];
+
+  // Epoch decryption keys
+  repeated ShieldEpochDecryptionKey decryption_keys = 9 [(gogoproto.nullable) = false];
+
+  // Next pending operation ID
+  uint64 next_pending_op_id = 10;
+
+  // Identity rate limit entries
+  repeated IdentityRateLimitEntry identity_rate_limits = 11 [(gogoproto.nullable) = false];
+
+  // Pending nullifiers (hex strings)
+  repeated string pending_nullifiers = 12;
+
+  // Decryption shares
+  repeated ShieldDecryptionShare decryption_shares = 13 [(gogoproto.nullable) = false];
+
+  // TLE miss counters
+  repeated TLEMissCounterEntry tle_miss_counters = 14 [(gogoproto.nullable) = false];
+
+  // DKG ceremony state
+  DKGState dkg_state = 15 [(gogoproto.nullable) = false];
+
+  // DKG contributions for the current round
+  repeated DKGContributionEntry dkg_contributions = 16 [(gogoproto.nullable) = false];
+
+  // DKG registrations (pub keys from REGISTERING phase)
+  repeated DKGContributionEntry dkg_registrations = 17 [(gogoproto.nullable) = false];
+}

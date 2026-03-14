@@ -769,51 +769,6 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgAppealGovAction,
 		forumsimulation.SimulateMsgAppealGovAction(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
-	const (
-		opWeightMsgCreateAnonymousPost          = "op_weight_msg_forum"
-		defaultWeightMsgCreateAnonymousPost int = 0
-	)
-
-	var weightMsgCreateAnonymousPost int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateAnonymousPost, &weightMsgCreateAnonymousPost, nil,
-		func(_ *rand.Rand) {
-			weightMsgCreateAnonymousPost = defaultWeightMsgCreateAnonymousPost
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateAnonymousPost,
-		forumsimulation.SimulateMsgCreateAnonymousPost(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgCreateAnonymousReply          = "op_weight_msg_forum"
-		defaultWeightMsgCreateAnonymousReply int = 0
-	)
-
-	var weightMsgCreateAnonymousReply int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateAnonymousReply, &weightMsgCreateAnonymousReply, nil,
-		func(_ *rand.Rand) {
-			weightMsgCreateAnonymousReply = defaultWeightMsgCreateAnonymousReply
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateAnonymousReply,
-		forumsimulation.SimulateMsgCreateAnonymousReply(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgAnonymousReact          = "op_weight_msg_forum"
-		defaultWeightMsgAnonymousReact int = 0
-	)
-
-	var weightMsgAnonymousReact int
-	simState.AppParams.GetOrGenerate(opWeightMsgAnonymousReact, &weightMsgAnonymousReact, nil,
-		func(_ *rand.Rand) {
-			weightMsgAnonymousReact = defaultWeightMsgAnonymousReact
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgAnonymousReact,
-		forumsimulation.SimulateMsgAnonymousReact(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
 
 	return operations
 }

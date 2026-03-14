@@ -10,8 +10,8 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/stretchr/testify/require"
 
-	blog "sparkdream/x/blog/module"
 	"sparkdream/x/blog/keeper"
+	blog "sparkdream/x/blog/module"
 	"sparkdream/x/blog/types"
 )
 
@@ -33,9 +33,6 @@ func TestGenerateGenesisState(t *testing.T) {
 	require.NoError(t, encCfg.Codec.UnmarshalJSON(raw, &genesis))
 
 	defaultParams := types.DefaultParams()
-	// Proto JSON round-trip converts nil repeated fields to empty slices;
-	// normalize before comparing.
-	defaultParams.AnonSubsidyRelayAddresses = genesis.Params.AnonSubsidyRelayAddresses
 	require.Equal(t, defaultParams, genesis.Params)
 }
 
@@ -48,7 +45,7 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	require.Len(t, ops, 17)
+	require.Len(t, ops, 14)
 }
 
 func TestProposalMsgs(t *testing.T) {

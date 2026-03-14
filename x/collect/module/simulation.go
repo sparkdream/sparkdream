@@ -435,52 +435,6 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgPinCollection,
 		collectsimulation.SimulateMsgPinCollection(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
-	const (
-		opWeightMsgCreateAnonymousCollection          = "op_weight_msg_collect_create_anon_collection"
-		defaultWeightMsgCreateAnonymousCollection int = 0
-	)
-
-	var weightMsgCreateAnonymousCollection int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateAnonymousCollection, &weightMsgCreateAnonymousCollection, nil,
-		func(_ *rand.Rand) {
-			weightMsgCreateAnonymousCollection = defaultWeightMsgCreateAnonymousCollection
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateAnonymousCollection,
-		collectsimulation.SimulateMsgCreateAnonymousCollection(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgManageAnonymousCollection          = "op_weight_msg_collect_manage_anon_collection"
-		defaultWeightMsgManageAnonymousCollection int = 0
-	)
-
-	var weightMsgManageAnonymousCollection int
-	simState.AppParams.GetOrGenerate(opWeightMsgManageAnonymousCollection, &weightMsgManageAnonymousCollection, nil,
-		func(_ *rand.Rand) {
-			weightMsgManageAnonymousCollection = defaultWeightMsgManageAnonymousCollection
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgManageAnonymousCollection,
-		collectsimulation.SimulateMsgManageAnonymousCollection(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgAnonymousReact          = "op_weight_msg_collect_anon_react"
-		defaultWeightMsgAnonymousReact int = 0
-	)
-
-	var weightMsgAnonymousReact int
-	simState.AppParams.GetOrGenerate(opWeightMsgAnonymousReact, &weightMsgAnonymousReact, nil,
-		func(_ *rand.Rand) {
-			weightMsgAnonymousReact = defaultWeightMsgAnonymousReact
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgAnonymousReact,
-		collectsimulation.SimulateMsgAnonymousReact(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
 	return operations
 }
 

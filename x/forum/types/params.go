@@ -99,28 +99,23 @@ const (
 	// Lazy prune
 	DefaultLazyPruneLimit = uint64(2)
 
-	// Anonymous posting defaults
-	DefaultAnonymousPostingEnabled = true
-	DefaultAnonymousMinTrustLevel  = uint32(2) // ESTABLISHED
-	DefaultPrivateReactionsEnabled = true
-
 	// Conviction renewal defaults
 	DefaultConvictionRenewalPeriod = int64(604800) // 7 days
 )
 
 // Default fee amounts
 var (
-	DefaultSpamTaxAmount         = math.NewInt(1000000) // 1 SPARK
-	DefaultReactionSpamTaxAmount = math.NewInt(100000)  // 0.1 SPARK
-	DefaultFlagSpamTaxAmount     = math.NewInt(100000)  // 0.1 SPARK
-	DefaultDownvoteDepositAmount = math.NewInt(50000)   // 0.05 SPARK
-	DefaultAppealFeeAmount       = math.NewInt(5000000) // 5 SPARK
-	DefaultLockAppealFeeAmount   = math.NewInt(5000000) // 5 SPARK
-	DefaultMoveAppealFeeAmount   = math.NewInt(5000000) // 5 SPARK
-	DefaultEditFeeAmount         = math.NewInt(10000)   // 0.01 SPARK
-	DefaultTagReportBond         = math.NewInt(10)      // 10 DREAM
-	DefaultCostPerByteAmount             = math.NewInt(100)     // 100 uspark/byte (~1 SPARK for 10KB)
-	DefaultConvictionRenewalThreshold    = math.LegacyNewDec(100)
+	DefaultSpamTaxAmount              = math.NewInt(1000000) // 1 SPARK
+	DefaultReactionSpamTaxAmount      = math.NewInt(100000)  // 0.1 SPARK
+	DefaultFlagSpamTaxAmount          = math.NewInt(100000)  // 0.1 SPARK
+	DefaultDownvoteDepositAmount      = math.NewInt(50000)   // 0.05 SPARK
+	DefaultAppealFeeAmount            = math.NewInt(5000000) // 5 SPARK
+	DefaultLockAppealFeeAmount        = math.NewInt(5000000) // 5 SPARK
+	DefaultMoveAppealFeeAmount        = math.NewInt(5000000) // 5 SPARK
+	DefaultEditFeeAmount              = math.NewInt(10000)   // 0.01 SPARK
+	DefaultTagReportBond              = math.NewInt(10)      // 10 DREAM
+	DefaultCostPerByteAmount          = math.NewInt(100)     // 100 uspark/byte (~1 SPARK for 10KB)
+	DefaultConvictionRenewalThreshold = math.LegacyNewDec(100)
 )
 
 // NewParams creates a new Params instance.
@@ -156,12 +151,6 @@ func NewParams() Params {
 		CostPerByte:                  sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
 		CostPerByteExempt:            false,
 		EphemeralTtl:                 DefaultEphemeralTTL,
-		AnonymousPostingEnabled:      DefaultAnonymousPostingEnabled,
-		AnonymousMinTrustLevel:       DefaultAnonymousMinTrustLevel,
-		PrivateReactionsEnabled:      DefaultPrivateReactionsEnabled,
-		AnonSubsidyBudgetPerEpoch:    sdk.NewCoin(DefaultFeeDenom, math.ZeroInt()),
-		AnonSubsidyMaxPerPost:        sdk.NewCoin(DefaultFeeDenom, math.ZeroInt()),
-		AnonSubsidyApprovedRelays:    nil,
 		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
 	}
@@ -243,9 +232,6 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		LockAppealCooldown:           DefaultLockAppealCooldown,
 		MoveAppealCooldown:           DefaultMoveAppealCooldown,
 		EphemeralTtl:                 DefaultEphemeralTTL,
-		AnonymousPostingEnabled:      DefaultAnonymousPostingEnabled,
-		AnonymousMinTrustLevel:       DefaultAnonymousMinTrustLevel,
-		PrivateReactionsEnabled:      DefaultPrivateReactionsEnabled,
 		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
 	}
@@ -301,9 +287,6 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.LockAppealCooldown = op.LockAppealCooldown
 	p.MoveAppealCooldown = op.MoveAppealCooldown
 	p.EphemeralTtl = op.EphemeralTtl
-	p.AnonymousPostingEnabled = op.AnonymousPostingEnabled
-	p.AnonymousMinTrustLevel = op.AnonymousMinTrustLevel
-	p.PrivateReactionsEnabled = op.PrivateReactionsEnabled
 	p.ConvictionRenewalThreshold = op.ConvictionRenewalThreshold
 	p.ConvictionRenewalPeriod = op.ConvictionRenewalPeriod
 	return p
@@ -339,9 +322,6 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		LockAppealCooldown:           p.LockAppealCooldown,
 		MoveAppealCooldown:           p.MoveAppealCooldown,
 		EphemeralTtl:                 p.EphemeralTtl,
-		AnonymousPostingEnabled:      p.AnonymousPostingEnabled,
-		AnonymousMinTrustLevel:       p.AnonymousMinTrustLevel,
-		PrivateReactionsEnabled:      p.PrivateReactionsEnabled,
 		ConvictionRenewalThreshold:   p.ConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:      p.ConvictionRenewalPeriod,
 	}

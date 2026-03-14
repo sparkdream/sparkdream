@@ -65,15 +65,6 @@ service Msg {
 
   // PinReply pins an ephemeral reply, making it permanent.
   rpc PinReply(MsgPinReply) returns (MsgPinReplyResponse);
-
-  // CreateAnonymousPost creates a post with ZK proof of membership.
-  rpc CreateAnonymousPost(MsgCreateAnonymousPost) returns (MsgCreateAnonymousPostResponse);
-
-  // CreateAnonymousReply creates a reply with ZK proof of membership.
-  rpc CreateAnonymousReply(MsgCreateAnonymousReply) returns (MsgCreateAnonymousReplyResponse);
-
-  // AnonymousReact adds a reaction to a post or reply with ZK proof of membership.
-  rpc AnonymousReact(MsgAnonymousReact) returns (MsgAnonymousReactResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -127,13 +118,13 @@ message MsgCreatePost {
   string title = 2;
   string body = 3;
   sparkdream.common.v1.ContentType content_type = 4;
-  int32 min_reply_trust_level = 5;  // Minimum trust level to reply (-1 to 4, default: 0)
-  string author_bond = 6 [           // Optional DREAM amount to lock as author bond
+  int32 min_reply_trust_level = 5; // Minimum trust level to reply (-1 to 4, default: 0)
+  string author_bond = 6 [ // Optional DREAM amount to lock as author bond
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = true
   ];
-  uint64 initiative_id = 7;          // Optional: reference an x/rep initiative (0 = none, immutable)
+  uint64 initiative_id = 7; // Optional: reference an x/rep initiative (0 = none, immutable)
 }
 
 // MsgCreatePostResponse defines the MsgCreatePostResponse message.
@@ -150,7 +141,7 @@ message MsgUpdatePost {
   uint64 id = 4;
   sparkdream.common.v1.ContentType content_type = 5;
   bool replies_enabled = 6;
-  int32 min_reply_trust_level = 7;  // Minimum trust level to reply (-1 to 4)
+  int32 min_reply_trust_level = 7; // Minimum trust level to reply (-1 to 4)
 }
 
 // MsgUpdatePostResponse defines the MsgUpdatePostResponse message.
@@ -194,7 +185,7 @@ message MsgCreateReply {
   uint64 parent_reply_id = 3;
   string body = 4;
   sparkdream.common.v1.ContentType content_type = 5;
-  string author_bond = 6 [           // Optional DREAM amount to lock as author bond
+  string author_bond = 6 [ // Optional DREAM amount to lock as author bond
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = true
@@ -254,7 +245,7 @@ message MsgReact {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
   uint64 reply_id = 3;
-  ReactionType reaction_type = 4;  // Uses enum instead of uint64
+  ReactionType reaction_type = 4; // Uses enum instead of uint64
 }
 
 // MsgReactResponse defines the MsgReactResponse message.
@@ -290,55 +281,3 @@ message MsgPinReply {
 
 // MsgPinReplyResponse defines the MsgPinReplyResponse message.
 message MsgPinReplyResponse {}
-
-// MsgCreateAnonymousPost defines the MsgCreateAnonymousPost message.
-message MsgCreateAnonymousPost {
-  option (cosmos.msg.v1.signer) = "submitter";
-  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string title = 2;
-  string body = 3;
-  sparkdream.common.v1.ContentType content_type = 4;
-  bytes proof = 5;               // ZK proof bytes
-  bytes nullifier = 6;           // 32-byte nullifier
-  bytes merkle_root = 7;         // Trust tree root
-  uint32 min_trust_level = 8;    // Proven minimum trust level
-}
-
-// MsgCreateAnonymousPostResponse defines the MsgCreateAnonymousPostResponse message.
-message MsgCreateAnonymousPostResponse {
-  uint64 id = 1;
-}
-
-// MsgCreateAnonymousReply defines the MsgCreateAnonymousReply message.
-message MsgCreateAnonymousReply {
-  option (cosmos.msg.v1.signer) = "submitter";
-  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  uint64 post_id = 2;
-  string body = 3;
-  sparkdream.common.v1.ContentType content_type = 4;
-  bytes proof = 5;               // ZK proof bytes
-  bytes nullifier = 6;           // 32-byte nullifier
-  bytes merkle_root = 7;         // Trust tree root
-  uint32 min_trust_level = 8;    // Proven minimum trust level
-}
-
-// MsgCreateAnonymousReplyResponse defines the MsgCreateAnonymousReplyResponse message.
-message MsgCreateAnonymousReplyResponse {
-  uint64 id = 1;
-}
-
-// MsgAnonymousReact defines the MsgAnonymousReact message.
-message MsgAnonymousReact {
-  option (cosmos.msg.v1.signer) = "submitter";
-  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  uint64 post_id = 2;
-  uint64 reply_id = 3;
-  ReactionType reaction_type = 4;
-  bytes proof = 5;               // ZK proof bytes
-  bytes nullifier = 6;           // 32-byte nullifier
-  bytes merkle_root = 7;         // Trust tree root
-  uint32 min_trust_level = 8;    // Proven minimum trust level
-}
-
-// MsgAnonymousReactResponse defines the MsgAnonymousReactResponse message.
-message MsgAnonymousReactResponse {}

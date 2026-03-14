@@ -23,6 +23,10 @@ faucet:
   name: bob
   coins: [1000uspark]
 genesis:
+  consensus:
+    params:
+      abci:
+        vote_extensions_enable_height: "1"
   app_state:
     bank:
       denom_metadata:
@@ -126,7 +130,7 @@ genesis:
         display_title: "newcomer"
         season_xp: 1500
         lifetime_xp: 1500
-        season_level: 4  # sqrt(1500/100) ≈ 3.87 → level 4
+        season_level: 6  # effective XP = 1500 + (5*5) + (15*5) = 1600 → level 6
         unlocked_titles:
         - "newcomer"
         achievements:
@@ -262,8 +266,17 @@ genesis:
         hide_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         lock_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         move_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
-        anonymous_posting_enabled: true
-        private_reactions_enabled: true
+      category_map:
+      - category_id: 1
+        title: "General"
+        description: "General discussion"
+        members_only_write: false
+        admin_only_write: false
+      - category_id: 2
+        title: "Governance"
+        description: "Governance proposals and discussion"
+        members_only_write: true
+        admin_only_write: false
       tag_map:
       # Three main councils
       - name: "commons-council"

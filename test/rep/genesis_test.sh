@@ -11,16 +11,16 @@ CHAIN_ID="sparkdream"
 # Load test environment if available
 if [ -f "$SCRIPT_DIR/.test_env" ]; then
     source "$SCRIPT_DIR/.test_env"
-    echo "✅ Loaded test environment"
+    echo "[OK] Loaded test environment"
 fi
 
 # Verify chain is running
 if ! $BINARY status &> /dev/null; then
-    echo "❌ Chain is not running"
+    echo "[FAIL] Chain is not running"
     echo "   Start with: ignite chain serve"
     exit 1
 fi
-echo "✅ Chain is running"
+echo "[OK] Chain is running"
 
 # Get existing test keys
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -30,6 +30,23 @@ CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
 echo "Alice: $ALICE_ADDR"
 echo "Bob:   $BOB_ADDR"
 echo "Carol: $CAROL_ADDR"
+
+# --- Pass/Fail Tracking ---
+PASS_COUNT=0
+FAIL_COUNT=0
+TOTAL_COUNT=0
+
+pass() {
+    PASS_COUNT=$((PASS_COUNT + 1))
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    echo "  PASS: $1"
+}
+
+fail() {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    echo "  FAIL: $1"
+}
 
 # ========================================================================
 # PART 1: GENESIS STRUCTURE AND PARAMETERS
@@ -57,6 +74,13 @@ echo ""
 echo "Module Parameters (from params query):"
 echo "$PARAMS" | jq '.' 2>/dev/null || echo "  (JSON not available)"
 
+# Assert params query returned data
+if [ -n "$PARAMS" ] && [ "$PARAMS" != "null" ] && [ "$PARAMS" != "{}" ]; then
+    pass "Params query returned non-empty response"
+else
+    fail "Params query returned empty or null response"
+fi
+
 # Extract key parameters
 EPOCH_BLOCKS=$(echo "$PARAMS" | jq -r '.params.epoch_blocks // "0"')
 MIN_STAKE=$(echo "$PARAMS" | jq -r '.params.minimum_stake_amount // "0"')
@@ -73,6 +97,20 @@ echo "  Review period: $REVIEW_PERIOD epochs"
 echo "  Challenge period: $CHALLENGE_PERIOD epochs"
 echo "  External conviction threshold: $EXTERNAL_THRESHOLD%"
 echo "  Unstaked decay rate: $DECAY_RATE"
+
+# Assert epoch_blocks is a positive number
+if [ -n "$EPOCH_BLOCKS" ] && [ "$EPOCH_BLOCKS" != "null" ] && [ "$EPOCH_BLOCKS" != "0" ] && [ "$EPOCH_BLOCKS" -gt 0 ] 2>/dev/null; then
+    pass "epoch_blocks is a positive number ($EPOCH_BLOCKS)"
+else
+    fail "epoch_blocks is not a positive number (got: '$EPOCH_BLOCKS')"
+fi
+
+# Assert minimum_stake_amount is a positive number
+if [ -n "$MIN_STAKE" ] && [ "$MIN_STAKE" != "null" ] && [ "$MIN_STAKE" != "0" ] && [ "$MIN_STAKE" -gt 0 ] 2>/dev/null; then
+    pass "minimum_stake_amount is a positive number ($MIN_STAKE)"
+else
+    fail "minimum_stake_amount is not a positive number (got: '$MIN_STAKE')"
+fi
 
 # ========================================================================
 # PART 2: GENESIS MEMBERS
@@ -105,6 +143,32 @@ for MEMBER in "alice" "bob" "carol"; do
         echo "  Lifetime Earned: $LIFETIME_EARNED"
         echo "  Lifetime Burned: $LIFETIME_BURNED"
 
+        # Assert member exists (query did not return "not found")
+        if echo "$MEMBER_DATA" | jq -e '.member' >/dev/null 2>&1; then
+            pass "$MEMBER exists as a member"
+        else
+            fail "$MEMBER not found as a member"
+        fi
+
+        # Assert alice trust level is CORE
+        if [ "$MEMBER" = "alice" ]; then
+            if [ "$TRUST_LEVEL" = "TRUST_LEVEL_CORE" ] || [ "$TRUST_LEVEL" = "4" ]; then
+                pass "alice trust_level is TRUST_LEVEL_CORE ($TRUST_LEVEL)"
+            else
+                fail "alice trust_level expected TRUST_LEVEL_CORE, got '$TRUST_LEVEL'"
+            fi
+        fi
+
+        # Assert member has non-zero DREAM (dream_balance + staked_dream > 0)
+        if [ -z "$DREAM_BAL" ] || [ "$DREAM_BAL" = "null" ]; then DREAM_BAL=0; fi
+        if [ -z "$STAKED_DREAM" ] || [ "$STAKED_DREAM" = "null" ]; then STAKED_DREAM=0; fi
+        TOTAL_DREAM=$((DREAM_BAL + STAKED_DREAM))
+        if [ "$TOTAL_DREAM" -gt 0 ] 2>/dev/null; then
+            pass "$MEMBER has non-zero DREAM (total: $TOTAL_DREAM)"
+        else
+            fail "$MEMBER has zero DREAM (dream_balance=$DREAM_BAL, staked_dream=$STAKED_DREAM)"
+        fi
+
         # Check reputation scores
         REPUTATION=$(echo "$MEMBER_DATA" | jq -r '.member.reputation_scores // {}')
         if [ "$REPUTATION" != "{}" ] && [ "$REPUTATION" != "null" ]; then
@@ -124,20 +188,21 @@ for MEMBER in "alice" "bob" "carol"; do
 
         echo ""
     else
+        fail "$MEMBER query returned empty response"
         echo "$MEMBER: Not found in x/rep (may not be genesis member)"
         echo ""
     fi
 done
 
 echo "Genesis Member Requirements:"
-echo "  ✓ Unique member ID"
-echo "  ✓ Trust level assigned (based on reputation)"
-echo "  ✓ DREAM balance initialized (from genesis allocation)"
-echo "  ✓ Staked DREAM initialized (if applicable)"
-echo "  ✓ Reputation scores initialized"
-echo "  ✓ Tags initialized (vouched skills)"
-echo "  ✓ Invitation chain empty (genesis members)"
-echo "  ✓ Last decay epoch set to current epoch"
+echo "  - Unique member ID"
+echo "  - Trust level assigned (based on reputation)"
+echo "  - DREAM balance initialized (from genesis allocation)"
+echo "  - Staked DREAM initialized (if applicable)"
+echo "  - Reputation scores initialized"
+echo "  - Tags initialized (vouched skills)"
+echo "  - Invitation chain empty (genesis members)"
+echo "  - Last decay epoch set to current epoch"
 
 # ========================================================================
 # PART 3: GENESIS PROJECTS
@@ -155,9 +220,25 @@ if [ -n "$ALL_PROJECTS" ]; then
     PROJECT_COUNT=$(echo "$ALL_PROJECTS" | jq -r '.projects | length // 0')
     echo "Projects in system: $PROJECT_COUNT"
 
+    # Assert at least 1 project exists
+    if [ "$PROJECT_COUNT" -gt 0 ] 2>/dev/null; then
+        pass "At least 1 project exists ($PROJECT_COUNT found)"
+    else
+        fail "Expected at least 1 project, found $PROJECT_COUNT"
+    fi
+
     if [ "$PROJECT_COUNT" -gt 0 ]; then
         echo ""
         echo "Project List:"
+
+        # Assert first project has an ID
+        FIRST_PROJECT_ID=$(echo "$ALL_PROJECTS" | jq -r '.projects[0].id // empty')
+        if [ -n "$FIRST_PROJECT_ID" ]; then
+            pass "First project has an ID ($FIRST_PROJECT_ID)"
+        else
+            fail "First project has no ID"
+        fi
+
         for i in $(seq 0 $((PROJECT_COUNT - 1)) 2>/dev/null); do
             PROJECT_ID=$(echo "$ALL_PROJECTS" | jq -r ".projects[$i].id")
             PROJECT_NAME=$(echo "$ALL_PROJECTS" | jq -r ".projects[$i].name")
@@ -173,20 +254,21 @@ if [ -n "$ALL_PROJECTS" ]; then
         done
     fi
 else
+    fail "Project list query returned empty response"
     echo "Note: No projects found (genesis may not include projects)"
 fi
 
 echo "Genesis Project Requirements:"
-echo "  ✓ Unique project ID"
-echo "  ✓ Name and description"
-echo "  ✓ Council association"
-echo "  ✓ Status (PROPOSED/APPROVED/ACTIVE/COMPLETED/CANCELLED)"
-echo "  ✓ Budget allocation (if approved)"
-echo "  ✓ SPARK allocation (for external expenses)"
-echo "  ✓ Deliverables list"
-echo "  ✓ Milestones list"
-echo "  ✓ Tags for categorization"
-echo "  ✓ Created timestamp"
+echo "  - Unique project ID"
+echo "  - Name and description"
+echo "  - Council association"
+echo "  - Status (PROPOSED/APPROVED/ACTIVE/COMPLETED/CANCELLED)"
+echo "  - Budget allocation (if approved)"
+echo "  - SPARK allocation (for external expenses)"
+echo "  - Deliverables list"
+echo "  - Milestones list"
+echo "  - Tags for categorization"
+echo "  - Created timestamp"
 
 # ========================================================================
 # PART 4: GENESIS INITIATIVES
@@ -199,6 +281,14 @@ echo ""
 
 # Query initiatives
 ALL_INITIATIVES=$($BINARY query rep list-initiative -o json 2>/dev/null)
+INIT_QUERY_EXIT=$?
+
+# Assert initiative query succeeds
+if [ $INIT_QUERY_EXIT -eq 0 ] && [ -n "$ALL_INITIATIVES" ]; then
+    pass "Initiative query succeeded"
+else
+    fail "Initiative query failed (exit=$INIT_QUERY_EXIT)"
+fi
 
 if [ -n "$ALL_INITIATIVES" ]; then
     INIT_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '.initiatives | length // 0')
@@ -232,18 +322,18 @@ else
 fi
 
 echo "Genesis Initiative Requirements:"
-echo "  ✓ Unique initiative ID"
-echo "  ✓ Name and description"
-echo "  ✓ Project association"
-echo "  ✓ Status (OPEN/ASSIGNED/SUBMITTED/IN_REVIEW/CHALLENGED/COMPLETED/ABANDONED)"
-echo "  ✓ Tier (0-3: Apprentice/Standard/Complex/Epic)"
-echo "  ✓ Budget (within tier limits)"
-echo "  ✓ Category (FEATURE/BUGFIX/REFACTOR/DOCUMENTATION/INFRASTRUCTURE/RESEARCH)"
-echo "  ✓ Assignee (if ASSIGNED)"
-echo "  ✓ Work evidence URI (if SUBMITTED or later)"
-echo "  ✓ Review period end (if SUBMITTED)"
-echo "  ✓ Challenge period end (if IN_REVIEW)"
-echo "  ✓ Created timestamp"
+echo "  - Unique initiative ID"
+echo "  - Name and description"
+echo "  - Project association"
+echo "  - Status (OPEN/ASSIGNED/SUBMITTED/IN_REVIEW/CHALLENGED/COMPLETED/ABANDONED)"
+echo "  - Tier (0-3: Apprentice/Standard/Complex/Epic)"
+echo "  - Budget (within tier limits)"
+echo "  - Category (FEATURE/BUGFIX/REFACTOR/DOCUMENTATION/INFRASTRUCTURE/RESEARCH)"
+echo "  - Assignee (if ASSIGNED)"
+echo "  - Work evidence URI (if SUBMITTED or later)"
+echo "  - Review period end (if SUBMITTED)"
+echo "  - Challenge period end (if IN_REVIEW)"
+echo "  - Created timestamp"
 
 # ========================================================================
 # PART 5: GENESIS STAKES
@@ -258,6 +348,14 @@ echo ""
 for MEMBER in "alice" "bob" "carol"; do
     ADDR=$($BINARY keys show $MEMBER -a --keyring-backend test)
     STAKES=$($BINARY query rep stakes-by-staker $ADDR -o json 2>/dev/null)
+    STAKES_EXIT=$?
+
+    # Assert stakes query succeeds for each member
+    if [ $STAKES_EXIT -eq 0 ] && [ -n "$STAKES" ]; then
+        pass "Stakes query succeeded for $MEMBER"
+    else
+        fail "Stakes query failed for $MEMBER (exit=$STAKES_EXIT)"
+    fi
 
     if [ -n "$STAKES" ]; then
         STAKE_COUNT=$(echo "$STAKES" | jq -r '.stakes | length // 0')
@@ -286,15 +384,15 @@ for MEMBER in "alice" "bob" "carol"; do
 done
 
 echo "Genesis Stake Requirements:"
-echo "  ✓ Unique stake ID"
-echo "  ✓ Staker address"
-echo "  ✓ Target ID (initiative/member/project)"
-echo "  ✓ Target type (INITIATIVE/MEMBER/PROJECT)"
-echo "  ✓ Amount (>= minimum_stake_amount)"
-echo "  ✓ Status (ACTIVE/UNSTAKED/EXPIRED)"
-echo "  ✓ Created at block height"
-echo "  ✓ Conviction weight (calculated over time)"
-echo "  ✓ Reward tracking (if applicable)"
+echo "  - Unique stake ID"
+echo "  - Staker address"
+echo "  - Target ID (initiative/member/project)"
+echo "  - Target type (INITIATIVE/MEMBER/PROJECT)"
+echo "  - Amount (>= minimum_stake_amount)"
+echo "  - Status (ACTIVE/UNSTAKED/EXPIRED)"
+echo "  - Created at block height"
+echo "  - Conviction weight (calculated over time)"
+echo "  - Reward tracking (if applicable)"
 
 # ========================================================================
 # PART 6: GENESIS INVITATIONS
@@ -331,15 +429,15 @@ for MEMBER in "alice" "bob" "carol"; do
 done
 
 echo "Genesis Invitation Requirements:"
-echo "  ✓ Unique invitation ID"
-echo "  ✓ Inviter address"
-echo "  ✓ Invitee address"
-echo "  ✓ Stake amount (accountability)"
-echo "  ✓ Vouched tags (skills)"
-echo "  ✓ Status (PENDING/ACCEPTED/EXPIRED/FAILED)"
-echo "  ✓ Created timestamp"
-echo "  ✓ Referral end epoch"
-echo "  ✓ Invitation chain (for tracking referrals)"
+echo "  - Unique invitation ID"
+echo "  - Inviter address"
+echo "  - Invitee address"
+echo "  - Stake amount (accountability)"
+echo "  - Vouched tags (skills)"
+echo "  - Status (PENDING/ACCEPTED/EXPIRED/FAILED)"
+echo "  - Created timestamp"
+echo "  - Referral end epoch"
+echo "  - Invitation chain (for tracking referrals)"
 
 # ========================================================================
 # PART 7: GENESIS DREAM TOKEN ALLOCATION
@@ -386,18 +484,27 @@ for MEMBER in "alice" "bob" "carol"; do
         TOTAL=$((DREAM_BAL + STAKED))
 
         echo "  $MEMBER: $DREAM_BAL DREAM (staked: $STAKED, total: $TOTAL)"
+
+        # Assert alice DREAM balance > 0 (Tier 1 founder with 5000 DREAM)
+        if [ "$MEMBER" = "alice" ]; then
+            if [ "$TOTAL" -gt 0 ] 2>/dev/null; then
+                pass "alice DREAM balance > 0 (total: $TOTAL)"
+            else
+                fail "alice DREAM balance expected > 0, got total=$TOTAL"
+            fi
+        fi
     fi
 done
 
 echo ""
 echo "DREAM Token Genesis Properties:"
-echo "  ✓ Managed by x/rep (not x/bank)"
-echo "  ✓ No external trading"
-echo "  ✓ No IBC transfers"
-echo "  ✓ Uncapped supply"
-echo "  ✓ Productivity-backed (minted on work)"
-echo "  ✓ Decay on unstaked (1%/epoch)"
-echo "  ✓ Transfer tax (3% burned)"
+echo "  - Managed by x/rep (not x/bank)"
+echo "  - No external trading"
+echo "  - No IBC transfers"
+echo "  - Uncapped supply"
+echo "  - Productivity-backed (minted on work)"
+echo "  - Decay on unstaked (1%/epoch)"
+echo "  - Transfer tax (3% burned)"
 
 # ========================================================================
 # PART 8: GENESIS REPUTATION DISTRIBUTION
@@ -441,16 +548,34 @@ for MEMBER in "alice" "bob" "carol"; do
         if [ -z "$TOTAL_REP" ] || [ "$TOTAL_REP" == "null" ]; then TOTAL_REP="0"; fi
 
         echo "  $MEMBER: trust=$TRUST, total_rep=$TOTAL_REP"
+
+        # Assert alice trust level is CORE
+        if [ "$MEMBER" = "alice" ]; then
+            if [ "$TRUST" = "TRUST_LEVEL_CORE" ] || [ "$TRUST" = "4" ]; then
+                pass "alice trust level is CORE ($TRUST)"
+            else
+                fail "alice trust level expected CORE, got '$TRUST'"
+            fi
+        fi
+
+        # Assert bob trust level exists (non-empty, non-UNKNOWN)
+        if [ "$MEMBER" = "bob" ]; then
+            if [ -n "$TRUST" ] && [ "$TRUST" != "UNKNOWN" ] && [ "$TRUST" != "null" ]; then
+                pass "bob trust level exists ($TRUST)"
+            else
+                fail "bob trust level missing or UNKNOWN (got: '$TRUST')"
+            fi
+        fi
     fi
 done
 
 echo ""
 echo "Reputation Genesis Properties:"
-echo "  ✓ Per-tag scores"
-echo "  ✓ Total reputation determines trust level"
-echo "  ✓ Trust level determines permissions"
-echo "  ✓ Seasonal reset (every ~5 months)"
-echo "  ✓ Lifetime archive preserved"
+echo "  - Per-tag scores"
+echo "  - Total reputation determines trust level"
+echo "  - Trust level determines permissions"
+echo "  - Seasonal reset (every ~5 months)"
+echo "  - Lifetime archive preserved"
 
 # ========================================================================
 # PART 9: GENESIS COUNCIL CONFIGURATION
@@ -485,6 +610,13 @@ if [ -n "$COMMONS_GROUPS" ]; then
     GROUP_COUNT=$(echo "$COMMONS_GROUPS" | jq -r '.group | length // 0')
     echo "Found $GROUP_COUNT groups (councils)"
 
+    # Assert at least 1 commons group exists
+    if [ "$GROUP_COUNT" -gt 0 ] 2>/dev/null; then
+        pass "At least 1 commons group exists ($GROUP_COUNT found)"
+    else
+        fail "Expected at least 1 commons group, found $GROUP_COUNT"
+    fi
+
     for i in $(seq 0 $((GROUP_COUNT - 1)) 2>/dev/null); do
         GROUP_NAME=$(echo "$COMMONS_GROUPS" | jq -r ".group[$i].name // empty")
         GROUP_TYPE=$(echo "$COMMONS_GROUPS" | jq -r ".group[$i].group_type // empty")
@@ -493,17 +625,18 @@ if [ -n "$COMMONS_GROUPS" ]; then
         fi
     done
 else
+    fail "x/commons list-group query returned empty response"
     echo "Note: x/commons query not available in this environment"
 fi
 
 echo ""
 echo "Council Genesis Properties:"
-echo "  ✓ Group structure (x/commons)"
-echo "  ✓ MinMembers: 2 (golden share)"
-echo "  ✓ MaxMembers: Unlimited (for councils)"
-echo "  ✓ AllowedMessages: Permissions configuration"
-echo "  ✓ Parent committee relationship"
-echo "  ✓ Treasury association (x/split)"
+echo "  - Group structure (x/commons)"
+echo "  - MinMembers: 2 (golden share)"
+echo "  - MaxMembers: Unlimited (for councils)"
+echo "  - AllowedMessages: Permissions configuration"
+echo "  - Parent committee relationship"
+echo "  - Treasury association (x/split)"
 
 # ========================================================================
 # PART 10: GENESIS MIGRATION (UPGRADE PATH)
@@ -517,29 +650,29 @@ echo ""
 echo "Genesis Migration Requirements:"
 echo ""
 echo "1. Data Preservation:"
-echo "  ✓ All members preserved with correct balances"
-echo "  ✓ All projects preserved with correct status"
-echo "  ✓ All initiatives preserved with correct state"
-echo "  ✓ All stakes preserved with conviction data"
-echo "  ✓ All invitations preserved with accountability"
+echo "  - All members preserved with correct balances"
+echo "  - All projects preserved with correct status"
+echo "  - All initiatives preserved with correct state"
+echo "  - All stakes preserved with conviction data"
+echo "  - All invitations preserved with accountability"
 echo ""
 echo "2. Schema Migration:"
-echo "  ✓ Old schema fields mapped to new schema"
-echo "  ✓ New fields initialized with defaults"
-echo "  ✓ Removed fields dropped cleanly"
-echo "  ✓ Indexes rebuilt if needed"
+echo "  - Old schema fields mapped to new schema"
+echo "  - New fields initialized with defaults"
+echo "  - Removed fields dropped cleanly"
+echo "  - Indexes rebuilt if needed"
 echo ""
 echo "3. Parameter Migration:"
-echo "  ✓ Parameters preserved or upgraded"
-echo "  ✓ New parameters initialized with defaults"
-echo "  ✓ Old parameters removed cleanly"
+echo "  - Parameters preserved or upgraded"
+echo "  - New parameters initialized with defaults"
+echo "  - Old parameters removed cleanly"
 echo ""
 echo "4. State Verification:"
-echo "  ✓ Invariant checks after migration"
-echo "  ✓ Balance reconciliation (SPARK, DREAM)"
-echo "  ✓ Reputation sum verification"
-echo "  ✓ Active stake verification"
-echo "  ✓ Pending interim verification"
+echo "  - Invariant checks after migration"
+echo "  - Balance reconciliation (SPARK, DREAM)"
+echo "  - Reputation sum verification"
+echo "  - Active stake verification"
+echo "  - Pending interim verification"
 echo ""
 
 echo "Migration Process:"
@@ -572,33 +705,33 @@ echo ""
 echo "Genesis Invariants:"
 echo ""
 echo "1. Balance Invariant:"
-echo "  ✓ Total SPARK matches genesis allocation"
-echo "  ✓ Total DREAM matches genesis allocation"
-echo "  ✓ No negative balances"
-echo "  ✓ No staked DREAM exceeds balance"
+echo "  - Total SPARK matches genesis allocation"
+echo "  - Total DREAM matches genesis allocation"
+echo "  - No negative balances"
+echo "  - No staked DREAM exceeds balance"
 echo ""
 echo "2. Reputation Invariant:"
-echo "  ✓ No negative reputation"
-echo "  ✓ Total reputation per member = sum of tag scores"
-echo "  ✓ Trust level matches total reputation"
+echo "  - No negative reputation"
+echo "  - Total reputation per member = sum of tag scores"
+echo "  - Trust level matches total reputation"
 echo ""
 echo "3. Stake Invariant:"
-echo "  ✓ All stakes have valid stakers"
-echo "  ✓ All stakes have valid targets"
-echo "  ✓ Stake amounts >= minimum_stake_amount"
-echo "  ✓ Active stake total <= staker's staked_dream"
+echo "  - All stakes have valid stakers"
+echo "  - All stakes have valid targets"
+echo "  - Stake amounts >= minimum_stake_amount"
+echo "  - Active stake total <= staker's staked_dream"
 echo ""
 echo "4. Initiative Invariant:"
-echo "  ✓ All initiatives have valid projects"
-echo "  ✓ Initiative budgets within tier limits"
-echo "  ✓ Initiative statuses match state machine"
-echo "  ✓ Submit work has evidence URI"
+echo "  - All initiatives have valid projects"
+echo "  - Initiative budgets within tier limits"
+echo "  - Initiative statuses match state machine"
+echo "  - Submit work has evidence URI"
 echo ""
 echo "5. Challenge Invariant:"
-echo "  ✓ All challenges have valid initiatives"
-echo "  ✓ Challenge stakes are valid"
-echo "  ✓ Jury members have sufficient reputation"
-echo "  ✓ Challenge deadlines are in future"
+echo "  - All challenges have valid initiatives"
+echo "  - Challenge stakes are valid"
+echo "  - Jury members have sufficient reputation"
+echo "  - Challenge deadlines are in future"
 echo ""
 
 echo "Validation Commands:"
@@ -621,16 +754,16 @@ echo "Testing genesis backup and recovery procedures"
 echo ""
 
 echo "Genesis Backup:"
-echo "  ✓ Genesis file backed up before upgrade"
-echo "  ✓ Genesis hash recorded for verification"
-echo "  ✓ Backup stored securely"
-echo "  ✓ Backup versioned with chain height"
+echo "  - Genesis file backed up before upgrade"
+echo "  - Genesis hash recorded for verification"
+echo "  - Backup stored securely"
+echo "  - Backup versioned with chain height"
 echo ""
 echo "Genesis Recovery:"
-echo "  ✓ Genesis can be restored from backup"
-echo "  ✓ State matches pre-upgrade (minus migration changes)"
-echo "  ✓ Chain can resume from restored genesis"
-echo "  ✓ No data loss from backup"
+echo "  - Genesis can be restored from backup"
+echo "  - State matches pre-upgrade (minus migration changes)"
+echo "  - Chain can resume from restored genesis"
+echo "  - No data loss from backup"
 echo ""
 
 echo "Backup Procedure:"
@@ -701,10 +834,10 @@ echo "Testing genesis state hash for integrity verification"
 echo ""
 
 echo "Genesis State Hash:"
-echo "  ✓ Hash of entire genesis file"
-echo "  ✓ Used to verify genesis integrity"
-echo "  ✓ Stored in chain metadata"
-echo "  ✓ Checked on each block"
+echo "  - Hash of entire genesis file"
+echo "  - Used to verify genesis integrity"
+echo "  - Stored in chain metadata"
+echo "  - Checked on each block"
 echo ""
 echo "Hash Calculation:"
 echo "  - Hash all module genesis states"
@@ -730,45 +863,45 @@ echo "  4. If match: Genesis valid, chain starts"
 echo ""
 echo "--- GENESIS AND INITIALIZATION TEST SUMMARY ---"
 echo ""
-echo "✅ Part 1:  Genesis Structure           Parameters verified"
-echo "✅ Part 2:  Genesis Members            Balances and rep checked"
-echo "✅ Part 3:  Genesis Projects           Status and budget checked"
-echo "✅ Part 4:  Genesis Initiatives        State machine verified"
-echo "✅ Part 5:  Genesis Stakes            Conviction tracking verified"
-echo "✅ Part 6:  Genesis Invitations        Accountability verified"
-echo "✅ Part 7:  DREAM Allocation          Token distribution verified"
-echo "✅ Part 8:  Reputation Distribution   Trust levels verified"
-echo "✅ Part 9:  Council Configuration     x/commons integration verified"
-echo "✅ Part 10: Genesis Migration         Upgrade path documented"
-echo "✅ Part 11: State Validation         Invariants defined"
-echo "✅ Part 12: Backup & Recovery         Procedures documented"
-echo "✅ Part 13: Genesis Diff             Comparison method documented"
-echo "✅ Part 14: State Hash              Integrity verification documented"
+echo "Part 1:  Genesis Structure           Parameters verified"
+echo "Part 2:  Genesis Members             Balances and rep checked"
+echo "Part 3:  Genesis Projects            Status and budget checked"
+echo "Part 4:  Genesis Initiatives         State machine verified"
+echo "Part 5:  Genesis Stakes              Conviction tracking verified"
+echo "Part 6:  Genesis Invitations         Accountability verified"
+echo "Part 7:  DREAM Allocation            Token distribution verified"
+echo "Part 8:  Reputation Distribution     Trust levels verified"
+echo "Part 9:  Council Configuration       x/commons integration verified"
+echo "Part 10: Genesis Migration           Upgrade path documented"
+echo "Part 11: State Validation            Invariants defined"
+echo "Part 12: Backup & Recovery           Procedures documented"
+echo "Part 13: Genesis Diff                Comparison method documented"
+echo "Part 14: State Hash                  Integrity verification documented"
 echo ""
-echo "📊 GENESIS STATE COMPONENTS:"
+echo "GENESIS STATE COMPONENTS:"
 echo ""
 echo "Parameters:  Module configuration (immutable except upgrade)"
 echo "Members:     Initial members with DREAM and reputation"
-echo "Projects:     Initial projects (if any)"
-echo "Initiatives:  Initial initiatives (if any)"
+echo "Projects:    Initial projects (if any)"
+echo "Initiatives: Initial initiatives (if any)"
 echo "Stakes:      Initial stakes (if any)"
-echo "Invitations:  Initial invitations (if any)"
+echo "Invitations: Initial invitations (if any)"
 echo "Councils:    Group configuration (x/commons)"
 echo ""
-echo "🔄 GENESIS MIGRATION PROCESS:"
+echo "GENESIS INTEGRITY:"
 echo ""
-echo "1. Export:  Export genesis from current state"
-echo "2. Migrate: Apply migration to genesis data"
-echo "3. Validate: Verify invariants pass"
-echo "4. Import:   Import migrated genesis"
-echo "5. Verify:  Check state matches expectations"
-echo "6. Resume:   Chain starts from new genesis"
+echo "App Hash:    $APP_HASH"
+echo "Validation:  Invariant checks on all state"
+echo "Backup:      Genesis file backed up before upgrade"
+echo "Recovery:    Genesis can be restored from backup"
 echo ""
-echo "🔒 GENESIS INTEGRITY:"
+echo "=== RESULTS: $PASS_COUNT passed, $FAIL_COUNT failed, $TOTAL_COUNT total ==="
 echo ""
-echo "App Hash:       $APP_HASH"
-echo "Validation:      Invariant checks on all state"
-echo "Backup:          Genesis file backed up before upgrade"
-echo "Recovery:        Genesis can be restored from backup"
-echo ""
-echo "✅✅✅ GENESIS AND INITIALIZATION TEST COMPLETED ✅✅✅"
+
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    echo "GENESIS AND INITIALIZATION TEST FAILED ($FAIL_COUNT failures)"
+    exit 1
+else
+    echo "GENESIS AND INITIALIZATION TEST PASSED"
+    exit 0
+fi

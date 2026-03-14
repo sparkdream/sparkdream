@@ -397,20 +397,20 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 
 	// Create jury review with content_challenge_id set
 	juryReview := types.JuryReview{
-		Id:                   juryReviewID,
-		ChallengeId:          0, // Not an initiative challenge
-		InitiativeId:         0, // Not an initiative
-		ContentChallengeId:   ccID,
-		Jurors:               jurors,
-		RequiredVotes:        uint32(requiredVotes),
-		ExpertWitnesses:      []string{},
-		Testimonies:          []*types.ExpertTestimony{},
-		ReviewDeliverable:    fmt.Sprintf("Content challenge %d against %s #%d", ccID, cc.TargetType, cc.TargetId),
-		ChallengerClaim:      cc.Reason,
-		AssigneeResponse:     cc.AuthorResponse,
-		Votes:                []*types.JurorVote{},
-		Deadline:             sdkCtx.BlockHeight() + params.DefaultReviewPeriodEpochs*params.EpochBlocks,
-		Verdict:              types.Verdict_VERDICT_PENDING,
+		Id:                 juryReviewID,
+		ChallengeId:        0, // Not an initiative challenge
+		InitiativeId:       0, // Not an initiative
+		ContentChallengeId: ccID,
+		Jurors:             jurors,
+		RequiredVotes:      uint32(requiredVotes),
+		ExpertWitnesses:    []string{},
+		Testimonies:        []*types.ExpertTestimony{},
+		ReviewDeliverable:  fmt.Sprintf("Content challenge %d against %s #%d", ccID, cc.TargetType, cc.TargetId),
+		ChallengerClaim:    cc.Reason,
+		AssigneeResponse:   cc.AuthorResponse,
+		Votes:              []*types.JurorVote{},
+		Deadline:           sdkCtx.BlockHeight() + params.DefaultReviewPeriodEpochs*params.EpochBlocks,
+		Verdict:            types.Verdict_VERDICT_PENDING,
 	}
 
 	// Save jury review

@@ -10,8 +10,8 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/stretchr/testify/require"
 
-	commons "sparkdream/x/commons/module"
 	"sparkdream/x/commons/keeper"
+	commons "sparkdream/x/commons/module"
 	"sparkdream/x/commons/types"
 )
 

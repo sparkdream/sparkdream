@@ -32,10 +32,10 @@ message ContentChallenge {
 
   // Status tracking
   ContentChallengeStatus status = 9;
-  int64 created_at = 10;            // block height
-  int64 resolved_at = 11;           // block height (0 if unresolved)
-  int64 response_deadline = 12;     // block height
-  uint64 jury_review_id = 13;       // 0 if not yet in jury review
+  int64 created_at = 10; // block height
+  int64 resolved_at = 11; // block height (0 if unresolved)
+  int64 response_deadline = 12; // block height
+  uint64 jury_review_id = 13; // 0 if not yet in jury review
 
   // Author response (set when author responds)
   string author_response = 14;

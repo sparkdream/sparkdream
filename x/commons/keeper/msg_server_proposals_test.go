@@ -537,7 +537,7 @@ func TestExecuteProposal_PolicyVersionChanged_Vetoed(t *testing.T) {
 	proposalID := uint64(1)
 	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
 		Id: proposalID, CouncilName: councilName, PolicyAddress: policyAddr,
-		Status: types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED,
+		Status:        types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED,
 		ExecutionTime: ctx.BlockTime().Unix() - 10,
 		PolicyVersion: 3, // Stale version
 	}))
@@ -572,7 +572,7 @@ func TestExecuteProposal_TermExpired_NonRenewBlocked(t *testing.T) {
 	proposalID := uint64(1)
 	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
 		Id: proposalID, CouncilName: councilName, PolicyAddress: policyAddr,
-		Status: types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED,
+		Status:        types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED,
 		ExecutionTime: ctx.BlockTime().Unix() - 10, PolicyVersion: 0,
 		Messages: []*codectypes.Any{anyMsg},
 	}))

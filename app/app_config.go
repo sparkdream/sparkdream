@@ -21,12 +21,12 @@ import (
 	revealmoduletypes "sparkdream/x/reveal/types"
 	_ "sparkdream/x/season/module"
 	seasonmoduletypes "sparkdream/x/season/types"
+	_ "sparkdream/x/shield/module"
+	shieldmoduletypes "sparkdream/x/shield/types"
 	_ "sparkdream/x/sparkdream/module"
 	sparkdreammoduletypes "sparkdream/x/sparkdream/types"
 	_ "sparkdream/x/split/module"
 	splitmoduletypes "sparkdream/x/split/types"
-	_ "sparkdream/x/vote/module"
-	votemoduletypes "sparkdream/x/vote/types"
 
 	runtimev1alpha1 "cosmossdk.io/api/cosmos/app/runtime/v1alpha1"
 	appv1alpha1 "cosmossdk.io/api/cosmos/app/v1alpha1"
@@ -93,9 +93,10 @@ var (
 		{Account: futarchymoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: repmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
 		{Account: blogmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
+		{Account: shieldmoduletypes.ModuleName},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 		{Account: forummoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
-		{Account: seasonmoduletypes.ModuleName}, {Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}, {Account: votemoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}}
+		{Account: seasonmoduletypes.ModuleName}, {Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}}
 
 	// blocked account addresses
 	blockAccAddrs = []string{
@@ -146,7 +147,7 @@ var (
 						seasonmoduletypes.ModuleName,
 						revealmoduletypes.ModuleName,
 						collectmoduletypes.ModuleName,
-						votemoduletypes.ModuleName,
+						shieldmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -165,7 +166,7 @@ var (
 						seasonmoduletypes.ModuleName,
 						revealmoduletypes.ModuleName,
 						collectmoduletypes.ModuleName,
-						votemoduletypes.ModuleName,
+						shieldmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -208,7 +209,7 @@ var (
 						seasonmoduletypes.ModuleName,
 						revealmoduletypes.ModuleName,
 						collectmoduletypes.ModuleName,
-						votemoduletypes.ModuleName,
+						shieldmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -332,8 +333,8 @@ var (
 				Config: appconfig.WrapAny(&collectmoduletypes.Module{}),
 			},
 			{
-				Name:   votemoduletypes.ModuleName,
-				Config: appconfig.WrapAny(&votemoduletypes.Module{}),
+				Name:   shieldmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&shieldmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

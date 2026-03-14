@@ -150,21 +150,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	// Import anonymous post metadata
-	for _, elem := range genState.AnonymousPostMeta {
-		k.SetAnonymousPostMeta(ctx, elem.ContentId, elem)
-	}
-	// Import anonymous reply metadata
-	for _, elem := range genState.AnonymousReplyMeta {
-		k.SetAnonymousReplyMeta(ctx, elem.ContentId, elem)
-	}
-	// Import nullifiers
-	for _, elem := range genState.Nullifiers {
-		if elem.Entry != nil {
-			k.SetNullifierUsed(ctx, elem.Domain, elem.Scope, elem.NullifierHex, *elem.Entry)
-		}
-	}
-
 	if err := k.Params.Set(ctx, genState.Params); err != nil {
 		return err
 	}
@@ -186,9 +171,23 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	if err != nil {
 		return err
 	}
-	if catSeqVal == 0 && len(genState.CategoryMap) == 0 {
-		if _, err := k.CategorySeq.Next(ctx); err != nil {
-			return err
+	if catSeqVal == 0 {
+		if len(genState.CategoryMap) == 0 {
+			// Prime to 1 so first category gets ID 1
+			if _, err := k.CategorySeq.Next(ctx); err != nil {
+				return err
+			}
+		} else {
+			// Advance past the highest genesis category ID
+			var maxCatID uint64
+			for _, cat := range genState.CategoryMap {
+				if cat.CategoryId > maxCatID {
+					maxCatID = cat.CategoryId
+				}
+			}
+			if err := k.CategorySeq.Set(ctx, maxCatID+1); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -378,13 +377,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	if err != nil {
 		return nil, err
 	}
-
-	// Export anonymous post metadata
-	genesis.AnonymousPostMeta = k.ExportAnonymousPostMeta(ctx)
-	// Export anonymous reply metadata
-	genesis.AnonymousReplyMeta = k.ExportAnonymousReplyMeta(ctx)
-	// Export nullifiers
-	genesis.Nullifiers = k.ExportNullifiers(ctx)
 
 	return genesis, nil
 }

@@ -11,7 +11,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 │                           SPARK DREAM                                   │
 │                        Cosmos SDK Appchain                              │
 │                                                                         │
-│  13 custom modules · Dual tokens (SPARK/DREAM) · ZK anonymous actions   │
+│  13 custom modules · Dual tokens (SPARK/DREAM) · Shielded execution     │
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -43,7 +43,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 │  Reputation, Initiatives   Gamification (XP,        Open-Source         │
 │  Stakes, Challenges          Guilds, Quests)        Tranched Funding    │
 │  Content Challenges        Retro Public Goods                           │
-│  Author Bonds              Nominations                                  │
+│  Trust Tree, ZK Keys       Nominations                                  │
 └─────────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -55,21 +55,23 @@ This system moves beyond simple token-voting by delegating authority to speciali
 │  Posts, Replies          Threads, Categories      Curated Collections   │
 │  Reactions               Sentinel Moderation      Collaborators         │
 │  Ephemeral TTL           Bounties, Tag Budgets    Curator Bonding       │
-│  Anonymous Posting       Appeals, Archival        Endorsements          │
-│  Pin/Hide System         Anonymous Posting        Anonymous Collections │
+│  Pin/Hide System         Appeals, Archival        Endorsements          │
+│  Shield-Aware            Shield-Aware             Shield-Aware          │
 └─────────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                       IDENTITY & PRIVACY LAYER                          │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  x/name                                    x/vote                       │
+│  x/name                                    x/shield                     │
 │    │                                         │                          │
-│  Human-Readable Names                      ZK-SNARK Anonymous Voting    │
-│  Dispute Resolution                        Groth16/BN254 Proofs         │
-│  Scavenging                                Anonymous Action Proofs      │
+│  Human-Readable Names                      Unified Privacy Layer        │
+│  Dispute Resolution                        MsgShieldedExec (single      │
+│  Scavenging                                  entry for all anon ops)    │
+│                                            ZK Proof Verification        │
 │                                            TLE Threshold Encryption     │
-│                                            Member Trust Tree            │
+│                                            Module-Paid Gas              │
+│                                            Centralized Nullifiers       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -77,27 +79,27 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 | Module | Messages | Queries | EndBlocker | BeginBlocker | Purpose |
 |--------|----------|---------|------------|--------------|---------|
-| x/commons | 10 | 3 | — | — | Three Pillars governance orchestrator |
-| x/split | 0 | 2 | — | BeginBlock | Automated revenue distribution |
-| x/futarchy | 6 | 3 | — | — | LMSR prediction markets, elastic tenure |
-| x/ecosystem | 1 | 1 | — | — | Governance-gated ecosystem treasury |
-| x/rep | 28 | 29 | 12 phases | — | Reputation, DREAM, initiatives, challenges |
-| x/season | 42 | 50 | — | 3 phases | Seasons, XP, guilds, quests, retro funding |
-| x/reveal | 9 | 11 | Yes | — | Progressive open-source, tranched funding |
-| x/blog | 18 | 14 | 3 phases | — | Blog posts, replies, reactions |
-| x/forum | 52 | 59 | 4 phases | — | Discussion threads, moderation, bounties |
-| x/collect | 31 | 27 | 6 phases | — | Curated collections, curation, endorsements |
-| x/name | 7 | 5 | — | Yes | Human-readable identity registry |
-| x/vote | 12 | 28 | Yes | — | ZK anonymous voting, TLE encryption |
+| x/commons | 18 | 9 | 2 phases | — | Three Pillars governance, anonymous proposals |
+| x/split | 1 | 3 | — | BeginBlock | Automated revenue distribution |
+| x/futarchy | 7 | 4 | Yes | — | LMSR prediction markets, elastic tenure |
+| x/ecosystem | 2 | 1 | — | — | Governance-gated ecosystem treasury |
+| x/rep | 31 | 38 | 12 phases | — | Reputation, DREAM, trust tree, ZK keys |
+| x/season | 43 | 72 | — | 3 phases | Seasons, XP, guilds, quests, retro funding |
+| x/reveal | 10 | 11 | Yes | — | Progressive open-source, tranched funding |
+| x/blog | 16 | 11 | 1 phase | — | Blog posts, replies, reactions |
+| x/forum | 49 | 73 | 4 phases | — | Discussion threads, moderation, bounties |
+| x/collect | 29 | 25 | 6 phases | — | Curated collections, curation, endorsements |
+| x/name | 8 | 6 | — | Yes | Human-readable identity registry |
+| x/shield | 5 | 17 | Yes | Yes | Shielded execution, ZK proofs, TLE, DKG |
 | x/common | — | — | — | — | Shared types (tags, flags, moderation) |
 
 ## Core Module Architecture
 
 ### x/commons (The Orchestrator)
 
-**Purpose:** Central engine for the "Three Pillars" governance.
+**Purpose:** Central engine for the "Three Pillars" governance, native proposal system, and anonymous governance.
 
-**Mechanism:** Wraps `x/group` with a `Group` structure defined in [x/commons/types/group.pb.go](x/commons/types/group.pb.go).
+**Mechanism:** Native `Group` structure with built-in proposal lifecycle (submit → vote → execute). Replaced x/group dependency.
 
 **Key Logic (MsgRegisterGroup):**
 - **Hierarchy:** Enforces parent-child trust chains (Gov → Council → Committee) and prevents cyclic dependencies.
@@ -105,7 +107,17 @@ This system moves beyond simple token-voting by delegating authority to speciali
 - **Accountability:** Initializes "Elastic Tenure" by triggering the first "Confidence Vote" market via `x/futarchy`.
 - **Permissions:** Uses `AllowedMessages` to restrict council powers (e.g., only Technical Council can run `MsgSoftwareUpgrade`).
 
-**Messages (10):** `register_group`, `renew_group`, `update_group_members`, `update_group_config`, `delete_group`, `spend_from_commons`, `policy_permissions` (create/update/delete), `force_upgrade`, `emergency_cancel_gov_proposal`, `veto_group_proposals`
+**Native Proposals:** `SubmitProposal` → `VoteProposal` → `ExecuteProposal` with early acceptance when threshold met, configurable `MinExecutionPeriod`.
+
+**Anonymous Governance:** `SubmitAnonymousProposal` and `AnonymousVoteProposal` are shield-aware messages routed via x/shield's `MsgShieldedExec`, enabling anonymous council proposals and votes.
+
+**Messages (18):** `register_group`, `renew_group`, `update_group_members`, `update_group_config`, `delete_group`, `spend_from_commons`, `policy_permissions` (create/update/delete), `force_upgrade`, `emergency_cancel_gov_proposal`, `veto_group_proposals`, `submit_proposal`, `vote_proposal`, `execute_proposal`, `submit_anonymous_proposal`, `anonymous_vote_proposal`, `update_params`
+
+**Queries (9):** `params`, `get_policy_permissions`, `list_policy_permissions`, `get_group`, `list_groups`, `get_council_members`, `get_proposal`, `list_proposals`, `get_proposal_votes`
+
+**EndBlocker (2 phases):**
+1. Market trigger queue — schedules and fires futarchy confidence vote markets for groups
+2. Proposal finalization — tallies votes for proposals past their voting deadline and sets status to ACCEPTED or REJECTED
 
 ### x/split (The Treasury)
 
@@ -119,6 +131,10 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 **Integration:** `x/commons` registers council policy addresses here, ensuring they automatically receive their allocated funding (e.g., 50% for Commons, 30% for Technical, 20% for Ecosystem).
 
+**Messages (1):** `update_params`
+
+**Queries (3):** `params`, `get_share`, `list_share`
+
 ### x/futarchy (The Accountability Engine)
 
 **Purpose:** Implements "Elastic Tenure" via prediction markets.
@@ -131,7 +147,11 @@ This system moves beyond simple token-voting by delegating authority to speciali
   - **Low Confidence (NO):** Term slashed by **50%** (potentially triggering immediate re-election).
 - **Two-tier authorization:** Governance + ops committee for market management.
 
-**Messages (6):** `create_market`, `trade`, `redeem`, `withdraw_liquidity`, `cancel_market`, `update_operational_params`
+**Messages (7):** `create_market`, `trade`, `redeem`, `withdraw_liquidity`, `cancel_market`, `update_params`, `update_operational_params`
+
+**Queries (4):** `params`, `get_market`, `list_market`, `get_market_price`
+
+**EndBlocker:** Resolves expired prediction markets based on pool sizes (YES/NO/INVALID) and calls `AfterMarketResolved` hooks to adjust council tenure via x/commons.
 
 ### x/ecosystem (Ecosystem Treasury)
 
@@ -139,7 +159,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 Separate from the `x/split` distribution pipeline, this module holds funds for ecosystem grants and partnerships, spending only via `x/gov` authority.
 
-**Messages (1):** `spend`
+**Messages (2):** `spend`, `update_params`
 
 ## Coordination Layer
 
@@ -153,13 +173,16 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Reputation:** Per-tag scores with seasonal resets, anti-gaming caps (0.5%/epoch decay, 33% max conviction share, 50 rep/tag/epoch cap)
 - **Projects & initiatives:** Council-approved budgets, tiered initiatives (Apprentice/Standard/Expert/Epic), conviction-based completion
 - **Conviction staking:** Time-weighted engagement (half-life: 7 epochs), 50% external conviction requirement
-- **Challenges:** Named + anonymous (2.5x fee multiplier), jury resolution (5 members, 67% supermajority)
+- **Challenges:** Named + anonymous (via x/shield, no DREAM stake), jury resolution (5 members, 67% supermajority)
 - **Content challenges:** Cross-module author bonds, slashable on moderation (50% to challenger)
 - **Interim compensation:** Fixed-rate delegated duties (Simple 50 → Expert 1,000 DREAM)
 - **MasterChef staking rewards:** Epoch-based pool distribution (10% APY)
-- **Trust tree:** Sparse Merkle tree (depth 20) of member public keys + trust levels for ZK anonymous action proofs
+- **Trust tree:** Persistent KV-based sparse Merkle tree (depth 20) of member ZK public keys + trust levels, rebuilt incrementally via EndBlocker dirty-member tracking
+- **ZK key registration:** Members register ZK public keys (`MsgRegisterZkPublicKey`) stored on Member proto (field 28: `bytes zk_public_key`), used as trust tree leaves via `MiMC(zk_public_key, trust_level)`
 
-**Messages (28):** `invite_member`, `accept_invitation`, `transfer_dream`, `propose_project`, `approve_project_budget`, `cancel_project`, `create_initiative`, `assign_initiative`, `submit_initiative_work`, `approve_initiative`, `complete_initiative`, `abandon_initiative`, `stake`, `unstake`, `create_challenge`, `respond_to_challenge`, `submit_juror_vote`, `submit_expert_testimony`, `challenge_content`, `respond_to_content_challenge`, `create_interim`, `assign_interim`, `submit_interim_work`, `approve_interim`, `complete_interim`, `abandon_interim`, `claim_rewards`, `update_operational_params`
+**Messages (31):** `invite_member`, `accept_invitation`, `transfer_dream`, `propose_project`, `approve_project_budget`, `cancel_project`, `create_initiative`, `assign_initiative`, `submit_initiative_work`, `approve_initiative`, `complete_initiative`, `abandon_initiative`, `stake`, `unstake`, `claim_staking_rewards`, `compound_staking_rewards`, `create_challenge`, `respond_to_challenge`, `submit_juror_vote`, `submit_expert_testimony`, `challenge_content`, `respond_to_content_challenge`, `create_interim`, `assign_interim`, `submit_interim_work`, `approve_interim`, `complete_interim`, `abandon_interim`, `register_zk_public_key`, `update_params`, `update_operational_params`
+
+**Queries (38):** `params`, member CRUD (2), invitation CRUD (2), project CRUD (2), initiative CRUD (2), stake CRUD (2), challenge CRUD (2), jury_review CRUD (2), interim CRUD (2), interim_template CRUD (2), plus specialized: `members_by_trust_level`, `invitations_by_inviter`, `interims_by_assignee`, `interims_by_type`, `interims_by_reference`, `projects_by_council`, `initiatives_by_project`, `initiatives_by_assignee`, `available_initiatives`, `stakes_by_staker`, `stakes_by_target`, `initiative_conviction`, `challenges_by_initiative`, `reputation`, `pending_stake_rewards`, `get_member_stake_pool`, `get_tag_stake_pool`, `get_project_stake_info`, `content_conviction`, `author_bond`, content_challenge CRUD (2), `content_challenges_by_target`, `content_by_initiative`
 
 **EndBlocker (12 phases per block):**
 1. Update conviction for active initiatives
@@ -189,7 +212,9 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Display names & usernames:** With moderation, DREAM-staked appeals (50/100 DREAM)
 - **Retroactive public goods funding:** Nomination window (~5 epochs before season end), conviction-weighted, budget of 50,000 DREAM/season, max 20 recipients, min ESTABLISHED trust to nominate
 
-**Messages (42):** Profile management (3), guild operations (16), quest operations (3), governance-created content (9), nominations (3), display name moderation (3), season management (5), `update_operational_params`
+**Messages (43):** Profile management (3), guild operations (16), quest operations (5), governance-created content (9), nominations (3), display name moderation (4), season management (5), `update_params`, `update_operational_params`
+
+**Queries (72):** CRUD queries for seasons, season snapshots, member season snapshots, member profiles, member registrations, achievements, titles, season title eligibility, guilds, guild memberships, guild invites, quests, member quest progress, epoch XP trackers, vote XP records, forum XP cooldowns, display name moderations, display name report stakes, display name appeal stakes (42 CRUD). Plus specialized: `params`, `current_season`, `season_by_number`, `season_stats`, `member_by_display_name`, `member_season_history`, `member_xp_history`, `achievements`, `member_achievements`, `titles`, `member_titles`, `guild_by_id`, `guilds_list`, `guilds_by_founder`, `guild_members`, `member_guild`, `guild_invites`, `member_guild_invites`, `quests_list`, `quest_by_id`, `quest_chain`, `member_quest_status`, `available_quests`, `get_nomination`, `list_nominations`, `list_nominations_by_creator`, `list_nomination_stakes`, `list_retro_reward_history`, `get_season_transition_state`, `get_transition_recovery_state`, `get_next_season_info` (30 specialized).
 
 **BeginBlocker (3 phases per block):**
 1. Auto-resolve expired display name moderations
@@ -210,32 +235,33 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Self-dealing prevention:** Contributors cannot stake on or vote on own contributions
 - **Community ownership:** Transitions to x/rep Project post-completion
 
-**Messages (9):** `propose`, `approve`, `reject`, `cancel`, `stake`, `withdraw`, `reveal`, `verify`, `resolve_dispute`
+**Messages (10):** `propose`, `approve`, `reject`, `cancel`, `stake`, `withdraw`, `reveal`, `verify`, `resolve_dispute`, `update_params`
 
-**EndBlocker:** Processes deadlines for staking (cancels contribution), reveal (slashes bond), verification (auto-tallies), and dispute phases.
+**Queries (11):** `params`, `contribution`, `contributions`, `contributions_by_contributor`, `contributions_by_status`, `tranche`, `tranche_tally`, `tranche_stakes`, `stake_detail`, `stakes_by_staker`, `votes_by_voter`
+
+**EndBlocker:** Processes deadlines for staking (cancels contribution), reveal (slashes bond), verification (auto-tallies), and dispute phases (auto-REJECT on council timeout).
 
 ## Content & Discussion Layer
 
 ### x/blog (Content Management)
 
-**Purpose:** On-chain blog posts with threaded replies, reactions, and anonymous posting support.
+**Purpose:** On-chain blog posts with threaded replies, reactions, and shield-aware anonymous posting via x/shield.
 
 **Key Features:**
 - **Posts & replies:** CRUD with configurable length constraints (title 200, body 10,000, reply 2,000 chars), max reply depth of 5
 - **Reactions:** Like, Insightful, Disagree, Funny with per-reaction fees (50 uspark)
 - **Rate limiting:** Max 10 posts/day, 50 replies/day, 100 reactions/day per address
 - **Ephemeral content:** Non-member posts expire after TTL (7 days default); conviction renewal extends TTL if conviction ≥ threshold
-- **Anonymous posting:** ZK proof of membership + trust level (ESTABLISHED+ default), nullifier scoped by epoch (posts) or post_id (replies)
-- **Storage fees:** 100 uspark/byte, charged to submitter or subsidized for approved relays
+- **Storage fees:** 100 uspark/byte, charged to submitter
 - **Pin/hide system:** Trust-level-gated pinning (CORE trust for blog), owner/admin hiding
-- **Anonymous subsidy:** 100 SPARK/epoch budget from Commons treasury for relay reimbursement
+- **Shield-aware:** Implements `ShieldAware` interface; anonymous posts/replies/reactions routed via x/shield's `MsgShieldedExec`
 
-**Messages (18):** Post CRUD (3), reply CRUD (3), hide/unhide post (2), hide/unhide reply (2), pin post (1), pin reply (1), react (1), remove reaction (1), anonymous react (1), create anonymous post (1), create anonymous reply (1), `update_operational_params`
+**Messages (16):** Post CRUD (3), reply CRUD (3), hide/unhide post (2), hide/unhide reply (2), pin post (1), pin reply (1), react (1), remove reaction (1), `update_params`, `update_operational_params`
 
-**EndBlocker (3 phases):**
-1. TTL expiry (upgrade to permanent if creator becomes member, conviction renewal, or tombstone)
-2. Subsidy draw (transfer budget from Commons treasury)
-3. Nullifier pruning (remove stale epoch-scoped nullifiers)
+**Queries (11):** `params`, `show_post`, `list_post`, `show_reply`, `list_replies`, `list_posts_by_creator`, `reaction_counts`, `user_reaction`, `list_reactions`, `list_reactions_by_creator`, `list_expiring_content`
+
+**EndBlocker (1 phase):**
+1. TTL expiry — upgrades to permanent if creator becomes member, conviction renewal if conviction ≥ threshold, or tombstones expired content
 
 ### x/forum (Decentralized Discussion)
 
@@ -247,17 +273,19 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Content lifecycle:** Ephemeral TTL (24h) for non-members, permanent for members, conviction renewal for initiative-linked content
 - **Bounties:** Thread-attached DREAM bounties with assignment, cancellation (10% fee), and expiry
 - **Tag budgets:** Governance-funded tag-scoped budgets for rewarding quality contributions
-- **Anonymous posting:** ZK proof-based (domain 3 for threads, 4 for replies, 5 for reactions), epoch/thread scoped nullifiers
+- **Shield-aware:** Implements `ShieldAware` interface; anonymous threads/replies/reactions routed via x/shield's `MsgShieldedExec`
 - **Appeals:** Jury-based appeals for hide, lock, move, and governance actions (5 SPARK fee, 14-day deadline)
 - **Thread operations:** Lock, freeze, move, archive, pin/unpin, follow/unfollow
 - **Member reports:** Multi-step reporting with cosigning, defense, and resolution
 - **Rate limiting:** 50 posts/day, 100 reactions/day, 20 downvotes/day, 20 flags/day
 
-**Messages (52):** Post operations (7), moderation (6), thread control (5), reactions (3), reply management (5), bounties (5), tag budgets (5), tags (2), appeals (4), anonymous (3), thread ops (3), emergency (2), governance (2)
+**Messages (49):** Post operations (6), moderation (6), thread control (5), reactions (2), reply management (5), bounties (5), tag budgets (5), tags (2), appeals (4), thread ops (3), emergency (2), sentinel (2), member reports (4), governance (1), `update_params`, `update_operational_params`
+
+**Queries (73):** CRUD queries for posts, categories, tags, reserved tags, rate limits, reaction limits, sentinel activity, hide records, thread lock/move records, post flags, bounties, tag budgets, tag budget awards, thread metadata, thread follows, thread follow counts, archive metadata, tag reports, member salvation status, jury participation, member reports, member warnings, gov action appeals (46 CRUD). Plus specialized: posts, thread, categories, user_posts, sentinel_status, sentinel_bond_commitment, archive_cooldown, tag_exists, tag_reports, forum_status, appeal_cooldown, member_reports, member_warnings, member_standing, pinned_posts, locked_threads, thread_lock_status, top_posts, thread_followers, user_followed_threads, is_following_thread, bounty_by_thread, active_bounties, user_bounties, bounty_expiring_soon, tag_budget_by_tag, tag_budgets, tag_budget_awards, post_flags, flag_review_queue, gov_action_appeals, params (27 specialized).
 
 **EndBlocker (4 phases):**
 1. Prune expired ephemeral posts (max 100/block, conviction renewal check for initiatives)
-2. Expire hidden posts (max 50/block, soft-delete after 7 days)
+2. Expire hidden posts (max 50/block, soft-delete after configured hidden expiration)
 3. Expire bounties (max 50/block, refund escrowed funds)
 4. Expire tags (max 50/block, reserved tags never expire)
 
@@ -275,11 +303,13 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Endorsements:** 10 SPARK creation fee + 100 DREAM stake for 30 days, 80% fee share to endorser
 - **Sponsorship:** Non-members can request sponsorship (1 SPARK fee) for ESTABLISHED+ members to sponsor
 - **Sentinel moderation:** Shared with x/forum sentinel system, 100 DREAM bond, appeals
-- **Anonymous collections:** ZK proof-based (ESTABLISHED+ trust), management key tracking, max 3 per key
+- **Shield-aware:** Implements `ShieldAware` interface; anonymous collections/reactions routed via x/shield's `MsgShieldedExec`
 - **Pinning:** ESTABLISHED+ trust, max 10 pins/day
 - **On-chain references:** Validate content existence in x/blog and x/forum
 
-**Messages (31):** Collection CRUD (3), items (5), collaborators (3), curation (4), sponsorship (3), endorsement (2), reactions (3), moderation (3), anonymous (3), pin (1), `update_operational_params`
+**Messages (29):** Collection CRUD (3), items (5), collaborators (3), curation (4), sponsorship (3), endorsement (2), reactions (3), moderation (3), pin (1), `update_params`, `update_operational_params`
+
+**Queries (25):** `params`, `collection`, `collections_by_owner`, `public_collections`, `public_collections_by_type`, `collections_by_collaborator`, `item`, `items`, `items_by_owner`, `collaborators`, `curator`, `active_curators`, `curation_summary`, `curation_reviews`, `curation_reviews_by_curator`, `sponsorship_request`, `sponsorship_requests`, `content_flag`, `flagged_content`, `hide_record`, `hide_records_by_target`, `pending_collections`, `endorsement`, `collections_by_content`, `collection_conviction`
 
 **EndBlocker (6 phases, cap 100/block total):**
 1. Prune expired collections (conviction renewal for anonymous collections)
@@ -303,64 +333,104 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Blocked names:** 100+ reserved names (crypto projects, real people)
 - **Per-address limits:** Max names per address (configurable)
 
-**Messages (7):** `register_name`, `update_name`, `set_primary`, `file_dispute`, `contest_dispute`, `resolve_dispute`, `update_operational_params`
+**Messages (8):** `register_name`, `update_name`, `set_primary`, `file_dispute`, `contest_dispute`, `resolve_dispute`, `update_params`, `update_operational_params`
+
+**Queries (6):** `params`, `resolve`, `reverse_resolve`, `names`, `get_dispute`, `list_dispute`
 
 **BeginBlocker:** Auto-resolve expired disputes.
 
-### x/vote (Anonymous Voting with ZK Proofs)
+### x/shield (Unified Privacy Layer)
 
-**Purpose:** Privacy-preserving voting and anonymous action verification using zero-knowledge proofs.
+**Purpose:** Single entry point for all anonymous operations across all modules. Owns ZK proof verification, TLE threshold encryption, centralized nullifier management, and module-paid gas.
 
 **Key Features:**
-- **ZK-SNARK circuits:** Groth16/BN254 with MiMC hashing (~14,000 constraints)
-- **Voter registration:** ZK key commitments, public key = MiMC(secretKey)
-- **Merkle tree snapshots:** Depth 20 (~1M voters), snapshotted at proposal creation
-- **Nullifier-based double-vote prevention:** `nullifier = MiMC(secretKey, proposalID)`
-- **Voting modes:** PUBLIC (immediate tally), SEALED (commit-reveal via TLE), PRIVATE (ZK anonymous)
-- **Threshold Timelock Encryption (TLE):** Validator DKG shares, 2/3 threshold for decryption, sealed vote auto-reveal
-- **Voter key rotation:** Atomic key replacement
-- **Anonymous action proofs:** Separate circuit for cross-module anonymous posting (x/blog, x/forum, x/collect)
+- **Single entry point:** `MsgShieldedExec` wraps any registered inner message for anonymous execution
+- **Module-paid gas:** Shield module account pays tx fees; submitters need zero balance (auto-funded from community pool via BeginBlocker)
+- **ZK proof verification:** PLONK over BN254, verification keys stored on-chain, proof of trust tree membership
+- **Two execution modes:** Immediate (low latency, content visible) and Encrypted Batch (TLE + batching, maximum privacy)
+- **Centralized nullifiers:** Per-domain, per-scope nullifier tracking replaces per-module stores
+- **TLE infrastructure:** Distributed Key Generation (DKG) ceremony, master public key, Shamir secret sharing, epoch-based decryption
+- **Rate limiting:** Per-identity rate limiting (based on rate-limit nullifier) prevents gas abuse
+- **ShieldAware interface:** Modules opt-in via `IsShieldCompatible()` for double-gate security (governance whitelist + module acceptance)
+- **DKG state machine:** Auto-triggers when sufficient validators bonded, IDLE → REGISTERING → CONTRIBUTING → ACTIVE lifecycle
+- **Validator liveness:** TLE miss tracking per epoch, jailing for non-participation
+- **Operation registration:** Governance-gated `MsgRegisterShieldedOp` / `MsgDeregisterShieldedOp` to whitelist anonymous message types
 
-**Messages (12):** `register_voter`, `deactivate_voter`, `rotate_voter_key`, `create_proposal`, `create_anonymous_proposal`, `cancel_proposal`, `vote`, `submit_sealed_vote`, `reveal_vote`, `register_tle_share`, `submit_decryption_share`, `store_srs`
+**Messages (5):** `shielded_exec`, `register_shielded_op`, `deregister_shielded_op`, `trigger_dkg`, `update_params`
+
+**Queries (17):** `params`, `shielded_op`, `shielded_ops`, `module_balance`, `nullifier_used`, `day_funding`, `shield_epoch`, `pending_ops`, `pending_op_count`, `tle_master_public_key`, `tle_key_set`, `verification_key`, `tle_miss_count`, `decryption_shares`, `identity_rate_limit`, `dkg_state`, `dkg_contributions`
+
+**BeginBlocker:**
+- Auto-fund from community pool (up to daily cap `max_funding_per_day`)
+- Advance DKG state machine (IDLE → REGISTERING → CONTRIBUTING → ACTIVE)
+- Detect validator set drift and re-trigger DKG if needed
 
 **EndBlocker:**
-- TLE liveness tracking (per-epoch validator checks)
-- Proposal lifecycle transitions (PUBLIC → finalize, SEALED → TALLYING → auto-reveal → finalize)
+- Shield epoch advancement (when `shield_epoch_interval` blocks pass)
+- Encrypted batch processing (decrypt, shuffle, verify, execute)
+- Carry-over stale batches past `max_pending_epochs`
+- TLE liveness checks (track validator miss counts, jail violators)
+- Prune old nullifiers, decryption keys/shares, rate limits, day fundings
 
-## Cross-Module Anonymous Action System
+**ABCI Extensions:**
+- `ExtendVote`: Validators include DKG contributions and decryption shares in vote extensions
+- `PrepareProposal`: Aggregates DKG/decryption data into `InjectedDKGData` pseudo-transaction at block position 0
+- `PreBlocker`: Processes injected DKG data before normal block execution
 
-The anonymous posting system extends x/vote's ZK infrastructure across content modules (x/blog, x/forum, x/collect). A separate "Anonymous Action Circuit" proves membership and trust level without revealing identity.
+**Ante Handlers:**
+- `ShieldGasDecorator`: Intercepts `MsgShieldedExec`, deducts gas from shield module account
+- `SkipFeeDecorator`: Skips normal fee processing for shielded messages
+
+## Shielded Execution System
+
+x/shield provides a unified shielded execution layer that replaces per-module anonymous messaging. Any module can register operations for shielded execution, and x/shield handles all ZK proof verification, nullifier management, and gas payment.
 
 ### How It Works
 
 ```
 CLIENT-SIDE                                    ON-CHAIN
 
-1. Derive ZK keys
-   secretKey = derive(account_sig)
-   publicKey = MiMC(secretKey)
+1. Register ZK public key (one-time)
+   MsgRegisterZkPublicKey(zk_pub_key)    ──▶ x/rep stores on Member proto
+                                              Trust tree rebuilt in EndBlocker
 
 2. Fetch trust tree root                  ◀── x/rep provides current root
-   + Merkle proof for leaf                    (rebuilt incrementally in EndBlocker)
+   + Merkle proof for leaf                    (persistent KV sparse Merkle tree)
 
 3. Compute nullifier
    null = MiMC(domain, secretKey, scope)
 
-4. Generate Groth16 proof (~2-5s)          ── Proves:
+4. Generate ZK proof (~2-5s)              ── Proves:
    Public:  merkleRoot, nullifier,            - "I know a secretKey whose publicKey
             minTrustLevel, scope                 is in the tree at this trust level"
    Private: secretKey, trustLevel,            - "This nullifier is correctly derived"
             merklePath, pathIndices            - "My trust level ≥ minimum required"
 
-5. Submit via relay (optional)            ──▶ x/vote verifies proof (~2-5ms)
-                                              Content module checks nullifier
-                                              Creator set to module account (anonymous)
-                                              Ephemeral TTL applied
+5. Choose execution mode:
+
+   IMMEDIATE MODE:
+   ──────────────
+   Submit MsgShieldedExec with:          ──▶ x/shield verifies proof (~2-5ms)
+     inner_message (cleartext)                Checks nullifier not used
+     proof, nullifier, merkle_root            Checks rate limit
+     exec_mode = IMMEDIATE                    Dispatches inner msg via router
+                                              Target module executes (shield = sender)
+
+   ENCRYPTED BATCH MODE:
+   ─────────────────────
+   Encrypt (inner_msg + proof) with      ──▶ x/shield stores in pending queue
+     TLE master public key                    Validates payload size
+   Submit MsgShieldedExec with:               Checks pending nullifier dedup
+     encrypted_payload (ciphertext)           At epoch boundary:
+     nullifier (cleartext, for dedup)           Validators submit decryption shares
+     target_epoch = current epoch               Keys reconstructed (2/3 threshold)
+     exec_mode = ENCRYPTED_BATCH                Batch decrypted and shuffled
+                                                Proofs verified, ops executed
 ```
 
 ### Nullifier Domains
 
-Each anonymous action type has a unique domain to prevent cross-module collisions:
+Each shielded operation type registers a unique domain. x/shield manages all nullifiers centrally:
 
 | Domain | Module | Action | Scope | Rate Limit |
 |--------|--------|--------|-------|------------|
@@ -373,14 +443,18 @@ Each anonymous action type has a unique domain to prevent cross-module collision
 | 5 | x/forum | Anonymous reaction | post_id | 1 per post |
 | 6 | x/collect | Anonymous collection | Current epoch | 1 per epoch |
 | 10 | x/collect | Anonymous reaction | collection_id | 1 per collection |
+| 11 | x/commons | Anonymous proposal | Current epoch | 1 per epoch |
+| 12 | x/commons | Anonymous vote | proposal_id | 1 per proposal |
+| 13 | x/rep | Anonymous challenge | Current epoch | 1 per epoch |
 
-### Anonymous Subsidy System
+### Module-Paid Gas System
 
-Each content module draws a per-epoch budget from Commons Council treasury to reimburse approved relay addresses for anonymous posting fees. This ensures members can post anonymously without revealing identity through fee payment patterns.
+x/shield eliminates the need for relay addresses and per-module subsidy budgets. Instead:
 
-- Blog: 100 SPARK/epoch, max 2 SPARK per post
-- Collect: 50 SPARK/epoch, max 2 SPARK per action
-- Relays: Approved addresses that broadcast anonymous transactions on behalf of members
+- **BeginBlocker** auto-funds the shield module account from the community pool (up to `max_funding_per_day`)
+- **ShieldGasDecorator** intercepts `MsgShieldedExec` at the ante handler stage and pays gas from the shield module account
+- **Submitters need zero balance** — no fee payment patterns to correlate with identity
+- **Per-identity rate limiting** prevents gas abuse (configurable `max_execs_per_identity_per_epoch`)
 
 ## Module Dependency Graph
 
@@ -436,28 +510,43 @@ Each content module draws a per-epoch budget from Commons Council treasury to re
           │
     ┌─────┼─────────────────┐
     ▼     ▼                 ▼
-┌────────┐┌────────┐┌──────────────┐
-│x/season││ x/vote ││  x/common    │
-│        ││        ││  (types)     │
-│Seasons ││ZK Proofs│└──────────────┘
-│XP/Guild││Anon    │       │
-│Quests  ││Actions │       │
-│Retro $ ││TLE     │       ▼
-└────────┘└────┬───┘┌──────────────┐
-               │    │  x/forum     │
-               │    │  (tags,      │
-               │    │   TagKeeper) │
-               │    └──────────────┘
-               │
-    ┌──────────┼──────────┐
-    ▼          ▼          ▼
+┌────────┐┌──────────────┐
+│x/season││  x/common    │
+│        ││  (types)     │
+│Seasons │└──────────────┘
+│XP/Guild│       │
+│Quests  │       │
+│Retro $ │       ▼
+└────────┘┌──────────────┐
+          │  x/forum     │
+          │  (tags,      │
+          │   TagKeeper) │
+          └──────────────┘
+
+    ┌──────────────────────┐
+    ▼          ▼           ▼
 ┌────────┐┌────────┐┌──────────┐
 │x/blog  ││x/forum ││x/collect │
 │        ││        ││          │
 │Posts   ││Threads ││Collections│
 │Replies ││Bounties││Curation  │
-│Anon ZK ││Anon ZK ││Anon ZK   │
+│Shield- ││Shield- ││Shield-   │
+│Aware   ││Aware   ││Aware     │
 └────────┘└────────┘└──────────┘
+
+          ┌──────────────────────┐
+          │      x/shield        │
+          │  (Leaf Dependency)   │
+          │                      │
+          │ Shielded Execution   │
+          │ ZK Proof Verification│
+          │ TLE / DKG            │
+          │ Centralized Nullifiers│
+          │ Module-Paid Gas      │
+          └──────────────────────┘
+          Depends on: x/rep (trust tree),
+          x/distribution (funding),
+          x/staking, x/slashing (validators)
 ```
 
 ### Cross-Module Keeper Wiring (app.go)
@@ -465,23 +554,29 @@ Each content module draws a per-epoch budget from Commons Council treasury to re
 Many keepers are wired manually after `depinject.Inject()` to break cyclic dependencies:
 
 ```
-x/futarchy   ← SetCommonsKeeper(commons)
+x/commons    ← SetGovKeeper(gov), SetRouter(msgServiceRouter)
+
+x/futarchy   ← SetCommonsKeeper(commons), SetHooks(commons)
 
 x/season     ← SetRepKeeper(rep), SetNameKeeper(name), SetCommonsKeeper(commons)
              ← SetBlogKeeper(blog), SetForumKeeper(forum), SetCollectKeeper(collect)
 
-x/blog       ← SetRepKeeper(rep), SetVoteKeeper(vote), SetSeasonKeeper(season)
+x/blog       ← SetRepKeeper(rep)
 
-x/forum      ← SetSeasonKeeper(season)
-
-x/collect    ← SetSeasonKeeper(season), SetRepKeeper(rep)
+x/collect    ← SetRepKeeper(rep)
 
 x/rep        ← SetSeasonKeeper(season)  [via shared lateKeepers pointer]
-             ← SetVoteKeeper(vote)      [via lateKeepers]
              ← SetTagKeeper(forum)      [via lateKeepers — forum implements TagKeeper]
+
+x/split      ← SetDistrKeeper(distr)    [via adapter]
+
+x/shield     ← SetRepKeeper(rep), SetDistrKeeper(distr)
+             ← SetSlashingKeeper(slashing), SetStakingKeeper(staking)
+             ← SetRouter(msgServiceRouter)
+             ← RegisterShieldAwareModule(blog, forum, collect, rep, commons)
 ```
 
-The `lateKeepers` pattern in x/rep uses a shared pointer struct so that `Set*Keeper()` mutations are visible to all keeper value copies (including the one inside AppModule's msgServer).
+The `lateKeepers` pattern in x/rep and x/commons uses a shared pointer struct so that `Set*Keeper()` mutations are visible to all keeper value copies (including the one inside AppModule's msgServer). x/shield is a **leaf dependency** — nothing depends on it, so it has no cycle risk and all keepers are wired via `Set*Keeper()` after depinject.
 
 ## Fund Flows
 
@@ -857,7 +952,7 @@ Rejected   Completed
 
 Challenge Created
 (challenger stakes DREAM, min 50)
-(anonymous: 2.5x fee multiplier + 1 SPARK escrow)
+(anonymous: no DREAM stake, module-paid gas via x/shield)
         │
         ▼
 ┌───────────────────┐
@@ -1152,24 +1247,26 @@ Contributor bond: 10% of total valuation
 └─────────────────────────────────────────┘
 ```
 
-## Anonymous Voting (x/vote)
+## Shielded Execution (x/shield)
 
-The x/vote module implements privacy-preserving voting using zero-knowledge proofs (ZK-SNARKs). This enables voters to cast ballots without revealing their identity while still proving eligibility and preventing double-voting.
+x/shield is the unified privacy layer that replaces the former x/vote module and per-module anonymous messaging. It provides a single `MsgShieldedExec` entry point for all anonymous operations, with centralized ZK proof verification, nullifier management, TLE threshold encryption, and module-paid gas.
 
-### Why Anonymous Voting?
+### Why Shielded Execution?
 
 | Problem | Solution |
 |---------|----------|
 | Vote buying/coercion | Votes can't be proven to third parties |
-| Social pressure | No one knows how you voted |
-| Jury intimidation | Challenge jurors vote anonymously |
-| Strategic voting | Can't coordinate based on others' votes |
+| Social pressure | No one knows how you voted or posted |
+| Jury intimidation | Challenge jurors act anonymously |
+| Fee-based deanonymization | Module-paid gas eliminates fee payment patterns |
+| Per-module complexity | Single entry point replaces per-module anonymous messages |
+| Timing correlation | Encrypted batch mode hides submission timing |
 
-### ZK Circuit Architecture
+### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                       ZK VOTING ARCHITECTURE                            │
+│                    SHIELDED EXECUTION ARCHITECTURE                      │
 └─────────────────────────────────────────────────────────────────────────┘
 
 SETUP PHASE (One-time, before mainnet)
@@ -1185,8 +1282,8 @@ SETUP PHASE (One-time, before mainnet)
      │   Proving Key       │         │   Verifying Key     │
      │   (~50-100 MB)      │         │   (~1-2 KB)         │
      │                     │         │                     │
-     │   Distributed to    │         │   Embedded in       │
-     │   voter clients     │         │   chain genesis     │
+     │   Distributed to    │         │   Stored on-chain   │
+     │   member clients    │         │   by circuit_id     │
      └─────────────────────┘         └─────────────────────┘
 
 REGISTRATION PHASE (Per-member, one-time)
@@ -1197,96 +1294,128 @@ REGISTRATION PHASE (Per-member, one-time)
         │  Compute publicKey = MiMC(sk)     │
         │  Store secretKey securely         │
         │                                   │
-        │  ────MsgRegisterVoter────────▶    │
-        │     (publicKey only)              │
+        │  ─MsgRegisterZkPublicKey──────▶   │
+        │     (zk_public_key bytes)         │
         │                                   │
-        │                          Store VoterRegistration
-        │                          {publicKey, votingPower}
+        │                          x/rep stores on Member proto
+        │                          Trust tree rebuilt in EndBlocker
+        │                          Leaf = MiMC(zk_public_key, trust_level)
         │                                   │
 
-VOTING PHASE
+DKG CEREMONY (Validator setup for encrypted batch mode)
 ──────────────────────────────────────────────────────────────────────────
-     Voter                               Chain
+     Validators                          Chain
         │                                   │
-        │  ◀────Query merkleProof────────   │
-        │     (for my publicKey)            │
+        │                          DKG auto-triggers when
+        │                          min_tle_validators bonded
         │                                   │
-        │  Compute:                         │
-        │  - nullifier = MiMC(sk, proposalID)
+        │  IDLE → REGISTERING               │
+        │  Submit pub key via VoteExtension ▶│
+        │                                   │
+        │  REGISTERING → CONTRIBUTING       │
+        │  Submit DKG shares via VoteExt  ──▶│
+        │                                   │
+        │  CONTRIBUTING → ACTIVE            │
+        │                          Master public key derived
+        │                          Shamir shares distributed
+        │                          TLE ready for use
+        │                                   │
+
+SHIELDED EXECUTION
+──────────────────────────────────────────────────────────────────────────
+     Member                              Chain (x/shield)
+        │                                   │
+        │  ◀── Query trust tree root ────   │ (from x/rep)
+        │  ◀── Query Merkle proof ──────    │
+        │                                   │
+        │  Compute nullifier:               │
+        │  null = MiMC(domain, sk, scope)   │
         │                                   │
         │  Generate ZK proof proving:       │
         │  ┌─────────────────────────────┐  │
         │  │ PUBLIC (on-chain):         │  │
         │  │ - merkleRoot               │  │
         │  │ - nullifier                │  │
-        │  │ - proposalID               │  │
-        │  │ - voteOption (0/1/2)       │  │
-        │  │ - votingPower              │  │
+        │  │ - minTrustLevel            │  │
+        │  │ - scope                    │  │
         │  ├─────────────────────────────┤  │
         │  │ PRIVATE (never revealed):  │  │
         │  │ - secretKey                │  │
-        │  │ - merkleProof path         │  │
+        │  │ - trustLevel               │  │
+        │  │ - merklePath + indices     │  │
         │  └─────────────────────────────┘  │
         │                                   │
-        │  ────MsgVote─────────────────▶    │
+        │  ── MsgShieldedExec ──────────▶   │
+        │     (inner_message or             │
+        │      encrypted_payload)           │
         │                                   │
+        │                          ShieldGasDecorator pays gas
         │                          Verify ZK proof (~2-5 ms)
         │                          Check nullifier not used
-        │                          Record nullifier
-        │                          Update tally
+        │                          Check rate limit
+        │                          ShieldAware module check
+        │                          Dispatch inner message
         │                                   │
 
-VOTING MODES:
-├── PUBLIC:  Immediate on-chain tally
-├── SEALED:  TLE-encrypted, auto-revealed after voting period
-└── PRIVATE: ZK anonymous, nullifier-based
+EXECUTION MODES:
+├── IMMEDIATE:        Low latency, content visible, identity hidden
+└── ENCRYPTED_BATCH:  TLE-encrypted, batched, shuffled — maximum privacy
 ```
 
 ### Threshold Timelock Encryption (TLE)
 
-For SEALED and PRIVATE voting modes, x/vote uses validator-based threshold encryption:
+For encrypted batch mode, x/shield uses validator-based threshold encryption:
 
-- **Validator DKG:** Validators register TLE shares during setup
-- **Threshold:** 2/3 of validators must submit decryption shares
-- **Auto-reveal:** EndBlocker auto-decrypts sealed votes when decryption key becomes available
-- **Liveness tracking:** Per-epoch validator participation monitoring (miss window: 100 blocks, tolerance: 10 misses)
+- **DKG ceremony:** Automated state machine (IDLE → REGISTERING → CONTRIBUTING → ACTIVE) via ABCI vote extensions
+- **Master public key:** Derived from validator DKG contributions, used by clients to encrypt payloads
+- **Threshold:** 2/3 of validators must submit decryption shares per epoch
+- **Batch execution:** EndBlocker decrypts, shuffles, verifies, and executes queued operations
+- **Liveness tracking:** Per-epoch validator participation monitoring, violators jailed via x/slashing
+- **Validator drift detection:** Auto-triggers new DKG round when validator set changes significantly
 
 ### Privacy Guarantees
 
 ```
-PUBLIC (visible on-chain):
-├── Merkle root of eligible voters
-├── Nullifier (hash of secretKey + proposalID)
-├── Vote option and voting power claimed
-├── ZK proof bytes (~200 bytes)
-└── Aggregate tallies
+IMMEDIATE MODE (visible on-chain):
+├── Merkle root (current or previous epoch)
+├── Nullifier (domain-scoped hash)
+├── Inner message content (cleartext)
+├── ZK proof bytes
+└── Shield module as sender (not user address)
 
-PRIVATE (never revealed):
-├── Voter's address and secret key
-├── Voter's position in Merkle tree
+ENCRYPTED BATCH MODE (visible on-chain):
+├── Merkle root
+├── Nullifier (for dedup only)
+├── Encrypted payload (ciphertext until epoch boundary)
+├── Target epoch
+└── After decryption: execution order shuffled
+
+PRIVATE (never revealed in either mode):
+├── User's address and secret key
+├── User's position in trust tree
 ├── Merkle proof path
-└── Link between voter and their vote
+├── Link between user and their action
+└── In batch mode: submission timing within epoch
 ```
 
-### Vote Types
+### Registered Operation Types
+
+Governance controls which message types can be executed via x/shield:
 
 ```
-┌────────────────────────┬────────────────────────────────────────────────┐
-│ Type                   │ Description                                    │
-├────────────────────────┼────────────────────────────────────────────────┤
-│ GENERAL                │ General governance proposals                   │
-│ PARAMETER_CHANGE       │ Modify module parameters                       │
-│ COUNCIL_ELECTION       │ Elect council/committee members                │
-│ CHALLENGE_JURY         │ Anonymous jury vote on initiative challenges   │
-│ SLASHING               │ Vote on slashing proposals                     │
-│ BUDGET_APPROVAL        │ Large budget approvals                         │
-└────────────────────────┴────────────────────────────────────────────────┘
+┌────────────────────────────┬────────────────────────────────────────────┐
+│ Module                     │ Shielded Operations                        │
+├────────────────────────────┼────────────────────────────────────────────┤
+│ x/blog                     │ CreatePost, CreateReply, React             │
+│ x/forum                    │ CreatePost, CreateReply, React             │
+│ x/collect                  │ CreateCollection, React                    │
+│ x/commons                  │ SubmitAnonymousProposal,                   │
+│                            │ AnonymousVoteProposal                      │
+│ x/rep                      │ CreateChallenge                            │
+└────────────────────────────┴────────────────────────────────────────────┘
 
-Default thresholds:
-├── Quorum: 33% of voting power must participate
-├── Threshold: 50% + 1 to pass (simple majority)
-├── Veto threshold: 33.4%
-└── Jury votes: 67% to uphold challenge (supermajority)
+Each operation registers: domain, min_trust_level, nullifier_scope_type,
+batch_mode_allowed, immediate_mode_allowed
 ```
 
 ## Key Parameters Reference
@@ -1339,7 +1468,7 @@ INVITATIONS
 
 CHALLENGES
 ├── Minimum stake:               50 micro-DREAM
-├── Anonymous multiplier:        2.5x fee + 1 SPARK escrow
+├── Anonymous challenges:        No DREAM stake (module-paid gas via x/shield)
 ├── Challenger reward:           20% of slashed amount
 ├── Jury size:                   5 members (odd)
 ├── Uphold threshold:            67% (supermajority)
@@ -1365,19 +1494,22 @@ TRUST LEVELS
 ├── Trusted: 500 rep + 1 season
 └── Core: 1000 rep + 2 seasons
 
-ANONYMOUS VOTING (x/vote)
-├── Tree depth:                  20 (supports ~1M voters)
-├── Min voting period:           3 epochs
-├── Max voting period:           30 epochs
-├── Default voting period:       7 epochs
-├── Default quorum:              33%
-├── Default threshold:           50% (simple majority)
-├── Jury vote threshold:         67% (supermajority)
+SHIELDED EXECUTION (x/shield)
+├── Trust tree depth:            20 (supports ~1M members)
 ├── Proof generation:            2-5 seconds (client-side)
 ├── Proof verification:          2-5 ms (on-chain)
-├── Proof size:                  ~200 bytes
-├── Sealed/reveal period:        3 epochs
-└── TLE threshold:               2/3 of validators
+├── Max gas per exec:            configurable per operation
+├── Max execs/identity/epoch:    configurable (rate limit)
+├── Max funding per day:         governance-controlled daily cap
+├── Shield epoch interval:       configurable (blocks per epoch)
+├── TLE threshold:               2/3 of validators
+├── TLE miss window:             100 blocks
+├── TLE miss tolerance:          10 misses before jail
+├── DKG window:                  configurable (blocks per phase)
+├── Min TLE validators:          configurable minimum
+├── Max pending queue size:      configurable
+├── Max encrypted payload:       configurable
+└── Max ops per batch:           configurable
 
 BLOG CONTENT
 ├── Max title:                   200 chars
@@ -1385,9 +1517,7 @@ BLOG CONTENT
 ├── Max reply:                   2,000 chars
 ├── Max reply depth:             5 levels
 ├── Storage cost:                100 uspark/byte
-├── Rate limits:                 10 posts, 50 replies, 100 reactions/day
-├── Anonymous min trust:         ESTABLISHED (level 2)
-└── Anonymous subsidy:           100 SPARK/epoch
+└── Rate limits:                 10 posts, 50 replies, 100 reactions/day
 
 FORUM CONTENT
 ├── Max content:                 10 KB

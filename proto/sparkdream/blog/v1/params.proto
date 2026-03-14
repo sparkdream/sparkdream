@@ -45,21 +45,6 @@ message Params {
   // Max reactions per address per day
   uint32 max_reactions_per_day = 11;
 
-  // Master toggle for anonymous posting
-  bool anonymous_posting_enabled = 12;
-
-  // Minimum trust level for anonymous posting (default: 2 = ESTABLISHED)
-  uint32 anonymous_min_trust_level = 13;
-
-  // Auto-transferred from Commons Council treasury each epoch
-  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 14 [(gogoproto.nullable) = false];
-
-  // Max subsidy per anonymous post/reply
-  cosmos.base.v1beta1.Coin anon_subsidy_max_per_post = 15 [(gogoproto.nullable) = false];
-
-  // Approved relay addresses eligible for subsidy
-  repeated string anon_subsidy_relay_addresses = 16;
-
   // TTL in seconds for ephemeral content (default: 604800 = 7 days; 0 = no expiry)
   int64 ephemeral_content_ttl = 17;
 
@@ -79,7 +64,10 @@ message Params {
   cosmos.base.v1beta1.Coin max_reaction_fee = 22 [(gogoproto.nullable) = false];
 
   // Min conviction score to renew anonymous content at TTL expiry (default: 100.0; 0 = disabled)
-  string conviction_renewal_threshold = 23 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+  string conviction_renewal_threshold = 23 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 
   // Duration in seconds to extend TTL by when conviction-renewed (default: 604800 = 7 days)
   int64 conviction_renewal_period = 24;
@@ -112,26 +100,17 @@ message BlogOperationalParams {
   // Max reactions per address per day
   uint32 max_reactions_per_day = 7;
 
-  // Operations Committee can adjust anonymous trust threshold
-  uint32 anonymous_min_trust_level = 8;
-
-  // Epoch subsidy draw amount
-  cosmos.base.v1beta1.Coin anon_subsidy_budget_per_epoch = 9 [(gogoproto.nullable) = false];
-
-  // Per-post subsidy cap
-  cosmos.base.v1beta1.Coin anon_subsidy_max_per_post = 10 [(gogoproto.nullable) = false];
-
-  // Approved relay addresses
-  repeated string anon_subsidy_relay_addresses = 11;
-
-  // TTL for ephemeral content (anonymous + non-member)
+  // TTL for ephemeral content
   int64 ephemeral_content_ttl = 12;
 
   // Max pins per address per day
   uint32 max_pins_per_day = 13;
 
   // Operations Committee can adjust conviction renewal threshold
-  string conviction_renewal_threshold = 14 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+  string conviction_renewal_threshold = 14 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 
   // Operations Committee can adjust conviction renewal period
   int64 conviction_renewal_period = 15;

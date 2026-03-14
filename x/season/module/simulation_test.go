@@ -10,8 +10,8 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/stretchr/testify/require"
 
-	season "sparkdream/x/season/module"
 	"sparkdream/x/season/keeper"
+	season "sparkdream/x/season/module"
 	"sparkdream/x/season/types"
 )
 

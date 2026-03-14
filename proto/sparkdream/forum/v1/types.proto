@@ -112,26 +112,3 @@ message PinnedReplyRecord {
   bool disputed = 5;
   uint64 initiative_id = 6;
 }
-
-// AnonymousPostMetadata stores ZK proof metadata for anonymous posts and replies.
-message AnonymousPostMetadata {
-  uint64 content_id = 1;
-  bytes nullifier = 2;
-  bytes merkle_root = 3;
-  uint32 proven_trust_level = 4;
-}
-
-// AnonNullifierEntry tracks a used nullifier.
-message AnonNullifierEntry {
-  int64 used_at = 1;
-  uint64 domain = 2;
-  uint64 scope = 3;
-}
-
-// GenesisNullifierEntry is a genesis-exportable nullifier entry.
-message GenesisNullifierEntry {
-  uint64 domain = 1;
-  uint64 scope = 2;
-  string nullifier_hex = 3;
-  AnonNullifierEntry entry = 4;
-}

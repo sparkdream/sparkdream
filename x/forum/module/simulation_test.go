@@ -10,8 +10,8 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/stretchr/testify/require"
 
-	forum "sparkdream/x/forum/module"
 	"sparkdream/x/forum/keeper"
+	forum "sparkdream/x/forum/module"
 	"sparkdream/x/forum/types"
 )
 
@@ -32,12 +32,7 @@ func TestGenerateGenesisState(t *testing.T) {
 	var genesis types.GenesisState
 	require.NoError(t, encCfg.Codec.UnmarshalJSON(raw, &genesis))
 
-	// JSON round-trip normalizes nil slices to empty slices; normalize the
-	// expected value so the comparison is not sensitive to nil vs [].
 	expected := types.DefaultParams()
-	if expected.AnonSubsidyApprovedRelays == nil {
-		expected.AnonSubsidyApprovedRelays = []string{}
-	}
 	require.Equal(t, expected, genesis.Params)
 
 	// Verify simulation tags are pre-seeded for cross-module tag validation
@@ -61,7 +56,7 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	require.Len(t, ops, 51)
+	require.Len(t, ops, 48)
 }
 
 func TestProposalMsgs(t *testing.T) {

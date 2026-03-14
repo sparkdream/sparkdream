@@ -80,10 +80,8 @@ type Keeper struct {
 	ItemsByOnChainRef collections.KeySet[collections.Pair[string, uint64]]
 
 	// External keepers (optional)
-	blogKeeper   types.BlogKeeper
-	forumKeeper  types.ForumKeeper
-	voteKeeper   types.VoteKeeper
-	seasonKeeper types.SeasonKeeper
+	blogKeeper  types.BlogKeeper
+	forumKeeper types.ForumKeeper
 }
 
 func NewKeeper(
@@ -235,16 +233,6 @@ func (k *Keeper) SetRepKeeper(rk types.RepKeeper) {
 // SetBlogKeeper sets the optional blog keeper for OnChainReference validation.
 func (k *Keeper) SetBlogKeeper(bk types.BlogKeeper) {
 	k.blogKeeper = bk
-}
-
-// SetVoteKeeper sets the optional vote keeper for ZK proof verification.
-func (k *Keeper) SetVoteKeeper(vk types.VoteKeeper) {
-	k.voteKeeper = vk
-}
-
-// SetSeasonKeeper sets the optional season keeper for epoch duration.
-func (k *Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
-	k.seasonKeeper = sk
 }
 
 // HasCollection returns true if a collection with the given ID exists.
