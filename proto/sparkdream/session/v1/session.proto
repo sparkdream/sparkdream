@@ -1,0 +1,43 @@
+syntax = "proto3";
+package sparkdream.session.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "sparkdream/x/session/types";
+
+// Session represents an active session key delegation from granter to grantee.
+message Session {
+  // Main wallet address (pays fees, "owns" the session).
+  string granter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Ephemeral session key address.
+  string grantee = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Scoped message type URLs (subset of active allowlist).
+  repeated string allowed_msg_types = 3;
+  // Max gas budget (zero amount = no fee delegation).
+  cosmos.base.v1beta1.Coin spend_limit = 4 [(gogoproto.nullable) = false];
+  // Gas consumed so far.
+  cosmos.base.v1beta1.Coin spent = 5 [(gogoproto.nullable) = false];
+  // Auto-invalidation time.
+  google.protobuf.Timestamp expiration = 6 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdtime) = true
+  ];
+  // When the session was created.
+  google.protobuf.Timestamp created_at = 7 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdtime) = true
+  ];
+  // Last successful MsgExecSession.
+  google.protobuf.Timestamp last_used_at = 8 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdtime) = true
+  ];
+  // Total successful executions.
+  uint64 exec_count = 9;
+  // Execution cap (0 = unlimited).
+  uint64 max_exec_count = 10;
+}

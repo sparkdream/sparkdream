@@ -9,8 +9,7 @@ mkdir -p "$PROPOSAL_DIR"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
-FEES="5000uspark"
-GAS_FLAGS="--gas auto --gas-adjustment 1.5"
+FEES="5000000uspark"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then
@@ -123,9 +122,15 @@ echo "   (Bob voted YES)"
 
 # Execute the Veto
 echo "   Executing Parent Veto..."
-EXEC_RES=$($BINARY tx commons execute-proposal $VETO_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test $GAS_FLAGS --fees $FEES --output json)
+EXEC_RES=$($BINARY tx commons execute-proposal $VETO_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees $FEES --output json)
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 5
+
+if [ -z "$EXEC_HASH" ] || [ "$EXEC_HASH" == "null" ]; then
+    echo "FAILURE: Could not get tx hash from execute-proposal response."
+    echo "Response: $EXEC_RES"
+    exit 1
+fi
 
 # Verify Veto Success - check proposal status is EXECUTED
 EXEC_TX=$($BINARY query tx $EXEC_HASH --output json)
@@ -151,25 +156,36 @@ echo "--- STEP 4: Attempting to Execute Rogue Proposal (Should Fail) ---"
 
 # The veto incremented the child's policy version. When we try to execute the rogue proposal,
 # the policy_version check will fail -> VETOED status.
-EXEC_OUTPUT=$($BINARY tx commons execute-proposal $ROGUE_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test $GAS_FLAGS --fees $FEES --output json 2>&1)
-EXEC_CODE=$(echo $EXEC_OUTPUT | jq -r '.code // "error"' 2>/dev/null)
+# Note: In sync broadcast mode, code=0 only means CheckTx passed — the actual execution
+# may still fail during FinalizeBlock. We must query the committed tx to check the real result.
+EXEC_OUTPUT=$($BINARY tx commons execute-proposal $ROGUE_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees $FEES --output json)
+EXEC_TX_HASH=$(echo $EXEC_OUTPUT | jq -r '.txhash')
+sleep 5
 
-# Logic:
-# 1. If execute tx returns non-zero code, the rogue proposal could not execute (SUCCESS for the test)
-# 2. If it returns code 0, the Veto FAILED (FAILURE for the test)
-
-if [ "$EXEC_CODE" != "0" ]; then
-    if echo "$EXEC_OUTPUT" | grep -q "policy version changed"; then
-        echo "SUCCESS: Rogue Proposal was VETOED (policy version mismatch)."
-    elif echo "$EXEC_OUTPUT" | grep -q "not accepted"; then
-        echo "SUCCESS: Rogue Proposal could not execute (not in accepted status)."
-    else
-        echo "SUCCESS: Rogue Proposal Execution Failed (as expected)."
-        echo "   Detail: $(echo $EXEC_OUTPUT | jq -r '.raw_log // empty' 2>/dev/null)"
-    fi
+# Check the committed tx result (not the broadcast response)
+if [ -n "$EXEC_TX_HASH" ] && [ "$EXEC_TX_HASH" != "null" ]; then
+    COMMITTED_TX=$($BINARY query tx $EXEC_TX_HASH --output json 2>/dev/null)
+    COMMITTED_CODE=$(echo $COMMITTED_TX | jq -r '.code // "error"' 2>/dev/null)
 else
+    COMMITTED_CODE="error"
+fi
+
+# Also check proposal status directly — if veto worked, it should NOT be EXECUTED
+ROGUE_STATUS=$($BINARY query commons get-proposal $ROGUE_ID --output json | jq -r '.proposal.status')
+
+if [ "$ROGUE_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
     echo "FAILURE: Rogue Proposal was able to execute! Veto failed."
+    echo "   Proposal Status: $ROGUE_STATUS"
+    echo "   Tx Code: $COMMITTED_CODE"
     exit 1
+elif [ "$COMMITTED_CODE" != "0" ]; then
+    echo "SUCCESS: Rogue Proposal execution failed on-chain (as expected)."
+    echo "   Proposal Status: $ROGUE_STATUS"
+    echo "   Detail: $(echo $COMMITTED_TX | jq -r '.raw_log // empty' 2>/dev/null)"
+else
+    # Tx code was 0 but proposal not EXECUTED — could be vetoed/failed status
+    echo "SUCCESS: Rogue Proposal was not executed."
+    echo "   Proposal Status: $ROGUE_STATUS"
 fi
 
 echo "--- INTEGRATION TEST PASSED ---"

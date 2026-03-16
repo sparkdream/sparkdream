@@ -21,6 +21,8 @@ import (
 	revealmoduletypes "sparkdream/x/reveal/types"
 	_ "sparkdream/x/season/module"
 	seasonmoduletypes "sparkdream/x/season/types"
+	_ "sparkdream/x/session/module"
+	sessionmoduletypes "sparkdream/x/session/types"
 	_ "sparkdream/x/shield/module"
 	shieldmoduletypes "sparkdream/x/shield/types"
 	_ "sparkdream/x/sparkdream/module"
@@ -100,6 +102,7 @@ var (
 		{Account: seasonmoduletypes.ModuleName},
 		{Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
 		{Account: gnovmmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
+		{Account: sessionmoduletypes.ModuleName},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -154,6 +157,7 @@ var (
 						collectmoduletypes.ModuleName,
 						shieldmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
+						sessionmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -174,6 +178,7 @@ var (
 						collectmoduletypes.ModuleName,
 						shieldmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
+						sessionmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -218,6 +223,7 @@ var (
 						collectmoduletypes.ModuleName,
 						shieldmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
+						sessionmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -347,6 +353,10 @@ var (
 			{
 				Name:   gnovmmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&gnovmmoduletypes.Module{}),
+			},
+			{
+				Name:   sessionmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&sessionmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

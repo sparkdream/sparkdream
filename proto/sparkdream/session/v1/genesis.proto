@@ -1,0 +1,20 @@
+syntax = "proto3";
+package sparkdream.session.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/session/v1/params.proto";
+import "sparkdream/session/v1/session.proto";
+
+option go_package = "sparkdream/x/session/types";
+
+// GenesisState defines the session module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Active sessions (typically empty at genesis).
+  repeated Session sessions = 2 [(gogoproto.nullable) = false];
+}

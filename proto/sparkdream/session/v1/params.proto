@@ -1,0 +1,66 @@
+syntax = "proto3";
+package sparkdream.session.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "sparkdream/x/session/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "sparkdream/x/session/Params";
+  option (gogoproto.equal) = true;
+
+  // Ceiling: the maximum set of message types that could ever be session-delegable.
+  // Set at genesis. Only expandable via chain upgrade.
+  repeated string max_allowed_msg_types = 1;
+
+  // Active allowlist: the currently delegable subset of max_allowed_msg_types.
+  // Governance can remove types. Operations Committee can re-add from ceiling.
+  repeated string allowed_msg_types = 2;
+
+  // Maximum concurrent active sessions per granter.
+  uint64 max_sessions_per_granter = 3;
+
+  // Maximum message types per individual session.
+  uint64 max_msg_types_per_session = 4;
+
+  // Maximum session duration.
+  google.protobuf.Duration max_expiration = 5 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+
+  // Maximum gas budget per session.
+  cosmos.base.v1beta1.Coin max_spend_limit = 6 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// SessionOperationalParams defines the operational parameters updateable by
+// the Commons Council Operations Committee without a full governance proposal.
+// max_allowed_msg_types (the ceiling) is excluded — only chain upgrades can expand it.
+message SessionOperationalParams {
+  option (amino.name) = "sparkdream/x/session/SessionOperationalParams";
+  option (gogoproto.equal) = true;
+
+  // Operations Committee can re-add types to the active allowlist, but ONLY
+  // from max_allowed_msg_types (the ceiling). Cannot expand beyond the ceiling.
+  repeated string allowed_msg_types = 1;
+
+  uint64 max_sessions_per_granter = 2;
+  uint64 max_msg_types_per_session = 3;
+
+  google.protobuf.Duration max_expiration = 4 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+
+  cosmos.base.v1beta1.Coin max_spend_limit = 5 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}

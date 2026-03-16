@@ -59,7 +59,9 @@ import (
 	repmodulekeeper "sparkdream/x/rep/keeper"
 	revealmodulekeeper "sparkdream/x/reveal/keeper"
 	seasonmodulekeeper "sparkdream/x/season/keeper"
+	sessionmodulekeeper "sparkdream/x/session/keeper"
 	shieldabci "sparkdream/x/shield/abci"
+	sessionante "sparkdream/x/session/ante"
 	shieldante "sparkdream/x/shield/ante"
 	shieldmodulekeeper "sparkdream/x/shield/keeper"
 
@@ -135,6 +137,7 @@ type App struct {
 	RevealKeeper  revealmodulekeeper.Keeper
 	CollectKeeper collectmodulekeeper.Keeper
 	GnoVMKeeper   gnovmmodulekeeper.Keeper
+	SessionKeeper sessionmodulekeeper.Keeper
 }
 
 func init() {
@@ -221,6 +224,7 @@ func New(
 		&app.RevealKeeper,
 		&app.CollectKeeper,
 		&app.ShieldKeeper, &app.GnoVMKeeper,
+		&app.SessionKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -282,6 +286,9 @@ func New(
 	// Wire MsgServiceRouter into Shield for inner message dispatch.
 	app.ShieldKeeper.SetRouter(app.MsgServiceRouter())
 
+	// Wire MsgServiceRouter into Session for ExecSession inner message dispatch.
+	app.SessionKeeper.SetRouter(app.MsgServiceRouter())
+
 	// Register ShieldAware modules for the double-gate security model.
 	// Each module that accepts shielded operations must explicitly opt in.
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.blog.v1.", app.BlogKeeper)
@@ -305,7 +312,9 @@ func New(
 		cosmos_ante.NewConsumeGasForTxSizeDecorator(app.AuthKeeper),
 		// Shield gas decorator: deducts fees from shield module for MsgShieldedExec txs.
 		shieldante.NewShieldGasDecorator(app.ShieldKeeper, app.BankKeeper),
-		// Wrap DeductFeeDecorator to skip fee deduction when shield module already paid.
+		// Session fee decorator: deducts fees from granter for MsgExecSession txs.
+		sessionante.NewSessionFeeDecorator(app.SessionKeeper, app.BankKeeper),
+		// Wrap DeductFeeDecorator to skip fee deduction when shield/session already paid.
 		shieldante.NewSkipIfFeePaidDecorator(
 			cosmos_ante.NewDeductFeeDecorator(app.AuthKeeper, app.BankKeeper, nil, anteOptions.TxFeeChecker),
 		),
@@ -361,6 +370,7 @@ func New(
 	// create the simulation manager and define the order of the modules for deterministic simulations
 	overrideModules := map[string]module.AppModuleSimulation{
 		authtypes.ModuleName: auth.NewAppModule(app.appCodec, app.AuthKeeper, authsims.RandomGenesisAccounts, nil),
+		"gnovm":              gnovmSimOverride{}, // upstream SimulateMsgRun returns fatal error; disable until fixed
 	}
 	app.sm = module.NewSimulationManagerFromAppModules(app.ModuleManager.Modules, overrideModules)
 

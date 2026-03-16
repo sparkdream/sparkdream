@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package sparkdream.session.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/session/v1/params.proto";
+import "sparkdream/session/v1/session.proto";
+
+option go_package = "sparkdream/x/session/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Params queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/params";
+  }
+
+  // Session queries a single session by (granter, grantee).
+  rpc Session(QuerySessionRequest) returns (QuerySessionResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/session/{granter}/{grantee}";
+  }
+
+  // SessionsByGranter queries all active sessions for a granter.
+  rpc SessionsByGranter(QuerySessionsByGranterRequest) returns (QuerySessionsByGranterResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/sessions_by_granter/{granter}";
+  }
+
+  // SessionsByGrantee queries all active sessions for a grantee.
+  rpc SessionsByGrantee(QuerySessionsByGranteeRequest) returns (QuerySessionsByGranteeResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/sessions_by_grantee/{grantee}";
+  }
+
+  // AllowedMsgTypes queries the ceiling and currently active message types.
+  rpc AllowedMsgTypes(QueryAllowedMsgTypesRequest) returns (QueryAllowedMsgTypesResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/allowed_msg_types";
+  }
+}
+
+message QueryParamsRequest {}
+
+message QueryParamsResponse {
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+message QuerySessionRequest {
+  string granter = 1;
+  string grantee = 2;
+}
+
+message QuerySessionResponse {
+  Session session = 1 [(gogoproto.nullable) = false];
+}
+
+message QuerySessionsByGranterRequest {
+  string granter = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QuerySessionsByGranterResponse {
+  repeated Session sessions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QuerySessionsByGranteeRequest {
+  string grantee = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QuerySessionsByGranteeResponse {
+  repeated Session sessions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryAllowedMsgTypesRequest {}
+
+message QueryAllowedMsgTypesResponse {
+  repeated string max_allowed_msg_types = 1;
+  repeated string allowed_msg_types = 2;
+}

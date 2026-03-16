@@ -1,9 +1,6 @@
-breaking:
-    except:
-        - EXTENSION_NO_DELETE
-        - FIELD_SAME_DEFAULT
-    use:
-        - FILE
+version: v2
+modules:
+    - path: proto
 deps:
     - buf.build/cosmos/cosmos-proto
     - buf.build/cosmos/cosmos-sdk
@@ -25,6 +22,9 @@ lint:
         - COMMENTS
         - STANDARD
         - FILE_LOWER_SNAKE_CASE
-modules:
-    - path: proto
-version: v2
+breaking:
+    except:
+        - EXTENSION_NO_DELETE
+        - FIELD_SAME_DEFAULT
+    use:
+        - FILE
