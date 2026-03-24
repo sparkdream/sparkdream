@@ -107,9 +107,14 @@ govulncheck:
 build:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
 
+build-test:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags testparams -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+
 do-checksum:
 	cd build && sha256sum sparkdreamd > sparkdreamd-checksum
 
 build-with-checksum: build do-checksum
 
-.PHONY: build do-checksum build-with-checksum
+build-with-checksum-test: build-test do-checksum
+
+.PHONY: build build-test do-checksum build-with-checksum build-with-checksum-test
