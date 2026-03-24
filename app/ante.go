@@ -6,7 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 
-	gnovmante "github.com/ignite/gnovm/x/gnovm/ante"
+	gnovmante "github.com/sparkdream/gnovm/x/gnovm/ante"
 )
 
 // setAnteHandler sets the ante handler for the application.

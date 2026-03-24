@@ -43,8 +43,8 @@ import (
 	icahostkeeper "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/host/keeper"
 	ibctransferkeeper "github.com/cosmos/ibc-go/v10/modules/apps/transfer/keeper"
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
-	gnovmante "github.com/ignite/gnovm/x/gnovm/ante"
-	gnovmmodulekeeper "github.com/ignite/gnovm/x/gnovm/keeper"
+	gnovmante "github.com/sparkdream/gnovm/x/gnovm/ante"
+	gnovmmodulekeeper "github.com/sparkdream/gnovm/x/gnovm/keeper"
 
 	"sparkdream/docs"
 	blogmodulekeeper "sparkdream/x/blog/keeper"

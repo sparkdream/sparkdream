@@ -76,8 +76,8 @@ import (
 	icatypes "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/types"
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	ibcexported "github.com/cosmos/ibc-go/v10/modules/core/exported"
-	_ "github.com/ignite/gnovm/x/gnovm/module"
-	gnovmmoduletypes "github.com/ignite/gnovm/x/gnovm/types"
+	_ "github.com/sparkdream/gnovm/x/gnovm/module"
+	gnovmmoduletypes "github.com/sparkdream/gnovm/x/gnovm/types"
 )
 
 var (
