@@ -24,6 +24,7 @@ type BankKeeper interface {
 // DistrKeeper defines the expected interface for the Distribution module.
 type DistrKeeper interface {
 	DistributeFromFeePool(ctx context.Context, amount sdk.Coins, receiveAddr sdk.AccAddress) error
+	GetCommunityPool(ctx context.Context) (sdk.DecCoins, error)
 }
 
 // RepKeeper defines the expected interface for the Reputation module.

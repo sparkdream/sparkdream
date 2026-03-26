@@ -262,7 +262,7 @@ func New(
 
 	// Wire cross-module keepers into Shield after depinject.
 	app.ShieldKeeper.SetRepKeeper(app.RepKeeper)
-	app.ShieldKeeper.SetDistrKeeper(app.DistrKeeper)
+	app.ShieldKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
 	app.ShieldKeeper.SetSlashingKeeper(app.SlashingKeeper)
 	app.ShieldKeeper.SetStakingKeeper(app.StakingKeeper)
 

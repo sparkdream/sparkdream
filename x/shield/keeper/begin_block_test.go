@@ -41,12 +41,21 @@ func (m mockBankKeeperWithBalance) SendCoinsFromModuleToModule(_ context.Context
 type mockDistrKeeper struct {
 	distributeCalled bool
 	lastAmount       sdk.Coins
+	poolBalance      math.Int // community pool balance for GetCommunityPool
 }
 
 func (m *mockDistrKeeper) DistributeFromFeePool(_ context.Context, amount sdk.Coins, _ sdk.AccAddress) error {
 	m.distributeCalled = true
 	m.lastAmount = amount
 	return nil
+}
+
+func (m *mockDistrKeeper) GetCommunityPool(_ context.Context) (sdk.DecCoins, error) {
+	amt := m.poolBalance
+	if amt.IsNil() || !amt.IsPositive() {
+		return sdk.DecCoins{}, nil
+	}
+	return sdk.NewDecCoins(sdk.NewDecCoin("uspark", amt)), nil
 }
 
 // initFixtureWithLowBalance creates a fixture with a low bank balance for funding tests.
@@ -80,7 +89,7 @@ func initFixtureWithLowBalance(t *testing.T, balance math.Int) (*fixture, *mockD
 	}
 	k.SetStakingKeeper(mockSK)
 
-	distrMock := &mockDistrKeeper{}
+	distrMock := &mockDistrKeeper{poolBalance: math.NewInt(1_000_000_000)} // 1000 SPARK
 	k.SetDistrKeeper(distrMock)
 
 	err := k.InitGenesis(ctx, *types.DefaultGenesis())
@@ -131,6 +140,41 @@ func TestBeginBlockerAutoFunding(t *testing.T) {
 
 	// DistrKeeper should have been called for funding
 	require.True(t, distrMock.distributeCalled)
+}
+
+func TestBeginBlockerEmptyPool(t *testing.T) {
+	// Create fixture with low balance that needs funding
+	lowBalance := math.NewInt(1000000) // 1M < MinGasReserve of 10M
+	f, distrMock := initFixtureWithLowBalance(t, lowBalance)
+
+	// Set community pool to zero — shield should skip funding silently
+	distrMock.poolBalance = math.ZeroInt()
+
+	err := f.keeper.BeginBlocker(f.ctx)
+	require.NoError(t, err)
+
+	// DistrKeeper.DistributeFromFeePool should NOT have been called
+	require.False(t, distrMock.distributeCalled)
+
+	// No day funding recorded
+	day := uint64(f.ctx.BlockHeight()) / 14400
+	amount := f.keeper.GetDayFunding(f.ctx, day)
+	require.True(t, amount.IsZero())
+}
+
+func TestBeginBlockerInsufficientPool(t *testing.T) {
+	// Create fixture with low balance that needs funding
+	lowBalance := math.NewInt(1000000) // 1M uspark
+	f, distrMock := initFixtureWithLowBalance(t, lowBalance)
+
+	// Pool has less than the gap (gap = MinGasReserve - balance = 10M - 1M = 9M)
+	distrMock.poolBalance = math.NewInt(5000000) // 5M < 9M gap
+
+	err := f.keeper.BeginBlocker(f.ctx)
+	require.NoError(t, err)
+
+	// Should NOT fund — pool balance < required amount
+	require.False(t, distrMock.distributeCalled)
 }
 
 func TestBeginBlockerFundingDayCap(t *testing.T) {

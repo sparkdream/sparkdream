@@ -61,8 +61,19 @@ func (k Keeper) autoFundModule(ctx context.Context, sdkCtx sdk.Context, params t
 	if k.late.distrKeeper == nil {
 		return
 	}
+
+	// Check community pool balance before attempting distribution
+	pool, err := k.late.distrKeeper.GetCommunityPool(ctx)
+	if err != nil {
+		return
+	}
+	available := pool.AmountOf("uspark").TruncateInt()
+	if !available.IsPositive() || available.LT(fundAmount) {
+		return
+	}
+
 	coins := sdk.NewCoins(sdk.NewCoin("uspark", fundAmount))
-	err := k.late.distrKeeper.DistributeFromFeePool(ctx, coins, moduleAddr)
+	err = k.late.distrKeeper.DistributeFromFeePool(ctx, coins, moduleAddr)
 	if err != nil {
 		sdkCtx.Logger().With("module", "x/shield").Info(
 			"Failed to fund shield module from community pool",

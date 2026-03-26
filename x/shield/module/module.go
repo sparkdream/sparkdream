@@ -110,6 +110,10 @@ func (am AppModule) InitGenesis(ctx sdk.Context, _ codec.JSONCodec, gs json.RawM
 	if err := am.keeper.InitGenesis(ctx, genState); err != nil {
 		panic(fmt.Errorf("failed to initialize %s genesis state: %w", types.ModuleName, err))
 	}
+
+	// Force module account creation so x/auth registers it as a ModuleAccount
+	// (not a BaseAccount) before any BeginBlocker funding arrives.
+	am.accountKeeper.GetModuleAccount(ctx, types.ModuleName)
 }
 
 // ExportGenesis returns the module's exported genesis state as raw JSON bytes.

@@ -145,6 +145,7 @@ var (
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
 						blogmoduletypes.ModuleName,
+						shieldmoduletypes.ModuleName, // before split: skim gas reserve from community pool first
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
@@ -155,7 +156,6 @@ var (
 						seasonmoduletypes.ModuleName,
 						revealmoduletypes.ModuleName,
 						collectmoduletypes.ModuleName,
-						shieldmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
