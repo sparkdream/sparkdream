@@ -1,16 +1,66 @@
-vue/node_modules
-vue/dist
+# Secrets and credentials
+*.key
+*.pem
+**/priv_validator_key.json
+**/node_key.json
+**/keyring-file/
+**/keyring-os/
+arweave-wallet*.json
+
+# Deployment configs
+**/deployed/
+
+# Tailscale / Headscale state
+tailscaled.state
+db.sqlite
+
+# Archives
+*.jsonl.gz
+*.tgz
+*.tar.gz
+
+# Upload tracking
+.last_archived_height
+.uploaded
+.arweave-uploaded
+manifest.csv
+arweave-manifest.csv
+
+# Build artifacts
 build/
 prod/
 release/
+sparkdreamd
+seed-tle
+
+# Dependencies
+vue/node_modules
+
+# Frontend dist
+vue/dist
+
+# Test artifacts
 test/*/proposals
 test/*/snapshots
 .test_env
+
+# IDE and editors
 .idea/
 .vscode/
+
+# AI tooling
+.aiexclude
+.claude/
+.gemini/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# OS
 .DS_Store
-sparkdreamd
-seed-tle
+Thumbs.db
+
+# Logs and output
 *.dot
 *.log
 *.ign

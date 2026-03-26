@@ -1,0 +1,26 @@
+# Start FROM the current sparkdreamd node image
+FROM sparkdreamnft/sparkdreamd:v1.0.1
+
+# Install OpenSSH server and Tailscale
+RUN apk add --no-cache openssh-server tailscale
+
+# Configure SSHd for key-only login (handles both commented and uncommented lines)
+RUN ssh-keygen -A && \
+    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config && \
+    mkdir -p /var/run/sshd
+
+# Create directory for Tailscale state (should be on persistent storage)
+RUN mkdir -p /var/lib/tailscale
+
+# Copy an entrypoint script that will start both services
+COPY deploy/docker/entrypoint_ssh.sh /usr/local/bin/entrypoint_ssh.sh
+RUN chmod +x /usr/local/bin/entrypoint_ssh.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint_ssh.sh"]
+
+# IMPORTANT: Pass the full start command, not just the binary name.
+# sparkdreamd is a Cosmos SDK node — it needs "start" and the correct home dir.
+CMD ["sparkdreamd", "start", "--home", "/root/.sparkdream"]

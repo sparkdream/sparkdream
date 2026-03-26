@@ -1,0 +1,9 @@
+FROM alpine
+
+ENV LOCAL=/usr/local
+
+RUN apk add --no-cache strace gettext jq curl vim
+
+COPY build/sparkdreamd ${LOCAL}/bin/sparkdreamd
+
+CMD ["sparkdreamd", "start", "--home", "/root/.sparkdream"]

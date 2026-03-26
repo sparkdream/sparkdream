@@ -1,0 +1,60 @@
+---
+version: "2.0"
+services:
+  headscale:
+    image: headscale/headscale:v0.28.0
+    command:
+      - "serve"
+    expose:
+      - port: 8080
+        as: 8080
+        proto: tcp
+        to:
+          - global: true
+      - port: 3478
+        as: 3478
+        proto: udp
+        to:
+          - global: true
+    env:
+      # Set via entrypoint or config file
+      - "TZ=UTC"
+    params:
+      storage:
+        headscale-data:
+          mount: /var/lib/headscale
+          readOnly: false
+        headscale-config:
+          mount: /etc/headscale
+          readOnly: false
+profiles:
+  compute:
+    headscale:
+      resources:
+        cpu:
+          units: 0.5
+        memory:
+          size: 512Mi
+        storage:
+          - size: 1Gi
+          - name: headscale-data
+            size: 1Gi
+            attributes:
+              persistent: true
+              class: beta3
+          - name: headscale-config
+            size: 1Gi
+            attributes:
+              persistent: true
+              class: beta3
+  placement:
+    dcloud:
+      pricing:
+        headscale:
+          denom: uakt
+          amount: 50000
+deployment:
+  headscale:
+    dcloud:
+      profile: headscale
+      count: 1

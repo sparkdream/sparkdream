@@ -1,0 +1,67 @@
+---
+version: "2.0"
+services:
+  sparkdreamd:
+    image: sparkdreamnft/sparkdreamd-ssh:v1.0.1
+    expose:
+      # SSH for management
+      - port: 2222
+        as: 2222
+        proto: tcp
+        to:
+          - global: true
+      # P2P — public, so other nodes can join the network
+      - port: 26656
+        as: 26656
+        proto: tcp
+        to:
+          - global: true
+      # RPC — public, for users and light clients
+      - port: 26657
+        as: 26657
+        proto: tcp
+        to:
+          - global: true
+    env:
+      - "SSH_PUBLIC_KEY=ssh-ed25519 YOUR_PUBLIC_KEY_HERE"
+      # Headscale coordination server URL (provider:forwarded_port)
+      - "HEADSCALE_URL=http://HEADSCALE_PROVIDER:PORT"
+      # Pre-auth key from: headscale preauthkeys create --user sparkdream --reusable --expiration 8760h
+      - "TS_AUTHKEY=CHANGE_ME"
+      # Hostname for this node on the Tailscale mesh
+      - "TS_HOSTNAME=sentry"
+      # Tailscale state directory (on persistent storage)
+      - "TS_STATE_DIR=/root/.sparkdream/tailscale"
+      # Set to "true" for initial deploy to upload chain data
+      - "WAIT_FOR_CONFIG=true"
+    params:
+      storage:
+        data:
+          mount: /root/.sparkdream
+          readOnly: false
+profiles:
+  compute:
+    sparkdreamd:
+      resources:
+        cpu:
+          units: 1
+        memory:
+          size: 8Gi
+        storage:
+          - size: 2Gi
+          - name: data
+            size: 20Gi
+            attributes:
+              persistent: true
+              class: beta3
+  placement:
+    dcloud:
+      pricing:
+        sparkdreamd:
+          denom: uakt
+          amount: 100000
+deployment:
+  sparkdreamd:
+    dcloud:
+      profile: sparkdreamd
+      count: 1

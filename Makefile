@@ -117,4 +117,10 @@ build-with-checksum: build do-checksum
 
 build-with-checksum-test: build-test do-checksum
 
-.PHONY: build build-test do-checksum build-with-checksum build-with-checksum-test
+docker-build:
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd:$(VERSION) .
+
+docker-build-ssh:
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-ssh:$(VERSION) .
+
+.PHONY: build build-test do-checksum build-with-checksum build-with-checksum-test docker-build docker-build-ssh
