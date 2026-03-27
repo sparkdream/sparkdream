@@ -158,7 +158,7 @@ docker-build-testnet: build-testnet
 	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd-testnet:$(VERSION) .
 
 docker-build-mainnet: build-mainnet
-	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd:$(VERSION) .
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd-mainnet:$(VERSION) .
 
 .PHONY: docker-build docker-build-test docker-build-devnet docker-build-testnet docker-build-mainnet
 
@@ -169,15 +169,15 @@ docker-build-mainnet: build-mainnet
 docker-build-ssh: docker-build-test-ssh
 
 docker-build-test-ssh: docker-build-test
-	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-test-ssh:$(VERSION) .
+	docker build --build-arg BASE_IMAGE=sparkdreamnft/sparkdreamd-test:$(VERSION) -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-test-ssh:$(VERSION) .
 
 docker-build-devnet-ssh: docker-build-devnet
-	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-devnet-ssh:$(VERSION) .
+	docker build --build-arg BASE_IMAGE=sparkdreamnft/sparkdreamd-devnet:$(VERSION) -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-devnet-ssh:$(VERSION) .
 
 docker-build-testnet-ssh: docker-build-testnet
-	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-testnet-ssh:$(VERSION) .
+	docker build --build-arg BASE_IMAGE=sparkdreamnft/sparkdreamd-testnet:$(VERSION) -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-testnet-ssh:$(VERSION) .
 
-docker-build-mainnet-ssh:
-	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-ssh:$(VERSION) .
+docker-build-mainnet-ssh: docker-build-mainnet
+	docker build --build-arg BASE_IMAGE=sparkdreamnft/sparkdreamd-mainnet:$(VERSION) -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-mainnet-ssh:$(VERSION) .
 
 .PHONY: docker-build-ssh docker-build-test-ssh docker-build-devnet-ssh docker-build-testnet-ssh docker-build-mainnet-ssh

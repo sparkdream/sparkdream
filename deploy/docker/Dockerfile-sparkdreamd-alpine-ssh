@@ -1,5 +1,6 @@
-# Start FROM the current sparkdreamd node image
-FROM sparkdreamnft/sparkdreamd:v1.0.1
+# Start FROM the matching base sparkdreamd image (passed via --build-arg)
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
 
 # Install OpenSSH server and Tailscale
 RUN apk add --no-cache openssh-server tailscale

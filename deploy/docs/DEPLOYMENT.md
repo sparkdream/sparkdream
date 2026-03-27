@@ -15,17 +15,15 @@ Step-by-step guide to deploying a SparkDream validator with sentry architecture 
 Set `VERSION` to the latest release tag (check the repo's tags or releases):
 
 ```bash
-VERSION=v1.0.1  # replace with latest version
+VERSION=v1.0.0  # replace with latest version
+NETWORK=devnet  # devnet, testnet, or mainnet
 
-# Build base image
-docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd:$VERSION .
-
-# Build SSH + Tailscale image
-docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-ssh:$VERSION .
+# Build base image and SSH image
+make docker-build-${NETWORK}-ssh VERSION=$VERSION
 
 # Push to Docker Hub (or your registry)
-docker push sparkdreamnft/sparkdreamd:$VERSION
-docker push sparkdreamnft/sparkdreamd-ssh:$VERSION
+docker push sparkdreamnft/sparkdreamd-${NETWORK}:$VERSION
+docker push sparkdreamnft/sparkdreamd-${NETWORK}-ssh:$VERSION
 ```
 
 ## Phase 2: Deploy Headscale Coordination Server
@@ -33,7 +31,7 @@ docker push sparkdreamnft/sparkdreamd-ssh:$VERSION
 Headscale manages the encrypted mesh network between your nodes.
 Deploy it on a **different Akash provider** than your validator and sentry.
 
-1. Edit `akash/headscale.sdl.yaml` — no changes needed for initial deploy
+1. Edit `mesh/headscale.sdl.yaml` — no changes needed for initial deploy
 2. Deploy via Akash Console
 3. Note the provider address and forwarded port for 8080 (e.g., `provider.example.com:31234`)
 4. Access the Akash shell and create the config:
@@ -91,7 +89,7 @@ tar czf validator-data.tgz -C ~/.sparkdream .
 
 ## Phase 4: Deploy Validator
 
-1. Edit `akash/validator.sdl.yaml`:
+1. Edit `config/network/<network>/validator.sdl.yaml` (e.g., `devnet/validator.sdl.yaml`):
    - Set your `SSH_PUBLIC_KEY`
    - Set `HEADSCALE_URL` to your Headscale address
    - Set `TS_AUTHKEY` to VALIDATOR_AUTHKEY
@@ -149,7 +147,7 @@ envsubst < deploy/config/template/app.toml.sentry     > ~/.sparkdream-sentry/con
 envsubst < deploy/config/template/client.toml.sentry  > ~/.sparkdream-sentry/config/client.toml
 ```
 
-3. Edit `akash/sentry.sdl.yaml`:
+3. Edit `config/network/<network>/sentry.sdl.yaml`:
    - Set your `SSH_PUBLIC_KEY`
    - Set `HEADSCALE_URL`
    - Set `TS_AUTHKEY` to SENTRY_AUTHKEY

@@ -42,11 +42,11 @@ make docker-build-ssh
 #    See docs/headscale-setup.md
 
 # 3. Deploy the validator
-#    Edit akash/validator.sdl.yaml with your keys and Headscale URL
+#    Edit config/network/devnet/validator.sdl.yaml with your keys and Headscale URL
 #    Deploy via Akash console or CLI
 
 # 4. Deploy the sentry
-#    Edit akash/sentry.sdl.yaml
+#    Edit config/network/devnet/sentry.sdl.yaml
 #    Deploy on a DIFFERENT Akash provider than the validator
 
 # 5. Connect home LAN nodes
@@ -63,11 +63,6 @@ deploy/
 │   ├── Dockerfile-sparkdreamd-alpine-ssh    SSH + Tailscale enabled image
 │   └── entrypoint_ssh.sh                    SSH + Tailscale container entrypoint script
 │
-├── akash/                      Akash SDL deployment files
-│   ├── validator.sdl.yaml      Validator (no public ports)
-│   ├── sentry.sdl.yaml         Sentry (public P2P + RPC)
-│   └── headscale.sdl.yaml      Headscale coordination server
-│
 ├── config/
 │   ├── template/               Role-based config templates (use envsubst)
 │   │   ├── config.toml.validator
@@ -76,13 +71,23 @@ deploy/
 │   │   ├── app.toml.sentry
 │   │   ├── client.toml.validator
 │   │   └── client.toml.sentry
-│   └── network/                Per-network chain parameters
-│       ├── mainnet/chain.env
-│       ├── testnet/chain.env
-│       └── devnet/chain.env
+│   └── network/                Per-network chain parameters and Akash SDLs
+│       ├── devnet/
+│       │   ├── chain.env
+│       │   ├── validator.sdl.yaml
+│       │   └── sentry.sdl.yaml
+│       ├── testnet/
+│       │   ├── chain.env
+│       │   ├── validator.sdl.yaml
+│       │   └── sentry.sdl.yaml
+│       └── mainnet/
+│           ├── chain.env
+│           ├── validator.sdl.yaml
+│           └── sentry.sdl.yaml
 │
 ├── mesh/                       Private networking
-│   └── headscale-config.yaml   Headscale server configuration
+│   ├── headscale-config.yaml   Headscale server configuration
+│   └── headscale.sdl.yaml     Headscale Akash SDL (infrastructure, not network-specific)
 │
 ├── scripts/                    Operational scripts
 │   ├── block-archiver.sh       Incremental block archival via RPC
