@@ -69,7 +69,7 @@ If starting a new chain:
 
 ```bash
 # On your local machine
-source deploy/config/network/mainnet/chain.env
+source deploy/config/network/$NETWORK/chain.env
 sparkdreamd init validator --chain-id "$CHAIN_ID" --home ~/.sparkdream
 # Configure genesis, add accounts, create gentx, etc.
 ```
@@ -78,7 +78,7 @@ If joining an existing chain:
 
 ```bash
 # Get genesis from the repo or another operator
-cp deploy/config/network/mainnet/genesis.json ~/.sparkdream/config/genesis.json
+cp deploy/config/network/$NETWORK/genesis.json ~/.sparkdream/config/genesis.json
 ```
 
 Package the chain data for upload:
@@ -133,15 +133,15 @@ sparkdreamd start --home /root/.sparkdream
 1. Initialize sentry chain data on your local machine:
 
 ```bash
-source deploy/config/network/mainnet/chain.env
+source deploy/config/network/$NETWORK/chain.env
 sparkdreamd init sentry --chain-id "$CHAIN_ID" --home ~/.sparkdream-sentry
-cp deploy/config/network/mainnet/genesis.json ~/.sparkdream-sentry/config/genesis.json
+cp deploy/config/network/$NETWORK/genesis.json ~/.sparkdream-sentry/config/genesis.json
 ```
 
 2. Apply the sentry config templates via `envsubst`:
 
 ```bash
-source deploy/config/network/mainnet/chain.env
+source deploy/config/network/$NETWORK/chain.env
 envsubst < deploy/config/template/config.toml.sentry  > ~/.sparkdream-sentry/config/config.toml
 envsubst < deploy/config/template/app.toml.sentry     > ~/.sparkdream-sentry/config/app.toml
 envsubst < deploy/config/template/client.toml.sentry  > ~/.sparkdream-sentry/config/client.toml
@@ -182,7 +182,7 @@ Update the peer variables in your `chain.env` (or export them directly), then re
 **On the validator**:
 
 ```bash
-source deploy/config/network/mainnet/chain.env
+source deploy/config/network/$NETWORK/chain.env
 export SENTRY_NODE_ID="def456..."
 export SENTRY_HOST="100.64.0.2"
 export SENTRY_PORT="26656"
@@ -194,7 +194,7 @@ envsubst < deploy/config/template/client.toml.validator > /root/.sparkdream/conf
 **On the sentry**:
 
 ```bash
-source deploy/config/network/mainnet/chain.env
+source deploy/config/network/$NETWORK/chain.env
 export VALIDATOR_NODE_ID="abc123..."
 export VALIDATOR_HOST="100.64.0.1"
 export VALIDATOR_PORT="26656"
@@ -240,9 +240,9 @@ chain_id = "sparkdream-1"  # match your CHAIN_ID from chain.env
 On a machine with sufficient storage:
 
 ```bash
-source deploy/config/network/mainnet/chain.env
+source deploy/config/network/$NETWORK/chain.env
 sparkdreamd init archive --chain-id "$CHAIN_ID" --home ~/.sparkdream
-cp deploy/config/network/mainnet/genesis.json ~/.sparkdream/config/genesis.json
+cp deploy/config/network/$NETWORK/genesis.json ~/.sparkdream/config/genesis.json
 
 # Set pruning to nothing for full history
 sed -i 's/^pruning *=.*/pruning = "nothing"/' ~/.sparkdream/config/app.toml
