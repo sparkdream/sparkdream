@@ -1,5 +1,5 @@
 # Start FROM the matching base sparkdreamd image (passed via --build-arg)
-ARG BASE_IMAGE
+ARG BASE_IMAGE=sparkdreamnft/sparkdreamd-devnet:latest
 FROM ${BASE_IMAGE}
 
 # Install OpenSSH server and Tailscale
