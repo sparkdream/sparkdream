@@ -31,18 +31,32 @@ if [ -n "$HEADSCALE_URL" ] && [ -n "$TS_AUTHKEY" ]; then
     mkdir -p "$TS_STATE_DIR"
 
     # Start tailscaled in userspace networking mode (no TUN device needed)
+    TS_SOCKET="${TS_STATE_DIR}/tailscaled.sock"
+
+    # Remove stale socket so tailscaled can bind cleanly, but preserve
+    # tailscaled.state — that file holds the node identity and stable IP.
+    rm -f "$TS_SOCKET"
+
     tailscaled \
         --tun=userspace-networking \
         --state="${TS_STATE_DIR}/tailscaled.state" \
-        --socket="${TS_STATE_DIR}/tailscaled.sock" \
+        --socket="${TS_SOCKET}" \
         &>/var/log/tailscaled.log &
+    TAILSCALED_PID=$!
 
-    # Wait for daemon to be ready
-    sleep 3
+    # Wait for daemon to be ready by testing the socket is alive, not just present.
+    # This avoids the stale-socket race on persistent storage.
+    echo "Waiting for tailscaled..."
+    for i in $(seq 1 30); do
+        tailscale --socket="$TS_SOCKET" status &>/dev/null && break
+        # Also check tailscaled hasn't exited
+        kill -0 $TAILSCALED_PID 2>/dev/null || { echo "ERROR: tailscaled exited. Check /var/log/tailscaled.log"; break; }
+        sleep 1
+    done
 
     # Join the Headscale network
     TS_HOSTNAME="${TS_HOSTNAME:-sparkdream-node}"
-    tailscale up \
+    tailscale --socket="$TS_SOCKET" up \
         --login-server="$HEADSCALE_URL" \
         --authkey="$TS_AUTHKEY" \
         --hostname="$TS_HOSTNAME" \
@@ -51,8 +65,29 @@ if [ -n "$HEADSCALE_URL" ] && [ -n "$TS_AUTHKEY" ]; then
         || echo "WARNING: Tailscale failed to connect"
 
     # Show Tailscale IP for reference
-    TS_IP=$(tailscale ip -4 2>/dev/null || echo "unknown")
+    TS_IP=$(tailscale --socket="$TS_SOCKET" ip -4 2>/dev/null || echo "unknown")
     echo "Tailscale IP: ${TS_IP}"
+
+    # 5b. Set up socat TCP tunnels for Tailscale userspace networking.
+    # Akash containers lack NET_ADMIN, so tailscaled runs in userspace mode where
+    # the Tailscale IP is not a real kernel interface. Other Tailscale nodes cannot
+    # connect to local TCP ports via the Tailscale IP directly. socat bridges this
+    # by forwarding a local port through "tailscale nc" which uses the userspace stack.
+    #
+    # TS_TUNNEL_* env vars define tunnels as "local_port:remote_tailscale_ip:remote_port"
+    # Example: TS_TUNNEL_1="16656:100.64.0.10:26656" forwards localhost:16656 to
+    #          the validator's 26656 via Tailscale.
+    for var in $(env | grep '^TS_TUNNEL_' | sort); do
+        TUNNEL_SPEC="${var#*=}"
+        LOCAL_PORT=$(echo "$TUNNEL_SPEC" | cut -d: -f1)
+        REMOTE_IP=$(echo "$TUNNEL_SPEC" | cut -d: -f2)
+        REMOTE_PORT=$(echo "$TUNNEL_SPEC" | cut -d: -f3)
+        if [ -n "$LOCAL_PORT" ] && [ -n "$REMOTE_IP" ] && [ -n "$REMOTE_PORT" ]; then
+            echo "Tailscale tunnel: localhost:${LOCAL_PORT} -> ${REMOTE_IP}:${REMOTE_PORT}"
+            socat TCP-LISTEN:${LOCAL_PORT},fork,reuseaddr \
+                EXEC:"tailscale --socket=${TS_SOCKET} nc ${REMOTE_IP} ${REMOTE_PORT}" &
+        fi
+    done
 elif [ -n "$HEADSCALE_URL" ] || [ -n "$TS_AUTHKEY" ]; then
     echo "WARNING: Both HEADSCALE_URL and TS_AUTHKEY must be set for Tailscale. Skipping."
 else
@@ -70,7 +105,7 @@ if [ "${WAIT_FOR_CONFIG}" = "true" ]; then
     echo ""
     if [ -n "$HEADSCALE_URL" ]; then
         echo "Tailscale status:"
-        tailscale status 2>/dev/null || echo "  (not connected)"
+        tailscale --socket="${TS_STATE_DIR}/tailscaled.sock" status 2>/dev/null || echo "  (not connected)"
         echo ""
     fi
     echo "Once ready, either:"

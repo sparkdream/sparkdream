@@ -2,7 +2,7 @@
 version: "2.0"
 services:
   sparkdreamd:
-    image: sparkdreamnft/sparkdreamd-devnet-ssh:v1.0.0
+    image: sparkdreamnft/sparkdreamd-devnet-ssh:v1.0.0d
     expose:
       # SSH for management
       - port: 2222
@@ -32,6 +32,11 @@ services:
       - "TS_HOSTNAME=sentry"
       # Tailscale state directory (on persistent storage)
       - "TS_STATE_DIR=/root/.sparkdream/tailscale"
+      # Tailscale TCP tunnels (userspace networking can't bind to Tailscale IPs)
+      # Format: local_port:remote_tailscale_ip:remote_port
+      # The sentry connects to the validator's P2P port via this tunnel.
+      # Update persistent_peers in config.toml to use 127.0.0.1:16656 instead of the Tailscale IP.
+      - "TS_TUNNEL_1=16656:100.64.0.10:26656"
       # Set to "true" for initial deploy to upload chain data
       - "WAIT_FOR_CONFIG=true"
     params:
@@ -58,7 +63,7 @@ profiles:
     dcloud:
       pricing:
         sparkdreamd:
-          denom: uakt
+          denom: uact
           amount: 100000
 deployment:
   sparkdreamd:

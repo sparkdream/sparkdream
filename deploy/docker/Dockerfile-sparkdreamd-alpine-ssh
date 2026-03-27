@@ -2,8 +2,8 @@
 ARG BASE_IMAGE=sparkdreamnft/sparkdreamd-devnet:latest
 FROM ${BASE_IMAGE}
 
-# Install OpenSSH server and Tailscale
-RUN apk add --no-cache openssh-server tailscale
+# Install OpenSSH server, Tailscale, and socat (for TCP tunneling over Tailscale userspace networking)
+RUN apk add --no-cache openssh-server tailscale socat
 
 # Configure SSHd for key-only login (handles both commented and uncommented lines)
 RUN ssh-keygen -A && \

@@ -2,7 +2,7 @@
 version: "2.0"
 services:
   sparkdreamd:
-    image: sparkdreamnft/sparkdreamd-testnet-ssh:v1.0.0
+    image: sparkdreamnft/sparkdreamd-testnet-ssh:v1.0.0d
     expose:
       # SSH for emergency access (can be removed once Tailscale SSH works)
       - port: 2222
@@ -47,7 +47,7 @@ profiles:
     dcloud:
       pricing:
         sparkdreamd:
-          denom: uakt
+          denom: uact
           amount: 100000
 deployment:
   sparkdreamd:

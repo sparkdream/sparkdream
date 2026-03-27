@@ -1,0 +1,15 @@
+FROM headscale/headscale:v0.28.0 AS headscale
+
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata curl vim
+
+COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
+
+COPY headscale-config.yaml /opt/headscale/default-config.yaml
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8080 3478/udp 9090 50443
+
+ENTRYPOINT ["/bin/sh", "/entrypoint.sh"]

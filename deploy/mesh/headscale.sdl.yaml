@@ -2,9 +2,7 @@
 version: "2.0"
 services:
   headscale:
-    image: headscale/headscale:v0.28.0
-    command:
-      - "serve"
+    image: sparkdreamnft/headscale:v0.28.0
     expose:
       - port: 8080
         as: 8080
@@ -17,8 +15,7 @@ services:
         to:
           - global: true
     env:
-      # Set via entrypoint or config file
-      - "TZ=UTC"
+      - TZ=UTC
     params:
       storage:
         headscale-data:
@@ -51,7 +48,7 @@ profiles:
     dcloud:
       pricing:
         headscale:
-          denom: uakt
+          denom: uact
           amount: 50000
 deployment:
   headscale:

@@ -15,7 +15,7 @@ Step-by-step guide to deploying a SparkDream validator with sentry architecture 
 Set `VERSION` to the latest release tag (check the repo's tags or releases):
 
 ```bash
-VERSION=v1.0.0  # replace with latest version
+VERSION=v1.0.0d  # replace with latest version
 NETWORK=devnet  # devnet, testnet, or mainnet
 
 # Build base image and SSH image
@@ -31,35 +31,59 @@ docker push sparkdreamnft/sparkdreamd-${NETWORK}-ssh:$VERSION
 Headscale manages the encrypted mesh network between your nodes.
 Deploy it on a **different Akash provider** than your validator and sentry.
 
-1. Edit `mesh/headscale.sdl.yaml` — no changes needed for initial deploy
-2. Deploy via Akash Console
-3. Note the provider address and forwarded port for 8080 (e.g., `provider.example.com:31234`)
-4. Access the Akash shell and create the config:
+### Files
+
+| File | Purpose |
+|------|---------|
+| `mesh/Dockerfile-headscale-alpine` | Multi-stage Dockerfile (Alpine + official Headscale binary) |
+| `mesh/headscale-config.yaml` | Default Headscale config bundled into the image |
+| `mesh/entrypoint.sh` | Copies default config on first run, then exec's `headscale serve` |
+| `mesh/headscale.sdl.yaml` | Akash SDL for deploying the image |
+
+### Build and Push the Headscale Image
 
 ```bash
-# Update server_url with actual address
-cat > /etc/headscale/config.yaml << 'EOF'
-# paste contents of mesh/headscale-config.yaml
-EOF
-sed -i 's|CHANGE_ME:8080|provider.example.com:31234|' /etc/headscale/config.yaml
+docker build \
+  -f deploy/mesh/Dockerfile-headscale-alpine \
+  -t sparkdreamnft/headscale:v0.28.0 \
+  deploy/mesh/
+
+docker push sparkdreamnft/headscale:v0.28.0
 ```
 
-5. Restart the deployment for config to take effect
-6. Create user and pre-auth keys:
+The build context is `deploy/mesh/` so both `headscale-config.yaml` and `entrypoint.sh` are picked up from that directory. To customize the default config before building, edit `mesh/headscale-config.yaml` — it is baked into the image at `/opt/headscale/default-config.yaml` and copied to `/etc/headscale/config.yaml` on first boot only.
+
+To bump the Headscale version, update the `FROM headscale/headscale:<version>` line in the Dockerfile and the image tag.
+
+### Deploy and Configure
+
+1. Deploy `mesh/headscale.sdl.yaml` via Akash Console (no changes needed for initial deploy)
+2. Note the provider address and forwarded port for 8080 (e.g., `provider.example.com:31234`)
+3. Access the Akash shell and update the config:
+
+```bash
+sed -i 's|http://CHANGE_ME:8080|http://provider.example.com:31234|' \
+  /etc/headscale/config.yaml
+```
+
+4. Restart the deployment for config to take effect (on subsequent restarts the existing config is preserved since the entrypoint only copies the default when no config exists)
+5. Create user and pre-auth keys:
 
 ```bash
 headscale users create sparkdream
+# Note the numeric user ID from:
+headscale users list
 
-# Validator key
-headscale preauthkeys create --user sparkdream --reusable --expiration 8760h
+# Validator key (replace <USER_ID> with the numeric ID from above)
+headscale preauthkeys create --user <USER_ID> --reusable --expiration 8760h
 # Save output as VALIDATOR_AUTHKEY
 
 # Sentry key
-headscale preauthkeys create --user sparkdream --reusable --expiration 8760h
+headscale preauthkeys create --user <USER_ID> --reusable --expiration 8760h
 # Save output as SENTRY_AUTHKEY
 
 # Home LAN key
-headscale preauthkeys create --user sparkdream --reusable --expiration 8760h
+headscale preauthkeys create --user <USER_ID> --reusable --expiration 8760h
 # Save output as HOME_AUTHKEY
 ```
 
@@ -113,8 +137,9 @@ rm validator-data.tgz
 4. Verify Tailscale is connected:
 
 ```bash
-tailscale status
-tailscale ip -4
+# Inside Akash containers, tailscaled uses a custom socket path
+tailscale --socket=$TS_STATE_DIR/tailscaled.sock status
+tailscale --socket=$TS_STATE_DIR/tailscaled.sock ip -4
 # Note the validator's Tailscale IP (e.g., 100.64.0.1)
 ```
 
@@ -151,16 +176,33 @@ envsubst < deploy/config/template/client.toml.sentry  > ~/.sparkdream-sentry/con
    - Set your `SSH_PUBLIC_KEY`
    - Set `HEADSCALE_URL`
    - Set `TS_AUTHKEY` to SENTRY_AUTHKEY
+   - Set `TS_TUNNEL_1` to `16656:<validator_tailscale_ip>:26656`
    - Set `WAIT_FOR_CONFIG=true`
 
-4. Deploy on Akash (different provider than validator and Headscale)
-
-5. Upload sentry data, SSH in, verify Tailscale:
+4. **Important**: Update `persistent_peers` in the sentry's `config.toml` to use the local
+   tunnel instead of the Tailscale IP directly. Akash containers run Tailscale in userspace
+   networking mode (no `NET_ADMIN` capability), so the Tailscale IP is not a real kernel
+   interface. TCP connections between containers are tunneled via `socat` + `tailscale nc`:
 
 ```bash
-tailscale status
-tailscale ip -4
-# Note sentry's Tailscale IP (e.g., 100.64.0.2)
+# In the sentry's config.toml, use 127.0.0.1:16656 (the local socat tunnel)
+# instead of <tailscale_ip>:26656
+persistent_peers = "<validator_node_id>@127.0.0.1:16656"
+```
+
+5. Deploy on Akash (different provider than validator and Headscale)
+
+6. Upload sentry data, SSH in, verify Tailscale and tunnel:
+
+```bash
+# Verify Tailscale is connected
+tailscale --socket=$TS_STATE_DIR/tailscaled.sock status
+
+# Verify the tunnel is listening
+netstat -tlnp | grep 16656
+
+# Test the tunnel reaches the validator
+nc -zv 127.0.0.1 16656
 ```
 
 ## Phase 6: Configure Peering Over Tailscale
@@ -191,22 +233,25 @@ envsubst < deploy/config/template/app.toml.validator    > /root/.sparkdream/conf
 envsubst < deploy/config/template/client.toml.validator > /root/.sparkdream/config/client.toml
 ```
 
-**On the sentry**:
+**On the sentry** — use the local socat tunnel (127.0.0.1:16656), not the Tailscale IP directly:
 
 ```bash
 source deploy/config/network/$NETWORK/chain.env
 export VALIDATOR_NODE_ID="abc123..."
-export VALIDATOR_HOST="100.64.0.1"
-export VALIDATOR_PORT="26656"
+export VALIDATOR_HOST="127.0.0.1"
+export VALIDATOR_PORT="16656"
 envsubst < deploy/config/template/config.toml.sentry > /root/.sparkdream/config/config.toml
 envsubst < deploy/config/template/app.toml.sentry    > /root/.sparkdream/config/app.toml
 envsubst < deploy/config/template/client.toml.sentry > /root/.sparkdream/config/client.toml
 ```
 
-**On the validator** — bind TMKMS listener to Tailscale IP only:
+**On the validator** — bind TMKMS listener to all interfaces (Tailscale userspace networking
+doesn't create a kernel interface, so binding to a specific Tailscale IP will fail with
+"cannot assign requested address". Port 26659 is not in the SDL `expose` block, so it is
+only reachable via Tailscale):
 
 ```bash
-sed -i 's|^priv_validator_laddr.*|priv_validator_laddr = "tcp://100.64.0.1:26659"|' \
+sed -i 's|^priv_validator_laddr.*|priv_validator_laddr = "tcp://0.0.0.0:26659"|' \
   /root/.sparkdream/config/config.toml
 ```
 
@@ -247,8 +292,9 @@ cp deploy/config/network/$NETWORK/genesis.json ~/.sparkdream/config/genesis.json
 # Set pruning to nothing for full history
 sed -i 's/^pruning *=.*/pruning = "nothing"/' ~/.sparkdream/config/app.toml
 
-# Peer with validator over Tailscale
-sed -i 's|^persistent_peers.*|persistent_peers = "abc123...@100.64.0.1:26656"|' \
+# Peer with validator over Tailscale (home machines use kernel Tailscale with
+# a real TUN interface, so they can connect directly to Tailscale IPs — no tunnel needed)
+sed -i 's|^persistent_peers.*|persistent_peers = "abc123...@<validator_tailscale_ip>:26656"|' \
   ~/.sparkdream/config/config.toml
 
 # Join the mesh
@@ -309,12 +355,19 @@ The container restarts automatically on Akash. To force a restart,
 update the SDL (even a comment change) and redeploy. Persistent
 storage survives redeployments on the same provider.
 
-### Updating the binary
+### Updating the sparkdreamd binary
 
 1. Build new Docker image with updated sparkdreamd
 2. Push to registry
 3. Update image tag in SDL
 4. Redeploy
+
+### Updating Headscale
+
+1. Update the `FROM headscale/headscale:<version>` line in `mesh/Dockerfile-headscale-alpine`
+2. Rebuild and push: `docker build -f deploy/mesh/Dockerfile-headscale-alpine -t sparkdreamnft/headscale:<version> deploy/mesh/ && docker push sparkdreamnft/headscale:<version>`
+3. Update the `image:` field in `mesh/headscale.sdl.yaml`
+4. Redeploy — persistent volumes retain the config and SQLite database
 
 ### Rotating Tailscale keys
 
@@ -325,7 +378,8 @@ update the SDL env var, and redeploy.
 ### Monitoring
 
 - Check node status: `curl http://<sentry>:<rpc_port>/status | jq .result.sync_info`
-- Check mesh health: `tailscale status` from any node
+- Check mesh health: `tailscale --socket=$TS_STATE_DIR/tailscaled.sock status` on Akash containers
+- Check tunnels: `netstat -tlnp | grep socat` on Akash containers
 - Check storage: `du -sh /root/.sparkdream/data/*/` via SSH
 
 ### Disaster Recovery
