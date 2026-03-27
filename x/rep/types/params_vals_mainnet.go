@@ -1,4 +1,4 @@
-//go:build !testparams
+//go:build mainnet
 
 package types
 
@@ -6,8 +6,8 @@ import (
 	"cosmossdk.io/math"
 )
 
-// Production values for trust level configuration.
-// To use relaxed testing values, build with: go build -tags testparams
+// Mainnet values for trust level configuration.
+// Build with: go build -tags mainnet
 func getTrustLevelConfig() TrustLevelConfig {
 	return TrustLevelConfig{
 		ProvisionalMinRep:            math.LegacyNewDec(50),

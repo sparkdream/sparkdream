@@ -1,11 +1,11 @@
-//go:build !testparams
+//go:build mainnet
 
 package keeper
 
 import "time"
 
-// Production values for genesis bootstrap.
-// To use relaxed testing values, build with: go build -tags testparams
+// Mainnet values for genesis bootstrap.
+// Build with: go build -tags mainnet
 
 var GenesisNames = map[string]string{
 	// Populate with mainnet genesis addresses before launch.

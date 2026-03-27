@@ -1,4 +1,4 @@
-//go:build testparams
+//go:build !mainnet && !testnet && !devnet
 
 package types
 
@@ -7,7 +7,7 @@ import (
 )
 
 // Testing values — adjusted for faster epoch cycles during integration tests.
-// Build with: go build -tags testparams
+// This is the default when no build tag is specified, or with: go build -tags testparams
 func getShieldGenesisParams() Params {
 	return Params{
 		Enabled:                     true,

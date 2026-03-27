@@ -104,23 +104,80 @@ govulncheck:
 
 .PHONY: govet govulncheck
 
-build:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+
+###############
+###  Build  ###
+###############
+
+# Default build uses testparams for integration testing.
+# Use build-devnet, build-testnet, or build-mainnet for other environments.
+build: build-test
 
 build-test:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags testparams -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
 
+build-devnet:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags devnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+
+build-testnet:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags testnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+
+build-mainnet:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags mainnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+
+.PHONY: build build-test build-devnet build-testnet build-mainnet
+
+##################
+###  Checksum  ###
+##################
+
 do-checksum:
 	cd build && sha256sum sparkdreamd > sparkdreamd-checksum
 
-build-with-checksum: build do-checksum
-
+build-with-checksum: build-with-checksum-test
 build-with-checksum-test: build-test do-checksum
+build-with-checksum-devnet: build-devnet do-checksum
+build-with-checksum-testnet: build-testnet do-checksum
+build-with-checksum-mainnet: build-mainnet do-checksum
 
-docker-build:
+.PHONY: do-checksum build-with-checksum build-with-checksum-test build-with-checksum-devnet build-with-checksum-testnet build-with-checksum-mainnet
+
+################
+###  Docker  ###
+################
+
+docker-build: docker-build-test
+
+docker-build-test: build-test
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd-test:$(VERSION) .
+
+docker-build-devnet: build-devnet
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd-devnet:$(VERSION) .
+
+docker-build-testnet: build-testnet
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd-testnet:$(VERSION) .
+
+docker-build-mainnet: build-mainnet
 	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine -t sparkdreamnft/sparkdreamd:$(VERSION) .
 
-docker-build-ssh:
+.PHONY: docker-build docker-build-test docker-build-devnet docker-build-testnet docker-build-mainnet
+
+######################
+###  Docker + SSH  ###
+######################
+
+docker-build-ssh: docker-build-test-ssh
+
+docker-build-test-ssh: docker-build-test
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-test-ssh:$(VERSION) .
+
+docker-build-devnet-ssh: docker-build-devnet
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-devnet-ssh:$(VERSION) .
+
+docker-build-testnet-ssh: docker-build-testnet
+	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-testnet-ssh:$(VERSION) .
+
+docker-build-mainnet-ssh:
 	docker build -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-ssh:$(VERSION) .
 
-.PHONY: build build-test do-checksum build-with-checksum build-with-checksum-test docker-build docker-build-ssh
+.PHONY: docker-build-ssh docker-build-test-ssh docker-build-devnet-ssh docker-build-testnet-ssh docker-build-mainnet-ssh

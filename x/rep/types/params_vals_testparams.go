@@ -1,4 +1,4 @@
-//go:build testparams
+//go:build !mainnet && !testnet && !devnet
 
 package types
 
@@ -7,7 +7,7 @@ import (
 )
 
 // Testing values — reduced for faster trust level progression during integration tests.
-// Build with: go build -tags testparams
+// This is the default when no build tag is specified, or with: go build -tags testparams
 func getTrustLevelConfig() TrustLevelConfig {
 	return TrustLevelConfig{
 		ProvisionalMinRep:            math.LegacyNewDec(10),  // production: 50

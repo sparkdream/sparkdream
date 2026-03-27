@@ -1,4 +1,4 @@
-//go:build !testparams
+//go:build mainnet
 
 package types
 
@@ -6,8 +6,8 @@ import (
 	"cosmossdk.io/math"
 )
 
-// Production values for shield genesis params.
-// To use relaxed testing values, build with: go build -tags testparams
+// Mainnet values for shield genesis params.
+// Build with: go build -tags mainnet
 func getShieldGenesisParams() Params {
 	return Params{
 		Enabled:                     true,

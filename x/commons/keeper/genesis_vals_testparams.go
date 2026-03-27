@@ -1,11 +1,11 @@
-//go:build testparams
+//go:build !mainnet && !testnet && !devnet
 
 package keeper
 
 import "time"
 
 // Testing values — reduced for faster governance during integration tests.
-// Build with: go build -tags testparams
+// This is the default when no build tag is specified, or with: go build -tags testparams
 
 var GenesisNames = map[string]string{
 	"sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan": "Alice",
