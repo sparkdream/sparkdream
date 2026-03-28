@@ -245,13 +245,25 @@ envsubst < deploy/config/template/app.toml.sentry    > /root/.sparkdream/config/
 envsubst < deploy/config/template/client.toml.sentry > /root/.sparkdream/config/client.toml
 ```
 
-**On the validator** — bind TMKMS listener to all interfaces (Tailscale userspace networking
-doesn't create a kernel interface, so binding to a specific Tailscale IP will fail with
-"cannot assign requested address". Port 26659 is not in the SDL `expose` block, so it is
-only reachable via Tailscale):
+**On the validator** — two critical config changes for Tailscale userspace networking:
+
+1. Bind TMKMS listener to all interfaces (Tailscale userspace networking doesn't create a
+   kernel interface, so binding to a specific Tailscale IP will fail with "cannot assign
+   requested address". Port 26659 is not in the SDL `expose` block, so it is only reachable
+   via Tailscale):
 
 ```bash
 sed -i 's|^priv_validator_laddr.*|priv_validator_laddr = "tcp://0.0.0.0:26659"|' \
+  /root/.sparkdream/config/config.toml
+```
+
+2. Allow duplicate IPs. Because sentries connect through socat tunnels, the validator sees
+   all inbound sentry connections as coming from `127.0.0.1`. CometBFT deduplicates by
+   remote IP by default, so only the first sentry can connect. This setting allows multiple
+   peers from the same IP:
+
+```bash
+sed -i 's|^allow_duplicate_ip = .*|allow_duplicate_ip = true|' \
   /root/.sparkdream/config/config.toml
 ```
 
