@@ -108,7 +108,11 @@ echo ""
 FROM=$NEXT_HEIGHT
 
 while [ "$FROM" -le "$CURRENT_HEIGHT" ]; do
-    TO=$(( FROM + BATCH_SIZE - 1 ))
+    # Align TO to the next clean BATCH_SIZE boundary (e.g., 10000, 20000, ...).
+    # If FROM is mid-boundary (e.g., 42081), the first batch will be smaller
+    # to "catch up" (42081-50000), then subsequent batches resume clean alignment.
+    NEXT_BOUNDARY=$(( ((FROM - 1) / BATCH_SIZE + 1) * BATCH_SIZE ))
+    TO=$NEXT_BOUNDARY
     if [ "$TO" -gt "$CURRENT_HEIGHT" ]; then
         TO=$CURRENT_HEIGHT
     fi
