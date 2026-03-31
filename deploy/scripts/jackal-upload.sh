@@ -55,6 +55,12 @@
 #   List vault folders:
 #     ./sparkdream-jackal-upload.sh list-folders
 #
+#   Rebuild manifest from remote (vault mode only).
+#   Useful when an upload timed out but the files were actually stored
+#   on the remote server — reconciles the local manifest and tracker
+#   with what is actually present in the vault:
+#     ./sparkdream-jackal-upload.sh fix-manifest [archive_directory]
+#
 # Environment variables:
 #   JACKAL_MODE       - Upload mode: "vault" or "pin" (default: auto-detect)
 #   JACKAL_MNEMONIC   - 24-word wallet mnemonic (vault mode)
@@ -157,6 +163,103 @@ const target = process.argv[1];
 })().catch(err => { console.error('Error: ' + err.message); process.exit(1); });
 " "$FOLDER_NAME"
     exit $?
+fi
+
+if [ "$1" = "fix-manifest" ]; then
+    FIX_ARCHIVE_DIR="${2:-${ARCHIVE_DIR:-./sparkdream-archives}}"
+    FIX_MANIFEST="${MANIFEST_FILE:-${FIX_ARCHIVE_DIR}/jackal-manifest.csv}"
+    FIX_UPLOADED="${UPLOADED_FILE:-${FIX_ARCHIVE_DIR}/.jackal-uploaded}"
+    JACKAL_FOLDER="${JACKAL_FOLDER:-sparkdream-archives}"
+
+    if [ -z "$JACKAL_MNEMONIC" ]; then
+        echo "ERROR: JACKAL_MNEMONIC is required (fix-manifest is vault mode only)." >&2
+        exit 1
+    fi
+    export JACKAL_RPC="${JACKAL_RPC:-https://rpc.jackalprotocol.com}"
+    export JACKAL_REST="${JACKAL_REST:-https://api.jackalprotocol.com}"
+    export NODE_PATH="${NODE_PATH:+${NODE_PATH}:}$(npm root -g)"
+
+    echo "Connecting to Jackal vault to list remote files..."
+    echo "Folder: Home/${JACKAL_FOLDER}"
+    echo ""
+
+    REMOTE_FILES=$(JACKAL_FOLDER="$JACKAL_FOLDER" node -e "
+// Redirect all console output to stderr so SDK debug noise does not
+// mix with our clean filename output on stdout.
+const _stderr = process.stderr;
+['log','warn','dir','error','info','debug'].forEach(m => {
+    console[m] = (...args) => { _stderr.write(require('util').format(...args) + '\n'); };
+});
+
+${JACKAL_VAULT_JS}
+const folder = process.env.JACKAL_FOLDER || 'sparkdream-archives';
+(async () => {
+    const storage = await connectStorage();
+    if (folder !== 'Home') {
+        const existing = storage.listChildFolders();
+        if (!existing.includes(folder)) {
+            console.error('ERROR: Folder \"' + folder + '\" does not exist on the vault.');
+            process.exit(1);
+        }
+        await storage.loadDirectory({ path: 'Home/' + folder });
+    }
+    const files = storage.listChildFiles();
+    for (const f of files) {
+        // Only output block archive files
+        if (/^blocks_\d+_to_\d+\.jsonl\.gz$/.test(f)) {
+            process.stdout.write(f + '\n');
+        }
+    }
+    process.exit(0);
+})().catch(err => { console.error('Error: ' + err.message); process.exit(1); });
+") || {
+        echo "ERROR: Failed to list remote files." >&2
+        exit 1
+    }
+
+    if [ -z "$REMOTE_FILES" ]; then
+        echo "No block archive files found in vault folder."
+        exit 0
+    fi
+
+    # Rebuild manifest and uploaded tracker
+    VAULT_PREFIX="Home/${JACKAL_FOLDER}"
+    if [ "$JACKAL_FOLDER" = "Home" ]; then
+        VAULT_PREFIX="Home"
+    fi
+
+    echo "file,from_block,to_block,jackal_path,file_size,uploaded_at" > "$FIX_MANIFEST"
+    : > "$FIX_UPLOADED"
+
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    FILE_COUNT=0
+
+    echo "$REMOTE_FILES" | sort -t_ -k2 -n | while IFS= read -r FILENAME; do
+        [ -z "$FILENAME" ] && continue
+
+        FROM_BLOCK=$(echo "$FILENAME" | sed 's/blocks_\([0-9]*\)_to_.*/\1/')
+        TO_BLOCK=$(echo "$FILENAME" | sed 's/blocks_[0-9]*_to_\([0-9]*\)\.jsonl\.gz/\1/')
+
+        # Use local file size if available, otherwise mark as unknown
+        LOCAL_PATH="${FIX_ARCHIVE_DIR}/${FILENAME}"
+        if [ -f "$LOCAL_PATH" ]; then
+            FILE_SIZE=$(du -h "$LOCAL_PATH" | cut -f1)
+        else
+            FILE_SIZE="unknown"
+        fi
+
+        echo "${FILENAME},${FROM_BLOCK},${TO_BLOCK},${VAULT_PREFIX}/${FILENAME},${FILE_SIZE},${TIMESTAMP}" >> "$FIX_MANIFEST"
+        echo "$FILENAME" >> "$FIX_UPLOADED"
+
+        echo "  Found: ${FILENAME} [blocks ${FROM_BLOCK}-${TO_BLOCK}]"
+    done
+
+    echo ""
+    echo "Manifest rebuilt: ${FIX_MANIFEST}"
+    echo "Tracker rebuilt:  ${FIX_UPLOADED}"
+    echo ""
+    column -t -s',' "$FIX_MANIFEST" 2>/dev/null || cat "$FIX_MANIFEST"
+    exit 0
 fi
 
 # ---------------------------------------------------------------------------
