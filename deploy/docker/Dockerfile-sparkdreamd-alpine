@@ -2,8 +2,10 @@ FROM alpine
 
 ENV LOCAL=/usr/local
 
-RUN apk add --no-cache strace gettext jq curl vim
+RUN apk add --no-cache bash strace gettext jq curl vim dcron
 
 COPY build/sparkdreamd ${LOCAL}/bin/sparkdreamd
+COPY deploy/scripts/block-archiver.sh ${LOCAL}/bin/block-archiver
+COPY deploy/scripts/setup-archive-cron.sh ${LOCAL}/bin/setup-archive-cron
 
 CMD ["sparkdreamd", "start", "--home", "/root/.sparkdream"]

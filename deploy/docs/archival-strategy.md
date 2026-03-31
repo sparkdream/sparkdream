@@ -40,8 +40,8 @@ Each file contains only new blocks since the previous archive. A
 state file (`.last_archived_height`) tracks progress, ensuring zero
 overlap between runs.
 
-Archive format (v2) includes both `/block` and `/block_results`
-data for each height, providing everything needed for replay.
+Archive format includes both `/block` and `/block_results` data
+for each height, providing everything needed for replay.
 
 ### Layer 3: Permanent Storage on Arweave
 
@@ -59,28 +59,104 @@ Archive files can also be uploaded to Storacha (formerly web3.storage)
 for IPFS availability. This provides a second retrieval path and
 faster access via IPFS gateways. The free tier covers 5 GiB.
 
+### Layer 5: IPFS Pinning on Pinata (optional)
+
+Archive files can be pinned on IPFS via Pinata, a managed pinning
+service. Unlike self-hosted IPFS nodes, Pinata guarantees your pins
+stay available without maintaining infrastructure. Files are tagged
+with block range metadata for easy discovery.
+
+Pinata only requires a JWT token (no CLI install) and works with
+plain `curl`, making it a good fit for the Alpine container. The
+free tier covers 1 GiB. Files are retrievable from Pinata's gateway
+or any public IPFS gateway.
+
+### Layer 6: S3-Compatible IPFS on Filebase (optional)
+
+Archive files can be uploaded to Filebase, which provides an
+S3-compatible API that automatically pins uploads to IPFS. This
+means you can use the standard `aws` CLI (or any S3 client) and
+get IPFS CIDs back in the response metadata.
+
+Filebase is a good fit if you already use S3 tooling or want a
+familiar API. The free tier covers 5 GiB. Requires the `aws` CLI
+and Filebase access keys.
+
+### Layer 7: Cosmos-Native Storage on Jackal (optional)
+
+Archive files can be uploaded to Jackal Protocol, a Cosmos SDK chain
+with proof-of-persistence storage. Jackal providers must regularly
+submit Merkle proofs that they still hold the data, so archives are
+actively maintained rather than passively stored.
+
+Jackal uses a recurring payment model (JKL tokens per duration per
+byte), so it complements Arweave (permanent, pay-once) rather than
+replacing it. Files are encrypted client-side and replicated across
+3+ providers automatically.
+
+Requires a running `jackalapi` instance and an active storage plan.
+See `deploy/scripts/jackal-upload.sh` for details.
+
 ## Archival Workflow
 
-Run periodically (e.g., daily or weekly):
+### Automated (recommended)
+
+The Docker image includes `dcron` (Dillon's cron daemon) and the
+`setup-archive-cron` helper script. Run once after deploying the
+sentry to start automated archival:
 
 ```bash
-# 1. Archive new blocks from the sentry RPC
-ssh -p <port> root@<sentry_provider> \
-  'RPC_URL=http://localhost:26657 OUTPUT_DIR=/root/.sparkdream/archives ./block-archiver.sh'
+ssh -p <port> root@<sentry_provider> setup-archive-cron
+```
 
-# 2. Download new archives to local machine
+This installs a dcron job that runs `block-archiver` every 6 hours,
+saving archives to `/root/.sparkdream/archives` on the persistent
+volume. Customize the schedule:
+
+```bash
+# Archive every hour instead
+ssh -p <port> root@<sentry_provider> \
+  'ARCHIVE_INTERVAL="0 * * * *" setup-archive-cron'
+```
+
+Manage the automation:
+
+```bash
+# Check if archival is active
+ssh -p <port> root@<sentry_provider> setup-archive-cron --status
+
+# Disable archival and stop dcron
+ssh -p <port> root@<sentry_provider> setup-archive-cron --disable
+```
+
+### Manual workflow
+
+For upload to permanent/redundant storage, periodically download
+archives from the sentry and upload from your local machine:
+
+```bash
+# 1. Download new archives to local machine
 scp -O -P <port> -i ~/.ssh/key \
   root@<sentry_provider>:/root/.sparkdream/archives/*.jsonl.gz \
   ./archives/
 
-# 3. Upload to Arweave (permanent)
+# 2. Upload to Arweave (permanent)
 ./arweave-upload.sh -w ~/arweave-wallet.json ./archives/
 
-# 4. Optionally upload to Storacha (IPFS redundancy)
+# 3. Optionally upload to Storacha (IPFS redundancy)
 ./storacha-upload.sh ./archives/
+
+# 4. Optionally upload to Pinata (IPFS pinning)
+PINATA_JWT="your-jwt-token" ./pinata-upload.sh ./archives/
+
+# 5. Optionally upload to Filebase (S3-compatible IPFS)
+FILEBASE_BUCKET="sparkdream-archives" ./filebase-upload.sh ./archives/
+
+# 6. Optionally upload to Jackal (Cosmos-native, proof-of-persistence)
+./jackal-upload.sh ./archives/
 ```
 
-Both upload scripts track which files have already been uploaded
+All upload scripts track which files have already been uploaded
 and skip duplicates automatically.
 
 ## Recovery Scenarios
@@ -196,9 +272,41 @@ are approximately 1.5KB each):
 - Arweave cost: one-time payment, roughly $0.50-1.00/GB at
   current AR prices
 - Storacha: free tier covers 5 GiB, paid plans from $3/month
+- Pinata: free tier covers 1 GiB, paid plans from $20/month
+- Filebase: free tier covers 5 GiB, paid plans from $5.99/month
+- Jackal: ~8-10 JKL per TB/month (recurring, check current params)
 
 These estimates assume low transaction volume. Costs scale with
 chain activity.
+
+## Recommended Storage Per Network
+
+Not every network needs every storage layer. Choose based on how
+critical the data is and whether you're willing to pay ongoing fees.
+
+| Network | Primary         | Secondary        | Notes                              |
+|---------|-----------------|------------------|------------------------------------|
+| Devnet  | Pinata          | —                | Free tier (1 GiB), disposable data |
+| Testnet | Storacha        | Pinata           | Free tiers, two IPFS providers     |
+| Mainnet | Arweave         | Filebase + Jackal| Permanent + IPFS + active proofs   |
+
+**Devnet** — throwaway by nature, frequent resets. A single free
+IPFS pin is enough in case you need to inspect historical state.
+
+**Testnet** — longer-lived and useful for debugging production-like
+issues, but not critical if lost. Two free-tier IPFS providers
+give redundancy at zero cost.
+
+**Mainnet** — real chain history that must never be lost.
+
+- Arweave is **required** as the immutable baseline. It is the only
+  option where data survives if you stop paying or the company
+  disappears. Pay once, available forever.
+- Filebase provides IPFS redundancy for faster retrieval (S3-
+  compatible, 5 GiB free tier).
+- Jackal adds Cosmos-native proof-of-persistence — providers must
+  regularly prove they still hold the data, giving active
+  verification that IPFS pinning and Arweave do not.
 
 ## Verification
 
@@ -214,12 +322,13 @@ done
 # Verify block continuity (no gaps)
 # Each file's first block should be the previous file's last + 1
 for f in $(ls archives/blocks_*.jsonl.gz | sort -t_ -k2 -n); do
-  FIRST=$(zcat "$f" | head -1 | jq -r '.result.block.header.height // .height')
-  LAST=$(zcat "$f" | tail -1 | jq -r '.result.block.header.height // .height')
+  FIRST=$(zcat "$f" | head -1 | jq -r '.block.header.height')
+  LAST=$(zcat "$f" | tail -1 | jq -r '.block.header.height')
   echo "$f: blocks $FIRST to $LAST"
 done
 ```
 
-The `replay-from-archive` tool also validates block hashes during
-replay when the `--validate` flag is set, catching any corruption
-or tampering before it affects state.
+The `replay-from-archive` tool validates block structure and app
+hashes during replay by default, catching any corruption or
+tampering before it affects state. It also detects gaps in archive
+coverage before replay begins.

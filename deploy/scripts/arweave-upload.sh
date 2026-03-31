@@ -6,6 +6,10 @@
 # Tracks which files have already been uploaded to avoid re-uploading.
 # Maintains a manifest file mapping block ranges to Arweave transaction IDs.
 #
+# NOTE: This script requires Node.js and arkb, which are NOT included
+# in the Docker image. It is intended to be run from your local machine
+# (not inside the container).
+#
 # Prerequisites:
 #   1. Install Node.js 18+ and arkb:
 #      npm install -g arkb

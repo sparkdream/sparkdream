@@ -6,6 +6,10 @@
 # Tracks which files have already been uploaded to avoid re-uploading.
 # Maintains a manifest file mapping block ranges to IPFS CIDs.
 #
+# NOTE: This script requires Node.js and the storacha CLI, which are
+# NOT included in the Docker image. It is intended to be run from your
+# local machine (not inside the container).
+#
 # Prerequisites:
 #   1. Install Node.js 18+ and the storacha CLI:
 #      npm install -g @storacha/cli
@@ -26,8 +30,8 @@
 #
 # Environment variables (all optional):
 #   ARCHIVE_DIR     - Directory containing .jsonl.gz files (default: ./sparkdream-archives)
-#   MANIFEST_FILE   - Path to the CID manifest (default: $ARCHIVE_DIR/manifest.csv)
-#   UPLOADED_FILE   - Tracks already-uploaded files (default: $ARCHIVE_DIR/.uploaded)
+#   MANIFEST_FILE   - Path to the CID manifest (default: $ARCHIVE_DIR/storacha-manifest.csv)
+#   UPLOADED_FILE   - Tracks already-uploaded files (default: $ARCHIVE_DIR/.storacha-uploaded)
 #   DRY_RUN         - Set to "true" to show what would be uploaded without uploading
 #
 set -e
@@ -36,8 +40,8 @@ set -e
 # Configuration
 # ---------------------------------------------------------------------------
 ARCHIVE_DIR="${1:-${ARCHIVE_DIR:-./sparkdream-archives}}"
-MANIFEST_FILE="${MANIFEST_FILE:-${ARCHIVE_DIR}/manifest.csv}"
-UPLOADED_FILE="${UPLOADED_FILE:-${ARCHIVE_DIR}/.uploaded}"
+MANIFEST_FILE="${MANIFEST_FILE:-${ARCHIVE_DIR}/storacha-manifest.csv}"
+UPLOADED_FILE="${UPLOADED_FILE:-${ARCHIVE_DIR}/.storacha-uploaded}"
 
 # ---------------------------------------------------------------------------
 # Preflight checks
@@ -137,7 +141,7 @@ done
 # ---------------------------------------------------------------------------
 echo ""
 echo "========================================"
-echo "Upload complete"
+echo "Storacha upload complete"
 echo "  New uploads:  $UPLOAD_COUNT"
 echo "  Skipped:      $SKIP_COUNT"
 echo "  Failed:       $FAIL_COUNT"

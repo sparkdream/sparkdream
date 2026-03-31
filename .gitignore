@@ -6,6 +6,7 @@
 **/keyring-file/
 **/keyring-os/
 arweave-wallet*.json
+.env
 
 # Deployment configs
 **/deployed/
@@ -30,7 +31,7 @@ arweave-manifest.csv
 build/
 prod/
 release/
-sparkdreamd
+/sparkdreamd
 seed-tle
 
 # Dependencies
