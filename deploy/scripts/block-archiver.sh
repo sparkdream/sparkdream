@@ -111,10 +111,14 @@ while [ "$FROM" -le "$CURRENT_HEIGHT" ]; do
     # Align TO to the next clean BATCH_SIZE boundary (e.g., 10000, 20000, ...).
     # If FROM is mid-boundary (e.g., 42081), the first batch will be smaller
     # to "catch up" (42081-50000), then subsequent batches resume clean alignment.
+    # IMPORTANT: Never create a partial batch — wait until the chain passes the
+    # boundary so every archive file ends on a clean multiple of BATCH_SIZE
+    # (except the catch-up batch which ends on the next boundary).
     NEXT_BOUNDARY=$(( ((FROM - 1) / BATCH_SIZE + 1) * BATCH_SIZE ))
     TO=$NEXT_BOUNDARY
     if [ "$TO" -gt "$CURRENT_HEIGHT" ]; then
-        TO=$CURRENT_HEIGHT
+        echo "Waiting for chain to reach boundary ${TO} (current: ${CURRENT_HEIGHT}). Nothing to archive yet."
+        break
     fi
 
     BATCH_FILE="${OUTPUT_DIR}/blocks_${FROM}_to_${TO}.jsonl"
@@ -126,6 +130,23 @@ while [ "$FROM" -le "$CURRENT_HEIGHT" ]; do
         echo "$TO" > "$STATE_FILE"
         FROM=$(( TO + 1 ))
         continue
+    fi
+
+    # If an uncompressed file exists from an interrupted run, compress it and move on.
+    # The state file was NOT updated (gzip hadn't run yet), so the block range is complete.
+    if [ -f "$BATCH_FILE" ]; then
+        LINE_COUNT=$(wc -l < "$BATCH_FILE")
+        EXPECTED_COUNT=$(( TO - FROM + 1 ))
+        if [ "$LINE_COUNT" -eq "$EXPECTED_COUNT" ]; then
+            echo "Found complete uncompressed batch ${FROM}-${TO} (${LINE_COUNT} lines). Compressing..."
+            gzip "$BATCH_FILE"
+            echo "$TO" > "$STATE_FILE"
+            FROM=$(( TO + 1 ))
+            continue
+        else
+            echo "WARNING: Found incomplete batch ${FROM}-${TO} (${LINE_COUNT}/${EXPECTED_COUNT} lines). Removing and re-fetching."
+            rm -f "$BATCH_FILE"
+        fi
     fi
 
     echo "Archiving blocks ${FROM} to ${TO}..."

@@ -29,7 +29,8 @@ fi
 SOURCE_HOME=$(mktemp -d)
 REPLAY_HOME=$(mktemp -d)
 ARCHIVE_DIR=$(mktemp -d)
-RPC_PORT=26657
+RPC_PORT=26757
+P2P_PORT=26756
 CHAIN_ID="replay-test-1"
 TARGET_HEIGHT=15
 ARCHIVE_BATCH_SIZE=5
@@ -74,7 +75,7 @@ $BINARY start --home "$SOURCE_HOME" \
     --rpc.laddr "tcp://127.0.0.1:${RPC_PORT}" \
     --grpc.enable=false \
     --api.enable=false \
-    --p2p.laddr "tcp://127.0.0.1:26656" \
+    --p2p.laddr "tcp://127.0.0.1:${P2P_PORT}" \
     --minimum-gas-prices "0uspark" \
     > "$SOURCE_HOME/node.log" 2>&1 &
 NODE_PID=$!
@@ -248,11 +249,13 @@ fi
 echo ""
 echo "Step 6: Verify replayed node can start"
 
+REPLAY_RPC_PORT=26857
+REPLAY_P2P_PORT=26856
 $BINARY start --home "$REPLAY_HOME" \
-    --rpc.laddr "tcp://127.0.0.1:26767" \
+    --rpc.laddr "tcp://127.0.0.1:${REPLAY_RPC_PORT}" \
     --grpc.enable=false \
     --api.enable=false \
-    --p2p.laddr "tcp://127.0.0.1:26766" \
+    --p2p.laddr "tcp://127.0.0.1:${REPLAY_P2P_PORT}" \
     --minimum-gas-prices "0uspark" \
     > "$REPLAY_HOME/start.log" 2>&1 &
 NODE_PID=$!
@@ -267,7 +270,7 @@ while [ $WAITED -lt $MAX_WAIT ]; do
     if ! kill -0 "$NODE_PID" 2>/dev/null; then
         break
     fi
-    REPLAY_HEIGHT=$(curl -sf "http://127.0.0.1:26767/status" 2>/dev/null | jq -r '.result.sync_info.latest_block_height // "0"')
+    REPLAY_HEIGHT=$(curl -sf "http://127.0.0.1:${REPLAY_RPC_PORT}/status" 2>/dev/null | jq -r '.result.sync_info.latest_block_height // "0"')
     if [ "$REPLAY_HEIGHT" != "0" ] && [ -n "$REPLAY_HEIGHT" ]; then
         STARTED=true
         break

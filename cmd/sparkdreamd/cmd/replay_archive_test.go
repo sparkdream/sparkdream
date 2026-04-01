@@ -199,7 +199,7 @@ func TestParseBlockLine(t *testing.T) {
 	t.Run("valid block entry", func(t *testing.T) {
 		line := []byte(`{"block_id":{"hash":"ABCD","parts":{"total":1,"hash":"EF01"}},"block":{"header":{"height":"42","chain_id":"test-1","time":"2025-01-01T00:00:00Z","version":{"block":"11"}},"data":{"txs":null},"evidence":{"evidence":null},"last_commit":null}}`)
 
-		block, blockID, err := parseBlockLine(line)
+		block, blockID, _, err := parseBlockLine(line)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -220,14 +220,14 @@ func TestParseBlockLine(t *testing.T) {
 	t.Run("missing block field", func(t *testing.T) {
 		line := []byte(`{"block_id":{"hash":"ABCD"},"block_results":{}}`)
 
-		_, _, err := parseBlockLine(line)
+		_, _, _, err := parseBlockLine(line)
 		if err == nil {
 			t.Fatal("expected error for missing block")
 		}
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
-		_, _, err := parseBlockLine([]byte(`not json`))
+		_, _, _, err := parseBlockLine([]byte(`not json`))
 		if err == nil {
 			t.Fatal("expected error for invalid JSON")
 		}
@@ -236,7 +236,7 @@ func TestParseBlockLine(t *testing.T) {
 	t.Run("nil block_id is tolerated", func(t *testing.T) {
 		line := []byte(`{"block":{"header":{"height":"1","time":"2025-01-01T00:00:00Z","version":{"block":"11"}},"data":{"txs":null},"evidence":{"evidence":null},"last_commit":null}}`)
 
-		block, blockID, err := parseBlockLine(line)
+		block, blockID, _, err := parseBlockLine(line)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -274,7 +274,7 @@ func TestProcessArchiveFile(t *testing.T) {
 
 	t.Run("reads all blocks", func(t *testing.T) {
 		var heights []int64
-		err := processArchiveFile(archivePath, 1, 0, func(block *cmttypes.Block, _ cmttypes.BlockID) error {
+		err := processArchiveFile(archivePath, 1, 0, func(block *cmttypes.Block, _ cmttypes.BlockID, _ *cmttypes.Commit) error {
 			heights = append(heights, block.Height)
 			return nil
 		})
@@ -293,7 +293,7 @@ func TestProcessArchiveFile(t *testing.T) {
 
 	t.Run("skips blocks below startFrom", func(t *testing.T) {
 		var heights []int64
-		err := processArchiveFile(archivePath, 2, 0, func(block *cmttypes.Block, _ cmttypes.BlockID) error {
+		err := processArchiveFile(archivePath, 2, 0, func(block *cmttypes.Block, _ cmttypes.BlockID, _ *cmttypes.Commit) error {
 			heights = append(heights, block.Height)
 			return nil
 		})
@@ -310,7 +310,7 @@ func TestProcessArchiveFile(t *testing.T) {
 
 	t.Run("stops at endHeight", func(t *testing.T) {
 		var heights []int64
-		err := processArchiveFile(archivePath, 1, 2, func(block *cmttypes.Block, _ cmttypes.BlockID) error {
+		err := processArchiveFile(archivePath, 1, 2, func(block *cmttypes.Block, _ cmttypes.BlockID, _ *cmttypes.Commit) error {
 			heights = append(heights, block.Height)
 			return nil
 		})
@@ -326,7 +326,7 @@ func TestProcessArchiveFile(t *testing.T) {
 	})
 
 	t.Run("handler error propagates", func(t *testing.T) {
-		err := processArchiveFile(archivePath, 1, 0, func(block *cmttypes.Block, _ cmttypes.BlockID) error {
+		err := processArchiveFile(archivePath, 1, 0, func(block *cmttypes.Block, _ cmttypes.BlockID, _ *cmttypes.Commit) error {
 			return fmt.Errorf("test error at height %d", block.Height)
 		})
 		if err == nil {
