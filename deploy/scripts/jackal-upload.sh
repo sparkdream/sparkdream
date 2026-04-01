@@ -49,6 +49,9 @@
 #   Upload to a subfolder (vault mode):
 #     JACKAL_FOLDER=my-archives ./sparkdream-jackal-upload.sh
 #
+#   Delete a specific file from the vault:
+#     ./sparkdream-jackal-upload.sh delete-file <filename>
+#
 #   Delete a vault folder:
 #     ./sparkdream-jackal-upload.sh delete-folder <folder_name>
 #
@@ -79,6 +82,16 @@
 #                       Set to "Home" to upload directly to the root directory.
 #   DRY_RUN           - Set to "true" to show what would be uploaded without uploading
 #
+# Storage provider discovery (vault mode):
+#   On first run, the script queries the Jackal chain for all active storage
+#   providers, pings each one, and caches the top 5 fastest to
+#   ~/.jackal-providers.json (valid for 1 hour). Subsequent runs within the
+#   hour use the cache instantly. If discovery fails or the cache is stale,
+#   falls back to a curated provider list from the Jackal dashboard.
+#
+#   Force re-discovery by deleting the cache:
+#     rm ~/.jackal-providers.json
+#
 set -e
 
 # ---------------------------------------------------------------------------
@@ -90,6 +103,8 @@ const rpc = process.env.JACKAL_RPC || "https://rpc.jackalprotocol.com";
 const rest = process.env.JACKAL_REST || "https://api.jackalprotocol.com";
 
 async function connectStorage() {
+    const t0 = Date.now();
+    const elapsed = () => ((Date.now() - t0) / 1000).toFixed(1) + "s";
     const { ClientHandler } = require("@jackallabs/jackal.js");
     const client = await ClientHandler.connect({
         selectedWallet: "mnemonic",
@@ -111,11 +126,114 @@ async function connectStorage() {
             features: [],
         },
     });
+    console.log("  [" + elapsed() + "] client connected");
     const storage = await client.createStorageHandler();
-    await storage.loadProviderPool();
+    console.log("  [" + elapsed() + "] storage handler created");
+    // Load provider pool: use cached top-5 providers if fresh (<1 hour),
+    // otherwise discover fast providers from chain and cache them.
+    const { readFileSync, writeFileSync } = require("fs");
+    const CACHE_FILE = (process.env.HOME || "/tmp") + "/.jackal-providers.json";
+    const CACHE_MAX_AGE_MS = 3600000; // 1 hour
+    const TOP_N = 5;
+    const MIN_PROVIDERS = 3;
+    const PING_TIMEOUT_MS = 5000;
+    let providerPool = {};
+
+    // Try loading from cache
+    try {
+        const cached = JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
+        if (Date.now() - cached.timestamp < CACHE_MAX_AGE_MS && Object.keys(cached.providers).length >= MIN_PROVIDERS) {
+            providerPool = cached.providers;
+            const age = ((Date.now() - cached.timestamp) / 60000).toFixed(0);
+            console.log("  [" + elapsed() + "] loaded " + Object.keys(providerPool).length + " cached providers (" + age + "m old)");
+        }
+    } catch {}
+
+    // Discover if cache is stale or missing
+    if (Object.keys(providerPool).length < MIN_PROVIDERS) {
+        try {
+            const provRes = await fetch(rest + "/jackal/canine-chain/storage/active_providers");
+            const activeList = (await provRes.json()).providers || [];
+            console.log("  [" + elapsed() + "] fetched " + activeList.length + " active providers from chain");
+
+            // Resolve IPs in batches of 4 (parallel requests to the same REST
+            // endpoint causes timeouts). IPs require a per-provider query.
+            const BATCH_SIZE = 4;
+            const detailResults = [];
+            for (let i = 0; i < activeList.length; i += BATCH_SIZE) {
+                const batch = activeList.slice(i, i + BATCH_SIZE);
+                const br = await Promise.allSettled(batch.map(async (p) => {
+                    const r = await fetch(
+                        rest + "/jackal/canine-chain/storage/providers/" + p.address,
+                        { signal: AbortSignal.timeout(8000) }
+                    );
+                    const ip = (await r.json()).provider?.ip?.replace(/\/$/, "");
+                    return ip ? { address: p.address, ip } : null;
+                }));
+                detailResults.push(...br);
+            }
+            const withIPs = detailResults
+                .filter(r => r.status === "fulfilled" && r.value)
+                .map(r => r.value);
+            console.log("  [" + elapsed() + "] resolved IPs for " + withIPs.length + "/" + activeList.length + " providers");
+
+            // Ping all providers in parallel (different hosts, no throttle needed)
+            const pingResults = await Promise.allSettled(withIPs.map(async (p) => {
+                const t = Date.now();
+                const res = await fetch(p.ip + "/version", { signal: AbortSignal.timeout(PING_TIMEOUT_MS) });
+                if (!res.ok) return null;
+                return { address: p.address, ip: p.ip, ms: Date.now() - t };
+            }));
+
+            const fast = pingResults
+                .filter(r => r.status === "fulfilled" && r.value)
+                .map(r => r.value)
+                .sort((a, b) => a.ms - b.ms);
+
+            console.log("  [" + elapsed() + "] " + fast.length + "/" + activeList.length + " providers responded within " + PING_TIMEOUT_MS + "ms");
+            if (fast.length > 0) {
+                console.log("    fastest: " + fast.slice(0, 3).map(p => p.ip.replace("https://","") + " (" + p.ms + "ms)").join(", "));
+            }
+
+            // Use top N fastest providers
+            const topProviders = fast.slice(0, TOP_N);
+            for (const p of topProviders) {
+                providerPool[p.address] = p.ip;
+            }
+
+            // Cache the result
+            if (Object.keys(providerPool).length >= MIN_PROVIDERS) {
+                try {
+                    writeFileSync(CACHE_FILE, JSON.stringify({ timestamp: Date.now(), providers: providerPool }));
+                    console.log("  [" + elapsed() + "] cached top " + Object.keys(providerPool).length + " providers to " + CACHE_FILE);
+                } catch {}
+            }
+        } catch (e) {
+            console.log("  [" + elapsed() + "] provider discovery failed: " + e.message);
+        }
+    }
+
+    // Fallback to curated list from jackal-dashboard if discovery found too few
+    // Source: https://github.com/JackalLabs/jackal-dashboard/blob/master/src/stores/jjs.ts
+    if (Object.keys(providerPool).length < MIN_PROVIDERS) {
+        console.log("  [" + elapsed() + "] falling back to curated provider list");
+        providerPool = {
+            jkl1lesjprqperjzwspaz6er7azzgqkvsa6n5k1jv05: "https://mprov02.jackallabs.io",
+            jkl1dht8meprya6jr7w9g9zcp4p98ccxvckufvu4zc: "https://jklstorage1.squirrellogic.com",
+            jkl1nfnmjk7k59xc3q7wgtva7xahkg31tjtgs31e93: "https://jklstorage2.squirrellogic.com",
+            jkl1x6ekn8382n1mv04pedzev4hmc6jq8vypcc6f1n: "https://jklstorage3.squirrellogic.com",
+            jkl1p4ft2z2c13w70j4ec6e3tgcy2enuuehyjdfefw: "https://jklstorage4.squirrellogic.com",
+            jkl1hcrdcd2xr9yfx76rerfj2yxyxnpm9je5ht29dn: "https://jklstorage5.squirrellogic.com",
+        };
+    }
+    await storage.loadProviderPool(providerPool);
+    console.log("  [" + elapsed() + "] provider pool loaded (" + Object.keys(providerPool).length + " providers)");
     await storage.upgradeSigner();
+    console.log("  [" + elapsed() + "] signer upgraded");
     await storage.initStorage();
+    console.log("  [" + elapsed() + "] storage initialized");
     await storage.loadDirectory({ path: "Home" });
+    console.log("  [" + elapsed() + "] Home directory loaded — ready in " + elapsed());
     return storage;
 }
 '
@@ -141,6 +259,63 @@ if [ "$1" = "list-folders" ]; then
     process.exit(0);
 })().catch(err => { console.error('Error: ' + err.message); process.exit(1); });
 "
+    exit $?
+fi
+
+if [ "$1" = "delete-file" ]; then
+    TARGET="$2"
+    if [ -z "$TARGET" ]; then
+        echo "Usage: $0 delete-file <filename>" >&2
+        echo "  Deletes a specific file from the vault folder." >&2
+        echo "  Example: $0 delete-file blocks_1_to_3.jsonl.gz" >&2
+        exit 1
+    fi
+    if [ -z "$JACKAL_MNEMONIC" ]; then
+        echo "ERROR: JACKAL_MNEMONIC is required." >&2
+        exit 1
+    fi
+    export NODE_PATH="${NODE_PATH:+${NODE_PATH}:}$(npm root -g)"
+    export JACKAL_RPC="${JACKAL_RPC:-https://rpc.jackalprotocol.com}"
+    export JACKAL_REST="${JACKAL_REST:-https://api.jackalprotocol.com}"
+    JACKAL_FOLDER="${JACKAL_FOLDER:-sparkdream-archives}"
+
+    echo "Deleting file: $TARGET from Home/${JACKAL_FOLDER}..."
+    node -e "
+const _stderr = process.stderr;
+['log','warn','dir','error','info','debug'].forEach(m => {
+    console[m] = (...args) => { _stderr.write(require('util').format(...args) + '\n'); };
+});
+process.on('unhandledRejection', () => {});
+${JACKAL_VAULT_JS}
+const folder = process.env.JACKAL_FOLDER || 'sparkdream-archives';
+const target = process.argv[1];
+(async () => {
+    const storage = await connectStorage();
+    const folders = storage.listChildFolders();
+    if (!folders.includes(folder)) {
+        console.log('Folder not found: ' + folder);
+        process.exit(0);
+    }
+    await storage.loadDirectory({ path: 'Home/' + folder });
+    const files = storage.listChildFiles();
+    if (!files.includes(target)) {
+        console.log('File not found: ' + target + ' — nothing to delete.');
+        process.exit(0);
+    }
+    const TIMEOUT_MS = 60000;
+    await Promise.race([
+        (async () => {
+            await storage.deleteTargets({ targets: [target] });
+            console.log('Deleted: ' + target);
+        })(),
+        new Promise((resolve) => setTimeout(() => {
+            console.log('Delete tx submitted (safety timeout) — likely succeeded.');
+            resolve();
+        }, TIMEOUT_MS)),
+    ]);
+    process.exit(0);
+})().catch(err => { console.error('Error: ' + err.message); process.exit(1); });
+" "$TARGET"
     exit $?
 fi
 
@@ -212,9 +387,17 @@ const folder = process.env.JACKAL_FOLDER || 'sparkdream-archives';
     }
     await storage.loadDirectory({ path: 'Home/' + folder });
     const files = storage.listChildFiles();
-    if (files.length === 0) {
+    const folders = storage.listChildFolders();
+    if (files.length === 0 && folders.length === 0) {
         process.stdout.write('Vault folder already empty.\n');
         process.exit(0);
+    }
+    process.stdout.write('Found ' + files.length + ' file(s) and ' + folders.length + ' subfolder(s) in vault:\n');
+    for (const f of files) {
+        process.stdout.write('  FILE: ' + f + '\n');
+    }
+    for (const d of folders) {
+        process.stdout.write('  DIR:  ' + d + '\n');
     }
     process.stdout.write('Deleting ' + files.length + ' file(s)...\n');
     // Delete all files in one tx with a safety timeout (SDK hangs on WebSocket)
@@ -247,7 +430,7 @@ const folder = process.env.JACKAL_FOLDER || 'sparkdream-archives';
     fi
 
     # Reset manifest and tracker
-    echo "file,from_block,to_block,jackal_path,cid,file_size,uploaded_at" > "$CLEAN_MANIFEST"
+    echo "file,from_block,to_block,jackal_path,merkle,file_size,uploaded_at" > "$CLEAN_MANIFEST"
     : > "$CLEAN_UPLOADED"
     echo "Manifest and upload tracker cleared."
     echo ""
@@ -488,7 +671,7 @@ esac
 # Initialize manifest and tracker
 # ---------------------------------------------------------------------------
 if [ "$JACKAL_MODE" = "vault" ]; then
-    MANIFEST_HEADER="file,from_block,to_block,jackal_path,cid,merkle,file_size,uploaded_at"
+    MANIFEST_HEADER="file,from_block,to_block,jackal_path,merkle,file_size,uploaded_at"
 else
     MANIFEST_HEADER="file,from_block,to_block,cid,file_size,uploaded_at"
 fi
@@ -570,9 +753,8 @@ const _stderr = process.stderr;
     console[m] = (...args) => { _stderr.write(require('util').format(...args) + '\n'); };
 });
 
-const mnemonic = process.env.JACKAL_MNEMONIC;
-const rpc = process.env.JACKAL_RPC;
-const rest = process.env.JACKAL_REST;
+${JACKAL_VAULT_JS}
+
 const folder = process.env.JACKAL_FOLDER || 'sparkdream-archives';
 
 const input = readFileSync(0, 'utf-8').trim();
@@ -584,65 +766,7 @@ const files = input.split('\n').map(line => {
 });
 
 (async () => {
-    const { ClientHandler } = require('@jackallabs/jackal.js');
-
-    const client = await ClientHandler.connect({
-        selectedWallet: 'mnemonic',
-        mnemonic,
-        chainId: 'jackal-1',
-        endpoint: rpc,
-        chainConfig: {
-            chainId: 'jackal-1',
-            chainName: 'Jackal Mainnet',
-            rpc,
-            rest,
-            bip44: {
-                coinType: 118,
-            },
-            stakeCurrency: {
-                coinDenom: 'JKL',
-                coinMinimalDenom: 'ujkl',
-                coinDecimals: 6,
-            },
-            bech32Config: {
-                bech32PrefixAccAddr: 'jkl',
-                bech32PrefixAccPub: 'jklpub',
-                bech32PrefixValAddr: 'jklvaloper',
-                bech32PrefixValPub: 'jklvaloperpub',
-                bech32PrefixConsAddr: 'jklvalcons',
-                bech32PrefixConsPub: 'jklvalconspub',
-            },
-            currencies: [
-                {
-                    coinDenom: 'JKL',
-                    coinMinimalDenom: 'ujkl',
-                    coinDecimals: 6,
-                },
-            ],
-            feeCurrencies: [
-                {
-                    coinDenom: 'JKL',
-                    coinMinimalDenom: 'ujkl',
-                    coinDecimals: 6,
-                    gasPriceStep: {
-                        low: 0.002,
-                        average: 0.002,
-                        high: 0.02,
-                    },
-                },
-            ],
-            features: [],
-        },
-    });
-
-    const storage = await client.createStorageHandler();
-
-    // Load mainnet storage providers (from jackal-dashboard)
-    await storage.loadProviderPool();
-    await storage.upgradeSigner();
-    await storage.initStorage();
-    // Load root directory first
-    await storage.loadDirectory({ path: 'Home' });
+    const storage = await connectStorage();
     console.log('Loaded home directory');
 
     // If a subfolder is requested, create it (if needed) and navigate into it
@@ -678,11 +802,15 @@ const files = input.split('\n').map(line => {
         console.log('Loaded subfolder: Home/' + folder);
     }
 
+    // Track tx IDs from timeouts so Pass 2 can check their status via REST
+    const pendingTxIds = [];
+
     // Handle cosmjs errors that bypass the normal promise chain.
     process.on('unhandledRejection', (err) => {
         const msg = err?.message || String(err);
         if (err?.txId || msg.includes('TimeoutError') || msg.includes('was submitted but was not yet found')) {
-            console.log('Tx confirmation timed out — will verify in pass 2.');
+            if (err?.txId) pendingTxIds.push(err.txId);
+            console.log('Tx confirmation timed out' + (err?.txId ? ' (txId: ' + err.txId + ')' : '') + ' — will verify in pass 2.');
         } else if (msg.includes('account sequence mismatch')) {
             console.error('');
             console.error('ERROR: Account sequence mismatch — the chain has a different');
@@ -690,11 +818,9 @@ const files = input.split('\n').map(line => {
             console.error('when a previous upload timed out mid-transaction.');
             console.error('');
             console.error('To fix, wait 2 minutes for pending transactions to settle,');
-            console.error('then run clean twice to reset the SDK state:');
+            console.error('then retry:');
             console.error('');
             console.error('  sleep 120');
-            console.error('  ./jackal-upload.sh clean <archive_dir>');
-            console.error('  ./jackal-upload.sh clean <archive_dir>');
             console.error('  ./jackal-upload.sh <archive_dir>');
             console.error('');
             process.exit(1);
@@ -710,19 +836,13 @@ const files = input.split('\n').map(line => {
     console.log('');
     console.log('=== Pass 1: Uploading files to providers ===');
 
-    // Collect CIDs by intercepting the SDK's console output.
-    // The SDK logs progress objects like: progress: 100 { merkle: '...', cid: '...' }
-    // statusCallback is not a real SDK option — CIDs only appear in console output.
-    const cidMap = {};  // merkle -> cid
+    // Intercept stderr to capture txIds from TimeoutError stack traces
     const origStderrWrite = _stderr.write.bind(_stderr);
     _stderr.write = (chunk, ...args) => {
         const str = typeof chunk === 'string' ? chunk : chunk.toString();
-        // Match CID from SDK progress logs
-        const cidMatch = str.match(/cid:\s*'(baf[a-z0-9]+)'/);
-        const merkleMatch = str.match(/merkle:\s*'([A-Za-z0-9+/=]+)'/);
-        const progressMatch = str.match(/progress:\s*100/);
-        if (cidMatch && merkleMatch && progressMatch) {
-            cidMap[merkleMatch[1]] = cidMatch[1];
+        const txIdMatch = str.match(/Transaction with ID ([A-F0-9]{64})/);
+        if (txIdMatch && !pendingTxIds.includes(txIdMatch[1])) {
+            pendingTxIds.push(txIdMatch[1]);
         }
         return origStderrWrite(chunk, ...args);
     };
@@ -740,89 +860,71 @@ const files = input.split('\n').map(line => {
     // so we use a safety timeout to move on to pass 2 verification.
     const UPLOAD_TIMEOUT_MS = 180000;  // 3 min safety net
     await Promise.race([
-        storage.processAllQueues({ monitorTimeout: 60 }).catch(() => {}),
+        storage.processAllQueues({ monitorTimeout: 60 }).catch((err) => {
+            if (err?.txId && !pendingTxIds.includes(err.txId)) pendingTxIds.push(err.txId);
+        }),
         new Promise((resolve) => setTimeout(() => {
             console.log('Pass 1 complete (safety timeout) — proceeding to verification.');
             resolve();
         }, UPLOAD_TIMEOUT_MS)),
     ]);
 
-    // ---- PASS 2: Poll vault for each file and capture CIDs ----
+    // ---- PASS 2: Verify uploads ----
     console.log('');
-    console.log('=== Pass 2: Verifying uploads and capturing CIDs ===');
+    console.log('=== Pass 2: Verifying uploads ===');
 
-    // Wait for chain to settle (tx confirmation)
-    console.log('Waiting 30s for chain to process transactions...');
-    await new Promise(r => setTimeout(r, 30000));
-
-    // Reload the directory to see newly uploaded files
-    await storage.loadDirectory({ path: prefix, refresh: true });
-    const remoteFiles = storage.listChildFiles();
-    console.log('Remote files: ' + remoteFiles.join(', '));
-
-    // If statusCallback didn't capture any CIDs, fetch the CID map
-    // from a single provider as fallback (download once, reuse for all files)
-    let providerCidMap = null;
-    if (Object.keys(cidMap).length === 0) {
-        console.log('No CIDs from statusCallback — fetching from provider...');
-        const provRes = await fetch(rest + '/jackal/canine-chain/storage/active_providers');
-        const provAddrs = (await provRes.json()).providers.map(p => p.address);
-        for (const addr of provAddrs.slice(0, 3)) {
+    // Check if pending txs actually made it to the chain via REST API
+    if (pendingTxIds.length > 0) {
+        console.log('Checking ' + pendingTxIds.length + ' pending tx(s) via REST...');
+        for (const txId of pendingTxIds) {
             try {
-                const r = await fetch(rest + '/jackal/canine-chain/storage/providers/' + addr);
-                const ip = (await r.json()).provider.ip;
-                if (!ip) continue;
-                const mapRes = await fetch(ip + '/ipfs/cid_map', { signal: AbortSignal.timeout(15000) });
-                providerCidMap = (await mapRes.json()).cid_map || {};
-                console.log('  Loaded CID map from ' + ip + ' (' + Object.keys(providerCidMap).length + ' entries)');
-                break;
-            } catch {}
+                const txRes = await fetch(rest + '/cosmos/tx/v1beta1/txs/' + txId);
+                const txData = await txRes.json();
+                const code = txData?.tx_response?.code;
+                if (code === 0) {
+                    console.log('  tx ' + txId.slice(0, 12) + '... CONFIRMED (code 0)');
+                } else if (code !== undefined) {
+                    console.log('  tx ' + txId.slice(0, 12) + '... FAILED (code ' + code + '): ' + (txData?.tx_response?.raw_log || ''));
+                } else {
+                    console.log('  tx ' + txId.slice(0, 12) + '... not yet indexed');
+                }
+            } catch (e) {
+                console.log('  tx ' + txId.slice(0, 12) + '... REST query failed: ' + e.message);
+            }
         }
     }
 
+    // Wait for chain to settle, then poll directory until files appear.
+    // The tx was submitted but cosmjs timed out on confirmation — it often
+    // needs 60-120s more to be indexed and reflected in the filetree.
+    console.log('Waiting for chain to process transactions...');
+    await new Promise(r => setTimeout(r, 15000));
+
+    // Poll the directory listing — files may take time to appear after tx confirmation
+    let remoteFiles = [];
+    const expectedNames = files.map(f => f.name);
+    const POLL_ATTEMPTS = 8;
+    const POLL_INTERVAL_MS = 15000;  // 15s between polls
+    for (let attempt = 1; attempt <= POLL_ATTEMPTS; attempt++) {
+        await storage.loadDirectory({ path: prefix, refresh: true });
+        remoteFiles = storage.listChildFiles();
+        const found = expectedNames.filter(n => remoteFiles.includes(n)).length;
+        console.log('  Poll ' + attempt + '/' + POLL_ATTEMPTS + ': ' + found + '/' + expectedNames.length + ' files found' + (remoteFiles.length > 0 ? ' (' + remoteFiles.length + ' total in folder)' : ''));
+        if (found === expectedNames.length) break;
+        if (attempt < POLL_ATTEMPTS) {
+            await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+        }
+    }
+    console.log('Remote files: ' + (remoteFiles.join(', ') || '(none)'));
+
     for (const f of files) {
-        let cid = '';
         let merkleHex = '';
 
         try {
             const meta = await storage.getFileParticulars(prefix + '/' + f.name);
             const merkle = meta?.merkle;
             if (merkle) {
-                // The statusCallback stores merkle as-is from the SDK (base64 string).
-                // getFileParticulars returns merkle as raw bytes (Uint8Array) or string.
-                // Try all possible encodings to match.
-                const merkleB64 = typeof merkle === 'string' ? merkle : Buffer.from(merkle).toString('base64');
                 merkleHex = typeof merkle === 'string' ? Buffer.from(merkle, 'base64').toString('hex') : Buffer.from(merkle).toString('hex');
-
-                // Try exact match, then base64, then hex
-                cid = cidMap[merkleB64] || cidMap[merkleHex] || '';
-
-                // Also try matching against all cidMap keys (SDK may pad/format differently)
-                if (!cid) {
-                    for (const [k, v] of Object.entries(cidMap)) {
-                        if (k === merkleB64 || k === merkleHex ||
-                            Buffer.from(k, 'base64').toString('hex') === merkleHex) {
-                            cid = v;
-                            break;
-                        }
-                    }
-                }
-
-                // Fallback: look up in provider CID map by merkle hex
-                if (!cid && providerCidMap) {
-                    // Provider CID map keys are hex-encoded — try matching our merkle hex
-                    cid = providerCidMap[merkleHex] || '';
-                    if (!cid) {
-                        // Keys may have path prefixes, search for suffix match
-                        for (const [k, v] of Object.entries(providerCidMap)) {
-                            try {
-                                const decoded = Buffer.from(k, 'hex').toString('utf-8');
-                                if (decoded.includes(merkleHex)) { cid = v; break; }
-                            } catch {}
-                            if (k.includes(merkleHex)) { cid = v; break; }
-                        }
-                    }
-                }
             }
         } catch (err) {
             console.log('  Could not get metadata for ' + f.name + ': ' + err.message);
@@ -830,8 +932,8 @@ const files = input.split('\n').map(line => {
 
         const uploaded = remoteFiles.includes(f.name);
         if (uploaded) {
-            console.log('  OK: ' + f.name + (cid ? ' (CID: ' + cid + ')' : '') + (merkleHex ? ' (merkle: ' + merkleHex.slice(0, 16) + '...)' : ''));
-            process.stdout.write(JSON.stringify({ ok: true, file: f.name, from: f.from, to: f.to, size: f.size, id: prefix + '/' + f.name, cid, merkle: merkleHex || '' }) + '\n');
+            console.log('  OK: ' + f.name + (merkleHex ? ' (merkle: ' + merkleHex.slice(0, 16) + '...)' : ''));
+            process.stdout.write(JSON.stringify({ ok: true, file: f.name, from: f.from, to: f.to, size: f.size, id: prefix + '/' + f.name, merkle: merkleHex || '' }) + '\n');
         } else {
             console.log('  MISSING: ' + f.name + ' — not found in vault');
             process.stdout.write(JSON.stringify({ ok: false, file: f.name, error: 'File not found in vault after upload' }) + '\n');
@@ -909,7 +1011,6 @@ while IFS= read -r line; do
 
     if [ "$OK" = "true" ]; then
         ID=$(echo "$line" | jq -r '.id')
-        CID=$(echo "$line" | jq -r '.cid // empty')
         MERKLE=$(echo "$line" | jq -r '.merkle // empty')
         FROM_BLOCK=$(echo "$line" | jq -r '.from')
         TO_BLOCK=$(echo "$line" | jq -r '.to')
@@ -917,12 +1018,12 @@ while IFS= read -r line; do
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
         echo "Uploaded: $FILENAME -> $ID"
-        [ -n "$CID" ] && echo "  CID: $CID"
         [ -n "$MERKLE" ] && echo "  Merkle: ${MERKLE:0:16}..."
 
         if [ "$JACKAL_MODE" = "vault" ]; then
-            echo "${FILENAME},${FROM_BLOCK},${TO_BLOCK},${ID},${CID},${MERKLE},${FILE_SIZE},${TIMESTAMP}" >> "$MANIFEST_FILE"
+            echo "${FILENAME},${FROM_BLOCK},${TO_BLOCK},${ID},${MERKLE},${FILE_SIZE},${TIMESTAMP}" >> "$MANIFEST_FILE"
         else
+            CID=$(echo "$line" | jq -r '.id // empty')
             echo "${FILENAME},${FROM_BLOCK},${TO_BLOCK},${CID},${FILE_SIZE},${TIMESTAMP}" >> "$MANIFEST_FILE"
         fi
         echo "$FILENAME" >> "$UPLOADED_FILE"
@@ -965,4 +1066,9 @@ if [ "$UPLOAD_COUNT" -gt 0 ]; then
         echo "Archives stored on-chain via Jackal vault."
         echo "Manage your storage at: https://vault.jackalprotocol.com"
     fi
+fi
+
+# Exit non-zero if all uploads failed (no successes and no skips)
+if [ "$FAIL_COUNT" -gt 0 ] && [ "$UPLOAD_COUNT" -eq 0 ]; then
+    exit 1
 fi

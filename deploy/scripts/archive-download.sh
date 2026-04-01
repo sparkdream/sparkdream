@@ -297,7 +297,7 @@ download_arweave() {
     echo "  Saved: $output"
 }
 
-# Jackal vault manifest format: file,from,to,jackal_path,cid,merkle,size,date
+# Jackal vault manifest format: file,from,to,jackal_path,merkle,size,date
 # Downloads directly from Jackal storage providers using the merkle hash.
 # No mnemonic needed — providers serve public files via HTTP.
 download_jackal() {
@@ -379,9 +379,8 @@ echo "$ROWS" | while IFS=',' read -r file from_block to_block id rest; do
         filebase)  download_filebase "$file" "$id" ;;
         arweave)   download_arweave "$file" "$id" ;;
         jackal)
-            # Vault manifest: col4=jackal_path, col5=cid, col6=merkle
-            # Extract merkle hex from rest (skip cid, take merkle)
-            jackal_merkle=$(echo "$rest" | cut -d',' -f2)
+            # Vault manifest: col4=jackal_path, col5=merkle, col6=file_size
+            jackal_merkle=$(echo "$rest" | cut -d',' -f1)
             download_jackal "$file" "$jackal_merkle"
             ;;
     esac
