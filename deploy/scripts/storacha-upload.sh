@@ -27,6 +27,12 @@
 #
 # Usage:
 #   ./sparkdream-storacha-upload.sh [archive_directory]
+#   ./sparkdream-storacha-upload.sh --remove-all [archive_directory]
+#
+# Options:
+#   --remove-all    Remove all uploads listed in the manifest from Storacha
+#                   (deletes upload records and shard data, clears manifest and tracker)
+#   --dry-run       Show what would be uploaded/removed without doing it
 #
 # Environment variables (all optional):
 #   ARCHIVE_DIR     - Directory containing .jsonl.gz files (default: ./sparkdream-archives)
@@ -39,6 +45,18 @@ set -e
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+REMOVE_ALL="false"
+
+# Parse flags
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --remove-all) REMOVE_ALL="true"; shift ;;
+        --dry-run)    DRY_RUN="true"; shift ;;
+        -*)           echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
+        *)            break ;;
+    esac
+done
+
 ARCHIVE_DIR="${1:-${ARCHIVE_DIR:-./sparkdream-archives}}"
 MANIFEST_FILE="${MANIFEST_FILE:-${ARCHIVE_DIR}/storacha-manifest.csv}"
 UPLOADED_FILE="${UPLOADED_FILE:-${ARCHIVE_DIR}/.storacha-uploaded}"
@@ -63,6 +81,57 @@ if ! storacha whoami >/dev/null 2>&1; then
     echo "ERROR: storacha is not authenticated." >&2
     echo "Run: storacha login your@email.com" >&2
     exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Remove all uploads
+# ---------------------------------------------------------------------------
+if [ "$REMOVE_ALL" = "true" ]; then
+    # List uploads directly from Storacha (more reliable than parsing manifest)
+    CIDS=$(storacha ls 2>/dev/null | grep '^baf' || true)
+
+    if [ -z "$CIDS" ]; then
+        echo "No uploads found in current Storacha space."
+        exit 0
+    fi
+
+    REMOVE_COUNT=0
+    FAIL_COUNT=0
+
+    echo "Removing all uploads from Storacha..."
+    echo ""
+
+    echo "$CIDS" | while read -r cid; do
+        if [ "$DRY_RUN" = "true" ]; then
+            echo "  [DRY RUN] Would remove: $cid"
+            continue
+        fi
+
+        echo "  Removing: $cid"
+        if storacha rm "$cid" --shards 2>&1; then
+            REMOVE_COUNT=$(( REMOVE_COUNT + 1 ))
+        else
+            echo "    WARNING: Failed to remove $cid" >&2
+            FAIL_COUNT=$(( FAIL_COUNT + 1 ))
+        fi
+    done
+
+    if [ "$DRY_RUN" != "true" ]; then
+        # Reset manifest (keep header)
+        if [ -f "$MANIFEST_FILE" ]; then
+            echo "file,from_block,to_block,cid,gateway_url,uploaded_at" > "$MANIFEST_FILE"
+        fi
+        # Clear uploaded tracker
+        > "$UPLOADED_FILE"
+        echo ""
+        echo "Manifest and upload tracker cleared."
+    fi
+
+    echo ""
+    echo "========================================"
+    echo "Storacha removal complete"
+    echo "========================================"
+    exit 0
 fi
 
 # Initialize manifest with header if it doesn't exist
@@ -103,8 +172,9 @@ for ARCHIVE_FILE in $(ls "${ARCHIVE_DIR}"/blocks_*.jsonl.gz 2>/dev/null | sort -
         continue
     fi
 
-    # Upload to Storacha
-    UPLOAD_OUTPUT=$(storacha up "$ARCHIVE_FILE" 2>&1) || {
+    # Upload to Storacha (--no-wrap avoids wrapping in a directory CID,
+    # so the CID points directly to the file content)
+    UPLOAD_OUTPUT=$(storacha up --no-wrap "$ARCHIVE_FILE" 2>&1) || {
         echo "  ERROR: Upload failed for $FILENAME" >&2
         echo "  Output: $UPLOAD_OUTPUT" >&2
         FAIL_COUNT=$(( FAIL_COUNT + 1 ))
@@ -112,7 +182,7 @@ for ARCHIVE_FILE in $(ls "${ARCHIVE_DIR}"/blocks_*.jsonl.gz 2>/dev/null | sort -
     }
 
     # Extract CID from output
-    CID=$(echo "$UPLOAD_OUTPUT" | grep -o 'bafy[a-zA-Z0-9]*' | head -1)
+    CID=$(echo "$UPLOAD_OUTPUT" | grep -o 'baf[a-zA-Z0-9]*' | head -1)
 
     if [ -z "$CID" ]; then
         echo "  WARNING: Could not extract CID from upload output" >&2
@@ -121,7 +191,7 @@ for ARCHIVE_FILE in $(ls "${ARCHIVE_DIR}"/blocks_*.jsonl.gz 2>/dev/null | sort -
         continue
     fi
 
-    GATEWAY_URL="https://${CID}.ipfs.w3s.link"
+    GATEWAY_URL="https://storacha.link/ipfs/${CID}"
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     # Record in manifest

@@ -31,8 +31,7 @@
 #
 # Environment variables:
 #   ARCHIVE_DIR         - Default output directory (default: /root/.sparkdream/restored-archives)
-#   JACKAL_API_URL      - Jackal API base URL (default: http://localhost:3535)
-#   FILEBASE_BUCKET     - Filebase S3 bucket name (required for filebase)
+#   FILEBASE_BUCKET     - Filebase S3 bucket name (optional for filebase, falls back to IPFS gateway)
 #   FILEBASE_ENDPOINT   - Filebase S3 endpoint (default: https://s3.filebase.com)
 #
 set -e
@@ -57,7 +56,6 @@ TARGET_FILE=""
 DRY_RUN="false"
 OUTPUT_DIR="${ARCHIVE_DIR:-/root/.sparkdream/restored-archives}"
 MANIFEST=""
-JACKAL_API_URL="${JACKAL_API_URL:-http://localhost:3535}"
 FILEBASE_ENDPOINT="${FILEBASE_ENDPOINT:-https://s3.filebase.com}"
 
 # ---------------------------------------------------------------------------
@@ -148,13 +146,41 @@ get_matching_rows() {
 }
 
 # ---------------------------------------------------------------------------
+# Download via IPFS gateway (shared helper)
+# ---------------------------------------------------------------------------
+download_ipfs() {
+    local file="$1" cid="$2" output="$3"
+    local gateways=(
+        "https://ipfs.io/ipfs/${cid}"
+        "https://dweb.link/ipfs/${cid}"
+        "https://cloudflare-ipfs.com/ipfs/${cid}"
+    )
+
+    for url in "${gateways[@]}"; do
+        if curl -sL --fail --max-time 120 -o "$output" "$url" 2>/dev/null; then
+            echo "  Saved: $output"
+            return 0
+        fi
+        rm -f "$output"
+        echo "  Gateway failed: $url, trying next..."
+    done
+
+    echo "  ERROR: Failed to download $file from all IPFS gateways" >&2
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # Download functions (one per service)
 # ---------------------------------------------------------------------------
 
 download_storacha() {
     local file="$1" cid="$2"
-    local url="https://${cid}.ipfs.w3s.link/${file}"
     local output="${OUTPUT_DIR}/${file}"
+    local gateways=(
+        "https://${cid}.ipfs.w3s.link/"
+        "https://storacha.link/ipfs/${cid}"
+        "https://ipfs.io/ipfs/${cid}"
+    )
 
     if [ -f "$output" ]; then
         echo "  SKIP: $file (already exists)"
@@ -162,17 +188,24 @@ download_storacha() {
     fi
 
     if [ "$DRY_RUN" = "true" ]; then
-        echo "  [DRY RUN] Would download: $url"
+        echo "  [DRY RUN] Would download: ${gateways[0]}"
         return 0
     fi
 
     echo "  Downloading: $file"
-    curl -sL --fail --max-time 120 -o "$output" "$url" || {
-        echo "  ERROR: Failed to download $file from Storacha" >&2
+    for url in "${gateways[@]}"; do
+        if curl -sL --fail --max-time 120 \
+            -H "User-Agent: sparkdream-archive-download/1.0" \
+            -o "$output" "$url" 2>/dev/null; then
+            echo "  Saved: $output"
+            return 0
+        fi
         rm -f "$output"
-        return 1
-    }
-    echo "  Saved: $output"
+        echo "  Gateway failed: $url, trying next..."
+    done
+
+    echo "  ERROR: Failed to download $file from all IPFS gateways" >&2
+    return 1
 }
 
 download_pinata() {
@@ -202,26 +235,37 @@ download_pinata() {
 download_filebase() {
     local file="$1" cid="$2"
     local output="${OUTPUT_DIR}/${file}"
+    local gateway_url="https://ipfs.filebase.io/ipfs/${cid}"
 
     if [ -f "$output" ]; then
         echo "  SKIP: $file (already exists)"
         return 0
     fi
 
-    if [ -z "$FILEBASE_BUCKET" ]; then
-        echo "ERROR: FILEBASE_BUCKET is required for Filebase downloads." >&2
-        echo "Set it with: export FILEBASE_BUCKET=your-bucket-name" >&2
-        exit 1
-    fi
-
     if [ "$DRY_RUN" = "true" ]; then
-        echo "  [DRY RUN] Would download: s3://${FILEBASE_BUCKET}/sparkdream-archives/${file}"
+        if [ -n "$FILEBASE_BUCKET" ]; then
+            echo "  [DRY RUN] Would download: s3://${FILEBASE_BUCKET}/sparkdream-archives/${file}"
+        else
+            echo "  [DRY RUN] Would download: $gateway_url"
+        fi
         return 0
     fi
 
     echo "  Downloading: $file"
-    aws s3 cp "s3://${FILEBASE_BUCKET}/sparkdream-archives/${file}" "$output" \
-        --endpoint-url "$FILEBASE_ENDPOINT" --quiet || {
+
+    # Try S3 first if bucket is configured (requires AWS credentials for Filebase)
+    if [ -n "$FILEBASE_BUCKET" ]; then
+        if aws s3 cp "s3://${FILEBASE_BUCKET}/sparkdream-archives/${file}" "$output" \
+            --endpoint-url "$FILEBASE_ENDPOINT" --quiet 2>/dev/null; then
+            echo "  Saved: $output"
+            return 0
+        fi
+        echo "  S3 download failed, falling back to IPFS gateway..."
+        rm -f "$output"
+    fi
+
+    # Fall back to public IPFS gateway (no credentials needed)
+    curl -sL --fail --max-time 120 -o "$output" "$gateway_url" || {
         echo "  ERROR: Failed to download $file from Filebase" >&2
         rm -f "$output"
         return 1
@@ -253,9 +297,11 @@ download_arweave() {
     echo "  Saved: $output"
 }
 
+# Jackal vault manifest format: file,from,to,jackal_path,cid,merkle,size,date
+# Downloads directly from Jackal storage providers using the merkle hash.
+# No mnemonic needed — providers serve public files via HTTP.
 download_jackal() {
-    local file="$1" fid="$2"
-    local url="${JACKAL_API_URL}/fid/download/${fid}"
+    local file="$1" merkle_hex="$2"
     local output="${OUTPUT_DIR}/${file}"
 
     if [ -f "$output" ]; then
@@ -263,18 +309,38 @@ download_jackal() {
         return 0
     fi
 
+    if [ -z "$merkle_hex" ] || [ "$merkle_hex" = "" ]; then
+        echo "  ERROR: No merkle hash for $file — re-upload with updated script" >&2
+        return 1
+    fi
+
     if [ "$DRY_RUN" = "true" ]; then
-        echo "  [DRY RUN] Would download: $url"
+        echo "  [DRY RUN] Would download: merkle=$merkle_hex"
         return 0
     fi
 
+    # Resolve provider IPs on first call
+    if [ -z "$JACKAL_PROVIDERS" ]; then
+        echo "  Resolving Jackal storage providers..."
+        JACKAL_PROVIDERS=$(curl -s "https://api.jackalprotocol.com/jackal/canine-chain/storage/active_providers" | \
+            jq -r '.providers[].address' 2>/dev/null | head -5 | while read -r addr; do
+                curl -s "https://api.jackalprotocol.com/jackal/canine-chain/storage/providers/${addr}" | \
+                    jq -r '.provider.ip // empty' 2>/dev/null
+            done | grep -v '^$')
+        export JACKAL_PROVIDERS
+    fi
+
     echo "  Downloading: $file"
-    curl -sL --fail --max-time 120 -o "$output" "$url" || {
-        echo "  ERROR: Failed to download $file from Jackal" >&2
+    for provider in $JACKAL_PROVIDERS; do
+        if curl -sL --fail --max-time 120 -o "$output" "${provider}/download/${merkle_hex}" 2>/dev/null; then
+            echo "  Saved: $output (from $provider)"
+            return 0
+        fi
         rm -f "$output"
-        return 1
-    }
-    echo "  Saved: $output"
+    done
+
+    echo "  ERROR: Failed to download $file from all Jackal providers" >&2
+    return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -302,7 +368,9 @@ DOWNLOAD_COUNT=0
 SKIP_COUNT=0
 FAIL_COUNT=0
 
-echo "$ROWS" | while IFS=',' read -r file from_block to_block id _rest; do
+# For jackal vault manifests, the CID is in column 5 (after jackal_path in column 4).
+# For all other services, the ID (cid/tx_id) is in column 4.
+echo "$ROWS" | while IFS=',' read -r file from_block to_block id rest; do
     echo "[blocks ${from_block}-${to_block}] $file"
 
     case "$SERVICE" in
@@ -310,7 +378,12 @@ echo "$ROWS" | while IFS=',' read -r file from_block to_block id _rest; do
         pinata)    download_pinata "$file" "$id" ;;
         filebase)  download_filebase "$file" "$id" ;;
         arweave)   download_arweave "$file" "$id" ;;
-        jackal)    download_jackal "$file" "$id" ;;
+        jackal)
+            # Vault manifest: col4=jackal_path, col5=cid, col6=merkle
+            # Extract merkle hex from rest (skip cid, take merkle)
+            jackal_merkle=$(echo "$rest" | cut -d',' -f2)
+            download_jackal "$file" "$jackal_merkle"
+            ;;
     esac
 
     status=$?

@@ -55,6 +55,10 @@
 #   List vault folders:
 #     ./sparkdream-jackal-upload.sh list-folders
 #
+#   Delete all files from the vault folder and reset manifest/tracker,
+#   so you can re-upload fresh:
+#     ./sparkdream-jackal-upload.sh clean [archive_directory]
+#
 #   Rebuild manifest from remote (vault mode only).
 #   Useful when an upload timed out but the files were actually stored
 #   on the remote server — reconciles the local manifest and tracker
@@ -163,6 +167,94 @@ const target = process.argv[1];
 })().catch(err => { console.error('Error: ' + err.message); process.exit(1); });
 " "$FOLDER_NAME"
     exit $?
+fi
+
+if [ "$1" = "clean" ]; then
+    CLEAN_ARCHIVE_DIR="${2:-${ARCHIVE_DIR:-./sparkdream-archives}}"
+    CLEAN_MANIFEST="${MANIFEST_FILE:-${CLEAN_ARCHIVE_DIR}/jackal-manifest.csv}"
+    CLEAN_UPLOADED="${UPLOADED_FILE:-${CLEAN_ARCHIVE_DIR}/.jackal-uploaded}"
+
+    echo "Resetting local upload state..."
+    echo "  Manifest: $CLEAN_MANIFEST"
+    echo ""
+
+    # If mnemonic is set, also delete files from vault
+    if [ -n "$JACKAL_MNEMONIC" ]; then
+        JACKAL_FOLDER="${JACKAL_FOLDER:-sparkdream-archives}"
+        export JACKAL_RPC="${JACKAL_RPC:-https://rpc.jackalprotocol.com}"
+        export JACKAL_REST="${JACKAL_REST:-https://api.jackalprotocol.com}"
+        export NODE_PATH="${NODE_PATH:+${NODE_PATH}:}$(npm root -g)"
+
+        echo "Also deleting files from vault: Home/${JACKAL_FOLDER}"
+        echo "  (Skip vault deletion by unsetting JACKAL_MNEMONIC)"
+        echo ""
+
+        JACKAL_FOLDER="$JACKAL_FOLDER" node -e "
+const _stderr = process.stderr;
+['log','warn','dir','error','info','debug'].forEach(m => {
+    console[m] = (...args) => { _stderr.write(require('util').format(...args) + '\n'); };
+});
+process.on('unhandledRejection', (err) => {
+    if (err?.txId || (err?.message || '').includes('was submitted but was not yet found')) {
+        console.log('Tx confirmation timed out — continuing...');
+    } else {
+        console.error('Unhandled: ' + (err?.message || err));
+    }
+});
+${JACKAL_VAULT_JS}
+const folder = process.env.JACKAL_FOLDER || 'sparkdream-archives';
+(async () => {
+    const storage = await connectStorage();
+    const existing = storage.listChildFolders();
+    if (!existing.includes(folder)) {
+        process.stdout.write('Folder not found — skipping vault cleanup.\n');
+        process.exit(0);
+    }
+    await storage.loadDirectory({ path: 'Home/' + folder });
+    const files = storage.listChildFiles();
+    if (files.length === 0) {
+        process.stdout.write('Vault folder already empty.\n');
+        process.exit(0);
+    }
+    process.stdout.write('Deleting ' + files.length + ' file(s)...\n');
+    // Delete all files in one tx with a safety timeout (SDK hangs on WebSocket)
+    const CLEAN_TIMEOUT_MS = 120000;
+    await Promise.race([
+        (async () => {
+            try {
+                await storage.deleteTargets({ targets: files });
+                process.stdout.write('Deleted all files.\n');
+            } catch (err) {
+                if (err?.txId || (err?.message || '').includes('was submitted but was not yet found')) {
+                    process.stdout.write('Delete tx submitted (confirmation timed out — likely succeeded).\n');
+                } else {
+                    process.stdout.write('WARNING: ' + err.message + '\n');
+                }
+            }
+        })(),
+        new Promise((resolve) => setTimeout(() => {
+            process.stdout.write('Delete tx submitted (safety timeout) — likely succeeded.\n');
+            resolve();
+        }, CLEAN_TIMEOUT_MS)),
+    ]);
+    process.exit(0);
+})().catch(err => { process.stderr.write('Error: ' + err.message + '\n'); process.exit(1); });
+" || echo "  Vault cleanup had errors (files may already be deleted)."
+        echo ""
+    else
+        echo "  JACKAL_MNEMONIC not set — skipping vault deletion, only resetting local state."
+        echo ""
+    fi
+
+    # Reset manifest and tracker
+    echo "file,from_block,to_block,jackal_path,cid,file_size,uploaded_at" > "$CLEAN_MANIFEST"
+    : > "$CLEAN_UPLOADED"
+    echo "Manifest and upload tracker cleared."
+    echo ""
+    echo "========================================"
+    echo "Clean complete — ready to re-upload"
+    echo "========================================"
+    exit 0
 fi
 
 if [ "$1" = "fix-manifest" ]; then
@@ -395,13 +487,20 @@ esac
 # ---------------------------------------------------------------------------
 # Initialize manifest and tracker
 # ---------------------------------------------------------------------------
-if [ ! -f "$MANIFEST_FILE" ]; then
-    if [ "$JACKAL_MODE" = "vault" ]; then
-        echo "file,from_block,to_block,jackal_path,file_size,uploaded_at" > "$MANIFEST_FILE"
+if [ "$JACKAL_MODE" = "vault" ]; then
+    MANIFEST_HEADER="file,from_block,to_block,jackal_path,cid,merkle,file_size,uploaded_at"
+else
+    MANIFEST_HEADER="file,from_block,to_block,cid,file_size,uploaded_at"
+fi
+if [ ! -f "$MANIFEST_FILE" ] || ! head -1 "$MANIFEST_FILE" | grep -q "^file,"; then
+    # Prepend header if file is missing or has no header
+    if [ -f "$MANIFEST_FILE" ] && [ -s "$MANIFEST_FILE" ]; then
+        sed -i "1i\\${MANIFEST_HEADER}" "$MANIFEST_FILE"
+        echo "Added header to existing manifest: $MANIFEST_FILE"
     else
-        echo "file,from_block,to_block,cid,file_size,uploaded_at" > "$MANIFEST_FILE"
+        echo "$MANIFEST_HEADER" > "$MANIFEST_FILE"
+        echo "Created manifest: $MANIFEST_FILE"
     fi
-    echo "Created manifest: $MANIFEST_FILE"
 fi
 
 touch "$UPLOADED_FILE"
@@ -579,22 +678,164 @@ const files = input.split('\n').map(line => {
         console.log('Loaded subfolder: Home/' + folder);
     }
 
-    // Build file array and queue all at once
+    // Handle cosmjs errors that bypass the normal promise chain.
+    process.on('unhandledRejection', (err) => {
+        const msg = err?.message || String(err);
+        if (err?.txId || msg.includes('TimeoutError') || msg.includes('was submitted but was not yet found')) {
+            console.log('Tx confirmation timed out — will verify in pass 2.');
+        } else if (msg.includes('account sequence mismatch')) {
+            console.error('');
+            console.error('ERROR: Account sequence mismatch — the chain has a different');
+            console.error('transaction count than the SDK expects. This usually happens');
+            console.error('when a previous upload timed out mid-transaction.');
+            console.error('');
+            console.error('To fix, wait 2 minutes for pending transactions to settle,');
+            console.error('then run clean twice to reset the SDK state:');
+            console.error('');
+            console.error('  sleep 120');
+            console.error('  ./jackal-upload.sh clean <archive_dir>');
+            console.error('  ./jackal-upload.sh clean <archive_dir>');
+            console.error('  ./jackal-upload.sh <archive_dir>');
+            console.error('');
+            process.exit(1);
+        } else {
+            console.error('Unhandled rejection: ' + msg);
+            process.exit(1);
+        }
+    });
+
+    const prefix = folder === 'Home' ? 'Home' : 'Home/' + folder;
+
+    // ---- PASS 1: Queue and upload all files (don't wait for confirmation) ----
+    console.log('');
+    console.log('=== Pass 1: Uploading files to providers ===');
+
+    // Collect CIDs by intercepting the SDK's console output.
+    // The SDK logs progress objects like: progress: 100 { merkle: '...', cid: '...' }
+    // statusCallback is not a real SDK option — CIDs only appear in console output.
+    const cidMap = {};  // merkle -> cid
+    const origStderrWrite = _stderr.write.bind(_stderr);
+    _stderr.write = (chunk, ...args) => {
+        const str = typeof chunk === 'string' ? chunk : chunk.toString();
+        // Match CID from SDK progress logs
+        const cidMatch = str.match(/cid:\s*'(baf[a-z0-9]+)'/);
+        const merkleMatch = str.match(/merkle:\s*'([A-Za-z0-9+/=]+)'/);
+        const progressMatch = str.match(/progress:\s*100/);
+        if (cidMatch && merkleMatch && progressMatch) {
+            cidMap[merkleMatch[1]] = cidMatch[1];
+        }
+        return origStderrWrite(chunk, ...args);
+    };
+
     const fileObjects = await Promise.all(files.map(async (f) => {
         const data = await readFile(f.path);
         return new File([data], f.name, { type: 'application/gzip' });
     }));
+
     await storage.queuePublic(fileObjects);
-    console.log('Queued objects');
+    console.log('Queued ' + fileObjects.length + ' file(s)');
 
-    // Process all queued uploads in a single batch
-    await storage.processAllQueues({ monitorTimeout: 600 });
-    console.log('Processed all queues');
+    // Upload all files to providers and submit the on-chain tx.
+    // The SDK hangs on its WebSocket monitor after the tx is submitted,
+    // so we use a safety timeout to move on to pass 2 verification.
+    const UPLOAD_TIMEOUT_MS = 180000;  // 3 min safety net
+    await Promise.race([
+        storage.processAllQueues({ monitorTimeout: 60 }).catch(() => {}),
+        new Promise((resolve) => setTimeout(() => {
+            console.log('Pass 1 complete (safety timeout) — proceeding to verification.');
+            resolve();
+        }, UPLOAD_TIMEOUT_MS)),
+    ]);
 
-    // Report success for all files — write directly to stdout (console is redirected to stderr)
-    const prefix = folder === 'Home' ? 'Home' : 'Home/' + folder;
+    // ---- PASS 2: Poll vault for each file and capture CIDs ----
+    console.log('');
+    console.log('=== Pass 2: Verifying uploads and capturing CIDs ===');
+
+    // Wait for chain to settle (tx confirmation)
+    console.log('Waiting 30s for chain to process transactions...');
+    await new Promise(r => setTimeout(r, 30000));
+
+    // Reload the directory to see newly uploaded files
+    await storage.loadDirectory({ path: prefix, refresh: true });
+    const remoteFiles = storage.listChildFiles();
+    console.log('Remote files: ' + remoteFiles.join(', '));
+
+    // If statusCallback didn't capture any CIDs, fetch the CID map
+    // from a single provider as fallback (download once, reuse for all files)
+    let providerCidMap = null;
+    if (Object.keys(cidMap).length === 0) {
+        console.log('No CIDs from statusCallback — fetching from provider...');
+        const provRes = await fetch(rest + '/jackal/canine-chain/storage/active_providers');
+        const provAddrs = (await provRes.json()).providers.map(p => p.address);
+        for (const addr of provAddrs.slice(0, 3)) {
+            try {
+                const r = await fetch(rest + '/jackal/canine-chain/storage/providers/' + addr);
+                const ip = (await r.json()).provider.ip;
+                if (!ip) continue;
+                const mapRes = await fetch(ip + '/ipfs/cid_map', { signal: AbortSignal.timeout(15000) });
+                providerCidMap = (await mapRes.json()).cid_map || {};
+                console.log('  Loaded CID map from ' + ip + ' (' + Object.keys(providerCidMap).length + ' entries)');
+                break;
+            } catch {}
+        }
+    }
+
     for (const f of files) {
-        process.stdout.write(JSON.stringify({ ok: true, file: f.name, from: f.from, to: f.to, size: f.size, id: prefix + '/' + f.name }) + '\n');
+        let cid = '';
+        let merkleHex = '';
+
+        try {
+            const meta = await storage.getFileParticulars(prefix + '/' + f.name);
+            const merkle = meta?.merkle;
+            if (merkle) {
+                // The statusCallback stores merkle as-is from the SDK (base64 string).
+                // getFileParticulars returns merkle as raw bytes (Uint8Array) or string.
+                // Try all possible encodings to match.
+                const merkleB64 = typeof merkle === 'string' ? merkle : Buffer.from(merkle).toString('base64');
+                merkleHex = typeof merkle === 'string' ? Buffer.from(merkle, 'base64').toString('hex') : Buffer.from(merkle).toString('hex');
+
+                // Try exact match, then base64, then hex
+                cid = cidMap[merkleB64] || cidMap[merkleHex] || '';
+
+                // Also try matching against all cidMap keys (SDK may pad/format differently)
+                if (!cid) {
+                    for (const [k, v] of Object.entries(cidMap)) {
+                        if (k === merkleB64 || k === merkleHex ||
+                            Buffer.from(k, 'base64').toString('hex') === merkleHex) {
+                            cid = v;
+                            break;
+                        }
+                    }
+                }
+
+                // Fallback: look up in provider CID map by merkle hex
+                if (!cid && providerCidMap) {
+                    // Provider CID map keys are hex-encoded — try matching our merkle hex
+                    cid = providerCidMap[merkleHex] || '';
+                    if (!cid) {
+                        // Keys may have path prefixes, search for suffix match
+                        for (const [k, v] of Object.entries(providerCidMap)) {
+                            try {
+                                const decoded = Buffer.from(k, 'hex').toString('utf-8');
+                                if (decoded.includes(merkleHex)) { cid = v; break; }
+                            } catch {}
+                            if (k.includes(merkleHex)) { cid = v; break; }
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.log('  Could not get metadata for ' + f.name + ': ' + err.message);
+        }
+
+        const uploaded = remoteFiles.includes(f.name);
+        if (uploaded) {
+            console.log('  OK: ' + f.name + (cid ? ' (CID: ' + cid + ')' : '') + (merkleHex ? ' (merkle: ' + merkleHex.slice(0, 16) + '...)' : ''));
+            process.stdout.write(JSON.stringify({ ok: true, file: f.name, from: f.from, to: f.to, size: f.size, id: prefix + '/' + f.name, cid, merkle: merkleHex || '' }) + '\n');
+        } else {
+            console.log('  MISSING: ' + f.name + ' — not found in vault');
+            process.stdout.write(JSON.stringify({ ok: false, file: f.name, error: 'File not found in vault after upload' }) + '\n');
+        }
     }
     process.exit(0);
 })().catch(err => {
@@ -668,14 +909,22 @@ while IFS= read -r line; do
 
     if [ "$OK" = "true" ]; then
         ID=$(echo "$line" | jq -r '.id')
+        CID=$(echo "$line" | jq -r '.cid // empty')
+        MERKLE=$(echo "$line" | jq -r '.merkle // empty')
         FROM_BLOCK=$(echo "$line" | jq -r '.from')
         TO_BLOCK=$(echo "$line" | jq -r '.to')
         FILE_SIZE=$(echo "$line" | jq -r '.size')
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
         echo "Uploaded: $FILENAME -> $ID"
+        [ -n "$CID" ] && echo "  CID: $CID"
+        [ -n "$MERKLE" ] && echo "  Merkle: ${MERKLE:0:16}..."
 
-        echo "${FILENAME},${FROM_BLOCK},${TO_BLOCK},${ID},${FILE_SIZE},${TIMESTAMP}" >> "$MANIFEST_FILE"
+        if [ "$JACKAL_MODE" = "vault" ]; then
+            echo "${FILENAME},${FROM_BLOCK},${TO_BLOCK},${ID},${CID},${MERKLE},${FILE_SIZE},${TIMESTAMP}" >> "$MANIFEST_FILE"
+        else
+            echo "${FILENAME},${FROM_BLOCK},${TO_BLOCK},${CID},${FILE_SIZE},${TIMESTAMP}" >> "$MANIFEST_FILE"
+        fi
         echo "$FILENAME" >> "$UPLOADED_FILE"
 
         UPLOAD_COUNT=$(( UPLOAD_COUNT + 1 ))
