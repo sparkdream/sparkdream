@@ -438,6 +438,12 @@ func (app *App) SimulationManager() *module.SimulationManager {
 // API server.
 func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
 	app.App.RegisterAPIRoutes(apiSvr, apiConfig)
+
+	// Re-register all gateway routes using a codec-safe gRPC connection.
+	// The SDK's registration uses clientCtx which triggers proto v2 panics
+	// on gogoproto custom types. Our codecConn wrapper forces the SDK codec.
+	installGatewayFix(apiSvr)
+
 	// register swagger API in app.go so that other applications can override easily
 	if err := server.RegisterSwaggerAPI(apiSvr.ClientCtx, apiSvr.Router, apiConfig.Swagger); err != nil {
 		panic(err)
