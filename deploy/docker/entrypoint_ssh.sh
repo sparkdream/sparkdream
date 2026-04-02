@@ -116,6 +116,18 @@ if [ "${WAIT_FOR_CONFIG}" = "true" ]; then
     exec tail -f /dev/null
 fi
 
-# 7. Normal mode: start the Spark Dream blockchain node
+# 7. Optional startup delay to allow Tailscale mesh and TMKMS connections to
+#    establish before the node begins signing. Without this, the node can panic
+#    on the first block if the external signer isn't reachable yet, causing
+#    Akash to restart the container in an endless crash loop.
+#    Set STARTUP_DELAY to the number of seconds to wait (default: 0 = no delay).
+STARTUP_DELAY="${STARTUP_DELAY:-0}"
+if [ "$STARTUP_DELAY" -gt 0 ] 2>/dev/null; then
+    echo "Waiting ${STARTUP_DELAY}s for network/signer readiness..."
+    sleep "$STARTUP_DELAY"
+    echo "Startup delay complete."
+fi
+
+# 8. Normal mode: start the Spark Dream blockchain node
 echo "Starting sparkdreamd with args: $@"
 exec "$@"

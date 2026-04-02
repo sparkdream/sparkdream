@@ -2,7 +2,7 @@
 version: "2.0"
 services:
   sparkdreamd:
-    image: sparkdreamnft/sparkdreamd-mainnet-ssh:v1.0.1a
+    image: sparkdreamnft/sparkdreamd-mainnet-ssh:v1.0.1d
     expose:
       # SSH for emergency access (can be removed once Tailscale SSH works)
       - port: 2222
@@ -21,6 +21,8 @@ services:
       - "TS_HOSTNAME=validator"
       # Tailscale state directory (on persistent storage)
       - "TS_STATE_DIR=/root/.sparkdream/tailscale"
+      # Seconds to wait before starting the node (lets Tailscale + TMKMS connect)
+      - "STARTUP_DELAY=20"
       # Set to "true" for initial deploy to upload chain data
       - "WAIT_FOR_CONFIG=true"
     params:

@@ -2,7 +2,7 @@
 version: "2.0"
 services:
   sparkdreamd:
-    image: sparkdreamnft/sparkdreamd-devnet-ssh:v1.0.1a
+    image: sparkdreamnft/sparkdreamd-devnet-ssh:v1.0.1d
     expose:
       # SSH for management
       - port: 2222
@@ -37,6 +37,8 @@ services:
       # The sentry connects to the validator's P2P port via this tunnel.
       # Update persistent_peers in config.toml to use 127.0.0.1:16656 instead of the Tailscale IP.
       - "TS_TUNNEL_1=16656:100.64.0.10:26656"
+      # Seconds to wait before starting the node (lets Tailscale + TMKMS connect)
+      - "STARTUP_DELAY=20"
       # Set to "true" for initial deploy to upload chain data
       - "WAIT_FOR_CONFIG=true"
     params:

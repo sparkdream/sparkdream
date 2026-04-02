@@ -2,7 +2,7 @@ version: 1
 build:
   main: cmd/sparkdreamd
   tags:
-    - testparams
+    - testnet
 validation: sovereign
 # Test-only accounts. Mnemonics are committed intentionally — they derive the
 # specific addresses hardcoded in x/commons/keeper/genesis_vals.go (founder,
@@ -69,15 +69,15 @@ genesis:
         community_tax: "0.15"
     gov:
       params:
-        max_deposit_period: "30s"
+        max_deposit_period: "21600s"       # 6 hours (production: 48 hours+)
         min_deposit:
           - amount: "50000000"
             denom: "uspark"
-        voting_period: "60s"
+        voting_period: "43200s"            # 12 hours (production: 5 days+)
         expedited_min_deposit:
           - amount: "100000000"
             denom: "uspark"
-        expedited_voting_period: "40s"
+        expedited_voting_period: "14400s"  # 4 hours (production: 1 day+)
     mint:
       params:
         mint_denom: "uspark"
@@ -94,21 +94,21 @@ genesis:
         name: "Genesis Season"
         theme: "The Beginning"
         start_block: 1
-        end_block: 1001  # epoch_blocks * season_duration_epochs (100 * 10) + start_block
+        end_block: 108001  # epoch_blocks * season_duration_epochs (1440 * 75) + start_block
         status: SEASON_STATUS_ACTIVE
         extensions_count: 0
         total_extension_epochs: 0
-        original_end_block: 1001
+        original_end_block: 108001
       params:
-        epoch_blocks: "100"  # ~100 blocks per epoch (short for testing)
-        season_duration_epochs: "10"  # 10 epochs per season (short for testing)
-        transition_batch_size: "1"  # 1 member per block per phase (slow for abort/skip testing)
-        transition_grace_period: "10"  # 10 blocks grace after abort (short for testing)
-        display_name_appeal_period_blocks: "20"  # ~20 seconds (short for testing; default 100800)
-        # Nomination params - TESTING values
-        nomination_min_stake: "1"  # 1 udream minimum stake for testing
-        retro_reward_budget_per_season: "1000"  # 1000 DREAM budget for testing
-        retro_reward_min_conviction: "1"  # minimal conviction required for testing
+        epoch_blocks: "1440"              # ~2.4 hours at 6s blocks (production: 17280 ~1 day)
+        season_duration_epochs: "75"      # 75 epochs = ~7.5 days (production: 150 ~5 months)
+        transition_batch_size: "100"      # same as production
+        transition_grace_period: "7200"   # ~12 hours in blocks (production: 50400 ~1 week)
+        display_name_appeal_period_blocks: "14400"  # ~1 day (production: 100800 ~7 days)
+        # Nomination params - TESTNET values
+        nomination_min_stake: "10"                  # same as production
+        retro_reward_budget_per_season: "50000"     # same as production
+        retro_reward_min_conviction: "50"           # same as production
       member_profile_map:
       # Alice - High level founder with multiple achievements and titles
       - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
@@ -117,7 +117,7 @@ genesis:
         display_title: "veteran"
         season_xp: 5000
         lifetime_xp: 5000
-        season_level: 8  # sqrt(5000/100) ≈ 7.07 → level 8
+        season_level: 8
         unlocked_titles:
         - "newcomer"
         - "veteran"
@@ -138,7 +138,7 @@ genesis:
         display_title: "newcomer"
         season_xp: 1500
         lifetime_xp: 1500
-        season_level: 6  # effective XP = 1500 + (5*5) + (15*5) = 1600 → level 6
+        season_level: 6
         unlocked_titles:
         - "newcomer"
         achievements:
@@ -156,7 +156,7 @@ genesis:
         display_title: ""
         season_xp: 300
         lifetime_xp: 300
-        season_level: 2  # sqrt(300/100) ≈ 1.73 → level 2
+        season_level: 2
         unlocked_titles:
         - "newcomer"
         achievements:
@@ -168,35 +168,34 @@ genesis:
         forum_helpful_count: 5
     rep:
       params:
-        # Time - FAST for testing
-        epoch_blocks: "10"  # ~1 minute (was ~1 day)
-        season_duration_epochs: "100"  # ~100 minutes (was ~5 months)
-        # Conviction - FAST for testing + FIXED with sqrt scaling
-        conviction_half_life_epochs: "1"  # 1 epoch = ~1 minute half-life (was 7 days)
-        conviction_per_dream: "0.2"  # 0.2 with sqrt scaling (maintains 4% ratio across all budgets)
-        # Review periods - EXTRA FAST for testing
-        default_review_period_epochs: "1"  # ~1 minute (was ~1 week)
-        default_challenge_period_epochs: "1"  # ~1 minute (was ~1 week)
-        # Invitations - FAST for testing
-        invitation_accountability_epochs: "10"  # ~10 minutes (was ~5 months)
-        # Interim compensation - FAST for testing
-        interim_deadline_epochs: "3"  # ~3 minutes (was ~1 week)
-        # Interim budgets - REALISTIC for testing (in micro-DREAM)
-        simple_complexity_budget: "50000000"    # 50 DREAM (50 * 1e6 micro-DREAM)
-        standard_complexity_budget: "150000000"  # 150 DREAM (150 * 1e6 micro-DREAM)
-        complex_complexity_budget: "400000000"   # 400 DREAM (400 * 1e6 micro-DREAM)
-        expert_complexity_budget: "1000000000"   # 1000 DREAM (1000 * 1e6 micro-DREAM)
-        solo_expert_bonus_rate: "0.5"  # 50% bonus for solo experts
-        # Challenge response deadline - FAST for testing
-        challenge_response_deadline_epochs: "1"  # ~1 minute (was ~3 days)
-        # Gift rate limiting - FAST for testing
-        gift_cooldown_blocks: "5"  # ~30 seconds (was ~1 day = 14400 blocks)
-        max_gifts_per_sender_epoch: "2000000000"  # 2000 DREAM per epoch (same as production)
-        # Jury - SMALL for testing (production: 5)
-        jury_size: 3  # 3 jurors for testing (5 in production)
-        min_juror_reputation: "20"  # 20 reputation (50 in production)
-        # Trust level configuration - using defaults
-        # To modify for testing, update x/rep/types/params.go DefaultParams()
+        # Time - TESTNET: ~2.4 hour epochs, ~7.5 day seasons
+        epoch_blocks: "1440"                       # ~2.4 hours (production: 14400 ~1 day)
+        season_duration_epochs: "75"               # ~7.5 days (production: 150 ~5 months)
+        # Conviction - TESTNET: production-like decay
+        conviction_half_life_epochs: "5"           # 5 epochs = ~12 hours (production: 7 ~1 week)
+        conviction_per_dream: "0.2"                # same as production (sqrt scaling)
+        # Review periods - TESTNET: ~12 hours
+        default_review_period_epochs: "5"          # ~12 hours (production: 7 ~1 week)
+        default_challenge_period_epochs: "5"       # ~12 hours (production: 7 ~1 week)
+        # Invitations - TESTNET: 1 season
+        invitation_accountability_epochs: "75"     # 1 season (production: 150)
+        # Interim compensation - TESTNET: ~1 day deadline
+        interim_deadline_epochs: "7"               # same as production (but epochs are shorter)
+        # Interim budgets - same as production (in micro-DREAM)
+        simple_complexity_budget: "50000000"        # 50 DREAM
+        standard_complexity_budget: "150000000"     # 150 DREAM
+        complex_complexity_budget: "400000000"      # 400 DREAM
+        expert_complexity_budget: "1000000000"      # 1000 DREAM
+        solo_expert_bonus_rate: "0.5"               # 50% bonus for solo experts
+        # Challenge response deadline - TESTNET: production epoch count
+        challenge_response_deadline_epochs: "3"    # same as production (but epochs are shorter)
+        # Gift rate limiting - TESTNET: ~2.4 hour cooldown
+        gift_cooldown_blocks: "1440"               # ~2.4 hours (production: 14400 ~1 day)
+        max_gifts_per_sender_epoch: "2000000000"   # 2000 DREAM per epoch (same as production)
+        # Jury - TESTNET: production values
+        jury_size: 5                               # same as production
+        min_juror_reputation: "50"                 # same as production
+        # Trust level configuration - uses testnet build tag values (production thresholds)
       member_map:
       - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
         dream_balance: "50000000000"  # 50000 DREAM (Tier 1 founder)
@@ -266,14 +265,14 @@ genesis:
         completed_initiatives_count: 0
     forum:
       params:
-        # Archive timing - FAST for testing
-        archive_threshold: "5"       # 5 seconds (was 30 days = 2592000)
-        unarchive_cooldown: "5"      # 5 seconds (was 1 day = 86400)
-        archive_cooldown: "5"        # 5 seconds (was 30 days = 2592000)
-        ephemeral_ttl: "15"          # 15 seconds (was 24h = 86400) for pruning tests
-        hide_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
-        lock_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
-        move_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
+        # Archive timing - TESTNET: close to production
+        archive_threshold: "1296000"     # 15 days (production: 2592000 = 30 days)
+        unarchive_cooldown: "86400"      # 1 day (same as production)
+        archive_cooldown: "1296000"      # 15 days (production: 2592000 = 30 days)
+        ephemeral_ttl: "86400"           # 24 hours (same as production)
+        hide_appeal_cooldown: "3600"     # 1 hour (same as production)
+        lock_appeal_cooldown: "3600"     # 1 hour (same as production)
+        move_appeal_cooldown: "3600"     # 1 hour (same as production)
       category_map:
       - category_id: 1
         title: "General"
@@ -333,48 +332,8 @@ genesis:
         created_at: 0
         last_used_at: 0
         expiration_index: 0
-      # Test tags for x/rep integration tests
-      - name: "advanced-physics"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "budget"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "challenge"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "challenges"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "competition"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "concurrent"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "cross-project"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "cryptography"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "deadline"
+      # General topic tags
+      - name: "security"
         usage_count: 0
         created_at: 0
         last_used_at: 0
@@ -384,52 +343,12 @@ genesis:
         created_at: 0
         last_used_at: 0
         expiration_index: 0
-      - name: "jury"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "nullifier"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "quantum-computing"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "referral-test"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "security"
+      - name: "budget"
         usage_count: 0
         created_at: 0
         last_used_at: 0
         expiration_index: 0
       - name: "staking"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "test"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "testing"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "trust-builder"
-        usage_count: 0
-        created_at: 0
-        last_used_at: 0
-        expiration_index: 0
-      - name: "zero-knowledge"
         usage_count: 0
         created_at: 0
         last_used_at: 0
