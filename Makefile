@@ -114,16 +114,16 @@ govulncheck:
 build: build-test
 
 build-test:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags testparams -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '$(ldflags) -X github.com/cosmos/cosmos-sdk/version.BuildTags=testparams' -tags testparams -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
 
 build-devnet:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags devnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '$(ldflags) -X github.com/cosmos/cosmos-sdk/version.BuildTags=devnet' -tags devnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
 
 build-testnet:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags testnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '$(ldflags) -X github.com/cosmos/cosmos-sdk/version.BuildTags=testnet' -tags testnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
 
 build-mainnet:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags mainnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '$(ldflags) -X github.com/cosmos/cosmos-sdk/version.BuildTags=mainnet' -tags mainnet -o ./build/sparkdreamd ./cmd/sparkdreamd/main.go
 
 .PHONY: build build-test build-devnet build-testnet build-mainnet
 
