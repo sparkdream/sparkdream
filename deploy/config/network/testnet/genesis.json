@@ -2,7 +2,7 @@
   "app_name": "sparkdreamd",
   "app_version": "",
   "genesis_time": "2026-04-08T03:15:14.174616319Z",
-  "chain_id": "sparkdream",
+  "chain_id": "sparkdream-test-1",
   "initial_height": 1,
   "app_hash": null,
   "app_state": {
@@ -620,7 +620,77 @@
       }
     },
     "genutil": {
-      "gen_txs": []
+      "gen_txs": [
+        {
+          "body": {
+            "messages": [
+              {
+                "@type": "/cosmos.staking.v1beta1.MsgCreateValidator",
+                "description": {
+                  "moniker": "🦢 Svanmøy-01 // ⚡",
+                  "identity": "",
+                  "website": "",
+                  "security_contact": "",
+                  "details": ""
+                },
+                "commission": {
+                  "rate": "0.100000000000000000",
+                  "max_rate": "0.200000000000000000",
+                  "max_change_rate": "0.010000000000000000"
+                },
+                "min_self_delegation": "1",
+                "delegator_address": "",
+                "validator_address": "sprkdrmvaloper1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c9vkzqd",
+                "pubkey": {
+                  "@type": "/cosmos.crypto.ed25519.PubKey",
+                  "key": "OElT4VJpHCEW//d/q5FjCQ7i8EZURn49PSeB7MHp8ds="
+                },
+                "value": {
+                  "denom": "uspark",
+                  "amount": "400000000000"
+                }
+              }
+            ],
+            "memo": "027460efd63c646b1291f94a9a2dcd964cec93b4@192.168.5.38:26656",
+            "timeout_height": "0",
+            "unordered": false,
+            "timeout_timestamp": null,
+            "extension_options": [],
+            "non_critical_extension_options": []
+          },
+          "auth_info": {
+            "signer_infos": [
+              {
+                "public_key": {
+                  "@type": "/cosmos.crypto.secp256k1.PubKey",
+                  "key": "A8dsRJEg7BpBdKF5rSIJYCghY60/crh3hVWfUWJX8GSX"
+                },
+                "mode_info": {
+                  "single": {
+                    "mode": "SIGN_MODE_LEGACY_AMINO_JSON"
+                  }
+                },
+                "sequence": "0"
+              }
+            ],
+            "fee": {
+              "amount": [
+                {
+                  "denom": "uspark",
+                  "amount": "25000"
+                }
+              ],
+              "gas_limit": "1000000",
+              "payer": "",
+              "granter": ""
+            },
+            "tip": null
+          },
+          "signatures": [
+            "g96IDjreMf7L4yauhKJ9Pec/IIkKItKF1LqqT/zUsVU60kZ4vAM3H9En1Xxmu5qxK5z3SftGN3Oa8fRyZKV6Ww=="
+          ]
+        }
+      ]
     },
     "gnovm": {
       "params": {
