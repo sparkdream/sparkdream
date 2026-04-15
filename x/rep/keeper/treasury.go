@@ -1,0 +1,182 @@
+package keeper
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
+)
+
+// ---------------------------------------------------------------------------
+// Treasury management — DREAM balance tracking and enforcement
+// ---------------------------------------------------------------------------
+
+// GetTreasuryBalance returns the current DREAM balance held in the x/rep
+// module treasury. Returns zero if the balance has never been set.
+func (k Keeper) GetTreasuryBalance(ctx context.Context) (math.Int, error) {
+	str, err := k.TreasuryBalance.Get(ctx)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return math.ZeroInt(), nil
+		}
+		return math.Int{}, err
+	}
+	val, ok := math.NewIntFromString(str)
+	if !ok {
+		return math.Int{}, fmt.Errorf("invalid treasury balance %q", str)
+	}
+	return val, nil
+}
+
+// AddToTreasury adds the given amount of DREAM to the module treasury.
+func (k Keeper) AddToTreasury(ctx context.Context, amount math.Int) error {
+	bal, err := k.GetTreasuryBalance(ctx)
+	if err != nil {
+		return err
+	}
+	bal = bal.Add(amount)
+	return k.TreasuryBalance.Set(ctx, bal.String())
+}
+
+// SpendFromTreasury spends up to `amount` of DREAM from the module treasury.
+// If the treasury holds less than the requested amount, the entire remaining
+// balance is spent. Returns the actual amount spent.
+func (k Keeper) SpendFromTreasury(ctx context.Context, amount math.Int) (math.Int, error) {
+	bal, err := k.GetTreasuryBalance(ctx)
+	if err != nil {
+		return math.Int{}, err
+	}
+
+	spent := amount
+	if bal.LT(amount) {
+		spent = bal
+	}
+
+	bal = bal.Sub(spent)
+	if err := k.TreasuryBalance.Set(ctx, bal.String()); err != nil {
+		return math.Int{}, err
+	}
+	return spent, nil
+}
+
+// EnforceTreasuryBalance checks whether the treasury balance exceeds the
+// MaxTreasuryBalance parameter. If it does, the excess is burned and the
+// SeasonBurned counter is incremented accordingly.
+func (k Keeper) EnforceTreasuryBalance(ctx context.Context) error {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	bal, err := k.GetTreasuryBalance(ctx)
+	if err != nil {
+		return err
+	}
+
+	maxBal := params.MaxTreasuryBalance
+	if bal.LTE(maxBal) {
+		return nil
+	}
+
+	excess := bal.Sub(maxBal)
+
+	// Burn the excess by capping the treasury at the maximum.
+	if err := k.TreasuryBalance.Set(ctx, maxBal.String()); err != nil {
+		return err
+	}
+
+	// Track the burn in the seasonal counter.
+	if err := k.TrackBurn(ctx, excess); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Seasonal mint/burn counters
+// ---------------------------------------------------------------------------
+
+// TrackMint adds the given amount to the SeasonMinted counter.
+func (k Keeper) TrackMint(ctx context.Context, amount math.Int) error {
+	minted, err := k.GetSeasonMinted(ctx)
+	if err != nil {
+		return err
+	}
+	minted = minted.Add(amount)
+	return k.SeasonMinted.Set(ctx, minted.String())
+}
+
+// TrackBurn adds the given amount to the SeasonBurned counter.
+func (k Keeper) TrackBurn(ctx context.Context, amount math.Int) error {
+	burned, err := k.GetSeasonBurned(ctx)
+	if err != nil {
+		return err
+	}
+	burned = burned.Add(amount)
+	return k.SeasonBurned.Set(ctx, burned.String())
+}
+
+// GetSeasonMinted returns the total DREAM minted during the current season.
+// Returns zero if the counter has not been set.
+func (k Keeper) GetSeasonMinted(ctx context.Context) (math.Int, error) {
+	str, err := k.SeasonMinted.Get(ctx)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return math.ZeroInt(), nil
+		}
+		return math.Int{}, err
+	}
+	val, ok := math.NewIntFromString(str)
+	if !ok {
+		return math.Int{}, fmt.Errorf("invalid season minted %q", str)
+	}
+	return val, nil
+}
+
+// GetSeasonInitiativeRewardsMinted returns the total DREAM minted via initiative
+// completion during the current season. Returns zero if the counter has not been set.
+func (k Keeper) GetSeasonInitiativeRewardsMinted(ctx context.Context) (math.Int, error) {
+	str, err := k.SeasonInitiativeRewardsMinted.Get(ctx)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return math.ZeroInt(), nil
+		}
+		return math.Int{}, err
+	}
+	val, ok := math.NewIntFromString(str)
+	if !ok {
+		return math.Int{}, fmt.Errorf("invalid season initiative rewards minted %q", str)
+	}
+	return val, nil
+}
+
+// TrackInitiativeRewardMint adds the given amount to the per-season initiative
+// rewards counter. Called by CompleteInitiative after minting the completer's reward.
+func (k Keeper) TrackInitiativeRewardMint(ctx context.Context, amount math.Int) error {
+	minted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
+	if err != nil {
+		return err
+	}
+	minted = minted.Add(amount)
+	return k.SeasonInitiativeRewardsMinted.Set(ctx, minted.String())
+}
+
+// GetSeasonBurned returns the total DREAM burned during the current season.
+// Returns zero if the counter has not been set.
+func (k Keeper) GetSeasonBurned(ctx context.Context) (math.Int, error) {
+	str, err := k.SeasonBurned.Get(ctx)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return math.ZeroInt(), nil
+		}
+		return math.Int{}, err
+	}
+	val, ok := math.NewIntFromString(str)
+	if !ok {
+		return math.Int{}, fmt.Errorf("invalid season burned %q", str)
+	}
+	return val, nil
+}

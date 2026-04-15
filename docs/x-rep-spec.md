@@ -483,12 +483,18 @@ message ProjectStakeInfo {
 
 | Target | Reward Source | Calculation | Resolution |
 |--------|--------------|-------------|------------|
-| Initiative | Time-based APY | `stake * APY * duration / year` | On completion or unstake |
-| Project | Time-based APY + bonus | APY while ACTIVE, bonus on completion | On claim or completion |
+| Initiative | Seasonal reward pool (pro-rata) | `(stake / total_staked) * epoch_reward_slice` | On completion or unstake |
+| Project | Seasonal reward pool (pro-rata) + bonus | Pool share while ACTIVE, bonus on completion | On claim or completion |
 | Member | Revenue share | `member_earnings * revenue_share_rate` | Accumulated on initiative completion, claimed anytime |
 | Tag | Revenue share | `tagged_initiative_earnings * tag_share_rate` | Accumulated per-tag, claimed anytime |
 | Blog/Forum/Collection Content | None (conviction only) | Time-weighted conviction score | DREAM returned on unstake after cooldown |
 | Blog/Forum/Collection Author Bond | None (signal only) | Flat bond amount (no conviction score) | DREAM returned on unstake, or slashed on moderation |
+
+**Seasonal Reward Pool**: At the start of each season, `MaxStakingRewardsPerSeason` DREAM is allocated as the staking reward budget. Each epoch, `pool / remaining_epochs` is distributed pro-rata to all initiative and project stakers. When the pool is exhausted, no more staking rewards are minted until the next season. This makes effective APY self-adjusting: more total staked DREAM → lower per-unit yield; less staked → higher yield.
+
+**Staked Decay**: All staked DREAM decays at `StakedDecayRate` (0.05%/epoch, ~18% annualized). This ensures idle stakes erode over time even though the rate is lower than unstaked decay (0.2%/epoch). Active stakers earning from the seasonal pool easily outpace the staked decay, but abandoned stakes are gradually burned.
+
+**New Member Grace Period**: Members who joined fewer than `NewMemberDecayGraceEpochs` (30 epochs, ~1 month) ago are exempt from both unstaked and staked decay, giving them time to earn and stake DREAM before decay applies.
 
 ### Challenge
 
@@ -1076,6 +1082,48 @@ service Query {
 
   // Reputation
   rpc Reputation(QueryReputationRequest) returns (QueryReputationResponse);
+
+  // Economic Health (governance monitoring)
+  rpc DreamSupplyStats(QueryDreamSupplyStatsRequest) returns (QueryDreamSupplyStatsResponse);
+  rpc MintBurnRatio(QueryMintBurnRatioRequest) returns (QueryMintBurnRatioResponse);
+  rpc EffectiveApy(QueryEffectiveApyRequest) returns (QueryEffectiveApyResponse);
+  rpc TreasuryStatus(QueryTreasuryStatusRequest) returns (QueryTreasuryStatusResponse);
+}
+
+// Economic health query messages
+message QueryDreamSupplyStatsRequest {}
+message QueryDreamSupplyStatsResponse {
+  string total_minted = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];     // all-time minted
+  string total_burned = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];     // all-time burned
+  string circulating = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];      // member balances
+  string total_staked = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];     // locked in stakes
+  string treasury_balance = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"]; // module treasury
+  string staked_ratio = 6 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // staked / circulating
+}
+
+message QueryMintBurnRatioRequest {}
+message QueryMintBurnRatioResponse {
+  string season_minted = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string season_burned = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string ratio = 3 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // minted/burned (>1 = inflationary)
+  uint32 season = 4;
+}
+
+message QueryEffectiveApyRequest {}
+message QueryEffectiveApyResponse {
+  string seasonal_pool_total = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string seasonal_pool_remaining = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string total_staked = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string effective_apy = 4 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // pool_remaining / total_staked annualized
+}
+
+message QueryTreasuryStatusRequest {}
+message QueryTreasuryStatusResponse {
+  string balance = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string max_balance = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string season_inflow = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];   // initiative treasury shares this season
+  string season_outflow = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // interims + retro PGF funded from treasury
+  string season_burned = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];   // excess burned
 }
 ```
 
@@ -1224,8 +1272,10 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
         return false
     })
 
-    // 4. DREAM decay is applied lazily via GetMember/GetBalance
-    // No bulk decay — calculated on-demand when members are accessed
+    // 4. DREAM decay (unstaked AND staked) is applied lazily via GetMember/GetBalance
+    // Unstaked decay: 0.2%/epoch. Staked decay: 0.05%/epoch.
+    // New members (joined < NewMemberDecayGraceEpochs ago) are exempt from both.
+    // No bulk decay — calculated on-demand when members are accessed.
     // Scales O(1) per block instead of O(n) where n = member count
 
     // 5. Process expired challenge responses
@@ -1253,19 +1303,27 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
         return false
     })
 
-    // 8. Distribute staking rewards
+    // 8. Distribute staking rewards from seasonal pool
+    // Rewards are pro-rata from MaxStakingRewardsPerSeason, split across
+    // all epochs in the season. Once the pool is exhausted, no more rewards
+    // are minted until the next season. Effective APY is self-adjusting:
+    // more staked → lower per-unit yield; less staked → higher yield.
     k.DistributeEpochStakingRewards(ctx)
 
-    // 9. Trust levels are updated lazily at trigger points:
-    //    - When a member completes an interim (reputation gained)
-    //    - When reputation is granted/reduced
-    //    - When a new season starts
+    // 9. Treasury overflow check (once per epoch boundary)
+    // If treasury balance > MaxTreasuryBalance, excess DREAM is burned.
+    k.EnforceTreasuryBalance(ctx)
+
+    // 10. Trust levels are updated lazily at trigger points:
+    //     - When a member completes an interim (reputation gained)
+    //     - When reputation is granted/reduced
+    //     - When a new season starts
     // Scales O(1) per block instead of O(n*m)
 
-    // 10. Process invitation accountability
+    // 11. Process invitation accountability
     k.ProcessExpiredAccountability(ctx)
 
-    // 11. Invitation credits are reset lazily via EnsureInvitationCreditsReset
+    // 12. Invitation credits are reset lazily via EnsureInvitationCreditsReset
     // When a member tries to invite, credits are reset if current season > last reset season
     // Scales O(1) per block instead of O(n)
 
@@ -1372,13 +1430,22 @@ var DefaultParams = Params{
     SeasonDurationEpochs: 150,   // ~5 months (150 days)
 
     // DREAM economics
-    StakingApy:         math.LegacyNewDecWithPrec(10, 2), // 10%
-    UnstakedDecayRate:  math.LegacyNewDecWithPrec(1, 2),  // 1%
-    TransferTaxRate:    math.LegacyNewDecWithPrec(3, 2),  // 3%
-    MaxTipAmount:       math.NewInt(100_000_000),          // 100 DREAM
-    MaxTipsPerEpoch:    10,
-    MaxGiftAmount:      math.NewInt(500_000_000),          // 500 DREAM
-    GiftOnlyToInvitees: true,
+    MaxStakingRewardsPerSeason: math.NewInt(25_000_000_000_000), // 25,000 DREAM seasonal pool
+    // Effective APY = MaxStakingRewardsPerSeason / total_staked (self-adjusting)
+    // No fixed StakingApy — replaced by seasonal pool to cap inflationary minting
+    UnstakedDecayRate:       math.LegacyNewDecWithPrec(2, 3),    // 0.2% per epoch (~73% annualized)
+    StakedDecayRate:         math.LegacyNewDecWithPrec(5, 4),    // 0.05% per epoch (~18% annualized)
+    NewMemberDecayGraceEpochs: 30,                                // ~1 month grace period (no decay)
+    TransferTaxRate:         math.LegacyNewDecWithPrec(3, 2),    // 3%
+    MaxTipAmount:            math.NewInt(100_000_000),            // 100 DREAM
+    MaxTipsPerEpoch:         10,
+    MaxGiftAmount:           math.NewInt(500_000_000),            // 500 DREAM
+    GiftOnlyToInvitees:      true,
+
+    // Treasury management
+    MaxTreasuryBalance: math.NewInt(100_000_000_000_000), // 100,000 DREAM — excess burned
+    TreasuryFundsInterims: true,  // interims paid from treasury first, mint only if empty
+    TreasuryFundsRetroPgf: true,  // retro PGF paid from treasury first, mint remainder
 
     // Initiative rewards
     CompleterShare:          math.LegacyNewDecWithPrec(90, 2), // 90%
@@ -1474,8 +1541,8 @@ var DefaultParams = Params{
     ZeroingSlashPenalty:  math.LegacyOneDec(),               // 100%
 
     // Extended staking (project/member/tag)
-    ProjectStakingApy:          math.LegacyNewDecWithPrec(8, 2),  // 8% APY
-    ProjectCompletionBonusRate: math.LegacyNewDecWithPrec(5, 2),  // 5% bonus
+    // Project staking draws from the same seasonal reward pool (no separate APY)
+    ProjectCompletionBonusRate: math.LegacyNewDecWithPrec(5, 2),  // 5% bonus on completion
     MemberStakeRevenueShare:    math.LegacyNewDecWithPrec(5, 2),  // 5% revenue share
     TagStakeRevenueShare:       math.LegacyNewDecWithPrec(2, 2),  // 2% per tag
     MinStakeDurationSeconds:    86400,                              // 24 hours

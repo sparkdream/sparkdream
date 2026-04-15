@@ -423,6 +423,17 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	// Treasury share is tracked but not distributed here (handled by treasury module)
 	_ = math.LegacyNewDecFromInt(totalReward).Mul(params.TreasuryShare).TruncateInt()
 
+	// Check per-season initiative reward minting cap before minting
+	seasonRewardsMinted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get season initiative rewards: %w", err)
+	}
+	if seasonRewardsMinted.Add(completerReward).GT(params.MaxInitiativeRewardsPerSeason) {
+		return fmt.Errorf("completing this initiative would mint %s DREAM, exceeding season cap of %s (already minted %s): %w",
+			completerReward.String(), params.MaxInitiativeRewardsPerSeason.String(), seasonRewardsMinted.String(),
+			types.ErrInitiativeRewardCapReached)
+	}
+
 	// Mint DREAM to assignee (completer)
 	assigneeAddr, err := sdk.AccAddressFromBech32(initiative.Assignee)
 	if err != nil {
@@ -430,6 +441,11 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	}
 	if err := k.MintDREAM(ctx, assigneeAddr, completerReward); err != nil {
 		return fmt.Errorf("failed to mint DREAM for completer: %w", err)
+	}
+
+	// Track initiative reward minting against the per-season cap
+	if err := k.TrackInitiativeRewardMint(ctx, completerReward); err != nil {
+		return fmt.Errorf("failed to track initiative reward mint: %w", err)
 	}
 
 	// Distribute staking rewards to stakers based on time-weighted APY

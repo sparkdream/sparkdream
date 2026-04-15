@@ -107,7 +107,9 @@ genesis:
         display_name_appeal_period_blocks: "3600"  # ~6 hours (production: 100800 ~7 days)
         # Nomination params - DEVNET values
         nomination_min_stake: "5"                  # 5 udream (production: 10)
-        retro_reward_budget_per_season: "25000"    # 25000 DREAM (production: 50000)
+        retro_reward_budget_ratio: "0.250000000000000000"  # 25% of initiative minting (same as production)
+        retro_reward_budget_min: "5000000000"              # 5,000 DREAM floor (production: 10,000)
+        retro_reward_budget_max: "37500000000"             # 37,500 DREAM ceiling (production: 75,000)
         retro_reward_min_conviction: "25"          # (production: 50)
       member_profile_map:
       # Alice - High level founder with multiple achievements and titles
@@ -195,6 +197,11 @@ genesis:
         # Jury - DEVNET: smaller jury, lower rep threshold
         jury_size: 3                               # (production: 5)
         min_juror_reputation: "30"                 # (production: 50)
+        # Anti-whale staking cap
+        max_initiative_stake_per_member: "50000000000"  # 50,000 DREAM (same as production)
+        # Anti-collusion caps
+        max_initiative_rewards_per_season: "100000000000000"  # 100,000 DREAM
+        large_project_budget_threshold: "10000000000"  # 10,000 DREAM
         # Trust level configuration - uses devnet build tag values
       member_map:
       - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice

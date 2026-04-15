@@ -188,6 +188,7 @@ func TestApplyDecay(t *testing.T) {
 	ctx := fixture.ctx
 
 	// Create multiple members with balances
+	// Set LastDecayEpoch=30 so members are past the grace period (30 epochs)
 	members := []string{"member1", "member2", "member3"}
 	for _, name := range members {
 		addr := sdk.AccAddress([]byte(name))
@@ -197,14 +198,14 @@ func TestApplyDecay(t *testing.T) {
 			StakedDream:    PtrInt(math.NewInt(0)),
 			LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()),
-			LastDecayEpoch: 0,
+			LastDecayEpoch: 30,
 		})
 	}
 
-	// Move to epoch 1
+	// Move to epoch 31 (past grace period, 1 epoch of decay)
 	params, _ := k.Params.Get(ctx)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks)
+	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 31)
 	ctx = sdkCtx
 
 	// Apply decay to all members
@@ -217,10 +218,10 @@ func TestApplyDecay(t *testing.T) {
 		member, err := k.Member.Get(ctx, addr.String())
 		require.NoError(t, err)
 
-		// Should have decayed: 1000 * 0.99 = 990
-		expectedBalance := math.NewInt(990)
+		// Should have decayed: 1000 * (1 - 0.002) = 998 (0.2% unstaked decay)
+		expectedBalance := math.NewInt(998)
 		require.Equal(t, expectedBalance.String(), member.DreamBalance.String())
-		require.Equal(t, int64(1), member.LastDecayEpoch)
+		require.Equal(t, int64(31), member.LastDecayEpoch)
 	}
 }
 
@@ -242,15 +243,17 @@ func TestApplyDecay_MixedStakingLevels(t *testing.T) {
 	ctx := fixture.ctx
 
 	// Create members with different staking levels
+	// Set LastDecayEpoch=30 so members are past the grace period (30 epochs)
+	// New decay rates: 0.2% unstaked, 0.05% staked per epoch
 	testCases := []struct {
 		name            string
 		totalBalance    math.Int
 		stakedBalance   math.Int
 		expectedBalance math.Int
 	}{
-		{"all_staked", math.NewInt(1000), math.NewInt(1000), math.NewInt(1000)}, // No decay
-		{"half_staked", math.NewInt(1000), math.NewInt(500), math.NewInt(995)},  // 500 decays to 495
-		{"none_staked", math.NewInt(1000), math.NewInt(0), math.NewInt(990)},    // All decays
+		{"all_staked", math.NewInt(1000), math.NewInt(1000), math.NewInt(999)},  // Staked decay: 1000*0.0005=0.5→trunc 999, decay 1
+		{"half_staked", math.NewInt(1000), math.NewInt(500), math.NewInt(998)},  // Unstaked: 500*0.002=1 decay, Staked: 500*0.0005→decay 1, total -2
+		{"none_staked", math.NewInt(1000), math.NewInt(0), math.NewInt(998)},    // Unstaked: 1000*0.002=2 decay
 	}
 
 	for _, tc := range testCases {
@@ -261,14 +264,14 @@ func TestApplyDecay_MixedStakingLevels(t *testing.T) {
 			StakedDream:    PtrInt(tc.stakedBalance),
 			LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()),
-			LastDecayEpoch: 0,
+			LastDecayEpoch: 30,
 		})
 	}
 
-	// Move to epoch 1
+	// Move to epoch 31 (past grace period, 1 epoch of decay)
 	params, _ := k.Params.Get(ctx)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks)
+	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 31)
 	ctx = sdkCtx
 
 	// Apply decay
@@ -432,6 +435,10 @@ func TestApplyDecay_PreservesOtherFields(t *testing.T) {
 	ctx := fixture.ctx
 
 	addr := sdk.AccAddress([]byte("test"))
+	// JoinedAt set far in the past so grace period (30 epochs) has passed
+	// Use negative value convention: joinedAt = 0 means very old member
+	// With NewMemberDecayGraceEpochs=30, we need memberAge >= 30 epochs
+	// Set LastDecayEpoch = 30 and advance to epoch 31 (past grace period)
 	originalMember := types.Member{
 		Address:            addr.String(),
 		DreamBalance:       PtrInt(math.NewInt(1000)),
@@ -441,16 +448,17 @@ func TestApplyDecay_PreservesOtherFields(t *testing.T) {
 		ReputationScores:   map[string]string{"technical": "75.5", "audit": "60.0"},
 		TrustLevel:         types.TrustLevel_TRUST_LEVEL_CORE,
 		InvitedBy:          "cosmos1inviter",
-		LastDecayEpoch:     0,
+		LastDecayEpoch:     30, // Start tracking from epoch 30
 		TipsGivenThisEpoch: 5,
 		LastTipEpoch:       0,
+		JoinedAt:           0, // Joined very early (epoch 0)
 	}
 	k.Member.Set(ctx, addr.String(), originalMember)
 
-	// Move to epoch 1
+	// Move to epoch 31 (past grace period, 1 epoch of decay)
 	params, _ := k.Params.Get(ctx)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks)
+	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 31)
 	ctx = sdkCtx
 
 	// Apply decay
@@ -458,10 +466,11 @@ func TestApplyDecay_PreservesOtherFields(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify only balance and lifetime burned changed
+	// With 0.2% decay rate: 1000 * (1 - 0.002) = 998
 	member, _ := k.Member.Get(ctx, addr.String())
-	require.Equal(t, math.NewInt(990).String(), member.DreamBalance.String())   // Decayed
-	require.Equal(t, math.NewInt(110).String(), member.LifetimeBurned.String()) // Increased
-	require.Equal(t, int64(1), member.LastDecayEpoch)                           // Updated
+	require.Equal(t, math.NewInt(998).String(), member.DreamBalance.String())   // Decayed at 0.2%
+	require.Equal(t, math.NewInt(102).String(), member.LifetimeBurned.String()) // Increased by 2
+	require.Equal(t, int64(31), member.LastDecayEpoch)                          // Updated to current epoch
 
 	// Everything else preserved
 	require.Equal(t, math.NewInt(5000).String(), member.LifetimeEarned.String())

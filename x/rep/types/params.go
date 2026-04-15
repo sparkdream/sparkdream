@@ -15,13 +15,22 @@ func DefaultParams() Params {
 		SeasonDurationEpochs: 150,   // ~5 months (150 days)
 
 		// DREAM economics
-		StakingApy:         math.LegacyNewDecWithPrec(10, 2), // 10%
-		UnstakedDecayRate:  math.LegacyNewDecWithPrec(1, 2),  // 1%
-		TransferTaxRate:    math.LegacyNewDecWithPrec(3, 2),  // 3%
-		MaxTipAmount:       math.NewInt(100000000),           // 100 DREAM (100 * 1e6 micro-DREAM)
-		MaxTipsPerEpoch:    10,
-		MaxGiftAmount:      math.NewInt(500000000), // 500 DREAM (500 * 1e6 micro-DREAM)
-		GiftOnlyToInvitees: true,
+		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3),  // 0.2% per epoch (~73% annualized)
+		StakedDecayRate:           math.LegacyNewDecWithPrec(5, 4),  // 0.05% per epoch (~18% annualized)
+		NewMemberDecayGraceEpochs: 30,                                // ~1 month grace period (no decay)
+		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2),  // 3%
+		MaxTipAmount:              math.NewInt(100000000),            // 100 DREAM (100 * 1e6 micro-DREAM)
+		MaxTipsPerEpoch:           10,
+		MaxGiftAmount:             math.NewInt(500000000), // 500 DREAM (500 * 1e6 micro-DREAM)
+		GiftOnlyToInvitees:        true,
+
+		// Seasonal staking reward pool (replaces fixed StakingApy)
+		MaxStakingRewardsPerSeason: math.NewInt(25000000000000), // 25,000 DREAM per season
+
+		// Treasury management
+		MaxTreasuryBalance:    math.NewInt(100000000000000), // 100,000 DREAM — excess burned
+		TreasuryFundsInterims: true,                         // interims paid from treasury first
+		TreasuryFundsRetroPgf: true,                         // retro PGF paid from treasury first
 
 		// Initiative rewards
 		CompleterShare:          math.LegacyNewDecWithPrec(90, 2), // 90%
@@ -108,7 +117,7 @@ func DefaultParams() Params {
 		ZeroingSlashPenalty:  math.LegacyOneDec(),              // 100%
 
 		// Extended staking (project/member/tag)
-		ProjectStakingApy:          math.LegacyNewDecWithPrec(8, 2), // 8% APY while project is active
+		// ProjectStakingApy removed — projects draw from MaxStakingRewardsPerSeason pool
 		ProjectCompletionBonusRate: math.LegacyNewDecWithPrec(5, 2), // 5% completion bonus
 		MemberStakeRevenueShare:    math.LegacyNewDecWithPrec(5, 2), // 5% revenue share to member stakers
 		TagStakeRevenueShare:       math.LegacyNewDecWithPrec(2, 2), // 2% per tag revenue share
@@ -142,6 +151,15 @@ func DefaultParams() Params {
 		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(33, 2), // 33% — no single member can contribute more than 1/3 of required conviction
 		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10% of invitation stake burned on acceptance
 		MaxReputationGainPerEpoch:   math.LegacyNewDec(50),            // Max 50 reputation per tag per epoch (prevents interim grinding)
+
+		// Anti-whale staking cap (prevents reward pool extraction via disproportionate initiative stakes)
+		MaxInitiativeStakePerMember: math.NewInt(50000000000), // 50,000 DREAM per member per initiative/project
+
+		// Anti-collusion: per-season cap on total DREAM minted via initiative completion
+		MaxInitiativeRewardsPerSeason: math.NewInt(100000000000000), // 100,000 DREAM per season
+
+		// Anti-collusion: projects above this budget require council proposal approval (not single committee member)
+		LargeProjectBudgetThreshold: math.NewInt(10000000000), // 10,000 DREAM (Epic tier max)
 	}
 }
 
@@ -157,10 +175,25 @@ func (p Params) Validate() error {
 
 	// DREAM economics validation
 	if p.UnstakedDecayRate.IsNegative() {
-		return fmt.Errorf("decay rate cannot be negative: %s", p.UnstakedDecayRate)
+		return fmt.Errorf("unstaked decay rate cannot be negative: %s", p.UnstakedDecayRate)
 	}
 	if p.UnstakedDecayRate.GT(math.LegacyOneDec()) {
-		return fmt.Errorf("decay rate cannot be greater than 1: %s", p.UnstakedDecayRate)
+		return fmt.Errorf("unstaked decay rate cannot be greater than 1: %s", p.UnstakedDecayRate)
+	}
+	if p.StakedDecayRate.IsNegative() {
+		return fmt.Errorf("staked decay rate cannot be negative: %s", p.StakedDecayRate)
+	}
+	if p.StakedDecayRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("staked decay rate cannot be greater than 1: %s", p.StakedDecayRate)
+	}
+	if p.NewMemberDecayGraceEpochs < 0 {
+		return fmt.Errorf("new member decay grace epochs cannot be negative: %d", p.NewMemberDecayGraceEpochs)
+	}
+	if p.MaxStakingRewardsPerSeason.IsNegative() {
+		return fmt.Errorf("max staking rewards per season cannot be negative: %s", p.MaxStakingRewardsPerSeason)
+	}
+	if p.MaxTreasuryBalance.IsNegative() {
+		return fmt.Errorf("max treasury balance cannot be negative: %s", p.MaxTreasuryBalance)
 	}
 
 	// Shares must sum to 1
@@ -243,6 +276,19 @@ func (p Params) Validate() error {
 		return fmt.Errorf("max tags per initiative must be positive")
 	}
 
+	// Anti-whale staking cap
+	if !p.MaxInitiativeStakePerMember.IsPositive() {
+		return fmt.Errorf("max initiative stake per member must be positive: %s", p.MaxInitiativeStakePerMember)
+	}
+
+	// Anti-collusion caps
+	if !p.MaxInitiativeRewardsPerSeason.IsPositive() {
+		return fmt.Errorf("max initiative rewards per season must be positive: %s", p.MaxInitiativeRewardsPerSeason)
+	}
+	if !p.LargeProjectBudgetThreshold.IsPositive() {
+		return fmt.Errorf("large project budget threshold must be positive: %s", p.LargeProjectBudgetThreshold)
+	}
+
 	return nil
 }
 
@@ -253,13 +299,20 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		EpochBlocks:          14400,
 		SeasonDurationEpochs: 150,
 		// DREAM economics
-		StakingApy:         math.LegacyNewDecWithPrec(10, 2), // 10%
-		UnstakedDecayRate:  math.LegacyNewDecWithPrec(1, 2),  // 1%
-		TransferTaxRate:    math.LegacyNewDecWithPrec(3, 2),  // 3%
-		MaxTipAmount:       math.NewInt(100000000),           // 100 DREAM
-		MaxTipsPerEpoch:    10,
-		MaxGiftAmount:      math.NewInt(500000000), // 500 DREAM
-		GiftOnlyToInvitees: true,
+		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3),  // 0.2%
+		StakedDecayRate:           math.LegacyNewDecWithPrec(5, 4),  // 0.05%
+		NewMemberDecayGraceEpochs: 30,
+		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2), // 3%
+		MaxTipAmount:              math.NewInt(100000000),           // 100 DREAM
+		MaxTipsPerEpoch:           10,
+		MaxGiftAmount:             math.NewInt(500000000), // 500 DREAM
+		GiftOnlyToInvitees:        true,
+		// Seasonal staking reward pool
+		MaxStakingRewardsPerSeason: math.NewInt(25000000000000), // 25,000 DREAM
+		// Treasury management
+		MaxTreasuryBalance:    math.NewInt(100000000000000), // 100,000 DREAM
+		TreasuryFundsInterims: true,
+		TreasuryFundsRetroPgf: true,
 		// Reputation
 		MinReputationMultiplier: math.LegacyNewDecWithPrec(10, 2), // 10%
 		// Review periods
@@ -288,7 +341,6 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MaxNewChallengesPerEpoch:        2,
 		ChallengeQueueMaxSize:           10,
 		// Extended staking
-		ProjectStakingApy:          math.LegacyNewDecWithPrec(8, 2), // 8%
 		ProjectCompletionBonusRate: math.LegacyNewDecWithPrec(5, 2), // 5%
 		MemberStakeRevenueShare:    math.LegacyNewDecWithPrec(5, 2), // 5%
 		TagStakeRevenueShare:       math.LegacyNewDecWithPrec(2, 2), // 2%
@@ -315,6 +367,11 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(33, 2), // 33%
 		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10%
 		MaxReputationGainPerEpoch:   math.LegacyNewDec(50),            // Max 50 per tag per epoch
+		// Anti-whale staking cap
+		MaxInitiativeStakePerMember: math.NewInt(50000000000), // 50,000 DREAM
+		// Anti-collusion caps
+		MaxInitiativeRewardsPerSeason: math.NewInt(100000000000000), // 100,000 DREAM
+		LargeProjectBudgetThreshold:   math.NewInt(10000000000),     // 10,000 DREAM
 	}
 }
 
@@ -331,6 +388,21 @@ func (op RepOperationalParams) Validate() error {
 	}
 	if op.UnstakedDecayRate.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("unstaked decay rate cannot be greater than 1: %s", op.UnstakedDecayRate)
+	}
+	if op.StakedDecayRate.IsNegative() {
+		return fmt.Errorf("staked decay rate cannot be negative: %s", op.StakedDecayRate)
+	}
+	if op.StakedDecayRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("staked decay rate cannot be greater than 1: %s", op.StakedDecayRate)
+	}
+	if op.NewMemberDecayGraceEpochs < 0 {
+		return fmt.Errorf("new member decay grace epochs cannot be negative: %d", op.NewMemberDecayGraceEpochs)
+	}
+	if op.MaxStakingRewardsPerSeason.IsNegative() {
+		return fmt.Errorf("max staking rewards per season cannot be negative: %s", op.MaxStakingRewardsPerSeason)
+	}
+	if op.MaxTreasuryBalance.IsNegative() {
+		return fmt.Errorf("max treasury balance cannot be negative: %s", op.MaxTreasuryBalance)
 	}
 	if op.TransferTaxRate.IsNegative() {
 		return fmt.Errorf("transfer tax rate cannot be negative: %s", op.TransferTaxRate)
@@ -397,6 +469,17 @@ func (op RepOperationalParams) Validate() error {
 	if op.MaxTagsPerInitiative == 0 {
 		return fmt.Errorf("max tags per initiative must be positive")
 	}
+	// Anti-whale staking cap
+	if !op.MaxInitiativeStakePerMember.IsPositive() {
+		return fmt.Errorf("max initiative stake per member must be positive: %s", op.MaxInitiativeStakePerMember)
+	}
+	// Anti-collusion caps
+	if !op.MaxInitiativeRewardsPerSeason.IsPositive() {
+		return fmt.Errorf("max initiative rewards per season must be positive: %s", op.MaxInitiativeRewardsPerSeason)
+	}
+	if !op.LargeProjectBudgetThreshold.IsPositive() {
+		return fmt.Errorf("large project budget threshold must be positive: %s", op.LargeProjectBudgetThreshold)
+	}
 	return nil
 }
 
@@ -407,13 +490,20 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.EpochBlocks = op.EpochBlocks
 	p.SeasonDurationEpochs = op.SeasonDurationEpochs
 	// DREAM economics
-	p.StakingApy = op.StakingApy
 	p.UnstakedDecayRate = op.UnstakedDecayRate
+	p.StakedDecayRate = op.StakedDecayRate
+	p.NewMemberDecayGraceEpochs = op.NewMemberDecayGraceEpochs
 	p.TransferTaxRate = op.TransferTaxRate
 	p.MaxTipAmount = op.MaxTipAmount
 	p.MaxTipsPerEpoch = op.MaxTipsPerEpoch
 	p.MaxGiftAmount = op.MaxGiftAmount
 	p.GiftOnlyToInvitees = op.GiftOnlyToInvitees
+	// Seasonal staking reward pool
+	p.MaxStakingRewardsPerSeason = op.MaxStakingRewardsPerSeason
+	// Treasury management
+	p.MaxTreasuryBalance = op.MaxTreasuryBalance
+	p.TreasuryFundsInterims = op.TreasuryFundsInterims
+	p.TreasuryFundsRetroPgf = op.TreasuryFundsRetroPgf
 	// Reputation
 	p.MinReputationMultiplier = op.MinReputationMultiplier
 	// Review periods
@@ -442,7 +532,6 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.MaxNewChallengesPerEpoch = op.MaxNewChallengesPerEpoch
 	p.ChallengeQueueMaxSize = op.ChallengeQueueMaxSize
 	// Extended staking
-	p.ProjectStakingApy = op.ProjectStakingApy
 	p.ProjectCompletionBonusRate = op.ProjectCompletionBonusRate
 	p.MemberStakeRevenueShare = op.MemberStakeRevenueShare
 	p.TagStakeRevenueShare = op.TagStakeRevenueShare
@@ -469,6 +558,11 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.MaxConvictionSharePerMember = op.MaxConvictionSharePerMember
 	p.InvitationStakeBurnRate = op.InvitationStakeBurnRate
 	p.MaxReputationGainPerEpoch = op.MaxReputationGainPerEpoch
+	// Anti-whale staking cap
+	p.MaxInitiativeStakePerMember = op.MaxInitiativeStakePerMember
+	// Anti-collusion caps
+	p.MaxInitiativeRewardsPerSeason = op.MaxInitiativeRewardsPerSeason
+	p.LargeProjectBudgetThreshold = op.LargeProjectBudgetThreshold
 	return p
 }
 
@@ -479,13 +573,20 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		EpochBlocks:          p.EpochBlocks,
 		SeasonDurationEpochs: p.SeasonDurationEpochs,
 		// DREAM economics
-		StakingApy:         p.StakingApy,
-		UnstakedDecayRate:  p.UnstakedDecayRate,
-		TransferTaxRate:    p.TransferTaxRate,
-		MaxTipAmount:       p.MaxTipAmount,
-		MaxTipsPerEpoch:    p.MaxTipsPerEpoch,
-		MaxGiftAmount:      p.MaxGiftAmount,
-		GiftOnlyToInvitees: p.GiftOnlyToInvitees,
+		UnstakedDecayRate:         p.UnstakedDecayRate,
+		StakedDecayRate:           p.StakedDecayRate,
+		NewMemberDecayGraceEpochs: p.NewMemberDecayGraceEpochs,
+		TransferTaxRate:           p.TransferTaxRate,
+		MaxTipAmount:              p.MaxTipAmount,
+		MaxTipsPerEpoch:           p.MaxTipsPerEpoch,
+		MaxGiftAmount:             p.MaxGiftAmount,
+		GiftOnlyToInvitees:        p.GiftOnlyToInvitees,
+		// Seasonal staking reward pool
+		MaxStakingRewardsPerSeason: p.MaxStakingRewardsPerSeason,
+		// Treasury management
+		MaxTreasuryBalance:    p.MaxTreasuryBalance,
+		TreasuryFundsInterims: p.TreasuryFundsInterims,
+		TreasuryFundsRetroPgf: p.TreasuryFundsRetroPgf,
 		// Reputation
 		MinReputationMultiplier: p.MinReputationMultiplier,
 		// Review periods
@@ -514,7 +615,6 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		MaxNewChallengesPerEpoch:        p.MaxNewChallengesPerEpoch,
 		ChallengeQueueMaxSize:           p.ChallengeQueueMaxSize,
 		// Extended staking
-		ProjectStakingApy:          p.ProjectStakingApy,
 		ProjectCompletionBonusRate: p.ProjectCompletionBonusRate,
 		MemberStakeRevenueShare:    p.MemberStakeRevenueShare,
 		TagStakeRevenueShare:       p.TagStakeRevenueShare,
@@ -541,5 +641,10 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		MaxConvictionSharePerMember: p.MaxConvictionSharePerMember,
 		InvitationStakeBurnRate:     p.InvitationStakeBurnRate,
 		MaxReputationGainPerEpoch:   p.MaxReputationGainPerEpoch,
+		// Anti-whale staking cap
+		MaxInitiativeStakePerMember: p.MaxInitiativeStakePerMember,
+		// Anti-collusion caps
+		MaxInitiativeRewardsPerSeason: p.MaxInitiativeRewardsPerSeason,
+		LargeProjectBudgetThreshold:   p.LargeProjectBudgetThreshold,
 	}
 }

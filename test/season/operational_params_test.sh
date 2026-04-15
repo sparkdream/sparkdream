@@ -46,7 +46,7 @@ fix_legacy_dec_fields() {
     echo "$json_input" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-DEC_FIELDS = ['retro_reward_budget_per_season', 'retro_reward_min_conviction', 'nomination_min_stake']
+DEC_FIELDS = ['retro_reward_min_conviction', 'nomination_min_stake', 'retro_reward_budget_ratio']
 for f in DEC_FIELDS:
     if f in d and d[f] is not None:
         s = str(d[f])
@@ -211,13 +211,15 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       nomination_window_epochs,
       max_nominations_per_member,
       retro_reward_max_recipients,
-      retro_reward_budget_per_season,
       retro_reward_min_conviction,
       nomination_conviction_half_life_epochs,
       nomination_rationale_max_length,
       nomination_min_trust_level,
       nomination_stake_min_trust_level,
-      nomination_min_stake
+      nomination_min_stake,
+      retro_reward_budget_ratio,
+      retro_reward_budget_min,
+      retro_reward_budget_max
     }')
 
     # Fix LegacyDec fields: query output uses internal integer format (e.g., 10^18 for 1.0)
@@ -411,13 +413,15 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       nomination_window_epochs,
       max_nominations_per_member,
       retro_reward_max_recipients,
-      retro_reward_budget_per_season,
       retro_reward_min_conviction,
       nomination_conviction_half_life_epochs,
       nomination_rationale_max_length,
       nomination_min_trust_level,
       nomination_stake_min_trust_level,
-      nomination_min_stake
+      nomination_min_stake,
+      retro_reward_budget_ratio,
+      retro_reward_budget_min,
+      retro_reward_budget_max
     }')
 
     # Fix LegacyDec fields before sending back

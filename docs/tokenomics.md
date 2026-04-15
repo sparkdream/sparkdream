@@ -120,12 +120,14 @@ Supply Dynamics:
 ```
 1. INITIATIVE COMPLETION (Primary)
    ├── Completer reward: Budget × 90% × ReputationMultiplier
-   └── Treasury share: Budget × 10%
+   └── Treasury share: Budget × 10% (recycled, not minted — see Treasury Recycling)
 
-2. STAKING REWARDS
-   ├── APY: 10% annual
-   ├── Calculation: Stake × APY × (Duration / Year)
-   └── Paid on initiative completion to all stakers
+2. SEASONAL STAKING REWARD POOL
+   ├── Pool: 25,000 DREAM minted at season start
+   ├── Distributed pro-rata each epoch: pool / remaining_epochs
+   ├── Effective APY: pool / total_staked (self-adjusting)
+   ├── More staked → lower yield; less staked → higher yield
+   └── Pool exhaustion = zero rewards until next season
 
 3. COMMITTEE WORK (Interim Compensation)
    ├── Simple: 50 DREAM
@@ -133,7 +135,8 @@ Supply Dynamics:
    ├── Complex: 400 DREAM
    ├── Expert: 1000 DREAM
    ├── Solo bonus: +50% during bootstrap
-   └── ADJUDICATION: 0 DREAM (civic duty, no compensation)
+   ├── ADJUDICATION: 0 DREAM (civic duty, no compensation)
+   └── Funded from treasury first; mint only if treasury is empty
 
    Note: Escalated adjudication decisions (from inconclusive jury
    verdicts) are intentionally uncompensated to ensure committee
@@ -146,7 +149,10 @@ Supply Dynamics:
    └── Season-end bonuses
 
 5. RETROACTIVE PUBLIC GOODS FUNDING
-   ├── Budget: 50,000 DREAM per season (governance-adjustable)
+   ├── Budget: 25% of initiative minting that season
+   │   ├── Floor: 10,000 DREAM (minted if treasury + ratio < floor)
+   │   └── Ceiling: 75,000 DREAM
+   ├── Funded from treasury first; mint remainder
    ├── Distributed to top nominations by conviction
    ├── Max recipients: 20 per season
    ├── Min conviction threshold: 50.0
@@ -169,15 +175,28 @@ Supply Dynamics:
    └── Inviter stake burned if invitee misbehaves
 
 4. UNSTAKED DECAY
-   ├── Rate: 1% per epoch
-   ├── Applied only to unstaked DREAM
-   └── Staked DREAM does not decay
+   ├── Rate: 0.2% per epoch (~73% annualized)
+   └── Applied to unstaked DREAM only
 
-5. TRANSFER TAX
+5. STAKED DECAY (NEW)
+   ├── Rate: 0.05% per epoch (~18% annualized)
+   ├── Applied to all staked DREAM
+   ├── Active stakers outpace decay with seasonal rewards
+   └── Abandoned/idle stakes erode over time
+
+6. NEW MEMBER GRACE PERIOD
+   ├── Duration: 30 epochs (~1 month)
+   └── Both unstaked and staked decay waived for new members
+
+7. TRANSFER TAX
    ├── Rate: 3% of transfer amount
    └── Applied to all DREAM transfers
 
-6. COSMETIC PURCHASES (Optional)
+8. TREASURY OVERFLOW BURN
+   ├── Trigger: Treasury balance > MaxTreasuryBalance (100,000 DREAM)
+   └── Excess burned each epoch in EndBlocker
+
+9. COSMETIC PURCHASES (Optional)
    └── Titles, badges, profile items
 ```
 
@@ -218,25 +237,41 @@ PROHIBITED:
 ### DREAM Decay Mechanism
 
 ```go
-// Applied each epoch in EndBlocker
+// Applied lazily via GetMember/GetBalance (not bulk EndBlocker)
 func ApplyDREAMDecay(member) {
+    epochsElapsed := currentEpoch - member.LastDecayEpoch
+
+    // Grace period: new members exempt for first 30 epochs (~1 month)
+    if currentEpoch - member.JoinedEpoch < NewMemberDecayGraceEpochs {
+        return
+    }
+
+    // Unstaked decay: 0.2% per epoch
     unstaked := member.Balance - member.StakedDREAM
-    
     if unstaked > 0 {
-        decay := unstaked * DecayRate  // 1% per epoch
-        member.Balance -= decay
-        BurnDREAM(decay)
+        unstakedDecay := unstaked * UnstakedDecayRate * epochsElapsed
+        member.Balance -= unstakedDecay
+        BurnDREAM(unstakedDecay)
     }
     
-    // Staked DREAM does not decay
+    // Staked decay: 0.05% per epoch (~18% annualized)
+    if member.StakedDREAM > 0 {
+        stakedDecay := member.StakedDREAM * StakedDecayRate * epochsElapsed
+        member.StakedDREAM -= stakedDecay
+        BurnDREAM(stakedDecay)
+    }
 }
 ```
 
 Purpose of decay:
-- Encourages active participation
-- Penalizes hoarding without contribution
-- Creates burn pressure to balance minting
-- Incentivizes staking on projects/initiatives
+- **Unstaked decay** (0.2%/epoch): Gentle inactivity tax — nudges members to stake without
+  forcing panic-staking that would dilute conviction signals. 4:1 ratio vs staked decay
+  is enough to incentivize staking without distorting it
+- **Staked decay** (0.05%/epoch): Prevents infinite compounding — active stakers earning
+  seasonal rewards easily outpace it, but idle/abandoned stakes erode over time
+- **Grace period** (30 epochs): Gives new members time to earn and stake DREAM before
+  decay applies, preventing onboarding friction
+- Creates real system-wide burn pressure regardless of staking behavior
 
 ### Genesis DREAM Allocation
 
@@ -276,6 +311,46 @@ Credits allow inviting new members.
 Replenished as invitees become Established.
 ```
 
+## Treasury Recycling
+
+The 10% treasury share from every completed initiative flows into the x/rep module treasury.
+This DREAM is **recycled** (not minted fresh) to fund operational costs before minting new tokens.
+
+### Treasury Outflow Priority
+
+```
+1. INTERIM COMPENSATION (first priority)
+   ├── Committee work (jury duty, project approval, etc.) paid from treasury
+   ├── If treasury has sufficient balance: pay from treasury, zero new minting
+   ├── If treasury is empty: mint fresh DREAM (fallback)
+   └── Reduces inflationary pressure from committee operations
+
+2. RETROACTIVE PUBLIC GOODS FUNDING (second priority)
+   ├── Season-end retro PGF budget drawn from treasury first
+   ├── Remainder (if budget > treasury) is minted
+   └── During high-activity seasons, treasury may cover the full retro budget
+
+3. OVERFLOW BURN (enforced each epoch)
+   ├── Threshold: MaxTreasuryBalance = 100,000 DREAM
+   ├── If balance > threshold: excess burned in EndBlocker
+   └── Prevents unbounded treasury accumulation
+```
+
+### Why This Matters
+
+Without recycling, the 10% treasury share is a dead sink — DREAM enters the treasury
+and never leaves, reducing circulating supply while the system mints fresh DREAM for
+interims and retro PGF elsewhere. Treasury recycling turns this into a closed loop:
+
+```
+Initiative completion → 10% to treasury → funds interims + retro PGF
+                                        → excess burned
+                                        → only mint if treasury empty
+```
+
+This reduces net minting by the amount the treasury can cover, creating a natural
+dampening effect on inflation during high-activity periods.
+
 ## Initiative Reward Economics
 
 ### Budget to Reward Calculation
@@ -302,18 +377,34 @@ Example:
 ### Staker Reward Calculation
 
 ```
-Stake Amount: S (DREAM)
-Stake Duration: D (epochs)
-Annual Yield: Y (10% = 0.10)
-Epochs Per Year: E (365)
+Seasonal Pool: P (25,000 DREAM per season)
+Epochs Per Season: N (150)
+Epoch Reward Slice: R = P / N (~166.7 DREAM per epoch)
+Staker's Stake: S (DREAM)
+Total Staked (all stakers): T (DREAM)
 
-Staker Reward = S × Y × (D / E)
+Staker Epoch Reward = R × (S / T)
+Effective APY = (P / T) annualized
 
-Example:
-├── Stake: 1000 DREAM
-├── Duration: 14 epochs (2 weeks)
-├── APY: 10%
-├── Reward: 1000 × 0.10 × (14/365) = 3.84 DREAM
+Example (Season 1, total staked = 200,000 DREAM):
+├── Seasonal pool: 25,000 DREAM
+├── Epoch slice: 25,000 / 150 = 166.7 DREAM
+├── Your stake: 1,000 DREAM
+├── Your share: 1,000 / 200,000 = 0.5%
+├── Your epoch reward: 166.7 × 0.005 = 0.83 DREAM
+├── Your season reward: 0.83 × 150 = 125 DREAM
+├── Effective APY: 125 / 1,000 × (365/150) = ~30%
+
+Example (Season 3, total staked = 500,000 DREAM):
+├── Same pool: 25,000 DREAM
+├── Your stake: 1,000 DREAM
+├── Your share: 1,000 / 500,000 = 0.2%
+├── Your season reward: 25,000 × 0.002 = 50 DREAM
+├── Effective APY: 50 / 1,000 × (365/150) = ~12%
+
+Note: As more DREAM enters the system and gets staked, effective
+APY naturally decreases. This prevents runaway compounding while
+still rewarding early and active participants.
 ```
 
 ### Conviction Calculation
@@ -366,43 +457,73 @@ Total to councils: ~615K SPARK/year
 ```
 Target: Minting ≈ Burning (slight inflation during growth)
 
-Season 1 Projection (conservative):
-├── Initiatives completed: 200
-├── Average budget: 300 DREAM
-├── Initiative minting: 60,000 DREAM
-├── Staking rewards: 10,000 DREAM
-├── Committee work: 5,000 DREAM
-├── Retroactive public goods: 50,000 DREAM
-├── Total minted: ~125,000 DREAM
+Season 1 Projection (conservative, 200 initiatives, avg 300 DREAM):
 
-Burns:
-├── Decay (1%/epoch avg): ~20,000 DREAM
-├── Failed challenges: ~2,000 DREAM
-├── Transfer tax: ~1,000 DREAM
-├── Slashing: ~2,000 DREAM
-├── Total burned: ~25,000 DREAM
+GROSS MINTING:
+├── Initiative completion (completer share): 54,000 DREAM
+├── Initiative treasury share (recycled):     6,000 DREAM → treasury
+├── Seasonal staking pool:                   25,000 DREAM (capped)
+├── Committee work:                           5,000 DREAM
+├── Retroactive public goods:                15,000 DREAM (25% of 60K)
+├── Gross total:                            ~99,000 DREAM
 
-Net: +100,000 DREAM circulating
-(Acceptable during growth phase — retro PGF rewards incentivize unplanned contributions)
+TREASURY RECYCLING OFFSET:
+├── Treasury receives: 6,000 DREAM (initiative shares)
+├── Treasury funds interims: -5,000 DREAM (covers committee work)
+├── Treasury funds retro PGF: -1,000 DREAM (partial cover)
+├── Net treasury change: 0 DREAM
+├── Net minting avoided: -6,000 DREAM (interims + partial retro funded by treasury)
+├── Actual new DREAM minted: ~93,000 DREAM
+
+BURNS:
+├── Unstaked decay (0.2%/epoch on ~50K avg):  ~3,000 DREAM
+├── Staked decay (0.05%/epoch on ~200K):     ~15,000 DREAM
+├── Failed challenges:                        ~2,000 DREAM
+├── Transfer tax:                             ~1,000 DREAM
+├── Slashing:                                 ~2,000 DREAM
+├── Total burned:                            ~23,000 DREAM
+
+NET: +70,000 DREAM circulating
+
+Key differences from original model:
+├── Staking rewards capped at 25K (was uncapped ~10K but would grow)
+├── Staked decay adds ~15K burn (was zero) — primary burn mechanism
+├── Unstaked decay reduced to ~3K (was ~20K) — conviction signal quality > burn volume
+├── Treasury recycling offsets ~6K minting (was zero)
+├── Retro PGF reduced to 15K (was fixed 50K)
+├── Mint/burn ratio: 4:1 (was 5:1, improves as supply grows due to proportional burn)
 ```
 
 ### Long-term Sustainability
 
 ```
 Growth Phase (Years 1-3):
-├── Net DREAM inflation: 5-10% per season
-├── Treasury income: Growing with activity
-├── Purpose: Bootstrap ecosystem
+├── Net DREAM inflation: 3-7% per season (reduced from 5-10%)
+├── Seasonal staking pool caps reward minting
+├── Treasury recycling absorbs increasing share of operational costs
+├── Staked decay creates burn floor proportional to total supply
+├── Purpose: Bootstrap ecosystem with controlled inflation
 
 Maturity Phase (Years 3+):
 ├── Target: Burn rate ≈ mint rate
-├── Decay becomes primary burn
-├── Healthy equilibrium
+├── Staked decay scales with supply (larger supply → more burn)
+├── Seasonal pool APY naturally decreases as more DREAM exists
+├── Treasury overflow burns excess during high-activity periods
+├── Equilibrium is mechanically enforced, not assumed
 
-Key Metrics to Monitor:
+Equilibrium Mechanics (why convergence is guaranteed):
+├── Minting: Capped (seasonal pool) + linear (initiative budgets)
+├── Burning: Proportional to total supply (staked + unstaked decay)
+├── As supply grows, burn grows proportionally but minting is capped
+├── Crossover point: when proportional burns ≥ capped + linear minting
+├── Governance can tune MaxStakingRewardsPerSeason down to accelerate
+
+Key Metrics to Monitor (via QueryDreamSupplyStats, QueryMintBurnRatio):
 ├── DREAM velocity (transfers per DREAM)
-├── Stake ratio (staked / total)
-├── Burn rate vs mint rate
+├── Stake ratio (staked / total) — via QueryDreamSupplyStats
+├── Mint/burn ratio per season — via QueryMintBurnRatio
+├── Effective APY — via QueryEffectiveApy
+├── Treasury balance and flows — via QueryTreasuryStatus
 ├── Initiative completion rate
 └── Member retention
 ```
@@ -464,11 +585,23 @@ Conclusion: Not profitable at scale
 
 ```
 Economic:
-├── StakingAPY: Currently 10%
-├── UnstakedDecayRate: Currently 1%/epoch
+├── MaxStakingRewardsPerSeason: Currently 25,000 DREAM (seasonal pool cap)
+├── UnstakedDecayRate: Currently 0.2%/epoch
+├── StakedDecayRate: Currently 0.05%/epoch
+├── NewMemberDecayGraceEpochs: Currently 30 (~1 month)
 ├── TransferTaxRate: Currently 3%
 ├── CompleterShare: Currently 90%
 ├── TreasuryShare: Currently 10%
+
+Treasury:
+├── MaxTreasuryBalance: Currently 100,000 DREAM (excess burned)
+├── TreasuryFundsInterims: Currently true
+├── TreasuryFundsRetroPgf: Currently true
+
+Retro PGF:
+├── RetroRewardBudgetRatio: Currently 25% of initiative minting
+├── RetroRewardBudgetMin: Currently 10,000 DREAM
+├── RetroRewardBudgetMax: Currently 75,000 DREAM
 
 Initiative Tiers:
 ├── MinReputation per tier

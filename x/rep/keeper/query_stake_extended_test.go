@@ -2,7 +2,6 @@ package keeper_test
 
 import (
 	"testing"
-	"time"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -43,10 +42,10 @@ func TestQueryPendingStakeRewards(t *testing.T) {
 		stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
 		require.NoError(t, err)
 
-		// Advance time by 30 days
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		thirtyDays := time.Duration(30*24) * time.Hour
-		ctx = sdkCtx.WithBlockTime(sdkCtx.BlockTime().Add(thirtyDays))
+		// Initialize seasonal pool and distribute to populate accumulator
+		require.NoError(t, k.InitSeasonalPool(ctx, 1))
+		require.NoError(t, k.UpdateSeasonalPoolTotalStaked(ctx, stakeAmount))
+		require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
 
 		// Query pending rewards
 		resp, err := qs.PendingStakeRewards(ctx, &types.QueryPendingStakeRewardsRequest{

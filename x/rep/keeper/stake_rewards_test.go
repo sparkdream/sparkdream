@@ -15,24 +15,29 @@ func TestGetPendingStakingRewards_Initiative(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
 
-	// Set up block time
-	createdAt := int64(1000000)
-	duration := int64(31557600) // 1 year
-	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-	ctx := sdkCtx.WithBlockTime(time.Unix(createdAt+duration, 0))
+	stakeAmount := math.NewInt(1000000) // 1 DREAM
+
+	// Initialize the seasonal pool so the MasterChef accumulator is populated.
+	require.NoError(t, k.InitSeasonalPool(f.ctx, 1))
+	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(f.ctx, stakeAmount))
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
 
 	stake := types.Stake{
 		Id:         1,
 		Staker:     "staker",
 		TargetType: types.StakeTargetType_STAKE_TARGET_INITIATIVE,
-		Amount:     math.NewInt(1000000), // 1 DREAM
-		CreatedAt:  createdAt,
+		Amount:     stakeAmount,
+		CreatedAt:  1000000,
 	}
 
-	reward, err := k.GetPendingStakingRewards(ctx, stake)
+	reward, err := k.GetPendingStakingRewards(f.ctx, stake)
 	require.NoError(t, err)
-	// 10% APY for 1 year on 1,000,000 = 100,000
-	require.Equal(t, math.NewInt(100000), reward)
+	// Rewards come from the seasonal pool MasterChef accumulator.
+	// epochSlice = MaxStakingRewardsPerSeason / SeasonDurationEpochs = 25000000000000 / 150 = 166666666666
+	// accPerShare = epochSlice / totalStaked; reward = stakeAmount * accPerShare
+	// When stakeAmount == totalStaked, reward == epochSlice.
+	require.True(t, reward.IsPositive(), "expected positive reward, got %s", reward)
+	require.Equal(t, math.NewInt(166666666666), reward)
 }
 
 func TestGetPendingStakingRewards_ContentStake(t *testing.T) {
@@ -129,25 +134,29 @@ func TestGetPendingStakingRewards_Project(t *testing.T) {
 	err = k.ApproveProject(f.ctx, projectID, approver, math.NewInt(1000), math.NewInt(100))
 	require.NoError(t, err)
 
-	// Set time for reward calculation
-	createdAt := int64(1000000)
-	duration := int64(31557600) // 1 year
-	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-	ctx := sdkCtx.WithBlockTime(time.Unix(createdAt+duration, 0))
+	stakeAmount := math.NewInt(1000000)
+
+	// Initialize the seasonal pool so the MasterChef accumulator is populated.
+	require.NoError(t, k.InitSeasonalPool(f.ctx, 1))
+	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(f.ctx, stakeAmount))
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
 
 	stake := types.Stake{
 		Id:         1,
 		Staker:     "staker",
 		TargetType: types.StakeTargetType_STAKE_TARGET_PROJECT,
 		TargetId:   projectID,
-		Amount:     math.NewInt(1000000),
-		CreatedAt:  createdAt,
+		Amount:     stakeAmount,
+		CreatedAt:  1000000,
 	}
 
-	reward, err := k.GetPendingStakingRewards(ctx, stake)
+	reward, err := k.GetPendingStakingRewards(f.ctx, stake)
 	require.NoError(t, err)
-	// 8% APY (ProjectStakingApy) for 1 year on 1,000,000 = 80,000
-	require.Equal(t, math.NewInt(80000), reward)
+	// Project stakes share the same seasonal pool as initiative stakes.
+	// epochSlice = MaxStakingRewardsPerSeason / SeasonDurationEpochs = 25000000000000 / 150 = 166666666666
+	// When stakeAmount == totalStaked, reward == epochSlice.
+	require.True(t, reward.IsPositive(), "expected positive reward, got %s", reward)
+	require.Equal(t, math.NewInt(166666666666), reward)
 }
 
 func TestClaimStakingRewards_Success(t *testing.T) {
@@ -181,15 +190,21 @@ func TestClaimStakingRewards_Success(t *testing.T) {
 	require.NoError(t, err)
 	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
 
+	stakeAmount := math.NewInt(1000000)
 	stakeID, err := k.CreateStake(
 		f.ctx, stakerAddr,
 		types.StakeTargetType_STAKE_TARGET_PROJECT,
 		projectID, "",
-		math.NewInt(1000000),
+		stakeAmount,
 	)
 	require.NoError(t, err)
 
-	// Advance time by 1 year
+	// Initialize the seasonal pool and distribute rewards so accPerShare > 0.
+	require.NoError(t, k.InitSeasonalPool(f.ctx, 1))
+	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(f.ctx, stakeAmount))
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+
+	// Advance time so LastClaimedAt reflects forward progress
 	createdStake, err := k.GetStake(f.ctx, stakeID)
 	require.NoError(t, err)
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
@@ -197,7 +212,7 @@ func TestClaimStakingRewards_Success(t *testing.T) {
 
 	rewards, err := k.ClaimStakingRewards(newCtx, stakeID, stakerAddr)
 	require.NoError(t, err)
-	require.True(t, rewards.IsPositive(), "should have positive rewards after 1 year")
+	require.True(t, rewards.IsPositive(), "should have positive rewards after pool distribution")
 
 	// Verify stake's LastClaimedAt was updated
 	updatedStake, err := k.GetStake(newCtx, stakeID)
@@ -300,7 +315,7 @@ func TestCompoundStakingRewards_Success(t *testing.T) {
 	stakerAddr := sdk.AccAddress([]byte("compound_staker_____"))
 	stakerMember := types.Member{
 		Address:          stakerAddr.String(),
-		DreamBalance:     PtrInt(math.NewInt(5000000000)),
+		DreamBalance:     PtrInt(math.NewInt(500000000000000)), // 500,000 DREAM — large enough for epoch reward compounding
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
@@ -325,6 +340,11 @@ func TestCompoundStakingRewards_Success(t *testing.T) {
 		projectID, "", originalAmount,
 	)
 	require.NoError(t, err)
+
+	// Initialize the seasonal pool and distribute rewards so accPerShare > 0.
+	require.NoError(t, k.InitSeasonalPool(f.ctx, 1))
+	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(f.ctx, originalAmount))
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
 
 	// Advance time by 1 year
 	createdStake, err := k.GetStake(f.ctx, stakeID)

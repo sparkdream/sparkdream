@@ -69,33 +69,33 @@ func TestApplyPendingDecay(t *testing.T) {
 	k := fixture.keeper
 	ctx := fixture.ctx
 
-	// Create member with balance
+	// Create member with balance, past grace period (LastDecayEpoch=30, advance to epoch 31)
 	member := types.Member{
 		Address:        sdk.AccAddress([]byte("test")).String(),
 		DreamBalance:   PtrInt(math.NewInt(1000)),
 		StakedDream:    PtrInt(math.NewInt(0)),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		LastDecayEpoch: 0,
+		LastDecayEpoch: 30,
 	}
 
-	// Move to epoch 1
+	// Move to epoch 31 (1 epoch elapsed, past 30-epoch grace period)
 	params, _ := k.Params.Get(ctx)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks)
+	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 31)
 	ctx = sdkCtx
 
 	// Apply decay
 	err := k.ApplyPendingDecay(ctx, &member)
 	require.NoError(t, err)
 
-	// Verify decay applied (with 1% default decay rate)
-	// balance * (1 - 0.01)^1 = 1000 * 0.99 = 990
-	expectedBalance := math.NewInt(990)
+	// Verify decay applied (with 0.2% unstaked decay rate)
+	// balance * (1 - 0.002)^1 = 1000 * 0.998 = 998
+	expectedBalance := math.NewInt(998)
 	require.Equal(t, expectedBalance.String(), member.DreamBalance.String())
-	require.Equal(t, int64(1), member.LastDecayEpoch)
+	require.Equal(t, int64(31), member.LastDecayEpoch)
 
 	// Verify lifetime burned updated
-	expectedBurned := math.NewInt(10)
+	expectedBurned := math.NewInt(2)
 	require.Equal(t, expectedBurned.String(), member.LifetimeBurned.String())
 }
 
@@ -105,66 +105,69 @@ func TestApplyPendingDecay_MultipleEpochs(t *testing.T) {
 	k := fixture.keeper
 	ctx := fixture.ctx
 
-	// Create member
+	// Create member past grace period (LastDecayEpoch=30, advance to epoch 33)
 	member := types.Member{
 		Address:        sdk.AccAddress([]byte("test")).String(),
 		DreamBalance:   PtrInt(math.NewInt(1000)),
 		StakedDream:    PtrInt(math.NewInt(0)),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		LastDecayEpoch: 0,
+		LastDecayEpoch: 30,
 	}
 
-	// Move to epoch 3 (skip 3 epochs)
+	// Move to epoch 33 (3 epochs elapsed, past grace period)
 	params, _ := k.Params.Get(ctx)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 3)
+	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 33)
 	ctx = sdkCtx
 
 	// Apply decay
 	err := k.ApplyPendingDecay(ctx, &member)
 	require.NoError(t, err)
 
-	// Verify compound decay: 1000 * (0.99)^3 ≈ 970.299
-	expectedBalance := math.NewInt(970) // Truncated
+	// Verify compound decay: 1000 * (1 - 0.002)^3 = 1000 * 0.994012 ≈ 994.011
+	expectedBalance := math.NewInt(994) // Truncated
 	require.Equal(t, expectedBalance.String(), member.DreamBalance.String())
-	require.Equal(t, int64(3), member.LastDecayEpoch)
+	require.Equal(t, int64(33), member.LastDecayEpoch)
 }
 
-// TestApplyPendingDecay_WithStakedBalance tests that staked balance doesn't decay
+// TestApplyPendingDecay_WithStakedBalance tests that both staked and unstaked balances decay
 func TestApplyPendingDecay_WithStakedBalance(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
 	ctx := fixture.ctx
 
-	// Create member with 1000 total, 600 staked, 400 unstaked
+	// Create member with 1000 total, 600 staked, 400 unstaked (past grace period)
 	member := types.Member{
 		Address:        sdk.AccAddress([]byte("test")).String(),
 		DreamBalance:   PtrInt(math.NewInt(1000)),
 		StakedDream:    PtrInt(math.NewInt(600)),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		LastDecayEpoch: 0,
+		LastDecayEpoch: 30,
 	}
 
-	// Move to epoch 1
+	// Move to epoch 31 (1 epoch elapsed, past grace period)
 	params, _ := k.Params.Get(ctx)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks)
+	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 31)
 	ctx = sdkCtx
 
 	// Apply decay
 	err := k.ApplyPendingDecay(ctx, &member)
 	require.NoError(t, err)
 
-	// Only unstaked 400 decays: 400 * 0.99 = 396
-	// Total: 600 (staked) + 396 (unstaked) = 996
-	expectedBalance := math.NewInt(996)
+	// Unstaked 400 decays at 0.2%: 400 * (1 - 0.002) = 400 * 0.998 = 399.2 → 399 (truncated)
+	// Unstaked decay = 400 - 399 = 1
+	// Staked 600 decays at 0.05%: 600 * (1 - 0.0005) = 600 * 0.9995 = 599.7 → 599 (truncated)
+	// Staked decay = 600 - 599 = 1
+	// Total balance: 1000 - 1 (unstaked decay) - 1 (staked decay) = 998
+	expectedBalance := math.NewInt(998)
 	require.Equal(t, expectedBalance.String(), member.DreamBalance.String())
 
-	// Staked balance unchanged
-	require.Equal(t, math.NewInt(600).String(), member.StakedDream.String())
+	// Staked balance reduced by staked decay
+	require.Equal(t, math.NewInt(599).String(), member.StakedDream.String())
 
-	// Verify 4 DREAM burned
-	require.Equal(t, math.NewInt(4).String(), member.LifetimeBurned.String())
+	// Verify 2 DREAM burned total (1 unstaked + 1 staked)
+	require.Equal(t, math.NewInt(2).String(), member.LifetimeBurned.String())
 }
 
 // TestApplyPendingDecay_NoDecayWhenUpToDate tests no decay when already current
@@ -203,7 +206,7 @@ func TestGetBalance(t *testing.T) {
 	k := fixture.keeper
 	ctx := fixture.ctx
 
-	// Create member
+	// Create member past grace period
 	addr := sdk.AccAddress([]byte("test"))
 	k.Member.Set(ctx, addr.String(), types.Member{
 		Address:        addr.String(),
@@ -211,28 +214,28 @@ func TestGetBalance(t *testing.T) {
 		StakedDream:    PtrInt(math.NewInt(0)),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		LastDecayEpoch: 0,
+		LastDecayEpoch: 30,
 	})
 
-	// Move to epoch 1
+	// Move to epoch 31 (1 epoch elapsed, past grace period)
 	params, _ := k.Params.Get(ctx)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks)
+	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 31)
 	ctx = sdkCtx
 
 	// Get balance (should apply decay)
 	balance, err := k.GetBalance(ctx, addr)
 	require.NoError(t, err)
 
-	// Should return decayed balance: 1000 * 0.99 = 990
-	expectedBalance := math.NewInt(990)
+	// Should return decayed balance: 1000 * (1 - 0.002) = 1000 * 0.998 = 998
+	expectedBalance := math.NewInt(998)
 	require.Equal(t, expectedBalance.String(), balance.String())
 
 	// Verify member was updated in store
 	member, err := k.Member.Get(ctx, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, expectedBalance.String(), member.DreamBalance.String())
-	require.Equal(t, int64(1), member.LastDecayEpoch)
+	require.Equal(t, int64(31), member.LastDecayEpoch)
 }
 
 // TestGetBalance_NonExistentMember tests getting balance of non-member
@@ -348,26 +351,26 @@ func TestMintDREAM_AppliesDecayFirst(t *testing.T) {
 		StakedDream:    PtrInt(math.NewInt(0)),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
-		LastDecayEpoch: 0,
+		LastDecayEpoch: 30,
 	})
 
-	// Move to epoch 1
+	// Move to epoch 31 (1 epoch elapsed, past grace period)
 	params, _ := k.Params.Get(ctx)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks)
+	sdkCtx = sdkCtx.WithBlockHeight(params.EpochBlocks * 31)
 	ctx = sdkCtx
 
 	// Mint 100 DREAM
 	err := k.MintDREAM(ctx, addr, math.NewInt(100))
 	require.NoError(t, err)
 
-	// Balance should be: (1000 * 0.99) + 100 = 990 + 100 = 1090
+	// Balance should be: (1000 * 0.998) + 100 = 998 + 100 = 1098
 	member, err := k.Member.Get(ctx, addr.String())
 	require.NoError(t, err)
-	require.Equal(t, math.NewInt(1090).String(), member.DreamBalance.String())
+	require.Equal(t, math.NewInt(1098).String(), member.DreamBalance.String())
 
 	// Verify decay was applied
-	require.Equal(t, int64(1), member.LastDecayEpoch)
+	require.Equal(t, int64(31), member.LastDecayEpoch)
 }
 
 // TestBurnDREAM tests burning DREAM tokens
@@ -572,7 +575,7 @@ func TestUnlockDREAM(t *testing.T) {
 	require.True(t, found)
 }
 
-// TestUnlockDREAM_InsufficientStaked tests unlocking more than staked
+// TestUnlockDREAM_InsufficientStaked tests unlocking more than staked caps to staked amount
 func TestUnlockDREAM_InsufficientStaked(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
@@ -587,8 +590,33 @@ func TestUnlockDREAM_InsufficientStaked(t *testing.T) {
 		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
-	// Try to unlock more than staked
+	// Unlock more than staked — should cap to staked amount (300), not error
 	err := k.UnlockDREAM(ctx, addr, math.NewInt(500))
+	require.NoError(t, err)
+
+	// Verify staked is now zero (all 300 unlocked)
+	member, err := k.Member.Get(ctx, addr.String())
+	require.NoError(t, err)
+	require.True(t, member.StakedDream.IsZero())
+}
+
+// TestUnlockDREAM_ZeroStaked tests unlocking when nothing is staked
+func TestUnlockDREAM_ZeroStaked(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	addr := sdk.AccAddress([]byte("test"))
+	k.Member.Set(ctx, addr.String(), types.Member{
+		Address:        addr.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.ZeroInt()),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+	})
+
+	// Unlock when staked is zero — should error
+	err := k.UnlockDREAM(ctx, addr, math.NewInt(100))
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInsufficientStake)
 }

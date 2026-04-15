@@ -23,8 +23,10 @@ func (k Keeper) GetCurrentEpoch(ctx context.Context) (int64, error) {
 	return sdkCtx.BlockHeight() / params.EpochBlocks, nil
 }
 
-// ApplyPendingDecay calculates and applies decay to a member's balance
-// It updates the member struct in-place but does not save to store (caller must save)
+// ApplyPendingDecay calculates and applies decay to a member's balance.
+// Both unstaked (0.2%/epoch) and staked (0.05%/epoch) DREAM decay.
+// New members within the grace period are exempt from all decay.
+// It updates the member struct in-place but does not save to store (caller must save).
 func (k Keeper) ApplyPendingDecay(ctx context.Context, member *types.Member) error {
 	currentEpoch, err := k.GetCurrentEpoch(ctx)
 	if err != nil {
@@ -45,34 +47,56 @@ func (k Keeper) ApplyPendingDecay(ctx context.Context, member *types.Member) err
 		return nil
 	}
 
-	// Calculate decay: balance * (1 - rate)^elapsed
-	decayRate := params.UnstakedDecayRate
-	if decayRate.IsZero() {
-		member.LastDecayEpoch = currentEpoch
-		return nil
+	// Grace period: new members exempt from all decay
+	if params.NewMemberDecayGraceEpochs > 0 {
+		// Calculate member's join epoch from JoinedAt timestamp
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		memberAge := currentEpoch
+		if member.JoinedAt > 0 && params.EpochBlocks > 0 {
+			joinedBlock := member.JoinedAt // stored as block height
+			joinEpoch := joinedBlock / params.EpochBlocks
+			// But JoinedAt is actually a unix timestamp, convert via block time estimate
+			// Use a simpler approach: check if member has been around long enough
+			blockHeight := sdkCtx.BlockHeight()
+			blocksPerEpoch := params.EpochBlocks
+			if blocksPerEpoch > 0 {
+				currentEpochNum := blockHeight / blocksPerEpoch
+				joinEpoch = member.JoinedAt / blocksPerEpoch
+				memberAge = currentEpochNum - joinEpoch
+			}
+		}
+		if memberAge < params.NewMemberDecayGraceEpochs {
+			member.LastDecayEpoch = currentEpoch
+			return nil
+		}
 	}
 
 	one := math.LegacyOneDec()
-	factor := one.Sub(decayRate)
 
-	// factor^elapsed
-	multiplier := factor.Power(uint64(elapsed))
-
+	// 1. Unstaked decay: balance * (1 - unstaked_rate)^elapsed
+	unstakedRate := params.UnstakedDecayRate
 	unstaked := member.DreamBalance.Sub(*member.StakedDream)
-	if unstaked.IsPositive() {
-		current := math.LegacyNewDecFromInt(unstaked)
-		newUnstakedDec := current.Mul(multiplier)
-		newUnstaked := newUnstakedDec.TruncateInt()
-
+	if unstaked.IsPositive() && unstakedRate.IsPositive() {
+		multiplier := one.Sub(unstakedRate).Power(uint64(elapsed))
+		newUnstaked := math.LegacyNewDecFromInt(unstaked).Mul(multiplier).TruncateInt()
 		decayAmount := unstaked.Sub(newUnstaked)
-
 		if decayAmount.IsPositive() {
-			if decayAmount.GT(*member.DreamBalance) {
-				*member.DreamBalance = math.NewInt(0) // Should not happen given logic, but safe guard
-			} else {
-				*member.DreamBalance = member.DreamBalance.Sub(decayAmount)
-			}
+			*member.DreamBalance = member.DreamBalance.Sub(decayAmount)
 			*member.LifetimeBurned = member.LifetimeBurned.Add(decayAmount)
+		}
+	}
+
+	// 2. Staked decay: staked * (1 - staked_rate)^elapsed
+	stakedRate := params.StakedDecayRate
+	staked := *member.StakedDream
+	if staked.IsPositive() && stakedRate.IsPositive() {
+		multiplier := one.Sub(stakedRate).Power(uint64(elapsed))
+		newStaked := math.LegacyNewDecFromInt(staked).Mul(multiplier).TruncateInt()
+		stakedDecayAmount := staked.Sub(newStaked)
+		if stakedDecayAmount.IsPositive() {
+			*member.StakedDream = member.StakedDream.Sub(stakedDecayAmount)
+			*member.DreamBalance = member.DreamBalance.Sub(stakedDecayAmount)
+			*member.LifetimeBurned = member.LifetimeBurned.Add(stakedDecayAmount)
 		}
 	}
 
@@ -256,13 +280,19 @@ func (k Keeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 		return err
 	}
 
-	// Check sufficient staked balance
+	// Check sufficient staked balance.
+	// Staked DREAM may have decayed slightly below the originally locked amount.
+	// Cap the unlock to the actual staked balance to avoid failures from rounding.
+	unlockAmount := amount
 	if member.StakedDream.LT(amount) {
-		return types.ErrInsufficientStake
+		if member.StakedDream.IsZero() {
+			return types.ErrInsufficientStake
+		}
+		unlockAmount = *member.StakedDream
 	}
 
 	// Unlock the tokens
-	*member.StakedDream = member.StakedDream.Sub(amount)
+	*member.StakedDream = member.StakedDream.Sub(unlockAmount)
 
 	// Save updated member
 	if err := k.Member.Set(ctx, addr.String(), member); err != nil {
@@ -275,7 +305,7 @@ func (k Keeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 		sdk.NewEvent(
 			"unlock_dream",
 			sdk.NewAttribute("address", addr.String()),
-			sdk.NewAttribute("amount", amount.String()),
+			sdk.NewAttribute("amount", unlockAmount.String()),
 		),
 	)
 

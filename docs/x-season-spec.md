@@ -460,7 +460,7 @@ message RetroRewardRecord {
 
 **Conviction staking on nominations:** During the nomination window, members stake DREAM on nominations using `MsgStakeNomination`. This uses the same conviction formula as content conviction staking (`conviction(t) = stake_amount * (1 - 2^(-t / half_life))`), with the `nomination_conviction_half_life_epochs` parameter. Since the nomination window is shorter than a full season, a shorter half-life (default 3 epochs) ensures conviction can build meaningfully within the window. Stakes are returned after the season transition completes.
 
-**Reward distribution:** During the season transition, the top nominations by conviction score (up to `retro_reward_max_recipients`) receive freshly minted DREAM. The total mint budget is `retro_reward_budget_per_season`. Distribution is conviction-weighted: each rewarded nomination receives a share proportional to its conviction score relative to the total conviction across all rewarded nominations. A minimum conviction threshold (`retro_reward_min_conviction`) prevents low-effort nominations from receiving rewards.
+**Reward distribution:** During the season transition, the top nominations by conviction score (up to `retro_reward_max_recipients`) receive DREAM rewards. The budget is calculated as `retro_reward_budget_ratio` (25%) of total DREAM minted from initiative completions that season, clamped to [`retro_reward_budget_min` (10,000 DREAM), `retro_reward_budget_max` (75,000 DREAM)]. The budget is funded from the x/rep treasury first; only the remainder (if treasury < budget) is freshly minted. Distribution is conviction-weighted: each rewarded nomination receives a share proportional to its conviction score relative to the total conviction across all rewarded nominations. A minimum conviction threshold (`retro_reward_min_conviction`) prevents low-effort nominations from receiving rewards.
 
 **Duplicate prevention:** Only one active nomination per content reference per season. If content has already been nominated, additional nominators can stake conviction on the existing nomination rather than creating a duplicate.
 
@@ -565,7 +565,9 @@ message Params {
   uint64 nomination_window_epochs = 56;                  // Epochs before season end when nominations open (default: 14 = ~2 weeks)
   uint32 max_nominations_per_member = 57;                // Max nominations per member per season (default: 5)
   uint32 retro_reward_max_recipients = 58;               // Max nominations that receive rewards (default: 20)
-  string retro_reward_budget_per_season = 59 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Total DREAM minted for retro rewards (default: 50,000 DREAM = 50_000_000_000 micro-DREAM)
+  string retro_reward_budget_ratio = 59 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Fraction of season's initiative minting allocated to retro PGF (default: 0.25 = 25%)
+  string retro_reward_budget_min = 66 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Floor for retro PGF budget (default: 10,000 DREAM = 10_000_000_000 micro-DREAM)
+  string retro_reward_budget_max = 67 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Ceiling for retro PGF budget (default: 75,000 DREAM = 75_000_000_000 micro-DREAM)
   string retro_reward_min_conviction = 60 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Min conviction to qualify for reward (default: 50.0)
   uint64 nomination_conviction_half_life_epochs = 61;    // Half-life for nomination conviction (default: 3 epochs, shorter than content conviction)
   uint32 nomination_rationale_max_length = 62;           // Max chars for nomination rationale (default: 500)
@@ -2057,11 +2059,13 @@ During the season transition:
 1. **Rank** all nominations by conviction score (descending)
 2. **Filter** nominations below `retro_reward_min_conviction` (default: 50.0)
 3. **Select** top `retro_reward_max_recipients` (default: 20) nominations
-4. **Distribute** the `retro_reward_budget_per_season` (default: 50,000 DREAM) proportionally by conviction:
+4. **Calculate budget**: `retro_reward_budget_ratio` (25%) of total initiative DREAM minted this season, clamped to [`retro_reward_budget_min` (10K), `retro_reward_budget_max` (75K)]
+5. **Fund from treasury first**: draw from x/rep treasury; mint only the remainder
+6. **Distribute** proportionally by conviction:
    ```
    reward_i = budget * (conviction_i / sum(conviction_all_rewarded))
    ```
-5. **Mint** DREAM to each content creator via `repKeeper.MintDream(ctx, creator, amount)`
+7. **Pay** DREAM to each content creator (from treasury or via `repKeeper.MintDream`)
 6. **Emit** `EventRetroRewardGranted` for each rewarded nomination
 7. **Emit** `EventRetroRewardsProcessed` with aggregate totals
 

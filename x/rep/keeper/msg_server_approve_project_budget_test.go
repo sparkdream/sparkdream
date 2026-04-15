@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -69,6 +70,103 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 			Approver:       approverStr,
 			ProjectId:      projectID,
 			ApprovedBudget: keeper.PtrInt(math.NewInt(1000)),
+			ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("large budget rejected for plain committee member", func(t *testing.T) {
+		f := initFixture(t)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		k := f.keeper
+		ctx := f.ctx
+
+		// Set a low threshold for testing: 500 micro-DREAM
+		params, _ := k.Params.Get(ctx)
+		params.LargeProjectBudgetThreshold = math.NewInt(500)
+		k.Params.Set(ctx, params)
+
+		creator := sdk.AccAddress([]byte("creator"))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+
+		approver := sdk.AccAddress([]byte("approver"))
+		approverStr, _ := f.addressCodec.BytesToString(approver)
+
+		// Mock: approver IS a committee member but NOT a council policy address
+		// Default fixture: IsCommitteeMember→true, IsCouncilAuthorized→false (nil fn)
+		// The msg_server should reject because budget (1000) > threshold (500) and
+		// the approver is a plain committee member, not a policy address.
+
+		_, err := ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
+			Approver:       approverStr,
+			ProjectId:      projectID,
+			ApprovedBudget: keeper.PtrInt(math.NewInt(1000)), // > 500 threshold
+			ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrLargeProjectNeedsCouncil)
+	})
+
+	t.Run("large budget accepted from council policy address", func(t *testing.T) {
+		f := initFixture(t)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		k := f.keeper
+		ctx := f.ctx
+
+		params, _ := k.Params.Get(ctx)
+		params.LargeProjectBudgetThreshold = math.NewInt(500)
+		k.Params.Set(ctx, params)
+
+		creator := sdk.AccAddress([]byte("creator"))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+
+		policyAddr := sdk.AccAddress([]byte("council_policy_addr"))
+		policyStr, _ := f.addressCodec.BytesToString(policyAddr)
+
+		// Mock: policy address is NOT a committee member (it's a policy address, not a person)
+		// but IS council-authorized (governance/policy level).
+		// IsOperationsCommittee in the keeper also checks IsCommitteeMember — for policy
+		// addresses in production, the keeper recognizes them. We simulate this by
+		// returning true from IsCommitteeMember only for the keeper's check on the
+		// specific council. Since both msg_server and keeper call the same mock, we
+		// use IsCouncilAuthorized to let the policy address through the keeper too.
+		f.commonsKeeper.IsCommitteeMemberFn = func(_ context.Context, addr sdk.AccAddress, _ string, _ string) (bool, error) {
+			return false, nil // Policy addresses are not personal committee members
+		}
+		f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, addr string, _ string, _ string) bool {
+			return addr == policyStr
+		}
+
+		_, err := ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
+			Approver:       policyStr,
+			ProjectId:      projectID,
+			ApprovedBudget: keeper.PtrInt(math.NewInt(1000)), // > 500 threshold
+			ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("small budget still works for committee member", func(t *testing.T) {
+		f := initFixture(t)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		k := f.keeper
+		ctx := f.ctx
+
+		params, _ := k.Params.Get(ctx)
+		params.LargeProjectBudgetThreshold = math.NewInt(500)
+		k.Params.Set(ctx, params)
+
+		creator := sdk.AccAddress([]byte("creator"))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+
+		approver := sdk.AccAddress([]byte("approver"))
+		approverStr, _ := f.addressCodec.BytesToString(approver)
+
+		// Budget = 400 <= threshold 500 → plain committee member should succeed
+		_, err := ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
+			Approver:       approverStr,
+			ProjectId:      projectID,
+			ApprovedBudget: keeper.PtrInt(math.NewInt(400)), // <= 500 threshold
 			ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
 		})
 		require.NoError(t, err)

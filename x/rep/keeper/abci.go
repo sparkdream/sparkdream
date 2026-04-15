@@ -75,29 +75,34 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		return false
 	})
 
-	// 8. Distribute staking rewards
+	// 8. Distribute staking rewards from seasonal pool
 	if err := k.DistributeEpochStakingRewards(ctx); err != nil {
 		return err
 	}
 
-	// 9. Trust levels are updated lazily at trigger points:
+	// 9. Treasury overflow check (enforced each epoch boundary)
+	if err := k.EnforceTreasuryBalance(ctx); err != nil {
+		return err
+	}
+
+	// 10. Trust levels are updated lazily at trigger points:
 	//    - When a member completes an interim (reputation gained)
 	//    - When reputation is granted/reduced
 	//    - When a new season starts
 	// No bulk update needed - this scales O(1) per block instead of O(n*m)
 	// where n = member count and m = interim count
 
-	// 10. Process invitation accountability
+	// 11. Process invitation accountability
 	if err := k.ProcessExpiredAccountability(ctx); err != nil {
 		return err
 	}
 
-	// 11. Rebuild member trust tree if dirty (for anonymous posting ZK proofs)
+	// 12. Rebuild member trust tree if dirty (for anonymous posting ZK proofs)
 	if err := k.MaybeRebuildTrustTree(ctx); err != nil {
 		return err
 	}
 
-	// 12. Invitation credits are reset lazily via EnsureInvitationCreditsReset
+	// 13. Invitation credits are reset lazily via EnsureInvitationCreditsReset
 	// When a member tries to invite, we check if the current season > their last reset season
 	// If so, we reset their credits to their trust-level max
 	// This scales O(1) per block instead of O(n) where n = member count

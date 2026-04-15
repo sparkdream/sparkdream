@@ -105,16 +105,17 @@ import json, sys
 
 # Fields that use cosmossdk.io/math.LegacyDec (18 decimal precision)
 DEC_FIELDS = [
-    'staking_apy', 'unstaked_decay_rate', 'transfer_tax_rate',
+    'unstaked_decay_rate', 'transfer_tax_rate',
     'min_reputation_multiplier', 'referral_reward_rate',
     'invitation_cost_multiplier',
     'challenger_reward_rate', 'jury_super_majority',
     'min_juror_reputation', 'solo_expert_bonus_rate',
-    'project_staking_apy', 'project_completion_bonus_rate',
+    'project_completion_bonus_rate',
     'member_stake_revenue_share', 'tag_stake_revenue_share',
     'content_challenge_reward_share', 'conviction_propagation_ratio',
     'reputation_decay_rate', 'max_conviction_share_per_member',
-    'invitation_stake_burn_rate', 'max_reputation_gain_per_epoch'
+    'invitation_stake_burn_rate', 'max_reputation_gain_per_epoch',
+    'staked_decay_rate'
 ]
 
 PRECISION = 18
@@ -183,7 +184,6 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     OP_PARAMS=$(echo "$PARAMS_JSON" | jq '.params | {
       epoch_blocks,
       season_duration_epochs,
-      staking_apy,
       unstaked_decay_rate,
       transfer_tax_rate,
       max_tip_amount,
@@ -211,7 +211,6 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       max_active_challenges_per_committee,
       max_new_challenges_per_epoch,
       challenge_queue_max_size,
-      project_staking_apy,
       project_completion_bonus_rate,
       member_stake_revenue_share,
       tag_stake_revenue_share,
@@ -231,7 +230,16 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       max_conviction_share_per_member,
       invitation_stake_burn_rate,
       max_reputation_gain_per_epoch,
-      max_tags_per_initiative
+      max_tags_per_initiative,
+      max_staking_rewards_per_season,
+      staked_decay_rate,
+      new_member_decay_grace_epochs,
+      max_treasury_balance,
+      treasury_funds_interims: (.treasury_funds_interims // false),
+      treasury_funds_retro_pgf: (.treasury_funds_retro_pgf // false),
+      max_initiative_stake_per_member,
+      max_initiative_rewards_per_season,
+      large_project_budget_threshold
     }')
 
     # Modify test fields
@@ -248,7 +256,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     OP_PARAMS=$(convert_op_params_for_proposal "$OP_PARAMS")
 
     echo "  Converted operational params for proposal (sample):"
-    echo "    staking_apy: $(echo $OP_PARAMS | jq -r '.staking_apy')"
+    echo "    unstaked_decay_rate: $(echo $OP_PARAMS | jq -r '.unstaked_decay_rate')"
     echo "    max_tips_per_epoch: $(echo $OP_PARAMS | jq -r '.max_tips_per_epoch')"
 
     # Build the proposal JSON
@@ -376,7 +384,6 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     RESET_OP_PARAMS=$(echo "$PARAMS_JSON" | jq '.params | {
       epoch_blocks,
       season_duration_epochs,
-      staking_apy,
       unstaked_decay_rate,
       transfer_tax_rate,
       max_tip_amount,
@@ -404,7 +411,6 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       max_active_challenges_per_committee,
       max_new_challenges_per_epoch,
       challenge_queue_max_size,
-      project_staking_apy,
       project_completion_bonus_rate,
       member_stake_revenue_share,
       tag_stake_revenue_share,
@@ -424,7 +430,16 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       max_conviction_share_per_member,
       invitation_stake_burn_rate,
       max_reputation_gain_per_epoch,
-      max_tags_per_initiative
+      max_tags_per_initiative,
+      max_staking_rewards_per_season,
+      staked_decay_rate,
+      new_member_decay_grace_epochs,
+      max_treasury_balance,
+      treasury_funds_interims: (.treasury_funds_interims // false),
+      treasury_funds_retro_pgf: (.treasury_funds_retro_pgf // false),
+      max_initiative_stake_per_member,
+      max_initiative_rewards_per_season,
+      large_project_budget_threshold
     }')
 
     # Convert LegacyDec fields from raw format to decimal format

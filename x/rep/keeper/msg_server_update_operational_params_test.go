@@ -193,7 +193,7 @@ func TestMsgServerUpdateOperationalParams(t *testing.T) {
 		// Verify operational fields were updated (to default values)
 		require.Equal(t, int64(14400), updatedParams.EpochBlocks)
 		require.Equal(t, uint32(5), updatedParams.JurySize)
-		require.True(t, updatedParams.StakingApy.Equal(math.LegacyNewDecWithPrec(10, 2)),
-			"StakingApy should be updated to default 10%%")
+		require.True(t, updatedParams.MaxStakingRewardsPerSeason.Equal(math.NewInt(25000000000000)),
+			"MaxStakingRewardsPerSeason should be updated to default 25,000 DREAM")
 	})
 }

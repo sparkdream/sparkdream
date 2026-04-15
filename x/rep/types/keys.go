@@ -98,6 +98,30 @@ var (
 // Enables prefix scan by initiativeID to find all linked content for conviction propagation
 var ContentInitiativeLinksKey = collections.NewPrefix("content_initiative_links/")
 
+// Seasonal staking reward pool state
+var (
+	// SeasonalPoolRemainingKey tracks remaining DREAM in this season's reward pool
+	SeasonalPoolRemainingKey = collections.NewPrefix("seasonal_pool/remaining")
+	// SeasonalPoolAccPerShareKey tracks the MasterChef accumulator for initiative/project stakers
+	SeasonalPoolAccPerShareKey = collections.NewPrefix("seasonal_pool/acc_per_share")
+	// SeasonalPoolTotalStakedKey tracks total DREAM staked in initiatives + projects
+	SeasonalPoolTotalStakedKey = collections.NewPrefix("seasonal_pool/total_staked")
+	// SeasonalPoolSeasonKey tracks which season the pool was initialized for
+	SeasonalPoolSeasonKey = collections.NewPrefix("seasonal_pool/season")
+)
+
+// Treasury and economic tracking
+var (
+	// TreasuryBalanceKey tracks the x/rep module treasury DREAM balance
+	TreasuryBalanceKey = collections.NewPrefix("treasury/balance")
+	// SeasonMintedKey tracks total DREAM minted this season (for MintBurnRatio query)
+	SeasonMintedKey = collections.NewPrefix("econ/season_minted")
+	// SeasonBurnedKey tracks total DREAM burned this season (for MintBurnRatio query)
+	SeasonBurnedKey = collections.NewPrefix("econ/season_burned")
+	// SeasonInitiativeRewardsMintedKey tracks DREAM minted via initiative completion this season
+	SeasonInitiativeRewardsMintedKey = collections.NewPrefix("econ/season_initiative_rewards")
+)
+
 // Content challenge keys
 var (
 	ContentChallengeKey      = collections.NewPrefix("contentchallenge/value/")

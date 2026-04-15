@@ -51,10 +51,38 @@ func (k Keeper) CreateStake(
 		if err != nil {
 			return 0, fmt.Errorf("initiative not found: %w", err)
 		}
+		// Per-member cap: prevents reward pool extraction via disproportionate stakes
+		existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to check existing stakes: %w", err)
+		}
+		memberTotal := math.ZeroInt()
+		for _, s := range existingStakes {
+			if s.Staker == staker.String() {
+				memberTotal = memberTotal.Add(s.Amount)
+			}
+		}
+		if memberTotal.Add(amount).GT(params.MaxInitiativeStakePerMember) {
+			return 0, types.ErrInitiativeStakeCap
+		}
 	case types.StakeTargetType_STAKE_TARGET_PROJECT:
 		_, err := k.GetProject(ctx, targetID)
 		if err != nil {
 			return 0, fmt.Errorf("project not found: %w", err)
+		}
+		// Same per-member cap for projects (shared seasonal reward pool)
+		existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to check existing stakes: %w", err)
+		}
+		memberTotal := math.ZeroInt()
+		for _, s := range existingStakes {
+			if s.Staker == staker.String() {
+				memberTotal = memberTotal.Add(s.Amount)
+			}
+		}
+		if memberTotal.Add(amount).GT(params.MaxInitiativeStakePerMember) {
+			return 0, types.ErrInitiativeStakeCap
 		}
 	case types.StakeTargetType_STAKE_TARGET_MEMBER:
 		if targetIdentifier == "" {

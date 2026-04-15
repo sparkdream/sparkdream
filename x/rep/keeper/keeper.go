@@ -77,6 +77,18 @@ type Keeper struct {
 	// Content-initiative links for conviction propagation
 	// Key: (initiativeID, (targetType, targetID)) — enables prefix scan by initiative
 	ContentInitiativeLinks collections.KeySet[collections.Pair[uint64, collections.Pair[int32, uint64]]]
+
+	// Seasonal staking reward pool state (MasterChef-style accumulator)
+	SeasonalPoolRemaining  collections.Item[string] // remaining DREAM in pool (as Int string)
+	SeasonalPoolAccPerShare collections.Item[string] // accumulated reward per share (as Dec string)
+	SeasonalPoolTotalStaked collections.Item[string] // total DREAM staked in initiatives + projects (as Int string)
+	SeasonalPoolSeason     collections.Item[uint64]  // which season this pool was initialized for
+
+	// Treasury and economic tracking
+	TreasuryBalance              collections.Item[string] // x/rep module treasury DREAM balance (as Int string)
+	SeasonMinted                 collections.Item[string] // total DREAM minted this season (as Int string)
+	SeasonBurned                 collections.Item[string] // total DREAM burned this season (as Int string)
+	SeasonInitiativeRewardsMinted collections.Item[string] // DREAM minted via initiative completion this season (as Int string)
 }
 
 func NewKeeper(
@@ -171,6 +183,18 @@ func NewKeeper(
 			sb, types.ContentInitiativeLinksKey, "contentInitiativeLinks",
 			collections.PairKeyCodec(collections.Uint64Key, collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key)),
 		),
+
+		// Seasonal staking reward pool state
+		SeasonalPoolRemaining:   collections.NewItem(sb, types.SeasonalPoolRemainingKey, "seasonalPoolRemaining", collections.StringValue),
+		SeasonalPoolAccPerShare: collections.NewItem(sb, types.SeasonalPoolAccPerShareKey, "seasonalPoolAccPerShare", collections.StringValue),
+		SeasonalPoolTotalStaked: collections.NewItem(sb, types.SeasonalPoolTotalStakedKey, "seasonalPoolTotalStaked", collections.StringValue),
+		SeasonalPoolSeason:      collections.NewItem(sb, types.SeasonalPoolSeasonKey, "seasonalPoolSeason", collections.Uint64Value),
+
+		// Treasury and economic tracking
+		TreasuryBalance:               collections.NewItem(sb, types.TreasuryBalanceKey, "treasuryBalance", collections.StringValue),
+		SeasonMinted:                   collections.NewItem(sb, types.SeasonMintedKey, "seasonMinted", collections.StringValue),
+		SeasonBurned:                   collections.NewItem(sb, types.SeasonBurnedKey, "seasonBurned", collections.StringValue),
+		SeasonInitiativeRewardsMinted:  collections.NewItem(sb, types.SeasonInitiativeRewardsMintedKey, "seasonInitiativeRewards", collections.StringValue),
 	}
 	schema, err := sb.Build()
 	if err != nil {

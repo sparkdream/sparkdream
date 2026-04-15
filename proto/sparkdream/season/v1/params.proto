@@ -133,20 +133,30 @@ message Params {
   uint64 nomination_window_epochs = 56;
   uint64 max_nominations_per_member = 57;
   uint64 retro_reward_max_recipients = 58;
-  string retro_reward_budget_per_season = 59 [
+  string retro_reward_min_conviction = 59 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string retro_reward_min_conviction = 60 [
+  uint64 nomination_conviction_half_life_epochs = 60;
+  uint32 nomination_rationale_max_length = 61;
+  uint32 nomination_min_trust_level = 62;
+  uint32 nomination_stake_min_trust_level = 63;
+  string nomination_min_stake = 64 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 nomination_conviction_half_life_epochs = 61;
-  uint32 nomination_rationale_max_length = 62;
-  uint32 nomination_min_trust_level = 63;
-  uint32 nomination_stake_min_trust_level = 64;
-  string nomination_min_stake = 65 [
+
+  // Activity-based retro PGF budget (replaces fixed budget)
+  string retro_reward_budget_ratio = 65 [ // Fraction of initiative minting allocated to retro PGF (default 0.25 = 25%)
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string retro_reward_budget_min = 66 [ // Floor for retro PGF budget in micro-DREAM (default 10,000 DREAM)
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string retro_reward_budget_max = 67 [ // Ceiling for retro PGF budget in micro-DREAM (default 75,000 DREAM)
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 }
@@ -259,20 +269,30 @@ message SeasonOperationalParams {
   uint64 nomination_window_epochs = 47;
   uint64 max_nominations_per_member = 48;
   uint64 retro_reward_max_recipients = 49;
-  string retro_reward_budget_per_season = 50 [
+  string retro_reward_min_conviction = 50 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string retro_reward_min_conviction = 51 [
+  uint64 nomination_conviction_half_life_epochs = 51;
+  uint32 nomination_rationale_max_length = 52;
+  uint32 nomination_min_trust_level = 53;
+  uint32 nomination_stake_min_trust_level = 54;
+  string nomination_min_stake = 55 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 nomination_conviction_half_life_epochs = 52;
-  uint32 nomination_rationale_max_length = 53;
-  uint32 nomination_min_trust_level = 54;
-  uint32 nomination_stake_min_trust_level = 55;
-  string nomination_min_stake = 56 [
+
+  // Activity-based retro PGF budget
+  string retro_reward_budget_ratio = 56 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string retro_reward_budget_min = 57 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string retro_reward_budget_max = 58 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 }

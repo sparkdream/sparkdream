@@ -35,10 +35,11 @@ var (
 	ErrNotMember               = errors.Register(ModuleName, 1207, "address is not a member")
 
 	// Project errors
-	ErrProjectNotFound      = errors.Register(ModuleName, 1301, "project not found")
-	ErrInvalidProjectStatus = errors.Register(ModuleName, 1302, "invalid project status")
-	ErrInsufficientBudget   = errors.Register(ModuleName, 1303, "insufficient budget")
-	ErrUnauthorized         = errors.Register(ModuleName, 1304, "unauthorized: insufficient permissions")
+	ErrProjectNotFound           = errors.Register(ModuleName, 1301, "project not found")
+	ErrInvalidProjectStatus      = errors.Register(ModuleName, 1302, "invalid project status")
+	ErrInsufficientBudget        = errors.Register(ModuleName, 1303, "insufficient budget")
+	ErrUnauthorized              = errors.Register(ModuleName, 1304, "unauthorized: insufficient permissions")
+	ErrLargeProjectNeedsCouncil  = errors.Register(ModuleName, 1305, "project budget exceeds threshold; requires council proposal approval")
 
 	// Initiative errors
 	ErrInitiativeNotFound      = errors.Register(ModuleName, 1401, "initiative not found")
@@ -66,6 +67,8 @@ var (
 	ErrNotContentTargetType = errors.Register(ModuleName, 1512, "target type is not a content conviction type")
 	ErrNotAuthorBondType    = errors.Register(ModuleName, 1513, "target type is not an author bond type")
 	ErrAuthorBondViaMsg     = errors.Register(ModuleName, 1514, "author bonds must be created via content module, not MsgStake")
+	ErrInitiativeStakeCap         = errors.Register(ModuleName, 1515, "exceeds max initiative stake per member for this target")
+	ErrInitiativeRewardCapReached = errors.Register(ModuleName, 1516, "season initiative reward minting cap reached")
 
 	// General errors
 	ErrInvalidRequest = errors.Register(ModuleName, 1600, "invalid request")

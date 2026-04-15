@@ -67,22 +67,18 @@ func (k Keeper) ApplyDecay(ctx context.Context) error {
 	})
 }
 
-// DistributeEpochStakingRewards is called every epoch but intentionally does not distribute rewards.
-// This is the OPTIMAL design for gas efficiency and scalability.
+// DistributeEpochStakingRewards updates the seasonal reward pool accumulator.
+// Called each epoch in EndBlocker. The accumulator enables O(1) lazy reward
+// calculation per stake claim (MasterChef pattern).
 //
-// Reward distribution uses event-driven and lazy calculation patterns:
-//   - Initiative/Project stakes: Calculated lazily on claim (CalculateStakingReward, getPendingProjectRewards)
-//     Gas cost: O(1) per claim instead of O(all_stakes) per epoch
-//   - Member stakes: Updated when member earns DREAM (AccumulateMemberStakeRevenue in CompleteInitiative)
-//     Gas cost: O(stakers_on_member) per revenue event instead of O(all_stakes) per epoch
-//   - Tag stakes: Updated when initiative completes (AccumulateTagStakeRevenue in CompleteInitiative)
-//     Gas cost: O(stakers_on_tags) per completion instead of O(all_stakes) per epoch
+// Each epoch: accPerShare += (poolRemaining / remainingEpochs) / totalStaked
+// Individual rewards computed lazily: pending = stake * accPerShare - rewardDebt
 //
-// Periodic distribution would be LESS efficient and provide no benefit to stakers.
+// Member and tag stake rewards remain event-driven (unchanged):
+//   - Member stakes: AccumulateMemberStakeRevenue on initiative completion
+//   - Tag stakes: AccumulateTagStakeRevenue on initiative completion
 func (k Keeper) DistributeEpochStakingRewards(ctx context.Context) error {
-	// Intentionally empty - rewards are distributed via event-driven and lazy patterns
-	// Do not add periodic distribution here as it would significantly increase gas costs
-	return nil
+	return k.DistributeEpochStakingRewardsFromPool(ctx)
 }
 
 // UpdateAllTrustLevels updates trust levels for all members

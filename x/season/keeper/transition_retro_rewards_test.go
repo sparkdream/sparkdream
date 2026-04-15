@@ -273,9 +273,10 @@ func TestRetroRewards_DistributesProportionally(t *testing.T) {
 
 	// Verify proportional distribution
 	// Total conviction = 200 + 100 = 300
-	// Budget = 50000 (default)
-	// Reward1 = 50000 * (200/300) = 50000 * 2/3 = 33333.333... -> truncated to 33333
-	// Reward2 = 50000 * (100/300) = 50000 * 1/3 = 16666.666... -> truncated to 16666
+	// Budget = 0.25 * 60,000,000,000 (season minted) = 15,000,000,000 micro-DREAM
+	//   (clamped to [10B, 75B] — 15B is within range)
+	// Reward1 = floor(15000000000 * 200/300) = 10,000,000,000
+	// Reward2 = floor(15000000000 * 100/300) = 5,000,000,000
 	balance1 := f.repKeeper.Balances[addr1]
 	balance2 := f.repKeeper.Balances[addr2]
 
@@ -286,13 +287,15 @@ func TestRetroRewards_DistributesProportionally(t *testing.T) {
 	// Nominator 1 should get roughly 2x what nominator 2 gets (200/100 conviction ratio)
 	require.True(t, balance1.GT(balance2), "nominator 1 (conviction 200) should get more than nominator 2 (conviction 100)")
 
-	// Verify approximate values (within rounding tolerance)
-	// reward1 = floor(50000 * 200/300) = floor(33333.33...) = 33333
-	// reward2 = floor(50000 * 100/300) = floor(16666.66...) = 16666
-	require.Equal(t, int64(33333), balance1.Int64(),
-		"nominator 1 reward should be floor(50000 * 200/300)")
-	require.Equal(t, int64(16666), balance2.Int64(),
-		"nominator 2 reward should be floor(50000 * 100/300)")
+	// Verify exact values after LegacyDec arithmetic:
+	// share1 = Dec(200).Quo(Dec(300)) = 0.666666666666666667 (banker's rounding up)
+	// share2 = Dec(100).Quo(Dec(300)) = 0.333333333333333333
+	// reward1 = 15000000000 * 0.666666666666666667 = 10000000000.000000005 -> TruncateInt = 10000000000
+	// reward2 = 15000000000 * 0.333333333333333333 = 4999999999.999999995  -> TruncateInt = 4999999999
+	require.Equal(t, int64(10000000000), balance1.Int64(),
+		"nominator 1 reward should be trunc(15000000000 * Dec(200/300))")
+	require.Equal(t, int64(4999999999), balance2.Int64(),
+		"nominator 2 reward should be trunc(15000000000 * Dec(100/300))")
 
 	// Verify conviction values are recorded in the reward records
 	require.True(t, record1.Conviction.GT(record2.Conviction),
@@ -883,10 +886,10 @@ func TestRetroRewardsAndReturnStakes_FullFlow(t *testing.T) {
 	require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES, state.Phase)
 
 	// Verify reward was distributed to nominator (conviction = 200 + 100 = 300, only nomination)
-	// Budget = 50000, only 1 eligible nomination, so full budget goes to it
+	// Budget = 0.25 * 60,000,000,000 = 15,000,000,000 micro-DREAM, only 1 eligible nomination
 	nominatorBalance := f.repKeeper.Balances[nominatorAddr]
 	require.True(t, nominatorBalance.IsPositive(), "nominator should have received the full reward budget")
-	require.Equal(t, int64(50000), nominatorBalance.Int64(),
+	require.Equal(t, int64(15000000000), nominatorBalance.Int64(),
 		"with a single nomination, the entire budget should go to the nominator")
 
 	// Verify stakes still exist before return phase

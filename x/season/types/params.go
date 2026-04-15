@@ -68,7 +68,9 @@ var (
 	DefaultNominationWindowEpochs             uint64 = 5
 	DefaultMaxNominationsPerMember            uint64 = 3
 	DefaultRetroRewardMaxRecipients           uint64 = 20
-	DefaultRetroRewardBudgetPerSeason                = math.LegacyMustNewDecFromStr("50000")
+	DefaultRetroRewardBudgetRatio                     = math.LegacyNewDecWithPrec(25, 2) // 0.25
+	DefaultRetroRewardBudgetMin                       = math.NewInt(10_000_000_000)       // 10,000 DREAM in micro-DREAM
+	DefaultRetroRewardBudgetMax                       = math.NewInt(75_000_000_000)       // 75,000 DREAM in micro-DREAM
 	DefaultRetroRewardMinConviction                  = math.LegacyMustNewDecFromStr("50")
 	DefaultNominationConvictionHalfLifeEpochs uint64 = 3
 	DefaultNominationRationaleMaxLength       uint32 = 500
@@ -138,7 +140,9 @@ func NewParams() Params {
 		NominationWindowEpochs:             DefaultNominationWindowEpochs,
 		MaxNominationsPerMember:            DefaultMaxNominationsPerMember,
 		RetroRewardMaxRecipients:           DefaultRetroRewardMaxRecipients,
-		RetroRewardBudgetPerSeason:         DefaultRetroRewardBudgetPerSeason,
+		RetroRewardBudgetRatio:             DefaultRetroRewardBudgetRatio,
+		RetroRewardBudgetMin:               DefaultRetroRewardBudgetMin,
+		RetroRewardBudgetMax:               DefaultRetroRewardBudgetMax,
 		RetroRewardMinConviction:           DefaultRetroRewardMinConviction,
 		NominationConvictionHalfLifeEpochs: DefaultNominationConvictionHalfLifeEpochs,
 		NominationRationaleMaxLength:       DefaultNominationRationaleMaxLength,
@@ -182,8 +186,14 @@ func (p Params) Validate() error {
 	if p.RetroRewardMaxRecipients == 0 {
 		return fmt.Errorf("retro_reward_max_recipients must be positive")
 	}
-	if p.RetroRewardBudgetPerSeason.IsNegative() {
-		return fmt.Errorf("retro_reward_budget_per_season must be non-negative")
+	if p.RetroRewardBudgetRatio.IsNegative() || p.RetroRewardBudgetRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("retro_reward_budget_ratio must be between 0 and 1")
+	}
+	if p.RetroRewardBudgetMin.IsNegative() {
+		return fmt.Errorf("retro_reward_budget_min must be non-negative")
+	}
+	if p.RetroRewardBudgetMax.LT(p.RetroRewardBudgetMin) {
+		return fmt.Errorf("retro_reward_budget_max must be >= retro_reward_budget_min")
 	}
 	if p.RetroRewardMinConviction.IsNegative() {
 		return fmt.Errorf("retro_reward_min_conviction must be non-negative")
@@ -249,7 +259,9 @@ func DefaultSeasonOperationalParams() SeasonOperationalParams {
 		NominationWindowEpochs:             DefaultNominationWindowEpochs,
 		MaxNominationsPerMember:            DefaultMaxNominationsPerMember,
 		RetroRewardMaxRecipients:           DefaultRetroRewardMaxRecipients,
-		RetroRewardBudgetPerSeason:         DefaultRetroRewardBudgetPerSeason,
+		RetroRewardBudgetRatio:             DefaultRetroRewardBudgetRatio,
+		RetroRewardBudgetMin:               DefaultRetroRewardBudgetMin,
+		RetroRewardBudgetMax:               DefaultRetroRewardBudgetMax,
 		RetroRewardMinConviction:           DefaultRetroRewardMinConviction,
 		NominationConvictionHalfLifeEpochs: DefaultNominationConvictionHalfLifeEpochs,
 		NominationRationaleMaxLength:       DefaultNominationRationaleMaxLength,
@@ -288,8 +300,14 @@ func (op SeasonOperationalParams) Validate() error {
 	if op.RetroRewardMaxRecipients == 0 {
 		return fmt.Errorf("retro_reward_max_recipients must be positive")
 	}
-	if op.RetroRewardBudgetPerSeason.IsNegative() {
-		return fmt.Errorf("retro_reward_budget_per_season must be non-negative")
+	if op.RetroRewardBudgetRatio.IsNegative() || op.RetroRewardBudgetRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("retro_reward_budget_ratio must be between 0 and 1")
+	}
+	if op.RetroRewardBudgetMin.IsNegative() {
+		return fmt.Errorf("retro_reward_budget_min must be non-negative")
+	}
+	if op.RetroRewardBudgetMax.LT(op.RetroRewardBudgetMin) {
+		return fmt.Errorf("retro_reward_budget_max must be >= retro_reward_budget_min")
 	}
 	if op.RetroRewardMinConviction.IsNegative() {
 		return fmt.Errorf("retro_reward_min_conviction must be non-negative")
@@ -357,7 +375,9 @@ func (p Params) ApplyOperationalParams(op SeasonOperationalParams) Params {
 	p.NominationWindowEpochs = op.NominationWindowEpochs
 	p.MaxNominationsPerMember = op.MaxNominationsPerMember
 	p.RetroRewardMaxRecipients = op.RetroRewardMaxRecipients
-	p.RetroRewardBudgetPerSeason = op.RetroRewardBudgetPerSeason
+	p.RetroRewardBudgetRatio = op.RetroRewardBudgetRatio
+	p.RetroRewardBudgetMin = op.RetroRewardBudgetMin
+	p.RetroRewardBudgetMax = op.RetroRewardBudgetMax
 	p.RetroRewardMinConviction = op.RetroRewardMinConviction
 	p.NominationConvictionHalfLifeEpochs = op.NominationConvictionHalfLifeEpochs
 	p.NominationRationaleMaxLength = op.NominationRationaleMaxLength
@@ -419,7 +439,9 @@ func (p Params) ExtractOperationalParams() SeasonOperationalParams {
 		NominationWindowEpochs:             p.NominationWindowEpochs,
 		MaxNominationsPerMember:            p.MaxNominationsPerMember,
 		RetroRewardMaxRecipients:           p.RetroRewardMaxRecipients,
-		RetroRewardBudgetPerSeason:         p.RetroRewardBudgetPerSeason,
+		RetroRewardBudgetRatio:             p.RetroRewardBudgetRatio,
+		RetroRewardBudgetMin:               p.RetroRewardBudgetMin,
+		RetroRewardBudgetMax:               p.RetroRewardBudgetMax,
 		RetroRewardMinConviction:           p.RetroRewardMinConviction,
 		NominationConvictionHalfLifeEpochs: p.NominationConvictionHalfLifeEpochs,
 		NominationRationaleMaxLength:       p.NominationRationaleMaxLength,

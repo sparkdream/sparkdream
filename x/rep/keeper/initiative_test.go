@@ -269,3 +269,77 @@ func TestCompleteInitiative(t *testing.T) {
 	err = k.CompleteInitiative(ctx, initID)
 	require.NoError(t, err)
 }
+
+func TestSeasonInitiativeRewardsCap(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	// Set a low per-season initiative reward cap: 150 micro-DREAM
+	params, _ := k.Params.Get(ctx)
+	params.MaxInitiativeRewardsPerSeason = math.NewInt(150)
+	k.Params.Set(ctx, params)
+
+	// Initialize the seasonal pool (resets counters)
+	k.InitSeasonalPool(ctx, 1)
+
+	// Helper to create a completable initiative with the given budget
+	createCompletable := func(budget math.Int, suffix string) uint64 {
+		creator := sdk.AccAddress([]byte("creator" + suffix))
+		k.Member.Set(ctx, creator.String(), types.Member{
+			Address: creator.String(), DreamBalance: PtrInt(math.ZeroInt()),
+			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
+			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: map[string]string{"backend": "50.0"},
+		})
+		assignee := sdk.AccAddress([]byte("assignee" + suffix))
+		k.Member.Set(ctx, assignee.String(), types.Member{
+			Address: assignee.String(), DreamBalance: PtrInt(math.ZeroInt()),
+			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
+			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: map[string]string{"backend": "100.0"},
+			TrustLevel: types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		})
+		staker := sdk.AccAddress([]byte("staker" + suffix))
+		k.Member.Set(ctx, staker.String(), types.Member{
+			Address: staker.String(), DreamBalance: PtrInt(math.NewInt(100000)),
+			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
+			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: map[string]string{"backend": "100.0"},
+		})
+
+		projID, _ := k.CreateProject(ctx, creator, "P"+suffix, "D", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(1000))
+		k.ApproveProject(ctx, projID, sdk.AccAddress([]byte("approver")), math.NewInt(100000), math.NewInt(1000))
+		initID, _ := k.CreateInitiative(ctx, creator, projID, "T"+suffix, "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+		k.AssignInitiativeToMember(ctx, initID, assignee)
+		k.SubmitInitiativeWork(ctx, initID, assignee, "deliverable")
+		k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(10000))
+
+		// Force conviction to meet threshold
+		init, _ := k.GetInitiative(ctx, initID)
+		init.CurrentConviction = PtrDec(DerefDec(init.RequiredConviction).Mul(math.LegacyNewDec(3)))
+		init.ExternalConviction = PtrDec(DerefDec(init.RequiredConviction).Mul(math.LegacyNewDec(3)))
+		k.UpdateInitiative(ctx, init)
+		return initID
+	}
+
+	// First initiative: 100 micro-DREAM budget → 90 completer reward (90% share)
+	// 90 < 150 cap → should succeed
+	initID1 := createCompletable(math.NewInt(100), "_a")
+	err := k.CompleteInitiative(ctx, initID1)
+	require.NoError(t, err)
+
+	// Verify counter was tracked
+	minted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(90).String(), minted.String()) // 100 * 0.9 = 90
+
+	// Second initiative: 100 micro-DREAM budget → 90 completer reward
+	// 90 + 90 = 180 > 150 cap → should fail
+	initID2 := createCompletable(math.NewInt(100), "_b")
+	err = k.CompleteInitiative(ctx, initID2)
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrInitiativeRewardCapReached)
+
+	// Counter should still be 90 (second completion was rejected)
+	minted, err = k.GetSeasonInitiativeRewardsMinted(ctx)
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(90).String(), minted.String())
+}

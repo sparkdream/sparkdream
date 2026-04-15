@@ -2,7 +2,6 @@ package keeper_test
 
 import (
 	"testing"
-	"time"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,145 +12,101 @@ import (
 )
 
 func TestCalculateStakingReward(t *testing.T) {
-	t.Run("zero duration returns zero reward", func(t *testing.T) {
+	t.Run("no pool initialized returns zero reward", func(t *testing.T) {
 		f := initFixture(t)
 		k := f.keeper
-
-		// Set block time to the same as stake creation time
-		createdAt := int64(1000000)
-		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		ctx := sdkCtx.WithBlockTime(time.Unix(createdAt, 0))
 
 		stake := types.Stake{
 			Id:        1,
 			Staker:    "staker",
 			Amount:    math.NewInt(1000),
-			CreatedAt: createdAt,
+			CreatedAt: 1000000,
 		}
 
-		reward, err := k.CalculateStakingReward(ctx, stake)
+		reward, err := k.CalculateStakingReward(f.ctx, stake)
 		require.NoError(t, err)
-		require.True(t, reward.IsZero(), "expected zero reward for zero duration, got %s", reward.String())
+		require.True(t, reward.IsZero(), "expected zero reward when pool not initialized, got %s", reward.String())
 	})
 
-	t.Run("negative duration returns zero reward", func(t *testing.T) {
+	t.Run("reward after pool distribution", func(t *testing.T) {
 		f := initFixture(t)
 		k := f.keeper
+		ctx := f.ctx
 
-		// Set block time before stake creation (shouldn't happen, but defensive)
-		createdAt := int64(1000000)
-		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		ctx := sdkCtx.WithBlockTime(time.Unix(createdAt-100, 0))
+		// Initialize seasonal pool and register staked amount
+		stakeAmount := math.NewInt(1000000)
+		require.NoError(t, k.InitSeasonalPool(ctx, 1))
+		require.NoError(t, k.UpdateSeasonalPoolTotalStaked(ctx, stakeAmount))
 
+		// Distribute one epoch's rewards
+		require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
+
+		// Compute expected reward:
+		// epochSlice = MaxStakingRewardsPerSeason / SeasonDurationEpochs
+		//            = 25,000,000,000,000 / 150 = 166,666,666,666
+		// accPerShare = epochSlice / totalStaked = 166,666,666,666 / 1,000,000
+		// reward = stakeAmount * accPerShare - rewardDebt(0)
 		stake := types.Stake{
 			Id:        1,
 			Staker:    "staker",
-			Amount:    math.NewInt(1000),
-			CreatedAt: createdAt,
+			Amount:    stakeAmount,
+			CreatedAt: 1000000,
 		}
 
 		reward, err := k.CalculateStakingReward(ctx, stake)
 		require.NoError(t, err)
-		require.True(t, reward.IsZero(), "expected zero reward for negative duration, got %s", reward.String())
+		// epochSlice (166,666,666,666) is distributed to the sole staker
+		require.True(t, reward.IsPositive(), "expected positive reward after distribution, got %s", reward.String())
+		require.Equal(t, math.NewInt(166666666666), reward)
 	})
 
-	t.Run("positive duration uses CreatedAt when LastClaimedAt is zero", func(t *testing.T) {
+	t.Run("reward proportional to stake share", func(t *testing.T) {
 		f := initFixture(t)
 		k := f.keeper
+		ctx := f.ctx
 
-		// Default StakingApy is 10% (0.10)
-		// secondsPerYear = 31,557,600
-		// reward = amount * apy * duration / secondsPerYear
-		// For amount=1,000,000, duration=31,557,600 (1 year), apy=0.10:
-		// reward = 1,000,000 * 0.10 * 31,557,600 / 31,557,600 = 100,000
-		createdAt := int64(1000000)
-		duration := int64(31557600) // exactly 1 year
-		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		ctx := sdkCtx.WithBlockTime(time.Unix(createdAt+duration, 0))
+		// Two stakers: 2x and 1x shares
+		totalStaked := math.NewInt(3000000)
+		require.NoError(t, k.InitSeasonalPool(ctx, 1))
+		require.NoError(t, k.UpdateSeasonalPoolTotalStaked(ctx, totalStaked))
+		require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
 
-		stake := types.Stake{
-			Id:            1,
-			Staker:        "staker",
-			Amount:        math.NewInt(1000000),
-			CreatedAt:     createdAt,
-			LastClaimedAt: 0, // not set
-		}
+		staker1 := types.Stake{Id: 1, Staker: "s1", Amount: math.NewInt(2000000)}
+		staker2 := types.Stake{Id: 2, Staker: "s2", Amount: math.NewInt(1000000)}
 
-		reward, err := k.CalculateStakingReward(ctx, stake)
+		r1, err := k.CalculateStakingReward(ctx, staker1)
 		require.NoError(t, err)
-		// 1,000,000 * 0.10 * 1.0 = 100,000
-		require.Equal(t, math.NewInt(100000), reward)
+		r2, err := k.CalculateStakingReward(ctx, staker2)
+		require.NoError(t, err)
+
+		// Staker1 should get 2x staker2's reward
+		require.True(t, r1.IsPositive())
+		require.True(t, r2.IsPositive())
+		require.True(t, r1.GT(r2), "staker1 (2x) should earn more than staker2 (1x)")
 	})
 
-	t.Run("uses LastClaimedAt when set", func(t *testing.T) {
+	t.Run("rewardDebt subtracts from gross", func(t *testing.T) {
 		f := initFixture(t)
 		k := f.keeper
+		ctx := f.ctx
 
-		// CreatedAt is far in the past, but LastClaimedAt is more recent
-		createdAt := int64(1000000)
-		lastClaimed := int64(2000000)
-		duration := int64(31557600) // 1 year after LastClaimedAt
-		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		ctx := sdkCtx.WithBlockTime(time.Unix(lastClaimed+duration, 0))
+		stakeAmount := math.NewInt(1000000)
+		require.NoError(t, k.InitSeasonalPool(ctx, 1))
+		require.NoError(t, k.UpdateSeasonalPoolTotalStaked(ctx, stakeAmount))
+		require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
 
+		// Stake with rewardDebt set (simulating a previously claimed stake)
 		stake := types.Stake{
-			Id:            1,
-			Staker:        "staker",
-			Amount:        math.NewInt(1000000),
-			CreatedAt:     createdAt,
-			LastClaimedAt: lastClaimed,
+			Id:         1,
+			Staker:     "staker",
+			Amount:     stakeAmount,
+			RewardDebt: math.NewInt(100000000000), // already claimed 100B
 		}
 
 		reward, err := k.CalculateStakingReward(ctx, stake)
 		require.NoError(t, err)
-		// Duration is from LastClaimedAt (not CreatedAt), so exactly 1 year
-		// 1,000,000 * 0.10 * 1.0 = 100,000
-		require.Equal(t, math.NewInt(100000), reward)
-	})
-
-	t.Run("partial year calculation", func(t *testing.T) {
-		f := initFixture(t)
-		k := f.keeper
-
-		// Half a year: reward = 1,000,000 * 0.10 * 0.5 = 50,000
-		createdAt := int64(1000000)
-		halfYear := int64(31557600 / 2)
-		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		ctx := sdkCtx.WithBlockTime(time.Unix(createdAt+halfYear, 0))
-
-		stake := types.Stake{
-			Id:        1,
-			Staker:    "staker",
-			Amount:    math.NewInt(1000000),
-			CreatedAt: createdAt,
-		}
-
-		reward, err := k.CalculateStakingReward(ctx, stake)
-		require.NoError(t, err)
-		require.Equal(t, math.NewInt(50000), reward)
-	})
-
-	t.Run("small amount truncates to zero", func(t *testing.T) {
-		f := initFixture(t)
-		k := f.keeper
-
-		// Very small stake for a short time: reward truncates to zero
-		// amount=1, duration=1s, apy=0.10
-		// reward = 1 * 0.10 * 1 / 31,557,600 = ~0.000000003 -> truncates to 0
-		createdAt := int64(1000000)
-		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		ctx := sdkCtx.WithBlockTime(time.Unix(createdAt+1, 0))
-
-		stake := types.Stake{
-			Id:        1,
-			Staker:    "staker",
-			Amount:    math.NewInt(1),
-			CreatedAt: createdAt,
-		}
-
-		reward, err := k.CalculateStakingReward(ctx, stake)
-		require.NoError(t, err)
-		require.True(t, reward.IsZero(), "expected truncated zero reward for tiny stake, got %s", reward.String())
+		// Gross reward = 166,666,666,666 minus debt 100,000,000,000 = 66,666,666,666
+		require.Equal(t, math.NewInt(66666666666), reward)
 	})
 }
 

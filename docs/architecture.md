@@ -225,7 +225,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Quests:** Governance-defined objectives with XP rewards (max 100 XP), quest chains
 - **Achievements & titles:** Governance-created, rarity tiers, seasonal display
 - **Display names & usernames:** With moderation, DREAM-staked appeals (50/100 DREAM)
-- **Retroactive public goods funding:** Nomination window (~5 epochs before season end), conviction-weighted, budget of 50,000 DREAM/season, max 20 recipients, min ESTABLISHED trust to nominate
+- **Retroactive public goods funding:** Nomination window (~5 epochs before season end), conviction-weighted, budget = 25% of initiative minting (10K-75K range, treasury-funded first), max 20 recipients, min ESTABLISHED trust to nominate
 
 **Messages (43):** Profile management (3), guild operations (16), quest operations (5), governance-created content (9), nominations (3), display name moderation (4), season management (5), `update_params`, `update_operational_params`
 
@@ -780,7 +780,7 @@ approves project DREAM budget
     (working)       (decaying)
     │               │
     │               ▼
-    │           1%/epoch decay
+    │           0.2%/epoch decay
     │           (burned)
     │
     ▼
@@ -794,9 +794,9 @@ approves project DREAM budget
     └── Display name appeal stakes (burned on loss)
 
 Additional DREAM minting sources:
-    ├── Staking rewards (10% APY, time-proportional)
-    ├── Interim compensation (50-1000 DREAM by complexity)
-    ├── Retroactive public goods funding (50,000 DREAM/season)
+    ├── Seasonal staking pool (25,000 DREAM/season, pro-rata, self-adjusting APY)
+    ├── Interim compensation (50-1000 DREAM, treasury-funded first)
+    ├── Retroactive public goods funding (25% of initiative minting, 10K-75K, treasury-funded first)
     └── x/reveal tranche payouts (minus 20% holdback)
 ```
 
@@ -1221,7 +1221,7 @@ Season Duration: ~150 epochs (~5 months)
 │ - Max 3 nominations per member                                          │
 │ - PROVISIONAL+ members stake conviction on nominations                  │
 │ - Conviction half-life: 3 epochs (~3 days, fast turnover)               │
-│ - Budget: 50,000 DREAM per season                                       │
+│ - Budget: 25% of initiative minting (10K-75K, treasury-funded first)     │
 │ - Max 20 recipients, min 50.0 conviction threshold                      │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -1555,7 +1555,7 @@ TIME
 
 DREAM ECONOMICS
 ├── Staking APY:                 10% annual
-├── Unstaked decay:              1% per epoch
+├── Unstaked decay:              0.2% per epoch
 ├── Transfer tax:                3% (burned)
 ├── Completer share:             90% of initiative budget
 ├── Treasury share:              10% of initiative budget
@@ -1658,7 +1658,7 @@ SEASONAL GAMIFICATION
 ├── Username cost:               10 DREAM
 ├── Display name appeal:         100 DREAM
 ├── Max XP/epoch:                200
-├── Retro reward budget:         50,000 DREAM/season
+├── Retro reward budget:         25% of initiative minting (10K-75K)
 ├── Max retro recipients:        20
 └── Max nominations/member:      3
 

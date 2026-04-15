@@ -177,3 +177,9 @@ func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) 
 	}
 	return reptypes.TrustLevel(0), nil
 }
+
+// GetSeasonMinted returns total DREAM minted this season (for activity-based retro PGF budget).
+func (m *mockRepKeeper) GetSeasonMinted(ctx context.Context) (math.Int, error) {
+	// Return a reasonable default for test purposes
+	return math.NewInt(60000000000), nil // 60,000 DREAM (typical Season 1 initiative minting)
+}

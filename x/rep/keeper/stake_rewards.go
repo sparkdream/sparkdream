@@ -35,13 +35,9 @@ func (k Keeper) GetPendingStakingRewards(ctx context.Context, stake types.Stake)
 	return math.ZeroInt(), fmt.Errorf("unknown stake target type: %v", stake.TargetType)
 }
 
-// getPendingProjectRewards calculates time-based APY for project stakes
+// getPendingProjectRewards calculates rewards from the seasonal pool for project stakes.
+// Uses the same MasterChef accumulator as initiative stakes (shared seasonal pool).
 func (k Keeper) getPendingProjectRewards(ctx context.Context, stake types.Stake) (math.Int, error) {
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return math.ZeroInt(), err
-	}
-
 	// Get the project to check if it's still active
 	project, err := k.GetProject(ctx, stake.TargetId)
 	if err != nil {
@@ -53,29 +49,22 @@ func (k Keeper) getPendingProjectRewards(ctx context.Context, stake types.Stake)
 		return math.ZeroInt(), nil
 	}
 
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	currentTime := sdkCtx.BlockTime().Unix()
-
-	startTime := stake.LastClaimedAt
-	if startTime == 0 {
-		startTime = stake.CreatedAt
-	}
-
-	duration := currentTime - startTime
-	if duration <= 0 {
+	// Same MasterChef formula as initiative stakes
+	accPerShare, err := k.getSeasonalPoolAccPerShare(ctx)
+	if err != nil {
 		return math.ZeroInt(), nil
 	}
 
-	const secondsPerYear = int64(365.25 * 24 * 60 * 60)
-
-	// Use project-specific APY
-	reward := math.LegacyNewDecFromInt(stake.Amount).
-		Mul(params.ProjectStakingApy).
-		Mul(math.LegacyNewDec(duration)).
-		Quo(math.LegacyNewDec(secondsPerYear)).
-		TruncateInt()
-
-	return reward, nil
+	rewardDebt := stake.RewardDebt
+	if rewardDebt.IsNil() {
+		rewardDebt = math.ZeroInt()
+	}
+	gross := math.LegacyNewDecFromInt(stake.Amount).Mul(accPerShare).TruncateInt()
+	pending := gross.Sub(rewardDebt)
+	if pending.IsNegative() {
+		return math.ZeroInt(), nil
+	}
+	return pending, nil
 }
 
 // getPendingMemberRewards calculates pending rewards from member stake pool

@@ -60,6 +60,9 @@ type RepKeeper interface {
 
 	// GetTrustLevel returns the trust level for a member address.
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
+
+	// GetSeasonMinted returns total DREAM minted this season (for activity-based retro PGF budget).
+	GetSeasonMinted(ctx context.Context) (math.Int, error)
 }
 
 // NameKeeper defines the expected interface for the x/name module.

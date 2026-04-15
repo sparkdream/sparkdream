@@ -76,7 +76,24 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 		totalConviction = totalConviction.Add(n.conviction)
 	}
 
-	budget := params.RetroRewardBudgetPerSeason
+	// Calculate activity-based retro PGF budget:
+	// budget = ratio * season_initiative_minting, clamped to [min, max]
+	var budget math.LegacyDec
+	if k.repKeeper != nil {
+		seasonMinted, _ := k.repKeeper.GetSeasonMinted(ctx)
+		rawBudget := params.RetroRewardBudgetRatio.MulInt(seasonMinted)
+		budgetInt := rawBudget.TruncateInt()
+		// Clamp to [min, max]
+		if budgetInt.LT(params.RetroRewardBudgetMin) {
+			budgetInt = params.RetroRewardBudgetMin
+		}
+		if budgetInt.GT(params.RetroRewardBudgetMax) {
+			budgetInt = params.RetroRewardBudgetMax
+		}
+		budget = math.LegacyNewDecFromInt(budgetInt)
+	} else {
+		budget = math.LegacyNewDecFromInt(params.RetroRewardBudgetMin) // fallback
+	}
 
 	// Distribute rewards
 	if totalConviction.IsPositive() && len(eligible) > 0 {

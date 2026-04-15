@@ -251,7 +251,8 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 	stakedAmount := *invitation.StakedDream
 	burnAmount := params.InvitationStakeBurnRate.MulInt(stakedAmount).TruncateInt()
 
-	// Unlock full amount from staked balance, then burn the fraction from free balance
+	// Unlock full amount from staked balance, then burn the fraction from free balance.
+	// UnlockDREAM handles decay-induced shortfalls by capping to actual staked balance.
 	if err := k.UnlockDREAM(ctx, inviterAddr, stakedAmount); err != nil {
 		return err
 	}

@@ -379,10 +379,11 @@ echo "✅ Project created: #$PROJECT_ID"
 # Approve project budget
 echo "  → Approving project budget..."
 
-# Approve 5,000,000 DREAM (5000000000000 micro-DREAM) + 0 SPARK
+# Approve 5,000 DREAM (5000000000 micro-DREAM) + 0 SPARK
+# Budget must be under large_project_budget_threshold (10,000 DREAM) for direct committee approval
 TX_RES=$($BINARY tx rep approve-project-budget \
     $PROJECT_ID \
-    "5000000000000" \
+    "5000000000" \
     "0" \
     --from alice \
     --chain-id $CHAIN_ID \
@@ -663,10 +664,28 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
 
             if [ "$FINAL_STATUS" == "INITIATIVE_STATUS_COMPLETED" ]; then
                 echo "    ✅ Initiative #$INIT_ID completed for $JUROR"
+                continue
+            fi
+
+            # EndBlocker didn't complete it — try manual completion as fallback
+            echo "    → EndBlocker didn't auto-complete, trying manual completion..."
+            TX_RES=$($BINARY tx rep approve-initiative \
+                $INIT_ID "true" "Manual approval for reputation building" \
+                --from alice --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000uspark -y --output json 2>&1)
+            sleep 6
+            TX_RES=$($BINARY tx rep complete-initiative \
+                $INIT_ID "Manual completion for reputation building" \
+                --from alice --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000uspark -y --output json 2>&1)
+            sleep 6
+            # Verify
+            VERIFY_INFO=$($BINARY query rep get-initiative $INIT_ID --output json 2>/dev/null)
+            VERIFY_STATUS=$(echo "$VERIFY_INFO" | jq -r '.initiative.status')
+            if [ "$VERIFY_STATUS" == "INITIATIVE_STATUS_COMPLETED" ]; then
+                echo "    ✅ Initiative #$INIT_ID manually completed for $JUROR"
             else
-                echo "    ⚠️  Initiative #$INIT_ID not yet completed (status: $FINAL_STATUS)"
-                # Debug: show challenge period end info
-                echo "    → Challenge period end: $CHALLENGE_END, Current height: $(sparkdreamd status 2>&1 | jq -r '.sync_info.latest_block_height')"
+                echo "    ⚠️  Initiative #$INIT_ID still not completed (status: $VERIFY_STATUS)"
             fi
             continue
         fi

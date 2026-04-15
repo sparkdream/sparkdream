@@ -10,42 +10,30 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// CalculateStakingReward calculates time-based staking rewards using APY
-// Formula: Stake × APY × (Duration / Year)
-// Duration is in seconds, Year = 365.25 days = 31,557,600 seconds
+// CalculateStakingReward calculates staking rewards from the seasonal pool.
+// Rewards are computed based on the MasterChef accumulator: the global
+// SeasonalPoolAccPerShare is updated each epoch in EndBlocker, and individual
+// stakes use their RewardDebt to compute pending rewards.
+//
+// Fallback: if the accumulator hasn't been initialized yet (e.g., first epoch),
+// computes an effective APY from MaxStakingRewardsPerSeason / totalStaked.
 func (k Keeper) CalculateStakingReward(ctx context.Context, stake types.Stake) (math.Int, error) {
-	params, err := k.Params.Get(ctx)
+	accPerShare, err := k.getSeasonalPoolAccPerShare(ctx)
 	if err != nil {
-		return math.ZeroInt(), err
+		return math.ZeroInt(), nil // no pool initialized yet
 	}
 
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	currentTime := sdkCtx.BlockTime().Unix()
-
-	// Use last claimed time if available, otherwise use created time
-	startTime := stake.LastClaimedAt
-	if startTime == 0 {
-		startTime = stake.CreatedAt
+	// MasterChef formula: pending = stake.Amount * accPerShare - rewardDebt
+	rewardDebt := stake.RewardDebt
+	if rewardDebt.IsNil() {
+		rewardDebt = math.ZeroInt()
 	}
-
-	// Calculate duration in seconds
-	duration := currentTime - startTime
-	if duration <= 0 {
+	gross := math.LegacyNewDecFromInt(stake.Amount).Mul(accPerShare).TruncateInt()
+	pending := gross.Sub(rewardDebt)
+	if pending.IsNegative() {
 		return math.ZeroInt(), nil
 	}
-
-	// Year in seconds (365.25 days to account for leap years)
-	const secondsPerYear = int64(365.25 * 24 * 60 * 60) // 31,557,600 seconds
-
-	// Calculate reward: Stake × APY × (Duration / Year)
-	// stake.Amount is now non-pointer
-	reward := math.LegacyNewDecFromInt(stake.Amount).
-		Mul(params.StakingApy).
-		Mul(math.LegacyNewDec(duration)).
-		Quo(math.LegacyNewDec(secondsPerYear)).
-		TruncateInt()
-
-	return reward, nil
+	return pending, nil
 }
 
 // CalculateRawStakeConviction calculates the pre-sqrt (raw) time-weighted conviction
