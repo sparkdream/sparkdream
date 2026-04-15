@@ -1,0 +1,69 @@
+syntax = "proto3";
+package sparkdream.federation.v1;
+
+import "gogoproto/gogo.proto";
+import "sparkdream/federation/v1/types.proto";
+
+option go_package = "sparkdream/x/federation/types";
+
+// FederationPacketData defines the Federation IBC data packet.
+message FederationPacketData {
+  oneof packet {
+    ReputationQueryPacket reputation_query = 1;
+    ContentPacket content = 2;
+    IdentityVerificationPacket identity_verification = 3;
+    IdentityVerificationConfirmPacket identity_confirmation = 4;
+  }
+}
+
+// ReputationQueryPacket requests reputation data from a remote chain.
+message ReputationQueryPacket {
+  string queried_address = 1;
+  string requester = 2;
+}
+
+// ReputationResponseData is returned in the acknowledgement for a ReputationQueryPacket.
+message ReputationResponseData {
+  string address = 1;
+  uint32 trust_level = 2;
+  bool is_active = 3;
+  int64 member_since = 4;
+  repeated TagReputation reputations = 5 [(gogoproto.nullable) = false];
+}
+
+// ContentPacket sends federated content to a remote chain.
+message ContentPacket {
+  string content_type = 1;
+  string remote_content_id = 2;
+  string creator = 3;
+  string creator_name = 4;
+  string title = 5;
+  string body = 6;
+  string content_uri = 7;
+  int64 created_at = 8;
+  bytes content_hash = 9;
+  bytes protocol_metadata = 10;
+}
+
+// IdentityVerificationPacket initiates identity verification on a remote chain (Phase 1).
+message IdentityVerificationPacket {
+  string claimed_address = 1;
+  string claimant_address = 2;
+  bytes challenge = 3;
+}
+
+// IdentityVerificationAck acknowledges an identity verification request.
+message IdentityVerificationAck {
+  bool exists = 1;
+}
+
+// IdentityVerificationConfirmPacket confirms identity ownership (Phase 2).
+message IdentityVerificationConfirmPacket {
+  string claimed_address = 1;
+  string claimant_address = 2;
+  bytes challenge = 3;
+  bool confirmed = 4;
+}
+
+// NoData defines an empty data packet (placeholder for IBC scaffolding).
+message NoData {}

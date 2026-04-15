@@ -52,6 +52,7 @@ import (
 	commonsante "sparkdream/x/commons/ante"
 	commonsmodulekeeper "sparkdream/x/commons/keeper"
 	ecosystemmodulekeeper "sparkdream/x/ecosystem/keeper"
+	federationmodulekeeper "sparkdream/x/federation/keeper"
 	forummodulekeeper "sparkdream/x/forum/keeper"
 	futarchymodulekeeper "sparkdream/x/futarchy/keeper"
 	futarchymoduletypes "sparkdream/x/futarchy/types"
@@ -59,9 +60,9 @@ import (
 	repmodulekeeper "sparkdream/x/rep/keeper"
 	revealmodulekeeper "sparkdream/x/reveal/keeper"
 	seasonmodulekeeper "sparkdream/x/season/keeper"
+	sessionante "sparkdream/x/session/ante"
 	sessionmodulekeeper "sparkdream/x/session/keeper"
 	shieldabci "sparkdream/x/shield/abci"
-	sessionante "sparkdream/x/session/ante"
 	shieldante "sparkdream/x/shield/ante"
 	shieldmodulekeeper "sparkdream/x/shield/keeper"
 
@@ -132,12 +133,13 @@ type App struct {
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// simulation manager
-	sm            *module.SimulationManager
-	ForumKeeper   forummodulekeeper.Keeper
-	RevealKeeper  revealmodulekeeper.Keeper
-	CollectKeeper collectmodulekeeper.Keeper
-	GnoVMKeeper   gnovmmodulekeeper.Keeper
-	SessionKeeper sessionmodulekeeper.Keeper
+	sm               *module.SimulationManager
+	ForumKeeper      forummodulekeeper.Keeper
+	RevealKeeper     revealmodulekeeper.Keeper
+	CollectKeeper    collectmodulekeeper.Keeper
+	GnoVMKeeper      gnovmmodulekeeper.Keeper
+	SessionKeeper    sessionmodulekeeper.Keeper
+	FederationKeeper federationmodulekeeper.Keeper
 }
 
 func init() {
@@ -225,6 +227,7 @@ func New(
 		&app.CollectKeeper,
 		&app.ShieldKeeper, &app.GnoVMKeeper,
 		&app.SessionKeeper,
+		&app.FederationKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -266,6 +269,11 @@ func New(
 	app.ShieldKeeper.SetSlashingKeeper(app.SlashingKeeper)
 	app.ShieldKeeper.SetStakingKeeper(app.StakingKeeper)
 
+	// Wire cross-module keepers into Federation after depinject (leaf module).
+	app.FederationKeeper.SetCommonsKeeper(app.CommonsKeeper)
+	app.FederationKeeper.SetRepKeeper(app.RepKeeper)
+	app.FederationKeeper.SetNameKeeper(app.NameKeeper)
+
 	// We explicitly tell Futarchy to call Commons when markets resolve.
 	app.FutarchyKeeper.SetHooks(
 		futarchymoduletypes.NewMultiFutarchyHooks(
@@ -296,6 +304,7 @@ func New(
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.collect.v1.", app.CollectKeeper)
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.rep.v1.", app.RepKeeper)
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.commons.v1.", app.CommonsKeeper)
+	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.federation.v1.", app.FederationKeeper)
 
 	anteOptions := cosmos_ante.HandlerOptions{
 		SignModeHandler: app.txConfig.SignModeHandler(),

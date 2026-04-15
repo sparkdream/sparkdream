@@ -88,8 +88,8 @@ func TestMsgUpdateParamsCeilingEnforcement(t *testing.T) {
 		{
 			name: "shrinking ceiling is allowed",
 			params: types.NewParams(
-				types.DefaultAllowedMsgTypes[:5],  // shrink ceiling
-				types.DefaultAllowedMsgTypes[:3],  // active subset
+				types.DefaultAllowedMsgTypes[:5], // shrink ceiling
+				types.DefaultAllowedMsgTypes[:3], // active subset
 				10, 20,
 				7*24*time.Hour,
 				sdk.NewInt64Coin("uspark", 100_000_000),
@@ -109,8 +109,8 @@ func TestMsgUpdateParamsCeilingEnforcement(t *testing.T) {
 			errContains: "not in current ceiling",
 		},
 		{
-			name: "same ceiling is allowed",
-			params: types.DefaultParams(),
+			name:        "same ceiling is allowed",
+			params:      types.DefaultParams(),
 			expectError: false,
 		},
 	}

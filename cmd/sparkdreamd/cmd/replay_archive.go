@@ -178,8 +178,8 @@ func replayFromArchive(cmd *cobra.Command, _ []string) error {
 	sdkApp := app.New(
 		logger,
 		appDB,
-		nil,   // traceStore
-		true,  // loadLatest
+		nil,  // traceStore
+		true, // loadLatest
 		viperOpts,
 		baseapp.SetChainID(genesisDoc.ChainID),
 	)

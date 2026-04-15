@@ -23,11 +23,21 @@ BLOCK_HEIGHT=$(sparkdreamd status 2>&1 | jq -r '.sync_info.latest_block_height /
 echo "Current block height: $BLOCK_HEIGHT"
 echo ""
 
-# Stop the chain first
+# Stop the chain gracefully (SIGTERM allows LevelDB to flush)
 echo "→ Stopping chain for consistent snapshot..."
-pkill -9 ignite
-pkill -9 sparkdreamd
-sleep 3
+pkill ignite 2>/dev/null
+pkill sparkdreamd 2>/dev/null
+# Wait for graceful shutdown (up to 15 seconds)
+for i in $(seq 1 15); do
+    if ! pgrep -x sparkdreamd > /dev/null 2>&1; then break; fi
+    sleep 1
+done
+# Force kill only if graceful shutdown failed
+if pgrep -x sparkdreamd > /dev/null 2>&1; then
+    echo "  → Graceful shutdown timed out, forcing..."
+    pkill -9 sparkdreamd 2>/dev/null
+    sleep 2
+fi
 
 # Copy the entire data directory (remove existing to prevent nesting)
 echo "→ Copying ~/.sparkdream to snapshot..."
@@ -72,9 +82,13 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Stop any running chain
 echo "→ Stopping any running chain..."
-pkill -9 ignite
-pkill -9 sparkdreamd
-sleep 2
+pkill sparkdreamd 2>/dev/null
+for i in $(seq 1 10); do
+    if ! pgrep -x sparkdreamd > /dev/null 2>&1; then break; fi
+    sleep 1
+done
+pkill -9 sparkdreamd 2>/dev/null
+sleep 1
 
 # Backup current state (optional)
 if [ -d ~/.sparkdream ]; then
@@ -92,6 +106,24 @@ if [ $? -eq 0 ]; then
 else
     echo "  ❌ Failed to restore data directory"
     exit 1
+fi
+
+# Reset priv_validator_state.json to prevent height regression errors.
+# On a single-validator dev chain, the validator state file may record a
+# height higher than the restored app state (e.g. due to hard kills during
+# snapshot capture). CometBFT refuses to sign at a lower height as a
+# double-sign safety measure. Resetting it is safe for local dev chains.
+PVS_FILE="$HOME/.sparkdream/data/priv_validator_state.json"
+if [ -f "$PVS_FILE" ]; then
+    echo "→ Resetting priv_validator_state.json..."
+    cat > "$PVS_FILE" <<PVSTATE
+{
+  "height": "0",
+  "round": 0,
+  "step": 0
+}
+PVSTATE
+    echo "  ✅ Validator state reset"
 fi
 
 echo ""

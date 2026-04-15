@@ -16,24 +16,24 @@ var GenesisNames = map[string]string{
 var FounderName = "Alice"
 
 // --- COMMONS PILLAR ---
-var CommonsCouncilStandardMinExecution = 5 * time.Minute  // production: 72h
-var CommonsMembershipMinExecution = 30 * time.Minute      // production: 504h
-var CommonsOpsMinExecution = 5 * time.Minute              // production: 24h
+var CommonsCouncilStandardMinExecution = 5 * time.Minute // production: 72h
+var CommonsMembershipMinExecution = 30 * time.Minute     // production: 504h
+var CommonsOpsMinExecution = 5 * time.Minute             // production: 24h
 
 // --- TECHNICAL PILLAR ---
-var TechCouncilStandardMinExecution = 5 * time.Minute  // production: 72h
-var TechMembershipMinExecution = 15 * time.Minute      // production: 168h
-var TechOpsMinExecution = 5 * time.Minute              // production: 24h
+var TechCouncilStandardMinExecution = 5 * time.Minute // production: 72h
+var TechMembershipMinExecution = 15 * time.Minute     // production: 168h
+var TechOpsMinExecution = 5 * time.Minute             // production: 24h
 
 // --- ECOSYSTEM PILLAR ---
-var EcoCouncilStandardMinExecution = 5 * time.Minute  // production: 72h
-var EcoMembershipMinExecution = 15 * time.Minute      // production: 168h
-var EcoOpsMinExecution = 5 * time.Minute              // production: 24h
+var EcoCouncilStandardMinExecution = 5 * time.Minute // production: 72h
+var EcoMembershipMinExecution = 15 * time.Minute     // production: 168h
+var EcoOpsMinExecution = 5 * time.Minute             // production: 24h
 
 // --- SUPERVISORY BOARD ---
 var SupervisoryMinExecution = 5 * time.Minute // production: 24h
 
 // --- UPDATE COOLDOWNS ---
-var CouncilUpdateCooldown = 15 * time.Minute     // production: 168h
-var CommitteeUpdateCooldown = 5 * time.Minute    // production: 24h
-var SupervisoryUpdateCooldown = 1 * time.Hour    // production: 720h
+var CouncilUpdateCooldown = 15 * time.Minute  // production: 168h
+var CommitteeUpdateCooldown = 5 * time.Minute // production: 24h
+var SupervisoryUpdateCooldown = 1 * time.Hour // production: 720h

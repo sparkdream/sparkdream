@@ -11,7 +11,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 │                           SPARK DREAM                                   │
 │                        Cosmos SDK Appchain                              │
 │                                                                         │
-│  13 custom modules · Dual tokens (SPARK/DREAM) · Shielded execution     │
+│  15 custom modules · Dual tokens (SPARK/DREAM) · Shielded execution     │
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -63,15 +63,28 @@ This system moves beyond simple token-voting by delegating authority to speciali
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                       IDENTITY & PRIVACY LAYER                          │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  x/name                                    x/shield                     │
-│    │                                         │                          │
-│  Human-Readable Names                      Unified Privacy Layer        │
-│  Dispute Resolution                        MsgShieldedExec (single      │
-│  Scavenging                                  entry for all anon ops)    │
-│                                            ZK Proof Verification        │
-│                                            TLE Threshold Encryption     │
-│                                            Module-Paid Gas              │
-│                                            Centralized Nullifiers       │
+│  x/name              x/session              x/shield                    │
+│    │                   │                      │                         │
+│  Human-Readable      Session Keys           Unified Privacy Layer       │
+│  Names               Scoped Delegation      MsgShieldedExec (single     │
+│  Dispute Resolution  Integrated Fee           entry for all anon ops)   │
+│  Scavenging          Delegation             ZK Proof Verification       │
+│                      Replaces authz/        TLE Threshold Encryption    │
+│                        feegrant             Module-Paid Gas             │
+│                                             Centralized Nullifiers      │
+└─────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         FEDERATION LAYER                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  x/federation                                                           │
+│    │                                                                    │
+│  Cross-Chain Content Exchange    Identity Linking (IBC + bridges)        │
+│  Content Verification (verifiers)Reputation Bridging (IBC)               │
+│  ActivityPub / AT Protocol       Bridge + Verifier Accountability        │
+│    Bridges (off-chain relayers)  Sovereignty-First (bilateral only)      │
+│  x/split Compensation (SPARK)    No cross-chain tokens (SPARK/DREAM)     │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -91,6 +104,8 @@ This system moves beyond simple token-voting by delegating authority to speciali
 | x/collect | 29 | 25 | 6 phases | — | Curated collections, curation, endorsements |
 | x/name | 8 | 6 | — | Yes | Human-readable identity registry |
 | x/shield | 5 | 17 | Yes | Yes | Shielded execution, ZK proofs, TLE, DKG |
+| x/session | 4 | 4 | 1 phase | — | Session keys, scoped delegation, fee delegation |
+| x/federation | 27 | 18 | 13 phases | — | Cross-chain content, reputation bridging, identity linking, verification |
 | x/common | — | — | — | — | Shared types (tags, flags, moderation) |
 
 ## Core Module Architecture
@@ -381,6 +396,66 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - `ShieldGasDecorator`: Intercepts `MsgShieldedExec`, deducts gas from shield module account
 - `SkipFeeDecorator`: Skips normal fee processing for shielded messages
 
+### x/session (Session Keys)
+
+**Purpose:** Scoped, time-limited transaction delegation with integrated fee delegation. Purpose-built replacement for `x/authz` + `x/feegrant`.
+
+**Key Features:**
+- **Session lifecycle:** Granter creates session for ephemeral grantee key → grantee signs `MsgExecSession` → granter pays gas → session expires or is revoked
+- **Bounded allowlist:** Two-tier model — ceiling (`max_allowed_msg_types`, upgrade-only) and active list (governance can shrink, ops committee can restore within ceiling)
+- **Integrated fee delegation:** `spend_limit` on each session, `SessionFeeDecorator` ante handler overrides fee payer
+- **Non-recursive:** `MsgExecSession` cannot contain another `MsgExecSession` — eliminates recursion attacks
+- **Leaf module:** Depends only on x/bank, x/auth, msg router. No cycle risk.
+
+**Messages (4):** `create_session`, `revoke_session`, `exec_session`, `update_params`
+
+**Queries (4):** `params`, `get_session`, `sessions_by_granter`, `sessions_by_grantee`
+
+**EndBlocker (1 phase):**
+1. Prune expired sessions (walk `SessionsByExpiration` index)
+
+## Federation Layer
+
+### x/federation (Cross-Chain Exchange)
+
+**Purpose:** Enables Spark Dream chains to exchange content, verify reputation, and link identities with other Spark Dream chains (via IBC) and external social protocols (ActivityPub, AT Protocol) via off-chain bridges.
+
+**Key Features:**
+- **Three layers:** On-chain primitives (peer registry, policies) → IBC protocol (chain-to-chain, trustless) → off-chain bridges (ActivityPub/AT Protocol, staked operators)
+- **Sovereignty first:** Bilateral relationships only, no supergovernment, no cross-chain tokens, no binding reputation, unilateral suspend/remove
+- **Peer management:** Commons Council registers/removes peers; Operations Committee manages policies and bridge operators
+- **Content federation:** Inbound content stored in x/federation (leaf module — content modules unaware); per-peer content type allowlists, inbound + outbound rate limits, moderation
+- **Content verification:** Bridge content enters as PENDING_VERIFICATION; independent community verifiers (DREAM-bonded, ESTABLISHED+ trust) fetch source content and confirm hash match. Challenges use two-phase resolution: anonymous community members submit hashes via x/shield (ZK-proven membership, scoped nullifiers) for fast quorum-based auto-resolution; human jury via x/rep as fallback. IBC content verified by light client (no verifier needed).
+- **Reputation bridging:** IBC attestation model with heavy discounting (default: 50% discount, capped at PROVISIONAL equivalent, 30-day TTL)
+- **Identity linking:** Two-phase IBC challenge-response proving key ownership; bridge-verified links for external protocols
+- **Bridge accountability:** SPARK-staked operators, 14-day unbonding period, slashable (burned, not redistributed), self-unbonding, stake top-up, session key support via x/session
+- **Creator-signed outbound:** `MsgFederateContent` requires the content creator's signature (or x/session delegation), preventing relayers from fabricating content
+- **Compensation:** Bridge operators and verifiers compensated via x/split (SPARK from Community Pool), weighted by verified submissions and verification accuracy respectively
+- **Token separation:** Bridge operators stake SPARK only; verifiers bond DREAM only. DREAM is never transferred cross-chain.
+
+**Messages (27):** `register_peer`, `remove_peer`, `suspend_peer`, `resume_peer`, `update_peer_policy`, `register_bridge`, `revoke_bridge`, `slash_bridge`, `update_bridge`, `unbond_bridge`, `top_up_bridge_stake`, `link_identity`, `unlink_identity`, `confirm_identity_link`, `submit_federated_content`, `federate_content`, `attest_outbound`, `moderate_content`, `request_reputation_attestation`, `bond_verifier`, `unbond_verifier`, `verify_content`, `challenge_verification`, `submit_arbiter_hash`, `escalate_challenge`, `update_params`, `update_operational_params` (arbiter hash also submittable anonymously via x/shield)
+
+**Queries (18):** `params`, `get_peer`, `list_peers`, `get_peer_policy`, `get_bridge_operator`, `list_bridge_operators`, `get_federated_content`, `list_federated_content`, `get_identity_link`, `list_identity_links`, `resolve_remote_identity`, `get_pending_identity_challenge`, `list_pending_identity_challenges`, `get_reputation_attestation`, `list_outbound_attestations`, `get_verifier`, `list_verifiers`, `get_verification_record`
+
+**EndBlocker (13 phases):**
+1. Prune expired federated content
+2. Prune expired reputation attestations
+3. Prune expired unverified identity links
+4. Prune expired identity challenges
+5. Release unbonded bridge stakes
+6. Expire unverified content (PENDING_VERIFICATION → HIDDEN after verification_window)
+7. Release verifier bond commitments (challenge_window expired without challenge)
+8. Expire arbiter resolution windows (no quorum → escalate to jury)
+9. Finalize auto-resolutions (escalation window expired → verdict final)
+10. Process peer removal queue (cursor-based)
+11. Verifier epoch rewards (DREAM minting, auto-bonding, counter reset)
+12. Bridge operator monitoring (inactivity + stake warnings)
+13. Clean stale rate limit counters (inbound + outbound)
+
+**IBC Application:**
+- Port: `federation`, Channel: UNORDERED, Version: `federation-1`
+- Packet types: `ReputationQueryPacket`, `ContentPacket`, `IdentityVerificationPacket`, `IdentityVerificationConfirmPacket`
+
 ## Shielded Execution System
 
 x/shield provides a unified shielded execution layer that replaces per-module anonymous messaging. Any module can register operations for shielded execution, and x/shield handles all ZK proof verification, nullifier management, and gas payment.
@@ -547,6 +622,39 @@ x/shield eliminates the need for relay addresses and per-module subsidy budgets.
           Depends on: x/rep (trust tree),
           x/distribution (funding),
           x/staking, x/slashing (validators)
+
+          ┌──────────────────────┐
+          │     x/session        │
+          │  (Leaf Dependency)   │
+          │                      │
+          │ Session Keys         │
+          │ Scoped Delegation    │
+          │ Fee Delegation       │
+          │ Non-Recursive Exec   │
+          └──────────────────────┘
+          Depends on: x/bank, x/auth,
+          msgServiceRouter
+
+          ┌──────────────────────┐
+          │    x/federation      │
+          │  (Leaf Dependency)   │
+          │                      │
+          │ Cross-Chain Content  │
+          │ Content Verification │
+          │ Reputation Bridging  │
+          │ Identity Linking     │
+          │ Bridge Operators     │
+          │ IBC Application      │
+          └──────────────────────┘
+          Depends on: x/commons (auth),
+          x/rep (reputation, verifier
+          DREAM bonds, jury), x/name,
+          x/bank (bridge stakes),
+          x/shield (anonymous arbiter
+          resolution via ZK proofs),
+          ibc-go
+          Depended on by: x/split
+          (read-only weight queries)
 ```
 
 ### Cross-Module Keeper Wiring (app.go)
@@ -573,10 +681,15 @@ x/split      ← SetDistrKeeper(distr)    [via adapter]
 x/shield     ← SetRepKeeper(rep), SetDistrKeeper(distr)
              ← SetSlashingKeeper(slashing), SetStakingKeeper(staking)
              ← SetRouter(msgServiceRouter)
-             ← RegisterShieldAwareModule(blog, forum, collect, rep, commons)
+             ← RegisterShieldAwareModule(blog, forum, collect, rep, commons, federation)
+
+x/session    ← (no late wiring needed — leaf module, all deps via depinject)
+
+x/federation ← SetCommonsKeeper(commons), SetRepKeeper(rep)
+             ← SetNameKeeper(name), SetShieldKeeper(shield)
 ```
 
-The `lateKeepers` pattern in x/rep and x/commons uses a shared pointer struct so that `Set*Keeper()` mutations are visible to all keeper value copies (including the one inside AppModule's msgServer). x/shield is a **leaf dependency** — nothing depends on it, so it has no cycle risk and all keepers are wired via `Set*Keeper()` after depinject.
+The `lateKeepers` pattern in x/rep and x/commons uses a shared pointer struct so that `Set*Keeper()` mutations are visible to all keeper value copies (including the one inside AppModule's msgServer). x/shield, x/session, and x/federation are **leaf dependencies** — nothing depends on them, so they have no cycle risk and all keepers are wired via `Set*Keeper()` after depinject.
 
 ## Fund Flows
 

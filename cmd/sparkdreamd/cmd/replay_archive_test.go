@@ -340,10 +340,10 @@ func TestProcessArchiveFile(t *testing.T) {
 
 func TestArchiveFilePattern(t *testing.T) {
 	tests := []struct {
-		name    string
-		match   bool
-		from    string
-		to      string
+		name  string
+		match bool
+		from  string
+		to    string
 	}{
 		{"blocks_1_to_10000.jsonl.gz", true, "1", "10000"},
 		{"blocks_10001_to_20000.jsonl.gz", true, "10001", "20000"},

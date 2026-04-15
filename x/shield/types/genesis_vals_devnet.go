@@ -16,14 +16,14 @@ func getShieldGenesisParams() Params {
 		MaxGasPerExec:               500_000,
 		MaxExecsPerIdentityPerEpoch: 50,
 		EncryptedBatchEnabled:       false,
-		ShieldEpochInterval:         25,  // ~2.5 min at 6s blocks (production: 50)
-		MinBatchSize:                2,   // production: 3
+		ShieldEpochInterval:         25, // ~2.5 min at 6s blocks (production: 50)
+		MinBatchSize:                2,  // production: 3
 		MaxPendingEpochs:            6,
 		MaxPendingQueueSize:         500, // production: 1000
 		MaxEncryptedPayloadSize:     16384,
 		MaxOpsPerBatch:              100,
-		TleMissWindow:               50, // production: 100
-		TleMissTolerance:            7,  // production: 10
+		TleMissWindow:               50,  // production: 100
+		TleMissTolerance:            7,   // production: 10
 		TleJailDuration:             300, // 5 min (production: 600)
 		MinTleValidators:            4,   // production: 5
 		DkgWindowBlocks:             100, // ~10 min (production: 200)

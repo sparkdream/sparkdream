@@ -30,7 +30,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 		{
 			name: "invalid authority",
 			msg: &types.MsgUpdateOperationalParams{
-				Authority:        "invalid_address",
+				Authority:         "invalid_address",
 				OperationalParams: defaultOp,
 			},
 			expectError: true,
@@ -39,7 +39,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 		{
 			name: "unauthorized address",
 			msg: &types.MsgUpdateOperationalParams{
-				Authority:        testAddr("random", f.addressCodec),
+				Authority:         testAddr("random", f.addressCodec),
 				OperationalParams: defaultOp,
 			},
 			expectError: true,
@@ -48,7 +48,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 		{
 			name: "success - default operational params",
 			msg: &types.MsgUpdateOperationalParams{
-				Authority:        authorityStr,
+				Authority:         authorityStr,
 				OperationalParams: defaultOp,
 			},
 			expectError: false,

@@ -1,0 +1,272 @@
+syntax = "proto3";
+package sparkdream.federation.v1;
+
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/federation/types";
+
+// --- Enums ---
+
+enum PeerType {
+  PEER_TYPE_UNSPECIFIED = 0;
+  PEER_TYPE_SPARK_DREAM = 1;
+  PEER_TYPE_ACTIVITYPUB = 2;
+  PEER_TYPE_ATPROTO = 3;
+}
+
+enum PeerStatus {
+  PEER_STATUS_PENDING = 0;
+  PEER_STATUS_ACTIVE = 1;
+  PEER_STATUS_SUSPENDED = 2;
+  PEER_STATUS_REMOVED = 3;
+}
+
+enum BridgeStatus {
+  BRIDGE_STATUS_UNSPECIFIED = 0;
+  BRIDGE_STATUS_ACTIVE = 1;
+  BRIDGE_STATUS_SUSPENDED = 2;
+  BRIDGE_STATUS_UNBONDING = 3;
+  BRIDGE_STATUS_REVOKED = 4;
+}
+
+enum FederatedContentStatus {
+  FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION = 0;
+  FEDERATED_CONTENT_STATUS_VERIFIED = 1;
+  FEDERATED_CONTENT_STATUS_ACTIVE = 2;
+  FEDERATED_CONTENT_STATUS_HIDDEN = 3;
+  FEDERATED_CONTENT_STATUS_DISPUTED = 4;
+  FEDERATED_CONTENT_STATUS_CHALLENGED = 5;
+  FEDERATED_CONTENT_STATUS_REJECTED = 6;
+}
+
+enum IdentityLinkStatus {
+  IDENTITY_LINK_STATUS_UNVERIFIED = 0;
+  IDENTITY_LINK_STATUS_VERIFIED = 1;
+  IDENTITY_LINK_STATUS_REVOKED = 2;
+}
+
+enum VerifierBondStatus {
+  VERIFIER_BOND_STATUS_UNSPECIFIED = 0;
+  VERIFIER_BOND_STATUS_NORMAL = 1;
+  VERIFIER_BOND_STATUS_RECOVERY = 2;
+  VERIFIER_BOND_STATUS_DEMOTED = 3;
+}
+
+enum VerificationOutcome {
+  VERIFICATION_OUTCOME_UNSPECIFIED = 0;
+  VERIFICATION_OUTCOME_PENDING = 1;
+  VERIFICATION_OUTCOME_CONFIRMED = 2;
+  VERIFICATION_OUTCOME_CHALLENGED = 3;
+  VERIFICATION_OUTCOME_UPHELD = 4;
+  VERIFICATION_OUTCOME_OVERTURNED = 5;
+}
+
+// --- State Objects ---
+
+// Peer represents a federation peer (another Spark Dream chain or external protocol).
+message Peer {
+  string id = 1;
+  string display_name = 2;
+  PeerType type = 3;
+  PeerStatus status = 4;
+  string ibc_channel_id = 5;
+  int64 registered_at = 6;
+  int64 last_activity = 7;
+  string registered_by = 8 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string metadata = 9;
+  int64 removed_at = 10;
+}
+
+// PeerPolicy defines per-peer federation policies.
+message PeerPolicy {
+  string peer_id = 1;
+
+  // Content federation
+  repeated string outbound_content_types = 2;
+  repeated string inbound_content_types = 3;
+  uint32 min_outbound_trust_level = 4;
+  uint64 inbound_rate_limit_per_epoch = 5;
+  uint64 outbound_rate_limit_per_epoch = 11;
+
+  // Reputation (Spark Dream peers only)
+  bool allow_reputation_queries = 6;
+  bool accept_reputation_attestations = 7;
+  uint32 max_trust_credit = 8;
+
+  // Moderation
+  bool require_review = 9;
+  repeated string blocked_identities = 10;
+}
+
+// BridgeOperator represents an off-chain bridge operator.
+message BridgeOperator {
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string protocol = 3;
+  string endpoint = 4;
+  cosmos.base.v1beta1.Coin stake = 5 [(gogoproto.nullable) = false];
+  int64 registered_at = 6;
+  BridgeStatus status = 7;
+  uint64 content_submitted = 8;
+  uint64 content_rejected = 9;
+  uint64 slash_count = 10;
+  int64 revoked_at = 11;
+  int64 last_submission_at = 12;
+  int64 unbonding_end_time = 13;
+  uint64 content_verified = 14;
+  uint64 content_unverified = 15;
+}
+
+// FederationVerifier represents a community member who verifies bridged content.
+message FederationVerifier {
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string current_bond = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string total_committed_bond = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  VerifierBondStatus bond_status = 4;
+  int64 bonded_at = 5;
+  int64 demotion_cooldown_until = 6;
+
+  // Lifetime metrics
+  uint64 total_verifications = 7;
+  uint64 upheld_verifications = 8;
+  uint64 overturned_verifications = 9;
+  uint64 unchallenged_verifications = 10;
+
+  // Epoch metrics
+  uint64 epoch_verifications = 11;
+  uint64 epoch_challenges_resolved = 12;
+  int64 last_reward_epoch = 13;
+  int64 last_active_epoch = 14;
+
+  // Cooldown tracking
+  uint64 consecutive_overturns = 15;
+  uint64 consecutive_upheld = 16;
+  int64 overturn_cooldown_until = 17;
+  uint64 slash_count = 18;
+}
+
+// VerificationRecord tracks a verifier's verification of specific content.
+message VerificationRecord {
+  uint64 content_id = 1;
+  string verifier = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bytes verifier_hash = 3;
+  int64 verified_at = 4;
+  int64 challenge_window_ends = 5;
+  string committed_amount = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string verifier_bond_snapshot = 7 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  VerificationOutcome outcome = 8;
+  uint32 prior_rejected_challenges = 9;
+  int64 last_challenge_resolved_at = 10;
+}
+
+// ArbiterHashSubmission stores an arbiter's hash for quorum-based challenge resolution.
+message ArbiterHashSubmission {
+  uint64 content_id = 1;
+  bytes content_hash = 2;
+  int64 submitted_at = 3;
+  string operator = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bytes nullifier = 5;
+}
+
+// FederatedContent represents inbound content from a federation peer.
+message FederatedContent {
+  uint64 id = 1;
+  string peer_id = 2;
+  string remote_content_id = 3;
+  string content_type = 4;
+  string creator_identity = 5;
+  string creator_name = 6;
+  string title = 7;
+  string body = 8;
+  string content_uri = 9;
+  bytes protocol_metadata = 10;
+  int64 remote_created_at = 11;
+  int64 received_at = 12;
+  string submitted_by = 13 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  FederatedContentStatus status = 14;
+  int64 expires_at = 15;
+  bytes content_hash = 16;
+}
+
+// IdentityLink maps a local address to a remote identity on a federation peer.
+message IdentityLink {
+  string local_address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string remote_identity = 3;
+  IdentityLinkStatus status = 4;
+  int64 linked_at = 5;
+  int64 verified_at = 6;
+}
+
+// PendingIdentityChallenge stores an IBC identity verification challenge.
+message PendingIdentityChallenge {
+  string claimed_address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string claimant_chain_peer_id = 2;
+  string claimant_address = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bytes challenge = 4;
+  int64 received_at = 5;
+  int64 expires_at = 6;
+}
+
+// ReputationAttestation caches cross-chain reputation data.
+message ReputationAttestation {
+  string local_address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string remote_address = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint32 remote_trust_level = 4;
+  uint32 local_trust_credit = 5;
+  repeated TagReputation remote_reputations = 6 [(gogoproto.nullable) = false];
+  int64 attested_at = 7;
+  int64 expires_at = 8;
+}
+
+// TagReputation stores a per-tag reputation score.
+message TagReputation {
+  string tag = 1;
+  string score = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// OutboundAttestation records content published to a federation peer.
+message OutboundAttestation {
+  uint64 id = 1;
+  string peer_id = 2;
+  string content_type = 3;
+  string local_content_id = 4;
+  string creator = 5 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string submitted_by = 6 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 published_at = 7;
+}
+
+// PeerRemovalState tracks cleanup progress for a removed peer.
+message PeerRemovalState {
+  int64 removed_at = 1;
+  uint64 last_pruned_content_id = 2;
+  bool content_done = 3;
+  bool links_done = 4;
+  bool attestations_done = 5;
+  bool outbound_done = 6;
+  bool bridges_done = 7;
+  bool policy_done = 8;
+}

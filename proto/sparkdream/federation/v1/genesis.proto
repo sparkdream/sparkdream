@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package sparkdream.federation.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/federation/v1/params.proto";
+import "sparkdream/federation/v1/types.proto";
+
+option go_package = "sparkdream/x/federation/types";
+
+// GenesisState defines the federation module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string port_id = 2;
+  repeated Peer peers = 3 [(gogoproto.nullable) = false];
+  repeated PeerPolicy peer_policies = 4 [(gogoproto.nullable) = false];
+  repeated BridgeOperator bridge_operators = 5 [(gogoproto.nullable) = false];
+  repeated FederatedContent federated_content = 6 [(gogoproto.nullable) = false];
+  repeated IdentityLink identity_links = 7 [(gogoproto.nullable) = false];
+  repeated ReputationAttestation reputation_attestations = 8 [(gogoproto.nullable) = false];
+  repeated OutboundAttestation outbound_attestations = 9 [(gogoproto.nullable) = false];
+  repeated FederationVerifier verifiers = 10 [(gogoproto.nullable) = false];
+  repeated VerificationRecord verification_records = 11 [(gogoproto.nullable) = false];
+  uint64 next_content_id = 12;
+  uint64 next_outbound_attestation_id = 13;
+}

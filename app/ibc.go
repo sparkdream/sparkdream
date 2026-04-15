@@ -1,6 +1,9 @@
 package app
 
 import (
+	federationmodule "sparkdream/x/federation/module"
+	federationmoduletypes "sparkdream/x/federation/types"
+
 	"cosmossdk.io/core/appmodule"
 	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -112,6 +115,10 @@ func (app *App) registerIBCModules(appOpts servertypes.AppOptions) error {
 		AddRoute(ibctransfertypes.ModuleName, transferStack).
 		AddRoute(icacontrollertypes.SubModuleName, icaControllerStack).
 		AddRoute(icahosttypes.SubModuleName, icaHostStack)
+	ibcRouter = ibcRouter.AddRoute(federationmoduletypes.
+		ModuleName, federationmodule.
+		NewIBCModule(app.appCodec, app.
+			FederationKeeper))
 
 	// create IBC v2 router, add transfer route, then set it on the keeper
 	ibcv2Router := ibcapi.NewRouter().

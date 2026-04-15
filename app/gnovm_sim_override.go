@@ -10,7 +10,7 @@ import (
 // simulation framework treats as fatal and aborts the entire run.
 type gnovmSimOverride struct{}
 
-func (gnovmSimOverride) GenerateGenesisState(_ *module.SimulationState) {}
+func (gnovmSimOverride) GenerateGenesisState(_ *module.SimulationState)       {}
 func (gnovmSimOverride) RegisterStoreDecoder(_ simtypes.StoreDecoderRegistry) {}
 func (gnovmSimOverride) WeightedOperations(_ module.SimulationState) []simtypes.WeightedOperation {
 	return nil

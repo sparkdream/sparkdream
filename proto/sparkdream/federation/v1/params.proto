@@ -1,0 +1,131 @@
+syntax = "proto3";
+package sparkdream.federation.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "sparkdream/x/federation/types";
+
+// Params defines the parameters for the federation module.
+message Params {
+  option (amino.name) = "sparkdream/x/federation/Params";
+  option (gogoproto.equal) = true;
+
+  // Bridge operator requirements
+  cosmos.base.v1beta1.Coin min_bridge_stake = 1 [(gogoproto.nullable) = false];
+  uint64 max_bridges_per_peer = 2;
+  google.protobuf.Duration bridge_revocation_cooldown = 3 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration bridge_unbonding_period = 4 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+
+  // Content types
+  repeated string known_content_types = 5;
+
+  // Content federation
+  uint64 max_inbound_per_block = 6;
+  uint64 max_content_body_size = 7;
+  uint64 max_content_uri_size = 8;
+  uint64 max_protocol_metadata_size = 9;
+  google.protobuf.Duration content_ttl = 10 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+
+  // Reputation
+  google.protobuf.Duration attestation_ttl = 11 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  uint32 global_max_trust_credit = 12;
+  string trust_discount_rate = 13 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Identity
+  uint32 max_identity_links_per_user = 14;
+  google.protobuf.Duration unverified_link_ttl = 15 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration challenge_ttl = 16 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+
+  // Bridge monitoring
+  uint64 bridge_inactivity_threshold = 17;
+
+  // IBC
+  string ibc_port = 18;
+  string ibc_channel_version = 19;
+  google.protobuf.Duration ibc_packet_timeout = 20 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+
+  // Pruning
+  uint64 max_prune_per_block = 21;
+
+  // Outbound rate limiting
+  uint64 max_outbound_per_block = 22;
+
+  // Rate limiting
+  google.protobuf.Duration rate_limit_window = 23 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+
+  // Verification (sentinel-style)
+  uint32 min_verifier_trust_level = 24;
+  string min_verifier_bond = 25 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string verifier_recovery_threshold = 26 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string verifier_slash_amount = 27 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  google.protobuf.Duration verification_window = 28 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration challenge_window = 29 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  cosmos.base.v1beta1.Coin challenge_fee = 30 [(gogoproto.nullable) = false];
+  google.protobuf.Duration challenge_jury_deadline = 31 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration verifier_demotion_cooldown = 32 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration verifier_overturn_base_cooldown = 33 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  uint32 upheld_to_reset_overturns = 34;
+  uint32 min_epoch_verifications = 35;
+  string min_verifier_accuracy = 36 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string operator_reward_share = 37 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string verifier_dream_reward = 38 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string max_verifier_dream_mint_per_epoch = 39 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Anonymous challenge resolution
+  uint32 arbiter_quorum = 40;
+  google.protobuf.Duration arbiter_resolution_window = 41 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration arbiter_escalation_window = 42 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  cosmos.base.v1beta1.Coin escalation_fee = 43 [(gogoproto.nullable) = false];
+  google.protobuf.Duration challenge_cooldown = 44 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+}
+
+// FederationOperationalParams is the subset of Params updateable by Operations Committee.
+message FederationOperationalParams {
+  uint64 max_inbound_per_block = 1;
+  uint64 max_outbound_per_block = 2;
+  uint64 max_content_body_size = 3;
+  uint64 max_content_uri_size = 4;
+  uint64 max_protocol_metadata_size = 5;
+  google.protobuf.Duration content_ttl = 6 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration attestation_ttl = 7 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  uint32 global_max_trust_credit = 8;
+  string trust_discount_rate = 9 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 bridge_inactivity_threshold = 10;
+  uint64 max_prune_per_block = 11;
+}

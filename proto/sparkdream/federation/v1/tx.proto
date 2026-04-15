@@ -1,0 +1,316 @@
+syntax = "proto3";
+
+package sparkdream.federation.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/federation/v1/params.proto";
+import "sparkdream/federation/v1/types.proto";
+
+option go_package = "sparkdream/x/federation/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+  rpc RegisterPeer(MsgRegisterPeer) returns (MsgRegisterPeerResponse);
+  rpc RemovePeer(MsgRemovePeer) returns (MsgRemovePeerResponse);
+  rpc SuspendPeer(MsgSuspendPeer) returns (MsgSuspendPeerResponse);
+  rpc ResumePeer(MsgResumePeer) returns (MsgResumePeerResponse);
+  rpc UpdatePeerPolicy(MsgUpdatePeerPolicy) returns (MsgUpdatePeerPolicyResponse);
+  rpc RegisterBridge(MsgRegisterBridge) returns (MsgRegisterBridgeResponse);
+  rpc RevokeBridge(MsgRevokeBridge) returns (MsgRevokeBridgeResponse);
+  rpc SlashBridge(MsgSlashBridge) returns (MsgSlashBridgeResponse);
+  rpc UpdateBridge(MsgUpdateBridge) returns (MsgUpdateBridgeResponse);
+  rpc UnbondBridge(MsgUnbondBridge) returns (MsgUnbondBridgeResponse);
+  rpc TopUpBridgeStake(MsgTopUpBridgeStake) returns (MsgTopUpBridgeStakeResponse);
+  rpc SubmitFederatedContent(MsgSubmitFederatedContent) returns (MsgSubmitFederatedContentResponse);
+  rpc FederateContent(MsgFederateContent) returns (MsgFederateContentResponse);
+  rpc AttestOutbound(MsgAttestOutbound) returns (MsgAttestOutboundResponse);
+  rpc ModerateContent(MsgModerateContent) returns (MsgModerateContentResponse);
+  rpc LinkIdentity(MsgLinkIdentity) returns (MsgLinkIdentityResponse);
+  rpc UnlinkIdentity(MsgUnlinkIdentity) returns (MsgUnlinkIdentityResponse);
+  rpc ConfirmIdentityLink(MsgConfirmIdentityLink) returns (MsgConfirmIdentityLinkResponse);
+  rpc RequestReputationAttestation(MsgRequestReputationAttestation) returns (MsgRequestReputationAttestationResponse);
+  rpc BondVerifier(MsgBondVerifier) returns (MsgBondVerifierResponse);
+  rpc UnbondVerifier(MsgUnbondVerifier) returns (MsgUnbondVerifierResponse);
+  rpc VerifyContent(MsgVerifyContent) returns (MsgVerifyContentResponse);
+  rpc ChallengeVerification(MsgChallengeVerification) returns (MsgChallengeVerificationResponse);
+  rpc SubmitArbiterHash(MsgSubmitArbiterHash) returns (MsgSubmitArbiterHashResponse);
+  rpc EscalateChallenge(MsgEscalateChallenge) returns (MsgEscalateChallengeResponse);
+  rpc UpdateOperationalParams(MsgUpdateOperationalParams) returns (MsgUpdateOperationalParamsResponse);
+}
+
+// --- Governance ---
+
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/federation/MsgUpdateParams";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  Params params = 2 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+}
+message MsgUpdateParamsResponse {}
+
+// --- Peer Lifecycle (Commons Council) ---
+
+message MsgRegisterPeer {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string display_name = 3;
+  PeerType type = 4;
+  string ibc_channel_id = 5;
+  string metadata = 6;
+}
+message MsgRegisterPeerResponse {}
+
+message MsgRemovePeer {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string reason = 3;
+}
+message MsgRemovePeerResponse {}
+
+message MsgSuspendPeer {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string reason = 3;
+}
+message MsgSuspendPeerResponse {}
+
+message MsgResumePeer {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+}
+message MsgResumePeerResponse {}
+
+// --- Peer Policy (Operations Committee) ---
+
+message MsgUpdatePeerPolicy {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  PeerPolicy policy = 3 [(gogoproto.nullable) = false];
+}
+message MsgUpdatePeerPolicyResponse {}
+
+// --- Bridge Operators (Operations Committee) ---
+
+message MsgRegisterBridge {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 3;
+  string protocol = 4;
+  string endpoint = 5;
+}
+message MsgRegisterBridgeResponse {}
+
+message MsgRevokeBridge {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 3;
+  string reason = 4;
+}
+message MsgRevokeBridgeResponse {}
+
+message MsgSlashBridge {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 3;
+  string amount = 4 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string reason = 5;
+}
+message MsgSlashBridgeResponse {}
+
+message MsgUpdateBridge {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 3;
+  string endpoint = 4;
+}
+message MsgUpdateBridgeResponse {}
+
+// --- Bridge Self-Service ---
+
+message MsgUnbondBridge {
+  option (cosmos.msg.v1.signer) = "operator";
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+}
+message MsgUnbondBridgeResponse {}
+
+message MsgTopUpBridgeStake {
+  option (cosmos.msg.v1.signer) = "operator";
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  cosmos.base.v1beta1.Coin amount = 3 [(gogoproto.nullable) = false];
+}
+message MsgTopUpBridgeStakeResponse {}
+
+// --- Content Federation ---
+
+message MsgSubmitFederatedContent {
+  option (cosmos.msg.v1.signer) = "operator";
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string remote_content_id = 3;
+  string content_type = 4;
+  string creator_identity = 5;
+  string creator_name = 6;
+  string title = 7;
+  string body = 8;
+  string content_uri = 9;
+  bytes protocol_metadata = 10;
+  int64 remote_created_at = 11;
+  bytes content_hash = 12;
+}
+message MsgSubmitFederatedContentResponse {
+  uint64 content_id = 1;
+}
+
+message MsgFederateContent {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string content_type = 3;
+  string local_content_id = 4;
+  string title = 5;
+  string body = 6;
+  string content_uri = 7;
+  bytes content_hash = 8;
+}
+message MsgFederateContentResponse {}
+
+message MsgAttestOutbound {
+  option (cosmos.msg.v1.signer) = "operator";
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string content_type = 3;
+  string local_content_id = 4;
+}
+message MsgAttestOutboundResponse {}
+
+message MsgModerateContent {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 content_id = 2;
+  FederatedContentStatus new_status = 3;
+  string reason = 4;
+}
+message MsgModerateContentResponse {}
+
+// --- Identity Linking ---
+
+message MsgLinkIdentity {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string remote_identity = 3;
+}
+message MsgLinkIdentityResponse {}
+
+message MsgUnlinkIdentity {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+}
+message MsgUnlinkIdentityResponse {}
+
+message MsgConfirmIdentityLink {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string claimant_chain_peer_id = 2;
+}
+message MsgConfirmIdentityLinkResponse {}
+
+// --- Reputation ---
+
+message MsgRequestReputationAttestation {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string remote_address = 3;
+}
+message MsgRequestReputationAttestationResponse {}
+
+// --- Verifier ---
+
+message MsgBondVerifier {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string amount = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+message MsgBondVerifierResponse {}
+
+message MsgUnbondVerifier {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string amount = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+message MsgUnbondVerifierResponse {}
+
+message MsgVerifyContent {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 content_id = 2;
+  bytes content_hash = 3;
+}
+message MsgVerifyContentResponse {}
+
+// --- Challenge ---
+
+message MsgChallengeVerification {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 content_id = 2;
+  bytes content_hash = 3;
+  string evidence = 4;
+}
+message MsgChallengeVerificationResponse {}
+
+message MsgSubmitArbiterHash {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 content_id = 2;
+  bytes content_hash = 3;
+}
+message MsgSubmitArbiterHashResponse {}
+
+message MsgEscalateChallenge {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 content_id = 2;
+}
+message MsgEscalateChallengeResponse {}
+
+// --- Operational Params (Operations Committee) ---
+
+message MsgUpdateOperationalParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  FederationOperationalParams operational_params = 2 [(gogoproto.nullable) = false];
+}
+message MsgUpdateOperationalParamsResponse {}

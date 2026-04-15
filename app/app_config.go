@@ -9,6 +9,8 @@ import (
 	commonsmoduletypes "sparkdream/x/commons/types"
 	_ "sparkdream/x/ecosystem/module"
 	ecosystemmoduletypes "sparkdream/x/ecosystem/types"
+	_ "sparkdream/x/federation/module"
+	federationmoduletypes "sparkdream/x/federation/types"
 	_ "sparkdream/x/forum/module"
 	forummoduletypes "sparkdream/x/forum/types"
 	_ "sparkdream/x/futarchy/module"
@@ -103,6 +105,7 @@ var (
 		{Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
 		{Account: gnovmmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: sessionmoduletypes.ModuleName},
+		{Account: federationmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -158,7 +161,8 @@ var (
 						collectmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
-						// this line is used by starport scaffolding # stargate/app/beginBlockers
+						federationmoduletypes.ModuleName,
+					    // this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
 						govtypes.ModuleName,
@@ -179,7 +183,8 @@ var (
 						shieldmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
-						// this line is used by starport scaffolding # stargate/app/endBlockers
+						federationmoduletypes.ModuleName,
+					    // this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
 					OverrideStoreKeys: []*runtimev1alpha1.StoreKeyConfig{
@@ -224,6 +229,7 @@ var (
 						shieldmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
+						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -357,6 +363,10 @@ var (
 			{
 				Name:   sessionmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&sessionmoduletypes.Module{}),
+			},
+			{
+				Name:   federationmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&federationmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

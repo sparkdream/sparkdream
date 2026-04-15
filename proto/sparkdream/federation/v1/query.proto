@@ -1,0 +1,174 @@
+syntax = "proto3";
+
+package sparkdream.federation.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/federation/v1/params.proto";
+import "sparkdream/federation/v1/types.proto";
+
+option go_package = "sparkdream/x/federation/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/params";
+  }
+  rpc GetPeer(QueryGetPeerRequest) returns (QueryGetPeerResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_peer/{peer_id}";
+  }
+  rpc ListPeers(QueryListPeersRequest) returns (QueryListPeersResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/list_peers";
+  }
+  rpc GetPeerPolicy(QueryGetPeerPolicyRequest) returns (QueryGetPeerPolicyResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_peer_policy/{peer_id}";
+  }
+  rpc GetBridgeOperator(QueryGetBridgeOperatorRequest) returns (QueryGetBridgeOperatorResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_bridge_operator/{address}/{peer_id}";
+  }
+  rpc ListBridgeOperators(QueryListBridgeOperatorsRequest) returns (QueryListBridgeOperatorsResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/list_bridge_operators";
+  }
+  rpc GetFederatedContent(QueryGetFederatedContentRequest) returns (QueryGetFederatedContentResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_federated_content/{id}";
+  }
+  rpc ListFederatedContent(QueryListFederatedContentRequest) returns (QueryListFederatedContentResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/list_federated_content";
+  }
+  rpc GetIdentityLink(QueryGetIdentityLinkRequest) returns (QueryGetIdentityLinkResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_identity_link/{local_address}/{peer_id}";
+  }
+  rpc ListIdentityLinks(QueryListIdentityLinksRequest) returns (QueryListIdentityLinksResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/list_identity_links";
+  }
+  rpc ResolveRemoteIdentity(QueryResolveRemoteIdentityRequest) returns (QueryResolveRemoteIdentityResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/resolve_remote_identity/{peer_id}/{remote_identity}";
+  }
+  rpc GetPendingIdentityChallenge(QueryGetPendingIdentityChallengeRequest) returns (QueryGetPendingIdentityChallengeResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_pending_identity_challenge/{claimed_address}/{peer_id}";
+  }
+  rpc ListPendingIdentityChallenges(QueryListPendingIdentityChallengesRequest) returns (QueryListPendingIdentityChallengesResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/list_pending_identity_challenges/{claimed_address}";
+  }
+  rpc GetReputationAttestation(QueryGetReputationAttestationRequest) returns (QueryGetReputationAttestationResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_reputation_attestation/{local_address}/{peer_id}";
+  }
+  rpc ListOutboundAttestations(QueryListOutboundAttestationsRequest) returns (QueryListOutboundAttestationsResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/list_outbound_attestations";
+  }
+  rpc GetVerifier(QueryGetVerifierRequest) returns (QueryGetVerifierResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_verifier/{address}";
+  }
+  rpc ListVerifiers(QueryListVerifiersRequest) returns (QueryListVerifiersResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/list_verifiers";
+  }
+  rpc GetVerificationRecord(QueryGetVerificationRecordRequest) returns (QueryGetVerificationRecordResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_verification_record/{content_id}";
+  }
+}
+
+// --- Params ---
+message QueryParamsRequest {}
+message QueryParamsResponse {
+  Params params = 1 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+}
+
+// --- Peer ---
+message QueryGetPeerRequest { string peer_id = 1; }
+message QueryGetPeerResponse { Peer peer = 1 [(gogoproto.nullable) = false]; }
+
+message QueryListPeersRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+message QueryListPeersResponse {
+  repeated Peer peers = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// --- PeerPolicy ---
+message QueryGetPeerPolicyRequest { string peer_id = 1; }
+message QueryGetPeerPolicyResponse { PeerPolicy policy = 1 [(gogoproto.nullable) = false]; }
+
+// --- BridgeOperator ---
+message QueryGetBridgeOperatorRequest { string address = 1; string peer_id = 2; }
+message QueryGetBridgeOperatorResponse { BridgeOperator bridge_operator = 1 [(gogoproto.nullable) = false]; }
+
+message QueryListBridgeOperatorsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+message QueryListBridgeOperatorsResponse {
+  repeated BridgeOperator bridge_operators = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// --- FederatedContent ---
+message QueryGetFederatedContentRequest { uint64 id = 1; }
+message QueryGetFederatedContentResponse { FederatedContent content = 1 [(gogoproto.nullable) = false]; }
+
+message QueryListFederatedContentRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+message QueryListFederatedContentResponse {
+  repeated FederatedContent content = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// --- IdentityLink ---
+message QueryGetIdentityLinkRequest { string local_address = 1; string peer_id = 2; }
+message QueryGetIdentityLinkResponse { IdentityLink link = 1 [(gogoproto.nullable) = false]; }
+
+message QueryListIdentityLinksRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+message QueryListIdentityLinksResponse {
+  repeated IdentityLink links = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// --- ResolveRemoteIdentity ---
+message QueryResolveRemoteIdentityRequest { string peer_id = 1; string remote_identity = 2; }
+message QueryResolveRemoteIdentityResponse { string local_address = 1; }
+
+// --- PendingIdentityChallenge ---
+message QueryGetPendingIdentityChallengeRequest { string claimed_address = 1; string peer_id = 2; }
+message QueryGetPendingIdentityChallengeResponse { PendingIdentityChallenge challenge = 1 [(gogoproto.nullable) = false]; }
+
+message QueryListPendingIdentityChallengesRequest {
+  string claimed_address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+message QueryListPendingIdentityChallengesResponse {
+  repeated PendingIdentityChallenge challenges = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// --- ReputationAttestation ---
+message QueryGetReputationAttestationRequest { string local_address = 1; string peer_id = 2; }
+message QueryGetReputationAttestationResponse { ReputationAttestation attestation = 1 [(gogoproto.nullable) = false]; }
+
+// --- OutboundAttestation ---
+message QueryListOutboundAttestationsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+message QueryListOutboundAttestationsResponse {
+  repeated OutboundAttestation attestations = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// --- Verifier ---
+message QueryGetVerifierRequest { string address = 1; }
+message QueryGetVerifierResponse { FederationVerifier verifier = 1 [(gogoproto.nullable) = false]; }
+
+message QueryListVerifiersRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+message QueryListVerifiersResponse {
+  repeated FederationVerifier verifiers = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// --- VerificationRecord ---
+message QueryGetVerificationRecordRequest { uint64 content_id = 1; }
+message QueryGetVerificationRecordResponse { VerificationRecord record = 1 [(gogoproto.nullable) = false]; }

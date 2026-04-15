@@ -11,7 +11,7 @@ import (
 var (
 	DefaultMaxSessionsPerGranter uint64 = 10
 	DefaultMaxMsgTypesPerSession uint64 = 20
-	DefaultMaxExpiration                = 7 * 24 * time.Hour // 7 days
+	DefaultMaxExpiration                = 7 * 24 * time.Hour                      // 7 days
 	DefaultMaxSpendLimit                = sdk.NewInt64Coin("uspark", 100_000_000) // 100 SPARK
 
 	// DefaultAllowedMsgTypes is the genesis ceiling and initial active allowlist.

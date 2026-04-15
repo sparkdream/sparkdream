@@ -108,7 +108,7 @@ func TestExecSessionValidation(t *testing.T) {
 				// Session with expiration in the past
 				setupSession([]string{blogType}, sdkCtx.BlockTime().Add(-1*time.Hour), 0)
 			},
-			cleanup: func() { cleanupSession() },
+			cleanup:     func() { cleanupSession() },
 			expectError: true,
 			errContains: "passed its expiration time",
 		},
@@ -127,7 +127,7 @@ func TestExecSessionValidation(t *testing.T) {
 				session.ExecCount = 5
 				_ = f.keeper.Sessions.Set(f.ctx, key, session)
 			},
-			cleanup: func() { cleanupSession() },
+			cleanup:     func() { cleanupSession() },
 			expectError: true,
 			errContains: "execution cap reached",
 		},
@@ -141,7 +141,7 @@ func TestExecSessionValidation(t *testing.T) {
 			setup: func() {
 				setupSession([]string{blogType}, futureExp, 0)
 			},
-			cleanup: func() { cleanupSession() },
+			cleanup:     func() { cleanupSession() },
 			expectError: true,
 			errContains: "MsgExecSession cannot contain MsgExecSession",
 		},
@@ -156,7 +156,7 @@ func TestExecSessionValidation(t *testing.T) {
 				// Session only allows blog types, not forum
 				setupSession([]string{blogType}, futureExp, 0)
 			},
-			cleanup: func() { cleanupSession() },
+			cleanup:     func() { cleanupSession() },
 			expectError: true,
 			errContains: "not in session's allowed list",
 		},
@@ -192,7 +192,7 @@ func TestExecSessionValidation(t *testing.T) {
 			setup: func() {
 				setupSession([]string{blogType}, futureExp, 0)
 			},
-			cleanup: func() { cleanupSession() },
+			cleanup:     func() { cleanupSession() },
 			expectError: true,
 			errContains: "MsgExecSession cannot contain MsgExecSession",
 		},
@@ -206,7 +206,7 @@ func TestExecSessionValidation(t *testing.T) {
 			setup: func() {
 				setupSession([]string{blogType}, futureExp, 0)
 			},
-			cleanup: func() { cleanupSession() },
+			cleanup:     func() { cleanupSession() },
 			expectError: true,
 			// Will fail at UnpackAny or router — both are after validation
 			errContains: "",

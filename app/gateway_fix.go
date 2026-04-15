@@ -37,6 +37,7 @@ import (
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 
 	// SDK modules
+	upgradetypes "cosmossdk.io/x/upgrade/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	consensustypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
@@ -45,13 +46,12 @@ import (
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	upgradetypes "cosmossdk.io/x/upgrade/types"
 
 	// IBC modules
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
-	ibcchanneltypes "github.com/cosmos/ibc-go/v10/modules/core/04-channel/types"
-	ibcconnectiontypes "github.com/cosmos/ibc-go/v10/modules/core/03-connection/types"
 	ibcclienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
+	ibcconnectiontypes "github.com/cosmos/ibc-go/v10/modules/core/03-connection/types"
+	ibcchanneltypes "github.com/cosmos/ibc-go/v10/modules/core/04-channel/types"
 
 	// Custom modules
 	blogtypes "sparkdream/x/blog/types"
@@ -73,8 +73,8 @@ import (
 // codecConn wraps a gRPC connection and forces the SDK codec on every call.
 // This bypasses the problematic proto v2 marshaling in the default gRPC codec.
 type codecConn struct {
-	inner     *grpc.ClientConn
-	forceOpt  grpc.CallOption
+	inner    *grpc.ClientConn
+	forceOpt grpc.CallOption
 }
 
 func (c *codecConn) Invoke(ctx context.Context, method string, args, reply interface{}, opts ...grpc.CallOption) error {

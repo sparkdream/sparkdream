@@ -15,10 +15,10 @@ const (
 
 // Store prefixes
 var (
-	ParamsKey              = collections.NewPrefix("p_session")
-	SessionsKey            = collections.NewPrefix(0)
-	SessionsByGranterKey   = collections.NewPrefix(1)
-	SessionsByGranteeKey   = collections.NewPrefix(2)
+	ParamsKey               = collections.NewPrefix("p_session")
+	SessionsKey             = collections.NewPrefix(0)
+	SessionsByGranterKey    = collections.NewPrefix(1)
+	SessionsByGranteeKey    = collections.NewPrefix(2)
 	SessionsByExpirationKey = collections.NewPrefix(3)
 )
 
@@ -26,11 +26,11 @@ var (
 // allowlist. This prevents recursive execution (MsgExecSession containing MsgExecSession)
 // and session-key self-management.
 var NonDelegableSessionMsgs = map[string]bool{
-	"/sparkdream.session.v1.MsgCreateSession":            true,
-	"/sparkdream.session.v1.MsgRevokeSession":            true,
-	"/sparkdream.session.v1.MsgExecSession":              true,
-	"/sparkdream.session.v1.MsgUpdateParams":             true,
-	"/sparkdream.session.v1.MsgUpdateOperationalParams":  true,
+	"/sparkdream.session.v1.MsgCreateSession":           true,
+	"/sparkdream.session.v1.MsgRevokeSession":           true,
+	"/sparkdream.session.v1.MsgExecSession":             true,
+	"/sparkdream.session.v1.MsgUpdateParams":            true,
+	"/sparkdream.session.v1.MsgUpdateOperationalParams": true,
 }
 
 // DreamFieldsToStrip maps message type URLs to field names that commit DREAM

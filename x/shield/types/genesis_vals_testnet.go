@@ -16,8 +16,8 @@ func getShieldGenesisParams() Params {
 		MaxGasPerExec:               500_000,
 		MaxExecsPerIdentityPerEpoch: 50,
 		EncryptedBatchEnabled:       false,
-		ShieldEpochInterval:         50,   // ~5 min at 6s blocks (= production)
-		MinBatchSize:                3,    // = production
+		ShieldEpochInterval:         50, // ~5 min at 6s blocks (= production)
+		MinBatchSize:                3,  // = production
 		MaxPendingEpochs:            6,
 		MaxPendingQueueSize:         1000, // = production
 		MaxEncryptedPayloadSize:     16384,
