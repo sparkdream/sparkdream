@@ -27,6 +27,7 @@ func TestJuryWorkflow(t *testing.T) {
 		"technical",
 		math.NewInt(10000),
 		math.NewInt(1000),
+	false,
 	)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
@@ -431,6 +432,7 @@ func TestTallyJuryVotes(t *testing.T) {
 			"technical",
 			math.NewInt(50000),
 			math.NewInt(5000),
+			false,
 		)
 		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(50000), math.NewInt(5000))
 

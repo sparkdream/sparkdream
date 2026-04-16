@@ -40,7 +40,7 @@ type RepKeeper interface {
 	DeductReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error
 
 	// Project creation for post-reveal transition
-	CreateProject(ctx context.Context, creator sdk.AccAddress, name, description string, tags []string, category reptypes.ProjectCategory, council string, requestedBudget, requestedSpark math.Int) (uint64, error)
+	CreateProject(ctx context.Context, creator sdk.AccAddress, name, description string, tags []string, category reptypes.ProjectCategory, council string, requestedBudget, requestedSpark math.Int, permissionless bool) (uint64, error)
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.
@@ -48,6 +48,8 @@ type RepKeeper interface {
 type CommonsKeeper interface {
 	// IsCommitteeMember checks if an address is a member of a specific committee in a council
 	IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
+	// IsCouncilAuthorized checks if an address is the governance authority, a council policy address, or a committee member
+	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

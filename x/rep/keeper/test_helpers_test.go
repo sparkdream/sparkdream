@@ -171,6 +171,7 @@ func SetupProject(t *testing.T, k *keeper.Keeper, ctx sdk.Context, cfg ProjectSe
 		cfg.Council,
 		math.NewInt(cfg.Budget),
 		math.NewInt(cfg.MaxPerInit),
+		false,
 	)
 	require.NoError(t, err, "failed to create project")
 	require.NotZero(t, projectID, "project ID should not be zero")

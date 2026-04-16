@@ -7,7 +7,7 @@ The `x/rep` module is the core coordination layer for Spark Dream, managing:
 - DREAM token mechanics
 - Reputation scores (per-tag, seasonal)
 - Invitation system with accountability
-- Projects and budget authorization
+- Projects (budget-backed or permissionless)
 - Initiatives (conviction-based, self-selected work)
 - Interims (fixed-rate, delegated duties)
 - Stakes and time-weighted conviction
@@ -146,6 +146,11 @@ enum InvitationStatus {
 
 ### Project
 
+Projects come in two flavors:
+
+- **Budget-backed**: Created via `MsgProposeProject` with `requested_budget > 0` or `requested_spark > 0`. Requires Operations Committee approval before becoming ACTIVE. Initiatives draw from the approved budget allocation.
+- **Permissionless**: Created via `MsgProposeProject` with zero budget. Creator burns a protocol fee (`ProjectCreationFee`) and the project becomes ACTIVE immediately — no committee approval needed. Initiatives under permissionless projects are capped at STANDARD tier and their rewards are minted on conviction completion (no pre-allocated budget).
+
 ```protobuf
 message Project {
   uint64 id = 1;
@@ -167,6 +172,10 @@ message Project {
   string approved_by = 15;
   int64 approved_at = 16;
   int64 completed_at = 17;
+
+  // Permissionless projects skip committee approval.
+  // Zero budget, APPRENTICE/STANDARD initiatives only, rewards minted on completion.
+  bool permissionless = 18;
 }
 
 enum ProjectCategory {
@@ -205,6 +214,8 @@ enum ReviewProcess {
 ### Initiative
 
 Initiatives are project work that any qualified member can claim. Completion is verified through conviction voting (community stakes DREAM to signal confidence in the work).
+
+Under **permissionless projects**, initiatives are capped at STANDARD tier (max 500 DREAM). The creator burns an `InitiativeCreationFee` (scaled by tier) and the budget represents DREAM minted on conviction completion — no pre-allocated project budget is consumed. Under **budget-backed projects**, the existing flow applies: initiative budgets are allocated from the project's approved budget.
 
 ```protobuf
 message Initiative {
@@ -770,6 +781,28 @@ message MsgCancelProject {
 }
 ```
 
+#### Permissionless Project Creation Flow
+
+`MsgProposeProject` supports two paths based on the requested budget:
+
+| Condition | Path | Result |
+|-----------|------|--------|
+| `requested_budget == 0` AND `requested_spark == 0` | **Permissionless** | ACTIVE immediately |
+| `requested_budget > 0` OR `requested_spark > 0` | **Budget-backed** | PROPOSED → awaits `MsgApproveProjectBudget` |
+
+**Permissionless path** handler logic:
+1. Validate creator is ESTABLISHED+ trust level (`ErrInsufficientTrustLevel`)
+2. Burn `ProjectCreationFee` DREAM from creator's balance (`ErrInsufficientBalance` if short)
+3. Create project with `permissionless = true`, `status = ACTIVE`, all budget fields zero
+4. No `PROJECT_APPROVAL` interim is created — committee is not involved
+5. Emit `project_created` event (distinct from `project_proposed`)
+
+**Budget-backed path** (existing behavior, unchanged):
+1. Validate creator is a member
+2. Create project with `status = PROPOSED`
+3. Trigger `PROJECT_APPROVAL` interim for Operations Committee
+4. Await `MsgApproveProjectBudget` → transitions to ACTIVE
+
 ### Initiative Messages
 
 ```protobuf
@@ -824,6 +857,30 @@ message MsgCompleteInitiative {
   string completion_notes = 3;
 }
 ```
+
+#### Initiative Creation Under Permissionless Projects
+
+`MsgCreateInitiative` branches based on the parent project type:
+
+| Parent Project | Allowed Tiers | Budget Source | Fee |
+|----------------|---------------|---------------|-----|
+| Budget-backed | All tiers | Allocated from project budget | None |
+| Permissionless | APPRENTICE, STANDARD only | Minted on conviction completion | `InitiativeCreationFee` burned |
+
+**Permissionless path** handler logic:
+1. Validate parent project is ACTIVE and `permissionless == true`
+2. Validate tier is APPRENTICE or STANDARD (`ErrPermissionlessTierExceeded`)
+3. Validate creator trust level: PROVISIONAL+ for APPRENTICE, ESTABLISHED+ for STANDARD
+4. Burn `InitiativeCreationFee` DREAM from creator (fee scaled by tier — see params)
+5. Skip `AllocateBudget` (no project budget to draw from)
+6. Create initiative normally — budget represents DREAM minted on conviction completion
+7. Conviction threshold, challenge period, and completion flow are identical to budget-backed initiatives
+
+**Budget-backed path** (existing behavior, unchanged):
+1. Validate parent project is ACTIVE
+2. Validate tier budget limits
+3. Allocate budget from project's approved budget
+4. Create initiative
 
 ### Interim Messages
 
@@ -1228,6 +1285,36 @@ type Keeper struct {
 }
 ```
 
+## Permissionless Creation Model
+
+### Design Rationale
+
+Committee approval is essential when treasury funds are at stake — it prevents budget abuse and ensures resource allocation aligns with council priorities. But for organic, self-funded work, the approval step becomes a participation tax: members with ideas must wait for committee review before they can even start coordinating.
+
+The permissionless model removes this bottleneck for zero-budget work. Members burn a protocol fee (anti-spam) and the conviction mechanism handles quality control — if nobody stakes on the work, it never completes and no DREAM gets minted. The committee's attention is reserved for budget allocation decisions where it adds real value.
+
+### Security Properties
+
+- **Anti-spam**: Creation fees are burned, making spam directly costly to the spammer and deflationary for everyone else
+- **Tier cap**: Permissionless initiatives are capped at STANDARD (500 DREAM max reward), limiting the maximum DREAM that can be minted without committee oversight
+- **Trust gate**: Only ESTABLISHED+ members (200+ rep, 10+ interims) can create permissionless projects, filtering out new or unproven accounts
+- **Conviction filter**: Even with a permissionless project, initiatives still require community conviction to complete — the community votes with its DREAM
+- **Challenge period**: All initiatives (permissionless or not) pass through the standard challenge period before completion
+- **No treasury exposure**: Permissionless projects have zero budget — no pre-allocated funds can be misused
+
+### Summary Table
+
+| Dimension | Budget-backed | Permissionless |
+|-----------|---------------|----------------|
+| Creation gate | Any member | ESTABLISHED+ trust level |
+| Approval | Operations Committee | None (fee burned) |
+| Project budget | Committee-approved amount | Zero |
+| Initiative tiers | All (APPRENTICE → EPIC) | APPRENTICE and STANDARD only |
+| Initiative budget source | Allocated from project | Minted on conviction completion |
+| Initiative creation fee | None | 1 DREAM (apprentice), 3 DREAM (standard) |
+| Max minting per initiative | 10,000 DREAM (EPIC) | 500 DREAM (STANDARD) |
+| Conviction/challenge flow | Standard | Identical |
+
 ## Interim Creation Triggers
 
 Interims are created automatically by the system in response to events:
@@ -1236,8 +1323,9 @@ Interims are created automatically by the system in response to events:
 |---------|-------------------|-----------|-----------|
 | JuryReview created | JURY_DUTY | Selected jurors | JuryReview ID |
 | Expert requested | EXPERT_TESTIMONY | Invited expert | JuryReview ID |
-| Project proposed | PROJECT_APPROVAL | Operations committee | Project ID |
+| Budget-backed project proposed | PROJECT_APPROVAL | Operations committee | Project ID |
 | Large budget request | BUDGET_REVIEW | Operations committee | Project ID |
+| *(Permissionless projects skip PROJECT_APPROVAL — no interim created)* | | | |
 | Tranche revealed | TRANCHE_VERIFICATION | Tranche stakers | Tranche ID |
 | Founder contribution proposed | CONTRIBUTION_REVIEW | Operations committee | Contribution ID |
 | Dispute filed | DISPUTE_MEDIATION | Assigned mediator | Dispute ID |
@@ -1442,6 +1530,13 @@ var DefaultParams = Params{
     MaxGiftAmount:           math.NewInt(500_000_000),            // 500 DREAM
     GiftOnlyToInvitees:      true,
 
+    // Permissionless creation fees (burned on creation — anti-spam + deflationary pressure)
+    ProjectCreationFee:               math.NewInt(5_000_000),   // 5 DREAM — burned when creating a permissionless project
+    InitiativeCreationFeeApprentice:  math.NewInt(1_000_000),   // 1 DREAM — burned for apprentice initiative under permissionless project
+    InitiativeCreationFeeStandard:    math.NewInt(3_000_000),   // 3 DREAM — burned for standard initiative under permissionless project
+    PermissionlessMinTrustLevel:      2,                         // ESTABLISHED — minimum trust level to create a permissionless project
+    PermissionlessMaxTier:            1,                         // STANDARD — highest tier allowed in permissionless projects
+
     // Treasury management
     MaxTreasuryBalance: math.NewInt(100_000_000_000_000), // 100,000 DREAM — excess burned
     TreasuryFundsInterims: true,  // interims paid from treasury first, mint only if empty
@@ -1573,6 +1668,10 @@ The `RepOperationalParams` message mirrors most `Params` fields except governanc
 - `MinorSlashPenalty`, `ModerateSlashPenalty`, `SevereSlashPenalty`, `ZeroingSlashPenalty`
 - `TrustLevelConfig`
 - `CompleterShare`, `TreasuryShare`
+- `PermissionlessMinTrustLevel`, `PermissionlessMaxTier` (structural access control — governance only)
+
+**Operational fields** (council-tunable, included in RepOperationalParams):
+- `ProjectCreationFee`, `InitiativeCreationFeeApprentice`, `InitiativeCreationFeeStandard` (fee amounts are tuning knobs)
 
 ## Error Codes
 
@@ -1621,6 +1720,9 @@ The `RepOperationalParams` message mirrors most `Params` fields except governanc
 | 1801 | `ErrMemberAlreadyZeroed` | Member is already zeroed |
 | 1802 | `ErrMemberNotActive` | Member is not active |
 | 1803 | `ErrCannotZeroCore` | Cannot zero a core member without governance vote |
+| 1901 | `ErrInsufficientTrustLevel` | Trust level too low for permissionless creation |
+| 1902 | `ErrPermissionlessTierExceeded` | Tier exceeds maximum allowed for permissionless projects |
+| 1903 | `ErrInsufficientCreationFee` | Insufficient DREAM balance for creation fee |
 
 ## Content Staking
 

@@ -162,8 +162,9 @@ func TestWithdrawLiquidity_WithTrades(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, market.LiquidityWithdrawn.GT(math.ZeroInt()))
 
-	// Verify withdrawn amount is less than initial liquidity (because shares were minted)
-	require.True(t, market.LiquidityWithdrawn.LT(*market.InitialLiquidity))
+	// In LMSR, trades add collateral to the module account — they don't reduce the creator's
+	// subsidy claim. So the full InitialLiquidity is available for withdrawal.
+	require.True(t, market.LiquidityWithdrawn.Equal(*market.InitialLiquidity))
 }
 
 func TestWithdrawLiquidity_NonExistentMarket(t *testing.T) {

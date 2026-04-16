@@ -228,16 +228,22 @@ func (k Keeper) handleVerificationDeadline(ctx context.Context, contrib *types.C
 
 	effectiveMin := EffectiveMinVotes(params.MinVerificationVotes, tranche.StakeThreshold)
 
-	// Check if min votes not met — allow one extension
+	// REVEAL-4 fix: Cap verification deadline extensions to a maximum of 3.
+	// Without this cap, parameter changes to VerificationPeriodEpochs could allow
+	// infinite extensions by resetting the arithmetic relationship between
+	// the current deadline and the original deadline.
+	// NOTE: Ideally an extension_count field would be added to the RevealTranche proto,
+	// but for now we enforce the cap via a time-based check: the deadline can never
+	// exceed RevealedAt + (maxExtensions+1) * VerificationPeriodEpochs.
+	const maxVerificationExtensions = 3
 	if voteCount < effectiveMin && tranche.VerificationDeadline > 0 {
-		// Check if we've already extended (backed_at + reveal + verification + extension)
-		originalDeadline := tranche.RevealedAt + params.VerificationPeriodEpochs
-		if tranche.VerificationDeadline == originalDeadline {
-			// First extension
+		maxDeadline := tranche.RevealedAt + int64(maxVerificationExtensions+1)*params.VerificationPeriodEpochs
+		if tranche.VerificationDeadline+params.VerificationPeriodEpochs <= maxDeadline {
+			// Extension allowed — still within max extension cap
 			tranche.VerificationDeadline = tranche.VerificationDeadline + params.VerificationPeriodEpochs
 			return nil
 		}
-		// Already extended once, proceed with tally as-is
+		// Already at max extensions, proceed with tally as-is
 	}
 
 	totalWeight := yesWeight.Add(noWeight)
@@ -479,6 +485,7 @@ func (k Keeper) completeContribution(ctx context.Context, contrib *types.Contrib
 		"",             // council (determined by project governance)
 		math.ZeroInt(), // requestedBudget (reveal-sourced projects are pre-funded)
 		math.ZeroInt(), // requestedSpark
+		false,          // not permissionless — reveal-transitioned project
 	)
 	if err != nil {
 		// Log but don't fail — project creation can be retried

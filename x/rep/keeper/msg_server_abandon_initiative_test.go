@@ -52,7 +52,7 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 
 		// Setup: create project, assignee, and initiative
 		creator := sdk.AccAddress([]byte("creator"))
-		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
 		assignee := sdk.AccAddress([]byte("assignee"))
@@ -92,7 +92,7 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 
 		// Setup: create project, assignee member, and initiative
 		creator := sdk.AccAddress([]byte("creator"))
-		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
 		assignee := sdk.AccAddress([]byte("assignee"))

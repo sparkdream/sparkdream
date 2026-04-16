@@ -450,6 +450,8 @@ func TestProcessInviterAccountability(t *testing.T) {
 		}
 		err := k.Invitation.Set(ctx, 1, invitation)
 		require.NoError(t, err)
+		err = k.InvitationsByInvitee.Set(ctx, invitee.String(), uint64(1))
+		require.NoError(t, err)
 
 		// Process inviter accountability
 		err = k.ProcessInviterAccountability(ctx, invitee, "invitee failed challenge")
@@ -515,6 +517,8 @@ func TestProcessInviterAccountability(t *testing.T) {
 		}
 		err := k.Invitation.Set(ctx, 1, invitation)
 		require.NoError(t, err)
+		err = k.InvitationsByInvitee.Set(ctx, invitee.String(), uint64(1))
+		require.NoError(t, err)
 
 		// Process inviter accountability (should be no-op since accountability ended)
 		err = k.ProcessInviterAccountability(ctx, invitee, "invitee failed challenge")
@@ -576,6 +580,8 @@ func TestProcessInviterAccountability(t *testing.T) {
 			ReferralEarned:    PtrInt(math.ZeroInt()),
 		}
 		err := k.Invitation.Set(ctx, 1, invitation)
+		require.NoError(t, err)
+		err = k.InvitationsByInvitee.Set(ctx, invitee.String(), uint64(1))
 		require.NoError(t, err)
 
 		// Process inviter accountability

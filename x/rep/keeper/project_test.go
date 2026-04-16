@@ -39,6 +39,7 @@ func TestCreateProject(t *testing.T) {
 		"technical",
 		proposedBudget,
 		proposedSpark,
+		false,
 	)
 	require.NoError(t, err)
 
@@ -77,6 +78,7 @@ func TestApproveProject(t *testing.T) {
 		"technical",
 		math.NewInt(5000),
 		math.NewInt(500),
+		false,
 	)
 
 	// Test: Approve project
@@ -114,7 +116,7 @@ func TestAllocateBudget(t *testing.T) {
 	})
 
 	approvedBudget := math.NewInt(10000)
-	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_OPERATIONS, "technical", approvedBudget, math.NewInt(1000))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_OPERATIONS, "technical", approvedBudget, math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000))
 
 	// Test: Allocate budget
@@ -155,7 +157,7 @@ func TestReturnBudget(t *testing.T) {
 	})
 
 	approvedBudget := math.NewInt(10000)
-	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_RESEARCH, "technical", approvedBudget, math.NewInt(1000))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_RESEARCH, "technical", approvedBudget, math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000))
 
 	// Allocate budget
@@ -189,7 +191,7 @@ func TestSpendBudget(t *testing.T) {
 	})
 
 	approvedBudget := math.NewInt(10000)
-	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_CREATIVE, "technical", approvedBudget, math.NewInt(1000))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_CREATIVE, "technical", approvedBudget, math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000))
 
 	// Allocate budget
@@ -221,7 +223,7 @@ func TestCancelProject(t *testing.T) {
 		ReputationScores: make(map[string]string),
 	})
 
-	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
 	// Test: Cancel project
@@ -249,7 +251,7 @@ func TestProjectInvalidStateTransitions(t *testing.T) {
 	})
 
 	// Test: Cannot allocate budget from proposed project
-	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_ECOSYSTEM, "technical", math.NewInt(10000), math.NewInt(1000))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_ECOSYSTEM, "technical", math.NewInt(10000), math.NewInt(1000), false)
 
 	err := k.AllocateBudget(ctx, projectID, math.NewInt(1000))
 	require.Error(t, err) // Should fail - project not active
@@ -288,7 +290,7 @@ func TestCompleteProject(t *testing.T) {
 
 		// Create and approve project
 		approvedBudget := math.NewInt(10000)
-		projectID, err := k.CreateProject(ctx, creator, "Zenith Project", "A test project for completion", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", approvedBudget, math.NewInt(1000))
+		projectID, err := k.CreateProject(ctx, creator, "Zenith Project", "A test project for completion", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", approvedBudget, math.NewInt(1000), false)
 		require.NoError(t, err)
 		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000))
 		require.NoError(t, err)
@@ -329,7 +331,7 @@ func TestCompleteProject(t *testing.T) {
 		})
 
 		// Create a project but do NOT approve it (status is PROPOSED)
-		projectID, err := k.CreateProject(ctx, creator, "Aurora Project", "A proposed project", []string{"frontend"}, types.ProjectCategory_PROJECT_CATEGORY_ECOSYSTEM, "technical", math.NewInt(5000), math.NewInt(500))
+		projectID, err := k.CreateProject(ctx, creator, "Aurora Project", "A proposed project", []string{"frontend"}, types.ProjectCategory_PROJECT_CATEGORY_ECOSYSTEM, "technical", math.NewInt(5000), math.NewInt(500), false)
 		require.NoError(t, err)
 
 		// Attempt to complete a PROPOSED project - should fail
@@ -366,7 +368,7 @@ func TestCompleteProject(t *testing.T) {
 
 		// Create, approve, allocate, spend, and complete
 		approvedBudget := math.NewInt(20000)
-		projectID, err := k.CreateProject(ctx, creator, "Nova Project", "Complete workflow test", []string{"backend", "frontend"}, types.ProjectCategory_PROJECT_CATEGORY_CREATIVE, "technical", approvedBudget, math.NewInt(2000))
+		projectID, err := k.CreateProject(ctx, creator, "Nova Project", "Complete workflow test", []string{"backend", "frontend"}, types.ProjectCategory_PROJECT_CATEGORY_CREATIVE, "technical", approvedBudget, math.NewInt(2000), false)
 		require.NoError(t, err)
 		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(2000))
 		require.NoError(t, err)

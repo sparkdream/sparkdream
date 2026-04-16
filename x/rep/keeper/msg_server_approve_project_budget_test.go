@@ -59,7 +59,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 		// Instead, we verify that as a deemed committee member, it SUCCEEDS.
 
 		creator := sdk.AccAddress([]byte("creator"))
-		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 
 		approver := sdk.AccAddress([]byte("approver"))
 		approverStr, err := f.addressCodec.BytesToString(approver)
@@ -87,7 +87,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 		k.Params.Set(ctx, params)
 
 		creator := sdk.AccAddress([]byte("creator"))
-		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 
 		approver := sdk.AccAddress([]byte("approver"))
 		approverStr, _ := f.addressCodec.BytesToString(approver)
@@ -118,7 +118,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 		k.Params.Set(ctx, params)
 
 		creator := sdk.AccAddress([]byte("creator"))
-		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 
 		policyAddr := sdk.AccAddress([]byte("council_policy_addr"))
 		policyStr, _ := f.addressCodec.BytesToString(policyAddr)
@@ -157,7 +157,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 		k.Params.Set(ctx, params)
 
 		creator := sdk.AccAddress([]byte("creator"))
-		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 
 		approver := sdk.AccAddress([]byte("approver"))
 		approverStr, _ := f.addressCodec.BytesToString(approver)
@@ -180,7 +180,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 
 		// Setup
 		creator := sdk.AccAddress([]byte("creator"))
-		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 
 		approver := sdk.AccAddress([]byte("approver"))
 		approverStr, err := f.addressCodec.BytesToString(approver)

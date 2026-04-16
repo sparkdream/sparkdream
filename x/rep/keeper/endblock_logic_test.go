@@ -85,7 +85,7 @@ func TestUpdateInitiativeConviction(t *testing.T) {
 
 	// Create project
 	projectID, _ := k.CreateProject(ctx, member, "Test Project", "Description", []string{"tag1"},
-		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.ZeroInt())
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.ZeroInt(), false)
 
 	// Approve project first
 	project, _ := k.GetProject(ctx, projectID)
@@ -128,7 +128,7 @@ func TestTransitionToChallengePeriod(t *testing.T) {
 
 	// Create project
 	projectID, _ := k.CreateProject(ctx, member, "Test Project", "Description", []string{"tag1"},
-		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.ZeroInt())
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.ZeroInt(), false)
 
 	// Approve project first
 	project, _ := k.GetProject(ctx, projectID)
@@ -391,7 +391,7 @@ func TestTransitionToChallengePeriod_PeriodCalculation(t *testing.T) {
 
 	// Create project
 	projectID, _ := k.CreateProject(ctx, member, "Test", "Test", []string{"tag"},
-		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.ZeroInt())
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.ZeroInt(), false)
 
 	// Approve project
 	project, _ := k.GetProject(ctx, projectID)

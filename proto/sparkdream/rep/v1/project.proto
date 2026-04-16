@@ -26,6 +26,10 @@ message Project {
   string approved_by = 15;
   int64 approved_at = 16;
   int64 completed_at = 17;
+
+  // Permissionless projects skip committee approval.
+  // Zero budget, APPRENTICE/STANDARD initiatives only, rewards minted on completion.
+  bool permissionless = 18;
 }
 
 enum ProjectCategory {

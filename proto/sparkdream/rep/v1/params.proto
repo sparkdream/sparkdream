@@ -344,6 +344,27 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Permissionless creation fees (burned on creation — anti-spam + deflationary)
+  string project_creation_fee = 72 [ // DREAM burned when creating a permissionless project (default 5 DREAM)
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string initiative_creation_fee_apprentice = 73 [ // DREAM burned for apprentice initiative under permissionless project (default 1 DREAM)
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string initiative_creation_fee_standard = 74 [ // DREAM burned for standard initiative under permissionless project (default 3 DREAM)
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Permissionless access control (governance-only — not in RepOperationalParams)
+  uint32 permissionless_min_trust_level = 75; // Minimum trust level to create a permissionless project (default 2 = ESTABLISHED)
+  uint32 permissionless_max_tier = 76;        // Highest initiative tier allowed in permissionless projects (default 1 = STANDARD)
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -571,6 +592,23 @@ message RepOperationalParams {
 
   // Large project budget threshold for council approval (mirrors Params.large_project_budget_threshold)
   string large_project_budget_threshold = 57 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Permissionless creation fees (council-tunable)
+  string project_creation_fee = 58 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string initiative_creation_fee_apprentice = 59 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string initiative_creation_fee_standard = 60 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false

@@ -461,7 +461,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
 	})
-	projectID1, err := k.CreateProject(sdkCtx, TestAddrCreator, "P1", "D", []string{"alpha"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(0))
+	projectID1, err := k.CreateProject(sdkCtx, TestAddrCreator, "P1", "D", []string{"alpha"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(0), false)
 	require.NoError(t, err)
 	err = k.ApproveProject(sdkCtx, projectID1, TestAddrCreator, math.NewInt(100000), math.NewInt(0))
 	require.NoError(t, err)
@@ -500,7 +500,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
 	})
-	projectID2, err := k.CreateProject(sdkCtx, TestAddrCreator, "P2", "D", []string{"beta"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(0))
+	projectID2, err := k.CreateProject(sdkCtx, TestAddrCreator, "P2", "D", []string{"beta"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(0), false)
 	require.NoError(t, err)
 	err = k.ApproveProject(sdkCtx, projectID2, TestAddrCreator, math.NewInt(100000), math.NewInt(0))
 	require.NoError(t, err)

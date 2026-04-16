@@ -459,13 +459,20 @@ func TestMsgShieldedExecEncryptedBatchQueueFull(t *testing.T) {
 		TargetEpoch: 1,
 	}))
 
+	queueFullNullifier := make([]byte, 32)
+	copy(queueFullNullifier, "queue_full_test_nullifier")
+	queueFullRateLimit := make([]byte, 32)
+	copy(queueFullRateLimit, "queue_full_rate_limit")
+
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
-		Submitter:        submitter,
-		ExecMode:         types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
-		EncryptedPayload: []byte("encrypted_data"),
-		TargetEpoch:      1,
-		Nullifier:        []byte("null1"),
-		MerkleRoot:       []byte("root1"),
+		Submitter:          submitter,
+		ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
+		EncryptedPayload:   []byte("encrypted_data"),
+		TargetEpoch:        1,
+		Nullifier:          queueFullNullifier,
+		RateLimitNullifier: queueFullRateLimit,
+		MerkleRoot:         make([]byte, 32),
+		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrPendingQueueFull)

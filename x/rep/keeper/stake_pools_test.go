@@ -176,7 +176,7 @@ func TestExtendedStaking_ClaimRewards(t *testing.T) {
 	})
 
 	// Create project and initiative for stake target
-	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
 
@@ -217,7 +217,7 @@ func TestExtendedStaking_CompoundRewards(t *testing.T) {
 	})
 
 	// Create project and initiative
-	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
 
@@ -255,7 +255,7 @@ func TestExtendedStaking_PendingRewardsQuery(t *testing.T) {
 	})
 
 	// Create project and initiative
-	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
 
@@ -305,7 +305,7 @@ func TestExtendedStaking_ProjectStaking(t *testing.T) {
 	})
 
 	// Create project
-	projectID, err := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+	projectID, err := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	require.NoError(t, err)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
@@ -445,7 +445,7 @@ func TestDistributeInitiativeCompletionBonus(t *testing.T) {
 	// Create and approve project
 	projectID, err := k.CreateProject(ctx, creator, "TestProj", "Description",
 		[]string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE,
-		"technical", math.NewInt(100000), math.NewInt(10000))
+		"technical", math.NewInt(100000), math.NewInt(10000), false)
 	require.NoError(t, err)
 
 	approver := sdk.AccAddress([]byte("approver____________"))
@@ -567,7 +567,7 @@ func TestDistributeProjectCompletionBonus(t *testing.T) {
 	// Create and approve project
 	projectID, err := k.CreateProject(ctx, creator, "BonusProj", "Testing bonus",
 		[]string{"infra"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE,
-		"technical", math.NewInt(100000), math.NewInt(5000))
+		"technical", math.NewInt(100000), math.NewInt(5000), false)
 	require.NoError(t, err)
 
 	approver := sdk.AccAddress([]byte("proj_approver_______"))
@@ -632,7 +632,7 @@ func TestDistributeProjectCompletionBonus(t *testing.T) {
 	// Create a new project with no stakes
 	projectID2, err := k.CreateProject(ctx, creator, "EmptyProj", "No stakes",
 		[]string{"infra"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE,
-		"technical", math.NewInt(50000), math.NewInt(2000))
+		"technical", math.NewInt(50000), math.NewInt(2000), false)
 	require.NoError(t, err)
 	err = k.ApproveProject(ctx, projectID2, approver, math.NewInt(50000), math.NewInt(2000))
 	require.NoError(t, err)

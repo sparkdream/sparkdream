@@ -61,7 +61,7 @@ func TestMsgServerCancelProject(t *testing.T) {
 			ReputationScores: map[string]string{"tag": "100.0"},
 		})
 
-		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 
 		creatorStr, err := f.addressCodec.BytesToString(creator)
 		require.NoError(t, err)

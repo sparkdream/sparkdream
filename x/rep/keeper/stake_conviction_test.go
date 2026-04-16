@@ -158,7 +158,7 @@ func TestCanCompleteInitiative(t *testing.T) {
 			ReputationScores: map[string]string{"backend": "100.0"},
 		})
 
-		projectID, err := k.CreateProject(ctx, creator, "TestProj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000))
+		projectID, err := k.CreateProject(ctx, creator, "TestProj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 		require.NoError(t, err)
 
 		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
@@ -278,13 +278,16 @@ func TestCanCompleteInitiative(t *testing.T) {
 		// Create an active challenge for this initiative
 		challengeID, err := k.ChallengeSeq.Next(ctx)
 		require.NoError(t, err)
-		err = k.Challenge.Set(ctx, challengeID, types.Challenge{
+		challenge := types.Challenge{
 			Id:           challengeID,
 			InitiativeId: initID,
 			Challenger:   "cosmos1challenger",
 			Reason:       "quality concern",
 			Status:       types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
-		})
+		}
+		err = k.Challenge.Set(ctx, challengeID, challenge)
+		require.NoError(t, err)
+		err = k.AddChallengeToStatusIndex(ctx, challenge)
 		require.NoError(t, err)
 
 		canComplete, err := k.CanCompleteInitiative(ctx, initID)

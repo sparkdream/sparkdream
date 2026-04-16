@@ -127,6 +127,7 @@ func TestGetPendingStakingRewards_Project(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
+		false,
 	)
 	require.NoError(t, err)
 
@@ -186,6 +187,7 @@ func TestClaimStakingRewards_Success(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
+		false,
 	)
 	require.NoError(t, err)
 	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
@@ -243,6 +245,7 @@ func TestClaimStakingRewards_NotStakeOwner(t *testing.T) {
 		"Project", "Desc", []string{"tag1"},
 		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 		math.NewInt(1000), math.NewInt(100),
+		false,
 	)
 	require.NoError(t, err)
 	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
@@ -291,6 +294,7 @@ func TestClaimStakingRewards_ZeroRewards(t *testing.T) {
 		"Project", "Desc", []string{"tag1"},
 		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 		math.NewInt(1000), math.NewInt(100),
+		false,
 	)
 	require.NoError(t, err)
 	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
@@ -329,6 +333,7 @@ func TestCompoundStakingRewards_Success(t *testing.T) {
 		"Compound Project", "Desc", []string{"tag1"},
 		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 		math.NewInt(1000), math.NewInt(100),
+		false,
 	)
 	require.NoError(t, err)
 	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
@@ -386,6 +391,7 @@ func TestCompoundStakingRewards_NotStakeOwner(t *testing.T) {
 		"Project", "Desc", []string{"tag1"},
 		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 		math.NewInt(1000), math.NewInt(100),
+		false,
 	)
 	require.NoError(t, err)
 	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
@@ -424,6 +430,7 @@ func TestCompoundStakingRewards_ZeroRewards(t *testing.T) {
 		"Project", "Desc", []string{"tag1"},
 		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 		math.NewInt(1000), math.NewInt(100),
+		false,
 	)
 	require.NoError(t, err)
 	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))

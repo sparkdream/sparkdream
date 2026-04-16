@@ -89,6 +89,11 @@ var (
 	// Trust tree errors
 	ErrTrustTreeNotBuilt = errors.Register(ModuleName, 1901, "member trust tree has not been built yet")
 
+	// Permissionless creation errors
+	ErrInsufficientTrustLevel      = errors.Register(ModuleName, 1902, "trust level too low for permissionless creation")
+	ErrPermissionlessTierExceeded  = errors.Register(ModuleName, 1903, "tier exceeds maximum allowed for permissionless projects")
+	ErrInsufficientCreationFee     = errors.Register(ModuleName, 1904, "insufficient DREAM balance for creation fee")
+
 	// Content challenge errors
 	ErrContentChallengeNotFound  = errors.Register(ModuleName, 2001, "content challenge not found")
 	ErrContentChallengeExists    = errors.Register(ModuleName, 2002, "active content challenge already exists for this content")

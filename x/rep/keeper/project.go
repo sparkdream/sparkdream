@@ -11,7 +11,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// CreateProject creates a new project proposal
+// CreateProject creates a new project proposal (budget-backed) or a permissionless project.
+// When permissionless is true, the project skips committee approval and becomes ACTIVE immediately.
 func (k Keeper) CreateProject(
 	ctx context.Context,
 	creator sdk.AccAddress,
@@ -20,11 +21,17 @@ func (k Keeper) CreateProject(
 	category types.ProjectCategory,
 	council string,
 	requestedBudget, requestedSpark math.Int,
+	permissionless bool,
 ) (uint64, error) {
 	// Get next project ID
 	projectID, err := k.ProjectSeq.Next(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get next project ID: %w", err)
+	}
+
+	status := types.ProjectStatus_PROJECT_STATUS_PROPOSED
+	if permissionless {
+		status = types.ProjectStatus_PROJECT_STATUS_ACTIVE
 	}
 
 	// Create project
@@ -41,7 +48,8 @@ func (k Keeper) CreateProject(
 		SpentBudget:     PtrInt(math.ZeroInt()),
 		ApprovedSpark:   PtrInt(math.ZeroInt()),
 		SpentSpark:      PtrInt(math.ZeroInt()),
-		Status:          types.ProjectStatus_PROJECT_STATUS_PROPOSED,
+		Status:          status,
+		Permissionless:  permissionless,
 	}
 
 	// Store project
@@ -51,12 +59,17 @@ func (k Keeper) CreateProject(
 
 	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	eventType := "project_proposed"
+	if permissionless {
+		eventType = "project_created"
+	}
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
-			"project_proposed",
+			eventType,
 			sdk.NewAttribute("project_id", fmt.Sprintf("%d", projectID)),
 			sdk.NewAttribute("creator", creator.String()),
 			sdk.NewAttribute("council", council),
+			sdk.NewAttribute("permissionless", fmt.Sprintf("%t", permissionless)),
 			sdk.NewAttribute("requested_budget", requestedBudget.String()),
 			sdk.NewAttribute("requested_spark", requestedSpark.String()),
 		),
@@ -258,8 +271,14 @@ func (k Keeper) ReturnBudget(ctx context.Context, projectID uint64, amount math.
 		return err
 	}
 
+	// Guard against driving AllocatedBudget negative (e.g., double-return)
+	allocated := DerefInt(project.AllocatedBudget)
+	if allocated.LT(amount) {
+		return fmt.Errorf("cannot return %s: only %s allocated", amount.String(), allocated.String())
+	}
+
 	// Return allocated budget
-	project.AllocatedBudget = PtrInt(DerefInt(project.AllocatedBudget).Sub(amount))
+	project.AllocatedBudget = PtrInt(allocated.Sub(amount))
 
 	return k.UpdateProject(ctx, project)
 }

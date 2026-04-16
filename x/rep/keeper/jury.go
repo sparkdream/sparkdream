@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 
@@ -129,8 +130,8 @@ func (k Keeper) SelectJury(
 
 	// Iterate through all members
 	err = k.Member.Walk(ctx, nil, func(addr string, member types.Member) (stop bool, err error) {
-		// Skip if affiliated with initiative
-		if IsAffiliated(initiative, addr) {
+		// Skip if affiliated with initiative (including project creator)
+		if k.IsAffiliatedWithProject(ctx, initiative, addr) {
 			return false, nil
 		}
 
@@ -183,9 +184,23 @@ func (k Keeper) SelectJury(
 		weights[i] = totalRep.MustFloat64()
 	}
 
+	// Create a deterministic PRNG seeded from block hash + initiative ID.
+	// This ensures all validators produce identical jury selections for the
+	// same block, preventing consensus failure.
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	appHash := sdkCtx.BlockHeader().AppHash
+	var seed int64
+	if len(appHash) >= 8 {
+		seed = int64(binary.BigEndian.Uint64(appHash[:8])) ^ int64(initiative.Id)
+	} else {
+		// Fallback for genesis block or test contexts where AppHash is empty
+		seed = int64(initiative.Id) ^ sdkCtx.BlockHeight()
+	}
+	rng := rand.New(rand.NewSource(seed))
+
 	// Perform weighted random selection without replacement
 	for i := 0; i < int(jurySize); i++ {
-		selected := weightedRandomSelect(weights)
+		selected := weightedRandomSelect(rng, weights)
 		selectedJurors = append(selectedJurors, eligibleMembers[selected].Address)
 
 		// Remove selected juror from pool
@@ -196,8 +211,8 @@ func (k Keeper) SelectJury(
 	return selectedJurors, nil
 }
 
-// weightedRandomSelect performs weighted random selection
-func weightedRandomSelect(weights []float64) int {
+// weightedRandomSelect performs weighted random selection using a deterministic PRNG.
+func weightedRandomSelect(rng *rand.Rand, weights []float64) int {
 	total := 0.0
 	for _, w := range weights {
 		total += w
@@ -205,10 +220,10 @@ func weightedRandomSelect(weights []float64) int {
 
 	if total == 0 {
 		// If all weights are zero, use uniform random
-		return rand.Intn(len(weights))
+		return rng.Intn(len(weights))
 	}
 
-	r := rand.Float64() * total
+	r := rng.Float64() * total
 	sum := 0.0
 	for i, w := range weights {
 		sum += w

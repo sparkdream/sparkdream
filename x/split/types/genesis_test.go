@@ -5,6 +5,7 @@ import (
 
 	"sparkdream/x/split/types"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,18 +21,21 @@ func TestGenesisState_Validate(t *testing.T) {
 			valid:    true,
 		},
 		{
-			desc:     "valid genesis state",
-			genState: &types.GenesisState{ShareMap: []types.Share{{Address: "0"}, {Address: "1"}}},
-			valid:    true,
+			desc: "valid genesis state",
+			genState: &types.GenesisState{ShareMap: []types.Share{
+				{Address: sdk.AccAddress([]byte("share_addr_1________")).String()},
+				{Address: sdk.AccAddress([]byte("share_addr_2________")).String()},
+			}},
+			valid: true,
 		}, {
 			desc: "duplicated share",
 			genState: &types.GenesisState{
 				ShareMap: []types.Share{
 					{
-						Address: "0",
+						Address: sdk.AccAddress([]byte("share_addr_dup______")).String(),
 					},
 					{
-						Address: "0",
+						Address: sdk.AccAddress([]byte("share_addr_dup______")).String(),
 					},
 				},
 			},

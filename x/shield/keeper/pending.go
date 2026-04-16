@@ -6,17 +6,12 @@ import (
 	"sparkdream/x/shield/types"
 )
 
-// GetPendingOpCount returns the total number of pending operations.
+// GetPendingOpCountVal returns the total number of pending operations.
+// Reads from the PendingOpCount collections.Item instead of iterating all PendingOps.
 func (k Keeper) GetPendingOpCountVal(ctx context.Context) uint64 {
-	var count uint64
-	iter, err := k.PendingOps.Iterate(ctx, nil)
+	count, err := k.PendingOpCount.Get(ctx)
 	if err != nil {
 		return 0
-	}
-	defer iter.Close()
-
-	for ; iter.Valid(); iter.Next() {
-		count++
 	}
 	return count
 }
@@ -30,14 +25,33 @@ func (k Keeper) GetNextPendingOpID(ctx context.Context) uint64 {
 	return id
 }
 
-// SetPendingOp stores a pending shielded operation.
+// SetPendingOp stores a pending shielded operation and increments the counter.
 func (k Keeper) SetPendingOp(ctx context.Context, op types.PendingShieldedOp) error {
-	return k.PendingOps.Set(ctx, op.Id, op)
+	// Check if this is a new op or an overwrite
+	_, err := k.PendingOps.Get(ctx, op.Id)
+	isNew := err != nil
+
+	if err := k.PendingOps.Set(ctx, op.Id, op); err != nil {
+		return err
+	}
+	// Only increment count for new ops, not overwrites
+	if isNew {
+		count := k.GetPendingOpCountVal(ctx)
+		return k.PendingOpCount.Set(ctx, count+1)
+	}
+	return nil
 }
 
-// DeletePendingOp removes a pending operation.
+// DeletePendingOp removes a pending operation and decrements the counter.
 func (k Keeper) DeletePendingOp(ctx context.Context, id uint64) error {
-	return k.PendingOps.Remove(ctx, id)
+	if err := k.PendingOps.Remove(ctx, id); err != nil {
+		return err
+	}
+	count := k.GetPendingOpCountVal(ctx)
+	if count > 0 {
+		return k.PendingOpCount.Set(ctx, count-1)
+	}
+	return nil
 }
 
 // GetPendingOpsForEpoch returns all pending ops targeting a specific epoch.

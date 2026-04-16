@@ -39,6 +39,51 @@ func (k Keeper) CreateInitiative(
 		return 0, fmt.Errorf("failed to get params: %w", err)
 	}
 
+	// Permissionless projects: enforce tier cap
+	if project.Permissionless {
+		if uint32(tier) > params.PermissionlessMaxTier {
+			return 0, fmt.Errorf("tier %s exceeds permissionless max tier: %w", tier.String(), types.ErrPermissionlessTierExceeded)
+		}
+
+		// Validate trust level for initiative creation under permissionless projects
+		member, mErr := k.Member.Get(ctx, creator.String())
+		if mErr != nil {
+			return 0, fmt.Errorf("failed to get member: %w", mErr)
+		}
+		// APPRENTICE requires PROVISIONAL+, STANDARD requires ESTABLISHED+
+		var requiredTrust uint32
+		if tier == types.InitiativeTier_INITIATIVE_TIER_STANDARD {
+			requiredTrust = params.PermissionlessMinTrustLevel // ESTABLISHED
+		} else {
+			// APPRENTICE: one level below PermissionlessMinTrustLevel (min 1 = PROVISIONAL)
+			if params.PermissionlessMinTrustLevel > 1 {
+				requiredTrust = params.PermissionlessMinTrustLevel - 1
+			} else {
+				requiredTrust = 1 // At least PROVISIONAL
+			}
+		}
+		if uint32(member.TrustLevel) < requiredTrust {
+			return 0, fmt.Errorf("trust level %d below required %d for %s tier in permissionless project: %w",
+				member.TrustLevel, requiredTrust, tier.String(), types.ErrInsufficientTrustLevel)
+		}
+
+		// Burn initiative creation fee
+		var fee math.Int
+		switch tier {
+		case types.InitiativeTier_INITIATIVE_TIER_APPRENTICE:
+			fee = params.InitiativeCreationFeeApprentice
+		case types.InitiativeTier_INITIATIVE_TIER_STANDARD:
+			fee = params.InitiativeCreationFeeStandard
+		default:
+			fee = params.InitiativeCreationFeeStandard // fallback (shouldn't happen due to tier cap)
+		}
+		if fee.IsPositive() {
+			if err := k.BurnDREAM(ctx, creator, fee); err != nil {
+				return 0, fmt.Errorf("failed to burn initiative creation fee: %w", types.ErrInsufficientCreationFee)
+			}
+		}
+	}
+
 	// Validate budget is within tier limits
 	var tierConfig types.TierConfig
 	var tierName string
@@ -84,9 +129,11 @@ func (k Keeper) CreateInitiative(
 		}
 	}
 
-	// Allocate budget from project
-	if err := k.AllocateBudget(ctx, projectID, budget); err != nil {
-		return 0, fmt.Errorf("failed to allocate budget: %w", err)
+	// Allocate budget from project (skip for permissionless — no pre-allocated budget)
+	if !project.Permissionless {
+		if err := k.AllocateBudget(ctx, projectID, budget); err != nil {
+			return 0, fmt.Errorf("failed to allocate budget: %w", err)
+		}
 	}
 
 	// Get next initiative ID
@@ -360,9 +407,12 @@ func (k Keeper) AbandonInitiative(
 		return fmt.Errorf("only assignee can abandon initiative")
 	}
 
-	// Return budget to project
-	if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
-		return fmt.Errorf("failed to return budget: %w", err)
+	// Return budget to project (skip for permissionless — no pre-allocated budget)
+	project, projErr := k.GetProject(ctx, initiative.ProjectId)
+	if projErr == nil && !project.Permissionless {
+		if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
+			return fmt.Errorf("failed to return budget: %w", err)
+		}
 	}
 
 	// Update initiative
@@ -587,9 +637,12 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		}
 	}
 
-	// Mark budget as spent in project
-	if err := k.SpendBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
-		return fmt.Errorf("failed to mark budget as spent: %w", err)
+	// Mark budget as spent in project (skip for permissionless — no pre-allocated budget)
+	completionProject, projErr := k.GetProject(ctx, initiative.ProjectId)
+	if projErr == nil && !completionProject.Permissionless {
+		if err := k.SpendBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
+			return fmt.Errorf("failed to mark budget as spent: %w", err)
+		}
 	}
 
 	// Update initiative

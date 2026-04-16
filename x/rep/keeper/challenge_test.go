@@ -28,6 +28,7 @@ func TestCreateChallenge(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
+	false,
 	)
 	require.NoError(t, err)
 
@@ -118,6 +119,7 @@ func TestRespondToChallenge(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
+	false,
 	)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
 
@@ -221,6 +223,7 @@ func TestChallengeResponseDeadline(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
+	false,
 	)
 	require.NoError(t, err)
 
@@ -311,6 +314,7 @@ func TestChallengeAutoUpholdOnExpiration(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
+	false,
 	)
 	require.NoError(t, err)
 
@@ -426,6 +430,7 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
+	false,
 	)
 	require.NoError(t, err)
 
@@ -545,7 +550,7 @@ func TestHasActiveChallenges(t *testing.T) {
 
 		projectID, err := k.CreateProject(ctx, sdk.AccAddress([]byte("addr1")), "Proj", "D",
 			[]string{"tag1"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
-			math.NewInt(1000), math.NewInt(100))
+			math.NewInt(1000), math.NewInt(100), false)
 		require.NoError(t, err)
 		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
 
@@ -689,7 +694,7 @@ func TestTriageChallenge(t *testing.T) {
 		// Setup a project and initiative so we can create a real challenge
 		projectID, err := k.CreateProject(ctx, sdk.AccAddress([]byte("addr1")), "Proj", "D",
 			[]string{"tag1"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
-			math.NewInt(1000), math.NewInt(100))
+			math.NewInt(1000), math.NewInt(100), false)
 		require.NoError(t, err)
 		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
 
@@ -731,7 +736,7 @@ func TestTriageChallenge(t *testing.T) {
 
 		projectID, err := k.CreateProject(ctx, sdk.AccAddress([]byte("addr1")), "Proj", "D",
 			[]string{"tag1"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
-			math.NewInt(1000), math.NewInt(100))
+			math.NewInt(1000), math.NewInt(100), false)
 		require.NoError(t, err)
 		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
 
@@ -775,7 +780,7 @@ func TestEscalateChallengeToCommittee(t *testing.T) {
 	// Setup project + initiative
 	projectID, err := k.CreateProject(ctx, sdk.AccAddress([]byte("addr1")), "Proj", "D",
 		[]string{"tag1"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
-		math.NewInt(1000), math.NewInt(100))
+		math.NewInt(1000), math.NewInt(100), false)
 	require.NoError(t, err)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
 

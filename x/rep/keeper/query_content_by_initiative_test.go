@@ -36,6 +36,7 @@ func setupInitiativeForContentLink(t *testing.T, f *fixture) uint64 {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
+		false,
 	)
 	require.NoError(t, err)
 	f.keeper.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))

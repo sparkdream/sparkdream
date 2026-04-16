@@ -15,89 +15,66 @@ import (
 // TestShieldedExecRateLimitExhaustion verifies that the rate limit is enforced
 // end-to-end through the ShieldedExec handler (not just via direct method call).
 // This is P0 security: prevents DoS via free shielded execution.
+// Uses encrypted batch mode since immediate mode requires a VK to be stored.
 func TestShieldedExecRateLimitExhaustion(t *testing.T) {
 	f, ms := initMsgServer(t)
 
 	submitter, err := f.addressCodec.BytesToString(authtypes.NewModuleAddress("test"))
 	require.NoError(t, err)
 
-	// Register a test operation (IMMEDIATE mode, no VK stored → proof skipped)
-	require.NoError(t, f.keeper.SetShieldedOp(f.ctx, types.ShieldedOpRegistration{
-		MessageTypeUrl:     "/sparkdream.blog.v1.MsgCreatePost",
-		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-		MinTrustLevel:      0,
-		NullifierDomain:    1,
-		NullifierScopeType: types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH,
-		Active:             true,
-		BatchMode:          types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY,
-	}))
-
 	// Set epoch
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 1}))
 
-	// Set rate limit to 3
+	// Enable encrypted batch with rate limit of 3
 	params, err := f.keeper.Params.Get(f.ctx)
 	require.NoError(t, err)
 	params.MaxExecsPerIdentityPerEpoch = 3
+	params.EncryptedBatchEnabled = true
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	// Use the same rate limit nullifier for all calls
-	rateLimitNullifier := []byte("same_rate_limit_identity_key_32b")
+	sameRateLimit := make([]byte, 32)
+	copy(sameRateLimit, "same_rate_limit_identity_key")
 
 	// Submit 3 successful shielded execs (each with unique nullifier but same rate limit identity)
 	for i := 0; i < 3; i++ {
 		uniqueNullifier := make([]byte, 32)
-		copy(uniqueNullifier, fmt.Sprintf("unique_nullifier_%d_padding_____", i))
+		copy(uniqueNullifier, fmt.Sprintf("unique_nullifier_%d_padding", i))
 
 		_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
-			Submitter: submitter,
-			ExecMode:  types.ShieldExecMode_SHIELD_EXEC_IMMEDIATE,
-			InnerMessage: &any.Any{
-				TypeUrl: "/sparkdream.blog.v1.MsgCreatePost",
-				Value:   []byte("data"),
-			},
+			Submitter:          submitter,
+			ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
+			EncryptedPayload:   []byte("encrypted_data"),
+			TargetEpoch:        1,
+			Nullifier:          uniqueNullifier,
+			RateLimitNullifier: sameRateLimit,
+			MerkleRoot:         make([]byte, 32),
 			ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 			MinTrustLevel:      1,
-			Nullifier:          uniqueNullifier,
-			RateLimitNullifier: rateLimitNullifier,
 		})
-		// These will fail at executeInnerMessage (no router), but the nullifier and
-		// rate limit are checked BEFORE inner message execution. If proof verification
-		// is skipped (no VK), execution proceeds to inner message dispatch.
-		// The error from the inner message (no router) is expected but the rate limit
-		// counter IS incremented before the error is returned.
-		//
-		// Actually, let's verify: the rate limit is checked at step 7, and
-		// executeInnerMessage is at step 8. If step 8 fails, the rate limit
-		// counter was already incremented.
-		if err != nil {
-			// Expected: inner message execution fails (no router).
-			// But the rate limit counter should have been incremented.
-			t.Logf("  exec %d: error=%v (expected — no router for inner message)", i, err)
-		}
+		require.NoError(t, err, "submission %d should succeed", i)
 	}
 
-	// 4th call should hit rate limit (even though inner message would fail anyway)
+	// 4th call should hit rate limit
 	uniqueNullifier4 := make([]byte, 32)
-	copy(uniqueNullifier4, "unique_nullifier_4_padding_____")
+	copy(uniqueNullifier4, "unique_nullifier_3_padding")
 
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
-		Submitter: submitter,
-		ExecMode:  types.ShieldExecMode_SHIELD_EXEC_IMMEDIATE,
-		InnerMessage: &any.Any{
-			TypeUrl: "/sparkdream.blog.v1.MsgCreatePost",
-			Value:   []byte("data"),
-		},
+		Submitter:          submitter,
+		ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
+		EncryptedPayload:   []byte("encrypted_data"),
+		TargetEpoch:        1,
+		Nullifier:          uniqueNullifier4,
+		RateLimitNullifier: sameRateLimit,
+		MerkleRoot:         make([]byte, 32),
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 		MinTrustLevel:      1,
-		Nullifier:          uniqueNullifier4,
-		RateLimitNullifier: rateLimitNullifier,
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrRateLimitExceeded)
 
 	// Verify rate limit count via query
-	rateLimitHex := hex.EncodeToString(rateLimitNullifier)
+	rateLimitHex := hex.EncodeToString(sameRateLimit)
 	count := f.keeper.GetIdentityRateLimitCount(f.ctx, rateLimitHex)
 	require.Equal(t, uint64(3), count)
 }
@@ -143,8 +120,10 @@ func TestEncryptedBatchSubmissionHappyPath(t *testing.T) {
 	// Set epoch
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 5}))
 
-	nullifier := []byte("nullifier_for_batch_happy_path_")
-	rateLimitNull := []byte("rate_limit_batch_happy_path____")
+	nullifier := make([]byte, 32)
+	copy(nullifier, "nullifier_for_batch_happy_path")
+	rateLimitNull := make([]byte, 32)
+	copy(rateLimitNull, "rate_limit_batch_happy_path")
 
 	resp, err := ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 		Submitter:          submitter,
@@ -153,7 +132,7 @@ func TestEncryptedBatchSubmissionHappyPath(t *testing.T) {
 		TargetEpoch:        5,
 		Nullifier:          nullifier,
 		RateLimitNullifier: rateLimitNull,
-		MerkleRoot:         []byte("merkle_root"),
+		MerkleRoot:         make([]byte, 32),
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 		MinTrustLevel:      1,
 	})
@@ -190,7 +169,8 @@ func TestEncryptedBatchNullifierReplay(t *testing.T) {
 	// Set epoch
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 1}))
 
-	sameNullifier := []byte("same_nullifier_for_replay_test_")
+	sameNullifier := make([]byte, 32)
+	copy(sameNullifier, "same_nullifier_for_replay_test")
 
 	// First submission succeeds
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
@@ -199,8 +179,8 @@ func TestEncryptedBatchNullifierReplay(t *testing.T) {
 		EncryptedPayload:   []byte("first_encrypted_vote"),
 		TargetEpoch:        1,
 		Nullifier:          sameNullifier,
-		RateLimitNullifier: []byte("rate_1_nullifier_replay_test___"),
-		MerkleRoot:         []byte("root"),
+		RateLimitNullifier: func() []byte { b := make([]byte, 32); copy(b, "rate_1_replay"); return b }(),
+		MerkleRoot:         make([]byte, 32),
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 	})
 	require.NoError(t, err)
@@ -212,8 +192,8 @@ func TestEncryptedBatchNullifierReplay(t *testing.T) {
 		EncryptedPayload:   []byte("second_encrypted_vote"),
 		TargetEpoch:        1,
 		Nullifier:          sameNullifier,
-		RateLimitNullifier: []byte("rate_2_nullifier_replay_test___"),
-		MerkleRoot:         []byte("root"),
+		RateLimitNullifier: func() []byte { b := make([]byte, 32); copy(b, "rate_2_replay"); return b }(),
+		MerkleRoot:         make([]byte, 32),
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 	})
 	require.Error(t, err)
@@ -237,7 +217,8 @@ func TestEncryptedBatchRateLimitExhaustion(t *testing.T) {
 
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 1}))
 
-	sameRateLimit := []byte("same_rate_limit_batch_exhaust_")
+	sameRateLimit := make([]byte, 32)
+	copy(sameRateLimit, "same_rate_limit_batch_exhaust")
 
 	// Two successful submissions
 	for i := 0; i < 2; i++ {
@@ -251,7 +232,7 @@ func TestEncryptedBatchRateLimitExhaustion(t *testing.T) {
 			TargetEpoch:        1,
 			Nullifier:          uniqueNull,
 			RateLimitNullifier: sameRateLimit,
-			MerkleRoot:         []byte("root"),
+			MerkleRoot:         make([]byte, 32),
 			ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 		})
 		require.NoError(t, err, "submission %d should succeed", i)
@@ -268,7 +249,7 @@ func TestEncryptedBatchRateLimitExhaustion(t *testing.T) {
 		TargetEpoch:        1,
 		Nullifier:          thirdNull,
 		RateLimitNullifier: sameRateLimit,
-		MerkleRoot:         []byte("root"),
+		MerkleRoot:         make([]byte, 32),
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 	})
 	require.Error(t, err)

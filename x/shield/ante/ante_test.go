@@ -20,8 +20,9 @@ import (
 // --- Mock types ---
 
 type mockShieldKeeper struct {
-	params shieldtypes.Params
-	err    error
+	params          shieldtypes.Params
+	err             error
+	submitterCounts map[string]uint64
 }
 
 func (m mockShieldKeeper) GetShieldParams(ctx sdk.Context) (shieldtypes.Params, error) {
@@ -29,6 +30,17 @@ func (m mockShieldKeeper) GetShieldParams(ctx sdk.Context) (shieldtypes.Params, 
 		return shieldtypes.Params{}, m.err
 	}
 	return m.params, nil
+}
+
+func (m mockShieldKeeper) GetCurrentEpoch(_ context.Context) uint64 {
+	return 1
+}
+
+func (m mockShieldKeeper) GetSubmitterExecCount(_ context.Context, _ uint64, _ string) uint64 {
+	return 0
+}
+
+func (m mockShieldKeeper) IncrementSubmitterExecCount(_ context.Context, _ uint64, _ string) {
 }
 
 type mockBankKeeper struct {
@@ -61,6 +73,17 @@ func (m mockTx) FeeGranter() []byte                  { return nil }
 // terminalHandler is a no-op next handler
 func terminalHandler(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
 	return ctx, nil
+}
+
+// validShieldedExec returns a MsgShieldedExec that passes ante-handler anti-spam checks
+// (32-byte nullifier, submitter address). The inner message and proof are not validated
+// by the ante handler — only by the msg_server.
+func validShieldedExec() *shieldtypes.MsgShieldedExec {
+	return &shieldtypes.MsgShieldedExec{
+		Submitter: "cosmos1testsubmitter",
+		Nullifier: make([]byte, 32),
+		ExecMode:  shieldtypes.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
+	}
 }
 
 // --- ShieldGasDecorator Tests ---
@@ -130,7 +153,7 @@ func TestShieldGasDecorator_ZeroFees(t *testing.T) {
 	decorator := shieldante.NewShieldGasDecorator(sk, bk)
 
 	tx := mockTx{
-		msgs: []sdk.Msg{&shieldtypes.MsgShieldedExec{}},
+		msgs: []sdk.Msg{validShieldedExec()},
 		fees: sdk.Coins{}, // Zero fees
 	}
 
@@ -153,7 +176,7 @@ func TestShieldGasDecorator_FeesPaid(t *testing.T) {
 	decorator := shieldante.NewShieldGasDecorator(sk, bk)
 
 	tx := mockTx{
-		msgs: []sdk.Msg{&shieldtypes.MsgShieldedExec{}},
+		msgs: []sdk.Msg{validShieldedExec()},
 		fees: sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000))),
 	}
 
@@ -176,7 +199,7 @@ func TestShieldGasDecorator_GasDepleted(t *testing.T) {
 	decorator := shieldante.NewShieldGasDecorator(sk, bk)
 
 	tx := mockTx{
-		msgs: []sdk.Msg{&shieldtypes.MsgShieldedExec{}},
+		msgs: []sdk.Msg{validShieldedExec()},
 		fees: sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000))),
 	}
 

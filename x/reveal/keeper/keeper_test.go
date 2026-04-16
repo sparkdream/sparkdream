@@ -138,7 +138,7 @@ func (m *mockRepKeeper) DeductReputation(ctx context.Context, memberAddr sdk.Acc
 	return nil
 }
 
-func (m *mockRepKeeper) CreateProject(ctx context.Context, creator sdk.AccAddress, name, description string, tags []string, category reptypes.ProjectCategory, council string, requestedBudget, requestedSpark math.Int) (uint64, error) {
+func (m *mockRepKeeper) CreateProject(ctx context.Context, creator sdk.AccAddress, name, description string, tags []string, category reptypes.ProjectCategory, council string, requestedBudget, requestedSpark math.Int, permissionless bool) (uint64, error) {
 	if m.createProjectFn != nil {
 		return m.createProjectFn(ctx, creator, name, description, tags, category, council, requestedBudget, requestedSpark)
 	}

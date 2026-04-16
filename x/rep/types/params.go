@@ -160,6 +160,15 @@ func DefaultParams() Params {
 
 		// Anti-collusion: projects above this budget require council proposal approval (not single committee member)
 		LargeProjectBudgetThreshold: math.NewInt(10000000000), // 10,000 DREAM (Epic tier max)
+
+		// Permissionless creation fees (burned on creation — anti-spam + deflationary)
+		ProjectCreationFee:              math.NewInt(5000000),  // 5 DREAM
+		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
+		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
+
+		// Permissionless access control (governance-only)
+		PermissionlessMinTrustLevel: 2, // ESTABLISHED
+		PermissionlessMaxTier:       1, // STANDARD (0=APPRENTICE, 1=STANDARD)
 	}
 }
 
@@ -289,6 +298,23 @@ func (p Params) Validate() error {
 		return fmt.Errorf("large project budget threshold must be positive: %s", p.LargeProjectBudgetThreshold)
 	}
 
+	// Permissionless creation fees
+	if p.ProjectCreationFee.IsNegative() {
+		return fmt.Errorf("project creation fee cannot be negative: %s", p.ProjectCreationFee)
+	}
+	if p.InitiativeCreationFeeApprentice.IsNegative() {
+		return fmt.Errorf("initiative creation fee (apprentice) cannot be negative: %s", p.InitiativeCreationFeeApprentice)
+	}
+	if p.InitiativeCreationFeeStandard.IsNegative() {
+		return fmt.Errorf("initiative creation fee (standard) cannot be negative: %s", p.InitiativeCreationFeeStandard)
+	}
+	if p.PermissionlessMinTrustLevel > 4 {
+		return fmt.Errorf("permissionless min trust level must be 0-4: %d", p.PermissionlessMinTrustLevel)
+	}
+	if p.PermissionlessMaxTier > 3 {
+		return fmt.Errorf("permissionless max tier must be 0-3: %d", p.PermissionlessMaxTier)
+	}
+
 	return nil
 }
 
@@ -372,6 +398,10 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		// Anti-collusion caps
 		MaxInitiativeRewardsPerSeason: math.NewInt(100000000000000), // 100,000 DREAM
 		LargeProjectBudgetThreshold:   math.NewInt(10000000000),     // 10,000 DREAM
+		// Permissionless creation fees
+		ProjectCreationFee:              math.NewInt(5000000),  // 5 DREAM
+		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
+		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
 	}
 }
 
@@ -480,6 +510,16 @@ func (op RepOperationalParams) Validate() error {
 	if !op.LargeProjectBudgetThreshold.IsPositive() {
 		return fmt.Errorf("large project budget threshold must be positive: %s", op.LargeProjectBudgetThreshold)
 	}
+	// Permissionless creation fees
+	if op.ProjectCreationFee.IsNegative() {
+		return fmt.Errorf("project creation fee cannot be negative: %s", op.ProjectCreationFee)
+	}
+	if op.InitiativeCreationFeeApprentice.IsNegative() {
+		return fmt.Errorf("initiative creation fee (apprentice) cannot be negative: %s", op.InitiativeCreationFeeApprentice)
+	}
+	if op.InitiativeCreationFeeStandard.IsNegative() {
+		return fmt.Errorf("initiative creation fee (standard) cannot be negative: %s", op.InitiativeCreationFeeStandard)
+	}
 	return nil
 }
 
@@ -563,6 +603,10 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	// Anti-collusion caps
 	p.MaxInitiativeRewardsPerSeason = op.MaxInitiativeRewardsPerSeason
 	p.LargeProjectBudgetThreshold = op.LargeProjectBudgetThreshold
+	// Permissionless creation fees
+	p.ProjectCreationFee = op.ProjectCreationFee
+	p.InitiativeCreationFeeApprentice = op.InitiativeCreationFeeApprentice
+	p.InitiativeCreationFeeStandard = op.InitiativeCreationFeeStandard
 	return p
 }
 
@@ -646,5 +690,9 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		// Anti-collusion caps
 		MaxInitiativeRewardsPerSeason: p.MaxInitiativeRewardsPerSeason,
 		LargeProjectBudgetThreshold:   p.LargeProjectBudgetThreshold,
+		// Permissionless creation fees
+		ProjectCreationFee:              p.ProjectCreationFee,
+		InitiativeCreationFeeApprentice: p.InitiativeCreationFeeApprentice,
+		InitiativeCreationFeeStandard:   p.InitiativeCreationFeeStandard,
 	}
 }
