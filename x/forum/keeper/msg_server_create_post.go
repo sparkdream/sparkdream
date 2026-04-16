@@ -196,11 +196,15 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	var expirationTime int64
 	if !isMember {
 		expirationTime = now + params.EphemeralTtl
-		// Charge spam tax to non-members
+		// Charge spam tax to non-members and burn it
 		if params.SpamTax.IsPositive() {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.SpamTax)); err != nil {
+			spamTaxCoins := sdk.NewCoins(params.SpamTax)
+			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, spamTaxCoins); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to charge spam tax")
+			}
+			if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, spamTaxCoins); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to burn spam tax")
 			}
 		}
 	}

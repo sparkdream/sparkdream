@@ -119,8 +119,12 @@ func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (
 		}
 	}
 
-	// Update collection
-	coll.ItemCount -= uint64(batchSize)
+	// Update collection (guard against unsigned underflow)
+	if coll.ItemCount < uint64(batchSize) {
+		coll.ItemCount = 0
+	} else {
+		coll.ItemCount -= uint64(batchSize)
+	}
 	coll.UpdatedAt = blockHeight
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update collection")

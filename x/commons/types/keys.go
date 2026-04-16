@@ -50,4 +50,6 @@ var (
 	VetoPoliciesKey = collections.NewPrefix("vetoPolicies/value/")
 	// AnonVoteTallies: proposal_id -> AnonVoteTally (anonymous vote counts)
 	AnonVoteTalliesKey = collections.NewPrefix("anonVoteTallies/value/")
+	// EpochSpending: (policy_address, epoch_day) -> cumulative uspark spent (string-encoded math.Int)
+	EpochSpendingKey = collections.NewPrefix("epochSpending/value/")
 )

@@ -138,6 +138,14 @@ func (m *mockRepKeeper) BurnDREAM(_ context.Context, _ sdk.AccAddress, _ math.In
 	return nil
 }
 
+func (m *mockRepKeeper) LockDREAM(_ context.Context, _ sdk.AccAddress, _ math.Int) error {
+	return nil
+}
+
+func (m *mockRepKeeper) UnlockDREAM(_ context.Context, _ sdk.AccAddress, _ math.Int) error {
+	return nil
+}
+
 // --- IBC Mocks ---
 
 type mockUpgradeKeeper struct {

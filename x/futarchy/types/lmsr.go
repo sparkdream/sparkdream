@@ -15,7 +15,9 @@ var (
 	// Charge 200 Gas per iteration (adjust based on benchmark)
 	LmsrIterationGasCost = uint64(200)
 
-	// Default max exponent for safety (can be overridden by params)
+	// Default max exponent for safety.
+	// TODO: This should be parameterized using the MaxLmsrExponent param
+	// from the futarchy module params. Currently hardcoded for simplicity.
 	DefaultMaxExponent = math.LegacyNewDec(20)
 )
 
@@ -31,11 +33,12 @@ func ClampExponent(x math.LegacyDec, maxExp math.LegacyDec) math.LegacyDec {
 	return x
 }
 
-// CalculateLMSRCost now accepts ctx and validates inputs
-func CalculateLMSRCost(ctx sdk.Context, b math.LegacyDec, qYes, qNo math.LegacyDec) math.LegacyDec {
+// CalculateLMSRCost calculates the LMSR cost function.
+// Returns an error instead of panicking on invalid inputs (e.g. b <= 0).
+func CalculateLMSRCost(ctx sdk.Context, b math.LegacyDec, qYes, qNo math.LegacyDec) (math.LegacyDec, error) {
 	// Validate b is positive
 	if b.LTE(math.LegacyZeroDec()) {
-		panic(fmt.Sprintf("CalculateLMSRCost: b must be positive, got %s", b.String()))
+		return math.LegacyZeroDec(), fmt.Errorf("CalculateLMSRCost: b must be positive, got %s", b.String())
 	}
 
 	x := qYes.Quo(b)
@@ -57,10 +60,13 @@ func CalculateLMSRCost(ctx sdk.Context, b math.LegacyDec, qYes, qNo math.LegacyD
 	sum := term1.Add(term2)
 
 	// Pass ctx to Ln
-	lnSum := Ln(ctx, sum)
+	lnSum, err := Ln(ctx, sum)
+	if err != nil {
+		return math.LegacyZeroDec(), fmt.Errorf("CalculateLMSRCost: ln failed: %w", err)
+	}
 	result := b.Mul(max.Add(lnSum))
 
-	return result
+	return result, nil
 }
 
 // Exp consumes gas per loop
@@ -86,10 +92,10 @@ func Exp(ctx sdk.Context, x math.LegacyDec) math.LegacyDec {
 	return result
 }
 
-// Ln consumes gas per loop
-func Ln(ctx sdk.Context, x math.LegacyDec) math.LegacyDec {
+// Ln computes the natural logarithm. Returns an error if x <= 0 instead of panicking.
+func Ln(ctx sdk.Context, x math.LegacyDec) (math.LegacyDec, error) {
 	if x.LTE(math.LegacyZeroDec()) {
-		panic("Ln undefined for <= 0")
+		return math.LegacyZeroDec(), fmt.Errorf("Ln undefined for x <= 0, got %s", x.String())
 	}
 
 	result := math.LegacyZeroDec()
@@ -115,5 +121,5 @@ func Ln(ctx sdk.Context, x math.LegacyDec) math.LegacyDec {
 		}
 	}
 
-	return result.MulInt64(2)
+	return result.MulInt64(2), nil
 }

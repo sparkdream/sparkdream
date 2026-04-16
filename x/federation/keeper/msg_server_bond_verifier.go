@@ -53,8 +53,12 @@ func (k msgServer) BondVerifier(ctx context.Context, msg *types.MsgBondVerifier)
 		}
 	}
 
-	// 3. Transfer DREAM from creator to federation module (TODO: actual DREAM transfer via x/rep)
-	// For now, just track the bond amount
+	// 3. Lock DREAM from creator via x/rep
+	if k.late.repKeeper != nil {
+		if err := k.late.repKeeper.LockDREAM(ctx, sdk.AccAddress(creatorBytes), msg.Amount); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to lock DREAM for verifier bond")
+		}
+	}
 
 	// 4. Increment current_bond
 	existing.CurrentBond = existing.CurrentBond.Add(msg.Amount)

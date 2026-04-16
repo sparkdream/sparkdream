@@ -34,7 +34,11 @@ func (k Keeper) processExpiredDisputes(ctx context.Context) error {
 			continue
 		}
 
-		// Skip inactive disputes
+		// Skip already-resolved (inactive) disputes early to minimize work.
+		// Note: resolved disputes remain in storage for historical queries but
+		// do not need processing. A secondary index keyed by Active status
+		// would avoid iterating them entirely, but the expected dispute count
+		// is low enough that this is acceptable.
 		if !dispute.Active {
 			continue
 		}

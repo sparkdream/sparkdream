@@ -82,7 +82,10 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 	}
 
 	// 4. Calculate "Current Cost" (Pass ctx)
-	currentCost := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo)
+	currentCost, err := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo)
+	if err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+	}
 
 	// 5. Calculate "New Cost" using amount after fee
 	newCost := currentCost.Add(math.LegacyNewDecFromInt(amountAfterFee))
@@ -104,7 +107,10 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 				"trade too large: would deplete market liquidity")
 		}
 
-		lnTerm := types.Ln(ctx, oneMinus)
+		lnTerm, err := types.Ln(ctx, oneMinus)
+		if err != nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+		}
 		newPoolYes = newCost.Add(bValue.Mul(lnTerm))
 		sharesOut = newPoolYes.Sub(poolYes)
 
@@ -124,7 +130,10 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 				"trade too large: would deplete market liquidity")
 		}
 
-		lnTerm := types.Ln(ctx, oneMinus)
+		lnTerm, err := types.Ln(ctx, oneMinus)
+		if err != nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+		}
 		newPoolNo = newCost.Add(bValue.Mul(lnTerm))
 		sharesOut = newPoolNo.Sub(poolNo)
 
@@ -146,14 +155,10 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 
 	// 7. Send fee to fee collector (if any fee)
 	if feeAmount.GT(math.ZeroInt()) {
-		feeCollectorAddr := k.authKeeper.GetModuleAddress("fee_collector")
-		if feeCollectorAddr != nil {
-			feeCoin := sdk.NewCoin(amountIn.Denom, feeAmount)
-			err = k.bankKeeper.SendCoinsFromModuleToModule(goCtx, types.ModuleName, "fee_collector", sdk.NewCoins(feeCoin))
-			if err != nil {
-				// Log but don't fail if fee_collector doesn't exist
-				ctx.Logger().Error("failed to send trading fee to fee_collector", "error", err)
-			}
+		feeCoin := sdk.NewCoin(amountIn.Denom, feeAmount)
+		err = k.bankKeeper.SendCoinsFromModuleToModule(goCtx, types.ModuleName, "fee_collector", sdk.NewCoins(feeCoin))
+		if err != nil {
+			return nil, errorsmod.Wrap(err, "failed to send trading fee to fee_collector")
 		}
 	}
 

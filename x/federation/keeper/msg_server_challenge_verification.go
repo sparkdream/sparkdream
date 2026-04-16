@@ -75,7 +75,12 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 			}
 		}
 		// Escalating fee: challenge_fee * 2^(prior_rejected_challenges)
-		multiplier := uint64(1) << record.PriorRejectedChallenges
+		// Cap the shift at 20 to prevent bit-shift overflow (2^20 = 1M multiplier is already extreme)
+		shifts := record.PriorRejectedChallenges
+		if shifts > 20 {
+			shifts = 20
+		}
+		multiplier := uint64(1) << shifts
 		effectiveFee.Amount = effectiveFee.Amount.MulRaw(int64(multiplier))
 	}
 
@@ -92,8 +97,9 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 		return nil, err
 	}
 
-	// 8. VerificationRecord outcome → CHALLENGED
+	// 8. VerificationRecord outcome → CHALLENGED, store challenger address
 	record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_CHALLENGED
+	record.Challenger = msg.Creator
 	if err := k.VerificationRecords.Set(ctx, msg.ContentId, record); err != nil {
 		return nil, err
 	}

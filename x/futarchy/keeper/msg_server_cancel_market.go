@@ -53,14 +53,13 @@ func (k msgServer) CancelMarket(goCtx context.Context, msg *types.MsgCancelMarke
 		ctx.Logger().Info("market not in active index during cancellation", "market_id", msg.MarketId)
 	}
 
-	// Refund remaining liquidity to creator
-	// Calculate how much liquidity is left in the market
-	// Total shares minted = poolYes + poolNo
-	totalShares := market.PoolYes.Add(*market.PoolNo)
-
-	// Liquidity to refund = initial_liquidity - total_shares_minted
-	// (since each share minted required 1 unit of liquidity from users)
-	liquidityToRefund := market.InitialLiquidity.Sub(totalShares)
+	// Refund the full initial liquidity to creator.
+	// LMSR is a scoring rule: the initial liquidity is the maximum subsidy the market maker deposits.
+	// Trades adjust pool quantities but the cost function operates on these quantities —
+	// it does not subtract collateral from a pool. The module account holds exactly
+	// InitialLiquidity minus any prior withdrawals, so refunding InitialLiquidity is correct.
+	alreadyWithdrawn := *market.LiquidityWithdrawn
+	liquidityToRefund := market.InitialLiquidity.Sub(alreadyWithdrawn)
 
 	if liquidityToRefund.IsPositive() {
 		creatorAddr, err := sdk.AccAddressFromBech32(market.Creator)

@@ -165,6 +165,8 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 	}
 
 	// Tombstone: clear content, mark deleted
+	// TODO: Clean up orphaned reaction counts (ReactionCounts) and individual Reaction records
+	// for this post on expiry. Currently they persist in storage after tombstoning.
 	post.Title = ""
 	post.Body = ""
 	post.Status = types.PostStatus_POST_STATUS_DELETED
@@ -253,6 +255,8 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 	}
 
 	// Tombstone: clear content, mark deleted
+	// TODO: Clean up orphaned reaction counts (ReactionCounts) and individual Reaction records
+	// for this reply on expiry. Currently they persist in storage after tombstoning.
 	wasActive := reply.Status == types.ReplyStatus_REPLY_STATUS_ACTIVE
 	reply.Body = ""
 	reply.Status = types.ReplyStatus_REPLY_STATUS_DELETED

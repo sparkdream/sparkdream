@@ -118,19 +118,20 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 		}
 	}
 
-	if newLevel > member.TrustLevel {
+	if newLevel != member.TrustLevel {
 		oldLevel := member.TrustLevel
 		member.TrustLevel = newLevel
 		member.TrustLevelUpdatedAt = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
 
-		// Grant invitation credits for the new trust level
-		// Only grant if new level has more credits than old level
-		oldMaxCredits := GetMaxInvitationCredits(config, oldLevel)
-		newMaxCredits := GetMaxInvitationCredits(config, newLevel)
-		if newMaxCredits > oldMaxCredits {
-			// Grant the difference (bonus credits for upgrading)
-			creditsToGrant := newMaxCredits - oldMaxCredits
-			member.InvitationCredits += creditsToGrant
+		// Grant invitation credits for the new trust level (only on upgrade)
+		if newLevel > oldLevel {
+			oldMaxCredits := GetMaxInvitationCredits(config, oldLevel)
+			newMaxCredits := GetMaxInvitationCredits(config, newLevel)
+			if newMaxCredits > oldMaxCredits {
+				// Grant the difference (bonus credits for upgrading)
+				creditsToGrant := newMaxCredits - oldMaxCredits
+				member.InvitationCredits += creditsToGrant
+			}
 		}
 
 		if err := k.Member.Set(ctx, memberAddr.String(), member); err != nil {

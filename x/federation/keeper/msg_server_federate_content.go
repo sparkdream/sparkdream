@@ -17,6 +17,14 @@ func (k msgServer) FederateContent(ctx context.Context, msg *types.MsgFederateCo
 	}
 	_ = creatorBytes
 
+	// NOTE: This handler does not verify that msg.Creator owns the local content
+	// referenced by msg.LocalContentId. Enforcing ownership would require cross-module
+	// calls (e.g., blogKeeper.GetPost, forumKeeper.GetPost) that are not currently
+	// wired into x/federation. Until those dependencies are added, any member meeting
+	// the trust level threshold can federate any local content. This is a known
+	// limitation and should be addressed when cross-module content ownership queries
+	// are available.
+
 	// 1. Verify peer exists, is ACTIVE, and is type SPARK_DREAM (IBC only)
 	peer, err := k.Peers.Get(ctx, msg.PeerId)
 	if err != nil {

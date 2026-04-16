@@ -843,7 +843,15 @@ func (k Keeper) processExpiredModerations(ctx context.Context) {
 	}
 	defer iter.Close()
 
+	// Batch limit: process at most 50 expired moderations per block to bound gas usage
+	const maxPerBlock = 50
+	processed := 0
+
 	for ; iter.Valid(); iter.Next() {
+		if processed >= maxPerBlock {
+			break
+		}
+
 		kv, err := iter.KeyValue()
 		if err != nil {
 			continue
@@ -852,7 +860,7 @@ func (k Keeper) processExpiredModerations(ctx context.Context) {
 		moderation := kv.Value
 		member := kv.Key
 
-		// Skip inactive moderations
+		// Skip resolved (inactive) moderations early to avoid unnecessary work
 		if !moderation.Active {
 			continue
 		}
@@ -874,5 +882,6 @@ func (k Keeper) processExpiredModerations(ctx context.Context) {
 			sdkCtx.Logger().Error("failed to auto-resolve expired moderation",
 				"member", member, "error", err)
 		}
+		processed++
 	}
 }

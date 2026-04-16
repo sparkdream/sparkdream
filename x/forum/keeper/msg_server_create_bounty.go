@@ -44,16 +44,16 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only the thread author can create a bounty")
 	}
 
-	// Check no existing bounty for this thread
-	iter, err := k.Bounty.Iterate(ctx, nil)
-	if err == nil {
-		defer iter.Close()
-		for ; iter.Valid(); iter.Next() {
-			bounty, _ := iter.Value()
-			if bounty.ThreadId == msg.ThreadId && bounty.Status == types.BountyStatus_BOUNTY_STATUS_ACTIVE {
+	// Check no existing active bounty for this thread (O(1) lookup via secondary index)
+	if existingBountyID, err := k.ActiveBountyByThread.Get(ctx, msg.ThreadId); err == nil {
+		// Verify the bounty is still active (defensive check)
+		if existingBounty, err := k.Bounty.Get(ctx, existingBountyID); err == nil {
+			if existingBounty.Status == types.BountyStatus_BOUNTY_STATUS_ACTIVE {
 				return nil, types.ErrBountyAlreadyExists
 			}
 		}
+		// Stale index entry — clean it up
+		_ = k.ActiveBountyByThread.Remove(ctx, msg.ThreadId)
 	}
 
 	// Parse and validate amount
@@ -105,6 +105,11 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 
 	if err := k.Bounty.Set(ctx, bountyID, bounty); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store bounty")
+	}
+
+	// Update secondary index for O(1) thread-to-bounty lookup
+	if err := k.ActiveBountyByThread.Set(ctx, msg.ThreadId, bountyID); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update bounty thread index")
 	}
 
 	// Emit event

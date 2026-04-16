@@ -162,6 +162,7 @@ var (
 	ErrAlreadyFollowing  = errors.Register(ModuleName, 1950, "already following this thread")
 	ErrNotFollowing      = errors.Register(ModuleName, 1951, "not following this thread")
 	ErrCannotVoteOwnPost = errors.Register(ModuleName, 1952, "cannot vote on your own post")
+	ErrAlreadyVoted      = errors.Register(ModuleName, 1953, "already voted on this post")
 
 	// Report errors (2000-2049)
 	ErrReportNotFound          = errors.Register(ModuleName, 2000, "report not found")

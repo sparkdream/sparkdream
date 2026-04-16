@@ -55,14 +55,14 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
+	// Check daily limit BEFORE burning tokens to avoid irreversible burn on rate-limited txs
+	if err := k.checkDailyLimit(ctx, msg.Creator, blockHeight, "downvote", params.MaxDownvotesPerDay); err != nil {
+		return nil, err
+	}
+
 	// Burn downvote_cost SPARK from creator
 	if err := k.BurnSPARKFromAccount(ctx, creatorAddr, params.DownvoteCost); err != nil {
 		return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
-	}
-
-	// Check daily limit
-	if err := k.checkDailyLimit(ctx, msg.Creator, blockHeight, "downvote", params.MaxDownvotesPerDay); err != nil {
-		return nil, err
 	}
 
 	// Increment downvote_count on target

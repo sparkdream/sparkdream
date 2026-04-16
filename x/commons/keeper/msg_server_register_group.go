@@ -163,6 +163,15 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		return nil, err
 	}
 
+	// Check for duplicate group name before storing
+	existingGroup, err := k.Groups.Has(ctx, msg.Name)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to check for existing group")
+	}
+	if existingGroup {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "group with name %q already exists", msg.Name)
+	}
+
 	// Cycle detection
 	hasCycle, err := k.DetectCycle(ctx, policyAddrStr, finalParent)
 	if err != nil {

@@ -6,7 +6,9 @@ import (
 
 	"sparkdream/x/blog/types"
 
+	"cosmossdk.io/store/prefix"
 	errorsmod "cosmossdk.io/errors"
+	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
@@ -42,6 +44,12 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 			sdkCtx.Logger().Error("failed to remove content initiative link on delete", "post_id", val.Id, "error", err)
 		}
 	}
+
+	// Remove creator post index entry (key format: "{creator}/" + postID bytes)
+	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
+	creatorStore := prefix.NewStore(storeAdapter, []byte(types.CreatorPostKey))
+	creatorKey := append([]byte(val.Creator+"/"), GetPostIDBytes(val.Id)...)
+	creatorStore.Delete(creatorKey)
 
 	// Tombstone the post instead of hard delete
 	val.Title = ""

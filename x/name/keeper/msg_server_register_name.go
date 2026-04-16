@@ -76,12 +76,18 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 				),
 			)
 
-			// Note: We don't explicitly call RemoveNameFromOwner here because
-			// AddNameToOwner/SetName below will overwrite the ownership in the index.
-			// Ideally, we should clean up the old owner's index, but our current
-			// RemoveNameFromOwner implementation handles the specific (Owner, Name) pair removal.
+			// Remove the name from the old owner's index
 			if err := k.RemoveNameFromOwner(ctx, currentOwner, name); err != nil {
 				return nil, err
+			}
+
+			// Clear old owner's PrimaryName if it matches the scavenged name
+			oldOwnerInfo, err := k.Owners.Get(ctx, currentOwner.String())
+			if err == nil && oldOwnerInfo.PrimaryName == name {
+				oldOwnerInfo.PrimaryName = ""
+				if err := k.Owners.Set(ctx, currentOwner.String(), oldOwnerInfo); err != nil {
+					return nil, err
+				}
 			}
 
 		} else {

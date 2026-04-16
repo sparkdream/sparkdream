@@ -21,13 +21,20 @@ func (q queryServer) ListExpiringContent(ctx context.Context, req *types.QueryLi
 	storeAdapter := runtime.KVStoreAdapter(q.k.storeService.OpenKVStore(ctx))
 	store := prefix.NewStore(storeAdapter, []byte(types.ExpiryKey))
 
+	// Hard cap to prevent unbounded iteration over the entire expiry index.
+	const maxResults = 100
+
 	var posts []types.Post
 	var replies []types.Reply
+	resultCount := 0
 
 	iterator := store.Iterator(nil, nil)
 	defer iterator.Close()
 
 	for ; iterator.Valid(); iterator.Next() {
+		if resultCount >= maxResults {
+			break
+		}
 		key := iterator.Key()
 		if len(key) < 8 {
 			continue
@@ -64,11 +71,13 @@ func (q queryServer) ListExpiringContent(ctx context.Context, req *types.QueryLi
 			post, found := q.k.GetPost(ctx, id)
 			if found && post.Status != types.PostStatus_POST_STATUS_DELETED {
 				posts = append(posts, post)
+				resultCount++
 			}
 		} else {
 			reply, found := q.k.GetReply(ctx, id)
 			if found && reply.Status != types.ReplyStatus_REPLY_STATUS_DELETED {
 				replies = append(replies, reply)
+				resultCount++
 			}
 		}
 	}

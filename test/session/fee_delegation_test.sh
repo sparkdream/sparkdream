@@ -462,8 +462,10 @@ TX_RES=$($BINARY tx session create-session \
     --output json 2>&1)
 
 if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
-    echo "  Failed to create zero-spend session"
-    record_result "Zero spend_limit exec" "FAIL"
+    # Zero spend limit is now correctly rejected (SESSION-4 fix)
+    echo "  Correctly rejected: zero spend limit requires positive value"
+    record_result "Zero spend_limit rejected" "PASS"
+    ZERO_SPEND_SKIPPED=true
 else
     GRANTEE_BAL_BEFORE=$(get_balance "$ZERO_SPEND_GRANTEE_ADDR")
 

@@ -32,9 +32,27 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 		if HasAnyTrancheReachedStatus(&contrib, types.TrancheStatus_TRANCHE_STATUS_BACKED) {
 			return nil, types.ErrCannotCancelBacked
 		}
+	} else {
+		// REVEAL-2 fix: Non-contributor callers must be Operations Committee members.
+		// Without this check, any address could cancel any contribution.
+		authorityAddr, err := k.addressCodec.StringToBytes(msg.Authority)
+		if err != nil {
+			return nil, types.ErrUnauthorized.Wrapf("invalid authority address: %s", err)
+		}
+		// Check all three councils' Operations Committees since CouncilId is a numeric
+		// identifier and reveal governance spans across councils.
+		isMember := false
+		for _, council := range []string{"Commons Council", "Technical Council", "Ecosystem Council"} {
+			ok, err := k.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(authorityAddr), council, "operations")
+			if err == nil && ok {
+				isMember = true
+				break
+			}
+		}
+		if !isMember {
+			return nil, types.ErrUnauthorized.Wrapf("caller %s is not the contributor and not an Operations Committee member", msg.Authority)
+		}
 	}
-	// Operations Committee can cancel at any time — authority validation is handled
-	// by the council proposal mechanism (msg.Authority is the group policy account)
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 

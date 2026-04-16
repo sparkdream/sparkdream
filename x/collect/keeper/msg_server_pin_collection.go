@@ -46,6 +46,9 @@ func (k msgServer) PinCollection(ctx context.Context, msg *types.MsgPinCollectio
 
 	// Creator must meet pin trust level
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+	if k.repKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrPinTrustLevelTooLow, "reputation module not available")
+	}
 	if !k.repKeeper.IsMember(ctx, creatorAddr) {
 		return nil, errorsmod.Wrap(types.ErrPinTrustLevelTooLow, "not a member")
 	}

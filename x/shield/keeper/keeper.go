@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -89,6 +90,12 @@ type Keeper struct {
 	// DKG registrations — pub keys from REGISTERING phase (key: validator_operator_address)
 	// Reuses DKGContribution proto: FeldmanCommitments[0] = pub key, ProofOfPossession = PoP
 	DKGRegistrations collections.Map[string, types.DKGContribution]
+
+	// Per-submitter address rate limits for ante handler anti-spam (key: epoch + submitter → count)
+	SubmitterRateLimits collections.Map[collections.Pair[uint64, string], uint64]
+
+	// Pending op counter — maintained by SetPendingOp/DeletePendingOp to avoid full iteration
+	PendingOpCount collections.Item[uint64]
 }
 
 func NewKeeper(
@@ -166,6 +173,13 @@ func NewKeeper(
 
 		DKGRegistrations: collections.NewMap(sb, types.DKGRegistrationsKey, "dkgRegistrations",
 			collections.StringKey, codec.CollValue[types.DKGContribution](cdc)),
+
+		SubmitterRateLimits: collections.NewMap(sb, types.SubmitterRateLimitsKey, "submitterRateLimits",
+			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey),
+			collections.Uint64Value),
+
+		PendingOpCount: collections.NewItem(sb, types.PendingOpCountKey, "pendingOpCount",
+			collections.Uint64Value),
 	}
 
 	schema, err := sb.Build()
@@ -245,4 +259,23 @@ func (k Keeper) GetStakingKeeper() types.StakingKeeper {
 // GetAddressCodec returns the address codec. Used by ABCI handlers.
 func (k Keeper) GetAddressCodec() address.Codec {
 	return k.addressCodec
+}
+
+// GetSubmitterExecCount returns the number of MsgShieldedExec submissions by
+// a given submitter address in a given epoch. Used by the ante handler for
+// per-submitter anti-spam rate limiting (SHIELD-8).
+func (k Keeper) GetSubmitterExecCount(ctx context.Context, epoch uint64, submitter string) uint64 {
+	count, err := k.SubmitterRateLimits.Get(ctx, collections.Join(epoch, submitter))
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+// IncrementSubmitterExecCount increments the per-submitter exec count for the
+// given epoch. Used by the ante handler (SHIELD-8).
+func (k Keeper) IncrementSubmitterExecCount(ctx context.Context, epoch uint64, submitter string) {
+	key := collections.Join(epoch, submitter)
+	current := k.GetSubmitterExecCount(ctx, epoch, submitter)
+	_ = k.SubmitterRateLimits.Set(ctx, key, current+1)
 }

@@ -24,25 +24,14 @@ func (k msgServer) CreateTagBudget(ctx context.Context, msg *types.MsgCreateTagB
 		return nil, errorsmod.Wrap(types.ErrNotGroupAccount, "only group accounts can create tag budgets")
 	}
 
-	// Validate tag exists
-	tagFound := false
-	tagIter, err := k.Tag.Iterate(ctx, nil)
-	if err == nil {
-		defer tagIter.Close()
-		for ; tagIter.Valid(); tagIter.Next() {
-			tag, _ := tagIter.Value()
-			if tag.Name == msg.Tag {
-				tagFound = true
-				break
-			}
-		}
-	}
-
-	if !tagFound {
+	// Validate tag exists (O(1) direct key lookup instead of full table scan)
+	_, err := k.Tag.Get(ctx, msg.Tag)
+	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrTagNotFound, fmt.Sprintf("tag %s not found", msg.Tag))
 	}
 
-	// Check no existing active budget for this tag from this group
+	// Check no existing active budget for this tag from this group.
+	// No secondary index exists, so we iterate but break early on first match.
 	budgetIter, err := k.TagBudget.Iterate(ctx, nil)
 	if err == nil {
 		defer budgetIter.Close()

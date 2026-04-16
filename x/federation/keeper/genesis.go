@@ -116,20 +116,15 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Sequences
+	// Sequences — use Set() directly instead of calling Next() N times (O(1) vs O(n))
 	if genState.NextContentId > 0 {
-		// Set sequence to next value by advancing it
-		for i := uint64(0); i < genState.NextContentId; i++ {
-			if _, err := k.ContentSeq.Next(ctx); err != nil {
-				return err
-			}
+		if err := k.ContentSeq.Set(ctx, genState.NextContentId); err != nil {
+			return err
 		}
 	}
 	if genState.NextOutboundAttestationId > 0 {
-		for i := uint64(0); i < genState.NextOutboundAttestationId; i++ {
-			if _, err := k.OutboundAttestSeq.Next(ctx); err != nil {
-				return err
-			}
+		if err := k.OutboundAttestSeq.Set(ctx, genState.NextOutboundAttestationId); err != nil {
+			return err
 		}
 	}
 

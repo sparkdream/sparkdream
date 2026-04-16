@@ -15,15 +15,21 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	k.IterateActiveInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
 		// We update conviction for each active initiative
 		// This recalculates based on time elapsed for all stakes
-		_ = k.UpdateInitiativeConviction(ctx, initiative.Id)
+		if err := k.UpdateInitiativeConviction(ctx, initiative.Id); err != nil {
+			sdkCtx.Logger().Error("failed to update initiative conviction", "initiative_id", initiative.Id, "error", err)
+		}
 		return false
 	})
 
 	// 2. Check initiative completion thresholds
 	k.IterateSubmittedInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
 		canComplete, err := k.CanCompleteInitiative(ctx, initiative.Id)
-		if err == nil && canComplete {
-			_ = k.TransitionToChallengePeriod(ctx, initiative.Id)
+		if err != nil {
+			sdkCtx.Logger().Error("failed to check initiative completion", "initiative_id", initiative.Id, "error", err)
+		} else if canComplete {
+			if err := k.TransitionToChallengePeriod(ctx, initiative.Id); err != nil {
+				sdkCtx.Logger().Error("failed to transition initiative to challenge period", "initiative_id", initiative.Id, "error", err)
+			}
 		}
 		return false
 	})
@@ -31,7 +37,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// 3. Finalize unchallenged initiatives
 	k.IteratePendingCompletionInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
 		if sdkCtx.BlockHeight() >= initiative.ChallengePeriodEnd {
-			_ = k.CompleteInitiative(ctx, initiative.Id)
+			if err := k.CompleteInitiative(ctx, initiative.Id); err != nil {
+				sdkCtx.Logger().Error("failed to complete initiative", "initiative_id", initiative.Id, "error", err)
+			}
 		}
 		return false
 	})
@@ -45,7 +53,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	k.IterateActiveChallenges(ctx, func(index int64, challenge types.Challenge) bool {
 		if challenge.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= challenge.ResponseDeadline {
 			// Auto-uphold the challenge - assignee failed to respond
-			_ = k.UpholdChallenge(ctx, challenge.Id)
+			if err := k.UpholdChallenge(ctx, challenge.Id); err != nil {
+				sdkCtx.Logger().Error("failed to uphold challenge", "challenge_id", challenge.Id, "error", err)
+			}
 		}
 		return false
 	})
@@ -54,7 +64,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// If author doesn't respond within the deadline, challenge is auto-upheld
 	k.IterateActiveContentChallenges(ctx, func(index int64, cc types.ContentChallenge) bool {
 		if cc.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= cc.ResponseDeadline {
-			_ = k.UpholdContentChallenge(ctx, cc.Id)
+			if err := k.UpholdContentChallenge(ctx, cc.Id); err != nil {
+				sdkCtx.Logger().Error("failed to uphold content challenge", "content_challenge_id", cc.Id, "error", err)
+			}
 		}
 		return false
 	})
@@ -62,7 +74,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// 6. Process jury review deadlines
 	k.IterateActiveJuryReviews(ctx, func(index int64, review types.JuryReview) bool {
 		if sdkCtx.BlockHeight() >= review.Deadline {
-			_ = k.TallyJuryVotes(ctx, review.Id)
+			if err := k.TallyJuryVotes(ctx, review.Id); err != nil {
+				sdkCtx.Logger().Error("failed to tally jury votes", "review_id", review.Id, "error", err)
+			}
 		}
 		return false
 	})
@@ -70,7 +84,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// 7. Process assigned initiative deadlines (interims)
 	k.IteratePendingInterims(ctx, func(index int64, interim types.Interim) bool {
 		if sdkCtx.BlockHeight() >= interim.Deadline {
-			_ = k.ExpireInterim(ctx, interim.Id)
+			if err := k.ExpireInterim(ctx, interim.Id); err != nil {
+				sdkCtx.Logger().Error("failed to expire interim", "interim_id", interim.Id, "error", err)
+			}
 		}
 		return false
 	})

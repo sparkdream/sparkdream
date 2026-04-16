@@ -54,7 +54,10 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 	}
 
 	// Calculate current cost
-	currentCost := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo)
+	currentCost, err := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo)
+	if err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+	}
 
 	// Calculate new cost with amount
 	newCost := currentCost.Add(math.LegacyNewDecFromInt(amountIn))
@@ -72,7 +75,10 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "amount too large: would deplete market")
 		}
 
-		lnTerm := types.Ln(ctx, oneMinus)
+		lnTerm, err := types.Ln(ctx, oneMinus)
+		if err != nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+		}
 		newPoolYes := newCost.Add(bValue.Mul(lnTerm))
 		sharesOut = newPoolYes.Sub(poolYes)
 	} else {
@@ -86,7 +92,10 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "amount too large: would deplete market")
 		}
 
-		lnTerm := types.Ln(ctx, oneMinus)
+		lnTerm, err := types.Ln(ctx, oneMinus)
+		if err != nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+		}
 		newPoolNo := newCost.Add(bValue.Mul(lnTerm))
 		sharesOut = newPoolNo.Sub(poolNo)
 	}

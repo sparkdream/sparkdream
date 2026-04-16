@@ -26,7 +26,13 @@ func (k msgServer) UnbondVerifier(ctx context.Context, msg *types.MsgUnbondVerif
 		return nil, errorsmod.Wrapf(types.ErrBondCommitted, "requested %s but only %s available (committed: %s)", msg.Amount, availableBond, verifier.TotalCommittedBond)
 	}
 
-	// 3. Transfer DREAM back to creator (TODO: actual DREAM transfer via x/rep)
+	// 3. Unlock DREAM back to creator via x/rep
+	creatorBytes, _ := k.addressCodec.StringToBytes(msg.Creator)
+	if k.late.repKeeper != nil {
+		if err := k.late.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(creatorBytes), msg.Amount); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to unlock DREAM for verifier unbond")
+		}
+	}
 
 	// 4. Update current_bond
 	verifier.CurrentBond = verifier.CurrentBond.Sub(msg.Amount)

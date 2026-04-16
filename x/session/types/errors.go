@@ -32,4 +32,5 @@ var (
 	ErrInvalidDenom          = errors.Register(ModuleName, 1121, "spend_limit denom is not uspark")
 	ErrCeilingExpansion      = errors.Register(ModuleName, 1122, "MsgUpdateParams attempted to add a type to max_allowed_msg_types not already in the current ceiling")
 	ErrExceedsCeiling        = errors.Register(ModuleName, 1123, "allowed_msg_types contains a type not in max_allowed_msg_types")
+	ErrSpendLimitRequired    = errors.Register(ModuleName, 1124, "spend_limit must be positive for fee delegation to function")
 )

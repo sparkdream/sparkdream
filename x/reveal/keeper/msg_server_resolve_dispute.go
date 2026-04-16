@@ -16,6 +16,11 @@ func (k msgServer) ResolveDispute(ctx context.Context, msg *types.MsgResolveDisp
 		return nil, types.ErrUnauthorized.Wrapf("invalid authority address: %s", err)
 	}
 
+	// Verify the caller is authorized: governance authority, council policy, or operations committee.
+	if !k.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
+		return nil, types.ErrUnauthorized.Wrapf("unauthorized: must be governance, council, or operations committee")
+	}
+
 	// Verdict must not be UNSPECIFIED
 	if msg.Verdict == types.DisputeVerdict_DISPUTE_VERDICT_UNSPECIFIED {
 		return nil, types.ErrInvalidVerdict

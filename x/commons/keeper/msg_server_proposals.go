@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 
 	"sparkdream/x/commons/types"
@@ -279,6 +280,17 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 			return nil, err
 		}
 
+		// SECURITY: Verify that the message's authority/signer matches the
+		// proposal's policy address. This prevents privilege escalation where
+		// a malicious proposer crafts messages with Authority set to a
+		// higher-privilege address (e.g., x/gov).
+		if err := validateMsgAuthority(sdkMsg, proposal.PolicyAddress); err != nil {
+			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
+			proposal.FailedReason = fmt.Sprintf("message %d authority mismatch: %v", i, err)
+			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "message %d: %v", i, err)
+		}
+
 		handler := k.late.router.Handler(sdkMsg)
 		if handler == nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
@@ -315,6 +327,14 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 
 // checkThreshold checks if a proposal has met its decision policy threshold.
 // Includes both regular council votes (weighted) and anonymous votes (weight=1 each).
+//
+// DESIGN NOTE (COMMONS-7): Anonymous votes (via x/shield) are counted with weight=1 each
+// and are added to both the numerator (if YES) and denominator of percentage-based thresholds.
+// This intentionally dilutes council member weighted votes, reflecting a democratic design
+// choice: anonymous community participation can influence proposal outcomes proportionally.
+// This is the intended behavior for proposals that enable anonymous voting — it allows
+// broader democratic participation while maintaining the council's structural advantage
+// through weighted votes.
 func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bool, error) {
 	decPolicy, err := k.DecisionPolicies.Get(ctx, proposal.PolicyAddress)
 	if err != nil {
@@ -398,4 +418,36 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 		return false, nil
 	}
 	return yesWeight.GTE(math.LegacyNewDec(int64(thresholdInt))), nil
+}
+
+// validateMsgAuthority checks that a proposal message's Authority field matches
+// the expected policy address. This prevents privilege escalation where a malicious
+// proposer crafts messages with Authority set to a higher-privilege address.
+func validateMsgAuthority(sdkMsg sdk.Msg, policyAddress string) error {
+	// Use reflection to find the Authority field on the message.
+	// Most Cosmos SDK messages have an Authority string field as the signer.
+	v := reflect.ValueOf(sdkMsg)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return fmt.Errorf("message is not a struct")
+	}
+
+	// Check common signer field names: Authority, Sender, Creator, Proposer, etc.
+	for _, fieldName := range []string{"Authority", "Sender", "Creator"} {
+		field := v.FieldByName(fieldName)
+		if !field.IsValid() || field.Kind() != reflect.String {
+			continue
+		}
+		signerAddr := field.String()
+		if signerAddr != "" && signerAddr != policyAddress {
+			return fmt.Errorf("signer field %s is %s but expected policy address %s", fieldName, signerAddr, policyAddress)
+		}
+		return nil // Found a matching signer field
+	}
+
+	// If no known signer field was found, reject the message as a safety default.
+	// All Cosmos SDK messages should have one of the checked signer fields.
+	return fmt.Errorf("no recognized signer field (Authority, Sender, Creator) on message %s", sdk.MsgTypeURL(sdkMsg))
 }

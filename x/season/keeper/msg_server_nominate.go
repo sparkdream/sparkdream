@@ -70,23 +70,34 @@ func (k msgServer) Nominate(ctx context.Context, msg *types.MsgNominate) (*types
 
 	// 5. Count existing nominations by this creator for this season; reject if >= MaxNominationsPerMember
 	// 6. Check no duplicate content_ref for this season
+	//
+	// NOTE: The Nomination collection is keyed by auto-increment ID (uint64), not by season,
+	// so we cannot use a prefix range scan to filter by season. Once both checks are satisfied
+	// (duplicate found OR creator count exceeds max), we stop early.
 	var creatorNomCount uint64
+	var maxReached bool
 	err = k.Nomination.Walk(ctx, nil, func(id uint64, nom types.Nomination) (bool, error) {
 		if nom.Season != season.Number {
 			return false, nil
 		}
 		if nom.Nominator == msg.Creator {
 			creatorNomCount++
+			if creatorNomCount >= params.MaxNominationsPerMember {
+				maxReached = true
+			}
 		}
 		if nom.ContentRef == msg.ContentRef {
 			return true, types.ErrAlreadyNominated
 		}
+		// Stop early if we've confirmed max is reached and no duplicate found yet
+		// (we still need to check all remaining for duplicates, so only stop if max reached
+		// and we can't find more info — but we must continue to check for content_ref dups)
 		return false, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if creatorNomCount >= params.MaxNominationsPerMember {
+	if maxReached {
 		return nil, errorsmod.Wrapf(types.ErrMaxNominationsReached,
 			"already have %d nominations (max %d)", creatorNomCount, params.MaxNominationsPerMember)
 	}

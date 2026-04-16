@@ -13,6 +13,10 @@ import (
 func (k msgServer) RevokeSession(ctx context.Context, msg *types.MsgRevokeSession) (*types.MsgRevokeSessionResponse, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
+	// Authorization: the proto signer annotation is "granter", so the SDK ensures
+	// msg.Granter is the tx signer. We verify the session exists for this exact
+	// (granter, grantee) pair, so only the actual granter of a real session can revoke.
+
 	key := collections.Join(msg.Granter, msg.Grantee)
 	session, err := k.Sessions.Get(ctx, key)
 	if err != nil {

@@ -21,46 +21,83 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		return nil
 	}
 
+	logger := sdkCtx.Logger().With("module", "x/federation")
+
 	maxPrune := params.MaxPrunePerBlock
 	var pruned uint64
+	var phaseErr error
 
 	// Phase 1: Prune Expired Federated Content
-	pruned, _ = k.pruneExpiredContent(ctx, now, maxPrune, pruned)
+	pruned, phaseErr = k.pruneExpiredContent(ctx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 1 (prune expired content) failed", "error", phaseErr)
+	}
 
 	// Phase 2: Prune Expired Reputation Attestations
-	pruned, _ = k.pruneExpiredAttestations(ctx, now, maxPrune, pruned)
+	pruned, phaseErr = k.pruneExpiredAttestations(ctx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 2 (prune expired attestations) failed", "error", phaseErr)
+	}
 
 	// Phase 3: Prune Expired Unverified Identity Links
-	pruned, _ = k.pruneExpiredUnverifiedLinks(ctx, sdkCtx, now, maxPrune, pruned)
+	pruned, phaseErr = k.pruneExpiredUnverifiedLinks(ctx, sdkCtx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 3 (prune expired unverified links) failed", "error", phaseErr)
+	}
 
 	// Phase 4: Prune Expired Identity Challenges
-	pruned, _ = k.pruneExpiredIdentityChallenges(ctx, sdkCtx, now, maxPrune, pruned)
+	pruned, phaseErr = k.pruneExpiredIdentityChallenges(ctx, sdkCtx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 4 (prune expired identity challenges) failed", "error", phaseErr)
+	}
 
 	// Phase 5: Release Unbonded Bridge Stakes
-	pruned, _ = k.releaseUnbondedBridgeStakes(ctx, sdkCtx, now, maxPrune, pruned)
+	pruned, phaseErr = k.releaseUnbondedBridgeStakes(ctx, sdkCtx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 5 (release unbonded bridge stakes) failed", "error", phaseErr)
+	}
 
 	// Phase 6: Expire Unverified Content
-	pruned, _ = k.expireUnverifiedContent(ctx, sdkCtx, now, maxPrune, pruned)
+	pruned, phaseErr = k.expireUnverifiedContent(ctx, sdkCtx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 6 (expire unverified content) failed", "error", phaseErr)
+	}
 
 	// Phase 7: Release Verifier Bond Commitments
-	pruned, _ = k.releaseVerifierBondCommitments(ctx, now, maxPrune, pruned)
+	pruned, phaseErr = k.releaseVerifierBondCommitments(ctx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 7 (release verifier bond commitments) failed", "error", phaseErr)
+	}
 
 	// Phase 8: Expire Arbiter Resolution Windows
-	pruned, _ = k.expireArbiterResolutions(ctx, sdkCtx, now, maxPrune, pruned)
+	pruned, phaseErr = k.expireArbiterResolutions(ctx, sdkCtx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 8 (expire arbiter resolutions) failed", "error", phaseErr)
+	}
 
 	// Phase 9: Finalize Auto-Resolutions
-	pruned, _ = k.finalizeAutoResolutions(ctx, now, maxPrune, pruned)
+	pruned, phaseErr = k.finalizeAutoResolutions(ctx, now, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 9 (finalize auto-resolutions) failed", "error", phaseErr)
+	}
 
 	// Phase 10: Process Peer Removal Queue
-	_, _ = k.processPeerRemovalQueue(ctx, sdkCtx, maxPrune, pruned)
+	_, phaseErr = k.processPeerRemovalQueue(ctx, sdkCtx, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 10 (process peer removal queue) failed", "error", phaseErr)
+	}
 
 	// Phase 11: Verifier Epoch Rewards (TODO: epoch detection + reward distribution)
 
 	// Phase 12: Bridge Operator Monitoring
-	_ = k.monitorBridgeOperators(ctx, sdkCtx, now, params)
+	if err := k.monitorBridgeOperators(ctx, sdkCtx, now, params); err != nil {
+		logger.Error("EndBlocker phase 12 (monitor bridge operators) failed", "error", err)
+	}
 
 	// Phase 13: Clean Stale Rate Limit Counters
-	_ = k.cleanStaleRateLimitCounters(ctx, now, params)
+	if err := k.cleanStaleRateLimitCounters(ctx, now, params); err != nil {
+		logger.Error("EndBlocker phase 13 (clean stale rate limit counters) failed", "error", err)
+	}
 
 	return nil
 }
@@ -397,7 +434,14 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 // --- Phase 12 ---
 
 func (k Keeper) monitorBridgeOperators(ctx context.Context, sdkCtx sdk.Context, now int64, params types.Params) error {
+	// Bound the walk to maxPrunePerBlock to prevent unbounded iteration every block.
+	var checked uint64
+	maxCheck := params.MaxPrunePerBlock
 	return k.BridgeOperators.Walk(ctx, nil, func(_ collections.Pair[string, string], bridge types.BridgeOperator) (bool, error) {
+		if checked >= maxCheck {
+			return true, nil
+		}
+		checked++
 		if bridge.Status != types.BridgeStatus_BRIDGE_STATUS_ACTIVE {
 			return false, nil
 		}
@@ -428,15 +472,31 @@ func (k Keeper) cleanStaleRateLimitCounters(ctx context.Context, now int64, para
 	}
 	cutoff := now - 2*windowSec
 
-	_ = k.InboundRateLimits.Walk(ctx, nil, func(key collections.Pair[string, int64], _ uint64) (bool, error) {
+	// Bound both walks to maxPrunePerBlock to prevent unbounded iteration.
+	maxPrune := params.MaxPrunePerBlock
+	var pruned uint64
+
+	err := k.InboundRateLimits.Walk(ctx, nil, func(key collections.Pair[string, int64], _ uint64) (bool, error) {
+		if pruned >= maxPrune {
+			return true, nil
+		}
 		if key.K2() < cutoff {
 			_ = k.InboundRateLimits.Remove(ctx, key)
+			pruned++
 		}
 		return false, nil
 	})
+	if err != nil {
+		return err
+	}
+
 	return k.OutboundRateLimits.Walk(ctx, nil, func(key collections.Pair[string, int64], _ uint64) (bool, error) {
+		if pruned >= maxPrune {
+			return true, nil
+		}
 		if key.K2() < cutoff {
 			_ = k.OutboundRateLimits.Remove(ctx, key)
+			pruned++
 		}
 		return false, nil
 	})

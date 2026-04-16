@@ -59,6 +59,8 @@ type Keeper struct {
 	GovActionAppealSeq    collections.Sequence
 	GovActionAppeal       collections.Map[uint64, types.GovActionAppeal]
 	ExpirationQueue       collections.KeySet[collections.Pair[int64, uint64]]
+	PostVote              collections.KeySet[collections.Pair[uint64, string]]
+	ActiveBountyByThread  collections.Map[uint64, uint64]
 }
 
 func NewKeeper(
@@ -114,6 +116,13 @@ func NewKeeper(
 			"expiration_queue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
 		),
+		PostVote: collections.NewKeySet(
+			sb,
+			types.PostVoteKey,
+			"post_vote",
+			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey),
+		),
+		ActiveBountyByThread: collections.NewMap(sb, types.ActiveBountyByThreadKey, "activeBountyByThread", collections.Uint64Key, collections.Uint64Value),
 	}
 	schema, err := sb.Build()
 	if err != nil {

@@ -198,7 +198,7 @@ func TestCreateSession(t *testing.T) {
 			errContains: "denom is not uspark",
 		},
 		{
-			name: "zero spend limit is allowed",
+			name: "zero spend limit is rejected (SESSION-4 fix)",
 			msg: &types.MsgCreateSession{
 				Granter:         testAddr("granter9", f.addressCodec),
 				Grantee:         testAddr("grantee9", f.addressCodec),
@@ -206,7 +206,8 @@ func TestCreateSession(t *testing.T) {
 				SpendLimit:      sdk.NewInt64Coin("uspark", 0),
 				Expiration:      futureExp,
 			},
-			expectError: false,
+			expectError: true,
+			errContains: "spend_limit must be positive",
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 	"sparkdream/x/federation/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -15,7 +16,35 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or Operations Committee")
 	}
 
-	// 2. (Validate operational params against ranges — TODO: implement validation)
+	// 2. Validate operational params against reasonable bounds
+	op := msg.OperationalParams
+	if op.MaxInboundPerBlock == 0 {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_inbound_per_block must be > 0")
+	}
+	if op.MaxOutboundPerBlock == 0 {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_outbound_per_block must be > 0")
+	}
+	if op.MaxContentBodySize == 0 {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_content_body_size must be > 0")
+	}
+	if op.MaxContentUriSize == 0 {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_content_uri_size must be > 0")
+	}
+	if op.MaxProtocolMetadataSize == 0 {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_protocol_metadata_size must be > 0")
+	}
+	if op.ContentTtl.Seconds() <= 0 {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "content_ttl must be > 0")
+	}
+	if op.AttestationTtl.Seconds() <= 0 {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "attestation_ttl must be > 0")
+	}
+	if op.TrustDiscountRate.IsNegative() || op.TrustDiscountRate.GT(math.LegacyOneDec()) {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "trust_discount_rate must be in [0, 1]")
+	}
+	if op.MaxPrunePerBlock == 0 {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_prune_per_block must be > 0")
+	}
 
 	// 3. Merge into current params (only overwrite the operational subset)
 	currentParams, err := k.Params.Get(ctx)
@@ -23,7 +52,6 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 		return nil, err
 	}
 
-	op := msg.OperationalParams
 	currentParams.MaxInboundPerBlock = op.MaxInboundPerBlock
 	currentParams.MaxOutboundPerBlock = op.MaxOutboundPerBlock
 	currentParams.MaxContentBodySize = op.MaxContentBodySize

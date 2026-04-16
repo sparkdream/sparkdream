@@ -75,26 +75,42 @@ func ReconstructEpochDecryptionKey(shares []types.ShieldDecryptionShare, ks type
 	return recovered.MarshalBinary()
 }
 
-// verifyDecryptionShare validates a decryption share for well-formedness.
+// verifyDecryptionShare validates a decryption share for well-formedness
+// and structural correctness.
 //
-// The ideal verification is a pairing check:
+// TODO(SHIELD-5): Implement full pairing-based verification. The correct
+// cryptographic check is:
 //
-//	e(epoch_share_i, G2_gen) == e(epoch_tag, pubShare_i_on_G2)
+//	e(share_i, G2_gen) == e(epoch_tag, pubShare_i_on_G2)
 //
-// However, our DKG stores public key shares as G1 points. A full pairing-based
-// verification would require dual G1/G2 public shares (a proto schema change).
+// This proves that share_i = secret_i * epoch_tag, where pubShare_i_on_G2 =
+// secret_i * G2_gen. However, our DKG stores public key shares as G1 points
+// (not G2). A full pairing check requires either:
+//   (a) Storing dual G1/G2 public shares (proto schema change), or
+//   (b) Using a symmetric pairing check on G1 only (less standard).
 //
 // Current verification:
 //  1. Validates the share is a well-formed, non-identity G1 point
 //  2. Validates the share size matches expected BN256 G1 point encoding
-//  3. Relies on PoP verification at registration time (Schnorr proof) to ensure
+//  3. Validates the public key share is a well-formed G1 point
+//  4. Validates the epoch tag is a well-formed G1 point
+//  5. Validates the submitter's share index matches the expected validator index
+//  6. Relies on PoP verification at registration time (Schnorr proof) to ensure
 //     the validator knows their secret key and will compute shares correctly
-//  4. TLE liveness enforcement (miss tracking + jailing) disincentivizes invalid shares
+//  7. TLE liveness enforcement (miss tracking + jailing) disincentivizes invalid shares
 //
 // A validator submitting malformed shares will cause reconstruction to fail,
 // which is caught by the reconstruction error handling. Malicious validators
 // who consistently submit bad shares will be jailed via the liveness system.
-func verifyDecryptionShare(shareBytes []byte, pubShareBytes []byte, epochTag []byte) error {
+//
+// The shareIndex and expectedIndex parameters are used to verify the submitter's
+// identity matches the expected validator slot in the DKG key set.
+func verifyDecryptionShare(shareBytes []byte, pubShareBytes []byte, epochTag []byte, shareIndex int, expectedIndex int) error {
+	// Validate share index matches the expected validator index
+	if shareIndex != expectedIndex {
+		return fmt.Errorf("share index mismatch: submitted %d, expected %d for this validator", shareIndex, expectedIndex)
+	}
+
 	// Validate the decryption share is a valid G1 point
 	epochShare := tleSuite.G1().Point()
 	if err := epochShare.UnmarshalBinary(shareBytes); err != nil {
@@ -110,6 +126,11 @@ func verifyDecryptionShare(shareBytes []byte, pubShareBytes []byte, epochTag []b
 	pubShare := tleSuite.G1().Point()
 	if err := pubShare.UnmarshalBinary(pubShareBytes); err != nil {
 		return fmt.Errorf("invalid public key share: %w", err)
+	}
+
+	// Reject identity public key share — would allow any share to "verify"
+	if pubShare.Equal(tleSuite.G1().Point().Null()) {
+		return fmt.Errorf("public key share is the identity element")
 	}
 
 	// Validate the epoch tag
@@ -133,34 +154,49 @@ func computeEpochTag(epoch uint64) ([]byte, error) {
 }
 
 // decryptPayload decrypts an ECIES-encrypted payload using the reconstructed
-// epoch decryption key. The decryption key is a G1 point that serves as the
-// private key for ECIES decryption.
+// epoch decryption key.
+//
+// KEY DERIVATION SCHEME (SHIELD-4):
+//
+// The reconstructed epoch decryption key is a BN256 G1 point:
+//
+//	epoch_key = master_secret * H_to_G1("shield_epoch_<N>")
+//
+// ECIES requires a scalar private key, not a G1 point. We derive the ECIES
+// scalar deterministically from the reconstructed point using the suite's XOF
+// (eXtendable Output Function):
+//
+//	ecies_scalar = XOF(marshal(epoch_key)).Pick()
+//
+// This is a standard point-to-scalar key derivation: the serialized point is
+// hashed via a cryptographic XOF (SHAKE-256 in kyber's BN256 suite), and the
+// output stream is used to sample a uniform scalar in the BN256 scalar field.
+//
+// IMPORTANT: Client-side encryption in tools/tle/ MUST use the identical
+// derivation. The client computes the epoch public key as:
+//
+//	epoch_pub = master_pub * H_to_G1("shield_epoch_<N>")  (pairing shortcut)
+//
+// ... but for ECIES encryption, the client must derive the ECIES public key
+// from the ECIES scalar:
+//
+//	ecies_scalar = XOF(marshal(epoch_key)).Pick()  -- same derivation
+//	ecies_pub    = ecies_scalar * G1_generator
+//
+// The client encrypts with ecies_pub, and this function decrypts with
+// ecies_scalar. Both sides MUST use tleSuite.XOF() on the raw marshaled
+// G1 point bytes to ensure consistency.
 func decryptPayload(encryptedPayload []byte, decryptionKey []byte) ([]byte, error) {
-	// The decryption key is a G1 point. For ECIES decryption, we need the
-	// corresponding scalar. In our TLE scheme, the epoch decryption key is
-	// key = master_secret * H(epoch_tag), and encryption was done with the
-	// master public key. However, the encrypted payload format uses ECIES
-	// with the master public key, so we need the master secret scalar.
-	//
-	// In practice, the epoch decryption key enables decryption because:
-	// 1. Client encrypts with master public key: Enc(masterPub, payload)
-	// 2. Validators each contribute: share_i = private_i * H(epoch)
-	// 3. Lagrange interpolation recovers: masterSecret * H(epoch)
-	// 4. We use this to derive the ECIES decryption scalar
-	//
-	// For the ECIES scheme, we need the actual scalar. The reconstructed key
-	// is a point, so we use it as a shared secret for symmetric decryption.
-
-	// Parse the decryption key point
+	// Parse the reconstructed epoch decryption key (a G1 point).
 	keyPoint := tleSuite.Point()
 	if err := keyPoint.UnmarshalBinary(decryptionKey); err != nil {
 		return nil, fmt.Errorf("invalid decryption key: %w", err)
 	}
 
-	// ECIES decrypt using the key point as the private key scalar.
-	// Note: This is a simplification. The actual TLE decryption flow
-	// would use the reconstructed point with the epoch tag to derive
-	// a symmetric key for AES decryption of the payload.
+	// Derive the ECIES scalar from the G1 point via XOF key derivation.
+	// This hashes the serialized point through SHAKE-256 and samples a
+	// uniform scalar from the output stream. The client-side tools/tle/
+	// code MUST use the identical derivation: tleSuite.Scalar().Pick(tleSuite.XOF(pointBytes)).
 	scalar := tleSuite.Scalar().Pick(tleSuite.XOF(decryptionKey))
 	plaintext, err := ecies.Decrypt(tleSuite, scalar, encryptedPayload, nil)
 	if err != nil {

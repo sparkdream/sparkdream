@@ -179,8 +179,10 @@ func TestAssignBountyTransfer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify transfer happened after AwardBounty
+	// With per-winner split, single winner gets totalAmount / maxWinners
 	require.NotNil(t, transferredTo)
-	require.Equal(t, bounty.Amount, transferredAmount.AmountOf(types.DefaultFeeDenom).String())
+	expectedPerWinner := "20000000" // 100000000 / 5 (DefaultMaxBountyWinners)
+	require.Equal(t, expectedPerWinner, transferredAmount.AmountOf(types.DefaultFeeDenom).String())
 
 	// Verify bounty is now marked as awarded
 	b, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)

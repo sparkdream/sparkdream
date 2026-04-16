@@ -88,7 +88,23 @@ func (k Keeper) SetDistrKeeper(dk types.DistrKeeper) {
 
 // SetShareByAddress is a helper to satisfy the x/commons expected interface.
 // It acts as a wrapper around the Collections API.
+// Access control is enforced at the interface level (x/commons keeper is the only caller).
 func (k Keeper) SetShareByAddress(ctx context.Context, address string, weight uint64) {
+	// Reject zero weight — zero-weight shares waste storage and have no distribution effect.
+	if weight == 0 {
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		sdkCtx.Logger().With("module", "x/split").Error("rejected zero-weight share", "address", address)
+		return
+	}
+
+	// Cap weight to a reasonable maximum (10000 basis points) to prevent accidental misuse.
+	const maxWeight uint64 = 10000
+	if weight > maxWeight {
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		sdkCtx.Logger().With("module", "x/split").Error("rejected share weight exceeding cap", "address", address, "weight", weight, "max", maxWeight)
+		return
+	}
+
 	// Construct the Share struct
 	share := types.Share{
 		Address: address,

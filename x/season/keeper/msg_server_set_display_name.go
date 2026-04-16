@@ -20,6 +20,10 @@ func (k msgServer) SetDisplayName(ctx context.Context, msg *types.MsgSetDisplayN
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// Validate display name
+	// TODO: Consider adding content filtering (profanity, impersonation, unicode abuse)
+	// to display names. Currently only length constraints are enforced. The existing
+	// DisplayNameModeration system handles post-hoc reporting but proactive filtering
+	// would reduce moderation load.
 	if err := k.ValidateDisplayName(ctx, msg.Name); err != nil {
 		return nil, err
 	}

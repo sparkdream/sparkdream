@@ -24,6 +24,11 @@ func (k Keeper) verifyProof(ctx context.Context, msg *types.MsgShieldedExec, sco
 	const circuitID = "shield_v1"
 	storedVK, found := k.GetVerificationKeyVal(ctx, circuitID)
 	if !found || len(storedVK.VkBytes) == 0 {
+		if requireVerificationKey() {
+			return types.ErrNoVerificationKey
+		}
+		// Test mode: no VK registered, skip all proof verification.
+		// This allows E2E tests to exercise MsgShieldedExec with dummy proofs.
 		return nil
 	}
 

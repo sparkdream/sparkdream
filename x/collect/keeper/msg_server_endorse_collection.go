@@ -117,20 +117,10 @@ func (k msgServer) EndorseCollection(ctx context.Context, msg *types.MsgEndorseC
 		return nil, errorsmod.Wrap(err, "failed to set endorsement stake expiry")
 	}
 
-	// Remove from EndorsementPending index
-	// Walk to find the correct entry since we don't know the exact expiry key
-	var pendingKeys []collections.Pair[int64, uint64]
-	k.EndorsementPending.Walk(ctx, nil,
-		func(key collections.Pair[int64, uint64]) (bool, error) {
-			if key.K2() == msg.CollectionId {
-				pendingKeys = append(pendingKeys, key)
-			}
-			return false, nil
-		},
-	)
-	for _, key := range pendingKeys {
-		k.EndorsementPending.Remove(ctx, key) //nolint:errcheck
-	}
+	// Remove from EndorsementPending index.
+	// Compute the key directly using CreatedAt + EndorsementExpiryBlocks instead of walking.
+	expiryBlock := coll.CreatedAt + params.EndorsementExpiryBlocks
+	k.EndorsementPending.Remove(ctx, collections.Join(expiryBlock, msg.CollectionId)) //nolint:errcheck
 
 	// Update CollectionsByStatus index: remove PENDING, add ACTIVE
 	k.CollectionsByStatus.Remove(ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_PENDING), coll.Id)) //nolint:errcheck

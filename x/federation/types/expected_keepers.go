@@ -38,6 +38,10 @@ type RepKeeper interface {
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 	// BurnDREAM burns DREAM from an address (for verifier slashing).
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	// LockDREAM locks DREAM tokens (moves from available balance to staked).
+	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	// UnlockDREAM unlocks DREAM tokens (moves from staked to available balance).
+	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 }
 
 // NameKeeper defines the expected interface for the Name module.

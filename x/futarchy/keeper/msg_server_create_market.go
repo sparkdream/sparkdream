@@ -18,6 +18,12 @@ func (k msgServer) CreateMarket(goCtx context.Context, msg *types.MsgCreateMarke
 		return nil, err
 	}
 
+	// TODO: FUTARCHY-6 — CreateMarket currently has no access control beyond the InitialLiquidity
+	// deposit requirement. Consider restricting market creation to council members, adding a
+	// separate market_creation_fee param, or implementing per-address rate limiting to prevent
+	// spam market creation. The InitialLiquidity minimum (enforced in CreateMarketInternal)
+	// provides some economic deterrence but may not be sufficient.
+
 	// Calculate duration (EndBlock - Current)
 	duration := msg.EndBlock - ctx.BlockHeight()
 	if duration <= 0 {

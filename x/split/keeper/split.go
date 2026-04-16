@@ -62,10 +62,29 @@ func (k Keeper) SplitFunds(ctx context.Context) error {
 		return nil
 	}
 
+	// Minimum distribution threshold: skip if pool balance is below 1 SPARK (1_000_000 uspark).
+	// This prevents the community pool from being drained every block with tiny distributions
+	// that waste gas and produce negligible economic effect.
+	minThreshold := math.NewInt(1_000_000)
+	belowThreshold := true
+	for _, coin := range poolCoins {
+		if coin.Amount.GTE(minThreshold) {
+			belowThreshold = false
+			break
+		}
+	}
+	if belowThreshold {
+		return nil
+	}
+
 	for _, coin := range poolCoins {
 		totalAmount := coin.Amount
 
 		// Skip dust
+		// NOTE: Integer division in share calculation (amount * weight / totalWeight) may leave
+		// small amounts undistributed due to rounding. This is expected behavior — the remainder
+		// stays in the community pool and will be distributed in subsequent blocks once the pool
+		// accumulates above the minimum threshold.
 		if totalAmount.LTE(math.NewInt(int64(len(allShares)))) {
 			continue
 		}

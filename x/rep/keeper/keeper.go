@@ -36,7 +36,8 @@ type Keeper struct {
 	late            *lateKeepers // shared across value copies
 	Member          collections.Map[string, types.Member]
 	InvitationSeq   collections.Sequence
-	Invitation      collections.Map[uint64, types.Invitation]
+	Invitation          collections.Map[uint64, types.Invitation]
+	InvitationsByInvitee collections.Map[string, uint64] // invitee address -> invitation ID
 	ProjectSeq      collections.Sequence
 	Project         collections.Map[uint64, types.Project]
 	InitiativeSeq   collections.Sequence
@@ -119,8 +120,9 @@ func NewKeeper(
 		late:            &lateKeepers{},
 		Params:          collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Member:          collections.NewMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc)),
-		Invitation:      collections.NewMap(sb, types.InvitationKey, "invitation", collections.Uint64Key, codec.CollValue[types.Invitation](cdc)),
-		InvitationSeq:   collections.NewSequence(sb, types.InvitationCountKey, "invitationSequence"),
+		Invitation:           collections.NewMap(sb, types.InvitationKey, "invitation", collections.Uint64Key, codec.CollValue[types.Invitation](cdc)),
+		InvitationsByInvitee: collections.NewMap(sb, types.InvitationsByInviteeKey, "invitationsByInvitee", collections.StringKey, collections.Uint64Value),
+		InvitationSeq:        collections.NewSequence(sb, types.InvitationCountKey, "invitationSequence"),
 		Project:         collections.NewMap(sb, types.ProjectKey, "project", collections.Uint64Key, codec.CollValue[types.Project](cdc)),
 		ProjectSeq:      collections.NewSequence(sb, types.ProjectCountKey, "projectSequence"),
 		Initiative:      collections.NewMap(sb, types.InitiativeKey, "initiative", collections.Uint64Key, codec.CollValue[types.Initiative](cdc)),

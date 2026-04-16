@@ -13,9 +13,12 @@ func EndBlocker(ctx context.Context, k keeper.Keeper) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentTime := sdkCtx.BlockTime().Unix()
 
-	// 1. Iterate over Queue: Up to CurrentTime
+	// 1. Iterate over Queue: Up to CurrentTime (inclusive).
+	// Use EndExclusive with currentTime+1 to ensure entries at exactly currentTime are included.
+	// EndInclusive with an empty string as K2 would miss entries at currentTime with non-empty
+	// group names, since ("", "") < ("", "anyGroupName") in lexicographic ordering.
 	rng := new(collections.Range[collections.Pair[int64, string]]).
-		EndInclusive(collections.Join(currentTime, "")) // Scan everything up to 'Now'
+		EndExclusive(collections.Join(currentTime+1, ""))
 
 	err := k.MarketTriggerQueue.Walk(ctx, rng, func(key collections.Pair[int64, string]) (bool, error) {
 		groupName := key.K2()

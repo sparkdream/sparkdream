@@ -334,14 +334,15 @@ sign_and_broadcast "batch_grantee" "$BATCH_GRANTEE_ADDR" \
     /tmp/batch_multi_unsigned.json /tmp/batch_multi_signed.json
 
 if check_tx_success "$TX_RESULT"; then
-    # Verify exec_count incremented by 1 (not 2 — one MsgExecSession = one exec)
+    # Verify exec_count incremented by number of inner messages (SESSION-2 fix)
+    # 2 inner messages → exec_count should be 2
     SESSION=$($BINARY query session session "$GRANTER_ADDR" "$BATCH_GRANTEE_ADDR" --output json 2>&1)
     EXEC_COUNT=$(echo "$SESSION" | jq -r '.session.exec_count // "0"')
     echo "  Batch of 2 msgs executed, exec_count=$EXEC_COUNT"
-    if [ "$EXEC_COUNT" = "1" ]; then
+    if [ "$EXEC_COUNT" = "2" ]; then
         record_result "Multiple inner msgs in one batch" "PASS"
     else
-        echo "  Unexpected exec_count (expected 1)"
+        echo "  Unexpected exec_count (expected 2)"
         record_result "Multiple inner msgs in one batch" "FAIL"
     fi
 else

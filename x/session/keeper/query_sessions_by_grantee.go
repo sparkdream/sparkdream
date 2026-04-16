@@ -26,6 +26,10 @@ func (q queryServer) SessionsByGrantee(ctx context.Context, req *types.QuerySess
 			return true, err
 		}
 		sessions = append(sessions, session)
+		// SESSION-6 fix: hard cap to prevent unbounded iteration
+		if len(sessions) >= maxQueryResults {
+			return true, nil
+		}
 		return false, nil
 	})
 	if err != nil {

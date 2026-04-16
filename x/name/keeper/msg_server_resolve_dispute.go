@@ -86,7 +86,9 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 			}
 		}
 		// Clean up contest stake
-		k.ContestStakes.Remove(ctx, dispute.ContestChallengeId) //nolint:errcheck
+		if err := k.ContestStakes.Remove(ctx, dispute.ContestChallengeId); err != nil {
+			sdkCtx.Logger().Error("failed to remove contest stake record", "challenge_id", dispute.ContestChallengeId, "error", err)
+		}
 	} else {
 		// UNCONTESTED path
 		if transferApproved {
@@ -107,7 +109,9 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 
 	// 4. Clean up dispute stake record
 	disputeChallengeID := fmt.Sprintf("name_dispute:%s:%d", dispute.Name, dispute.FiledAt)
-	k.DisputeStakes.Remove(ctx, disputeChallengeID) //nolint:errcheck
+	if err := k.DisputeStakes.Remove(ctx, disputeChallengeID); err != nil {
+		sdkCtx.Logger().Error("failed to remove dispute stake record", "challenge_id", disputeChallengeID, "error", err)
+	}
 
 	// 5. Close the dispute
 	dispute.Active = false

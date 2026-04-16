@@ -44,7 +44,9 @@ func (k msgServer) SubmitArbiterHash(ctx context.Context, msg *types.MsgSubmitAr
 
 	// For identified path: verify it's an active bridge for the same peer, not the submitting operator
 	// (Anonymous path: x/shield has already verified trust level and nullifier uniqueness)
-	isShieldModule := false // TODO: detect if msg.Creator is shield module address
+	creatorBytes, _ := k.addressCodec.StringToBytes(msg.Creator)
+	shieldModuleAddr := k.authKeeper.GetModuleAddress("shield")
+	isShieldModule := shieldModuleAddr != nil && sdk.AccAddress(creatorBytes).Equals(shieldModuleAddr)
 	if !isShieldModule {
 		// Identified path — must be active bridge for same peer
 		bridgeKey := collections.Join(msg.Creator, content.PeerId)

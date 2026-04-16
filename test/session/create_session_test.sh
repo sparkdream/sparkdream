@@ -424,20 +424,19 @@ TX_RES=$($BINARY tx session create-session \
     -y \
     --output json 2>&1)
 
+# Zero spend limit should be rejected (SESSION-4 fix: positive SpendLimit required)
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-    SESSION=$($BINARY query session session "$GRANTER_ADDR" "$TEMP5_ADDR" --output json 2>&1)
-    SPEND_LIMIT=$(echo "$SESSION" | jq -r '.session.spend_limit.amount // "0"')
-    MAX_EXEC=$(echo "$SESSION" | jq -r '.session.max_exec_count // "0"')
-    if [ "$MAX_EXEC" = "10" ]; then
-        echo "  Session created with zero spend limit, max_exec_count=10"
-        record_result "Create session with zero spend limit" "PASS"
-    else
-        echo "  Unexpected max_exec_count: $MAX_EXEC"
-        record_result "Create session with zero spend limit" "FAIL"
-    fi
+    echo "  Unexpectedly succeeded — zero spend limit should be rejected"
+    record_result "Create session with zero spend limit rejected" "FAIL"
 else
-    echo "  TX failed: $(echo "$TX_RESULT" | jq -r '.raw_log // "unknown"' 2>/dev/null)"
-    record_result "Create session with zero spend limit" "FAIL"
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // "unknown"' 2>/dev/null)
+    if echo "$RAW_LOG" | grep -q "spend_limit must be positive"; then
+        echo "  Correctly rejected: zero spend limit"
+        record_result "Create session with zero spend limit rejected" "PASS"
+    else
+        echo "  TX failed but with unexpected error: $RAW_LOG"
+        record_result "Create session with zero spend limit rejected" "FAIL"
+    fi
 fi
 
 # ========================================================================

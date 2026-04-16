@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"sparkdream/x/blog/types"
 
@@ -12,29 +13,48 @@ import (
 
 // adjustReactionCount modifies a specific reaction count field by delta.
 // For decrement (delta < 0), it checks for underflow and clamps to 0.
+// Bounds check: uint64 values > math.MaxInt64 are clamped before int64 cast to prevent overflow.
 func adjustReactionCount(counts *types.ReactionCounts, rt types.ReactionType, delta int64) {
 	switch rt {
 	case types.ReactionType_REACTION_TYPE_LIKE:
 		if delta < 0 && counts.LikeCount == 0 {
 			return
 		}
-		counts.LikeCount = uint64(int64(counts.LikeCount) + delta)
+		counts.LikeCount = safeAddDelta(counts.LikeCount, delta)
 	case types.ReactionType_REACTION_TYPE_INSIGHTFUL:
 		if delta < 0 && counts.InsightfulCount == 0 {
 			return
 		}
-		counts.InsightfulCount = uint64(int64(counts.InsightfulCount) + delta)
+		counts.InsightfulCount = safeAddDelta(counts.InsightfulCount, delta)
 	case types.ReactionType_REACTION_TYPE_DISAGREE:
 		if delta < 0 && counts.DisagreeCount == 0 {
 			return
 		}
-		counts.DisagreeCount = uint64(int64(counts.DisagreeCount) + delta)
+		counts.DisagreeCount = safeAddDelta(counts.DisagreeCount, delta)
 	case types.ReactionType_REACTION_TYPE_FUNNY:
 		if delta < 0 && counts.FunnyCount == 0 {
 			return
 		}
-		counts.FunnyCount = uint64(int64(counts.FunnyCount) + delta)
+		counts.FunnyCount = safeAddDelta(counts.FunnyCount, delta)
 	}
+}
+
+// safeAddDelta safely adds a signed delta to an unsigned count, preventing overflow.
+// For decrements: checks count > 0 before subtracting, clamps to 0 on underflow.
+// For increments: caps at math.MaxInt64 to prevent uint64→int64 overflow.
+func safeAddDelta(count uint64, delta int64) uint64 {
+	if delta < 0 {
+		sub := uint64(-delta)
+		if count < sub {
+			return 0
+		}
+		return count - sub
+	}
+	// Bounds check: prevent count from exceeding int64 range
+	if count > uint64(math.MaxInt64) {
+		return count
+	}
+	return uint64(int64(count) + delta)
 }
 
 func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgReactResponse, error) {

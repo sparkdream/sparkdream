@@ -78,12 +78,18 @@ func TestVerifyDecryptionShare(t *testing.T) {
 	shareBytes, _ := sharePoint.MarshalBinary()
 
 	t.Run("valid share passes", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, epochTagBytes)
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, epochTagBytes, 1, 1)
 		require.NoError(t, err)
 	})
 
+	t.Run("share index mismatch rejected", func(t *testing.T) {
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, epochTagBytes, 2, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "share index mismatch")
+	})
+
 	t.Run("invalid share bytes rejected", func(t *testing.T) {
-		err := verifyDecryptionShare([]byte("not a point"), pubKeyBytes, epochTagBytes)
+		err := verifyDecryptionShare([]byte("not a point"), pubKeyBytes, epochTagBytes, 1, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not a valid G1 point")
 	})
@@ -91,19 +97,27 @@ func TestVerifyDecryptionShare(t *testing.T) {
 	t.Run("identity element share rejected", func(t *testing.T) {
 		identity := tleSuite.G1().Point().Null()
 		identityBytes, _ := identity.MarshalBinary()
-		err := verifyDecryptionShare(identityBytes, pubKeyBytes, epochTagBytes)
+		err := verifyDecryptionShare(identityBytes, pubKeyBytes, epochTagBytes, 1, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "identity element")
 	})
 
+	t.Run("identity pub share rejected", func(t *testing.T) {
+		identityPub := tleSuite.G1().Point().Null()
+		identityPubBytes, _ := identityPub.MarshalBinary()
+		err := verifyDecryptionShare(shareBytes, identityPubBytes, epochTagBytes, 1, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "public key share is the identity element")
+	})
+
 	t.Run("invalid pub share bytes rejected", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, []byte("bad"), epochTagBytes)
+		err := verifyDecryptionShare(shareBytes, []byte("bad"), epochTagBytes, 1, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid public key share")
 	})
 
 	t.Run("invalid epoch tag rejected", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, []byte("bad"))
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, []byte("bad"), 1, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid epoch tag")
 	})

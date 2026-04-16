@@ -68,4 +68,10 @@ var (
 
 	// DKG registrations — pub keys registered during REGISTERING phase (key: validator_operator_address)
 	DKGRegistrationsKey = collections.NewPrefix("shield/dkg_reg/")
+
+	// Per-submitter address rate limits for anti-spam (key: epoch + submitter_address → count)
+	SubmitterRateLimitsKey = collections.NewPrefix("shield/submitter_rate/")
+
+	// Pending op counter (singleton — avoids full iteration to count pending ops)
+	PendingOpCountKey = collections.NewPrefix("shield/pending_op_count")
 )

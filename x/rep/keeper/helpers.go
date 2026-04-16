@@ -43,7 +43,9 @@ func ZeroInt() math.Int {
 	return math.ZeroInt()
 }
 
-// IsAffiliated checks if an address is affiliated with an initiative
+// IsAffiliated checks if an address is affiliated with an initiative.
+// This is a basic check without project creator lookup. Prefer IsAffiliatedWithProject
+// when a keeper is available for full affiliation checking.
 func IsAffiliated(initiative types.Initiative, addr string) bool {
 	if initiative.Assignee == addr {
 		return true
@@ -51,8 +53,20 @@ func IsAffiliated(initiative types.Initiative, addr string) bool {
 	if initiative.Apprentice == addr {
 		return true
 	}
-	// Check project creator by looking at the initiative's project
-	// Note: This would require fetching the project, but for now we skip that check
+	return false
+}
+
+// IsAffiliatedWithProject checks if an address is affiliated with an initiative,
+// including checking whether the address is the project creator.
+func (k Keeper) IsAffiliatedWithProject(ctx context.Context, initiative types.Initiative, addr string) bool {
+	if IsAffiliated(initiative, addr) {
+		return true
+	}
+	// Check project creator
+	project, err := k.GetProject(ctx, initiative.ProjectId)
+	if err == nil && project.Creator == addr {
+		return true
+	}
 	return false
 }
 

@@ -105,6 +105,11 @@ func (q queryServer) PendingOps(ctx context.Context, req *types.QueryPendingOpsR
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
+	// NOTE: When epoch filter is active, the pagination metadata (total count, next key)
+	// may not match the filtered result count because filtering happens inside the
+	// Paginate callback. This is a known limitation of post-pagination filtering.
+	// A proper fix would require an epoch-indexed secondary collection, but for query
+	// purposes this is acceptable — the response contains only matching ops.
 	storeAdapter := runtime.KVStoreAdapter(q.k.storeService.OpenKVStore(ctx))
 	store := prefix.NewStore(storeAdapter, types.PendingOpsKey.Bytes())
 

@@ -103,20 +103,29 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 			reward := budget.Mul(share)
 
 			// Mint DREAM to nominator
+			mintSuccess := false
 			if k.repKeeper != nil {
 				addr, err := k.addressCodec.StringToBytes(n.nomination.Nominator)
 				if err == nil {
 					rewardInt := reward.TruncateInt()
 					if rewardInt.IsPositive() {
-						_ = k.repKeeper.MintDREAM(ctx, addr, rewardInt)
+						if mintErr := k.repKeeper.MintDREAM(ctx, addr, rewardInt); mintErr != nil {
+							sdkCtx.Logger().Error("failed to mint DREAM for retro reward",
+								"nomination_id", n.nomination.Id,
+								"nominator", n.nomination.Nominator,
+								"amount", rewardInt.String(),
+								"error", mintErr)
+						} else {
+							mintSuccess = true
+						}
 					}
 				}
 			}
 
-			// Update nomination
+			// Update nomination — only mark as Rewarded if mint succeeded
 			nom := n.nomination
 			nom.RewardAmount = reward
-			nom.Rewarded = true
+			nom.Rewarded = mintSuccess
 			nom.Conviction = n.conviction
 			_ = k.Nomination.Set(ctx, nom.Id, nom)
 
@@ -152,6 +161,11 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 }
 
 // processReturnNominationStakesPhase returns all nomination stakes to stakers.
+// TODO: This loads all stakes into memory before batching. For large datasets,
+// this should stream stakes using an iterator with a cursor (state.LastProcessed)
+// instead of collecting all into a slice first. The current approach works because
+// nomination stakes are bounded by MaxNominationsPerMember * member count, but
+// should be refactored for scalability.
 func (k Keeper) processReturnNominationStakesPhase(ctx context.Context, state *types.SeasonTransitionState, batchSize int) (bool, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 

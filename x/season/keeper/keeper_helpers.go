@@ -214,7 +214,7 @@ func (k Keeper) ValidateGuildName(ctx context.Context, name string) error {
 		return types.ErrGuildNameTooLong
 	}
 
-	// Check name uniqueness
+	// Check name uniqueness — early return as soon as a duplicate is found
 	iter, err := k.Guild.Iterate(ctx, nil)
 	if err != nil {
 		return err
@@ -231,7 +231,7 @@ func (k Keeper) ValidateGuildName(ctx context.Context, name string) error {
 			continue
 		}
 		if strings.ToLower(guild.Name) == normalizedName {
-			return types.ErrGuildNameTaken
+			return types.ErrGuildNameTaken // early return on first duplicate
 		}
 	}
 	_ = params
@@ -289,7 +289,10 @@ func (k Keeper) IsGuildMember(ctx context.Context, guildID uint64, addr string) 
 	return membership.GuildId == guildID && membership.LeftEpoch == 0
 }
 
-// GetGuildMemberCount returns the number of members in a guild
+// GetGuildMemberCount returns the number of members in a guild.
+// TODO: This performs a full table scan of GuildMembership. For efficiency,
+// maintain an ActiveMemberCount counter on the Guild struct itself, incrementing
+// on join and decrementing on leave. This would make the check O(1).
 func (k Keeper) GetGuildMemberCount(ctx context.Context, guildID uint64) uint64 {
 	iter, err := k.GuildMembership.Iterate(ctx, nil)
 	if err != nil {
@@ -473,6 +476,11 @@ func (k Keeper) GetDREAMBalance(ctx context.Context, addr string) (uint64, error
 
 // ReserveName reserves a name via x/name integration
 // nameType can be "guild", "username", etc.
+//
+// TODO: TOCTOU race — this checks availability but never actually registers the name
+// with x/name. Within the same block, another transaction could claim the name between
+// the IsNameAvailable check and the end of this transaction. The fix requires calling
+// a nameKeeper.RegisterName() method that atomically checks and claims in one step.
 func (k Keeper) ReserveName(ctx context.Context, name string, nameType string, owner string) error {
 	if k.nameKeeper == nil {
 		// No name keeper available - skip name reservation (development mode)

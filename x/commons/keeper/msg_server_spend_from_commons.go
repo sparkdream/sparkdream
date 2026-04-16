@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -50,16 +51,43 @@ func (k msgServer) SpendFromCommons(goCtx context.Context, msg *types.MsgSpendFr
 			"group term ended on %s; parent must renew membership", expirationTime.String())
 	}
 
-	// 5. CHECK: Rate Limit (Cap per Transaction)
-	// Note: Ideally we track "Amount Spent This Epoch", but as a baseline safety,
-	// we ensure this single transaction does not exceed the limit.
+	// 5. CHECK: Rate Limit (Cumulative per Epoch)
+	// Track cumulative spending per epoch (1 epoch = 1 day = 86400 seconds).
+	// This prevents multiple transactions within the same epoch from draining the treasury.
 	if extGroup.MaxSpendPerEpoch != nil && extGroup.MaxSpendPerEpoch.GT(math.NewInt(0)) {
-		// Check if the request exceeds the limit
-		// We use IsAnyGT because msg.Amount is sdk.Coins (could be multiple denoms)
-		limitCoin := sdk.NewCoin("uspark", *extGroup.MaxSpendPerEpoch)
-		if !limitCoin.IsZero() && msg.Amount.IsAnyGT(sdk.NewCoins(limitCoin)) {
+		limit := *extGroup.MaxSpendPerEpoch
+		epochDay := ctx.BlockTime().Unix() / 86400
+
+		// Get the uspark amount from this transaction
+		requestedUspark := msg.Amount.AmountOf("uspark")
+
+		// Single-transaction check
+		if requestedUspark.GT(limit) {
 			return nil, errorsmod.Wrapf(types.ErrRateLimitExceeded,
-				"spend request %s exceeds group limit of %s", msg.Amount, limitCoin)
+				"spend request %s uspark exceeds epoch limit of %s uspark", requestedUspark, limit)
+		}
+
+		// Cumulative epoch check
+		key := collections.Join(msg.Authority, epochDay)
+		cumulativeSpent := math.ZeroInt()
+		if prev, err := k.EpochSpending.Get(ctx, key); err == nil {
+			var ok bool
+			cumulativeSpent, ok = math.NewIntFromString(prev)
+			if !ok {
+				cumulativeSpent = math.ZeroInt()
+			}
+		}
+
+		newTotal := cumulativeSpent.Add(requestedUspark)
+		if newTotal.GT(limit) {
+			return nil, errorsmod.Wrapf(types.ErrRateLimitExceeded,
+				"cumulative spend this epoch %s + request %s = %s exceeds limit %s uspark",
+				cumulativeSpent, requestedUspark, newTotal, limit)
+		}
+
+		// Record updated cumulative spending
+		if err := k.EpochSpending.Set(ctx, key, newTotal.String()); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update epoch spending tracker")
 		}
 	}
 

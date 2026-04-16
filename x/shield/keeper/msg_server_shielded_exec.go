@@ -33,6 +33,17 @@ func (k msgServer) ShieldedExec(ctx context.Context, msg *types.MsgShieldedExec)
 		return nil, types.ErrShieldDisabled
 	}
 
+	// Validate byte lengths of cryptographic fields
+	if len(msg.Nullifier) != 0 && len(msg.Nullifier) != 32 {
+		return nil, errorsmod.Wrapf(types.ErrInvalidProof, "nullifier must be exactly 32 bytes, got %d", len(msg.Nullifier))
+	}
+	if len(msg.MerkleRoot) != 0 && len(msg.MerkleRoot) != 32 {
+		return nil, errorsmod.Wrapf(types.ErrInvalidProof, "merkle root must be exactly 32 bytes, got %d", len(msg.MerkleRoot))
+	}
+	if len(msg.Proof) > 1024 {
+		return nil, errorsmod.Wrapf(types.ErrInvalidProof, "proof exceeds max size of 1024 bytes, got %d", len(msg.Proof))
+	}
+
 	// Route based on execution mode
 	switch msg.ExecMode {
 	case types.ShieldExecMode_SHIELD_EXEC_IMMEDIATE:
@@ -164,7 +175,15 @@ func (k msgServer) handleEncryptedBatch(ctx sdk.Context, params types.Params, ms
 		return nil, err
 	}
 
-	// 7. Check per-identity rate limit
+	// 7. Check per-identity rate limit.
+	// KNOWN LIMITATION: In encrypted batch mode, the rate limit nullifier is submitted in
+	// cleartext and checked here, but it cannot be cryptographically verified against the
+	// ZK proof until after decryption (when the proof becomes available). A malicious submitter
+	// could provide a forged rate_limit_nullifier to bypass per-identity rate limiting while
+	// the payload is encrypted. The nullifier and proof are verified post-decryption during
+	// batch processing, at which point invalid entries are discarded. This is an inherent
+	// tradeoff of the encrypted batch privacy model — full verification requires the decrypted
+	// payload. The cleartext nullifier check provides best-effort spam prevention.
 	rateLimitHex := hex.EncodeToString(msg.RateLimitNullifier)
 	if !k.CheckAndIncrementRateLimit(ctx, rateLimitHex, params.MaxExecsPerIdentityPerEpoch) {
 		return nil, types.ErrRateLimitExceeded
@@ -318,15 +337,17 @@ func (k Keeper) executeInnerMessage(ctx sdk.Context, params types.Params, innerM
 	// If neither check can be performed (no LegacyMsg, no ProtoCodec),
 	// we rely on the registered operation whitelist for security.
 
-	// Check ShieldAware gate: target module must explicitly opt in.
-	// This is the second gate beyond the governance whitelist.
-	if sa, found := k.getShieldAware(innerMsgAny.TypeUrl); found {
-		if !sa.IsShieldCompatible(ctx, innerMsg) {
-			return nil, types.ErrIncompatibleOperation
-		}
+	// Check ShieldAware gate: target module MUST explicitly opt in.
+	// Both the governance whitelist (registered operation) AND the ShieldAware gate
+	// must pass. If a module doesn't register a ShieldAware implementation, execution
+	// is rejected — this prevents accidental bypass when a module forgets to register.
+	sa, found := k.getShieldAware(innerMsgAny.TypeUrl)
+	if !found {
+		return nil, types.ErrIncompatibleOperation
 	}
-	// If no ShieldAware implementation is registered, we allow execution.
-	// The governance whitelist (registered operation) is the primary gate.
+	if !sa.IsShieldCompatible(ctx, innerMsg) {
+		return nil, types.ErrIncompatibleOperation
+	}
 
 	// Dispatch via router
 	handler := k.late.router.Handler(innerMsg)

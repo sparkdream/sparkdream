@@ -122,7 +122,7 @@ if [ -z "$SHIELD_BAL" ] || [ "$SHIELD_BAL" == "0" ] || [ "$SHIELD_BAL" == "null"
 fi
 
 # Dummy ZK values - proof verification is skipped when no VK is stored (test mode)
-DUMMY_PROOF="deadbeef"
+DUMMY_PROOF=$(python3 -c "print('aa' * 128)")
 DUMMY_MERKLE_ROOT="0000000000000000000000000000000000000000000000000000000000000001"
 
 # We need a category ID. Use TEST_CATEGORY_ID from .test_env or default to 1.
@@ -250,8 +250,19 @@ fi
 # =========================================================================
 echo "--- TEST 3: Anonymous forum downvote ---"
 
-# Downvote a different post (or the anonymous post) to avoid conflict with upvote
-DOWNVOTE_TARGET="${ANON_POST_ID:-$VOTE_TARGET_POST_ID}"
+# Create a separate post for the downvote test to avoid duplicate-vote conflict.
+# The upvote test already voted on VOTE_TARGET_POST_ID from the shield module address,
+# and our duplicate-vote prevention (FORUM-1 fix) rejects a second vote on the same post.
+TX_RES=$($BINARY tx forum create-post "$CATEGORY_ID" 0 "Downvote Target Post" \
+    --tags "commons-council" \
+    --from poster1 --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 500000uspark --gas 300000 -y --output json 2>&1)
+submit_tx_and_wait "$TX_RES"
+DOWNVOTE_TARGET=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="post_created") | .attributes[] | select(.key=="post_id") | .value' 2>/dev/null)
+if [ -z "$DOWNVOTE_TARGET" ] || [ "$DOWNVOTE_TARGET" == "null" ]; then
+    DOWNVOTE_TARGET="${ANON_POST_ID:-$VOTE_TARGET_POST_ID}"
+fi
+echo "  Downvote target post: $DOWNVOTE_TARGET"
 
 NULLIFIER_DOWN="fc03000000000000000000000000000000000000000000000000000000000003"
 RATE_NULL_DOWN=$(openssl rand -hex 32)

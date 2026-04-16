@@ -80,11 +80,19 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 		return nil, errorsmod.Wrap(types.ErrNotReplyInThread, "cannot award bounty to thread root post")
 	}
 
-	// Calculate remaining bounty amount (total - already assigned)
+	// Calculate per-winner share: total bounty divided equally among max_winners.
+	// This is a winner-take-equal-share model: each assignment receives the same
+	// fraction (1/max_winners) of the total bounty.
 	totalAmount, ok := math.NewIntFromString(bounty.Amount)
 	if !ok {
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid bounty amount")
 	}
+	perWinnerAmount := totalAmount.Quo(math.NewInt(int64(types.DefaultMaxBountyWinners)))
+	if !perWinnerAmount.IsPositive() {
+		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "bounty amount too small to split among winners")
+	}
+
+	// Verify remaining funds cover another award
 	assignedAmount := math.ZeroInt()
 	for _, a := range bounty.Awards {
 		awardAmt, ok := math.NewIntFromString(a.Amount)
@@ -93,15 +101,15 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 		}
 	}
 	remainingAmount := totalAmount.Sub(assignedAmount)
-	if !remainingAmount.IsPositive() {
+	if remainingAmount.LT(perWinnerAmount) {
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "no remaining bounty funds to assign")
 	}
 
-	// Create award with remaining amount
+	// Create award with per-winner share
 	award := &types.BountyAward{
 		PostId:    msg.ReplyId,
 		Recipient: reply.Author,
-		Amount:    remainingAmount.String(),
+		Amount:    perWinnerAmount.String(),
 		Reason:    msg.Reason,
 		AwardedAt: now,
 		Rank:      uint32(len(bounty.Awards) + 1),

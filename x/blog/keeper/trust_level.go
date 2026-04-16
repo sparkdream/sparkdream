@@ -9,6 +9,15 @@ import (
 
 // shieldModuleAddress is the deterministic address for the shield module account.
 // Computed once: SHA256("shield")[:20].
+//
+// SECURITY NOTE (CROSS-1): This address bypasses ALL membership and trust level checks
+// when it appears as the message signer. This is a single point of failure — if the shield
+// module account is compromised or if a bug allows arbitrary messages to be routed through
+// x/shield without proper ZK proof verification, all access controls in this module are
+// bypassed. The bypass is intentional because x/shield verifies membership and trust level
+// via ZK proofs before routing, but this creates a hard dependency on x/shield's correctness.
+// The bypass is narrowly scoped to membership/trust-level checks only — other validations
+// (content length, rate limits, etc.) still apply.
 var shieldModuleAddress = authtypes.NewModuleAddress("shield")
 
 // isShieldModuleAddress returns true if addr is the shield module account.

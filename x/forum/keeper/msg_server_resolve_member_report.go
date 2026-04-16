@@ -53,7 +53,9 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 	}
 
 	if action == types.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED {
-		// Dismissing the report - refund bonds to reporters
+		// Dismissing the report — reporters were wrong, but we refund their bonds
+		// rather than slashing. The reported member gets no reward, just vindication.
+		// Slashing reporter bonds on DISMISS would discourage good-faith reporting.
 		if err := k.RefundBonds(ctx, report.Reporters, totalBond); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
 		}
@@ -94,10 +96,9 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 				return nil, errorsmod.Wrap(err, "failed to store warning")
 			}
 
-			// Warning only - slash bonds from reporters and award to warned member
-			// (reporter was wrong to escalate to this level)
-			if err := k.TransferDREAM(ctx, k.GetModuleAddress(), msg.Member, totalBond); err != nil {
-				return nil, errorsmod.Wrap(err, "failed to award bonds to warned member")
+			// WARNING confirms misconduct — reporters were correct. Return their bonds.
+			if err := k.RefundBonds(ctx, report.Reporters, totalBond); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
 			}
 
 		case types.GovActionType_GOV_ACTION_TYPE_DEMOTION:

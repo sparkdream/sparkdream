@@ -81,15 +81,19 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		return nil, types.ErrExpirationTooLong
 	}
 
-	// 9. Spend limit check
-	if msg.SpendLimit.IsPositive() {
-		if msg.SpendLimit.Amount.GT(params.MaxSpendLimit.Amount) {
-			return nil, types.ErrSpendLimitTooHigh
-		}
+	// 9. Spend limit must be positive (SESSION-4 fix: zero SpendLimit disables
+	// fee delegation in the ante handler, making the session useless)
+	if !msg.SpendLimit.IsPositive() {
+		return nil, types.ErrSpendLimitRequired
 	}
 
-	// 10. Denom check
-	if msg.SpendLimit.IsPositive() && msg.SpendLimit.Denom != "uspark" {
+	// 10. Spend limit upper bound check
+	if msg.SpendLimit.Amount.GT(params.MaxSpendLimit.Amount) {
+		return nil, types.ErrSpendLimitTooHigh
+	}
+
+	// 11. Denom check
+	if msg.SpendLimit.Denom != "uspark" {
 		return nil, types.ErrInvalidDenom
 	}
 

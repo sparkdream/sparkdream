@@ -36,17 +36,14 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 	}
 
 	// Get market state
-	poolYes := *market.PoolYes
-	poolNo := *market.PoolNo
 	initialLiquidity := *market.InitialLiquidity
 	liquidityWithdrawn := *market.LiquidityWithdrawn
 
-	// Calculate total shares minted
-	totalShares := poolYes.Add(poolNo)
-
-	// Calculate available liquidity
-	// Formula: initial_liquidity - total_shares_minted - already_withdrawn
-	availableLiquidity := initialLiquidity.Sub(totalShares).Sub(liquidityWithdrawn)
+	// Calculate available liquidity.
+	// LMSR is a scoring rule: InitialLiquidity is the total subsidy deposited by the creator.
+	// The module account holds exactly InitialLiquidity minus any prior withdrawals.
+	// Pool quantities (PoolYes/PoolNo) are scoring-rule state, not collateral claims.
+	availableLiquidity := initialLiquidity.Sub(liquidityWithdrawn)
 
 	if availableLiquidity.LTE(math.ZeroInt()) {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "No liquidity available to withdraw")

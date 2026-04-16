@@ -19,8 +19,9 @@ const (
 var ParamsKey = collections.NewPrefix("p_rep")
 
 var (
-	InvitationKey      = collections.NewPrefix("invitation/value/")
-	InvitationCountKey = collections.NewPrefix("invitation/count/")
+	InvitationKey          = collections.NewPrefix("invitation/value/")
+	InvitationCountKey     = collections.NewPrefix("invitation/count/")
+	InvitationsByInviteeKey = collections.NewPrefix("invitation/by_invitee/")
 )
 
 var (

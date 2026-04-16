@@ -19,6 +19,17 @@ import (
 func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.MsgSubmitAnonymousProposal) (*types.MsgSubmitAnonymousProposalResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	// 0. Authenticate: only the x/shield module account may submit anonymous proposals.
+	shieldModuleAddr := k.authKeeper.GetModuleAddress("shield")
+	if shieldModuleAddr == nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "shield module address not found")
+	}
+	if msg.Proposer != shieldModuleAddr.String() {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+			"only the shield module account can submit anonymous proposals (got %s, want %s)",
+			msg.Proposer, shieldModuleAddr.String())
+	}
+
 	// 1. Validate policy address exists
 	councilName, err := k.PolicyToName.Get(ctx, msg.PolicyAddress)
 	if err != nil {
@@ -127,6 +138,17 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 // scoped to proposal_id) prevents double-voting.
 func (k msgServer) AnonymousVoteProposal(goCtx context.Context, msg *types.MsgAnonymousVoteProposal) (*types.MsgAnonymousVoteProposalResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	// 0. Authenticate: only the x/shield module account may cast anonymous votes.
+	shieldModuleAddr := k.authKeeper.GetModuleAddress("shield")
+	if shieldModuleAddr == nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "shield module address not found")
+	}
+	if msg.Voter != shieldModuleAddr.String() {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+			"only the shield module account can cast anonymous votes (got %s, want %s)",
+			msg.Voter, shieldModuleAddr.String())
+	}
 
 	// 1. Get proposal
 	proposal, err := k.Proposals.Get(ctx, msg.ProposalId)

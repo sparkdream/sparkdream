@@ -47,7 +47,13 @@ func (k msgServer) DeleteGroup(goCtx context.Context, msg *types.MsgDeleteGroup)
 		k.splitKeeper.SetShareByAddress(ctx, groupInfo.PolicyAddress, 0)
 	}
 
-	// Invalidate pending proposals via version bump
+	// Invalidate pending proposals via version bump.
+	// NOTE: This bumps the policy version so that pending proposals fail validation at
+	// execution time, but the proposal records themselves remain in storage. A full cleanup
+	// would walk all proposals for this group's policy address and set status=EXPIRED, but
+	// the version bump achieves the same functional effect (proposals become unexecutable)
+	// without the gas cost of a full scan. Orphaned proposal records are harmless storage
+	// overhead that can be cleaned up by a future migration or governance action.
 	if _, err := k.BumpPolicyVersion(ctx, groupInfo.PolicyAddress); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to invalidate pending proposals via version bump")
 	}

@@ -128,9 +128,23 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 		executedTypeURLs = append(executedTypeURLs, typeURL)
 	}
 
-	// Update session state
-	session.ExecCount++
+	// Update session state: increment by number of inner messages executed
+	session.ExecCount += uint64(len(msg.Msgs))
 	session.LastUsedAt = blockTime
+
+	// SESSION-3 fix: Decrement spend limit by gas consumed (as uspark proxy).
+	// The ante handler checks the fee budget up front, but we must also track
+	// cumulative spend so subsequent executions see the correct remaining budget.
+	if session.SpendLimit.IsPositive() {
+		gasUsed := sdkCtx.GasMeter().GasConsumed()
+		fee := sdk.NewInt64Coin("uspark", int64(gasUsed))
+		newSpent := session.Spent.Add(fee)
+		if newSpent.Amount.GT(session.SpendLimit.Amount) {
+			return nil, types.ErrSpendLimitExceeded
+		}
+		session.Spent = newSpent
+	}
+
 	if err := k.Sessions.Set(ctx, key, session); err != nil {
 		return nil, err
 	}
@@ -158,8 +172,13 @@ func rewriteSignerField(msg sdk.Msg, granter string) error {
 		return fmt.Errorf("message is not a struct")
 	}
 
-	// Try common signer field names in order of prevalence
-	for _, fieldName := range []string{"Creator", "Authority", "Granter", "Sender"} {
+	// Try common signer field names in order of prevalence across Cosmos SDK modules.
+	// SESSION-5 fix: expanded list to cover all known signer field conventions.
+	for _, fieldName := range []string{
+		"Creator", "Sender", "Authority", "Proposer", "Validator",
+		"Delegator", "Granter", "FromAddress", "Signer", "Admin",
+		"Owner", "Operator",
+	} {
 		field := v.FieldByName(fieldName)
 		if field.IsValid() && field.Kind() == reflect.String && field.CanSet() {
 			field.SetString(granter)

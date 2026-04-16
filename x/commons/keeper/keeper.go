@@ -70,6 +70,9 @@ type Keeper struct {
 	VetoPolicies collections.Map[string, string]
 	// AnonVoteTallies stores anonymous vote counts per proposal: proposal_id -> AnonVoteTally
 	AnonVoteTallies collections.Map[uint64, types.AnonVoteTally]
+	// EpochSpending tracks cumulative spending per (policy_address, epoch_day).
+	// Value is the cumulative uspark amount spent in the epoch (string-encoded).
+	EpochSpending collections.Map[collections.Pair[string, int64], string]
 }
 
 func NewKeeper(
@@ -158,6 +161,11 @@ func NewKeeper(
 			sb, types.AnonVoteTalliesKey, "anonVoteTallies",
 			collections.Uint64Key,
 			codec.CollValue[types.AnonVoteTally](cdc),
+		),
+		EpochSpending: collections.NewMap(
+			sb, types.EpochSpendingKey, "epochSpending",
+			collections.PairKeyCodec(collections.StringKey, collections.Int64Key),
+			collections.StringValue,
 		),
 	}
 

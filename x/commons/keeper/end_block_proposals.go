@@ -19,8 +19,18 @@ func (k Keeper) EndBlockProposals(ctx context.Context) error {
 
 	var toFinalize []uint64
 
-	// Walk all proposals to find ones past their voting deadline that are still open
+	// Walk all proposals to find ones past their voting deadline that are still open.
+	// Skip proposals in terminal states (EXECUTED, REJECTED, EXPIRED, FAILED, VETOED)
+	// to avoid unbounded linear growth in scanning time.
 	err := k.Proposals.Walk(ctx, nil, func(id uint64, proposal types.Proposal) (bool, error) {
+		switch proposal.Status {
+		case types.ProposalStatus_PROPOSAL_STATUS_EXECUTED,
+			types.ProposalStatus_PROPOSAL_STATUS_REJECTED,
+			types.ProposalStatus_PROPOSAL_STATUS_EXPIRED,
+			types.ProposalStatus_PROPOSAL_STATUS_FAILED,
+			types.ProposalStatus_PROPOSAL_STATUS_VETOED:
+			return false, nil // skip finalized proposals
+		}
 		if proposal.Status == types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED && now > proposal.VotingDeadline {
 			toFinalize = append(toFinalize, id)
 		}

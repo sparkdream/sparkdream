@@ -47,6 +47,14 @@ func (k Keeper) ApplyPendingDecay(ctx context.Context, member *types.Member) err
 		return nil
 	}
 
+	// Cap elapsed epochs to avoid gas-expensive Power() calls.
+	// After 500 epochs of decay the remaining value is negligible
+	// (e.g., 0.998^500 ≈ 0.37 for staked, 0.998^500 for unstaked).
+	const maxDecayEpochs int64 = 500
+	if elapsed > maxDecayEpochs {
+		elapsed = maxDecayEpochs
+	}
+
 	// Grace period: new members exempt from all decay
 	if params.NewMemberDecayGraceEpochs > 0 {
 		// Calculate member's join epoch from JoinedAt timestamp
@@ -126,6 +134,13 @@ func (k Keeper) GetBalance(ctx context.Context, addr sdk.AccAddress) (math.Int, 
 	return *member.DreamBalance, nil
 }
 
+// referralMintingKey is a context key used to prevent recursive referral reward minting.
+// When MintDREAM is called for a referral reward, this flag is set so that the
+// nested MintDREAM call does not trigger another referral reward calculation.
+type referralMintingKeyType struct{}
+
+var referralMintingKey = referralMintingKeyType{}
+
 // MintDREAM mints DREAM tokens to a member's balance.
 // This updates the member's balance and lifetime earned tracking.
 // The member must already exist in the system.
@@ -164,12 +179,16 @@ func (k Keeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 	)
 
 	// Calculate referral reward for inviter (if applicable)
-	// This is non-blocking - errors are logged but don't prevent minting
-	if err := k.CalculateReferralReward(ctx, addr, amount); err != nil {
-		sdkCtx.Logger().Error("failed to calculate referral reward",
-			"error", err,
-			"recipient", addr.String(),
-			"amount", amount.String())
+	// Skip if we are already inside a referral reward mint (reentrancy guard)
+	if sdkCtx.Value(referralMintingKey) == nil {
+		// Set the reentrancy guard before calling CalculateReferralReward
+		guardedCtx := sdkCtx.WithValue(referralMintingKey, true)
+		if err := k.CalculateReferralReward(guardedCtx, addr, amount); err != nil {
+			sdkCtx.Logger().Error("failed to calculate referral reward",
+				"error", err,
+				"recipient", addr.String(),
+				"amount", amount.String())
+		}
 	}
 
 	return nil
@@ -429,8 +448,9 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		}
 	}
 
-	// Check sender has sufficient balance
-	if senderMember.DreamBalance.LT(amount) {
+	// Check sender has sufficient unlocked balance (total balance minus staked)
+	unlockedBalance := senderMember.DreamBalance.Sub(*senderMember.StakedDream)
+	if unlockedBalance.LT(amount) {
 		return types.ErrInsufficientBalance
 	}
 

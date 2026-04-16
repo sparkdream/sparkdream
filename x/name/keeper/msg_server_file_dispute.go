@@ -31,6 +31,9 @@ func (k msgServer) FileDispute(goCtx context.Context, msg *types.MsgFileDispute)
 
 	// 3. Lock claimant's DREAM stake
 	stakeAmount := params.DisputeStakeDream
+	if !stakeAmount.IsUint64() {
+		return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "dispute stake amount too large for uint64: %s", stakeAmount.String())
+	}
 	if err := k.dreamOps.Lock(ctx, msg.Authority, stakeAmount.Uint64()); err != nil {
 		return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to lock DREAM stake: %s", err)
 	}

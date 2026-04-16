@@ -226,7 +226,10 @@ if [ -n "$OPS_POLICY" ] && [ "$OPS_POLICY" != "null" ]; then
     CURRENT_CONTENT_TTL=$(echo "$PARAMS" | jq -r '.params.content_ttl // "2160h0m0s"')
     CURRENT_ATTEST_TTL=$(echo "$PARAMS" | jq -r '.params.attestation_ttl // "720h0m0s"')
     CURRENT_MAX_TRUST=$(echo "$PARAMS" | jq -r '.params.global_max_trust_credit // "5"')
-    CURRENT_DISCOUNT=$(echo "$PARAMS" | jq -r '.params.trust_discount_rate // "500000000000000000"')
+    # LegacyDec fields come back as internal representation (e.g., "500000000000000000" = 0.5)
+    # Convert by inserting decimal point 18 positions from right for the message
+    RAW_DISCOUNT=$(echo "$PARAMS" | jq -r '.params.trust_discount_rate // "500000000000000000"')
+    CURRENT_DISCOUNT=$(python3 -c "print(f'{int(\"$RAW_DISCOUNT\") / 10**18:.18f}'.rstrip('0').rstrip('.'))")
     CURRENT_INACTIVITY=$(echo "$PARAMS" | jq -r '.params.bridge_inactivity_threshold // "100"')
     CURRENT_MAX_PRUNE=$(echo "$PARAMS" | jq -r '.params.max_prune_per_block // "10"')
 

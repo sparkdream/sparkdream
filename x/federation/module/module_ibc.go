@@ -112,22 +112,18 @@ func (im IBCModule) OnRecvPacket(
 	modulePacket channeltypes.Packet,
 	relayer sdk.AccAddress,
 ) ibcexported.Acknowledgement {
-	var ack channeltypes.Acknowledgement
-
 	var modulePacketData types.FederationPacketData
 	if err := modulePacketData.Unmarshal(modulePacket.GetData()); err != nil {
 		return channeltypes.NewErrorAcknowledgement(errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet data: %s", err.Error()))
 	}
 
-	// Dispatch packet
+	// TODO: IBC packet handling is not yet implemented. Once packet types are
+	// defined, add case branches in this switch to process each type.
 	switch packet := modulePacketData.Packet.(type) {
 	default:
 		err := fmt.Errorf("unrecognized %s packet type: %T", types.ModuleName, packet)
 		return channeltypes.NewErrorAcknowledgement(err)
 	}
-
-	// NOTE: acknowledgement will be written synchronously during IBC handler execution.
-	return ack
 }
 
 // OnAcknowledgementPacket implements the IBCModule interface
@@ -138,50 +134,18 @@ func (im IBCModule) OnAcknowledgementPacket(
 	acknowledgement []byte,
 	relayer sdk.AccAddress,
 ) error {
-	var ack channeltypes.Acknowledgement
-	if err := im.cdc.UnmarshalJSON(acknowledgement, &ack); err != nil {
-		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet acknowledgement: %v", err)
-	}
-
 	var modulePacketData types.FederationPacketData
 	if err := modulePacketData.Unmarshal(modulePacket.GetData()); err != nil {
 		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet data: %s", err.Error())
 	}
 
-	var eventType string
-
-	// Dispatch packet
+	// TODO: IBC packet acknowledgement handling is not yet implemented.
+	// Once packet types are defined, add case branches to dispatch acknowledgements.
 	switch packet := modulePacketData.Packet.(type) {
 	default:
 		errMsg := fmt.Sprintf("unrecognized %s packet type: %T", types.ModuleName, packet)
 		return errorsmod.Wrap(sdkerrors.ErrUnknownRequest, errMsg)
 	}
-
-	ctx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			eventType,
-			sdk.NewAttribute(types.AttributeKeyAck, fmt.Sprintf("%v", ack)),
-		),
-	)
-
-	switch resp := ack.Response.(type) {
-	case *channeltypes.Acknowledgement_Result:
-		ctx.EventManager().EmitEvent(
-			sdk.NewEvent(
-				eventType,
-				sdk.NewAttribute(types.AttributeKeyAckSuccess, string(resp.Result)),
-			),
-		)
-	case *channeltypes.Acknowledgement_Error:
-		ctx.EventManager().EmitEvent(
-			sdk.NewEvent(
-				eventType,
-				sdk.NewAttribute(types.AttributeKeyAckError, resp.Error),
-			),
-		)
-	}
-
-	return nil
 }
 
 // OnTimeoutPacket implements the IBCModule interface
@@ -196,12 +160,11 @@ func (im IBCModule) OnTimeoutPacket(
 		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet data: %s", err.Error())
 	}
 
-	// Dispatch packet
+	// TODO: IBC packet timeout handling is not yet implemented.
+	// Once packet types are defined, add case branches to handle timeout cleanup.
 	switch packet := modulePacketData.Packet.(type) {
 	default:
 		errMsg := fmt.Sprintf("unrecognized %s packet type: %T", types.ModuleName, packet)
 		return errorsmod.Wrap(sdkerrors.ErrUnknownRequest, errMsg)
 	}
-
-	return nil
 }

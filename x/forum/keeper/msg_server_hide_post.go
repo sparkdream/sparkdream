@@ -70,13 +70,25 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		}
 
 		// Check available bond for commitment
-		currentBond, _ := math.NewIntFromString(sentinelActivity.CurrentBond)
-		if sentinelActivity.CurrentBond == "" {
-			currentBond = math.ZeroInt()
+		currentBond, ok := math.NewIntFromString(sentinelActivity.CurrentBond)
+		if !ok {
+			if sentinelActivity.CurrentBond == "" {
+				currentBond = math.ZeroInt()
+			} else {
+				sdkCtx.Logger().Warn("failed to parse sentinel CurrentBond, falling back to zero",
+					"sentinel", msg.Creator, "raw_value", sentinelActivity.CurrentBond)
+				currentBond = math.ZeroInt()
+			}
 		}
-		committedBond, _ := math.NewIntFromString(sentinelActivity.TotalCommittedBond)
-		if sentinelActivity.TotalCommittedBond == "" {
-			committedBond = math.ZeroInt()
+		committedBond, ok := math.NewIntFromString(sentinelActivity.TotalCommittedBond)
+		if !ok {
+			if sentinelActivity.TotalCommittedBond == "" {
+				committedBond = math.ZeroInt()
+			} else {
+				sdkCtx.Logger().Warn("failed to parse sentinel TotalCommittedBond, falling back to zero",
+					"sentinel", msg.Creator, "raw_value", sentinelActivity.TotalCommittedBond)
+				committedBond = math.ZeroInt()
+			}
 		}
 		availableBond := currentBond.Sub(committedBond)
 

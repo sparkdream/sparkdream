@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -48,6 +49,16 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 		return nil, types.ErrCannotVoteOwnPost
 	}
 
+	// Check if user already voted on this post (prevents duplicate voting)
+	voteKey := collections.Join(msg.PostId, msg.Creator)
+	hasVoted, err := k.PostVote.Has(ctx, voteKey)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to check vote record")
+	}
+	if hasVoted {
+		return nil, types.ErrAlreadyVoted
+	}
+
 	// Check and update reaction rate limit
 	if err := k.checkAndUpdateReactionLimit(ctx, msg.Creator, now); err != nil {
 		return nil, err
@@ -65,12 +76,17 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 		}
 	}
 
-	// Increment upvote count (counter-only system - no individual vote tracking)
+	// Increment upvote count
 	post.UpvoteCount++
 
 	// Store updated post
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
+	}
+
+	// Record individual vote to prevent duplicates
+	if err := k.PostVote.Set(ctx, voteKey); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to store vote record")
 	}
 
 	// Emit event

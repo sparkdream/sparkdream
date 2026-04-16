@@ -15,6 +15,10 @@ func (k msgServer) UnbondBridge(ctx context.Context, msg *types.MsgUnbondBridge)
 		return nil, errorsmod.Wrap(err, "invalid operator address")
 	}
 
+	// Authorization: The proto signer annotation is `signer = "operator"`, so
+	// the Cosmos SDK message router already enforces that the transaction signer
+	// matches msg.Operator. No additional authorization check is needed here.
+
 	// 1. Verify bridge exists and is ACTIVE
 	bridgeKey := collections.Join(msg.Operator, msg.PeerId)
 	bridge, err := k.BridgeOperators.Get(ctx, bridgeKey)

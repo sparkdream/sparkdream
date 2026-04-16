@@ -124,7 +124,7 @@ fi
 echo ""
 
 # Dummy ZK values - proof verification is skipped when no VK is stored (test mode)
-DUMMY_PROOF="deadbeef"
+DUMMY_PROOF=$(python3 -c "print('aa' * 128)")
 DUMMY_MERKLE_ROOT="0000000000000000000000000000000000000000000000000000000000000001"
 
 # === RESOLVE COMMONS COUNCIL POLICY ADDRESS ===

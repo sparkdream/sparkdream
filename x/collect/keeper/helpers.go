@@ -17,6 +17,13 @@ import (
 // shieldModuleAddress is the deterministic address for the shield module account.
 // When the shield module routes a message via MsgShieldedExec, the ZK proof has
 // already verified membership and trust level, so this module bypasses its own checks.
+//
+// SECURITY NOTE (CROSS-1): This address bypasses ALL membership and trust level checks
+// in isMember() and meetsMinTrustLevel(). This is a single point of failure — correctness
+// depends entirely on x/shield's ZK proof verification. If the shield module is compromised,
+// all access controls in x/collect are bypassed. The bypass is narrowly scoped to
+// membership/trust-level gates only; other validations (ownership, deposits, rate limits)
+// still apply even for shield-routed messages.
 var shieldModuleAddress = authtypes.NewModuleAddress("shield")
 
 const (
@@ -211,6 +218,10 @@ func ParseTrustLevel(s string) (reptypes.TrustLevel, bool) {
 // --- Position management ---
 
 // CompactPositions reassigns sequential positions (0, 1, 2, ...) for all items in a collection.
+// WARNING: This is O(n^2) — it walks all items twice and updates each item record.
+// Called on every RemoveItem, this enables gas griefing for collections with many items.
+// TODO: Skip compaction on remove and instead perform lazy compaction (e.g., on next
+// position-dependent operation) or use a separate governance/admin-triggered compaction.
 func (k Keeper) CompactPositions(ctx context.Context, collectionID uint64) error {
 	// Collect all item IDs in current position order
 	var itemIDs []uint64
@@ -264,33 +275,11 @@ func (k Keeper) CompactPositions(ctx context.Context, collectionID uint64) error
 
 // InsertAtPosition shifts items at position and above right by one, then sets the new item at position.
 func (k Keeper) InsertAtPosition(ctx context.Context, collectionID uint64, position uint64, newItemID uint64) error {
-	// Collect items at position and above (in reverse order to avoid overwriting)
-	type posItem struct {
-		pos    uint64
-		itemID uint64
-	}
-	var toShift []posItem
-
-	err := k.ItemsByCollection.Walk(ctx,
-		collections.NewPrefixedPairRange[uint64, uint64](collectionID),
-		func(key collections.Pair[uint64, uint64]) (bool, error) {
-			if key.K2() >= position {
-				// k2 is the position in ItemsByCollection which stores (collectionID, position) -> itemID
-				// Actually ItemsByCollection is a KeySet not a Map, we need to get the item
-				// Let me reconsider the data model
-			}
-			return false, nil
-		},
-	)
-	_ = err
-	_ = toShift
-
-	// ItemsByCollection is a KeySet of (collectionID, itemID), not (collectionID, position)
+	// ItemsByCollection is a KeySet of (collectionID, itemID), not (collectionID, position).
 	// The position is stored on the Item record itself.
-	// We need to walk all items, sort by position, shift those >= target position.
-
+	// Walk all items, sort by position, shift those >= target position.
 	var items []types.Item
-	err = k.ItemsByCollection.Walk(ctx,
+	err := k.ItemsByCollection.Walk(ctx,
 		collections.NewPrefixedPairRange[uint64, uint64](collectionID),
 		func(key collections.Pair[uint64, uint64]) (bool, error) {
 			item, err := k.Item.Get(ctx, key.K2())
@@ -374,7 +363,10 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		if err == nil && !endorsement.StakeReleased {
 			endorserAddr, err := k.addressCodec.StringToBytes(endorsement.Endorser)
 			if err == nil {
-				k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake) //nolint:errcheck
+				if unlockErr := k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
+					sdkCtx.Logger().Error("failed to unlock DREAM for endorser on collection delete",
+						"collection_id", coll.Id, "endorser", endorsement.Endorser, "error", unlockErr)
+				}
 			}
 			endorsement.StakeReleased = true
 			k.Endorsement.Set(ctx, coll.Id, endorsement) //nolint:errcheck
@@ -503,21 +495,23 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		k.ItemsByCollection.Remove(ctx, key) //nolint:errcheck
 	}
 
-	// Delete all collaborators using reverse index
-	var collabReverseKeys []collections.Pair[string, uint64]
-	k.CollaboratorReverse.Walk(ctx, nil,
-		func(key collections.Pair[string, uint64]) (bool, error) {
-			if key.K2() == coll.Id {
-				collabReverseKeys = append(collabReverseKeys, key)
+	// Delete all collaborators by walking the Collaborator map with a collection-ID prefix.
+	// This avoids a full global scan of the CollaboratorReverse index.
+	collabPrefix := fmt.Sprintf("%d/", coll.Id)
+	var collabKeys []string
+	k.Collaborator.Walk(ctx, nil,
+		func(key string, _ types.Collaborator) (bool, error) {
+			if len(key) >= len(collabPrefix) && key[:len(collabPrefix)] == collabPrefix {
+				collabKeys = append(collabKeys, key)
 			}
 			return false, nil
 		},
-	)
-	for _, key := range collabReverseKeys {
-		addr := key.K1()
-		compositeKey := CollaboratorCompositeKey(coll.Id, addr)
-		k.Collaborator.Remove(ctx, compositeKey) //nolint:errcheck
-		k.CollaboratorReverse.Remove(ctx, key)   //nolint:errcheck
+	) //nolint:errcheck
+	for _, compositeKey := range collabKeys {
+		// Extract address from composite key "collectionID/address"
+		addr := compositeKey[len(collabPrefix):]
+		k.Collaborator.Remove(ctx, compositeKey)                                        //nolint:errcheck
+		k.CollaboratorReverse.Remove(ctx, collections.Join(addr, coll.Id)) //nolint:errcheck
 	}
 
 	// Clean up collection-level flags
@@ -622,6 +616,9 @@ func (k Keeper) countCollectionsByOwner(ctx context.Context, owner string) (uint
 
 // getMaxCollections returns the tiered collection limit for an address.
 func (k Keeper) getMaxCollections(ctx context.Context, address string, params types.Params) uint32 {
+	if k.repKeeper == nil {
+		return params.MaxCollectionsBase
+	}
 	addrBytes, err := k.addressCodec.StringToBytes(address)
 	if err != nil {
 		return params.MaxCollectionsBase

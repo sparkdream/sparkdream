@@ -402,24 +402,33 @@ func (k Keeper) SetNextChallengeID(ctx context.Context, id uint64) {
 	// Sequence is auto-incremented, no need to set manually
 }
 
-// HasActiveChallenges checks if an initiative has any active or in-review challenges
+// HasActiveChallenges checks if an initiative has any active or in-review challenges.
+// Uses the ChallengesByStatus index for efficient lookup instead of a full table scan.
 func (k Keeper) HasActiveChallenges(ctx context.Context, initiativeID uint64) (bool, error) {
-	hasActive := false
-	err := k.Challenge.Walk(ctx, nil, func(id uint64, challenge types.Challenge) (bool, error) {
-		if challenge.InitiativeId == initiativeID {
-			// Check if challenge is active or in jury review (not yet resolved)
-			if challenge.Status == types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE ||
-				challenge.Status == types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW {
-				hasActive = true
-				return true, nil // stop iteration, found an active challenge
-			}
-		}
-		return false, nil
-	})
-	if err != nil {
-		return false, err
+	// Check ACTIVE challenges via status index
+	activeStatuses := []types.ChallengeStatus{
+		types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
+		types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW,
 	}
-	return hasActive, nil
+
+	for _, status := range activeStatuses {
+		found := false
+		err := k.IterateChallengesByStatus(ctx, status, func(id uint64, challenge types.Challenge) bool {
+			if challenge.InitiativeId == initiativeID {
+				found = true
+				return true // stop iteration
+			}
+			return false
+		})
+		if err != nil {
+			return false, err
+		}
+		if found {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // EscalateChallengeToCommittee escalates a challenge to the technical committee

@@ -205,6 +205,11 @@ func (k Keeper) CompoundStakingRewards(ctx context.Context, stakeID uint64, stak
 		return math.ZeroInt(), nil
 	}
 
+	// Mint the rewards to the staker's balance first, so LockDREAM has sufficient unlocked balance
+	if err := k.MintDREAM(ctx, stakerAddr, rewards); err != nil {
+		return math.ZeroInt(), fmt.Errorf("failed to mint compounded rewards: %w", err)
+	}
+
 	// Add rewards to stake principal
 	stake.Amount = stake.Amount.Add(rewards)
 	stake.LastClaimedAt = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()

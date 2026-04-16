@@ -83,7 +83,13 @@ func (k Keeper) autoFundModule(ctx context.Context, sdkCtx sdk.Context, params t
 		return
 	}
 
-	_ = k.SetDayFunding(ctx, day, funded.Add(fundAmount))
+	if err := k.SetDayFunding(ctx, day, funded.Add(fundAmount)); err != nil {
+		sdkCtx.Logger().With("module", "x/shield").Error(
+			"Failed to update day funding ledger",
+			"day", day,
+			"err", err,
+		)
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeShieldFunded,

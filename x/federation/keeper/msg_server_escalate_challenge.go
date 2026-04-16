@@ -30,9 +30,7 @@ func (k msgServer) EscalateChallenge(ctx context.Context, msg *types.MsgEscalate
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrContentNotFound, "no verification record for content %d", msg.ContentId)
 	}
-	if msg.Creator != record.Verifier {
-		// TODO: also check against challenger address (need to store challenger on record or content)
-		// For now, allow verifier only
+	if msg.Creator != record.Verifier && msg.Creator != record.Challenger {
 		return nil, errorsmod.Wrap(types.ErrNotChallengeParty, "signer must be challenger or verifier")
 	}
 

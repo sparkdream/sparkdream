@@ -104,9 +104,6 @@ func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgSt
 
 	// Update tranche dream_staked
 	tranche.DreamStaked = newTotal
-	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
-		return nil, err
-	}
 
 	// Check if tranche is now BACKED
 	if tranche.DreamStaked.GTE(tranche.StakeThreshold) {
@@ -119,11 +116,6 @@ func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgSt
 		}
 		tranche.RevealDeadline = currentEpoch + params.RevealDeadlineEpochs
 
-		// Save again after status change
-		if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
-			return nil, err
-		}
-
 		sdkCtx.EventManager().EmitEvent(
 			sdk.NewEvent(
 				"tranche_backed",
@@ -132,6 +124,13 @@ func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgSt
 				sdk.NewAttribute("dream_staked", tranche.DreamStaked.String()),
 			),
 		)
+	}
+
+	// REVEAL-3 fix: Single write after all modifications are complete.
+	// Previously there were two k.Contribution.Set() calls with potentially
+	// inconsistent state due to pointer aliasing (tranche is a pointer into contrib.Tranches).
+	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
+		return nil, err
 	}
 
 	// Emit stake event

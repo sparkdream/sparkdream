@@ -41,19 +41,9 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 		return 0, types.ErrMemberAlreadyExists
 	}
 
-	// Check if there's already a pending invitation for this address
-	var existingInvitation *types.Invitation
-	err = k.Invitation.Walk(ctx, nil, func(id uint64, inv types.Invitation) (bool, error) {
-		if inv.InviteeAddress == invitee.String() && inv.Status == types.InvitationStatus_INVITATION_STATUS_PENDING {
-			existingInvitation = &inv
-			return true, nil // stop iteration
-		}
-		return false, nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	if existingInvitation != nil {
+	// Check if there's already an invitation for this address (via secondary index)
+	_, err = k.InvitationsByInvitee.Get(ctx, invitee.String())
+	if err == nil {
 		return 0, types.ErrInvitationAlreadyExists
 	}
 
@@ -119,6 +109,11 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 	}
 
 	if err := k.Invitation.Set(ctx, invitationID, invitation); err != nil {
+		return 0, err
+	}
+
+	// Populate the invitee -> invitation ID secondary index
+	if err := k.InvitationsByInvitee.Set(ctx, invitee.String(), invitationID); err != nil {
 		return 0, err
 	}
 
@@ -289,21 +284,19 @@ func (k Keeper) ProcessInviterAccountability(ctx context.Context, invitee sdk.Ac
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentTime := sdkCtx.BlockTime().Unix()
 
-	// Find the invitation
-	var invitation *types.Invitation
-	err = k.Invitation.Walk(ctx, nil, func(id uint64, inv types.Invitation) (bool, error) {
-		if inv.InviteeAddress == invitee.String() && inv.Status == types.InvitationStatus_INVITATION_STATUS_ACCEPTED {
-			invitation = &inv
-			return true, nil
-		}
-		return false, nil
-	})
+	// Find the invitation via secondary index
+	invitationID, err := k.InvitationsByInvitee.Get(ctx, invitee.String())
 	if err != nil {
-		return err
-	}
-	if invitation == nil {
 		return types.ErrInvitationNotFound
 	}
+	inv, err := k.Invitation.Get(ctx, invitationID)
+	if err != nil {
+		return types.ErrInvitationNotFound
+	}
+	if inv.Status != types.InvitationStatus_INVITATION_STATUS_ACCEPTED {
+		return types.ErrInvitationNotFound
+	}
+	invitation := &inv
 
 	// Check if still in accountability period
 	if currentTime > invitation.AccountabilityEnd {
@@ -370,21 +363,19 @@ func (k Keeper) CalculateReferralReward(ctx context.Context, invitee sdk.AccAddr
 		return nil // Not an invited member
 	}
 
-	// Find the invitation
-	var invitation *types.Invitation
-	err = k.Invitation.Walk(ctx, nil, func(id uint64, inv types.Invitation) (bool, error) {
-		if inv.InviteeAddress == invitee.String() && inv.Status == types.InvitationStatus_INVITATION_STATUS_ACCEPTED {
-			invitation = &inv
-			return true, nil
-		}
-		return false, nil
-	})
+	// Find the invitation via secondary index
+	invitationID, err := k.InvitationsByInvitee.Get(ctx, invitee.String())
 	if err != nil {
-		return err
-	}
-	if invitation == nil {
 		return nil // No invitation found
 	}
+	inv, err := k.Invitation.Get(ctx, invitationID)
+	if err != nil {
+		return nil // No invitation found
+	}
+	if inv.Status != types.InvitationStatus_INVITATION_STATUS_ACCEPTED {
+		return nil // Invitation not accepted
+	}
+	invitation := &inv
 
 	// Check if still in referral period
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

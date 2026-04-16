@@ -106,7 +106,7 @@ echo "Shield module: $SHIELD_MODULE_ADDR"
 echo ""
 
 # Dummy ZK values
-DUMMY_PROOF="deadbeef"
+DUMMY_PROOF=$(python3 -c "print('aa' * 128)")
 DUMMY_MERKLE_ROOT="0000000000000000000000000000000000000000000000000000000000000001"
 
 # =========================================================================

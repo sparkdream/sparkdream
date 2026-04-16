@@ -57,4 +57,10 @@ var (
 	ErrInvalidEvaluations     = errorsmod.Register(ModuleName, 40, "encrypted evaluations are invalid or incomplete")
 	ErrInsufficientValidators = errorsmod.Register(ModuleName, 41, "not enough bonded validators for DKG")
 	ErrValidatorNotInDKG      = errorsmod.Register(ModuleName, 42, "validator is not in the expected DKG participant set")
+	ErrNoVerificationKey      = errorsmod.Register(ModuleName, 43, "no verification key registered; shielded execution requires a VK to be stored before use")
+
+	// Input validation
+	ErrInvalidNullifierLength = errorsmod.Register(ModuleName, 44, "nullifier must be exactly 32 bytes")
+	ErrInvalidMerkleRootLen   = errorsmod.Register(ModuleName, 45, "merkle root must be exactly 32 bytes")
+	ErrProofTooLarge          = errorsmod.Register(ModuleName, 46, "proof exceeds maximum allowed size")
 )

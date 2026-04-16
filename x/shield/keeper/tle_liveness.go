@@ -22,6 +22,11 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 	}
 
 	// If TLE miss window or tolerance are zero, skip liveness checks
+	// TODO: The miss counter is a simple accumulator that resets on any successful participation.
+	// This does not implement a true sliding window — a validator who misses (tolerance-1) epochs,
+	// participates once (resetting the counter), then misses again will never be jailed.
+	// A proper sliding window should track per-epoch participation in a ring buffer
+	// (similar to x/slashing's signed_blocks_window) to enforce "at most N misses in M epochs".
 	if params.TleMissWindow == 0 || params.TleMissTolerance == 0 {
 		return
 	}

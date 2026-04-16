@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -50,8 +51,13 @@ func (k msgServer) ReportMember(ctx context.Context, msg *types.MsgReportMember)
 		action = types.GovActionType_GOV_ACTION_TYPE_WARNING
 	}
 
-	// Transfer DREAM bond from reporter to escrow (stub - actual transfer via x/rep)
-	if err := k.TransferDREAM(ctx, msg.Creator, k.GetModuleAddress(), sentinelBond); err != nil {
+	// Use a fixed reporting bond amount: the lesser of the sentinel's bond and 1000 DREAM.
+	// This prevents a single report from escrow-ing the sentinel's entire bond.
+	reportBondCap := math.NewInt(1000)
+	reportBond := math.MinInt(sentinelBond, reportBondCap)
+
+	// Transfer fixed reporting bond from reporter to escrow (stub - actual transfer via x/rep)
+	if err := k.TransferDREAM(ctx, msg.Creator, k.GetModuleAddress(), reportBond); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to transfer DREAM bond to escrow")
 	}
 
@@ -60,7 +66,7 @@ func (k msgServer) ReportMember(ctx context.Context, msg *types.MsgReportMember)
 		Member:            msg.Member,
 		Reason:            msg.Reason,
 		RecommendedAction: action,
-		TotalBond:         sentinelBond.String(),
+		TotalBond:         reportBond.String(),
 		CreatedAt:         now,
 		Status:            types.MemberReportStatus_MEMBER_REPORT_STATUS_PENDING,
 		Reporters:         []string{msg.Creator},

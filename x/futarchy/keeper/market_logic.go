@@ -61,7 +61,11 @@ func (k Keeper) CreateMarketInternal(ctx sdk.Context, creator sdk.AccAddress, sy
 
 	// 4. Initialize Market
 	endBlock := ctx.BlockHeight() + durationBlocks
-	zeroInt := math.ZeroInt()
+	// SECURITY: Use separate variables for each pool to avoid shared pointer aliasing.
+	// If both PoolYes and PoolNo pointed to the same math.Int, mutating one would mutate both.
+	poolYes := math.ZeroInt()
+	poolNo := math.ZeroInt()
+	liqWithdrawn := math.ZeroInt()
 
 	market := types.Market{
 		Index:            id,
@@ -74,12 +78,12 @@ func (k Keeper) CreateMarketInternal(ctx sdk.Context, creator sdk.AccAddress, sy
 		ResolutionHeight: 0,
 
 		BValue:             &bValue,
-		PoolYes:            &zeroInt,
-		PoolNo:             &zeroInt,
+		PoolYes:            &poolYes,
+		PoolNo:             &poolNo,
 		MinTick:            &params.DefaultMinTick,
 		Status:             "ACTIVE",
 		InitialLiquidity:   &liquidity.Amount,
-		LiquidityWithdrawn: &zeroInt,
+		LiquidityWithdrawn: &liqWithdrawn,
 	}
 
 	// 5. Save Market

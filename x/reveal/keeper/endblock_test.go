@@ -165,26 +165,27 @@ func TestProcessDeadlines_VerificationNoVotesDisputed(t *testing.T) {
 	params.MinVerificationVotes = 1
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
-	// Advance past verification deadline — no votes cast
+	// REVEAL-4 fix: max 3 extensions allowed. Each extension adds VerificationPeriodEpochs (14).
+	// Extensions 1-3 should keep status REVEALED; after the 4th deadline pass, DISPUTED.
+	for i := 1; i <= 3; i++ {
+		f.advanceBlockHeight(15)
+		err := f.keeper.ProcessDeadlines(f.ctx)
+		require.NoError(t, err)
+
+		contrib, err := f.keeper.Contribution.Get(f.ctx, contribID)
+		require.NoError(t, err)
+		require.Equal(t, types.TrancheStatus_TRANCHE_STATUS_REVEALED, contrib.Tranches[0].Status,
+			"extension %d should keep status REVEALED", i)
+	}
+
+	// Advance past the final extended deadline (all 3 extensions exhausted)
 	f.advanceBlockHeight(15)
 
-	// First call: should extend deadline
+	// Should now mark as DISPUTED (no votes after max extensions exhausted)
 	err := f.keeper.ProcessDeadlines(f.ctx)
 	require.NoError(t, err)
 
 	contrib, err := f.keeper.Contribution.Get(f.ctx, contribID)
-	require.NoError(t, err)
-	// Should still be REVEALED (extended)
-	require.Equal(t, types.TrancheStatus_TRANCHE_STATUS_REVEALED, contrib.Tranches[0].Status)
-
-	// Advance past the extended deadline
-	f.advanceBlockHeight(15)
-
-	// Second call: should mark as DISPUTED (no votes after extension)
-	err = f.keeper.ProcessDeadlines(f.ctx)
-	require.NoError(t, err)
-
-	contrib, err = f.keeper.Contribution.Get(f.ctx, contribID)
 	require.NoError(t, err)
 	require.Equal(t, types.TrancheStatus_TRANCHE_STATUS_DISPUTED, contrib.Tranches[0].Status)
 }
