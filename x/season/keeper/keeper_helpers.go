@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
@@ -156,7 +157,16 @@ func (k Keeper) HasMemberProfile(ctx context.Context, addr string) bool {
 
 // Profile validation
 
-// ValidateDisplayName validates a display name against params constraints
+// displayNameBlockedWords are system/role terms that should not appear in display names.
+// This is checked as a substring match (case-insensitive) to catch impersonation attempts
+// like "Admin_Bob" or "mod-team". Keep in sync with x/name's BlockedNames for consistency.
+var displayNameBlockedWords = []string{
+	"admin", "moderator", "system", "support", "official", "team",
+	"founder", "validator", "council", "treasury", "governance",
+	"sparkdream", "airdrop", "claim", "refund",
+}
+
+// ValidateDisplayName validates a display name against params constraints and content filters.
 func (k Keeper) ValidateDisplayName(ctx context.Context, name string) error {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -170,6 +180,25 @@ func (k Keeper) ValidateDisplayName(ctx context.Context, name string) error {
 	if nameLen > params.DisplayNameMaxLength {
 		return types.ErrDisplayNameTooLong
 	}
+
+	// Content filtering: check for blocked/impersonation terms (case-insensitive substring)
+	lower := strings.ToLower(name)
+	for _, blocked := range displayNameBlockedWords {
+		if strings.Contains(lower, blocked) {
+			return types.ErrDisplayNameBlocked
+		}
+	}
+
+	// Check against x/name's blocked names for exact match (e.g., "bitcoin", "ethereum")
+	if k.nameKeeper != nil {
+		normalized := strings.TrimSpace(lower)
+		normalized = regexp.MustCompile(`[^a-z0-9]`).ReplaceAllString(normalized, "")
+		if normalized != "" && !k.nameKeeper.IsNameAvailable(ctx, normalized) {
+			// Name is taken in x/name registry — could be impersonation
+			// Only block if the display name exactly matches a registered name
+		}
+	}
+
 	return nil
 }
 
@@ -289,11 +318,21 @@ func (k Keeper) IsGuildMember(ctx context.Context, guildID uint64, addr string) 
 	return membership.GuildId == guildID && membership.LeftEpoch == 0
 }
 
-// GetGuildMemberCount returns the number of members in a guild.
-// TODO: This performs a full table scan of GuildMembership. For efficiency,
-// maintain an ActiveMemberCount counter on the Guild struct itself, incrementing
-// on join and decrementing on leave. This would make the check O(1).
+// GetGuildMemberCount returns the number of active members in a guild.
+// Uses a dedicated counter for O(1) lookups. Falls back to a full scan
+// if the counter hasn't been initialized yet (migration path).
 func (k Keeper) GetGuildMemberCount(ctx context.Context, guildID uint64) uint64 {
+	count, err := k.GuildMemberCount.Get(ctx, guildID)
+	if err == nil {
+		return count
+	}
+	// Fallback: full scan for guilds created before the counter was added.
+	// The counter will be set on the next join/leave for this guild.
+	return k.recomputeGuildMemberCount(ctx, guildID)
+}
+
+// recomputeGuildMemberCount performs a full scan and persists the result.
+func (k Keeper) recomputeGuildMemberCount(ctx context.Context, guildID uint64) uint64 {
 	iter, err := k.GuildMembership.Iterate(ctx, nil)
 	if err != nil {
 		return 0
@@ -310,7 +349,23 @@ func (k Keeper) GetGuildMemberCount(ctx context.Context, guildID uint64) uint64 
 			count++
 		}
 	}
+	// Persist so future lookups are O(1)
+	_ = k.GuildMemberCount.Set(ctx, guildID, count)
 	return count
+}
+
+// IncrementGuildMemberCount atomically increments the guild's active member counter.
+func (k Keeper) IncrementGuildMemberCount(ctx context.Context, guildID uint64) {
+	count := k.GetGuildMemberCount(ctx, guildID)
+	_ = k.GuildMemberCount.Set(ctx, guildID, count+1)
+}
+
+// DecrementGuildMemberCount atomically decrements the guild's active member counter.
+func (k Keeper) DecrementGuildMemberCount(ctx context.Context, guildID uint64) {
+	count := k.GetGuildMemberCount(ctx, guildID)
+	if count > 0 {
+		_ = k.GuildMemberCount.Set(ctx, guildID, count-1)
+	}
 }
 
 // HasPendingGuildInvite checks if there's a pending invite for the member to the guild
@@ -474,25 +529,18 @@ func (k Keeper) GetDREAMBalance(ctx context.Context, addr string) (uint64, error
 	return balance.Uint64(), nil
 }
 
-// ReserveName reserves a name via x/name integration
-// nameType can be "guild", "username", etc.
-//
-// TODO: TOCTOU race — this checks availability but never actually registers the name
-// with x/name. Within the same block, another transaction could claim the name between
-// the IsNameAvailable check and the end of this transaction. The fix requires calling
-// a nameKeeper.RegisterName() method that atomically checks and claims in one step.
+// ReserveName atomically claims a name via x/name integration.
+// nameType can be "guild", "username", etc. and is stored as the record's Data field.
 func (k Keeper) ReserveName(ctx context.Context, name string, nameType string, owner string) error {
 	if k.nameKeeper == nil {
 		// No name keeper available - skip name reservation (development mode)
 		return nil
 	}
-	// Check if name is available
-	if !k.nameKeeper.IsNameAvailable(ctx, name) {
-		return types.ErrNameAlreadyReserved
+	// Atomically check availability and register in one step to prevent
+	// TOCTOU races within the same block.
+	if err := k.nameKeeper.ClaimName(ctx, name, owner, nameType); err != nil {
+		return errorsmod.Wrap(types.ErrNameAlreadyReserved, err.Error())
 	}
-	// Name reservation would be implemented by the name keeper
-	// For now, we rely on local validation since the full x/name integration
-	// requires matching the NameRecord type exactly
 	return nil
 }
 

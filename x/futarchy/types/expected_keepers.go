@@ -5,6 +5,8 @@ import (
 
 	"cosmossdk.io/core/address"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // AuthKeeper defines the expected interface for the Auth module.
@@ -33,6 +35,12 @@ type CommonsKeeper interface {
 	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
 	// or committee membership.
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+}
+
+// RepKeeper defines the expected interface for the x/rep module.
+// Used for trust-level gating on market creation.
+type RepKeeper interface {
+	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

@@ -35,8 +35,18 @@ func (k msgServer) RequestReputationAttestation(ctx context.Context, msg *types.
 		return nil, errorsmod.Wrapf(types.ErrReputationNotSupported, "peer %q does not accept reputation attestations", msg.PeerId)
 	}
 
-	// 3. Send IBC ReputationQueryPacket (TODO: implement IBC packet sending)
-	// Response will be handled in OnAcknowledgementPacket
+	// 3. Send IBC ReputationQueryPacket (best-effort: event emitted even if IBC unavailable)
+	packetData := &types.FederationPacketData{
+		Packet: &types.FederationPacketData_ReputationQuery{
+			ReputationQuery: &types.ReputationQueryPacket{
+				QueriedAddress: msg.RemoteAddress,
+				Requester:      msg.Creator,
+			},
+		},
+	}
+	// Non-fatal: IBC may not be available in all environments (e.g., tests).
+	// The response will arrive via OnAcknowledgementPacket when IBC is operational.
+	_, _ = k.SendFederationPacket(ctx, msg.PeerId, packetData)
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(

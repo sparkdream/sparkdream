@@ -2,16 +2,35 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"sparkdream/testutil"
 	"sparkdream/x/futarchy/keeper"
 	"sparkdream/x/futarchy/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 )
+
+// stubRepKeeper implements types.RepKeeper with a configurable trust level.
+type stubRepKeeper struct {
+	trust   reptypes.TrustLevel
+	lookup  error
+	tracked map[string]reptypes.TrustLevel
+}
+
+func (s *stubRepKeeper) GetTrustLevel(_ context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
+	if s.lookup != nil {
+		return reptypes.TrustLevel_TRUST_LEVEL_NEW, s.lookup
+	}
+	if lvl, ok := s.tracked[addr.String()]; ok {
+		return lvl, nil
+	}
+	return s.trust, nil
+}
 
 func TestMsgCreateMarket(t *testing.T) {
 	// Create test addresses
@@ -156,4 +175,57 @@ func TestMsgCreateMarket(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMsgCreateMarket_TrustLevelGating covers FUTARCHY-6: once a RepKeeper is
+// wired, CreateMarket requires the caller to have ESTABLISHED+ trust level.
+// The existing tests above exercise the no-repKeeper (dev) fallback.
+func TestMsgCreateMarket_TrustLevelGating(t *testing.T) {
+	alice := sdk.AccAddress([]byte("alice_trust_test___"))
+
+	baseMsg := func(symbol string) *types.MsgCreateMarket {
+		return &types.MsgCreateMarket{
+			Creator:          alice.String(),
+			Symbol:           symbol,
+			Question:         fmt.Sprintf("%s question?", symbol),
+			InitialLiquidity: testutil.IntPtr(100000),
+			EndBlock:         200,
+		}
+	}
+
+	t.Run("rejects PROVISIONAL trust level", func(t *testing.T) {
+		f := initFixture(t)
+		f.keeper.SetRepKeeper(&stubRepKeeper{trust: reptypes.TrustLevel_TRUST_LEVEL_PROVISIONAL})
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		ctx := sdk.UnwrapSDKContext(f.ctx).WithBlockHeight(10)
+		f.bankKeeper.SetBalance(alice, sdk.NewCoin("uspark", math.NewInt(100000)))
+
+		_, err := ms.CreateMarket(ctx, baseMsg("TRUST-LOW"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ESTABLISHED+")
+	})
+
+	t.Run("rejects when rep lookup fails (not a member)", func(t *testing.T) {
+		f := initFixture(t)
+		f.keeper.SetRepKeeper(&stubRepKeeper{lookup: fmt.Errorf("member not found")})
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		ctx := sdk.UnwrapSDKContext(f.ctx).WithBlockHeight(10)
+		f.bankKeeper.SetBalance(alice, sdk.NewCoin("uspark", math.NewInt(100000)))
+
+		_, err := ms.CreateMarket(ctx, baseMsg("TRUST-NONE"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "active member")
+	})
+
+	t.Run("accepts ESTABLISHED trust level", func(t *testing.T) {
+		f := initFixture(t)
+		f.keeper.SetRepKeeper(&stubRepKeeper{trust: reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED})
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		ctx := sdk.UnwrapSDKContext(f.ctx).WithBlockHeight(10)
+		f.bankKeeper.SetBalance(alice, sdk.NewCoin("uspark", math.NewInt(100000)))
+
+		res, err := ms.CreateMarket(ctx, baseMsg("TRUST-OK"))
+		require.NoError(t, err)
+		require.NotNil(t, res)
+	})
 }

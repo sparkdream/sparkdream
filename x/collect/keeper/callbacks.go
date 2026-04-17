@@ -367,7 +367,6 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 					coll.ItemCount--
 					coll.UpdatedAt = sdkCtx.BlockHeight()
 					k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
-					k.CompactPositions(ctx, coll.Id)     //nolint:errcheck
 
 					// Refund item deposit if TTL
 					if isTTLCollection(coll) {

@@ -15,9 +15,8 @@ var (
 	// Charge 200 Gas per iteration (adjust based on benchmark)
 	LmsrIterationGasCost = uint64(200)
 
-	// Default max exponent for safety.
-	// TODO: This should be parameterized using the MaxLmsrExponent param
-	// from the futarchy module params. Currently hardcoded for simplicity.
+	// DefaultMaxExponent is the fallback when params are unavailable (e.g., genesis).
+	// Callers should prefer passing the MaxLmsrExponent param from module params.
 	DefaultMaxExponent = math.LegacyNewDec(20)
 )
 
@@ -34,8 +33,9 @@ func ClampExponent(x math.LegacyDec, maxExp math.LegacyDec) math.LegacyDec {
 }
 
 // CalculateLMSRCost calculates the LMSR cost function.
+// maxExp controls the exponent clamp bound (use params.MaxLmsrExponent).
 // Returns an error instead of panicking on invalid inputs (e.g. b <= 0).
-func CalculateLMSRCost(ctx sdk.Context, b math.LegacyDec, qYes, qNo math.LegacyDec) (math.LegacyDec, error) {
+func CalculateLMSRCost(ctx sdk.Context, b math.LegacyDec, qYes, qNo math.LegacyDec, maxExp math.LegacyDec) (math.LegacyDec, error) {
 	// Validate b is positive
 	if b.LTE(math.LegacyZeroDec()) {
 		return math.LegacyZeroDec(), fmt.Errorf("CalculateLMSRCost: b must be positive, got %s", b.String())
@@ -45,8 +45,8 @@ func CalculateLMSRCost(ctx sdk.Context, b math.LegacyDec, qYes, qNo math.LegacyD
 	y := qNo.Quo(b)
 
 	// Clamp exponents for numerical stability
-	x = ClampExponent(x, DefaultMaxExponent)
-	y = ClampExponent(y, DefaultMaxExponent)
+	x = ClampExponent(x, maxExp)
+	y = ClampExponent(y, maxExp)
 
 	max := x
 	if y.GT(x) {

@@ -67,6 +67,50 @@ func (k Keeper) IsNameAvailable(ctx context.Context, name string) bool {
 	return err != nil // not found means available
 }
 
+// ClaimName atomically checks availability and registers a name, preventing
+// TOCTOU races. Unlike the MsgRegisterName handler, this skips fee collection,
+// council membership checks, and scavenge logic — it is intended for
+// cross-module programmatic registration (e.g., guild name reservation).
+func (k Keeper) ClaimName(ctx context.Context, name string, owner string, data string) error {
+	if !k.IsNameAvailable(ctx, name) {
+		return types.ErrNameTaken
+	}
+
+	// Check blocked names
+	params := k.GetParams(ctx)
+	for _, blocked := range params.BlockedNames {
+		if name == blocked {
+			return types.ErrNameReserved
+		}
+	}
+
+	ownerAddr, err := sdk.AccAddressFromBech32(owner)
+	if err != nil {
+		return err
+	}
+
+	// Check per-address limit
+	count, err := k.GetOwnedNamesCount(ctx, ownerAddr)
+	if err != nil {
+		return err
+	}
+	if count >= params.MaxNamesPerAddress {
+		return types.ErrTooManyNames
+	}
+
+	// Register atomically — check + write in one call
+	record := types.NameRecord{
+		Name:  name,
+		Owner: owner,
+		Data:  data,
+	}
+	if err := k.SetName(ctx, record); err != nil {
+		return err
+	}
+
+	return k.AddNameToOwner(ctx, ownerAddr, name)
+}
+
 func (k Keeper) SetName(ctx context.Context, record types.NameRecord) error {
 	return k.Names.Set(ctx, record.Name, record)
 }

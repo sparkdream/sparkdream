@@ -301,9 +301,12 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
-	// Return unspent budget to project
-	if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
-		return err
+	// Return unspent budget to project (skip for permissionless — no pre-allocated budget)
+	project, projErr := k.GetProject(ctx, initiative.ProjectId)
+	if projErr == nil && !project.Permissionless {
+		if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
+			return err
+		}
 	}
 
 	// Emit event

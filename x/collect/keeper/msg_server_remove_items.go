@@ -130,10 +130,8 @@ func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (
 		return nil, errorsmod.Wrap(err, "failed to update collection")
 	}
 
-	// Compact positions once
-	if err := k.CompactPositions(ctx, coll.Id); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to compact positions")
-	}
+	// Skip auto-compaction: positions are allowed to be sparse after removal.
+	// Compaction can be triggered explicitly if sequential positions are needed.
 
 	// Build IDs string for event
 	idStrs := make([]string, len(msg.Ids))

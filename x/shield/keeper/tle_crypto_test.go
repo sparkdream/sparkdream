@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.dedis.ch/kyber/v4/encrypt/ecies"
+	"go.dedis.ch/kyber/v4/pairing/bn256"
 	"go.dedis.ch/kyber/v4/sign/schnorr"
 
 	"sparkdream/x/shield/types"
@@ -71,25 +72,55 @@ func TestVerifyDecryptionShare(t *testing.T) {
 	pubKey := tleSuite.Point().Mul(privKey, nil)
 	pubKeyBytes, _ := pubKey.MarshalBinary()
 
+	// Compute G2 public share: pubKey_G2 = privKey * G2_gen
+	g2Suite := bn256.NewSuiteG2()
+	pubKeyG2 := g2Suite.G2().Point().Mul(privKey, nil)
+	pubKeyG2Bytes, _ := pubKeyG2.MarshalBinary()
+
 	epochTagPoint := tleSuite.Point().Pick(tleSuite.XOF([]byte("shield_epoch_1")))
 	epochTagBytes, _ := epochTagPoint.MarshalBinary()
 
 	sharePoint := tleSuite.Point().Mul(privKey, epochTagPoint)
 	shareBytes, _ := sharePoint.MarshalBinary()
 
-	t.Run("valid share passes", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, epochTagBytes, 1, 1)
+	t.Run("valid share passes pairing check", func(t *testing.T) {
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 1, 1)
 		require.NoError(t, err)
 	})
 
+	t.Run("nil G2 share rejected", func(t *testing.T) {
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, nil, epochTagBytes, 1, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "G2 public key share is required")
+	})
+
+	t.Run("pairing check rejects wrong share", func(t *testing.T) {
+		wrongKey := tleSuite.Scalar().Pick(tleSuite.RandomStream())
+		wrongSharePoint := tleSuite.Point().Mul(wrongKey, epochTagPoint)
+		wrongShareBytes, _ := wrongSharePoint.MarshalBinary()
+		err := verifyDecryptionShare(wrongShareBytes, pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 1, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "pairing check failed")
+	})
+
+	t.Run("pairing check rejects mismatched G2 key", func(t *testing.T) {
+		// G2 key for a DIFFERENT private key
+		wrongPriv := tleSuite.Scalar().Pick(tleSuite.RandomStream())
+		wrongG2 := g2Suite.G2().Point().Mul(wrongPriv, nil)
+		wrongG2Bytes, _ := wrongG2.MarshalBinary()
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, wrongG2Bytes, epochTagBytes, 1, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "pairing check failed")
+	})
+
 	t.Run("share index mismatch rejected", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, epochTagBytes, 2, 1)
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 2, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "share index mismatch")
 	})
 
 	t.Run("invalid share bytes rejected", func(t *testing.T) {
-		err := verifyDecryptionShare([]byte("not a point"), pubKeyBytes, epochTagBytes, 1, 1)
+		err := verifyDecryptionShare([]byte("not a point"), pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 1, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not a valid G1 point")
 	})
@@ -97,29 +128,23 @@ func TestVerifyDecryptionShare(t *testing.T) {
 	t.Run("identity element share rejected", func(t *testing.T) {
 		identity := tleSuite.G1().Point().Null()
 		identityBytes, _ := identity.MarshalBinary()
-		err := verifyDecryptionShare(identityBytes, pubKeyBytes, epochTagBytes, 1, 1)
+		err := verifyDecryptionShare(identityBytes, pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 1, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "identity element")
 	})
 
-	t.Run("identity pub share rejected", func(t *testing.T) {
-		identityPub := tleSuite.G1().Point().Null()
-		identityPubBytes, _ := identityPub.MarshalBinary()
-		err := verifyDecryptionShare(shareBytes, identityPubBytes, epochTagBytes, 1, 1)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "public key share is the identity element")
-	})
-
-	t.Run("invalid pub share bytes rejected", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, []byte("bad"), epochTagBytes, 1, 1)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid public key share")
-	})
-
 	t.Run("invalid epoch tag rejected", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, []byte("bad"), 1, 1)
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, pubKeyG2Bytes, []byte("bad"), 1, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid epoch tag")
+	})
+
+	t.Run("identity G2 share rejected", func(t *testing.T) {
+		identityG2 := g2Suite.G2().Point().Null()
+		identityG2Bytes, _ := identityG2.MarshalBinary()
+		err := verifyDecryptionShare(shareBytes, pubKeyBytes, identityG2Bytes, epochTagBytes, 1, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "G2 public key share is the identity element")
 	})
 }
 

@@ -111,6 +111,8 @@ func TestMsgServerLeaveGuild(t *testing.T) {
 			GuildId: guildID,
 		}
 		k.GuildMembership.Set(ctx, memberStr, membership)
+		// Counter starts at 1 to reflect the member that is about to leave.
+		require.NoError(t, k.GuildMemberCount.Set(ctx, guildID, 1))
 
 		_, err := ms.LeaveGuild(ctx, &types.MsgLeaveGuild{
 			Creator: memberStr,
@@ -126,6 +128,9 @@ func TestMsgServerLeaveGuild(t *testing.T) {
 		membership, _ = k.GuildMembership.Get(ctx, memberStr)
 		require.Equal(t, uint64(0), membership.GuildId)
 		require.Equal(t, int64(3), membership.LeftEpoch)
+
+		// Counter decremented on leave.
+		require.Equal(t, uint64(0), k.GetGuildMemberCount(ctx, guildID))
 	})
 
 	t.Run("officer leaving is removed from officers list", func(t *testing.T) {

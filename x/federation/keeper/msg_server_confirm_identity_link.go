@@ -30,8 +30,21 @@ func (k msgServer) ConfirmIdentityLink(ctx context.Context, msg *types.MsgConfir
 		return nil, errorsmod.Wrapf(types.ErrChallengeExpired, "challenge expired at %d, current time %d", challenge.ExpiresAt, blockTime)
 	}
 
-	// 3. Send IdentityVerificationConfirmPacket via IBC (TODO: implement IBC packet sending)
+	// 3. Send IdentityVerificationConfirmPacket via IBC
 	// The fact that creator signed this tx proves they own the private key for claimed_address.
+	packetData := &types.FederationPacketData{
+		Packet: &types.FederationPacketData_IdentityConfirmation{
+			IdentityConfirmation: &types.IdentityVerificationConfirmPacket{
+				ClaimedAddress:  msg.Creator,
+				ClaimantAddress: challenge.ClaimantAddress,
+				Challenge:       challenge.Challenge,
+				Confirmed:       true,
+			},
+		},
+	}
+	// Best-effort: the remote chain will process the confirmation when delivered.
+	// The local challenge is cleaned up regardless.
+	_, _ = k.SendFederationPacket(ctx, msg.ClaimantChainPeerId, packetData)
 
 	// 4. Delete the PendingIdentityChallenge
 	if err := k.PendingIdChallenges.Remove(ctx, challengeKey); err != nil {

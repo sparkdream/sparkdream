@@ -96,10 +96,7 @@ func (k msgServer) RemoveItem(ctx context.Context, msg *types.MsgRemoveItem) (*t
 		return nil, errorsmod.Wrap(err, "failed to update collection")
 	}
 
-	// Compact positions
-	if err := k.CompactPositions(ctx, coll.Id); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to compact positions")
-	}
+	// Positions are allowed to be sparse after removal (no auto-compaction).
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("item_removed",
 		sdk.NewAttribute("id", strconv.FormatUint(item.Id, 10)),

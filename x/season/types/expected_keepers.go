@@ -75,6 +75,10 @@ type NameKeeper interface {
 
 	// Check if a name is available
 	IsNameAvailable(ctx context.Context, name string) bool
+
+	// ClaimName atomically checks availability and registers a name,
+	// preventing TOCTOU races within the same block.
+	ClaimName(ctx context.Context, name string, owner string, data string) error
 }
 
 // BlogKeeper defines the expected interface for the x/blog module.

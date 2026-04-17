@@ -82,7 +82,11 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 	}
 
 	// 4. Calculate "Current Cost" (Pass ctx)
-	currentCost, err := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo)
+	maxExp, err := math.LegacyNewDecFromStr(params.MaxLmsrExponent)
+	if err != nil {
+		maxExp = types.DefaultMaxExponent
+	}
+	currentCost, err := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo, maxExp)
 	if err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
@@ -98,7 +102,7 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 		// Use stable formula to avoid overflow in Exp(C/b)
 		exponent := poolNo.Sub(newCost).Quo(bValue)
 		// Clamp exponent for numerical stability
-		exponent = types.ClampExponent(exponent, types.DefaultMaxExponent)
+		exponent = types.ClampExponent(exponent, maxExp)
 		expTerm := types.Exp(ctx, exponent)
 		oneMinus := math.LegacyOneDec().Sub(expTerm)
 
@@ -121,7 +125,7 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 		// Solve for newNo
 		exponent := poolYes.Sub(newCost).Quo(bValue)
 		// Clamp exponent for numerical stability
-		exponent = types.ClampExponent(exponent, types.DefaultMaxExponent)
+		exponent = types.ClampExponent(exponent, maxExp)
 		expTerm := types.Exp(ctx, exponent)
 		oneMinus := math.LegacyOneDec().Sub(expTerm)
 

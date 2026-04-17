@@ -165,13 +165,14 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 	}
 
 	// Tombstone: clear content, mark deleted
-	// TODO: Clean up orphaned reaction counts (ReactionCounts) and individual Reaction records
-	// for this post on expiry. Currently they persist in storage after tombstoning.
 	post.Title = ""
 	post.Body = ""
 	post.Status = types.PostStatus_POST_STATUS_DELETED
 	k.SetPost(ctx, post)
 	k.RemoveFromExpiryIndex(ctx, expiresAt, "post", id)
+
+	// Clean up orphaned reaction records for this post
+	k.RemoveReactionsForContent(ctx, id, 0)
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"blog.post.expired",
@@ -255,13 +256,14 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 	}
 
 	// Tombstone: clear content, mark deleted
-	// TODO: Clean up orphaned reaction counts (ReactionCounts) and individual Reaction records
-	// for this reply on expiry. Currently they persist in storage after tombstoning.
 	wasActive := reply.Status == types.ReplyStatus_REPLY_STATUS_ACTIVE
 	reply.Body = ""
 	reply.Status = types.ReplyStatus_REPLY_STATUS_DELETED
 	k.SetReply(ctx, reply)
 	k.RemoveFromExpiryIndex(ctx, expiresAt, "reply", id)
+
+	// Clean up orphaned reaction records for this reply
+	k.RemoveReactionsForContent(ctx, reply.PostId, id)
 
 	// Decrement parent post reply count if reply was active
 	if wasActive {

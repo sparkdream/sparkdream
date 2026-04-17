@@ -138,6 +138,7 @@ message TLEValidatorPublicShare {
   string validator_address = 1;
   bytes public_share = 2; // BN256 G1 point
   uint32 share_index = 3; // Shamir share index
+  bytes public_share_g2 = 4; // BN256 G2 point (for pairing-based decryption share verification)
 }
 
 // DKGPhase tracks the current phase of the distributed key generation ceremony.
@@ -200,6 +201,11 @@ message DKGContribution {
   // Schnorr proof of possession over validator address using a₀ as the secret key.
   // Proves knowledge of the constant term (the validator's secret contribution).
   bytes proof_of_possession = 5;
+
+  // G2 Feldman commitments: [a₀*G2, a₁*G2, ..., a_{t-1}*G2]
+  // Dual representation for pairing-based decryption share verification.
+  // Must have the same length as feldman_commitments and encode the same scalars.
+  repeated bytes feldman_commitments_g2 = 6;
 }
 
 // EncryptedEvaluation is an ECIES-encrypted polynomial evaluation for a target validator.
@@ -240,11 +246,14 @@ message DKGVoteExtension {
   // Schnorr proof of possession over validator address using a₀
   bytes contribution_pop = 7;
 
+  // G2 Feldman commitments (mirrors feldman_commitments on G2 for pairing checks)
+  repeated bytes feldman_commitments_g2 = 8;
+
   // --- Decryption share data (ACTIVE phase, when pending ops need decryption) ---
   // The epoch for which this decryption share was computed
-  uint64 decryption_epoch = 8;
+  uint64 decryption_epoch = 9;
   // Epoch decryption share: secret_share_i * H_to_G1(epoch)
-  bytes decryption_share = 9;
+  bytes decryption_share = 10;
 }
 
 // InjectedDKGData is the aggregated shield data injected by the block proposer

@@ -16,6 +16,7 @@ import (
 // pointer, so mutations via SetCommonsKeeper are visible everywhere.
 type lateKeepers struct {
 	commonsKeeper types.CommonsKeeper
+	repKeeper     types.RepKeeper
 }
 
 type Keeper struct {

@@ -72,6 +72,34 @@ func (k Keeper) SetReactionCounts(ctx context.Context, postId uint64, replyId ui
 	store.Set(key, b)
 }
 
+// RemoveReactionsForContent deletes all individual Reaction records and the
+// aggregate ReactionCounts for a given (postId, replyId) target. For post-level
+// reactions, pass replyId=0. This prevents orphaned reaction data after tombstoning.
+func (k Keeper) RemoveReactionsForContent(ctx context.Context, postId uint64, replyId uint64) {
+	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
+
+	// Delete aggregate counts
+	countStore := prefix.NewStore(storeAdapter, []byte(types.ReactionCountKey))
+	countStore.Delete(reactionCountKey(postId, replyId))
+
+	// Delete individual reactions by using a sub-prefixed store.
+	// Key layout within ReactionKey store: {postId 8 bytes}{replyId 8 bytes}{creator...}
+	// We create a sub-prefix store scoped to {postId}{replyId} to iterate only matching reactions.
+	targetPrefix := reactionCountKey(postId, replyId) // 16 bytes: {postId}{replyId}
+	reactionStore := prefix.NewStore(storeAdapter, append([]byte(types.ReactionKey), targetPrefix...))
+	iter := reactionStore.Iterator(nil, nil)
+	defer iter.Close()
+
+	creatorStore := prefix.NewStore(storeAdapter, []byte(types.ReactionCreatorKey))
+	for ; iter.Valid(); iter.Next() {
+		// The key within the sub-prefixed store is just the creator string
+		creator := string(iter.Key())
+		// Clean up creator index
+		creatorStore.Delete(reactionCreatorKey(creator, postId, replyId))
+		reactionStore.Delete(iter.Key())
+	}
+}
+
 // reactionKey builds the key for a specific reaction: {post_id}/{reply_id}/{creator}
 func reactionKey(postId uint64, replyId uint64, creator string) []byte {
 	key := append(GetPostIDBytes(postId), GetReplyIDBytes(replyId)...)

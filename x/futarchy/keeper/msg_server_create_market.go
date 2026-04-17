@@ -8,6 +8,8 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) CreateMarket(goCtx context.Context, msg *types.MsgCreateMarket) (*types.MsgCreateMarketResponse, error) {
@@ -18,11 +20,19 @@ func (k msgServer) CreateMarket(goCtx context.Context, msg *types.MsgCreateMarke
 		return nil, err
 	}
 
-	// TODO: FUTARCHY-6 — CreateMarket currently has no access control beyond the InitialLiquidity
-	// deposit requirement. Consider restricting market creation to council members, adding a
-	// separate market_creation_fee param, or implementing per-address rate limiting to prevent
-	// spam market creation. The InitialLiquidity minimum (enforced in CreateMarketInternal)
-	// provides some economic deterrence but may not be sufficient.
+	// FUTARCHY-6: Require ESTABLISHED+ trust level to create markets.
+	// This prevents spam market creation while keeping markets accessible to
+	// established community members without requiring council membership.
+	if k.late.repKeeper != nil {
+		trustLevel, err := k.late.repKeeper.GetTrustLevel(ctx, creator)
+		if err != nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "market creation requires an active member account")
+		}
+		if trustLevel < reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+				"market creation requires ESTABLISHED+ trust level (current: %s)", trustLevel.String())
+		}
+	}
 
 	// Calculate duration (EndBlock - Current)
 	duration := msg.EndBlock - ctx.BlockHeight()

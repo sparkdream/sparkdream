@@ -4,14 +4,15 @@ import (
 	"context"
 	"fmt"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/shield/types"
 )
 
 // checkTLELiveness checks whether TLE validators submitted their decryption shares
-// for the completed epoch. Validators who missed the deadline get their miss counter
-// incremented. If a validator exceeds the tolerance within the miss window, they are jailed.
+// for the completed epoch. Uses a sliding window ring buffer (similar to x/slashing's
+// signed_blocks_window) to track participation over the last TleMissWindow epochs.
 //
 // Called from EndBlocker at each epoch boundary, after batch processing.
 func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
@@ -21,12 +22,6 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 		return
 	}
 
-	// If TLE miss window or tolerance are zero, skip liveness checks
-	// TODO: The miss counter is a simple accumulator that resets on any successful participation.
-	// This does not implement a true sliding window — a validator who misses (tolerance-1) epochs,
-	// participates once (resetting the counter), then misses again will never be jailed.
-	// A proper sliding window should track per-epoch participation in a ring buffer
-	// (similar to x/slashing's signed_blocks_window) to enforce "at most N misses in M epochs".
 	if params.TleMissWindow == 0 || params.TleMissTolerance == 0 {
 		return
 	}
@@ -37,29 +32,58 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 		return
 	}
 
-	// For each registered TLE validator, check if they submitted a share for the completed epoch
+	window := params.TleMissWindow
+	slot := completedEpoch % window // ring buffer position
+
+	// For each registered TLE validator, record participation and count misses
 	for _, vs := range ks.ValidatorShares {
 		_, submitted := k.GetDecryptionShare(ctx, completedEpoch, vs.ValidatorAddress)
-		if submitted {
-			// Validator participated — reset their miss counter
-			_ = k.ResetTLEMissCount(ctx, vs.ValidatorAddress)
+
+		// Record participation in the ring buffer at the current slot
+		_ = k.TLEEpochParticipation.Set(ctx, collections.Join(vs.ValidatorAddress, slot), submitted)
+
+		if !submitted {
+			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+				types.EventTypeTLEMiss,
+				sdk.NewAttribute(types.AttributeKeyValidator, vs.ValidatorAddress),
+				sdk.NewAttribute(types.AttributeKeyEpoch, fmt.Sprintf("%d", completedEpoch)),
+			))
+		}
+
+		// Count misses across the full window
+		missCount := k.countTLEMissesInWindow(ctx, vs.ValidatorAddress, window)
+
+		// Update the legacy miss counter for query compatibility
+		_ = k.SetTLEMissCount(ctx, vs.ValidatorAddress, missCount)
+
+		if missCount > params.TleMissTolerance {
+			k.jailTLEValidator(ctx, params, vs.ValidatorAddress)
+			// Clear the ring buffer after jailing to give a fresh start
+			k.clearTLEParticipation(ctx, vs.ValidatorAddress, window)
+		}
+	}
+}
+
+// countTLEMissesInWindow counts the number of missed epochs in the sliding window.
+func (k Keeper) countTLEMissesInWindow(ctx context.Context, validatorAddr string, window uint64) uint64 {
+	var misses uint64
+	for slot := uint64(0); slot < window; slot++ {
+		participated, err := k.TLEEpochParticipation.Get(ctx, collections.Join(validatorAddr, slot))
+		if err != nil {
+			// Slot not yet written (epoch hasn't reached this slot) — not a miss
 			continue
 		}
-
-		// Validator missed — increment counter
-		newCount := k.IncrementTLEMissCount(ctx, vs.ValidatorAddress)
-
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
-			types.EventTypeTLEMiss,
-			sdk.NewAttribute(types.AttributeKeyValidator, vs.ValidatorAddress),
-			sdk.NewAttribute(types.AttributeKeyEpoch, fmt.Sprintf("%d", completedEpoch)),
-			sdk.NewAttribute(types.AttributeKeyMissCount, fmt.Sprintf("%d", newCount)),
-		))
-
-		// Check if tolerance exceeded
-		if newCount > params.TleMissTolerance {
-			k.jailTLEValidator(ctx, params, vs.ValidatorAddress)
+		if !participated {
+			misses++
 		}
+	}
+	return misses
+}
+
+// clearTLEParticipation resets the ring buffer for a validator after jailing.
+func (k Keeper) clearTLEParticipation(ctx context.Context, validatorAddr string, window uint64) {
+	for slot := uint64(0); slot < window; slot++ {
+		_ = k.TLEEpochParticipation.Remove(ctx, collections.Join(validatorAddr, slot))
 	}
 }
 

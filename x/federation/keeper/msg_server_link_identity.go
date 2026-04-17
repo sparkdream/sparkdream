@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	"sparkdream/x/federation/types"
 
@@ -75,7 +76,24 @@ func (k msgServer) LinkIdentity(ctx context.Context, msg *types.MsgLinkIdentity)
 		return nil, err
 	}
 
-	// 9. Emit event (IBC verification packet sending is TODO)
+	// 9. Send IdentityVerificationPacket via IBC (Phase 1 challenge)
+	// Generate challenge bytes from block hash + addresses for uniqueness
+	challengeData := []byte(fmt.Sprintf("%d:%s:%s:%s",
+		sdkCtx.BlockHeight(), msg.Creator, msg.PeerId, msg.RemoteIdentity))
+
+	packetData := &types.FederationPacketData{
+		Packet: &types.FederationPacketData_IdentityVerification{
+			IdentityVerification: &types.IdentityVerificationPacket{
+				ClaimedAddress:  msg.RemoteIdentity,
+				ClaimantAddress: msg.Creator,
+				Challenge:       challengeData,
+			},
+		},
+	}
+	// Best-effort send — link is created regardless (can be verified later)
+	_, _ = k.SendFederationPacket(ctx, msg.PeerId, packetData)
+
+	// 10. Emit event
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(types.EventTypeIdentityLinked,
 			sdk.NewAttribute(types.AttributeKeyLocalAddress, msg.Creator),

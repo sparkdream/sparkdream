@@ -75,37 +75,19 @@ func ReconstructEpochDecryptionKey(shares []types.ShieldDecryptionShare, ks type
 	return recovered.MarshalBinary()
 }
 
-// verifyDecryptionShare validates a decryption share for well-formedness
-// and structural correctness.
+// tleG2Suite is the BN256 G2 suite for G2 point operations.
+var tleG2Suite = bn256.NewSuiteG2()
+
+// tlePairingSuite is the full BN256 pairing suite for bilinear pairing checks.
+var tlePairingSuite = bn256.NewSuite()
+
+// verifyDecryptionShare validates a decryption share using a pairing-based check
+// when a G2 public share is available, falling back to well-formedness checks only
+// for legacy key sets without G2 shares.
 //
-// TODO(SHIELD-5): Implement full pairing-based verification. The correct
-// cryptographic check is:
-//
-//	e(share_i, G2_gen) == e(epoch_tag, pubShare_i_on_G2)
-//
-// This proves that share_i = secret_i * epoch_tag, where pubShare_i_on_G2 =
-// secret_i * G2_gen. However, our DKG stores public key shares as G1 points
-// (not G2). A full pairing check requires either:
-//   (a) Storing dual G1/G2 public shares (proto schema change), or
-//   (b) Using a symmetric pairing check on G1 only (less standard).
-//
-// Current verification:
-//  1. Validates the share is a well-formed, non-identity G1 point
-//  2. Validates the share size matches expected BN256 G1 point encoding
-//  3. Validates the public key share is a well-formed G1 point
-//  4. Validates the epoch tag is a well-formed G1 point
-//  5. Validates the submitter's share index matches the expected validator index
-//  6. Relies on PoP verification at registration time (Schnorr proof) to ensure
-//     the validator knows their secret key and will compute shares correctly
-//  7. TLE liveness enforcement (miss tracking + jailing) disincentivizes invalid shares
-//
-// A validator submitting malformed shares will cause reconstruction to fail,
-// which is caught by the reconstruction error handling. Malicious validators
-// who consistently submit bad shares will be jailed via the liveness system.
-//
-// The shareIndex and expectedIndex parameters are used to verify the submitter's
-// identity matches the expected validator slot in the DKG key set.
-func verifyDecryptionShare(shareBytes []byte, pubShareBytes []byte, epochTag []byte, shareIndex int, expectedIndex int) error {
+// Pairing check (SHIELD-5): e(share_i, G2_gen) == e(epoch_tag, pubShare_i_on_G2)
+// This proves share_i = secret_i * epoch_tag without revealing secret_i.
+func verifyDecryptionShare(shareBytes []byte, pubShareBytes []byte, pubShareG2Bytes []byte, epochTag []byte, shareIndex int, expectedIndex int) error {
 	// Validate share index matches the expected validator index
 	if shareIndex != expectedIndex {
 		return fmt.Errorf("share index mismatch: submitted %d, expected %d for this validator", shareIndex, expectedIndex)
@@ -122,23 +104,34 @@ func verifyDecryptionShare(shareBytes []byte, pubShareBytes []byte, epochTag []b
 		return fmt.Errorf("decryption share is the identity element")
 	}
 
-	// Validate the public key share is a valid G1 point
-	pubShare := tleSuite.G1().Point()
-	if err := pubShare.UnmarshalBinary(pubShareBytes); err != nil {
-		return fmt.Errorf("invalid public key share: %w", err)
-	}
-
-	// Reject identity public key share — would allow any share to "verify"
-	if pubShare.Equal(tleSuite.G1().Point().Null()) {
-		return fmt.Errorf("public key share is the identity element")
-	}
-
-	// Validate the epoch tag
+	// Validate the epoch tag is a valid G1 point
 	tag := tleSuite.G1().Point()
 	if err := tag.UnmarshalBinary(epochTag); err != nil {
 		return fmt.Errorf("invalid epoch tag: %w", err)
 	}
 
+	// Require G2 public share for pairing-based verification.
+	if len(pubShareG2Bytes) == 0 {
+		return fmt.Errorf("G2 public key share is required for decryption share verification")
+	}
+
+	pubShareG2 := tleG2Suite.G2().Point()
+	if err := pubShareG2.UnmarshalBinary(pubShareG2Bytes); err != nil {
+		return fmt.Errorf("invalid G2 public key share: %w", err)
+	}
+	if pubShareG2.Equal(tleG2Suite.G2().Point().Null()) {
+		return fmt.Errorf("G2 public key share is the identity element")
+	}
+
+	// Pairing check: e(share_i, G2_gen) == e(epoch_tag, pubShare_i_G2)
+	// share_i = secret_i * epoch_tag, pubShare_i_G2 = secret_i * G2_gen
+	// So: e(secret_i * tag, G2_gen) = e(tag, secret_i * G2_gen)
+	g2Gen := tleG2Suite.G2().Point().Base()
+	lhs := tlePairingSuite.Pair(epochShare, g2Gen)
+	rhs := tlePairingSuite.Pair(tag, pubShareG2)
+	if !lhs.Equal(rhs) {
+		return fmt.Errorf("pairing check failed: decryption share is not valid for this validator's key")
+	}
 	return nil
 }
 

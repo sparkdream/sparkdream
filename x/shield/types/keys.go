@@ -74,4 +74,8 @@ var (
 
 	// Pending op counter (singleton — avoids full iteration to count pending ops)
 	PendingOpCountKey = collections.NewPrefix("shield/pending_op_count")
+
+	// TLE epoch participation tracking for sliding window liveness.
+	// Key: (validator_address, epoch_mod_window) → bool (participated)
+	TLEEpochParticipationKey = collections.NewPrefix("shield/tle_part/")
 )

@@ -198,9 +198,41 @@ TX_RES=$($BINARY tx season set-display-name \
 expect_tx_failure "$TX_RES" "too long\|exceeds\|invalid\|max" "Display name too long"
 
 # ========================================================================
-# TEST 6: Start non-existent quest (ErrQuestNotFound)
+# TEST 6a: Display name contains blocked impersonation term (ErrDisplayNameBlocked)
 # ========================================================================
-echo "--- TEST 6: Start non-existent quest ---"
+echo "--- TEST 6a: Display name containing 'Admin' is blocked ---"
+
+TX_RES=$($BINARY tx season set-display-name \
+    "Admin_Bob" \
+    --from bob \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000uspark \
+    -y \
+    --output json 2>&1)
+
+expect_tx_failure "$TX_RES" "blocked\|impersonation\|1242" "Display name contains 'Admin'"
+
+# ========================================================================
+# TEST 6b: Display name containing 'moderator' is blocked (case-insensitive)
+# ========================================================================
+echo "--- TEST 6b: Display name 'MODERATOR' is blocked ---"
+
+TX_RES=$($BINARY tx season set-display-name \
+    "MODERATOR" \
+    --from bob \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000uspark \
+    -y \
+    --output json 2>&1)
+
+expect_tx_failure "$TX_RES" "blocked\|impersonation\|1242" "Display name 'MODERATOR' is blocked"
+
+# ========================================================================
+# TEST 7: Start non-existent quest (ErrQuestNotFound)
+# ========================================================================
+echo "--- TEST 7: Start non-existent quest ---"
 
 TX_RES=$($BINARY tx season start-quest \
     99999 \

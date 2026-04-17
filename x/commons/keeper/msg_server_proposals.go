@@ -1,9 +1,9 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"reflect"
 	"strconv"
 
 	"sparkdream/x/commons/types"
@@ -284,7 +284,7 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		// proposal's policy address. This prevents privilege escalation where
 		// a malicious proposer crafts messages with Authority set to a
 		// higher-privilege address (e.g., x/gov).
-		if err := validateMsgAuthority(sdkMsg, proposal.PolicyAddress); err != nil {
+		if err := k.validateMsgAuthority(sdkMsg, proposal.PolicyAddress); err != nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
 			proposal.FailedReason = fmt.Sprintf("message %d authority mismatch: %v", i, err)
 			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
@@ -420,34 +420,33 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 	return yesWeight.GTE(math.LegacyNewDec(int64(thresholdInt))), nil
 }
 
-// validateMsgAuthority checks that a proposal message's Authority field matches
-// the expected policy address. This prevents privilege escalation where a malicious
-// proposer crafts messages with Authority set to a higher-privilege address.
-func validateMsgAuthority(sdkMsg sdk.Msg, policyAddress string) error {
-	// Use reflection to find the Authority field on the message.
-	// Most Cosmos SDK messages have an Authority string field as the signer.
-	v := reflect.ValueOf(sdkMsg)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
+// validateMsgAuthority checks that every signer declared on a proposal message
+// (via the proto `cosmos.msg.v1.signer` option) matches the proposal's policy
+// address. This prevents privilege escalation where a malicious proposer crafts
+// messages with the signer set to a higher-privilege address (e.g., x/gov).
+//
+// Uses the SDK signing context directly rather than reflection so the check
+// works uniformly across every signer field name (authority, voter, proposer,
+// creator, submitter, staker, juror, ...).
+func (k Keeper) validateMsgAuthority(sdkMsg sdk.Msg, policyAddress string) error {
+	signers, _, err := k.cdc.GetMsgV1Signers(sdkMsg)
+	if err != nil {
+		return fmt.Errorf("could not extract signers from %s: %w", sdk.MsgTypeURL(sdkMsg), err)
 	}
-	if v.Kind() != reflect.Struct {
-		return fmt.Errorf("message is not a struct")
-	}
-
-	// Check common signer field names: Authority, Sender, Creator, Proposer, etc.
-	for _, fieldName := range []string{"Authority", "Sender", "Creator"} {
-		field := v.FieldByName(fieldName)
-		if !field.IsValid() || field.Kind() != reflect.String {
-			continue
-		}
-		signerAddr := field.String()
-		if signerAddr != "" && signerAddr != policyAddress {
-			return fmt.Errorf("signer field %s is %s but expected policy address %s", fieldName, signerAddr, policyAddress)
-		}
-		return nil // Found a matching signer field
+	if len(signers) == 0 {
+		return fmt.Errorf("message %s has no declared signer", sdk.MsgTypeURL(sdkMsg))
 	}
 
-	// If no known signer field was found, reject the message as a safety default.
-	// All Cosmos SDK messages should have one of the checked signer fields.
-	return fmt.Errorf("no recognized signer field (Authority, Sender, Creator) on message %s", sdk.MsgTypeURL(sdkMsg))
+	policyBytes, err := k.addressCodec.StringToBytes(policyAddress)
+	if err != nil {
+		return fmt.Errorf("invalid policy address %s: %w", policyAddress, err)
+	}
+
+	for i, s := range signers {
+		if !bytes.Equal(s, policyBytes) {
+			return fmt.Errorf("signer[%d] %s does not match policy address %s",
+				i, sdk.AccAddress(s).String(), policyAddress)
+		}
+	}
+	return nil
 }

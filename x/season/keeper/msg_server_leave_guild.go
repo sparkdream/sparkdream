@@ -77,6 +77,9 @@ func (k msgServer) LeaveGuild(ctx context.Context, msg *types.MsgLeaveGuild) (*t
 		return nil, errorsmod.Wrap(err, "failed to update membership")
 	}
 
+	// Update active member counter
+	k.DecrementGuildMemberCount(ctx, guildID)
+
 	// Check if guild drops below minimum - freeze if so
 	params, _ := k.Params.Get(ctx)
 	memberCount := k.GetGuildMemberCount(ctx, guildID)

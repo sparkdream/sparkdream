@@ -210,11 +210,12 @@ func processContributions(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGSt
 			continue
 		}
 
-		// Store the contribution
+		// Store the contribution (including G2 commitments for pairing-based verification)
 		contribution := types.DKGContribution{
 			ValidatorAddress:     opAddr,
 			Round:                dkgState.Round,
 			FeldmanCommitments:   ext.FeldmanCommitments,
+			FeldmanCommitmentsG2: ext.FeldmanCommitmentsG2,
 			EncryptedEvaluations: ext.EncryptedEvaluations,
 			ProofOfPossession:    ext.ContributionPop,
 		}

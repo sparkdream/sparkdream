@@ -103,6 +103,9 @@ func (k msgServer) JoinGuild(ctx context.Context, msg *types.MsgJoinGuild) (*typ
 		return nil, errorsmod.Wrap(err, "failed to save membership")
 	}
 
+	// Update active member counter
+	k.IncrementGuildMemberCount(ctx, msg.GuildId)
+
 	// Save updated guild (if we removed invite)
 	if guild.InviteOnly {
 		if err := k.Guild.Set(ctx, msg.GuildId, guild); err != nil {

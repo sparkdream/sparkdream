@@ -84,6 +84,66 @@ func TestIsNameAvailable(t *testing.T) {
 	require.False(t, f.keeper.IsNameAvailable(f.ctx, "taken"))
 }
 
+// --- ClaimName (atomic cross-module registration) ---
+
+func TestClaimName_Success(t *testing.T) {
+	f := initFixture(t)
+
+	owner := sdk.AccAddress([]byte("owner_claim_success_"))
+	require.NoError(t, f.keeper.ClaimName(f.ctx, "phoenix", owner.String(), "guild"))
+
+	got, found := f.keeper.GetName(f.ctx, "phoenix")
+	require.True(t, found)
+	require.Equal(t, owner.String(), got.Owner)
+	require.Equal(t, "guild", got.Data)
+
+	count, err := f.keeper.GetOwnedNamesCount(f.ctx, owner)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), count)
+}
+
+func TestClaimName_AlreadyTaken(t *testing.T) {
+	f := initFixture(t)
+
+	first := sdk.AccAddress([]byte("owner_claim_first___"))
+	second := sdk.AccAddress([]byte("owner_claim_second__"))
+	require.NoError(t, f.keeper.ClaimName(f.ctx, "aurora", first.String(), "guild"))
+
+	err := f.keeper.ClaimName(f.ctx, "aurora", second.String(), "guild")
+	require.ErrorIs(t, err, types.ErrNameTaken)
+}
+
+func TestClaimName_BlockedName(t *testing.T) {
+	f := initFixture(t)
+
+	owner := sdk.AccAddress([]byte("owner_claim_blocked_"))
+	// "admin" is in DefaultBlockedNames
+	err := f.keeper.ClaimName(f.ctx, "admin", owner.String(), "guild")
+	require.ErrorIs(t, err, types.ErrNameReserved)
+}
+
+func TestClaimName_TooManyNames(t *testing.T) {
+	f := initFixture(t)
+
+	// Constrain the per-address limit to 1.
+	params := f.keeper.GetParams(f.ctx)
+	params.MaxNamesPerAddress = 1
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	owner := sdk.AccAddress([]byte("owner_claim_cap_____"))
+	require.NoError(t, f.keeper.ClaimName(f.ctx, "zenith", owner.String(), "guild"))
+
+	err := f.keeper.ClaimName(f.ctx, "nova", owner.String(), "guild")
+	require.ErrorIs(t, err, types.ErrTooManyNames)
+}
+
+func TestClaimName_InvalidOwner(t *testing.T) {
+	f := initFixture(t)
+
+	err := f.keeper.ClaimName(f.ctx, "lyra", "not-a-bech32-address", "guild")
+	require.Error(t, err)
+}
+
 // --- Owner Name Index ---
 
 func TestAddNameToOwner_And_GetOwnedNamesCount(t *testing.T) {

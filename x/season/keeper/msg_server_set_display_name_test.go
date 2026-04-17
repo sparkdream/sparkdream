@@ -152,6 +152,25 @@ func TestMsgServerSetDisplayName(t *testing.T) {
 		require.Equal(t, "NewName", profile.DisplayName)
 	})
 
+	t.Run("blocked term rejected (impersonation filter)", func(t *testing.T) {
+		f := initFixture(t)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+
+		creator := TestAddrMember1
+		creatorStr, _ := f.addressCodec.BytesToString(creator)
+
+		// Each value must be rejected by the substring filter (case-insensitive).
+		for _, name := range []string{"admin", "Admin_Bob", "MODERATOR", "cool-team", "OfficialAccount"} {
+			_, err := ms.SetDisplayName(ctx, &types.MsgSetDisplayName{
+				Creator: creatorStr,
+				Name:    name,
+			})
+			require.Error(t, err, "name %q should be rejected", name)
+			require.ErrorIs(t, err, types.ErrDisplayNameBlocked, "name %q", name)
+		}
+	})
+
 	t.Run("moderated display name blocks change", func(t *testing.T) {
 		f := initFixture(t)
 		ctx := sdk.UnwrapSDKContext(f.ctx)

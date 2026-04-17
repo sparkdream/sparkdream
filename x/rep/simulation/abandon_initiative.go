@@ -61,6 +61,13 @@ func SimulateMsgAbandonInitiative(
 			if err := k.Initiative.Set(ctx, initID, newInit); err != nil {
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonInitiative{}), "failed to create initiative"), nil, nil
 			}
+
+			// Mirror CreateInitiative's budget allocation on the project so AbandonInitiative's
+			// ReturnBudget succeeds (non-permissionless only).
+			if project, perr := k.GetProject(ctx, projectID); perr == nil && !project.Permissionless {
+				project.AllocatedBudget = PtrInt(keeper.DerefInt(project.AllocatedBudget).Add(budget))
+				_ = k.Project.Set(ctx, projectID, project)
+			}
 		}
 
 		msg := &types.MsgAbandonInitiative{

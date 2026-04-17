@@ -96,6 +96,11 @@ type Keeper struct {
 
 	// Pending op counter — maintained by SetPendingOp/DeletePendingOp to avoid full iteration
 	PendingOpCount collections.Item[uint64]
+
+	// TLE epoch participation ring buffer for sliding window liveness.
+	// Key: (validator_address, epoch_slot) → participated (true/false)
+	// epoch_slot = epoch % TleMissWindow, forming a ring buffer.
+	TLEEpochParticipation collections.Map[collections.Pair[string, uint64], bool]
 }
 
 func NewKeeper(
@@ -180,6 +185,10 @@ func NewKeeper(
 
 		PendingOpCount: collections.NewItem(sb, types.PendingOpCountKey, "pendingOpCount",
 			collections.Uint64Value),
+
+		TLEEpochParticipation: collections.NewMap(sb, types.TLEEpochParticipationKey, "tleEpochParticipation",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+			collections.BoolValue),
 	}
 
 	schema, err := sb.Build()

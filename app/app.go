@@ -235,8 +235,9 @@ func New(
 	// Wire GovKeeper into Commons via adapter (concrete keeper → interface adapter).
 	app.CommonsKeeper.SetGovKeeper(NewGovKeeperAdapter(app.GovKeeper))
 
-	// Wire CommonsKeeper into Futarchy after depinject to break cyclic dependency.
+	// Wire CommonsKeeper and RepKeeper into Futarchy after depinject to break cyclic dependency.
 	app.FutarchyKeeper.SetCommonsKeeper(app.CommonsKeeper)
+	app.FutarchyKeeper.SetRepKeeper(app.RepKeeper)
 
 	// Wire cross-module keepers into Season after depinject.
 	// Season has no optional depinject inputs to avoid cyclic deps.

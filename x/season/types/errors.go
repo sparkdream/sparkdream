@@ -22,6 +22,7 @@ var (
 	ErrUsernameInvalidChars       = errors.Register(ModuleName, 1109, "username contains invalid characters")
 	ErrTitleNotUnlocked           = errors.Register(ModuleName, 1110, "title not unlocked by member")
 	ErrTitleNotFound              = errors.Register(ModuleName, 1111, "title not found")
+	ErrDisplayNameBlocked         = errors.Register(ModuleName, 1242, "display name contains blocked term")
 	ErrDisplayNameModerated       = errors.Register(ModuleName, 1112, "display name is moderated")
 	ErrDisplayNameReportCooldown  = errors.Register(ModuleName, 1113, "display name report cooldown not passed")
 	ErrCannotReportOwnDisplayName = errors.Register(ModuleName, 1114, "cannot report own display name")

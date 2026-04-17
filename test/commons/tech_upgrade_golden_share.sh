@@ -174,7 +174,26 @@ sleep 5
 
 # Execute Commons Proposal -> Casts Vote on Tech Proposal
 SUBMIT_RES=$($BINARY tx commons execute-proposal $COMMONS_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
+EXEC_TX_HASH=$(echo "$SUBMIT_RES" | jq -r '.txhash')
 echo "Commons Execution Result: $SUBMIT_RES"
+
+# Broadcast returns before the tx is included (height=0, empty events).
+# Query the indexed tx and assert code==0 so a silent ErrUnauthorized from
+# nested-message authority validation surfaces here instead of as a mysterious
+# "status unchanged" downstream.
+sleep 5
+EXEC_TX_RES=$($BINARY query tx "$EXEC_TX_HASH" --output json 2>/dev/null)
+EXEC_CODE=$(echo "$EXEC_TX_RES" | jq -r '.code // empty')
+if [ -z "$EXEC_CODE" ]; then
+    echo "FAILURE: could not find execute-proposal tx $EXEC_TX_HASH on chain."
+    exit 1
+fi
+if [ "$EXEC_CODE" != "0" ]; then
+    EXEC_RAW_LOG=$(echo "$EXEC_TX_RES" | jq -r '.raw_log')
+    echo "FAILURE: Commons execute-proposal tx failed (code=$EXEC_CODE)."
+    echo "         raw_log: $EXEC_RAW_LOG"
+    exit 1
+fi
 
 # --- 5. FINALIZE & VERIFY ---
 echo "--- STEP 5: Verify Upgrade Approval ---"

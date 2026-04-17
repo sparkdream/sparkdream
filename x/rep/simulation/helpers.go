@@ -620,6 +620,13 @@ func getOrCreateInitiative(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creat
 		newInitiative.Assignee = creator.Address
 	}
 
+	// Bypass CreateInitiative, so mirror its budget allocation on the project
+	// (keeps AllocatedBudget consistent with outstanding initiatives; non-permissionless only).
+	if project, perr := k.GetProject(ctx, projectID); perr == nil && !project.Permissionless {
+		project.AllocatedBudget = PtrInt(keeper.DerefInt(project.AllocatedBudget).Add(budget))
+		_ = k.Project.Set(ctx, projectID, project)
+	}
+
 	return initID, k.Initiative.Set(ctx, initID, newInitiative)
 }
 

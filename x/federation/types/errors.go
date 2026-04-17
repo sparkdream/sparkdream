@@ -53,6 +53,9 @@ var (
 	ErrAttestationNotFound    = errors.Register(ModuleName, 2316, "reputation attestation not found")
 	ErrReputationNotSupported = errors.Register(ModuleName, 2317, "reputation queries not supported for this peer type")
 
+	// IBC errors
+	ErrIBCNotAvailable = errors.Register(ModuleName, 2360, "IBC channel keeper not available")
+
 	// Authorization errors
 	ErrNotAuthorized = errors.Register(ModuleName, 2318, "sender not authorized for this action")
 

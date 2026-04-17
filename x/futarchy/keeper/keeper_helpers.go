@@ -35,6 +35,17 @@ func (k Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
 	k.late.commonsKeeper = ck
 }
 
+// SetRepKeeper sets the rep keeper dependency.
+// Wired after depinject to break cyclic dependency.
+func (k Keeper) SetRepKeeper(rk types.RepKeeper) {
+	k.late.repKeeper = rk
+}
+
+// GetRepKeeper returns the wired rep keeper (may be nil if not yet set).
+func (k Keeper) GetRepKeeper() types.RepKeeper {
+	return k.late.repKeeper
+}
+
 // SetHooks sets the hooks for the futarchy module.
 // Note: It must be a pointer receiver to update the struct.
 func (k *Keeper) SetHooks(hooks types.FutarchyHooks) {

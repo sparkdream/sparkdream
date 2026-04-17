@@ -218,10 +218,9 @@ func ParseTrustLevel(s string) (reptypes.TrustLevel, bool) {
 // --- Position management ---
 
 // CompactPositions reassigns sequential positions (0, 1, 2, ...) for all items in a collection.
-// WARNING: This is O(n^2) — it walks all items twice and updates each item record.
-// Called on every RemoveItem, this enables gas griefing for collections with many items.
-// TODO: Skip compaction on remove and instead perform lazy compaction (e.g., on next
-// position-dependent operation) or use a separate governance/admin-triggered compaction.
+// WARNING: This is O(n) — it walks all items and updates each item record.
+// No longer called automatically on item removal. Positions are allowed to be sparse.
+// Can be called explicitly if sequential positions are required (e.g., for reordering).
 func (k Keeper) CompactPositions(ctx context.Context, collectionID uint64) error {
 	// Collect all item IDs in current position order
 	var itemIDs []uint64

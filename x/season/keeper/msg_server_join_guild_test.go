@@ -179,6 +179,9 @@ func TestMsgServerJoinGuild(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, guildID, membership.GuildId)
 		require.Equal(t, uint64(1), membership.GuildsJoinedThisSeason)
+
+		// Guild member counter should have been incremented on join.
+		require.Equal(t, uint64(1), k.GetGuildMemberCount(ctx, guildID))
 	})
 
 	t.Run("successful join invite only guild with invite", func(t *testing.T) {

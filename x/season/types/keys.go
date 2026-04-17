@@ -35,8 +35,9 @@ var (
 )
 
 var (
-	GuildKey      = collections.NewPrefix("guild/value/")
-	GuildCountKey = collections.NewPrefix("guild/count/")
+	GuildKey            = collections.NewPrefix("guild/value/")
+	GuildCountKey       = collections.NewPrefix("guild/count/")
+	GuildMemberCountKey = collections.NewPrefix("guild/memberCount/")
 )
 
 var (

@@ -54,7 +54,13 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 	}
 
 	// Calculate current cost
-	currentCost, err := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo)
+	maxExp := types.DefaultMaxExponent
+	if params, err := q.k.Params.Get(ctx); err == nil {
+		if parsed, err := math.LegacyNewDecFromStr(params.MaxLmsrExponent); err == nil {
+			maxExp = parsed
+		}
+	}
+	currentCost, err := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo, maxExp)
 	if err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
@@ -67,7 +73,7 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 	if req.IsYes {
 		// Calculate shares for YES outcome
 		exponent := poolNo.Sub(newCost).Quo(bValue)
-		exponent = types.ClampExponent(exponent, types.DefaultMaxExponent)
+		exponent = types.ClampExponent(exponent, maxExp)
 		expTerm := types.Exp(ctx, exponent)
 		oneMinus := math.LegacyOneDec().Sub(expTerm)
 
@@ -84,7 +90,7 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 	} else {
 		// Calculate shares for NO outcome
 		exponent := poolYes.Sub(newCost).Quo(bValue)
-		exponent = types.ClampExponent(exponent, types.DefaultMaxExponent)
+		exponent = types.ClampExponent(exponent, maxExp)
 		expTerm := types.Exp(ctx, exponent)
 		oneMinus := math.LegacyOneDec().Sub(expTerm)
 

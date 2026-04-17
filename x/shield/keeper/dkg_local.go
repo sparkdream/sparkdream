@@ -174,6 +174,32 @@ func (s *DKGLocalKeyStore) EvaluatePolynomial(round uint64, j uint32) (kyber.Sca
 	return result, nil
 }
 
+// GetPolynomialCoefficient returns the k-th polynomial coefficient for the given DKG round.
+// Used to compute G2 Feldman commitments (a_k * G2_gen) alongside the G1 commitments.
+func (s *DKGLocalKeyStore) GetPolynomialCoefficient(round uint64, k int) (kyber.Scalar, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	data, err := s.loadRound(round)
+	if err != nil {
+		return nil, fmt.Errorf("no key for round %d: %w", round, err)
+	}
+
+	if k < 0 || k >= len(data.PolynomialHex) {
+		return nil, fmt.Errorf("coefficient index %d out of range [0, %d)", k, len(data.PolynomialHex))
+	}
+
+	b, err := hex.DecodeString(data.PolynomialHex[k])
+	if err != nil {
+		return nil, fmt.Errorf("invalid polynomial coeff %d hex: %w", k, err)
+	}
+	scalar := tleSuite.Scalar()
+	if err := scalar.UnmarshalBinary(b); err != nil {
+		return nil, fmt.Errorf("invalid polynomial coeff %d: %w", k, err)
+	}
+	return scalar, nil
+}
+
 // SignPoP creates a Schnorr proof of possession over the validator address
 // using the private key (or constant term polynomial coefficient) for the given round.
 func (s *DKGLocalKeyStore) SignPoP(round uint64, validatorAddr string) ([]byte, error) {

@@ -32,9 +32,12 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 	if !msg.Approved {
 		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED
 
-		// Return budget to project
-		if err := k.Keeper.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to return budget")
+		// Return budget to project (skip for permissionless — no pre-allocated budget)
+		project, projErr := k.Keeper.GetProject(ctx, initiative.ProjectId)
+		if projErr == nil && !project.Permissionless {
+			if err := k.Keeper.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to return budget")
+			}
 		}
 
 		if err := k.Keeper.UpdateInitiative(ctx, initiative); err != nil {

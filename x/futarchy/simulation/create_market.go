@@ -12,6 +12,7 @@ import (
 
 	"sparkdream/x/futarchy/keeper"
 	"sparkdream/x/futarchy/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func SimulateMsgCreateMarket(
@@ -23,6 +24,14 @@ func SimulateMsgCreateMarket(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
+
+		// Skip if sim account lacks ESTABLISHED+ trust (msg_server enforces this).
+		if rk := k.GetRepKeeper(); rk != nil {
+			trustLevel, err := rk.GetTrustLevel(ctx, simAccount.Address)
+			if err != nil || trustLevel < reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "Account lacks ESTABLISHED trust"), nil, nil
+			}
+		}
 
 		// 1. Check for spendable uspark coins (market creation uses uspark specifically)
 		spendable := bk.SpendableCoins(ctx, simAccount.Address)

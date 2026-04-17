@@ -7,6 +7,7 @@ import (
 
 	"sparkdream/x/season/types"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -161,11 +162,7 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 }
 
 // processReturnNominationStakesPhase returns all nomination stakes to stakers.
-// TODO: This loads all stakes into memory before batching. For large datasets,
-// this should stream stakes using an iterator with a cursor (state.LastProcessed)
-// instead of collecting all into a slice first. The current approach works because
-// nomination stakes are bounded by MaxNominationsPerMember * member count, but
-// should be refactored for scalability.
+// Uses a cursor (state.LastProcessed) to stream stakes without loading all into memory.
 func (k Keeper) processReturnNominationStakesPhase(ctx context.Context, state *types.SeasonTransitionState, batchSize int) (bool, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
@@ -174,61 +171,70 @@ func (k Keeper) processReturnNominationStakesPhase(ctx context.Context, state *t
 		return false, err
 	}
 
-	// Collect all stakes for nominations in this season
-	var stakesToReturn []struct {
-		key   string
-		stake types.NominationStake
+	// Use state.LastProcessed as the cursor key for iterator resume.
+	// Empty string = start from the beginning (pass nil Ranger to walk all).
+	var ranger collections.Ranger[string]
+	if state.LastProcessed != "" {
+		ranger = new(collections.Range[string]).StartExclusive(state.LastProcessed)
 	}
 
-	err = k.NominationStake.Walk(ctx, nil, func(key string, stake types.NominationStake) (bool, error) {
+	processed := 0
+	var lastKey string
+
+	err = k.NominationStake.Walk(ctx, ranger, func(key string, stake types.NominationStake) (bool, error) {
 		// Check if this stake belongs to a nomination in the current season
-		nom, err := k.Nomination.Get(ctx, stake.NominationId)
-		if err != nil {
-			return false, nil // Skip if nomination not found
-		}
-		if nom.Season != season.Number {
+		nom, nomErr := k.Nomination.Get(ctx, stake.NominationId)
+		if nomErr != nil {
+			// Nomination not found — clean up orphaned stake
+			_ = k.NominationStake.Remove(ctx, key)
+			lastKey = key
 			return false, nil
 		}
-		stakesToReturn = append(stakesToReturn, struct {
-			key   string
-			stake types.NominationStake
-		}{key: key, stake: stake})
+		if nom.Season != season.Number {
+			lastKey = key
+			return false, nil
+		}
+
+		// Return the stake
+		if k.repKeeper != nil {
+			addr, addrErr := k.addressCodec.StringToBytes(stake.Staker)
+			if addrErr == nil {
+				amountInt := stake.Amount.TruncateInt()
+				if amountInt.IsPositive() {
+					_ = k.repKeeper.UnlockDREAM(ctx, addr, amountInt)
+				}
+			}
+		}
+		_ = k.NominationStake.Remove(ctx, key)
+
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"nomination_stake_returned",
+				sdk.NewAttribute("nomination_id", fmt.Sprintf("%d", stake.NominationId)),
+				sdk.NewAttribute("staker", stake.Staker),
+				sdk.NewAttribute("amount", stake.Amount.String()),
+			),
+		)
+
+		lastKey = key
+		processed++
+		state.ProcessedCount++
+
+		// Stop after processing batchSize stakes
+		if processed >= batchSize {
+			return true, nil // stop iteration
+		}
 		return false, nil
 	})
 	if err != nil {
 		return false, err
 	}
 
-	// Process in batches
-	start := int(state.ProcessedCount)
-	end := start + batchSize
-	if end > len(stakesToReturn) {
-		end = len(stakesToReturn)
+	// Update cursor for next batch
+	if lastKey != "" {
+		state.LastProcessed = lastKey
 	}
 
-	for i := start; i < end; i++ {
-		s := stakesToReturn[i]
-		if k.repKeeper != nil {
-			addr, err := k.addressCodec.StringToBytes(s.stake.Staker)
-			if err == nil {
-				amountInt := s.stake.Amount.TruncateInt()
-				if amountInt.IsPositive() {
-					_ = k.repKeeper.UnlockDREAM(ctx, addr, amountInt)
-				}
-			}
-		}
-		_ = k.NominationStake.Remove(ctx, s.key)
-
-		sdkCtx.EventManager().EmitEvent(
-			sdk.NewEvent(
-				"nomination_stake_returned",
-				sdk.NewAttribute("nomination_id", fmt.Sprintf("%d", s.stake.NominationId)),
-				sdk.NewAttribute("staker", s.stake.Staker),
-				sdk.NewAttribute("amount", s.stake.Amount.String()),
-			),
-		)
-	}
-
-	state.ProcessedCount = uint64(end)
-	return end >= len(stakesToReturn), nil
+	// If we processed fewer than batchSize, we've exhausted the iterator
+	return processed < batchSize, nil
 }

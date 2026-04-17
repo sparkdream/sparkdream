@@ -117,9 +117,38 @@ func (im IBCModule) OnRecvPacket(
 		return channeltypes.NewErrorAcknowledgement(errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet data: %s", err.Error()))
 	}
 
-	// TODO: IBC packet handling is not yet implemented. Once packet types are
-	// defined, add case branches in this switch to process each type.
 	switch packet := modulePacketData.Packet.(type) {
+	case *types.FederationPacketData_Content:
+		if err := im.keeper.OnRecvContentPacket(ctx, modulePacket.GetSourcePort(), modulePacket.GetSourceChannel(), packet.Content); err != nil {
+			return channeltypes.NewErrorAcknowledgement(err)
+		}
+		return channeltypes.NewResultAcknowledgement([]byte{0x01})
+
+	case *types.FederationPacketData_ReputationQuery:
+		resp, err := im.keeper.OnRecvReputationQueryPacket(ctx, packet.ReputationQuery)
+		if err != nil {
+			return channeltypes.NewErrorAcknowledgement(err)
+		}
+		respBytes, err := resp.Marshal()
+		if err != nil {
+			return channeltypes.NewErrorAcknowledgement(errorsmod.Wrap(err, "failed to marshal reputation response"))
+		}
+		return channeltypes.NewResultAcknowledgement(respBytes)
+
+	case *types.FederationPacketData_IdentityVerification:
+		ack, err := im.keeper.OnRecvIdentityVerificationPacket(ctx, modulePacket.GetSourceChannel(), packet.IdentityVerification)
+		if err != nil {
+			return channeltypes.NewErrorAcknowledgement(err)
+		}
+		ackBytes, _ := ack.Marshal()
+		return channeltypes.NewResultAcknowledgement(ackBytes)
+
+	case *types.FederationPacketData_IdentityConfirmation:
+		if err := im.keeper.OnRecvIdentityConfirmPacket(ctx, modulePacket.GetSourceChannel(), packet.IdentityConfirmation); err != nil {
+			return channeltypes.NewErrorAcknowledgement(err)
+		}
+		return channeltypes.NewResultAcknowledgement([]byte{0x01})
+
 	default:
 		err := fmt.Errorf("unrecognized %s packet type: %T", types.ModuleName, packet)
 		return channeltypes.NewErrorAcknowledgement(err)
@@ -139,9 +168,44 @@ func (im IBCModule) OnAcknowledgementPacket(
 		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet data: %s", err.Error())
 	}
 
-	// TODO: IBC packet acknowledgement handling is not yet implemented.
-	// Once packet types are defined, add case branches to dispatch acknowledgements.
+	// Parse acknowledgement
+	var ack channeltypes.Acknowledgement
+	if err := im.cdc.UnmarshalJSON(acknowledgement, &ack); err != nil {
+		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal acknowledgement: %s", err.Error())
+	}
+
 	switch packet := modulePacketData.Packet.(type) {
+	case *types.FederationPacketData_ReputationQuery:
+		// Successful ack carries ReputationResponseData in the result bytes
+		resp := ack.GetResult()
+		if resp == nil {
+			ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeReputationQueryTimeout,
+				sdk.NewAttribute("error", "acknowledgement was an error")))
+			return nil
+		}
+		return im.keeper.OnAckReputationQuery(ctx, packet.ReputationQuery, resp)
+
+	case *types.FederationPacketData_Content:
+		// Content ack is a simple success/error — emit event on error
+		if ack.GetError() != "" {
+			ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeContentSendTimeout,
+				sdk.NewAttribute("error", ack.GetError())))
+		}
+		return nil
+
+	case *types.FederationPacketData_IdentityVerification:
+		// Phase 1 ack carries IdentityVerificationAck
+		if ack.GetError() != "" {
+			ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityVerificationFailed,
+				sdk.NewAttribute(types.AttributeKeyLocalAddress, packet.IdentityVerification.ClaimantAddress),
+				sdk.NewAttribute("error", ack.GetError())))
+		}
+		return nil
+
+	case *types.FederationPacketData_IdentityConfirmation:
+		// Phase 2 confirmation ack — no special handling needed
+		return nil
+
 	default:
 		errMsg := fmt.Sprintf("unrecognized %s packet type: %T", types.ModuleName, packet)
 		return errorsmod.Wrap(sdkerrors.ErrUnknownRequest, errMsg)
@@ -160,9 +224,30 @@ func (im IBCModule) OnTimeoutPacket(
 		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet data: %s", err.Error())
 	}
 
-	// TODO: IBC packet timeout handling is not yet implemented.
-	// Once packet types are defined, add case branches to handle timeout cleanup.
 	switch packet := modulePacketData.Packet.(type) {
+	case *types.FederationPacketData_Content:
+		ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeContentSendTimeout,
+			sdk.NewAttribute(types.AttributeKeyContentType, packet.Content.ContentType),
+			sdk.NewAttribute(types.AttributeKeyCreator, packet.Content.Creator)))
+		return nil
+
+	case *types.FederationPacketData_ReputationQuery:
+		ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeReputationQueryTimeout,
+			sdk.NewAttribute(types.AttributeKeyLocalAddress, packet.ReputationQuery.Requester),
+			sdk.NewAttribute("queried_address", packet.ReputationQuery.QueriedAddress)))
+		return nil
+
+	case *types.FederationPacketData_IdentityVerification:
+		ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityVerificationTimeout,
+			sdk.NewAttribute(types.AttributeKeyLocalAddress, packet.IdentityVerification.ClaimantAddress),
+			sdk.NewAttribute(types.AttributeKeyRemoteIdentity, packet.IdentityVerification.ClaimedAddress)))
+		return nil
+
+	case *types.FederationPacketData_IdentityConfirmation:
+		ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityConfirmationTimeout,
+			sdk.NewAttribute(types.AttributeKeyLocalAddress, packet.IdentityConfirmation.ClaimantAddress)))
+		return nil
+
 	default:
 		errMsg := fmt.Sprintf("unrecognized %s packet type: %T", types.ModuleName, packet)
 		return errorsmod.Wrap(sdkerrors.ErrUnknownRequest, errMsg)

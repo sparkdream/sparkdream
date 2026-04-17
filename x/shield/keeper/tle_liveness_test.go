@@ -185,3 +185,99 @@ func TestTLELivenessMultipleMisses(t *testing.T) {
 	// val1 should have accumulated 3 misses
 	require.Equal(t, uint64(3), f.keeper.GetTLEMissCount(f.ctx, "val1"))
 }
+
+// TestTLELivenessSlidingWindowWraparound verifies that the ring buffer correctly
+// overwrites old slots once completedEpoch >= window. This is the behavior
+// replacing the old simple miss accumulator — a miss that aged past the window
+// must stop counting toward jailing.
+func TestTLELivenessSlidingWindowWraparound(t *testing.T) {
+	f := initFixture(t)
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.EncryptedBatchEnabled = true
+	params.ShieldEpochInterval = 10
+	params.TleMissWindow = 3
+	params.TleMissTolerance = 10 // high — we're measuring counts, not jailing
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	require.NoError(t, f.keeper.SetTLEKeySetVal(f.ctx, types.TLEKeySet{
+		MasterPublicKey: []byte("master_pk"),
+		ValidatorShares: []*types.TLEValidatorPublicShare{
+			{ValidatorAddress: "val1", PublicShare: []byte("share1"), ShareIndex: 1},
+		},
+	}))
+
+	// Miss epochs 0, 1, 2 — ring buffer fully filled with misses.
+	for epoch := uint64(0); epoch < 3; epoch++ {
+		require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{
+			CurrentEpoch:     epoch,
+			EpochStartHeight: int64(epoch * 10),
+		}))
+		f.ctx = f.ctx.WithBlockHeight(int64((epoch + 1) * 10))
+		require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	}
+	require.Equal(t, uint64(3), f.keeper.GetTLEMissCount(f.ctx, "val1"))
+
+	// Epoch 3 participates — slot 3%3 = 0 is overwritten with participated=true.
+	// Expected misses: slots 1 and 2 still missed → 2.
+	require.NoError(t, f.keeper.SetDecryptionShare(f.ctx, types.ShieldDecryptionShare{
+		Epoch:     3,
+		Validator: "val1",
+		Share:     []byte("decryption_share"),
+	}))
+	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{
+		CurrentEpoch:     3,
+		EpochStartHeight: 30,
+	}))
+	f.ctx = f.ctx.WithBlockHeight(40)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+	require.Equal(t, uint64(2), f.keeper.GetTLEMissCount(f.ctx, "val1"),
+		"slot 0 should have been overwritten with a participation, leaving only slots 1 and 2 as misses")
+}
+
+// TestTLELivenessToleranceExceededClearsWindow verifies that when a validator
+// exceeds TleMissTolerance the ring buffer is cleared (giving a fresh start)
+// even if the staking/slashing keepers are not wired — clearTLEParticipation
+// runs unconditionally after the jail call.
+func TestTLELivenessToleranceExceededClearsWindow(t *testing.T) {
+	f := initFixture(t)
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.EncryptedBatchEnabled = true
+	params.ShieldEpochInterval = 10
+	params.TleMissWindow = 5
+	params.TleMissTolerance = 2
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	require.NoError(t, f.keeper.SetTLEKeySetVal(f.ctx, types.TLEKeySet{
+		MasterPublicKey: []byte("master_pk"),
+		ValidatorShares: []*types.TLEValidatorPublicShare{
+			{ValidatorAddress: "val1", PublicShare: []byte("share1"), ShareIndex: 1},
+		},
+	}))
+
+	// Miss 3 epochs — exceeds tolerance of 2, which triggers jail + buffer clear.
+	for epoch := uint64(0); epoch < 3; epoch++ {
+		require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{
+			CurrentEpoch:     epoch,
+			EpochStartHeight: int64(epoch * 10),
+		}))
+		f.ctx = f.ctx.WithBlockHeight(int64((epoch + 1) * 10))
+		require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	}
+
+	// After the 3rd miss triggered the clear path, the next missed epoch should
+	// start counting from a fresh buffer: exactly 1 miss in the window.
+	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{
+		CurrentEpoch:     3,
+		EpochStartHeight: 30,
+	}))
+	f.ctx = f.ctx.WithBlockHeight(40)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+	require.Equal(t, uint64(1), f.keeper.GetTLEMissCount(f.ctx, "val1"),
+		"ring buffer should have been cleared after tolerance was exceeded")
+}

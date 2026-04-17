@@ -390,10 +390,7 @@ func (k Keeper) handleUnappealedHideExpiry(
 			// Delete item
 			k.Item.Remove(ctx, item.Id) //nolint:errcheck
 
-			// Compact positions for the collection
-			if collErr == nil {
-				k.CompactPositions(ctx, item.CollectionId) //nolint:errcheck
-			}
+			// Positions are allowed to be sparse (no auto-compaction on removal).
 			targetDeleted = true
 		} else {
 			targetDeleted = true // already gone

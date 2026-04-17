@@ -170,7 +170,7 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 	}
 	_ = poly // used below for evaluations
 
-	// Marshal Feldman commitments
+	// Marshal Feldman commitments (G1)
 	feldmanCommitments := make([][]byte, len(commitments))
 	for i, c := range commitments {
 		bz, err := c.MarshalBinary()
@@ -178,6 +178,25 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 			return nil, fmt.Errorf("commitment marshal failed: %w", err)
 		}
 		feldmanCommitments[i] = bz
+	}
+
+	// Compute and marshal G2 Feldman commitments from the same polynomial coefficients.
+	// Each G2 commitment = a_k * G2_gen (same scalar, different group generator).
+	g2Suite := bn256.NewSuiteG2()
+	feldmanCommitmentsG2 := make([][]byte, len(commitments))
+	for i := range commitments {
+		// Retrieve the scalar coefficient for this term
+		coeff, err := h.keyStore.GetPolynomialCoefficient(dkgState.Round, i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get polynomial coefficient %d: %w", i, err)
+		}
+		// Compute a_k * G2_gen
+		g2Point := g2Suite.G2().Point().Mul(coeff, nil)
+		bz, err := g2Point.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("G2 commitment %d marshal failed: %w", i, err)
+		}
+		feldmanCommitmentsG2[i] = bz
 	}
 
 	// Build encrypted evaluations for each OTHER validator
@@ -239,6 +258,7 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 		Round:                dkgState.Round,
 		Phase:                types.DKGPhase_DKG_PHASE_CONTRIBUTING,
 		FeldmanCommitments:   feldmanCommitments,
+		FeldmanCommitmentsG2: feldmanCommitmentsG2,
 		EncryptedEvaluations: encryptedEvals,
 		ContributionPop:      pop,
 	}, nil
