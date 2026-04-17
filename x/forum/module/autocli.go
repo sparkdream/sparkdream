@@ -42,30 +42,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}},
 				},
 				{
-					RpcMethod: "ListTag",
-					Use:       "list-tag",
-					Short:     "List all tag",
-				},
-				{
-					RpcMethod:      "GetTag",
-					Use:            "get-tag [id]",
-					Short:          "Gets a tag",
-					Alias:          []string{"show-tag"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}},
-				},
-				{
-					RpcMethod: "ListReservedTag",
-					Use:       "list-reserved-tag",
-					Short:     "List all reserved-tag",
-				},
-				{
-					RpcMethod:      "GetReservedTag",
-					Use:            "get-reserved-tag [id]",
-					Short:          "Gets a reserved-tag",
-					Alias:          []string{"show-reserved-tag"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}},
-				},
-				{
 					RpcMethod: "ListUserRateLimit",
 					Use:       "list-user-rate-limit",
 					Short:     "List all user-rate-limit",
@@ -162,30 +138,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
 				},
 				{
-					RpcMethod: "ListTagBudget",
-					Use:       "list-tag-budget",
-					Short:     "List all tag-budget",
-				},
-				{
-					RpcMethod:      "GetTagBudget",
-					Use:            "get-tag-budget [id]",
-					Short:          "Gets a tag-budget by id",
-					Alias:          []string{"show-tag-budget"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
-				},
-				{
-					RpcMethod: "ListTagBudgetAward",
-					Use:       "list-tag-budget-award",
-					Short:     "List all tag-budget-award",
-				},
-				{
-					RpcMethod:      "GetTagBudgetAward",
-					Use:            "get-tag-budget-award [id]",
-					Short:          "Gets a tag-budget-award by id",
-					Alias:          []string{"show-tag-budget-award"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
-				},
-				{
 					RpcMethod: "ListThreadMetadata",
 					Use:       "list-thread-metadata",
 					Short:     "List all thread-metadata",
@@ -232,18 +184,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Gets a archive-metadata",
 					Alias:          []string{"show-archive-metadata"},
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "root_id"}},
-				},
-				{
-					RpcMethod: "ListTagReport",
-					Use:       "list-tag-report",
-					Short:     "List all tag-report",
-				},
-				{
-					RpcMethod:      "GetTagReport",
-					Use:            "get-tag-report [id]",
-					Short:          "Gets a tag-report",
-					Alias:          []string{"show-tag-report"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "tag_name"}},
 				},
 				{
 					RpcMethod: "ListMemberSalvationStatus",
@@ -354,19 +294,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "root_id"}},
 				},
 
-				{
-					RpcMethod:      "TagExists",
-					Use:            "tag-exists [tag-name]",
-					Short:          "Query tag-exists",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "tag_name"}},
-				},
-
-				{
-					RpcMethod:      "TagReports",
-					Use:            "tag-reports ",
-					Short:          "Query tag-reports",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
-				},
 
 				{
 					RpcMethod:      "ForumStatus",
@@ -478,27 +405,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "bounty-expiring-soon [within-seconds]",
 					Short:          "Query bounty-expiring-soon",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "within_seconds"}},
-				},
-
-				{
-					RpcMethod:      "TagBudgetByTag",
-					Use:            "tag-budget-by-tag [tag]",
-					Short:          "Query tag-budget-by-tag",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "tag"}},
-				},
-
-				{
-					RpcMethod:      "TagBudgets",
-					Use:            "tag-budgets ",
-					Short:          "Query tag-budgets",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
-				},
-
-				{
-					RpcMethod:      "TagBudgetAwards",
-					Use:            "tag-budget-awards [budget-id]",
-					Short:          "Query tag-budget-awards",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "budget_id"}},
 				},
 
 				{
@@ -700,36 +606,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "thread_id"}, {ProtoField: "reply_id"}, {ProtoField: "reason"}},
 				},
 				{
-					RpcMethod:      "CreateTagBudget",
-					Use:            "create-tag-budget [tag] [initial-pool] [members-only]",
-					Short:          "Send a create-tag-budget tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "tag"}, {ProtoField: "initial_pool"}, {ProtoField: "members_only"}},
-				},
-				{
-					RpcMethod:      "AwardFromTagBudget",
-					Use:            "award-from-tag-budget [budget-id] [post-id] [amount] [reason]",
-					Short:          "Send a award-from-tag-budget tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "budget_id"}, {ProtoField: "post_id"}, {ProtoField: "amount"}, {ProtoField: "reason"}},
-				},
-				{
-					RpcMethod:      "TopUpTagBudget",
-					Use:            "top-up-tag-budget [budget-id] [amount]",
-					Short:          "Send a top-up-tag-budget tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "budget_id"}, {ProtoField: "amount"}},
-				},
-				{
-					RpcMethod:      "ToggleTagBudget",
-					Use:            "toggle-tag-budget [budget-id] [active]",
-					Short:          "Send a toggle-tag-budget tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "budget_id"}, {ProtoField: "active"}},
-				},
-				{
-					RpcMethod:      "WithdrawTagBudget",
-					Use:            "withdraw-tag-budget [budget-id]",
-					Short:          "Send a withdraw-tag-budget tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "budget_id"}},
-				},
-				{
 					RpcMethod:      "PinReply",
 					Use:            "pin-reply [thread-id] [reply-id]",
 					Short:          "Send a pin-reply tx",
@@ -776,18 +652,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "set-moderation-paused [paused]",
 					Short:          "Send a set-moderation-paused tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "paused"}},
-				},
-				{
-					RpcMethod:      "ReportTag",
-					Use:            "report-tag [tag-name] [reason]",
-					Short:          "Send a report-tag tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "tag_name"}, {ProtoField: "reason"}},
-				},
-				{
-					RpcMethod:      "ResolveTagReport",
-					Use:            "resolve-tag-report [tag-name] [action] [reserve-authority] [reserve-members-can-use]",
-					Short:          "Send a resolve-tag-report tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "tag_name"}, {ProtoField: "action"}, {ProtoField: "reserve_authority"}, {ProtoField: "reserve_members_can_use"}},
 				},
 				{
 					RpcMethod:      "BondSentinel",

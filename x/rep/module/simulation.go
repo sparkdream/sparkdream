@@ -17,8 +17,16 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	for i, acc := range simState.Accounts {
 		accs[i] = acc.Address.String()
 	}
+	// Seed common tags so initiative/project/interim simulations can reference
+	// them — the tag registry validates every tag used in those messages.
+	seededTags := []string{"backend", "frontend", "design", "devops", "documentation", "testing"}
+	tagMap := make([]types.Tag, 0, len(seededTags))
+	for _, name := range seededTags {
+		tagMap = append(tagMap, types.Tag{Name: name})
+	}
 	repGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
+		TagMap: tagMap,
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&repGenesis)
 }
@@ -433,6 +441,111 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgRegisterZkPublicKey,
 		repsimulation.SimulateMsgRegisterZkPublicKey(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgReportTag          = "op_weight_msg_rep"
+		defaultWeightMsgReportTag int = 100
+	)
+
+	var weightMsgReportTag int
+	simState.AppParams.GetOrGenerate(opWeightMsgReportTag, &weightMsgReportTag, nil,
+		func(_ *rand.Rand) {
+			weightMsgReportTag = defaultWeightMsgReportTag
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgReportTag,
+		repsimulation.SimulateMsgReportTag(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgResolveTagReport          = "op_weight_msg_rep"
+		defaultWeightMsgResolveTagReport int = 100
+	)
+
+	var weightMsgResolveTagReport int
+	simState.AppParams.GetOrGenerate(opWeightMsgResolveTagReport, &weightMsgResolveTagReport, nil,
+		func(_ *rand.Rand) {
+			weightMsgResolveTagReport = defaultWeightMsgResolveTagReport
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgResolveTagReport,
+		repsimulation.SimulateMsgResolveTagReport(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgCreateTagBudget          = "op_weight_msg_rep"
+		defaultWeightMsgCreateTagBudget int = 100
+	)
+
+	var weightMsgCreateTagBudget int
+	simState.AppParams.GetOrGenerate(opWeightMsgCreateTagBudget, &weightMsgCreateTagBudget, nil,
+		func(_ *rand.Rand) {
+			weightMsgCreateTagBudget = defaultWeightMsgCreateTagBudget
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCreateTagBudget,
+		repsimulation.SimulateMsgCreateTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgAwardFromTagBudget          = "op_weight_msg_rep"
+		defaultWeightMsgAwardFromTagBudget int = 100
+	)
+
+	var weightMsgAwardFromTagBudget int
+	simState.AppParams.GetOrGenerate(opWeightMsgAwardFromTagBudget, &weightMsgAwardFromTagBudget, nil,
+		func(_ *rand.Rand) {
+			weightMsgAwardFromTagBudget = defaultWeightMsgAwardFromTagBudget
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgAwardFromTagBudget,
+		repsimulation.SimulateMsgAwardFromTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgTopUpTagBudget          = "op_weight_msg_rep"
+		defaultWeightMsgTopUpTagBudget int = 100
+	)
+
+	var weightMsgTopUpTagBudget int
+	simState.AppParams.GetOrGenerate(opWeightMsgTopUpTagBudget, &weightMsgTopUpTagBudget, nil,
+		func(_ *rand.Rand) {
+			weightMsgTopUpTagBudget = defaultWeightMsgTopUpTagBudget
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgTopUpTagBudget,
+		repsimulation.SimulateMsgTopUpTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgToggleTagBudget          = "op_weight_msg_rep"
+		defaultWeightMsgToggleTagBudget int = 100
+	)
+
+	var weightMsgToggleTagBudget int
+	simState.AppParams.GetOrGenerate(opWeightMsgToggleTagBudget, &weightMsgToggleTagBudget, nil,
+		func(_ *rand.Rand) {
+			weightMsgToggleTagBudget = defaultWeightMsgToggleTagBudget
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgToggleTagBudget,
+		repsimulation.SimulateMsgToggleTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgWithdrawTagBudget          = "op_weight_msg_rep"
+		defaultWeightMsgWithdrawTagBudget int = 100
+	)
+
+	var weightMsgWithdrawTagBudget int
+	simState.AppParams.GetOrGenerate(opWeightMsgWithdrawTagBudget, &weightMsgWithdrawTagBudget, nil,
+		func(_ *rand.Rand) {
+			weightMsgWithdrawTagBudget = defaultWeightMsgWithdrawTagBudget
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgWithdrawTagBudget,
+		repsimulation.SimulateMsgWithdrawTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

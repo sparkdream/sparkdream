@@ -8,7 +8,6 @@ import (
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 	reptypes "sparkdream/x/rep/types"
 )
@@ -20,9 +19,6 @@ const maxPrunePerBlock = 100
 // maxBountyExpirations limits bounty expirations per block.
 const maxBountyExpirations = 50
 
-// maxTagExpirations limits tag expirations per block.
-const maxTagExpirations = 50
-
 // maxHiddenExpiry limits hidden post expiry processing per block.
 const maxHiddenExpiry = 50
 
@@ -30,7 +26,6 @@ const maxHiddenExpiry = 50
 // Phase 1: Ephemeral post pruning
 // Phase 2: Hidden post expiration
 // Phase 3: Bounty expiration
-// Phase 4: Tag expiration
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -48,11 +43,6 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// Phase 3: Expire bounties past their deadline
 	if err := k.ExpireBounties(ctx, now); err != nil {
 		sdkCtx.Logger().Error("error expiring bounties", "error", err)
-	}
-
-	// Phase 4: Expire unused tags
-	if err := k.ExpireTags(ctx, now); err != nil {
-		sdkCtx.Logger().Error("error expiring tags", "error", err)
 	}
 
 	return nil
@@ -322,55 +312,3 @@ func (k Keeper) ExpireBounties(ctx context.Context, now int64) error {
 	return nil
 }
 
-// ExpireTags removes tags that have passed their expiration_index time
-// and have not been renewed by activity.
-func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-
-	expired := 0
-
-	err := k.Tag.Walk(ctx, nil, func(name string, tag commontypes.Tag) (bool, error) {
-		if expired >= maxTagExpirations {
-			return true, nil
-		}
-
-		// Tags with expiration_index <= 0 never expire
-		if tag.ExpirationIndex <= 0 {
-			return false, nil
-		}
-
-		if tag.ExpirationIndex > now {
-			return false, nil // not yet expired
-		}
-
-		// Check if tag is reserved — reserved tags don't expire
-		_, reservedErr := k.ReservedTag.Get(ctx, name)
-		if reservedErr == nil {
-			return false, nil // reserved, skip
-		}
-
-		// Remove the tag
-		if removeErr := k.Tag.Remove(ctx, name); removeErr != nil {
-			sdkCtx.Logger().Error("failed to remove expired tag", "tag", name, "error", removeErr)
-			return false, nil
-		}
-
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("tag_expired",
-			sdk.NewAttribute("tag_name", name),
-			sdk.NewAttribute("expiration_index", fmt.Sprintf("%d", tag.ExpirationIndex)),
-		))
-
-		expired++
-		return false, nil
-	})
-
-	if err != nil {
-		return nil // don't halt chain
-	}
-
-	if expired > 0 {
-		sdkCtx.Logger().Info("expired tags", "count", expired)
-	}
-
-	return nil
-}

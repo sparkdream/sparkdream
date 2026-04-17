@@ -112,6 +112,30 @@ func (k Keeper) IsOperationsCommittee(ctx context.Context, address sdk.AccAddres
 	return false
 }
 
+// IsGroupAccount returns true when addr is a known group-policy address.
+// Falls back to true when commonsKeeper is not wired so unit tests with a nil
+// commons keeper can exercise tag-budget logic without stubbing groups.
+func (k Keeper) IsGroupAccount(ctx context.Context, addr string) bool {
+	if k.commonsKeeper == nil {
+		return true
+	}
+	return k.commonsKeeper.IsGroupPolicyAddress(ctx, addr)
+}
+
+// IsGroupMember returns true when addr is a member of the group identified by
+// policyAddr. Falls back to true when commonsKeeper is not wired (see
+// IsGroupAccount).
+func (k Keeper) IsGroupMember(ctx context.Context, policyAddr, addr string) bool {
+	if k.commonsKeeper == nil {
+		return true
+	}
+	isMember, err := k.commonsKeeper.IsGroupPolicyMember(ctx, policyAddr, addr)
+	if err != nil {
+		return false
+	}
+	return isMember
+}
+
 // IsHRCommittee checks if an address is a member of the HR committee
 // Returns false if commonsKeeper is not available (optional dependency).
 func (k Keeper) IsHRCommittee(ctx context.Context, address sdk.AccAddress) bool {

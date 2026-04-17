@@ -116,16 +116,14 @@ func (k Keeper) CreateInitiative(
 		return 0, fmt.Errorf("initiative has %d tags, max allowed is %d: %w", len(tags), params.MaxTagsPerInitiative, types.ErrTooManyTags)
 	}
 
-	// Validate tags against forum tag registry (anti-gaming: prevents rep farming in fake tags)
-	if k.late != nil && k.late.tagKeeper != nil {
-		for _, tag := range tags {
-			exists, err := k.late.tagKeeper.TagExists(ctx, tag)
-			if err != nil {
-				return 0, fmt.Errorf("failed to validate tag %q: %w", tag, err)
-			}
-			if !exists {
-				return 0, fmt.Errorf("tag %q: %w", tag, types.ErrTagNotRegistered)
-			}
+	// Validate tags against tag registry (anti-gaming: prevents rep farming in fake tags)
+	for _, tag := range tags {
+		exists, err := k.TagExists(ctx, tag)
+		if err != nil {
+			return 0, fmt.Errorf("failed to validate tag %q: %w", tag, err)
+		}
+		if !exists {
+			return 0, fmt.Errorf("tag %q: %w", tag, types.ErrTagNotRegistered)
 		}
 	}
 

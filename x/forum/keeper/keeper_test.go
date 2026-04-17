@@ -15,7 +15,6 @@ import (
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/keeper"
 	module "sparkdream/x/forum/module"
 	"sparkdream/x/forum/types"
@@ -154,6 +153,53 @@ type mockRepKeeper struct {
 	RegisterContentInitiativeLinkFn func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 	RemoveContentInitiativeLinkFn   func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 	nextInitiativeID                uint64
+	tags                            map[string]reptypes.Tag
+	reservedTags                    map[string]reptypes.ReservedTag
+}
+
+func (m *mockRepKeeper) TagExists(_ context.Context, name string) (bool, error) {
+	_, ok := m.tags[name]
+	return ok, nil
+}
+
+func (m *mockRepKeeper) IsReservedTag(_ context.Context, name string) (bool, error) {
+	_, ok := m.reservedTags[name]
+	return ok, nil
+}
+
+func (m *mockRepKeeper) GetTag(_ context.Context, name string) (reptypes.Tag, error) {
+	t, ok := m.tags[name]
+	if !ok {
+		return reptypes.Tag{}, reptypes.ErrTagNotRegistered
+	}
+	return t, nil
+}
+
+func (m *mockRepKeeper) IncrementTagUsage(_ context.Context, name string, ts int64) error {
+	t, ok := m.tags[name]
+	if !ok {
+		return reptypes.ErrTagNotRegistered
+	}
+	t.UsageCount++
+	t.LastUsedAt = ts
+	if m.tags == nil {
+		m.tags = make(map[string]reptypes.Tag)
+	}
+	m.tags[name] = t
+	return nil
+}
+
+func (m *mockRepKeeper) RemoveTag(_ context.Context, name string) error {
+	delete(m.tags, name)
+	return nil
+}
+
+func (m *mockRepKeeper) SetReservedTag(_ context.Context, rt reptypes.ReservedTag) error {
+	if m.reservedTags == nil {
+		m.reservedTags = make(map[string]reptypes.ReservedTag)
+	}
+	m.reservedTags[rt.Name] = rt
+	return nil
 }
 
 func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
@@ -329,7 +375,6 @@ func initFixtureWithCommons(t *testing.T, commonsKeeper types.CommonsKeeper) *fi
 	_, _ = k.PostSeq.Next(ctx)
 	_, _ = k.CategorySeq.Next(ctx)
 	_, _ = k.BountySeq.Next(ctx)
-	_, _ = k.TagBudgetSeq.Next(ctx)
 
 	return &fixture{
 		ctx:          ctx,
@@ -376,7 +421,6 @@ func initFixture(t *testing.T) *fixture {
 	_, _ = k.PostSeq.Next(ctx)
 	_, _ = k.CategorySeq.Next(ctx)
 	_, _ = k.BountySeq.Next(ctx)
-	_, _ = k.TagBudgetSeq.Next(ctx)
 
 	return &fixture{
 		ctx:          ctx,
@@ -496,41 +540,17 @@ func (f *fixture) createTestSentinel(t *testing.T, addr string, bond string) typ
 	return sentinel
 }
 
-// Helper to create a test tag
-func (f *fixture) createTestTag(t *testing.T, name string) commontypes.Tag {
+// Helper to create a test tag in the mock rep keeper's tag registry.
+func (f *fixture) createTestTag(t *testing.T, name string) reptypes.Tag {
 	t.Helper()
-	tag := commontypes.Tag{
+	tag := reptypes.Tag{
 		Name:      name,
 		CreatedAt: f.sdkCtx().BlockTime().Unix(),
 	}
-
-	if err := f.keeper.Tag.Set(f.ctx, name, tag); err != nil {
-		t.Fatalf("failed to create test tag: %v", err)
+	if f.repKeeper.tags == nil {
+		f.repKeeper.tags = make(map[string]reptypes.Tag)
 	}
-
+	f.repKeeper.tags[name] = tag
 	return tag
 }
 
-// Helper to create a test tag budget
-func (f *fixture) createTestTagBudget(t *testing.T, groupAccount, tag, balance string) types.TagBudget {
-	t.Helper()
-	budgetID, err := f.keeper.TagBudgetSeq.Next(f.ctx)
-	if err != nil {
-		t.Fatalf("failed to get next tag budget ID: %v", err)
-	}
-
-	budget := types.TagBudget{
-		Id:           budgetID,
-		GroupAccount: groupAccount,
-		Tag:          tag,
-		PoolBalance:  balance,
-		Active:       true,
-		CreatedAt:    f.sdkCtx().BlockTime().Unix(),
-	}
-
-	if err := f.keeper.TagBudget.Set(f.ctx, budgetID, budget); err != nil {
-		t.Fatalf("failed to create test tag budget: %v", err)
-	}
-
-	return budget
-}

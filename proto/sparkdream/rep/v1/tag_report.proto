@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+option go_package = "sparkdream/x/rep/types";
+
+// TagReport defines the TagReport message.
+message TagReport {
+  string tag_name = 1;
+  string total_bond = 2;
+  int64 first_report_at = 3;
+  bool under_review = 4;
+  repeated string reporters = 10;
+}

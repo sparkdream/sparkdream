@@ -165,6 +165,7 @@ func DefaultParams() Params {
 		ProjectCreationFee:              math.NewInt(5000000),  // 5 DREAM
 		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
 		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
+		TagCreationFee:                  math.NewInt(100),      // 100 micro-DREAM
 
 		// Permissionless access control (governance-only)
 		PermissionlessMinTrustLevel: 2, // ESTABLISHED
@@ -308,6 +309,9 @@ func (p Params) Validate() error {
 	if p.InitiativeCreationFeeStandard.IsNegative() {
 		return fmt.Errorf("initiative creation fee (standard) cannot be negative: %s", p.InitiativeCreationFeeStandard)
 	}
+	if p.TagCreationFee.IsNegative() {
+		return fmt.Errorf("tag creation fee cannot be negative: %s", p.TagCreationFee)
+	}
 	if p.PermissionlessMinTrustLevel > 4 {
 		return fmt.Errorf("permissionless min trust level must be 0-4: %d", p.PermissionlessMinTrustLevel)
 	}
@@ -402,6 +406,7 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		ProjectCreationFee:              math.NewInt(5000000),  // 5 DREAM
 		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
 		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
+		TagCreationFee:                  math.NewInt(100),      // 100 micro-DREAM
 	}
 }
 
@@ -520,6 +525,9 @@ func (op RepOperationalParams) Validate() error {
 	if op.InitiativeCreationFeeStandard.IsNegative() {
 		return fmt.Errorf("initiative creation fee (standard) cannot be negative: %s", op.InitiativeCreationFeeStandard)
 	}
+	if op.TagCreationFee.IsNegative() {
+		return fmt.Errorf("tag creation fee cannot be negative: %s", op.TagCreationFee)
+	}
 	return nil
 }
 
@@ -607,6 +615,7 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.ProjectCreationFee = op.ProjectCreationFee
 	p.InitiativeCreationFeeApprentice = op.InitiativeCreationFeeApprentice
 	p.InitiativeCreationFeeStandard = op.InitiativeCreationFeeStandard
+	p.TagCreationFee = op.TagCreationFee
 	return p
 }
 
@@ -694,5 +703,6 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		ProjectCreationFee:              p.ProjectCreationFee,
 		InitiativeCreationFeeApprentice: p.InitiativeCreationFeeApprentice,
 		InitiativeCreationFeeStandard:   p.InitiativeCreationFeeStandard,
+		TagCreationFee:                  p.TagCreationFee,
 	}
 }

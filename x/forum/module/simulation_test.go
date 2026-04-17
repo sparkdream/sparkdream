@@ -34,17 +34,6 @@ func TestGenerateGenesisState(t *testing.T) {
 
 	expected := types.DefaultParams()
 	require.Equal(t, expected, genesis.Params)
-
-	// Verify simulation tags are pre-seeded for cross-module tag validation
-	require.NotEmpty(t, genesis.TagMap, "simulation genesis should pre-seed tags")
-	tagNames := make(map[string]bool)
-	for _, tag := range genesis.TagMap {
-		tagNames[tag.Name] = true
-	}
-	// Spot-check tags used by x/rep and x/collect simulations
-	require.True(t, tagNames["backend"], "should include rep simulation tag 'backend'")
-	require.True(t, tagNames["design"], "should include shared simulation tag 'design'")
-	require.True(t, tagNames["art"], "should include collect simulation tag 'art'")
 }
 
 func TestWeightedOperations(t *testing.T) {
@@ -56,7 +45,7 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	require.Len(t, ops, 48)
+	require.Len(t, ops, 41)
 }
 
 func TestProposalMsgs(t *testing.T) {

@@ -365,6 +365,12 @@ message Params {
   // Permissionless access control (governance-only — not in RepOperationalParams)
   uint32 permissionless_min_trust_level = 75; // Minimum trust level to create a permissionless project (default 2 = ESTABLISHED)
   uint32 permissionless_max_tier = 76;        // Highest initiative tier allowed in permissionless projects (default 1 = STANDARD)
+
+  string tag_creation_fee = 77 [ // DREAM burned when creating a member-registered tag (default 100 micro-DREAM)
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -609,6 +615,11 @@ message RepOperationalParams {
     (gogoproto.nullable) = false
   ];
   string initiative_creation_fee_standard = 60 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string tag_creation_fee = 61 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false

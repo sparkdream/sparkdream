@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+option go_package = "sparkdream/x/rep/types";
+
+// ReservedTag defines a tag reserved by authority (governance or council).
+// Owned by x/rep.
+message ReservedTag {
+  string name = 1;
+  string authority = 2;
+  bool members_can_use = 3;
+}

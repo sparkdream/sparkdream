@@ -126,17 +126,7 @@ var (
 	ErrNotReplyInThread      = errors.Register(ModuleName, 1760, "post is not a reply in the bounty thread")
 	ErrBountyFullyAwarded    = errors.Register(ModuleName, 1761, "bounty has been fully awarded")
 
-	// Tag budget errors (1800-1849)
-	ErrTagBudgetNotFound      = errors.Register(ModuleName, 1800, "tag budget not found")
-	ErrTagBudgetNotActive     = errors.Register(ModuleName, 1801, "tag budget is not active")
-	ErrTagBudgetInsufficient  = errors.Register(ModuleName, 1802, "insufficient funds in tag budget")
-	ErrNotGroupMember         = errors.Register(ModuleName, 1803, "not a member of the budget group")
-	ErrNotGroupAccount        = errors.Register(ModuleName, 1804, "not a valid group account")
-	ErrTagNotReserved         = errors.Register(ModuleName, 1805, "tag is not reserved")
-	ErrTagBudgetAlreadyExists = errors.Register(ModuleName, 1806, "tag budget already exists for this tag")
-	ErrAwardAmountTooSmall    = errors.Register(ModuleName, 1807, "award amount below minimum")
-	ErrMembersOnlyAward       = errors.Register(ModuleName, 1808, "award restricted to group members only")
-	ErrPostNotInTag           = errors.Register(ModuleName, 1809, "post does not have the required tag")
+	// Tag budget errors (1800-1849) moved to x/rep.
 
 	// Flag errors (1850-1899)
 	ErrAlreadyFlagged     = errors.Register(ModuleName, 1850, "already flagged this post")
@@ -176,8 +166,6 @@ var (
 	ErrMinReportDuration       = errors.Register(ModuleName, 2008, "minimum report duration not yet passed")
 	ErrReportNotPending        = errors.Register(ModuleName, 2009, "report is not pending")
 	ErrCannotReportSelf        = errors.Register(ModuleName, 2010, "cannot report yourself")
-	ErrTagReportNotFound       = errors.Register(ModuleName, 2011, "tag report not found")
-	ErrTagReportAlreadyExists  = errors.Register(ModuleName, 2012, "tag report already exists")
 
 	// Gov action appeal errors (2050-2099)
 	ErrGovAppealNotFound     = errors.Register(ModuleName, 2050, "governance action appeal not found")

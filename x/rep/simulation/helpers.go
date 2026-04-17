@@ -742,3 +742,46 @@ func createInterim(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, creator *type
 
 	return interimID, k.Interim.Set(ctx, interimID, interim)
 }
+
+
+// getOrCreateSimTagBudget returns an existing tag budget or creates one for the
+// simulation. It does not enforce group-membership or SPARK escrow checks —
+// those are exercised in unit + integration tests.
+func getOrCreateSimTagBudget(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, groupAccount string) (uint64, error) {
+	var existing uint64
+	_ = k.TagBudget.Walk(ctx, nil, func(id uint64, budget types.TagBudget) (bool, error) {
+		if budget.Active {
+			existing = id
+			return true, nil
+		}
+		return false, nil
+	})
+	if existing != 0 {
+		return existing, nil
+	}
+
+	budgetID, err := k.TagBudgetSeq.Next(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	newBudget := types.TagBudget{
+		Id:           budgetID,
+		GroupAccount: groupAccount,
+		Tag:          randomTagBudgetTag(r),
+		PoolBalance:  "100000",
+		MembersOnly:  false,
+		CreatedAt:    ctx.BlockTime().Unix(),
+		Active:       true,
+	}
+	return budgetID, k.TagBudget.Set(ctx, budgetID, newBudget)
+}
+
+// randomTagBudgetTag returns a stable fictional tag name. The tag registry
+// lives in x/rep but simulation does not register tags here; these names just
+// need to be valid strings for the budget record.
+func randomTagBudgetTag(r *rand.Rand) string {
+	tags := []string{"golang", "rust", "python", "design", "docs", "frontend", "backend"}
+	return tags[r.Intn(len(tags))]
+}
+

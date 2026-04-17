@@ -3,7 +3,6 @@ package types_test
 import (
 	"testing"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	"github.com/stretchr/testify/require"
@@ -29,8 +28,6 @@ func TestGenesisState_Validate(t *testing.T) {
 					{PostId: 1, CategoryId: 1, Status: types.PostStatus_POST_STATUS_ACTIVE},
 				},
 				CategoryMap:      []types.Category{{CategoryId: 0}, {CategoryId: 1}},
-				TagMap:           []commontypes.Tag{{Name: "tag0"}, {Name: "tag1"}},
-				ReservedTagMap:   []commontypes.ReservedTag{{Name: "reserved0"}, {Name: "reserved1"}},
 				UserRateLimitMap: []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 				BountyList:       []types.Bounty{{Id: 0, ThreadId: 0}, {Id: 1, ThreadId: 1}},
 				BountyCount:      2,
@@ -53,26 +50,6 @@ func TestGenesisState_Validate(t *testing.T) {
 				CategoryMap: []types.Category{
 					{CategoryId: 0},
 					{CategoryId: 0},
-				},
-			},
-			valid: false,
-		},
-		{
-			desc: "duplicated tag",
-			genState: &types.GenesisState{
-				TagMap: []commontypes.Tag{
-					{Name: "duplicate"},
-					{Name: "duplicate"},
-				},
-			},
-			valid: false,
-		},
-		{
-			desc: "duplicated reservedTag",
-			genState: &types.GenesisState{
-				ReservedTagMap: []commontypes.ReservedTag{
-					{Name: "duplicate"},
-					{Name: "duplicate"},
 				},
 			},
 			valid: false,

@@ -20,3 +20,10 @@ type BankKeeper interface {
 	SendCoins(ctx context.Context, fromAddr, toAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 }
+
+// CommonsKeeper defines the expected interface for the Commons module.
+// Used for council-gated operational parameter updates. Optional — nil falls
+// back to governance authority only.
+type CommonsKeeper interface {
+	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+}

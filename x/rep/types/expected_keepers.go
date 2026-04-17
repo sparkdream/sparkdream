@@ -5,8 +5,6 @@ import (
 
 	"cosmossdk.io/core/address"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
-	commontypes "sparkdream/x/common/types"
 )
 
 // SeasonState is a minimal representation of season data needed by x/rep.
@@ -48,12 +46,18 @@ type CommonsKeeper interface {
 	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
 	// or committee membership.
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
-}
 
-// TagKeeper defines the expected interface for tag registry operations.
-// Implemented by x/forum. Wired manually via SetTagKeeper in app.go
-// to break the cyclic dependency: forum → rep → forum.
-type TagKeeper = commontypes.TagKeeper
+	// IsGroupPolicyMember checks if an address is a member of a group via its
+	// policy address. Used by tag-budget operations where the budget is owned
+	// by a group (council/committee) and individual messages must be signed by
+	// an accountable member.
+	IsGroupPolicyMember(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
+
+	// IsGroupPolicyAddress checks if the given address is a valid group policy
+	// account. Used by tag-budget creation to ensure only group accounts can
+	// escrow funds.
+	IsGroupPolicyAddress(ctx context.Context, addr string) bool
+}
 
 // SeasonKeeper defines the expected interface for the Season module.
 type SeasonKeeper interface {
@@ -63,4 +67,24 @@ type SeasonKeeper interface {
 	GetCurrentSeason(ctx context.Context) (SeasonState, error)
 	// ResolveDisplayNameAppealInternal resolves a display name appeal after jury verdict
 	ResolveDisplayNameAppealInternal(ctx context.Context, member string, appealSucceeded bool) error
+}
+
+// ForumKeeper defines the minimal forum surface area required by x/rep's tag
+// moderation and tag-budget flows. Late-wired from app.go to break the
+// rep → forum cycle. Will be retired when sentinel/content-moderation state
+// moves into x/rep.
+type ForumKeeper interface {
+	// PruneTagReferences removes the given tag from every post that references it.
+	// Called after ResolveTagReport removes a tag from the registry so stale
+	// references don't remain in forum content.
+	PruneTagReferences(ctx context.Context, tagName string) error
+
+	// GetPostAuthor returns the author address for a post. Used by tag-budget
+	// award handling to credit the post's author with the award payout.
+	GetPostAuthor(ctx context.Context, postID uint64) (string, error)
+
+	// GetPostTags returns the tag list for a post. Used by tag-budget award
+	// handling to enforce that awards can only flow to posts tagged with the
+	// budget's tag.
+	GetPostTags(ctx context.Context, postID uint64) ([]string, error)
 }

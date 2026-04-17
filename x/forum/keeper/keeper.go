@@ -9,7 +9,6 @@ import (
 	corestore "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 )
 
@@ -31,8 +30,6 @@ type Keeper struct {
 	PostSeq               collections.Sequence
 	Category              collections.Map[uint64, types.Category]
 	CategorySeq           collections.Sequence
-	Tag                   collections.Map[string, commontypes.Tag]
-	ReservedTag           collections.Map[string, commontypes.ReservedTag]
 	UserRateLimit         collections.Map[string, types.UserRateLimit]
 	UserReactionLimit     collections.Map[string, types.UserReactionLimit]
 	SentinelActivity      collections.Map[string, types.SentinelActivity]
@@ -42,15 +39,10 @@ type Keeper struct {
 	PostFlag              collections.Map[uint64, types.PostFlag]
 	BountySeq             collections.Sequence
 	Bounty                collections.Map[uint64, types.Bounty]
-	TagBudgetSeq          collections.Sequence
-	TagBudget             collections.Map[uint64, types.TagBudget]
-	TagBudgetAwardSeq     collections.Sequence
-	TagBudgetAward        collections.Map[uint64, types.TagBudgetAward]
 	ThreadMetadata        collections.Map[uint64, types.ThreadMetadata]
 	ThreadFollow          collections.Map[string, types.ThreadFollow]
 	ThreadFollowCount     collections.Map[uint64, types.ThreadFollowCount]
 	ArchiveMetadata       collections.Map[uint64, types.ArchiveMetadata]
-	TagReport             collections.Map[string, types.TagReport]
 	MemberSalvationStatus collections.Map[string, types.MemberSalvationStatus]
 	JuryParticipation     collections.Map[string, types.JuryParticipation]
 	MemberReport          collections.Map[string, types.MemberReport]
@@ -91,8 +83,6 @@ func NewKeeper(
 		PostSeq:           collections.NewSequence(sb, types.PostSeqKey, "postSequence"),
 		Category:          collections.NewMap(sb, types.CategoryKey, "category", collections.Uint64Key, codec.CollValue[types.Category](cdc)),
 		CategorySeq:       collections.NewSequence(sb, types.CategorySeqKey, "categorySequence"),
-		Tag:               collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[commontypes.Tag](cdc)),
-		ReservedTag:       collections.NewMap(sb, types.ReservedTagKey, "reservedTag", collections.StringKey, codec.CollValue[commontypes.ReservedTag](cdc)),
 		UserRateLimit:     collections.NewMap(sb, types.UserRateLimitKey, "userRateLimit", collections.StringKey, codec.CollValue[types.UserRateLimit](cdc)),
 		UserReactionLimit: collections.NewMap(sb, types.UserReactionLimitKey, "userReactionLimit", collections.StringKey, codec.CollValue[types.UserReactionLimit](cdc)),
 		SentinelActivity:  collections.NewMap(sb, types.SentinelActivityKey, "sentinelActivity", collections.StringKey, codec.CollValue[types.SentinelActivity](cdc)),
@@ -102,11 +92,7 @@ func NewKeeper(
 		PostFlag:          collections.NewMap(sb, types.PostFlagKey, "postFlag", collections.Uint64Key, codec.CollValue[types.PostFlag](cdc)),
 		Bounty:            collections.NewMap(sb, types.BountyKey, "bounty", collections.Uint64Key, codec.CollValue[types.Bounty](cdc)),
 		BountySeq:         collections.NewSequence(sb, types.BountyCountKey, "bountySequence"),
-		TagBudget:         collections.NewMap(sb, types.TagBudgetKey, "tagBudget", collections.Uint64Key, codec.CollValue[types.TagBudget](cdc)),
-		TagBudgetSeq:      collections.NewSequence(sb, types.TagBudgetCountKey, "tagBudgetSequence"),
-		TagBudgetAward:    collections.NewMap(sb, types.TagBudgetAwardKey, "tagBudgetAward", collections.Uint64Key, codec.CollValue[types.TagBudgetAward](cdc)),
-		TagBudgetAwardSeq: collections.NewSequence(sb, types.TagBudgetAwardCountKey, "tagBudgetAwardSequence"),
-		ThreadMetadata:    collections.NewMap(sb, types.ThreadMetadataKey, "threadMetadata", collections.Uint64Key, codec.CollValue[types.ThreadMetadata](cdc)), ThreadFollow: collections.NewMap(sb, types.ThreadFollowKey, "threadFollow", collections.StringKey, codec.CollValue[types.ThreadFollow](cdc)), ThreadFollowCount: collections.NewMap(sb, types.ThreadFollowCountKey, "threadFollowCount", collections.Uint64Key, codec.CollValue[types.ThreadFollowCount](cdc)), ArchiveMetadata: collections.NewMap(sb, types.ArchiveMetadataKey, "archiveMetadata", collections.Uint64Key, codec.CollValue[types.ArchiveMetadata](cdc)), TagReport: collections.NewMap(sb, types.TagReportKey, "tagReport", collections.StringKey, codec.CollValue[types.TagReport](cdc)), MemberSalvationStatus: collections.NewMap(sb, types.MemberSalvationStatusKey, "memberSalvationStatus", collections.StringKey, codec.CollValue[types.MemberSalvationStatus](cdc)), JuryParticipation: collections.NewMap(sb, types.JuryParticipationKey, "juryParticipation", collections.StringKey, codec.CollValue[types.JuryParticipation](cdc)), MemberReport: collections.NewMap(sb, types.MemberReportKey, "memberReport", collections.StringKey, codec.CollValue[types.MemberReport](cdc)), MemberWarning: collections.NewMap(sb, types.MemberWarningKey, "memberWarning", collections.Uint64Key, codec.CollValue[types.MemberWarning](cdc)),
+		ThreadMetadata:    collections.NewMap(sb, types.ThreadMetadataKey, "threadMetadata", collections.Uint64Key, codec.CollValue[types.ThreadMetadata](cdc)), ThreadFollow: collections.NewMap(sb, types.ThreadFollowKey, "threadFollow", collections.StringKey, codec.CollValue[types.ThreadFollow](cdc)), ThreadFollowCount: collections.NewMap(sb, types.ThreadFollowCountKey, "threadFollowCount", collections.Uint64Key, codec.CollValue[types.ThreadFollowCount](cdc)), ArchiveMetadata: collections.NewMap(sb, types.ArchiveMetadataKey, "archiveMetadata", collections.Uint64Key, codec.CollValue[types.ArchiveMetadata](cdc)), MemberSalvationStatus: collections.NewMap(sb, types.MemberSalvationStatusKey, "memberSalvationStatus", collections.StringKey, codec.CollValue[types.MemberSalvationStatus](cdc)), JuryParticipation: collections.NewMap(sb, types.JuryParticipationKey, "juryParticipation", collections.StringKey, codec.CollValue[types.JuryParticipation](cdc)), MemberReport: collections.NewMap(sb, types.MemberReportKey, "memberReport", collections.StringKey, codec.CollValue[types.MemberReport](cdc)), MemberWarning: collections.NewMap(sb, types.MemberWarningKey, "memberWarning", collections.Uint64Key, codec.CollValue[types.MemberWarning](cdc)),
 		MemberWarningSeq:   collections.NewSequence(sb, types.MemberWarningCountKey, "memberWarningSequence"),
 		GovActionAppeal:    collections.NewMap(sb, types.GovActionAppealKey, "govActionAppeal", collections.Uint64Key, codec.CollValue[types.GovActionAppeal](cdc)),
 		GovActionAppealSeq: collections.NewSequence(sb, types.GovActionAppealCountKey, "govActionAppealSequence"),

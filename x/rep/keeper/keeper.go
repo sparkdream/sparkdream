@@ -13,10 +13,10 @@ import (
 
 // lateKeepers holds keepers that are wired after depinject initialization
 // (to break cyclic dependencies). All value copies of Keeper share the same
-// pointer, so mutations via SetTagKeeper are visible everywhere.
+// pointer, so mutations via SetSeasonKeeper are visible everywhere.
 type lateKeepers struct {
-	tagKeeper    types.TagKeeper
 	seasonKeeper types.SeasonKeeper
+	forumKeeper  types.ForumKeeper
 }
 
 type Keeper struct {
@@ -90,6 +90,17 @@ type Keeper struct {
 	SeasonMinted                 collections.Item[string] // total DREAM minted this season (as Int string)
 	SeasonBurned                 collections.Item[string] // total DREAM burned this season (as Int string)
 	SeasonInitiativeRewardsMinted collections.Item[string] // DREAM minted via initiative completion this season (as Int string)
+
+	// Tag registry (shared across content modules: forum, collect, rep/initiatives)
+	Tag         collections.Map[string, types.Tag]
+	ReservedTag collections.Map[string, types.ReservedTag]
+	TagReport   collections.Map[string, types.TagReport]
+
+	// Tag budgets (group-owned SPARK pools that reward tagged posts)
+	TagBudget         collections.Map[uint64, types.TagBudget]
+	TagBudgetSeq      collections.Sequence
+	TagBudgetAward    collections.Map[uint64, types.TagBudgetAward]
+	TagBudgetAwardSeq collections.Sequence
 }
 
 func NewKeeper(
@@ -197,6 +208,17 @@ func NewKeeper(
 		SeasonMinted:                   collections.NewItem(sb, types.SeasonMintedKey, "seasonMinted", collections.StringValue),
 		SeasonBurned:                   collections.NewItem(sb, types.SeasonBurnedKey, "seasonBurned", collections.StringValue),
 		SeasonInitiativeRewardsMinted:  collections.NewItem(sb, types.SeasonInitiativeRewardsMintedKey, "seasonInitiativeRewards", collections.StringValue),
+
+		// Tag registry
+		Tag:         collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[types.Tag](cdc)),
+		ReservedTag: collections.NewMap(sb, types.ReservedTagKey, "reservedTag", collections.StringKey, codec.CollValue[types.ReservedTag](cdc)),
+		TagReport:   collections.NewMap(sb, types.TagReportKey, "tagReport", collections.StringKey, codec.CollValue[types.TagReport](cdc)),
+
+		// Tag budgets
+		TagBudget:         collections.NewMap(sb, types.TagBudgetKey, "tagBudget", collections.Uint64Key, codec.CollValue[types.TagBudget](cdc)),
+		TagBudgetSeq:      collections.NewSequence(sb, types.TagBudgetCountKey, "tagBudgetSequence"),
+		TagBudgetAward:    collections.NewMap(sb, types.TagBudgetAwardKey, "tagBudgetAward", collections.Uint64Key, codec.CollValue[types.TagBudgetAward](cdc)),
+		TagBudgetAwardSeq: collections.NewSequence(sb, types.TagBudgetAwardCountKey, "tagBudgetAwardSequence"),
 	}
 	schema, err := sb.Build()
 	if err != nil {
@@ -207,18 +229,19 @@ func NewKeeper(
 	return k
 }
 
-// SetTagKeeper sets the tag keeper after depinject initialization.
-// This breaks the cyclic dependency: forum → rep → forum.
-// Uses the shared lateKeepers so all value copies see the update.
-func (k Keeper) SetTagKeeper(tk types.TagKeeper) {
-	k.late.tagKeeper = tk
-}
-
 // SetSeasonKeeper sets the season keeper after depinject initialization.
 // This breaks the cyclic dependency: rep → season → collect/blog/forum → rep.
 // Uses the shared lateKeepers so all value copies see the update.
 func (k Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
 	k.late.seasonKeeper = sk
+}
+
+// SetForumKeeper sets the forum keeper after depinject initialization.
+// Late-wired so rep can ask forum to prune stale tag references when a tag is
+// removed by moderation. Will be retired when forum's sentinel state moves
+// into x/rep.
+func (k Keeper) SetForumKeeper(fk types.ForumKeeper) {
+	k.late.forumKeeper = fk
 }
 
 // GetAuthority returns the module's authority.

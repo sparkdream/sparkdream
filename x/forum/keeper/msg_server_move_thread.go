@@ -61,11 +61,13 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		}
 
 		// Sentinels cannot move threads with reserved tags
-		for _, tag := range post.Tags {
-			_, err := k.ReservedTag.Get(ctx, tag)
-			if err == nil {
-				return nil, errorsmod.Wrapf(types.ErrCannotMoveReservedTag,
-					"thread has reserved tag '%s'", tag)
+		if k.repKeeper != nil {
+			for _, tag := range post.Tags {
+				reserved, rerr := k.repKeeper.IsReservedTag(ctx, tag)
+				if rerr == nil && reserved {
+					return nil, errorsmod.Wrapf(types.ErrCannotMoveReservedTag,
+						"thread has reserved tag '%s'", tag)
+				}
 			}
 		}
 

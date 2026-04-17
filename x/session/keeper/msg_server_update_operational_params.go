@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"bytes"
 	"context"
 
 	errorsmod "cosmossdk.io/errors"
@@ -10,18 +9,14 @@ import (
 )
 
 func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUpdateOperationalParams) (*types.MsgUpdateOperationalParamsResponse, error) {
-	authority, err := k.addressCodec.StringToBytes(msg.Authority)
-	if err != nil {
+	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
 	}
 
-	// Accept governance authority directly
-	if !bytes.Equal(k.GetAuthority(), authority) {
-		// TODO: Also accept Commons Council Operations Committee via commonsKeeper.IsCouncilAuthorized
-		// For now, only governance authority is accepted. When x/commons integration is wired,
-		// add: k.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations")
+	// Accept governance authority or Commons Council Operations Committee.
+	if !k.isCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
 		expectedAuthorityStr, _ := k.addressCodec.BytesToString(k.GetAuthority())
-		return nil, errorsmod.Wrapf(types.ErrInvalidSigner, "invalid authority; expected %s, got %s", expectedAuthorityStr, msg.Authority)
+		return nil, errorsmod.Wrapf(types.ErrInvalidSigner, "invalid authority; expected %s or Commons Operations Committee, got %s", expectedAuthorityStr, msg.Authority)
 	}
 
 	currentParams, err := k.Params.Get(ctx)

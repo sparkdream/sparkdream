@@ -7,38 +7,20 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
-	commontypes "sparkdream/x/common/types"
 	forumsimulation "sparkdream/x/forum/simulation"
 	"sparkdream/x/forum/types"
 )
 
-// simulationTags is the union of all tags used by simulation helpers across modules
-// (x/forum, x/rep, x/collect). Pre-seeding these in genesis ensures that tag
-// validation passes when simulation operations reference them.
-var simulationTags = []string{
-	"art", "backend", "code", "design", "devops", "documentation",
-	"education", "frontend", "golang", "history", "javascript",
-	"music", "nature", "python", "research", "rust", "science",
-	"tech", "testing",
-}
-
 // GenerateGenesisState creates a randomized GenState of the module.
+// Tag seeding is the responsibility of x/rep, which owns the tag registry.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	accs := make([]string, len(simState.Accounts))
 	for i, acc := range simState.Accounts {
 		accs[i] = acc.Address.String()
 	}
 
-	// Pre-seed the tag registry with all tags used by simulation operations
-	// across modules (x/rep, x/collect, x/forum) so that tag validation passes.
-	tags := make([]commontypes.Tag, len(simulationTags))
-	for i, name := range simulationTags {
-		tags[i] = commontypes.Tag{Name: name}
-	}
-
 	forumGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
-		TagMap: tags,
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&forumGenesis)
 }
@@ -440,81 +422,6 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		forumsimulation.SimulateMsgAssignBountyToReply(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
-		opWeightMsgCreateTagBudget          = "op_weight_msg_forum"
-		defaultWeightMsgCreateTagBudget int = 100
-	)
-
-	var weightMsgCreateTagBudget int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateTagBudget, &weightMsgCreateTagBudget, nil,
-		func(_ *rand.Rand) {
-			weightMsgCreateTagBudget = defaultWeightMsgCreateTagBudget
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateTagBudget,
-		forumsimulation.SimulateMsgCreateTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgAwardFromTagBudget          = "op_weight_msg_forum"
-		defaultWeightMsgAwardFromTagBudget int = 100
-	)
-
-	var weightMsgAwardFromTagBudget int
-	simState.AppParams.GetOrGenerate(opWeightMsgAwardFromTagBudget, &weightMsgAwardFromTagBudget, nil,
-		func(_ *rand.Rand) {
-			weightMsgAwardFromTagBudget = defaultWeightMsgAwardFromTagBudget
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgAwardFromTagBudget,
-		forumsimulation.SimulateMsgAwardFromTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgTopUpTagBudget          = "op_weight_msg_forum"
-		defaultWeightMsgTopUpTagBudget int = 100
-	)
-
-	var weightMsgTopUpTagBudget int
-	simState.AppParams.GetOrGenerate(opWeightMsgTopUpTagBudget, &weightMsgTopUpTagBudget, nil,
-		func(_ *rand.Rand) {
-			weightMsgTopUpTagBudget = defaultWeightMsgTopUpTagBudget
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgTopUpTagBudget,
-		forumsimulation.SimulateMsgTopUpTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgToggleTagBudget          = "op_weight_msg_forum"
-		defaultWeightMsgToggleTagBudget int = 100
-	)
-
-	var weightMsgToggleTagBudget int
-	simState.AppParams.GetOrGenerate(opWeightMsgToggleTagBudget, &weightMsgToggleTagBudget, nil,
-		func(_ *rand.Rand) {
-			weightMsgToggleTagBudget = defaultWeightMsgToggleTagBudget
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgToggleTagBudget,
-		forumsimulation.SimulateMsgToggleTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgWithdrawTagBudget          = "op_weight_msg_forum"
-		defaultWeightMsgWithdrawTagBudget int = 100
-	)
-
-	var weightMsgWithdrawTagBudget int
-	simState.AppParams.GetOrGenerate(opWeightMsgWithdrawTagBudget, &weightMsgWithdrawTagBudget, nil,
-		func(_ *rand.Rand) {
-			weightMsgWithdrawTagBudget = defaultWeightMsgWithdrawTagBudget
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgWithdrawTagBudget,
-		forumsimulation.SimulateMsgWithdrawTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
 		opWeightMsgPinReply          = "op_weight_msg_forum"
 		defaultWeightMsgPinReply int = 100
 	)
@@ -633,36 +540,6 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgSetModerationPaused,
 		forumsimulation.SimulateMsgSetModerationPaused(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgReportTag          = "op_weight_msg_forum"
-		defaultWeightMsgReportTag int = 100
-	)
-
-	var weightMsgReportTag int
-	simState.AppParams.GetOrGenerate(opWeightMsgReportTag, &weightMsgReportTag, nil,
-		func(_ *rand.Rand) {
-			weightMsgReportTag = defaultWeightMsgReportTag
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgReportTag,
-		forumsimulation.SimulateMsgReportTag(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgResolveTagReport          = "op_weight_msg_forum"
-		defaultWeightMsgResolveTagReport int = 100
-	)
-
-	var weightMsgResolveTagReport int
-	simState.AppParams.GetOrGenerate(opWeightMsgResolveTagReport, &weightMsgResolveTagReport, nil,
-		func(_ *rand.Rand) {
-			weightMsgResolveTagReport = defaultWeightMsgResolveTagReport
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgResolveTagReport,
-		forumsimulation.SimulateMsgResolveTagReport(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgBondSentinel          = "op_weight_msg_forum"

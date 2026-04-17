@@ -2,15 +2,13 @@ package types
 
 import (
 	"fmt"
-
-	commontypes "sparkdream/x/common/types"
 )
 
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params:  DefaultParams(),
-		PostMap: []Post{}, CategoryMap: []Category{}, TagMap: []commontypes.Tag{}, ReservedTagMap: []commontypes.ReservedTag{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, TagBudgetList: []TagBudget{}, TagBudgetAwardList: []TagBudgetAward{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchiveMetadataMap: []ArchiveMetadata{}, TagReportMap: []TagReport{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
+		PostMap: []Post{}, CategoryMap: []Category{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchiveMetadataMap: []ArchiveMetadata{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
 }
 
 // Validate performs basic genesis state validation returning an error upon any
@@ -33,24 +31,6 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated index for category")
 		}
 		categoryIndexMap[index] = struct{}{}
-	}
-	tagIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.TagMap {
-		index := fmt.Sprint(elem.Name)
-		if _, ok := tagIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for tag")
-		}
-		tagIndexMap[index] = struct{}{}
-	}
-	reservedTagIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.ReservedTagMap {
-		index := fmt.Sprint(elem.Name)
-		if _, ok := reservedTagIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for reservedTag")
-		}
-		reservedTagIndexMap[index] = struct{}{}
 	}
 	userRateLimitIndexMap := make(map[string]struct{})
 
@@ -126,28 +106,6 @@ func (gs GenesisState) Validate() error {
 		}
 		bountyIdMap[elem.Id] = true
 	}
-	tagBudgetIdMap := make(map[uint64]bool)
-	tagBudgetCount := gs.GetTagBudgetCount()
-	for _, elem := range gs.TagBudgetList {
-		if _, ok := tagBudgetIdMap[elem.Id]; ok {
-			return fmt.Errorf("duplicated id for tagBudget")
-		}
-		if elem.Id >= tagBudgetCount {
-			return fmt.Errorf("tagBudget id should be lower or equal than the last id")
-		}
-		tagBudgetIdMap[elem.Id] = true
-	}
-	tagBudgetAwardIdMap := make(map[uint64]bool)
-	tagBudgetAwardCount := gs.GetTagBudgetAwardCount()
-	for _, elem := range gs.TagBudgetAwardList {
-		if _, ok := tagBudgetAwardIdMap[elem.Id]; ok {
-			return fmt.Errorf("duplicated id for tagBudgetAward")
-		}
-		if elem.Id >= tagBudgetAwardCount {
-			return fmt.Errorf("tagBudgetAward id should be lower or equal than the last id")
-		}
-		tagBudgetAwardIdMap[elem.Id] = true
-	}
 	threadMetadataIndexMap := make(map[string]struct{})
 
 	for _, elem := range gs.ThreadMetadataMap {
@@ -184,15 +142,6 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated index for archiveMetadata")
 		}
 		archiveMetadataIndexMap[index] = struct{}{}
-	}
-	tagReportIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.TagReportMap {
-		index := fmt.Sprint(elem.TagName)
-		if _, ok := tagReportIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for tagReport")
-		}
-		tagReportIndexMap[index] = struct{}{}
 	}
 	memberSalvationStatusIndexMap := make(map[string]struct{})
 

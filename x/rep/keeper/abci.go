@@ -2,10 +2,13 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 	"sparkdream/x/rep/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
+
+const maxTagExpirations = 50
 
 // EndBlocker implements the end blocker logic
 func (k Keeper) EndBlocker(ctx context.Context) error {
@@ -123,5 +126,49 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// If so, we reset their credits to their trust-level max
 	// This scales O(1) per block instead of O(n) where n = member count
 
+	// 14. Expire unused tags
+	if err := k.ExpireTags(ctx, sdkCtx.BlockTime().Unix()); err != nil {
+		sdkCtx.Logger().Error("error expiring tags", "error", err)
+	}
+
+	return nil
+}
+
+// ExpireTags removes tags whose expiration_index has passed and that are not
+// reserved. Usage-active tags update their expiration on IncrementTagUsage.
+func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	expired := 0
+	err := k.Tag.Walk(ctx, nil, func(name string, tag types.Tag) (bool, error) {
+		if expired >= maxTagExpirations {
+			return true, nil
+		}
+		if tag.ExpirationIndex <= 0 {
+			return false, nil
+		}
+		if tag.ExpirationIndex > now {
+			return false, nil
+		}
+		if reserved, rErr := k.ReservedTag.Has(ctx, name); rErr == nil && reserved {
+			return false, nil
+		}
+		if rmErr := k.Tag.Remove(ctx, name); rmErr != nil {
+			sdkCtx.Logger().Error("failed to remove expired tag", "tag", name, "error", rmErr)
+			return false, nil
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("tag_expired",
+			sdk.NewAttribute("tag_name", name),
+			sdk.NewAttribute("expiration_index", fmt.Sprintf("%d", tag.ExpirationIndex)),
+		))
+		expired++
+		return false, nil
+	})
+	if err != nil {
+		return nil
+	}
+	if expired > 0 {
+		sdkCtx.Logger().Info("expired tags", "count", expired)
+	}
 	return nil
 }

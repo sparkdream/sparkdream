@@ -92,4 +92,12 @@ type RepKeeper interface {
 	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 	RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+
+	// Tag registry (owned by x/rep)
+	TagExists(ctx context.Context, name string) (bool, error)
+	IsReservedTag(ctx context.Context, name string) (bool, error)
+	GetTag(ctx context.Context, name string) (reptypes.Tag, error)
+	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
+	RemoveTag(ctx context.Context, name string) error
+	SetReservedTag(ctx context.Context, rt reptypes.ReservedTag) error
 }

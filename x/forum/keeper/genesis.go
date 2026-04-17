@@ -3,7 +3,6 @@ package keeper
 import (
 	"context"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 )
 
@@ -16,16 +15,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 	for _, elem := range genState.CategoryMap {
 		if err := k.Category.Set(ctx, elem.CategoryId, elem); err != nil {
-			return err
-		}
-	}
-	for _, elem := range genState.TagMap {
-		if err := k.Tag.Set(ctx, elem.Name, elem); err != nil {
-			return err
-		}
-	}
-	for _, elem := range genState.ReservedTagMap {
-		if err := k.ReservedTag.Set(ctx, elem.Name, elem); err != nil {
 			return err
 		}
 	}
@@ -73,24 +62,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	if err := k.BountySeq.Set(ctx, genState.BountyCount); err != nil {
 		return err
 	}
-	for _, elem := range genState.TagBudgetList {
-		if err := k.TagBudget.Set(ctx, elem.Id, elem); err != nil {
-			return err
-		}
-	}
-
-	if err := k.TagBudgetSeq.Set(ctx, genState.TagBudgetCount); err != nil {
-		return err
-	}
-	for _, elem := range genState.TagBudgetAwardList {
-		if err := k.TagBudgetAward.Set(ctx, elem.Id, elem); err != nil {
-			return err
-		}
-	}
-
-	if err := k.TagBudgetAwardSeq.Set(ctx, genState.TagBudgetAwardCount); err != nil {
-		return err
-	}
 	for _, elem := range genState.ThreadMetadataMap {
 		if err := k.ThreadMetadata.Set(ctx, elem.ThreadId, elem); err != nil {
 			return err
@@ -108,11 +79,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 	for _, elem := range genState.ArchiveMetadataMap {
 		if err := k.ArchiveMetadata.Set(ctx, elem.RootId, elem); err != nil {
-			return err
-		}
-	}
-	for _, elem := range genState.TagReportMap {
-		if err := k.TagReport.Set(ctx, elem.TagName, elem); err != nil {
 			return err
 		}
 	}
@@ -215,18 +181,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}); err != nil {
 		return nil, err
 	}
-	if err := k.Tag.Walk(ctx, nil, func(_ string, val commontypes.Tag) (stop bool, err error) {
-		genesis.TagMap = append(genesis.TagMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := k.ReservedTag.Walk(ctx, nil, func(_ string, val commontypes.ReservedTag) (stop bool, err error) {
-		genesis.ReservedTagMap = append(genesis.ReservedTagMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
 	if err := k.UserRateLimit.Walk(ctx, nil, func(_ string, val types.UserRateLimit) (stop bool, err error) {
 		genesis.UserRateLimitMap = append(genesis.UserRateLimitMap, val)
 		return false, nil
@@ -281,30 +235,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	if err != nil {
 		return nil, err
 	}
-	err = k.TagBudget.Walk(ctx, nil, func(key uint64, elem types.TagBudget) (bool, error) {
-		genesis.TagBudgetList = append(genesis.TagBudgetList, elem)
-		return false, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	genesis.TagBudgetCount, err = k.TagBudgetSeq.Peek(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = k.TagBudgetAward.Walk(ctx, nil, func(key uint64, elem types.TagBudgetAward) (bool, error) {
-		genesis.TagBudgetAwardList = append(genesis.TagBudgetAwardList, elem)
-		return false, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	genesis.TagBudgetAwardCount, err = k.TagBudgetAwardSeq.Peek(ctx)
-	if err != nil {
-		return nil, err
-	}
 	if err := k.ThreadMetadata.Walk(ctx, nil, func(_ uint64, val types.ThreadMetadata) (stop bool, err error) {
 		genesis.ThreadMetadataMap = append(genesis.ThreadMetadataMap, val)
 		return false, nil
@@ -325,12 +255,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	if err := k.ArchiveMetadata.Walk(ctx, nil, func(_ uint64, val types.ArchiveMetadata) (stop bool, err error) {
 		genesis.ArchiveMetadataMap = append(genesis.ArchiveMetadataMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := k.TagReport.Walk(ctx, nil, func(_ string, val types.TagReport) (stop bool, err error) {
-		genesis.TagReportMap = append(genesis.TagReportMap, val)
 		return false, nil
 	}); err != nil {
 		return nil, err

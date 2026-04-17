@@ -1,7 +1,6 @@
 package keeper_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -9,7 +8,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -340,18 +338,16 @@ func TestInvitationStakeZeroBurnRate(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateInitiativeRejectsFakeTags(t *testing.T) {
-	t.Run("unknown tag rejected when tagKeeper is available", func(t *testing.T) {
-		f := initFixtureWithTagKeeper(t, func(tag string) bool {
-			// Only "backend" exists in registry
-			return tag == TestTagBackend
-		})
+	t.Run("unknown tag rejected", func(t *testing.T) {
+		f := initFixture(t, WithAuthorizationPolicy(AlwaysAuthorized))
 		k := f.keeper
 		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+
+		require.NoError(t, k.SetTag(sdkCtx, types.Tag{Name: TestTagBackend}))
 
 		SetupMember(t, &k, sdkCtx, DefaultMemberConfig(TestAddrCreator))
 		projectID := SetupBasicProject(t, &k, sdkCtx, TestAddrCreator)
 
-		// Try to create initiative with a fake tag
 		_, err := k.CreateInitiative(sdkCtx, TestAddrCreator, projectID,
 			"Test", "Desc", []string{"fake-nonexistent-tag"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD,
@@ -362,37 +358,17 @@ func TestCreateInitiativeRejectsFakeTags(t *testing.T) {
 	})
 
 	t.Run("registered tag accepted", func(t *testing.T) {
-		f := initFixtureWithTagKeeper(t, func(tag string) bool {
-			return tag == TestTagBackend
-		})
-		k := f.keeper
-		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-
-		SetupMember(t, &k, sdkCtx, DefaultMemberConfig(TestAddrCreator))
-		projectID := SetupBasicProject(t, &k, sdkCtx, TestAddrCreator)
-
-		// Create initiative with a valid tag
-		initID, err := k.CreateInitiative(sdkCtx, TestAddrCreator, projectID,
-			"Test", "Desc", []string{TestTagBackend},
-			types.InitiativeTier_INITIATIVE_TIER_STANDARD,
-			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-			"", math.NewInt(TestRewardAmount))
-		require.NoError(t, err)
-		require.NotZero(t, initID)
-	})
-
-	t.Run("nil tagKeeper skips validation gracefully", func(t *testing.T) {
-		// Standard fixture has no tag keeper wired
 		f := initFixture(t, WithAuthorizationPolicy(AlwaysAuthorized))
 		k := f.keeper
 		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 
+		require.NoError(t, k.SetTag(sdkCtx, types.Tag{Name: TestTagBackend}))
+
 		SetupMember(t, &k, sdkCtx, DefaultMemberConfig(TestAddrCreator))
 		projectID := SetupBasicProject(t, &k, sdkCtx, TestAddrCreator)
 
-		// Should succeed even with unknown tags (no tagKeeper to validate)
 		initID, err := k.CreateInitiative(sdkCtx, TestAddrCreator, projectID,
-			"Test", "Desc", []string{"any-random-tag"},
+			"Test", "Desc", []string{TestTagBackend},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
 			"", math.NewInt(TestRewardAmount))
@@ -776,35 +752,3 @@ func DerefDec(d *math.LegacyDec) math.LegacyDec {
 	return *d
 }
 
-// mockTagKeeperForAntiGaming is a mock implementation of the TagKeeper interface.
-type mockTagKeeperForAntiGaming struct {
-	tagExistsFn func(tag string) bool
-}
-
-func (m *mockTagKeeperForAntiGaming) TagExists(_ context.Context, name string) (bool, error) {
-	if m.tagExistsFn != nil {
-		return m.tagExistsFn(name), nil
-	}
-	return true, nil
-}
-
-func (m *mockTagKeeperForAntiGaming) IsReservedTag(_ context.Context, _ string) (bool, error) {
-	return false, nil
-}
-
-func (m *mockTagKeeperForAntiGaming) GetTag(_ context.Context, name string) (commontypes.Tag, error) {
-	return commontypes.Tag{Name: name}, nil
-}
-
-func (m *mockTagKeeperForAntiGaming) IncrementTagUsage(_ context.Context, _ string, _ int64) error {
-	return nil
-}
-
-// initFixtureWithTagKeeper creates a test fixture with a mock TagKeeper wired in.
-func initFixtureWithTagKeeper(t *testing.T, tagExistsFn func(string) bool) *fixture {
-	t.Helper()
-	f := initFixture(t, WithAuthorizationPolicy(AlwaysAuthorized))
-	tk := &mockTagKeeperForAntiGaming{tagExistsFn: tagExistsFn}
-	f.keeper.SetTagKeeper(tk)
-	return f
-}

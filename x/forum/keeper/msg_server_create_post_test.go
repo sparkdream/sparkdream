@@ -8,6 +8,7 @@ import (
 
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
@@ -143,8 +144,8 @@ func TestCreatePostWithTags(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []string{"golang", "cosmos-sdk"}, post.Tags)
 
-		// Verify tag usage metadata was updated
-		tag, err := f.keeper.Tag.Get(f.ctx, "golang")
+		// Verify tag usage metadata was updated in the rep registry
+		tag, err := f.repKeeper.GetTag(f.ctx, "golang")
 		require.NoError(t, err)
 		require.Equal(t, uint64(1), tag.UsageCount)
 	})
@@ -213,9 +214,9 @@ func TestCreatePostWithTags(t *testing.T) {
 	})
 
 	t.Run("reserved tag rejected", func(t *testing.T) {
-		// Create a reserved tag
+		// Create a reserved tag in the mock rep registry
 		f.createTestTag(t, "official")
-		_ = f.keeper.ReservedTag.Set(f.ctx, "official", commontypes.ReservedTag{
+		_ = f.repKeeper.SetReservedTag(f.ctx, reptypes.ReservedTag{
 			Name:      "official",
 			Authority: testAuthority,
 		})

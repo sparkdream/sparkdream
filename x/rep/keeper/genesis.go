@@ -103,6 +103,40 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	for _, elem := range genState.TagMap {
+		if err := k.Tag.Set(ctx, elem.Name, elem); err != nil {
+			return err
+		}
+	}
+	for _, elem := range genState.ReservedTagMap {
+		if err := k.ReservedTag.Set(ctx, elem.Name, elem); err != nil {
+			return err
+		}
+	}
+	for _, elem := range genState.TagReportMap {
+		if err := k.TagReport.Set(ctx, elem.TagName, elem); err != nil {
+			return err
+		}
+	}
+
+	for _, elem := range genState.TagBudgetList {
+		if err := k.TagBudget.Set(ctx, elem.Id, elem); err != nil {
+			return err
+		}
+	}
+	if err := k.TagBudgetSeq.Set(ctx, genState.TagBudgetCount); err != nil {
+		return err
+	}
+
+	for _, elem := range genState.TagBudgetAwardList {
+		if err := k.TagBudgetAward.Set(ctx, elem.Id, elem); err != nil {
+			return err
+		}
+	}
+	if err := k.TagBudgetAwardSeq.Set(ctx, genState.TagBudgetAwardCount); err != nil {
+		return err
+	}
+
 	// If there are members, trigger a full trust tree rebuild on next EndBlock.
 	// The tree is derived state (not exported in genesis) and will be populated
 	// from member records + voter registrations.
@@ -242,6 +276,47 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		})
 		return false, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := k.Tag.Walk(ctx, nil, func(_ string, val types.Tag) (stop bool, err error) {
+		genesis.TagMap = append(genesis.TagMap, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.ReservedTag.Walk(ctx, nil, func(_ string, val types.ReservedTag) (stop bool, err error) {
+		genesis.ReservedTagMap = append(genesis.ReservedTagMap, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.TagReport.Walk(ctx, nil, func(_ string, val types.TagReport) (stop bool, err error) {
+		genesis.TagReportMap = append(genesis.TagReportMap, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := k.TagBudget.Walk(ctx, nil, func(_ uint64, val types.TagBudget) (bool, error) {
+		genesis.TagBudgetList = append(genesis.TagBudgetList, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	genesis.TagBudgetCount, err = k.TagBudgetSeq.Peek(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := k.TagBudgetAward.Walk(ctx, nil, func(_ uint64, val types.TagBudgetAward) (bool, error) {
+		genesis.TagBudgetAwardList = append(genesis.TagBudgetAwardList, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	genesis.TagBudgetAwardCount, err = k.TagBudgetAwardSeq.Peek(ctx)
 	if err != nil {
 		return nil, err
 	}

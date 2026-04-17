@@ -3,7 +3,6 @@ package keeper_test
 import (
 	"testing"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	"github.com/stretchr/testify/require"
@@ -14,8 +13,6 @@ func TestGenesis(t *testing.T) {
 		Params:                   types.DefaultParams(),
 		PostMap:                  []types.Post{{PostId: 0}, {PostId: 1}},
 		CategoryMap:              []types.Category{{CategoryId: 0}, {CategoryId: 1}},
-		TagMap:                   []commontypes.Tag{{Name: "tag0"}, {Name: "tag1"}},
-		ReservedTagMap:           []commontypes.ReservedTag{{Name: "reserved0"}, {Name: "reserved1"}},
 		UserRateLimitMap:         []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 		UserReactionLimitMap:     []types.UserReactionLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 		SentinelActivityMap:      []types.SentinelActivity{{Address: "sentinel0"}, {Address: "sentinel1"}},
@@ -25,15 +22,10 @@ func TestGenesis(t *testing.T) {
 		PostFlagMap:              []types.PostFlag{{PostId: 0}, {PostId: 1}},
 		BountyList:               []types.Bounty{{Id: 0}, {Id: 1}},
 		BountyCount:              2,
-		TagBudgetList:            []types.TagBudget{{Id: 0}, {Id: 1}},
-		TagBudgetCount:           2,
-		TagBudgetAwardList:       []types.TagBudgetAward{{Id: 0}, {Id: 1}},
-		TagBudgetAwardCount:      2,
 		ThreadMetadataMap:        []types.ThreadMetadata{{ThreadId: 0}, {ThreadId: 1}},
 		ThreadFollowMap:          []types.ThreadFollow{{Follower: "follower0"}, {Follower: "follower1"}},
 		ThreadFollowCountMap:     []types.ThreadFollowCount{{ThreadId: 0}, {ThreadId: 1}},
 		ArchiveMetadataMap:       []types.ArchiveMetadata{{RootId: 0}, {RootId: 1}},
-		TagReportMap:             []types.TagReport{{TagName: "report0"}, {TagName: "report1"}},
 		MemberSalvationStatusMap: []types.MemberSalvationStatus{{Address: "member0"}, {Address: "member1"}},
 		JuryParticipationMap:     []types.JuryParticipation{{Juror: "juror0"}, {Juror: "juror1"}},
 		MemberReportMap:          []types.MemberReport{{Member: "member0"}, {Member: "member1"}},
@@ -52,8 +44,6 @@ func TestGenesis(t *testing.T) {
 	require.EqualExportedValues(t, genesisState.Params, got.Params)
 	require.EqualExportedValues(t, genesisState.PostMap, got.PostMap)
 	require.EqualExportedValues(t, genesisState.CategoryMap, got.CategoryMap)
-	require.EqualExportedValues(t, genesisState.TagMap, got.TagMap)
-	require.EqualExportedValues(t, genesisState.ReservedTagMap, got.ReservedTagMap)
 	require.EqualExportedValues(t, genesisState.UserRateLimitMap, got.UserRateLimitMap)
 	require.EqualExportedValues(t, genesisState.UserReactionLimitMap, got.UserReactionLimitMap)
 	require.EqualExportedValues(t, genesisState.SentinelActivityMap, got.SentinelActivityMap)
@@ -63,15 +53,10 @@ func TestGenesis(t *testing.T) {
 	require.EqualExportedValues(t, genesisState.PostFlagMap, got.PostFlagMap)
 	require.EqualExportedValues(t, genesisState.BountyList, got.BountyList)
 	require.Equal(t, genesisState.BountyCount, got.BountyCount)
-	require.EqualExportedValues(t, genesisState.TagBudgetList, got.TagBudgetList)
-	require.Equal(t, genesisState.TagBudgetCount, got.TagBudgetCount)
-	require.EqualExportedValues(t, genesisState.TagBudgetAwardList, got.TagBudgetAwardList)
-	require.Equal(t, genesisState.TagBudgetAwardCount, got.TagBudgetAwardCount)
 	require.EqualExportedValues(t, genesisState.ThreadMetadataMap, got.ThreadMetadataMap)
 	require.EqualExportedValues(t, genesisState.ThreadFollowMap, got.ThreadFollowMap)
 	require.EqualExportedValues(t, genesisState.ThreadFollowCountMap, got.ThreadFollowCountMap)
 	require.EqualExportedValues(t, genesisState.ArchiveMetadataMap, got.ArchiveMetadataMap)
-	require.EqualExportedValues(t, genesisState.TagReportMap, got.TagReportMap)
 	require.EqualExportedValues(t, genesisState.MemberSalvationStatusMap, got.MemberSalvationStatusMap)
 	require.EqualExportedValues(t, genesisState.JuryParticipationMap, got.JuryParticipationMap)
 	require.EqualExportedValues(t, genesisState.MemberReportMap, got.MemberReportMap)

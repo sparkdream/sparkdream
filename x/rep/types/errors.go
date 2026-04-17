@@ -94,6 +94,29 @@ var (
 	ErrPermissionlessTierExceeded  = errors.Register(ModuleName, 1903, "tier exceeds maximum allowed for permissionless projects")
 	ErrInsufficientCreationFee     = errors.Register(ModuleName, 1904, "insufficient DREAM balance for creation fee")
 
+	// Tag registry errors
+	ErrTagAlreadyExists = errors.Register(ModuleName, 1910, "tag already exists")
+	ErrReservedTagName  = errors.Register(ModuleName, 1911, "tag name is reserved")
+	ErrInvalidTagName   = errors.Register(ModuleName, 1912, "invalid tag name")
+	ErrTagLimitExceeded = errors.Register(ModuleName, 1913, "tag registry limit exceeded")
+
+	// Tag moderation errors (moved from x/forum)
+	ErrTagNotFound            = errors.Register(ModuleName, 1914, "tag not found")
+	ErrTagReportNotFound      = errors.Register(ModuleName, 1915, "tag report not found")
+	ErrTagReportAlreadyExists = errors.Register(ModuleName, 1916, "report already exists")
+	ErrMaxTagReporters        = errors.Register(ModuleName, 1917, "maximum tag reporters reached")
+	ErrTagReportNotAuthorized = errors.Register(ModuleName, 1918, "not governance authority")
+
+	// Tag budget errors (moved from x/forum)
+	ErrTagBudgetNotFound      = errors.Register(ModuleName, 1919, "tag budget not found")
+	ErrTagBudgetNotActive     = errors.Register(ModuleName, 1920, "tag budget is not active")
+	ErrTagBudgetInsufficient  = errors.Register(ModuleName, 1921, "insufficient funds in tag budget")
+	ErrNotGroupMember         = errors.Register(ModuleName, 1922, "not a member of the budget group")
+	ErrNotGroupAccount        = errors.Register(ModuleName, 1923, "not a valid group account")
+	ErrTagBudgetAlreadyExists = errors.Register(ModuleName, 1924, "tag budget already exists for this tag")
+	ErrPostNotFound           = errors.Register(ModuleName, 1925, "post not found")
+	ErrInvalidTag             = errors.Register(ModuleName, 1926, "invalid tag")
+
 	// Content challenge errors
 	ErrContentChallengeNotFound  = errors.Register(ModuleName, 2001, "content challenge not found")
 	ErrContentChallengeExists    = errors.Register(ModuleName, 2002, "active content challenge already exists for this content")

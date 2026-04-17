@@ -499,27 +499,6 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-    forum:
-      params:
-        # Archive timing - TESTNET: close to production
-        archive_threshold: "1296000"     # 15 days (production: 2592000 = 30 days)
-        unarchive_cooldown: "86400"      # 1 day (same as production)
-        archive_cooldown: "1296000"      # 15 days (production: 2592000 = 30 days)
-        ephemeral_ttl: "86400"           # 24 hours (same as production)
-        hide_appeal_cooldown: "3600"     # 1 hour (same as production)
-        lock_appeal_cooldown: "3600"     # 1 hour (same as production)
-        move_appeal_cooldown: "3600"     # 1 hour (same as production)
-      category_map:
-      - category_id: 1
-        title: "General"
-        description: "General discussion"
-        members_only_write: false
-        admin_only_write: false
-      - category_id: 2
-        title: "Governance"
-        description: "Governance proposals and discussion"
-        members_only_write: true
-        admin_only_write: false
       tag_map:
       # Three main councils
       - name: "commons-council"
@@ -589,6 +568,27 @@ genesis:
         created_at: 0
         last_used_at: 0
         expiration_index: 0
+    forum:
+      params:
+        # Archive timing - TESTNET: close to production
+        archive_threshold: "1296000"     # 15 days (production: 2592000 = 30 days)
+        unarchive_cooldown: "86400"      # 1 day (same as production)
+        archive_cooldown: "1296000"      # 15 days (production: 2592000 = 30 days)
+        ephemeral_ttl: "86400"           # 24 hours (same as production)
+        hide_appeal_cooldown: "3600"     # 1 hour (same as production)
+        lock_appeal_cooldown: "3600"     # 1 hour (same as production)
+        move_appeal_cooldown: "3600"     # 1 hour (same as production)
+      category_map:
+      - category_id: 1
+        title: "General"
+        description: "General discussion"
+        members_only_write: false
+        admin_only_write: false
+      - category_id: 2
+        title: "Governance"
+        description: "Governance proposals and discussion"
+        members_only_write: true
+        admin_only_write: false
 # Validators will be configured manually in the final genesis.json.
 validators:
 - name: kingofbitchain

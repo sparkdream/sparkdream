@@ -500,106 +500,7 @@
       },
       "post_flag_map": [],
       "post_map": [],
-      "reserved_tag_map": [],
       "sentinel_activity_map": [],
-      "tag_budget_award_count": "0",
-      "tag_budget_award_list": [],
-      "tag_budget_count": "0",
-      "tag_budget_list": [],
-      "tag_map": [
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "commons-council",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "technical-council",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "ecosystem-council",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "commons-ops-committee",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "commons-gov-committee",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "technical-ops-committee",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "technical-gov-committee",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "ecosystem-ops-committee",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "ecosystem-gov-committee",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "security",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "documentation",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "budget",
-          "usage_count": 0
-        },
-        {
-          "created_at": 0,
-          "expiration_index": 0,
-          "last_used_at": 0,
-          "name": "staking",
-          "usage_count": 0
-        }
-      ],
-      "tag_report_map": [],
       "thread_follow_count_map": [],
       "thread_follow_map": [],
       "thread_lock_record_map": [],
@@ -935,7 +836,7 @@
           "staked_dream": "0",
           "status": "MEMBER_STATUS_ACTIVE",
           "tips_given_this_epoch": 0,
-          "trust_level": "TRUST_LEVEL_CORE",
+          "trust_level": "TRUST_LEVEL_ESTABLISHED",
           "trust_level_updated_at": 0,
           "zeroed_at": 0,
           "zeroed_count": 0
@@ -959,7 +860,7 @@
           "staked_dream": "0",
           "status": "MEMBER_STATUS_ACTIVE",
           "tips_given_this_epoch": 0,
-          "trust_level": "TRUST_LEVEL_TRUSTED",
+          "trust_level": "TRUST_LEVEL_ESTABLISHED",
           "trust_level_updated_at": 0,
           "zeroed_at": 0,
           "zeroed_count": 0
@@ -1244,8 +1145,107 @@
       "project_count": "1",
       "project_list": [],
       "project_stake_info_list": [],
+      "reserved_tag_map": [],
       "stake_count": "1",
       "stake_list": [],
+      "tag_budget_award_count": "0",
+      "tag_budget_award_list": [],
+      "tag_budget_count": "0",
+      "tag_budget_list": [],
+      "tag_map": [
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "commons-council",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "technical-council",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "ecosystem-council",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "commons-ops-committee",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "commons-gov-committee",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "technical-ops-committee",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "technical-gov-committee",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "ecosystem-ops-committee",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "ecosystem-gov-committee",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "security",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "documentation",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "budget",
+          "usage_count": 0
+        },
+        {
+          "created_at": 0,
+          "expiration_index": 0,
+          "last_used_at": 0,
+          "name": "staking",
+          "usage_count": 0
+        }
+      ],
+      "tag_report_map": [],
       "tag_stake_pool_list": []
     },
     "reveal": {

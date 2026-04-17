@@ -88,17 +88,12 @@ func SimulateMsgCreateSession(
 		}
 		allowedMsgTypes := randomSubset(r, params.AllowedMsgTypes, maxMsgTypes)
 
-		// 6. Random spend limit
-		var spendLimit sdk.Coin
-		if r.Intn(3) == 0 {
-			spendLimit = sdk.NewInt64Coin("uspark", 0)
-		} else {
-			maxAmount := params.MaxSpendLimit.Amount.Int64()
-			if maxAmount <= 0 {
-				maxAmount = 100_000_000
-			}
-			spendLimit = sdk.NewCoin("uspark", math.NewInt(r.Int63n(maxAmount)+1))
+		// 6. Random spend limit (must be positive — zero disables fee delegation)
+		maxAmount := params.MaxSpendLimit.Amount.Int64()
+		if maxAmount <= 0 {
+			maxAmount = 100_000_000
 		}
+		spendLimit := sdk.NewCoin("uspark", math.NewInt(r.Int63n(maxAmount)+1))
 
 		// 7. Random expiration
 		maxExpDuration := params.MaxExpiration

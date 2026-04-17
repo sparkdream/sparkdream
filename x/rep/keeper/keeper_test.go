@@ -45,6 +45,16 @@ func (m mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string,
 	return false
 }
 
+func (m mockCommonsKeeper) IsGroupPolicyMember(ctx context.Context, policyAddr string, memberAddr string) (bool, error) {
+	// Permissive default for unit tests; tag-budget tests override via a custom
+	// mock or rely on this default.
+	return true, nil
+}
+
+func (m mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
+	return true
+}
+
 type mockSeasonKeeper struct {
 	GetCurrentSeasonFn func(ctx context.Context) (types.SeasonState, error)
 }
@@ -182,6 +192,18 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 	}
 	if err := k.InitGenesis(ctx, *genState); err != nil {
 		t.Fatalf("failed to init genesis: %v", err)
+	}
+
+	// Seed common tags used across keeper tests so initiative/project tag
+	// validation passes. Tests that need to exercise validation explicitly
+	// call SetTag directly.
+	for _, name := range []string{
+		"backend", "frontend", "design", "testing", "art", "code", "coding", "golang",
+		"tag", "tag1", "tag2", "tag3", "tag4", "tag5", "foo", "bar", "baz",
+		"alpha", "beta", "gamma", "delta", "evidence", "proof", "dev", "go", "python",
+		"infra", "reviewerX",
+	} {
+		_ = k.SetTag(ctx, types.Tag{Name: name})
 	}
 
 	return &fixture{

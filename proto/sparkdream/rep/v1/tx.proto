@@ -112,6 +112,32 @@ service Msg {
 
   // RegisterZkPublicKey defines the RegisterZkPublicKey RPC.
   rpc RegisterZkPublicKey(MsgRegisterZkPublicKey) returns (MsgRegisterZkPublicKeyResponse);
+
+  // CreateTag defines the CreateTag RPC. Permissionless tag registry creation
+  // for members meeting the minimum trust level. Deducts the tag-creation fee
+  // from the creator (split between burn and community pool).
+  rpc CreateTag(MsgCreateTag) returns (MsgCreateTagResponse);
+
+  // ReportTag defines the ReportTag RPC.
+  rpc ReportTag(MsgReportTag) returns (MsgReportTagResponse);
+
+  // ResolveTagReport defines the ResolveTagReport RPC.
+  rpc ResolveTagReport(MsgResolveTagReport) returns (MsgResolveTagReportResponse);
+
+  // CreateTagBudget defines the CreateTagBudget RPC.
+  rpc CreateTagBudget(MsgCreateTagBudget) returns (MsgCreateTagBudgetResponse);
+
+  // AwardFromTagBudget defines the AwardFromTagBudget RPC.
+  rpc AwardFromTagBudget(MsgAwardFromTagBudget) returns (MsgAwardFromTagBudgetResponse);
+
+  // TopUpTagBudget defines the TopUpTagBudget RPC.
+  rpc TopUpTagBudget(MsgTopUpTagBudget) returns (MsgTopUpTagBudgetResponse);
+
+  // ToggleTagBudget defines the ToggleTagBudget RPC.
+  rpc ToggleTagBudget(MsgToggleTagBudget) returns (MsgToggleTagBudgetResponse);
+
+  // WithdrawTagBudget defines the WithdrawTagBudget RPC.
+  rpc WithdrawTagBudget(MsgWithdrawTagBudget) returns (MsgWithdrawTagBudgetResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -534,3 +560,98 @@ message MsgRegisterZkPublicKey {
 
 // MsgRegisterZkPublicKeyResponse defines the MsgRegisterZkPublicKeyResponse message.
 message MsgRegisterZkPublicKeyResponse {}
+
+// MsgCreateTag defines the MsgCreateTag message. Creates a new tag in the
+// shared tag registry. Caller must meet the minimum trust level and pay the
+// tag-creation fee.
+message MsgCreateTag {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string name = 2;
+}
+
+// MsgCreateTagResponse defines the response for CreateTag.
+message MsgCreateTagResponse {
+  string name = 1;
+}
+
+// MsgReportTag defines the MsgReportTag message.
+message MsgReportTag {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string tag_name = 2;
+  string reason = 3;
+}
+
+// MsgReportTagResponse defines the MsgReportTagResponse message.
+message MsgReportTagResponse {}
+
+// MsgResolveTagReport defines the MsgResolveTagReport message.
+message MsgResolveTagReport {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string tag_name = 2;
+  uint64 action = 3;
+  string reserve_authority = 4;
+  bool reserve_members_can_use = 5;
+}
+
+// MsgResolveTagReportResponse defines the MsgResolveTagReportResponse message.
+message MsgResolveTagReportResponse {}
+
+// MsgCreateTagBudget defines the MsgCreateTagBudget message.
+message MsgCreateTagBudget {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string tag = 2;
+  string initial_pool = 3;
+  bool members_only = 4;
+}
+
+// MsgCreateTagBudgetResponse defines the MsgCreateTagBudgetResponse message.
+message MsgCreateTagBudgetResponse {}
+
+// MsgAwardFromTagBudget defines the MsgAwardFromTagBudget message.
+message MsgAwardFromTagBudget {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 budget_id = 2;
+  uint64 post_id = 3;
+  string amount = 4;
+  string reason = 5;
+}
+
+// MsgAwardFromTagBudgetResponse defines the MsgAwardFromTagBudgetResponse message.
+message MsgAwardFromTagBudgetResponse {}
+
+// MsgTopUpTagBudget defines the MsgTopUpTagBudget message.
+message MsgTopUpTagBudget {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 budget_id = 2;
+  string amount = 3;
+}
+
+// MsgTopUpTagBudgetResponse defines the MsgTopUpTagBudgetResponse message.
+message MsgTopUpTagBudgetResponse {}
+
+// MsgToggleTagBudget defines the MsgToggleTagBudget message.
+message MsgToggleTagBudget {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 budget_id = 2;
+  bool active = 3;
+}
+
+// MsgToggleTagBudgetResponse defines the MsgToggleTagBudgetResponse message.
+message MsgToggleTagBudgetResponse {}
+
+// MsgWithdrawTagBudget defines the MsgWithdrawTagBudget message.
+message MsgWithdrawTagBudget {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 budget_id = 2;
+}
+
+// MsgWithdrawTagBudgetResponse defines the MsgWithdrawTagBudgetResponse message.
+message MsgWithdrawTagBudgetResponse {}

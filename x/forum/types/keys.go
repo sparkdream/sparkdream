@@ -24,16 +24,6 @@ var (
 )
 
 var (
-	TagBudgetKey      = collections.NewPrefix("tagbudget/value/")
-	TagBudgetCountKey = collections.NewPrefix("tagbudget/count/")
-)
-
-var (
-	TagBudgetAwardKey      = collections.NewPrefix("tagbudgetaward/value/")
-	TagBudgetAwardCountKey = collections.NewPrefix("tagbudgetaward/count/")
-)
-
-var (
 	MemberWarningKey      = collections.NewPrefix("memberwarning/value/")
 	MemberWarningCountKey = collections.NewPrefix("memberwarning/count/")
 )

@@ -13,6 +13,7 @@ import (
 	"sparkdream/x/forum/types"
 )
 
+
 // findCategory returns a random category from state
 func findCategory(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Category, uint64, error) {
 	var categories []struct {
@@ -271,68 +272,6 @@ func findBountyByCreator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creator
 	}
 	selected := bounties[r.Intn(len(bounties))]
 	return &selected.bounty, selected.id, nil
-}
-
-// findTag returns a random tag from state
-func findTag(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*commontypes.Tag, string, error) {
-	var tags []struct {
-		name string
-		tag  commontypes.Tag
-	}
-	err := k.Tag.Walk(ctx, nil, func(name string, tag commontypes.Tag) (bool, error) {
-		tags = append(tags, struct {
-			name string
-			tag  commontypes.Tag
-		}{name, tag})
-		return false, nil
-	})
-	if err != nil || len(tags) == 0 {
-		return nil, "", err
-	}
-	selected := tags[r.Intn(len(tags))]
-	return &selected.tag, selected.name, nil
-}
-
-// findTagBudget returns a random tag budget from state
-func findTagBudget(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, active bool) (*types.TagBudget, uint64, error) {
-	var budgets []struct {
-		id     uint64
-		budget types.TagBudget
-	}
-	err := k.TagBudget.Walk(ctx, nil, func(id uint64, budget types.TagBudget) (bool, error) {
-		if budget.Active == active {
-			budgets = append(budgets, struct {
-				id     uint64
-				budget types.TagBudget
-			}{id, budget})
-		}
-		return false, nil
-	})
-	if err != nil || len(budgets) == 0 {
-		return nil, 0, err
-	}
-	selected := budgets[r.Intn(len(budgets))]
-	return &selected.budget, selected.id, nil
-}
-
-// findTagReport returns a random tag report
-func findTagReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.TagReport, string, error) {
-	var reports []struct {
-		tagName string
-		report  types.TagReport
-	}
-	err := k.TagReport.Walk(ctx, nil, func(tagName string, report types.TagReport) (bool, error) {
-		reports = append(reports, struct {
-			tagName string
-			report  types.TagReport
-		}{tagName, report})
-		return false, nil
-	})
-	if err != nil || len(reports) == 0 {
-		return nil, "", err
-	}
-	selected := reports[r.Intn(len(reports))]
-	return &selected.report, selected.tagName, nil
 }
 
 // findMemberReport returns a random member report
@@ -611,64 +550,6 @@ func getOrCreateBounty(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creator s
 	return bountyID, k.Bounty.Set(ctx, bountyID, newBounty)
 }
 
-// getOrCreateTag returns an existing tag or creates one
-func getOrCreateTag(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (string, error) {
-	// Try to find existing tag
-	_, tagName, err := findTag(r, ctx, k)
-	if err == nil && tagName != "" {
-		return tagName, nil
-	}
-
-	// Create new tag
-	tagName = randomTagName(r)
-	now := ctx.BlockTime().Unix()
-
-	tag := commontypes.Tag{
-		Name:       tagName,
-		UsageCount: 0,
-		CreatedAt:  now,
-		LastUsedAt: now,
-	}
-
-	return tagName, k.Tag.Set(ctx, tagName, tag)
-}
-
-// getOrCreateTagBudget returns an existing tag budget or creates one
-func getOrCreateTagBudget(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, groupAccount string) (uint64, error) {
-	// Try to find existing active budget
-	budget, budgetID, err := findTagBudget(r, ctx, k, true)
-	if err == nil && budget != nil {
-		return budgetID, nil
-	}
-
-	// Ensure tag exists
-	tagName, err := getOrCreateTag(r, ctx, k)
-	if err != nil {
-		return 0, err
-	}
-
-	// Create new budget
-	budgetID, err = k.TagBudgetSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	poolBalance := fmt.Sprintf("%d", r.Intn(90000)+10000) // 10k-100k
-	now := ctx.BlockTime().Unix()
-
-	newBudget := types.TagBudget{
-		Id:           budgetID,
-		GroupAccount: groupAccount,
-		Tag:          tagName,
-		PoolBalance:  poolBalance,
-		MembersOnly:  r.Intn(2) == 1,
-		CreatedAt:    now,
-		Active:       true,
-	}
-
-	return budgetID, k.TagBudget.Set(ctx, budgetID, newBudget)
-}
-
 // getOrCreateMemberReport creates a member report if none exists
 func getOrCreateMemberReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, reportedMember string, reporter string) error {
 	// Check if report exists
@@ -689,43 +570,6 @@ func getOrCreateMemberReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, rep
 	}
 
 	return k.MemberReport.Set(ctx, reportedMember, report)
-}
-
-// getOrCreateTagReport creates a tag report if none exists
-func getOrCreateTagReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, tagName string, reporter string) error {
-	// Check if report exists
-	_, err := k.TagReport.Get(ctx, tagName)
-	if err == nil {
-		return nil // Report exists
-	}
-
-	// Ensure tag exists
-	_, err = k.Tag.Get(ctx, tagName)
-	if err != nil {
-		// Create tag
-		now := ctx.BlockTime().Unix()
-		tag := commontypes.Tag{
-			Name:       tagName,
-			UsageCount: 0,
-			CreatedAt:  now,
-			LastUsedAt: now,
-		}
-		if err := k.Tag.Set(ctx, tagName, tag); err != nil {
-			return err
-		}
-	}
-
-	// Create report
-	now := ctx.BlockTime().Unix()
-	report := types.TagReport{
-		TagName:       tagName,
-		TotalBond:     fmt.Sprintf("%d", r.Intn(900)+100),
-		FirstReportAt: now,
-		UnderReview:   false,
-		Reporters:     []string{reporter},
-	}
-
-	return k.TagReport.Set(ctx, tagName, report)
 }
 
 // getOrCreateThreadMetadata gets or creates thread metadata
@@ -811,30 +655,6 @@ func getAuthority(k keeper.Keeper) string {
 // findActiveBounty returns a random active bounty
 func findActiveBounty(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Bounty, uint64, error) {
 	return findBounty(r, ctx, k, types.BountyStatus_BOUNTY_STATUS_ACTIVE)
-}
-
-// findPendingTagReport returns a random pending tag report
-func findPendingTagReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.TagReport, uint64, error) {
-	var reports []struct {
-		id     uint64
-		report types.TagReport
-	}
-	var reportID uint64
-	err := k.TagReport.Walk(ctx, nil, func(tagName string, report types.TagReport) (bool, error) {
-		reportID++
-		if !report.UnderReview {
-			reports = append(reports, struct {
-				id     uint64
-				report types.TagReport
-			}{reportID, report})
-		}
-		return false, nil
-	})
-	if err != nil || len(reports) == 0 {
-		return nil, 0, err
-	}
-	selected := reports[r.Intn(len(reports))]
-	return &selected.report, selected.id, nil
 }
 
 // findBondedSentinel returns a random bonded sentinel

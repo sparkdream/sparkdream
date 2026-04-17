@@ -15,46 +15,48 @@ import (
 	reptypes "sparkdream/x/rep/types"
 )
 
-// validatePostTags validates a list of tags for use on a post and updates tag metadata.
+// validatePostTags validates a list of tags for use on a post and updates tag metadata
+// via the rep tag registry. Unknown tags are rejected (no auto-creation).
 func (k msgServer) validatePostTags(ctx context.Context, tags []string, now int64) error {
 	if uint64(len(tags)) > types.DefaultMaxTagsPerPost {
 		return errorsmod.Wrapf(types.ErrTagLimitExceeded, "max %d tags per post", types.DefaultMaxTagsPerPost)
 	}
+	if k.repKeeper == nil {
+		return errorsmod.Wrap(types.ErrTagNotFound, "tag registry not available")
+	}
 
 	seen := make(map[string]bool, len(tags))
 	for _, tagName := range tags {
-		// Check for duplicates
 		if seen[tagName] {
 			return errorsmod.Wrapf(types.ErrInvalidTag, "duplicate tag: %s", tagName)
 		}
 		seen[tagName] = true
 
-		// Check length
 		if uint64(len(tagName)) > types.DefaultMaxTagLength {
 			return errorsmod.Wrapf(types.ErrMaxTagLength, "tag %q exceeds max length %d", tagName, types.DefaultMaxTagLength)
 		}
 
-		// Check format
 		if !commontypes.ValidateTagFormat(tagName) {
 			return errorsmod.Wrapf(types.ErrInvalidTag, "tag %q does not match required format", tagName)
 		}
 
-		// Check tag exists
-		tag, err := k.Tag.Get(ctx, tagName)
+		exists, err := k.repKeeper.TagExists(ctx, tagName)
 		if err != nil {
+			return errorsmod.Wrapf(err, "failed to check tag %q", tagName)
+		}
+		if !exists {
 			return errorsmod.Wrapf(types.ErrTagNotFound, "tag %q not found", tagName)
 		}
 
-		// Check tag is not reserved
-		_, err = k.ReservedTag.Get(ctx, tagName)
-		if err == nil {
+		reserved, err := k.repKeeper.IsReservedTag(ctx, tagName)
+		if err != nil {
+			return errorsmod.Wrapf(err, "failed to check reserved tag %q", tagName)
+		}
+		if reserved {
 			return errorsmod.Wrapf(types.ErrReservedTag, "tag %q is reserved", tagName)
 		}
 
-		// Update tag usage metadata
-		tag.UsageCount++
-		tag.LastUsedAt = now
-		if err := k.Tag.Set(ctx, tagName, tag); err != nil {
+		if err := k.repKeeper.IncrementTagUsage(ctx, tagName, now); err != nil {
 			return errorsmod.Wrap(err, "failed to update tag metadata")
 		}
 	}

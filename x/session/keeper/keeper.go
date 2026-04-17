@@ -1,9 +1,9 @@
 package keeper
 
 import (
-	"fmt"
-
+	"bytes"
 	"context"
+	"fmt"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/core/address"
@@ -19,7 +19,8 @@ import (
 // Stored as a shared pointer so value-copies of Keeper (in AppModule, msgServer)
 // see updates made after NewAppModule().
 type lateKeepers struct {
-	router baseapp.MessageRouter
+	router        baseapp.MessageRouter
+	commonsKeeper types.CommonsKeeper
 }
 
 type Keeper struct {
@@ -108,6 +109,28 @@ func NewKeeper(
 // SetRouter wires the MsgServiceRouter after app build for inner message dispatch.
 func (k Keeper) SetRouter(router baseapp.MessageRouter) {
 	k.late.router = router
+}
+
+// SetCommonsKeeper wires the optional CommonsKeeper used for council-gated
+// operational parameter updates. Wired in app.go post-depinject.
+func (k Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
+	k.late.commonsKeeper = ck
+}
+
+// isCouncilAuthorized returns true when addr is either the governance authority
+// or (when CommonsKeeper is wired) a member/policy of the given council/committee.
+func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return false
+	}
+	if bytes.Equal(k.authority, addrBytes) {
+		return true
+	}
+	if k.late.commonsKeeper == nil {
+		return false
+	}
+	return k.late.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
 // GetAuthority returns the module's authority.

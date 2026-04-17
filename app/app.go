@@ -257,9 +257,9 @@ func New(
 	// Wire SeasonKeeper into Rep after depinject.
 	app.RepKeeper.SetSeasonKeeper(app.SeasonKeeper)
 
-	// Wire TagKeeper into Rep after depinject to break cyclic dependency
-	// (forum → rep → forum).
-	app.RepKeeper.SetTagKeeper(app.ForumKeeper)
+	// Wire ForumKeeper into Rep so tag-moderation can prune stale references.
+	// Retired when forum's sentinel state moves into x/rep (future commit).
+	app.RepKeeper.SetForumKeeper(app.ForumKeeper)
 
 	// Wire DistrKeeper into Split after depinject (adapter adds GetCommunityPool).
 	app.SplitKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
@@ -297,6 +297,10 @@ func New(
 
 	// Wire MsgServiceRouter into Session for ExecSession inner message dispatch.
 	app.SessionKeeper.SetRouter(app.MsgServiceRouter())
+
+	// Wire CommonsKeeper into Session so Commons Operations Committee can update
+	// operational params alongside governance authority.
+	app.SessionKeeper.SetCommonsKeeper(app.CommonsKeeper)
 
 	// Register ShieldAware modules for the double-gate security model.
 	// Each module that accepts shielded operations must explicitly opt in.

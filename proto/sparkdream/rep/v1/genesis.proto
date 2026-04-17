@@ -14,7 +14,12 @@ import "sparkdream/rep/v1/jury_review.proto";
 import "sparkdream/rep/v1/member.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
+import "sparkdream/rep/v1/reserved_tag.proto";
 import "sparkdream/rep/v1/stake.proto";
+import "sparkdream/rep/v1/tag.proto";
+import "sparkdream/rep/v1/tag_budget.proto";
+import "sparkdream/rep/v1/tag_budget_award.proto";
+import "sparkdream/rep/v1/tag_report.proto";
 
 option go_package = "sparkdream/x/rep/types";
 
@@ -53,6 +58,19 @@ message GenesisState {
 
   // Content initiative links for conviction propagation
   repeated ContentInitiativeLink content_initiative_links = 23 [(gogoproto.nullable) = false];
+
+  // Tag registry (moved from x/forum)
+  repeated Tag tag_map = 24 [(gogoproto.nullable) = false];
+  repeated ReservedTag reserved_tag_map = 25 [(gogoproto.nullable) = false];
+
+  // Tag moderation (moved from x/forum)
+  repeated TagReport tag_report_map = 26 [(gogoproto.nullable) = false];
+
+  // Tag budgets (moved from x/forum)
+  repeated TagBudget tag_budget_list = 27 [(gogoproto.nullable) = false];
+  uint64 tag_budget_count = 28;
+  repeated TagBudgetAward tag_budget_award_list = 29 [(gogoproto.nullable) = false];
+  uint64 tag_budget_award_count = 30;
 }
 
 // ContentInitiativeLink defines a link between content and an initiative for conviction propagation.

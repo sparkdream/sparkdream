@@ -270,27 +270,6 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-    forum:
-      params:
-        # Archive timing - DEVNET: hours/days instead of seconds/months
-        archive_threshold: "604800"      # 7 days (production: 2592000 = 30 days)
-        unarchive_cooldown: "86400"      # 1 day (production: 86400 = 1 day, same)
-        archive_cooldown: "604800"       # 7 days (production: 2592000 = 30 days)
-        ephemeral_ttl: "43200"           # 12 hours (production: 86400 = 24 hours)
-        hide_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
-        lock_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
-        move_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
-      category_map:
-      - category_id: 1
-        title: "General"
-        description: "General discussion"
-        members_only_write: false
-        admin_only_write: false
-      - category_id: 2
-        title: "Governance"
-        description: "Governance proposals and discussion"
-        members_only_write: true
-        admin_only_write: false
       tag_map:
       # Three main councils
       - name: "commons-council"
@@ -360,6 +339,27 @@ genesis:
         created_at: 0
         last_used_at: 0
         expiration_index: 0
+    forum:
+      params:
+        # Archive timing - DEVNET: hours/days instead of seconds/months
+        archive_threshold: "604800"      # 7 days (production: 2592000 = 30 days)
+        unarchive_cooldown: "86400"      # 1 day (production: 86400 = 1 day, same)
+        archive_cooldown: "604800"       # 7 days (production: 2592000 = 30 days)
+        ephemeral_ttl: "43200"           # 12 hours (production: 86400 = 24 hours)
+        hide_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
+        lock_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
+        move_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
+      category_map:
+      - category_id: 1
+        title: "General"
+        description: "General discussion"
+        members_only_write: false
+        admin_only_write: false
+      - category_id: 2
+        title: "Governance"
+        description: "Governance proposals and discussion"
+        members_only_write: true
+        admin_only_write: false
 validators:
 - name: alice
   bonded: 15000000000000uspark

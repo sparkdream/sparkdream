@@ -25,6 +25,10 @@ func DefaultGenesis() *GenesisState {
 		ContentChallengeList:   []ContentChallenge{},
 		ContentChallengeCount:  1,
 		ContentInitiativeLinks: []ContentInitiativeLink{},
+		TagBudgetList:          []TagBudget{},
+		TagBudgetCount:         1,
+		TagBudgetAwardList:     []TagBudgetAward{},
+		TagBudgetAwardCount:    1,
 	}
 }
 
@@ -151,6 +155,39 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated content initiative link: %s", key)
 		}
 		linkKeyMap[key] = true
+	}
+
+	tagReportIndexMap := make(map[string]struct{})
+	for _, elem := range gs.TagReportMap {
+		index := fmt.Sprint(elem.TagName)
+		if _, ok := tagReportIndexMap[index]; ok {
+			return fmt.Errorf("duplicated index for tagReport")
+		}
+		tagReportIndexMap[index] = struct{}{}
+	}
+
+	tagBudgetIDMap := make(map[uint64]bool)
+	tagBudgetCount := gs.GetTagBudgetCount()
+	for _, elem := range gs.TagBudgetList {
+		if _, ok := tagBudgetIDMap[elem.Id]; ok {
+			return fmt.Errorf("duplicated id for tagBudget")
+		}
+		if elem.Id >= tagBudgetCount {
+			return fmt.Errorf("tagBudget id should be lower or equal than the last id")
+		}
+		tagBudgetIDMap[elem.Id] = true
+	}
+
+	tagBudgetAwardIDMap := make(map[uint64]bool)
+	tagBudgetAwardCount := gs.GetTagBudgetAwardCount()
+	for _, elem := range gs.TagBudgetAwardList {
+		if _, ok := tagBudgetAwardIDMap[elem.Id]; ok {
+			return fmt.Errorf("duplicated id for tagBudgetAward")
+		}
+		if elem.Id >= tagBudgetAwardCount {
+			return fmt.Errorf("tagBudgetAward id should be lower or equal than the last id")
+		}
+		tagBudgetAwardIDMap[elem.Id] = true
 	}
 
 	return gs.Params.Validate()

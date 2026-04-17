@@ -122,5 +122,26 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgRespondToContentChallenge{},
 	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCreateTagBudget{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAwardFromTagBudget{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgTopUpTagBudget{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgToggleTagBudget{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgWithdrawTagBudget{},
+	)
+
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

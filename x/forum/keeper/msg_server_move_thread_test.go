@@ -3,8 +3,8 @@ package keeper_test
 import (
 	"testing"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"github.com/stretchr/testify/require"
 )
@@ -238,13 +238,13 @@ func TestMoveThreadWithReservedTag(t *testing.T) {
 	p.Tags = []string{"governance"}
 	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
 
-	// Create reserved tag
-	reservedTag := commontypes.ReservedTag{
+	// Create reserved tag in mock rep registry
+	reservedTag := reptypes.ReservedTag{
 		Name:          "governance",
 		Authority:     testAuthority,
 		MembersCanUse: true,
 	}
-	_ = f.keeper.ReservedTag.Set(f.ctx, "governance", reservedTag)
+	_ = f.repKeeper.SetReservedTag(f.ctx, reservedTag)
 
 	// Create a sentinel
 	sentinel := types.SentinelActivity{

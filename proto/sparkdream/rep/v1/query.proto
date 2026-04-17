@@ -16,7 +16,12 @@ import "sparkdream/rep/v1/jury_review.proto";
 import "sparkdream/rep/v1/member.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
+import "sparkdream/rep/v1/reserved_tag.proto";
 import "sparkdream/rep/v1/stake.proto";
+import "sparkdream/rep/v1/tag.proto";
+import "sparkdream/rep/v1/tag_budget.proto";
+import "sparkdream/rep/v1/tag_budget_award.proto";
+import "sparkdream/rep/v1/tag_report.proto";
 
 option go_package = "sparkdream/x/rep/types";
 
@@ -255,6 +260,81 @@ service Query {
   // TreasuryStatus queries the treasury balance and flows
   rpc TreasuryStatus(QueryTreasuryStatusRequest) returns (QueryTreasuryStatusResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/treasury_status";
+  }
+
+  // GetTag queries a specific tag by name.
+  rpc GetTag(QueryGetTagRequest) returns (QueryGetTagResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag/{name}";
+  }
+
+  // ListTag queries all tags with pagination.
+  rpc ListTag(QueryAllTagRequest) returns (QueryAllTagResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag";
+  }
+
+  // GetReservedTag queries a specific reserved tag by name.
+  rpc GetReservedTag(QueryGetReservedTagRequest) returns (QueryGetReservedTagResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/reserved_tag/{name}";
+  }
+
+  // ListReservedTag queries all reserved tags with pagination.
+  rpc ListReservedTag(QueryAllReservedTagRequest) returns (QueryAllReservedTagResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/reserved_tag";
+  }
+
+  // TagExists checks whether a tag exists and returns its expiration time.
+  rpc TagExists(QueryTagExistsRequest) returns (QueryTagExistsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_exists/{tag_name}";
+  }
+
+  // GetTagReport queries a single tag report by tag name.
+  rpc GetTagReport(QueryGetTagReportRequest) returns (QueryGetTagReportResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_report/{tag_name}";
+  }
+
+  // ListTagReport queries all tag reports with pagination.
+  rpc ListTagReport(QueryAllTagReportRequest) returns (QueryAllTagReportResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_report";
+  }
+
+  // TagReports returns the first tag report (summary query).
+  rpc TagReports(QueryTagReportsRequest) returns (QueryTagReportsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_reports";
+  }
+
+  // GetTagBudget Queries a TagBudget by id.
+  rpc GetTagBudget(QueryGetTagBudgetRequest) returns (QueryGetTagBudgetResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_budget/{id}";
+  }
+
+  // ListTagBudget defines the ListTagBudget RPC.
+  rpc ListTagBudget(QueryAllTagBudgetRequest) returns (QueryAllTagBudgetResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_budget";
+  }
+
+  // GetTagBudgetAward Queries a TagBudgetAward by id.
+  rpc GetTagBudgetAward(QueryGetTagBudgetAwardRequest) returns (QueryGetTagBudgetAwardResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_budget_award/{id}";
+  }
+
+  // ListTagBudgetAward defines the ListTagBudgetAward RPC.
+  rpc ListTagBudgetAward(QueryAllTagBudgetAwardRequest) returns (QueryAllTagBudgetAwardResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_budget_award";
+  }
+
+  // TagBudgetByTag Queries a TagBudget by tag name.
+  rpc TagBudgetByTag(QueryTagBudgetByTagRequest) returns (QueryTagBudgetByTagResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_budget_by_tag/{tag}";
+  }
+
+  // TagBudgets returns the first tag budget (summary query).
+  rpc TagBudgets(QueryTagBudgetsRequest) returns (QueryTagBudgetsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_budgets";
+  }
+
+  // TagBudgetAwards returns the first award for a budget (summary query).
+  rpc TagBudgetAwards(QueryTagBudgetAwardsRequest) returns (QueryTagBudgetAwardsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_budget_awards/{budget_id}";
   }
 }
 
@@ -876,4 +956,171 @@ message QueryTreasuryStatusResponse {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+}
+
+// QueryGetTagRequest is request type for the Query/GetTag RPC method.
+message QueryGetTagRequest {
+  string name = 1;
+}
+
+// QueryGetTagResponse is response type for the Query/GetTag RPC method.
+message QueryGetTagResponse {
+  Tag tag = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTagRequest is request type for the Query/ListTag RPC method.
+message QueryAllTagRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTagResponse is response type for the Query/ListTag RPC method.
+message QueryAllTagResponse {
+  repeated Tag tag = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetReservedTagRequest is request type for the Query/GetReservedTag RPC method.
+message QueryGetReservedTagRequest {
+  string name = 1;
+}
+
+// QueryGetReservedTagResponse is response type for the Query/GetReservedTag RPC method.
+message QueryGetReservedTagResponse {
+  ReservedTag reserved_tag = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllReservedTagRequest is request type for the Query/ListReservedTag RPC method.
+message QueryAllReservedTagRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllReservedTagResponse is response type for the Query/ListReservedTag RPC method.
+message QueryAllReservedTagResponse {
+  repeated ReservedTag reserved_tag = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryTagExistsRequest is request type for the Query/TagExists RPC method.
+message QueryTagExistsRequest {
+  string tag_name = 1;
+}
+
+// QueryTagExistsResponse is response type for the Query/TagExists RPC method.
+message QueryTagExistsResponse {
+  bool exists = 1;
+  int64 expiration_time = 2;
+}
+
+// QueryGetTagReportRequest defines the QueryGetTagReportRequest message.
+message QueryGetTagReportRequest {
+  string tag_name = 1;
+}
+
+// QueryGetTagReportResponse defines the QueryGetTagReportResponse message.
+message QueryGetTagReportResponse {
+  TagReport tag_report = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTagReportRequest defines the QueryAllTagReportRequest message.
+message QueryAllTagReportRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTagReportResponse defines the QueryAllTagReportResponse message.
+message QueryAllTagReportResponse {
+  repeated TagReport tag_report = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryTagReportsRequest defines the QueryTagReportsRequest message.
+message QueryTagReportsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryTagReportsResponse defines the QueryTagReportsResponse message.
+message QueryTagReportsResponse {
+  string tag_name = 1;
+  bool under_review = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryGetTagBudgetRequest defines the QueryGetTagBudgetRequest message.
+message QueryGetTagBudgetRequest {
+  uint64 id = 1;
+}
+
+// QueryGetTagBudgetResponse defines the QueryGetTagBudgetResponse message.
+message QueryGetTagBudgetResponse {
+  TagBudget tag_budget = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTagBudgetRequest defines the QueryAllTagBudgetRequest message.
+message QueryAllTagBudgetRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTagBudgetResponse defines the QueryAllTagBudgetResponse message.
+message QueryAllTagBudgetResponse {
+  repeated TagBudget tag_budget = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetTagBudgetAwardRequest defines the QueryGetTagBudgetAwardRequest message.
+message QueryGetTagBudgetAwardRequest {
+  uint64 id = 1;
+}
+
+// QueryGetTagBudgetAwardResponse defines the QueryGetTagBudgetAwardResponse message.
+message QueryGetTagBudgetAwardResponse {
+  TagBudgetAward tag_budget_award = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllTagBudgetAwardRequest defines the QueryAllTagBudgetAwardRequest message.
+message QueryAllTagBudgetAwardRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllTagBudgetAwardResponse defines the QueryAllTagBudgetAwardResponse message.
+message QueryAllTagBudgetAwardResponse {
+  repeated TagBudgetAward tag_budget_award = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryTagBudgetByTagRequest defines the QueryTagBudgetByTagRequest message.
+message QueryTagBudgetByTagRequest {
+  string tag = 1;
+}
+
+// QueryTagBudgetByTagResponse defines the QueryTagBudgetByTagResponse message.
+message QueryTagBudgetByTagResponse {
+  uint64 budget_id = 1;
+  string pool_balance = 2;
+  bool active = 3;
+}
+
+// QueryTagBudgetsRequest defines the QueryTagBudgetsRequest message.
+message QueryTagBudgetsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryTagBudgetsResponse defines the QueryTagBudgetsResponse message.
+message QueryTagBudgetsResponse {
+  uint64 budget_id = 1;
+  string tag = 2;
+  string pool_balance = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryTagBudgetAwardsRequest defines the QueryTagBudgetAwardsRequest message.
+message QueryTagBudgetAwardsRequest {
+  uint64 budget_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryTagBudgetAwardsResponse defines the QueryTagBudgetAwardsResponse message.
+message QueryTagBudgetAwardsResponse {
+  uint64 post_id = 1;
+  string recipient = 2;
+  string amount = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
 }
