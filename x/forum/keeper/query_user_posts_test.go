@@ -34,7 +34,7 @@ func TestQueryUserPosts(t *testing.T) {
 	t.Run("user with no posts", func(t *testing.T) {
 		resp, err := qs.UserPosts(f.ctx, &types.QueryUserPostsRequest{Author: testCreator})
 		require.NoError(t, err)
-		require.Equal(t, uint64(0), resp.PostId)
+		require.Empty(t, resp.Posts)
 	})
 
 	t.Run("user with post", func(t *testing.T) {
@@ -43,8 +43,15 @@ func TestQueryUserPosts(t *testing.T) {
 
 		resp, err := qs.UserPosts(f.ctx, &types.QueryUserPostsRequest{Author: testCreator})
 		require.NoError(t, err)
-		require.Equal(t, post.PostId, resp.PostId)
-		require.Equal(t, cat.CategoryId, resp.CategoryId)
-		require.Equal(t, uint64(types.PostStatus_POST_STATUS_ACTIVE), resp.Status)
+		require.NotEmpty(t, resp.Posts)
+		found := false
+		for _, p := range resp.Posts {
+			if p.PostId == post.PostId {
+				found = true
+				require.Equal(t, cat.CategoryId, p.CategoryId)
+				require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, p.Status)
+			}
+		}
+		require.True(t, found, "created post not returned")
 	})
 }

@@ -26,7 +26,7 @@ func TestQueryPosts(t *testing.T) {
 	t.Run("no posts", func(t *testing.T) {
 		resp, err := qs.Posts(f.ctx, &types.QueryPostsRequest{})
 		require.NoError(t, err)
-		require.Equal(t, uint64(0), resp.PostId)
+		require.Empty(t, resp.Posts)
 	})
 
 	t.Run("returns root posts", func(t *testing.T) {
@@ -34,8 +34,15 @@ func TestQueryPosts(t *testing.T) {
 
 		resp, err := qs.Posts(f.ctx, &types.QueryPostsRequest{})
 		require.NoError(t, err)
-		require.Equal(t, post.PostId, resp.PostId)
-		require.Equal(t, testCreator, resp.Author)
+		require.NotEmpty(t, resp.Posts)
+		found := false
+		for _, p := range resp.Posts {
+			if p.PostId == post.PostId {
+				found = true
+				require.Equal(t, testCreator, p.Author)
+			}
+		}
+		require.True(t, found, "created post not returned")
 	})
 
 	t.Run("filter by category", func(t *testing.T) {
@@ -44,18 +51,19 @@ func TestQueryPosts(t *testing.T) {
 
 		resp, err := qs.Posts(f.ctx, &types.QueryPostsRequest{CategoryId: cat.CategoryId})
 		require.NoError(t, err)
-		require.Equal(t, post.PostId, resp.PostId)
+		require.Len(t, resp.Posts, 1)
+		require.Equal(t, post.PostId, resp.Posts[0].PostId)
 	})
 
 	t.Run("filter by status", func(t *testing.T) {
-		post := f.createTestPost(t, testCreator, 0, 0)
+		f.createTestPost(t, testCreator, 0, 0)
 
 		resp, err := qs.Posts(f.ctx, &types.QueryPostsRequest{Status: uint64(types.PostStatus_POST_STATUS_ACTIVE)})
 		require.NoError(t, err)
-		// Should return an active post (may not be the one we just created due to existing data)
-		require.NotZero(t, resp.PostId)
-		require.Equal(t, uint64(types.PostStatus_POST_STATUS_ACTIVE), resp.Status)
-		_ = post // Use post to avoid compiler warning
+		require.NotEmpty(t, resp.Posts)
+		for _, p := range resp.Posts {
+			require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, p.Status)
+		}
 	})
 
 	t.Run("excludes replies", func(t *testing.T) {
@@ -64,7 +72,9 @@ func TestQueryPosts(t *testing.T) {
 
 		resp, err := qs.Posts(f.ctx, &types.QueryPostsRequest{})
 		require.NoError(t, err)
-		// Should return a root post (not the reply)
-		require.NotEqual(t, reply.PostId, resp.PostId)
+		for _, p := range resp.Posts {
+			require.NotEqual(t, reply.PostId, p.PostId)
+			require.Equal(t, uint64(0), p.ParentId)
+		}
 	})
 }

@@ -5,6 +5,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -14,23 +15,17 @@ func (q queryServer) Categories(ctx context.Context, req *types.QueryCategoriesR
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Get first category (simplified - in production would return list with pagination)
-	var firstCategory *types.Category
-
-	err := q.k.Category.Walk(ctx, nil, func(key uint64, category types.Category) (bool, error) {
-		firstCategory = &category
-		return true, nil // Stop after first
-	})
+	categories, pageRes, err := query.CollectionPaginate(
+		ctx,
+		q.k.Category,
+		req.Pagination,
+		func(_ uint64, c types.Category) (types.Category, error) {
+			return c, nil
+		},
+	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if firstCategory != nil {
-		return &types.QueryCategoriesResponse{
-			CategoryId: firstCategory.CategoryId,
-			Title:      firstCategory.Title,
-		}, nil
-	}
-
-	return &types.QueryCategoriesResponse{}, nil
+	return &types.QueryCategoriesResponse{Categories: categories, Pagination: pageRes}, nil
 }

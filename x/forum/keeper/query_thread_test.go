@@ -32,10 +32,7 @@ func TestQueryThread(t *testing.T) {
 	})
 
 	t.Run("not a root post", func(t *testing.T) {
-		// Create a root post
 		rootPost := f.createTestPost(t, testCreator, 0, 0)
-
-		// Create a reply (not a root post)
 		reply := f.createTestPost(t, testCreator, rootPost.PostId, 0)
 
 		_, err := qs.Thread(f.ctx, &types.QueryThreadRequest{RootId: reply.PostId})
@@ -45,13 +42,20 @@ func TestQueryThread(t *testing.T) {
 		require.Equal(t, codes.InvalidArgument, st.Code())
 	})
 
-	t.Run("successful query", func(t *testing.T) {
-		post := f.createTestPost(t, testCreator, 0, 0)
+	t.Run("returns root and replies", func(t *testing.T) {
+		root := f.createTestPost(t, testCreator, 0, 0)
+		reply1 := f.createTestPost(t, testCreator, root.PostId, 0)
+		reply2 := f.createTestPost(t, testCreator, root.PostId, 0)
 
-		resp, err := qs.Thread(f.ctx, &types.QueryThreadRequest{RootId: post.PostId})
+		resp, err := qs.Thread(f.ctx, &types.QueryThreadRequest{RootId: root.PostId})
 		require.NoError(t, err)
-		require.Equal(t, post.PostId, resp.PostId)
-		require.Equal(t, testCreator, resp.Author)
-		require.Equal(t, uint64(0), resp.ParentId)
+
+		ids := map[uint64]bool{}
+		for _, p := range resp.Posts {
+			ids[p.PostId] = true
+		}
+		require.True(t, ids[root.PostId], "root not in thread")
+		require.True(t, ids[reply1.PostId], "reply1 not in thread")
+		require.True(t, ids[reply2.PostId], "reply2 not in thread")
 	})
 }

@@ -962,10 +962,8 @@ message QueryPostsRequest {
 
 // QueryPostsResponse defines the QueryPostsResponse message.
 message QueryPostsResponse {
-  uint64 post_id = 1;
-  string author = 2;
-  uint64 status = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Post posts = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryThreadRequest defines the QueryThreadRequest message.
@@ -976,11 +974,8 @@ message QueryThreadRequest {
 
 // QueryThreadResponse defines the QueryThreadResponse message.
 message QueryThreadResponse {
-  uint64 post_id = 1;
-  string author = 2;
-  uint64 parent_id = 3;
-  uint64 depth = 4;
-  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+  repeated Post posts = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryCategoriesRequest defines the QueryCategoriesRequest message.
@@ -990,9 +985,8 @@ message QueryCategoriesRequest {
 
 // QueryCategoriesResponse defines the QueryCategoriesResponse message.
 message QueryCategoriesResponse {
-  uint64 category_id = 1;
-  string title = 2;
-  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+  repeated Category categories = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryUserPostsRequest defines the QueryUserPostsRequest message.
@@ -1003,10 +997,8 @@ message QueryUserPostsRequest {
 
 // QueryUserPostsResponse defines the QueryUserPostsResponse message.
 message QueryUserPostsResponse {
-  uint64 post_id = 1;
-  uint64 category_id = 2;
-  uint64 status = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Post posts = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QuerySentinelStatusRequest defines the QuerySentinelStatusRequest message.

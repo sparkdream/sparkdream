@@ -26,8 +26,7 @@ func TestQueryCategories(t *testing.T) {
 	t.Run("empty list", func(t *testing.T) {
 		resp, err := qs.Categories(f.ctx, &types.QueryCategoriesRequest{})
 		require.NoError(t, err)
-		require.Equal(t, uint64(0), resp.CategoryId)
-		require.Empty(t, resp.Title)
+		require.Empty(t, resp.Categories)
 	})
 
 	t.Run("list with categories", func(t *testing.T) {
@@ -35,7 +34,14 @@ func TestQueryCategories(t *testing.T) {
 
 		resp, err := qs.Categories(f.ctx, &types.QueryCategoriesRequest{})
 		require.NoError(t, err)
-		require.Equal(t, cat.CategoryId, resp.CategoryId)
-		require.Equal(t, "Test Category", resp.Title)
+		require.NotEmpty(t, resp.Categories)
+		found := false
+		for _, c := range resp.Categories {
+			if c.CategoryId == cat.CategoryId {
+				found = true
+				require.Equal(t, "Test Category", c.Title)
+			}
+		}
+		require.True(t, found, "created category not returned")
 	})
 }
