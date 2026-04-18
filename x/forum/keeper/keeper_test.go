@@ -15,6 +15,7 @@ import (
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
+	commonstypes "sparkdream/x/commons/types"
 	"sparkdream/x/forum/keeper"
 	module "sparkdream/x/forum/module"
 	"sparkdream/x/forum/types"
@@ -54,12 +55,13 @@ func init() {
 }
 
 type fixture struct {
-	ctx          context.Context
-	keeper       keeper.Keeper
-	addressCodec address.Codec
-	msgServer    types.MsgServer
-	bankKeeper   *mockBankKeeper
-	repKeeper    *mockRepKeeper
+	ctx           context.Context
+	keeper        keeper.Keeper
+	addressCodec  address.Codec
+	msgServer     types.MsgServer
+	bankKeeper    *mockBankKeeper
+	repKeeper     *mockRepKeeper
+	commonsKeeper *mockCommonsKeeper
 }
 
 // mockBankKeeper implements types.BankKeeper for testing
@@ -315,11 +317,30 @@ func (m *mockRepKeeper) RemoveContentInitiativeLink(ctx context.Context, initiat
 	return nil
 }
 
-// mockCommonsKeeper implements types.CommonsKeeper for testing
+// mockCommonsKeeper implements types.CommonsKeeper for testing.
 type mockCommonsKeeper struct {
 	IsGroupPolicyMemberFn  func(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
 	IsGroupPolicyAddressFn func(ctx context.Context, addr string) bool
 	IsCouncilAuthorizedFn  func(ctx context.Context, addr string, council string, committee string) bool
+	categories             map[uint64]commonstypes.Category
+	categorySeq            uint64
+}
+
+func (m *mockCommonsKeeper) setCategory(cat commonstypes.Category) {
+	if m.categories == nil {
+		m.categories = make(map[uint64]commonstypes.Category)
+	}
+	m.categories[cat.CategoryId] = cat
+}
+
+func (m *mockCommonsKeeper) GetCategory(_ context.Context, id uint64) (commonstypes.Category, bool) {
+	cat, ok := m.categories[id]
+	return cat, ok
+}
+
+func (m *mockCommonsKeeper) HasCategory(_ context.Context, id uint64) bool {
+	_, ok := m.categories[id]
+	return ok
 }
 
 func (m *mockCommonsKeeper) IsGroupPolicyMember(ctx context.Context, policyAddr string, memberAddr string) (bool, error) {
@@ -373,16 +394,18 @@ func initFixtureWithCommons(t *testing.T, commonsKeeper types.CommonsKeeper) *fi
 	}
 
 	_, _ = k.PostSeq.Next(ctx)
-	_, _ = k.CategorySeq.Next(ctx)
 	_, _ = k.BountySeq.Next(ctx)
 
+	ck, _ := commonsKeeper.(*mockCommonsKeeper)
+
 	return &fixture{
-		ctx:          ctx,
-		keeper:       k,
-		addressCodec: addressCodec,
-		msgServer:    keeper.NewMsgServerImpl(k),
-		bankKeeper:   bankKeeper,
-		repKeeper:    repKeeper,
+		ctx:           ctx,
+		keeper:        k,
+		addressCodec:  addressCodec,
+		msgServer:     keeper.NewMsgServerImpl(k),
+		bankKeeper:    bankKeeper,
+		repKeeper:     repKeeper,
+		commonsKeeper: ck,
 	}
 }
 
@@ -400,6 +423,22 @@ func initFixture(t *testing.T) *fixture {
 
 	bankKeeper := &mockBankKeeper{}
 	repKeeper := &mockRepKeeper{}
+	// Only the gov authority is council-authorized; group membership and
+	// policy checks are permissive by default.
+	commonsKeeper := &mockCommonsKeeper{}
+	commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, addr string, _ string, _ string) bool {
+		addrBytes, err := addressCodec.StringToBytes(addr)
+		if err != nil {
+			return false
+		}
+		return bytes.Equal(authority.Bytes(), addrBytes)
+	}
+	commonsKeeper.IsGroupPolicyMemberFn = func(_ context.Context, _ string, _ string) (bool, error) {
+		return true, nil
+	}
+	commonsKeeper.IsGroupPolicyAddressFn = func(_ context.Context, _ string) bool {
+		return true
+	}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -408,7 +447,7 @@ func initFixture(t *testing.T) *fixture {
 		authority.Bytes(),
 		bankKeeper,
 		repKeeper,
-		nil, // commonsKeeper - nil uses fallback stubs for testing
+		commonsKeeper,
 	)
 
 	// Initialize params
@@ -419,16 +458,16 @@ func initFixture(t *testing.T) *fixture {
 	// Prime sequences to start at 1 (skip 0 to avoid confusion with zero-value)
 	// PostId=0 would conflict with ParentId=0 meaning "no parent"
 	_, _ = k.PostSeq.Next(ctx)
-	_, _ = k.CategorySeq.Next(ctx)
 	_, _ = k.BountySeq.Next(ctx)
 
 	return &fixture{
-		ctx:          ctx,
-		keeper:       k,
-		addressCodec: addressCodec,
-		msgServer:    keeper.NewMsgServerImpl(k),
-		bankKeeper:   bankKeeper,
+		ctx:           ctx,
+		keeper:        k,
+		addressCodec:  addressCodec,
+		msgServer:     keeper.NewMsgServerImpl(k),
+		bankKeeper:    bankKeeper,
 		repKeeper:    repKeeper,
+		commonsKeeper: commonsKeeper,
 	}
 }
 
@@ -471,24 +510,18 @@ func (f *fixture) createTestPost(t *testing.T, author string, parentId, category
 	return post
 }
 
-// Helper to create a test category
-func (f *fixture) createTestCategory(t *testing.T, title string) types.Category {
+func (f *fixture) createTestCategory(t *testing.T, title string) commonstypes.Category {
 	t.Helper()
-	catID, err := f.keeper.CategorySeq.Next(f.ctx)
-	if err != nil {
-		t.Fatalf("failed to get next category ID: %v", err)
+	if f.commonsKeeper == nil {
+		t.Fatalf("fixture has no mockCommonsKeeper")
 	}
-
-	cat := types.Category{
-		CategoryId:  catID,
+	f.commonsKeeper.categorySeq++
+	cat := commonstypes.Category{
+		CategoryId:  f.commonsKeeper.categorySeq,
 		Title:       title,
 		Description: "Test category",
 	}
-
-	if err := f.keeper.Category.Set(f.ctx, catID, cat); err != nil {
-		t.Fatalf("failed to create test category: %v", err)
-	}
-
+	f.commonsKeeper.setCategory(cat)
 	return cat
 }
 

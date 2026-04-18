@@ -81,9 +81,11 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		return nil, types.ErrForumPaused
 	}
 
-	// Validate category exists
-	category, err := k.Category.Get(ctx, msg.CategoryId)
-	if err != nil {
+	if k.commonsKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrCategoryNotFound, "category registry unavailable")
+	}
+	category, catOk := k.commonsKeeper.GetCategory(ctx, msg.CategoryId)
+	if !catOk {
 		return nil, errorsmod.Wrap(types.ErrCategoryNotFound, fmt.Sprintf("category %d not found", msg.CategoryId))
 	}
 

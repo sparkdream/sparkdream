@@ -64,6 +64,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Get votes for a proposal",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}},
 				},
+				{
+					RpcMethod: "ListCategory",
+					Use:       "list-category",
+					Short:     "List all categories",
+				},
+				{
+					RpcMethod:      "GetCategory",
+					Use:            "get-category [id]",
+					Short:          "Get a category by id",
+					Alias:          []string{"show-category"},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}},
+				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -170,6 +182,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{
 					RpcMethod: "AnonymousVoteProposal",
 					Skip:      true, // routed through x/shield ShieldedExec, not directly invoked
+				},
+				{
+					RpcMethod:      "CreateCategory",
+					Use:            "create-category [title] [description] [members-only-write] [admin-only-write]",
+					Short:          "Create a shared content category (gov/council/operations only)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title"}, {ProtoField: "description"}, {ProtoField: "members_only_write"}, {ProtoField: "admin_only_write"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

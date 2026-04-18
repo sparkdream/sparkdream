@@ -294,7 +294,7 @@ if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
     TAG_BUDGET_ID=$(extract_event_value "$GP_EXEC_RESULT" "tag_budget_created" "budget_id")
     if [ -z "$TAG_BUDGET_ID" ] || [ "$TAG_BUDGET_ID" == "null" ]; then
         # Fallback: budget IDs are auto-incremented from 0, count-1 = latest ID
-        BUDGET_COUNT=$($BINARY query forum list-tag-budget --output json 2>&1 | jq -r '.tag_budget | length')
+        BUDGET_COUNT=$($BINARY query rep list-tag-budget --output json 2>&1 | jq -r '.tag_budget | length')
         if [ "$BUDGET_COUNT" -gt 0 ] 2>/dev/null; then
             TAG_BUDGET_ID=$(( BUDGET_COUNT - 1 ))
         fi
@@ -316,11 +316,11 @@ echo "--- PART 2: QUERY TAG BUDGET ---"
 RESULT_QUERY="FAIL"
 
 if [ -n "$TAG_BUDGET_ID" ]; then
-    BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
+    BUDGET_INFO=$($BINARY query rep get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
 
     if echo "$BUDGET_INFO" | grep -q "error\|not found"; then
         echo "  Tag budget not found by ID, trying by tag name..."
-        BUDGET_INFO=$($BINARY query forum tag-budget-by-tag "$TAG_NAME" --output json 2>&1)
+        BUDGET_INFO=$($BINARY query rep tag-budget-by-tag "$TAG_NAME" --output json 2>&1)
     fi
 
     if echo "$BUDGET_INFO" | grep -q "error\|not found"; then
@@ -347,7 +347,7 @@ echo "--- PART 3: LIST TAG BUDGETS ---"
 
 RESULT_LIST="FAIL"
 
-TAG_BUDGETS=$($BINARY query forum list-tag-budget --output json 2>&1)
+TAG_BUDGETS=$($BINARY query rep list-tag-budget --output json 2>&1)
 
 if echo "$TAG_BUDGETS" | grep -q "error"; then
     echo "  Failed to query tag budgets"
@@ -380,7 +380,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
     echo "Topping up tag budget: $TAG_BUDGET_ID"
     echo "Top-up amount: $TOPUP_AMOUNT (via alice as group member)"
 
-    TX_RES=$($BINARY tx forum top-up-tag-budget \
+    TX_RES=$($BINARY tx rep top-up-tag-budget \
         "$TAG_BUDGET_ID" \
         "$TOPUP_AMOUNT" \
         --from alice \
@@ -405,7 +405,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
             RESULT_TOPUP="PASS"
 
             # Verify new balance
-            BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
+            BUDGET_INFO=$($BINARY query rep get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
             NEW_BALANCE=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.pool_balance // "N/A"')
             echo "  New balance: $NEW_BALANCE"
         else
@@ -447,7 +447,7 @@ EOF
 
     if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
         # Verify status (proto omits false, so null means false)
-        BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
+        BUDGET_INFO=$($BINARY query rep get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         STATUS=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.active // false')
         echo "  Active status: $STATUS"
         RESULT_DEACTIVATE="PASS"
@@ -489,7 +489,7 @@ EOF
 
     if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
         # Verify status
-        BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
+        BUDGET_INFO=$($BINARY query rep get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         STATUS=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.active // "N/A"')
         echo "  Active status: $STATUS"
         RESULT_REACTIVATE="PASS"
@@ -550,7 +550,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
         echo "Awarding from tag budget: $TAG_BUDGET_ID"
         echo "Award amount: $AWARD_AMOUNT to post #$AWARD_POST_ID (via alice as group member)"
 
-        TX_RES=$($BINARY tx forum award-from-tag-budget \
+        TX_RES=$($BINARY tx rep award-from-tag-budget \
             "$TAG_BUDGET_ID" \
             "$AWARD_POST_ID" \
             "$AWARD_AMOUNT" \
@@ -577,7 +577,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
                 RESULT_AWARD="PASS"
 
                 # Verify new balance (should be 1500000 - 100000 = 1400000)
-                BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
+                BUDGET_INFO=$($BINARY query rep get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
                 NEW_BALANCE=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.pool_balance // "N/A"')
                 echo "  Remaining budget balance: $NEW_BALANCE"
             else
@@ -676,7 +676,7 @@ EOF
 
     if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
         # Verify
-        BUDGET_INFO=$($BINARY query forum get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
+        BUDGET_INFO=$($BINARY query rep get-tag-budget "$TAG_BUDGET_ID" --output json 2>&1)
         NEW_BALANCE=$(echo "$BUDGET_INFO" | jq -r '.tag_budget.pool_balance // "N/A"')
         echo "  Remaining budget balance: $NEW_BALANCE"
         RESULT_WITHDRAW="PASS"
@@ -722,7 +722,7 @@ if submit_and_exec_commons_proposal "$PROPOSAL_FILE"; then
     TAG_BUDGET_ID_2=$(extract_event_value "$GP_EXEC_RESULT" "tag_budget_created" "budget_id")
     if [ -z "$TAG_BUDGET_ID_2" ] || [ "$TAG_BUDGET_ID_2" == "null" ]; then
         # Fallback: budget IDs are auto-incremented from 0, count-1 = latest ID
-        BUDGET_COUNT=$($BINARY query forum list-tag-budget --output json 2>&1 | jq -r '.tag_budget | length')
+        BUDGET_COUNT=$($BINARY query rep list-tag-budget --output json 2>&1 | jq -r '.tag_budget | length')
         if [ "$BUDGET_COUNT" -gt 0 ] 2>/dev/null; then
             TAG_BUDGET_ID_2=$(( BUDGET_COUNT - 1 ))
         fi
@@ -744,7 +744,7 @@ echo "--- PART 10: QUERY TAG BUDGETS BY CREATOR ---"
 RESULT_QUERY_CREATOR="FAIL"
 
 # Note: No dedicated tag-budgets-by-creator query. Use list-tag-budget and filter.
-CREATOR_BUDGETS=$($BINARY query forum list-tag-budget --output json 2>&1)
+CREATOR_BUDGETS=$($BINARY query rep list-tag-budget --output json 2>&1)
 
 if echo "$CREATOR_BUDGETS" | grep -q "error"; then
     echo "  Query failed"
@@ -771,7 +771,7 @@ echo "--- PART 11: QUERY ACTIVE TAG BUDGETS ---"
 RESULT_QUERY_ACTIVE="FAIL"
 
 # Note: No dedicated active-tag-budgets query. Use list-tag-budget and filter.
-ACTIVE_BUDGETS=$($BINARY query forum list-tag-budget --output json 2>&1)
+ACTIVE_BUDGETS=$($BINARY query rep list-tag-budget --output json 2>&1)
 
 if echo "$ACTIVE_BUDGETS" | grep -q "error"; then
     echo "  Query failed"
@@ -799,7 +799,7 @@ RESULT_CREATE_ERR="FAIL"
 
 # 12a: Tag not found (nonexistent tag)
 echo "12a: CreateTagBudget with nonexistent tag..."
-TX_RES=$($BINARY tx forum create-tag-budget \
+TX_RES=$($BINARY tx rep create-tag-budget \
     "nonexistent-tag-xyz-999" \
     "1000000" \
     "false" \
@@ -818,7 +818,7 @@ fi
 
 # 12b: Invalid/zero amount
 echo "12b: CreateTagBudget with zero amount..."
-TX_RES=$($BINARY tx forum create-tag-budget \
+TX_RES=$($BINARY tx rep create-tag-budget \
     "$TAG_NAME" \
     "0" \
     "false" \
@@ -837,7 +837,7 @@ fi
 
 # 12c: Non-group-account tries to create (poster1 is not a group account)
 echo "12c: CreateTagBudget from non-group-account..."
-TX_RES=$($BINARY tx forum create-tag-budget \
+TX_RES=$($BINARY tx rep create-tag-budget \
     "$TAG_NAME" \
     "1000000" \
     "false" \
@@ -870,7 +870,7 @@ RESULT_TOGGLE_ERR="FAIL"
 
 # 13a: Budget not found (id=999999)
 echo "13a: ToggleTagBudget with nonexistent budget..."
-TX_RES=$($BINARY tx forum toggle-tag-budget \
+TX_RES=$($BINARY tx rep toggle-tag-budget \
     "999999" \
     "false" \
     --from poster1 \
@@ -889,7 +889,7 @@ fi
 # 13b: Unauthorized (poster1 tries to toggle - not the group account)
 echo "13b: ToggleTagBudget unauthorized..."
 if [ -n "$TAG_BUDGET_ID_2" ]; then
-    TX_RES=$($BINARY tx forum toggle-tag-budget \
+    TX_RES=$($BINARY tx rep toggle-tag-budget \
         "$TAG_BUDGET_ID_2" \
         "false" \
         --from poster1 \
@@ -925,7 +925,7 @@ RESULT_TOPUP_ERR="FAIL"
 
 # 14a: Budget not found (id=999999)
 echo "14a: TopUpTagBudget with nonexistent budget..."
-TX_RES=$($BINARY tx forum top-up-tag-budget \
+TX_RES=$($BINARY tx rep top-up-tag-budget \
     "999999" \
     "500000" \
     --from alice \
@@ -944,7 +944,7 @@ fi
 # 14b: Invalid/zero amount
 echo "14b: TopUpTagBudget with zero amount..."
 if [ -n "$TAG_BUDGET_ID_2" ]; then
-    TX_RES=$($BINARY tx forum top-up-tag-budget \
+    TX_RES=$($BINARY tx rep top-up-tag-budget \
         "$TAG_BUDGET_ID_2" \
         "0" \
         --from alice \
@@ -980,7 +980,7 @@ RESULT_WITHDRAW_ERR="FAIL"
 
 # 15a: Budget not found (id=999999)
 echo "15a: WithdrawTagBudget with nonexistent budget..."
-TX_RES=$($BINARY tx forum withdraw-tag-budget \
+TX_RES=$($BINARY tx rep withdraw-tag-budget \
     "999999" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -998,7 +998,7 @@ fi
 # 15b: Unauthorized (poster1 tries to withdraw - not the group account)
 echo "15b: WithdrawTagBudget unauthorized..."
 if [ -n "$TAG_BUDGET_ID_2" ]; then
-    TX_RES=$($BINARY tx forum withdraw-tag-budget \
+    TX_RES=$($BINARY tx rep withdraw-tag-budget \
         "$TAG_BUDGET_ID_2" \
         --from poster1 \
         --chain-id $CHAIN_ID \
@@ -1033,7 +1033,7 @@ RESULT_AWARD_ERR="FAIL"
 
 # 16a: Budget not found (id=999999)
 echo "16a: AwardFromTagBudget with nonexistent budget..."
-TX_RES=$($BINARY tx forum award-from-tag-budget \
+TX_RES=$($BINARY tx rep award-from-tag-budget \
     "999999" \
     "1" \
     "100000" \
@@ -1055,7 +1055,7 @@ fi
 echo "16b: AwardFromTagBudget on inactive budget..."
 RESULT_AWARD_ERR_B="SKIP"
 if [ -n "$TAG_BUDGET_ID" ]; then
-    TX_RES=$($BINARY tx forum award-from-tag-budget \
+    TX_RES=$($BINARY tx rep award-from-tag-budget \
         "$TAG_BUDGET_ID" \
         "1" \
         "100000" \
@@ -1078,7 +1078,7 @@ fi
 echo "16c: AwardFromTagBudget with nonexistent post..."
 RESULT_AWARD_ERR_C="SKIP"
 if [ -n "$TAG_BUDGET_ID_2" ]; then
-    TX_RES=$($BINARY tx forum award-from-tag-budget \
+    TX_RES=$($BINARY tx rep award-from-tag-budget \
         "$TAG_BUDGET_ID_2" \
         "999999" \
         "100000" \
@@ -1101,7 +1101,7 @@ fi
 echo "16d: AwardFromTagBudget with zero amount..."
 RESULT_AWARD_ERR_D="SKIP"
 if [ -n "$TAG_BUDGET_ID_2" ]; then
-    TX_RES=$($BINARY tx forum award-from-tag-budget \
+    TX_RES=$($BINARY tx rep award-from-tag-budget \
         "$TAG_BUDGET_ID_2" \
         "1" \
         "0" \
@@ -1140,7 +1140,7 @@ RESULT_REPORT_TAG="FAIL"
 echo "Reporting tag: $REPORT_TAG"
 
 # 17a: First reporter creates a TagReport
-TX_RES=$($BINARY tx forum report-tag \
+TX_RES=$($BINARY tx rep report-tag \
     "$REPORT_TAG" \
     "Tag name is misleading" \
     --from poster1 \
@@ -1175,7 +1175,7 @@ fi
 # 17b: Co-reporter joins existing report
 echo ""
 echo "17b: Co-reporter joins existing tag report..."
-TX_RES=$($BINARY tx forum report-tag \
+TX_RES=$($BINARY tx rep report-tag \
     "$REPORT_TAG" \
     "I also think this tag is problematic" \
     --from poster2 \
@@ -1224,7 +1224,7 @@ RESULT_REPORT_TAG_ERR="FAIL"
 
 # 18a: Tag not found
 echo "18a: ReportTag with nonexistent tag..."
-TX_RES=$($BINARY tx forum report-tag \
+TX_RES=$($BINARY tx rep report-tag \
     "nonexistent-tag-abc-777" \
     "This tag does not exist" \
     --from poster1 \
@@ -1242,7 +1242,7 @@ fi
 
 # 18b: Duplicate reporter (poster1 already reported REPORT_TAG in Part 17)
 echo "18b: ReportTag duplicate reporter..."
-TX_RES=$($BINARY tx forum report-tag \
+TX_RES=$($BINARY tx rep report-tag \
     "$REPORT_TAG" \
     "Reporting again" \
     --from poster1 \
@@ -1273,7 +1273,7 @@ echo "--- PART 19: QUERY TAG REPORT ---"
 RESULT_QUERY_TAG_REPORT="FAIL"
 
 echo "Querying tag report for: $REPORT_TAG"
-TAG_REPORT_INFO=$($BINARY query forum get-tag-report "$REPORT_TAG" --output json 2>&1)
+TAG_REPORT_INFO=$($BINARY query rep get-tag-report "$REPORT_TAG" --output json 2>&1)
 
 if echo "$TAG_REPORT_INFO" | jq -e '.tag_report // .tagReport' > /dev/null 2>&1; then
     REPORTERS=$(echo "$TAG_REPORT_INFO" | jq -r '.tag_report.reporters // .tagReport.reporters // []')
@@ -1289,7 +1289,7 @@ fi
 echo ""
 
 echo "Listing all tag reports..."
-TAG_REPORTS=$($BINARY query forum list-tag-report --output json 2>&1)
+TAG_REPORTS=$($BINARY query rep list-tag-report --output json 2>&1)
 if echo "$TAG_REPORTS" | jq -e '.' > /dev/null 2>&1; then
     REPORT_COUNT=$(echo "$TAG_REPORTS" | jq -r '(.tag_report | length) // 0' 2>/dev/null)
     echo "  Total tag reports: $REPORT_COUNT"
@@ -1310,7 +1310,7 @@ RESULT_RESOLVE_DISMISS="FAIL"
 # Create a fresh tag report on DISMISS_TAG
 echo "Creating tag report for dismiss test on tag: $DISMISS_TAG"
 
-TX_RES=$($BINARY tx forum report-tag \
+TX_RES=$($BINARY tx rep report-tag \
     "$DISMISS_TAG" \
     "Testing dismiss resolution" \
     --from poster1 \
@@ -1328,7 +1328,7 @@ fi
 
 # Alice (operations committee) dismisses the report (action=0)
 echo "Alice dismisses tag report (action=0, bonds refunded)..."
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "$DISMISS_TAG" \
     "0" \
     "" \
@@ -1372,7 +1372,7 @@ RESULT_RESOLVE_REMOVE="FAIL"
 
 # Use the report from Part 17 on REPORT_TAG (already reported by poster1+poster2)
 echo "Alice removes tag via resolve (action=1, tag stripped from posts)..."
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "$REPORT_TAG" \
     "1" \
     "" \
@@ -1417,7 +1417,7 @@ RESULT_RESOLVE_RESERVE="FAIL"
 # Create a fresh tag report on RESERVE_TAG
 echo "Creating tag report for reserve test on tag: $RESERVE_TAG"
 
-TX_RES=$($BINARY tx forum report-tag \
+TX_RES=$($BINARY tx rep report-tag \
     "$RESERVE_TAG" \
     "This tag should be reserved" \
     --from poster1 \
@@ -1435,7 +1435,7 @@ fi
 
 # Alice reserves the tag (action=2, creates ReservedTag entry)
 echo "Alice reserves tag via resolve (action=2)..."
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "$RESERVE_TAG" \
     "2" \
     "$ALICE_ADDR" \
@@ -1480,7 +1480,7 @@ RESULT_RESOLVE_ERR="FAIL"
 # 23a: Unauthorized (poster1 tries to resolve)
 echo "23a: ResolveTagReport unauthorized..."
 # Create a report to resolve
-TX_RES=$($BINARY tx forum report-tag \
+TX_RES=$($BINARY tx rep report-tag \
     "$DISMISS_TAG" \
     "Testing unauthorized resolve" \
     --from poster1 \
@@ -1496,7 +1496,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     wait_for_tx $TXHASH > /dev/null 2>&1
 fi
 
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "$DISMISS_TAG" \
     "0" \
     "" \
@@ -1515,7 +1515,7 @@ else
 fi
 
 # Clean up: alice resolves the report we just created
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "$DISMISS_TAG" \
     "0" \
     "" \
@@ -1534,7 +1534,7 @@ fi
 
 # 23b: Report not found (nonexistent tag report)
 echo "23b: ResolveTagReport for nonexistent report..."
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "definitely-not-reported-tag-999" \
     "0" \
     "" \
@@ -1569,7 +1569,7 @@ QUERY_PASS_COUNT=0
 
 # 24a: get-tag (query single tag by name - use TAG_NAME which should still exist)
 echo "24a: Query single tag..."
-TAG_INFO=$($BINARY query forum get-tag "$TAG_NAME" --output json 2>&1)
+TAG_INFO=$($BINARY query rep get-tag "$TAG_NAME" --output json 2>&1)
 if echo "$TAG_INFO" | jq -e '.tag // .Tag' > /dev/null 2>&1; then
     echo "  get-tag: $(echo "$TAG_INFO" | jq -r '.tag.name // .Tag.name // "N/A"')"
     echo "  PASS: get-tag"
@@ -1581,7 +1581,7 @@ fi
 
 # 24b: list-tag (list all tags)
 echo "24b: List all tags..."
-TAG_LIST=$($BINARY query forum list-tag --output json 2>&1)
+TAG_LIST=$($BINARY query rep list-tag --output json 2>&1)
 if echo "$TAG_LIST" | jq -e '.' > /dev/null 2>&1; then
     TAG_COUNT=$(echo "$TAG_LIST" | jq -r '(.tag | length) // 0' 2>/dev/null)
     echo "  Total tags: $TAG_COUNT"
@@ -1593,7 +1593,7 @@ fi
 
 # 24c: tag-exists (check tag existence - use TAG_NAME2 which should still exist)
 echo "24c: Check tag existence..."
-TAG_EXISTS=$($BINARY query forum tag-exists "$TAG_NAME2" --output json 2>&1)
+TAG_EXISTS=$($BINARY query rep tag-exists "$TAG_NAME2" --output json 2>&1)
 if echo "$TAG_EXISTS" | jq -e '.' > /dev/null 2>&1; then
     EXISTS=$(echo "$TAG_EXISTS" | jq -r '.exists // "N/A"')
     echo "  tag-exists for $TAG_NAME2: $EXISTS"
@@ -1618,7 +1618,7 @@ fi
 
 # 24e: list-reserved-tag
 echo "24e: List reserved tags..."
-RESERVED_LIST=$($BINARY query forum list-reserved-tag --output json 2>&1)
+RESERVED_LIST=$($BINARY query rep list-reserved-tag --output json 2>&1)
 if echo "$RESERVED_LIST" | jq -e '.' > /dev/null 2>&1; then
     RESERVED_COUNT=$(echo "$RESERVED_LIST" | jq -r '(.reserved_tag | length) // 0' 2>/dev/null)
     echo "  Total reserved tags: $RESERVED_COUNT"
@@ -1630,7 +1630,7 @@ fi
 
 # 24f: tag-budget-by-tag (query budget by tag - use TAG_NAME)
 echo "24f: Query tag budget by tag..."
-BUDGET_BY_TAG=$($BINARY query forum tag-budget-by-tag "$TAG_NAME" --output json 2>&1)
+BUDGET_BY_TAG=$($BINARY query rep tag-budget-by-tag "$TAG_NAME" --output json 2>&1)
 if echo "$BUDGET_BY_TAG" | jq -e '.' > /dev/null 2>&1; then
     echo "  tag-budget-by-tag response received"
     echo "  PASS: tag-budget-by-tag"
@@ -1643,7 +1643,7 @@ fi
 # Note: budget_id=0 fails proto validation (zero value treated as unset), so use budget_id_2
 echo "24g: Query tag budget awards..."
 if [ -n "$TAG_BUDGET_ID_2" ]; then
-    BUDGET_AWARDS=$($BINARY query forum tag-budget-awards "$TAG_BUDGET_ID_2" --output json 2>&1)
+    BUDGET_AWARDS=$($BINARY query rep tag-budget-awards "$TAG_BUDGET_ID_2" --output json 2>&1)
     if echo "$BUDGET_AWARDS" | jq -e '.' > /dev/null 2>&1; then
         echo "  Awards query for budget $TAG_BUDGET_ID_2 returned valid response"
         echo "  PASS: tag-budget-awards"
@@ -1653,7 +1653,7 @@ if [ -n "$TAG_BUDGET_ID_2" ]; then
         echo "  Response: $(echo "$BUDGET_AWARDS" | head -c 120)"
     fi
 elif [ -n "$TAG_BUDGET_ID" ] && [ "$TAG_BUDGET_ID" != "0" ]; then
-    BUDGET_AWARDS=$($BINARY query forum tag-budget-awards "$TAG_BUDGET_ID" --output json 2>&1)
+    BUDGET_AWARDS=$($BINARY query rep tag-budget-awards "$TAG_BUDGET_ID" --output json 2>&1)
     if echo "$BUDGET_AWARDS" | jq -e '.' > /dev/null 2>&1; then
         echo "  Awards query for budget $TAG_BUDGET_ID returned valid response"
         echo "  PASS: tag-budget-awards"
@@ -1667,7 +1667,7 @@ fi
 
 # 24h: tag-reports (list all tag reports)
 echo "24h: Query all tag reports..."
-ALL_REPORTS=$($BINARY query forum list-tag-report --output json 2>&1)
+ALL_REPORTS=$($BINARY query rep list-tag-report --output json 2>&1)
 if echo "$ALL_REPORTS" | jq -e '.' > /dev/null 2>&1; then
     echo "  tag-reports response received"
     echo "  PASS: tag-reports"

@@ -70,6 +70,18 @@ genesis:
     commons:
       params:
         proposal_fee: "5000000uspark"
+      category_map:
+      - category_id: 1
+        title: "General"
+        description: "General discussion"
+        members_only_write: false
+        admin_only_write: false
+      - category_id: 2
+        title: "Governance"
+        description: "Governance proposals and discussion"
+        members_only_write: true
+        admin_only_write: false
+      next_category_id: 3
     gnovm:
       params:
         sysnames_pkgpath: ""
@@ -578,17 +590,6 @@ genesis:
         hide_appeal_cooldown: "3600"     # 1 hour (same as production)
         lock_appeal_cooldown: "3600"     # 1 hour (same as production)
         move_appeal_cooldown: "3600"     # 1 hour (same as production)
-      category_map:
-      - category_id: 1
-        title: "General"
-        description: "General discussion"
-        members_only_write: false
-        admin_only_write: false
-      - category_id: 2
-        title: "Governance"
-        description: "Governance proposals and discussion"
-        members_only_write: true
-        admin_only_write: false
 # Validators will be configured manually in the final genesis.json.
 validators:
 - name: kingofbitchain

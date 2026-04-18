@@ -32,21 +32,6 @@ func (am AppModule) RegisterStoreDecoder(_ simtypes.StoreDecoderRegistry) {}
 func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
 	operations := make([]simtypes.WeightedOperation, 0)
 	const (
-		opWeightMsgCreateCategory          = "op_weight_msg_forum"
-		defaultWeightMsgCreateCategory int = 100
-	)
-
-	var weightMsgCreateCategory int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateCategory, &weightMsgCreateCategory, nil,
-		func(_ *rand.Rand) {
-			weightMsgCreateCategory = defaultWeightMsgCreateCategory
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateCategory,
-		forumsimulation.SimulateMsgCreateCategory(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
 		opWeightMsgCreatePost          = "op_weight_msg_forum"
 		defaultWeightMsgCreatePost int = 100
 	)

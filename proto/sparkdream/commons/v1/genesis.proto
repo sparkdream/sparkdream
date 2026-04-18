@@ -4,6 +4,7 @@ package sparkdream.commons.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/commons/v1/category.proto";
 import "sparkdream/commons/v1/group.proto";
 import "sparkdream/commons/v1/params.proto";
 import "sparkdream/commons/v1/policy_permissions.proto";
@@ -34,6 +35,10 @@ message GenesisState {
   repeated PolicyVersionEntry policy_versions = 9 [(gogoproto.nullable) = false];
   // votes stores all active votes
   repeated ProposalVotes proposal_votes = 10 [(gogoproto.nullable) = false];
+  // category_map stores all shared content categories
+  repeated Category category_map = 11 [(gogoproto.nullable) = false];
+  // next_category_id is the next auto-increment category ID
+  uint64 next_category_id = 12;
 }
 
 // CouncilMembers groups members by council name for genesis export.

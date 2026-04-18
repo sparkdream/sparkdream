@@ -255,7 +255,9 @@ ensure_member_profile() {
     local ADDR=$($BINARY keys show "$KEY" -a --keyring-backend test 2>/dev/null)
     if has_member_profile "$ADDR"; then return 0; fi
     echo "    Creating member profile for $KEY..."
-    TX_RES=$($BINARY tx season set-display-name "ErrTest_$KEY" \
+    # Use short, deterministic display name (avoid cooldown clash with long unique names)
+    local DNAME="ErrTest$(printf '%05d' $RANDOM)"
+    TX_RES=$($BINARY tx season set-display-name "$DNAME" \
         --from "$KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -265,7 +267,12 @@ ensure_member_profile() {
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
         sleep 6
-        wait_for_tx "$TXHASH" > /dev/null 2>&1
+        TX_RESULT=$(wait_for_tx "$TXHASH")
+        if ! check_tx_success "$TX_RESULT"; then
+            echo "    set-display-name failed: $(echo "$TX_RESULT" | jq -r '.raw_log // "unknown"')"
+        fi
+    else
+        echo "    set-display-name broadcast failed: $(echo "$TX_RES" | head -c 200)"
     fi
 }
 
@@ -285,31 +292,54 @@ if [ -n "$EXISTING_GUILD" ] && [ "$EXISTING_GUILD" != "0" ] && [ "$EXISTING_GUIL
     fi
 fi
 
-# If no active guild found, create one with guild_officer (no cooldown from prior tests)
+# If no active guild found, try existing setup accounts that are members with DREAM but not in any guild
 if [ -z "$ERR_GUILD_ID" ]; then
-    echo "  Alice's guild is unusable, creating fresh guild with guild_officer..."
-    ensure_member_profile "guild_officer"
-    GUILD_OFFICER_RESOLVED=$($BINARY keys show "guild_officer" -a --keyring-backend test 2>/dev/null)
-    if create_fixture_guild "guild_officer"; then
-        FOUNDER_KEY="guild_officer"
-        FOUNDER_ADDR="$GUILD_OFFICER_RESOLVED"
-
-        # Create a fresh non-founder account (existing accounts may have cooldowns)
-        NF_FRESH_KEY="guild_err_nf_$(date +%s)"
-        echo "  Creating fresh non-founder account: $NF_FRESH_KEY"
-        $BINARY keys add "$NF_FRESH_KEY" --keyring-backend test > /dev/null 2>&1
-        NF_FRESH_ADDR=$($BINARY keys show "$NF_FRESH_KEY" -a --keyring-backend test 2>/dev/null)
-        TX_RES=$($BINARY tx bank send alice "$NF_FRESH_ADDR" 1000000uspark \
-            --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-        if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-            sleep 6
-            wait_for_tx "$TXHASH" > /dev/null 2>&1
+    echo "  Alice's guild is unusable, searching for existing setup account not in a guild..."
+    CANDIDATE_KEYS="display_user quest_user guild_member2 guild_member1 guild_officer guild_founder"
+    PICKED_KEY=""
+    PICKED_ADDR=""
+    for CANDIDATE in $CANDIDATE_KEYS; do
+        CAND_ADDR=$($BINARY keys show "$CANDIDATE" -a --keyring-backend test 2>/dev/null)
+        [ -z "$CAND_ADDR" ] && continue
+        CAND_PROFILE=$($BINARY query season get-member-profile "$CAND_ADDR" --output json 2>/dev/null)
+        CAND_GUILD=$(echo "$CAND_PROFILE" | jq -r '.member_profile.guild_id // "0"')
+        if [ "$CAND_GUILD" = "0" ] || [ -z "$CAND_GUILD" ] || [ "$CAND_GUILD" = "null" ]; then
+            PICKED_KEY="$CANDIDATE"
+            PICKED_ADDR="$CAND_ADDR"
+            echo "  Using existing account $CANDIDATE ($CAND_ADDR) — not in a guild"
+            break
         fi
-        ensure_member_profile "$NF_FRESH_KEY"
+    done
+    if [ -z "$PICKED_KEY" ]; then
+        echo "  All setup accounts are in guilds — skipping dependent tests"
+    fi
+    if [ -n "$PICKED_KEY" ] && create_fixture_guild "$PICKED_KEY"; then
+        FOUNDER_KEY="$PICKED_KEY"
+        FOUNDER_ADDR="$PICKED_ADDR"
 
-        NON_FOUNDER_KEY="$NF_FRESH_KEY"
-        NON_FOUNDER_ADDR="$NF_FRESH_ADDR"
+        # Also pick a non-founder and outsider from remaining free accounts
+        NF_CAND=""
+        OS_CAND=""
+        for CANDIDATE in $CANDIDATE_KEYS; do
+            [ "$CANDIDATE" = "$PICKED_KEY" ] && continue
+            CAND_ADDR=$($BINARY keys show "$CANDIDATE" -a --keyring-backend test 2>/dev/null)
+            [ -z "$CAND_ADDR" ] && continue
+            CAND_PROFILE=$($BINARY query season get-member-profile "$CAND_ADDR" --output json 2>/dev/null)
+            CAND_GUILD=$(echo "$CAND_PROFILE" | jq -r '.member_profile.guild_id // "0"')
+            if [ "$CAND_GUILD" = "0" ] || [ -z "$CAND_GUILD" ] || [ "$CAND_GUILD" = "null" ]; then
+                if [ -z "$NF_CAND" ]; then
+                    NF_CAND="$CANDIDATE"
+                    NON_FOUNDER_KEY="$CANDIDATE"
+                    NON_FOUNDER_ADDR="$CAND_ADDR"
+                elif [ -z "$OS_CAND" ]; then
+                    OS_CAND="$CANDIDATE"
+                    OUTSIDER_KEY="$CANDIDATE"
+                    OUTSIDER_ADDR="$CAND_ADDR"
+                    break
+                fi
+            fi
+        done
+
     fi
 fi
 

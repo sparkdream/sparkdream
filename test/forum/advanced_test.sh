@@ -267,7 +267,7 @@ PART6_RESULT="FAIL"
 
 echo "Reporting tag 'commons-council'..."
 
-TX_RES=$($BINARY tx forum report-tag \
+TX_RES=$($BINARY tx rep report-tag \
     "commons-council" \
     "Tag is being misused" \
     --from poster1 \
@@ -306,11 +306,11 @@ echo "--- PART 7: QUERY TAG REPORTS ---"
 
 PART7_RESULT="FAIL"
 
-TAG_REPORTS=$($BINARY query forum tag-reports --output json 2>&1)
+TAG_REPORTS=$($BINARY query rep list-tag-report --output json 2>&1)
 
 if echo "$TAG_REPORTS" | grep -q "error"; then
     # Try list version
-    TAG_REPORTS=$($BINARY query forum list-tag-report --output json 2>&1)
+    TAG_REPORTS=$($BINARY query rep list-tag-report --output json 2>&1)
 fi
 
 if echo "$TAG_REPORTS" | grep -q "error"; then
@@ -339,7 +339,7 @@ PART8_RESULT="FAIL"
 
 echo "Testing resolve-tag-report command (requires authority)..."
 
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "commons-council" \
     "0" \
     "" \
@@ -1650,7 +1650,7 @@ echo "--- PART 34: RESOLVE TAG REPORT ERROR - UNAUTHORIZED ---"
 
 PART34_RESULT="FAIL"
 
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "test-tag" \
     "0" \
     "" \
@@ -1698,7 +1698,7 @@ echo "--- PART 35: RESOLVE TAG REPORT ERROR - REPORT NOT FOUND ---"
 
 PART35_RESULT="FAIL"
 
-TX_RES=$($BINARY tx forum resolve-tag-report \
+TX_RES=$($BINARY tx rep resolve-tag-report \
     "nonexistent-tag-xyz" \
     "0" \
     "" \
@@ -1848,7 +1848,7 @@ echo "--- PART 38: MOVE THREAD (Sentinel/authority required) ---"
 PART38_RESULT="FAIL"
 
 # Create a second category for moving (may already exist)
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "Move Target" \
     "Category for move tests" \
     "false" \
@@ -1867,11 +1867,11 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
     if check_tx_success "$TX_RESULT"; then
-        CATS=$($BINARY query forum list-category --output json 2>&1)
+        CATS=$($BINARY query commons list-category --output json 2>&1)
         MOVE_CAT_ID=$(echo "$CATS" | jq -r '.category[-1].category_id // empty')
         echo "  Move target category created: $MOVE_CAT_ID"
     else
-        CATS=$($BINARY query forum list-category --output json 2>&1)
+        CATS=$($BINARY query commons list-category --output json 2>&1)
         CAT_COUNT=$(echo "$CATS" | jq -r '.category | length')
         if [ "$CAT_COUNT" -gt 1 ]; then
             MOVE_CAT_ID=$(echo "$CATS" | jq -r '.category[-1].category_id // empty')
@@ -1879,7 +1879,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
         fi
     fi
 else
-    CATS=$($BINARY query forum list-category --output json 2>&1)
+    CATS=$($BINARY query commons list-category --output json 2>&1)
     CAT_COUNT=$(echo "$CATS" | jq -r '.category | length // 0' 2>/dev/null)
     if [ "$CAT_COUNT" -gt 1 ] 2>/dev/null; then
         MOVE_CAT_ID=$(echo "$CATS" | jq -r '.category[-1].category_id // empty')

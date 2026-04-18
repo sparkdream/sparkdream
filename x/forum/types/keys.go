@@ -35,8 +35,7 @@ var (
 
 // Sequence keys for auto-incrementing IDs
 var (
-	PostSeqKey     = collections.NewPrefix("post/seq/")
-	CategorySeqKey = collections.NewPrefix("category/seq/")
+	PostSeqKey = collections.NewPrefix("post/seq/")
 )
 
 // ExpirationQueueKey is the prefix for the ephemeral post expiration queue

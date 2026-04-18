@@ -58,5 +58,9 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 		&MsgAnonymousVoteProposal{},
 	)
 
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCreateCategory{},
+	)
+
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

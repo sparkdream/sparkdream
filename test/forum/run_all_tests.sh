@@ -9,7 +9,6 @@
 #   ./run_all_tests.sh              # Run all tests
 #   ./run_all_tests.sh --no-setup   # Skip account setup
 #   ./run_all_tests.sh --no-post    # Skip post tests
-#   ./run_all_tests.sh --no-category # Skip category tests
 #   ./run_all_tests.sh --no-sentinel # Skip sentinel tests
 #   ./run_all_tests.sh --no-bounty   # Skip bounty tests
 #   ./run_all_tests.sh --no-moderation # Skip moderation tests
@@ -30,7 +29,6 @@ BINARY="sparkdreamd"
 # Parse command line arguments
 RUN_SETUP=true
 RUN_POST=true
-RUN_CATEGORY=true
 RUN_SENTINEL=true
 RUN_BOUNTY=true
 RUN_MODERATION=true
@@ -50,9 +48,6 @@ for arg in "$@"; do
             ;;
         --no-post)
             RUN_POST=false
-            ;;
-        --no-category)
-            RUN_CATEGORY=false
             ;;
         --no-sentinel)
             RUN_SENTINEL=false
@@ -83,7 +78,6 @@ for arg in "$@"; do
             ;;
         --only-setup)
             RUN_POST=false
-            RUN_CATEGORY=false
             RUN_SENTINEL=false
             RUN_BOUNTY=false
             RUN_MODERATION=false
@@ -98,7 +92,6 @@ for arg in "$@"; do
             SAVE_SETUP=true
             RUN_SETUP=true
             RUN_POST=false
-            RUN_CATEGORY=false
             RUN_SENTINEL=false
             RUN_BOUNTY=false
             RUN_MODERATION=false
@@ -115,7 +108,6 @@ for arg in "$@"; do
             ;;
         --no-tests)
             RUN_POST=false
-            RUN_CATEGORY=false
             RUN_SENTINEL=false
             RUN_BOUNTY=false
             RUN_MODERATION=false
@@ -132,7 +124,6 @@ for arg in "$@"; do
             echo "Options:"
             echo "  --no-setup       Skip account setup"
             echo "  --no-post        Skip post tests"
-            echo "  --no-category    Skip category tests"
             echo "  --no-sentinel    Skip sentinel tests"
             echo "  --no-bounty      Skip bounty tests"
             echo "  --no-moderation  Skip moderation tests"
@@ -387,13 +378,6 @@ else
     fi
 fi
 
-# Category tests (needed for other tests)
-if [ "$RUN_CATEGORY" = true ]; then
-    run_test "Category Tests" "category_test.sh"
-else
-    echo "Skipping category tests (--no-category)"
-    echo ""
-fi
 
 # Post tests
 if [ "$RUN_POST" = true ]; then

@@ -8,7 +8,7 @@ import (
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params:  DefaultParams(),
-		PostMap: []Post{}, CategoryMap: []Category{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchiveMetadataMap: []ArchiveMetadata{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
+		PostMap: []Post{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchiveMetadataMap: []ArchiveMetadata{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
 }
 
 // Validate performs basic genesis state validation returning an error upon any
@@ -22,15 +22,6 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated index for post")
 		}
 		postIndexMap[index] = struct{}{}
-	}
-	categoryIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.CategoryMap {
-		index := fmt.Sprint(elem.CategoryId)
-		if _, ok := categoryIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for category")
-		}
-		categoryIndexMap[index] = struct{}{}
 	}
 	userRateLimitIndexMap := make(map[string]struct{})
 
@@ -197,13 +188,9 @@ func (gs GenesisState) Validate() error {
 
 	// Build lookup maps for cross-referencing
 	postIDs := make(map[uint64]bool, len(gs.PostMap))
-	categoryIDs := make(map[uint64]bool, len(gs.CategoryMap))
 
 	for _, post := range gs.PostMap {
 		postIDs[post.PostId] = true
-	}
-	for _, cat := range gs.CategoryMap {
-		categoryIDs[cat.CategoryId] = true
 	}
 
 	// Post status must not be UNSPECIFIED
@@ -211,12 +198,9 @@ func (gs GenesisState) Validate() error {
 		if post.Status == PostStatus_POST_STATUS_UNSPECIFIED {
 			return fmt.Errorf("post %d has UNSPECIFIED status", post.PostId)
 		}
-		// Category reference must exist
-		if post.CategoryId != 0 {
-			if !categoryIDs[post.CategoryId] {
-				return fmt.Errorf("post %d references non-existent category %d", post.PostId, post.CategoryId)
-			}
-		}
+		// Category existence is validated by x/commons — posts here only carry
+		// the category_id reference.
+
 		// Parent reference must exist (for replies)
 		if post.ParentId != 0 {
 			if !postIDs[post.ParentId] {

@@ -28,8 +28,6 @@ type Keeper struct {
 	commonsKeeper         types.CommonsKeeper
 	Post                  collections.Map[uint64, types.Post]
 	PostSeq               collections.Sequence
-	Category              collections.Map[uint64, types.Category]
-	CategorySeq           collections.Sequence
 	UserRateLimit         collections.Map[string, types.UserRateLimit]
 	UserReactionLimit     collections.Map[string, types.UserReactionLimit]
 	SentinelActivity      collections.Map[string, types.SentinelActivity]
@@ -81,8 +79,6 @@ func NewKeeper(
 		Params:            collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Post:              collections.NewMap(sb, types.PostKey, "post", collections.Uint64Key, codec.CollValue[types.Post](cdc)),
 		PostSeq:           collections.NewSequence(sb, types.PostSeqKey, "postSequence"),
-		Category:          collections.NewMap(sb, types.CategoryKey, "category", collections.Uint64Key, codec.CollValue[types.Category](cdc)),
-		CategorySeq:       collections.NewSequence(sb, types.CategorySeqKey, "categorySequence"),
 		UserRateLimit:     collections.NewMap(sb, types.UserRateLimitKey, "userRateLimit", collections.StringKey, codec.CollValue[types.UserRateLimit](cdc)),
 		UserReactionLimit: collections.NewMap(sb, types.UserReactionLimitKey, "userReactionLimit", collections.StringKey, codec.CollValue[types.UserReactionLimit](cdc)),
 		SentinelActivity:  collections.NewMap(sb, types.SentinelActivityKey, "sentinelActivity", collections.StringKey, codec.CollValue[types.SentinelActivity](cdc)),
@@ -130,8 +126,11 @@ func (k Keeper) HasPost(ctx context.Context, id uint64) bool {
 	return has
 }
 
-// HasCategory returns true if a category with the given ID exists.
+// HasCategory lets x/season's ForumKeeper interface distinguish this keeper
+// from x/blog's in depinject.
 func (k Keeper) HasCategory(ctx context.Context, id uint64) bool {
-	has, _ := k.Category.Has(ctx, id)
-	return has
+	if k.commonsKeeper == nil {
+		return false
+	}
+	return k.commonsKeeper.HasCategory(ctx, id)
 }

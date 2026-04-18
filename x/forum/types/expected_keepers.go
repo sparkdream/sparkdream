@@ -7,6 +7,7 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commonstypes "sparkdream/x/commons/types"
 	reptypes "sparkdream/x/rep/types"
 )
 
@@ -31,6 +32,12 @@ type CommonsKeeper interface {
 	// or committee membership. council: "commons"/"technical"/"ecosystem",
 	// committee: "operations"/"governance"/"hr".
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+
+	// GetCategory returns a shared content category by id and whether it exists.
+	GetCategory(ctx context.Context, id uint64) (commonstypes.Category, bool)
+
+	// HasCategory reports whether a category exists.
+	HasCategory(ctx context.Context, id uint64) bool
 }
 
 // BankKeeper defines the expected interface for the Bank module.

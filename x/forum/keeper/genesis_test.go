@@ -12,7 +12,6 @@ func TestGenesis(t *testing.T) {
 	genesisState := types.GenesisState{
 		Params:                   types.DefaultParams(),
 		PostMap:                  []types.Post{{PostId: 0}, {PostId: 1}},
-		CategoryMap:              []types.Category{{CategoryId: 0}, {CategoryId: 1}},
 		UserRateLimitMap:         []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 		UserReactionLimitMap:     []types.UserReactionLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 		SentinelActivityMap:      []types.SentinelActivity{{Address: "sentinel0"}, {Address: "sentinel1"}},
@@ -43,7 +42,6 @@ func TestGenesis(t *testing.T) {
 
 	require.EqualExportedValues(t, genesisState.Params, got.Params)
 	require.EqualExportedValues(t, genesisState.PostMap, got.PostMap)
-	require.EqualExportedValues(t, genesisState.CategoryMap, got.CategoryMap)
 	require.EqualExportedValues(t, genesisState.UserRateLimitMap, got.UserRateLimitMap)
 	require.EqualExportedValues(t, genesisState.UserReactionLimitMap, got.UserReactionLimitMap)
 	require.EqualExportedValues(t, genesisState.SentinelActivityMap, got.SentinelActivityMap)

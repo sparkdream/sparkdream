@@ -55,6 +55,18 @@ genesis:
     commons:
       params:
         proposal_fee: "5000000uspark"
+      category_map:
+      - category_id: 1
+        title: "General"
+        description: "General discussion"
+        members_only_write: false
+        admin_only_write: false
+      - category_id: 2
+        title: "Governance"
+        description: "Governance proposals and discussion"
+        members_only_write: true
+        admin_only_write: false
+      next_category_id: 3
     gnovm:
       params:
         sysnames_pkgpath: ""
@@ -111,6 +123,7 @@ genesis:
         retro_reward_budget_min: "1000000000"  # 1000 DREAM in micro-DREAM for testing
         retro_reward_budget_max: "75000000000"  # 75,000 DREAM in micro-DREAM
         retro_reward_min_conviction: "1"  # minimal conviction required for testing
+        guild_hop_cooldown_epochs: "1"  # 1 epoch (~100 blocks) for testing (default 30)
       member_profile_map:
       # Alice - High level founder with multiple achievements and titles
       - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
@@ -433,17 +446,6 @@ genesis:
         hide_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         lock_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         move_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
-      category_map:
-      - category_id: 1
-        title: "General"
-        description: "General discussion"
-        members_only_write: false
-        admin_only_write: false
-      - category_id: 2
-        title: "Governance"
-        description: "Governance proposals and discussion"
-        members_only_write: true
-        admin_only_write: false
 validators:
 - name: alice
   bonded: 15000000000000uspark

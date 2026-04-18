@@ -120,46 +120,46 @@ echo "  Current season: #$SEASON_NUMBER"
 echo "  Status: $SEASON_STATUS"
 
 # Nominations require SEASON_STATUS_NOMINATION phase (status=5)
-# Status 5 = NOMINATION, status 1 = ACTIVE
+# Status 5 = NOMINATION, status 1 = ACTIVE. The nomination window opens automatically
+# in BeginBlocker at (season.end_block - nomination_window_epochs * epoch_blocks).
+# We can't force the transition via a msg — wait for the chain to reach that block.
 if [ "$SEASON_STATUS" != "5" ] && [ "$SEASON_STATUS" != "SEASON_STATUS_NOMINATION" ]; then
     echo ""
     echo "  Season is not in NOMINATION phase (status: $SEASON_STATUS)."
-    echo "  Attempting to transition to nomination phase via governance..."
+    echo "  Waiting for nomination window to open via BeginBlocker..."
 
-    # Try to transition the season to NOMINATION phase
-    # This requires the alice account (admin/authority) to call update-season-status
-    TX_RES=$($BINARY tx season set-season-status 4 \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 50000uspark \
-        -y \
-        --output json 2>&1)
+    # Compute nomination start block
+    PARAMS_Q=$($BINARY query season params --output json 2>&1)
+    NOM_WIN_EPOCHS=$(echo "$PARAMS_Q" | jq -r '.params.nomination_window_epochs // "5"')
+    EPOCH_BLOCKS=$(echo "$PARAMS_Q" | jq -r '.params.epoch_blocks // "100"')
+    END_BLOCK=$(echo "$SEASON_Q" | jq -r '.end_block // "1001"')
+    NOM_START_BLOCK=$((END_BLOCK - NOM_WIN_EPOCHS * EPOCH_BLOCKS))
+    CURRENT_BLOCK=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height // "0"')
+    echo "  Nomination start block: $NOM_START_BLOCK, current: $CURRENT_BLOCK, end: $END_BLOCK"
 
-    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-        echo "  Transitioned to NOMINATION phase"
-        SEASON_STATUS="SEASON_STATUS_NOMINATION"
+    if [ "$CURRENT_BLOCK" -ge "$END_BLOCK" ] 2>/dev/null; then
+        echo "  Current block is past end_block — season already transitioning; aborting nomination tests."
     else
-        echo "  Could not transition season to NOMINATION. Raw log:"
-        echo "  $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
-        echo ""
-        echo "  Trying update-operational-params to set status..."
-
-        TX_RES=$($BINARY tx season update-operational-params \
-            --season-status 4 \
-            --from alice \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 50000uspark \
-            -y \
-            --output json 2>&1)
-
-        if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-            echo "  Set season status to NOMINATION via operational params"
-            SEASON_STATUS="SEASON_STATUS_NOMINATION"
-        else
-            echo "  Failed to set season to NOMINATION phase."
-            echo "  Nomination tests will likely fail with ErrSeasonNotInNominationPhase."
+        WAIT_TARGET=$((NOM_START_BLOCK + 2))
+        if [ "$CURRENT_BLOCK" -lt "$WAIT_TARGET" ] 2>/dev/null; then
+            WAIT_BLOCKS=$((WAIT_TARGET - CURRENT_BLOCK))
+            echo "  Waiting ~${WAIT_BLOCKS} blocks (${WAIT_BLOCKS}s) for nomination window..."
+            WAITED=0
+            MAX_WAIT=600
+            while [ $WAITED -lt $MAX_WAIT ]; do
+                CURRENT_BLOCK=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height // "0"')
+                if [ "$CURRENT_BLOCK" -ge "$WAIT_TARGET" ] 2>/dev/null; then
+                    break
+                fi
+                sleep 5
+                WAITED=$((WAITED + 5))
+            done
+        fi
+        SEASON_Q=$($BINARY query season current-season --output json 2>&1)
+        SEASON_STATUS=$(echo "$SEASON_Q" | jq -r '.status // "unknown"')
+        echo "  Season status after wait: $SEASON_STATUS (block $CURRENT_BLOCK)"
+        if [ "$SEASON_STATUS" != "5" ] && [ "$SEASON_STATUS" != "SEASON_STATUS_NOMINATION" ]; then
+            echo "  Season still not in NOMINATION phase; nomination tests will fail."
         fi
     fi
 fi

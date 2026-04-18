@@ -38,9 +38,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		return nil, types.ErrNotRootPost
 	}
 
-	// Check new category exists
-	_, err = k.Category.Get(ctx, msg.NewCategoryId)
-	if err != nil {
+	if k.commonsKeeper == nil || !k.commonsKeeper.HasCategory(ctx, msg.NewCategoryId) {
 		return nil, errorsmod.Wrap(types.ErrCategoryNotFound, fmt.Sprintf("category %d not found", msg.NewCategoryId))
 	}
 

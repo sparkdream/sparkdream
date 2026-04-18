@@ -8,7 +8,6 @@ import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
 import "sparkdream/forum/v1/bounty.proto";
-import "sparkdream/forum/v1/category.proto";
 import "sparkdream/forum/v1/gov_action_appeal.proto";
 import "sparkdream/forum/v1/hide_record.proto";
 import "sparkdream/forum/v1/jury_participation.proto";
@@ -44,16 +43,6 @@ service Query {
   // ListPost defines the ListPost RPC.
   rpc ListPost(QueryAllPostRequest) returns (QueryAllPostResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/post";
-  }
-
-  // ListCategory Queries a list of Category items.
-  rpc GetCategory(QueryGetCategoryRequest) returns (QueryGetCategoryResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/category/{category_id}";
-  }
-
-  // ListCategory defines the ListCategory RPC.
-  rpc ListCategory(QueryAllCategoryRequest) returns (QueryAllCategoryResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/category";
   }
 
   // ListUserRateLimit Queries a list of UserRateLimit items.
@@ -236,11 +225,6 @@ service Query {
     option (google.api.http).get = "/sparkdream/forum/v1/thread/{root_id}";
   }
 
-  // Categories Queries a list of Categories items.
-  rpc Categories(QueryCategoriesRequest) returns (QueryCategoriesResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/categories";
-  }
-
   // UserPosts Queries a list of UserPosts items.
   rpc UserPosts(QueryUserPostsRequest) returns (QueryUserPostsResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/user_posts/{author}";
@@ -387,27 +371,6 @@ message QueryAllPostRequest {
 // QueryAllPostResponse defines the QueryAllPostResponse message.
 message QueryAllPostResponse {
   repeated Post post = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-// QueryGetCategoryRequest defines the QueryGetCategoryRequest message.
-message QueryGetCategoryRequest {
-  uint64 category_id = 1;
-}
-
-// QueryGetCategoryResponse defines the QueryGetCategoryResponse message.
-message QueryGetCategoryResponse {
-  Category category = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAllCategoryRequest defines the QueryAllCategoryRequest message.
-message QueryAllCategoryRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryAllCategoryResponse defines the QueryAllCategoryResponse message.
-message QueryAllCategoryResponse {
-  repeated Category category = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
@@ -790,17 +753,6 @@ message QueryThreadRequest {
 // QueryThreadResponse defines the QueryThreadResponse message.
 message QueryThreadResponse {
   repeated Post posts = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-// QueryCategoriesRequest defines the QueryCategoriesRequest message.
-message QueryCategoriesRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryCategoriesResponse defines the QueryCategoriesResponse message.
-message QueryCategoriesResponse {
-  repeated Category categories = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 

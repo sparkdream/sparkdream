@@ -26,7 +26,6 @@ cd test/forum
 | File | Description |
 |------|-------------|
 | `setup_test_accounts.sh` | Creates and funds test accounts, sets up initial state |
-| `category_test.sh` | Tests category creation, querying, and permissions |
 | `post_test.sh` | Tests post/thread creation, editing, voting, following |
 | `sentinel_test.sh` | Tests sentinel bonding, flagging, hiding, locking |
 | `bounty_test.sh` | Tests bounty creation, assignment, and awards |
@@ -81,14 +80,6 @@ Options:
 ```
 
 ## Test Coverage
-
-### Category Tests (`category_test.sh`)
-- List existing categories
-- Create new category (authority required)
-- Query category details
-- Create members-only category
-- Create admin-only category
-- Verify category counts
 
 ### Post Tests (`post_test.sh`)
 - Create thread (root post)

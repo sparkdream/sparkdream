@@ -85,6 +85,41 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// 10. Restore categories
+	for _, cat := range genState.CategoryMap {
+		if err := k.Category.Set(ctx, cat.CategoryId, cat); err != nil {
+			return err
+		}
+	}
+
+	// Prime the sequence so the first runtime category starts at 1; ID 0 is
+	// reserved as "no category".
+	catSeqVal, err := k.CategorySeq.Peek(ctx)
+	if err != nil {
+		return err
+	}
+	if catSeqVal == 0 {
+		if genState.NextCategoryId > 0 {
+			if err := k.CategorySeq.Set(ctx, genState.NextCategoryId); err != nil {
+				return err
+			}
+		} else if len(genState.CategoryMap) == 0 {
+			if _, err := k.CategorySeq.Next(ctx); err != nil {
+				return err
+			}
+		} else {
+			var maxID uint64
+			for _, cat := range genState.CategoryMap {
+				if cat.CategoryId > maxID {
+					maxID = cat.CategoryId
+				}
+			}
+			if err := k.CategorySeq.Set(ctx, maxID+1); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -179,6 +214,15 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 			Votes:      votes,
 		})
 	}
+
+	// Export categories
+	if err := k.Category.Walk(ctx, nil, func(_ uint64, cat types.Category) (bool, error) {
+		genesis.CategoryMap = append(genesis.CategoryMap, cat)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	genesis.NextCategoryId, _ = k.CategorySeq.Peek(ctx)
 
 	return genesis, nil
 }

@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/commons/v1/category.proto";
 import "sparkdream/commons/v1/group.proto";
 import "sparkdream/commons/v1/params.proto";
 import "sparkdream/commons/v1/policy_permissions.proto";
@@ -57,6 +58,16 @@ service Query {
   // GetProposalVotes queries votes for a specific proposal.
   rpc GetProposalVotes(QueryGetProposalVotesRequest) returns (QueryGetProposalVotesResponse) {
     option (google.api.http).get = "/sparkdream/commons/v1/proposal/{proposal_id}/votes";
+  }
+
+  // GetCategory queries a single shared content category by id.
+  rpc GetCategory(QueryGetCategoryRequest) returns (QueryGetCategoryResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/category/{category_id}";
+  }
+
+  // ListCategory queries all shared content categories.
+  rpc ListCategory(QueryAllCategoryRequest) returns (QueryAllCategoryResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/category";
   }
 }
 
@@ -158,4 +169,25 @@ message QueryGetProposalVotesRequest {
 message QueryGetProposalVotesResponse {
   repeated Vote votes = 1 [(gogoproto.nullable) = false];
   TallyResult tally = 2 [(gogoproto.nullable) = false];
+}
+
+// QueryGetCategoryRequest queries a single category by id.
+message QueryGetCategoryRequest {
+  uint64 category_id = 1;
+}
+
+// QueryGetCategoryResponse returns a single category.
+message QueryGetCategoryResponse {
+  Category category = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllCategoryRequest queries all categories with pagination.
+message QueryAllCategoryRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllCategoryResponse returns all categories.
+message QueryAllCategoryResponse {
+  repeated Category category = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

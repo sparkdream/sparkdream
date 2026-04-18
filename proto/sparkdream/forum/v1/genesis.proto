@@ -6,7 +6,6 @@ import "amino/amino.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
 import "sparkdream/forum/v1/bounty.proto";
-import "sparkdream/forum/v1/category.proto";
 import "sparkdream/forum/v1/gov_action_appeal.proto";
 import "sparkdream/forum/v1/hide_record.proto";
 import "sparkdream/forum/v1/jury_participation.proto";
@@ -29,13 +28,15 @@ option go_package = "sparkdream/x/forum/types";
 
 // GenesisState defines the forum module's genesis state.
 message GenesisState {
+  reserved 3;
+  reserved "category_map";
+
   // params defines all the parameters of the module.
   Params params = 1 [
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
   repeated Post post_map = 2 [(gogoproto.nullable) = false];
-  repeated Category category_map = 3 [(gogoproto.nullable) = false];
   repeated UserRateLimit user_rate_limit_map = 4 [(gogoproto.nullable) = false];
   repeated UserReactionLimit user_reaction_limit_map = 5 [(gogoproto.nullable) = false];
   repeated SentinelActivity sentinel_activity_map = 6 [(gogoproto.nullable) = false];

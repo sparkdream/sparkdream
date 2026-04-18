@@ -362,7 +362,7 @@ echo ""
 # ========================================================================
 echo "Step 8: Creating initial category for tests..."
 
-CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
 CATEGORY_COUNT=$(echo "$CATEGORIES" | jq -r '.category | length' 2>/dev/null || echo "0")
 
 if [ "$CATEGORY_COUNT" -gt 0 ]; then
@@ -372,7 +372,7 @@ if [ "$CATEGORY_COUNT" -gt 0 ]; then
 else
     echo "  Creating a test category..."
 
-    TX_RES=$($BINARY tx forum create-category \
+    TX_RES=$($BINARY tx commons create-category \
         "General Discussion" \
         "A category for general forum discussions" \
         "false" \

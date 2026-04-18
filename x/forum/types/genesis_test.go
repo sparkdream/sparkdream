@@ -27,7 +27,6 @@ func TestGenesisState_Validate(t *testing.T) {
 					{PostId: 0, CategoryId: 0, Status: types.PostStatus_POST_STATUS_ACTIVE},
 					{PostId: 1, CategoryId: 1, Status: types.PostStatus_POST_STATUS_ACTIVE},
 				},
-				CategoryMap:      []types.Category{{CategoryId: 0}, {CategoryId: 1}},
 				UserRateLimitMap: []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 				BountyList:       []types.Bounty{{Id: 0, ThreadId: 0}, {Id: 1, ThreadId: 1}},
 				BountyCount:      2,
@@ -40,16 +39,6 @@ func TestGenesisState_Validate(t *testing.T) {
 				PostMap: []types.Post{
 					{PostId: 0},
 					{PostId: 0},
-				},
-			},
-			valid: false,
-		},
-		{
-			desc: "duplicated category",
-			genState: &types.GenesisState{
-				CategoryMap: []types.Category{
-					{CategoryId: 0},
-					{CategoryId: 0},
 				},
 			},
 			valid: false,

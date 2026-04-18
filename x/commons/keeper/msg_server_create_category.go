@@ -4,40 +4,40 @@ import (
 	"context"
 	"fmt"
 
-	"sparkdream/x/forum/types"
+	"sparkdream/x/commons/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
+// CreateCategory registers a new shared content category. Only governance,
+// the Commons Council policy, or the Commons Operations Committee may create
+// categories.
 func (k msgServer) CreateCategory(ctx context.Context, msg *types.MsgCreateCategory) (*types.MsgCreateCategoryResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
-	// Only governance, council, or operations committee can create categories
-	if !k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
-		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only governance, council, or operations committee can create categories")
+	if !k.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations") {
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only governance, the Commons Council, or the Operations Committee can create categories")
 	}
 
-	// Validate title and description
 	if msg.Title == "" {
-		return nil, errorsmod.Wrap(types.ErrInvalidContent, "title cannot be empty")
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "title cannot be empty")
 	}
 	if len(msg.Title) > 256 {
-		return nil, errorsmod.Wrap(types.ErrContentTooLarge, "title exceeds 256 characters")
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "title exceeds 256 characters")
 	}
 	if len(msg.Description) > 2048 {
-		return nil, errorsmod.Wrap(types.ErrContentTooLarge, "description exceeds 2048 characters")
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "description exceeds 2048 characters")
 	}
 
-	// Generate category ID
 	categoryID, err := k.CategorySeq.Next(ctx)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to generate category ID")
 	}
 
-	// Create category
 	category := types.Category{
 		CategoryId:       categoryID,
 		Title:            msg.Title,
@@ -45,13 +45,10 @@ func (k msgServer) CreateCategory(ctx context.Context, msg *types.MsgCreateCateg
 		MembersOnlyWrite: msg.MembersOnlyWrite,
 		AdminOnlyWrite:   msg.AdminOnlyWrite,
 	}
-
-	// Store category
 	if err := k.Category.Set(ctx, categoryID, category); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store category")
 	}
 
-	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
@@ -62,5 +59,5 @@ func (k msgServer) CreateCategory(ctx context.Context, msg *types.MsgCreateCateg
 		),
 	)
 
-	return &types.MsgCreateCategoryResponse{}, nil
+	return &types.MsgCreateCategoryResponse{CategoryId: categoryID}, nil
 }

@@ -73,6 +73,9 @@ type Keeper struct {
 	// EpochSpending tracks cumulative spending per (policy_address, epoch_day).
 	// Value is the cumulative uspark amount spent in the epoch (string-encoded).
 	EpochSpending collections.Map[collections.Pair[string, int64], string]
+
+	Category    collections.Map[uint64, types.Category]
+	CategorySeq collections.Sequence
 }
 
 func NewKeeper(
@@ -167,6 +170,12 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.StringKey, collections.Int64Key),
 			collections.StringValue,
 		),
+		Category: collections.NewMap(
+			sb, types.CategoryKey, "category",
+			collections.Uint64Key,
+			codec.CollValue[types.Category](cdc),
+		),
+		CategorySeq: collections.NewSequence(sb, types.CategorySeqKey, "categorySequence"),
 	}
 
 	schema, err := sb.Build()

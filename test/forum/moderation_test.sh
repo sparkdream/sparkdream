@@ -282,7 +282,7 @@ PART3_RESULT="FAIL"
 if [ -n "$MOVE_THREAD_ID" ]; then
     # Always create a dedicated target category for the move test
     echo "  Creating target category for move test..."
-    TX_RES=$($BINARY tx forum create-category \
+    TX_RES=$($BINARY tx commons create-category \
         "Move Target $(date +%s)" \
         "Target category for move tests" \
         "false" \
@@ -1627,7 +1627,7 @@ echo "--- PART 33a: REPORT TAG ---"
 PART33a_RESULT="FAIL"
 
 # Check if any tags exist (tags are created at genesis or internally, no CLI to create)
-TAGS=$($BINARY query forum list-tag --output json 2>&1)
+TAGS=$($BINARY query rep list-tag --output json 2>&1)
 TAG_COUNT=$(echo "$TAGS" | jq -r '.tag | length' 2>/dev/null || echo "0")
 REPORT_TAG_NAME=""
 
@@ -1640,7 +1640,7 @@ else
 fi
 
 if [ -n "$REPORT_TAG_NAME" ]; then
-    TX_RES=$($BINARY tx forum report-tag \
+    TX_RES=$($BINARY tx rep report-tag \
         "$REPORT_TAG_NAME" \
         "This tag is inappropriate" \
         --from sentinel1 \
@@ -1678,7 +1678,7 @@ PART33b_RESULT="FAIL"
 if [ "$PART33a_RESULT" = "PASS" ]; then
     echo "  Resolving tag report for '$REPORT_TAG_NAME'..."
 
-    TX_RES=$($BINARY tx forum resolve-tag-report \
+    TX_RES=$($BINARY tx rep resolve-tag-report \
         "$REPORT_TAG_NAME" \
         "0" \
         "" \

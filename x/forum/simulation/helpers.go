@@ -14,25 +14,9 @@ import (
 )
 
 
-// findCategory returns a random category from state
-func findCategory(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Category, uint64, error) {
-	var categories []struct {
-		id       uint64
-		category types.Category
-	}
-	err := k.Category.Walk(ctx, nil, func(id uint64, category types.Category) (bool, error) {
-		categories = append(categories, struct {
-			id       uint64
-			category types.Category
-		}{id, category})
-		return false, nil
-	})
-	if err != nil || len(categories) == 0 {
-		return nil, 0, err
-	}
-	selected := categories[r.Intn(len(categories))]
-	return &selected.category, selected.id, nil
-}
+// simCategoryID is the placeholder id every forum sim operation uses; the
+// commons sim genesis is expected to seed a category with this id.
+const simCategoryID uint64 = 1
 
 // findPost returns a random post from state
 func findPost(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Post, uint64, error) {
@@ -362,29 +346,8 @@ func findGovActionAppeal(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status 
 	return &selected.appeal, selected.id, nil
 }
 
-// getOrCreateCategory returns an existing category or creates one
-func getOrCreateCategory(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (uint64, error) {
-	// Try to find existing category
-	_, categoryID, err := findCategory(r, ctx, k)
-	if err == nil && categoryID != 0 {
-		return categoryID, nil
-	}
-
-	// Create new category
-	categoryID, err = k.CategorySeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	category := types.Category{
-		CategoryId:       categoryID,
-		Title:            fmt.Sprintf("Category-%d", r.Intn(10000)),
-		Description:      "Simulation generated category",
-		MembersOnlyWrite: false, // Allow all writes in simulation since no members exist
-		AdminOnlyWrite:   false,
-	}
-
-	return categoryID, k.Category.Set(ctx, categoryID, category)
+func getOrCreateCategory(_ *rand.Rand, _ sdk.Context, _ keeper.Keeper) (uint64, error) {
+	return simCategoryID, nil
 }
 
 // getOrCreatePost returns an existing post or creates one

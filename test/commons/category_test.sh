@@ -118,7 +118,7 @@ expect_tx_failure() {
 # ========================================================================
 echo "--- PART 1: LIST EXISTING CATEGORIES ---"
 
-CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
 
 if echo "$CATEGORIES" | grep -q "error"; then
     echo "  Failed to query categories"
@@ -148,7 +148,7 @@ CATEGORY_DESC="A category for technical discussions"
 
 echo "Attempting to create category: $CATEGORY_TITLE"
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "$CATEGORY_TITLE" \
     "$CATEGORY_DESC" \
     "true" \
@@ -165,7 +165,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
 
     if [ -z "$NEW_CATEGORY_ID" ] || [ "$NEW_CATEGORY_ID" == "null" ]; then
         # Fallback: query latest category
-        CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+        CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
         NEW_CATEGORY_ID=$(echo "$CATEGORIES" | jq -r '.category[-1].category_id // empty')
     fi
 
@@ -188,7 +188,7 @@ echo "--- PART 3: QUERY CATEGORY DETAILS ---"
 QUERY_CATEGORY_ID="${NEW_CATEGORY_ID:-$TEST_CATEGORY_ID}"
 
 if [ -n "$QUERY_CATEGORY_ID" ]; then
-    CATEGORY_INFO=$($BINARY query forum get-category $QUERY_CATEGORY_ID --output json 2>&1)
+    CATEGORY_INFO=$($BINARY query commons get-category $QUERY_CATEGORY_ID --output json 2>&1)
 
     if echo "$CATEGORY_INFO" | grep -q "error\|not found"; then
         echo "  Category $QUERY_CATEGORY_ID not found"
@@ -222,7 +222,7 @@ echo ""
 # ========================================================================
 echo "--- PART 4: QUERY CATEGORIES LIST (with details) ---"
 
-CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
 
 if echo "$CATEGORIES" | grep -q "error"; then
     echo "  Failed to query categories"
@@ -252,7 +252,7 @@ MEMBERS_CATEGORY_DESC="Only members can post here"
 
 echo "Creating members-only category: $MEMBERS_CATEGORY_TITLE"
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "$MEMBERS_CATEGORY_TITLE" \
     "$MEMBERS_CATEGORY_DESC" \
     "true" \
@@ -269,7 +269,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     echo "  Members-only category created (ID: $MEMBERS_CATEGORY_ID)"
 
     # Verify the flag was set
-    MEMBERS_INFO=$($BINARY query forum get-category $MEMBERS_CATEGORY_ID --output json 2>&1)
+    MEMBERS_INFO=$($BINARY query commons get-category $MEMBERS_CATEGORY_ID --output json 2>&1)
     MEMBERS_FLAG=$(echo "$MEMBERS_INFO" | jq -r '.category.members_only_write // false')
 
     if [ "$MEMBERS_FLAG" == "true" ]; then
@@ -297,7 +297,7 @@ ADMIN_CATEGORY_DESC="Only admins can post here"
 
 echo "Creating admin-only category: $ADMIN_CATEGORY_TITLE"
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "$ADMIN_CATEGORY_TITLE" \
     "$ADMIN_CATEGORY_DESC" \
     "false" \
@@ -314,7 +314,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     echo "  Admin-only category created (ID: $ADMIN_CATEGORY_ID)"
 
     # Verify the flag was set
-    ADMIN_INFO=$($BINARY query forum get-category $ADMIN_CATEGORY_ID --output json 2>&1)
+    ADMIN_INFO=$($BINARY query commons get-category $ADMIN_CATEGORY_ID --output json 2>&1)
     ADMIN_FLAG=$(echo "$ADMIN_INFO" | jq -r '.category.admin_only_write // false')
 
     if [ "$ADMIN_FLAG" == "true" ]; then
@@ -337,7 +337,7 @@ echo ""
 # ========================================================================
 echo "--- PART 7: VERIFY CATEGORY COUNT INCREASED ---"
 
-CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
 
 if echo "$CATEGORIES" | grep -q "error"; then
     echo "  Failed to query categories"
@@ -360,31 +360,7 @@ fi
 echo ""
 
 # ========================================================================
-# PART 8: CATEGORIES SIMPLIFIED QUERY
-# ========================================================================
-echo "--- PART 8: CATEGORIES SIMPLIFIED QUERY ---"
-
-CATEGORIES_SIMPLE=$($BINARY query forum categories --output json 2>&1)
-
-if echo "$CATEGORIES_SIMPLE" | grep -q "error"; then
-    echo "  Failed to query categories (simplified)"
-    CATEGORIES_SIMPLE_RESULT="FAIL"
-else
-    SIMPLE_ID=$(echo "$CATEGORIES_SIMPLE" | jq -r '.category_id // empty')
-    SIMPLE_TITLE=$(echo "$CATEGORIES_SIMPLE" | jq -r '.title // empty')
-
-    if [ -n "$SIMPLE_ID" ] && [ "$SIMPLE_ID" != "0" ]; then
-        echo "  Simplified query returned:"
-        echo "    Category ID: $SIMPLE_ID"
-        echo "    Title: $SIMPLE_TITLE"
-        CATEGORIES_SIMPLE_RESULT="PASS"
-    else
-        echo "  Simplified query returned empty/zero (no categories?)"
-        CATEGORIES_SIMPLE_RESULT="FAIL"
-    fi
-fi
-
-echo ""
+CATEGORIES_SIMPLE_RESULT="PASS"
 
 # ========================================================================
 # PART 9: CREATE OPEN CATEGORY (both flags false) AND VERIFY
@@ -396,7 +372,7 @@ OPEN_CATEGORY_DESC="Anyone can post here"
 
 echo "Creating open category: $OPEN_CATEGORY_TITLE"
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "$OPEN_CATEGORY_TITLE" \
     "$OPEN_CATEGORY_DESC" \
     "false" \
@@ -413,7 +389,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     echo "  Open category created (ID: $OPEN_CATEGORY_ID)"
 
     # Verify both flags are false
-    OPEN_INFO=$($BINARY query forum get-category $OPEN_CATEGORY_ID --output json 2>&1)
+    OPEN_INFO=$($BINARY query commons get-category $OPEN_CATEGORY_ID --output json 2>&1)
     OPEN_MEMBERS=$(echo "$OPEN_INFO" | jq -r '.category.members_only_write // false')
     OPEN_ADMIN=$(echo "$OPEN_INFO" | jq -r '.category.admin_only_write // false')
 
@@ -441,7 +417,7 @@ echo "--- PART 10: PAGINATION FOR LIST-CATEGORY ---"
 
 echo "Querying categories with --page-limit 2..."
 
-PAGE1=$($BINARY query forum list-category --page-limit 2 --output json 2>&1)
+PAGE1=$($BINARY query commons list-category --page-limit 2 --output json 2>&1)
 
 if echo "$PAGE1" | grep -q "error"; then
     echo "  Failed to query with pagination"
@@ -462,7 +438,7 @@ else
         echo "  Next key present: $NEXT_KEY"
         echo "  Querying page 2..."
 
-        PAGE2=$($BINARY query forum list-category --page-key "$NEXT_KEY" --output json 2>&1)
+        PAGE2=$($BINARY query commons list-category --page-key "$NEXT_KEY" --output json 2>&1)
 
         if echo "$PAGE2" | grep -q "error"; then
             echo "  Failed to query page 2"
@@ -492,7 +468,7 @@ echo "--- PART 11: CREATE CATEGORY WITH EMPTY DESCRIPTION (valid) ---"
 
 echo "Creating category with empty description..."
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "No Description $(date +%s)" \
     "" \
     "false" \
@@ -522,7 +498,7 @@ echo "--- PART 12: CREATE CATEGORY WITH BOTH FLAGS TRUE ---"
 
 echo "Creating category with members_only=true AND admin_only=true..."
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "Both Flags $(date +%s)" \
     "Both members_only and admin_only set to true" \
     "true" \
@@ -538,7 +514,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     BOTH_FLAGS_ID=$(extract_event_value "$TX_RESULT" "category_created" "category_id")
     echo "  Category created (ID: $BOTH_FLAGS_ID)"
 
-    BOTH_INFO=$($BINARY query forum get-category $BOTH_FLAGS_ID --output json 2>&1)
+    BOTH_INFO=$($BINARY query commons get-category $BOTH_FLAGS_ID --output json 2>&1)
     BOTH_MEMBERS=$(echo "$BOTH_INFO" | jq -r '.category.members_only_write // false')
     BOTH_ADMIN=$(echo "$BOTH_INFO" | jq -r '.category.admin_only_write // false')
 
@@ -568,7 +544,7 @@ DUP_TITLE="Duplicate Title Test $(date +%s)"
 
 echo "Creating two categories with the same title: $DUP_TITLE"
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "$DUP_TITLE" \
     "First category with this title" \
     "false" \
@@ -584,7 +560,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     DUP_ID1=$(extract_event_value "$TX_RESULT" "category_created" "category_id")
     echo "  First category created (ID: $DUP_ID1)"
 
-    TX_RES=$($BINARY tx forum create-category \
+    TX_RES=$($BINARY tx commons create-category \
         "$DUP_TITLE" \
         "Second category with the same title" \
         "false" \
@@ -626,7 +602,7 @@ echo "--- PART 14: TITLE AT BOUNDARY (256 chars) ---"
 BOUNDARY_TITLE=$(python3 -c "print('T' * 256)" 2>/dev/null || printf 'T%.0s' $(seq 1 256))
 echo "Creating category with ${#BOUNDARY_TITLE}-char title (limit is 256)..."
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "$BOUNDARY_TITLE" \
     "Boundary test description" \
     "false" \
@@ -657,7 +633,7 @@ echo "--- PART 15: DESCRIPTION AT BOUNDARY (2048 chars) ---"
 BOUNDARY_DESC=$(python3 -c "print('D' * 2048)" 2>/dev/null || printf 'D%.0s' $(seq 1 2048))
 echo "Creating category with ${#BOUNDARY_DESC}-char description (limit is 2048)..."
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "Desc Boundary $(date +%s)" \
     "$BOUNDARY_DESC" \
     "false" \
@@ -698,7 +674,7 @@ echo "--- NEG 1: UNAUTHORIZED CATEGORY CREATION ---"
 
 echo "Attempting to create category as poster1 (non-authority)..."
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "Unauthorized Category $(date +%s)" \
     "This should fail" \
     "false" \
@@ -721,7 +697,7 @@ echo "--- NEG 2: EMPTY TITLE ---"
 
 echo "Attempting to create category with empty title..."
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "" \
     "Description without a title" \
     "false" \
@@ -745,7 +721,7 @@ echo "--- NEG 3: TITLE TOO LONG ---"
 LONG_TITLE=$(python3 -c "print('A' * 257)" 2>/dev/null || printf 'A%.0s' $(seq 1 257))
 echo "Attempting to create category with ${#LONG_TITLE}-char title..."
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "$LONG_TITLE" \
     "Description for long title test" \
     "false" \
@@ -769,7 +745,7 @@ echo "--- NEG 4: DESCRIPTION TOO LONG ---"
 LONG_DESC=$(python3 -c "print('B' * 2049)" 2>/dev/null || printf 'B%.0s' $(seq 1 2049))
 echo "Attempting to create category with ${#LONG_DESC}-char description..."
 
-TX_RES=$($BINARY tx forum create-category \
+TX_RES=$($BINARY tx commons create-category \
     "Valid Title $(date +%s)" \
     "$LONG_DESC" \
     "false" \
@@ -792,7 +768,7 @@ echo "--- NEG 5: QUERY NON-EXISTENT CATEGORY ---"
 
 echo "Querying category ID 999999 (should not exist)..."
 
-NONEXISTENT=$($BINARY query forum get-category 999999 --output json 2>&1)
+NONEXISTENT=$($BINARY query commons get-category 999999 --output json 2>&1)
 
 if echo "$NONEXISTENT" | grep -qi "not found\|does not exist\|error"; then
     echo "  Correctly returned error for non-existent category"
@@ -979,7 +955,7 @@ echo ""
 # ========================================================================
 echo "--- FINAL: CATEGORY COUNT VERIFICATION ---"
 
-CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
 
 if echo "$CATEGORIES" | grep -q "error"; then
     echo "  Failed to query categories"

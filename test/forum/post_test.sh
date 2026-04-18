@@ -94,7 +94,7 @@ submit_tx_and_wait() {
 # ========================================================================
 echo "--- PART 0: ENSURE CATEGORY EXISTS ---"
 
-CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
 CATEGORY_COUNT=$(echo "$CATEGORIES" | jq -r '.category | length' 2>/dev/null || echo "0")
 
 if [ "$CATEGORY_COUNT" -gt 0 ]; then
@@ -103,7 +103,7 @@ if [ "$CATEGORY_COUNT" -gt 0 ]; then
     echo "  Using existing category ID: $TEST_CATEGORY_ID"
 else
     echo "  No categories found, creating one..."
-    TX_RES=$($BINARY tx forum create-category \
+    TX_RES=$($BINARY tx commons create-category \
         "General Discussion" \
         "A category for general forum discussions" \
         "false" \

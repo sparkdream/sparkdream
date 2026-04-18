@@ -177,14 +177,14 @@ set_moderation_paused() {
 # ========================================================================
 echo "--- PREREQUISITE: Create second category ---"
 
-EXISTING_CATS=$($BINARY query forum list-category --output json 2>&1)
+EXISTING_CATS=$($BINARY query commons list-category --output json 2>&1)
 CAT_COUNT=$(echo "$EXISTING_CATS" | jq -r '.category | length' 2>/dev/null || echo "0")
 
 if [ "$CAT_COUNT" -ge 2 ]; then
     SECOND_CAT_ID=$(echo "$EXISTING_CATS" | jq -r '.category[1].category_id')
     echo "  Second category already exists: $SECOND_CAT_ID"
 else
-    TX_RES=$($BINARY tx forum create-category \
+    TX_RES=$($BINARY tx commons create-category \
         "Off-Topic" "Category for off-topic posts" "false" "false" \
         --from alice \
         --chain-id $CHAIN_ID \

@@ -1066,7 +1066,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
 fi
 
 # Create a second category if needed
-CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
 CATEGORY_COUNT=$(echo "$CATEGORIES" | jq -r '.category | length' 2>/dev/null || echo "0")
 
 if [ "$CATEGORY_COUNT" -gt 1 ]; then
@@ -1075,7 +1075,7 @@ if [ "$CATEGORY_COUNT" -gt 1 ]; then
 else
     echo "  Creating second category for move test..."
 
-    TX_RES=$($BINARY tx forum create-category \
+    TX_RES=$($BINARY tx commons create-category \
         "Move Target $(date +%s)" \
         "Target category for move appeal tests" \
         "false" \
@@ -1095,7 +1095,7 @@ else
         if check_tx_success "$TX_RESULT"; then
             MOVE_TARGET_CATEGORY=$(extract_event_value "$TX_RESULT" "category_created" "category_id")
             if [ -z "$MOVE_TARGET_CATEGORY" ]; then
-                CATEGORIES=$($BINARY query forum list-category --output json 2>&1)
+                CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
                 MOVE_TARGET_CATEGORY=$(echo "$CATEGORIES" | jq -r '.category[-1].category_id // empty')
             fi
             echo "  Created category: $MOVE_TARGET_CATEGORY"

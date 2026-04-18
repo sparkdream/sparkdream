@@ -30,18 +30,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
 				},
 				{
-					RpcMethod: "ListCategory",
-					Use:       "list-category",
-					Short:     "List all category",
-				},
-				{
-					RpcMethod:      "GetCategory",
-					Use:            "get-category [id]",
-					Short:          "Gets a category",
-					Alias:          []string{"show-category"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}},
-				},
-				{
 					RpcMethod: "ListUserRateLimit",
 					Use:       "list-user-rate-limit",
 					Short:     "List all user-rate-limit",
@@ -260,13 +248,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 
 				{
-					RpcMethod:      "Categories",
-					Use:            "categories ",
-					Short:          "Query categories",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
-				},
-
-				{
 					RpcMethod:      "UserPosts",
 					Use:            "user-posts [author]",
 					Short:          "Query user-posts",
@@ -442,12 +423,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{
 					RpcMethod: "UpdateOperationalParams",
 					Skip:      true, // skipped because council-gated
-				},
-				{
-					RpcMethod:      "CreateCategory",
-					Use:            "create-category [title] [description] [members-only-write] [admin-only-write]",
-					Short:          "Send a create-category tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title"}, {ProtoField: "description"}, {ProtoField: "members_only_write"}, {ProtoField: "admin_only_write"}},
 				},
 				{
 					RpcMethod:      "CreatePost",

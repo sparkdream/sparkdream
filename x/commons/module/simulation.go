@@ -213,6 +213,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgVetoGroupProposals,
 		commonssimulation.SimulateMsgVetoGroupProposals(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
 	))
+	const (
+		opWeightMsgCreateCategory          = "op_weight_msg_commons"
+		defaultWeightMsgCreateCategory int = 100
+	)
+
+	var weightMsgCreateCategory int
+	simState.AppParams.GetOrGenerate(opWeightMsgCreateCategory, &weightMsgCreateCategory, nil,
+		func(_ *rand.Rand) {
+			weightMsgCreateCategory = defaultWeightMsgCreateCategory
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCreateCategory,
+		commonssimulation.SimulateMsgCreateCategory(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

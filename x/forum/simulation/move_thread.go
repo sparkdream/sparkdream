@@ -1,7 +1,6 @@
 package simulation
 
 import (
-	"fmt"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -38,23 +37,7 @@ func SimulateMsgMoveThread(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgMoveThread{}), "post not found"), nil, nil
 		}
 
-		// Get or create a new category to move to
-		newCategoryID, err := k.CategorySeq.Next(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgMoveThread{}), "failed to get category ID"), nil, nil
-		}
-
-		// Create new category
-		newCategory := types.Category{
-			CategoryId:       newCategoryID,
-			Title:            fmt.Sprintf("MoveTarget-%d", newCategoryID),
-			Description:      "Target category for move simulation",
-			MembersOnlyWrite: false,
-			AdminOnlyWrite:   false,
-		}
-		if err := k.Category.Set(ctx, newCategoryID, newCategory); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgMoveThread{}), "failed to create target category"), nil, nil
-		}
+		newCategoryID := post.CategoryId + 1
 
 		// Create move record
 		moveRecord := types.ThreadMoveRecord{

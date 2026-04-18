@@ -13,11 +13,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
-	for _, elem := range genState.CategoryMap {
-		if err := k.Category.Set(ctx, elem.CategoryId, elem); err != nil {
-			return err
-		}
-	}
 	for _, elem := range genState.UserRateLimitMap {
 		if err := k.UserRateLimit.Set(ctx, elem.UserAddress, elem); err != nil {
 			return err
@@ -120,9 +115,8 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	// Prime PostSeq and CategorySeq to start at 1 if not already advanced.
-	// ID 0 is reserved (PostId=0 conflicts with ParentId=0 meaning "no parent",
-	// and CategoryId=0 is confusing as a valid category).
+	// Prime PostSeq to start at 1 if not already advanced. ID 0 is reserved
+	// (PostId=0 conflicts with ParentId=0 meaning "no parent").
 	postSeqVal, err := k.PostSeq.Peek(ctx)
 	if err != nil {
 		return err
@@ -130,30 +124,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	if postSeqVal == 0 && len(genState.PostMap) == 0 {
 		if _, err := k.PostSeq.Next(ctx); err != nil {
 			return err
-		}
-	}
-
-	catSeqVal, err := k.CategorySeq.Peek(ctx)
-	if err != nil {
-		return err
-	}
-	if catSeqVal == 0 {
-		if len(genState.CategoryMap) == 0 {
-			// Prime to 1 so first category gets ID 1
-			if _, err := k.CategorySeq.Next(ctx); err != nil {
-				return err
-			}
-		} else {
-			// Advance past the highest genesis category ID
-			var maxCatID uint64
-			for _, cat := range genState.CategoryMap {
-				if cat.CategoryId > maxCatID {
-					maxCatID = cat.CategoryId
-				}
-			}
-			if err := k.CategorySeq.Set(ctx, maxCatID+1); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -171,12 +141,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	if err := k.Post.Walk(ctx, nil, func(_ uint64, val types.Post) (stop bool, err error) {
 		genesis.PostMap = append(genesis.PostMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := k.Category.Walk(ctx, nil, func(_ uint64, val types.Category) (stop bool, err error) {
-		genesis.CategoryMap = append(genesis.CategoryMap, val)
 		return false, nil
 	}); err != nil {
 		return nil, err

@@ -1,0 +1,15 @@
+syntax = "proto3";
+package sparkdream.commons.v1;
+
+option go_package = "sparkdream/x/commons/types";
+
+// Category defines a governance-curated content category. Created by the
+// Commons Council (or Operations Committee). Per-module restrictions on
+// which categories are valid are enforced by the consuming module.
+message Category {
+  uint64 category_id = 1;
+  string title = 2;
+  string description = 3;
+  bool members_only_write = 4;
+  bool admin_only_write = 5;
+}
