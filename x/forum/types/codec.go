@@ -8,34 +8,6 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgAppealGovAction{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgDefendMemberReport{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgResolveMemberReport{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgCosignMemberReport{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgReportMember{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgUnbondSentinel{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgBondSentinel{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgSetModerationPaused{},
 	)
 

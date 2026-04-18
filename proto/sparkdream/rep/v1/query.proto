@@ -8,15 +8,20 @@ import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/rep/v1/challenge.proto";
 import "sparkdream/rep/v1/content_challenge.proto";
+import "sparkdream/rep/v1/gov_action_appeal.proto";
 import "sparkdream/rep/v1/initiative.proto";
 import "sparkdream/rep/v1/interim.proto";
 import "sparkdream/rep/v1/interim_template.proto";
 import "sparkdream/rep/v1/invitation.proto";
+import "sparkdream/rep/v1/jury_participation.proto";
 import "sparkdream/rep/v1/jury_review.proto";
 import "sparkdream/rep/v1/member.proto";
+import "sparkdream/rep/v1/member_report.proto";
+import "sparkdream/rep/v1/member_warning.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
 import "sparkdream/rep/v1/reserved_tag.proto";
+import "sparkdream/rep/v1/sentinel_activity.proto";
 import "sparkdream/rep/v1/stake.proto";
 import "sparkdream/rep/v1/tag.proto";
 import "sparkdream/rep/v1/tag_budget.proto";
@@ -335,6 +340,81 @@ service Query {
   // TagBudgetAwards returns the first award for a budget (summary query).
   rpc TagBudgetAwards(QueryTagBudgetAwardsRequest) returns (QueryTagBudgetAwardsResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/tag_budget_awards/{budget_id}";
+  }
+
+  // GetSentinelActivity Queries a SentinelActivity by address.
+  rpc GetSentinelActivity(QueryGetSentinelActivityRequest) returns (QueryGetSentinelActivityResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/sentinel_activity/{address}";
+  }
+
+  // ListSentinelActivity defines the ListSentinelActivity RPC.
+  rpc ListSentinelActivity(QueryAllSentinelActivityRequest) returns (QueryAllSentinelActivityResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/sentinel_activity";
+  }
+
+  // SentinelStatus queries bond status and current bond for a sentinel.
+  rpc SentinelStatus(QuerySentinelStatusRequest) returns (QuerySentinelStatusResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/sentinel_status/{address}";
+  }
+
+  // SentinelBondCommitment queries current/committed/available bond for a sentinel.
+  rpc SentinelBondCommitment(QuerySentinelBondCommitmentRequest) returns (QuerySentinelBondCommitmentResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/sentinel_bond_commitment/{address}";
+  }
+
+  // ListMemberReport Queries a list of MemberReport items.
+  rpc GetMemberReport(QueryGetMemberReportRequest) returns (QueryGetMemberReportResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_report/{member}";
+  }
+
+  // ListMemberReport defines the ListMemberReport RPC.
+  rpc ListMemberReport(QueryAllMemberReportRequest) returns (QueryAllMemberReportResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_report";
+  }
+
+  // ListMemberWarning Queries a list of MemberWarning items.
+  rpc GetMemberWarning(QueryGetMemberWarningRequest) returns (QueryGetMemberWarningResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_warning/{id}";
+  }
+
+  // ListMemberWarning defines the ListMemberWarning RPC.
+  rpc ListMemberWarning(QueryAllMemberWarningRequest) returns (QueryAllMemberWarningResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_warning";
+  }
+
+  // ListGovActionAppeal Queries a list of GovActionAppeal items.
+  rpc GetGovActionAppeal(QueryGetGovActionAppealRequest) returns (QueryGetGovActionAppealResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/gov_action_appeal/{id}";
+  }
+
+  // ListGovActionAppeal defines the ListGovActionAppeal RPC.
+  rpc ListGovActionAppeal(QueryAllGovActionAppealRequest) returns (QueryAllGovActionAppealResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/gov_action_appeal";
+  }
+
+  // ListJuryParticipation Queries a list of JuryParticipation items.
+  rpc GetJuryParticipation(QueryGetJuryParticipationRequest) returns (QueryGetJuryParticipationResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/jury_participation/{juror}";
+  }
+
+  // ListJuryParticipation defines the ListJuryParticipation RPC.
+  rpc ListJuryParticipation(QueryAllJuryParticipationRequest) returns (QueryAllJuryParticipationResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/jury_participation";
+  }
+
+  // MemberReports Queries the first member report (summary).
+  rpc MemberReports(QueryMemberReportsRequest) returns (QueryMemberReportsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_reports";
+  }
+
+  // MemberWarnings Queries the first warning for a member (summary).
+  rpc MemberWarnings(QueryMemberWarningsRequest) returns (QueryMemberWarningsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_warnings/{member}";
+  }
+
+  // MemberStanding Queries a member's current standing (warnings, active reports, trust tier).
+  rpc MemberStanding(QueryMemberStandingRequest) returns (QueryMemberStandingResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_standing/{member}";
   }
 }
 
@@ -1123,4 +1203,171 @@ message QueryTagBudgetAwardsResponse {
   string recipient = 2;
   string amount = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryGetSentinelActivityRequest defines the QueryGetSentinelActivityRequest message.
+message QueryGetSentinelActivityRequest {
+  string address = 1;
+}
+
+// QueryGetSentinelActivityResponse defines the QueryGetSentinelActivityResponse message.
+message QueryGetSentinelActivityResponse {
+  SentinelActivity sentinel_activity = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllSentinelActivityRequest defines the QueryAllSentinelActivityRequest message.
+message QueryAllSentinelActivityRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllSentinelActivityResponse defines the QueryAllSentinelActivityResponse message.
+message QueryAllSentinelActivityResponse {
+  repeated SentinelActivity sentinel_activity = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QuerySentinelStatusRequest defines the QuerySentinelStatusRequest message.
+message QuerySentinelStatusRequest {
+  string address = 1;
+}
+
+// QuerySentinelStatusResponse defines the QuerySentinelStatusResponse message.
+message QuerySentinelStatusResponse {
+  string address = 1;
+  uint64 bond_status = 2;
+  string current_bond = 3;
+}
+
+// QuerySentinelBondCommitmentRequest defines the QuerySentinelBondCommitmentRequest message.
+message QuerySentinelBondCommitmentRequest {
+  string address = 1;
+}
+
+// QuerySentinelBondCommitmentResponse defines the QuerySentinelBondCommitmentResponse message.
+message QuerySentinelBondCommitmentResponse {
+  string current_bond = 1;
+  string total_committed_bond = 2;
+  string available_bond = 3;
+}
+
+// QueryGetMemberReportRequest defines the QueryGetMemberReportRequest message.
+message QueryGetMemberReportRequest {
+  string member = 1;
+}
+
+// QueryGetMemberReportResponse defines the QueryGetMemberReportResponse message.
+message QueryGetMemberReportResponse {
+  MemberReport member_report = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberReportRequest defines the QueryAllMemberReportRequest message.
+message QueryAllMemberReportRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberReportResponse defines the QueryAllMemberReportResponse message.
+message QueryAllMemberReportResponse {
+  repeated MemberReport member_report = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetMemberWarningRequest defines the QueryGetMemberWarningRequest message.
+message QueryGetMemberWarningRequest {
+  uint64 id = 1;
+}
+
+// QueryGetMemberWarningResponse defines the QueryGetMemberWarningResponse message.
+message QueryGetMemberWarningResponse {
+  MemberWarning member_warning = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllMemberWarningRequest defines the QueryAllMemberWarningRequest message.
+message QueryAllMemberWarningRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllMemberWarningResponse defines the QueryAllMemberWarningResponse message.
+message QueryAllMemberWarningResponse {
+  repeated MemberWarning member_warning = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetGovActionAppealRequest defines the QueryGetGovActionAppealRequest message.
+message QueryGetGovActionAppealRequest {
+  uint64 id = 1;
+}
+
+// QueryGetGovActionAppealResponse defines the QueryGetGovActionAppealResponse message.
+message QueryGetGovActionAppealResponse {
+  GovActionAppeal gov_action_appeal = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllGovActionAppealRequest defines the QueryAllGovActionAppealRequest message.
+message QueryAllGovActionAppealRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllGovActionAppealResponse defines the QueryAllGovActionAppealResponse message.
+message QueryAllGovActionAppealResponse {
+  repeated GovActionAppeal gov_action_appeal = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetJuryParticipationRequest defines the QueryGetJuryParticipationRequest message.
+message QueryGetJuryParticipationRequest {
+  string juror = 1;
+}
+
+// QueryGetJuryParticipationResponse defines the QueryGetJuryParticipationResponse message.
+message QueryGetJuryParticipationResponse {
+  JuryParticipation jury_participation = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllJuryParticipationRequest defines the QueryAllJuryParticipationRequest message.
+message QueryAllJuryParticipationRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllJuryParticipationResponse defines the QueryAllJuryParticipationResponse message.
+message QueryAllJuryParticipationResponse {
+  repeated JuryParticipation jury_participation = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryMemberReportsRequest defines the QueryMemberReportsRequest message.
+message QueryMemberReportsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryMemberReportsResponse defines the QueryMemberReportsResponse message.
+message QueryMemberReportsResponse {
+  string member = 1;
+  uint64 status = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryMemberWarningsRequest defines the QueryMemberWarningsRequest message.
+message QueryMemberWarningsRequest {
+  string member = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryMemberWarningsResponse defines the QueryMemberWarningsResponse message.
+message QueryMemberWarningsResponse {
+  uint64 warning_number = 1;
+  string reason = 2;
+  int64 issued_at = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+}
+
+// QueryMemberStandingRequest defines the QueryMemberStandingRequest message.
+message QueryMemberStandingRequest {
+  string member = 1;
+}
+
+// QueryMemberStandingResponse defines the QueryMemberStandingResponse message.
+message QueryMemberStandingResponse {
+  uint64 warning_count = 1;
+  bool active_report = 2;
+  uint64 trust_tier = 3;
 }

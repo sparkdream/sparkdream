@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestMsgServerDismissFlags(t *testing.T) {
@@ -123,13 +124,15 @@ func TestMsgServerDismissFlags(t *testing.T) {
 	t.Run("demoted sentinel cannot dismiss flags", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 
-		// Create demoted sentinel
-		sentinel := types.SentinelActivity{
+		// Create demoted sentinel in rep.
+		if f.repKeeper.sentinels == nil {
+			f.repKeeper.sentinels = make(map[string]reptypes.SentinelActivity)
+		}
+		f.repKeeper.sentinels[testSentinel] = reptypes.SentinelActivity{
 			Address:     testSentinel,
 			CurrentBond: "100",
-			BondStatus:  types.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED,
+			BondStatus:  reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED,
 		}
-		f.keeper.SentinelActivity.Set(f.ctx, testSentinel, sentinel)
 
 		// Create flag record
 		flag := types.PostFlag{

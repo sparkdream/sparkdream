@@ -17,6 +17,13 @@ This module provides:
 - **Interim work** — fixed-rate delegated duties (jury duty, moderation, expert review)
 - **MasterChef staking rewards** — epoch-based reward pools for member, tag, and project staking
 - **ZK trust tree** — persistent sparse Merkle tree for `x/shield` ZK proof validation
+- **Tag registry** — permissionless `MsgCreateTag` (trust-gated, fee-burned), `Tag`/`ReservedTag` storage, expiry GC
+- **Tag moderation** — `TagReport` + resolve flow
+- **Tag budgets** — `TagBudget` / `TagBudgetAward` reward pools per tag
+- **Sentinel accountability** — generic bond/bond-status/activity record shared across content modules; forum holds the per-action counters
+- **Sentinel reward pool** — SPARK pool funded by forum spam-tax splits and UPHELD appeal bonds; accuracy-weighted epoch distribution (see "Sentinel Accountability")
+- **Gov-action appeal resolution** — Operations-Committee `MsgResolveGovActionAppeal` + EndBlocker timeout path; verdicts drive appellant-bond burn/refund and sentinel bond slash on OVERTURNED
+- **Member accountability** — `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`; salvation counters live on the Member proto
 
 ## Concepts
 
@@ -142,6 +149,86 @@ Persistent KV-based sparse Merkle tree for `x/shield` ZK proof validation:
 - Built incrementally via EndBlocker `MaybeRebuildTrustTree()` (dirty member tracking for O(depth) updates)
 - Exposes `GetTrustTreeRoot()` and `GetPreviousTrustTreeRoot()` for stale-proof tolerance
 
+### Tag Registry
+
+> **Note:** x/forum imports `sparkdream.rep.v1.Tag` and calls into x/rep for existence/validation.
+
+- `Tag` and `ReservedTag` storage lives in x/rep (`proto/sparkdream/rep/v1/tag.proto`, `reserved_tag.proto`).
+- `MsgCreateTag` is permissionless, gated on `TRUST_LEVEL_ESTABLISHED` and the `max_total_tags` ceiling.
+- `TagCreationFee` DREAM is deducted from the creator and fully burned. DREAM is an internal, non-transferable token, so burn is the only viable fee destination — splitting to a community pool isn't a design option.
+- Tags expire after `tag_expiration` of non-use (reserved tags are exempt). Expiry GC runs in the x/rep EndBlocker.
+- `ReservedTag` entries are created by governance/council via `MsgResolveTagReport` (action = RESERVE) and persist outside expiry.
+
+### Tag Moderation
+
+- `MsgReportTag` files a report against a tag; multiple reporters can cosign. `TagReport` tracks `total_bond`, reporters, and review status.
+- `MsgResolveTagReport` (authority) applies one of several actions: ignore, reserve, ban/remove, or restore. When a tag is removed, x/rep calls `ForumKeeper.PruneTagReferences` to strip the tag name from forum posts that reference it.
+
+### Tag Budgets
+
+Per-tag reward pools that incentivize quality posts carrying a specific tag:
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgCreateTagBudget` | Create an inactive pool with optional initial funding, scoped to one tag | Members |
+| `MsgTopUpTagBudget` | Add SPARK to an existing pool | Budget creator |
+| `MsgAwardFromTagBudget` | Pay out from the pool to a forum post's author | Budget creator |
+| `MsgToggleTagBudget` | Enable/disable awards without withdrawing | Budget creator |
+| `MsgWithdrawTagBudget` | Close pool and return remaining SPARK | Budget creator |
+
+Award validation delegates to x/forum via `ForumKeeper.GetPostAuthor` / `GetPostTags` — x/rep verifies the target post exists and carries the budget's tag, but does not own post state.
+
+### Sentinel Accountability
+
+> **Note:** The generic bond/identity lives here (x/rep); forum-specific action counters live in x/forum.
+
+- `sparkdream.rep.v1.SentinelActivity` holds the 8 accountability fields: `address`, `bond_status`, `current_bond`, `total_committed_bond`, `last_active_epoch`, `consecutive_inactive_epochs`, `demotion_cooldown_until`, `cumulative_rewards`.
+- `sparkdream.forum.v1.SentinelActivity` holds 29 forum-specific counters (hides/locks/moves/pins/proposals, per-epoch and cumulative tallies, local cooldowns).
+- `MsgBondSentinel` / `MsgUnbondSentinel` live in x/rep and operate on the rep record only.
+- `SentinelBondStatus` enum lives in x/rep.
+
+Keeper methods exposed to consumers (content modules call these):
+
+| Method | Purpose |
+|--------|---------|
+| `IsSentinel(ctx, addr)` | Boolean existence check |
+| `GetSentinel(ctx, addr)` | Fetch the rep-side record |
+| `GetAvailableBond(ctx, addr)` | Returns `current_bond - total_committed_bond` |
+| `ReserveBond(ctx, addr, amt)` | Increment committed bond; errors if available < amt |
+| `ReleaseBond(ctx, addr, amt)` | Decrement committed bond (saturating) |
+| `SlashBond(ctx, addr, amt, reason)` | Unlock + burn DREAM, decrement both current and committed |
+| `RecordActivity(ctx, addr)` | Stamp last-active-epoch, reset consecutive-inactive counter |
+| `SetBondStatus(ctx, addr, status, cooldown)` | Update bond-status and demotion cooldown |
+
+Forum content-action handlers (hide / lock / move / dismiss-flags) authenticate via `GetSentinel` and manage commitment via `ReserveBond` / `ReleaseBond` / `SlashBond`; they still update their own forum-side counters locally.
+
+**Reward distribution.** Active sentinels earn from an x/rep-owned SPARK reward pool (`uspark`) fed by 50% of forum non-member spam/edit fees and 50% of `UPHELD` appeal bonds (remainder burned); pool capped at `max_sentinel_reward_pool` with overflow burn per `sentinel_reward_pool_overflow_burn_ratio`. Every `sentinel_reward_epoch_blocks` the rep EndBlocker distributes the pool pro-rata on an accuracy-weighted score (`accuracy_rate * sqrt(epoch_appeals_resolved)` plus small bonuses per hide/lock/move) to sentinels that clear the eligibility gates (`min_appeals_for_accuracy`, `min_epoch_activity_for_reward`, `min_appeal_rate`, `min_sentinel_accuracy`, not `DEMOTED`). Payouts update `cumulative_rewards` + `last_reward_epoch` on the rep-side record and forum-side per-epoch counters are reset for all sentinels. See [docs/x-rep-spec.md](../../docs/x-rep-spec.md#sentinel-rewards) for the full spec.
+
+### Member Accountability
+
+> **Note:** Five messages, four state objects.
+
+| Object | Description |
+|--------|-------------|
+| `MemberReport` | Community report with evidence post IDs, cosigners, optional defense, recommended `GovActionType` |
+| `MemberWarning` | Issued as a resolution outcome; warning count feeds auto-demotion threshold |
+| `GovActionAppeal` | Appeal filed against a governance action (warning, demotion, zeroing, tag removal, forum pause, thread lock/move) |
+| `JuryParticipation` | Per-juror history (assigned / voted / timeouts / excluded) |
+
+Messages:
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgReportMember` | File a member report with recommended action | Members |
+| `MsgCosignMemberReport` | Cosign an existing report (threshold gates escalation) | Members |
+| `MsgDefendMemberReport` | Reported member submits defense | Reported member |
+| `MsgResolveMemberReport` | Authority resolves (warn / demote / zero / dismiss) | Governance / sentinel |
+| `MsgAppealGovAction` | Appeal an applied action; creates appeal initiative | Affected member |
+
+Member salvation state is absorbed into the `Member` proto (`epoch_salvations`, `last_salvation_epoch`) rather than a standalone message.
+
+Enums: `GovActionType`, `MemberReportStatus`, `GovAppealStatus`.
+
 ## State
 
 ### Objects
@@ -162,6 +249,16 @@ Persistent KV-based sparse Merkle tree for `x/shield` ZK proof validation:
 | `MemberStakePool` | `stake/member_pool/{address}` | Aggregate member stake pool for rewards |
 | `TagStakePool` | `stake/tag_pool/{tag}` | Aggregate tag stake pool for rewards |
 | `ProjectStakeInfo` | `stake/project_info/{id}` | Project-level stake aggregation |
+| `Tag` | `tag/value/{name}` | Tag registry entry with usage/expiry metadata |
+| `ReservedTag` | `reserved_tag/value/{name}` | Governance-reserved tag with authority |
+| `TagReport` | `tagreport/value/{name}` | Pending report against a tag |
+| `TagBudget` | `tagbudget/value/{id}` | Reward pool scoped to a single tag |
+| `TagBudgetAward` | `tagbudgetaward/value/{id}` | Award record emitted from a `TagBudget` |
+| `SentinelActivity` | `sentinel/value/{address}` | Generic sentinel record: bond, status, activity stamps |
+| `MemberReport` | `memberreport/value/{address}` | Community report against a member (with cosigners, defense) |
+| `MemberWarning` | `memberwarning/value/{id}` | Warning issued to a member |
+| `GovActionAppeal` | `govactionappeal/value/{id}` | Appeal against a governance action |
+| `JuryParticipation` | `jurypart/value/{address}` | Jury service participation record |
 
 ### Indexes
 
@@ -255,6 +352,41 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 | `MsgApproveInterim` | Approve completion | Authority |
 | `MsgAbandonInterim` | Abandon assigned interim | Assignee |
 | `MsgCompleteInterim` | Finalize, mint rewards, grant reputation | Authority |
+
+### Tag Registry and Moderation
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgCreateTag` | Create a new tag in the shared registry (trust-gated, fee-burned) | ESTABLISHED+ members |
+| `MsgReportTag` | Report a tag as problematic | Members |
+| `MsgResolveTagReport` | Resolve report (ignore / reserve / remove / restore) | Authority |
+
+### Tag Budgets
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgCreateTagBudget` | Create a reward pool for quality posts with a specific tag | Members |
+| `MsgTopUpTagBudget` | Add SPARK to an existing pool | Budget creator |
+| `MsgAwardFromTagBudget` | Award SPARK to a forum post's author | Budget creator |
+| `MsgToggleTagBudget` | Enable/disable awards without withdrawing | Budget creator |
+| `MsgWithdrawTagBudget` | Close pool, return remaining SPARK | Budget creator |
+
+### Sentinel Bonding
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgBondSentinel` | Stake DREAM to register as an accountable sentinel | Members |
+| `MsgUnbondSentinel` | Withdraw sentinel bond (subject to committed/pending constraints) | Sentinels |
+
+### Member Accountability
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgReportMember` | File a report against a member | Members |
+| `MsgCosignMemberReport` | Cosign an existing report (threshold for escalation) | Members |
+| `MsgDefendMemberReport` | Reported member submits defense | Reported member |
+| `MsgResolveMemberReport` | Apply a resolution (warn / demote / zero / dismiss) | Authority |
+| `MsgAppealGovAction` | Appeal a governance action (creates appeal initiative) | Affected member |
 
 ### Parameter Updates
 
@@ -459,7 +591,7 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `x/bank` | Yes | DREAM token operations, SPARK transfers |
 | `x/commons` | Yes | Committee/council authorization checks |
 | `x/season` | No | Current season number for reputation resets |
-| `x/forum` | No | Tag registry validation via `TagKeeper` interface |
+| `x/forum` | No | Narrow `ForumKeeper` surface (`PruneTagReferences`, `GetPostAuthor`, `GetPostTags`) for tag moderation + tag-budget award validation; x/rep now owns tag storage itself |
 
 ### Shield-Aware Messages
 
@@ -468,7 +600,7 @@ Only `MsgCreateChallenge` is shield-compatible, enabling anonymous challenge cre
 ### Cyclic Dependency Breaking
 
 Cross-module keepers are wired manually in `app.go` via shared `lateKeepers` struct:
-- `SetTagKeeper()` — forum ↔ rep cycle
+- `SetForumKeeper()` — rep tag-moderation / tag-budget flow calls back into forum for post lookup + tag pruning
 - `SetSeasonKeeper()` — season ↔ rep cycle
 
 ## EndBlocker

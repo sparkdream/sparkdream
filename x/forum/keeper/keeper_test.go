@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"cosmossdk.io/core/address"
@@ -75,7 +76,14 @@ type mockBankKeeper struct {
 	MintCoinsFn                    func(ctx context.Context, moduleName string, amt sdk.Coins) error
 	// Track calls for assertion
 	SendCoinsFromAccountToModuleCalls []forumSendCoinsCall
+	SendCoinsFromModuleToModuleCalls  []forumModToModCall
 	BurnCoinsCalls                    []forumBurnCoinsCall
+}
+
+type forumModToModCall struct {
+	SenderModule    string
+	RecipientModule string
+	Amt             sdk.Coins
 }
 
 type forumSendCoinsCall struct {
@@ -123,6 +131,11 @@ func (m *mockBankKeeper) SendCoinsFromModuleToAccount(ctx context.Context, sende
 }
 
 func (m *mockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error {
+	m.SendCoinsFromModuleToModuleCalls = append(m.SendCoinsFromModuleToModuleCalls, forumModToModCall{
+		SenderModule:    senderModule,
+		RecipientModule: recipientModule,
+		Amt:             amt,
+	})
 	if m.SendCoinsFromModuleToModuleFn != nil {
 		return m.SendCoinsFromModuleToModuleFn(ctx, senderModule, recipientModule, amt)
 	}
@@ -157,6 +170,7 @@ type mockRepKeeper struct {
 	nextInitiativeID                uint64
 	tags                            map[string]reptypes.Tag
 	reservedTags                    map[string]reptypes.ReservedTag
+	sentinels                       map[string]reptypes.SentinelActivity
 }
 
 func (m *mockRepKeeper) TagExists(_ context.Context, name string) (bool, error) {
@@ -188,11 +202,6 @@ func (m *mockRepKeeper) IncrementTagUsage(_ context.Context, name string, ts int
 		m.tags = make(map[string]reptypes.Tag)
 	}
 	m.tags[name] = t
-	return nil
-}
-
-func (m *mockRepKeeper) RemoveTag(_ context.Context, name string) error {
-	delete(m.tags, name)
 	return nil
 }
 
@@ -264,10 +273,6 @@ func (m *mockRepKeeper) DemoteMember(ctx context.Context, memberAddr sdk.AccAddr
 	return nil
 }
 
-func (m *mockRepKeeper) SlashReputation(ctx context.Context, memberAddr sdk.AccAddress, penaltyRate math.LegacyDec, tags []string, reason string) error {
-	return nil
-}
-
 func (m *mockRepKeeper) CreateAppealInitiative(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error) {
 	if m.CreateAppealInitiativeFn != nil {
 		return m.CreateAppealInitiativeFn(ctx, initiativeType, payload, deadline)
@@ -280,20 +285,12 @@ func (m *mockRepKeeper) GetContentConviction(ctx context.Context, targetType rep
 	return math.LegacyZeroDec(), nil
 }
 
-func (m *mockRepKeeper) GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error) {
-	return nil, nil
-}
-
 func (m *mockRepKeeper) CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error) {
 	return 1, nil
 }
 
 func (m *mockRepKeeper) SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error {
 	return nil
-}
-
-func (m *mockRepKeeper) GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error) {
-	return reptypes.Stake{}, reptypes.ErrAuthorBondNotFound
 }
 
 func (m *mockRepKeeper) ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error {
@@ -314,6 +311,59 @@ func (m *mockRepKeeper) RemoveContentInitiativeLink(ctx context.Context, initiat
 	if m.RemoveContentInitiativeLinkFn != nil {
 		return m.RemoveContentInitiativeLinkFn(ctx, initiativeID, targetType, targetID)
 	}
+	return nil
+}
+
+func (m *mockRepKeeper) GetSentinel(_ context.Context, addr string) (reptypes.SentinelActivity, error) {
+	sa, ok := m.sentinels[addr]
+	if !ok {
+		return reptypes.SentinelActivity{}, reptypes.ErrSentinelNotFound
+	}
+	return sa, nil
+}
+
+func (m *mockRepKeeper) ReserveBond(_ context.Context, addr string, amount math.Int) error {
+	sa, ok := m.sentinels[addr]
+	if !ok {
+		return reptypes.ErrSentinelNotFound
+	}
+	current, _ := math.NewIntFromString(sa.CurrentBond)
+	committed, _ := math.NewIntFromString(sa.TotalCommittedBond)
+	avail := current.Sub(committed)
+	if avail.LT(amount) {
+		return reptypes.ErrInsufficientSentinelBond
+	}
+	sa.TotalCommittedBond = committed.Add(amount).String()
+	m.sentinels[addr] = sa
+	return nil
+}
+
+func (m *mockRepKeeper) RecordActivity(_ context.Context, addr string) error {
+	sa, ok := m.sentinels[addr]
+	if !ok {
+		return nil
+	}
+	sa.ConsecutiveInactiveEpochs = 0
+	m.sentinels[addr] = sa
+	return nil
+}
+
+func (m *mockRepKeeper) SetBondStatus(_ context.Context, addr string, status reptypes.SentinelBondStatus, cooldownUntil int64) error {
+	sa, ok := m.sentinels[addr]
+	if !ok {
+		return fmt.Errorf("sentinel %s not found", addr)
+	}
+	sa.BondStatus = status
+	sa.DemotionCooldownUntil = cooldownUntil
+	m.sentinels[addr] = sa
+	return nil
+}
+
+func (m *mockRepKeeper) GetSalvationCounters(_ context.Context, _ string) (uint32, int64, error) {
+	return 0, 0, nil
+}
+
+func (m *mockRepKeeper) UpdateSalvationCounters(_ context.Context, _ string, _ uint32, _ int64) error {
 	return nil
 }
 
@@ -550,24 +600,33 @@ func (f *fixture) createTestBounty(t *testing.T, creator string, threadId uint64
 	return bounty
 }
 
-// Helper to create a test sentinel
+// Helper to create a test sentinel. Registers both the forum-local counter
+// record and (via the mock rep keeper) the accountability/bond record owned
+// by x/rep.
 func (f *fixture) createTestSentinel(t *testing.T, addr string, bond string) types.SentinelActivity {
 	t.Helper()
 	sentinel := types.SentinelActivity{
-		Address:            addr,
-		CurrentBond:        bond,
-		TotalCommittedBond: "0",
-		BondStatus:         types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
-		TotalHides:         0,
-		EpochHides:         0,
-		TotalLocks:         0,
-		EpochLocks:         0,
-		TotalMoves:         0,
-		EpochMoves:         0,
+		Address:    addr,
+		TotalHides: 0,
+		EpochHides: 0,
+		TotalLocks: 0,
+		EpochLocks: 0,
+		TotalMoves: 0,
+		EpochMoves: 0,
 	}
 
 	if err := f.keeper.SentinelActivity.Set(f.ctx, addr, sentinel); err != nil {
 		t.Fatalf("failed to create test sentinel: %v", err)
+	}
+
+	if f.repKeeper.sentinels == nil {
+		f.repKeeper.sentinels = make(map[string]reptypes.SentinelActivity)
+	}
+	f.repKeeper.sentinels[addr] = reptypes.SentinelActivity{
+		Address:            addr,
+		CurrentBond:        bond,
+		TotalCommittedBond: "0",
+		BondStatus:         reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
 	}
 
 	return sentinel

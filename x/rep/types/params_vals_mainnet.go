@@ -25,3 +25,9 @@ func getTrustLevelConfig() TrustLevelConfig {
 		CoreInvitationCredits:        10,
 	}
 }
+
+// getSentinelRewardEpochBlocks returns the cadence at which the sentinel SPARK
+// reward pool is drained on mainnet (~1 day at 6s blocks).
+func getSentinelRewardEpochBlocks() uint64 {
+	return 14400
+}

@@ -7,6 +7,7 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	storetypes "cosmossdk.io/store/types"
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -27,6 +28,15 @@ func (app *App) ExportAppStateAndValidators(forZeroHeight bool, jailAllowedAddrs
 	if forZeroHeight {
 		height = 0
 		app.prepForZeroHeightGenesis(ctx, jailAllowedAddrs)
+	}
+
+	// Distribution's ExportGenesis panics if FeePool is missing from state
+	// (x/distribution/keeper/genesis.go:140). Seed it with an empty pool here
+	// so an unclean shutdown or corrupted application.db doesn't take down
+	// the entire export path — the rest of the genesis can still be written
+	// and the operator can decide what to do about the missing community pool.
+	if _, ferr := app.DistrKeeper.FeePool.Get(ctx); ferr != nil {
+		_ = app.DistrKeeper.FeePool.Set(ctx, distrtypes.FeePool{})
 	}
 
 	genState, err := app.ModuleManager.ExportGenesisForModules(ctx, app.appCodec, modulesToExport)

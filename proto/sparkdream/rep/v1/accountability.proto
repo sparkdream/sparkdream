@@ -1,0 +1,34 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+option go_package = "sparkdream/x/rep/types";
+
+// GovActionType represents the type of governance action.
+enum GovActionType {
+  GOV_ACTION_TYPE_UNSPECIFIED = 0;
+  GOV_ACTION_TYPE_WARNING = 1;
+  GOV_ACTION_TYPE_DEMOTION = 2;
+  GOV_ACTION_TYPE_ZEROING = 3;
+  GOV_ACTION_TYPE_TAG_REMOVAL = 4;
+  GOV_ACTION_TYPE_FORUM_PAUSE = 5;
+  GOV_ACTION_TYPE_THREAD_LOCK = 6;
+  GOV_ACTION_TYPE_THREAD_MOVE = 7;
+}
+
+// MemberReportStatus represents the status of a member report.
+enum MemberReportStatus {
+  MEMBER_REPORT_STATUS_UNSPECIFIED = 0;
+  MEMBER_REPORT_STATUS_PENDING = 1;
+  MEMBER_REPORT_STATUS_ESCALATED = 2;
+  MEMBER_REPORT_STATUS_RESOLVED = 3;
+  MEMBER_REPORT_STATUS_META_APPEALED = 4;
+}
+
+// GovAppealStatus represents the status of a governance appeal.
+enum GovAppealStatus {
+  GOV_APPEAL_STATUS_UNSPECIFIED = 0;
+  GOV_APPEAL_STATUS_PENDING = 1;
+  GOV_APPEAL_STATUS_UPHELD = 2;
+  GOV_APPEAL_STATUS_OVERTURNED = 3;
+  GOV_APPEAL_STATUS_TIMEOUT = 4;
+}

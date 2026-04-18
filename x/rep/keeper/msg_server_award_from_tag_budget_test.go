@@ -13,9 +13,27 @@ import (
 )
 
 // mockForumKeeper implements types.ForumKeeper for award-from-tag-budget tests.
+// Tests for the gov-action appeal resolution flow populate the extra maps
+// (actionSentinels, upheldCalls, overturnedCalls) to observe the adapter
+// interactions; award-from-tag-budget tests leave them nil and only use
+// authors / tags.
 type mockForumKeeper struct {
 	authors map[uint64]string
 	tags    map[uint64][]string
+	// Stage C hooks (populated by appeal-resolve tests):
+	actionSentinels  map[string]string // key=<actionType>:<actionTarget>
+	upheldCalls      []string          // records "<actionType>:<actionTarget>"
+	overturnedCalls  []string
+	upheldError      error
+	overturnedError  error
+	getSentinelError error
+	// Stage D hooks (populated by sentinel-reward distribution tests):
+	counters  map[string]types.SentinelActivityCounters
+	resetAddrs []string
+}
+
+func mockForumKey(actionType types.GovActionType, target string) string {
+	return fmt.Sprintf("%d:%s", int32(actionType), target)
 }
 
 func (m *mockForumKeeper) PruneTagReferences(_ context.Context, _ string) error { return nil }
@@ -34,6 +52,53 @@ func (m *mockForumKeeper) GetPostTags(_ context.Context, postID uint64) ([]strin
 		return nil, fmt.Errorf("post %d not found", postID)
 	}
 	return t, nil
+}
+
+func (m *mockForumKeeper) GetActionSentinel(_ context.Context, actionType types.GovActionType, actionTarget string) (string, error) {
+	if m.getSentinelError != nil {
+		return "", m.getSentinelError
+	}
+	if m.actionSentinels == nil {
+		return "", nil
+	}
+	return m.actionSentinels[mockForumKey(actionType, actionTarget)], nil
+}
+
+func (m *mockForumKeeper) RecordSentinelActionUpheld(_ context.Context, actionType types.GovActionType, actionTarget string) error {
+	m.upheldCalls = append(m.upheldCalls, mockForumKey(actionType, actionTarget))
+	return m.upheldError
+}
+
+func (m *mockForumKeeper) RecordSentinelActionOverturned(_ context.Context, actionType types.GovActionType, actionTarget string) error {
+	m.overturnedCalls = append(m.overturnedCalls, mockForumKey(actionType, actionTarget))
+	return m.overturnedError
+}
+
+func (m *mockForumKeeper) GetSentinelActivityCounters(_ context.Context, addr string) (types.SentinelActivityCounters, error) {
+	if m.counters == nil {
+		return types.SentinelActivityCounters{}, nil
+	}
+	c, ok := m.counters[addr]
+	if !ok {
+		return types.SentinelActivityCounters{}, nil
+	}
+	return c, nil
+}
+
+func (m *mockForumKeeper) ResetSentinelEpochCounters(_ context.Context, addr string) error {
+	m.resetAddrs = append(m.resetAddrs, addr)
+	if m.counters != nil {
+		if c, ok := m.counters[addr]; ok {
+			c.EpochHides = 0
+			c.EpochLocks = 0
+			c.EpochMoves = 0
+			c.EpochPins = 0
+			c.EpochAppealsFiled = 0
+			c.EpochAppealsResolved = 0
+			m.counters[addr] = c
+		}
+	}
+	return nil
 }
 
 func TestMsgServerAwardFromTagBudget(t *testing.T) {

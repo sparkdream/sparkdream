@@ -8,6 +8,8 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*types.MsgMoveThreadResponse, error) {
@@ -18,7 +20,6 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// Check forum_paused param
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		params = types.DefaultParams()
@@ -27,13 +28,11 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		return nil, types.ErrForumPaused
 	}
 
-	// Load post
 	post, err := k.Post.Get(ctx, msg.RootId)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("thread %d not found", msg.RootId))
 	}
 
-	// Check this is a root post
 	if post.ParentId != 0 {
 		return nil, types.ErrNotRootPost
 	}
@@ -42,23 +41,20 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		return nil, errorsmod.Wrap(types.ErrCategoryNotFound, fmt.Sprintf("category %d not found", msg.NewCategoryId))
 	}
 
-	// Check not moving to same category
 	if post.CategoryId == msg.NewCategoryId {
 		return nil, errorsmod.Wrap(types.ErrInvalidCategoryId, "thread is already in this category")
 	}
 
 	originalCategoryId := post.CategoryId
 
-	// Check if sender is operations committee or sentinel
 	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
+	var bondSnapshot string
 	if !isGovAuthority {
-		// Check moderation_paused param for sentinels
 		if params.ModerationPaused {
 			return nil, types.ErrModerationPaused
 		}
 
-		// Sentinels cannot move threads with reserved tags
 		if k.repKeeper != nil {
 			for _, tag := range post.Tags {
 				reserved, rerr := k.repKeeper.IsReservedTag(ctx, tag)
@@ -69,44 +65,44 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 			}
 		}
 
-		// Load sentinel activity
-		sentinelActivity, err := k.SentinelActivity.Get(ctx, msg.Creator)
+		if k.repKeeper == nil {
+			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
+		}
+		sa, err := k.repKeeper.GetSentinel(ctx, msg.Creator)
 		if err != nil {
 			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
 		}
+		bondSnapshot = sa.CurrentBond
 
-		// Check bond status
-		if sentinelActivity.BondStatus == types.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED {
+		if sa.BondStatus == reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED {
 			return nil, types.ErrSentinelDemoted
 		}
 
-		// Check cooldown
-		if sentinelActivity.OverturnCooldownUntil > now {
-			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
-				"cooldown until %d", sentinelActivity.OverturnCooldownUntil)
+		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
+		if err != nil {
+			local = types.SentinelActivity{Address: msg.Creator}
 		}
-
-		// Check move limit
-		if sentinelActivity.EpochMoves >= types.DefaultMaxSentinelMovesPerEpoch {
+		if local.OverturnCooldownUntil > now {
+			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
+				"cooldown until %d", local.OverturnCooldownUntil)
+		}
+		if local.EpochMoves >= types.DefaultMaxSentinelMovesPerEpoch {
 			return nil, types.ErrMoveLimitExceeded
 		}
 
-		// Reason required for sentinels
 		if msg.Reason == "" {
 			return nil, types.ErrMoveReasonRequired
 		}
 
-		// Get backing for snapshot
 		backing := k.GetSentinelBacking(ctx, msg.Creator)
 
-		// Create move record for appeal tracking
 		moveRecord := types.ThreadMoveRecord{
 			RootId:                  msg.RootId,
 			Sentinel:                msg.Creator,
 			OriginalCategoryId:      originalCategoryId,
 			NewCategoryId:           msg.NewCategoryId,
 			MovedAt:                 now,
-			SentinelBondSnapshot:    sentinelActivity.CurrentBond,
+			SentinelBondSnapshot:    bondSnapshot,
 			SentinelBackingSnapshot: backing.String(),
 			MoveReason:              msg.Reason,
 			AppealPending:           false,
@@ -117,23 +113,21 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 			return nil, errorsmod.Wrap(err, "failed to store move record")
 		}
 
-		// Update sentinel activity
-		sentinelActivity.TotalMoves++
-		sentinelActivity.EpochMoves++
-
-		if err := k.SentinelActivity.Set(ctx, msg.Creator, sentinelActivity); err != nil {
+		local.TotalMoves++
+		local.EpochMoves++
+		if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 		}
+
+		_ = k.repKeeper.RecordActivity(ctx, msg.Creator)
 	}
 
-	// Update post category
 	post.CategoryId = msg.NewCategoryId
 
 	if err := k.Post.Set(ctx, msg.RootId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
 
-	// Emit event
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"thread_moved",

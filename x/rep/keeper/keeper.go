@@ -90,6 +90,9 @@ type Keeper struct {
 	SeasonMinted                 collections.Item[string] // total DREAM minted this season (as Int string)
 	SeasonBurned                 collections.Item[string] // total DREAM burned this season (as Int string)
 	SeasonInitiativeRewardsMinted collections.Item[string] // DREAM minted via initiative completion this season (as Int string)
+	EpochMintedEpoch              collections.Item[uint64] // tracked epoch for the per-epoch mint counter
+	EpochMintedAmount             collections.Item[string] // DREAM minted during tracked epoch (as Int string)
+	DecayLastProcessedEpoch       collections.Item[uint64] // last epoch for which bulk DREAM decay has been applied
 
 	// Tag registry (shared across content modules: forum, collect, rep/initiatives)
 	Tag         collections.Map[string, types.Tag]
@@ -101,6 +104,17 @@ type Keeper struct {
 	TagBudgetSeq      collections.Sequence
 	TagBudgetAward    collections.Map[uint64, types.TagBudgetAward]
 	TagBudgetAwardSeq collections.Sequence
+
+	// Sentinel accountability
+	SentinelActivity collections.Map[string, types.SentinelActivity]
+
+	// Accountability
+	JuryParticipation  collections.Map[string, types.JuryParticipation]
+	MemberReport       collections.Map[string, types.MemberReport]
+	MemberWarning      collections.Map[uint64, types.MemberWarning]
+	MemberWarningSeq   collections.Sequence
+	GovActionAppeal    collections.Map[uint64, types.GovActionAppeal]
+	GovActionAppealSeq collections.Sequence
 }
 
 func NewKeeper(
@@ -208,6 +222,9 @@ func NewKeeper(
 		SeasonMinted:                   collections.NewItem(sb, types.SeasonMintedKey, "seasonMinted", collections.StringValue),
 		SeasonBurned:                   collections.NewItem(sb, types.SeasonBurnedKey, "seasonBurned", collections.StringValue),
 		SeasonInitiativeRewardsMinted:  collections.NewItem(sb, types.SeasonInitiativeRewardsMintedKey, "seasonInitiativeRewards", collections.StringValue),
+		EpochMintedEpoch:               collections.NewItem(sb, types.EpochMintedEpochKey, "epochMintedEpoch", collections.Uint64Value),
+		EpochMintedAmount:              collections.NewItem(sb, types.EpochMintedAmountKey, "epochMintedAmount", collections.StringValue),
+		DecayLastProcessedEpoch:        collections.NewItem(sb, types.DecayLastProcessedEpochKey, "decayLastProcessedEpoch", collections.Uint64Value),
 
 		// Tag registry
 		Tag:         collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[types.Tag](cdc)),
@@ -219,6 +236,17 @@ func NewKeeper(
 		TagBudgetSeq:      collections.NewSequence(sb, types.TagBudgetCountKey, "tagBudgetSequence"),
 		TagBudgetAward:    collections.NewMap(sb, types.TagBudgetAwardKey, "tagBudgetAward", collections.Uint64Key, codec.CollValue[types.TagBudgetAward](cdc)),
 		TagBudgetAwardSeq: collections.NewSequence(sb, types.TagBudgetAwardCountKey, "tagBudgetAwardSequence"),
+
+		// Sentinel accountability
+		SentinelActivity: collections.NewMap(sb, types.SentinelActivityKey, "sentinelActivity", collections.StringKey, codec.CollValue[types.SentinelActivity](cdc)),
+
+		// Accountability
+		JuryParticipation:  collections.NewMap(sb, types.JuryParticipationKey, "juryParticipation", collections.StringKey, codec.CollValue[types.JuryParticipation](cdc)),
+		MemberReport:       collections.NewMap(sb, types.MemberReportKey, "memberReport", collections.StringKey, codec.CollValue[types.MemberReport](cdc)),
+		MemberWarning:      collections.NewMap(sb, types.MemberWarningKey, "memberWarning", collections.Uint64Key, codec.CollValue[types.MemberWarning](cdc)),
+		MemberWarningSeq:   collections.NewSequence(sb, types.MemberWarningCountKey, "memberWarningSequence"),
+		GovActionAppeal:    collections.NewMap(sb, types.GovActionAppealKey, "govActionAppeal", collections.Uint64Key, codec.CollValue[types.GovActionAppeal](cdc)),
+		GovActionAppealSeq: collections.NewSequence(sb, types.GovActionAppealCountKey, "govActionAppealSequence"),
 	}
 	schema, err := sb.Build()
 	if err != nil {

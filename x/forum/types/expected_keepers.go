@@ -78,7 +78,6 @@ type RepKeeper interface {
 	// Member moderation
 	ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error
 	DemoteMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error
-	SlashReputation(ctx context.Context, memberAddr sdk.AccAddress, penaltyRate math.LegacyDec, tags []string, reason string) error
 
 	// Appeal initiatives
 	// CreateAppealInitiative creates a special initiative for jury-based appeal resolution.
@@ -90,10 +89,8 @@ type RepKeeper interface {
 
 	// Content conviction staking & author bonds
 	GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
-	GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error)
 	CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error)
 	SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error
-	GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error)
 
 	// Initiative reference validation and linking for conviction propagation
 	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
@@ -105,6 +102,15 @@ type RepKeeper interface {
 	IsReservedTag(ctx context.Context, name string) (bool, error)
 	GetTag(ctx context.Context, name string) (reptypes.Tag, error)
 	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
-	RemoveTag(ctx context.Context, name string) error
 	SetReservedTag(ctx context.Context, rt reptypes.ReservedTag) error
+
+	// Salvation counters (stored on rep's Member record)
+	GetSalvationCounters(ctx context.Context, addr string) (epochSalvations uint32, lastEpoch int64, err error)
+	UpdateSalvationCounters(ctx context.Context, addr string, epochSalvations uint32, lastEpoch int64) error
+
+	// Sentinel accountability (owned by x/rep)
+	GetSentinel(ctx context.Context, addr string) (reptypes.SentinelActivity, error)
+	ReserveBond(ctx context.Context, addr string, amount math.Int) error
+	RecordActivity(ctx context.Context, addr string) error
+	SetBondStatus(ctx context.Context, addr string, status reptypes.SentinelBondStatus, cooldownUntil int64) error
 }

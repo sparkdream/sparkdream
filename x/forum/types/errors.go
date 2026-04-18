@@ -126,8 +126,6 @@ var (
 	ErrNotReplyInThread      = errors.Register(ModuleName, 1760, "post is not a reply in the bounty thread")
 	ErrBountyFullyAwarded    = errors.Register(ModuleName, 1761, "bounty has been fully awarded")
 
-	// Tag budget errors (1800-1849) moved to x/rep.
-
 	// Flag errors (1850-1899)
 	ErrAlreadyFlagged     = errors.Register(ModuleName, 1850, "already flagged this post")
 	ErrFlagNotFound       = errors.Register(ModuleName, 1851, "flag record not found")

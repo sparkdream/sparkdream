@@ -548,6 +548,111 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		repsimulation.SimulateMsgWithdrawTagBudget(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
+	const (
+		opWeightMsgBondSentinel          = "op_weight_msg_rep"
+		defaultWeightMsgBondSentinel int = 100
+	)
+	var weightMsgBondSentinel int
+	simState.AppParams.GetOrGenerate(opWeightMsgBondSentinel, &weightMsgBondSentinel, nil,
+		func(_ *rand.Rand) {
+			weightMsgBondSentinel = defaultWeightMsgBondSentinel
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgBondSentinel,
+		repsimulation.SimulateMsgBondSentinel(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgUnbondSentinel          = "op_weight_msg_rep"
+		defaultWeightMsgUnbondSentinel int = 100
+	)
+	var weightMsgUnbondSentinel int
+	simState.AppParams.GetOrGenerate(opWeightMsgUnbondSentinel, &weightMsgUnbondSentinel, nil,
+		func(_ *rand.Rand) {
+			weightMsgUnbondSentinel = defaultWeightMsgUnbondSentinel
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUnbondSentinel,
+		repsimulation.SimulateMsgUnbondSentinel(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgReportMember          = "op_weight_msg_rep"
+		defaultWeightMsgReportMember int = 100
+	)
+	var weightMsgReportMember int
+	simState.AppParams.GetOrGenerate(opWeightMsgReportMember, &weightMsgReportMember, nil,
+		func(_ *rand.Rand) {
+			weightMsgReportMember = defaultWeightMsgReportMember
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgReportMember,
+		repsimulation.SimulateMsgReportMember(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgCosignMemberReport          = "op_weight_msg_rep"
+		defaultWeightMsgCosignMemberReport int = 100
+	)
+	var weightMsgCosignMemberReport int
+	simState.AppParams.GetOrGenerate(opWeightMsgCosignMemberReport, &weightMsgCosignMemberReport, nil,
+		func(_ *rand.Rand) {
+			weightMsgCosignMemberReport = defaultWeightMsgCosignMemberReport
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCosignMemberReport,
+		repsimulation.SimulateMsgCosignMemberReport(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgResolveMemberReport          = "op_weight_msg_rep"
+		defaultWeightMsgResolveMemberReport int = 100
+	)
+	var weightMsgResolveMemberReport int
+	simState.AppParams.GetOrGenerate(opWeightMsgResolveMemberReport, &weightMsgResolveMemberReport, nil,
+		func(_ *rand.Rand) {
+			weightMsgResolveMemberReport = defaultWeightMsgResolveMemberReport
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgResolveMemberReport,
+		repsimulation.SimulateMsgResolveMemberReport(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgDefendMemberReport          = "op_weight_msg_rep"
+		defaultWeightMsgDefendMemberReport int = 100
+	)
+	var weightMsgDefendMemberReport int
+	simState.AppParams.GetOrGenerate(opWeightMsgDefendMemberReport, &weightMsgDefendMemberReport, nil,
+		func(_ *rand.Rand) {
+			weightMsgDefendMemberReport = defaultWeightMsgDefendMemberReport
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgDefendMemberReport,
+		repsimulation.SimulateMsgDefendMemberReport(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgAppealGovAction          = "op_weight_msg_rep"
+		defaultWeightMsgAppealGovAction int = 100
+	)
+	var weightMsgAppealGovAction int
+	simState.AppParams.GetOrGenerate(opWeightMsgAppealGovAction, &weightMsgAppealGovAction, nil,
+		func(_ *rand.Rand) {
+			weightMsgAppealGovAction = defaultWeightMsgAppealGovAction
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgAppealGovAction,
+		repsimulation.SimulateMsgAppealGovAction(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
 	return operations
 }
 

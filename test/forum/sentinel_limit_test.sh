@@ -146,10 +146,10 @@ expect_tx_failure() {
 echo "--- PREREQUISITE: Ensure sentinel1 is bonded ---"
 
 SENTINEL_BONDED=false
-SENTINEL_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_ACTIVITY=$($BINARY query rep get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
 if echo "$SENTINEL_ACTIVITY" | grep -q "not found"; then
     echo "  Sentinel1 not bonded, attempting to bond..."
-    TX_RES=$($BINARY tx forum bond-sentinel \
+    TX_RES=$($BINARY tx rep bond-sentinel \
         "100000000" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \
@@ -180,7 +180,7 @@ echo "--- TEST 1: ErrAlreadySentinel - Bond when already bonded ---"
 
 if [ "$SENTINEL_BONDED" = true ]; then
     echo "  Sentinel1 is bonded, attempting to bond again..."
-    TX_RES=$($BINARY tx forum bond-sentinel \
+    TX_RES=$($BINARY tx rep bond-sentinel \
         "100000000" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \
@@ -266,7 +266,7 @@ fi
 echo "--- TEST 4: ErrSentinelNotFound - Query non-existent sentinel ---"
 
 # Use poster1 address (not a sentinel) for the query
-QUERY_RESULT=$($BINARY query forum get-sentinel-activity $POSTER1_ADDR --output json 2>&1)
+QUERY_RESULT=$($BINARY query rep get-sentinel-activity $POSTER1_ADDR --output json 2>&1)
 
 if echo "$QUERY_RESULT" | grep -qi "not found\|sentinel.*not found"; then
     echo "  Query correctly returned not-found for non-sentinel"
@@ -290,7 +290,7 @@ fi
 echo "--- TEST 5: ErrBondAmountTooSmall - Bond below minimum ---"
 
 echo "  Attempting to bond 1 udream (below minimum 500)..."
-TX_RES=$($BINARY tx forum bond-sentinel \
+TX_RES=$($BINARY tx rep bond-sentinel \
     "1" \
     --from sentinel2 \
     --chain-id $CHAIN_ID \
@@ -608,7 +608,7 @@ fi
 echo "--- TEST 11: ErrNotSentinel - Unbond when not a sentinel ---"
 
 echo "  Attempting to unbond as poster1 (not a sentinel)..."
-TX_RES=$($BINARY tx forum unbond-sentinel \
+TX_RES=$($BINARY tx rep unbond-sentinel \
     "50000000" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -673,7 +673,7 @@ echo "--- TEST 14: Sentinel bond status query verification ---"
 
 if [ "$SENTINEL_BONDED" = true ]; then
     echo "  Querying sentinel bond commitment for sentinel1..."
-    BOND_COMMIT=$($BINARY query forum sentinel-bond-commitment $SENTINEL1_ADDR --output json 2>&1)
+    BOND_COMMIT=$($BINARY query rep sentinel-bond-commitment $SENTINEL1_ADDR --output json 2>&1)
 
     if echo "$BOND_COMMIT" | grep -q "error"; then
         echo "  Failed to query bond commitment"

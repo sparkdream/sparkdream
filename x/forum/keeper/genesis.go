@@ -77,40 +77,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
-	for _, elem := range genState.MemberSalvationStatusMap {
-		if err := k.MemberSalvationStatus.Set(ctx, elem.Address, elem); err != nil {
-			return err
-		}
-	}
-	for _, elem := range genState.JuryParticipationMap {
-		if err := k.JuryParticipation.Set(ctx, elem.Juror, elem); err != nil {
-			return err
-		}
-	}
-	for _, elem := range genState.MemberReportMap {
-		if err := k.MemberReport.Set(ctx, elem.Member, elem); err != nil {
-			return err
-		}
-	}
-	for _, elem := range genState.MemberWarningList {
-		if err := k.MemberWarning.Set(ctx, elem.Id, elem); err != nil {
-			return err
-		}
-	}
-
-	if err := k.MemberWarningSeq.Set(ctx, genState.MemberWarningCount); err != nil {
-		return err
-	}
-	for _, elem := range genState.GovActionAppealList {
-		if err := k.GovActionAppeal.Set(ctx, elem.Id, elem); err != nil {
-			return err
-		}
-	}
-
-	if err := k.GovActionAppealSeq.Set(ctx, genState.GovActionAppealCount); err != nil {
-		return err
-	}
-
 	if err := k.Params.Set(ctx, genState.Params); err != nil {
 		return err
 	}
@@ -223,48 +189,5 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}); err != nil {
 		return nil, err
 	}
-	if err := k.MemberSalvationStatus.Walk(ctx, nil, func(_ string, val types.MemberSalvationStatus) (stop bool, err error) {
-		genesis.MemberSalvationStatusMap = append(genesis.MemberSalvationStatusMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := k.JuryParticipation.Walk(ctx, nil, func(_ string, val types.JuryParticipation) (stop bool, err error) {
-		genesis.JuryParticipationMap = append(genesis.JuryParticipationMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := k.MemberReport.Walk(ctx, nil, func(_ string, val types.MemberReport) (stop bool, err error) {
-		genesis.MemberReportMap = append(genesis.MemberReportMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-	err = k.MemberWarning.Walk(ctx, nil, func(key uint64, elem types.MemberWarning) (bool, error) {
-		genesis.MemberWarningList = append(genesis.MemberWarningList, elem)
-		return false, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	genesis.MemberWarningCount, err = k.MemberWarningSeq.Peek(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = k.GovActionAppeal.Walk(ctx, nil, func(key uint64, elem types.GovActionAppeal) (bool, error) {
-		genesis.GovActionAppealList = append(genesis.GovActionAppealList, elem)
-		return false, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	genesis.GovActionAppealCount, err = k.GovActionAppealSeq.Peek(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	return genesis, nil
 }

@@ -170,6 +170,24 @@ func DefaultParams() Params {
 		// Permissionless access control (governance-only)
 		PermissionlessMinTrustLevel: 2, // ESTABLISHED
 		PermissionlessMaxTier:       1, // STANDARD (0=APPRENTICE, 1=STANDARD)
+
+		// Sentinel SPARK reward pool (Stage A infrastructure; funding + distribution added in later stages)
+		MaxSentinelRewardPool:                math.NewInt(100000000000),           // 100,000 SPARK in uspark
+		SentinelRewardPoolOverflowBurnRatio:  math.LegacyNewDecWithPrec(5, 1),     // 0.5 (50%)
+		SentinelRewardEpochBlocks:            getSentinelRewardEpochBlocks(),      // build-tag dependent (14400 production, 20 testparams)
+		MinSentinelAccuracy:                  math.LegacyNewDecWithPrec(70, 2),    // 0.70
+		MinAppealsForAccuracy:                10,
+		MinEpochActivityForReward:            1,
+		MinAppealRate:                        math.LegacyNewDecWithPrec(5, 2),     // 0.05
+
+		// Per-member active work caps (anti-monopolization)
+		MaxActiveInitiativesPerMember: 10,
+		MaxActiveInterimsPerMember:    10,
+
+		// Global per-epoch DREAM minting ceiling (anti-inflation safety net).
+		// 10,000 DREAM per epoch; at 150 epochs/season this bounds total inflation
+		// to ~1.5M DREAM/season even under pathological rubber-stamping.
+		MaxDreamMintPerEpoch: math.NewInt(10000000000000),
 	}
 }
 
@@ -319,6 +337,31 @@ func (p Params) Validate() error {
 		return fmt.Errorf("permissionless max tier must be 0-3: %d", p.PermissionlessMaxTier)
 	}
 
+	// Sentinel reward pool validation
+	if p.MaxSentinelRewardPool.IsNegative() {
+		return fmt.Errorf("max sentinel reward pool cannot be negative: %s", p.MaxSentinelRewardPool)
+	}
+	if p.SentinelRewardPoolOverflowBurnRatio.IsNegative() {
+		return fmt.Errorf("sentinel reward pool overflow burn ratio cannot be negative: %s", p.SentinelRewardPoolOverflowBurnRatio)
+	}
+	if p.SentinelRewardPoolOverflowBurnRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("sentinel reward pool overflow burn ratio cannot be greater than 1: %s", p.SentinelRewardPoolOverflowBurnRatio)
+	}
+	if p.SentinelRewardEpochBlocks == 0 {
+		return fmt.Errorf("sentinel reward epoch blocks must be positive")
+	}
+	if p.MinSentinelAccuracy.IsNegative() || p.MinSentinelAccuracy.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min sentinel accuracy must be in [0,1]: %s", p.MinSentinelAccuracy)
+	}
+	if p.MinAppealRate.IsNegative() || p.MinAppealRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min appeal rate must be in [0,1]: %s", p.MinAppealRate)
+	}
+
+	// DREAM emission cap (0 = unbounded; negative/nil disallowed)
+	if p.MaxDreamMintPerEpoch.IsNil() || p.MaxDreamMintPerEpoch.IsNegative() {
+		return fmt.Errorf("max dream mint per epoch cannot be nil or negative: %v", p.MaxDreamMintPerEpoch)
+	}
+
 	return nil
 }
 
@@ -407,6 +450,22 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
 		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
 		TagCreationFee:                  math.NewInt(100),      // 100 micro-DREAM
+
+		// Sentinel SPARK reward pool
+		MaxSentinelRewardPool:                math.NewInt(100000000000),           // 100,000 SPARK in uspark
+		SentinelRewardPoolOverflowBurnRatio:  math.LegacyNewDecWithPrec(5, 1),     // 0.5 (50%)
+		SentinelRewardEpochBlocks:            getSentinelRewardEpochBlocks(),      // build-tag dependent (14400 production, 20 testparams)
+		MinSentinelAccuracy:                  math.LegacyNewDecWithPrec(70, 2),    // 0.70
+		MinAppealsForAccuracy:                10,
+		MinEpochActivityForReward:            1,
+		MinAppealRate:                        math.LegacyNewDecWithPrec(5, 2),     // 0.05
+
+		// Per-member active work caps
+		MaxActiveInitiativesPerMember: 10,
+		MaxActiveInterimsPerMember:    10,
+
+		// Global per-epoch DREAM minting ceiling (10,000 DREAM/epoch)
+		MaxDreamMintPerEpoch: math.NewInt(10000000000000),
 	}
 }
 
@@ -528,6 +587,28 @@ func (op RepOperationalParams) Validate() error {
 	if op.TagCreationFee.IsNegative() {
 		return fmt.Errorf("tag creation fee cannot be negative: %s", op.TagCreationFee)
 	}
+	// Sentinel reward pool validation
+	if op.MaxSentinelRewardPool.IsNegative() {
+		return fmt.Errorf("max sentinel reward pool cannot be negative: %s", op.MaxSentinelRewardPool)
+	}
+	if op.SentinelRewardPoolOverflowBurnRatio.IsNegative() {
+		return fmt.Errorf("sentinel reward pool overflow burn ratio cannot be negative: %s", op.SentinelRewardPoolOverflowBurnRatio)
+	}
+	if op.SentinelRewardPoolOverflowBurnRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("sentinel reward pool overflow burn ratio cannot be greater than 1: %s", op.SentinelRewardPoolOverflowBurnRatio)
+	}
+	if op.SentinelRewardEpochBlocks == 0 {
+		return fmt.Errorf("sentinel reward epoch blocks must be positive")
+	}
+	if op.MinSentinelAccuracy.IsNegative() || op.MinSentinelAccuracy.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min sentinel accuracy must be in [0,1]: %s", op.MinSentinelAccuracy)
+	}
+	if op.MinAppealRate.IsNegative() || op.MinAppealRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min appeal rate must be in [0,1]: %s", op.MinAppealRate)
+	}
+	if op.MaxDreamMintPerEpoch.IsNil() || op.MaxDreamMintPerEpoch.IsNegative() {
+		return fmt.Errorf("max dream mint per epoch cannot be nil or negative: %v", op.MaxDreamMintPerEpoch)
+	}
 	return nil
 }
 
@@ -616,6 +697,19 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.InitiativeCreationFeeApprentice = op.InitiativeCreationFeeApprentice
 	p.InitiativeCreationFeeStandard = op.InitiativeCreationFeeStandard
 	p.TagCreationFee = op.TagCreationFee
+	// Sentinel SPARK reward pool
+	p.MaxSentinelRewardPool = op.MaxSentinelRewardPool
+	p.SentinelRewardPoolOverflowBurnRatio = op.SentinelRewardPoolOverflowBurnRatio
+	p.SentinelRewardEpochBlocks = op.SentinelRewardEpochBlocks
+	p.MinSentinelAccuracy = op.MinSentinelAccuracy
+	p.MinAppealsForAccuracy = op.MinAppealsForAccuracy
+	p.MinEpochActivityForReward = op.MinEpochActivityForReward
+	p.MinAppealRate = op.MinAppealRate
+	// Per-member active work caps
+	p.MaxActiveInitiativesPerMember = op.MaxActiveInitiativesPerMember
+	p.MaxActiveInterimsPerMember = op.MaxActiveInterimsPerMember
+	// DREAM emission cap
+	p.MaxDreamMintPerEpoch = op.MaxDreamMintPerEpoch
 	return p
 }
 
@@ -704,5 +798,18 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		InitiativeCreationFeeApprentice: p.InitiativeCreationFeeApprentice,
 		InitiativeCreationFeeStandard:   p.InitiativeCreationFeeStandard,
 		TagCreationFee:                  p.TagCreationFee,
+		// Sentinel SPARK reward pool
+		MaxSentinelRewardPool:                p.MaxSentinelRewardPool,
+		SentinelRewardPoolOverflowBurnRatio:  p.SentinelRewardPoolOverflowBurnRatio,
+		SentinelRewardEpochBlocks:            p.SentinelRewardEpochBlocks,
+		MinSentinelAccuracy:                  p.MinSentinelAccuracy,
+		MinAppealsForAccuracy:                p.MinAppealsForAccuracy,
+		MinEpochActivityForReward:            p.MinEpochActivityForReward,
+		MinAppealRate:                        p.MinAppealRate,
+		// Per-member active work caps
+		MaxActiveInitiativesPerMember: p.MaxActiveInitiativesPerMember,
+		MaxActiveInterimsPerMember:    p.MaxActiveInterimsPerMember,
+		// DREAM emission cap
+		MaxDreamMintPerEpoch: p.MaxDreamMintPerEpoch,
 	}
 }

@@ -149,6 +149,12 @@ func (k Keeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 		return types.ErrInvalidAmount
 	}
 
+	// Enforce the global per-epoch DREAM mint ceiling. Referral cascades count
+	// against the same budget because the guard commits on the outer mint too.
+	if err := k.CheckAndTrackEpochMint(ctx, amount); err != nil {
+		return err
+	}
+
 	member, err := k.Member.Get(ctx, addr.String())
 	if err != nil {
 		return types.ErrMemberNotFound

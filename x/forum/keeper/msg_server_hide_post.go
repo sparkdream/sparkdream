@@ -23,7 +23,6 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// Check moderation_paused param
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		params = types.DefaultParams()
@@ -32,7 +31,6 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		return nil, types.ErrModerationPaused
 	}
 
-	// Validate reason code
 	reasonCode := commontypes.ModerationReason(msg.ReasonCode)
 	if reasonCode == commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED {
 		return nil, types.ErrInvalidReasonCode
@@ -41,71 +39,54 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		return nil, types.ErrReasonTextRequired
 	}
 
-	// Check if sender is operations committee or sentinel
 	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
-	// Load sentinel activity for non-gov senders
-	var sentinelActivity types.SentinelActivity
+	// Rep-owned accountability state for non-gov senders.
+	var (
+		repSentinel reptypes.SentinelActivity
+		bondSnapshot string
+	)
+	slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
+
 	if !isGovAuthority {
-		var err error
-		sentinelActivity, err = k.SentinelActivity.Get(ctx, msg.Creator)
+		if k.repKeeper == nil {
+			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
+		}
+		sa, err := k.repKeeper.GetSentinel(ctx, msg.Creator)
 		if err != nil {
 			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
 		}
+		repSentinel = sa
+		bondSnapshot = sa.CurrentBond
 
-		// Check bond status
-		if sentinelActivity.BondStatus == types.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED {
+		if sa.BondStatus == reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED {
 			return nil, types.ErrSentinelDemoted
 		}
 
-		// Check cooldown
-		if sentinelActivity.OverturnCooldownUntil > now {
-			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
-				"cooldown until %d", sentinelActivity.OverturnCooldownUntil)
+		// Forum-local cooldown + hide counter.
+		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
+		if err != nil {
+			local = types.SentinelActivity{Address: msg.Creator}
 		}
-
-		// Check hide limit
-		if sentinelActivity.EpochHides >= types.DefaultMaxHidesPerEpoch {
+		if local.OverturnCooldownUntil > now {
+			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
+				"cooldown until %d", local.OverturnCooldownUntil)
+		}
+		if local.EpochHides >= types.DefaultMaxHidesPerEpoch {
 			return nil, types.ErrHideLimitExceeded
 		}
 
-		// Check available bond for commitment
-		currentBond, ok := math.NewIntFromString(sentinelActivity.CurrentBond)
-		if !ok {
-			if sentinelActivity.CurrentBond == "" {
-				currentBond = math.ZeroInt()
-			} else {
-				sdkCtx.Logger().Warn("failed to parse sentinel CurrentBond, falling back to zero",
-					"sentinel", msg.Creator, "raw_value", sentinelActivity.CurrentBond)
-				currentBond = math.ZeroInt()
-			}
-		}
-		committedBond, ok := math.NewIntFromString(sentinelActivity.TotalCommittedBond)
-		if !ok {
-			if sentinelActivity.TotalCommittedBond == "" {
-				committedBond = math.ZeroInt()
-			} else {
-				sdkCtx.Logger().Warn("failed to parse sentinel TotalCommittedBond, falling back to zero",
-					"sentinel", msg.Creator, "raw_value", sentinelActivity.TotalCommittedBond)
-				committedBond = math.ZeroInt()
-			}
-		}
-		availableBond := currentBond.Sub(committedBond)
-
-		slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
-		if availableBond.LT(slashAmount) {
-			return nil, errorsmod.Wrapf(types.ErrInsufficientBond,
-				"need %s DREAM available, only %s available", slashAmount.String(), availableBond.String())
+		// Reserve the slash amount out of available bond before committing.
+		if err := k.repKeeper.ReserveBond(ctx, msg.Creator, slashAmount); err != nil {
+			return nil, errorsmod.Wrap(err, "insufficient bond to hide")
 		}
 	}
 
-	// Load post
 	post, err := k.Post.Get(ctx, msg.PostId)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("post %d not found", msg.PostId))
 	}
 
-	// Check post status - cannot hide already hidden/deleted/archived posts
 	switch post.Status {
 	case types.PostStatus_POST_STATUS_HIDDEN:
 		return nil, types.ErrPostAlreadyHidden
@@ -115,63 +96,54 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		return nil, types.ErrPostArchived
 	}
 
-	// Update post status
 	post.Status = types.PostStatus_POST_STATUS_HIDDEN
 	post.HiddenBy = msg.Creator
 	post.HiddenAt = now
 
-	// Store updated post
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
 
-	// Create HideRecord and update sentinel activity for non-gov senders
 	if !isGovAuthority {
-		slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
+		_ = repSentinel // bond snapshot captured above
 
-		// Get sentinel backing for snapshot
 		backing := k.GetSentinelBacking(ctx, msg.Creator)
 
-		// Create hide record
 		hideRecord := types.HideRecord{
 			PostId:                  msg.PostId,
 			Sentinel:                msg.Creator,
 			HiddenAt:                now,
-			SentinelBondSnapshot:    sentinelActivity.CurrentBond,
+			SentinelBondSnapshot:    bondSnapshot,
 			SentinelBackingSnapshot: backing.String(),
 			CommittedAmount:         slashAmount.String(),
 			ReasonCode:              reasonCode,
 			ReasonText:              msg.ReasonText,
 		}
-
 		if err := k.HideRecord.Set(ctx, msg.PostId, hideRecord); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store hide record")
 		}
 
-		// Update sentinel activity
-		committedBond, _ := math.NewIntFromString(sentinelActivity.TotalCommittedBond)
-		if sentinelActivity.TotalCommittedBond == "" {
-			committedBond = math.ZeroInt()
+		// Forum-local counters + pending-hide tracking.
+		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
+		if err != nil {
+			local = types.SentinelActivity{Address: msg.Creator}
 		}
-		sentinelActivity.TotalCommittedBond = committedBond.Add(slashAmount).String()
-		sentinelActivity.PendingHideCount++
-		sentinelActivity.TotalHides++
-		sentinelActivity.EpochHides++
-
-		if err := k.SentinelActivity.Set(ctx, msg.Creator, sentinelActivity); err != nil {
+		local.PendingHideCount++
+		local.TotalHides++
+		local.EpochHides++
+		if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 		}
+
+		_ = k.repKeeper.RecordActivity(ctx, msg.Creator)
 	}
 
-	// Slash author bond on moderation (best-effort: log and continue if no bond exists)
 	if k.repKeeper != nil {
 		if err := k.repKeeper.SlashAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND, msg.PostId); err != nil {
-			// No bond to slash is fine — just log
 			sdkCtx.Logger().Debug("author bond slash skipped", "post_id", msg.PostId, "error", err)
 		}
 	}
 
-	// Emit event
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"post_hidden",

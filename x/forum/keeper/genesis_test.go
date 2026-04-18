@@ -25,13 +25,6 @@ func TestGenesis(t *testing.T) {
 		ThreadFollowMap:          []types.ThreadFollow{{Follower: "follower0"}, {Follower: "follower1"}},
 		ThreadFollowCountMap:     []types.ThreadFollowCount{{ThreadId: 0}, {ThreadId: 1}},
 		ArchiveMetadataMap:       []types.ArchiveMetadata{{RootId: 0}, {RootId: 1}},
-		MemberSalvationStatusMap: []types.MemberSalvationStatus{{Address: "member0"}, {Address: "member1"}},
-		JuryParticipationMap:     []types.JuryParticipation{{Juror: "juror0"}, {Juror: "juror1"}},
-		MemberReportMap:          []types.MemberReport{{Member: "member0"}, {Member: "member1"}},
-		MemberWarningList:        []types.MemberWarning{{Id: 0}, {Id: 1}},
-		MemberWarningCount:       2,
-		GovActionAppealList:      []types.GovActionAppeal{{Id: 0}, {Id: 1}},
-		GovActionAppealCount:     2,
 	}
 	f := initFixture(t)
 	err := f.keeper.InitGenesis(f.ctx, genesisState)
@@ -55,11 +48,4 @@ func TestGenesis(t *testing.T) {
 	require.EqualExportedValues(t, genesisState.ThreadFollowMap, got.ThreadFollowMap)
 	require.EqualExportedValues(t, genesisState.ThreadFollowCountMap, got.ThreadFollowCountMap)
 	require.EqualExportedValues(t, genesisState.ArchiveMetadataMap, got.ArchiveMetadataMap)
-	require.EqualExportedValues(t, genesisState.MemberSalvationStatusMap, got.MemberSalvationStatusMap)
-	require.EqualExportedValues(t, genesisState.JuryParticipationMap, got.JuryParticipationMap)
-	require.EqualExportedValues(t, genesisState.MemberReportMap, got.MemberReportMap)
-	require.EqualExportedValues(t, genesisState.MemberWarningList, got.MemberWarningList)
-	require.Equal(t, genesisState.MemberWarningCount, got.MemberWarningCount)
-	require.EqualExportedValues(t, genesisState.GovActionAppealList, got.GovActionAppealList)
-	require.Equal(t, genesisState.GovActionAppealCount, got.GovActionAppealCount)
 }

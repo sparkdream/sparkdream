@@ -49,9 +49,6 @@ const (
 	DefaultBountyDuration            = int64(1209600) // 14 days
 	DefaultMaxBountyDuration         = int64(2592000) // 30 days
 	DefaultAcceptProposalTimeout     = int64(172800)  // 48 hours
-	DefaultMinReportDuration         = int64(172800)  // 48 hours
-	DefaultMinDefenseWait            = int64(86400)   // 24 hours
-	DefaultMemberReportExpiration    = int64(2592000) // 30 days
 	DefaultFlagExpiration            = int64(604800)  // 7 days
 
 	// Sentinel requirements
@@ -85,13 +82,6 @@ const (
 	DefaultMemberFlagWeight    = uint64(2)
 	DefaultNonmemberFlagWeight = uint64(1)
 	DefaultMaxPostFlaggers     = uint64(50)
-
-	// Report limits
-	DefaultMinEvidencePosts            = uint64(3)
-	DefaultMemberReportCosignThreshold = uint64(3)
-	DefaultMaxWarningsBeforeDemotion   = uint64(3)
-	DefaultMaxTagReporters             = uint64(50)
-	DefaultMaxMemberReporters          = uint64(20)
 
 	// Appeal default
 	DefaultAppealDefaultOutcome = uint32(0) // 0 = restore post

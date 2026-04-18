@@ -177,7 +177,7 @@ fi
 # ========================================================================
 echo "--- PART 1: CHECK SENTINEL STATUS ---"
 
-SENTINEL_STATUS=$($BINARY query forum sentinel-status $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep sentinel-status $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
     echo "  Sentinel1 is not yet a sentinel"
@@ -202,7 +202,7 @@ BOND_AMOUNT="100000000"  # 100 DREAM
 
 echo "Bonding $BOND_AMOUNT micro-DREAM as sentinel1..."
 
-TX_RES=$($BINARY tx forum bond-sentinel \
+TX_RES=$($BINARY tx rep bond-sentinel \
     "$BOND_AMOUNT" \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
@@ -225,7 +225,7 @@ else
         echo "  Sentinel bonded successfully"
 
         # Verify sentinel status
-        SENTINEL_STATUS=$($BINARY query forum sentinel-status $SENTINEL1_ADDR --output json 2>&1)
+        SENTINEL_STATUS=$($BINARY query rep sentinel-status $SENTINEL1_ADDR --output json 2>&1)
         echo "  New sentinel status:"
         echo "    Bond: $(echo "$SENTINEL_STATUS" | jq -r '.current_bond // "unknown"')"
         echo "    Bond Status: $(echo "$SENTINEL_STATUS" | jq -r '.bond_status // "unknown"')"
@@ -242,7 +242,7 @@ echo ""
 # ========================================================================
 echo "--- PART 3: QUERY SENTINEL BOND COMMITMENT ---"
 
-BOND_COMMITMENT=$($BINARY query forum sentinel-bond-commitment $SENTINEL1_ADDR --output json 2>&1)
+BOND_COMMITMENT=$($BINARY query rep sentinel-bond-commitment $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$BOND_COMMITMENT" | grep -q "error"; then
     echo "  Failed to query bond commitment"
@@ -260,7 +260,7 @@ echo ""
 # ========================================================================
 echo "--- PART 4: LIST SENTINEL ACTIVITIES ---"
 
-ACTIVITIES=$($BINARY query forum list-sentinel-activity --output json 2>&1)
+ACTIVITIES=$($BINARY query rep list-sentinel-activity --output json 2>&1)
 
 if echo "$ACTIVITIES" | grep -q "error"; then
     echo "  Failed to query sentinel activities"
@@ -615,7 +615,7 @@ echo "--- PART 13: UNBOND SENTINEL ---"
 # Bond sentinel2 first, then unbond
 echo "Bonding sentinel2 to test unbonding..."
 
-TX_RES=$($BINARY tx forum bond-sentinel \
+TX_RES=$($BINARY tx rep bond-sentinel \
     "50000000" \
     --from sentinel2 \
     --chain-id $CHAIN_ID \
@@ -633,7 +633,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     if check_tx_success "$TX_RESULT"; then
         echo "  Sentinel2 bonded, now unbonding..."
 
-        TX_RES=$($BINARY tx forum unbond-sentinel \
+        TX_RES=$($BINARY tx rep unbond-sentinel \
             "50000000" \
             --from sentinel2 \
             --chain-id $CHAIN_ID \
@@ -667,17 +667,18 @@ echo "--- PART 14: GET SENTINEL ACTIVITY (Single Query) ---"
 
 echo "Querying sentinel activity for sentinel1..."
 
-SINGLE_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
+REP_ACTIVITY=$($BINARY query rep get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
+FORUM_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
 
-if echo "$SINGLE_ACTIVITY" | grep -q "error"; then
-    echo "  Failed to query sentinel activity"
+if echo "$REP_ACTIVITY" | grep -q "error"; then
+    echo "  Failed to query sentinel accountability"
 else
-    SA_ADDRESS=$(echo "$SINGLE_ACTIVITY" | jq -r '.sentinel_activity.address // "unknown"')
-    SA_BOND=$(echo "$SINGLE_ACTIVITY" | jq -r '.sentinel_activity.current_bond // "0"')
-    SA_STATUS=$(echo "$SINGLE_ACTIVITY" | jq -r '.sentinel_activity.bond_status // "unknown"')
-    SA_TOTAL_HIDES=$(echo "$SINGLE_ACTIVITY" | jq -r '.sentinel_activity.total_hides // "0"')
-    SA_TOTAL_LOCKS=$(echo "$SINGLE_ACTIVITY" | jq -r '.sentinel_activity.total_locks // "0"')
-    SA_PENDING=$(echo "$SINGLE_ACTIVITY" | jq -r '.sentinel_activity.pending_hide_count // "0"')
+    SA_ADDRESS=$(echo "$REP_ACTIVITY" | jq -r '.sentinel_activity.address // "unknown"')
+    SA_BOND=$(echo "$REP_ACTIVITY" | jq -r '.sentinel_activity.current_bond // "0"')
+    SA_STATUS=$(echo "$REP_ACTIVITY" | jq -r '.sentinel_activity.bond_status // "unknown"')
+    SA_TOTAL_HIDES=$(echo "$FORUM_ACTIVITY" | jq -r '.sentinel_activity.total_hides // "0"')
+    SA_TOTAL_LOCKS=$(echo "$FORUM_ACTIVITY" | jq -r '.sentinel_activity.total_locks // "0"')
+    SA_PENDING=$(echo "$FORUM_ACTIVITY" | jq -r '.sentinel_activity.pending_hide_count // "0"')
 
     echo "  Sentinel Activity:"
     echo "    Address: $(echo "$SA_ADDRESS" | head -c 20)..."
@@ -701,7 +702,7 @@ echo "--- PART 15: BOND WITHOUT REPUTATION (Negative Test) ---"
 
 echo "Attempting to bond as poster1 (no reputation)..."
 
-TX_RES=$($BINARY tx forum bond-sentinel \
+TX_RES=$($BINARY tx rep bond-sentinel \
     "100000000" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -741,7 +742,7 @@ echo "--- PART 16: BOND BELOW MINIMUM (Negative Test) ---"
 
 echo "Attempting to bond 500 udream (below minimum 1000)..."
 
-TX_RES=$($BINARY tx forum bond-sentinel \
+TX_RES=$($BINARY tx rep bond-sentinel \
     "500" \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
@@ -1079,7 +1080,7 @@ echo "--- PART 22: UNBOND WHEN NOT SENTINEL (Negative Test) ---"
 
 echo "Attempting to unbond as poster1 (not a sentinel)..."
 
-TX_RES=$($BINARY tx forum unbond-sentinel \
+TX_RES=$($BINARY tx rep unbond-sentinel \
     "50000000" \
     --from poster1 \
     --chain-id $CHAIN_ID \

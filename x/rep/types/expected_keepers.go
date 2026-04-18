@@ -24,6 +24,7 @@ type AuthKeeper interface {
 // BankKeeper defines the expected interface for the Bank module.
 type BankKeeper interface {
 	SpendableCoins(context.Context, sdk.AccAddress) sdk.Coins
+	GetBalance(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin
 	SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error
@@ -69,6 +70,24 @@ type SeasonKeeper interface {
 	ResolveDisplayNameAppealInternal(ctx context.Context, member string, appealSucceeded bool) error
 }
 
+// SentinelActivityCounters is a decoupled, rep-side view of the forum's
+// per-sentinel action counters. Returned by ForumKeeper.GetSentinelActivityCounters
+// so x/rep can evaluate reward eligibility without importing forum types.
+type SentinelActivityCounters struct {
+	UpheldHides          uint64
+	OverturnedHides      uint64
+	UpheldLocks          uint64
+	OverturnedLocks      uint64
+	UpheldMoves          uint64
+	OverturnedMoves      uint64
+	EpochHides           uint64
+	EpochLocks           uint64
+	EpochMoves           uint64
+	EpochPins            uint64
+	EpochAppealsFiled    uint64
+	EpochAppealsResolved uint64
+}
+
 // ForumKeeper defines the minimal forum surface area required by x/rep's tag
 // moderation and tag-budget flows. Late-wired from app.go to break the
 // rep → forum cycle. Will be retired when sentinel/content-moderation state
@@ -87,4 +106,36 @@ type ForumKeeper interface {
 	// handling to enforce that awards can only flow to posts tagged with the
 	// budget's tag.
 	GetPostTags(ctx context.Context, postID uint64) ([]string, error)
+
+	// GetActionSentinel returns the sentinel address that executed the given
+	// action. Looks up forum's HideRecord / ThreadLockRecord / ThreadMoveRecord
+	// keyed by actionTarget (parsed as uint64 postID / rootID). Returns empty
+	// string with no error if the action record is missing (GC'd or never
+	// existed) so the caller can decide to skip rather than abort.
+	GetActionSentinel(ctx context.Context, actionType GovActionType, actionTarget string) (string, error)
+
+	// RecordSentinelActionUpheld increments the sentinel's upheld_* counter
+	// for the action type (hide / lock / move), increments consecutive_upheld,
+	// and resets consecutive_overturns. If the sentinel cannot be resolved
+	// (record GC'd), logs a warning and returns nil.
+	RecordSentinelActionUpheld(ctx context.Context, actionType GovActionType, actionTarget string) error
+
+	// RecordSentinelActionOverturned increments the sentinel's overturned_*
+	// counter for the action type, increments consecutive_overturns, and
+	// resets consecutive_upheld. If consecutive_overturns crosses the demotion
+	// threshold, calls the rep keeper to demote the sentinel. If the sentinel
+	// cannot be resolved (record GC'd), logs a warning and returns nil.
+	RecordSentinelActionOverturned(ctx context.Context, actionType GovActionType, actionTarget string) error
+
+	// GetSentinelActivityCounters loads the forum-side per-sentinel counter
+	// snapshot for the given address. Returns a zero-valued struct with no
+	// error when the sentinel has no forum record yet (e.g., bonded but has
+	// not taken a single moderation action).
+	GetSentinelActivityCounters(ctx context.Context, addr string) (SentinelActivityCounters, error)
+
+	// ResetSentinelEpochCounters zeros the forum-side per-epoch counters
+	// (epoch_hides / epoch_locks / epoch_moves / epoch_pins /
+	// epoch_appeals_filed / epoch_appeals_resolved). Cumulative counters are
+	// preserved. No-op when the sentinel has no forum record.
+	ResetSentinelEpochCounters(ctx context.Context, addr string) error
 }

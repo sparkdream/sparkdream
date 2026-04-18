@@ -23,6 +23,24 @@ func (k Keeper) CreateInterimWork(
 	complexity types.InterimComplexity,
 	deadline int64,
 ) (uint64, error) {
+	// Enforce per-member active interim cap (anti-monopolization). Applies to
+	// every prospective assignee so one member can't circumvent by co-signing.
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get params: %w", err)
+	}
+	if params.MaxActiveInterimsPerMember > 0 {
+		for _, a := range assignees {
+			active, cerr := k.CountActiveInterimsForMember(ctx, a)
+			if cerr != nil {
+				return 0, fmt.Errorf("failed to count active interims for %s: %w", a, cerr)
+			}
+			if active >= params.MaxActiveInterimsPerMember {
+				return 0, types.ErrTooManyActiveInterims
+			}
+		}
+	}
+
 	// Get next interim ID
 	interimID, err := k.InterimSeq.Next(ctx)
 	if err != nil {
@@ -34,11 +52,8 @@ func (k Keeper) CreateInterimWork(
 
 	// Solo expert bonus
 	if len(assignees) == 1 && complexity == types.InterimComplexity_INTERIM_COMPLEXITY_EXPERT {
-		params, err := k.Params.Get(ctx)
-		if err == nil {
-			bonus := math.LegacyNewDecFromInt(budget).Mul(params.SoloExpertBonusRate)
-			budget = budget.Add(bonus.TruncateInt())
-		}
+		bonus := math.LegacyNewDecFromInt(budget).Mul(params.SoloExpertBonusRate)
+		budget = budget.Add(bonus.TruncateInt())
 	}
 
 	// Create interim
@@ -79,6 +94,25 @@ func (k Keeper) CreateInterimWork(
 	)
 
 	return interimID, nil
+}
+
+// CountActiveInterimsForMember returns the number of in-flight interims
+// (PENDING or IN_PROGRESS) on which the given address is listed as an assignee.
+func (k Keeper) CountActiveInterimsForMember(ctx context.Context, member string) (uint32, error) {
+	if member == "" {
+		return 0, nil
+	}
+	var count uint32
+	k.IteratePendingInterims(ctx, func(_ int64, interim types.Interim) bool {
+		for _, a := range interim.Assignees {
+			if a == member {
+				count++
+				break
+			}
+		}
+		return false
+	})
+	return count, nil
 }
 
 // GetInterim retrieves an interim by ID

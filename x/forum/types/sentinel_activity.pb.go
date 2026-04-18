@@ -22,44 +22,38 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// SentinelActivity defines the SentinelActivity message.
+// SentinelActivity holds forum-specific action counters and local cooldowns
+// for a sentinel. The accountability record (bond, bond status, activity
+// stamps) lives in sparkdream.rep.v1.SentinelActivity.
 type SentinelActivity struct {
-	Address                   string             `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	TotalHides                uint64             `protobuf:"varint,2,opt,name=total_hides,json=totalHides,proto3" json:"total_hides,omitempty"`
-	UpheldHides               uint64             `protobuf:"varint,3,opt,name=upheld_hides,json=upheldHides,proto3" json:"upheld_hides,omitempty"`
-	OverturnedHides           uint64             `protobuf:"varint,4,opt,name=overturned_hides,json=overturnedHides,proto3" json:"overturned_hides,omitempty"`
-	UnchallengedHides         uint64             `protobuf:"varint,5,opt,name=unchallenged_hides,json=unchallengedHides,proto3" json:"unchallenged_hides,omitempty"`
-	EpochHides                uint64             `protobuf:"varint,6,opt,name=epoch_hides,json=epochHides,proto3" json:"epoch_hides,omitempty"`
-	EpochAppealsResolved      uint64             `protobuf:"varint,7,opt,name=epoch_appeals_resolved,json=epochAppealsResolved,proto3" json:"epoch_appeals_resolved,omitempty"`
-	LastRewardEpoch           int64              `protobuf:"varint,8,opt,name=last_reward_epoch,json=lastRewardEpoch,proto3" json:"last_reward_epoch,omitempty"`
-	CumulativeRewards         string             `protobuf:"bytes,9,opt,name=cumulative_rewards,json=cumulativeRewards,proto3" json:"cumulative_rewards,omitempty"`
-	OverturnCooldownUntil     int64              `protobuf:"varint,10,opt,name=overturn_cooldown_until,json=overturnCooldownUntil,proto3" json:"overturn_cooldown_until,omitempty"`
-	ConsecutiveOverturns      uint64             `protobuf:"varint,11,opt,name=consecutive_overturns,json=consecutiveOverturns,proto3" json:"consecutive_overturns,omitempty"`
-	BondStatus                SentinelBondStatus `protobuf:"varint,12,opt,name=bond_status,json=bondStatus,proto3,enum=sparkdream.forum.v1.SentinelBondStatus" json:"bond_status,omitempty"`
-	CurrentBond               string             `protobuf:"bytes,13,opt,name=current_bond,json=currentBond,proto3" json:"current_bond,omitempty"`
-	TotalCommittedBond        string             `protobuf:"bytes,14,opt,name=total_committed_bond,json=totalCommittedBond,proto3" json:"total_committed_bond,omitempty"`
-	PendingHideCount          uint64             `protobuf:"varint,15,opt,name=pending_hide_count,json=pendingHideCount,proto3" json:"pending_hide_count,omitempty"`
-	ConsecutiveUpheld         uint64             `protobuf:"varint,16,opt,name=consecutive_upheld,json=consecutiveUpheld,proto3" json:"consecutive_upheld,omitempty"`
-	DemotionCooldownUntil     int64              `protobuf:"varint,17,opt,name=demotion_cooldown_until,json=demotionCooldownUntil,proto3" json:"demotion_cooldown_until,omitempty"`
-	EpochAppealsFiled         uint64             `protobuf:"varint,18,opt,name=epoch_appeals_filed,json=epochAppealsFiled,proto3" json:"epoch_appeals_filed,omitempty"`
-	TotalLocks                uint64             `protobuf:"varint,19,opt,name=total_locks,json=totalLocks,proto3" json:"total_locks,omitempty"`
-	UpheldLocks               uint64             `protobuf:"varint,20,opt,name=upheld_locks,json=upheldLocks,proto3" json:"upheld_locks,omitempty"`
-	OverturnedLocks           uint64             `protobuf:"varint,21,opt,name=overturned_locks,json=overturnedLocks,proto3" json:"overturned_locks,omitempty"`
-	EpochLocks                uint64             `protobuf:"varint,22,opt,name=epoch_locks,json=epochLocks,proto3" json:"epoch_locks,omitempty"`
-	TotalMoves                uint64             `protobuf:"varint,23,opt,name=total_moves,json=totalMoves,proto3" json:"total_moves,omitempty"`
-	UpheldMoves               uint64             `protobuf:"varint,24,opt,name=upheld_moves,json=upheldMoves,proto3" json:"upheld_moves,omitempty"`
-	OverturnedMoves           uint64             `protobuf:"varint,25,opt,name=overturned_moves,json=overturnedMoves,proto3" json:"overturned_moves,omitempty"`
-	EpochMoves                uint64             `protobuf:"varint,26,opt,name=epoch_moves,json=epochMoves,proto3" json:"epoch_moves,omitempty"`
-	TotalPins                 uint64             `protobuf:"varint,27,opt,name=total_pins,json=totalPins,proto3" json:"total_pins,omitempty"`
-	UpheldPins                uint64             `protobuf:"varint,28,opt,name=upheld_pins,json=upheldPins,proto3" json:"upheld_pins,omitempty"`
-	OverturnedPins            uint64             `protobuf:"varint,29,opt,name=overturned_pins,json=overturnedPins,proto3" json:"overturned_pins,omitempty"`
-	EpochPins                 uint64             `protobuf:"varint,30,opt,name=epoch_pins,json=epochPins,proto3" json:"epoch_pins,omitempty"`
-	TotalProposals            uint64             `protobuf:"varint,31,opt,name=total_proposals,json=totalProposals,proto3" json:"total_proposals,omitempty"`
-	ConfirmedProposals        uint64             `protobuf:"varint,32,opt,name=confirmed_proposals,json=confirmedProposals,proto3" json:"confirmed_proposals,omitempty"`
-	RejectedProposals         uint64             `protobuf:"varint,33,opt,name=rejected_proposals,json=rejectedProposals,proto3" json:"rejected_proposals,omitempty"`
-	EpochCurations            uint64             `protobuf:"varint,34,opt,name=epoch_curations,json=epochCurations,proto3" json:"epoch_curations,omitempty"`
-	LastActiveEpoch           int64              `protobuf:"varint,35,opt,name=last_active_epoch,json=lastActiveEpoch,proto3" json:"last_active_epoch,omitempty"`
-	ConsecutiveInactiveEpochs uint64             `protobuf:"varint,36,opt,name=consecutive_inactive_epochs,json=consecutiveInactiveEpochs,proto3" json:"consecutive_inactive_epochs,omitempty"`
+	Address               string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	TotalHides            uint64 `protobuf:"varint,2,opt,name=total_hides,json=totalHides,proto3" json:"total_hides,omitempty"`
+	UpheldHides           uint64 `protobuf:"varint,3,opt,name=upheld_hides,json=upheldHides,proto3" json:"upheld_hides,omitempty"`
+	OverturnedHides       uint64 `protobuf:"varint,4,opt,name=overturned_hides,json=overturnedHides,proto3" json:"overturned_hides,omitempty"`
+	UnchallengedHides     uint64 `protobuf:"varint,5,opt,name=unchallenged_hides,json=unchallengedHides,proto3" json:"unchallenged_hides,omitempty"`
+	EpochHides            uint64 `protobuf:"varint,6,opt,name=epoch_hides,json=epochHides,proto3" json:"epoch_hides,omitempty"`
+	EpochAppealsResolved  uint64 `protobuf:"varint,7,opt,name=epoch_appeals_resolved,json=epochAppealsResolved,proto3" json:"epoch_appeals_resolved,omitempty"`
+	OverturnCooldownUntil int64  `protobuf:"varint,8,opt,name=overturn_cooldown_until,json=overturnCooldownUntil,proto3" json:"overturn_cooldown_until,omitempty"`
+	ConsecutiveOverturns  uint64 `protobuf:"varint,9,opt,name=consecutive_overturns,json=consecutiveOverturns,proto3" json:"consecutive_overturns,omitempty"`
+	PendingHideCount      uint64 `protobuf:"varint,10,opt,name=pending_hide_count,json=pendingHideCount,proto3" json:"pending_hide_count,omitempty"`
+	ConsecutiveUpheld     uint64 `protobuf:"varint,11,opt,name=consecutive_upheld,json=consecutiveUpheld,proto3" json:"consecutive_upheld,omitempty"`
+	EpochAppealsFiled     uint64 `protobuf:"varint,12,opt,name=epoch_appeals_filed,json=epochAppealsFiled,proto3" json:"epoch_appeals_filed,omitempty"`
+	TotalLocks            uint64 `protobuf:"varint,13,opt,name=total_locks,json=totalLocks,proto3" json:"total_locks,omitempty"`
+	UpheldLocks           uint64 `protobuf:"varint,14,opt,name=upheld_locks,json=upheldLocks,proto3" json:"upheld_locks,omitempty"`
+	OverturnedLocks       uint64 `protobuf:"varint,15,opt,name=overturned_locks,json=overturnedLocks,proto3" json:"overturned_locks,omitempty"`
+	EpochLocks            uint64 `protobuf:"varint,16,opt,name=epoch_locks,json=epochLocks,proto3" json:"epoch_locks,omitempty"`
+	TotalMoves            uint64 `protobuf:"varint,17,opt,name=total_moves,json=totalMoves,proto3" json:"total_moves,omitempty"`
+	UpheldMoves           uint64 `protobuf:"varint,18,opt,name=upheld_moves,json=upheldMoves,proto3" json:"upheld_moves,omitempty"`
+	OverturnedMoves       uint64 `protobuf:"varint,19,opt,name=overturned_moves,json=overturnedMoves,proto3" json:"overturned_moves,omitempty"`
+	EpochMoves            uint64 `protobuf:"varint,20,opt,name=epoch_moves,json=epochMoves,proto3" json:"epoch_moves,omitempty"`
+	TotalPins             uint64 `protobuf:"varint,21,opt,name=total_pins,json=totalPins,proto3" json:"total_pins,omitempty"`
+	UpheldPins            uint64 `protobuf:"varint,22,opt,name=upheld_pins,json=upheldPins,proto3" json:"upheld_pins,omitempty"`
+	OverturnedPins        uint64 `protobuf:"varint,23,opt,name=overturned_pins,json=overturnedPins,proto3" json:"overturned_pins,omitempty"`
+	EpochPins             uint64 `protobuf:"varint,24,opt,name=epoch_pins,json=epochPins,proto3" json:"epoch_pins,omitempty"`
+	TotalProposals        uint64 `protobuf:"varint,25,opt,name=total_proposals,json=totalProposals,proto3" json:"total_proposals,omitempty"`
+	ConfirmedProposals    uint64 `protobuf:"varint,26,opt,name=confirmed_proposals,json=confirmedProposals,proto3" json:"confirmed_proposals,omitempty"`
+	RejectedProposals     uint64 `protobuf:"varint,27,opt,name=rejected_proposals,json=rejectedProposals,proto3" json:"rejected_proposals,omitempty"`
+	EpochCurations        uint64 `protobuf:"varint,28,opt,name=epoch_curations,json=epochCurations,proto3" json:"epoch_curations,omitempty"`
 }
 
 func (m *SentinelActivity) Reset()         { *m = SentinelActivity{} }
@@ -144,20 +138,6 @@ func (m *SentinelActivity) GetEpochAppealsResolved() uint64 {
 	return 0
 }
 
-func (m *SentinelActivity) GetLastRewardEpoch() int64 {
-	if m != nil {
-		return m.LastRewardEpoch
-	}
-	return 0
-}
-
-func (m *SentinelActivity) GetCumulativeRewards() string {
-	if m != nil {
-		return m.CumulativeRewards
-	}
-	return ""
-}
-
 func (m *SentinelActivity) GetOverturnCooldownUntil() int64 {
 	if m != nil {
 		return m.OverturnCooldownUntil
@@ -172,27 +152,6 @@ func (m *SentinelActivity) GetConsecutiveOverturns() uint64 {
 	return 0
 }
 
-func (m *SentinelActivity) GetBondStatus() SentinelBondStatus {
-	if m != nil {
-		return m.BondStatus
-	}
-	return SentinelBondStatus_SENTINEL_BOND_STATUS_UNSPECIFIED
-}
-
-func (m *SentinelActivity) GetCurrentBond() string {
-	if m != nil {
-		return m.CurrentBond
-	}
-	return ""
-}
-
-func (m *SentinelActivity) GetTotalCommittedBond() string {
-	if m != nil {
-		return m.TotalCommittedBond
-	}
-	return ""
-}
-
 func (m *SentinelActivity) GetPendingHideCount() uint64 {
 	if m != nil {
 		return m.PendingHideCount
@@ -203,13 +162,6 @@ func (m *SentinelActivity) GetPendingHideCount() uint64 {
 func (m *SentinelActivity) GetConsecutiveUpheld() uint64 {
 	if m != nil {
 		return m.ConsecutiveUpheld
-	}
-	return 0
-}
-
-func (m *SentinelActivity) GetDemotionCooldownUntil() int64 {
-	if m != nil {
-		return m.DemotionCooldownUntil
 	}
 	return 0
 }
@@ -333,20 +285,6 @@ func (m *SentinelActivity) GetEpochCurations() uint64 {
 	return 0
 }
 
-func (m *SentinelActivity) GetLastActiveEpoch() int64 {
-	if m != nil {
-		return m.LastActiveEpoch
-	}
-	return 0
-}
-
-func (m *SentinelActivity) GetConsecutiveInactiveEpochs() uint64 {
-	if m != nil {
-		return m.ConsecutiveInactiveEpochs
-	}
-	return 0
-}
-
 func init() {
 	proto.RegisterType((*SentinelActivity)(nil), "sparkdream.forum.v1.SentinelActivity")
 }
@@ -356,56 +294,44 @@ func init() {
 }
 
 var fileDescriptor_bb4ebc40d96aee4b = []byte{
-	// 776 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x6c, 0x95, 0x4d, 0x4f, 0x2b, 0x37,
-	0x14, 0x86, 0x99, 0x42, 0xa1, 0x38, 0x94, 0x24, 0x0e, 0x1f, 0x06, 0x4a, 0x12, 0x68, 0x25, 0xd2,
-	0x0f, 0x92, 0x02, 0x55, 0x97, 0x95, 0x20, 0x6a, 0x45, 0xa5, 0x56, 0xad, 0x82, 0xd8, 0x74, 0x33,
-	0x1a, 0x66, 0x0c, 0x99, 0x32, 0x63, 0x8f, 0x6c, 0x4f, 0x28, 0xff, 0xa2, 0x52, 0xff, 0x54, 0x97,
-	0x2c, 0xef, 0xf2, 0x0a, 0xfe, 0xc8, 0x95, 0xcf, 0x99, 0x0f, 0x87, 0xcb, 0x2e, 0x79, 0xdf, 0xe7,
-	0xf8, 0xbc, 0xe3, 0x39, 0xf6, 0x90, 0x6f, 0x75, 0x16, 0xa8, 0xfb, 0x48, 0xf1, 0x20, 0x1d, 0xdd,
-	0x4a, 0x95, 0xa7, 0xa3, 0xd9, 0xc9, 0x48, 0x73, 0x61, 0x62, 0xc1, 0x13, 0x3f, 0x08, 0x4d, 0x3c,
-	0x8b, 0xcd, 0xe3, 0x30, 0x53, 0xd2, 0x48, 0xda, 0xa9, 0xe1, 0x21, 0xc0, 0xc3, 0xd9, 0xc9, 0x6e,
-	0xef, 0xad, 0x15, 0xcc, 0x63, 0xc6, 0x35, 0x56, 0x1d, 0xfe, 0xb7, 0x46, 0x5a, 0x57, 0xc5, 0x8a,
-	0xe7, 0xc5, 0x82, 0x94, 0x91, 0x95, 0x20, 0x8a, 0x14, 0xd7, 0x9a, 0x79, 0x7d, 0x6f, 0xb0, 0x3a,
-	0x29, 0xff, 0xd2, 0x1e, 0x69, 0x18, 0x69, 0x82, 0xc4, 0x9f, 0xc6, 0x11, 0xd7, 0xec, 0x93, 0xbe,
-	0x37, 0x58, 0x9a, 0x10, 0x90, 0x2e, 0xad, 0x42, 0x0f, 0xc8, 0x5a, 0x9e, 0x4d, 0x79, 0x12, 0x15,
-	0xc4, 0x22, 0x10, 0x0d, 0xd4, 0x10, 0xf9, 0x9a, 0xb4, 0xe4, 0x8c, 0x2b, 0x93, 0x2b, 0xc1, 0x4b,
-	0x6c, 0x09, 0xb0, 0x66, 0xad, 0x23, 0x7a, 0x4c, 0x68, 0x2e, 0xc2, 0x69, 0x90, 0x24, 0x5c, 0xdc,
-	0x55, 0xf0, 0xa7, 0x00, 0xb7, 0x5d, 0x07, 0xf1, 0x1e, 0x69, 0xf0, 0x4c, 0x86, 0xd3, 0x82, 0x5b,
-	0xc6, 0x74, 0x20, 0x21, 0xf0, 0x03, 0xd9, 0x42, 0x20, 0xc8, 0x32, 0x1e, 0x24, 0xda, 0x57, 0x5c,
-	0xcb, 0x64, 0xc6, 0x23, 0xb6, 0x02, 0xec, 0x06, 0xb8, 0xe7, 0x68, 0x4e, 0x0a, 0x8f, 0x7e, 0x43,
-	0xda, 0x49, 0xa0, 0x8d, 0xaf, 0xf8, 0x43, 0xa0, 0x22, 0x1f, 0x18, 0xf6, 0x59, 0xdf, 0x1b, 0x2c,
-	0x4e, 0x9a, 0xd6, 0x98, 0x80, 0xfe, 0xb3, 0x95, 0x6d, 0xe2, 0x30, 0x4f, 0xf3, 0x24, 0x30, 0xf1,
-	0x8c, 0x17, 0x15, 0x9a, 0xad, 0xc2, 0x2e, 0xb6, 0x6b, 0x07, 0x4b, 0x34, 0xfd, 0x91, 0x6c, 0x97,
-	0xcf, 0xec, 0x87, 0x52, 0x26, 0x91, 0x7c, 0x10, 0x7e, 0x2e, 0x4c, 0x9c, 0x30, 0x02, 0x0d, 0x36,
-	0x4b, 0x7b, 0x5c, 0xb8, 0xd7, 0xd6, 0xa4, 0x67, 0x64, 0x33, 0x94, 0x42, 0xf3, 0x30, 0x87, 0x3e,
-	0x25, 0xa4, 0x59, 0x03, 0x9f, 0xc3, 0x31, 0xff, 0x28, 0x3d, 0x7a, 0x49, 0x1a, 0x37, 0x52, 0x44,
-	0xbe, 0x36, 0x81, 0xc9, 0x35, 0x5b, 0xeb, 0x7b, 0x83, 0xf5, 0xd3, 0xa3, 0xe1, 0x1b, 0x73, 0x33,
-	0x2c, 0x47, 0xe2, 0x42, 0x8a, 0xe8, 0x0a, 0xf0, 0x09, 0xb9, 0xa9, 0x7e, 0xdb, 0xb7, 0x1c, 0xe6,
-	0x4a, 0x71, 0x61, 0x7c, 0xab, 0xb2, 0xcf, 0xe1, 0xf9, 0x1a, 0x85, 0x66, 0x8b, 0xe8, 0xf7, 0x64,
-	0x03, 0x27, 0x25, 0x94, 0x69, 0x1a, 0x1b, 0xc3, 0x23, 0x44, 0xd7, 0x01, 0xa5, 0xe0, 0x8d, 0x4b,
-	0x0b, 0x2a, 0xbe, 0x23, 0x34, 0xe3, 0x22, 0x8a, 0xc5, 0x1d, 0xbc, 0x3f, 0x3f, 0x94, 0xb9, 0x30,
-	0xac, 0x09, 0x0f, 0xd4, 0x2a, 0x1c, 0xfb, 0x1a, 0xc7, 0x56, 0x87, 0x8d, 0x76, 0x76, 0x00, 0x07,
-	0x8c, 0xb5, 0x70, 0x34, 0x1c, 0xe7, 0x1a, 0x0c, 0xbb, 0xd1, 0x11, 0x4f, 0xa5, 0x89, 0xe5, 0x47,
-	0x1b, 0xdd, 0xc6, 0x8d, 0x2e, 0xed, 0xf9, 0x8d, 0x1e, 0x92, 0xce, 0xfc, 0xc4, 0xdc, 0xc6, 0x09,
-	0x8f, 0x18, 0xc5, 0x3e, 0xee, 0xb8, 0xfc, 0x62, 0x8d, 0xfa, 0x80, 0x24, 0x32, 0xbc, 0xd7, 0xac,
-	0xe3, 0x1c, 0x90, 0xdf, 0xac, 0xe2, 0x1c, 0x10, 0x24, 0x36, 0xdc, 0x03, 0x82, 0xc8, 0xfc, 0x01,
-	0x41, 0x6c, 0xf3, 0xf5, 0x01, 0x41, 0xb4, 0x9a, 0x78, 0xa4, 0xb6, 0x9c, 0x89, 0xaf, 0x00, 0xcc,
-	0x93, 0xca, 0x19, 0xd7, 0x6c, 0xdb, 0xc9, 0xf3, 0xbb, 0x55, 0x9c, 0x3c, 0x48, 0x30, 0x37, 0x0f,
-	0x22, 0xf3, 0x79, 0x10, 0xdb, 0x79, 0x9d, 0x07, 0xd1, 0x2a, 0x0f, 0x52, 0xbb, 0x4e, 0x1e, 0x04,
-	0xf6, 0x09, 0x36, 0xf7, 0xb3, 0x58, 0x68, 0xb6, 0x07, 0xfe, 0x2a, 0x28, 0x7f, 0xc6, 0x02, 0xea,
-	0x8b, 0x34, 0xe0, 0x7f, 0x81, 0xf5, 0x28, 0x01, 0x70, 0x44, 0x9c, 0x9e, 0x08, 0xed, 0x03, 0xb4,
-	0x5e, 0xcb, 0x00, 0xee, 0x13, 0x6c, 0x8b, 0x4c, 0x17, 0x1b, 0x81, 0x52, 0xae, 0x53, 0xe4, 0x50,
-	0x32, 0x93, 0x3a, 0x48, 0x34, 0xeb, 0xe1, 0x3a, 0x18, 0xa6, 0x54, 0xe9, 0x88, 0x74, 0x42, 0x29,
-	0x6e, 0x63, 0x95, 0xda, 0x7e, 0x15, 0xdc, 0x07, 0x98, 0x56, 0x56, 0x5d, 0x70, 0x4c, 0xa8, 0xe2,
-	0x7f, 0xf3, 0xd0, 0xcc, 0xf1, 0x07, 0x38, 0x30, 0xa5, 0x53, 0xe3, 0x47, 0xa4, 0x89, 0x39, 0xc3,
-	0x5c, 0x05, 0x76, 0xfe, 0x34, 0x3b, 0xc4, 0x20, 0x20, 0x8f, 0x4b, 0xb5, 0xba, 0x85, 0xe0, 0xda,
-	0xe7, 0xc5, 0x2d, 0xf4, 0x65, 0x7d, 0x0b, 0xc1, 0xed, 0xcd, 0xf1, 0x16, 0xfa, 0x89, 0xec, 0xb9,
-	0x87, 0x23, 0x16, 0x6e, 0x91, 0x66, 0x5f, 0x41, 0x83, 0x1d, 0x07, 0xf9, 0xb5, 0x20, 0xa0, 0x5c,
-	0x5f, 0x9c, 0xfe, 0xff, 0xdc, 0xf5, 0x9e, 0x9e, 0xbb, 0xde, 0xfb, 0xe7, 0xae, 0xf7, 0xef, 0x4b,
-	0x77, 0xe1, 0xe9, 0xa5, 0xbb, 0xf0, 0xee, 0xa5, 0xbb, 0xf0, 0x17, 0x73, 0x3e, 0x28, 0xff, 0x14,
-	0x9f, 0x14, 0xf8, 0x9e, 0xdc, 0x2c, 0xc3, 0x07, 0xe5, 0xec, 0x43, 0x00, 0x00, 0x00, 0xff, 0xff,
-	0xf6, 0x04, 0xb5, 0xcd, 0xb5, 0x06, 0x00, 0x00,
+	// 588 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x5c, 0x94, 0xcb, 0x6e, 0x13, 0x31,
+	0x18, 0x85, 0x3b, 0xb4, 0xf4, 0xe2, 0x94, 0x36, 0x75, 0x9a, 0xd6, 0x5c, 0x3a, 0x0d, 0x6c, 0x1a,
+	0x04, 0x4d, 0x54, 0x8a, 0xd8, 0x97, 0x48, 0x88, 0x05, 0x08, 0x14, 0xd4, 0x0d, 0x9b, 0xd1, 0xe0,
+	0x71, 0x1a, 0x53, 0xc7, 0x1e, 0xd9, 0x9e, 0x81, 0xbe, 0x05, 0x8f, 0xc5, 0xb2, 0x4b, 0x96, 0x28,
+	0x79, 0x06, 0xf6, 0x68, 0xfc, 0xcf, 0xc5, 0xe9, 0x32, 0xe7, 0x7c, 0xff, 0xfc, 0xc7, 0x3e, 0x91,
+	0xd1, 0x0b, 0x93, 0xc6, 0xfa, 0x3a, 0xd1, 0x2c, 0x9e, 0x0d, 0x27, 0x4a, 0x67, 0xb3, 0x61, 0x7e,
+	0x36, 0x34, 0x4c, 0x5a, 0x2e, 0x99, 0x88, 0x62, 0x6a, 0x79, 0xce, 0xed, 0xcd, 0x20, 0xd5, 0xca,
+	0x2a, 0xdc, 0x69, 0xe0, 0x81, 0x83, 0x07, 0xf9, 0xd9, 0xb3, 0x7f, 0x9b, 0xa8, 0xfd, 0xa5, 0x1c,
+	0xb8, 0x28, 0x79, 0x4c, 0xd0, 0x46, 0x9c, 0x24, 0x9a, 0x19, 0x43, 0x82, 0x5e, 0xd0, 0xdf, 0x1a,
+	0x57, 0x3f, 0xf1, 0x31, 0x6a, 0x59, 0x65, 0x63, 0x11, 0x4d, 0x79, 0xc2, 0x0c, 0xb9, 0xd7, 0x0b,
+	0xfa, 0x6b, 0x63, 0xe4, 0xa4, 0xf7, 0x85, 0x82, 0x9f, 0xa2, 0xed, 0x2c, 0x9d, 0x32, 0x91, 0x94,
+	0xc4, 0xaa, 0x23, 0x5a, 0xa0, 0x01, 0xf2, 0x1c, 0xb5, 0x55, 0xce, 0xb4, 0xcd, 0xb4, 0x64, 0x15,
+	0xb6, 0xe6, 0xb0, 0xdd, 0x46, 0x07, 0xf4, 0x14, 0xe1, 0x4c, 0xd2, 0x69, 0x2c, 0x04, 0x93, 0x57,
+	0x35, 0x7c, 0xdf, 0xc1, 0x7b, 0xbe, 0x03, 0xf8, 0x31, 0x6a, 0xb1, 0x54, 0xd1, 0x69, 0xc9, 0xad,
+	0x43, 0x3a, 0x27, 0x01, 0xf0, 0x1a, 0x1d, 0x00, 0x10, 0xa7, 0x29, 0x8b, 0x85, 0x89, 0x34, 0x33,
+	0x4a, 0xe4, 0x2c, 0x21, 0x1b, 0x8e, 0xdd, 0x77, 0xee, 0x05, 0x98, 0xe3, 0xd2, 0xc3, 0x6f, 0xd0,
+	0x61, 0x15, 0x2c, 0xa2, 0x4a, 0x89, 0x44, 0xfd, 0x90, 0x51, 0x26, 0x2d, 0x17, 0x64, 0xb3, 0x17,
+	0xf4, 0x57, 0xc7, 0xdd, 0xca, 0x1e, 0x95, 0xee, 0x65, 0x61, 0xe2, 0x73, 0xd4, 0xa5, 0x4a, 0x1a,
+	0x46, 0x33, 0xcb, 0x73, 0x16, 0x55, 0x90, 0x21, 0x5b, 0xb0, 0xcc, 0x33, 0x3f, 0x55, 0x1e, 0x7e,
+	0x89, 0x70, 0xca, 0x64, 0xc2, 0xe5, 0x95, 0x3b, 0x45, 0x44, 0x55, 0x26, 0x2d, 0x41, 0x6e, 0xa2,
+	0x5d, 0x3a, 0xc5, 0x61, 0x46, 0x85, 0x5e, 0x5c, 0x90, 0xbf, 0x02, 0xae, 0x99, 0xb4, 0xe0, 0x82,
+	0x3c, 0xe7, 0xd2, 0x19, 0x78, 0x80, 0x3a, 0xcb, 0xe7, 0x9f, 0x70, 0xc1, 0x12, 0xb2, 0x0d, 0xbc,
+	0x7f, 0xf8, 0x77, 0x85, 0xd1, 0xd4, 0x2d, 0x14, 0xbd, 0x36, 0xe4, 0x81, 0x57, 0xf7, 0x87, 0x42,
+	0xf1, 0xea, 0x06, 0x62, 0xc7, 0xaf, 0x1b, 0x90, 0xe5, 0xba, 0x01, 0xdb, 0xbd, 0x5b, 0x37, 0xa0,
+	0x75, 0x7f, 0x40, 0xb5, 0xbd, 0xfe, 0x6a, 0x00, 0xf2, 0xcc, 0x54, 0xce, 0x0c, 0xd9, 0xf3, 0xf2,
+	0x7c, 0x2c, 0x14, 0x2f, 0x0f, 0x10, 0xd8, 0xcf, 0x03, 0xc8, 0x72, 0x1e, 0xc0, 0x3a, 0x77, 0xf3,
+	0x00, 0x5a, 0xe7, 0x01, 0x6a, 0xdf, 0xcb, 0x03, 0xc0, 0x11, 0x82, 0xe5, 0x51, 0xca, 0xa5, 0x21,
+	0x5d, 0xe7, 0x6f, 0x39, 0xe5, 0x33, 0x97, 0x6e, 0xbe, 0x4c, 0xe3, 0xfc, 0x03, 0x98, 0x07, 0xc9,
+	0x01, 0x27, 0xc8, 0xdb, 0x09, 0xd0, 0xa1, 0x83, 0x76, 0x1a, 0xd9, 0x81, 0x47, 0x08, 0xd6, 0x02,
+	0x43, 0x60, 0x91, 0x53, 0xaa, 0xef, 0x94, 0x39, 0xb4, 0x4a, 0x95, 0x89, 0x85, 0x21, 0x0f, 0xe1,
+	0x3b, 0x10, 0xa6, 0x52, 0xf1, 0x10, 0x75, 0xa8, 0x92, 0x13, 0xae, 0x67, 0xc5, 0xbe, 0x1a, 0x7e,
+	0xe4, 0x60, 0x5c, 0x5b, 0xcd, 0xc0, 0x29, 0xc2, 0x9a, 0x7d, 0x67, 0xd4, 0x2e, 0xf1, 0x8f, 0xe1,
+	0x0f, 0x53, 0x39, 0x0d, 0x7e, 0x82, 0x76, 0x21, 0x27, 0xcd, 0x74, 0x6c, 0xb9, 0x92, 0x86, 0x3c,
+	0x81, 0x20, 0x4e, 0x1e, 0x55, 0xea, 0xdb, 0x57, 0xbf, 0xe7, 0x61, 0x70, 0x3b, 0x0f, 0x83, 0xbf,
+	0xf3, 0x30, 0xf8, 0xb5, 0x08, 0x57, 0x6e, 0x17, 0xe1, 0xca, 0x9f, 0x45, 0xb8, 0xf2, 0x95, 0x78,
+	0x6f, 0xda, 0xcf, 0xf2, 0x55, 0xb3, 0x37, 0x29, 0x33, 0xdf, 0xd6, 0xdd, 0x3b, 0x76, 0xfe, 0x3f,
+	0x00, 0x00, 0xff, 0xff, 0x1e, 0x33, 0x9b, 0xbe, 0xf6, 0x04, 0x00, 0x00,
 }
 
 func (m *SentinelActivity) Marshal() (dAtA []byte, err error) {
@@ -428,196 +354,134 @@ func (m *SentinelActivity) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if m.ConsecutiveInactiveEpochs != 0 {
-		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.ConsecutiveInactiveEpochs))
-		i--
-		dAtA[i] = 0x2
-		i--
-		dAtA[i] = 0xa0
-	}
-	if m.LastActiveEpoch != 0 {
-		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.LastActiveEpoch))
-		i--
-		dAtA[i] = 0x2
-		i--
-		dAtA[i] = 0x98
-	}
 	if m.EpochCurations != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.EpochCurations))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0xe0
 	}
 	if m.RejectedProposals != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.RejectedProposals))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xd8
 	}
 	if m.ConfirmedProposals != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.ConfirmedProposals))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xd0
 	}
 	if m.TotalProposals != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.TotalProposals))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0xc8
 	}
 	if m.EpochPins != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.EpochPins))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0xc0
 	}
 	if m.OverturnedPins != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.OverturnedPins))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xe8
+		dAtA[i] = 0xb8
 	}
 	if m.UpheldPins != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.UpheldPins))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xe0
+		dAtA[i] = 0xb0
 	}
 	if m.TotalPins != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.TotalPins))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xa8
 	}
 	if m.EpochMoves != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.EpochMoves))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0xa0
 	}
 	if m.OverturnedMoves != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.OverturnedMoves))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0x98
 	}
 	if m.UpheldMoves != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.UpheldMoves))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc0
+		dAtA[i] = 0x90
 	}
 	if m.TotalMoves != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.TotalMoves))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0x88
 	}
 	if m.EpochLocks != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.EpochLocks))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x80
 	}
 	if m.OverturnedLocks != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.OverturnedLocks))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0x78
 	}
 	if m.UpheldLocks != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.UpheldLocks))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0x70
 	}
 	if m.TotalLocks != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.TotalLocks))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0x68
 	}
 	if m.EpochAppealsFiled != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.EpochAppealsFiled))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x90
-	}
-	if m.DemotionCooldownUntil != 0 {
-		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.DemotionCooldownUntil))
-		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0x60
 	}
 	if m.ConsecutiveUpheld != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.ConsecutiveUpheld))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0x58
 	}
 	if m.PendingHideCount != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.PendingHideCount))
 		i--
-		dAtA[i] = 0x78
-	}
-	if len(m.TotalCommittedBond) > 0 {
-		i -= len(m.TotalCommittedBond)
-		copy(dAtA[i:], m.TotalCommittedBond)
-		i = encodeVarintSentinelActivity(dAtA, i, uint64(len(m.TotalCommittedBond)))
-		i--
-		dAtA[i] = 0x72
-	}
-	if len(m.CurrentBond) > 0 {
-		i -= len(m.CurrentBond)
-		copy(dAtA[i:], m.CurrentBond)
-		i = encodeVarintSentinelActivity(dAtA, i, uint64(len(m.CurrentBond)))
-		i--
-		dAtA[i] = 0x6a
-	}
-	if m.BondStatus != 0 {
-		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.BondStatus))
-		i--
-		dAtA[i] = 0x60
+		dAtA[i] = 0x50
 	}
 	if m.ConsecutiveOverturns != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.ConsecutiveOverturns))
 		i--
-		dAtA[i] = 0x58
+		dAtA[i] = 0x48
 	}
 	if m.OverturnCooldownUntil != 0 {
 		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.OverturnCooldownUntil))
-		i--
-		dAtA[i] = 0x50
-	}
-	if len(m.CumulativeRewards) > 0 {
-		i -= len(m.CumulativeRewards)
-		copy(dAtA[i:], m.CumulativeRewards)
-		i = encodeVarintSentinelActivity(dAtA, i, uint64(len(m.CumulativeRewards)))
-		i--
-		dAtA[i] = 0x4a
-	}
-	if m.LastRewardEpoch != 0 {
-		i = encodeVarintSentinelActivity(dAtA, i, uint64(m.LastRewardEpoch))
 		i--
 		dAtA[i] = 0x40
 	}
@@ -700,50 +564,29 @@ func (m *SentinelActivity) Size() (n int) {
 	if m.EpochAppealsResolved != 0 {
 		n += 1 + sovSentinelActivity(uint64(m.EpochAppealsResolved))
 	}
-	if m.LastRewardEpoch != 0 {
-		n += 1 + sovSentinelActivity(uint64(m.LastRewardEpoch))
-	}
-	l = len(m.CumulativeRewards)
-	if l > 0 {
-		n += 1 + l + sovSentinelActivity(uint64(l))
-	}
 	if m.OverturnCooldownUntil != 0 {
 		n += 1 + sovSentinelActivity(uint64(m.OverturnCooldownUntil))
 	}
 	if m.ConsecutiveOverturns != 0 {
 		n += 1 + sovSentinelActivity(uint64(m.ConsecutiveOverturns))
 	}
-	if m.BondStatus != 0 {
-		n += 1 + sovSentinelActivity(uint64(m.BondStatus))
-	}
-	l = len(m.CurrentBond)
-	if l > 0 {
-		n += 1 + l + sovSentinelActivity(uint64(l))
-	}
-	l = len(m.TotalCommittedBond)
-	if l > 0 {
-		n += 1 + l + sovSentinelActivity(uint64(l))
-	}
 	if m.PendingHideCount != 0 {
 		n += 1 + sovSentinelActivity(uint64(m.PendingHideCount))
 	}
 	if m.ConsecutiveUpheld != 0 {
-		n += 2 + sovSentinelActivity(uint64(m.ConsecutiveUpheld))
-	}
-	if m.DemotionCooldownUntil != 0 {
-		n += 2 + sovSentinelActivity(uint64(m.DemotionCooldownUntil))
+		n += 1 + sovSentinelActivity(uint64(m.ConsecutiveUpheld))
 	}
 	if m.EpochAppealsFiled != 0 {
-		n += 2 + sovSentinelActivity(uint64(m.EpochAppealsFiled))
+		n += 1 + sovSentinelActivity(uint64(m.EpochAppealsFiled))
 	}
 	if m.TotalLocks != 0 {
-		n += 2 + sovSentinelActivity(uint64(m.TotalLocks))
+		n += 1 + sovSentinelActivity(uint64(m.TotalLocks))
 	}
 	if m.UpheldLocks != 0 {
-		n += 2 + sovSentinelActivity(uint64(m.UpheldLocks))
+		n += 1 + sovSentinelActivity(uint64(m.UpheldLocks))
 	}
 	if m.OverturnedLocks != 0 {
-		n += 2 + sovSentinelActivity(uint64(m.OverturnedLocks))
+		n += 1 + sovSentinelActivity(uint64(m.OverturnedLocks))
 	}
 	if m.EpochLocks != 0 {
 		n += 2 + sovSentinelActivity(uint64(m.EpochLocks))
@@ -783,12 +626,6 @@ func (m *SentinelActivity) Size() (n int) {
 	}
 	if m.EpochCurations != 0 {
 		n += 2 + sovSentinelActivity(uint64(m.EpochCurations))
-	}
-	if m.LastActiveEpoch != 0 {
-		n += 2 + sovSentinelActivity(uint64(m.LastActiveEpoch))
-	}
-	if m.ConsecutiveInactiveEpochs != 0 {
-		n += 2 + sovSentinelActivity(uint64(m.ConsecutiveInactiveEpochs))
 	}
 	return n
 }
@@ -976,57 +813,6 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 			}
 		case 8:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LastRewardEpoch", wireType)
-			}
-			m.LastRewardEpoch = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowSentinelActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.LastRewardEpoch |= int64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 9:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CumulativeRewards", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowSentinelActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthSentinelActivity
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthSentinelActivity
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.CumulativeRewards = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 10:
-			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OverturnCooldownUntil", wireType)
 			}
 			m.OverturnCooldownUntil = 0
@@ -1044,7 +830,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 11:
+		case 9:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConsecutiveOverturns", wireType)
 			}
@@ -1063,90 +849,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 12:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field BondStatus", wireType)
-			}
-			m.BondStatus = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowSentinelActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.BondStatus |= SentinelBondStatus(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 13:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CurrentBond", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowSentinelActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthSentinelActivity
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthSentinelActivity
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.CurrentBond = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 14:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TotalCommittedBond", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowSentinelActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthSentinelActivity
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthSentinelActivity
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.TotalCommittedBond = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 15:
+		case 10:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PendingHideCount", wireType)
 			}
@@ -1165,7 +868,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 16:
+		case 11:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConsecutiveUpheld", wireType)
 			}
@@ -1184,26 +887,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 17:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DemotionCooldownUntil", wireType)
-			}
-			m.DemotionCooldownUntil = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowSentinelActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.DemotionCooldownUntil |= int64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 18:
+		case 12:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EpochAppealsFiled", wireType)
 			}
@@ -1222,7 +906,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 19:
+		case 13:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TotalLocks", wireType)
 			}
@@ -1241,7 +925,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 20:
+		case 14:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field UpheldLocks", wireType)
 			}
@@ -1260,7 +944,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 21:
+		case 15:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OverturnedLocks", wireType)
 			}
@@ -1279,7 +963,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 22:
+		case 16:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EpochLocks", wireType)
 			}
@@ -1298,7 +982,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 23:
+		case 17:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TotalMoves", wireType)
 			}
@@ -1317,7 +1001,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 24:
+		case 18:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field UpheldMoves", wireType)
 			}
@@ -1336,7 +1020,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 25:
+		case 19:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OverturnedMoves", wireType)
 			}
@@ -1355,7 +1039,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 26:
+		case 20:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EpochMoves", wireType)
 			}
@@ -1374,7 +1058,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 27:
+		case 21:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TotalPins", wireType)
 			}
@@ -1393,7 +1077,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 28:
+		case 22:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field UpheldPins", wireType)
 			}
@@ -1412,7 +1096,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 29:
+		case 23:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OverturnedPins", wireType)
 			}
@@ -1431,7 +1115,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 30:
+		case 24:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EpochPins", wireType)
 			}
@@ -1450,7 +1134,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 31:
+		case 25:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TotalProposals", wireType)
 			}
@@ -1469,7 +1153,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 32:
+		case 26:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConfirmedProposals", wireType)
 			}
@@ -1488,7 +1172,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 33:
+		case 27:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RejectedProposals", wireType)
 			}
@@ -1507,7 +1191,7 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 34:
+		case 28:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EpochCurations", wireType)
 			}
@@ -1522,44 +1206,6 @@ func (m *SentinelActivity) Unmarshal(dAtA []byte) error {
 				b := dAtA[iNdEx]
 				iNdEx++
 				m.EpochCurations |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 35:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LastActiveEpoch", wireType)
-			}
-			m.LastActiveEpoch = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowSentinelActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.LastActiveEpoch |= int64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 36:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ConsecutiveInactiveEpochs", wireType)
-			}
-			m.ConsecutiveInactiveEpochs = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowSentinelActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ConsecutiveInactiveEpochs |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}

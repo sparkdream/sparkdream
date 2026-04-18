@@ -1,21 +1,29 @@
 # `x/forum`
 
-The `x/forum` module implements a decentralized, censorship-resistant discussion platform with hierarchical content organization, dual-token sentinel moderation, bounties, anonymous posting via `x/shield`, and conviction-based content persistence.
+The `x/forum` module implements a decentralized, censorship-resistant discussion platform with hierarchical content organization, content-action sentinel moderation, bounties, anonymous posting via `x/shield`, and conviction-based content persistence.
+
+> **Scope:** Forum owns forum-local content records (posts, categories, hide/lock/move records, bounties, rate limits) and per-action sentinel counters (hides/locks/moves/pins/proposals). Tag registry, tag moderation, tag budgets, sentinel bond/unbond, member reports/warnings/appeals, and salvation tracking live in `x/rep` — see [`docs/x-rep-spec.md`](../../docs/x-rep-spec.md).
 
 ## Overview
 
 This module provides:
 
-- **Hierarchical content** — governance-controlled categories and member-created dynamic tags
-- **Dual-token moderation** — sentinels stake DREAM as collateral for moderation authority; earn rewards for accurate decisions
+- **Hierarchical content** — governance-controlled categories and posts; tags referenced by name against the x/rep tag registry
+- **Content-action moderation** — sentinels (registered in x/rep) hide, lock, move, and dismiss flags on forum content; forum tracks per-sentinel action counters and local cooldowns
 - **Content lifecycle** — ephemeral TTL for non-member posts, permanent storage for members, archival for inactive threads
-- **Bounties and tag budgets** — economic incentives for quality content
+- **Bounties** — thread-attached SPARK bounties with assignment, cancellation, and expiry
 - **Anonymous posting** — anonymous posts, replies, and reactions via `x/shield`'s `MsgShieldedExec`
 - **Conviction renewal** — posts linked to `x/rep` initiatives can extend their TTL based on community conviction staking
-- **Author bonds** — optional DREAM bonds on content creation, slashable via challenges
-- **Appeals system** — jury-based appeals via `x/rep` for overturning moderation actions
+- **Appeals system** — forum-action appeals (hide, lock, move) via `x/rep` jury initiatives
 - **Thread following** — members can follow threads and track activity
-- **Member reports** — community-driven accountability with cosigning, defense, and resolution
+
+Cross-links for primitives owned by x/rep:
+
+- Tag registry / creation / expiry — see [`docs/x-rep-spec.md`](../../docs/x-rep-spec.md) (Tag Registry)
+- Tag moderation (`TagReport`, resolve) — [`docs/x-rep-spec.md`](../../docs/x-rep-spec.md) (Tag Moderation)
+- Tag budgets — [`docs/x-rep-spec.md`](../../docs/x-rep-spec.md) (Tag Budgets)
+- Sentinel bond/unbond — [`docs/x-rep-spec.md`](../../docs/x-rep-spec.md) (Sentinel Accountability)
+- Member reports / warnings / appeals — [`docs/x-rep-spec.md`](../../docs/x-rep-spec.md) (Member Accountability)
 
 ## Concepts
 
@@ -39,13 +47,9 @@ ACTIVE ◄─── MsgUnhidePost ─── HIDDEN ◄── MsgHidePost (sentin
 
 ### Sentinel System
 
-Sentinels are reputation-bearing members who stake DREAM bonds to moderate content:
+Sentinels are reputation-bearing members who stake DREAM bonds to moderate content. Bond, bond status, activity stamps, and `MsgBondSentinel` / `MsgUnbondSentinel` are owned by **x/rep** (`sparkdream.rep.v1.SentinelActivity`). See [x/rep spec — Sentinel Accountability](../../docs/x-rep-spec.md).
 
-- **NORMAL** (>= 1000 DREAM): full moderation privileges
-- **RECOVERY** (500-999 DREAM): can moderate; rewards auto-bonded until restored
-- **DEMOTED** (< 500 DREAM): loses privileges, must re-bond
-
-**Slashing**: 100 DREAM per overturned appeal (fixed amount). Consecutive overturns escalate cooldown (24h to 7 days). 5+ consecutive slashes trigger demotion.
+Forum owns only the per-action counters (`sparkdream.forum.v1.SentinelActivity`): hides, locks, moves, pins, proposals, per-epoch tallies, and local cooldowns. Content-action handlers (hide / lock / move / dismiss-flags) auth-check via `repKeeper.GetSentinel`, reserve bond via `repKeeper.ReserveBond`, record activity via `repKeeper.RecordActivity`, and release/slash on appeal outcomes.
 
 ### Conviction-Based TTL Renewal
 
@@ -53,12 +57,9 @@ Posts linked to `x/rep` initiatives (via `initiative_id`) can renew their epheme
 
 ### Tag System
 
-Tags are owned by the `x/common` `TagKeeper` interface (implemented by this module):
+Tags are owned by **x/rep** — `Tag` / `ReservedTag` / `MsgCreateTag` / `MsgReportTag` / `MsgResolveTagReport` all live there. Forum posts reference tags by name; x/rep validates creation, enforces the trust-level gate and per-creation fee burn, handles expiry, and holds the tag registry.
 
-- Created dynamically by members (Tier 2+) for a fee
-- Expire if unused for 30 days (reserved tags exempt)
-- Maximum 10,000 system-wide tags (configurable)
-- Reserved tags controlled by governance
+Forum still exposes a small `ForumKeeper` surface back to x/rep for tag moderation and tag-budget awards: `PruneTagReferences(ctx, name)`, `GetPostAuthor(ctx, postID)`, `GetPostTags(ctx, postID)`.
 
 ### Shield-Aware Messages
 
@@ -76,9 +77,7 @@ The following messages support anonymous execution via `x/shield`'s `MsgShielded
 |--------|-----|-------------|
 | `Post` | `post/value/{id}` | Post with content, metadata, moderation state, reactions |
 | `Category` | `category/value/{id}` | Governance-controlled discussion container |
-| `Tag` | `tag/value/{name}` | Member-created content descriptor |
-| `ReservedTag` | `reserved_tag/value/{name}` | Governance-reserved tags |
-| `SentinelActivity` | `sentinel/value/{address}` | Sentinel bond and activity tracking |
+| `SentinelActivity` | `sentinel/value/{address}` | Forum-specific sentinel counters (hides/locks/moves/pins/proposals); bond and status live in x/rep |
 | `HideRecord` | `hide_record/value/{post_id}` | Sentinel hide action record |
 | `ThreadLockRecord` | `thread_lock/value/{root_id}` | Thread lock record |
 | `ThreadMetadata` | `threadmeta/value/{root_id}` | Thread-level metadata (reply count, last activity) |
@@ -87,17 +86,11 @@ The following messages support anonymous execution via `x/shield`'s `MsgShielded
 | `ThreadMoveRecord` | `threadmove/value/{root_id}` | Thread move history |
 | `ArchiveMetadata` | `archivemeta/value/{root_id}` | Archival state and cycle tracking |
 | `Bounty` | `bounty/value/{id}` | Escrowed SPARK bounty on a thread |
-| `TagBudget` | `tagbudget/value/{id}` | Reward pool for quality posts with specific tag |
-| `TagBudgetAward` | `tagbudgetaward/value/{id}` | Award record from a tag budget |
-| `TagReport` | `tagreport/value/{name}` | Tag report with evidence |
 | `PostFlag` | `postflag/value/{post_id}/{flagger}` | Flag record on a post |
 | `UserRateLimit` | `userratelimit/value/{address}` | Per-user daily post tracking |
 | `UserReactionLimit` | `userreactionlimit/value/{address}` | Per-user daily reaction tracking |
-| `MemberReport` | `memberreport/value/{id}` | Report against a member with cosigning |
-| `MemberWarning` | `memberwarning/value/{id}` | Warning issued to a member |
-| `MemberSalvationStatus` | `membersalvation/value/{address}` | Member salvation/rehabilitation tracking |
-| `JuryParticipation` | `jurypart/value/{address}` | Jury service participation record |
-| `GovActionAppeal` | `govactionappeal/value/{id}` | Appeal against a governance action |
+
+Owned by x/rep (not forum): `Tag`, `ReservedTag`, `TagBudget`, `TagBudgetAward`, `TagReport`, `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`; salvation counters on the rep `Member` proto; sentinel bond/status/activity-stamp fields on the rep `SentinelActivity`.
 
 ### Post Fields
 
@@ -143,9 +136,9 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgHidePost` | Hide post (requires reason) | Active sentinel |
-| `MsgBondSentinel` | Stake DREAM to become/restore sentinel | Members meeting reputation tier |
-| `MsgUnbondSentinel` | Unbond DREAM (exit sentinel) | Sentinel only |
+| `MsgHidePost` | Hide post (requires reason) | Active sentinel (bond auth via x/rep) |
+
+> Sentinel bond/unbond messages (`MsgBondSentinel`, `MsgUnbondSentinel`) live in x/rep now. See the [x/rep spec](../../docs/x-rep-spec.md).
 
 ### Thread Control
 
@@ -169,7 +162,8 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `MsgAppealPost` | Appeal hidden post (triggers jury in `x/rep`) | Post author |
 | `MsgAppealThreadLock` | Appeal thread lock | Thread author |
 | `MsgAppealThreadMove` | Appeal thread move | Thread author |
-| `MsgAppealGovAction` | Appeal governance pause/lock/move | Affected author |
+
+> `MsgAppealGovAction` (appealing pause/lock/move/warning/demotion/zeroing) now lives in x/rep.
 
 ### Bounties
 
@@ -181,31 +175,7 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `MsgCancelBounty` | Cancel (refund minus 10% fee) | Bounty creator |
 | `MsgAssignBountyToReply` | Assign bounty to a specific reply | Bounty creator |
 
-### Tag Budgets
-
-| Message | Description | Access |
-|---------|-------------|--------|
-| `MsgCreateTagBudget` | Create reward pool for posts with a tag | Any member |
-| `MsgAwardFromTagBudget` | Award SPARK from budget for quality post | Budget creator |
-| `MsgTopUpTagBudget` | Add more SPARK | Budget creator |
-| `MsgWithdrawTagBudget` | Withdraw unused funds | Budget creator |
-| `MsgToggleTagBudget` | Enable or disable a tag budget | Budget creator |
-
-### Tag Management
-
-| Message | Description | Access |
-|---------|-------------|--------|
-| `MsgReportTag` | Report tag as problematic | Any member |
-| `MsgResolveTagReport` | Resolve tag report (reserve/ban/restore) | Governance |
-
-### Member Reports
-
-| Message | Description | Access |
-|---------|-------------|--------|
-| `MsgReportMember` | Report a member with evidence | Any member |
-| `MsgCosignMemberReport` | Cosign an existing member report | Any member |
-| `MsgResolveMemberReport` | Resolve a member report (warn/demote/zero) | Governance or sentinel |
-| `MsgDefendMemberReport` | Submit defense against a report | Reported member |
+> Tag budgets, tag registry/moderation, and member reports/warnings/appeals now live in x/rep. See the [x/rep spec](../../docs/x-rep-spec.md) for `MsgCreateTag`, `MsgReportTag`, `MsgResolveTagReport`, the 5 `*TagBudget*` messages, and the 5 `*MemberReport*` / `MsgAppealGovAction` messages.
 
 ### Archival
 
@@ -275,23 +245,7 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `UserBounties` | Bounties created by a user |
 | `BountyExpiringSoon` | Bounties near expiration |
 
-### Tag Budgets
-
-| Query | Description |
-|-------|-------------|
-| `TagBudget` | Single tag budget by ID |
-| `TagBudgetByTag` | Budget for a specific tag |
-| `TagBudgets` | All tag budgets |
-| `TagBudgetAward` | Single award record |
-| `TagBudgetAwards` | All awards for a budget |
-
-### Tags
-
-| Query | Description |
-|-------|-------------|
-| `TagExists` | Whether a tag exists |
-| `TagReport` | Report on a specific tag |
-| `TagReports` | All tag reports |
+> Tag registry queries (`Tag`, `TagExists`, `ReservedTag`), tag-budget queries, and tag-report queries are exposed by the x/rep query service. Member-report, member-warning, and gov-action-appeal queries also live in x/rep.
 
 ### Archives
 
@@ -300,25 +254,6 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `ArchiveMetadata` | Archival state for a thread |
 | `AppealCooldown` | Remaining appeal cooldown |
 | `ArchiveCooldown` | Remaining archive cooldown |
-
-### Member Accountability
-
-| Query | Description |
-|-------|-------------|
-| `MemberReport` | Single member report |
-| `MemberReports` | All member reports |
-| `MemberWarning` | Single member warning |
-| `MemberWarnings` | All warnings for a member |
-| `MemberStanding` | Overall member standing |
-| `MemberSalvationStatus` | Member salvation/rehabilitation status |
-| `JuryParticipation` | Jury service participation for a member |
-
-### Appeals
-
-| Query | Description |
-|-------|-------------|
-| `GovActionAppeal` | Single governance action appeal |
-| `GovActionAppeals` | All governance action appeals |
 
 ### Rate Limits
 
@@ -464,17 +399,13 @@ sparkdreamd tx forum delete-post 1 --from alice
 sparkdreamd tx forum follow-thread 1 --from alice
 sparkdreamd tx forum unfollow-thread 1 --from alice
 
-# Moderation
-sparkdreamd tx forum bond-sentinel --amount 1000 --from bob
+# Moderation (bond-sentinel lives under `tx rep`)
+sparkdreamd tx rep bond-sentinel --amount 1000 --from bob
 sparkdreamd tx forum hide-post 1 --reason-code SPAM --from sentinel
 
 # Bounties
 sparkdreamd tx forum create-bounty 1 --amount 100spark --from alice
 sparkdreamd tx forum award-bounty 1 --reply-id 5 --from alice
-
-# Member reports
-sparkdreamd tx forum report-member [address] --evidence "post:1,post:2,post:3" --from alice
-sparkdreamd tx forum cosign-member-report 1 --from bob
 
 # Queries
 sparkdreamd q forum posts --category-id 1

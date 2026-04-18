@@ -8,6 +8,8 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags) (*types.MsgDismissFlagsResponse, error) {
@@ -18,9 +20,14 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 	// Only sentinels or operations committee can dismiss flags
 	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
-	// Check if sender is a sentinel
-	sentinelActivity, err := k.SentinelActivity.Get(ctx, msg.Creator)
-	isSentinel := err == nil && sentinelActivity.CurrentBond != "" && sentinelActivity.BondStatus != types.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED
+	// Check if sender is an active sentinel (not demoted) via x/rep.
+	isSentinel := false
+	if !isGovAuthority && k.repKeeper != nil {
+		sa, serr := k.repKeeper.GetSentinel(ctx, msg.Creator)
+		isSentinel = serr == nil &&
+			sa.CurrentBond != "" &&
+			sa.BondStatus != reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED
+	}
 
 	if !isGovAuthority && !isSentinel {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only sentinels or operations committee can dismiss flags")

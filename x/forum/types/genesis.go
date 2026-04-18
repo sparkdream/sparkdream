@@ -8,7 +8,20 @@ import (
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params:  DefaultParams(),
-		PostMap: []Post{}, UserRateLimitMap: []UserRateLimit{}, UserReactionLimitMap: []UserReactionLimit{}, SentinelActivityMap: []SentinelActivity{}, HideRecordMap: []HideRecord{}, ThreadLockRecordMap: []ThreadLockRecord{}, ThreadMoveRecordMap: []ThreadMoveRecord{}, PostFlagMap: []PostFlag{}, BountyList: []Bounty{}, ThreadMetadataMap: []ThreadMetadata{}, ThreadFollowMap: []ThreadFollow{}, ThreadFollowCountMap: []ThreadFollowCount{}, ArchiveMetadataMap: []ArchiveMetadata{}, MemberSalvationStatusMap: []MemberSalvationStatus{}, JuryParticipationMap: []JuryParticipation{}, MemberReportMap: []MemberReport{}, MemberWarningList: []MemberWarning{}, GovActionAppealList: []GovActionAppeal{}}
+		PostMap:              []Post{},
+		UserRateLimitMap:     []UserRateLimit{},
+		UserReactionLimitMap: []UserReactionLimit{},
+		SentinelActivityMap:  []SentinelActivity{},
+		HideRecordMap:        []HideRecord{},
+		ThreadLockRecordMap:  []ThreadLockRecord{},
+		ThreadMoveRecordMap:  []ThreadMoveRecord{},
+		PostFlagMap:          []PostFlag{},
+		BountyList:           []Bounty{},
+		ThreadMetadataMap:    []ThreadMetadata{},
+		ThreadFollowMap:      []ThreadFollow{},
+		ThreadFollowCountMap: []ThreadFollowCount{},
+		ArchiveMetadataMap:   []ArchiveMetadata{},
+	}
 }
 
 // Validate performs basic genesis state validation returning an error upon any
@@ -134,56 +147,6 @@ func (gs GenesisState) Validate() error {
 		}
 		archiveMetadataIndexMap[index] = struct{}{}
 	}
-	memberSalvationStatusIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.MemberSalvationStatusMap {
-		index := fmt.Sprint(elem.Address)
-		if _, ok := memberSalvationStatusIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for memberSalvationStatus")
-		}
-		memberSalvationStatusIndexMap[index] = struct{}{}
-	}
-	juryParticipationIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.JuryParticipationMap {
-		index := fmt.Sprint(elem.Juror)
-		if _, ok := juryParticipationIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for juryParticipation")
-		}
-		juryParticipationIndexMap[index] = struct{}{}
-	}
-	memberReportIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.MemberReportMap {
-		index := fmt.Sprint(elem.Member)
-		if _, ok := memberReportIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for memberReport")
-		}
-		memberReportIndexMap[index] = struct{}{}
-	}
-	memberWarningIdMap := make(map[uint64]bool)
-	memberWarningCount := gs.GetMemberWarningCount()
-	for _, elem := range gs.MemberWarningList {
-		if _, ok := memberWarningIdMap[elem.Id]; ok {
-			return fmt.Errorf("duplicated id for memberWarning")
-		}
-		if elem.Id >= memberWarningCount {
-			return fmt.Errorf("memberWarning id should be lower or equal than the last id")
-		}
-		memberWarningIdMap[elem.Id] = true
-	}
-	govActionAppealIdMap := make(map[uint64]bool)
-	govActionAppealCount := gs.GetGovActionAppealCount()
-	for _, elem := range gs.GovActionAppealList {
-		if _, ok := govActionAppealIdMap[elem.Id]; ok {
-			return fmt.Errorf("duplicated id for govActionAppeal")
-		}
-		if elem.Id >= govActionAppealCount {
-			return fmt.Errorf("govActionAppeal id should be lower or equal than the last id")
-		}
-		govActionAppealIdMap[elem.Id] = true
-	}
-
 	// --- Enhanced validation: cross-references and status checks ---
 
 	// Build lookup maps for cross-referencing
@@ -249,13 +212,6 @@ func (gs GenesisState) Validate() error {
 	for _, pf := range gs.PostFlagMap {
 		if !postIDs[pf.PostId] {
 			return fmt.Errorf("post flag references non-existent post %d", pf.PostId)
-		}
-	}
-
-	// Sentinel bond status must not be UNSPECIFIED for active sentinels
-	for _, sa := range gs.SentinelActivityMap {
-		if sa.BondStatus == SentinelBondStatus_SENTINEL_BOND_STATUS_UNSPECIFIED && sa.CurrentBond != "" && sa.CurrentBond != "0" {
-			return fmt.Errorf("sentinel %s has UNSPECIFIED bond status with non-zero bond", sa.Address)
 		}
 	}
 

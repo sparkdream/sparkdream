@@ -25,11 +25,21 @@ func findMember(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Member, 
 	return &members[r.Intn(len(members))], nil
 }
 
-// findMemberWithDream returns a random member with sufficient DREAM balance
+// findMemberWithDream returns a random member with sufficient unlocked DREAM
+// balance (DreamBalance - StakedDream), matching the check enforced by
+// TransferDREAM in the msg handler.
 func findMemberWithDream(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, minAmount math.Int) (*types.Member, error) {
 	var members []types.Member
 	err := k.Member.Walk(ctx, nil, func(key string, member types.Member) (bool, error) {
-		if member.DreamBalance != nil && member.DreamBalance.GTE(minAmount) {
+		if member.DreamBalance == nil {
+			return false, nil
+		}
+		staked := math.ZeroInt()
+		if member.StakedDream != nil {
+			staked = *member.StakedDream
+		}
+		unlocked := member.DreamBalance.Sub(staked)
+		if unlocked.GTE(minAmount) {
 			members = append(members, member)
 		}
 		return false, nil

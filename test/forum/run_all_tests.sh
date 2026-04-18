@@ -12,7 +12,6 @@
 #   ./run_all_tests.sh --no-sentinel # Skip sentinel tests
 #   ./run_all_tests.sh --no-bounty   # Skip bounty tests
 #   ./run_all_tests.sh --no-moderation # Skip moderation tests
-#   ./run_all_tests.sh --no-tag-budget # Skip tag budget tests
 #
 # Prerequisites:
 #   - sparkdreamd chain running locally
@@ -32,7 +31,6 @@ RUN_POST=true
 RUN_SENTINEL=true
 RUN_BOUNTY=true
 RUN_MODERATION=true
-RUN_TAG_BUDGET=true
 RUN_APPEALS=true
 RUN_ADVANCED=true
 RUN_ARCHIVE=true
@@ -58,9 +56,6 @@ for arg in "$@"; do
         --no-moderation)
             RUN_MODERATION=false
             ;;
-        --no-tag-budget)
-            RUN_TAG_BUDGET=false
-            ;;
         --no-appeals)
             RUN_APPEALS=false
             ;;
@@ -81,7 +76,6 @@ for arg in "$@"; do
             RUN_SENTINEL=false
             RUN_BOUNTY=false
             RUN_MODERATION=false
-            RUN_TAG_BUDGET=false
             RUN_APPEALS=false
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
@@ -95,7 +89,6 @@ for arg in "$@"; do
             RUN_SENTINEL=false
             RUN_BOUNTY=false
             RUN_MODERATION=false
-            RUN_TAG_BUDGET=false
             RUN_APPEALS=false
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
@@ -111,7 +104,6 @@ for arg in "$@"; do
             RUN_SENTINEL=false
             RUN_BOUNTY=false
             RUN_MODERATION=false
-            RUN_TAG_BUDGET=false
             RUN_APPEALS=false
             RUN_ADVANCED=false
             RUN_ARCHIVE=false
@@ -127,7 +119,6 @@ for arg in "$@"; do
             echo "  --no-sentinel    Skip sentinel tests"
             echo "  --no-bounty      Skip bounty tests"
             echo "  --no-moderation  Skip moderation tests"
-            echo "  --no-tag-budget  Skip tag budget tests"
             echo "  --no-appeals     Skip appeals tests"
             echo "  --no-advanced    Skip advanced tests"
             echo "  --no-archive     Skip archive tests"
@@ -409,14 +400,6 @@ if [ "$RUN_MODERATION" = true ]; then
     run_test "Moderation Tests" "moderation_test.sh"
 else
     echo "Skipping moderation tests (--no-moderation)"
-    echo ""
-fi
-
-# Tag budget tests
-if [ "$RUN_TAG_BUDGET" = true ]; then
-    run_test "Tag Budget Tests" "tag_budget_test.sh"
-else
-    echo "Skipping tag budget tests (--no-tag-budget)"
     echo ""
 fi
 

@@ -591,14 +591,8 @@ func TestCreatePostExpirationQueue(t *testing.T) {
 		require.NoError(t, f.keeper.Post.Set(f.ctx, ephPostID, ephPost))
 		require.NoError(t, f.keeper.ExpirationQueue.Set(f.ctx, collections.Join(expirationTime, ephPostID)))
 
-		// Set member since long ago so salvation is allowed
-		require.NoError(t, f.keeper.MemberSalvationStatus.Set(f.ctx, testCreator, types.MemberSalvationStatus{
-			Address:         testCreator,
-			MemberSince:     now - 999999,
-			CanSalvage:      true,
-			EpochSalvations: 0,
-			EpochStart:      now,
-		}))
+		// Salvation counters now live on rep Member records; in this fixture the
+		// mock rep keeper returns zero counters so salvation is implicitly allowed.
 
 		// Member replies to ephemeral post — triggers salvation
 		msg := &types.MsgCreatePost{

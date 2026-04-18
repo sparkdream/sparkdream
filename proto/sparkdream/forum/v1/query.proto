@@ -8,12 +8,7 @@ import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
 import "sparkdream/forum/v1/bounty.proto";
-import "sparkdream/forum/v1/gov_action_appeal.proto";
 import "sparkdream/forum/v1/hide_record.proto";
-import "sparkdream/forum/v1/jury_participation.proto";
-import "sparkdream/forum/v1/member_report.proto";
-import "sparkdream/forum/v1/member_salvation_status.proto";
-import "sparkdream/forum/v1/member_warning.proto";
 import "sparkdream/forum/v1/params.proto";
 import "sparkdream/forum/v1/post.proto";
 import "sparkdream/forum/v1/post_flag.proto";
@@ -165,56 +160,6 @@ service Query {
     option (google.api.http).get = "/sparkdream/forum/v1/archive_metadata";
   }
 
-  // ListMemberSalvationStatus Queries a list of MemberSalvationStatus items.
-  rpc GetMemberSalvationStatus(QueryGetMemberSalvationStatusRequest) returns (QueryGetMemberSalvationStatusResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_salvation_status/{address}";
-  }
-
-  // ListMemberSalvationStatus defines the ListMemberSalvationStatus RPC.
-  rpc ListMemberSalvationStatus(QueryAllMemberSalvationStatusRequest) returns (QueryAllMemberSalvationStatusResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_salvation_status";
-  }
-
-  // ListJuryParticipation Queries a list of JuryParticipation items.
-  rpc GetJuryParticipation(QueryGetJuryParticipationRequest) returns (QueryGetJuryParticipationResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/jury_participation/{juror}";
-  }
-
-  // ListJuryParticipation defines the ListJuryParticipation RPC.
-  rpc ListJuryParticipation(QueryAllJuryParticipationRequest) returns (QueryAllJuryParticipationResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/jury_participation";
-  }
-
-  // ListMemberReport Queries a list of MemberReport items.
-  rpc GetMemberReport(QueryGetMemberReportRequest) returns (QueryGetMemberReportResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_report/{member}";
-  }
-
-  // ListMemberReport defines the ListMemberReport RPC.
-  rpc ListMemberReport(QueryAllMemberReportRequest) returns (QueryAllMemberReportResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_report";
-  }
-
-  // ListMemberWarning Queries a list of MemberWarning items.
-  rpc GetMemberWarning(QueryGetMemberWarningRequest) returns (QueryGetMemberWarningResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_warning/{id}";
-  }
-
-  // ListMemberWarning defines the ListMemberWarning RPC.
-  rpc ListMemberWarning(QueryAllMemberWarningRequest) returns (QueryAllMemberWarningResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_warning";
-  }
-
-  // ListGovActionAppeal Queries a list of GovActionAppeal items.
-  rpc GetGovActionAppeal(QueryGetGovActionAppealRequest) returns (QueryGetGovActionAppealResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/gov_action_appeal/{id}";
-  }
-
-  // ListGovActionAppeal defines the ListGovActionAppeal RPC.
-  rpc ListGovActionAppeal(QueryAllGovActionAppealRequest) returns (QueryAllGovActionAppealResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/gov_action_appeal";
-  }
-
   // Posts Queries a list of Posts items.
   rpc Posts(QueryPostsRequest) returns (QueryPostsResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/posts/{category_id}/{status}";
@@ -230,16 +175,6 @@ service Query {
     option (google.api.http).get = "/sparkdream/forum/v1/user_posts/{author}";
   }
 
-  // SentinelStatus Queries a list of SentinelStatus items.
-  rpc SentinelStatus(QuerySentinelStatusRequest) returns (QuerySentinelStatusResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/sentinel_status/{address}";
-  }
-
-  // SentinelBondCommitment Queries a list of SentinelBondCommitment items.
-  rpc SentinelBondCommitment(QuerySentinelBondCommitmentRequest) returns (QuerySentinelBondCommitmentResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/sentinel_bond_commitment/{address}";
-  }
-
   // ArchiveCooldown Queries a list of ArchiveCooldown items.
   rpc ArchiveCooldown(QueryArchiveCooldownRequest) returns (QueryArchiveCooldownResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/archive_cooldown/{root_id}";
@@ -253,21 +188,6 @@ service Query {
   // AppealCooldown Queries a list of AppealCooldown items.
   rpc AppealCooldown(QueryAppealCooldownRequest) returns (QueryAppealCooldownResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/appeal_cooldown/{post_id}";
-  }
-
-  // MemberReports Queries a list of MemberReports items.
-  rpc MemberReports(QueryMemberReportsRequest) returns (QueryMemberReportsResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_reports";
-  }
-
-  // MemberWarnings Queries a list of MemberWarnings items.
-  rpc MemberWarnings(QueryMemberWarningsRequest) returns (QueryMemberWarningsResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_warnings/{member}";
-  }
-
-  // MemberStanding Queries a list of MemberStanding items.
-  rpc MemberStanding(QueryMemberStandingRequest) returns (QueryMemberStandingResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/member_standing/{member}";
   }
 
   // PinnedPosts Queries a list of PinnedPosts items.
@@ -335,10 +255,6 @@ service Query {
     option (google.api.http).get = "/sparkdream/forum/v1/flag_review_queue";
   }
 
-  // GovActionAppeals Queries a list of GovActionAppeals items.
-  rpc GovActionAppeals(QueryGovActionAppealsRequest) returns (QueryGovActionAppealsResponse) {
-    option (google.api.http).get = "/sparkdream/forum/v1/gov_action_appeals";
-  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -626,111 +542,6 @@ message QueryAllArchiveMetadataResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-// QueryGetMemberSalvationStatusRequest defines the QueryGetMemberSalvationStatusRequest message.
-message QueryGetMemberSalvationStatusRequest {
-  string address = 1;
-}
-
-// QueryGetMemberSalvationStatusResponse defines the QueryGetMemberSalvationStatusResponse message.
-message QueryGetMemberSalvationStatusResponse {
-  MemberSalvationStatus member_salvation_status = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAllMemberSalvationStatusRequest defines the QueryAllMemberSalvationStatusRequest message.
-message QueryAllMemberSalvationStatusRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryAllMemberSalvationStatusResponse defines the QueryAllMemberSalvationStatusResponse message.
-message QueryAllMemberSalvationStatusResponse {
-  repeated MemberSalvationStatus member_salvation_status = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-// QueryGetJuryParticipationRequest defines the QueryGetJuryParticipationRequest message.
-message QueryGetJuryParticipationRequest {
-  string juror = 1;
-}
-
-// QueryGetJuryParticipationResponse defines the QueryGetJuryParticipationResponse message.
-message QueryGetJuryParticipationResponse {
-  JuryParticipation jury_participation = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAllJuryParticipationRequest defines the QueryAllJuryParticipationRequest message.
-message QueryAllJuryParticipationRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryAllJuryParticipationResponse defines the QueryAllJuryParticipationResponse message.
-message QueryAllJuryParticipationResponse {
-  repeated JuryParticipation jury_participation = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-// QueryGetMemberReportRequest defines the QueryGetMemberReportRequest message.
-message QueryGetMemberReportRequest {
-  string member = 1;
-}
-
-// QueryGetMemberReportResponse defines the QueryGetMemberReportResponse message.
-message QueryGetMemberReportResponse {
-  MemberReport member_report = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAllMemberReportRequest defines the QueryAllMemberReportRequest message.
-message QueryAllMemberReportRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryAllMemberReportResponse defines the QueryAllMemberReportResponse message.
-message QueryAllMemberReportResponse {
-  repeated MemberReport member_report = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-// QueryGetMemberWarningRequest defines the QueryGetMemberWarningRequest message.
-message QueryGetMemberWarningRequest {
-  uint64 id = 1;
-}
-
-// QueryGetMemberWarningResponse defines the QueryGetMemberWarningResponse message.
-message QueryGetMemberWarningResponse {
-  MemberWarning member_warning = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAllMemberWarningRequest defines the QueryAllMemberWarningRequest message.
-message QueryAllMemberWarningRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryAllMemberWarningResponse defines the QueryAllMemberWarningResponse message.
-message QueryAllMemberWarningResponse {
-  repeated MemberWarning member_warning = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-// QueryGetGovActionAppealRequest defines the QueryGetGovActionAppealRequest message.
-message QueryGetGovActionAppealRequest {
-  uint64 id = 1;
-}
-
-// QueryGetGovActionAppealResponse defines the QueryGetGovActionAppealResponse message.
-message QueryGetGovActionAppealResponse {
-  GovActionAppeal gov_action_appeal = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAllGovActionAppealRequest defines the QueryAllGovActionAppealRequest message.
-message QueryAllGovActionAppealRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryAllGovActionAppealResponse defines the QueryAllGovActionAppealResponse message.
-message QueryAllGovActionAppealResponse {
-  repeated GovActionAppeal gov_action_appeal = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
 // QueryPostsRequest defines the QueryPostsRequest message.
 message QueryPostsRequest {
   uint64 category_id = 1;
@@ -768,31 +579,6 @@ message QueryUserPostsResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-// QuerySentinelStatusRequest defines the QuerySentinelStatusRequest message.
-message QuerySentinelStatusRequest {
-  string address = 1;
-}
-
-// QuerySentinelStatusResponse defines the QuerySentinelStatusResponse message.
-message QuerySentinelStatusResponse {
-  string address = 1;
-  uint64 bond_status = 2;
-  string current_bond = 3;
-  string accuracy_rate = 4;
-}
-
-// QuerySentinelBondCommitmentRequest defines the QuerySentinelBondCommitmentRequest message.
-message QuerySentinelBondCommitmentRequest {
-  string address = 1;
-}
-
-// QuerySentinelBondCommitmentResponse defines the QuerySentinelBondCommitmentResponse message.
-message QuerySentinelBondCommitmentResponse {
-  string current_bond = 1;
-  string total_committed_bond = 2;
-  string available_bond = 3;
-}
-
 // QueryArchiveCooldownRequest defines the QueryArchiveCooldownRequest message.
 message QueryArchiveCooldownRequest {
   uint64 root_id = 1;
@@ -823,44 +609,6 @@ message QueryAppealCooldownRequest {
 message QueryAppealCooldownResponse {
   bool in_cooldown = 1;
   int64 cooldown_ends = 2;
-}
-
-// QueryMemberReportsRequest defines the QueryMemberReportsRequest message.
-message QueryMemberReportsRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryMemberReportsResponse defines the QueryMemberReportsResponse message.
-message QueryMemberReportsResponse {
-  string member = 1;
-  uint64 status = 2;
-  cosmos.base.query.v1beta1.PageResponse pagination = 3;
-}
-
-// QueryMemberWarningsRequest defines the QueryMemberWarningsRequest message.
-message QueryMemberWarningsRequest {
-  string member = 1;
-  cosmos.base.query.v1beta1.PageRequest pagination = 2;
-}
-
-// QueryMemberWarningsResponse defines the QueryMemberWarningsResponse message.
-message QueryMemberWarningsResponse {
-  uint64 warning_number = 1;
-  string reason = 2;
-  int64 issued_at = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
-}
-
-// QueryMemberStandingRequest defines the QueryMemberStandingRequest message.
-message QueryMemberStandingRequest {
-  string member = 1;
-}
-
-// QueryMemberStandingResponse defines the QueryMemberStandingResponse message.
-message QueryMemberStandingResponse {
-  uint64 warning_count = 1;
-  bool active_report = 2;
-  uint64 trust_tier = 3;
 }
 
 // QueryPinnedPostsRequest defines the QueryPinnedPostsRequest message.
@@ -1034,15 +782,3 @@ message QueryFlagReviewQueueResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 3;
 }
 
-// QueryGovActionAppealsRequest defines the QueryGovActionAppealsRequest message.
-message QueryGovActionAppealsRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-// QueryGovActionAppealsResponse defines the QueryGovActionAppealsResponse message.
-message QueryGovActionAppealsResponse {
-  uint64 appeal_id = 1;
-  uint64 action_type = 2;
-  uint64 status = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
-}

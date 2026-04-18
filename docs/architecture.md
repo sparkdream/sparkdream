@@ -194,6 +194,12 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **MasterChef staking rewards:** Epoch-based pool distribution (10% APY)
 - **Trust tree:** Persistent KV-based sparse Merkle tree (depth 20) of member ZK public keys + trust levels, rebuilt incrementally via EndBlocker dirty-member tracking
 - **ZK key registration:** Members register ZK public keys (`MsgRegisterZkPublicKey`) stored on Member proto (field 28: `bytes zk_public_key`), used as trust tree leaves via `MiMC(zk_public_key, trust_level)`
+- **Tag registry:** `Tag`, `ReservedTag`, `MsgCreateTag` (permissionless, ESTABLISHED+ trust, fee-burn), `TagReport`, `MsgReportTag`, `MsgResolveTagReport`; tag expiry GC in EndBlocker
+- **Tag budgets:** Five `*TagBudget*` messages for per-tag SPARK reward pools; awards delegate to x/forum via the narrow `ForumKeeper.GetPostAuthor`/`GetPostTags` interface
+- **Sentinel accountability:** Generic `SentinelActivity` (bond, bond status, activity stamps), `MsgBondSentinel`/`MsgUnbondSentinel`, and the 8-method keeper surface (`IsSentinel`, `GetSentinel`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`) used by content-module moderation handlers
+- **Member accountability:** `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`, and the 5 member-report messages + `MsgAppealGovAction`; salvation counters live on the `Member` proto (`epoch_salvations`, `last_salvation_epoch`)
+- **Sentinel reward pool:** SPARK pool fed by split of forum spam taxes/edit fees and `UPHELD` appeal bonds, capped (`max_sentinel_reward_pool`) with overflow burn; epoch distribution is accuracy-weighted via `accuracy_rate * sqrt(appeals_resolved) + action bonuses`, pro-rata in `uspark`
+- **Gov-action appeal resolution:** two paths — `MsgResolveGovActionAppeal` (Operations Committee on commons council) and rep EndBlocker timeout; verdicts (`UPHELD`/`OVERTURNED`/`TIMEOUT`) drive appellant-bond burn/refund, sentinel bond slash on OVERTURNED, and forum counter updates via `RecordSentinelActionUpheld` / `RecordSentinelActionOverturned`
 
 **Messages (31):** `invite_member`, `accept_invitation`, `transfer_dream`, `propose_project`, `approve_project_budget`, `cancel_project`, `create_initiative`, `assign_initiative`, `submit_initiative_work`, `approve_initiative`, `complete_initiative`, `abandon_initiative`, `stake`, `unstake`, `claim_staking_rewards`, `compound_staking_rewards`, `create_challenge`, `respond_to_challenge`, `submit_juror_vote`, `submit_expert_testimony`, `challenge_content`, `respond_to_content_challenge`, `create_interim`, `assign_interim`, `submit_interim_work`, `approve_interim`, `complete_interim`, `abandon_interim`, `register_zk_public_key`, `update_params`, `update_operational_params`
 
@@ -280,19 +286,18 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 
 ### x/forum (Decentralized Discussion)
 
-**Purpose:** Full-featured discussion platform with hierarchical content, dual-token sentinel moderation, bounties, and economic incentives.
+**Purpose:** Discussion platform with hierarchical content, content-action sentinel moderation, bounties, and economic incentives. Cross-cutting primitives (tag registry, tag budgets, sentinel bond/unbond, member accountability) live in x/rep post-refactor.
 
 **Key Features:**
-- **Hierarchical content:** Governance-controlled categories, member-created tags with usage tracking and expiry
-- **Sentinel moderation:** DREAM-bonded sentinels (100 DREAM commit) with hide/report authority, accountability via challenges
+- **Hierarchical content:** Governance-controlled categories; posts reference tags by name against the x/rep tag registry
+- **Content-action sentinel moderation:** Sentinels (registered and bonded in x/rep) hide, lock, move, and dismiss flags on forum content; forum tracks per-sentinel action counters (`sparkdream.forum.v1.SentinelActivity`: 29 counter fields) and enforces local cooldowns. Bond/status/slash mechanics delegated to x/rep.
 - **Content lifecycle:** Ephemeral TTL (24h) for non-members, permanent for members, conviction renewal for initiative-linked content
-- **Bounties:** Thread-attached DREAM bounties with assignment, cancellation (10% fee), and expiry
-- **Tag budgets:** Governance-funded tag-scoped budgets for rewarding quality contributions
+- **Bounties:** Thread-attached SPARK bounties with assignment, cancellation (10% fee), and expiry
 - **Shield-aware:** Implements `ShieldAware` interface; anonymous threads/replies/reactions routed via x/shield's `MsgShieldedExec`
-- **Appeals:** Jury-based appeals for hide, lock, move, and governance actions (5 SPARK fee, 14-day deadline)
+- **Appeals:** Forum-specific appeals for hide, lock, move via x/rep jury initiatives (5 SPARK fee, 14-day deadline); `MsgAppealGovAction` for broader governance actions lives in x/rep
 - **Thread operations:** Lock, freeze, move, archive, pin/unpin, follow/unfollow
-- **Member reports:** Multi-step reporting with cosigning, defense, and resolution
 - **Rate limiting:** 50 posts/day, 100 reactions/day, 20 downvotes/day, 20 flags/day
+- **`ForumKeeper` surface exposed to x/rep (3 methods):** `PruneTagReferences`, `GetPostAuthor`, `GetPostTags`
 
 **Messages (49):** Post operations (6), moderation (6), thread control (5), reactions (2), reply management (5), bounties (5), tag budgets (5), tags (2), appeals (4), thread ops (3), emergency (2), sentinel (2), member reports (4), governance (1), `update_params`, `update_operational_params`
 
@@ -594,8 +599,10 @@ x/shield eliminates the need for relay addresses and per-module subsidy budgets.
 │Retro $ │       ▼
 └────────┘┌──────────────┐
           │  x/forum     │
-          │  (tags,      │
-          │   TagKeeper) │
+          │  (narrow     │
+          │   ForumKeeper│
+          │   surface:   │
+          │   3 methods) │
           └──────────────┘
 
     ┌──────────────────────┐
@@ -674,7 +681,11 @@ x/blog       ← SetRepKeeper(rep)
 x/collect    ← SetRepKeeper(rep)
 
 x/rep        ← SetSeasonKeeper(season)  [via shared lateKeepers pointer]
-             ← SetTagKeeper(forum)      [via lateKeepers — forum implements TagKeeper]
+             ← SetForumKeeper(forum)    [via lateKeepers — 3-method ForumKeeper
+                                         interface: PruneTagReferences,
+                                         GetPostAuthor, GetPostTags.
+                                         Tag storage + bond mechanics live
+                                         in x/rep itself]
 
 x/split      ← SetDistrKeeper(distr)    [via adapter]
 

@@ -23,16 +23,6 @@ var (
 	BountyCountKey = collections.NewPrefix("bounty/count/")
 )
 
-var (
-	MemberWarningKey      = collections.NewPrefix("memberwarning/value/")
-	MemberWarningCountKey = collections.NewPrefix("memberwarning/count/")
-)
-
-var (
-	GovActionAppealKey      = collections.NewPrefix("govactionappeal/value/")
-	GovActionAppealCountKey = collections.NewPrefix("govactionappeal/count/")
-)
-
 // Sequence keys for auto-incrementing IDs
 var (
 	PostSeqKey = collections.NewPrefix("post/seq/")

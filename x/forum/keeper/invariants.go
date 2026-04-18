@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/forum/types"
@@ -15,7 +14,6 @@ import (
 func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "post-counter", PostCounterInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "bounty-post-reference", BountyPostReferenceInvariant(k))
-	ir.RegisterRoute(types.ModuleName, "sentinel-bond-status", SentinelBondStatusInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "thread-lock-consistency", ThreadLockConsistencyInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "hide-record-consistency", HideRecordConsistencyInvariant(k))
 }
@@ -78,76 +76,6 @@ func BountyPostReferenceInvariant(k Keeper) sdk.Invariant {
 
 		return sdk.FormatInvariant(types.ModuleName, "bounty-post-reference",
 			fmt.Sprintf("found %d bounty reference violations\n%s", broken, msg)), broken > 0
-	}
-}
-
-// SentinelBondStatusInvariant checks that each sentinel's BondStatus is
-// consistent with their CurrentBond amount:
-//   - NORMAL: bond >= 1000
-//   - RECOVERY: 500 <= bond < 1000
-//   - DEMOTED: bond < 500
-//   - CommittedBond <= CurrentBond
-func SentinelBondStatusInvariant(k Keeper) sdk.Invariant {
-	return func(ctx sdk.Context) (string, bool) {
-		var broken int
-		var msg string
-
-		normalMin := math.NewInt(1000)
-		recoveryMin := math.NewInt(500)
-
-		err := k.SentinelActivity.Walk(ctx, nil, func(addr string, sa types.SentinelActivity) (bool, error) {
-			currentBond, ok := math.NewIntFromString(sa.CurrentBond)
-			if !ok || sa.CurrentBond == "" {
-				currentBond = math.ZeroInt()
-			}
-			committedBond, ok := math.NewIntFromString(sa.TotalCommittedBond)
-			if !ok || sa.TotalCommittedBond == "" {
-				committedBond = math.ZeroInt()
-			}
-
-			// CommittedBond must not exceed CurrentBond
-			if committedBond.GT(currentBond) {
-				broken++
-				msg += fmt.Sprintf("  sentinel %s: committed_bond %s > current_bond %s\n",
-					addr, committedBond.String(), currentBond.String())
-			}
-
-			// Verify bond status consistency
-			switch sa.BondStatus {
-			case types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL:
-				if currentBond.LT(normalMin) {
-					broken++
-					msg += fmt.Sprintf("  sentinel %s: NORMAL status but bond %s < 1000\n",
-						addr, currentBond.String())
-				}
-			case types.SentinelBondStatus_SENTINEL_BOND_STATUS_RECOVERY:
-				if currentBond.GTE(normalMin) {
-					broken++
-					msg += fmt.Sprintf("  sentinel %s: RECOVERY status but bond %s >= 1000\n",
-						addr, currentBond.String())
-				}
-				if currentBond.LT(recoveryMin) {
-					broken++
-					msg += fmt.Sprintf("  sentinel %s: RECOVERY status but bond %s < 500 (should be DEMOTED)\n",
-						addr, currentBond.String())
-				}
-			case types.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED:
-				if currentBond.GTE(recoveryMin) {
-					broken++
-					msg += fmt.Sprintf("  sentinel %s: DEMOTED status but bond %s >= 500\n",
-						addr, currentBond.String())
-				}
-			}
-
-			return false, nil
-		})
-		if err != nil {
-			return sdk.FormatInvariant(types.ModuleName, "sentinel-bond-status",
-				fmt.Sprintf("error walking sentinel activities: %v", err)), true
-		}
-
-		return sdk.FormatInvariant(types.ModuleName, "sentinel-bond-status",
-			fmt.Sprintf("found %d sentinel bond status violations\n%s", broken, msg)), broken > 0
 	}
 }
 

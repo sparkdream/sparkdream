@@ -129,6 +129,7 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 		map[string][]string{
 			types.ModuleName:    nil,
 			govtypes.ModuleName: {authtypes.Burner},
+			"shield":            nil,
 		},
 		addresscodec.NewBech32Codec("cosmos"),
 		"cosmos",

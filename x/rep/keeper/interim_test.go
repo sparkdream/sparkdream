@@ -900,6 +900,13 @@ func TestCreateInterimAllTypes(t *testing.T) {
 	k := fixture.keeper
 	ctx := fixture.ctx
 
+	// Exercise every InterimType under a single assignee; disable the per-member
+	// active-interim cap so the test isn't bounded by production safety limits.
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	params.MaxActiveInterimsPerMember = 0
+	require.NoError(t, k.Params.Set(ctx, params))
+
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
 	k.Member.Set(ctx, committeeAddr.String(), types.Member{

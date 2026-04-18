@@ -121,7 +121,19 @@ var (
 	SeasonBurnedKey = collections.NewPrefix("econ/season_burned")
 	// SeasonInitiativeRewardsMintedKey tracks DREAM minted via initiative completion this season
 	SeasonInitiativeRewardsMintedKey = collections.NewPrefix("econ/season_initiative_rewards")
+	// EpochMintedEpochKey / EpochMintedAmountKey track the global DREAM mint total
+	// for the current epoch — the pair enforces max_dream_mint_per_epoch.
+	EpochMintedEpochKey  = collections.NewPrefix("econ/epoch_minted_epoch")
+	EpochMintedAmountKey = collections.NewPrefix("econ/epoch_minted_amount")
+	// DecayLastProcessedEpochKey tracks the most recent epoch for which bulk
+	// DREAM decay has been applied to every member (eager pass in EndBlocker).
+	// Any lazy ApplyPendingDecay call is a no-op once this pass has run for
+	// the current epoch, so same-epoch reads remain consistent.
+	DecayLastProcessedEpochKey = collections.NewPrefix("econ/decay_last_processed_epoch")
 )
+
+// SentinelActivityKey: address -> SentinelActivity (accountability record)
+var SentinelActivityKey = collections.NewPrefix("sentinelactivity/value/")
 
 // Content challenge keys
 var (

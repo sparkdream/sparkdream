@@ -67,11 +67,15 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 	// Check membership for spam tax
 	isMember := k.IsMember(ctx, msg.Creator)
 	if !isMember {
-		// Charge reaction_spam_tax to non-members
+		// Charge reaction_spam_tax to non-members; split 50/50 burn / sentinel reward pool
 		if params.ReactionSpamTax.IsPositive() {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.ReactionSpamTax)); err != nil {
+			reactionSpamTaxCoins := sdk.NewCoins(params.ReactionSpamTax)
+			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, reactionSpamTaxCoins); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to charge reaction spam tax")
+			}
+			if err := k.distributeSpamTax(ctx, reactionSpamTaxCoins, "reaction"); err != nil {
+				return nil, err
 			}
 		}
 	}

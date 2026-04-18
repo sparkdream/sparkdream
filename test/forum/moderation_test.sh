@@ -147,7 +147,7 @@ bond_sentinel() {
     local ADDR=$2
     local BOND_AMOUNT=${3:-100000000}
 
-    SENTINEL_STATUS=$($BINARY query forum sentinel-status $ADDR --output json 2>&1)
+    SENTINEL_STATUS=$($BINARY query rep sentinel-status $ADDR --output json 2>&1)
     CURRENT_BOND=$(echo "$SENTINEL_STATUS" | jq -r '.current_bond // "0"' 2>/dev/null)
 
     # Bond if no record exists OR current bond is zero/insufficient
@@ -156,7 +156,7 @@ bond_sentinel() {
        || [ "$CURRENT_BOND" = "0" ] || [ "$CURRENT_BOND" = "null" ] || [ -z "$CURRENT_BOND" ]; then
         echo "  Bonding $ACCOUNT (amount: $BOND_AMOUNT)..."
 
-        TX_RES=$($BINARY tx forum bond-sentinel \
+        TX_RES=$($BINARY tx rep bond-sentinel \
             "$BOND_AMOUNT" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
@@ -617,196 +617,6 @@ fi
 echo ""
 
 # ========================================================================
-# PART 10: REPORT MEMBER
-# ========================================================================
-echo "--- PART 10: REPORT MEMBER ---"
-PART10_RESULT="FAIL"
-
-# Sentinel1 needs enough unlocked DREAM to post a report bond (= sentinelBond amount).
-# The EPIC interims used for rep bootstrapping only grant ~0.0025 DREAM each (no param),
-# so sentinel1's DREAM comes mostly from the initial 500 DREAM gift during setup.
-# After DREAM decay (1%/epoch, epoch_blocks=10) across all prior tests, sentinel1's
-# unlocked balance may be insufficient. Top up sentinel1's DREAM from alice.
-echo "  Topping up sentinel1 DREAM for report bond..."
-TX_RES=$($BINARY tx rep transfer-dream \
-    "$SENTINEL1_ADDR" "500000000" "gift" "Fund sentinel1 for report bond" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    wait_for_tx $TXHASH > /dev/null 2>&1
-fi
-
-echo "  Reporting member $POSTER2_ADDR..."
-
-TX_RES=$($BINARY tx forum report-member \
-    "$POSTER2_ADDR" \
-    "Testing member report functionality" \
-    "1" \
-    --from sentinel1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-REPORTED_MEMBER=""
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        REPORTED_MEMBER=$(extract_event_value "$TX_RESULT" "member_reported" "member")
-        echo "  Member reported: $REPORTED_MEMBER"
-        PART10_RESULT="PASS"
-    else
-        echo "  Failed to report member"
-    fi
-fi
-
-echo ""
-
-# ========================================================================
-# PART 11: QUERY MEMBER REPORTS
-# ========================================================================
-echo "--- PART 11: QUERY MEMBER REPORTS ---"
-PART11_RESULT="FAIL"
-
-REPORTS=$($BINARY query forum member-reports --output json 2>&1)
-
-if echo "$REPORTS" | grep -q "error"; then
-    echo "  Failed to query member reports"
-else
-    REPORT_MEMBER=$(echo "$REPORTS" | jq -r '.member // empty' 2>/dev/null)
-    REPORT_STATUS=$(echo "$REPORTS" | jq -r '.status // empty' 2>/dev/null)
-    if [ -n "$REPORT_MEMBER" ]; then
-        echo "  Member report found: member=$REPORT_MEMBER, status=$REPORT_STATUS"
-    else
-        echo "  No member reports found"
-    fi
-    PART11_RESULT="PASS"
-fi
-
-echo ""
-
-# ========================================================================
-# PART 12: COSIGN MEMBER REPORT
-# ========================================================================
-echo "--- PART 12: COSIGN MEMBER REPORT ---"
-PART12_RESULT="FAIL"
-
-if [ -n "$REPORTED_MEMBER" ]; then
-    echo "  Cosigning report for $REPORTED_MEMBER (from $SECOND_SENTINEL_ACCOUNT)..."
-
-    # Top up second sentinel's DREAM before cosign - the cosign handler transfers
-    # the full sentinel bond amount from the cosigner's DREAM balance to escrow,
-    # so we need to ensure sufficient DREAM balance after bonding consumed most of it.
-    echo "  Topping up $SECOND_SENTINEL_ACCOUNT DREAM for cosign escrow..."
-    TX_RES=$($BINARY tx rep transfer-dream \
-        "$SECOND_SENTINEL_ADDR" "200000000" "gift" "Top up for cosign escrow" \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y \
-        --output json 2>&1)
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-        sleep 6
-        wait_for_tx $TXHASH > /dev/null 2>&1
-    fi
-
-    TX_RES=$($BINARY tx forum cosign-member-report \
-        "$POSTER2_ADDR" \
-        --from $SECOND_SENTINEL_ACCOUNT \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-
-        if check_tx_success "$TX_RESULT"; then
-            echo "  Report cosigned successfully"
-            PART12_RESULT="PASS"
-        else
-            echo "  Failed to cosign report"
-        fi
-    fi
-else
-    echo "  No reported member available to cosign"
-fi
-
-echo ""
-
-# ========================================================================
-# PART 13: DEFEND MEMBER REPORT
-# ========================================================================
-echo "--- PART 13: DEFEND MEMBER REPORT ---"
-PART13_RESULT="FAIL"
-
-if [ -n "$REPORTED_MEMBER" ]; then
-    echo "  poster2 defending against report..."
-
-    TX_RES=$($BINARY tx forum defend-member-report \
-        "This report is invalid. I have followed all community guidelines." \
-        --from poster2 \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-
-        if check_tx_success "$TX_RESULT"; then
-            echo "  Defense submitted successfully"
-            PART13_RESULT="PASS"
-        else
-            echo "  Failed to submit defense"
-        fi
-    fi
-fi
-
-echo ""
-
-# ========================================================================
-# PART 14: QUERY MEMBER STANDING
-# ========================================================================
-echo "--- PART 14: QUERY MEMBER STANDING ---"
-PART14_RESULT="FAIL"
-
-STANDING=$($BINARY query forum member-standing $POSTER2_ADDR --output json 2>&1)
-
-if echo "$STANDING" | grep -q "error"; then
-    echo "  Failed to query member standing"
-else
-    echo "  Member Standing for poster2:"
-    echo "    Warning count: $(echo "$STANDING" | jq -r '.warning_count // "0"')"
-    echo "    Active report: $(echo "$STANDING" | jq -r '.active_report // "false"')"
-    echo "    Trust tier: $(echo "$STANDING" | jq -r '.trust_tier // "0"')"
-    PART14_RESULT="PASS"
-fi
-
-echo ""
-
-# ========================================================================
 # PART 15: QUERY FLAG REVIEW QUEUE
 # ========================================================================
 echo "--- PART 15: QUERY FLAG REVIEW QUEUE ---"
@@ -834,7 +644,7 @@ echo ""
 echo "--- PART 16: QUERY SENTINEL STATUS ---"
 PART16_RESULT="FAIL"
 
-SENTINEL_STATUS=$($BINARY query forum sentinel-status $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep sentinel-status $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$SENTINEL_STATUS" | jq -e '.address' > /dev/null 2>&1 && ! echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
     SENTINEL_ADDR=$(echo "$SENTINEL_STATUS" | jq -r '.address')
@@ -856,7 +666,7 @@ echo ""
 echo "--- PART 17: QUERY SENTINEL ACTIVITY ---"
 PART17_RESULT="FAIL"
 
-SENTINEL_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_ACTIVITY=$($BINARY query rep get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$SENTINEL_ACTIVITY" | jq -e '.' > /dev/null 2>&1 && ! echo "$SENTINEL_ACTIVITY" | grep -q "error\|not found"; then
     echo "  current_bond: $(echo "$SENTINEL_ACTIVITY" | jq -r '.sentinel_activity.current_bond // .current_bond // "unknown"')"
@@ -875,7 +685,7 @@ echo ""
 echo "--- PART 18: QUERY SENTINEL BOND COMMITMENT ---"
 PART18_RESULT="FAIL"
 
-BOND_COMMITMENT=$($BINARY query forum sentinel-bond-commitment $SENTINEL1_ADDR --output json 2>&1)
+BOND_COMMITMENT=$($BINARY query rep sentinel-bond-commitment $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$BOND_COMMITMENT" | jq -e '.' > /dev/null 2>&1 && ! echo "$BOND_COMMITMENT" | grep -q "error\|not found"; then
     echo "  Bond commitment response received"
@@ -897,7 +707,7 @@ PART19_RESULT="FAIL"
 # Note: Part 12 cosign may have drained the bond to escrow, so re-bond first.
 bond_sentinel $SECOND_SENTINEL_ACCOUNT "$SECOND_SENTINEL_ADDR"
 
-TX_RES=$($BINARY tx forum unbond-sentinel \
+TX_RES=$($BINARY tx rep unbond-sentinel \
     "10000000" \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \
@@ -1307,108 +1117,6 @@ fi
 echo ""
 
 # ========================================================================
-# PART 28: RESOLVE MEMBER REPORT (GOV)
-# ========================================================================
-echo "--- PART 28: RESOLVE MEMBER REPORT (GOV) ---"
-PART28_RESULT="FAIL"
-
-# The poster2 report has a defense (Part 13) with a 24-hour wait period.
-# Create a separate report on bounty_creator (no defense) to test resolution.
-# First top up second sentinel's DREAM and re-bond (depleted by cosigning in Part 12
-# and partial unbond in Part 19).
-echo "  Topping up $SECOND_SENTINEL_ACCOUNT DREAM for report bond..."
-TX_RES=$($BINARY tx rep transfer-dream \
-    "$SECOND_SENTINEL_ADDR" \
-    "300000000" \
-    "gift" \
-    "Top up for resolve-report test" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    wait_for_tx $TXHASH > /dev/null
-fi
-
-# Re-bond second sentinel (bond may have been drained by cosign + partial unbond)
-bond_sentinel $SECOND_SENTINEL_ACCOUNT "$SECOND_SENTINEL_ADDR"
-
-echo "  Creating a new report on bounty_creator to test resolution..."
-
-TX_RES=$($BINARY tx forum report-member \
-    "$BOUNTY_CREATOR_ADDR" \
-    "Testing report resolution" \
-    "1" \
-    --from $SECOND_SENTINEL_ACCOUNT \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        echo "  Resolving member report for $BOUNTY_CREATOR_ADDR with DISMISS (action=0)..."
-
-        TX_RES=$($BINARY tx forum resolve-member-report \
-            "$BOUNTY_CREATOR_ADDR" \
-            "0" \
-            "Dismissed after review" \
-            --from alice \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000uspark \
-            -y \
-            --output json 2>&1)
-
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-        if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-            sleep 6
-            TX_RESULT=$(wait_for_tx $TXHASH)
-
-            if check_tx_success "$TX_RESULT"; then
-                echo "  Member report resolved (dismissed)"
-                PART28_RESULT="PASS"
-            else
-                echo "  Failed to resolve member report"
-            fi
-        fi
-    else
-        echo "  Failed to create report on bounty_creator"
-    fi
-fi
-
-echo ""
-
-# ========================================================================
-# PART 29: QUERY MEMBER WARNINGS
-# ========================================================================
-echo "--- PART 29: QUERY MEMBER WARNINGS ---"
-PART29_RESULT="FAIL"
-
-WARNINGS=$($BINARY query forum member-warnings $POSTER2_ADDR --output json 2>&1)
-
-if echo "$WARNINGS" | jq -e '.' > /dev/null 2>&1 && ! echo "$WARNINGS" | grep -q "error"; then
-    echo "  Member warnings query successful for poster2"
-    PART29_RESULT="PASS"
-else
-    echo "  Failed to query member warnings"
-fi
-
-echo ""
-
-# ========================================================================
 # PART 30: SET MODERATION PAUSED (GOV)
 # ========================================================================
 echo "--- PART 30: SET MODERATION PAUSED (GOV) ---"
@@ -1621,96 +1329,8 @@ fi
 echo ""
 
 # ========================================================================
-# PART 33a: REPORT TAG
+# PARTS 33a, 33b: Moved to test/rep/tag_moderation_test.sh
 # ========================================================================
-echo "--- PART 33a: REPORT TAG ---"
-PART33a_RESULT="FAIL"
-
-# Check if any tags exist (tags are created at genesis or internally, no CLI to create)
-TAGS=$($BINARY query rep list-tag --output json 2>&1)
-TAG_COUNT=$(echo "$TAGS" | jq -r '.tag | length' 2>/dev/null || echo "0")
-REPORT_TAG_NAME=""
-
-if [ "$TAG_COUNT" -gt 0 ]; then
-    REPORT_TAG_NAME=$(echo "$TAGS" | jq -r '.tag[0].name')
-    echo "  Reporting existing tag '$REPORT_TAG_NAME'..."
-else
-    echo "  No tags exist on chain (tags are created at genesis or internally)"
-    echo "  Skipping report-tag test"
-fi
-
-if [ -n "$REPORT_TAG_NAME" ]; then
-    TX_RES=$($BINARY tx rep report-tag \
-        "$REPORT_TAG_NAME" \
-        "This tag is inappropriate" \
-        --from sentinel1 \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-
-        if check_tx_success "$TX_RESULT"; then
-            echo "  Tag reported successfully"
-            PART33a_RESULT="PASS"
-        else
-            echo "  Failed to report tag (tag may not exist or insufficient permissions)"
-        fi
-    fi
-else
-    PART33a_RESULT="SKIP"
-fi
-
-echo ""
-
-# ========================================================================
-# PART 33b: RESOLVE TAG REPORT
-# ========================================================================
-echo "--- PART 33b: RESOLVE TAG REPORT ---"
-PART33b_RESULT="FAIL"
-
-if [ "$PART33a_RESULT" = "PASS" ]; then
-    echo "  Resolving tag report for '$REPORT_TAG_NAME'..."
-
-    TX_RES=$($BINARY tx rep resolve-tag-report \
-        "$REPORT_TAG_NAME" \
-        "0" \
-        "" \
-        "false" \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-
-        if check_tx_success "$TX_RESULT"; then
-            echo "  Tag report resolved successfully"
-            PART33b_RESULT="PASS"
-        else
-            echo "  Failed to resolve tag report"
-        fi
-    fi
-else
-    echo "  No tag report to resolve (report-tag was skipped or failed)"
-    if [ "$PART33a_RESULT" = "SKIP" ]; then
-        PART33b_RESULT="SKIP"
-    fi
-fi
-
-echo ""
 
 # ========================================================================
 # ERROR CASE TESTS
@@ -1722,7 +1342,7 @@ echo ""
 echo "--- PART 34: ERROR - BondSentinel ErrBondAmountTooSmall ---"
 PART34_RESULT="FAIL"
 
-TX_RES=$($BINARY tx forum bond-sentinel \
+TX_RES=$($BINARY tx rep bond-sentinel \
     "1" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -1760,7 +1380,7 @@ echo ""
 echo "--- PART 35: ERROR - UnbondSentinel ErrSentinelNotFound ---"
 PART35_RESULT="FAIL"
 
-TX_RES=$($BINARY tx forum unbond-sentinel \
+TX_RES=$($BINARY tx rep unbond-sentinel \
     "1000" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -1801,7 +1421,7 @@ PART36_RESULT="FAIL"
 # Use the second sentinel (not sentinel1) because sentinel1 has pending hides from
 # sentinel_test which would trigger ErrCannotUnbondPendingHides before reaching the
 # bond check.
-TX_RES=$($BINARY tx forum unbond-sentinel \
+TX_RES=$($BINARY tx rep unbond-sentinel \
     "999999999999" \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \
@@ -2454,86 +2074,6 @@ fi
 echo ""
 
 # ========================================================================
-# PART 50: ERROR - ReportMember cannot report self
-# ========================================================================
-echo "--- PART 50: ERROR - ReportMember ErrCannotReportSelf ---"
-PART50_RESULT="FAIL"
-
-TX_RES=$($BINARY tx forum report-member \
-    "$SENTINEL1_ADDR" \
-    "Self-report test" \
-    "1" \
-    --from sentinel1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-
-    if [ "$CODE" != "0" ]; then
-        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
-        if echo "$RAW_LOG" | grep -qi "cannot report.*self\|report yourself\|ErrCannotReportSelf"; then
-            echo "  Correctly rejected: cannot report self"
-            PART50_RESULT="PASS"
-        else
-            echo "  Rejected with unexpected error: $RAW_LOG"
-            PART50_RESULT="PASS"
-        fi
-    else
-        echo "  ERROR: Should have been rejected but succeeded"
-    fi
-fi
-
-echo ""
-
-# ========================================================================
-# PART 51: ERROR - ResolveMemberReport not operations committee
-# ========================================================================
-echo "--- PART 51: ERROR - ResolveMemberReport not operations committee ---"
-PART51_RESULT="FAIL"
-
-TX_RES=$($BINARY tx forum resolve-member-report \
-    "$POSTER2_ADDR" \
-    "1" \
-    "Unauthorized resolve attempt" \
-    --from poster1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-
-    if [ "$CODE" != "0" ]; then
-        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
-        if echo "$RAW_LOG" | grep -qi "not.*gov.*authority\|operations committee\|not authorized"; then
-            echo "  Correctly rejected: not operations committee"
-            PART51_RESULT="PASS"
-        else
-            echo "  Rejected with unexpected error: $RAW_LOG"
-            PART51_RESULT="PASS"
-        fi
-    else
-        echo "  ERROR: Should have been rejected but succeeded"
-    fi
-fi
-
-echo ""
-
-# ========================================================================
 # PART 52: ERROR - SetModerationPaused not operations committee
 # ========================================================================
 echo "--- PART 52: ERROR - SetModerationPaused not operations committee ---"
@@ -2792,11 +2332,6 @@ echo "  Part 6  - Query pinned posts:              ${PART6_RESULT:-SKIP}"
 echo "  Part 7  - Unpin post:                      ${PART7_RESULT:-SKIP}"
 echo "  Part 8  - Pin reply:                       ${PART8_RESULT:-SKIP}"
 echo "  Part 9  - Dispute pin:                     ${PART9_RESULT:-SKIP}"
-echo "  Part 10 - Report member:                   ${PART10_RESULT:-SKIP}"
-echo "  Part 11 - Query member reports:            ${PART11_RESULT:-SKIP}"
-echo "  Part 12 - Cosign member report:            ${PART12_RESULT:-SKIP}"
-echo "  Part 13 - Defend member report:            ${PART13_RESULT:-SKIP}"
-echo "  Part 14 - Query member standing:           ${PART14_RESULT:-SKIP}"
 echo "  Part 15 - Query flag review queue:         ${PART15_RESULT:-SKIP}"
 echo ""
 echo "  MORE HAPPY PATH TESTS:"
@@ -2812,14 +2347,10 @@ echo "  Part 24 - Dismiss flags (sentinel):        ${PART24_RESULT:-SKIP}"
 echo "  Part 25 - Lock thread (sentinel):          ${PART25_RESULT:-SKIP}"
 echo "  Part 26 - Query locked threads:            ${PART26_RESULT:-SKIP}"
 echo "  Part 27 - Unlock thread (sentinel):        ${PART27_RESULT:-SKIP}"
-echo "  Part 28 - Resolve member report (gov):     ${PART28_RESULT:-SKIP}"
-echo "  Part 29 - Query member warnings:           ${PART29_RESULT:-SKIP}"
 echo "  Part 30 - Set moderation paused (gov):     ${PART30_RESULT:-SKIP}"
 echo "  Part 31 - Set forum paused (gov):          ${PART31_RESULT:-SKIP}"
 echo "  Part 32 - Query forum status:              ${PART32_RESULT:-SKIP}"
 echo "  Part 33 - Unpin reply (sentinel):          ${PART33_RESULT:-SKIP}"
-echo "  Part 33a- Report tag:                      ${PART33a_RESULT:-SKIP}"
-echo "  Part 33b- Resolve tag report:              ${PART33b_RESULT:-SKIP}"
 echo ""
 echo "  ERROR CASE TESTS:"
 echo "  Part 34 - BondSentinel too small:          ${PART34_RESULT:-SKIP}"
@@ -2838,8 +2369,6 @@ echo "  Part 46 - MoveThread category not found:   ${PART46_RESULT:-SKIP}"
 echo "  Part 47 - PinPost not ops committee:       ${PART47_RESULT:-SKIP}"
 echo "  Part 48 - PinPost post not found:          ${PART48_RESULT:-SKIP}"
 echo "  Part 49 - PinReply not sentinel:           ${PART49_RESULT:-SKIP}"
-echo "  Part 50 - ReportMember self report:        ${PART50_RESULT:-SKIP}"
-echo "  Part 51 - ResolveMemberReport not ops:     ${PART51_RESULT:-SKIP}"
 echo "  Part 52 - SetModerationPaused not ops:     ${PART52_RESULT:-SKIP}"
 echo "  Part 53 - SetForumPaused not ops:          ${PART53_RESULT:-SKIP}"
 echo "  Part 54 - HidePost not found:              ${PART54_RESULT:-SKIP}"
@@ -2850,18 +2379,18 @@ FAIL_COUNT=0
 ALL_RESULTS=(
     "$PART1_RESULT" "$PART2_RESULT" "$PART3_RESULT" "$PART4_RESULT"
     "$PART5_RESULT" "$PART6_RESULT" "$PART7_RESULT" "$PART8_RESULT"
-    "$PART9_RESULT" "$PART10_RESULT" "$PART11_RESULT" "$PART12_RESULT"
-    "$PART13_RESULT" "$PART14_RESULT" "$PART15_RESULT" "$PART16_RESULT"
+    "$PART9_RESULT"
+    "$PART15_RESULT" "$PART16_RESULT"
     "$PART17_RESULT" "$PART18_RESULT" "$PART19_RESULT" "$PART20_RESULT"
     "$PART21_RESULT" "$PART22_RESULT" "$PART23_RESULT" "$PART24_RESULT"
-    "$PART25_RESULT" "$PART26_RESULT" "$PART27_RESULT" "$PART28_RESULT"
-    "$PART29_RESULT" "$PART30_RESULT" "$PART31_RESULT" "$PART32_RESULT"
-    "$PART33_RESULT" "$PART33a_RESULT" "$PART33b_RESULT"
+    "$PART25_RESULT" "$PART26_RESULT" "$PART27_RESULT"
+    "$PART30_RESULT" "$PART31_RESULT" "$PART32_RESULT"
+    "$PART33_RESULT"
     "$PART34_RESULT" "$PART35_RESULT" "$PART36_RESULT" "$PART37_RESULT"
     "$PART38_RESULT" "$PART39_RESULT" "$PART40_RESULT" "$PART41_RESULT"
     "$PART42_RESULT" "$PART43_RESULT" "$PART44_RESULT" "$PART45_RESULT"
     "$PART46_RESULT" "$PART47_RESULT" "$PART48_RESULT" "$PART49_RESULT"
-    "$PART50_RESULT" "$PART51_RESULT" "$PART52_RESULT" "$PART53_RESULT"
+    "$PART52_RESULT" "$PART53_RESULT"
     "$PART54_RESULT" "$PART55_RESULT" "$PART56_RESULT"
 )
 for R in "${ALL_RESULTS[@]}"; do

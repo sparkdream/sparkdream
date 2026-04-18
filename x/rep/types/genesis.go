@@ -29,6 +29,10 @@ func DefaultGenesis() *GenesisState {
 		TagBudgetCount:         1,
 		TagBudgetAwardList:     []TagBudgetAward{},
 		TagBudgetAwardCount:    1,
+		JuryParticipationMap:   []JuryParticipation{},
+		MemberReportMap:        []MemberReport{},
+		MemberWarningList:      []MemberWarning{},
+		GovActionAppealList:    []GovActionAppeal{},
 	}
 }
 
@@ -188,6 +192,45 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("tagBudgetAward id should be lower or equal than the last id")
 		}
 		tagBudgetAwardIDMap[elem.Id] = true
+	}
+
+	juryParticipationIndexMap := make(map[string]struct{})
+	for _, elem := range gs.JuryParticipationMap {
+		index := fmt.Sprint(elem.Juror)
+		if _, ok := juryParticipationIndexMap[index]; ok {
+			return fmt.Errorf("duplicated index for juryParticipation")
+		}
+		juryParticipationIndexMap[index] = struct{}{}
+	}
+	memberReportIndexMap := make(map[string]struct{})
+	for _, elem := range gs.MemberReportMap {
+		index := fmt.Sprint(elem.Member)
+		if _, ok := memberReportIndexMap[index]; ok {
+			return fmt.Errorf("duplicated index for memberReport")
+		}
+		memberReportIndexMap[index] = struct{}{}
+	}
+	memberWarningIdMap := make(map[uint64]bool)
+	memberWarningCount := gs.GetMemberWarningCount()
+	for _, elem := range gs.MemberWarningList {
+		if _, ok := memberWarningIdMap[elem.Id]; ok {
+			return fmt.Errorf("duplicated id for memberWarning")
+		}
+		if elem.Id >= memberWarningCount {
+			return fmt.Errorf("memberWarning id should be lower or equal than the last id")
+		}
+		memberWarningIdMap[elem.Id] = true
+	}
+	govActionAppealIdMap := make(map[uint64]bool)
+	govActionAppealCount := gs.GetGovActionAppealCount()
+	for _, elem := range gs.GovActionAppealList {
+		if _, ok := govActionAppealIdMap[elem.Id]; ok {
+			return fmt.Errorf("duplicated id for govActionAppeal")
+		}
+		if elem.Id >= govActionAppealCount {
+			return fmt.Errorf("govActionAppeal id should be lower or equal than the last id")
+		}
+		govActionAppealIdMap[elem.Id] = true
 	}
 
 	return gs.Params.Validate()

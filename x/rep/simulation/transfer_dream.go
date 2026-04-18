@@ -59,9 +59,23 @@ func SimulateMsgTransferDream(
 		purpose := types.TransferPurpose_TRANSFER_PURPOSE_TIP
 		maxTransfer := math.NewInt(100)
 
-		// Calculate transfer amount
-		if (*sender.DreamBalance).LT(maxTransfer) {
-			maxTransfer = *sender.DreamBalance
+		// The msg handler enforces DreamBalance - StakedDream >= amount and also
+		// applies pending decay before the check, so stay below the raw unlocked
+		// balance by a small safety margin to avoid spurious failures.
+		staked := math.ZeroInt()
+		if sender.StakedDream != nil {
+			staked = *sender.StakedDream
+		}
+		unlocked := sender.DreamBalance.Sub(staked)
+		// Reserve ~1% of unlocked balance (min 1) to cover decay between
+		// this check and message delivery.
+		buffer := unlocked.QuoRaw(100)
+		if buffer.LT(math.OneInt()) {
+			buffer = math.OneInt()
+		}
+		safeMax := unlocked.Sub(buffer)
+		if safeMax.LT(maxTransfer) {
+			maxTransfer = safeMax
 		}
 		if maxTransfer.LT(minAmount) {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "insufficient balance for transfer"), nil, nil

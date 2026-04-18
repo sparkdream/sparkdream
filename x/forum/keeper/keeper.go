@@ -41,13 +41,6 @@ type Keeper struct {
 	ThreadFollow          collections.Map[string, types.ThreadFollow]
 	ThreadFollowCount     collections.Map[uint64, types.ThreadFollowCount]
 	ArchiveMetadata       collections.Map[uint64, types.ArchiveMetadata]
-	MemberSalvationStatus collections.Map[string, types.MemberSalvationStatus]
-	JuryParticipation     collections.Map[string, types.JuryParticipation]
-	MemberReport          collections.Map[string, types.MemberReport]
-	MemberWarningSeq      collections.Sequence
-	MemberWarning         collections.Map[uint64, types.MemberWarning]
-	GovActionAppealSeq    collections.Sequence
-	GovActionAppeal       collections.Map[uint64, types.GovActionAppeal]
 	ExpirationQueue       collections.KeySet[collections.Pair[int64, uint64]]
 	PostVote              collections.KeySet[collections.Pair[uint64, string]]
 	ActiveBountyByThread  collections.Map[uint64, uint64]
@@ -88,10 +81,10 @@ func NewKeeper(
 		PostFlag:          collections.NewMap(sb, types.PostFlagKey, "postFlag", collections.Uint64Key, codec.CollValue[types.PostFlag](cdc)),
 		Bounty:            collections.NewMap(sb, types.BountyKey, "bounty", collections.Uint64Key, codec.CollValue[types.Bounty](cdc)),
 		BountySeq:         collections.NewSequence(sb, types.BountyCountKey, "bountySequence"),
-		ThreadMetadata:    collections.NewMap(sb, types.ThreadMetadataKey, "threadMetadata", collections.Uint64Key, codec.CollValue[types.ThreadMetadata](cdc)), ThreadFollow: collections.NewMap(sb, types.ThreadFollowKey, "threadFollow", collections.StringKey, codec.CollValue[types.ThreadFollow](cdc)), ThreadFollowCount: collections.NewMap(sb, types.ThreadFollowCountKey, "threadFollowCount", collections.Uint64Key, codec.CollValue[types.ThreadFollowCount](cdc)), ArchiveMetadata: collections.NewMap(sb, types.ArchiveMetadataKey, "archiveMetadata", collections.Uint64Key, codec.CollValue[types.ArchiveMetadata](cdc)), MemberSalvationStatus: collections.NewMap(sb, types.MemberSalvationStatusKey, "memberSalvationStatus", collections.StringKey, codec.CollValue[types.MemberSalvationStatus](cdc)), JuryParticipation: collections.NewMap(sb, types.JuryParticipationKey, "juryParticipation", collections.StringKey, codec.CollValue[types.JuryParticipation](cdc)), MemberReport: collections.NewMap(sb, types.MemberReportKey, "memberReport", collections.StringKey, codec.CollValue[types.MemberReport](cdc)), MemberWarning: collections.NewMap(sb, types.MemberWarningKey, "memberWarning", collections.Uint64Key, codec.CollValue[types.MemberWarning](cdc)),
-		MemberWarningSeq:   collections.NewSequence(sb, types.MemberWarningCountKey, "memberWarningSequence"),
-		GovActionAppeal:    collections.NewMap(sb, types.GovActionAppealKey, "govActionAppeal", collections.Uint64Key, codec.CollValue[types.GovActionAppeal](cdc)),
-		GovActionAppealSeq: collections.NewSequence(sb, types.GovActionAppealCountKey, "govActionAppealSequence"),
+		ThreadMetadata:    collections.NewMap(sb, types.ThreadMetadataKey, "threadMetadata", collections.Uint64Key, codec.CollValue[types.ThreadMetadata](cdc)),
+		ThreadFollow:      collections.NewMap(sb, types.ThreadFollowKey, "threadFollow", collections.StringKey, codec.CollValue[types.ThreadFollow](cdc)),
+		ThreadFollowCount: collections.NewMap(sb, types.ThreadFollowCountKey, "threadFollowCount", collections.Uint64Key, codec.CollValue[types.ThreadFollowCount](cdc)),
+		ArchiveMetadata:   collections.NewMap(sb, types.ArchiveMetadataKey, "archiveMetadata", collections.Uint64Key, codec.CollValue[types.ArchiveMetadata](cdc)),
 		ExpirationQueue: collections.NewKeySet(
 			sb,
 			types.ExpirationQueueKey,

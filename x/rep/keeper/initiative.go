@@ -199,6 +199,24 @@ func (k Keeper) CreateInitiative(
 	return initiativeID, nil
 }
 
+// CountActiveInitiativesForAssignee returns the number of in-flight initiatives
+// assigned to the given member. "In flight" is every status enumerated by
+// IterateActiveInitiatives (OPEN..CHALLENGED). OPEN initiatives with no
+// assignee yet are skipped, so the cap only fires on work actually held.
+func (k Keeper) CountActiveInitiativesForAssignee(ctx context.Context, assignee string) (uint32, error) {
+	if assignee == "" {
+		return 0, nil
+	}
+	var count uint32
+	k.IterateActiveInitiatives(ctx, func(_ int64, initiative types.Initiative) bool {
+		if initiative.Assignee == assignee {
+			count++
+		}
+		return false
+	})
+	return count, nil
+}
+
 // GetInitiative retrieves an initiative by ID
 func (k Keeper) GetInitiative(ctx context.Context, initiativeID uint64) (types.Initiative, error) {
 	initiative, err := k.Initiative.Get(ctx, initiativeID)
@@ -252,6 +270,17 @@ func (k Keeper) AssignInitiativeToMember(
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get params: %w", err)
+	}
+
+	// Enforce per-member active initiative cap (anti-monopolization).
+	if params.MaxActiveInitiativesPerMember > 0 {
+		active, cerr := k.CountActiveInitiativesForAssignee(ctx, assignee.String())
+		if cerr != nil {
+			return fmt.Errorf("failed to count active initiatives: %w", cerr)
+		}
+		if active >= params.MaxActiveInitiativesPerMember {
+			return types.ErrTooManyActiveInitiatives
+		}
 	}
 
 	var tierConfig types.TierConfig

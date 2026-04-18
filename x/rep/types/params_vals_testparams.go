@@ -25,3 +25,10 @@ func getTrustLevelConfig() TrustLevelConfig {
 		CoreInvitationCredits:        20, // production: 10
 	}
 }
+
+// getSentinelRewardEpochBlocks returns the cadence at which the sentinel SPARK
+// reward pool is drained. Testparams uses a very short epoch (20 blocks) so E2E
+// tests can exercise it quickly.
+func getSentinelRewardEpochBlocks() uint64 {
+	return 20
+}

@@ -349,6 +349,22 @@ func (k Keeper) GetAuthorityString() string {
 	return addr
 }
 
+// GetSalvationCounters delegates to x/rep.
+func (k Keeper) GetSalvationCounters(ctx context.Context, addr string) (uint32, int64, error) {
+	if k.repKeeper == nil {
+		return 0, 0, nil
+	}
+	return k.repKeeper.GetSalvationCounters(ctx, addr)
+}
+
+// UpdateSalvationCounters delegates to x/rep.
+func (k Keeper) UpdateSalvationCounters(ctx context.Context, addr string, epochSalvations uint32, lastEpoch int64) error {
+	if k.repKeeper == nil {
+		return nil
+	}
+	return k.repKeeper.UpdateSalvationCounters(ctx, addr, epochSalvations, lastEpoch)
+}
+
 // GetTrustLevel returns the trust level for a member via x/rep.
 // The shield module address returns TRUSTED level since ZK proof verified trust.
 func (k Keeper) GetTrustLevel(ctx context.Context, addr string) uint64 {

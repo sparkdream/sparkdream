@@ -1,0 +1,15 @@
+package simulation_test
+
+import (
+	"testing"
+
+	"sparkdream/x/forum/keeper"
+	"sparkdream/x/forum/simulation"
+)
+
+func TestSimulateMsgSetModerationPaused_ReturnsOperation(t *testing.T) {
+	op := simulation.SimulateMsgSetModerationPaused(nil, nil, keeper.Keeper{}, nil)
+	if op == nil {
+		t.Fatal("SimulateMsgSetModerationPaused returned nil operation")
+	}
+}

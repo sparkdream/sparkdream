@@ -63,46 +63,6 @@ func TestGenesisState_Validate(t *testing.T) {
 			},
 			valid: false,
 		},
-		{
-			desc: "duplicated memberWarning",
-			genState: &types.GenesisState{
-				MemberWarningList: []types.MemberWarning{
-					{Id: 0},
-					{Id: 0},
-				},
-			},
-			valid: false,
-		},
-		{
-			desc: "invalid memberWarning count",
-			genState: &types.GenesisState{
-				MemberWarningList: []types.MemberWarning{
-					{Id: 1},
-				},
-				MemberWarningCount: 0,
-			},
-			valid: false,
-		},
-		{
-			desc: "duplicated govActionAppeal",
-			genState: &types.GenesisState{
-				GovActionAppealList: []types.GovActionAppeal{
-					{Id: 0},
-					{Id: 0},
-				},
-			},
-			valid: false,
-		},
-		{
-			desc: "invalid govActionAppeal count",
-			genState: &types.GenesisState{
-				GovActionAppealList: []types.GovActionAppeal{
-					{Id: 1},
-				},
-				GovActionAppealCount: 0,
-			},
-			valid: false,
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {

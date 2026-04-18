@@ -174,66 +174,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "root_id"}},
 				},
 				{
-					RpcMethod: "ListMemberSalvationStatus",
-					Use:       "list-member-salvation-status",
-					Short:     "List all member-salvation-status",
-				},
-				{
-					RpcMethod:      "GetMemberSalvationStatus",
-					Use:            "get-member-salvation-status [id]",
-					Short:          "Gets a member-salvation-status",
-					Alias:          []string{"show-member-salvation-status"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
-				},
-				{
-					RpcMethod: "ListJuryParticipation",
-					Use:       "list-jury-participation",
-					Short:     "List all jury-participation",
-				},
-				{
-					RpcMethod:      "GetJuryParticipation",
-					Use:            "get-jury-participation [id]",
-					Short:          "Gets a jury-participation",
-					Alias:          []string{"show-jury-participation"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "juror"}},
-				},
-				{
-					RpcMethod: "ListMemberReport",
-					Use:       "list-member-report",
-					Short:     "List all member-report",
-				},
-				{
-					RpcMethod:      "GetMemberReport",
-					Use:            "get-member-report [id]",
-					Short:          "Gets a member-report",
-					Alias:          []string{"show-member-report"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
-				},
-				{
-					RpcMethod: "ListMemberWarning",
-					Use:       "list-member-warning",
-					Short:     "List all member-warning",
-				},
-				{
-					RpcMethod:      "GetMemberWarning",
-					Use:            "get-member-warning [id]",
-					Short:          "Gets a member-warning by id",
-					Alias:          []string{"show-member-warning"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
-				},
-				{
-					RpcMethod: "ListGovActionAppeal",
-					Use:       "list-gov-action-appeal",
-					Short:     "List all gov-action-appeal",
-				},
-				{
-					RpcMethod:      "GetGovActionAppeal",
-					Use:            "get-gov-action-appeal [id]",
-					Short:          "Gets a gov-action-appeal by id",
-					Alias:          []string{"show-gov-action-appeal"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
-				},
-				{
 					RpcMethod:      "Posts",
 					Use:            "posts [category-id] [status]",
 					Short:          "Query posts",
@@ -252,20 +192,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "user-posts [author]",
 					Short:          "Query user-posts",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "author"}},
-				},
-
-				{
-					RpcMethod:      "SentinelStatus",
-					Use:            "sentinel-status [address]",
-					Short:          "Query sentinel-status",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
-				},
-
-				{
-					RpcMethod:      "SentinelBondCommitment",
-					Use:            "sentinel-bond-commitment [address]",
-					Short:          "Query sentinel-bond-commitment",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
 				},
 
 				{
@@ -288,27 +214,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "appeal-cooldown [post-id]",
 					Short:          "Query appeal-cooldown",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
-				},
-
-				{
-					RpcMethod:      "MemberReports",
-					Use:            "member-reports ",
-					Short:          "Query member-reports",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
-				},
-
-				{
-					RpcMethod:      "MemberWarnings",
-					Use:            "member-warnings [member]",
-					Short:          "Query member-warnings",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
-				},
-
-				{
-					RpcMethod:      "MemberStanding",
-					Use:            "member-standing [member]",
-					Short:          "Query member-standing",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
 				},
 
 				{
@@ -399,13 +304,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					RpcMethod:      "FlagReviewQueue",
 					Use:            "flag-review-queue ",
 					Short:          "Query flag-review-queue",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
-				},
-
-				{
-					RpcMethod:      "GovActionAppeals",
-					Use:            "gov-action-appeals ",
-					Short:          "Query gov-action-appeals",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 
@@ -628,49 +526,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Send a set-moderation-paused tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "paused"}},
 				},
-				{
-					RpcMethod:      "BondSentinel",
-					Use:            "bond-sentinel [amount]",
-					Short:          "Send a bond-sentinel tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "amount"}},
-				},
-				{
-					RpcMethod:      "UnbondSentinel",
-					Use:            "unbond-sentinel [amount]",
-					Short:          "Send a unbond-sentinel tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "amount"}},
-				},
-				{
-					RpcMethod:      "ReportMember",
-					Use:            "report-member [member] [reason] [recommended-action]",
-					Short:          "Send a report-member tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}, {ProtoField: "reason"}, {ProtoField: "recommended_action"}},
-				},
-				{
-					RpcMethod:      "CosignMemberReport",
-					Use:            "cosign-member-report [member]",
-					Short:          "Send a cosign-member-report tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
-				},
-				{
-					RpcMethod:      "ResolveMemberReport",
-					Use:            "resolve-member-report [member] [action] [reason]",
-					Short:          "Send a resolve-member-report tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}, {ProtoField: "action"}, {ProtoField: "reason"}},
-				},
-				{
-					RpcMethod:      "DefendMemberReport",
-					Use:            "defend-member-report [defense]",
-					Short:          "Send a defend-member-report tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "defense"}},
-				},
-				{
-					RpcMethod:      "AppealGovAction",
-					Use:            "appeal-gov-action [action-type] [action-target] [appeal-reason]",
-					Short:          "Send a appeal-gov-action tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "action_type"}, {ProtoField: "action_target"}, {ProtoField: "appeal_reason"}},
-				},
-
 				// this line is used by ignite scaffolding # autocli/tx
 			},
 		},

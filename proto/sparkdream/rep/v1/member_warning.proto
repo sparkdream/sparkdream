@@ -1,0 +1,15 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+option go_package = "sparkdream/x/rep/types";
+
+// MemberWarning defines the MemberWarning message.
+message MemberWarning {
+  uint64 id = 1;
+  string member = 2;
+  string reason = 3;
+  int64 issued_at = 4;
+  string issued_by = 5;
+  uint64 warning_number = 6;
+  repeated uint64 evidence_post_ids = 10;
+}

@@ -258,28 +258,6 @@ func findBountyByCreator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creator
 	return &selected.bounty, selected.id, nil
 }
 
-// findMemberReport returns a random member report
-func findMemberReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status types.MemberReportStatus) (*types.MemberReport, string, error) {
-	var reports []struct {
-		member string
-		report types.MemberReport
-	}
-	err := k.MemberReport.Walk(ctx, nil, func(member string, report types.MemberReport) (bool, error) {
-		if report.Status == status {
-			reports = append(reports, struct {
-				member string
-				report types.MemberReport
-			}{member, report})
-		}
-		return false, nil
-	})
-	if err != nil || len(reports) == 0 {
-		return nil, "", err
-	}
-	selected := reports[r.Intn(len(reports))]
-	return &selected.report, selected.member, nil
-}
-
 // findArchivedRootPost returns a random root post with ARCHIVED status
 func findArchivedRootPost(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Post, uint64, error) {
 	var posts []struct {
@@ -322,28 +300,6 @@ func findThreadFollow(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, follower s
 	}
 	selected := follows[r.Intn(len(follows))]
 	return &selected.follow, selected.key, nil
-}
-
-// findGovActionAppeal returns a random pending appeal
-func findGovActionAppeal(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status types.GovAppealStatus) (*types.GovActionAppeal, uint64, error) {
-	var appeals []struct {
-		id     uint64
-		appeal types.GovActionAppeal
-	}
-	err := k.GovActionAppeal.Walk(ctx, nil, func(id uint64, appeal types.GovActionAppeal) (bool, error) {
-		if appeal.Status == status {
-			appeals = append(appeals, struct {
-				id     uint64
-				appeal types.GovActionAppeal
-			}{id, appeal})
-		}
-		return false, nil
-	})
-	if err != nil || len(appeals) == 0 {
-		return nil, 0, err
-	}
-	selected := appeals[r.Intn(len(appeals))]
-	return &selected.appeal, selected.id, nil
 }
 
 func getOrCreateCategory(_ *rand.Rand, _ sdk.Context, _ keeper.Keeper) (uint64, error) {
@@ -513,28 +469,6 @@ func getOrCreateBounty(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creator s
 	return bountyID, k.Bounty.Set(ctx, bountyID, newBounty)
 }
 
-// getOrCreateMemberReport creates a member report if none exists
-func getOrCreateMemberReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, reportedMember string, reporter string) error {
-	// Check if report exists
-	_, err := k.MemberReport.Get(ctx, reportedMember)
-	if err == nil {
-		return nil // Report exists
-	}
-
-	// Create report
-	now := ctx.BlockTime().Unix()
-	report := types.MemberReport{
-		Member:    reportedMember,
-		Reason:    "Simulation report",
-		Status:    types.MemberReportStatus_MEMBER_REPORT_STATUS_PENDING,
-		CreatedAt: now,
-		Reporters: []string{reporter},
-		TotalBond: fmt.Sprintf("%d", r.Intn(900)+100),
-	}
-
-	return k.MemberReport.Set(ctx, reportedMember, report)
-}
-
 // getOrCreateThreadMetadata gets or creates thread metadata
 func getOrCreateThreadMetadata(ctx sdk.Context, k keeper.Keeper, threadId uint64) (*types.ThreadMetadata, error) {
 	metadata, err := k.ThreadMetadata.Get(ctx, threadId)
@@ -620,19 +554,19 @@ func findActiveBounty(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Bo
 	return findBounty(r, ctx, k, types.BountyStatus_BOUNTY_STATUS_ACTIVE)
 }
 
-// findBondedSentinel returns a random bonded sentinel
+// findBondedSentinel returns a random sentinel activity record. The
+// bonded/status test now lives on the rep record; for simulation purposes we
+// just treat the presence of a local counter record as a bonded sentinel.
 func findBondedSentinel(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.SentinelActivity, string, error) {
 	var sentinels []struct {
 		addr     string
 		sentinel types.SentinelActivity
 	}
 	err := k.SentinelActivity.Walk(ctx, nil, func(addr string, sentinel types.SentinelActivity) (bool, error) {
-		if sentinel.CurrentBond != "" && sentinel.CurrentBond != "0" {
-			sentinels = append(sentinels, struct {
-				addr     string
-				sentinel types.SentinelActivity
-			}{addr, sentinel})
-		}
+		sentinels = append(sentinels, struct {
+			addr     string
+			sentinel types.SentinelActivity
+		}{addr, sentinel})
 		return false, nil
 	})
 	if err != nil || len(sentinels) == 0 {
@@ -640,30 +574,6 @@ func findBondedSentinel(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.
 	}
 	selected := sentinels[r.Intn(len(sentinels))]
 	return &selected.sentinel, selected.addr, nil
-}
-
-// findPendingMemberReport returns a random pending member report
-func findPendingMemberReport(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.MemberReport, uint64, error) {
-	var reports []struct {
-		id     uint64
-		report types.MemberReport
-	}
-	var reportID uint64
-	err := k.MemberReport.Walk(ctx, nil, func(member string, report types.MemberReport) (bool, error) {
-		reportID++
-		if report.Status == types.MemberReportStatus_MEMBER_REPORT_STATUS_PENDING {
-			reports = append(reports, struct {
-				id     uint64
-				report types.MemberReport
-			}{reportID, report})
-		}
-		return false, nil
-	})
-	if err != nil || len(reports) == 0 {
-		return nil, 0, err
-	}
-	selected := reports[r.Intn(len(reports))]
-	return &selected.report, selected.id, nil
 }
 
 // findPinnedReply returns a random pinned reply
@@ -871,28 +781,17 @@ func getOrCreateThreadFollow(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, fol
 	return threadID, k.ThreadFollow.Set(ctx, key, followRecord)
 }
 
-// getOrCreateBondedSentinel returns an existing bonded sentinel or creates one for the specific address
+// getOrCreateBondedSentinel registers a forum-local SentinelActivity counter
+// record. Bond accounting now lives in x/rep; integration tests exercise the
+// full bond flow.
 func getOrCreateBondedSentinel(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, sentinel string) error {
-	// Check if this specific sentinel already exists
-	existing, err := k.SentinelActivity.Get(ctx, sentinel)
-	if err == nil && existing.CurrentBond != "" && existing.CurrentBond != "0" {
-		return nil // Already a bonded sentinel
+	if _, err := k.SentinelActivity.Get(ctx, sentinel); err == nil {
+		return nil
 	}
-
-	// Create sentinel activity with bond
-	bondAmount := fmt.Sprintf("%d", 100+r.Intn(500))
-
+	_ = r
 	activity := types.SentinelActivity{
-		Address:            sentinel,
-		CurrentBond:        bondAmount,
-		BondStatus:         types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
-		TotalHides:         0,
-		UpheldHides:        0,
-		OverturnedHides:    0,
-		CumulativeRewards:  "0",
-		TotalCommittedBond: "0", // No committed bond initially so available bond > 0
+		Address: sentinel,
 	}
-
 	return k.SentinelActivity.Set(ctx, sentinel, activity)
 }
 

@@ -33,9 +33,15 @@ func SimulateMsgApproveInitiative(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get/create initiative"), nil, nil
 		}
 
+		// Always approve in the simulation. Rejection path calls
+		// ReturnBudget, which requires the project's AllocatedBudget to
+		// still cover this initiative's budget — but other operations may
+		// have since reallocated or spent it, leading to spurious
+		// "only 0 allocated" failures.
 		msg := &types.MsgApproveInitiative{
 			Creator:      approver.Address,
 			InitiativeId: initID,
+			Approved:     true,
 		}
 
 		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{

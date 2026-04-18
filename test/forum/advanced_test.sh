@@ -259,217 +259,8 @@ echo "  Result: $PART5_RESULT"
 echo ""
 
 # ========================================================================
-# PART 6: REPORT TAG
+# PARTS 6, 7, 8: Moved to test/rep/tag_moderation_test.sh
 # ========================================================================
-echo "--- PART 6: REPORT TAG ---"
-
-PART6_RESULT="FAIL"
-
-echo "Reporting tag 'commons-council'..."
-
-TX_RES=$($BINARY tx rep report-tag \
-    "commons-council" \
-    "Tag is being misused" \
-    --from poster1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Failed to submit report-tag transaction"
-    echo "  Response: $(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)"
-else
-    echo "  Transaction: $TXHASH"
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        echo "  Tag reported successfully"
-        PART6_RESULT="PASS"
-    else
-        echo "  Report failed"
-        echo "  $(echo "$TX_RESULT" | jq -r '.raw_log')"
-    fi
-fi
-
-echo "  Result: $PART6_RESULT"
-echo ""
-
-# ========================================================================
-# PART 7: QUERY TAG REPORTS
-# ========================================================================
-echo "--- PART 7: QUERY TAG REPORTS ---"
-
-PART7_RESULT="FAIL"
-
-TAG_REPORTS=$($BINARY query rep list-tag-report --output json 2>&1)
-
-if echo "$TAG_REPORTS" | grep -q "error"; then
-    # Try list version
-    TAG_REPORTS=$($BINARY query rep list-tag-report --output json 2>&1)
-fi
-
-if echo "$TAG_REPORTS" | grep -q "error"; then
-    echo "  Failed to query tag reports"
-else
-    REPORT_COUNT=$(echo "$TAG_REPORTS" | jq -r '.tag_report | length // .reports | length // 0' 2>/dev/null)
-    echo "  Total tag reports: $REPORT_COUNT"
-    PART7_RESULT="PASS"
-
-    if [ "$REPORT_COUNT" -gt 0 ]; then
-        echo ""
-        echo "  Tag Reports:"
-        echo "$TAG_REPORTS" | jq -r '.tag_report[:5] // .reports[:5] | .[] | "    - Tag: \(.tag // .tag_name) reason: \(.reason_code)"' 2>/dev/null
-    fi
-fi
-
-echo "  Result: $PART7_RESULT"
-echo ""
-
-# ========================================================================
-# PART 8: RESOLVE TAG REPORT (Test interface - requires authority)
-# ========================================================================
-echo "--- PART 8: RESOLVE TAG REPORT (Authority required) ---"
-
-PART8_RESULT="FAIL"
-
-echo "Testing resolve-tag-report command (requires authority)..."
-
-TX_RES=$($BINARY tx rep resolve-tag-report \
-    "commons-council" \
-    "0" \
-    "" \
-    "false" \
-    --from moderator \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Transaction failed (expected - requires authority)"
-    echo "  Response: $(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)"
-    PART8_RESULT="PASS"
-else
-    echo "  Transaction: $TXHASH"
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        echo "  Tag report resolved"
-        PART8_RESULT="PASS"
-    else
-        echo "  Resolution failed (expected - requires authority)"
-        PART8_RESULT="PASS"
-    fi
-fi
-
-echo "  Result: $PART8_RESULT"
-echo ""
-
-# ========================================================================
-# PART 9: RESOLVE MEMBER REPORT (Test interface - requires authority)
-# ========================================================================
-echo "--- PART 9: RESOLVE MEMBER REPORT (Authority required) ---"
-
-PART9_RESULT="FAIL"
-
-echo "Testing resolve-member-report command (requires authority)..."
-
-TX_RES=$($BINARY tx forum resolve-member-report \
-    "$POSTER2_ADDR" \
-    "0" \
-    "Member report resolved by authority" \
-    --from moderator \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Transaction failed (expected - requires authority)"
-    echo "  Response: $(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)"
-    PART9_RESULT="PASS"
-else
-    echo "  Transaction: $TXHASH"
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        echo "  Member report resolved"
-        PART9_RESULT="PASS"
-    else
-        echo "  Resolution failed (expected - requires authority)"
-        PART9_RESULT="PASS"
-    fi
-fi
-
-echo "  Result: $PART9_RESULT"
-echo ""
-
-# ========================================================================
-# PART 10: QUERY MEMBER WARNINGS
-# ========================================================================
-echo "--- PART 10: QUERY MEMBER WARNINGS ---"
-
-PART10_RESULT="FAIL"
-
-WARNINGS=$($BINARY query forum member-warnings "$POSTER1_ADDR" --output json 2>&1)
-
-if echo "$WARNINGS" | grep -q "error"; then
-    # Try list version
-    WARNINGS=$($BINARY query forum list-member-warning --output json 2>&1)
-fi
-
-if echo "$WARNINGS" | grep -q "error"; then
-    echo "  Failed to query member warnings"
-else
-    WARNING_COUNT=$(echo "$WARNINGS" | jq -r '.member_warning | length // .warnings | length // 0' 2>/dev/null)
-    echo "  Total member warnings: $WARNING_COUNT"
-    PART10_RESULT="PASS"
-
-    if [ "$WARNING_COUNT" -gt 0 ]; then
-        echo ""
-        echo "  Warnings:"
-        echo "$WARNINGS" | jq -r '.member_warning[:5] // .warnings[:5] | .[] | "    - ID \(.id): \(.reason) (member: \(.member | .[0:20])...)"' 2>/dev/null
-    fi
-fi
-
-echo "  Result: $PART10_RESULT"
-echo ""
-
-# ========================================================================
-# PART 11: QUERY MEMBER SALVATION STATUS
-# ========================================================================
-echo "--- PART 11: QUERY MEMBER SALVATION STATUS ---"
-
-PART11_RESULT="FAIL"
-
-SALVATION=$($BINARY query forum get-member-salvation-status "$POSTER1_ADDR" --output json 2>&1)
-
-if echo "$SALVATION" | grep -q "error\|not found"; then
-    echo "  No salvation status (member not in salvation)"
-    PART11_RESULT="PASS"
-else
-    echo "  Member Salvation Status:"
-    echo "    Member: $(echo "$SALVATION" | jq -r '.member_salvation_status.member // .status.member // "N/A"')"
-    echo "    Status: $(echo "$SALVATION" | jq -r '.member_salvation_status.status // .status.status // "N/A"')"
-    echo "    Since: $(echo "$SALVATION" | jq -r '.member_salvation_status.since // .status.since // "N/A"')"
-    PART11_RESULT="PASS"
-fi
-
-echo "  Result: $PART11_RESULT"
-echo ""
 
 # ========================================================================
 # PART 12: SET FORUM PAUSED (Authority required)
@@ -745,32 +536,6 @@ else
 fi
 
 echo "  Result: $PART16_RESULT"
-echo ""
-
-# ========================================================================
-# PART 17: QUERY JURY PARTICIPATION
-# ========================================================================
-echo "--- PART 17: QUERY JURY PARTICIPATION ---"
-
-PART17_RESULT="FAIL"
-
-JURY=$($BINARY query forum list-jury-participation --output json 2>&1)
-
-if echo "$JURY" | grep -q "error"; then
-    echo "  Failed to query jury participation"
-else
-    JURY_COUNT=$(echo "$JURY" | jq -r '.jury_participation | length // .participations | length // 0' 2>/dev/null)
-    echo "  Total jury participation records: $JURY_COUNT"
-    PART17_RESULT="PASS"
-
-    if [ "$JURY_COUNT" -gt 0 ]; then
-        echo ""
-        echo "  Jury Participations:"
-        echo "$JURY" | jq -r '.jury_participation[:5] // .participations[:5] | .[] | "    - \(.member | .[0:20])... initiative: \(.initiative_id)"' 2>/dev/null
-    fi
-fi
-
-echo "  Result: $PART17_RESULT"
 echo ""
 
 # ========================================================================
@@ -1549,195 +1314,8 @@ echo "  Result: $PART31_RESULT"
 echo ""
 
 # ========================================================================
-# PART 32: RESOLVE MEMBER REPORT ERROR - UNAUTHORIZED
+# PARTS 34, 35: Moved to test/rep/tag_moderation_test.sh
 # ========================================================================
-echo "--- PART 32: RESOLVE MEMBER REPORT ERROR - UNAUTHORIZED ---"
-
-PART32_RESULT="FAIL"
-
-TX_RES=$($BINARY tx forum resolve-member-report \
-    "$POSTER2_ADDR" \
-    "0" \
-    "Trying to resolve as non-authority" \
-    --from poster1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
-
-    if [ "$CODE" != "0" ]; then
-        if echo "$RAW_LOG" | grep -qi "not.*gov.*authority\|operations committee\|not authorized"; then
-            echo "  Correctly rejected: $RAW_LOG"
-            PART32_RESULT="PASS"
-        else
-            echo "  Tx failed but unexpected error: $RAW_LOG"
-        fi
-    else
-        echo "  Expected failure but tx succeeded"
-    fi
-else
-    echo "  Tx rejected at broadcast"
-    RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)
-    if echo "$RAW_LOG" | grep -qi "not.*gov.*authority\|operations committee\|not authorized"; then
-        PART32_RESULT="PASS"
-    fi
-fi
-
-echo "  Result: $PART32_RESULT"
-echo ""
-
-# ========================================================================
-# PART 33: RESOLVE MEMBER REPORT ERROR - REPORT NOT FOUND
-# ========================================================================
-echo "--- PART 33: RESOLVE MEMBER REPORT ERROR - REPORT NOT FOUND ---"
-
-PART33_RESULT="FAIL"
-
-# Use a random address that has no report
-TX_RES=$($BINARY tx forum resolve-member-report \
-    "sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe" \
-    "0" \
-    "No report exists for this member" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
-
-    if [ "$CODE" != "0" ]; then
-        if echo "$RAW_LOG" | grep -qi "not found\|report not found"; then
-            echo "  Correctly rejected: $RAW_LOG"
-            PART33_RESULT="PASS"
-        else
-            echo "  Tx failed but unexpected error: $RAW_LOG"
-        fi
-    else
-        echo "  Expected failure but tx succeeded"
-    fi
-else
-    echo "  Tx rejected at broadcast"
-    RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)
-    if echo "$RAW_LOG" | grep -qi "not found\|report not found"; then
-        PART33_RESULT="PASS"
-    fi
-fi
-
-echo "  Result: $PART33_RESULT"
-echo ""
-
-# ========================================================================
-# PART 34: RESOLVE TAG REPORT ERROR - UNAUTHORIZED
-# ========================================================================
-echo "--- PART 34: RESOLVE TAG REPORT ERROR - UNAUTHORIZED ---"
-
-PART34_RESULT="FAIL"
-
-TX_RES=$($BINARY tx rep resolve-tag-report \
-    "test-tag" \
-    "0" \
-    "" \
-    "false" \
-    --from poster1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
-
-    if [ "$CODE" != "0" ]; then
-        if echo "$RAW_LOG" | grep -qi "not.*gov.*authority\|operations committee\|not authorized"; then
-            echo "  Correctly rejected: $RAW_LOG"
-            PART34_RESULT="PASS"
-        else
-            echo "  Tx failed but unexpected error: $RAW_LOG"
-        fi
-    else
-        echo "  Expected failure but tx succeeded"
-    fi
-else
-    echo "  Tx rejected at broadcast"
-    RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)
-    if echo "$RAW_LOG" | grep -qi "not.*gov.*authority\|operations committee\|not authorized"; then
-        PART34_RESULT="PASS"
-    fi
-fi
-
-echo "  Result: $PART34_RESULT"
-echo ""
-
-# ========================================================================
-# PART 35: RESOLVE TAG REPORT ERROR - REPORT NOT FOUND
-# ========================================================================
-echo "--- PART 35: RESOLVE TAG REPORT ERROR - REPORT NOT FOUND ---"
-
-PART35_RESULT="FAIL"
-
-TX_RES=$($BINARY tx rep resolve-tag-report \
-    "nonexistent-tag-xyz" \
-    "0" \
-    "" \
-    "false" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
-
-    if [ "$CODE" != "0" ]; then
-        if echo "$RAW_LOG" | grep -qi "not found\|report not found"; then
-            echo "  Correctly rejected: $RAW_LOG"
-            PART35_RESULT="PASS"
-        else
-            echo "  Tx failed but unexpected error: $RAW_LOG"
-        fi
-    else
-        echo "  Expected failure but tx succeeded"
-    fi
-else
-    echo "  Tx rejected at broadcast"
-    RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)
-    if echo "$RAW_LOG" | grep -qi "not found\|report not found"; then
-        PART35_RESULT="PASS"
-    fi
-fi
-
-echo "  Result: $PART35_RESULT"
-echo ""
 
 # ========================================================================
 # PART 36: CONFIRM PROPOSED REPLY ERROR - NOT THREAD AUTHOR
@@ -2225,18 +1803,11 @@ echo "  Query archive cooldown:      $PART2_RESULT"
 echo "  Query archived threads:      $PART3_RESULT"
 echo "  Unarchive thread:            $PART4_RESULT"
 echo "  Query archive metadata:      $PART5_RESULT"
-echo "  Report tag:                  $PART6_RESULT"
-echo "  Query tag reports:           $PART7_RESULT"
-echo "  Resolve tag report:          $PART8_RESULT"
-echo "  Resolve member report:       $PART9_RESULT"
-echo "  Query member warnings:       $PART10_RESULT"
-echo "  Query salvation status:      $PART11_RESULT"
 echo "  Set forum paused:            $PART12_RESULT"
 echo "  Query forum status:          $PART13_RESULT"
 echo "  Set moderation paused:       $PART14_RESULT"
 echo "  Proposed reply workflow:     $PART15_RESULT"
 echo "  Unpin reply:                 $PART16_RESULT"
-echo "  Query jury participation:    $PART17_RESULT"
 echo "  Follow thread:               $PART18_RESULT"
 echo "  Query is-following-thread:   $PART19_RESULT"
 echo "  Unfollow thread:             $PART20_RESULT"
@@ -2251,10 +1822,6 @@ echo "  Forum paused: unauthorized:  $PART28_RESULT"
 echo "  Forum paused: unpause:       $PART29_RESULT"
 echo "  Mod paused: unauthorized:    $PART30_RESULT"
 echo "  Mod paused: unpause:         $PART31_RESULT"
-echo "  Resolve member: unauth:      $PART32_RESULT"
-echo "  Resolve member: not found:   $PART33_RESULT"
-echo "  Resolve tag: unauthorized:   $PART34_RESULT"
-echo "  Resolve tag: not found:      $PART35_RESULT"
 echo "  Confirm reply: not author:   $PART36_RESULT"
 echo "  Unpin reply: not pinned:     $PART37_RESULT"
 echo "  Move thread:                 $PART38_RESULT"
@@ -2264,12 +1831,11 @@ echo "  Pin reply:                   $PART41_RESULT"
 echo "  Dispute pin:                 $PART42_RESULT"
 FAIL_COUNT=0
 for R in "$PART1_RESULT" "$PART2_RESULT" "$PART3_RESULT" "$PART4_RESULT" "$PART5_RESULT" \
-         "$PART6_RESULT" "$PART7_RESULT" "$PART8_RESULT" "$PART9_RESULT" "$PART10_RESULT" \
-         "$PART11_RESULT" "$PART12_RESULT" "$PART13_RESULT" "$PART14_RESULT" "$PART15_RESULT" \
-         "$PART16_RESULT" "$PART17_RESULT" "$PART18_RESULT" "$PART19_RESULT" "$PART20_RESULT" \
+         "$PART12_RESULT" "$PART13_RESULT" "$PART14_RESULT" "$PART15_RESULT" \
+         "$PART16_RESULT" "$PART18_RESULT" "$PART19_RESULT" "$PART20_RESULT" \
          "$PART21_RESULT" "$PART22_RESULT" "$PART23_RESULT" "$PART24_RESULT" "$PART25_RESULT" \
          "$PART26_RESULT" "$PART27_RESULT" "$PART28_RESULT" "$PART29_RESULT" "$PART30_RESULT" \
-         "$PART31_RESULT" "$PART32_RESULT" "$PART33_RESULT" "$PART34_RESULT" "$PART35_RESULT" \
+         "$PART31_RESULT" \
          "$PART36_RESULT" "$PART37_RESULT" "$PART38_RESULT" "$PART39_RESULT" "$PART40_RESULT" \
          "$PART41_RESULT" "$PART42_RESULT"; do
     if [ "$R" == "FAIL" ]; then

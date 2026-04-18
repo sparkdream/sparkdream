@@ -238,10 +238,10 @@ echo ""
 echo "--- PREREQUISITE: Ensure sentinel1 is bonded ---"
 
 SENTINEL_BONDED=false
-SENTINEL_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_ACTIVITY=$($BINARY query rep get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
 if echo "$SENTINEL_ACTIVITY" | grep -q "not found"; then
     echo "  Sentinel1 not bonded, bonding now..."
-    TX_RES=$($BINARY tx forum bond-sentinel \
+    TX_RES=$($BINARY tx rep bond-sentinel \
         "10000" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \

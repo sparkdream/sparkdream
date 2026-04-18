@@ -203,12 +203,14 @@ func TestHidePostSentinelBondCommitment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify sentinel activity was updated
-	sentinel, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+	// Verify forum-local counter was updated.
+	local, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), sentinel.TotalHides)
-	require.Equal(t, uint64(1), sentinel.EpochHides)
+	require.Equal(t, uint64(1), local.TotalHides)
+	require.Equal(t, uint64(1), local.EpochHides)
 
-	// Committed bond should be increased
-	require.NotEqual(t, "0", sentinel.TotalCommittedBond)
+	// Committed bond (now on the rep sentinel record) should be increased.
+	repSentinel, ok := f.repKeeper.sentinels[testSentinel]
+	require.True(t, ok)
+	require.NotEqual(t, "0", repSentinel.TotalCommittedBond)
 }

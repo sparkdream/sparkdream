@@ -457,14 +457,16 @@ MAX_EXP_SECONDS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_expiration // "604
 MAX_SPEND_AMT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
 MAX_SPEND_DENOM=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
 
-# Construct a raw tx where alice (non-authority) tries to update params directly
+# Use session_granter: a rep member but NOT on the Commons Operations
+# Committee, so isCouncilAuthorized should reject it. (Alice is a founder
+# seated on the Commons Operations Committee and would pass the check.)
 cat > /tmp/session_nonauth_unsigned.json <<TXEOF
 {
   "body": {
     "messages": [
       {
         "@type": "/sparkdream.session.v1.MsgUpdateOperationalParams",
-        "authority": "$ALICE_ADDR",
+        "authority": "$GRANTER_ADDR",
         "operational_params": {
           "allowed_msg_types": $CURRENT_ACTIVE,
           "max_sessions_per_granter": "5",
@@ -495,12 +497,12 @@ cat > /tmp/session_nonauth_unsigned.json <<TXEOF
 }
 TXEOF
 
-ACCT_INFO=$($BINARY query auth account "$ALICE_ADDR" --output json 2>&1)
+ACCT_INFO=$($BINARY query auth account "$GRANTER_ADDR" --output json 2>&1)
 ACCT_NUM=$(echo "$ACCT_INFO" | jq -r '.account.account_number // .account.base_account.account_number // "0"')
 SEQ=$(echo "$ACCT_INFO" | jq -r '.account.sequence // .account.base_account.sequence // "0"')
 
 $BINARY tx sign /tmp/session_nonauth_unsigned.json \
-    --from alice \
+    --from session_granter \
     --chain-id "$CHAIN_ID" \
     --keyring-backend test \
     --account-number "$ACCT_NUM" \

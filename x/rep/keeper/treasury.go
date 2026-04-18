@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"sparkdream/x/rep/types"
+
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 )
@@ -162,6 +164,59 @@ func (k Keeper) TrackInitiativeRewardMint(ctx context.Context, amount math.Int) 
 	}
 	minted = minted.Add(amount)
 	return k.SeasonInitiativeRewardsMinted.Set(ctx, minted.String())
+}
+
+// CheckAndTrackEpochMint atomically enforces the per-epoch DREAM mint ceiling
+// (params.MaxDreamMintPerEpoch) and advances the counter. A zero cap disables
+// enforcement. The tracked epoch rolls over automatically on the first mint of
+// a new epoch, so no separate bookkeeping is required in the EndBlocker.
+func (k Keeper) CheckAndTrackEpochMint(ctx context.Context, amount math.Int) error {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if params.MaxDreamMintPerEpoch.IsNil() || !params.MaxDreamMintPerEpoch.IsPositive() {
+		return nil // unbounded
+	}
+
+	currentEpoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return err
+	}
+
+	trackedEpoch, err := k.EpochMintedEpoch.Get(ctx)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return err
+	}
+
+	var minted math.Int
+	if err == nil && trackedEpoch == uint64(currentEpoch) {
+		amountStr, getErr := k.EpochMintedAmount.Get(ctx)
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			return getErr
+		}
+		if getErr == nil {
+			parsed, ok := math.NewIntFromString(amountStr)
+			if !ok {
+				return fmt.Errorf("invalid epoch minted amount %q", amountStr)
+			}
+			minted = parsed
+		} else {
+			minted = math.ZeroInt()
+		}
+	} else {
+		minted = math.ZeroInt()
+	}
+
+	newTotal := minted.Add(amount)
+	if newTotal.GT(params.MaxDreamMintPerEpoch) {
+		return types.ErrDreamMintCapExceeded
+	}
+
+	if err := k.EpochMintedEpoch.Set(ctx, uint64(currentEpoch)); err != nil {
+		return err
+	}
+	return k.EpochMintedAmount.Set(ctx, newTotal.String())
 }
 
 // GetSeasonBurned returns the total DREAM burned during the current season.

@@ -216,6 +216,8 @@ genesis:
         max_initiative_stake_per_member: "50000000000"  # 50,000 DREAM (same as production)
         # Anti-collusion: per-season cap on total DREAM minted via initiative completion
         max_initiative_rewards_per_season: "100000000000000"  # 100,000 DREAM (same as production)
+        # Anti-grinding: per-tag per-epoch rep gain cap (raised for testing so sentinel bootstrap works)
+        max_reputation_gain_per_epoch: "1000.000000000000000000"  # 1000 rep/epoch/tag (production: 50)
         # Anti-collusion: projects above this budget require council proposal approval
         large_project_budget_threshold: "10000000000"  # 10,000 DREAM (same as production)
         # Trust level configuration - using defaults

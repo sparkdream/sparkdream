@@ -1,0 +1,21 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "sparkdream/rep/v1/accountability.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// MemberReport defines the MemberReport message.
+message MemberReport {
+  string member = 1;
+  string reason = 2;
+  GovActionType recommended_action = 3;
+  string total_bond = 4;
+  int64 created_at = 5;
+  MemberReportStatus status = 6;
+  string defense = 7;
+  int64 defense_submitted_at = 8;
+  repeated string reporters = 10;
+  repeated uint64 evidence_post_ids = 11;
+  repeated uint64 defense_post_ids = 12;
+}

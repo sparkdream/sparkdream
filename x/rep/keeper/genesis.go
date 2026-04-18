@@ -137,6 +137,41 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
+	// Sentinel accountability records
+	for _, elem := range genState.SentinelActivityMap {
+		if err := k.SentinelActivity.Set(ctx, elem.Address, elem); err != nil {
+			return err
+		}
+	}
+
+	// Accountability
+	for _, elem := range genState.JuryParticipationMap {
+		if err := k.JuryParticipation.Set(ctx, elem.Juror, elem); err != nil {
+			return err
+		}
+	}
+	for _, elem := range genState.MemberReportMap {
+		if err := k.MemberReport.Set(ctx, elem.Member, elem); err != nil {
+			return err
+		}
+	}
+	for _, elem := range genState.MemberWarningList {
+		if err := k.MemberWarning.Set(ctx, elem.Id, elem); err != nil {
+			return err
+		}
+	}
+	if err := k.MemberWarningSeq.Set(ctx, genState.MemberWarningCount); err != nil {
+		return err
+	}
+	for _, elem := range genState.GovActionAppealList {
+		if err := k.GovActionAppeal.Set(ctx, elem.Id, elem); err != nil {
+			return err
+		}
+	}
+	if err := k.GovActionAppealSeq.Set(ctx, genState.GovActionAppealCount); err != nil {
+		return err
+	}
+
 	// If there are members, trigger a full trust tree rebuild on next EndBlock.
 	// The tree is derived state (not exported in genesis) and will be populated
 	// from member records + voter registrations.
@@ -317,6 +352,47 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 	genesis.TagBudgetAwardCount, err = k.TagBudgetAwardSeq.Peek(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := k.SentinelActivity.Walk(ctx, nil, func(_ string, val types.SentinelActivity) (stop bool, err error) {
+		genesis.SentinelActivityMap = append(genesis.SentinelActivityMap, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// Accountability
+	if err := k.JuryParticipation.Walk(ctx, nil, func(_ string, val types.JuryParticipation) (stop bool, err error) {
+		genesis.JuryParticipationMap = append(genesis.JuryParticipationMap, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.MemberReport.Walk(ctx, nil, func(_ string, val types.MemberReport) (stop bool, err error) {
+		genesis.MemberReportMap = append(genesis.MemberReportMap, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.MemberWarning.Walk(ctx, nil, func(_ uint64, val types.MemberWarning) (stop bool, err error) {
+		genesis.MemberWarningList = append(genesis.MemberWarningList, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	genesis.MemberWarningCount, err = k.MemberWarningSeq.Peek(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := k.GovActionAppeal.Walk(ctx, nil, func(_ uint64, val types.GovActionAppeal) (stop bool, err error) {
+		genesis.GovActionAppealList = append(genesis.GovActionAppealList, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	genesis.GovActionAppealCount, err = k.GovActionAppealSeq.Peek(ctx)
 	if err != nil {
 		return nil, err
 	}

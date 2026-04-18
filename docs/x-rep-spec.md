@@ -13,6 +13,10 @@ The `x/rep` module is the core coordination layer for Spark Dream, managing:
 - Stakes and time-weighted conviction
 - Challenges and jury resolution
 - Content staking: community conviction and author bonds (cross-module quality signals)
+- Tag registry and tag moderation (`Tag`, `ReservedTag`, `TagReport`)
+- Tag budgets (reward pools scoped per tag)
+- Sentinel accountability primitives (bond, bond status, activity stamps)
+- Member accountability (reports, warnings, appeals, jury participation)
 
 ## Dependencies
 
@@ -23,6 +27,7 @@ The `x/rep` module is the core coordination layer for Spark Dream, managing:
 | `x/commons` | Council/committee authorization for operations, HR, governance |
 | `x/season` | Current season state, display name appeal resolution |
 | `x/shield` | Unified privacy layer: anonymous challenges are submitted via `MsgShieldedExec` wrapping `MsgCreateChallenge`. x/shield owns ZK proof verification, nullifier checking, and module-paid gas. x/rep maintains the trust tree (MiMC Merkle tree over member ZK public keys + trust levels) that x/shield uses for proof root validation. |
+| `x/forum` | Narrow `ForumKeeper` surface (3 methods): `PruneTagReferences(ctx, name)` called from `MsgResolveTagReport` when a tag is removed; `GetPostAuthor(ctx, postID)` and `GetPostTags(ctx, postID)` used by `MsgAwardFromTagBudget` to validate the target post and its tag set. Wired manually in `app.go` via `SetForumKeeper()` (the reverse `forum → rep` edge is via `RepKeeper`). |
 
 ## State
 
@@ -685,6 +690,185 @@ enum CriteriaType {
 }
 ```
 
+### Tag and ReservedTag
+
+```protobuf
+// proto/sparkdream/rep/v1/tag.proto
+message Tag {
+  string name              = 1;  // lowercase alphanumeric + hyphens
+  uint64 usage_count       = 2;  // total uses across modules
+  int64  created_at        = 3;
+  int64  last_used_at      = 4;  // for expiry
+  int64  expiration_index  = 5;  // absolute expiry timestamp
+}
+
+// proto/sparkdream/rep/v1/reserved_tag.proto
+message ReservedTag {
+  string name             = 1;
+  string authority        = 2;  // empty = council-only
+  bool   members_can_use  = 3;
+}
+```
+
+Validation: `ValidateTagFormat` / `ValidateTagLength` from `x/common/types` (pure functions, no state).
+
+### TagReport
+
+```protobuf
+// proto/sparkdream/rep/v1/tag_report.proto
+message TagReport {
+  string   tag_name         = 1;
+  string   total_bond       = 2;
+  int64    first_report_at  = 3;
+  bool     under_review     = 4;
+  repeated string reporters = 10;
+}
+```
+
+### TagBudget and TagBudgetAward
+
+```protobuf
+// proto/sparkdream/rep/v1/tag_budget.proto
+message TagBudget {
+  uint64 id              = 1;
+  string group_account   = 2;
+  string tag             = 3;
+  string pool_balance    = 4;
+  bool   members_only    = 5;
+  int64  created_at      = 6;
+  bool   active          = 7;
+}
+
+// proto/sparkdream/rep/v1/tag_budget_award.proto
+// (award record schema — one row per `MsgAwardFromTagBudget` call)
+```
+
+### SentinelActivity (rep)
+
+> **Note:** The accountability fields live here; forum retains a separate `sparkdream.forum.v1.SentinelActivity` for per-action counters.
+
+```protobuf
+// proto/sparkdream/rep/v1/sentinel_activity.proto
+enum SentinelBondStatus {
+  SENTINEL_BOND_STATUS_UNSPECIFIED = 0;
+  SENTINEL_BOND_STATUS_NORMAL      = 1;
+  SENTINEL_BOND_STATUS_RECOVERY    = 2;
+  SENTINEL_BOND_STATUS_DEMOTED     = 3;
+}
+
+message SentinelActivity {
+  string             address                       = 1;
+  SentinelBondStatus bond_status                   = 2;
+  string             current_bond                  = 3;
+  string             total_committed_bond          = 4;
+  int64              last_active_epoch             = 5;
+  uint64             consecutive_inactive_epochs   = 6;
+  int64              demotion_cooldown_until       = 7;
+  string             cumulative_rewards            = 8;
+}
+```
+
+**rep/forum boundary:** rep owns bond state (current/committed/status/cooldown) and is the source of truth for "is X a sentinel?". Forum owns per-action counters (`total_hides`, `upheld_hides`, `overturned_hides`, `epoch_hides`, lock/move/pin/proposal tallies, etc.) in its own `sparkdream.forum.v1.SentinelActivity` message keyed by the same address.
+
+**Forum → rep API surface** (content-action handlers call these on the rep keeper):
+
+| Method | Usage |
+|--------|-------|
+| `IsSentinel(ctx, addr) (bool, error)` | Permission check before accepting a moderation action |
+| `GetSentinel(ctx, addr) (SentinelActivity, error)` | Fetch the rep-side record for status + bond inspection |
+| `GetAvailableBond(ctx, addr) (math.Int, error)` | `current_bond - total_committed_bond`, saturating at zero |
+| `ReserveBond(ctx, addr, amount)` | Commit bond against a pending action (hide, lock, move) |
+| `ReleaseBond(ctx, addr, amount)` | Release commitment on successful/expired action |
+| `SlashBond(ctx, addr, amount, reason)` | Unlock + burn DREAM; decrement both `current_bond` and `total_committed_bond` |
+| `RecordActivity(ctx, addr)` | Stamp `last_active_epoch`, reset `consecutive_inactive_epochs` |
+| `SetBondStatus(ctx, addr, status, cooldown_until)` | Transition NORMAL / RECOVERY / DEMOTED with cooldown |
+
+### MemberReport, MemberWarning, GovActionAppeal, JuryParticipation
+
+> **Note:** Salvation counters live on the `Member` proto (fields 29-30: `epoch_salvations`, `last_salvation_epoch`).
+
+```protobuf
+// proto/sparkdream/rep/v1/accountability.proto
+enum GovActionType {
+  GOV_ACTION_TYPE_UNSPECIFIED = 0;
+  GOV_ACTION_TYPE_WARNING     = 1;
+  GOV_ACTION_TYPE_DEMOTION    = 2;
+  GOV_ACTION_TYPE_ZEROING     = 3;
+  GOV_ACTION_TYPE_TAG_REMOVAL = 4;
+  GOV_ACTION_TYPE_FORUM_PAUSE = 5;
+  GOV_ACTION_TYPE_THREAD_LOCK = 6;
+  GOV_ACTION_TYPE_THREAD_MOVE = 7;
+}
+
+enum MemberReportStatus {
+  MEMBER_REPORT_STATUS_UNSPECIFIED   = 0;
+  MEMBER_REPORT_STATUS_PENDING       = 1;
+  MEMBER_REPORT_STATUS_ESCALATED     = 2;
+  MEMBER_REPORT_STATUS_RESOLVED      = 3;
+  MEMBER_REPORT_STATUS_META_APPEALED = 4;
+}
+
+enum GovAppealStatus {
+  GOV_APPEAL_STATUS_UNSPECIFIED = 0;
+  GOV_APPEAL_STATUS_PENDING     = 1;
+  GOV_APPEAL_STATUS_UPHELD      = 2;
+  GOV_APPEAL_STATUS_OVERTURNED  = 3;
+  GOV_APPEAL_STATUS_TIMEOUT     = 4;
+}
+
+// proto/sparkdream/rep/v1/member_report.proto
+message MemberReport {
+  string             member               = 1;
+  string             reason               = 2;
+  GovActionType      recommended_action   = 3;
+  string             total_bond           = 4;
+  int64              created_at           = 5;
+  MemberReportStatus status               = 6;
+  string             defense              = 7;
+  int64              defense_submitted_at = 8;
+  repeated string    reporters            = 10;
+  repeated uint64    evidence_post_ids    = 11;
+  repeated uint64    defense_post_ids     = 12;
+}
+
+// proto/sparkdream/rep/v1/member_warning.proto
+message MemberWarning {
+  uint64          id                 = 1;
+  string          member             = 2;
+  string          reason             = 3;
+  int64           issued_at          = 4;
+  string          issued_by          = 5;
+  uint64          warning_number     = 6;
+  repeated uint64 evidence_post_ids  = 10;
+}
+
+// proto/sparkdream/rep/v1/gov_action_appeal.proto
+message GovActionAppeal {
+  uint64          id                   = 1;
+  string          appellant            = 2;
+  GovActionType   action_type          = 3;
+  string          action_target        = 4;
+  string          original_reason      = 5;
+  string          appeal_reason        = 6;
+  string          appeal_bond          = 7;
+  int64           created_at           = 8;
+  int64           deadline             = 9;
+  uint64          initiative_id        = 10;
+  GovAppealStatus status               = 11;
+  uint64          original_category_id = 12;
+}
+
+// proto/sparkdream/rep/v1/jury_participation.proto
+message JuryParticipation {
+  string juror             = 1;
+  uint64 total_assigned    = 2;
+  uint64 total_voted       = 3;
+  uint64 total_timeouts    = 4;
+  int64  last_assigned_at  = 5;
+  bool   excluded          = 6;
+}
+```
+
 ## Messages
 
 ### Governance Messages
@@ -1066,6 +1250,200 @@ message MsgRespondToContentChallenge {
 
 message MsgRespondToContentChallengeResponse {}
 ```
+
+### Tag Registry Messages
+
+> **Note:** Tag creation is an explicit, trust-gated, fee-burning action (`MsgCreateTag`). Trust floor is `TRUST_LEVEL_ESTABLISHED`.
+
+```protobuf
+// Permissionless tag creation, gated on TRUST_LEVEL_ESTABLISHED.
+// Deducts `params.tag_creation_fee` DREAM from the creator.
+message MsgCreateTag {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string name    = 2;  // validated via ValidateTagFormat + ValidateTagLength
+}
+message MsgCreateTagResponse { string name = 1; }
+```
+
+**Fee destination.** 100% of the tag-creation fee is burned via `k.BurnDREAM(ctx, creatorAddr, params.TagCreationFee)` in `msg_server_create_tag.go`. Burn is the only viable destination: DREAM is an internal, non-transferable reputation-backed token with no bank-module community-pool flow, so splitting the fee to the community pool isn't a design option. The burn contributes to DREAM scarcity in the same way other anti-spam DREAM burns do (unstaked/staked decay, failed-challenge slashing, transfer tax).
+
+### Tag Moderation Messages
+
+```protobuf
+message MsgReportTag {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator  = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string tag_name = 2;
+  string reason   = 3;
+}
+message MsgReportTagResponse {}
+
+// Authority-only. `action` selects one of: ignore / reserve / remove / restore.
+// On REMOVE, the handler calls ForumKeeper.PruneTagReferences to strip the
+// tag from any forum posts that still reference it.
+message MsgResolveTagReport {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator                 = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string tag_name                = 2;
+  uint64 action                  = 3;
+  string reserve_authority       = 4;  // for action=RESERVE
+  bool   reserve_members_can_use = 5;  // for action=RESERVE
+}
+message MsgResolveTagReportResponse {}
+```
+
+### Tag Budget Messages
+
+All five messages (`MsgCreateTagBudget`, `MsgTopUpTagBudget`, `MsgAwardFromTagBudget`, `MsgToggleTagBudget`, `MsgWithdrawTagBudget`) live in `proto/sparkdream/rep/v1/tx.proto`. `MsgAwardFromTagBudget` delegates post lookup to x/forum via `ForumKeeper.GetPostAuthor` and `ForumKeeper.GetPostTags`; the payout handler verifies the post carries the budget's tag before awarding.
+
+### Sentinel Messages
+
+```protobuf
+message MsgBondSentinel {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string amount  = 2;
+}
+message MsgBondSentinelResponse {}
+
+message MsgUnbondSentinel {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string amount  = 2;
+}
+message MsgUnbondSentinelResponse {}
+```
+
+See the "SentinelActivity (rep)" state section above for the keeper API used by forum content-action handlers.
+
+### Member Accountability Messages
+
+> **Note:** Five messages; resolution authority is either `sentinel` or a `commons` council proposal depending on severity.
+
+```protobuf
+message MsgReportMember {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator            = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string member             = 2;
+  string reason             = 3;
+  uint64 recommended_action = 4;  // GovActionType
+}
+message MsgReportMemberResponse {}
+
+message MsgCosignMemberReport {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string member  = 2;
+}
+message MsgCosignMemberReportResponse {}
+
+message MsgDefendMemberReport {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string defense = 2;
+}
+message MsgDefendMemberReportResponse {}
+
+message MsgResolveMemberReport {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string member  = 2;
+  uint64 action  = 3;  // GovActionType
+  string reason  = 4;
+}
+message MsgResolveMemberReportResponse {}
+
+message MsgAppealGovAction {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator       = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 action_type   = 2;  // GovActionType
+  string action_target = 3;
+  string appeal_reason = 4;
+}
+message MsgAppealGovActionResponse {}
+```
+
+`MsgAppealGovAction` creates a `GovActionAppeal` record and an appeal initiative (via `CreateAppealInitiative`) with deadline = `now + DefaultAppealDeadline`. Appeal resolution is handled via the two paths described in "Appeal Resolution" below.
+
+### Appeal Resolution
+
+`MsgAppealGovAction` charges `DefaultAppealBondAmount` (10 SPARK, in `uspark`) from the appellant and writes `AppealBond` + `Deadline` onto the `GovActionAppeal` record (`status = GOV_APPEAL_STATUS_PENDING`). Two resolution paths exist:
+
+- **Council resolution** — `MsgResolveGovActionAppeal(resolver, appeal_id, verdict, reason)` with `verdict ∈ {UPHELD, OVERTURNED}`. Signer must pass `commonsKeeper.IsCouncilAuthorized(ctx, resolver, "commons", "operations")`.
+- **Timeout** — the rep EndBlocker transitions `PENDING` appeals past their `Deadline` to `TIMEOUT` (up to 50 per block).
+
+Verdict effects:
+
+| Verdict | Appellant bond | Sentinel bond | Forum counters |
+|---|---|---|---|
+| `UPHELD` | 50% burned, 50% stays in the sentinel reward pool | unchanged | `RecordSentinelActionUpheld` increments `upheld_*`, resets `consecutive_overturns` |
+| `OVERTURNED` | 100% refunded | `SlashBond(100 DREAM, "appeal_overturned")` | `RecordSentinelActionOverturned` increments `overturned_*` and `consecutive_overturns`; at threshold (3) → `SetBondStatus(DEMOTED)` |
+| `TIMEOUT` | 50% refunded, 50% burned | unchanged | no counter update |
+
+These amounts/thresholds are sourced as compile-time constants (not operational params) from `x/rep/types/accountability_defaults.go`:
+
+- `DefaultAppealBondAmount` (10 SPARK, uspark)
+- `DefaultSentinelOverturnSlash` (100 DREAM, microDREAM)
+- `DefaultMaxConsecutiveOverturnsBeforeDemotion` (3)
+- `DefaultSentinelDemotionCooldown` (7 days)
+
+## Sentinel Rewards
+
+Sentinels (forum moderators registered via `MsgBondSentinel`) receive SPARK payouts for accurate, active moderation work. Implemented across Stages A/B/D of the sentinel-accountability feature.
+
+### Reward Pool (SPARK)
+
+- Lives in the x/rep module account, denominated in `uspark`.
+- **Funding sources:**
+  - 50% of forum non-member spam taxes and edit fees — `spam_tax`, `reaction_spam_tax`, `flag_spam_tax`, `edit_fee`. The other 50% is burned.
+  - 50% of appeal bonds on `UPHELD` verdicts (see "Appeal Resolution"). Other 50% burned.
+- **Cap:** `max_sentinel_reward_pool` (default 100,000 SPARK). Overflow is partially burned per `sentinel_reward_pool_overflow_burn_ratio` (default 50%) each block by the rep EndBlocker.
+
+### Epoch Distribution
+
+Runs in the rep EndBlocker every `sentinel_reward_epoch_blocks` blocks (default 14,400 = ~1 day at 6 s blocks; 20 blocks under testparams).
+
+**Eligibility gates** (evaluated per sentinel, in order):
+
+1. Counter presence — a forum-side `SentinelActivityCounters` record exists and is non-zero.
+2. `min_appeals_for_accuracy` — total upheld + overturned decisions meets the floor.
+3. `min_epoch_activity_for_reward` — epoch actions (hides + locks + moves + pins) meet the floor.
+4. `min_appeal_rate` — if `epoch_hides > 0`, `epoch_appeals_filed / epoch_hides` ≥ floor.
+5. `min_sentinel_accuracy` — `upheld / (upheld + overturned)` ≥ floor.
+6. Bond status is not `DEMOTED`.
+
+**Score:**
+
+```
+score = accuracy_rate * sqrt(epoch_appeals_resolved)
+      + epoch_hides * 0.01
+      + epoch_locks * 0.05
+      + epoch_moves * 0.03
+```
+
+**Distribution:** pro-rata against total score, each allocation truncated to integer `uspark`. Residual dust stays in the pool for the next epoch.
+
+**Payout side-effects:**
+
+- Rep-side `SentinelActivity.cumulative_rewards` is incremented and `last_reward_epoch` is updated.
+- A `sentinel_reward_distributed` event is emitted.
+
+**Per-epoch counter reset:** Regardless of distribution outcome (pool empty, no eligible sentinels, or normal payout), the forum-side per-epoch counters (`epoch_hides`, `epoch_locks`, `epoch_moves`, `epoch_pins`, `epoch_appeals_filed`, `epoch_appeals_resolved`) are reset for every sentinel in the registry.
+
+### Operational Parameters
+
+All seven live on `Params` and `RepOperationalParams` (council-tunable via `MsgUpdateOperationalParams`):
+
+| Parameter | Default | Role |
+|-----------|---------|------|
+| `max_sentinel_reward_pool` | 100,000 SPARK (`uspark`) | Pool cap; excess is burned per overflow ratio |
+| `sentinel_reward_pool_overflow_burn_ratio` | 0.50 | Fraction of over-cap pool burned each block |
+| `sentinel_reward_epoch_blocks` | 14,400 (testparams: 20) | Distribution cadence |
+| `min_sentinel_accuracy` | 0.70 | Upheld / decided floor |
+| `min_appeals_for_accuracy` | 10 | Min decisions before accuracy gate applies |
+| `min_epoch_activity_for_reward` | 1 | Min epoch actions required |
+| `min_appeal_rate` | 0.05 | Min `appeals_filed / hides` ratio when hides > 0 |
 
 ## Queries
 
@@ -1870,7 +2248,9 @@ type ModuleInputs struct {
     CommonsKeeper types.CommonsKeeper `optional:"true"`
     // SeasonKeeper is wired manually in app.go via SetSeasonKeeper to break
     // the cyclic dependency: rep -> season -> collect/blog/forum -> rep.
-    // TagKeeper is wired manually via SetTagKeeper to break: forum -> rep -> forum.
+    // ForumKeeper is wired manually via SetForumKeeper to break the
+    // forum -> rep -> forum cycle (rep's tag-moderation / tag-budget award
+    // flow calls back into forum for post lookup + tag pruning).
 }
 ```
 

@@ -14,6 +14,14 @@ const maxTagExpirations = 50
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
+	// 0. Apply DREAM decay to every member once per epoch. Running this first
+	// guarantees subsequent EndBlocker steps (staking rewards, conviction, etc.)
+	// and all reads during the epoch see a consistent post-decay balance,
+	// eliminating the lazy-decay view inconsistency.
+	if err := k.MaybeApplyBulkDecay(ctx); err != nil {
+		sdkCtx.Logger().Error("failed to apply bulk decay", "error", err)
+	}
+
 	// 1. Update conviction for all active initiative stakes
 	k.IterateActiveInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
 		// We update conviction for each active initiative
@@ -47,9 +55,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		return false
 	})
 
-	// 4. DREAM decay is applied lazily via GetMember/GetBalance
-	// No bulk decay needed - decay is calculated on-demand when members are accessed
-	// This scales O(1) per block instead of O(n) where n = member count
+	// 4. DREAM decay: bulk pass in step 0 applies decay once per epoch for every
+	// member so same-epoch reads stay consistent. The lazy ApplyPendingDecay on
+	// write paths remains as a safety net (becomes a no-op once bulk pass runs).
 
 	// 5. Process expired challenge responses
 	// If assignee doesn't respond within the deadline, challenge is auto-upheld
@@ -130,6 +138,68 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	if err := k.ExpireTags(ctx, sdkCtx.BlockTime().Unix()); err != nil {
 		sdkCtx.Logger().Error("error expiring tags", "error", err)
 	}
+
+	// 15a. Distribute sentinel reward pool to eligible sentinels on the
+	// sentinel-reward epoch boundary (Stage D). Must run BEFORE the overflow
+	// burn so distribution drains first and the burn only targets residual.
+	if err := k.DistributeSentinelRewards(ctx); err != nil {
+		sdkCtx.Logger().Error("error distributing sentinel rewards", "error", err)
+	}
+
+	// 15b. Burn sentinel reward pool overflow (Stage A).
+	if err := k.BurnSentinelRewardPoolOverflow(ctx); err != nil {
+		sdkCtx.Logger().Error("error burning sentinel reward pool overflow", "error", err)
+	}
+
+	// 16. Time out expired gov action appeals (half refund / half burn).
+	if err := k.TimeoutExpiredAppeals(ctx); err != nil {
+		sdkCtx.Logger().Error("error timing out expired gov action appeals", "error", err)
+	}
+
+	return nil
+}
+
+// BurnSentinelRewardPoolOverflow checks whether the sentinel SPARK reward pool
+// (rep module account's uspark balance) exceeds `MaxSentinelRewardPool`. If it
+// does, a fraction `SentinelRewardPoolOverflowBurnRatio` of the overflow is
+// burned from the rep module account. The remaining overflow stays in the pool
+// to be distributed on the next epoch boundary (Stage D).
+//
+// This is a no-op when the pool is at or below the cap.
+func (k Keeper) BurnSentinelRewardPoolOverflow(ctx context.Context) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return fmt.Errorf("load params: %w", err)
+	}
+
+	maxPool := params.MaxSentinelRewardPool
+	burnRatio := params.SentinelRewardPoolOverflowBurnRatio
+
+	current := k.GetSentinelRewardPool(ctx)
+	if !current.GT(maxPool) {
+		return nil
+	}
+
+	overflow := current.Sub(maxPool)
+	burnAmount := burnRatio.MulInt(overflow).TruncateInt()
+	if !burnAmount.IsPositive() {
+		return nil
+	}
+
+	coins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, burnAmount))
+	if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins); err != nil {
+		return fmt.Errorf("burn sentinel reward pool overflow: %w", err)
+	}
+
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("sentinel_reward_pool_overflow",
+		sdk.NewAttribute("burned", burnAmount.String()),
+		sdk.NewAttribute("overflow", overflow.String()),
+		sdk.NewAttribute("pool_before", current.String()),
+		sdk.NewAttribute("max_pool", maxPool.String()),
+		sdk.NewAttribute("burn_ratio", burnRatio.String()),
+	))
 
 	return nil
 }

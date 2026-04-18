@@ -62,9 +62,11 @@ func (k Keeper) GetName(ctx context.Context, name string) (types.NameRecord, boo
 }
 
 // IsNameAvailable returns true if the given name is not currently registered.
+// Only collections.ErrNotFound means the name is free; other errors (e.g.
+// storage faults) must not be treated as availability.
 func (k Keeper) IsNameAvailable(ctx context.Context, name string) bool {
 	_, err := k.Names.Get(ctx, name)
-	return err != nil // not found means available
+	return errors.Is(err, collections.ErrNotFound)
 }
 
 // ClaimName atomically checks availability and registers a name, preventing

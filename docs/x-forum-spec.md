@@ -1,21 +1,25 @@
 # Technical Specification: `x/forum`
 
-> **Spec-Implementation Sync Status (March 2026)**
+> **Scope**
 >
-> This spec serves as both the design document and the implementation reference. Sections that diverge from the current implementation are annotated with `> **Implementation status:**` or `> **Implementation note:**` callouts. Key differences:
+> `x/forum` owns content storage, moderation, bounties, appeals, and thread operations. Tag registry/moderation/budgets, sentinel bond and accountability, and member-level accountability (reports, warnings, gov-action appeals) live in `x/rep` — consult [`docs/x-rep-spec.md`](x-rep-spec.md) for those primitives. Forum's `SentinelActivity` holds only per-action counters (hides/locks/moves/pins/proposals, per-epoch tallies, local cooldowns); sentinel auth/bond mechanics go through the rep keeper (`IsSentinel`, `GetSentinel`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`).
+>
+> Sections that diverge from the current implementation are annotated with `> **Implementation status:**` or `> **Implementation note:**` callouts.
+>
+> Drift notes:
 >
 > | Area | Spec | Implementation |
 > |------|------|----------------|
 > | **Parameters** | ~136 fields across economics, sentinel, anti-gaming | ~30 fields in `Params` + `ForumOperationalParams` (Section 4.6.1) — many design params hardcoded in keeper |
-> | **Genesis** | Includes reward_pool, epoch tracking | 31 entities via Ignite CRUD pattern (Section 4.7.1) |
-> | **EndBlocker** | Multi-phase: GC + reward distribution + accuracy decay | Ephemeral post pruning only (Section 7.2.1) |
-> | **Queries** | Custom query names | Ignite CRUD `Get/List` pairs (26 entities) + composite queries |
-> | **Tags/ModerationReason** | In `forum/v1/` | Moved to `sparkdream.common.v1.*` shared module |
+> | **Genesis** | Includes reward_pool, epoch tracking | Ignite CRUD pattern (Section 4.7.1) |
+> | **EndBlocker** | Multi-phase: GC + reward distribution + accuracy decay | Ephemeral post pruning only (Section 7.2.1); sentinel reward distribution is implemented in the x/rep EndBlocker — see x/rep spec "Sentinel Rewards" |
+> | **Queries** | Custom query names | Ignite CRUD `Get/List` pairs; tag/budget/member-report/appeal queries are served by x/rep |
+> | **Tags/ModerationReason** | In `forum/v1/` | `ModerationReason` + `FlagRecord` in `sparkdream.common.v1.*`; `Tag` and `ReservedTag` live in `sparkdream.rep.v1.*` |
 > | **Anonymous features** | Full ZK-SNARK anonymous posting (Section 16) | **REMOVED** — Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) deleted. Anonymous operations now routed through `x/shield`'s unified `MsgShieldedExec`. Forum implements `ShieldAware` interface (see `x/forum/keeper/shield_aware.go`). |
 > | **Post proto** | Design uses `id` (field 1), `tags` (field 7), `archive_count` (field 26) | Implementation uses `post_id` (field 1), `tags` (field 30), no `archive_count`. Added: `content_type` (field 31), `initiative_id` (field 32), `conviction_sustained` (field 33) |
 > | **Category proto** | Design includes `allow_anonymous` (field 6) | Implementation does NOT have `allow_anonymous` — per-category anonymous toggle is design-only |
 > | **Error codes** | Sequential 1-166 | Organized by category 1100-2499 (see Section 10) |
-> | **Messages** | ~30 messages in original design | 50+ Msg RPCs including: `MsgFreezeThread`, `MsgUnarchiveThread`, `MsgDismissFlags`, `MsgAppealThreadLock/Move`, `MsgAssignBountyToReply`, `MsgPinReply/UnpinReply`, `MsgDisputePin`, `MsgMarkAcceptedReply`, `MsgConfirmProposedReply/RejectProposedReply`, `MsgSetForumPaused/SetModerationPaused`, `MsgReportTag/ResolveTagReport`, `MsgBondSentinel/UnbondSentinel`, `MsgReportMember/CosignMemberReport/ResolveMemberReport/DefendMemberReport`, `MsgAppealGovAction`, `MsgUpdateOperationalParams` |
+> | **Messages** | ~30 messages in original design | Forum owns content/moderation/bounty/appeal/thread-op messages only; tag, tag-budget, sentinel-bond, and member-accountability messages live in x/rep. |
 > | **Conviction renewal** | Not in original design | Added: `conviction_renewal_threshold`, `conviction_renewal_period` params; `conviction_sustained` field on Post |
 > | **ForumHooks** | Interface for x/season XP integration | **Not yet implemented** |
 > | **Module invariants** | Balance, bond, state invariants | **Not yet implemented** |
@@ -34,9 +38,9 @@ The module outsources dispute resolution to `x/rep` and membership status to `x/
 | Module | Purpose |
 |--------|---------|
 | `x/commons` | Source of Truth for Membership status, council authorization, and "HR Committee" (Authority) address |
-| `x/rep` | Source of Truth for User Reputation Tiers, DREAM token operations (mint/burn/lock/transfer), member management, appeal initiatives, author bonds, content conviction staking, and cross-module conviction propagation (initiative link registration, propagated conviction scoring) |
-| `x/bank` | Manages `SPARK` token transfers for taxes, fees, bounties, and tag budgets |
-| `x/common` | Shared proto types: `Tag`, `ReservedTag`, `ModerationReason`, `FlagRecord`, `ContentType` |
+| `x/rep` | Source of Truth for User Reputation Tiers, DREAM token operations (mint/burn/lock/transfer), member management, appeal initiatives, author bonds, content conviction staking, cross-module conviction propagation, **tag registry + tag moderation + tag budgets + sentinel bond/unbond + member accountability** |
+| `x/bank` | Manages `SPARK` token transfers for taxes, fees, bounties, and flag fees |
+| `x/common` | Shared proto types: `ModerationReason`, `FlagRecord`, `ContentType`; tag-validation helpers (`ValidateTagFormat`, `ValidateTagLength`) — `Tag`/`ReservedTag` moved to `sparkdream.rep.v1.*` |
 | `x/shield` | **Indirect** — Anonymous operations (posting, replying, reacting) are routed through `x/shield`'s unified `MsgShieldedExec` entry point. Forum implements the `ShieldAware` interface so x/shield can dispatch shielded operations to it. Forum does NOT depend on x/shield directly; x/shield calls into forum. See [Section 16](#16-anonymous-features-via-xshield). |
 | `x/season` | **Optional** — `SeasonKeeper.GetEpochDuration()` for epoch-based scoping. Falls back to `DefaultEpochDuration` (7 days) if nil |
 
@@ -191,27 +195,35 @@ message Category {
 
 ### 4.3. Tag
 
-> **Implementation note:** `Tag`, `ReservedTag`, `ModerationReason`, and `FlagRecord` have been moved to the shared `x/common` module (`proto/sparkdream/common/v1/`). The x/forum module imports these types from `sparkdream.common.v1.*` in its proto files. The `x/forum` keeper implements the `common.TagKeeper` interface to provide tag CRUD operations while the type definitions are shared across modules.
+> **Implementation note:** `Tag` and `ReservedTag` live in `sparkdream.rep.v1.*`. Forum posts reference tags by name only. Tag registry CRUD, `MsgCreateTag` (permissionless, trust-gated, fee-burned), tag expiry GC, `TagReport`, `MsgReportTag`, `MsgResolveTagReport`, and all five tag-budget messages live in x/rep. See [`docs/x-rep-spec.md`](x-rep-spec.md#tag-registry). `ModerationReason` and `FlagRecord` live in `sparkdream.common.v1.*`.
+
+Schema (for reference — actual home is in the rep package):
 
 ```protobuf
-// proto/sparkdream/common/v1/tag.proto
-syntax = "proto3";
-package sparkdream.common.v1;
-
+// proto/sparkdream/rep/v1/tag.proto
 message Tag {
     string name = 1;
     uint64 usage_count = 2;
     int64  created_at = 3;
-    int64  last_used_at = 4;                             // For expiration logic
-    int64  expiration_index = 5;                         // Explicit timestamp of current queue entry (handles param changes)
+    int64  last_used_at = 4;
+    int64  expiration_index = 5;
 }
 
-// proto/sparkdream/common/v1/reserved_tag.proto
-// Reserved tag with configurable authority - allows groups to own specific tags
+// proto/sparkdream/rep/v1/reserved_tag.proto
 message ReservedTag {
-    string name = 1;                                     // Tag name (e.g., "official", "technical-committee")
-    string authority = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"]; // Who can use it (empty = HR Committee only)
-    bool   members_can_use = 3;                          // If true AND authority is a group, group members can also use this tag
+    string name = 1;
+    string authority = 2;
+    bool   members_can_use = 3;
+}
+```
+
+Forum exposes a narrow `ForumKeeper` interface back to rep for tag moderation and tag-budget awards:
+
+```go
+type ForumKeeper interface {
+    PruneTagReferences(ctx context.Context, tagName string) error
+    GetPostAuthor(ctx context.Context, postID uint64) (string, error)
+    GetPostTags(ctx context.Context, postID uint64) ([]string, error)
 }
 ```
 
@@ -261,12 +273,34 @@ message ReactionRecord {
 // x/shield's MsgShieldedExec. Nullifier tracking managed by x/shield's centralized store.
 
 // Sentinel bond status for recovery mode tracking
+// > **Implementation note:** `SentinelBondStatus` is defined in
+// > `sparkdream.rep.v1.SentinelBondStatus`. The enum value set below is
+// > retained for reference; the authoritative definition lives in the rep
+// > package.
 enum SentinelBondStatus {
   SENTINEL_BOND_STATUS_UNSPECIFIED = 0;                  // Proto3 convention: zero value must be UNSPECIFIED
   SENTINEL_BOND_STATUS_NORMAL = 1;                       // Bond >= min_sentinel_bond (1000 DREAM)
   SENTINEL_BOND_STATUS_RECOVERY = 2;                     // Bond < min_sentinel_bond but >= demotion_threshold
   SENTINEL_BOND_STATUS_DEMOTED = 3;                      // Bond < demotion_threshold (loses sentinel privileges)
 }
+
+// > **Implementation note:** `SentinelActivity` is split into two messages:
+// >
+// > - `sparkdream.rep.v1.SentinelActivity` — generic accountability: `address`,
+// >   `bond_status`, `current_bond`, `total_committed_bond`, `last_active_epoch`,
+// >   `consecutive_inactive_epochs`, `demotion_cooldown_until`, `cumulative_rewards`.
+// >
+// > - `sparkdream.forum.v1.SentinelActivity` — forum-specific action counters:
+// >   hides/locks/moves/pins/proposals totals, per-epoch tallies, upheld/overturned
+// >   counts, local cooldowns (fields 1..29).
+// >
+// > `MsgBondSentinel` / `MsgUnbondSentinel` live in x/rep and operate on
+// > the rep record. Forum content-action handlers authenticate and reserve
+// > bond via the rep keeper (`IsSentinel`, `GetSentinel`, `GetAvailableBond`,
+// > `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`,
+// > `SetBondStatus`).
+// >
+// > The message below shows the unified shape for reference.
 
 // Accuracy-based sentinel metrics - rewards based on moderation quality, not volume
 message SentinelActivity {

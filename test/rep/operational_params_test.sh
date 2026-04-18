@@ -115,7 +115,9 @@ DEC_FIELDS = [
     'content_challenge_reward_share', 'conviction_propagation_ratio',
     'reputation_decay_rate', 'max_conviction_share_per_member',
     'invitation_stake_burn_rate', 'max_reputation_gain_per_epoch',
-    'staked_decay_rate'
+    'staked_decay_rate',
+    'sentinel_reward_pool_overflow_burn_ratio',
+    'min_sentinel_accuracy', 'min_appeal_rate'
 ]
 
 PRECISION = 18
@@ -239,7 +241,22 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       treasury_funds_retro_pgf: (.treasury_funds_retro_pgf // false),
       max_initiative_stake_per_member,
       max_initiative_rewards_per_season,
-      large_project_budget_threshold
+      large_project_budget_threshold,
+
+      project_creation_fee,
+      initiative_creation_fee_apprentice,
+      initiative_creation_fee_standard,
+      tag_creation_fee,
+      max_sentinel_reward_pool,
+      sentinel_reward_pool_overflow_burn_ratio,
+      sentinel_reward_epoch_blocks,
+      min_sentinel_accuracy,
+      min_appeals_for_accuracy,
+      min_epoch_activity_for_reward,
+      min_appeal_rate,
+      max_active_initiatives_per_member,
+      max_active_interims_per_member,
+      max_dream_mint_per_epoch
     }')
 
     # Modify test fields
@@ -439,7 +456,22 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       treasury_funds_retro_pgf: (.treasury_funds_retro_pgf // false),
       max_initiative_stake_per_member,
       max_initiative_rewards_per_season,
-      large_project_budget_threshold
+      large_project_budget_threshold,
+
+      project_creation_fee,
+      initiative_creation_fee_apprentice,
+      initiative_creation_fee_standard,
+      tag_creation_fee,
+      max_sentinel_reward_pool,
+      sentinel_reward_pool_overflow_burn_ratio,
+      sentinel_reward_epoch_blocks,
+      min_sentinel_accuracy,
+      min_appeals_for_accuracy,
+      min_epoch_activity_for_reward,
+      min_appeal_rate,
+      max_active_initiatives_per_member,
+      max_active_interims_per_member,
+      max_dream_mint_per_epoch
     }')
 
     # Convert LegacyDec fields from raw format to decimal format

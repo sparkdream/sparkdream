@@ -100,14 +100,14 @@ var (
 	ErrInvalidTagName   = errors.Register(ModuleName, 1912, "invalid tag name")
 	ErrTagLimitExceeded = errors.Register(ModuleName, 1913, "tag registry limit exceeded")
 
-	// Tag moderation errors (moved from x/forum)
+	// Tag moderation errors
 	ErrTagNotFound            = errors.Register(ModuleName, 1914, "tag not found")
 	ErrTagReportNotFound      = errors.Register(ModuleName, 1915, "tag report not found")
 	ErrTagReportAlreadyExists = errors.Register(ModuleName, 1916, "report already exists")
 	ErrMaxTagReporters        = errors.Register(ModuleName, 1917, "maximum tag reporters reached")
 	ErrTagReportNotAuthorized = errors.Register(ModuleName, 1918, "not governance authority")
 
-	// Tag budget errors (moved from x/forum)
+	// Tag budget errors
 	ErrTagBudgetNotFound      = errors.Register(ModuleName, 1919, "tag budget not found")
 	ErrTagBudgetNotActive     = errors.Register(ModuleName, 1920, "tag budget is not active")
 	ErrTagBudgetInsufficient  = errors.Register(ModuleName, 1921, "insufficient funds in tag budget")
@@ -117,6 +117,31 @@ var (
 	ErrPostNotFound           = errors.Register(ModuleName, 1925, "post not found")
 	ErrInvalidTag             = errors.Register(ModuleName, 1926, "invalid tag")
 
+	// Sentinel errors
+	ErrSentinelNotFound           = errors.Register(ModuleName, 1930, "sentinel not found")
+	ErrSentinelDemoted            = errors.Register(ModuleName, 1931, "sentinel is demoted")
+	ErrInsufficientSentinelBond   = errors.Register(ModuleName, 1932, "insufficient sentinel bond")
+	ErrSentinelCooldownActive     = errors.Register(ModuleName, 1933, "sentinel cooldown active")
+	ErrBondAmountTooSmall         = errors.Register(ModuleName, 1934, "bond amount below minimum")
+	ErrCannotUnbondPendingActions = errors.Register(ModuleName, 1935, "cannot unbond while sentinel actions are pending")
+	ErrDemotionCooldown           = errors.Register(ModuleName, 1936, "sentinel demotion cooldown active")
+
+	// Accountability errors
+	ErrReportNotFound          = errors.Register(ModuleName, 1939, "report not found")
+	ErrReportAlreadyExists     = errors.Register(ModuleName, 1940, "report already exists")
+	ErrCannotReportSelf        = errors.Register(ModuleName, 1941, "cannot report yourself")
+	ErrMaxReportersReached     = errors.Register(ModuleName, 1942, "maximum reporters reached")
+	ErrAlreadyCosigned         = errors.Register(ModuleName, 1943, "already co-signed this report")
+	ErrDefenseAlreadySubmitted = errors.Register(ModuleName, 1944, "defense already submitted")
+	ErrDefenseWaitPeriod       = errors.Register(ModuleName, 1945, "must wait after defense before resolution")
+	ErrReportNotPending        = errors.Register(ModuleName, 1946, "report is not pending")
+	ErrNotGovAuthority         = errors.Register(ModuleName, 1947, "not governance authority")
+	ErrAppealAlreadyFiled      = errors.Register(ModuleName, 1948, "appeal already filed for this action")
+	ErrInvalidReasonCode       = errors.Register(ModuleName, 1949, "invalid reason code")
+	ErrAppealNotFound          = errors.Register(ModuleName, 1950, "gov action appeal not found")
+	ErrAppealNotPending        = errors.Register(ModuleName, 1951, "gov action appeal is not pending")
+	ErrInvalidAppealVerdict    = errors.Register(ModuleName, 1952, "invalid appeal verdict")
+
 	// Content challenge errors
 	ErrContentChallengeNotFound  = errors.Register(ModuleName, 2001, "content challenge not found")
 	ErrContentChallengeExists    = errors.Register(ModuleName, 2002, "active content challenge already exists for this content")
@@ -125,4 +150,11 @@ var (
 	ErrContentChallengeNotActive = errors.Register(ModuleName, 2005, "content challenge is not active")
 	ErrNotContentAuthor          = errors.Register(ModuleName, 2006, "not the author of the challenged content")
 	ErrBondLockedByChallenge     = errors.Register(ModuleName, 2007, "author bond is locked by an active content challenge")
+
+	// Per-member active-work caps
+	ErrTooManyActiveInitiatives = errors.Register(ModuleName, 2101, "member has reached the max active initiatives cap")
+	ErrTooManyActiveInterims    = errors.Register(ModuleName, 2102, "member has reached the max active interims cap")
+
+	// Global DREAM emission cap
+	ErrDreamMintCapExceeded = errors.Register(ModuleName, 2103, "DREAM minting would exceed the per-epoch cap")
 )

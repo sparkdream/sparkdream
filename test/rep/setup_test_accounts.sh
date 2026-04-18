@@ -4,6 +4,9 @@ echo "=================================================="
 echo "SETUP: Initializing Test Accounts for x/rep Tests"
 echo "=================================================="
 echo ""
+echo "NOTE: Full setup takes ~10 minutes (builds reputation via EPIC"
+echo "      interims for sentinels/poster/moderator, conviction windows)."
+echo ""
 
 # ========================================================================
 # Configuration
@@ -73,7 +76,7 @@ check_tx_success() {
 # ========================================================================
 echo "Step 1: Creating test account keys..."
 
-ACCOUNTS=("challenger" "anonymous_challenger" "assignee" "juror1" "juror2" "juror3" "expert")
+ACCOUNTS=("challenger" "anonymous_challenger" "assignee" "juror1" "juror2" "juror3" "expert" "sentinel1" "sentinel2" "poster1" "poster2" "moderator" "bounty_creator")
 
 for ACCOUNT in "${ACCOUNTS[@]}"; do
     if ! $BINARY keys show $ACCOUNT --keyring-backend test > /dev/null 2>&1; then
@@ -92,6 +95,12 @@ JUROR1_ADDR=$($BINARY keys show juror1 -a --keyring-backend test)
 JUROR2_ADDR=$($BINARY keys show juror2 -a --keyring-backend test)
 JUROR3_ADDR=$($BINARY keys show juror3 -a --keyring-backend test)
 EXPERT_ADDR=$($BINARY keys show expert -a --keyring-backend test)
+SENTINEL1_ADDR=$($BINARY keys show sentinel1 -a --keyring-backend test)
+SENTINEL2_ADDR=$($BINARY keys show sentinel2 -a --keyring-backend test)
+POSTER1_ADDR=$($BINARY keys show poster1 -a --keyring-backend test)
+POSTER2_ADDR=$($BINARY keys show poster2 -a --keyring-backend test)
+MODERATOR_ADDR=$($BINARY keys show moderator -a --keyring-backend test)
+BOUNTY_CREATOR_ADDR=$($BINARY keys show bounty_creator -a --keyring-backend test)
 
 echo ""
 
@@ -100,7 +109,7 @@ echo ""
 # ========================================================================
 echo "Step 2: Funding test accounts with SPARK for gas fees..."
 
-for ADDR in $CHALLENGER_ADDR $ANON_CHALLENGER_ADDR $ASSIGNEE_ADDR $JUROR1_ADDR $JUROR2_ADDR $JUROR3_ADDR $EXPERT_ADDR; do
+for ADDR in $CHALLENGER_ADDR $ANON_CHALLENGER_ADDR $ASSIGNEE_ADDR $JUROR1_ADDR $JUROR2_ADDR $JUROR3_ADDR $EXPERT_ADDR $SENTINEL1_ADDR $SENTINEL2_ADDR $POSTER1_ADDR $POSTER2_ADDR $MODERATOR_ADDR $BOUNTY_CREATOR_ADDR; do
     echo "  → Sending 10 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
@@ -142,8 +151,22 @@ for i in "${!ACCOUNTS[@]}"; do
         "juror2") ADDR=$JUROR2_ADDR ;;
         "juror3") ADDR=$JUROR3_ADDR ;;
         "expert") ADDR=$EXPERT_ADDR ;;
+        "sentinel1") ADDR=$SENTINEL1_ADDR ;;
+        "sentinel2") ADDR=$SENTINEL2_ADDR ;;
+        "poster1") ADDR=$POSTER1_ADDR ;;
+        "poster2") ADDR=$POSTER2_ADDR ;;
+        "moderator") ADDR=$MODERATOR_ADDR ;;
+        "bounty_creator") ADDR=$BOUNTY_CREATOR_ADDR ;;
         *) echo "Unknown account: $ACCOUNT"; continue ;;
     esac
+
+    # Skip inviting if already a member (idempotent rerun)
+    EXISTING_MEMBER=$($BINARY query rep get-member $ADDR --output json 2>&1)
+    if ! echo "$EXISTING_MEMBER" | grep -q "not found"; then
+        echo "  ⏭️  $ACCOUNT is already a member, skipping invitation"
+        INVITATION_IDS+=("")
+        continue
+    fi
 
     echo "  → Inviting $ACCOUNT ($ADDR)..."
 
@@ -253,13 +276,26 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         "juror2") ADDR=$JUROR2_ADDR ;;
         "juror3") ADDR=$JUROR3_ADDR ;;
         "expert") ADDR=$EXPERT_ADDR ;;
+        "sentinel1") ADDR=$SENTINEL1_ADDR ;;
+        "sentinel2") ADDR=$SENTINEL2_ADDR ;;
+        "poster1") ADDR=$POSTER1_ADDR ;;
+        "poster2") ADDR=$POSTER2_ADDR ;;
+        "moderator") ADDR=$MODERATOR_ADDR ;;
+        "bounty_creator") ADDR=$BOUNTY_CREATOR_ADDR ;;
         *) echo "Unknown account: $ACCOUNT"; continue ;;
     esac
 
     # Assignee needs more DREAM for staking tests (used heavily across test suite)
+    # sentinel1 needs 500 to cover 100 DREAM bond + 3% tax + working capital
     if [ "$ACCOUNT" == "assignee" ]; then
         DREAM_AMOUNT="500000000"  # 500 DREAM
         echo "  → Sending 500 DREAM to $ACCOUNT (extra for staking tests)..."
+    elif [ "$ACCOUNT" == "sentinel1" ]; then
+        DREAM_AMOUNT="500000000"  # 500 DREAM
+        echo "  → Sending 500 DREAM to $ACCOUNT (for sentinel bonding + working capital)..."
+    elif [ "$ACCOUNT" == "sentinel2" ] || [ "$ACCOUNT" == "poster1" ] || [ "$ACCOUNT" == "moderator" ]; then
+        DREAM_AMOUNT="250000000"  # 250 DREAM
+        echo "  → Sending 250 DREAM to $ACCOUNT..."
     else
         DREAM_AMOUNT="250000000"  # 250 DREAM
         echo "  → Sending 250 DREAM to $ACCOUNT..."
@@ -315,6 +351,12 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         "juror2") ADDR=$JUROR2_ADDR ;;
         "juror3") ADDR=$JUROR3_ADDR ;;
         "expert") ADDR=$EXPERT_ADDR ;;
+        "sentinel1") ADDR=$SENTINEL1_ADDR ;;
+        "sentinel2") ADDR=$SENTINEL2_ADDR ;;
+        "poster1") ADDR=$POSTER1_ADDR ;;
+        "poster2") ADDR=$POSTER2_ADDR ;;
+        "moderator") ADDR=$MODERATOR_ADDR ;;
+        "bounty_creator") ADDR=$BOUNTY_CREATOR_ADDR ;;
         *) echo "Unknown account: $ACCOUNT"; continue ;;
     esac
 
@@ -406,6 +448,56 @@ if check_tx_success "$TX_RESULT"; then
 else
     echo "❌ Failed to approve project"
     exit 1
+fi
+
+echo ""
+
+# ========================================================================
+# 7b. Ensure a Forum Category Exists (for tag_budget_test.sh)
+# ========================================================================
+# tag_budget_test.sh creates a forum post to award from a tag budget. It
+# requires a valid category ID. Prefer existing categories (genesis or
+# previously created); fall back to creating one as alice (Commons Ops
+# Committee member can create via IsCouncilAuthorized).
+echo "Step 7b: Ensuring a forum category exists..."
+
+FIRST_CATEGORY=""
+CATEGORIES=$($BINARY query commons list-category --output json 2>&1)
+CATEGORY_COUNT=$(echo "$CATEGORIES" | jq -r '.category | length' 2>/dev/null || echo "0")
+
+if [ "$CATEGORY_COUNT" -gt 0 ] 2>/dev/null; then
+    FIRST_CATEGORY=$(echo "$CATEGORIES" | jq -r '.category[0].category_id')
+    echo "  ⏭️  Using existing category ID: $FIRST_CATEGORY"
+else
+    echo "  → Creating a test category via alice (Commons Ops Committee)..."
+    TX_RES=$($BINARY tx commons create-category \
+        "General Discussion" \
+        "A category for general forum discussions" \
+        "false" \
+        "false" \
+        --from alice \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000uspark \
+        -y \
+        --output json 2>&1)
+
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        sleep 6
+        TX_RESULT=$(wait_for_tx $TXHASH)
+        if check_tx_success "$TX_RESULT"; then
+            FIRST_CATEGORY=$(extract_event_value "$TX_RESULT" "category_created" "category_id")
+            [ -z "$FIRST_CATEGORY" ] && FIRST_CATEGORY="1"
+            echo "  ✅ Category created: $FIRST_CATEGORY"
+        else
+            echo "  ⚠️  Category creation tx failed; defaulting to ID 1"
+            FIRST_CATEGORY="1"
+        fi
+    else
+        echo "  ⚠️  Failed to submit category creation; defaulting to ID 1"
+        FIRST_CATEGORY="1"
+    fi
 fi
 
 echo ""
@@ -779,10 +871,141 @@ echo "   Tags used: ${TEST_TAGS[@]}"
 echo ""
 
 # ========================================================================
+# 9. Bootstrap Sentinel/Poster/Moderator Reputation
+# ========================================================================
+# Sentinel operations, tag moderation, and member-report resolution all
+# require reputation tiers. Moved accountability tests (formerly x/forum)
+# depend on these tiers:
+#   - sentinel1: tier 4 (500+ rep) for thread locking / high-authority actions
+#   - sentinel2: tier 3 (200+ rep) for bonding
+#   - poster1:   tier 2 (100+ rep) for comfortable post creation
+#   - moderator: tier 3 (200+ rep) for council operations
+# Each EPIC interim grants 100 rep, but the per-epoch cap is 50 rep/tag/epoch
+# (epoch_blocks=10, ~10s per epoch). With ~12s per interim, most interims span
+# one epoch, so each gives ~50-100 rep.
+echo "Step 9: Bootstrapping reputation for sentinel/poster/moderator..."
+
+bootstrap_reputation() {
+    local ACCOUNT=$1
+    local COUNT=$2
+    echo "  Bootstrapping $COUNT EPIC interims for $ACCOUNT..."
+
+    for i in $(seq 1 $COUNT); do
+        # Create EPIC interim (type=other, ref_id=0, ref_type=test, complexity=epic, deadline=999999999)
+        TX_RES=$($BINARY tx rep create-interim other 0 "test-$i" epic 999999999 \
+            --from $ACCOUNT \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000uspark \
+            -y \
+            --output json 2>&1)
+        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+            echo "    ⚠️  Failed to create interim $i"
+            return 1
+        fi
+        sleep 6
+        TX_RESULT=$(wait_for_tx $TXHASH)
+        if ! check_tx_success "$TX_RESULT"; then
+            echo "    ⚠️  Failed to create interim $i"
+            return 1
+        fi
+        INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
+
+        # Complete the interim
+        TX_RES=$($BINARY tx rep complete-interim $INTERIM_ID "Completed for test setup" \
+            --from $ACCOUNT \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000uspark \
+            -y \
+            --output json 2>&1)
+        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+            echo "    ⚠️  Failed to complete interim $i"
+            return 1
+        fi
+        sleep 6
+        TX_RESULT=$(wait_for_tx $TXHASH)
+        if ! check_tx_success "$TX_RESULT"; then
+            echo "    ⚠️  Failed to complete interim $i"
+            return 1
+        fi
+        echo "    ✅ Completed interim $i/$COUNT (ID: $INTERIM_ID)"
+    done
+    echo "  ✅ Reputation bootstrapped for $ACCOUNT"
+    return 0
+}
+
+# sentinel1: tier 4 (500+ rep) → 11 EPIC interims
+bootstrap_reputation sentinel1 11
+echo ""
+
+# sentinel2: tier 3 (200+ rep) → 5 EPIC interims
+bootstrap_reputation sentinel2 5
+echo ""
+
+# poster1: tier 2 (100+ rep) → 3 EPIC interims
+bootstrap_reputation poster1 3
+echo ""
+
+# moderator: tier 3 (200+ rep) → 5 EPIC interims
+bootstrap_reputation moderator 5
+echo ""
+
+# ========================================================================
+# 10. Bond Sentinels
+# ========================================================================
+# Accountability tests expect sentinel1 and sentinel2 to be bonded with
+# 100 DREAM (100000000 micro-DREAM) so they can cosign reports and take
+# sentinel actions. Skip if already bonded (idempotent rerun).
+echo "Step 10: Bonding sentinels..."
+
+bond_sentinel_if_needed() {
+    local ACCOUNT=$1
+    local AMOUNT="100000000"  # 100 DREAM
+
+    # Check existing bond via sentinel-status query (exit non-zero if no bond)
+    STATUS_JSON=$($BINARY query rep sentinel-status $($BINARY keys show $ACCOUNT -a --keyring-backend test) --output json 2>&1)
+    EXISTING_BOND=$(echo "$STATUS_JSON" | jq -r '.bond_amount // .sentinel.bond_amount // "0"' 2>/dev/null)
+    if [ -n "$EXISTING_BOND" ] && [ "$EXISTING_BOND" != "0" ] && [ "$EXISTING_BOND" != "null" ]; then
+        echo "  ⏭️  $ACCOUNT already bonded ($EXISTING_BOND micro-DREAM), skipping"
+        return 0
+    fi
+
+    echo "  → Bonding $ACCOUNT with 100 DREAM..."
+    TX_RES=$($BINARY tx rep bond-sentinel $AMOUNT \
+        --from $ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000uspark \
+        -y \
+        --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+        echo "  ⚠️  Failed to bond $ACCOUNT: no txhash"
+        return 1
+    fi
+    sleep 6
+    TX_RESULT=$(wait_for_tx $TXHASH)
+    if check_tx_success "$TX_RESULT"; then
+        echo "  ✅ $ACCOUNT bonded"
+    else
+        echo "  ⚠️  Failed to bond $ACCOUNT"
+    fi
+}
+
+bond_sentinel_if_needed sentinel1
+bond_sentinel_if_needed sentinel2
+
+echo ""
+
+# ========================================================================
 # Export Environment Variables
 # ========================================================================
 cat > "$SCRIPT_DIR/.test_env" <<EOF
 # Test environment variables
+export ALICE_ADDR=$ALICE_ADDR
 export CHALLENGER_ADDR=$CHALLENGER_ADDR
 export ANON_CHALLENGER_ADDR=$ANON_CHALLENGER_ADDR
 export ASSIGNEE_ADDR=$ASSIGNEE_ADDR
@@ -790,7 +1013,14 @@ export JUROR1_ADDR=$JUROR1_ADDR
 export JUROR2_ADDR=$JUROR2_ADDR
 export JUROR3_ADDR=$JUROR3_ADDR
 export EXPERT_ADDR=$EXPERT_ADDR
+export SENTINEL1_ADDR=$SENTINEL1_ADDR
+export SENTINEL2_ADDR=$SENTINEL2_ADDR
+export POSTER1_ADDR=$POSTER1_ADDR
+export POSTER2_ADDR=$POSTER2_ADDR
+export MODERATOR_ADDR=$MODERATOR_ADDR
+export BOUNTY_CREATOR_ADDR=$BOUNTY_CREATOR_ADDR
 export TEST_PROJECT_ID=$PROJECT_ID
+export TEST_CATEGORY_ID=$FIRST_CATEGORY
 EOF
 
 echo "=================================================="
@@ -798,9 +1028,11 @@ echo "✅✅✅ SETUP COMPLETE ✅✅✅"
 echo "=================================================="
 echo ""
 echo "Test environment ready:"
-echo "  → 7 test accounts created and funded"
+echo "  → 13 test accounts created and funded"
 echo "  → All accounts are x/rep members with DREAM"
+echo "  → Sentinels bonded, poster/moderator reputation bootstrapped"
 echo "  → Test project #$PROJECT_ID created and approved"
+echo "  → Test forum category #$FIRST_CATEGORY ready"
 echo ""
 echo "Environment variables saved to: $SCRIPT_DIR/.test_env"
 echo "Source this file in your tests: source .test_env"

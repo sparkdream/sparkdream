@@ -19,14 +19,8 @@ func TestMoveThread(t *testing.T) {
 	// Create a thread in cat1
 	thread := f.createTestPost(t, testCreator, 0, cat1.CategoryId)
 
-	// Create a sentinel
-	sentinel := types.SentinelActivity{
-		Address:            testSentinel,
-		CurrentBond:        "2000",
-		TotalCommittedBond: "0",
-		BondStatus:         types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
-	}
-	_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, sentinel)
+	// Create a sentinel (bond record in x/rep; forum counter-only locally).
+	f.createTestSentinel(t, testSentinel, "2000")
 
 	tests := []struct {
 		name        string
@@ -154,14 +148,14 @@ func TestMoveThread(t *testing.T) {
 			p.ParentId = 0
 			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
 
-			// Reset sentinel
-			sentinel := types.SentinelActivity{
+			// Reset sentinel (local counters + rep bond record)
+			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel})
+			f.repKeeper.sentinels[testSentinel] = reptypes.SentinelActivity{
 				Address:            testSentinel,
 				CurrentBond:        "2000",
 				TotalCommittedBond: "0",
-				BondStatus:         types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
+				BondStatus:         reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
 			}
-			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, sentinel)
 
 			if tt.setup != nil {
 				tt.setup()
@@ -246,14 +240,8 @@ func TestMoveThreadWithReservedTag(t *testing.T) {
 	}
 	_ = f.repKeeper.SetReservedTag(f.ctx, reservedTag)
 
-	// Create a sentinel
-	sentinel := types.SentinelActivity{
-		Address:            testSentinel,
-		CurrentBond:        "2000",
-		TotalCommittedBond: "0",
-		BondStatus:         types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
-	}
-	_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, sentinel)
+	// Create a sentinel (bond record in x/rep; forum counter-only locally).
+	f.createTestSentinel(t, testSentinel, "2000")
 
 	// Sentinel should not be able to move thread with reserved tag
 	_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{

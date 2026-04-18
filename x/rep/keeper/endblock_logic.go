@@ -2,8 +2,11 @@ package keeper
 
 import (
 	"context"
+	"errors"
+
 	"sparkdream/x/rep/types"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -65,6 +68,36 @@ func (k Keeper) ApplyDecay(ctx context.Context) error {
 		}
 		return false, nil
 	})
+}
+
+// MaybeApplyBulkDecay applies decay to every member exactly once per epoch.
+// It runs at the top of EndBlocker so all subsequent reads within the epoch
+// (whether via lazy ApplyPendingDecay on write paths or via gRPC queries on
+// a cache-wrapped context) observe the same post-decay balances — fixing the
+// lazy-decay view inconsistency (x-rep-security.md Point 6). Cost: O(members)
+// Power() calls once per epoch; for the 1000-member target this is cheap and
+// amortizes to ~0.07 Power() calls per block at 14400 blocks/epoch.
+func (k Keeper) MaybeApplyBulkDecay(ctx context.Context) error {
+	currentEpoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return err
+	}
+	if currentEpoch <= 0 {
+		return nil
+	}
+
+	last, err := k.DecayLastProcessedEpoch.Get(ctx)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return err
+	}
+	if err == nil && last >= uint64(currentEpoch) {
+		return nil
+	}
+
+	if err := k.ApplyDecay(ctx); err != nil {
+		return err
+	}
+	return k.DecayLastProcessedEpoch.Set(ctx, uint64(currentEpoch))
 }
 
 // DistributeEpochStakingRewards updates the seasonal reward pool accumulator.

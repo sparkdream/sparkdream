@@ -88,15 +88,15 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 		}
 	}
 
-	// Charge edit fee if past grace period and burn it
+	// Charge edit fee if past grace period; split 50/50 burn / sentinel reward pool
 	if editAge > params.EditGracePeriod && params.EditFee.IsPositive() {
 		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 		editFeeCoins := sdk.NewCoins(params.EditFee)
 		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, editFeeCoins); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to charge edit fee")
 		}
-		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, editFeeCoins); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to burn edit fee")
+		if err := k.distributeSpamTax(ctx, editFeeCoins, "edit"); err != nil {
+			return nil, err
 		}
 	}
 

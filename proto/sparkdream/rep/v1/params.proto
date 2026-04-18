@@ -371,6 +371,45 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Sentinel SPARK reward pool (x/rep holds SPARK fed by spam taxes;
+  // drained each epoch to sentinels according to accuracy/activity gates).
+  string max_sentinel_reward_pool = 78 [ // Upper cap (uspark). Excess is burned at ratio below (default 100,000 SPARK).
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string sentinel_reward_pool_overflow_burn_ratio = 79 [ // Fraction of overflow burned per epoch (default 0.5).
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 sentinel_reward_epoch_blocks = 80; // Cadence of sentinel reward distribution (default 14400 ~= 1 day).
+  string min_sentinel_accuracy = 81 [ // Minimum accuracy to qualify for a reward (default 0.70).
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 min_appeals_for_accuracy = 82; // Minimum appeal sample size before accuracy is meaningful (default 10).
+  uint64 min_epoch_activity_for_reward = 83; // Minimum moderation actions in an epoch to qualify for a reward (default 1).
+  string min_appeal_rate = 84 [ // Minimum appeal rate (appeals / actions) to qualify for a reward (default 0.05).
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Per-member active work caps (anti-monopolization). 0 = unbounded.
+  uint32 max_active_initiatives_per_member = 85; // Max in-flight initiatives (OPEN..CHALLENGED) where the member is assignee (default 10)
+  uint32 max_active_interims_per_member = 86;    // Max in-flight interims (PENDING/IN_PROGRESS) where the member is an assignee (default 10)
+
+  // Global per-epoch ceiling on DREAM minted across every path (initiative rewards,
+  // referral rewards, interim compensation, retro PGF, jury rewards, etc.). Counter
+  // resets at the first MintDREAM of each new epoch. 0 = unbounded.
+  string max_dream_mint_per_epoch = 87 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -620,6 +659,43 @@ message RepOperationalParams {
     (gogoproto.nullable) = false
   ];
   string tag_creation_fee = 61 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Sentinel SPARK reward pool (x/rep holds SPARK fed by spam taxes;
+  // drained each epoch to sentinels according to accuracy/activity gates).
+  string max_sentinel_reward_pool = 62 [ // Upper cap (uspark). Excess is burned at ratio below (default 100,000 SPARK).
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string sentinel_reward_pool_overflow_burn_ratio = 63 [ // Fraction of overflow burned per epoch (default 0.5).
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 sentinel_reward_epoch_blocks = 64; // Cadence of sentinel reward distribution (default 14400 ~= 1 day).
+  string min_sentinel_accuracy = 65 [ // Minimum accuracy to qualify for a reward (default 0.70).
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 min_appeals_for_accuracy = 66; // Minimum appeal sample size before accuracy is meaningful (default 10).
+  uint64 min_epoch_activity_for_reward = 67; // Minimum moderation actions in an epoch to qualify for a reward (default 1).
+  string min_appeal_rate = 68 [ // Minimum appeal rate (appeals / actions) to qualify for a reward (default 0.05).
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Per-member active work caps (mirrors Params.max_active_{initiatives,interims}_per_member). 0 = unbounded.
+  uint32 max_active_initiatives_per_member = 69;
+  uint32 max_active_interims_per_member = 70;
+
+  // Global per-epoch DREAM minting cap (mirrors Params.max_dream_mint_per_epoch). 0 = unbounded.
+  string max_dream_mint_per_epoch = 71 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false

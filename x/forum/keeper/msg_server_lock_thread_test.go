@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"github.com/stretchr/testify/require"
 )
@@ -15,14 +16,8 @@ func TestLockThread(t *testing.T) {
 	cat := f.createTestCategory(t, "General")
 	thread := f.createTestPost(t, testCreator, 0, cat.CategoryId)
 
-	// Create a sentinel with sufficient bond and backing
-	sentinel := types.SentinelActivity{
-		Address:            testSentinel,
-		CurrentBond:        "3000", // More than DefaultMinSentinelLockBond (2000)
-		TotalCommittedBond: "0",
-		BondStatus:         types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
-	}
-	_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, sentinel)
+	// Create a sentinel with sufficient bond (bond record in x/rep).
+	f.createTestSentinel(t, testSentinel, "3000")
 
 	tests := []struct {
 		name        string
@@ -152,14 +147,14 @@ func TestLockThread(t *testing.T) {
 			p.ParentId = 0 // Ensure it's a root post
 			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
 
-			// Reset sentinel
-			sentinel := types.SentinelActivity{
+			// Reset sentinel (forum-local counters + rep bond record)
+			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel})
+			f.repKeeper.sentinels[testSentinel] = reptypes.SentinelActivity{
 				Address:            testSentinel,
 				CurrentBond:        "3000",
 				TotalCommittedBond: "0",
-				BondStatus:         types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
+				BondStatus:         reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
 			}
-			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, sentinel)
 
 			// Skip the "only allowed on root posts" test as it requires special handling
 			if tt.name == "only allowed on root posts" {

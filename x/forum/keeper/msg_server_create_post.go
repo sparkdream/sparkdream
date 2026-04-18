@@ -200,15 +200,15 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	var expirationTime int64
 	if !isMember {
 		expirationTime = now + params.EphemeralTtl
-		// Charge spam tax to non-members and burn it
+		// Charge spam tax to non-members; split 50/50 burn / sentinel reward pool
 		if params.SpamTax.IsPositive() {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 			spamTaxCoins := sdk.NewCoins(params.SpamTax)
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, spamTaxCoins); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to charge spam tax")
 			}
-			if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, spamTaxCoins); err != nil {
-				return nil, errorsmod.Wrap(err, "failed to burn spam tax")
+			if err := k.distributeSpamTax(ctx, spamTaxCoins, "post"); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -344,26 +344,23 @@ func (k msgServer) salvageAncestors(ctx context.Context, memberAddr string, pare
 		return nil // Not an error, just skip salvation
 	}
 
-	// Check salvation rate limit
-	salvationStatus, err := k.MemberSalvationStatus.Get(ctx, memberAddr)
+	// Check salvation rate limit (counters stored on rep's Member record)
+	epochSalvations, lastEpoch, err := k.GetSalvationCounters(ctx, memberAddr)
 	if err != nil {
-		salvationStatus = types.MemberSalvationStatus{
-			Address:         memberAddr,
-			MemberSince:     memberSince,
-			CanSalvage:      true,
-			EpochSalvations: 0,
-			EpochStart:      now,
-		}
+		return errorsmod.Wrap(err, "failed to load salvation counters")
+	}
+	if lastEpoch == 0 {
+		lastEpoch = now
 	}
 
 	// Reset epoch if needed
 	const salvationEpochDuration int64 = 86400 // 24h
-	if now-salvationStatus.EpochStart >= salvationEpochDuration {
-		salvationStatus.EpochSalvations = 0
-		salvationStatus.EpochStart = now
+	if now-lastEpoch >= salvationEpochDuration {
+		epochSalvations = 0
+		lastEpoch = now
 	}
 
-	if salvationStatus.EpochSalvations >= types.DefaultMaxSalvationsPerDay {
+	if uint64(epochSalvations) >= types.DefaultMaxSalvationsPerDay {
 		sdkCtx.EventManager().EmitEvent(
 			sdk.NewEvent(
 				"salvation_denied",
@@ -375,7 +372,7 @@ func (k msgServer) salvageAncestors(ctx context.Context, memberAddr string, pare
 	}
 
 	// Calculate effective depth limit based on remaining budget
-	remainingSalvations := types.DefaultMaxSalvationsPerDay - salvationStatus.EpochSalvations
+	remainingSalvations := types.DefaultMaxSalvationsPerDay - uint64(epochSalvations)
 	effectiveDepth := types.DefaultMaxSalvationDepth
 	if remainingSalvations < effectiveDepth {
 		effectiveDepth = remainingSalvations
@@ -429,10 +426,10 @@ func (k msgServer) salvageAncestors(ctx context.Context, memberAddr string, pare
 		depth++
 	}
 
-	// Update salvation status
-	salvationStatus.EpochSalvations += salvagedCount
-	if err := k.MemberSalvationStatus.Set(ctx, memberAddr, salvationStatus); err != nil {
-		return errorsmod.Wrap(err, "failed to update salvation status")
+	// Update salvation counters via rep keeper
+	epochSalvations += uint32(salvagedCount)
+	if err := k.UpdateSalvationCounters(ctx, memberAddr, epochSalvations, lastEpoch); err != nil {
+		return errorsmod.Wrap(err, "failed to update salvation counters")
 	}
 
 	if salvagedCount > 0 {

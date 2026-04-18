@@ -60,6 +60,13 @@ message Member {
   // Set via MsgRegisterZkPublicKey. Used by the persistent Merkle tree
   // to build leaves as MiMC(zk_public_key, trust_level).
   bytes zk_public_key = 28;
+
+  // Salvation counters.
+  // epoch_salvations: count of salvations performed in the current epoch.
+  // last_salvation_epoch: Unix timestamp marking the start of the current
+  // salvation epoch window.
+  uint32 epoch_salvations = 29;
+  int64 last_salvation_epoch = 30;
 }
 
 enum TrustLevel {

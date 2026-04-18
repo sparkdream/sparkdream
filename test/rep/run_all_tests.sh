@@ -1012,6 +1012,116 @@ if [ -f "$SCRIPT_DIR/trust_level_test.sh" ]; then
 fi
 
 # ========================================================================
+# Step 20: Run Member Report Test (accountability)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/member_report_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 20: MEMBER REPORT TEST (accountability)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/member_report_test.sh"
+    MEMBER_REPORT_EXIT_CODE=$?
+
+    echo ""
+    if [ $MEMBER_REPORT_EXIT_CODE -eq 0 ]; then
+        echo "Member report test completed"
+    else
+        echo "Member report test exited with code: $MEMBER_REPORT_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 21: Run Gov Action Appeal Test (accountability)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/gov_action_appeal_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 21: GOV ACTION APPEAL TEST (accountability)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/gov_action_appeal_test.sh"
+    GOV_ACTION_APPEAL_EXIT_CODE=$?
+
+    echo ""
+    if [ $GOV_ACTION_APPEAL_EXIT_CODE -eq 0 ]; then
+        echo "Gov action appeal test completed"
+    else
+        echo "Gov action appeal test exited with code: $GOV_ACTION_APPEAL_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 22: Run Jury Participation Test (accountability)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/jury_participation_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 22: JURY PARTICIPATION TEST (accountability)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/jury_participation_test.sh"
+    JURY_PARTICIPATION_EXIT_CODE=$?
+
+    echo ""
+    if [ $JURY_PARTICIPATION_EXIT_CODE -eq 0 ]; then
+        echo "Jury participation test completed"
+    else
+        echo "Jury participation test exited with code: $JURY_PARTICIPATION_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 23: Run Tag Budget Test (tag primitives)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/tag_budget_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 23: TAG BUDGET TEST (tag primitives)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/tag_budget_test.sh"
+    TAG_BUDGET_EXIT_CODE=$?
+
+    echo ""
+    if [ $TAG_BUDGET_EXIT_CODE -eq 0 ]; then
+        echo "Tag budget test completed"
+    else
+        echo "Tag budget test exited with code: $TAG_BUDGET_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 24: Run Tag Moderation Test (tag primitives)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/tag_moderation_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 24: TAG MODERATION TEST (tag primitives)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/tag_moderation_test.sh"
+    TAG_MODERATION_EXIT_CODE=$?
+
+    echo ""
+    if [ $TAG_MODERATION_EXIT_CODE -eq 0 ]; then
+        echo "Tag moderation test completed"
+    else
+        echo "Tag moderation test exited with code: $TAG_MODERATION_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo "========================================================================="

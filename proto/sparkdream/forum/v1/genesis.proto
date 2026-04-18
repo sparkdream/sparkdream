@@ -6,12 +6,7 @@ import "amino/amino.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
 import "sparkdream/forum/v1/bounty.proto";
-import "sparkdream/forum/v1/gov_action_appeal.proto";
 import "sparkdream/forum/v1/hide_record.proto";
-import "sparkdream/forum/v1/jury_participation.proto";
-import "sparkdream/forum/v1/member_report.proto";
-import "sparkdream/forum/v1/member_salvation_status.proto";
-import "sparkdream/forum/v1/member_warning.proto";
 import "sparkdream/forum/v1/params.proto";
 import "sparkdream/forum/v1/post.proto";
 import "sparkdream/forum/v1/post_flag.proto";
@@ -28,33 +23,23 @@ option go_package = "sparkdream/x/forum/types";
 
 // GenesisState defines the forum module's genesis state.
 message GenesisState {
-  reserved 3;
-  reserved "category_map";
-
   // params defines all the parameters of the module.
   Params params = 1 [
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
   repeated Post post_map = 2 [(gogoproto.nullable) = false];
-  repeated UserRateLimit user_rate_limit_map = 4 [(gogoproto.nullable) = false];
-  repeated UserReactionLimit user_reaction_limit_map = 5 [(gogoproto.nullable) = false];
-  repeated SentinelActivity sentinel_activity_map = 6 [(gogoproto.nullable) = false];
-  repeated HideRecord hide_record_map = 7 [(gogoproto.nullable) = false];
-  repeated ThreadLockRecord thread_lock_record_map = 8 [(gogoproto.nullable) = false];
-  repeated ThreadMoveRecord thread_move_record_map = 9 [(gogoproto.nullable) = false];
-  repeated PostFlag post_flag_map = 10 [(gogoproto.nullable) = false];
-  repeated Bounty bounty_list = 11 [(gogoproto.nullable) = false];
-  uint64 bounty_count = 12;
-  repeated ThreadMetadata thread_metadata_map = 13 [(gogoproto.nullable) = false];
-  repeated ThreadFollow thread_follow_map = 14 [(gogoproto.nullable) = false];
-  repeated ThreadFollowCount thread_follow_count_map = 15 [(gogoproto.nullable) = false];
-  repeated ArchiveMetadata archive_metadata_map = 16 [(gogoproto.nullable) = false];
-  repeated MemberSalvationStatus member_salvation_status_map = 17 [(gogoproto.nullable) = false];
-  repeated JuryParticipation jury_participation_map = 18 [(gogoproto.nullable) = false];
-  repeated MemberReport member_report_map = 19 [(gogoproto.nullable) = false];
-  repeated MemberWarning member_warning_list = 20 [(gogoproto.nullable) = false];
-  uint64 member_warning_count = 21;
-  repeated GovActionAppeal gov_action_appeal_list = 22 [(gogoproto.nullable) = false];
-  uint64 gov_action_appeal_count = 23;
+  repeated UserRateLimit user_rate_limit_map = 3 [(gogoproto.nullable) = false];
+  repeated UserReactionLimit user_reaction_limit_map = 4 [(gogoproto.nullable) = false];
+  repeated SentinelActivity sentinel_activity_map = 5 [(gogoproto.nullable) = false];
+  repeated HideRecord hide_record_map = 6 [(gogoproto.nullable) = false];
+  repeated ThreadLockRecord thread_lock_record_map = 7 [(gogoproto.nullable) = false];
+  repeated ThreadMoveRecord thread_move_record_map = 8 [(gogoproto.nullable) = false];
+  repeated PostFlag post_flag_map = 9 [(gogoproto.nullable) = false];
+  repeated Bounty bounty_list = 10 [(gogoproto.nullable) = false];
+  uint64 bounty_count = 11;
+  repeated ThreadMetadata thread_metadata_map = 12 [(gogoproto.nullable) = false];
+  repeated ThreadFollow thread_follow_map = 13 [(gogoproto.nullable) = false];
+  repeated ThreadFollowCount thread_follow_count_map = 14 [(gogoproto.nullable) = false];
+  repeated ArchiveMetadata archive_metadata_map = 15 [(gogoproto.nullable) = false];
 }
