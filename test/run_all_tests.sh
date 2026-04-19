@@ -380,7 +380,7 @@ if [ "$RUN_BUILD" = true ]; then
     rm -f "$HOME/.ignite/local-chains/sparkdream/exported_genesis.json"
 
     echo "Building..."
-    (cd "$PROJECT_DIR" && ignite chain build --build.tags testparams)
+    (cd "$PROJECT_DIR" && ignite chain build -y --build.tags testparams)
     echo -e "${GREEN}Build complete.${NC}"
 
     # Verify binary is at expected location

@@ -198,9 +198,18 @@ fi
 # --- 5. FINALIZE & VERIFY ---
 echo "--- STEP 5: Verify Upgrade Approval ---"
 
-# Check Tech proposal status after Commons voted via golden share
-sleep 5
-STATUS=$($BINARY query commons get-proposal $TECH_PROP_ID --output json | jq -r '.proposal.status')
+# Poll Tech proposal status: the Commons execute tx has already been confirmed
+# on-chain (code=0 above), so the nested MsgVoteProposal has been dispatched.
+# Retry up to 30s in case of gRPC query caching / state-store read lag under
+# suite-wide load.
+STATUS=""
+for i in 1 2 3 4 5 6; do
+    sleep 5
+    STATUS=$($BINARY query commons get-proposal $TECH_PROP_ID --output json | jq -r '.proposal.status')
+    if [ "$STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
+        break
+    fi
+done
 echo "Tech Proposal Status after Commons vote: $STATUS"
 
 if [ "$STATUS" == "PROPOSAL_STATUS_ACCEPTED" ]; then
