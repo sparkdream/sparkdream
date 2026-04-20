@@ -211,13 +211,34 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 
 		// --- UNIQUE ACHIEVEMENTS (One-of-a-kind) ---
 		{
-			AchievementId:        "founding_member",
-			Name:                 "Founding Member",
-			Description:          "Among the first to join the commons",
+			AchievementId:        "first_season",
+			Name:                 "First Season",
+			Description:          "Active during the chain's first season",
 			Rarity:               types.Rarity_RARITY_UNIQUE,
-			XpReward:             10000,
+			XpReward:             1000,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_SEASONS_ACTIVE,
 			RequirementThreshold: 1,
+		},
+		// Awarded only via genesis seeding of founder profiles. No keeper path
+		// mints this post-launch — preserves the "irreplaceable" guarantee.
+		{
+			AchievementId:        "genesis_founder",
+			Name:                 "Genesis Founder",
+			Description:          "Present at the creation of the commons — block 1 signer",
+			Rarity:               types.Rarity_RARITY_UNIQUE,
+			XpReward:             10000,
+			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_GENESIS,
+			RequirementThreshold: 0,
+		},
+		// Held by exactly one founder, ever: the one who gathered the others.
+		{
+			AchievementId:        "first_spark",
+			Name:                 "First Spark",
+			Description:          "Struck the first spark — gathered the founding members",
+			Rarity:               types.Rarity_RARITY_UNIQUE,
+			XpReward:             15000,
+			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_GENESIS,
+			RequirementThreshold: 0,
 		},
 	}
 

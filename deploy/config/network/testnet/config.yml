@@ -152,7 +152,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["first_spark", "genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
@@ -167,7 +167,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
@@ -182,7 +182,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
@@ -196,7 +196,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
@@ -210,7 +210,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
@@ -224,7 +224,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
@@ -238,7 +238,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
@@ -253,7 +253,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
@@ -267,7 +267,7 @@ genesis:
         lifetime_xp: 0
         season_level: 0
         unlocked_titles: []
-        achievements: []
+        achievements: ["genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0

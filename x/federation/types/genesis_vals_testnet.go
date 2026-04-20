@@ -20,7 +20,7 @@ func getFederationGenesisParams() federationGenesisParams {
 		ContentTTL:     45 * 24 * time.Hour, // 45 days
 		AttestationTTL: 15 * 24 * time.Hour, // 15 days
 
-		MaxIdentityLinksPerUser: uint32(7),
+		MaxIdentityLinksPerUser: uint32(10),
 		UnverifiedLinkTTL:      15 * 24 * time.Hour,    // 15 days
 		ChallengeTTL:           3 * 24 * time.Hour,     // 3 days
 

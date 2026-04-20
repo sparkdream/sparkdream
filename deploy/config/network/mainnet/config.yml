@@ -4,26 +4,42 @@ build:
   tags:
     - mainnet
 validation: sovereign
-# Test-only accounts. Mnemonics are committed intentionally — they derive the
-# specific addresses hardcoded in x/commons/keeper/genesis_vals.go (founder,
-# council members). Changing these mnemonics will break governance bootstrap
-# and all E2E tests. These keys hold no real funds and are never used in production.
+# Mainnet founder accounts — SPARK genesis allocations per 4-tier structure.
+# Mnemonics are NOT stored here. Final genesis.json will be assembled manually
+# and gentxs collected from real validators.
+# Addresses match x/commons/keeper/genesis_vals.go.
 accounts:
-- name: alice
-  coins: [20000000000000uspark]
-  mnemonic: "punch toss leisure miss pulse hand dentist ozone gadget pretty narrow wise ankle manage equal carry devote naive hungry betray mean word music grunt"
-- name: bob
-  coins: [10000000000000uspark]
-  mnemonic: "chat opera segment access debate stool axis govern wave tool drift crater miracle yellow quote orchard start mistake normal evoke simple sing mimic retreat"
-- name: carol
-  coins: [5000000000000uspark]
-  mnemonic: "remove enable fade luxury post call spring lock once retire chef luggage bless lend benefit plug phrase poem grief quit trouble still manage solve"
-- name: dave
-  coins: [5000000uspark]
-  mnemonic: "pledge dice input pave satisfy student slight author battle safe place purity syrup skin buyer sick raven shock decrease acoustic fluid kick muffin soft"
-faucet:
-  name: bob
-  coins: [1000uspark]
+# Tier 1 (Lead Vocal)
+- name: valya
+  address: sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu
+  coins: [1250000000000uspark]  # 1,250,000 SPARK
+# Tier 2 (Vocal)
+- name: cozmonika
+  address: sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p
+  coins: [750000000000uspark]   # 750,000 SPARK
+# Tier 3 (Public)
+- name: kingofbitchain
+  address: sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd
+  coins: [450000000000uspark]   # 450,000 SPARK
+- name: viorika
+  address: sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8
+  coins: [450000000000uspark]   # 450,000 SPARK
+- name: uyen
+  address: sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge
+  coins: [450000000000uspark]   # 450,000 SPARK
+- name: houri
+  address: sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak
+  coins: [450000000000uspark]   # 450,000 SPARK
+- name: gilda
+  address: sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu
+  coins: [450000000000uspark]   # 450,000 SPARK
+# Tier 4 (Anon)
+- name: anon1
+  address: sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9
+  coins: [375000000000uspark]   # 375,000 SPARK
+- name: anon2
+  address: sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs
+  coins: [375000000000uspark]   # 375,000 SPARK
 genesis:
   consensus:
     params:
@@ -77,19 +93,23 @@ genesis:
       constant_fee:
         denom: uspark
     distribution:
+      fee_pool:
+        community_pool:
+        - denom: uspark
+          amount: "95000000000000"  # 95,000,000 SPARK (95%) — x/split routes to councils on first block
       params:
         community_tax: "0.15"
     gov:
       params:
-        max_deposit_period: "172800s"      # 48 hours
+        max_deposit_period: "172800s"      # 48 hours (MAINNET production value)
         min_deposit:
           - amount: "50000000"
             denom: "uspark"
-        voting_period: "432000s"           # 5 days
+        voting_period: "432000s"           # 5 days (MAINNET production value)
         expedited_min_deposit:
           - amount: "100000000"
             denom: "uspark"
-        expedited_voting_period: "86400s"  # 1 day
+        expedited_voting_period: "86400s"  # 1 day (MAINNET production value)
     mint:
       params:
         mint_denom: "uspark"
@@ -112,77 +132,151 @@ genesis:
         total_extension_epochs: 0
         original_end_block: 2592001
       params:
-        epoch_blocks: "17280"             # ~1 day at 5s blocks
-        season_duration_epochs: "150"     # 150 epochs = ~5 months
-        transition_batch_size: "100"      # 100 members per block per phase
-        transition_grace_period: "50400"  # ~1 week in blocks
-        display_name_appeal_period_blocks: "100800"  # ~7 days
-        # Nomination params - production values
+        epoch_blocks: "17280"             # ~1 day at 5s blocks (MAINNET production value)
+        season_duration_epochs: "150"     # ~5 months (MAINNET production value)
+        transition_batch_size: "100"      # MAINNET production value
+        transition_grace_period: "50400"  # ~1 week in blocks (MAINNET production value)
+        display_name_appeal_period_blocks: "100800"  # ~7 days (MAINNET production value)
+        # Nomination params - MAINNET production values
         nomination_min_stake: "10"
         retro_reward_budget_ratio: "0.250000000000000000"  # 25% of initiative minting
         retro_reward_budget_min: "10000000000"             # 10,000 DREAM floor
         retro_reward_budget_max: "75000000000"             # 75,000 DREAM ceiling
         retro_reward_min_conviction: "50"
       member_profile_map:
-      # Alice - High level founder with multiple achievements and titles
-      - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
-        display_name: "Alice"
-        username: "alice"
-        display_title: "veteran"
-        season_xp: 5000
-        lifetime_xp: 5000
-        season_level: 8
-        unlocked_titles:
-        - "newcomer"
-        - "veteran"
-        - "rising_star"
-        achievements:
-        - "first_step"
-        - "voice_heard"
-        - "contributor"
-        invitations_successful: 5
-        challenges_won: 2
-        jury_duties_completed: 3
-        votes_cast: 15
-        forum_helpful_count: 50
-      # Bob - Mid level with some achievements
-      - address: sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y  # bob
-        display_name: "Bob"
-        username: "bob"
-        display_title: "newcomer"
-        season_xp: 1500
-        lifetime_xp: 1500
-        season_level: 6
-        unlocked_titles:
-        - "newcomer"
-        achievements:
-        - "first_step"
-        - "voice_heard"
-        invitations_successful: 2
-        challenges_won: 0
-        jury_duties_completed: 1
-        votes_cast: 5
-        forum_helpful_count: 15
-      # Carol - New member, minimal progress
-      - address: sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz  # carol
-        display_name: "Carol"
-        username: "carol"
+      # Tier 1 (Lead Vocal)
+      - address: sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu  # Valya
+        display_name: "Valya"
+        username: "valya"
         display_title: ""
-        season_xp: 300
-        lifetime_xp: 300
-        season_level: 2
-        unlocked_titles:
-        - "newcomer"
-        achievements:
-        - "voice_heard"
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["first_spark", "genesis_founder"]
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
-        votes_cast: 2
-        forum_helpful_count: 5
+        votes_cast: 0
+        forum_helpful_count: 0
+      # Tier 2 (Vocal)
+      - address: sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p  # Cozmonika
+        display_name: "Cozmonika"
+        username: "cozmonika"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["genesis_founder"]
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      # Tier 3 (Public)
+      - address: sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd  # King of Bitchain
+        display_name: "King of Bitchain"
+        username: "kingofbitchain"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["genesis_founder"]
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8  # Viorika
+        display_name: "Viorika"
+        username: "viorika"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["genesis_founder"]
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge  # Uyen
+        display_name: "Uyen"
+        username: "uyen"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["genesis_founder"]
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak  # Houri
+        display_name: "Houri"
+        username: "houri"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["genesis_founder"]
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu  # Gilda
+        display_name: "Gilda"
+        username: "gilda"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["genesis_founder"]
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      # Tier 4 (Anon)
+      - address: sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9  # Anon 1
+        display_name: ""
+        username: ""
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["genesis_founder"]
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs  # Anon 2
+        display_name: ""
+        username: ""
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements: ["genesis_founder"]
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
     rep:
       params:
-        # Time - PRODUCTION: ~1 day epochs, ~5 month seasons
+        # Time - MAINNET production: ~1 day epochs, ~5 month seasons
         epoch_blocks: "14400"                      # ~1 day at 6s blocks
         season_duration_epochs: "150"              # ~5 months
         # Conviction
@@ -216,10 +310,11 @@ genesis:
         large_project_budget_threshold: "10000000000"  # 10,000 DREAM
         # Trust level configuration - uses mainnet build tag values
       member_map:
-      - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
-        dream_balance: "50000000000"  # 50000 DREAM (Tier 1 founder)
+      # Tier 1 (Lead Vocal) - Recruited the others
+      - address: sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu  # Valya
+        dream_balance: "5000000000"  # 5000 DREAM (Tier 1 Lead Vocal)
         staked_dream: "0"
-        lifetime_earned: "50000000000"
+        lifetime_earned: "5000000000"
         lifetime_burned: "0"
         reputation_scores: {}
         lifetime_reputation: {}
@@ -238,10 +333,34 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-      - address: sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y  # bob
-        dream_balance: "25000000000"  # 25000 DREAM (Tier 2 founder)
+      # Tier 2 (Vocal) - Second vocal founder
+      - address: sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p  # Cozmonika
+        dream_balance: "3500000000"  # 3500 DREAM (Tier 2 Vocal)
         staked_dream: "0"
-        lifetime_earned: "25000000000"
+        lifetime_earned: "3500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_TRUSTED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 7
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      # Tier 3 (Public) - Public founders
+      - address: sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd  # King of Bitchain
+        dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
+        staked_dream: "0"
+        lifetime_earned: "2500000000"
         lifetime_burned: "0"
         reputation_scores: {}
         lifetime_reputation: {}
@@ -260,10 +379,121 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-      - address: sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz  # carol
-        dream_balance: "10000000000"  # 10000 DREAM (Tier 3 founder)
+      - address: sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8  # Viorika
+        dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
         staked_dream: "0"
-        lifetime_earned: "10000000000"
+        lifetime_earned: "2500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_ESTABLISHED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 5
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      - address: sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge  # Uyen
+        dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
+        staked_dream: "0"
+        lifetime_earned: "2500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_ESTABLISHED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 5
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      - address: sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak  # Houri
+        dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
+        staked_dream: "0"
+        lifetime_earned: "2500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_ESTABLISHED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 5
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      - address: sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu  # Gilda
+        dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
+        staked_dream: "0"
+        lifetime_earned: "2500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_ESTABLISHED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 5
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      # Tier 4 (Anon) - Anonymous supporters
+      - address: sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9  # Anon 1
+        dream_balance: "2000000000"  # 2000 DREAM (Tier 4 Anon)
+        staked_dream: "0"
+        lifetime_earned: "2000000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_PROVISIONAL
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 3
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      - address: sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs  # Anon 2
+        dream_balance: "2000000000"  # 2000 DREAM (Tier 4 Anon)
+        staked_dream: "0"
+        lifetime_earned: "2000000000"
         lifetime_burned: "0"
         reputation_scores: {}
         lifetime_reputation: {}
@@ -353,7 +583,7 @@ genesis:
         expiration_index: 0
     forum:
       params:
-        # Archive timing - PRODUCTION values
+        # Archive timing - MAINNET production values
         archive_threshold: "2592000"     # 30 days
         unarchive_cooldown: "86400"      # 1 day
         archive_cooldown: "2592000"      # 30 days
@@ -361,8 +591,9 @@ genesis:
         hide_appeal_cooldown: "3600"     # 1 hour
         lock_appeal_cooldown: "3600"     # 1 hour
         move_appeal_cooldown: "3600"     # 1 hour
+# Bootstrap validator for `ignite chain init` only. Real validators
+# join via gentx collected before launch; final genesis.json carries
+# their gentxs in app_state.genutil.gen_txs.
 validators:
-- name: alice
-  bonded: 15000000000000uspark
-- name: bob
-  bonded: 5000000000000uspark
+- name: kingofbitchain
+  bonded: 400000000000uspark

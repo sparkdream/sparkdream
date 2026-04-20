@@ -9,70 +9,35 @@
         {
           "@type": "/cosmos.auth.v1beta1.BaseAccount",
           "account_number": "0",
-          "address": "sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu",
+          "address": "sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs",
           "pub_key": null,
           "sequence": "0"
         },
         {
           "@type": "/cosmos.auth.v1beta1.BaseAccount",
           "account_number": "1",
-          "address": "sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p",
+          "address": "sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6",
           "pub_key": null,
           "sequence": "0"
         },
         {
           "@type": "/cosmos.auth.v1beta1.BaseAccount",
           "account_number": "2",
-          "address": "sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd",
+          "address": "sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw",
           "pub_key": null,
           "sequence": "0"
         },
         {
           "@type": "/cosmos.auth.v1beta1.BaseAccount",
           "account_number": "3",
-          "address": "sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8",
-          "pub_key": null,
-          "sequence": "0"
-        },
-        {
-          "@type": "/cosmos.auth.v1beta1.BaseAccount",
-          "account_number": "4",
-          "address": "sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge",
-          "pub_key": null,
-          "sequence": "0"
-        },
-        {
-          "@type": "/cosmos.auth.v1beta1.BaseAccount",
-          "account_number": "5",
-          "address": "sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak",
-          "pub_key": null,
-          "sequence": "0"
-        },
-        {
-          "@type": "/cosmos.auth.v1beta1.BaseAccount",
-          "account_number": "6",
-          "address": "sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu",
-          "pub_key": null,
-          "sequence": "0"
-        },
-        {
-          "@type": "/cosmos.auth.v1beta1.BaseAccount",
-          "account_number": "7",
-          "address": "sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9",
-          "pub_key": null,
-          "sequence": "0"
-        },
-        {
-          "@type": "/cosmos.auth.v1beta1.BaseAccount",
-          "account_number": "8",
-          "address": "sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs",
+          "address": "sprkdrm1v94rgfy8d3e345yva7p2p9uaaf6hle07lhkfs9",
           "pub_key": null,
           "sequence": "0"
         },
         {
           "@type": "/cosmos.auth.v1beta1.ModuleAccount",
           "base_account": {
-            "account_number": "9",
+            "account_number": "4",
             "address": "sprkdrm1jv65s3grqf6v6jl3dp4t6c9t9rk99cd868re8z",
             "pub_key": null,
             "sequence": "0"
@@ -92,82 +57,37 @@
     "bank": {
       "balances": [
         {
-          "address": "sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu",
+          "address": "sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs",
           "coins": [
             {
-              "amount": "1250000000000",
+              "amount": "20000000000000",
               "denom": "uspark"
             }
           ]
         },
         {
-          "address": "sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p",
+          "address": "sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6",
           "coins": [
             {
-              "amount": "750000000000",
+              "amount": "10000000000000",
               "denom": "uspark"
             }
           ]
         },
         {
-          "address": "sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd",
+          "address": "sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw",
           "coins": [
             {
-              "amount": "450000000000",
+              "amount": "5000000000000",
               "denom": "uspark"
             }
           ]
         },
         {
-          "address": "sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8",
+          "address": "sprkdrm1v94rgfy8d3e345yva7p2p9uaaf6hle07lhkfs9",
           "coins": [
             {
-              "amount": "450000000000",
-              "denom": "uspark"
-            }
-          ]
-        },
-        {
-          "address": "sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge",
-          "coins": [
-            {
-              "amount": "450000000000",
-              "denom": "uspark"
-            }
-          ]
-        },
-        {
-          "address": "sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak",
-          "coins": [
-            {
-              "amount": "450000000000",
-              "denom": "uspark"
-            }
-          ]
-        },
-        {
-          "address": "sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu",
-          "coins": [
-            {
-              "amount": "450000000000",
-              "denom": "uspark"
-            }
-          ]
-        },
-        {
-          "address": "sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9",
-          "coins": [
-            {
-              "amount": "375000000000",
-              "denom": "uspark"
-            }
-          ]
-        },
-        {
-          "address": "sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs",
-          "coins": [
-            {
-              "amount": "375000000000",
+              "amount": "5000000",
               "denom": "uspark"
             }
           ]
@@ -225,7 +145,7 @@
       "send_enabled": [],
       "supply": [
         {
-          "amount": "100000000000000",
+          "amount": "130000005000000",
           "denom": "uspark"
         }
       ]
@@ -422,24 +342,24 @@
       "next_outbound_attestation_id": "0",
       "outbound_attestations": [],
       "params": {
-        "arbiter_escalation_window": "86400s",
+        "arbiter_escalation_window": "7200s",
         "arbiter_quorum": 3,
-        "arbiter_resolution_window": "43200s",
-        "attestation_ttl": "1296000s",
+        "arbiter_resolution_window": "3600s",
+        "attestation_ttl": "43200s",
         "bridge_inactivity_threshold": "100",
-        "bridge_revocation_cooldown": "259200s",
-        "bridge_unbonding_period": "604800s",
-        "challenge_cooldown": "259200s",
+        "bridge_revocation_cooldown": "900s",
+        "bridge_unbonding_period": "1800s",
+        "challenge_cooldown": "900s",
         "challenge_fee": {
-          "amount": "150000000",
+          "amount": "50000000",
           "denom": "uspark"
         },
-        "challenge_jury_deadline": "604800s",
-        "challenge_ttl": "259200s",
-        "challenge_window": "259200s",
-        "content_ttl": "3888000s",
+        "challenge_jury_deadline": "7200s",
+        "challenge_ttl": "1800s",
+        "challenge_window": "7200s",
+        "content_ttl": "86400s",
         "escalation_fee": {
-          "amount": "50000000",
+          "amount": "10000000",
           "denom": "uspark"
         },
         "global_max_trust_credit": 1,
@@ -463,7 +383,7 @@
         "max_prune_per_block": "100",
         "max_verifier_dream_mint_per_epoch": "100",
         "min_bridge_stake": {
-          "amount": "500000000",
+          "amount": "100000000",
           "denom": "uspark"
         },
         "min_epoch_verifications": 3,
@@ -471,14 +391,14 @@
         "min_verifier_bond": "500",
         "min_verifier_trust_level": 2,
         "operator_reward_share": "0.600000000000000000",
-        "rate_limit_window": "43200s",
+        "rate_limit_window": "3600s",
         "trust_discount_rate": "0.500000000000000000",
-        "unverified_link_ttl": "1296000s",
+        "unverified_link_ttl": "3600s",
         "upheld_to_reset_overturns": 3,
-        "verification_window": "43200s",
-        "verifier_demotion_cooldown": "259200s",
+        "verification_window": "3600s",
+        "verifier_demotion_cooldown": "1800s",
         "verifier_dream_reward": "5",
-        "verifier_overturn_base_cooldown": "43200s",
+        "verifier_overturn_base_cooldown": "900s",
         "verifier_recovery_threshold": "250",
         "verifier_slash_amount": "50"
       },
@@ -500,8 +420,8 @@
           "denom": "uspark"
         },
         "appeals_paused": false,
-        "archive_cooldown": "1296000",
-        "archive_threshold": "1296000",
+        "archive_cooldown": "604800",
+        "archive_threshold": "604800",
         "bounties_enabled": true,
         "bounty_cancellation_fee_percent": "10",
         "conviction_renewal_period": "604800",
@@ -523,14 +443,14 @@
         "edit_grace_period": "300",
         "edit_max_window": "86400",
         "editing_enabled": true,
-        "ephemeral_ttl": "86400",
+        "ephemeral_ttl": "43200",
         "flag_spam_tax": {
           "amount": "100000",
           "denom": "uspark"
         },
         "forum_paused": false,
-        "hide_appeal_cooldown": "3600",
-        "lock_appeal_cooldown": "3600",
+        "hide_appeal_cooldown": "1800",
+        "lock_appeal_cooldown": "1800",
         "lock_appeal_fee": {
           "amount": "5000000",
           "denom": "uspark"
@@ -539,7 +459,7 @@
         "max_follows_per_day": "50",
         "max_reply_depth": 10,
         "moderation_paused": false,
-        "move_appeal_cooldown": "3600",
+        "move_appeal_cooldown": "1800",
         "move_appeal_fee": {
           "amount": "5000000",
           "denom": "uspark"
@@ -596,12 +516,12 @@
               {
                 "mode_info": {
                   "single": {
-                    "mode": "SIGN_MODE_LEGACY_AMINO_JSON"
+                    "mode": "SIGN_MODE_DIRECT"
                   }
                 },
                 "public_key": {
                   "@type": "/cosmos.crypto.secp256k1.PubKey",
-                  "key": "A8dsRJEg7BpBdKF5rSIJYCghY60/crh3hVWfUWJX8GSX"
+                  "key": "AtnkidlTeEKxyHkmeIhfJrKbtnaIWdQQKEF10+hh1nF9"
                 },
                 "sequence": "0"
               }
@@ -610,7 +530,7 @@
           },
           "body": {
             "extension_options": [],
-            "memo": "027460efd63c646b1291f94a9a2dcd964cec93b4@192.168.5.38:26656",
+            "memo": "708212a28d7fd407bb144b2e4afbeddd1ece6631@172.17.0.2:26656",
             "messages": [
               {
                 "@type": "/cosmos.staking.v1beta1.MsgCreateValidator",
@@ -623,18 +543,18 @@
                 "description": {
                   "details": "",
                   "identity": "",
-                  "moniker": "🦢 Svanmøy-01 // ⚡",
+                  "moniker": "sparkdream-dev-1",
                   "security_contact": "",
                   "website": ""
                 },
                 "min_self_delegation": "1",
                 "pubkey": {
                   "@type": "/cosmos.crypto.ed25519.PubKey",
-                  "key": "OElT4VJpHCEW//d/q5FjCQ7i8EZURn49PSeB7MHp8ds="
+                  "key": "0XlqYYqQElYGkZQ2v1EhV57low5fT1a6vtxO138eo6Y="
                 },
-                "validator_address": "sprkdrmvaloper1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c9vkzqd",
+                "validator_address": "sprkdrmvaloper1mm04tct5hspk2qzjtf0xaqyjl46ajhcuv49xws",
                 "value": {
-                  "amount": "400000000000",
+                  "amount": "50000000",
                   "denom": "uspark"
                 }
               }
@@ -645,7 +565,7 @@
             "unordered": false
           },
           "signatures": [
-            "g96IDjreMf7L4yauhKJ9Pec/IIkKItKF1LqqT/zUsVU60kZ4vAM3H9En1Xxmu5qxK5z3SftGN3Oa8fRyZKV6Ww=="
+            "Fc5ZABkNLNXpkCIc1eUeKARo3lDdIAIzecEKQwXQg08UwBkg+WXwIE3QYThEQn0ZY3kJSYQdIwTgLG01aWDn+Q=="
           ]
         }
       ]
@@ -676,8 +596,8 @@
           }
         ],
         "expedited_threshold": "0.667000000000000000",
-        "expedited_voting_period": "14400s",
-        "max_deposit_period": "21600s",
+        "expedited_voting_period": "1800s",
+        "max_deposit_period": "1800s",
         "min_deposit": [
           {
             "amount": "50000000",
@@ -691,7 +611,7 @@
         "quorum": "0.334000000000000000",
         "threshold": "0.500000000000000000",
         "veto_threshold": "0.334000000000000000",
-        "voting_period": "43200s"
+        "voting_period": "3600s"
       },
       "proposals": [],
       "starting_proposal_id": "1",
@@ -878,10 +798,10 @@
       "jury_review_list": [],
       "member_map": [
         {
-          "address": "sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu",
+          "address": "sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs",
           "completed_initiatives_count": 0,
           "completed_interims_count": 0,
-          "dream_balance": "5000000000",
+          "dream_balance": "50000000000",
           "invitation_chain": [],
           "invitation_credits": 10,
           "invited_by": "",
@@ -890,7 +810,7 @@
           "last_decay_epoch": 0,
           "last_tip_epoch": 0,
           "lifetime_burned": "0",
-          "lifetime_earned": "5000000000",
+          "lifetime_earned": "50000000000",
           "lifetime_reputation": {},
           "reputation_scores": {},
           "staked_dream": "0",
@@ -902,34 +822,10 @@
           "zeroed_count": 0
         },
         {
-          "address": "sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p",
+          "address": "sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6",
           "completed_initiatives_count": 0,
           "completed_interims_count": 0,
-          "dream_balance": "3500000000",
-          "invitation_chain": [],
-          "invitation_credits": 7,
-          "invited_by": "",
-          "joined_at": 0,
-          "joined_season": 0,
-          "last_decay_epoch": 0,
-          "last_tip_epoch": 0,
-          "lifetime_burned": "0",
-          "lifetime_earned": "3500000000",
-          "lifetime_reputation": {},
-          "reputation_scores": {},
-          "staked_dream": "0",
-          "status": "MEMBER_STATUS_ACTIVE",
-          "tips_given_this_epoch": 0,
-          "trust_level": "TRUST_LEVEL_TRUSTED",
-          "trust_level_updated_at": 0,
-          "zeroed_at": 0,
-          "zeroed_count": 0
-        },
-        {
-          "address": "sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd",
-          "completed_initiatives_count": 0,
-          "completed_interims_count": 0,
-          "dream_balance": "2500000000",
+          "dream_balance": "25000000000",
           "invitation_chain": [],
           "invitation_credits": 5,
           "invited_by": "",
@@ -938,7 +834,7 @@
           "last_decay_epoch": 0,
           "last_tip_epoch": 0,
           "lifetime_burned": "0",
-          "lifetime_earned": "2500000000",
+          "lifetime_earned": "25000000000",
           "lifetime_reputation": {},
           "reputation_scores": {},
           "staked_dream": "0",
@@ -950,106 +846,10 @@
           "zeroed_count": 0
         },
         {
-          "address": "sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8",
+          "address": "sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw",
           "completed_initiatives_count": 0,
           "completed_interims_count": 0,
-          "dream_balance": "2500000000",
-          "invitation_chain": [],
-          "invitation_credits": 5,
-          "invited_by": "",
-          "joined_at": 0,
-          "joined_season": 0,
-          "last_decay_epoch": 0,
-          "last_tip_epoch": 0,
-          "lifetime_burned": "0",
-          "lifetime_earned": "2500000000",
-          "lifetime_reputation": {},
-          "reputation_scores": {},
-          "staked_dream": "0",
-          "status": "MEMBER_STATUS_ACTIVE",
-          "tips_given_this_epoch": 0,
-          "trust_level": "TRUST_LEVEL_ESTABLISHED",
-          "trust_level_updated_at": 0,
-          "zeroed_at": 0,
-          "zeroed_count": 0
-        },
-        {
-          "address": "sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge",
-          "completed_initiatives_count": 0,
-          "completed_interims_count": 0,
-          "dream_balance": "2500000000",
-          "invitation_chain": [],
-          "invitation_credits": 5,
-          "invited_by": "",
-          "joined_at": 0,
-          "joined_season": 0,
-          "last_decay_epoch": 0,
-          "last_tip_epoch": 0,
-          "lifetime_burned": "0",
-          "lifetime_earned": "2500000000",
-          "lifetime_reputation": {},
-          "reputation_scores": {},
-          "staked_dream": "0",
-          "status": "MEMBER_STATUS_ACTIVE",
-          "tips_given_this_epoch": 0,
-          "trust_level": "TRUST_LEVEL_ESTABLISHED",
-          "trust_level_updated_at": 0,
-          "zeroed_at": 0,
-          "zeroed_count": 0
-        },
-        {
-          "address": "sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak",
-          "completed_initiatives_count": 0,
-          "completed_interims_count": 0,
-          "dream_balance": "2500000000",
-          "invitation_chain": [],
-          "invitation_credits": 5,
-          "invited_by": "",
-          "joined_at": 0,
-          "joined_season": 0,
-          "last_decay_epoch": 0,
-          "last_tip_epoch": 0,
-          "lifetime_burned": "0",
-          "lifetime_earned": "2500000000",
-          "lifetime_reputation": {},
-          "reputation_scores": {},
-          "staked_dream": "0",
-          "status": "MEMBER_STATUS_ACTIVE",
-          "tips_given_this_epoch": 0,
-          "trust_level": "TRUST_LEVEL_ESTABLISHED",
-          "trust_level_updated_at": 0,
-          "zeroed_at": 0,
-          "zeroed_count": 0
-        },
-        {
-          "address": "sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu",
-          "completed_initiatives_count": 0,
-          "completed_interims_count": 0,
-          "dream_balance": "2500000000",
-          "invitation_chain": [],
-          "invitation_credits": 5,
-          "invited_by": "",
-          "joined_at": 0,
-          "joined_season": 0,
-          "last_decay_epoch": 0,
-          "last_tip_epoch": 0,
-          "lifetime_burned": "0",
-          "lifetime_earned": "2500000000",
-          "lifetime_reputation": {},
-          "reputation_scores": {},
-          "staked_dream": "0",
-          "status": "MEMBER_STATUS_ACTIVE",
-          "tips_given_this_epoch": 0,
-          "trust_level": "TRUST_LEVEL_ESTABLISHED",
-          "trust_level_updated_at": 0,
-          "zeroed_at": 0,
-          "zeroed_count": 0
-        },
-        {
-          "address": "sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9",
-          "completed_initiatives_count": 0,
-          "completed_interims_count": 0,
-          "dream_balance": "2000000000",
+          "dream_balance": "10000000000",
           "invitation_chain": [],
           "invitation_credits": 3,
           "invited_by": "",
@@ -1058,31 +858,7 @@
           "last_decay_epoch": 0,
           "last_tip_epoch": 0,
           "lifetime_burned": "0",
-          "lifetime_earned": "2000000000",
-          "lifetime_reputation": {},
-          "reputation_scores": {},
-          "staked_dream": "0",
-          "status": "MEMBER_STATUS_ACTIVE",
-          "tips_given_this_epoch": 0,
-          "trust_level": "TRUST_LEVEL_PROVISIONAL",
-          "trust_level_updated_at": 0,
-          "zeroed_at": 0,
-          "zeroed_count": 0
-        },
-        {
-          "address": "sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs",
-          "completed_initiatives_count": 0,
-          "completed_interims_count": 0,
-          "dream_balance": "2000000000",
-          "invitation_chain": [],
-          "invitation_credits": 3,
-          "invited_by": "",
-          "joined_at": 0,
-          "joined_season": 0,
-          "last_decay_epoch": 0,
-          "last_tip_epoch": 0,
-          "lifetime_burned": "0",
-          "lifetime_earned": "2000000000",
+          "lifetime_earned": "10000000000",
           "lifetime_reputation": {},
           "reputation_scores": {},
           "staked_dream": "0",
@@ -1108,24 +884,24 @@
         },
         "author_bond_slash_on_moderation": true,
         "challenge_queue_max_size": 10,
-        "challenge_response_deadline_epochs": "3",
+        "challenge_response_deadline_epochs": "2",
         "challenger_reward_rate": "0.200000000000000000",
         "completer_share": "0.900000000000000000",
         "complex_complexity_budget": "400000000",
         "content_challenge_reward_share": "0.500000000000000000",
         "content_conviction_half_life_epochs": "14",
-        "conviction_half_life_epochs": "5",
+        "conviction_half_life_epochs": "3",
         "conviction_per_dream": "0.2",
         "conviction_propagation_ratio": "0.100000000000000000",
-        "default_challenge_period_epochs": "5",
-        "default_review_period_epochs": "5",
+        "default_challenge_period_epochs": "3",
+        "default_review_period_epochs": "3",
         "epic_tier": {
           "max_budget": "10000000000",
           "min_reputation": "250.000000000000000000",
           "reputation_cap": "1000.000000000000000000",
           "reward_multiplier": "2.000000000000000000"
         },
-        "epoch_blocks": "1440",
+        "epoch_blocks": "300",
         "expert_complexity_budget": "1000000000",
         "expert_tier": {
           "max_budget": "2000000000",
@@ -1134,12 +910,12 @@
           "reward_multiplier": "1.500000000000000000"
         },
         "external_conviction_ratio": "0.500000000000000000",
-        "gift_cooldown_blocks": "1440",
+        "gift_cooldown_blocks": "300",
         "gift_only_to_invitees": true,
         "initiative_creation_fee_apprentice": "1000000",
         "initiative_creation_fee_standard": "3000000",
-        "interim_deadline_epochs": "7",
-        "invitation_accountability_epochs": "75",
+        "interim_deadline_epochs": "6",
+        "invitation_accountability_epochs": "30",
         "invitation_cost_multiplier": "1.100000000000000000",
         "invitation_stake_burn_rate": "0.100000000000000000",
         "jury_size": 3,
@@ -1170,7 +946,7 @@
         "min_challenge_stake": "50",
         "min_epoch_activity_for_reward": "1",
         "min_invitation_stake": "100",
-        "min_juror_reputation": "25",
+        "min_juror_reputation": "30",
         "min_reputation_multiplier": "0.100000000000000000",
         "min_sentinel_accuracy": "0.700000000000000000",
         "min_stake_duration_seconds": "86400",
@@ -1183,8 +959,8 @@
         "project_creation_fee": "5000000",
         "referral_reward_rate": "0.050000000000000000",
         "reputation_decay_rate": "0.005000000000000000",
-        "season_duration_epochs": "75",
-        "sentinel_reward_epoch_blocks": "7200",
+        "season_duration_epochs": "30",
+        "sentinel_reward_epoch_blocks": "3600",
         "sentinel_reward_pool_overflow_burn_ratio": "0.500000000000000000",
         "severe_slash_penalty": "0.300000000000000000",
         "simple_complexity_budget": "50000000",
@@ -1204,19 +980,19 @@
         "treasury_funds_retro_pgf": true,
         "treasury_share": "0.100000000000000000",
         "trust_level_config": {
-          "core_invitation_credits": 30,
-          "core_min_rep": "1000.000000000000000000",
-          "core_min_seasons": 2,
-          "established_invitation_credits": 8,
-          "established_min_interims": 10,
-          "established_min_rep": "200.000000000000000000",
+          "core_invitation_credits": 40,
+          "core_min_rep": "500.000000000000000000",
+          "core_min_seasons": 1,
+          "established_invitation_credits": 10,
+          "established_min_interims": 5,
+          "established_min_rep": "100.000000000000000000",
           "new_invitation_credits": 0,
-          "provisional_invitation_credits": 4,
-          "provisional_min_interims": 3,
-          "provisional_min_rep": "50.000000000000000000",
-          "trusted_invitation_credits": 14,
-          "trusted_min_rep": "500.000000000000000000",
-          "trusted_min_seasons": 2
+          "provisional_invitation_credits": 5,
+          "provisional_min_interims": 2,
+          "provisional_min_rep": "25.000000000000000000",
+          "trusted_invitation_credits": 18,
+          "trusted_min_rep": "250.000000000000000000",
+          "trusted_min_seasons": 1
         },
         "unstaked_decay_rate": "0.002000000000000000",
         "zeroing_slash_penalty": "1.000000000000000000"
@@ -1366,166 +1142,68 @@
       "member_profile_map": [
         {
           "achievements": [
-            "first_spark",
-            "genesis_founder"
+            "first_step",
+            "voice_heard",
+            "contributor"
           ],
-          "address": "sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu",
-          "challenges_won": 0,
-          "display_name": "Valya",
-          "display_title": "",
-          "forum_helpful_count": 0,
-          "invitations_successful": 0,
-          "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "valya",
-          "votes_cast": 0
+          "address": "sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs",
+          "challenges_won": 2,
+          "display_name": "Alice",
+          "display_title": "veteran",
+          "forum_helpful_count": 50,
+          "invitations_successful": 5,
+          "jury_duties_completed": 3,
+          "lifetime_xp": 5000,
+          "season_level": 8,
+          "season_xp": 5000,
+          "unlocked_titles": [
+            "newcomer",
+            "veteran",
+            "rising_star"
+          ],
+          "username": "alice",
+          "votes_cast": 15
         },
         {
           "achievements": [
-            "genesis_founder"
+            "first_step",
+            "voice_heard"
           ],
-          "address": "sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p",
+          "address": "sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6",
           "challenges_won": 0,
-          "display_name": "Cozmonika",
-          "display_title": "",
-          "forum_helpful_count": 0,
-          "invitations_successful": 0,
-          "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "cozmonika",
-          "votes_cast": 0
+          "display_name": "Bob",
+          "display_title": "newcomer",
+          "forum_helpful_count": 15,
+          "invitations_successful": 2,
+          "jury_duties_completed": 1,
+          "lifetime_xp": 1500,
+          "season_level": 6,
+          "season_xp": 1500,
+          "unlocked_titles": [
+            "newcomer"
+          ],
+          "username": "bob",
+          "votes_cast": 5
         },
         {
           "achievements": [
-            "genesis_founder"
+            "voice_heard"
           ],
-          "address": "sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd",
+          "address": "sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw",
           "challenges_won": 0,
-          "display_name": "King of Bitchain",
+          "display_name": "Carol",
           "display_title": "",
-          "forum_helpful_count": 0,
+          "forum_helpful_count": 5,
           "invitations_successful": 0,
           "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "kingofbitchain",
-          "votes_cast": 0
-        },
-        {
-          "achievements": [
-            "genesis_founder"
+          "lifetime_xp": 300,
+          "season_level": 2,
+          "season_xp": 300,
+          "unlocked_titles": [
+            "newcomer"
           ],
-          "address": "sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8",
-          "challenges_won": 0,
-          "display_name": "Viorika",
-          "display_title": "",
-          "forum_helpful_count": 0,
-          "invitations_successful": 0,
-          "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "viorika",
-          "votes_cast": 0
-        },
-        {
-          "achievements": [
-            "genesis_founder"
-          ],
-          "address": "sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge",
-          "challenges_won": 0,
-          "display_name": "Uyen",
-          "display_title": "",
-          "forum_helpful_count": 0,
-          "invitations_successful": 0,
-          "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "uyen",
-          "votes_cast": 0
-        },
-        {
-          "achievements": [
-            "genesis_founder"
-          ],
-          "address": "sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak",
-          "challenges_won": 0,
-          "display_name": "Houri",
-          "display_title": "",
-          "forum_helpful_count": 0,
-          "invitations_successful": 0,
-          "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "houri",
-          "votes_cast": 0
-        },
-        {
-          "achievements": [
-            "genesis_founder"
-          ],
-          "address": "sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu",
-          "challenges_won": 0,
-          "display_name": "Gilda",
-          "display_title": "",
-          "forum_helpful_count": 0,
-          "invitations_successful": 0,
-          "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "gilda",
-          "votes_cast": 0
-        },
-        {
-          "achievements": [
-            "genesis_founder"
-          ],
-          "address": "sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9",
-          "challenges_won": 0,
-          "display_name": "",
-          "display_title": "",
-          "forum_helpful_count": 0,
-          "invitations_successful": 0,
-          "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "",
-          "votes_cast": 0
-        },
-        {
-          "achievements": [
-            "genesis_founder"
-          ],
-          "address": "sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs",
-          "challenges_won": 0,
-          "display_name": "",
-          "display_title": "",
-          "forum_helpful_count": 0,
-          "invitations_successful": 0,
-          "jury_duties_completed": 0,
-          "lifetime_xp": 0,
-          "season_level": 0,
-          "season_xp": 0,
-          "unlocked_titles": [],
-          "username": "",
-          "votes_cast": 0
+          "username": "carol",
+          "votes_cast": 2
         }
       ],
       "member_quest_progress_map": [],
@@ -1537,13 +1215,13 @@
       "nomination_stake_list": [],
       "params": {
         "baseline_reputation": "0.500000000000000000",
-        "display_name_appeal_period_blocks": "14400",
+        "display_name_appeal_period_blocks": "3600",
         "display_name_appeal_stake_dream": "100",
         "display_name_change_cooldown_epochs": "1",
         "display_name_max_length": 50,
         "display_name_min_length": 1,
         "display_name_report_stake_dream": "50",
-        "epoch_blocks": "1440",
+        "epoch_blocks": "300",
         "epoch_tracker_retention_epochs": 30,
         "forum_cooldown_retention_epochs": 30,
         "forum_xp_min_account_age_epochs": "7",
@@ -1587,21 +1265,21 @@
         "min_guild_age_epochs": "7",
         "min_guild_members": 3,
         "nomination_conviction_half_life_epochs": "3",
-        "nomination_min_stake": "10",
+        "nomination_min_stake": "5",
         "nomination_min_trust_level": 2,
         "nomination_rationale_max_length": 500,
         "nomination_stake_min_trust_level": 1,
         "nomination_window_epochs": "5",
-        "retro_reward_budget_max": "75000000000",
-        "retro_reward_budget_min": "10000000000",
+        "retro_reward_budget_max": "37500000000",
+        "retro_reward_budget_min": "5000000000",
         "retro_reward_budget_ratio": "0.250000000000000000",
         "retro_reward_max_recipients": "20",
-        "retro_reward_min_conviction": "50",
-        "season_duration_epochs": "75",
+        "retro_reward_min_conviction": "25",
+        "season_duration_epochs": "30",
         "season_transition_epochs": "7",
         "snapshot_retention_seasons": 10,
-        "transition_batch_size": "100",
-        "transition_grace_period": "7200",
+        "transition_batch_size": "50",
+        "transition_grace_period": "600",
         "transition_max_retries": 3,
         "username_change_cooldown_epochs": "30",
         "username_cost_dream": "10",
@@ -1618,11 +1296,11 @@
       "quest_map": [],
       "retro_reward_record_list": [],
       "season": {
-        "end_block": 108001,
+        "end_block": 9001,
         "extensions_count": 0,
         "name": "Genesis Season",
         "number": 1,
-        "original_end_block": 108001,
+        "original_end_block": 9001,
         "start_block": 1,
         "status": "SEASON_STATUS_ACTIVE",
         "theme": "The Beginning",
@@ -1709,7 +1387,7 @@
       "identity_rate_limits": [],
       "next_pending_op_id": "0",
       "params": {
-        "dkg_window_blocks": "200",
+        "dkg_window_blocks": "100",
         "enabled": true,
         "encrypted_batch_enabled": false,
         "max_encrypted_payload_size": 16384,
@@ -1718,15 +1396,15 @@
         "max_gas_per_exec": "500000",
         "max_ops_per_batch": 100,
         "max_pending_epochs": 6,
-        "max_pending_queue_size": 1000,
+        "max_pending_queue_size": 500,
         "max_validator_set_drift": 33,
-        "min_batch_size": 3,
-        "min_gas_reserve": "100000000",
-        "min_tle_validators": 5,
-        "shield_epoch_interval": "50",
-        "tle_jail_duration": "600",
-        "tle_miss_tolerance": "10",
-        "tle_miss_window": "100"
+        "min_batch_size": 2,
+        "min_gas_reserve": "50000000",
+        "min_tle_validators": 4,
+        "shield_epoch_interval": "25",
+        "tle_jail_duration": "300",
+        "tle_miss_tolerance": "7",
+        "tle_miss_window": "50"
       },
       "pending_nullifiers": [],
       "pending_ops": [],
@@ -1916,7 +1594,7 @@
     "vesting": {}
   },
   "app_version": "",
-  "chain_id": "sparkdream-test-1",
+  "chain_id": "sparkdream-dev-1",
   "consensus": {
     "params": {
       "abci": {

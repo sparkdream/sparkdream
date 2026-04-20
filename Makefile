@@ -127,6 +127,31 @@ build-mainnet:
 
 .PHONY: build build-test build-devnet build-testnet build-mainnet
 
+##########################
+###  Genesis Audit     ###
+##########################
+
+# Verify each network's genesis.json has every Params field expected by the
+# matching build tag, plus cross-network ordering invariants. Run after any
+# param changes or genesis regeneration. devnet/mainnet per-network targets
+# activate once those genesis files are committed; the cross target skips
+# its subtests automatically while a network's genesis is still missing.
+verify-genesis: verify-genesis-devnet verify-genesis-testnet verify-genesis-mainnet verify-genesis-cross
+
+verify-genesis-devnet:
+	go test -count=1 -tags devnet ./deploy/config/network/devnet/...
+
+verify-genesis-testnet:
+	go test -count=1 -tags testnet ./deploy/config/network/testnet/...
+
+verify-genesis-mainnet:
+	go test -count=1 -tags mainnet ./deploy/config/network/mainnet/...
+
+verify-genesis-cross:
+	go test -count=1 ./deploy/config/network/crossnetwork/...
+
+.PHONY: verify-genesis verify-genesis-devnet verify-genesis-testnet verify-genesis-mainnet verify-genesis-cross
+
 ##################
 ###  Checksum  ###
 ##################

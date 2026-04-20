@@ -8,9 +8,9 @@ import "time"
 // Build with: go build -tags devnet
 
 var GenesisNames = map[string]string{
-	"sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan": "Alice",
-	"sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y": "Bob",
-	"sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz": "Carol",
+	"sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs": "Alice",
+	"sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6": "Bob",
+	"sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw": "Carol",
 }
 
 var FounderName = "Alice"

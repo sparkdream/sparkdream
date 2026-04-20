@@ -6,7 +6,9 @@ import (
 	"cosmossdk.io/math"
 )
 
-// Devnet values — reduced thresholds for faster progression with realistic gameplay.
+// Devnet values — most permissive of the three networks for fast iteration.
+// Trust thresholds sit below testnet/mainnet; invitation credits sit above
+// them so dev work never bumps into invite caps.
 // Build with: go build -tags devnet
 func getTrustLevelConfig() TrustLevelConfig {
 	return TrustLevelConfig{
@@ -19,15 +21,16 @@ func getTrustLevelConfig() TrustLevelConfig {
 		CoreMinRep:                   math.LegacyNewDec(500), // production: 1000
 		CoreMinSeasons:               1,                      // production: 2
 		NewInvitationCredits:         0,
-		ProvisionalInvitationCredits: 2,  // production: 1
-		EstablishedInvitationCredits: 4,  // production: 3
-		TrustedInvitationCredits:     7,  // production: 5
-		CoreInvitationCredits:        15, // production: 10
+		ProvisionalInvitationCredits: 5,  // mainnet: 3, testnet: 4
+		EstablishedInvitationCredits: 10, // mainnet: 6, testnet: 8
+		TrustedInvitationCredits:     18, // mainnet: 10, testnet: 14
+		CoreInvitationCredits:        40, // mainnet: 20, testnet: 30
 	}
 }
 
 // getSentinelRewardEpochBlocks returns the cadence at which the sentinel SPARK
-// reward pool is drained on devnet (~1 day at 6s blocks).
+// reward pool is drained on devnet (~6h at 6s blocks — fastest of the three
+// networks so devs can observe a full epoch in a single working session).
 func getSentinelRewardEpochBlocks() uint64 {
-	return 14400
+	return 3600
 }

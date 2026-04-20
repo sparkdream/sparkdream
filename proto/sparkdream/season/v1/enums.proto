@@ -38,6 +38,9 @@ enum RequirementType {
   REQUIREMENT_TYPE_TOP_XP = 9;
   REQUIREMENT_TYPE_MIN_LEVEL = 10;
   REQUIREMENT_TYPE_ACHIEVEMENT_COUNT = 11;
+  // Marker for achievements that can only be held via genesis seeding.
+  // No runtime path awards these; absence of a corresponding evaluator is the enforcement.
+  REQUIREMENT_TYPE_GENESIS = 12;
 }
 
 // GuildStatus represents the current state of a guild.

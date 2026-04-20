@@ -4,26 +4,19 @@ build:
   tags:
     - devnet
 validation: sovereign
-# Test-only accounts. Mnemonics are committed intentionally — they derive the
-# specific addresses hardcoded in x/commons/keeper/genesis_vals.go (founder,
-# council members). Changing these mnemonics will break governance bootstrap
-# and all E2E tests. These keys hold no real funds and are never used in production.
 accounts:
 - name: alice
-  coins: [20000000000000uspark]
-  mnemonic: "punch toss leisure miss pulse hand dentist ozone gadget pretty narrow wise ankle manage equal carry devote naive hungry betray mean word music grunt"
+  address: sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs
+  coins: [20000000000000uspark]  # 20,000,000 SPARK
 - name: bob
-  coins: [10000000000000uspark]
-  mnemonic: "chat opera segment access debate stool axis govern wave tool drift crater miracle yellow quote orchard start mistake normal evoke simple sing mimic retreat"
+  address: sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6
+  coins: [10000000000000uspark]  # 10,000,000 SPARK
 - name: carol
-  coins: [5000000000000uspark]
-  mnemonic: "remove enable fade luxury post call spring lock once retire chef luggage bless lend benefit plug phrase poem grief quit trouble still manage solve"
+  address: sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw
+  coins: [5000000000000uspark]   # 5,000,000 SPARK
 - name: dave
-  coins: [5000000uspark]
-  mnemonic: "pledge dice input pave satisfy student slight author battle safe place purity syrup skin buyer sick raven shock decrease acoustic fluid kick muffin soft"
-faucet:
-  name: bob
-  coins: [1000uspark]
+  address: sprkdrm1v94rgfy8d3e345yva7p2p9uaaf6hle07lhkfs9
+  coins: [5000000uspark]         # 5 SPARK (intentionally tiny — non-member test account)
 genesis:
   consensus:
     params:
@@ -77,19 +70,23 @@ genesis:
       constant_fee:
         denom: uspark
     distribution:
+      fee_pool:
+        community_pool:
+        - denom: uspark
+          amount: "95000000000000"  # 95,000,000 SPARK (95%) — x/split routes to councils on first block
       params:
         community_tax: "0.15"
     gov:
       params:
-        max_deposit_period: "1800s"       # 30 minutes (production: days)
+        max_deposit_period: "1800s"       # 30 minutes (DEVNET; production: 172800s = 48h)
         min_deposit:
           - amount: "50000000"
             denom: "uspark"
-        voting_period: "3600s"            # 1 hour (production: days)
+        voting_period: "3600s"            # 1 hour (DEVNET; production: 432000s = 5d)
         expedited_min_deposit:
           - amount: "100000000"
             denom: "uspark"
-        expedited_voting_period: "1800s"  # 30 minutes (production: hours)
+        expedited_voting_period: "1800s"  # 30 minutes (DEVNET; production: 86400s = 1d)
     mint:
       params:
         mint_denom: "uspark"
@@ -112,20 +109,20 @@ genesis:
         total_extension_epochs: 0
         original_end_block: 9001
       params:
-        epoch_blocks: "300"              # ~30 minutes at 6s blocks (production: 17280 ~1 day)
-        season_duration_epochs: "30"     # 30 epochs = ~15 hours (production: 150 ~5 months)
-        transition_batch_size: "50"      # 50 members per block per phase (production: 100)
-        transition_grace_period: "600"   # ~1 hour in blocks (production: 50400 ~1 week)
-        display_name_appeal_period_blocks: "3600"  # ~6 hours (production: 100800 ~7 days)
+        epoch_blocks: "300"              # ~30 minutes at 6s blocks (DEVNET; production: 17280 ~1 day)
+        season_duration_epochs: "30"     # 30 epochs = ~15 hours (DEVNET; production: 150 ~5 months)
+        transition_batch_size: "50"      # 50 members per block per phase (DEVNET; production: 100)
+        transition_grace_period: "600"   # ~1 hour in blocks (DEVNET; production: 50400 ~1 week)
+        display_name_appeal_period_blocks: "3600"  # ~6 hours (DEVNET; production: 100800 ~7 days)
         # Nomination params - DEVNET values
-        nomination_min_stake: "5"                  # 5 udream (production: 10)
-        retro_reward_budget_ratio: "0.250000000000000000"  # 25% of initiative minting (same as production)
-        retro_reward_budget_min: "5000000000"              # 5,000 DREAM floor (production: 10,000)
-        retro_reward_budget_max: "37500000000"             # 37,500 DREAM ceiling (production: 75,000)
-        retro_reward_min_conviction: "25"          # (production: 50)
+        nomination_min_stake: "5"                          # 5 udream (DEVNET; production: 10)
+        retro_reward_budget_ratio: "0.250000000000000000"  # same as production
+        retro_reward_budget_min: "5000000000"              # 5,000 DREAM floor (DEVNET; production: 10,000)
+        retro_reward_budget_max: "37500000000"             # 37,500 DREAM ceiling (DEVNET; production: 75,000)
+        retro_reward_min_conviction: "25"                  # DEVNET; production: 50
       member_profile_map:
       # Alice - High level founder with multiple achievements and titles
-      - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
+      - address: sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs  # alice
         display_name: "Alice"
         username: "alice"
         display_title: "veteran"
@@ -146,7 +143,7 @@ genesis:
         votes_cast: 15
         forum_helpful_count: 50
       # Bob - Mid level with some achievements
-      - address: sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y  # bob
+      - address: sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6  # bob
         display_name: "Bob"
         username: "bob"
         display_title: "newcomer"
@@ -164,7 +161,7 @@ genesis:
         votes_cast: 5
         forum_helpful_count: 15
       # Carol - New member, minimal progress
-      - address: sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz  # carol
+      - address: sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw  # carol
         display_name: "Carol"
         username: "carol"
         display_title: ""
@@ -183,18 +180,18 @@ genesis:
     rep:
       params:
         # Time - DEVNET: ~30 min epochs, ~15 hour seasons
-        epoch_blocks: "300"                        # ~30 minutes (production: 14400 ~1 day)
-        season_duration_epochs: "30"               # ~15 hours (production: 150 ~5 months)
+        epoch_blocks: "300"                        # ~30 minutes (DEVNET; production: 14400 ~1 day)
+        season_duration_epochs: "30"               # ~15 hours (DEVNET; production: 150 ~5 months)
         # Conviction - DEVNET: realistic but faster decay
-        conviction_half_life_epochs: "3"           # 3 epochs = ~90 min (production: 7 ~1 week)
+        conviction_half_life_epochs: "3"           # 3 epochs = ~90 min (DEVNET; production: 7 ~1 week)
         conviction_per_dream: "0.2"                # same as production (sqrt scaling)
         # Review periods - DEVNET: ~90 minutes
-        default_review_period_epochs: "3"          # ~90 min (production: 7 ~1 week)
-        default_challenge_period_epochs: "3"       # ~90 min (production: 7 ~1 week)
+        default_review_period_epochs: "3"          # ~90 min (DEVNET; production: 7 ~1 week)
+        default_challenge_period_epochs: "3"       # ~90 min (DEVNET; production: 7 ~1 week)
         # Invitations - DEVNET: 1 season
-        invitation_accountability_epochs: "30"     # 1 season (production: 150)
+        invitation_accountability_epochs: "30"     # 1 season (DEVNET; production: 150)
         # Interim compensation - DEVNET: ~3 hours deadline
-        interim_deadline_epochs: "6"               # ~3 hours (production: 7 ~1 week)
+        interim_deadline_epochs: "6"               # ~3 hours (DEVNET; production: 7 ~1 week)
         # Interim budgets - same as production (in micro-DREAM)
         simple_complexity_budget: "50000000"        # 50 DREAM
         standard_complexity_budget: "150000000"     # 150 DREAM
@@ -202,13 +199,13 @@ genesis:
         expert_complexity_budget: "1000000000"      # 1000 DREAM
         solo_expert_bonus_rate: "0.5"               # 50% bonus for solo experts
         # Challenge response deadline - DEVNET: ~1 hour
-        challenge_response_deadline_epochs: "2"    # ~1 hour (production: 3 ~3 days)
+        challenge_response_deadline_epochs: "2"    # ~1 hour (DEVNET; production: 3 ~3 days)
         # Gift rate limiting - DEVNET: ~30 min cooldown
-        gift_cooldown_blocks: "300"                # ~30 min (production: 14400 ~1 day)
+        gift_cooldown_blocks: "300"                # ~30 min (DEVNET; production: 14400 ~1 day)
         max_gifts_per_sender_epoch: "2000000000"   # 2000 DREAM per epoch (same as production)
         # Jury - DEVNET: smaller jury, lower rep threshold
-        jury_size: 3                               # (production: 5)
-        min_juror_reputation: "30"                 # (production: 50)
+        jury_size: 3                               # DEVNET; production: 5
+        min_juror_reputation: "30"                 # DEVNET; production: 50
         # Anti-whale staking cap
         max_initiative_stake_per_member: "50000000000"  # 50,000 DREAM (same as production)
         # Anti-collusion caps
@@ -216,8 +213,9 @@ genesis:
         large_project_budget_threshold: "10000000000"  # 10,000 DREAM
         # Trust level configuration - uses devnet build tag values
       member_map:
-      - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
-        dream_balance: "50000000000"  # 50000 DREAM (Tier 1 founder)
+      # Alice - CORE founder analog (Tier 1 mapping)
+      - address: sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs  # alice
+        dream_balance: "50000000000"  # 50,000 DREAM (generous DEVNET allocation for testing)
         staked_dream: "0"
         lifetime_earned: "50000000000"
         lifetime_burned: "0"
@@ -238,8 +236,9 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-      - address: sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y  # bob
-        dream_balance: "25000000000"  # 25000 DREAM (Tier 2 founder)
+      # Bob - ESTABLISHED founder analog (Tier 2 mapping)
+      - address: sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6  # bob
+        dream_balance: "25000000000"  # 25,000 DREAM (generous DEVNET allocation for testing)
         staked_dream: "0"
         lifetime_earned: "25000000000"
         lifetime_burned: "0"
@@ -260,8 +259,9 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-      - address: sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz  # carol
-        dream_balance: "10000000000"  # 10000 DREAM (Tier 3 founder)
+      # Carol - PROVISIONAL member (Tier 3 mapping)
+      - address: sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw  # carol
+        dream_balance: "10000000000"  # 10,000 DREAM (generous DEVNET allocation for testing)
         staked_dream: "0"
         lifetime_earned: "10000000000"
         lifetime_burned: "0"
@@ -354,13 +354,15 @@ genesis:
     forum:
       params:
         # Archive timing - DEVNET: hours/days instead of seconds/months
-        archive_threshold: "604800"      # 7 days (production: 2592000 = 30 days)
-        unarchive_cooldown: "86400"      # 1 day (production: 86400 = 1 day, same)
-        archive_cooldown: "604800"       # 7 days (production: 2592000 = 30 days)
-        ephemeral_ttl: "43200"           # 12 hours (production: 86400 = 24 hours)
-        hide_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
-        lock_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
-        move_appeal_cooldown: "1800"     # 30 minutes (production: 3600 = 1 hour)
+        archive_threshold: "604800"      # 7 days (DEVNET; production: 2592000 = 30 days)
+        unarchive_cooldown: "86400"      # 1 day (same as production)
+        archive_cooldown: "604800"       # 7 days (DEVNET; production: 2592000 = 30 days)
+        ephemeral_ttl: "43200"           # 12 hours (DEVNET; production: 86400 = 24 hours)
+        hide_appeal_cooldown: "1800"     # 30 minutes (DEVNET; production: 3600 = 1 hour)
+        lock_appeal_cooldown: "1800"     # 30 minutes (DEVNET; production: 3600 = 1 hour)
+        move_appeal_cooldown: "1800"     # 30 minutes (DEVNET; production: 3600 = 1 hour)
+# Bootstrap validators for `ignite chain init`. Tests that bring up a local
+# chain rely on alice + bob being staked at genesis.
 validators:
 - name: alice
   bonded: 15000000000000uspark

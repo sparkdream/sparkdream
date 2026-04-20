@@ -19,10 +19,10 @@ func getTrustLevelConfig() TrustLevelConfig {
 		CoreMinRep:                   math.LegacyNewDec(1000),
 		CoreMinSeasons:               2,
 		NewInvitationCredits:         0,
-		ProvisionalInvitationCredits: 1,
-		EstablishedInvitationCredits: 3,
-		TrustedInvitationCredits:     5,
-		CoreInvitationCredits:        10,
+		ProvisionalInvitationCredits: 3,
+		EstablishedInvitationCredits: 6,
+		TrustedInvitationCredits:     10,
+		CoreInvitationCredits:        20,
 	}
 }
 
