@@ -31,4 +31,10 @@ var (
 	ErrPostExpired            = errors.Register(ModuleName, 1222, "post has expired")
 	ErrReplyExpired           = errors.Register(ModuleName, 1223, "reply has expired")
 	ErrInvalidInitiativeRef   = errors.Register(ModuleName, 1224, "invalid initiative reference")
+
+	ErrInvalidTag       = errors.Register(ModuleName, 1225, "invalid tag format")
+	ErrMaxTagLength     = errors.Register(ModuleName, 1226, "tag exceeds maximum length")
+	ErrTagLimitExceeded = errors.Register(ModuleName, 1227, "tag limit exceeded for post")
+	ErrTagNotFound      = errors.Register(ModuleName, 1228, "tag not found")
+	ErrReservedTag      = errors.Register(ModuleName, 1229, "tag is reserved")
 )

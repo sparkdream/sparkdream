@@ -132,7 +132,7 @@ echo "--- PREREQUISITE: Create a regular collection for voting tests ---"
 
 # Use alice (CORE trust level) to avoid collection limit issues — collector1/collector2 may
 # have exhausted their PROVISIONAL limit (5) from earlier test suites.
-TX_RES=$($BINARY tx collect create-collection nft public false 0 "Vote Target" "A collection for anonymous voting tests" "" "anon-test" \
+TX_RES=$($BINARY tx collect create-collection nft public false 0 "Vote Target" "A collection for anonymous voting tests" "" "test" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
     --fees 500000uspark --gas 300000 -y --output json 2>&1)
 
@@ -158,7 +158,7 @@ echo "--- TEST 1: Anonymous collection creation ---"
 NULLIFIER_COLL="cc01000000000000000000000000000000000000000000000000000000000001"
 RATE_NULL_COLL=$(openssl rand -hex 32)
 # type=1 (CURATED), visibility=1 (PUBLIC), encrypted=false
-INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgCreateCollection\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"type\":1,\"visibility\":1,\"encrypted\":false,\"expires_at\":\"0\",\"name\":\"Anonymous Collection\",\"description\":\"Created anonymously via x/shield\",\"cover_uri\":\"\",\"tags\":[\"anon-test\"]}"
+INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgCreateCollection\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"type\":1,\"visibility\":1,\"encrypted\":false,\"expires_at\":\"0\",\"name\":\"Anonymous Collection\",\"description\":\"Created anonymously via x/shield\",\"cover_uri\":\"\",\"tags\":[\"test\"]}"
 
 TX_RES=$($BINARY tx shield shielded-exec \
     --inner-message "$INNER_MSG" \
@@ -247,7 +247,7 @@ echo "--- TEST 3: Anonymous collection downvote ---"
 
 # Create a second collection to downvote (avoid "already voted" conflict with upvote target)
 # Use alice (CORE trust level) to avoid collection limit issues
-TX_RES=$($BINARY tx collect create-collection nft public false 0 "Downvote Target" "A second collection" "" "anon-test" \
+TX_RES=$($BINARY tx collect create-collection nft public false 0 "Downvote Target" "A second collection" "" "test" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
     --fees 500000uspark --gas 300000 -y --output json 2>&1)
 

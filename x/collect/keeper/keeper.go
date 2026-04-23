@@ -65,6 +65,9 @@ type Keeper struct {
 	// Secondary indexes for efficient queries
 	CollectionsByOwner  collections.KeySet[collections.Pair[string, uint64]]
 	CollectionsByExpiry collections.KeySet[collections.Pair[int64, uint64]]
+	// CollectionsByTag: (tag, collectionID) — for ListCollectionsByTag.
+	// Maintained on create, update (diff), and delete.
+	CollectionsByTag collections.KeySet[collections.Pair[string, uint64]]
 
 	ItemsByCollection collections.KeySet[collections.Pair[uint64, uint64]]
 	ItemsByOwner      collections.KeySet[collections.Pair[string, uint64]]
@@ -173,6 +176,10 @@ func NewKeeper(
 		CollectionsByExpiry: collections.NewKeySet(
 			sb, types.CollectionsByExpiryKey, "collectionsByExpiry",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		CollectionsByTag: collections.NewKeySet(
+			sb, types.CollectionsByTagKey, "collectionsByTag",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
 		),
 		ItemsByCollection: collections.NewKeySet(
 			sb, types.ItemsByCollectionKey, "itemsByCollection",

@@ -9,6 +9,7 @@ import (
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 )
 
 // PendingStakeRewards queries pending rewards for a stake
@@ -85,6 +86,29 @@ func (q queryServer) GetTagStakePool(ctx context.Context, req *types.QueryGetTag
 	return &types.QueryGetTagStakePoolResponse{
 		Pool: pool,
 	}, nil
+}
+
+// ListTagStakePools queries all tag stake pools with pagination.
+// Results follow store iteration order — clients are responsible for sorting
+// (e.g. by total_staked with usage_count from ListTag as a tiebreaker).
+func (q queryServer) ListTagStakePools(ctx context.Context, req *types.QueryListTagStakePoolsRequest) (*types.QueryListTagStakePoolsResponse, error) {
+	if req == nil {
+		return nil, errorsmod.Wrap(types.ErrInvalidRequest, "request cannot be empty")
+	}
+
+	pools, pageRes, err := query.CollectionPaginate(
+		ctx,
+		q.k.TagStakePool,
+		req.Pagination,
+		func(_ string, value types.TagStakePool) (types.TagStakePool, error) {
+			return value, nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.QueryListTagStakePoolsResponse{Pool: pools, Pagination: pageRes}, nil
 }
 
 // GetProjectStakeInfo queries a project's stake info

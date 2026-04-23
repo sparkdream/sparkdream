@@ -110,4 +110,10 @@ var (
 
 	// Cross-module conviction propagation errors (1230+)
 	ErrInvalidInitiativeRef = errors.Register(ModuleName, 1230, "invalid initiative reference")
+
+	// Tag registry interaction errors (1240+)
+	ErrInvalidTag     = errors.Register(ModuleName, 1240, "invalid tag format")
+	ErrTagNotFound    = errors.Register(ModuleName, 1241, "tag not found")
+	ErrReservedTag    = errors.Register(ModuleName, 1242, "tag is reserved")
+	ErrDuplicateTag   = errors.Register(ModuleName, 1243, "duplicate tag")
 )

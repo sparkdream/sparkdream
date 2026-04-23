@@ -116,24 +116,10 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 		return nil, errorsmod.Wrapf(types.ErrMaxReviews, "%d reviews", activeReviewCount)
 	}
 
-	// tags count <= max_tags_per_review, each tag <= max_tag_length
-	if uint32(len(msg.Tags)) > params.MaxTagsPerReview {
-		return nil, errorsmod.Wrapf(types.ErrMaxTags, "%d tags, max %d", len(msg.Tags), params.MaxTagsPerReview)
-	}
-	for _, tag := range msg.Tags {
-		if uint32(len(tag)) > params.MaxTagLength {
-			return nil, errorsmod.Wrapf(types.ErrTagTooLong, "tag %q exceeds max length %d", tag, params.MaxTagLength)
-		}
-		// Validate against shared tag registry if available
-		if k.forumKeeper != nil {
-			exists, err := k.forumKeeper.TagExists(ctx, tag)
-			if err != nil {
-				return nil, errorsmod.Wrap(err, "failed to check tag registry")
-			}
-			if !exists {
-				return nil, errorsmod.Wrapf(types.ErrTagTooLong, "tag %q not found in registry", tag)
-			}
-		}
+	// Validate review tags against the shared x/rep tag registry and bump
+	// usage metadata for each accepted tag.
+	if err := k.validateTags(ctx, msg.Tags, params.MaxTagsPerReview, params.MaxTagLength, sdkCtx.BlockTime().Unix()); err != nil {
+		return nil, err
 	}
 
 	// comment <= max_review_comment_length

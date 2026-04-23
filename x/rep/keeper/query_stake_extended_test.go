@@ -5,6 +5,7 @@ import (
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/rep/keeper"
@@ -176,6 +177,79 @@ func TestQueryGetTagStakePool(t *testing.T) {
 		qs := keeper.NewQueryServerImpl(f.keeper)
 
 		_, err := qs.GetTagStakePool(f.ctx, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "request cannot be empty")
+	})
+}
+
+func TestQueryListTagStakePools(t *testing.T) {
+	seed := func(t *testing.T) (*fixture, types.QueryServer) {
+		t.Helper()
+		f := initFixture(t)
+		qs := keeper.NewQueryServerImpl(f.keeper)
+
+		pools := []types.TagStakePool{
+			{Tag: "aurora", TotalStaked: math.NewInt(500), LastUpdated: 10},
+			{Tag: "phoenix", TotalStaked: math.NewInt(9000), LastUpdated: 20},
+			{Tag: "zenith", TotalStaked: math.NewInt(1200), LastUpdated: 30},
+		}
+		for _, p := range pools {
+			require.NoError(t, f.keeper.TagStakePool.Set(f.ctx, p.Tag, p))
+		}
+		return f, qs
+	}
+
+	t.Run("returns all pools without pagination", func(t *testing.T) {
+		f, qs := seed(t)
+
+		resp, err := qs.ListTagStakePools(f.ctx, &types.QueryListTagStakePoolsRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Pool, 3)
+
+		got := map[string]math.Int{}
+		for _, p := range resp.Pool {
+			got[p.Tag] = p.TotalStaked
+		}
+		require.Equal(t, math.NewInt(500).String(), got["aurora"].String())
+		require.Equal(t, math.NewInt(9000).String(), got["phoenix"].String())
+		require.Equal(t, math.NewInt(1200).String(), got["zenith"].String())
+	})
+
+	t.Run("respects pagination limit", func(t *testing.T) {
+		f, qs := seed(t)
+
+		resp, err := qs.ListTagStakePools(f.ctx, &types.QueryListTagStakePoolsRequest{
+			Pagination: &query.PageRequest{Limit: 2},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Pool, 2)
+		require.NotNil(t, resp.Pagination)
+		require.NotNil(t, resp.Pagination.NextKey)
+
+		resp2, err := qs.ListTagStakePools(f.ctx, &types.QueryListTagStakePoolsRequest{
+			Pagination: &query.PageRequest{Key: resp.Pagination.NextKey, Limit: 2},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp2.Pool, 1)
+	})
+
+	t.Run("empty store returns no pools", func(t *testing.T) {
+		f := initFixture(t)
+		qs := keeper.NewQueryServerImpl(f.keeper)
+
+		resp, err := qs.ListTagStakePools(f.ctx, &types.QueryListTagStakePoolsRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Pool, 0)
+	})
+
+	t.Run("nil request returns error", func(t *testing.T) {
+		f := initFixture(t)
+		qs := keeper.NewQueryServerImpl(f.keeper)
+
+		_, err := qs.ListTagStakePools(f.ctx, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "request cannot be empty")
 	})

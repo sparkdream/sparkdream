@@ -39,6 +39,14 @@ const (
 
 	// DefaultConvictionRenewalPeriod is the default conviction renewal period (7 days)
 	DefaultConvictionRenewalPeriod int64 = 604800
+
+	// DefaultMaxTagsPerPost is the default maximum number of tags that may be
+	// attached to a post. Mirrors x/forum's DefaultMaxTagsPerPost to keep the
+	// two content modules in sync.
+	DefaultMaxTagsPerPost uint32 = 5
+	// DefaultMaxTagLength is the default maximum length in bytes of a single
+	// tag name. Mirrors x/forum's DefaultMaxTagLength.
+	DefaultMaxTagLength uint32 = 32
 )
 
 var (
@@ -76,6 +84,8 @@ func NewParams(maxTitleLength, maxBodyLength uint64) Params {
 		MaxReactionFee:             sdk.NewCoin(DefaultFeeDenom, DefaultMaxReactionFeeAmount),
 		ConvictionRenewalThreshold: DefaultConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:    DefaultConvictionRenewalPeriod,
+		MaxTagsPerPost:             DefaultMaxTagsPerPost,
+		MaxTagLength:               DefaultMaxTagLength,
 	}
 }
 
@@ -273,6 +283,13 @@ func (p Params) Validate() error {
 	if p.ConvictionRenewalThreshold.IsPositive() && p.ConvictionRenewalPeriod <= 0 {
 		return fmt.Errorf("conviction_renewal_period must be > 0 when conviction_renewal_threshold is positive (threshold=%s, period=%d)",
 			p.ConvictionRenewalThreshold, p.ConvictionRenewalPeriod)
+	}
+
+	if p.MaxTagsPerPost == 0 {
+		return fmt.Errorf("max_tags_per_post must be positive, got %d", p.MaxTagsPerPost)
+	}
+	if p.MaxTagLength == 0 {
+		return fmt.Errorf("max_tag_length must be positive, got %d", p.MaxTagLength)
 	}
 
 	return nil

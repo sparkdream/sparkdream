@@ -69,24 +69,17 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 		}
 	}
 
-	// Validate tags
-	if uint32(len(msg.Tags)) > params.MaxTagsPerCollection {
-		return nil, types.ErrMaxTags
+	// Validate the full new tag set (format, length, registry existence,
+	// reserved check). Do NOT increment usage here — we only want to bump
+	// usage for tags that are genuinely new on this update.
+	if err := k.validateTagsNoIncrement(ctx, msg.Tags, params.MaxTagsPerCollection, params.MaxTagLength); err != nil {
+		return nil, err
 	}
-	for _, tag := range msg.Tags {
-		if uint32(len(tag)) > params.MaxTagLength {
-			return nil, types.ErrTagTooLong
-		}
-		// Validate against shared tag registry if available
-		if k.forumKeeper != nil {
-			exists, err := k.forumKeeper.TagExists(ctx, tag)
-			if err != nil {
-				return nil, errorsmod.Wrap(err, "failed to check tag registry")
-			}
-			if !exists {
-				return nil, errorsmod.Wrapf(types.ErrTagTooLong, "tag %q not found in registry", tag)
-			}
-		}
+
+	// Compute the added/removed delta before we mutate coll.Tags.
+	addedTags, removedTags := diffCollectionTags(coll.Tags, msg.Tags)
+	if err := k.incrementTagUsages(ctx, addedTags, sdkCtx.BlockTime().Unix()); err != nil {
+		return nil, err
 	}
 
 	member := k.isMember(ctx, msg.Creator)
@@ -174,6 +167,14 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 	// Store updated collection
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update collection")
+	}
+
+	// Maintain tag secondary index — write added entries, remove dropped ones.
+	if err := k.addCollectionTagIndex(ctx, coll.Id, addedTags); err != nil {
+		return nil, err
+	}
+	if err := k.removeCollectionTagIndex(ctx, coll.Id, removedTags); err != nil {
+		return nil, err
 	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collection_updated",

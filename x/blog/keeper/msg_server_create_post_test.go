@@ -23,6 +23,11 @@ import (
 )
 
 func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context, *mockBankKeeper) {
+	k, ms, ctx, bk, _ := setupMsgServerWithRep(t)
+	return k, ms, ctx, bk
+}
+
+func setupMsgServerWithRep(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context, *mockBankKeeper, *mockRepKeeper) {
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
 	addressCodec := addresscodec.NewBech32Codec("sprkdrm")
 
@@ -54,7 +59,7 @@ func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context, 
 		t.Fatalf("failed to set params: %v", err)
 	}
 
-	return k, keeper.NewMsgServerImpl(k), ctx, bankKeeper
+	return k, keeper.NewMsgServerImpl(k), ctx, bankKeeper, repKeeper
 }
 
 func TestCreatePost(t *testing.T) {

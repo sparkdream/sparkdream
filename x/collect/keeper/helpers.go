@@ -551,6 +551,10 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)) //nolint:errcheck
 	}
 	k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
+	// Remove tag secondary index entries for this collection.
+	for _, tag := range coll.Tags {
+		k.CollectionsByTag.Remove(ctx, collections.Join(tag, coll.Id)) //nolint:errcheck
+	}
 
 	// Delete collection
 	k.Collection.Remove(ctx, coll.Id) //nolint:errcheck

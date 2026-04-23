@@ -109,4 +109,8 @@ var (
 
 	// CollectionsByStatusKey: (status, collectionID) → empty - for querying by status
 	CollectionsByStatusKey = collections.NewPrefix("collection/by_status/")
+
+	// CollectionsByTagKey: (tag, collectionID) → empty - for ListCollectionsByTag
+	// Maintained by CreateCollection, UpdateCollection (diff), DeleteCollection.
+	CollectionsByTagKey = collections.NewPrefix("collection/by_tag/")
 )

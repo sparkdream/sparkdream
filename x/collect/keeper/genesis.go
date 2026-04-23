@@ -45,6 +45,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)); err != nil {
 			return err
 		}
+		for _, tag := range coll.Tags {
+			if err := k.CollectionsByTag.Set(ctx, collections.Join(tag, coll.Id)); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Import items + rebuild secondary indexes

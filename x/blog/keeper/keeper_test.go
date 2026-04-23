@@ -84,8 +84,20 @@ type mockRepKeeper struct {
 	GetContentConvictionFn           func(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
 	GetContentStakesFn               func(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error)
 
+	// Tag registry behavior — tests set these to configure the fake registry.
+	// KnownTags: tag names that exist in the registry.
+	// ReservedTags: subset of KnownTags that are reserved (rejected).
+	KnownTags    map[string]bool
+	ReservedTags map[string]bool
+
 	// Track calls
-	CreateAuthorBondCalls []createAuthorBondCall
+	CreateAuthorBondCalls   []createAuthorBondCall
+	IncrementTagUsageCalls  []incrementTagUsageCall
+}
+
+type incrementTagUsageCall struct {
+	Name      string
+	Timestamp int64
 }
 
 type createAuthorBondCall struct {
@@ -173,6 +185,25 @@ func (m *mockRepKeeper) RegisterContentInitiativeLink(_ context.Context, _ uint6
 }
 
 func (m *mockRepKeeper) RemoveContentInitiativeLink(_ context.Context, _ uint64, _ int32, _ uint64) error {
+	return nil
+}
+
+func (m *mockRepKeeper) TagExists(_ context.Context, name string) (bool, error) {
+	if m.KnownTags == nil {
+		// Default to permissive — any tag is accepted — so existing tests
+		// that don't set KnownTags but do pass tags aren't broken. Tag-specific
+		// tests populate KnownTags explicitly.
+		return true, nil
+	}
+	return m.KnownTags[name], nil
+}
+
+func (m *mockRepKeeper) IsReservedTag(_ context.Context, name string) (bool, error) {
+	return m.ReservedTags[name], nil
+}
+
+func (m *mockRepKeeper) IncrementTagUsage(_ context.Context, name string, timestamp int64) error {
+	m.IncrementTagUsageCalls = append(m.IncrementTagUsageCalls, incrementTagUsageCall{Name: name, Timestamp: timestamp})
 	return nil
 }
 

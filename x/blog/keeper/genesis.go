@@ -47,11 +47,20 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	// Rebuild derived indexes that SetPost/SetReply don't create
 	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
 
-	// Rebuild creator post index and expiry index for posts
+	// Rebuild creator post index, tag post index, and expiry index for posts.
+	// Tombstoned posts are skipped in the tag index since they are excluded
+	// from ListPostsByTag results.
 	creatorStore := prefix.NewStore(storeAdapter, []byte(types.CreatorPostKey))
+	tagStore := prefix.NewStore(storeAdapter, []byte(types.TagPostKey))
 	for _, post := range genState.Posts {
 		creatorKey := append([]byte(post.Creator+"/"), GetPostIDBytes(post.Id)...)
 		creatorStore.Set(creatorKey, []byte{0x01})
+
+		if post.Status != types.PostStatus_POST_STATUS_DELETED {
+			for _, tag := range post.Tags {
+				tagStore.Set(tagPostIndexKey(tag, post.Id), []byte{0x01})
+			}
+		}
 
 		if post.ExpiresAt > 0 {
 			k.AddToExpiryIndex(ctx, post.ExpiresAt, "post", post.Id)

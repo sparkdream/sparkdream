@@ -48,6 +48,13 @@ type RepKeeper interface {
 	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 	RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+
+	// Tag registry (owned by x/rep). Tags referenced on collections and
+	// reviews must already exist and must not be reserved. IncrementTagUsage
+	// bumps usage_count and last_used_at when the module references a tag.
+	TagExists(ctx context.Context, name string) (bool, error)
+	IsReservedTag(ctx context.Context, name string) (bool, error)
+	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.
@@ -85,10 +92,6 @@ type ForumKeeper interface {
 
 	// SlashBondCommitment slashes a committed bond amount from the sentinel (burned).
 	SlashBondCommitment(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
-
-	// Tag registry operations (shared tag system)
-	TagExists(ctx context.Context, name string) (bool, error)
-	IsReservedTag(ctx context.Context, name string) (bool, error)
 
 	// Post existence check for OnChainReference validation.
 	// Forum replies are posts with ParentId > 0, both stored in Post collection.

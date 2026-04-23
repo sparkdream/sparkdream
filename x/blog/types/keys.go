@@ -23,6 +23,9 @@ const (
 	// Creator post index
 	CreatorPostKey = "Post/creator/"
 
+	// Tag post index: (tag, postID) -> nothing. Maintained by Create/Update/Delete.
+	TagPostKey = "Post/tag/"
+
 	// Reply storage
 	ReplyKey      = "Reply/value/"
 	ReplyCountKey = "Reply/count/"

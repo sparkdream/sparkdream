@@ -68,6 +68,11 @@ service Query {
   rpc ListExpiringContent(QueryListExpiringContentRequest) returns (QueryListExpiringContentResponse) {
     option (google.api.http).get = "/sparkdream/blog/v1/list_expiring_content";
   }
+
+  // ListPostsByTag returns paginated posts that carry a given tag.
+  rpc ListPostsByTag(QueryListPostsByTagRequest) returns (QueryListPostsByTagResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_posts_by_tag/{tag}";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -201,4 +206,16 @@ message QueryListExpiringContentResponse {
   repeated Post posts = 1 [(gogoproto.nullable) = false];
   repeated Reply replies = 2 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryListPostsByTagRequest defines the QueryListPostsByTagRequest message.
+message QueryListPostsByTagRequest {
+  string tag = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryListPostsByTagResponse defines the QueryListPostsByTagResponse message.
+message QueryListPostsByTagResponse {
+  repeated Post posts = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

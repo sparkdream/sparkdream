@@ -29,4 +29,5 @@ message Post {
   int64 edited_at = 19; // Unix timestamp of last content edit (0 if never)
   uint64 initiative_id = 20; // x/rep initiative referenced by this post (0 = none, immutable)
   bool conviction_sustained = 21; // True if anonymous content has entered conviction-sustained state (TTL extended by community conviction)
+  repeated string tags = 22; // Tags referenced against the shared x/rep tag registry
 }

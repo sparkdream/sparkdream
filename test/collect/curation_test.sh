@@ -78,7 +78,8 @@ assert_tx_failure "Low-trust member cannot register as curator" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 7: Rate collection (curator too new) ---"
-# min_curator_age_blocks=14400 (~24 hours) - curator just registered
+# config.yml sets min_curator_age_blocks=5 for testing (production: 14400);
+# alice just registered on the previous block, so currentBlock - registered = 0-1 < 5.
 TX_OUT=$(send_tx collect rate-collection "$COLL1_ID" up "art,quality" "Great collection" --from alice)
 assert_tx_failure "Curator too new to rate" "$TX_OUT"
 

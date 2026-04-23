@@ -122,6 +122,18 @@ type mockRepKeeper struct {
 	lockDREAMFn     func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	unlockDREAMFn   func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	burnDREAMFn     func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+
+	// Tag registry behavior. KnownTags: tag names that exist in the registry
+	// (nil map means permissive — any tag accepted, so existing non-tag tests
+	// aren't broken). ReservedTags: subset of KnownTags rejected as reserved.
+	knownTags              map[string]bool
+	reservedTags           map[string]bool
+	incrementTagUsageCalls []incrementTagUsageCall
+}
+
+type incrementTagUsageCall struct {
+	Name      string
+	Timestamp int64
 }
 
 func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool {
@@ -188,6 +200,22 @@ func (m *mockRepKeeper) RegisterContentInitiativeLink(ctx context.Context, initi
 }
 
 func (m *mockRepKeeper) RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error {
+	return nil
+}
+
+func (m *mockRepKeeper) TagExists(_ context.Context, name string) (bool, error) {
+	if m.knownTags == nil {
+		return true, nil
+	}
+	return m.knownTags[name], nil
+}
+
+func (m *mockRepKeeper) IsReservedTag(_ context.Context, name string) (bool, error) {
+	return m.reservedTags[name], nil
+}
+
+func (m *mockRepKeeper) IncrementTagUsage(_ context.Context, name string, timestamp int64) error {
+	m.incrementTagUsageCalls = append(m.incrementTagUsageCalls, incrementTagUsageCall{Name: name, Timestamp: timestamp})
 	return nil
 }
 

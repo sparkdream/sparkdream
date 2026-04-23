@@ -71,6 +71,12 @@ message Params {
 
   // Duration in seconds to extend TTL by when conviction-renewed (default: 604800 = 7 days)
   int64 conviction_renewal_period = 24;
+
+  // Maximum number of tags that may be attached to a post (default: 5)
+  uint32 max_tags_per_post = 25;
+
+  // Maximum length in bytes of any single tag name (default: 32)
+  uint32 max_tag_length = 26;
 }
 
 // BlogOperationalParams defines the operational parameters that can be updated

@@ -212,6 +212,11 @@ service Query {
     option (google.api.http).get = "/sparkdream/rep/v1/tag_stake_pool/{tag}";
   }
 
+  // ListTagStakePools queries all tag stake pools with pagination.
+  rpc ListTagStakePools(QueryListTagStakePoolsRequest) returns (QueryListTagStakePoolsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/tag_stake_pool";
+  }
+
   // GetProjectStakeInfo queries a project's stake info
   rpc GetProjectStakeInfo(QueryGetProjectStakeInfoRequest) returns (QueryGetProjectStakeInfoResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/project_stake_info/{project_id}";
@@ -844,6 +849,17 @@ message QueryGetTagStakePoolRequest {
 // QueryGetTagStakePoolResponse defines the response for tag stake pool
 message QueryGetTagStakePoolResponse {
   TagStakePool pool = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryListTagStakePoolsRequest defines the request for listing tag stake pools.
+message QueryListTagStakePoolsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryListTagStakePoolsResponse defines the response for listing tag stake pools.
+message QueryListTagStakePoolsResponse {
+  repeated TagStakePool pool = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryGetProjectStakeInfoRequest defines the request for project stake info

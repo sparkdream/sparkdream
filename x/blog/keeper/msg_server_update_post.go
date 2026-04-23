@@ -83,6 +83,17 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
+	// Validate tags and bump usage metadata for any new tags on this edit.
+	// Forum increments on every edit that carries tags (even if the tag set is
+	// unchanged) — match that precedent so usage_count reflects activity.
+	if len(msg.Tags) > 0 {
+		if err := k.validatePostTags(ctx, msg.Tags, sdkCtx.BlockTime().Unix()); err != nil {
+			return nil, err
+		}
+	}
+
+	oldTags := val.Tags
+
 	// Update post fields, preserving existing fields not in update message
 	val.Title = msg.Title
 	val.Body = msg.Body
@@ -92,11 +103,15 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 	val.UpdatedAt = sdkCtx.BlockTime().Unix()
 	val.Edited = true
 	val.EditedAt = sdkCtx.BlockTime().Unix()
+	val.Tags = msg.Tags
 	if newBytes > val.FeeBytesHighWater {
 		val.FeeBytesHighWater = newBytes
 	}
 
 	k.SetPost(ctx, val)
+
+	// Diff old vs new tag set; write added entries and remove dropped ones.
+	k.updateTagIndexEntries(ctx, val.Id, oldTags, msg.Tags)
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("blog.post.updated",

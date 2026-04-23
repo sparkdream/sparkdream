@@ -31,6 +31,7 @@ RUN_REPLY=true
 RUN_REACTION=true
 RUN_PIN=true
 RUN_ANON=true
+RUN_TAG=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -54,12 +55,16 @@ for arg in "$@"; do
         --no-anon)
             RUN_ANON=false
             ;;
+        --no-tag)
+            RUN_TAG=false
+            ;;
         --only-setup)
             RUN_POST=false
             RUN_REPLY=false
             RUN_REACTION=false
             RUN_PIN=false
             RUN_ANON=false
+            RUN_TAG=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -69,6 +74,7 @@ for arg in "$@"; do
             RUN_REACTION=false
             RUN_PIN=false
             RUN_ANON=false
+            RUN_TAG=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -80,6 +86,7 @@ for arg in "$@"; do
             RUN_REACTION=false
             RUN_PIN=false
             RUN_ANON=false
+            RUN_TAG=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -91,6 +98,7 @@ for arg in "$@"; do
             echo "  --no-reaction    Skip reaction tests"
             echo "  --no-pin         Skip pin post/reply tests"
             echo "  --no-anon        Skip anonymous action tests (via x/shield)"
+            echo "  --no-tag         Skip tag validation and list-by-tag tests"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -373,6 +381,14 @@ if [ "$RUN_ANON" = true ]; then
     run_test "Anonymous Action Tests" "anon_test.sh"
 else
     echo "Skipping anonymous action tests (--no-anon)"
+    echo ""
+fi
+
+# Tag validation and list-by-tag tests
+if [ "$RUN_TAG" = true ]; then
+    run_test "Tag Tests" "tag_test.sh"
+else
+    echo "Skipping tag tests (--no-tag)"
     echo ""
 fi
 

@@ -87,6 +87,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		}
 	}
 
+	// Validate tags and bump usage metadata in the shared x/rep registry.
+	if len(msg.Tags) > 0 {
+		if err := k.validatePostTags(ctx, msg.Tags, sdkCtx.BlockTime().Unix()); err != nil {
+			return nil, err
+		}
+	}
+
 	post := types.Post{
 		Creator:            msg.Creator,
 		Title:              msg.Title,
@@ -99,9 +106,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		ExpiresAt:          expiresAt,
 		FeeBytesHighWater:  uint64(len(msg.Title) + len(msg.Body)),
 		InitiativeId:       msg.InitiativeId,
+		Tags:               msg.Tags,
 	}
 
 	id := k.AppendPost(ctx, post)
+
+	// Write tag → postID secondary index entries for ListPostsByTag.
+	k.addTagIndexEntries(ctx, id, msg.Tags)
 
 	// Create author bond if requested (requires repKeeper)
 	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.repKeeper != nil {

@@ -361,6 +361,12 @@ genesis:
         hide_appeal_cooldown: "1800"     # 30 minutes (DEVNET; production: 3600 = 1 hour)
         lock_appeal_cooldown: "1800"     # 30 minutes (DEVNET; production: 3600 = 1 hour)
         move_appeal_cooldown: "1800"     # 30 minutes (DEVNET; production: 3600 = 1 hour)
+    collect:
+      params:
+        # Curator age gate - DEVNET: short enough to exercise the curator flow
+        # manually (~10 min at ~2s blocks) but still long enough to mean
+        # something. Production (mainnet/testnet): 14400 blocks ~ 1 day.
+        min_curator_age_blocks: "300"
 # Bootstrap validators for `ignite chain init`. Tests that bring up a local
 # chain rely on alice + bob being staked at genesis.
 validators:

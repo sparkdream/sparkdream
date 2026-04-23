@@ -125,6 +125,7 @@ message MsgCreatePost {
     (gogoproto.nullable) = true
   ];
   uint64 initiative_id = 7; // Optional: reference an x/rep initiative (0 = none, immutable)
+  repeated string tags = 8; // Tags referenced against the shared x/rep tag registry
 }
 
 // MsgCreatePostResponse defines the MsgCreatePostResponse message.
@@ -142,6 +143,7 @@ message MsgUpdatePost {
   sparkdream.common.v1.ContentType content_type = 5;
   bool replies_enabled = 6;
   int32 min_reply_trust_level = 7; // Minimum trust level to reply (-1 to 4)
+  repeated string tags = 8; // Tags referenced against the shared x/rep tag registry (replaces existing tags)
 }
 
 // MsgUpdatePostResponse defines the MsgUpdatePostResponse message.

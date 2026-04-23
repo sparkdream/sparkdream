@@ -448,6 +448,14 @@ genesis:
         hide_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         lock_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         move_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
+    collect:
+      params:
+        # Curator age gate - SHORT for testing (production: 14400 ~1 day).
+        # Needs to be low enough to exercise the rate-collection tag-validation
+        # path in e2e tests, yet high enough that curation_test.sh's "curator
+        # too new" rejection still fires for a curator rating on the same
+        # block they registered (currentBlock - registeredAt = 0-1).
+        min_curator_age_blocks: "5"
 validators:
 - name: alice
   bonded: 15000000000000uspark

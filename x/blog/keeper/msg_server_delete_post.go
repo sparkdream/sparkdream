@@ -51,6 +51,10 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	creatorKey := append([]byte(val.Creator+"/"), GetPostIDBytes(val.Id)...)
 	creatorStore.Delete(creatorKey)
 
+	// Remove tag secondary index entries — tombstoned posts are excluded from
+	// ListPostsByTag results.
+	k.removeTagIndexEntries(ctx, val.Id, val.Tags)
+
 	// Tombstone the post instead of hard delete
 	val.Title = ""
 	val.Body = ""
@@ -59,6 +63,7 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	val.HiddenBy = ""
 	val.HiddenAt = 0
 	val.ExpiresAt = 0
+	val.Tags = nil
 	k.SetPost(ctx, val)
 
 	// Emit event

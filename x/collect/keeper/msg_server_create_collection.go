@@ -69,24 +69,10 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		}
 	}
 
-	// Validate tags
-	if uint32(len(msg.Tags)) > params.MaxTagsPerCollection {
-		return nil, types.ErrMaxTags
-	}
-	for _, tag := range msg.Tags {
-		if uint32(len(tag)) > params.MaxTagLength {
-			return nil, types.ErrTagTooLong
-		}
-		// Validate against shared tag registry if available
-		if k.forumKeeper != nil {
-			exists, err := k.forumKeeper.TagExists(ctx, tag)
-			if err != nil {
-				return nil, errorsmod.Wrap(err, "failed to check tag registry")
-			}
-			if !exists {
-				return nil, errorsmod.Wrapf(types.ErrTagTooLong, "tag %q not found in registry", tag)
-			}
-		}
+	// Validate tags against the shared x/rep tag registry and bump usage
+	// metadata for each accepted tag. Unknown and reserved tags are rejected.
+	if err := k.validateTags(ctx, msg.Tags, params.MaxTagsPerCollection, params.MaxTagLength, sdkCtx.BlockTime().Unix()); err != nil {
+		return nil, err
 	}
 
 	member := k.isMember(ctx, msg.Creator)
@@ -200,6 +186,9 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 	}
 	if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(status), collID)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set status index")
+	}
+	if err := k.addCollectionTagIndex(ctx, collID, msg.Tags); err != nil {
+		return nil, err
 	}
 
 	// Create author bond if requested (requires repKeeper)

@@ -54,6 +54,13 @@ type RepKeeper interface {
 	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 	RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
+
+	// Tag registry (owned by x/rep). Tags referenced on posts must already exist
+	// in the registry and must not be reserved. IncrementTagUsage bumps the
+	// usage_count and last_used_at for a tag when a post references it.
+	TagExists(ctx context.Context, name string) (bool, error)
+	IsReservedTag(ctx context.Context, name string) (bool, error)
+	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

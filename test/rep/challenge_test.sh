@@ -387,78 +387,16 @@ else
         echo "   → Payout address: $ANON_CHALLENGER_ADDR"
         echo "   → Nullifier: $NULLIFIER"
 
-        # Test nullifier double-vote prevention on a SEPARATE initiative
-        # (Using the same initiative would fail on status check, not nullifier)
+        # Nullifier-based deduplication used to be enforced here when
+        # create-challenge accepted --nullifier / --membership-proof flags
+        # directly. After the x/shield migration (see commit 30f42a1),
+        # anonymous challenges go through MsgShieldedExec instead and
+        # nullifier dedup is owned by x/shield. This create-challenge path
+        # is now a regular (non-anonymous) challenge, so there's nothing to
+        # test at this layer — coverage moved to test/shield.
         echo ""
-        echo "Step 2: Testing nullifier prevents double-voting..."
-        echo "   → Creating a separate SUBMITTED initiative to isolate nullifier test"
-
-        # Create a new initiative specifically for nullifier testing
-        NULLIFIER_INIT_RES=$($BINARY tx rep create-initiative \
-            $PROJECT_ID \
-            "Nullifier test initiative" \
-            "Separate initiative to test nullifier deduplication" \
-            "0" "0" "1" "3000000" \
-            --tags "nullifier","test" \
-            --from alice \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000uspark \
-            -y --output json)
-
-        NULLIFIER_INIT_TX=$(echo "$NULLIFIER_INIT_RES" | jq -r '.txhash')
-        sleep 6
-        NULLIFIER_INIT_RESULT=$(wait_for_tx $NULLIFIER_INIT_TX)
-        NULLIFIER_INIT_ID=$(extract_event_value "$NULLIFIER_INIT_RESULT" "initiative_created" "initiative_id")
-        if [ -z "$NULLIFIER_INIT_ID" ] || [ "$NULLIFIER_INIT_ID" == "null" ]; then
-            NULLIFIER_INIT_ID=$($BINARY query rep list-initiative --output json 2>&1 | jq -r '.initiative[-1].id')
-        fi
-
-        # Assign and submit work
-        $BINARY tx rep assign-initiative $NULLIFIER_INIT_ID $ASSIGNEE_ADDR \
-            --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
-        sleep 6
-        $BINARY tx rep submit-initiative-work $NULLIFIER_INIT_ID "https://github.com/test/nullifier" "Nullifier test" \
-            --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
-        sleep 6
-
-        # Try to create a challenge with the SAME nullifier on the NEW initiative
-        DUPLICATE_RES=$($BINARY tx rep create-challenge \
-            $NULLIFIER_INIT_ID \
-            "Duplicate nullifier challenge attempt" \
-            "1000000" \
-            --from anonymous_challenger \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000uspark \
-            -y \
-            --output json 2>&1)
-
-        DUP_TXHASH=$(echo "$DUPLICATE_RES" | jq -r '.txhash' 2>/dev/null)
-        if [ ! -z "$DUP_TXHASH" ] && [ "$DUP_TXHASH" != "null" ]; then
-            sleep 6
-            DUP_RESULT=$(wait_for_tx $DUP_TXHASH)
-            if ! check_tx_success "$DUP_RESULT"; then
-                RAW_LOG=$(echo "$DUP_RESULT" | jq -r '.raw_log')
-                if echo "$RAW_LOG" | grep -qi "nullifier"; then
-                    echo "✅ Nullifier prevents double-voting across initiatives!"
-                    echo "   → Same nullifier correctly rejected on different initiative"
-                else
-                    echo "⚠️  Duplicate rejected but not by nullifier check"
-                    echo "   → Error: $RAW_LOG"
-                    echo "   → Nullifier deduplication may not be implemented yet"
-                fi
-            else
-                echo "❌ FAIL: Duplicate nullifier was accepted (nullifier check not working)"
-            fi
-        else
-            DUP_CODE=$(echo "$DUPLICATE_RES" | jq -r '.code' 2>/dev/null)
-            if [ "$DUP_CODE" != "0" ] && [ -n "$DUP_CODE" ]; then
-                echo "✅ Duplicate nullifier rejected at broadcast"
-            else
-                echo "⚠️  Could not verify nullifier deduplication"
-            fi
-        fi
+        echo "Step 2: Nullifier deduplication (now owned by x/shield)"
+        echo "   → Skipped at this layer — covered by test/shield."
 
         # Query challenge details
         CHALLENGE_DETAIL=$($BINARY query rep get-challenge $ANON_CHALLENGE_ID --output json 2>&1)
