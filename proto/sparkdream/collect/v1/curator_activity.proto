@@ -1,0 +1,41 @@
+syntax = "proto3";
+package sparkdream.collect.v1;
+
+import "cosmos_proto/cosmos.proto";
+
+option go_package = "sparkdream/x/collect/types";
+
+// CuratorActivity holds collect-specific per-curator counters. The generic
+// bond/status/activity record lives in x/rep as BondedRole
+// (ROLE_TYPE_COLLECT_CURATOR) — this proto only tracks what's collect-specific:
+// review counts and dispute outcomes.
+message CuratorActivity {
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // total_reviews is the lifetime count of reviews the curator has submitted.
+  uint64 total_reviews = 2;
+
+  // challenged_reviews is the lifetime count of the curator's reviews that
+  // have been challenged (regardless of outcome).
+  uint64 challenged_reviews = 3;
+
+  // upheld_reviews is the lifetime count of challenged reviews that were
+  // ultimately upheld in the curator's favor.
+  uint64 upheld_reviews = 4;
+
+  // overturned_reviews is the lifetime count of challenged reviews that were
+  // overturned against the curator.
+  uint64 overturned_reviews = 5;
+
+  // consecutive_overturns tracks the current streak of overturned-against
+  // reviews since the last upheld one. Used to trigger demotion via
+  // SetBondStatus(DEMOTED) when it crosses the threshold.
+  uint64 consecutive_overturns = 6;
+
+  // consecutive_upheld tracks the current streak of upheld reviews.
+  uint64 consecutive_upheld = 7;
+
+  // epoch_reviews counts reviews submitted in the current sentinel-style
+  // reward epoch (reserved for future per-epoch accounting; zero for now).
+  uint64 epoch_reviews = 8;
+}

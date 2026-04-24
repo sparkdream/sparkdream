@@ -11,7 +11,7 @@ func DefaultGenesis() *GenesisState {
 		Items:               []Item{},
 		ItemCount:           1,
 		Collaborators:       []Collaborator{},
-		Curators:            []Curator{},
+		CuratorActivities:   []CuratorActivity{},
 		CurationReviews:     []CurationReview{},
 		CurationReviewCount: 1,
 		CurationSummaries:   []CurationSummary{},

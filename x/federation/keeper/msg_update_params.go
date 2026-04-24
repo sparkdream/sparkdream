@@ -42,6 +42,13 @@ func (k msgServer) UpdateParams(ctx context.Context, req *types.MsgUpdateParams)
 		return nil, err
 	}
 
+	// Write-through the verifier bond-role config so any change to
+	// min_verifier_bond / min_verifier_trust_level / verifier_demotion_cooldown
+	// / verifier_recovery_threshold lands on x/rep's BondedRoleConfig.
+	if err := k.SyncVerifierBondedRoleConfig(ctx, req.Params); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to sync verifier bonded-role config to rep")
+	}
+
 	return &types.MsgUpdateParamsResponse{}, nil
 }
 

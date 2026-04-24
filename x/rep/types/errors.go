@@ -126,6 +126,12 @@ var (
 	ErrCannotUnbondPendingActions = errors.Register(ModuleName, 1935, "cannot unbond while sentinel actions are pending")
 	ErrDemotionCooldown           = errors.Register(ModuleName, 1936, "sentinel demotion cooldown active")
 
+	// Bonded-role errors (generic; sentinel/curator/verifier share these).
+	ErrInvalidRoleType         = errors.Register(ModuleName, 1937, "invalid role type")
+	ErrBondedRoleNotFound      = errors.Register(ModuleName, 1938, "bonded role not found")
+	ErrBondedRoleConfigMissing = errors.Register(ModuleName, 1953, "bonded role config missing")
+	ErrInsufficientBond        = errors.Register(ModuleName, 1954, "insufficient bond")
+
 	// Accountability errors
 	ErrReportNotFound          = errors.Register(ModuleName, 1939, "report not found")
 	ErrReportAlreadyExists     = errors.Register(ModuleName, 1940, "report already exists")

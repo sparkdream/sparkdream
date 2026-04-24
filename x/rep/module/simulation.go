@@ -549,36 +549,6 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	))
 
 	const (
-		opWeightMsgBondSentinel          = "op_weight_msg_rep"
-		defaultWeightMsgBondSentinel int = 100
-	)
-	var weightMsgBondSentinel int
-	simState.AppParams.GetOrGenerate(opWeightMsgBondSentinel, &weightMsgBondSentinel, nil,
-		func(_ *rand.Rand) {
-			weightMsgBondSentinel = defaultWeightMsgBondSentinel
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgBondSentinel,
-		repsimulation.SimulateMsgBondSentinel(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	const (
-		opWeightMsgUnbondSentinel          = "op_weight_msg_rep"
-		defaultWeightMsgUnbondSentinel int = 100
-	)
-	var weightMsgUnbondSentinel int
-	simState.AppParams.GetOrGenerate(opWeightMsgUnbondSentinel, &weightMsgUnbondSentinel, nil,
-		func(_ *rand.Rand) {
-			weightMsgUnbondSentinel = defaultWeightMsgUnbondSentinel
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgUnbondSentinel,
-		repsimulation.SimulateMsgUnbondSentinel(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	const (
 		opWeightMsgReportMember          = "op_weight_msg_rep"
 		defaultWeightMsgReportMember int = 100
 	)

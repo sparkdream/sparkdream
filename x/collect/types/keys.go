@@ -28,7 +28,10 @@ var (
 
 	CollaboratorKey = collections.NewPrefix("collaborator/value/")
 
-	CuratorKey = collections.NewPrefix("curator/value/")
+	// CuratorActivityKey: address -> CuratorActivity (collect-specific
+	// per-curator counters). Generic bond state lives in x/rep as
+	// BondedRole(ROLE_TYPE_COLLECT_CURATOR, addr).
+	CuratorActivityKey = collections.NewPrefix("curator_activity/value/")
 
 	CurationReviewKey    = collections.NewPrefix("curation_review/value/")
 	CurationReviewSeqKey = collections.NewPrefix("curation_review/seq/")

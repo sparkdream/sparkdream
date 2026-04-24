@@ -87,8 +87,8 @@ The `x/authz` grant is scoped to specific message types. This means the session 
 | Message | Rationale |
 |---------|-----------|
 | `MsgDeletePost` | Permanent deletion |
-| `MsgBondSentinel` | Locks DREAM tokens |
-| `MsgUnbondSentinel` | Unlocks DREAM tokens |
+| `MsgBondRole` (x/rep) | Locks DREAM tokens against a bonded role (sentinel / curator / verifier) |
+| `MsgUnbondRole` (x/rep) | Unlocks DREAM tokens from a bonded role |
 | `MsgCreateBounty` | Escrows DREAM |
 | `MsgAwardBounty` | Transfers escrowed DREAM |
 | `MsgHidePost` | Sentinel moderation (requires bond) |

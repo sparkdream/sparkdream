@@ -63,14 +63,17 @@ func SimulateMsgChallengeReview(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update review: "+err.Error()), nil, nil
 		}
 
-		// Increment PendingChallenges on the curator
-		curator, err := k.Curator.Get(ctx, review.Curator)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to get curator: "+err.Error()), nil, nil
+		// Increment per-module challenged-review counter. Slash-bond
+		// reservation against the rep BondedRole is skipped here (simulation
+		// cannot seed cross-module state); the corresponding actual msg
+		// handler does reserve bond at runtime.
+		activity, _ := k.CuratorActivity.Get(ctx, review.Curator)
+		if activity.Address == "" {
+			activity.Address = review.Curator
 		}
-		curator.PendingChallenges++
-		if err := k.Curator.Set(ctx, review.Curator, curator); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update curator: "+err.Error()), nil, nil
+		activity.ChallengedReviews++
+		if err := k.CuratorActivity.Set(ctx, review.Curator, activity); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update curator activity: "+err.Error()), nil, nil
 		}
 
 		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil

@@ -102,9 +102,10 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Verifiers
-	for _, v := range genState.Verifiers {
-		if err := k.Verifiers.Set(ctx, v.Address, v); err != nil {
+	// Verifier activity (Phase 4 bonded-role generalization: generic bond
+	// state lives in x/rep, only per-module counters are tracked here).
+	for _, activity := range genState.VerifierActivities {
+		if err := k.VerifierActivity.Set(ctx, activity.Address, activity); err != nil {
 			return err
 		}
 	}
@@ -114,6 +115,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.VerificationRecords.Set(ctx, vr.ContentId, vr); err != nil {
 			return err
 		}
+	}
+
+	// Write-through the verifier bond-role config to x/rep so MsgBondRole
+	// enforcement uses federation's seeded values (Phase 4 bonded-role
+	// generalization).
+	if err := k.SyncVerifierBondedRoleConfig(ctx, genState.Params); err != nil {
+		return err
 	}
 
 	// Sequences — use Set() directly instead of calling Next() N times (O(1) vs O(n))
@@ -209,9 +217,10 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 
-	// Export verifiers
-	err = k.Verifiers.Walk(ctx, nil, func(key string, value types.FederationVerifier) (bool, error) {
-		genesis.Verifiers = append(genesis.Verifiers, value)
+	// Export verifier activity (per-module counters). Generic bond state
+	// lives in x/rep BondedRole, exported by x/rep's genesis.
+	err = k.VerifierActivity.Walk(ctx, nil, func(_ string, value types.VerifierActivity) (bool, error) {
+		genesis.VerifierActivities = append(genesis.VerifierActivities, value)
 		return false, nil
 	})
 	if err != nil {

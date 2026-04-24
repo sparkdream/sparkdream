@@ -420,7 +420,8 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	)
 	_ = err
 
-	// Cleanup curation: refund pending challenge deposits, update curator state
+	// Cleanup curation: refund pending challenge deposits, release any
+	// committed slash budget back to the curator's bonded role.
 	err = k.CurationReviewsByCollection.Walk(ctx,
 		collections.NewPrefixedPairRange[uint64, uint64](coll.Id),
 		func(key collections.Pair[uint64, uint64]) (bool, error) {
@@ -428,17 +429,16 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			if err != nil {
 				return false, nil
 			}
-			// Refund pending challenge deposits
+			// Refund pending challenge deposits and release committed bond.
 			if review.Challenged && !review.Overturned {
-				challengerAddr, err := k.addressCodec.StringToBytes(review.Challenger)
-				if err == nil {
+				challengerAddr, aerr := k.addressCodec.StringToBytes(review.Challenger)
+				if aerr == nil {
 					k.repKeeper.UnlockDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck
 				}
-				// Decrement pending challenges on curator
-				curator, err := k.Curator.Get(ctx, review.Curator)
-				if err == nil && curator.PendingChallenges > 0 {
-					curator.PendingChallenges--
-					k.Curator.Set(ctx, review.Curator, curator) //nolint:errcheck
+				if !review.CommittedSlash.IsNil() && review.CommittedSlash.IsPositive() {
+					k.repKeeper.ReleaseBond(ctx, //nolint:errcheck
+						reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+						review.Curator, review.CommittedSlash)
 				}
 			}
 			// Remove review indexes

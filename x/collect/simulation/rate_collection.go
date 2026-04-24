@@ -48,14 +48,15 @@ func SimulateMsgRateCollection(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to create curation review: "+err.Error()), nil, nil
 		}
 
-		// Increment curator's TotalReviews
-		curator, err := k.Curator.Get(ctx, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to get curator: "+err.Error()), nil, nil
+		// Increment collect-specific curator activity counter (generic bond
+		// state lives on rep's BondedRole which the simulation cannot seed).
+		activity, _ := k.CuratorActivity.Get(ctx, simAccount.Address.String())
+		if activity.Address == "" {
+			activity.Address = simAccount.Address.String()
 		}
-		curator.TotalReviews++
-		if err := k.Curator.Set(ctx, simAccount.Address.String(), curator); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update curator: "+err.Error()), nil, nil
+		activity.TotalReviews++
+		if err := k.CuratorActivity.Set(ctx, simAccount.Address.String(), activity); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update curator activity: "+err.Error()), nil, nil
 		}
 
 		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil

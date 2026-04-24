@@ -234,13 +234,13 @@ echo ""
 echo "--- TEST 12: Get verifier ---"
 
 # Verifier tests now use alice (CORE trust level) as verifier instead of verifier1
-VERIFIER=$($BINARY query federation get-verifier $ALICE_ADDR --output json 2>&1)
+VERIFIER=$($BINARY query rep bonded-role federation-verifier $ALICE_ADDR --output json 2>&1)
 
-if echo "$VERIFIER" | jq -e '.verifier' > /dev/null 2>&1; then
-    VERIFIER_ADDR=$(echo "$VERIFIER" | jq -r '.verifier.address // empty')
-    BOND_STATUS=$(echo "$VERIFIER" | jq -r '.verifier.bond_status // "VERIFIER_BOND_STATUS_UNSPECIFIED"')
-    CURRENT_BOND=$(echo "$VERIFIER" | jq -r '.verifier.current_bond // "0"')
-    TOTAL_VERIFICATIONS=$(echo "$VERIFIER" | jq -r '.verifier.total_verifications // "0"')
+if echo "$VERIFIER" | jq -e '.bonded_role' > /dev/null 2>&1; then
+    VERIFIER_ADDR=$(echo "$VERIFIER" | jq -r '.bonded_role.address // empty')
+    BOND_STATUS=$(echo "$VERIFIER" | jq -r '.bonded_role.bond_status // "BONDED_ROLE_STATUS_UNSPECIFIED"')
+    CURRENT_BOND=$(echo "$VERIFIER" | jq -r '.bonded_role.current_bond // "0"')
+    TOTAL_VERIFICATIONS=$(echo "$VERIFIER" | jq -r '.bonded_role.total_verifications // "0"')
     echo "  Verifier: addr=${VERIFIER_ADDR:0:20}..., status=$BOND_STATUS, bond=$CURRENT_BOND, verifications=$TOTAL_VERIFICATIONS"
     record_result "Get verifier" "PASS"
 else
@@ -254,12 +254,12 @@ fi
 echo ""
 echo "--- TEST 13: List verifiers ---"
 
-VERIFIERS=$($BINARY query federation list-verifiers --output json 2>&1)
-if echo "$VERIFIERS" | jq -e '.verifiers' > /dev/null 2>&1; then
-    VERIFIER_COUNT=$(echo "$VERIFIERS" | jq '.verifiers | length')
+VERIFIERS=$($BINARY query rep bonded-roles-by-type federation-verifier --output json 2>&1)
+if echo "$VERIFIERS" | jq -e '.bonded_roles' > /dev/null 2>&1; then
+    VERIFIER_COUNT=$(echo "$VERIFIERS" | jq '.bonded_roles | length')
     echo "  Total verifiers: $VERIFIER_COUNT"
     if [ "$VERIFIER_COUNT" -gt 0 ]; then
-        echo "$VERIFIERS" | jq -r '.verifiers[] | "    \(.address[:20])... bond=\(.current_bond) [\(.bond_status // "VERIFIER_BOND_STATUS_UNSPECIFIED")]"' 2>/dev/null
+        echo "$VERIFIERS" | jq -r '.bonded_roles[] | "    \(.address[:20])... bond=\(.current_bond) [\(.bond_status // "BONDED_ROLE_STATUS_UNSPECIFIED")]"' 2>/dev/null
     fi
     record_result "List verifiers" "PASS"
 else

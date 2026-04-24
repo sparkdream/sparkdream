@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/federation/v1/params.proto";
 import "sparkdream/federation/v1/types.proto";
+import "sparkdream/federation/v1/verifier_activity.proto";
 
 option go_package = "sparkdream/x/federation/types";
 
@@ -24,7 +25,12 @@ message GenesisState {
   repeated IdentityLink identity_links = 7 [(gogoproto.nullable) = false];
   repeated ReputationAttestation reputation_attestations = 8 [(gogoproto.nullable) = false];
   repeated OutboundAttestation outbound_attestations = 9 [(gogoproto.nullable) = false];
-  repeated FederationVerifier verifiers = 10 [(gogoproto.nullable) = false];
+  // Field 10 previously held FederationVerifier records; replaced by x/rep
+  // BondedRole(ROLE_TYPE_FEDERATION_VERIFIER). Per-module counters live in
+  // verifier_activities.
+  reserved 10;
+  reserved "verifiers";
+  repeated VerifierActivity verifier_activities = 14 [(gogoproto.nullable) = false];
   repeated VerificationRecord verification_records = 11 [(gogoproto.nullable) = false];
   uint64 next_content_id = 12;
   uint64 next_outbound_attestation_id = 13;

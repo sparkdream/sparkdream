@@ -231,6 +231,9 @@ var allowedVariations = map[string]string{
 	"forum.params.lock_appeal_cooldown": "appeal cooldown varies per network",
 	"forum.params.move_appeal_cooldown": "appeal cooldown varies per network",
 
+	// === collect: age gate shortened on devnet so e2e tests don't wait a day ===
+	"collect.params.min_curator_age_blocks": "bonded curator must wait this many blocks after bonding before rating; devnet uses ~30min, testnet/mainnet use ~1 day",
+
 	// === federation: timing + fee + capacity, all build-tag conditional
 	// (see x/federation/types/genesis_vals_*.go) ===
 	"federation.params.arbiter_escalation_window":      "build-tag conditional",

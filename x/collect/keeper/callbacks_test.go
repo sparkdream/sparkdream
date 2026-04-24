@@ -10,6 +10,7 @@ import (
 
 	"sparkdream/x/collect/types"
 	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestOnMembershipGranted(t *testing.T) {
@@ -141,17 +142,8 @@ func TestResolveChallengeResult_Upheld(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, review.Challenged)
 
-	// Track mock calls
-	var burnDREAMCalled bool
-	var burnDREAMAddr sdk.AccAddress
-	var burnDREAMAmount math.Int
-	f.repKeeper.burnDREAMFn = func(_ context.Context, addr sdk.AccAddress, amount math.Int) error {
-		burnDREAMCalled = true
-		burnDREAMAddr = addr
-		burnDREAMAmount = amount
-		return nil
-	}
-
+	// Track mock UnlockDREAM calls (challenger reward + challenge deposit
+	// refund both route through UnlockDREAM in the new design).
 	var unlockDREAMCalls []struct {
 		addr   sdk.AccAddress
 		amount math.Int
@@ -173,20 +165,26 @@ func TestResolveChallengeResult_Upheld(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, review.Overturned)
 
-	// Verify curator bond was slashed (10% of 500 = 50)
-	require.True(t, burnDREAMCalled)
-	require.Equal(t, f.memberAddr.Bytes(), burnDREAMAddr.Bytes())
-	expectedSlash := types.DefaultCuratorSlashFraction.MulInt(math.NewInt(500)).TruncateInt()
-	require.Equal(t, expectedSlash, burnDREAMAmount)
+	// Bond slash = CuratorSlashFraction × MinCuratorBond (committed at
+	// challenge time, consumed here).
+	expectedSlash := types.DefaultCuratorSlashFraction.MulInt(types.DefaultMinCuratorBond).TruncateInt()
 
-	// Verify challenger was rewarded and deposit refunded (2 UnlockDREAM calls)
+	// Challenger rewarded + deposit refunded (2 UnlockDREAM calls expected).
 	require.GreaterOrEqual(t, len(unlockDREAMCalls), 2)
 
-	// Verify curator bond updated
-	curator, err := f.keeper.Curator.Get(f.ctx, f.member)
+	// Verify curator bond updated via the mock rep keeper (bonded role).
+	br, err := f.repKeeper.GetBondedRole(f.ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, f.member)
 	require.NoError(t, err)
-	require.Equal(t, math.NewInt(500).Sub(expectedSlash), curator.BondAmount)
-	require.Equal(t, uint32(0), curator.PendingChallenges)
+	currentBond, _ := math.NewIntFromString(br.CurrentBond)
+	require.Equal(t, math.NewInt(500).Sub(expectedSlash), currentBond)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	require.True(t, committed.IsZero())
+
+	// Per-module activity counters bumped.
+	activity, err := f.keeper.CuratorActivity.Get(f.ctx, f.member)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), activity.OverturnedReviews)
+	require.Equal(t, uint64(1), activity.ConsecutiveOverturns)
 }
 
 func TestResolveChallengeResult_Rejected(t *testing.T) {
@@ -257,12 +255,20 @@ func TestResolveChallengeResult_Rejected(t *testing.T) {
 	require.Equal(t, challengerAddr.Bytes(), burnDREAMAddr.Bytes())
 	require.Equal(t, types.DefaultChallengeDeposit, burnDREAMAmount)
 
-	// Verify curator pending_challenges decremented
-	curator, err := f.keeper.Curator.Get(f.ctx, f.member)
+	// Verify bonded role released the committed slash budget (no committed
+	// remaining on rejected challenge) and bond is intact.
+	br, err := f.repKeeper.GetBondedRole(f.ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, f.member)
 	require.NoError(t, err)
-	require.Equal(t, uint32(0), curator.PendingChallenges)
-	// Bond should remain intact
-	require.Equal(t, math.NewInt(500), curator.BondAmount)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	require.True(t, committed.IsZero())
+	currentBond, _ := math.NewIntFromString(br.CurrentBond)
+	require.Equal(t, math.NewInt(500), currentBond)
+
+	// Per-module activity counters bumped.
+	activity, err := f.keeper.CuratorActivity.Get(f.ctx, f.member)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), activity.UpheldReviews)
+	require.Equal(t, uint64(1), activity.ConsecutiveUpheld)
 }
 
 func TestResolveHideAppeal_Upheld(t *testing.T) {

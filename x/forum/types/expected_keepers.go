@@ -108,9 +108,11 @@ type RepKeeper interface {
 	GetSalvationCounters(ctx context.Context, addr string) (epochSalvations uint32, lastEpoch int64, err error)
 	UpdateSalvationCounters(ctx context.Context, addr string, epochSalvations uint32, lastEpoch int64) error
 
-	// Sentinel accountability (owned by x/rep)
-	GetSentinel(ctx context.Context, addr string) (reptypes.SentinelActivity, error)
-	ReserveBond(ctx context.Context, addr string, amount math.Int) error
-	RecordActivity(ctx context.Context, addr string) error
-	SetBondStatus(ctx context.Context, addr string, status reptypes.SentinelBondStatus, cooldownUntil int64) error
+	// Bonded-role accountability (owned by x/rep).
+	// Sentinel is the forum role keyed as ROLE_TYPE_FORUM_SENTINEL.
+	GetBondedRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
+	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
+	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error
+	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
+	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error
 }

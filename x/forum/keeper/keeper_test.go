@@ -170,7 +170,7 @@ type mockRepKeeper struct {
 	nextInitiativeID                uint64
 	tags                            map[string]reptypes.Tag
 	reservedTags                    map[string]reptypes.ReservedTag
-	sentinels                       map[string]reptypes.SentinelActivity
+	sentinels                       map[string]reptypes.BondedRole
 }
 
 func (m *mockRepKeeper) TagExists(_ context.Context, name string) (bool, error) {
@@ -314,48 +314,52 @@ func (m *mockRepKeeper) RemoveContentInitiativeLink(ctx context.Context, initiat
 	return nil
 }
 
-func (m *mockRepKeeper) GetSentinel(_ context.Context, addr string) (reptypes.SentinelActivity, error) {
-	sa, ok := m.sentinels[addr]
+func (m *mockRepKeeper) GetBondedRole(_ context.Context, _ reptypes.RoleType, addr string) (reptypes.BondedRole, error) {
+	br, ok := m.sentinels[addr]
 	if !ok {
-		return reptypes.SentinelActivity{}, reptypes.ErrSentinelNotFound
+		return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
 	}
-	return sa, nil
+	return br, nil
 }
 
-func (m *mockRepKeeper) ReserveBond(_ context.Context, addr string, amount math.Int) error {
-	sa, ok := m.sentinels[addr]
+func (m *mockRepKeeper) ReserveBond(_ context.Context, _ reptypes.RoleType, addr string, amount math.Int) error {
+	br, ok := m.sentinels[addr]
 	if !ok {
-		return reptypes.ErrSentinelNotFound
+		return reptypes.ErrBondedRoleNotFound
 	}
-	current, _ := math.NewIntFromString(sa.CurrentBond)
-	committed, _ := math.NewIntFromString(sa.TotalCommittedBond)
+	current, _ := math.NewIntFromString(br.CurrentBond)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
 	avail := current.Sub(committed)
 	if avail.LT(amount) {
-		return reptypes.ErrInsufficientSentinelBond
+		return reptypes.ErrInsufficientBond
 	}
-	sa.TotalCommittedBond = committed.Add(amount).String()
-	m.sentinels[addr] = sa
+	br.TotalCommittedBond = committed.Add(amount).String()
+	m.sentinels[addr] = br
 	return nil
 }
 
-func (m *mockRepKeeper) RecordActivity(_ context.Context, addr string) error {
-	sa, ok := m.sentinels[addr]
+func (m *mockRepKeeper) RecordActivity(_ context.Context, _ reptypes.RoleType, addr string) error {
+	br, ok := m.sentinels[addr]
 	if !ok {
 		return nil
 	}
-	sa.ConsecutiveInactiveEpochs = 0
-	m.sentinels[addr] = sa
+	br.ConsecutiveInactiveEpochs = 0
+	m.sentinels[addr] = br
 	return nil
 }
 
-func (m *mockRepKeeper) SetBondStatus(_ context.Context, addr string, status reptypes.SentinelBondStatus, cooldownUntil int64) error {
-	sa, ok := m.sentinels[addr]
+func (m *mockRepKeeper) SetBondStatus(_ context.Context, _ reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error {
+	br, ok := m.sentinels[addr]
 	if !ok {
 		return fmt.Errorf("sentinel %s not found", addr)
 	}
-	sa.BondStatus = status
-	sa.DemotionCooldownUntil = cooldownUntil
-	m.sentinels[addr] = sa
+	br.BondStatus = status
+	br.DemotionCooldownUntil = cooldownUntil
+	m.sentinels[addr] = br
+	return nil
+}
+
+func (m *mockRepKeeper) SetBondedRoleConfig(_ context.Context, _ reptypes.BondedRoleConfig) error {
 	return nil
 }
 
@@ -620,13 +624,13 @@ func (f *fixture) createTestSentinel(t *testing.T, addr string, bond string) typ
 	}
 
 	if f.repKeeper.sentinels == nil {
-		f.repKeeper.sentinels = make(map[string]reptypes.SentinelActivity)
+		f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
 	}
-	f.repKeeper.sentinels[addr] = reptypes.SentinelActivity{
+	f.repKeeper.sentinels[addr] = reptypes.BondedRole{
 		Address:            addr,
 		CurrentBond:        bond,
 		TotalCommittedBond: "0",
-		BondStatus:         reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
+		BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 	}
 
 	return sentinel

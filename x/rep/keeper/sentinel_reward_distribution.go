@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -67,7 +68,9 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 		totalScore   = math.LegacyZeroDec()
 	)
 
-	err = k.SentinelActivity.Walk(ctx, nil, func(addr string, sa types.SentinelActivity) (bool, error) {
+	sentinelPrefix := collections.NewPrefixedPairRange[int32, string](int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL))
+	err = k.BondedRoles.Walk(ctx, sentinelPrefix, func(key collections.Pair[int32, string], br types.BondedRole) (bool, error) {
+		addr := key.K2()
 		allSentinels = append(allSentinels, addr)
 
 		// Forum-side counters (decoupled snapshot).
@@ -123,7 +126,7 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 		}
 
 		// Gate 6: Bond status.
-		if sa.BondStatus == types.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED {
+		if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
 			return false, nil
 		}
 
@@ -207,8 +210,9 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 }
 
 // payoutSentinelReward transfers `amount` uspark from the rep module account
-// to the sentinel, updates CumulativeRewards + LastRewardEpoch on the rep-side
-// SentinelActivity record, and emits a `sentinel_reward_distributed` event.
+// to the sentinel, updates CumulativeRewards + LastRewardEpoch on the
+// BondedRole (ROLE_TYPE_FORUM_SENTINEL) record, and emits a
+// `sentinel_reward_distributed` event.
 func (k Keeper) payoutSentinelReward(
 	ctx context.Context,
 	c sentinelRewardCandidate,
@@ -227,15 +231,16 @@ func (k Keeper) payoutSentinelReward(
 		return fmt.Errorf("send coins: %w", err)
 	}
 
-	sa, err := k.SentinelActivity.Get(ctx, c.addr)
+	key := collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), c.addr)
+	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
-		return fmt.Errorf("load sentinel activity: %w", err)
+		return fmt.Errorf("load bonded role: %w", err)
 	}
-	prev := parseIntOrZero(sa.CumulativeRewards)
-	sa.CumulativeRewards = prev.Add(amount).String()
-	sa.LastRewardEpoch = int64(epochNum)
-	if err := k.SentinelActivity.Set(ctx, c.addr, sa); err != nil {
-		return fmt.Errorf("persist sentinel activity: %w", err)
+	prev := parseIntOrZero(br.CumulativeRewards)
+	br.CumulativeRewards = prev.Add(amount).String()
+	br.LastRewardEpoch = int64(epochNum)
+	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+		return fmt.Errorf("persist bonded role: %w", err)
 	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("sentinel_reward_distributed",

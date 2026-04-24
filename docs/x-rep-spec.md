@@ -15,7 +15,7 @@ The `x/rep` module is the core coordination layer for Spark Dream, managing:
 - Content staking: community conviction and author bonds (cross-module quality signals)
 - Tag registry and tag moderation (`Tag`, `ReservedTag`, `TagReport`)
 - Tag budgets (reward pools scoped per tag)
-- Sentinel accountability primitives (bond, bond status, activity stamps)
+- Bonded-role accountability primitives (bond, bond status, activity stamps) — generic `BondedRole(role_type, address)` shared by forum sentinels, collect curators, federation verifiers
 - Member accountability (reports, warnings, appeals, jury participation)
 
 ## Dependencies
@@ -743,45 +743,81 @@ message TagBudget {
 // (award record schema — one row per `MsgAwardFromTagBudget` call)
 ```
 
-### SentinelActivity (rep)
+### BondedRole (generic accountability primitive)
 
-> **Note:** The accountability fields live here; forum retains a separate `sparkdream.forum.v1.SentinelActivity` for per-action counters.
+> **Note:** Phase 1–4 of the bonded-role generalization (see [bonded-role-generalization.md](bonded-role-generalization.md)) replaced the former standalone `SentinelActivity` proto with a role-typed `BondedRole`. Per-module action counters (hides, reviews, verifications) stay in the owning module.
 
 ```protobuf
-// proto/sparkdream/rep/v1/sentinel_activity.proto
-enum SentinelBondStatus {
-  SENTINEL_BOND_STATUS_UNSPECIFIED = 0;
-  SENTINEL_BOND_STATUS_NORMAL      = 1;
-  SENTINEL_BOND_STATUS_RECOVERY    = 2;
-  SENTINEL_BOND_STATUS_DEMOTED     = 3;
+// proto/sparkdream/rep/v1/bonded_role.proto
+enum RoleType {
+  ROLE_TYPE_UNSPECIFIED         = 0;
+  ROLE_TYPE_FORUM_SENTINEL      = 1;
+  ROLE_TYPE_COLLECT_CURATOR     = 2;
+  ROLE_TYPE_FEDERATION_VERIFIER = 3;
 }
 
-message SentinelActivity {
-  string             address                       = 1;
-  SentinelBondStatus bond_status                   = 2;
-  string             current_bond                  = 3;
-  string             total_committed_bond          = 4;
-  int64              last_active_epoch             = 5;
-  uint64             consecutive_inactive_epochs   = 6;
-  int64              demotion_cooldown_until       = 7;
-  string             cumulative_rewards            = 8;
+enum BondedRoleStatus {
+  BONDED_ROLE_STATUS_UNSPECIFIED = 0;
+  BONDED_ROLE_STATUS_NORMAL      = 1;
+  BONDED_ROLE_STATUS_RECOVERY    = 2;
+  BONDED_ROLE_STATUS_DEMOTED     = 3;
+}
+
+message BondedRole {
+  string           address                       = 1;
+  RoleType         role_type                     = 2;
+  BondedRoleStatus bond_status                   = 3;
+  string           current_bond                  = 4;
+  string           total_committed_bond          = 5;
+  int64            registered_at                 = 6;
+  int64            last_active_epoch             = 7;
+  uint64           consecutive_inactive_epochs   = 8;
+  int64            demotion_cooldown_until       = 9;
+  string           cumulative_rewards            = 10;
+  int64            last_reward_epoch             = 11;
+}
+
+message BondedRoleConfig {
+  RoleType role_type           = 1;
+  string   min_bond            = 2;
+  uint64   min_rep_tier        = 3;
+  string   min_trust_level     = 4;
+  int64    min_age_blocks      = 5;
+  int64    demotion_cooldown   = 6;
+  string   demotion_threshold  = 7;
 }
 ```
 
-**rep/forum boundary:** rep owns bond state (current/committed/status/cooldown) and is the source of truth for "is X a sentinel?". Forum owns per-action counters (`total_hides`, `upheld_hides`, `overturned_hides`, `epoch_hides`, lock/move/pin/proposal tallies, etc.) in its own `sparkdream.forum.v1.SentinelActivity` message keyed by the same address.
+**Storage** (single Map keyed by the `(role_type, address)` pair, plus a per-role config Map):
+- `BondedRoles collections.Map[Pair[int32, string], BondedRole]`
+- `BondedRoleConfigs collections.Map[int32, BondedRoleConfig]`
 
-**Forum → rep API surface** (content-action handlers call these on the rep keeper):
+**rep/owning-module boundary:** rep owns the generic bond/status/activity state; the owning module owns per-role action counters in its own proto:
+
+| Role | Module | Owning-module activity proto |
+|------|--------|------------------------------|
+| `ROLE_TYPE_FORUM_SENTINEL` | x/forum | `sparkdream.forum.v1.SentinelActivity` (hides, locks, moves, pins, epoch tallies) |
+| `ROLE_TYPE_COLLECT_CURATOR` | x/collect | `sparkdream.collect.v1.CuratorActivity` (total/challenged/upheld/overturned reviews, streak counters) |
+| `ROLE_TYPE_FEDERATION_VERIFIER` | x/federation | `sparkdream.federation.v1.VerifierActivity` (verifications, upheld/overturned/unchallenged, slash count, overturn cooldown) |
+
+**Config write-through:** each role's owning module keeps the operational params (min bond, trust level, demotion cooldown, etc.) in its own proto and calls `SetBondedRoleConfig` on update + `InitGenesis` so rep's enforcement state stays in sync.
+
+**Owning-module → rep API surface** (content-module handlers call these on the rep keeper):
 
 | Method | Usage |
 |--------|-------|
-| `IsSentinel(ctx, addr) (bool, error)` | Permission check before accepting a moderation action |
-| `GetSentinel(ctx, addr) (SentinelActivity, error)` | Fetch the rep-side record for status + bond inspection |
-| `GetAvailableBond(ctx, addr) (math.Int, error)` | `current_bond - total_committed_bond`, saturating at zero |
-| `ReserveBond(ctx, addr, amount)` | Commit bond against a pending action (hide, lock, move) |
-| `ReleaseBond(ctx, addr, amount)` | Release commitment on successful/expired action |
-| `SlashBond(ctx, addr, amount, reason)` | Unlock + burn DREAM; decrement both `current_bond` and `total_committed_bond` |
-| `RecordActivity(ctx, addr)` | Stamp `last_active_epoch`, reset `consecutive_inactive_epochs` |
-| `SetBondStatus(ctx, addr, status, cooldown_until)` | Transition NORMAL / RECOVERY / DEMOTED with cooldown |
+| `IsBondedRole(ctx, role_type, addr) (bool, error)` | Permission check before accepting a role-gated action |
+| `GetBondedRole(ctx, role_type, addr) (BondedRole, error)` | Fetch the rep-side record for status + bond inspection |
+| `GetAvailableBond(ctx, role_type, addr) (math.Int, error)` | `current_bond - total_committed_bond`, saturating at zero |
+| `ReserveBond(ctx, role_type, addr, amount)` | Commit bond against a pending action (hide, review, verification) |
+| `ReleaseBond(ctx, role_type, addr, amount)` | Release commitment on successful/expired action |
+| `SlashBond(ctx, role_type, addr, amount, reason)` | Unlock + burn DREAM; decrement both `current_bond` and `total_committed_bond` |
+| `RecordActivity(ctx, role_type, addr)` | Stamp `last_active_epoch`, reset `consecutive_inactive_epochs` |
+| `SetBondStatus(ctx, role_type, addr, status, cooldown_until)` | Transition NORMAL / RECOVERY / DEMOTED with cooldown |
+| `SetBondedRoleConfig(ctx, cfg)` | Write-through from the owning module's operational params |
+| `GetBondedRoleConfig(ctx, role_type) (BondedRoleConfig, error)` | Read the per-role policy snapshot |
+
+**Scope (non-goals).** BondedRole is DREAM-bond only and reputation-gated. SPARK-staked economic actors (cosmos-sdk validators via x/staking, federation bridge operators) use their own primitives — different unbonding semantics, different slash destinations, different eligibility signals.
 
 ### MemberReport, MemberWarning, GovActionAppeal, JuryParticipation
 
@@ -1297,25 +1333,29 @@ message MsgResolveTagReportResponse {}
 
 All five messages (`MsgCreateTagBudget`, `MsgTopUpTagBudget`, `MsgAwardFromTagBudget`, `MsgToggleTagBudget`, `MsgWithdrawTagBudget`) live in `proto/sparkdream/rep/v1/tx.proto`. `MsgAwardFromTagBudget` delegates post lookup to x/forum via `ForumKeeper.GetPostAuthor` and `ForumKeeper.GetPostTags`; the payout handler verifies the post carries the budget's tag before awarding.
 
-### Sentinel Messages
+### Bonded-Role Messages
+
+`MsgBondRole` / `MsgUnbondRole` are the generic bonding entry points for every DREAM-bonded role (forum sentinels, collect curators, federation verifiers, future roles). The `role_type` field selects the role; per-role eligibility is enforced against the corresponding `BondedRoleConfig`.
 
 ```protobuf
-message MsgBondSentinel {
+message MsgBondRole {
   option (cosmos.msg.v1.signer) = "creator";
-  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string amount  = 2;
+  string   creator   = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  RoleType role_type = 2;
+  string   amount    = 3;
 }
-message MsgBondSentinelResponse {}
+message MsgBondRoleResponse {}
 
-message MsgUnbondSentinel {
+message MsgUnbondRole {
   option (cosmos.msg.v1.signer) = "creator";
-  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string amount  = 2;
+  string   creator   = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  RoleType role_type = 2;
+  string   amount    = 3;
 }
-message MsgUnbondSentinelResponse {}
+message MsgUnbondRoleResponse {}
 ```
 
-See the "SentinelActivity (rep)" state section above for the keeper API used by forum content-action handlers.
+See the "BondedRole (generic accountability primitive)" state section above for the keeper API used by content-module handlers.
 
 ### Member Accountability Messages
 
@@ -1390,7 +1430,7 @@ These amounts/thresholds are sourced as compile-time constants (not operational 
 
 ## Sentinel Rewards
 
-Sentinels (forum moderators registered via `MsgBondSentinel`) receive SPARK payouts for accurate, active moderation work. Implemented across Stages A/B/D of the sentinel-accountability feature.
+Sentinels (forum moderators registered via `MsgBondRole` with `role_type = ROLE_TYPE_FORUM_SENTINEL`) receive SPARK payouts for accurate, active moderation work. Implemented across Stages A/B/D of the sentinel-accountability feature.
 
 ### Reward Pool (SPARK)
 
@@ -1426,7 +1466,7 @@ score = accuracy_rate * sqrt(epoch_appeals_resolved)
 
 **Payout side-effects:**
 
-- Rep-side `SentinelActivity.cumulative_rewards` is incremented and `last_reward_epoch` is updated.
+- Rep-side `BondedRole.cumulative_rewards` (for the sentinel's `ROLE_TYPE_FORUM_SENTINEL` record) is incremented and `last_reward_epoch` is updated.
 - A `sentinel_reward_distributed` event is emitted.
 
 **Per-epoch counter reset:** Regardless of distribution outcome (pool empty, no eligible sentinels, or normal payout), the forum-side per-epoch counters (`epoch_hides`, `epoch_locks`, `epoch_moves`, `epoch_pins`, `epoch_appeals_filed`, `epoch_appeals_resolved`) are reset for every sentinel in the registry.

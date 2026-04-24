@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -42,12 +43,12 @@ func newSentinelRewardFixture(t *testing.T) *sentinelRewardFixture {
 	return &sentinelRewardFixture{fixture: f, fk: fk}
 }
 
-// seedSentinel inserts a rep-side SentinelActivity record with the given bond
-// status and optional counters. Returns the bech32 address string.
+// seedSentinel inserts a BondedRole record (role = FORUM_SENTINEL) with the
+// given bond status and optional counters. Returns the bech32 address string.
 func (rf *sentinelRewardFixture) seedSentinel(
 	t *testing.T,
 	seed []byte,
-	status types.SentinelBondStatus,
+	status types.BondedRoleStatus,
 	counters types.SentinelActivityCounters,
 ) string {
 	t.Helper()
@@ -61,8 +62,10 @@ func (rf *sentinelRewardFixture) seedSentinel(
 	addrStr, err := rf.addressCodec.BytesToString(addr)
 	require.NoError(t, err)
 
-	require.NoError(t, rf.keeper.SentinelActivity.Set(rf.ctx, addrStr, types.SentinelActivity{
+	key := collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), addrStr)
+	require.NoError(t, rf.keeper.BondedRoles.Set(rf.ctx, key, types.BondedRole{
 		Address:    addrStr,
+		RoleType:   types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
 		BondStatus: status,
 	}))
 	rf.fk.counters[addrStr] = counters
@@ -114,7 +117,7 @@ func TestDistributeSentinelRewards_NonEpochNoOp(t *testing.T) {
 	rf.ctx = rf.ctx.WithBlockHeight(3) // not a boundary
 
 	addr := rf.seedSentinel(t, []byte("happy-sentinel-aaaa"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, happyCounters())
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, happyCounters())
 
 	// Pool has 1_000 SPARK.
 	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
@@ -141,7 +144,7 @@ func TestDistributeSentinelRewards_PoolEmpty(t *testing.T) {
 	rf.ctx = rf.ctx.WithBlockHeight(10)
 
 	addr := rf.seedSentinel(t, []byte("happy-sentinel-aaaa"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, happyCounters())
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, happyCounters())
 
 	// Pool empty.
 	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
@@ -176,7 +179,7 @@ func TestDistributeSentinelRewards_NoEligibleSentinels(t *testing.T) {
 		EpochAppealsResolved: 1,
 	}
 	addr := rf.seedSentinel(t, []byte("bad-sentinel-aaaaa"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, bad)
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, bad)
 
 	// Pool has funds.
 	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
@@ -207,9 +210,9 @@ func TestDistributeSentinelRewards_HappyPath(t *testing.T) {
 	c2.EpochMoves = 1
 
 	a1 := rf.seedSentinel(t, []byte("alpha-sentinel-aaaaa"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, c1)
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, c1)
 	a2 := rf.seedSentinel(t, []byte("beta-sentinel-bbbbbb"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, c2)
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, c2)
 
 	poolAmount := math.NewInt(10_000)
 	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
@@ -241,12 +244,12 @@ func TestDistributeSentinelRewards_HappyPath(t *testing.T) {
 	require.True(t, alloc1.Add(alloc2).LTE(poolAmount))
 
 	// CumulativeRewards incremented.
-	sa1, err := rf.keeper.SentinelActivity.Get(rf.ctx, a1)
+	sa1, err := rf.keeper.BondedRoles.Get(rf.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), a1))
 	require.NoError(t, err)
 	require.Equal(t, alloc1.String(), sa1.CumulativeRewards)
 	require.Equal(t, int64(1), sa1.LastRewardEpoch, "epoch_num = 10 / 10 = 1")
 
-	sa2, err := rf.keeper.SentinelActivity.Get(rf.ctx, a2)
+	sa2, err := rf.keeper.BondedRoles.Get(rf.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), a2))
 	require.NoError(t, err)
 	require.Equal(t, alloc2.String(), sa2.CumulativeRewards)
 
@@ -261,9 +264,9 @@ func TestDistributeSentinelRewards_DemotedExcluded(t *testing.T) {
 
 	// One DEMOTED sentinel with otherwise-happy counters; one NORMAL.
 	demoted := rf.seedSentinel(t, []byte("demoted-sentinel-aa"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED, happyCounters())
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, happyCounters())
 	normal := rf.seedSentinel(t, []byte("normal-sentinel-aaa"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, happyCounters())
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, happyCounters())
 
 	poolAmount := math.NewInt(10_000)
 	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
@@ -301,7 +304,7 @@ func TestDistributeSentinelRewards_AppealRateGate(t *testing.T) {
 	c.EpochHides = 100
 	c.EpochAppealsFiled = 1
 	rf.seedSentinel(t, []byte("low-appeal-sentinel"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, c)
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, c)
 
 	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
 		return sdk.NewCoin(denom, math.NewInt(1_000))
@@ -329,7 +332,7 @@ func TestDistributeSentinelRewards_AccuracyGate(t *testing.T) {
 		EpochAppealsResolved: 3,
 	}
 	rf.seedSentinel(t, []byte("low-acc-sentinel--"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, c)
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, c)
 
 	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
 		return sdk.NewCoin(denom, math.NewInt(1_000))
@@ -349,7 +352,7 @@ func TestDistributeSentinelRewards_SinglePayoutFullPool(t *testing.T) {
 	rf.ctx = rf.ctx.WithBlockHeight(10)
 
 	only := rf.seedSentinel(t, []byte("solo-sentinel-aaaaa"),
-		types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL, happyCounters())
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, happyCounters())
 
 	pool := math.NewInt(500_000)
 	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
@@ -365,7 +368,7 @@ func TestDistributeSentinelRewards_SinglePayoutFullPool(t *testing.T) {
 	require.NoError(t, rf.keeper.DistributeSentinelRewards(rf.ctx))
 	require.Equal(t, pool, got, "only eligible sentinel gets the whole pool (score/total_score = 1)")
 
-	sa, err := rf.keeper.SentinelActivity.Get(rf.ctx, only)
+	sa, err := rf.keeper.BondedRoles.Get(rf.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), only))
 	require.NoError(t, err)
 	require.Equal(t, pool.String(), sa.CumulativeRewards)
 }

@@ -3261,16 +3261,30 @@ func local_request_Query_TagBudgetAwards_0(ctx context.Context, marshaler runtim
 
 }
 
-func request_Query_GetSentinelActivity_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryGetSentinelActivityRequest
+func request_Query_BondedRole_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryBondedRoleRequest
 	var metadata runtime.ServerMetadata
 
 	var (
 		val string
+		e   int32
 		ok  bool
 		err error
 		_   = err
 	)
+
+	val, ok = pathParams["role_type"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "role_type")
+	}
+
+	e, err = runtime.Enum(val, RoleType_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "role_type", err)
+	}
+
+	protoReq.RoleType = RoleType(e)
 
 	val, ok = pathParams["address"]
 	if !ok {
@@ -3283,21 +3297,35 @@ func request_Query_GetSentinelActivity_0(ctx context.Context, marshaler runtime.
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "address", err)
 	}
 
-	msg, err := client.GetSentinelActivity(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.BondedRole(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Query_GetSentinelActivity_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryGetSentinelActivityRequest
+func local_request_Query_BondedRole_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryBondedRoleRequest
 	var metadata runtime.ServerMetadata
 
 	var (
 		val string
+		e   int32
 		ok  bool
 		err error
 		_   = err
 	)
+
+	val, ok = pathParams["role_type"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "role_type")
+	}
+
+	e, err = runtime.Enum(val, RoleType_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "role_type", err)
+	}
+
+	protoReq.RoleType = RoleType(e)
 
 	val, ok = pathParams["address"]
 	if !ok {
@@ -3310,151 +3338,145 @@ func local_request_Query_GetSentinelActivity_0(ctx context.Context, marshaler ru
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "address", err)
 	}
 
-	msg, err := server.GetSentinelActivity(ctx, &protoReq)
+	msg, err := server.BondedRole(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
 var (
-	filter_Query_ListSentinelActivity_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+	filter_Query_BondedRolesByType_0 = &utilities.DoubleArray{Encoding: map[string]int{"role_type": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
 )
 
-func request_Query_ListSentinelActivity_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryAllSentinelActivityRequest
+func request_Query_BondedRolesByType_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryBondedRolesByTypeRequest
 	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		e   int32
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["role_type"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "role_type")
+	}
+
+	e, err = runtime.Enum(val, RoleType_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "role_type", err)
+	}
+
+	protoReq.RoleType = RoleType(e)
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_ListSentinelActivity_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_BondedRolesByType_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := client.ListSentinelActivity(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.BondedRolesByType(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Query_ListSentinelActivity_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryAllSentinelActivityRequest
+func local_request_Query_BondedRolesByType_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryBondedRolesByTypeRequest
 	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		e   int32
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["role_type"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "role_type")
+	}
+
+	e, err = runtime.Enum(val, RoleType_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "role_type", err)
+	}
+
+	protoReq.RoleType = RoleType(e)
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_ListSentinelActivity_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_BondedRolesByType_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := server.ListSentinelActivity(ctx, &protoReq)
+	msg, err := server.BondedRolesByType(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_Query_SentinelStatus_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QuerySentinelStatusRequest
+func request_Query_BondedRoleConfig_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryBondedRoleConfigRequest
 	var metadata runtime.ServerMetadata
 
 	var (
 		val string
+		e   int32
 		ok  bool
 		err error
 		_   = err
 	)
 
-	val, ok = pathParams["address"]
+	val, ok = pathParams["role_type"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "address")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "role_type")
 	}
 
-	protoReq.Address, err = runtime.String(val)
+	e, err = runtime.Enum(val, RoleType_value)
 
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "address", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "role_type", err)
 	}
 
-	msg, err := client.SentinelStatus(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	protoReq.RoleType = RoleType(e)
+
+	msg, err := client.BondedRoleConfig(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Query_SentinelStatus_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QuerySentinelStatusRequest
+func local_request_Query_BondedRoleConfig_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryBondedRoleConfigRequest
 	var metadata runtime.ServerMetadata
 
 	var (
 		val string
+		e   int32
 		ok  bool
 		err error
 		_   = err
 	)
 
-	val, ok = pathParams["address"]
+	val, ok = pathParams["role_type"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "address")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "role_type")
 	}
 
-	protoReq.Address, err = runtime.String(val)
+	e, err = runtime.Enum(val, RoleType_value)
 
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "address", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "role_type", err)
 	}
 
-	msg, err := server.SentinelStatus(ctx, &protoReq)
-	return msg, metadata, err
+	protoReq.RoleType = RoleType(e)
 
-}
-
-func request_Query_SentinelBondCommitment_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QuerySentinelBondCommitmentRequest
-	var metadata runtime.ServerMetadata
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["address"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "address")
-	}
-
-	protoReq.Address, err = runtime.String(val)
-
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "address", err)
-	}
-
-	msg, err := client.SentinelBondCommitment(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
-	return msg, metadata, err
-
-}
-
-func local_request_Query_SentinelBondCommitment_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QuerySentinelBondCommitmentRequest
-	var metadata runtime.ServerMetadata
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["address"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "address")
-	}
-
-	protoReq.Address, err = runtime.String(val)
-
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "address", err)
-	}
-
-	msg, err := server.SentinelBondCommitment(ctx, &protoReq)
+	msg, err := server.BondedRoleConfig(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -5436,7 +5458,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 
 	})
 
-	mux.Handle("GET", pattern_Query_GetSentinelActivity_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_BondedRole_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -5447,7 +5469,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Query_GetSentinelActivity_0(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Query_BondedRole_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -5455,11 +5477,11 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			return
 		}
 
-		forward_Query_GetSentinelActivity_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_BondedRole_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_Query_ListSentinelActivity_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_BondedRolesByType_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -5470,7 +5492,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Query_ListSentinelActivity_0(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Query_BondedRolesByType_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -5478,11 +5500,11 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			return
 		}
 
-		forward_Query_ListSentinelActivity_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_BondedRolesByType_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_Query_SentinelStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_BondedRoleConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -5493,7 +5515,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Query_SentinelStatus_0(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Query_BondedRoleConfig_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -5501,30 +5523,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			return
 		}
 
-		forward_Query_SentinelStatus_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
-	})
-
-	mux.Handle("GET", pattern_Query_SentinelBondCommitment_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		var stream runtime.ServerTransportStream
-		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req)
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := local_request_Query_SentinelBondCommitment_0(rctx, inboundMarshaler, server, req, pathParams)
-		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		ctx = runtime.NewServerMetadataContext(ctx, md)
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-
-		forward_Query_SentinelBondCommitment_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_BondedRoleConfig_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -7082,7 +7081,7 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 
 	})
 
-	mux.Handle("GET", pattern_Query_GetSentinelActivity_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_BondedRole_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
@@ -7091,18 +7090,18 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Query_GetSentinelActivity_0(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Query_BondedRole_0(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Query_GetSentinelActivity_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_BondedRole_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_Query_ListSentinelActivity_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_BondedRolesByType_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
@@ -7111,18 +7110,18 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Query_ListSentinelActivity_0(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Query_BondedRolesByType_0(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Query_ListSentinelActivity_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_BondedRolesByType_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_Query_SentinelStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_BondedRoleConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
@@ -7131,34 +7130,14 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Query_SentinelStatus_0(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Query_BondedRoleConfig_0(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Query_SentinelStatus_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
-	})
-
-	mux.Handle("GET", pattern_Query_SentinelBondCommitment_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req)
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := request_Query_SentinelBondCommitment_0(rctx, inboundMarshaler, client, req, pathParams)
-		ctx = runtime.NewServerMetadataContext(ctx, md)
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-
-		forward_Query_SentinelBondCommitment_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_BondedRoleConfig_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -7512,13 +7491,11 @@ var (
 
 	pattern_Query_TagBudgetAwards_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"sparkdream", "rep", "v1", "tag_budget_awards", "budget_id"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_GetSentinelActivity_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"sparkdream", "rep", "v1", "sentinel_activity", "address"}, "", runtime.AssumeColonVerbOpt(false)))
+	pattern_Query_BondedRole_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5}, []string{"sparkdream", "rep", "v1", "bonded_role", "role_type", "address"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_ListSentinelActivity_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sparkdream", "rep", "v1", "sentinel_activity"}, "", runtime.AssumeColonVerbOpt(false)))
+	pattern_Query_BondedRolesByType_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"sparkdream", "rep", "v1", "bonded_roles_by_type", "role_type"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_SentinelStatus_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"sparkdream", "rep", "v1", "sentinel_status", "address"}, "", runtime.AssumeColonVerbOpt(false)))
-
-	pattern_Query_SentinelBondCommitment_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"sparkdream", "rep", "v1", "sentinel_bond_commitment", "address"}, "", runtime.AssumeColonVerbOpt(false)))
+	pattern_Query_BondedRoleConfig_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"sparkdream", "rep", "v1", "bonded_role_config", "role_type"}, "", runtime.AssumeColonVerbOpt(false)))
 
 	pattern_Query_GetMemberReport_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"sparkdream", "rep", "v1", "member_report", "member"}, "", runtime.AssumeColonVerbOpt(false)))
 
@@ -7670,13 +7647,11 @@ var (
 
 	forward_Query_TagBudgetAwards_0 = runtime.ForwardResponseMessage
 
-	forward_Query_GetSentinelActivity_0 = runtime.ForwardResponseMessage
+	forward_Query_BondedRole_0 = runtime.ForwardResponseMessage
 
-	forward_Query_ListSentinelActivity_0 = runtime.ForwardResponseMessage
+	forward_Query_BondedRolesByType_0 = runtime.ForwardResponseMessage
 
-	forward_Query_SentinelStatus_0 = runtime.ForwardResponseMessage
-
-	forward_Query_SentinelBondCommitment_0 = runtime.ForwardResponseMessage
+	forward_Query_BondedRoleConfig_0 = runtime.ForwardResponseMessage
 
 	forward_Query_GetMemberReport_0 = runtime.ForwardResponseMessage
 

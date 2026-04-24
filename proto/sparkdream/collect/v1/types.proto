@@ -175,20 +175,6 @@ message Collaborator {
   int64 added_at = 4;
 }
 
-// Curator represents a registered curation reviewer with a bonded stake.
-message Curator {
-  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string bond_amount = 2 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  int64 registered_at = 3;
-  uint64 total_reviews = 4;
-  uint64 challenged_reviews = 5;
-  bool active = 6;
-  uint32 pending_challenges = 7;
-}
-
 // CurationReview records a curator's verdict on a collection.
 message CurationReview {
   uint64 id = 1;
@@ -201,6 +187,15 @@ message CurationReview {
   bool challenged = 8;
   bool overturned = 9;
   string challenger = 10 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // committed_slash is the DREAM amount reserved against the curator's bonded
+  // role (ROLE_TYPE_COLLECT_CURATOR) when the review was challenged. Set at
+  // MsgChallengeReview time and consumed at resolution (SlashBond on uphold,
+  // ReleaseBond on reject). Zero / empty when the review is not challenged.
+  string committed_slash = 11 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // CurationSummary aggregates curation activity for a collection.
@@ -342,6 +337,14 @@ message CollectOperationalParams {
   // --- Pinning parameters — OPERATIONAL ---
   uint32 pin_min_trust_level = 43;
   uint32 max_pins_per_day = 44;
+
+  // --- Curator bonded-role config (flattened) — see Params for rationale ---
+  int64 curator_demotion_cooldown = 45;
+  string curator_demotion_threshold = 46 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint64 curator_overturn_demotion_streak = 47;
 }
 
 // CollectionFlag aggregates all flags on a single piece of content.

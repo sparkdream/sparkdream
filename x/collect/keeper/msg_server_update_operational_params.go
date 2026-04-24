@@ -52,5 +52,11 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 		return nil, errorsmod.Wrap(err, "failed to set params")
 	}
 
+	// Write-through the curator bond-role config to x/rep so MsgBondRole
+	// enforcement uses the same thresholds the council just set.
+	if err := k.SyncCuratorBondedRoleConfig(ctx, merged); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to sync curator bonded-role config to rep")
+	}
+
 	return &types.MsgUpdateOperationalParamsResponse{}, nil
 }

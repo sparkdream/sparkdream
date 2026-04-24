@@ -126,12 +126,12 @@ func TestMsgServerDismissFlags(t *testing.T) {
 
 		// Create demoted sentinel in rep.
 		if f.repKeeper.sentinels == nil {
-			f.repKeeper.sentinels = make(map[string]reptypes.SentinelActivity)
+			f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
 		}
-		f.repKeeper.sentinels[testSentinel] = reptypes.SentinelActivity{
+		f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
 			Address:     testSentinel,
 			CurrentBond: "100",
-			BondStatus:  reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED,
+			BondStatus:  reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED,
 		}
 
 		// Create flag record

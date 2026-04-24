@@ -82,20 +82,10 @@ func findContentByStatus(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status 
 	return &e.content, e.id, nil
 }
 
-// findActiveVerifier returns a random active (NORMAL status) verifier, or nil.
-func findActiveVerifier(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.FederationVerifier, error) {
-	var verifiers []types.FederationVerifier
-	err := k.Verifiers.Walk(ctx, nil, func(_ string, v types.FederationVerifier) (bool, error) {
-		if v.BondStatus == types.VerifierBondStatus_VERIFIER_BOND_STATUS_NORMAL {
-			verifiers = append(verifiers, v)
-		}
-		return false, nil
-	})
-	if err != nil || len(verifiers) == 0 {
-		return nil, err
-	}
-	return &verifiers[r.Intn(len(verifiers))], nil
-}
+// Note: findActiveVerifier was removed along with the local FederationVerifier
+// collection in Phase 4 of the bonded-role generalization. Simulations that
+// need a bonded verifier should assume it exists (the underlying tx will
+// error cleanly if not), matching how other simulations handle rep-owned state.
 
 // findIdentityLink returns a random identity link, or nil.
 func findIdentityLink(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.IdentityLink, error) {
@@ -324,26 +314,14 @@ func getOrCreateChallengedContent(r *rand.Rand, ctx sdk.Context, k keeper.Keeper
 	return content, contentID, nil
 }
 
-// getOrCreateVerifier returns an existing active verifier or creates one.
-func getOrCreateVerifier(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, addr string) (types.FederationVerifier, error) {
-	v, err := k.Verifiers.Get(ctx, addr)
-	if err == nil && v.BondStatus == types.VerifierBondStatus_VERIFIER_BOND_STATUS_NORMAL {
-		return v, nil
-	}
-
-	bondAmount := math.NewInt(int64(r.Intn(1000) + 500))
-	verifier := types.FederationVerifier{
-		Address:            addr,
-		CurrentBond:        bondAmount,
-		TotalCommittedBond: math.ZeroInt(),
-		BondStatus:         types.VerifierBondStatus_VERIFIER_BOND_STATUS_NORMAL,
-		BondedAt:           ctx.BlockTime().Unix(),
-	}
-
-	if err := k.Verifiers.Set(ctx, addr, verifier); err != nil {
-		return types.FederationVerifier{}, err
-	}
-	return verifier, nil
+// getOrCreateVerifier is a no-op stub under the Phase 4 bonded-role refactor:
+// verifier bonding now lives on x/rep's BondedRole (ROLE_TYPE_FEDERATION_VERIFIER)
+// and simulations cannot directly create bonds from within the federation sim.
+// When the simulation invokes a downstream msg that requires a verifier, the
+// msg handler will return ErrVerifierNotFound and the sim records a NoOp,
+// which is acceptable for fuzz coverage.
+func getOrCreateVerifier(_ *rand.Rand, _ sdk.Context, _ keeper.Keeper, addr string) (types.VerifierActivity, error) {
+	return types.VerifierActivity{Address: addr}, nil
 }
 
 // getOrCreateIdentityLink returns an existing identity link or creates one.

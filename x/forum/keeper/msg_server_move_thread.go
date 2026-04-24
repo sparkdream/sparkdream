@@ -68,13 +68,13 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		if k.repKeeper == nil {
 			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
 		}
-		sa, err := k.repKeeper.GetSentinel(ctx, msg.Creator)
+		br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
 		if err != nil {
 			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
 		}
-		bondSnapshot = sa.CurrentBond
+		bondSnapshot = br.CurrentBond
 
-		if sa.BondStatus == reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED {
+		if br.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
 			return nil, types.ErrSentinelDemoted
 		}
 
@@ -119,7 +119,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 		}
 
-		_ = k.repKeeper.RecordActivity(ctx, msg.Creator)
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
 	}
 
 	post.CategoryId = msg.NewCategoryId

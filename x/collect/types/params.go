@@ -46,6 +46,11 @@ var (
 	DefaultChallengeDeposit                = math.NewInt(250)                 // 250 DREAM
 	DefaultMaxChallengeReasonLength uint32 = 1024
 
+	// Bonded-role demotion thresholds for ROLE_TYPE_COLLECT_CURATOR.
+	DefaultCuratorDemotionCooldown       int64  = 604800 // 7 days
+	DefaultCuratorDemotionThreshold             = math.NewInt(250) // 250 DREAM
+	DefaultCuratorOverturnDemotionStreak uint64 = 3
+
 	// Reaction defaults
 	DefaultDownvoteCost              = math.NewInt(25000000) // 25 SPARK
 	DefaultMaxUpvotesPerDay   uint32 = 100
@@ -143,6 +148,9 @@ func DefaultParams() Params {
 		ConvictionRenewalPeriod:         DefaultConvictionRenewalPeriod,
 		PinMinTrustLevel:                DefaultPinMinTrustLevel,
 		MaxPinsPerDay:                   DefaultMaxPinsPerDay,
+		CuratorDemotionCooldown:         DefaultCuratorDemotionCooldown,
+		CuratorDemotionThreshold:        DefaultCuratorDemotionThreshold,
+		CuratorOverturnDemotionStreak:   DefaultCuratorOverturnDemotionStreak,
 	}
 }
 
@@ -498,6 +506,16 @@ func (p Params) ApplyOperationalParams(op CollectOperationalParams) Params {
 	}
 	if op.MaxPinsPerDay > 0 {
 		p.MaxPinsPerDay = op.MaxPinsPerDay
+	}
+	// Curator bonded-role demotion config.
+	if op.CuratorDemotionCooldown > 0 {
+		p.CuratorDemotionCooldown = op.CuratorDemotionCooldown
+	}
+	if !op.CuratorDemotionThreshold.IsNil() {
+		p.CuratorDemotionThreshold = op.CuratorDemotionThreshold
+	}
+	if op.CuratorOverturnDemotionStreak > 0 {
+		p.CuratorOverturnDemotionStreak = op.CuratorOverturnDemotionStreak
 	}
 	return p
 }

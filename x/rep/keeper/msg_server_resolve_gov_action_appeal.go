@@ -103,7 +103,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 		// error — forum's record may have been GC'd.
 		if sentinelAddr != "" {
 			slashAmount := math.NewInt(types.DefaultSentinelOverturnSlash)
-			if err := k.SlashBond(ctx, sentinelAddr, slashAmount, "appeal_overturned"); err != nil {
+			if err := k.SlashBond(ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, slashAmount, "appeal_overturned"); err != nil {
 				sdkCtx.Logger().Warn("failed to slash sentinel bond on overturn",
 					"sentinel", sentinelAddr, "appeal_id", msg.AppealId, "error", err)
 			}

@@ -965,16 +965,16 @@ bond_sentinel_if_needed() {
     local ACCOUNT=$1
     local AMOUNT="100000000"  # 100 DREAM
 
-    # Check existing bond via sentinel-status query (exit non-zero if no bond)
-    STATUS_JSON=$($BINARY query rep sentinel-status $($BINARY keys show $ACCOUNT -a --keyring-backend test) --output json 2>&1)
-    EXISTING_BOND=$(echo "$STATUS_JSON" | jq -r '.bond_amount // .sentinel.bond_amount // "0"' 2>/dev/null)
+    # Check existing bond via bonded-role query (exit non-zero if no record)
+    STATUS_JSON=$($BINARY query rep bonded-role forum-sentinel $($BINARY keys show $ACCOUNT -a --keyring-backend test) --output json 2>&1)
+    EXISTING_BOND=$(echo "$STATUS_JSON" | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
     if [ -n "$EXISTING_BOND" ] && [ "$EXISTING_BOND" != "0" ] && [ "$EXISTING_BOND" != "null" ]; then
         echo "  ⏭️  $ACCOUNT already bonded ($EXISTING_BOND micro-DREAM), skipping"
         return 0
     fi
 
     echo "  → Bonding $ACCOUNT with 100 DREAM..."
-    TX_RES=$($BINARY tx rep bond-sentinel $AMOUNT \
+    TX_RES=$($BINARY tx rep bond-role forum-sentinel $AMOUNT \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

@@ -36,8 +36,9 @@ service Msg {
   rpc UnlinkIdentity(MsgUnlinkIdentity) returns (MsgUnlinkIdentityResponse);
   rpc ConfirmIdentityLink(MsgConfirmIdentityLink) returns (MsgConfirmIdentityLinkResponse);
   rpc RequestReputationAttestation(MsgRequestReputationAttestation) returns (MsgRequestReputationAttestationResponse);
-  rpc BondVerifier(MsgBondVerifier) returns (MsgBondVerifierResponse);
-  rpc UnbondVerifier(MsgUnbondVerifier) returns (MsgUnbondVerifierResponse);
+  // NOTE: Phase 4 of the bonded-role generalization removed BondVerifier /
+  // UnbondVerifier RPCs. Verifier bonding now flows through x/rep's generic
+  // MsgBondRole / MsgUnbondRole with role_type=ROLE_TYPE_FEDERATION_VERIFIER.
   rpc VerifyContent(MsgVerifyContent) returns (MsgVerifyContentResponse);
   rpc ChallengeVerification(MsgChallengeVerification) returns (MsgChallengeVerificationResponse);
   rpc SubmitArbiterHash(MsgSubmitArbiterHash) returns (MsgSubmitArbiterHashResponse);
@@ -248,29 +249,7 @@ message MsgRequestReputationAttestation {
 }
 message MsgRequestReputationAttestationResponse {}
 
-// --- Verifier ---
-
-message MsgBondVerifier {
-  option (cosmos.msg.v1.signer) = "creator";
-  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string amount = 2 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-}
-message MsgBondVerifierResponse {}
-
-message MsgUnbondVerifier {
-  option (cosmos.msg.v1.signer) = "creator";
-  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string amount = 2 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-}
-message MsgUnbondVerifierResponse {}
+// --- Verifier (bonding moved to x/rep MsgBondRole / MsgUnbondRole) ---
 
 message MsgVerifyContent {
   option (cosmos.msg.v1.signer) = "creator";

@@ -33,6 +33,50 @@ func DefaultGenesis() *GenesisState {
 		MemberReportMap:        []MemberReport{},
 		MemberWarningList:      []MemberWarning{},
 		GovActionAppealList:    []GovActionAppeal{},
+		BondedRoleList:         []BondedRole{},
+		BondedRoleConfigList:   DefaultBondedRoleConfigs(),
+	}
+}
+
+// DefaultBondedRoleConfigs seeds the per-role policy configs at chain start.
+// Owning modules (x/forum for SENTINEL, x/collect for COLLECT_CURATOR) are
+// expected to overwrite these via SetBondedRoleConfig during their own
+// InitGenesis to keep module operational params in sync with rep's enforcement
+// state. The seed values below mirror the constants previously hardcoded in
+// x/rep/keeper/msg_server_bond_sentinel.go and the curator defaults from
+// x/collect/types/params.go so the chain boots coherently even if a module
+// fails to write-through.
+func DefaultBondedRoleConfigs() []BondedRoleConfig {
+	return []BondedRoleConfig{
+		{
+			RoleType:          RoleType_ROLE_TYPE_FORUM_SENTINEL,
+			MinBond:           "1000",
+			MinRepTier:        3,
+			MinTrustLevel:     "",
+			MinAgeBlocks:      0,
+			DemotionCooldown:  604800, // 7 days
+			DemotionThreshold: "500",
+		},
+		{
+			RoleType:          RoleType_ROLE_TYPE_COLLECT_CURATOR,
+			MinBond:           "500",
+			MinRepTier:        0,
+			MinTrustLevel:     "TRUST_LEVEL_PROVISIONAL",
+			MinAgeBlocks:      14400, // ~1 day
+			DemotionCooldown:  604800,
+			DemotionThreshold: "250",
+		},
+		{
+			// Seeds for federation verifier (see x/federation params for the
+			// source-of-truth values; federation writes through on InitGenesis).
+			RoleType:          RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
+			MinBond:           "500",
+			MinRepTier:        0,
+			MinTrustLevel:     "TRUST_LEVEL_ESTABLISHED",
+			MinAgeBlocks:      0,
+			DemotionCooldown:  604800, // 7 days
+			DemotionThreshold: "250",
+		},
 	}
 }
 
@@ -231,6 +275,29 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("govActionAppeal id should be lower or equal than the last id")
 		}
 		govActionAppealIdMap[elem.Id] = true
+	}
+
+	bondedRoleConfigIndex := make(map[int32]struct{})
+	for _, cfg := range gs.BondedRoleConfigList {
+		if cfg.RoleType == RoleType_ROLE_TYPE_UNSPECIFIED {
+			return fmt.Errorf("bonded role config has unspecified role_type")
+		}
+		if _, ok := bondedRoleConfigIndex[int32(cfg.RoleType)]; ok {
+			return fmt.Errorf("duplicated bonded role config for role_type %s", cfg.RoleType.String())
+		}
+		bondedRoleConfigIndex[int32(cfg.RoleType)] = struct{}{}
+	}
+
+	bondedRoleIndex := make(map[string]struct{})
+	for _, br := range gs.BondedRoleList {
+		if br.RoleType == RoleType_ROLE_TYPE_UNSPECIFIED {
+			return fmt.Errorf("bonded role has unspecified role_type")
+		}
+		key := fmt.Sprintf("%d/%s", int32(br.RoleType), br.Address)
+		if _, ok := bondedRoleIndex[key]; ok {
+			return fmt.Errorf("duplicated bonded role for %s", key)
+		}
+		bondedRoleIndex[key] = struct{}{}
 	}
 
 	return gs.Params.Validate()

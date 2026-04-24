@@ -38,7 +38,10 @@ type Keeper struct {
 	// Collaborator keyed by composite: "{collectionID}/{address}"
 	Collaborator collections.Map[string, types.Collaborator]
 
-	Curator collections.Map[string, types.Curator]
+	// CuratorActivity holds collect-specific per-curator counters. The
+	// generic bond/status record lives in x/rep as BondedRole
+	// (ROLE_TYPE_COLLECT_CURATOR); see docs/bonded-role-generalization.md.
+	CuratorActivity collections.Map[string, types.CuratorActivity]
 
 	CurationReview    collections.Map[uint64, types.CurationReview]
 	CurationReviewSeq collections.Sequence
@@ -123,7 +126,7 @@ func NewKeeper(
 
 		Collaborator: collections.NewMap(sb, types.CollaboratorKey, "collaborator", collections.StringKey, codec.CollValue[types.Collaborator](cdc)),
 
-		Curator: collections.NewMap(sb, types.CuratorKey, "curator", collections.StringKey, codec.CollValue[types.Curator](cdc)),
+		CuratorActivity: collections.NewMap(sb, types.CuratorActivityKey, "curatorActivity", collections.StringKey, codec.CollValue[types.CuratorActivity](cdc)),
 
 		CurationReview:    collections.NewMap(sb, types.CurationReviewKey, "curationReview", collections.Uint64Key, codec.CollValue[types.CurationReview](cdc)),
 		CurationReviewSeq: collections.NewSequence(sb, types.CurationReviewSeqKey, "curationReviewSequence"),

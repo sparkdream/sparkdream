@@ -318,7 +318,7 @@ echo ""
 echo "--- Test 15: rate-collection with tags populates review + bumps usage ---"
 
 # curation_test.sh unregistered alice (test 12), so re-register her as curator.
-TX_OUT=$(send_tx collect register-curator 500 --from alice)
+TX_OUT=$(send_tx rep bond-role collect-curator 500 --from alice)
 assert_tx_success "Re-register alice as curator" "$TX_OUT"
 
 # Create a fresh collection owned by bob (alice is neither owner nor
@@ -407,6 +407,110 @@ TX_OUT=$(send_tx collect rate-collection \
     "$RATABLE_ID2" up "$RESERVED_TAG" "Review with reserved tag" \
     --from alice)
 assert_tx_failure "Reject rate-collection with reserved tag" "$TX_OUT"
+
+# =========================================================================
+# Test 18-22: challenge-review coverage (Phase 3 commit-per-action slash).
+# Test 15 left a live review from alice (the curator) on RATABLE_ID. The
+# next tests challenge it and walk the error paths. bob is an ESTABLISHED
+# genesis member with DREAM to spare for the 250-DREAM challenge deposit.
+# =========================================================================
+
+# Pull the review_id from Test 15's rate-collection tx. Without it we skip
+# the whole challenge section — the prior tests have already validated
+# rate-collection, so this is a no-coverage-lost graceful skip.
+CHALLENGE_REVIEW_ID="$REVIEW_ID"
+if [ -z "$CHALLENGE_REVIEW_ID" ]; then
+    # Fallback: look up alice's most recent review by curator.
+    CR=$(query collect curation-reviews-by-curator "$ALICE_ADDR")
+    CHALLENGE_REVIEW_ID=$(echo "$CR" | jq -r \
+        '(.reviews // .curation_reviews // []) | sort_by(.id // 0) | last | (.id // "") | tostring')
+fi
+
+if [ -z "$CHALLENGE_REVIEW_ID" ] || [ "$CHALLENGE_REVIEW_ID" == "null" ]; then
+    echo ""
+    echo "--- Tests 18-22: skipped (no review_id from Test 15) ---"
+else
+    # ---------------------------------------------------------------------
+    # Test 18: Curator cannot challenge their own review (self-challenge).
+    # ---------------------------------------------------------------------
+    echo ""
+    echo "--- Test 18: Reject self-challenge by the curator ---"
+    TX_OUT=$(send_tx collect challenge-review "$CHALLENGE_REVIEW_ID" "self-challenge-reason" --from alice)
+    assert_tx_failure "Reject self-challenge by curator" "$TX_OUT"
+
+    # ---------------------------------------------------------------------
+    # Test 19: Non-member cannot challenge (nonmember1 is not an x/rep member).
+    # ---------------------------------------------------------------------
+    echo ""
+    echo "--- Test 19: Reject challenge from non-member ---"
+    TX_OUT=$(send_tx collect challenge-review "$CHALLENGE_REVIEW_ID" "non-member-reason" --from nonmember1)
+    assert_tx_failure "Reject challenge from non-member" "$TX_OUT"
+
+    # ---------------------------------------------------------------------
+    # Test 20: Happy-path challenge commits slash budget on the curator.
+    # Expect: review.challenged=true, committed_slash populated, curator's
+    # bonded-role total_committed_bond grows by the slash amount.
+    # slash_budget = CuratorSlashFraction(10%) × MinCuratorBond(500) = 50.
+    # ---------------------------------------------------------------------
+    echo ""
+    echo "--- Test 20: Happy-path challenge-review ---"
+    CURATOR_BEFORE=$(query rep bonded-role collect-curator "$ALICE_ADDR")
+    COMMITTED_BEFORE=$(echo "$CURATOR_BEFORE" | jq -r '.bonded_role.total_committed_bond // "0"')
+
+    TX_OUT=$(send_tx collect challenge-review "$CHALLENGE_REVIEW_ID" "bad curation" --from bob)
+    assert_tx_success "Challenge review succeeds" "$TX_OUT"
+
+    # Review is marked challenged and carries committed_slash.
+    REVIEWS_Q=$(query collect curation-reviews "$RATABLE_ID")
+    CHALLENGED_FLAG=$(echo "$REVIEWS_Q" | jq -r --arg rid "$CHALLENGE_REVIEW_ID" \
+        '(.reviews // .curation_reviews // [])[] | select((.id // "0") | tostring == $rid) | (.challenged // false) | tostring')
+    assert_equal "review.challenged flipped to true" "true" "$CHALLENGED_FLAG"
+
+    COMMITTED_SLASH=$(echo "$REVIEWS_Q" | jq -r --arg rid "$CHALLENGE_REVIEW_ID" \
+        '(.reviews // .curation_reviews // [])[] | select((.id // "0") | tostring == $rid) | .committed_slash // "0"')
+    # Accept either the exact 50 value or any positive committed_slash — the
+    # exact value depends on chain-level param overrides that may differ in
+    # the test harness vs defaults.
+    if [ -n "$COMMITTED_SLASH" ] && [ "$COMMITTED_SLASH" != "0" ] && [ "$COMMITTED_SLASH" != "null" ]; then
+        echo "PASS: committed_slash populated ($COMMITTED_SLASH)"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo "FAIL: committed_slash not populated (got '$COMMITTED_SLASH')"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+
+    # Curator's bonded-role total_committed_bond grew.
+    CURATOR_AFTER=$(query rep bonded-role collect-curator "$ALICE_ADDR")
+    COMMITTED_AFTER=$(echo "$CURATOR_AFTER" | jq -r '.bonded_role.total_committed_bond // "0"')
+    if [ "$COMMITTED_AFTER" != "$COMMITTED_BEFORE" ]; then
+        echo "PASS: bonded-role total_committed_bond grew ($COMMITTED_BEFORE → $COMMITTED_AFTER)"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo "FAIL: bonded-role total_committed_bond unchanged ($COMMITTED_BEFORE → $COMMITTED_AFTER)"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+
+    # Curator-activity counter bump: challenged_reviews incremented.
+    ACT_AFTER=$(query collect curator-activity "$ALICE_ADDR")
+    CHALLENGED_COUNT=$(echo "$ACT_AFTER" | jq -r '.activity.challenged_reviews // "0"')
+    assert_gt "curator-activity.challenged_reviews > 0" "0" "$CHALLENGED_COUNT"
+
+    # ---------------------------------------------------------------------
+    # Test 21: Cannot challenge the same review twice.
+    # ---------------------------------------------------------------------
+    echo ""
+    echo "--- Test 21: Reject double-challenge on same review ---"
+    TX_OUT=$(send_tx collect challenge-review "$CHALLENGE_REVIEW_ID" "second challenge" --from collector1)
+    assert_tx_failure "Reject double-challenge" "$TX_OUT"
+
+    # ---------------------------------------------------------------------
+    # Test 22: Challenge on a nonexistent review id is rejected.
+    # ---------------------------------------------------------------------
+    echo ""
+    echo "--- Test 22: Reject challenge on nonexistent review ---"
+    TX_OUT=$(send_tx collect challenge-review 999999999 "nonexistent review" --from bob)
+    assert_tx_failure "Reject challenge on missing review" "$TX_OUT"
+fi
 
 # =========================================================================
 # SUMMARY

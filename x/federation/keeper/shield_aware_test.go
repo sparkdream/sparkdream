@@ -19,9 +19,6 @@ func TestShieldAwareCompatibility(t *testing.T) {
 	compatible = f.keeper.IsShieldCompatible(f.ctx, &types.MsgRegisterPeer{})
 	require.False(t, compatible)
 
-	compatible = f.keeper.IsShieldCompatible(f.ctx, &types.MsgBondVerifier{})
-	require.False(t, compatible)
-
 	compatible = f.keeper.IsShieldCompatible(f.ctx, &types.MsgVerifyContent{})
 	require.False(t, compatible)
 }

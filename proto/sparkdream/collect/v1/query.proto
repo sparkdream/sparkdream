@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/collect/v1/curator_activity.proto";
 import "sparkdream/collect/v1/params.proto";
 import "sparkdream/collect/v1/types.proto";
 
@@ -43,11 +44,11 @@ service Query {
   rpc Collaborators(QueryCollaboratorsRequest) returns (QueryCollaboratorsResponse) {
     option (google.api.http).get = "/sparkdream/collect/v1/collaborators/{collection_id}";
   }
-  rpc Curator(QueryCuratorRequest) returns (QueryCuratorResponse) {
-    option (google.api.http).get = "/sparkdream/collect/v1/curator/{address}";
-  }
-  rpc ActiveCurators(QueryActiveCuratorsRequest) returns (QueryActiveCuratorsResponse) {
-    option (google.api.http).get = "/sparkdream/collect/v1/active_curators";
+  // CuratorActivity returns collect-specific per-curator counters (reviews,
+  // challenged, upheld, overturned). The generic bond/status record lives in
+  // x/rep under BondedRole(ROLE_TYPE_COLLECT_CURATOR, addr).
+  rpc CuratorActivity(QueryCuratorActivityRequest) returns (QueryCuratorActivityResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/curator_activity/{address}";
   }
   rpc CurationSummary(QueryCurationSummaryRequest) returns (QueryCurationSummaryResponse) {
     option (google.api.http).get = "/sparkdream/collect/v1/curation_summary/{collection_id}";
@@ -201,21 +202,12 @@ message QueryCollaboratorsResponse {
   repeated Collaborator collaborators = 1 [(gogoproto.nullable) = false];
 }
 
-message QueryCuratorRequest {
+message QueryCuratorActivityRequest {
   string address = 1;
 }
 
-message QueryCuratorResponse {
-  Curator curator = 1 [(gogoproto.nullable) = false];
-}
-
-message QueryActiveCuratorsRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-message QueryActiveCuratorsResponse {
-  repeated Curator curators = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+message QueryCuratorActivityResponse {
+  CuratorActivity activity = 1 [(gogoproto.nullable) = false];
 }
 
 message QueryCurationSummaryRequest {

@@ -110,6 +110,27 @@ message Params {
 
   // conviction_renewal_period is the TTL extension in seconds when conviction threshold is met
   int64 conviction_renewal_period = 38;
+
+  // ---------------------------------------------------------------------------
+  // Sentinel bonded-role config (flattened).
+  //
+  // Forum owns the sentinel role; these fields are the source of truth and are
+  // written through to x/rep's BondedRoleConfig for ROLE_TYPE_FORUM_SENTINEL on
+  // change.
+  // ---------------------------------------------------------------------------
+
+  // min_sentinel_bond — see ForumOperationalParams.min_sentinel_bond.
+  string min_sentinel_bond = 40;
+  // min_sentinel_rep_tier — see ForumOperationalParams.min_sentinel_rep_tier.
+  uint64 min_sentinel_rep_tier = 41;
+  // min_sentinel_trust_level — see ForumOperationalParams.min_sentinel_trust_level.
+  string min_sentinel_trust_level = 42;
+  // min_sentinel_age_blocks — see ForumOperationalParams.min_sentinel_age_blocks.
+  int64 min_sentinel_age_blocks = 43;
+  // sentinel_demotion_cooldown — see ForumOperationalParams.sentinel_demotion_cooldown.
+  int64 sentinel_demotion_cooldown = 44;
+  // sentinel_demotion_threshold — see ForumOperationalParams.sentinel_demotion_threshold.
+  string sentinel_demotion_threshold = 45;
 }
 
 // ForumOperationalParams defines the operational parameters that can be updated
@@ -163,4 +184,39 @@ message ForumOperationalParams {
 
   // conviction_renewal_period is the TTL extension in seconds when conviction threshold is met
   int64 conviction_renewal_period = 32;
+
+  // ---------------------------------------------------------------------------
+  // Sentinel bonded-role config (flattened).
+  //
+  // Forum owns the sentinel role; these fields are the source of truth. Any
+  // update here is written through to x/rep's BondedRoleConfig for
+  // ROLE_TYPE_FORUM_SENTINEL so rep can enforce the same thresholds at
+  // MsgBondRole time.
+  // ---------------------------------------------------------------------------
+
+  // min_sentinel_bond is the minimum DREAM required to bond as a sentinel
+  // (math.Int string, e.g. "1000").
+  string min_sentinel_bond = 40;
+
+  // min_sentinel_rep_tier is the minimum reputation tier required to bond as
+  // a sentinel. 0 = no rep-tier gate.
+  uint64 min_sentinel_rep_tier = 41;
+
+  // min_sentinel_trust_level is the minimum trust level required to bond as a
+  // sentinel, as an enum name (e.g. "TRUST_LEVEL_ESTABLISHED"). Empty = no
+  // trust-level gate.
+  string min_sentinel_trust_level = 42;
+
+  // min_sentinel_age_blocks is enforced by forum at action time (the sentinel
+  // must have been bonded for this many blocks before taking an action). Zero
+  // = no age gate.
+  int64 min_sentinel_age_blocks = 43;
+
+  // sentinel_demotion_cooldown is the number of seconds a DEMOTED sentinel
+  // must wait before re-bonding.
+  int64 sentinel_demotion_cooldown = 44;
+
+  // sentinel_demotion_threshold is the bond floor below which the sentinel
+  // transitions from RECOVERY to DEMOTED (math.Int string).
+  string sentinel_demotion_threshold = 45;
 }

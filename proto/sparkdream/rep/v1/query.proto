@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/rep/v1/bonded_role.proto";
 import "sparkdream/rep/v1/challenge.proto";
 import "sparkdream/rep/v1/content_challenge.proto";
 import "sparkdream/rep/v1/gov_action_appeal.proto";
@@ -21,7 +22,6 @@ import "sparkdream/rep/v1/member_warning.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
 import "sparkdream/rep/v1/reserved_tag.proto";
-import "sparkdream/rep/v1/sentinel_activity.proto";
 import "sparkdream/rep/v1/stake.proto";
 import "sparkdream/rep/v1/tag.proto";
 import "sparkdream/rep/v1/tag_budget.proto";
@@ -347,24 +347,20 @@ service Query {
     option (google.api.http).get = "/sparkdream/rep/v1/tag_budget_awards/{budget_id}";
   }
 
-  // GetSentinelActivity Queries a SentinelActivity by address.
-  rpc GetSentinelActivity(QueryGetSentinelActivityRequest) returns (QueryGetSentinelActivityResponse) {
-    option (google.api.http).get = "/sparkdream/rep/v1/sentinel_activity/{address}";
+  // BondedRole queries a single BondedRole record by (role_type, address).
+  rpc BondedRole(QueryBondedRoleRequest) returns (QueryBondedRoleResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/bonded_role/{role_type}/{address}";
   }
 
-  // ListSentinelActivity defines the ListSentinelActivity RPC.
-  rpc ListSentinelActivity(QueryAllSentinelActivityRequest) returns (QueryAllSentinelActivityResponse) {
-    option (google.api.http).get = "/sparkdream/rep/v1/sentinel_activity";
+  // BondedRolesByType lists all BondedRole records for a given role_type.
+  rpc BondedRolesByType(QueryBondedRolesByTypeRequest) returns (QueryBondedRolesByTypeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/bonded_roles_by_type/{role_type}";
   }
 
-  // SentinelStatus queries bond status and current bond for a sentinel.
-  rpc SentinelStatus(QuerySentinelStatusRequest) returns (QuerySentinelStatusResponse) {
-    option (google.api.http).get = "/sparkdream/rep/v1/sentinel_status/{address}";
-  }
-
-  // SentinelBondCommitment queries current/committed/available bond for a sentinel.
-  rpc SentinelBondCommitment(QuerySentinelBondCommitmentRequest) returns (QuerySentinelBondCommitmentResponse) {
-    option (google.api.http).get = "/sparkdream/rep/v1/sentinel_bond_commitment/{address}";
+  // BondedRoleConfig queries the per-role policy config seeded at genesis and
+  // kept in sync by the owning module's operational-params handler.
+  rpc BondedRoleConfig(QueryBondedRoleConfigRequest) returns (QueryBondedRoleConfigResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/bonded_role_config/{role_type}";
   }
 
   // ListMemberReport Queries a list of MemberReport items.
@@ -1221,49 +1217,37 @@ message QueryTagBudgetAwardsResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
 }
 
-// QueryGetSentinelActivityRequest defines the QueryGetSentinelActivityRequest message.
-message QueryGetSentinelActivityRequest {
-  string address = 1;
+// QueryBondedRoleRequest fetches a single BondedRole record.
+message QueryBondedRoleRequest {
+  RoleType role_type = 1;
+  string address = 2;
 }
 
-// QueryGetSentinelActivityResponse defines the QueryGetSentinelActivityResponse message.
-message QueryGetSentinelActivityResponse {
-  SentinelActivity sentinel_activity = 1 [(gogoproto.nullable) = false];
+// QueryBondedRoleResponse holds the fetched BondedRole record.
+message QueryBondedRoleResponse {
+  BondedRole bonded_role = 1 [(gogoproto.nullable) = false];
 }
 
-// QueryAllSentinelActivityRequest defines the QueryAllSentinelActivityRequest message.
-message QueryAllSentinelActivityRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+// QueryBondedRolesByTypeRequest lists all BondedRole records for role_type.
+message QueryBondedRolesByTypeRequest {
+  RoleType role_type = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
 }
 
-// QueryAllSentinelActivityResponse defines the QueryAllSentinelActivityResponse message.
-message QueryAllSentinelActivityResponse {
-  repeated SentinelActivity sentinel_activity = 1 [(gogoproto.nullable) = false];
+// QueryBondedRolesByTypeResponse holds the paginated list of BondedRole records.
+message QueryBondedRolesByTypeResponse {
+  repeated BondedRole bonded_roles = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-// QuerySentinelStatusRequest defines the QuerySentinelStatusRequest message.
-message QuerySentinelStatusRequest {
-  string address = 1;
+// QueryBondedRoleConfigRequest fetches the policy config for a role_type.
+message QueryBondedRoleConfigRequest {
+  RoleType role_type = 1;
 }
 
-// QuerySentinelStatusResponse defines the QuerySentinelStatusResponse message.
-message QuerySentinelStatusResponse {
-  string address = 1;
-  uint64 bond_status = 2;
-  string current_bond = 3;
-}
-
-// QuerySentinelBondCommitmentRequest defines the QuerySentinelBondCommitmentRequest message.
-message QuerySentinelBondCommitmentRequest {
-  string address = 1;
-}
-
-// QuerySentinelBondCommitmentResponse defines the QuerySentinelBondCommitmentResponse message.
-message QuerySentinelBondCommitmentResponse {
-  string current_bond = 1;
-  string total_committed_bond = 2;
-  string available_bond = 3;
+// QueryBondedRoleConfigResponse holds the fetched BondedRoleConfig.
+message QueryBondedRoleConfigResponse {
+  BondedRoleConfig bonded_role_config = 1 [(gogoproto.nullable) = false];
 }
 
 // QueryGetMemberReportRequest defines the QueryGetMemberReportRequest message.

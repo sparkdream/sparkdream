@@ -31,7 +31,10 @@ var (
 	PeersKey           = collections.NewPrefix("fed/peers/")
 	PeerPoliciesKey    = collections.NewPrefix("fed/policies/")
 	BridgeOperatorsKey = collections.NewPrefix("fed/bridges/")
-	VerifiersKey       = collections.NewPrefix("fed/verifiers/")
+	// VerifierActivityKey: address -> VerifierActivity (federation-specific
+	// per-verifier counters). Generic bond state lives in x/rep as
+	// BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr).
+	VerifierActivityKey = collections.NewPrefix("fed/verifier_activity/")
 	VerificationRecsKey = collections.NewPrefix("fed/verifyrecs/")
 	ArbiterSubmissionsKey = collections.NewPrefix("fed/arbiters/")
 	ContentKey         = collections.NewPrefix("fed/content/")

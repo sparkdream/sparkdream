@@ -150,11 +150,11 @@ func TestMoveThread(t *testing.T) {
 
 			// Reset sentinel (local counters + rep bond record)
 			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel})
-			f.repKeeper.sentinels[testSentinel] = reptypes.SentinelActivity{
+			f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
 				Address:            testSentinel,
 				CurrentBond:        "2000",
 				TotalCommittedBond: "0",
-				BondStatus:         reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
+				BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 			}
 
 			if tt.setup != nil {

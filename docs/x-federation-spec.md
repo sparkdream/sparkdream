@@ -159,25 +159,28 @@ Content lifecycle (TTL, pruning) is always managed by x/federation's EndBlocker,
 
 ### 3.9. Federation Verifiers
 
-Federation verifiers are community members who independently verify that bridged content matches its source. The role is modeled on the x/forum sentinel system: verifiers bond DREAM, must meet a minimum trust level, are rewarded for accurate verification, and are slashed by jury verdict if proven wrong.
+Federation verifiers are community members who independently verify that bridged content matches its source. The role is one of the DREAM-bonded roles managed by x/rep's generic `BondedRole` primitive (`role_type = ROLE_TYPE_FEDERATION_VERIFIER`). Verifiers bond DREAM, must meet a minimum trust level, are rewarded for accurate verification, and are slashed by jury verdict if proven wrong. See [bonded-role-generalization.md](bonded-role-generalization.md).
 
 **Why a separate role from bridge operators?** Bridge operators have infrastructure at stake (SPARK bond) but also have incentive to inflate their submission volume. Verifiers are independent community members with reputation and DREAM at stake — they have no incentive to rubber-stamp operator submissions, and collusion between operator and verifier is punishable by both SPARK slashing (operator) and DREAM slashing (verifier).
 
+**Why separate primitives?** Bridge operators stake SPARK with a 14-day unbonding period and are slashed by the Operations Committee; verifiers stake DREAM via x/rep's reputation-gated BondedRole primitive. The two use cases have incompatible mechanics, so x/rep's BondedRole is DREAM-only and federation keeps its own `BridgeOperator` proto for the SPARK-staked role.
+
 #### 3.9.1. Verifier Registration
 
-A member bonds DREAM to become a federation verifier via `MsgBondVerifier`.
+A member bonds DREAM to become a federation verifier via x/rep's generic `MsgBondRole` with `role_type = ROLE_TYPE_FEDERATION_VERIFIER`. CLI: `tx rep bond-role ROLE_TYPE_FEDERATION_VERIFIER <amount>`.
 
-**Requirements:**
-- Minimum trust level: `min_verifier_trust_level` (default: ESTABLISHED / 2) — must have demonstrated community standing
-- Minimum bond: `min_verifier_bond` (default: 500 DREAM)
+**Requirements (enforced in rep against the federation-seeded `BondedRoleConfig`):**
+- Minimum trust level: `min_verifier_trust_level` (default: ESTABLISHED / 2) — must have demonstrated community standing. Federation writes this through to the role's `BondedRoleConfig.MinTrustLevel` field.
+- Minimum bond: `min_verifier_bond` (default: 500 DREAM). Federation writes this through to `BondedRoleConfig.MinBond`.
+- `verifier_demotion_cooldown` (default 7d) + `verifier_recovery_threshold` (default: 250 DREAM) are written through to `BondedRoleConfig.DemotionCooldown` / `.DemotionThreshold`.
 
-**Bond status model** (mirrors x/forum sentinels):
+**Bond status model** (shared `BondedRoleStatus` enum; the federation-specific `VerifierBondStatus` enum from the pre-Phase-4 proto is gone):
 
 | Status | Bond Range | Behavior |
 |--------|-----------|----------|
-| NORMAL | ≥ `min_verifier_bond` | Full privileges; rewards paid directly |
-| RECOVERY | ≥ `verifier_recovery_threshold` and < `min_verifier_bond` | Can still verify, but DREAM rewards auto-bond until restored |
-| DEMOTED | < `verifier_recovery_threshold` | Loses all privileges; must wait `verifier_demotion_cooldown` before re-bonding |
+| `BONDED_ROLE_STATUS_NORMAL` | ≥ `min_verifier_bond` | Full privileges; rewards paid directly |
+| `BONDED_ROLE_STATUS_RECOVERY` | ≥ `verifier_recovery_threshold` and < `min_verifier_bond` | Can still verify, but DREAM rewards auto-bond until restored |
+| `BONDED_ROLE_STATUS_DEMOTED` | < `verifier_recovery_threshold` | Loses all privileges; must wait `verifier_demotion_cooldown` before re-bonding |
 
 #### 3.9.2. Verification Flow
 
@@ -531,45 +534,55 @@ enum BridgeStatus {
 }
 ```
 
-### 4.4. FederationVerifier
+### 4.4. Verifier state (split across x/rep and x/federation)
 
-Community members who independently verify bridged content. Modeled on the x/forum sentinel bond system.
+> **Phase 1–4 bonded-role generalization:** the former standalone `FederationVerifier` proto is gone. Generic bond/status/activity state now lives in x/rep as `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr)`. Federation owns only per-module counters in `VerifierActivity`.
+
+**Generic bond state (x/rep):**
 
 ```protobuf
-message FederationVerifier {
-  string address = 1;                              // Verifier's bech32 address
-  string current_bond = 2;                         // Current bonded DREAM [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  string total_committed_bond = 3;                 // DREAM committed against pending challenges [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  VerifierBondStatus bond_status = 4;
-  int64 bonded_at = 5;                             // When first bonded
-  int64 demotion_cooldown_until = 6;               // Earliest time re-bonding is allowed after demotion
-
-  // Lifetime metrics
-  uint64 total_verifications = 7;                  // Total content items verified
-  uint64 upheld_verifications = 8;                 // Challenges rejected (verifier was right)
-  uint64 overturned_verifications = 9;             // Challenges upheld (verifier was wrong)
-  uint64 unchallenged_verifications = 10;          // Challenge window expired (not counted in accuracy)
-
-  // Epoch metrics (reset each epoch)
-  uint64 epoch_verifications = 11;                 // Verifications this epoch
-  uint64 epoch_challenges_resolved = 12;           // Challenge verdicts resolved this epoch
-  int64 last_reward_epoch = 13;                    // Last epoch rewards were paid
-  int64 last_active_epoch = 14;                    // Last epoch with any activity
-
-  // Cooldown tracking
-  uint64 consecutive_overturns = 15;               // For escalating cooldown
-  uint64 consecutive_upheld = 16;                  // For overturn counter reset
-  int64 overturn_cooldown_until = 17;              // Cannot verify during cooldown
-  uint64 slash_count = 18;                         // Total times slashed
-}
-
-enum VerifierBondStatus {
-  VERIFIER_BOND_STATUS_UNSPECIFIED = 0;
-  VERIFIER_BOND_STATUS_NORMAL = 1;                 // Bond >= min_verifier_bond
-  VERIFIER_BOND_STATUS_RECOVERY = 2;               // Bond >= recovery threshold, < min_verifier_bond
-  VERIFIER_BOND_STATUS_DEMOTED = 3;                // Bond below recovery threshold, no privileges
+// See docs/x-rep-spec.md and proto/sparkdream/rep/v1/bonded_role.proto.
+message BondedRole {
+  string           address                       = 1;
+  RoleType         role_type                     = 2; // ROLE_TYPE_FEDERATION_VERIFIER
+  BondedRoleStatus bond_status                   = 3;
+  string           current_bond                  = 4;
+  string           total_committed_bond          = 5;
+  int64            registered_at                 = 6;
+  int64            last_active_epoch             = 7;
+  uint64           consecutive_inactive_epochs   = 8;
+  int64            demotion_cooldown_until       = 9;
+  string           cumulative_rewards            = 10;
+  int64            last_reward_epoch             = 11;
 }
 ```
+
+**Federation-specific counters:**
+
+```protobuf
+// proto/sparkdream/federation/v1/verifier_activity.proto
+message VerifierActivity {
+  string address = 1;                              // Verifier's bech32 address
+
+  // Lifetime metrics
+  uint64 total_verifications = 2;                  // Total content items verified
+  uint64 upheld_verifications = 3;                 // Challenges rejected (verifier was right)
+  uint64 overturned_verifications = 4;             // Challenges upheld (verifier was wrong)
+  uint64 unchallenged_verifications = 5;           // Challenge window expired (not counted in accuracy)
+
+  // Epoch metrics (reset each epoch)
+  uint64 epoch_verifications = 6;
+  uint64 epoch_challenges_resolved = 7;
+
+  // Cooldown / streak tracking
+  uint64 consecutive_overturns = 8;                // For escalating cooldown / demotion trigger
+  uint64 consecutive_upheld = 9;                   // For overturn counter reset
+  int64  overturn_cooldown_until = 10;             // Cannot verify during cooldown
+  uint64 slash_count = 11;                         // Total times slashed
+}
+```
+
+**Bond status:** the shared `BondedRoleStatus` enum (`BONDED_ROLE_STATUS_NORMAL` / `_RECOVERY` / `_DEMOTED`) from x/rep replaces the pre-Phase-4 `VerifierBondStatus` enum.
 
 ### 4.5. VerificationRecord
 
@@ -877,7 +890,12 @@ message GenesisState {
   repeated IdentityLink identity_links = 6 [(gogoproto.nullable) = false];
   repeated ReputationAttestation reputation_attestations = 7 [(gogoproto.nullable) = false];
   repeated OutboundAttestation outbound_attestations = 8 [(gogoproto.nullable) = false];
-  repeated FederationVerifier verifiers = 11 [(gogoproto.nullable) = false];
+  // Field 11 previously held FederationVerifier records; replaced by x/rep
+  // BondedRole(ROLE_TYPE_FEDERATION_VERIFIER). Per-module counters live in
+  // verifier_activities.
+  reserved 11;
+  reserved "verifiers";
+  repeated VerifierActivity verifier_activities = 14 [(gogoproto.nullable) = false];
   repeated VerificationRecord verification_records = 12 [(gogoproto.nullable) = false];
   uint64 next_content_id = 9;
   uint64 next_outbound_attestation_id = 10;
@@ -925,7 +943,7 @@ message GenesisState {
 | `ReputationAttestations` | `(local_address, peer_id)` | `ReputationAttestation` | Cached reputation |
 | `AttestationExpirationQueue` | `(expires_at, local_address, peer_id)` | — | Sorted index for attestation pruning |
 | `OutboundAttestations` | `id` (auto-increment) | `OutboundAttestation` | Outbound audit trail |
-| `FederationVerifiers` | `address` | `FederationVerifier` | Verifier registry |
+| `VerifierActivity` | `address` | `VerifierActivity` | Federation-specific per-verifier counters. Generic bond state lives in x/rep as `BondedRoles[(ROLE_TYPE_FEDERATION_VERIFIER, address)]`. |
 | `VerificationRecords` | `content_id` | `VerificationRecord` | Verification records (one per content item) |
 | `VerificationWindowQueue` | `(expires_at, content_id)` | — | Sorted index for verification window expiry |
 | `ChallengeWindowQueue` | `(challenge_window_ends, content_id)` | — | Sorted index for challenge window expiry |
@@ -1353,43 +1371,31 @@ message MsgRequestReputationAttestation {
 4. Response handled in `OnAcknowledgementPacket` — stores ReputationAttestation
 5. Timeout handled in `OnTimeoutPacket` — emits `reputation_query_timeout` event, user must retry manually
 
-### 6.20. BondVerifier (User)
+### 6.20. Verifier bonding (moved to x/rep)
 
-Bond DREAM to become a federation verifier.
+> **Phase 1–4 bonded-role generalization:** the former federation-local `MsgBondVerifier` / `MsgUnbondVerifier` have been subsumed by x/rep's generic `MsgBondRole` / `MsgUnbondRole`. Verifier bonding now flows through rep's role-typed endpoint; federation no longer owns a registration message.
 
-```protobuf
-message MsgBondVerifier {
-  string creator = 1;             // Verifier address (signer)
-  string amount = 2;              // DREAM to bond [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-}
-```
+Invoked as:
 
-**Logic:**
-1. Verify creator meets `min_verifier_trust_level` via x/rep
-2. If re-bonding after demotion, verify `demotion_cooldown_until` has passed — reject with `ErrDemotionCooldown`
-3. Transfer DREAM from creator to federation module account via x/rep (locked as bond)
-4. Create or update FederationVerifier record, increment `current_bond`
-5. Update `bond_status`: NORMAL if `≥ min_verifier_bond`, RECOVERY if `≥ verifier_recovery_threshold`, otherwise DEMOTED
-6. Emit `verifier_bonded` event
+- `tx rep bond-role ROLE_TYPE_FEDERATION_VERIFIER <amount>` — bond DREAM to become a federation verifier.
+- `tx rep unbond-role ROLE_TYPE_FEDERATION_VERIFIER <amount>` — withdraw bonded DREAM (subject to committed-bond constraints).
 
-### 6.21. UnbondVerifier (User)
+**Bond logic (implemented in rep against the federation-seeded `BondedRoleConfig`):**
 
-Withdraw bonded DREAM. Cannot unbond while commitments are outstanding.
+1. Verify creator meets `MinTrustLevel` (seeded from federation's `min_verifier_trust_level`).
+2. If re-bonding after demotion, verify `demotion_cooldown_until` has passed — reject with `ErrDemotionCooldown`.
+3. Lock DREAM via rep's `LockDREAM` (moves from available balance to staked, non-decay).
+4. Create or update `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr)`, increment `current_bond`.
+5. Compute `bond_status` from config thresholds: `NORMAL` if `≥ min_bond`, `RECOVERY` if `≥ demotion_threshold`, otherwise `DEMOTED`.
+6. Emit `bonded_role_bonded` event with `role_type=ROLE_TYPE_FEDERATION_VERIFIER`.
 
-```protobuf
-message MsgUnbondVerifier {
-  string creator = 1;             // Verifier address (signer)
-  string amount = 2;              // DREAM to unbond [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-}
-```
+**Unbond logic:**
 
-**Logic:**
-1. Verify `amount ≤ current_bond - total_committed_bond` — reject with `ErrBondCommitted` if insufficient available bond
-2. Transfer DREAM from federation module to creator via x/rep
-3. Update `current_bond`, recalculate `bond_status`
-4. If `bond_status` transitions to DEMOTED: set `demotion_cooldown_until` = block_time + `verifier_demotion_cooldown`
-5. If `current_bond == 0`: delete FederationVerifier record (preserve demotion cooldown key)
-6. Emit `verifier_unbonded` event
+1. Verify `amount ≤ current_bond - total_committed_bond` — reject with `ErrInsufficientBond` if insufficient available bond (in-flight `MsgVerifyContent` reservations and unresolved challenges lock committed portions).
+2. `UnlockDREAM` the amount back to the verifier's available balance.
+3. Recompute `bond_status`. If transitioning to `DEMOTED`, set `demotion_cooldown_until = block_time + demotion_cooldown`.
+4. The `BondedRole` record persists even at `current_bond == 0` to preserve the demotion cooldown; rep never deletes role records.
+5. Emit `bonded_role_unbonded` event.
 
 ### 6.22. VerifyContent (Verifier)
 
@@ -1571,8 +1577,8 @@ message MsgUpdateOperationalParams {
 | `ListPendingIdentityChallenges` | claimed_address filter, pagination | []PendingIdentityChallenge | List pending challenges for an address |
 | `GetReputationAttestation` | local_address, peer_id | ReputationAttestation | Cached reputation |
 | `ListOutboundAttestations` | peer_id filter, pagination | []OutboundAttestation | Outbound audit trail |
-| `GetVerifier` | address | FederationVerifier | Verifier details |
-| `ListVerifiers` | bond_status filter, pagination | []FederationVerifier | List verifiers |
+| `VerifierActivity` | address | VerifierActivity | Federation-specific counters. Generic bond state is at `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`. |
+| (use `query rep bonded-roles-by-type ROLE_TYPE_FEDERATION_VERIFIER`) | role_type filter, pagination | []BondedRole | List bonded verifiers (lives in x/rep) |
 | `GetVerificationRecord` | content_id | VerificationRecord | Verification record for content |
 | `Params` | — | Params | Module parameters |
 

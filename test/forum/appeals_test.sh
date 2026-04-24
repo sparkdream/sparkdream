@@ -125,7 +125,7 @@ echo "Sentinel operations require reputation tiers. Building reputation via EPIC
 echo ""
 
 # Check if sentinel1 already has a sentinel activity record (already bootstrapped)
-SENTINEL_STATUS=$($BINARY query rep sentinel-status "$SENTINEL1_ADDR" --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>&1)
 
 if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
     # Sentinel1 needs tier 4 (500+ rep) for thread locking.
@@ -143,13 +143,13 @@ fi
 echo "--- PART 1: SETUP - BOND SENTINEL AND CREATE POSTS ---"
 
 # Check if sentinel1 is already bonded
-SENTINEL_STATUS=$($BINARY query rep sentinel-status "$SENTINEL1_ADDR" --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>&1)
 
 if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
     echo "Bonding sentinel1..."
     BOND_AMOUNT="100000000"
 
-    TX_RES=$($BINARY tx rep bond-sentinel \
+    TX_RES=$($BINARY tx rep bond-role forum-sentinel \
         "$BOND_AMOUNT" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \
@@ -601,14 +601,14 @@ echo ""
 # ========================================================================
 echo "--- PART 15: SENTINEL BOND COMMITMENT QUERY ---"
 
-COMMITMENT=$($BINARY query rep sentinel-bond-commitment "$SENTINEL1_ADDR" --output json 2>&1)
+COMMITMENT=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>&1)
 
 if echo "$COMMITMENT" | grep -q "error"; then
     echo "  Failed to query bond commitment"
 else
     echo "  Sentinel Bond Commitment:"
-    echo "    Current Bond: $(echo "$COMMITMENT" | jq -r '.current_bond // "0"')"
-    echo "    Total Committed: $(echo "$COMMITMENT" | jq -r '.total_committed_bond // "0"')"
+    echo "    Current Bond: $(echo "$COMMITMENT" | jq -r '.bonded_role.current_bond // "0"')"
+    echo "    Total Committed: $(echo "$COMMITMENT" | jq -r '.bonded_role.total_committed_bond // "0"')"
     echo "    Available Bond: $(echo "$COMMITMENT" | jq -r '.available_bond // "0"')"
 fi
 

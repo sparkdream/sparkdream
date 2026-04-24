@@ -32,5 +32,11 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, req *types.MsgUp
 		return nil, errorsmod.Wrap(err, "failed to set params")
 	}
 
+	// Write-through the sentinel bond-role config to x/rep so MsgBondRole
+	// enforcement uses the same thresholds the council just set.
+	if err := k.SyncSentinelBondedRoleConfig(ctx, merged); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to sync sentinel bonded-role config to rep")
+	}
+
 	return &types.MsgUpdateOperationalParamsResponse{}, nil
 }

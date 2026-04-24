@@ -3,10 +3,10 @@ package keeper_test
 import (
 	"testing"
 
-	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestRateCollection(t *testing.T) {
@@ -43,9 +43,9 @@ func TestRateCollection(t *testing.T) {
 				require.Equal(t, uint32(1), summary.UpCount)
 				require.Equal(t, uint32(0), summary.DownCount)
 
-				curator, err := f.keeper.Curator.Get(f.ctx, f.member)
+				activity, err := f.keeper.CuratorActivity.Get(f.ctx, f.member)
 				require.NoError(t, err)
-				require.Equal(t, uint64(1), curator.TotalReviews)
+				require.Equal(t, uint64(1), activity.TotalReviews)
 			},
 		},
 		{
@@ -169,14 +169,18 @@ func TestRateCollection(t *testing.T) {
 			expErrContains: "curator registered less than min age blocks ago",
 		},
 		{
-			name: "error: curator bond insufficient",
+			name: "error: curator demoted",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
 				f.registerCurator(t, f.member, 500)
-				// Lower bond below min after registration
-				curator, _ := f.keeper.Curator.Get(f.ctx, f.member)
-				curator.BondAmount = math.NewInt(100)
-				f.keeper.Curator.Set(f.ctx, f.member, curator)
+				// Demote the bonded role directly on the mock rep keeper.
+				// After Phase 3, bond-below-min is enforced at bond time in
+				// x/rep; the rate handler only checks bond_status.
+				_ = f.repKeeper.SetBondStatus(f.ctx,
+					reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+					f.member,
+					reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED,
+					0)
 				f.advanceBlockHeight(14401)
 				return collID
 			},
@@ -188,7 +192,7 @@ func TestRateCollection(t *testing.T) {
 				}
 			},
 			expErr:         true,
-			expErrContains: "curator bond dropped below min",
+			expErrContains: "demoted",
 		},
 	}
 

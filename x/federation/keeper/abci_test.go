@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestEndBlockerPruneExpiredContent(t *testing.T) {
@@ -75,9 +77,12 @@ func TestEndBlockerReleaseVerifierBond(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verifier should have committed bond
-	v, _ := f.keeper.Verifiers.Get(f.ctx, verifierStr)
-	require.True(t, v.TotalCommittedBond.IsPositive())
+	// Verifier should have committed bond on the BondedRole (via mock rep keeper).
+	br, err := f.repKeeper.GetBondedRole(f.ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr)
+	require.NoError(t, err)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	require.True(t, committed.IsPositive())
 
 	// Set challenge window to expire
 	record, _ := f.keeper.VerificationRecords.Get(f.ctx, contentID)
@@ -88,8 +93,14 @@ func TestEndBlockerReleaseVerifierBond(t *testing.T) {
 	sdkCtx = sdkCtx.WithBlockTime(time.Now())
 	require.NoError(t, f.keeper.EndBlocker(sdkCtx))
 
-	// Bond should be released
-	v, _ = f.keeper.Verifiers.Get(sdkCtx, verifierStr)
-	require.True(t, v.TotalCommittedBond.IsZero())
-	require.Equal(t, uint64(1), v.UnchallengedVerifications)
+	// Bond should be released, unchallenged counter bumped on per-module
+	// VerifierActivity.
+	br, err = f.repKeeper.GetBondedRole(sdkCtx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr)
+	require.NoError(t, err)
+	committed, _ = math.NewIntFromString(br.TotalCommittedBond)
+	require.True(t, committed.IsZero())
+
+	activity, _ := f.keeper.VerifierActivity.Get(sdkCtx, verifierStr)
+	require.Equal(t, uint64(1), activity.UnchallengedVerifications)
 }

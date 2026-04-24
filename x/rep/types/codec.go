@@ -144,11 +144,11 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgBondSentinel{},
+		&MsgBondRole{},
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgUnbondSentinel{},
+		&MsgUnbondRole{},
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),

@@ -143,8 +143,18 @@ func NewParams() Params {
 		EphemeralTtl:                 DefaultEphemeralTTL,
 		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
+		MinSentinelBond:              DefaultMinSentinelBond.String(),
+		MinSentinelRepTier:           DefaultMinRepTierSentinel,
+		MinSentinelTrustLevel:        "",
+		MinSentinelAgeBlocks:         0,
+		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
+		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
 	}
 }
+
+// DefaultSentinelDemotionThresholdAmount is the bond floor below which the
+// sentinel transitions from RECOVERY to DEMOTED.
+const DefaultSentinelDemotionThresholdAmount = int64(250)
 
 // DefaultParams returns a default set of parameters.
 func DefaultParams() Params {
@@ -224,6 +234,12 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		EphemeralTtl:                 DefaultEphemeralTTL,
 		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
+		MinSentinelBond:              DefaultMinSentinelBond.String(),
+		MinSentinelRepTier:           DefaultMinRepTierSentinel,
+		MinSentinelTrustLevel:        "",
+		MinSentinelAgeBlocks:         0,
+		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
+		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
 	}
 }
 
@@ -279,6 +295,12 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.EphemeralTtl = op.EphemeralTtl
 	p.ConvictionRenewalThreshold = op.ConvictionRenewalThreshold
 	p.ConvictionRenewalPeriod = op.ConvictionRenewalPeriod
+	p.MinSentinelBond = op.MinSentinelBond
+	p.MinSentinelRepTier = op.MinSentinelRepTier
+	p.MinSentinelTrustLevel = op.MinSentinelTrustLevel
+	p.MinSentinelAgeBlocks = op.MinSentinelAgeBlocks
+	p.SentinelDemotionCooldown = op.SentinelDemotionCooldown
+	p.SentinelDemotionThreshold = op.SentinelDemotionThreshold
 	return p
 }
 
@@ -314,5 +336,19 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		EphemeralTtl:                 p.EphemeralTtl,
 		ConvictionRenewalThreshold:   p.ConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:      p.ConvictionRenewalPeriod,
+		MinSentinelBond:              p.MinSentinelBond,
+		MinSentinelRepTier:           p.MinSentinelRepTier,
+		MinSentinelTrustLevel:        p.MinSentinelTrustLevel,
+		MinSentinelAgeBlocks:         p.MinSentinelAgeBlocks,
+		SentinelDemotionCooldown:     p.SentinelDemotionCooldown,
+		SentinelDemotionThreshold:    p.SentinelDemotionThreshold,
 	}
+}
+
+// SentinelBondedRoleConfig assembles a reptypes-agnostic BondedRoleConfig from
+// forum's operational params. Kept in params.go so the type is accessible from
+// both the keeper (which write-throughs on update) and InitGenesis.
+func (p Params) SentinelBondedRoleConfigFields() (minBond, trust, demotionThreshold string, repTier uint64, ageBlocks, demotionCooldown int64) {
+	return p.MinSentinelBond, p.MinSentinelTrustLevel, p.SentinelDemotionThreshold,
+		p.MinSentinelRepTier, p.MinSentinelAgeBlocks, p.SentinelDemotionCooldown
 }

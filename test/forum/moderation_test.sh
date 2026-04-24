@@ -147,16 +147,16 @@ bond_sentinel() {
     local ADDR=$2
     local BOND_AMOUNT=${3:-100000000}
 
-    SENTINEL_STATUS=$($BINARY query rep sentinel-status $ADDR --output json 2>&1)
-    CURRENT_BOND=$(echo "$SENTINEL_STATUS" | jq -r '.current_bond // "0"' 2>/dev/null)
+    SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel $ADDR --output json 2>&1)
+    CURRENT_BOND=$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
 
     # Bond if no record exists OR current bond is zero/insufficient
     if echo "$SENTINEL_STATUS" | grep -q "error\|not found" \
-       || [ "$(echo "$SENTINEL_STATUS" | jq -r '.address // empty')" = "" ] \
+       || [ "$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.address // empty')" = "" ] \
        || [ "$CURRENT_BOND" = "0" ] || [ "$CURRENT_BOND" = "null" ] || [ -z "$CURRENT_BOND" ]; then
         echo "  Bonding $ACCOUNT (amount: $BOND_AMOUNT)..."
 
-        TX_RES=$($BINARY tx rep bond-sentinel \
+        TX_RES=$($BINARY tx rep bond-role forum-sentinel \
             "$BOND_AMOUNT" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
@@ -644,12 +644,13 @@ echo ""
 echo "--- PART 16: QUERY SENTINEL STATUS ---"
 PART16_RESULT="FAIL"
 
-SENTINEL_STATUS=$($BINARY query rep sentinel-status $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
 
-if echo "$SENTINEL_STATUS" | jq -e '.address' > /dev/null 2>&1 && ! echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
-    SENTINEL_ADDR=$(echo "$SENTINEL_STATUS" | jq -r '.address')
-    BOND_STATUS=$(echo "$SENTINEL_STATUS" | jq -r '.bond_status // "0"')
-    CURRENT_BOND=$(echo "$SENTINEL_STATUS" | jq -r '.current_bond // "0"')
+# Response wraps the record under `.bonded_role`; read fields from that path.
+if echo "$SENTINEL_STATUS" | jq -e '.bonded_role.address' > /dev/null 2>&1 && ! echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
+    SENTINEL_ADDR=$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.address')
+    BOND_STATUS=$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.bond_status // "0"')
+    CURRENT_BOND=$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.current_bond // "0"')
     echo "  address: $SENTINEL_ADDR"
     echo "  bond_status: $BOND_STATUS"
     echo "  current_bond: $CURRENT_BOND"
@@ -666,10 +667,10 @@ echo ""
 echo "--- PART 17: QUERY SENTINEL ACTIVITY ---"
 PART17_RESULT="FAIL"
 
-SENTINEL_ACTIVITY=$($BINARY query rep get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$SENTINEL_ACTIVITY" | jq -e '.' > /dev/null 2>&1 && ! echo "$SENTINEL_ACTIVITY" | grep -q "error\|not found"; then
-    echo "  current_bond: $(echo "$SENTINEL_ACTIVITY" | jq -r '.sentinel_activity.current_bond // .current_bond // "unknown"')"
+    echo "  current_bond: $(echo "$SENTINEL_ACTIVITY" | jq -r '.bonded_role.current_bond // .current_bond // "unknown"')"
     echo "  total_hides: $(echo "$SENTINEL_ACTIVITY" | jq -r '.sentinel_activity.total_hides // .total_hides // "0"')"
     echo "  total_locks: $(echo "$SENTINEL_ACTIVITY" | jq -r '.sentinel_activity.total_locks // .total_locks // "0"')"
     PART17_RESULT="PASS"
@@ -685,7 +686,7 @@ echo ""
 echo "--- PART 18: QUERY SENTINEL BOND COMMITMENT ---"
 PART18_RESULT="FAIL"
 
-BOND_COMMITMENT=$($BINARY query rep sentinel-bond-commitment $SENTINEL1_ADDR --output json 2>&1)
+BOND_COMMITMENT=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$BOND_COMMITMENT" | jq -e '.' > /dev/null 2>&1 && ! echo "$BOND_COMMITMENT" | grep -q "error\|not found"; then
     echo "  Bond commitment response received"
@@ -707,7 +708,7 @@ PART19_RESULT="FAIL"
 # Note: Part 12 cosign may have drained the bond to escrow, so re-bond first.
 bond_sentinel $SECOND_SENTINEL_ACCOUNT "$SECOND_SENTINEL_ADDR"
 
-TX_RES=$($BINARY tx rep unbond-sentinel \
+TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
     "10000000" \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \
@@ -1342,7 +1343,7 @@ echo ""
 echo "--- PART 34: ERROR - BondSentinel ErrBondAmountTooSmall ---"
 PART34_RESULT="FAIL"
 
-TX_RES=$($BINARY tx rep bond-sentinel \
+TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     "1" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -1380,7 +1381,7 @@ echo ""
 echo "--- PART 35: ERROR - UnbondSentinel ErrSentinelNotFound ---"
 PART35_RESULT="FAIL"
 
-TX_RES=$($BINARY tx rep unbond-sentinel \
+TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
     "1000" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -1421,7 +1422,7 @@ PART36_RESULT="FAIL"
 # Use the second sentinel (not sentinel1) because sentinel1 has pending hides from
 # sentinel_test which would trigger ErrCannotUnbondPendingHides before reaching the
 # bond check.
-TX_RES=$($BINARY tx rep unbond-sentinel \
+TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
     "999999999999" \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \

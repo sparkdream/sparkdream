@@ -50,9 +50,13 @@ func TestChallengeReview(t *testing.T) {
 				require.True(t, review.Challenged)
 				require.Equal(t, f.owner, review.Challenger)
 
-				curator, err := f.keeper.Curator.Get(f.ctx, f.member)
+				activity, err := f.keeper.CuratorActivity.Get(f.ctx, f.member)
 				require.NoError(t, err)
-				require.Equal(t, uint32(1), curator.PendingChallenges)
+				require.Equal(t, uint64(1), activity.ChallengedReviews)
+
+				// Committed slash budget was reserved against the bonded role
+				// (CuratorSlashFraction × MinCuratorBond).
+				require.True(t, review.CommittedSlash.IsPositive())
 			},
 		},
 		{

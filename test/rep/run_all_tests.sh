@@ -28,6 +28,7 @@ RUN_ENDBLOCKER_TEST=true
 RUN_OPERATIONAL_PARAMS_TEST=true
 RUN_CONTENT_CHALLENGE_TEST=true
 RUN_BOND_LOCKED_TEST=true
+RUN_BONDED_ROLE_TEST=true
 FUND_ALICE=true
 RESET_CHAIN=false
 SAVE_SETUP=false
@@ -921,6 +922,33 @@ if [ "$RUN_BOND_LOCKED_TEST" = true ]; then
 else
     echo "========================================================================="
     echo "STEP 15: BOND LOCKED TEST (SKIPPED)"
+    echo "========================================================================="
+    echo ""
+fi
+
+# ========================================================================
+# Step 15b: Run Bonded Role Test (generic MsgBondRole / MsgUnbondRole + queries)
+# ========================================================================
+if [ "$RUN_BONDED_ROLE_TEST" = true ]; then
+    echo "========================================================================="
+    echo "STEP 15b: BONDED ROLE TEST"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/bonded_role_test.sh"
+    BONDED_ROLE_EXIT_CODE=$?
+
+    echo ""
+    if [ $BONDED_ROLE_EXIT_CODE -eq 0 ]; then
+        echo "✅ Bonded role test completed"
+    else
+        echo "⚠️  Bonded role test exited with code: $BONDED_ROLE_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+else
+    echo "========================================================================="
+    echo "STEP 15b: BONDED ROLE TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
 fi

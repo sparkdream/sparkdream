@@ -7,6 +7,7 @@ import "cosmos/msg/v1/msg.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/rep/v1/accountability.proto";
+import "sparkdream/rep/v1/bonded_role.proto";
 import "sparkdream/rep/v1/interim.proto";
 import "sparkdream/rep/v1/jury_review.proto";
 import "sparkdream/rep/v1/params.proto";
@@ -140,13 +141,15 @@ service Msg {
   // WithdrawTagBudget defines the WithdrawTagBudget RPC.
   rpc WithdrawTagBudget(MsgWithdrawTagBudget) returns (MsgWithdrawTagBudgetResponse);
 
-  // BondSentinel defines the BondSentinel RPC. Stakes DREAM to register
-  // as an accountable sentinel across all content modules.
-  rpc BondSentinel(MsgBondSentinel) returns (MsgBondSentinelResponse);
+  // BondRole locks DREAM against (role_type, creator) and creates or updates
+  // the BondedRole record. Used to register as a forum sentinel, collect
+  // curator, federation verifier, etc. — role-specific eligibility comes from
+  // the role's BondedRoleConfig.
+  rpc BondRole(MsgBondRole) returns (MsgBondRoleResponse);
 
-  // UnbondSentinel defines the UnbondSentinel RPC. Withdraws sentinel
-  // bond (subject to committed/pending-action constraints).
-  rpc UnbondSentinel(MsgUnbondSentinel) returns (MsgUnbondSentinelResponse);
+  // UnbondRole withdraws a portion of the caller's bond for the given
+  // role_type (subject to committed-bond constraints).
+  rpc UnbondRole(MsgUnbondRole) returns (MsgUnbondRoleResponse);
 
   // ReportMember defines the ReportMember RPC.
   rpc ReportMember(MsgReportMember) returns (MsgReportMemberResponse);
@@ -684,25 +687,31 @@ message MsgWithdrawTagBudget {
 // MsgWithdrawTagBudgetResponse defines the MsgWithdrawTagBudgetResponse message.
 message MsgWithdrawTagBudgetResponse {}
 
-// MsgBondSentinel defines the MsgBondSentinel message.
-message MsgBondSentinel {
+// MsgBondRole bonds DREAM against a specific role_type. The role's
+// BondedRoleConfig controls eligibility (min_bond, min_rep_tier,
+// min_trust_level, min_age_blocks) and demotion behaviour.
+message MsgBondRole {
   option (cosmos.msg.v1.signer) = "creator";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string amount = 2;
+  RoleType role_type = 2;
+  string amount = 3;
 }
 
-// MsgBondSentinelResponse defines the MsgBondSentinelResponse message.
-message MsgBondSentinelResponse {}
+// MsgBondRoleResponse defines the MsgBondRoleResponse message.
+message MsgBondRoleResponse {}
 
-// MsgUnbondSentinel defines the MsgUnbondSentinel message.
-message MsgUnbondSentinel {
+// MsgUnbondRole withdraws a portion of the caller's bond for the given
+// role_type. The committed portion (reserved against pending actions) is
+// non-withdrawable.
+message MsgUnbondRole {
   option (cosmos.msg.v1.signer) = "creator";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string amount = 2;
+  RoleType role_type = 2;
+  string amount = 3;
 }
 
-// MsgUnbondSentinelResponse defines the MsgUnbondSentinelResponse message.
-message MsgUnbondSentinelResponse {}
+// MsgUnbondRoleResponse defines the MsgUnbondRoleResponse message.
+message MsgUnbondRoleResponse {}
 
 // MsgReportMember defines the MsgReportMember message.
 message MsgReportMember {

@@ -111,14 +111,15 @@ func (stubRepKeeper) GetSalvationCounters(context.Context, string) (uint32, int6
 func (stubRepKeeper) UpdateSalvationCounters(context.Context, string, uint32, int64) error {
 	return nil
 }
-func (stubRepKeeper) GetSentinel(context.Context, string) (reptypes.SentinelActivity, error) {
-	return reptypes.SentinelActivity{}, nil
+func (stubRepKeeper) GetBondedRole(context.Context, reptypes.RoleType, string) (reptypes.BondedRole, error) {
+	return reptypes.BondedRole{}, nil
 }
-func (stubRepKeeper) ReserveBond(context.Context, string, math.Int) error { return nil }
-func (stubRepKeeper) RecordActivity(context.Context, string) error        { return nil }
-func (stubRepKeeper) SetBondStatus(context.Context, string, reptypes.SentinelBondStatus, int64) error {
+func (stubRepKeeper) ReserveBond(context.Context, reptypes.RoleType, string, math.Int) error { return nil }
+func (stubRepKeeper) RecordActivity(context.Context, reptypes.RoleType, string) error        { return nil }
+func (stubRepKeeper) SetBondStatus(context.Context, reptypes.RoleType, string, reptypes.BondedRoleStatus, int64) error {
 	return nil
 }
+func (stubRepKeeper) SetBondedRoleConfig(context.Context, reptypes.BondedRoleConfig) error { return nil }
 
 func TestExpectedKeepersImplementable(t *testing.T) {
 	var (

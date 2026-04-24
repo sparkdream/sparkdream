@@ -102,16 +102,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 				{
-					RpcMethod:      "GetVerifier",
-					Use:            "get-verifier [address]",
-					Short:          "Query GetVerifier",
+					RpcMethod:      "VerifierActivity",
+					Use:            "verifier-activity [address]",
+					Short:          "Query federation-side per-verifier counters (verifications, upheld, overturned, consecutive streaks). Generic bond state lives in x/rep bonded-role.",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
-				},
-				{
-					RpcMethod:      "ListVerifiers",
-					Use:            "list-verifiers ",
-					Short:          "Query ListVerifiers",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 				{
 					RpcMethod:      "GetVerificationRecord",
@@ -242,18 +236,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "request-reputation-attestation [peer-id] [remote-address]",
 					Short:          "Send a RequestReputationAttestation tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "remote_address"}},
-				},
-				{
-					RpcMethod:      "BondVerifier",
-					Use:            "bond-verifier [amount]",
-					Short:          "Send a BondVerifier tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "amount"}},
-				},
-				{
-					RpcMethod:      "UnbondVerifier",
-					Use:            "unbond-verifier [amount]",
-					Short:          "Send a UnbondVerifier tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "amount"}},
 				},
 				{
 					RpcMethod:      "VerifyContent",

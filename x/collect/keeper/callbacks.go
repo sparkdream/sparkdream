@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 // OnMembershipGranted is called by x/rep when a non-member becomes a member.
@@ -86,8 +87,10 @@ func (k Keeper) OnMembershipGranted(ctx context.Context, address string) error {
 }
 
 // ResolveChallengeResult is called by the x/rep jury to resolve a curation challenge.
-// If upheld (challenger wins): review overturned, curator bond slashed, challenger rewarded.
-// If rejected (curator wins): review stands, challenge deposit burned.
+// If upheld (challenger wins): review overturned, curator's committed bond
+// slashed (via BondedRole), challenger rewarded.
+// If rejected (curator wins): review stands, committed bond released back to
+// the curator, challenge deposit burned.
 func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, upheld bool) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
@@ -106,66 +109,73 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 		return errorsmod.Wrap(err, "failed to get params")
 	}
 
-	curator, err := k.Curator.Get(ctx, review.Curator)
-	if err != nil {
-		return errorsmod.Wrap(err, "curator not found")
-	}
-
 	challengerAddr, err := k.addressCodec.StringToBytes(review.Challenger)
 	if err != nil {
 		return errorsmod.Wrap(err, "invalid challenger address")
 	}
 
-	curatorAddr, err := k.addressCodec.StringToBytes(review.Curator)
-	if err != nil {
-		return errorsmod.Wrap(err, "invalid curator address")
+	// Load per-module counters; start from a zero record if first time.
+	activity, _ := k.CuratorActivity.Get(ctx, review.Curator)
+	if activity.Address == "" {
+		activity.Address = review.Curator
+	}
+
+	committed := review.CommittedSlash
+	if committed.IsNil() {
+		committed = math.ZeroInt()
 	}
 
 	if upheld {
-		// Challenger wins: review overturned
+		// Challenger wins: review overturned, committed bond is slashed.
 		review.Overturned = true
 
-		// Slash curator bond
-		slashAmount := params.CuratorSlashFraction.MulInt(curator.BondAmount).TruncateInt()
+		slashAmount := committed
 		rewardAmount := params.ChallengeRewardFraction.MulInt(slashAmount).TruncateInt()
 		burnAmount := slashAmount.Sub(rewardAmount)
 
-		// Slash the curator's bond via x/rep
 		if slashAmount.IsPositive() {
-			k.repKeeper.BurnDREAM(ctx, curatorAddr, slashAmount) //nolint:errcheck
+			if err := k.repKeeper.SlashBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+				review.Curator, slashAmount, "curation_overturned"); err != nil {
+				sdkCtx.Logger().Warn("curation slash failed",
+					"curator", review.Curator, "amount", slashAmount.String(), "error", err)
+			}
 		}
 
-		// Reward challenger from slashed amount
+		// Reward challenger from slashed amount (minted DREAM — unlock into
+		// challenger's available balance).
 		if rewardAmount.IsPositive() {
-			// Mint/transfer reward to challenger (via rep keeper since this is DREAM)
 			k.repKeeper.UnlockDREAM(ctx, challengerAddr, rewardAmount) //nolint:errcheck
 		}
 
-		// Update curator bond
-		curator.BondAmount = curator.BondAmount.Sub(slashAmount)
-		curator.ChallengedReviews++
-		curator.PendingChallenges--
+		// Counter updates.
+		activity.OverturnedReviews++
+		activity.ConsecutiveOverturns++
+		activity.ConsecutiveUpheld = 0
 
-		// Auto-deactivate if bond drops below minimum
-		curatorDeactivated := false
-		if curator.BondAmount.LT(params.MinCuratorBond) {
-			curator.Active = false
-			curatorDeactivated = true
-		}
-
-		if err := k.Curator.Set(ctx, review.Curator, curator); err != nil {
-			return errorsmod.Wrap(err, "failed to update curator")
-		}
-
-		// Refund challenge deposit to challenger
+		// Refund challenge deposit to challenger.
 		k.repKeeper.UnlockDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck
 
-		// Update curation summary (recalculate with overturned review excluded)
+		// Update curation summary (recalculate with overturned review excluded).
 		k.recalculateSummary(ctx, review.CollectionId)
 
-		// Store updated review
+		// Clear committed_slash on the review since it's been consumed.
+		review.CommittedSlash = math.ZeroInt()
 		if err := k.CurationReview.Set(ctx, reviewID, review); err != nil {
 			return errorsmod.Wrap(err, "failed to update review")
+		}
+
+		// Consecutive-overturn demotion.
+		demoted := false
+		if params.CuratorOverturnDemotionStreak > 0 &&
+			activity.ConsecutiveOverturns >= params.CuratorOverturnDemotionStreak {
+			cooldownUntil := sdkCtx.BlockTime().Unix() + params.CuratorDemotionCooldown
+			if err := k.repKeeper.SetBondStatus(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+				review.Curator, reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, cooldownUntil); err != nil {
+				sdkCtx.Logger().Warn("curator demotion failed",
+					"curator", review.Curator, "error", err)
+			} else {
+				demoted = true
+			}
 		}
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("challenge_resolved",
@@ -175,20 +185,30 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 			sdk.NewAttribute("slash_amount", slashAmount.String()),
 			sdk.NewAttribute("reward_amount", rewardAmount.String()),
 			sdk.NewAttribute("burn_amount", burnAmount.String()),
-			sdk.NewAttribute("curator_deactivated", strconv.FormatBool(curatorDeactivated)),
+			sdk.NewAttribute("curator_demoted", strconv.FormatBool(demoted)),
 			sdk.NewAttribute("challenger_refunded", params.ChallengeDeposit.String()),
 		))
 	} else {
-		// Curator wins: review stands
-		curator.PendingChallenges--
-		if err := k.Curator.Set(ctx, review.Curator, curator); err != nil {
-			return errorsmod.Wrap(err, "failed to update curator")
+		// Curator wins: review stands. Release the reserved commit back to
+		// the curator's available bond.
+		if committed.IsPositive() {
+			if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+				review.Curator, committed); err != nil {
+				sdkCtx.Logger().Warn("curation release failed",
+					"curator", review.Curator, "amount", committed.String(), "error", err)
+			}
 		}
 
-		// Burn challenge deposit
+		// Counter updates.
+		activity.UpheldReviews++
+		activity.ConsecutiveUpheld++
+		activity.ConsecutiveOverturns = 0
+
+		// Burn challenge deposit.
 		k.repKeeper.BurnDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck
 
-		// Store updated review (challenger field remains for history)
+		// Clear committed_slash on the review.
+		review.CommittedSlash = math.ZeroInt()
 		if err := k.CurationReview.Set(ctx, reviewID, review); err != nil {
 			return errorsmod.Wrap(err, "failed to update review")
 		}
@@ -200,9 +220,13 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 			sdk.NewAttribute("slash_amount", "0"),
 			sdk.NewAttribute("reward_amount", "0"),
 			sdk.NewAttribute("burn_amount", params.ChallengeDeposit.String()),
-			sdk.NewAttribute("curator_deactivated", "false"),
+			sdk.NewAttribute("curator_demoted", "false"),
 			sdk.NewAttribute("challenger_refunded", "0"),
 		))
+	}
+
+	if err := k.CuratorActivity.Set(ctx, review.Curator, activity); err != nil {
+		return errorsmod.Wrap(err, "failed to update curator activity")
 	}
 
 	return nil

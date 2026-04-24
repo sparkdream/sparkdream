@@ -129,6 +129,25 @@ type mockRepKeeper struct {
 	knownTags              map[string]bool
 	reservedTags           map[string]bool
 	incrementTagUsageCalls []incrementTagUsageCall
+
+	// Bonded-role state, keyed by (roleType, addr). Tests seed this directly
+	// via SeedBondedRole to simulate a curator having bonded via x/rep.
+	bondedRoles       map[string]reptypes.BondedRole
+	bondedRoleConfigs map[reptypes.RoleType]reptypes.BondedRoleConfig
+}
+
+// SeedBondedRole inserts a BondedRole record into the mock keyed by
+// (roleType, addr). Used by tests to stand in for a curator having bonded
+// via x/rep before collect runs its handlers.
+func (m *mockRepKeeper) SeedBondedRole(roleType reptypes.RoleType, addr string, role reptypes.BondedRole) {
+	if m.bondedRoles == nil {
+		m.bondedRoles = make(map[string]reptypes.BondedRole)
+	}
+	m.bondedRoles[mockBondedRoleKey(roleType, addr)] = role
+}
+
+func mockBondedRoleKey(roleType reptypes.RoleType, addr string) string {
+	return reptypes.RoleType_name[int32(roleType)] + "/" + addr
 }
 
 type incrementTagUsageCall struct {
@@ -216,6 +235,102 @@ func (m *mockRepKeeper) IsReservedTag(_ context.Context, name string) (bool, err
 
 func (m *mockRepKeeper) IncrementTagUsage(_ context.Context, name string, timestamp int64) error {
 	m.incrementTagUsageCalls = append(m.incrementTagUsageCalls, incrementTagUsageCall{Name: name, Timestamp: timestamp})
+	return nil
+}
+
+// --- BondedRole stubs (curator is ROLE_TYPE_COLLECT_CURATOR). ---
+
+func (m *mockRepKeeper) GetBondedRole(_ context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error) {
+	if br, ok := m.bondedRoles[mockBondedRoleKey(roleType, addr)]; ok {
+		return br, nil
+	}
+	return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
+}
+
+func (m *mockRepKeeper) ReserveBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	current, _ := math.NewIntFromString(br.CurrentBond)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	if committed.IsNil() {
+		committed = math.ZeroInt()
+	}
+	if current.Sub(committed).LT(amount) {
+		return reptypes.ErrInsufficientBond
+	}
+	br.TotalCommittedBond = committed.Add(amount).String()
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) ReleaseBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	if committed.IsNil() {
+		committed = math.ZeroInt()
+	}
+	released := committed.Sub(amount)
+	if released.IsNegative() {
+		released = math.ZeroInt()
+	}
+	br.TotalCommittedBond = released.String()
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) SlashBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int, _ string) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	current, _ := math.NewIntFromString(br.CurrentBond)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	if committed.IsNil() {
+		committed = math.ZeroInt()
+	}
+	slash := amount
+	if slash.GT(current) {
+		slash = current
+	}
+	br.CurrentBond = current.Sub(slash).String()
+	released := committed.Sub(slash)
+	if released.IsNegative() {
+		released = math.ZeroInt()
+	}
+	br.TotalCommittedBond = released.String()
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) RecordActivity(_ context.Context, _ reptypes.RoleType, _ string) error {
+	return nil
+}
+
+func (m *mockRepKeeper) SetBondStatus(_ context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	br.BondStatus = status
+	br.DemotionCooldownUntil = cooldownUntil
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) SetBondedRoleConfig(_ context.Context, cfg reptypes.BondedRoleConfig) error {
+	if m.bondedRoleConfigs == nil {
+		m.bondedRoleConfigs = make(map[reptypes.RoleType]reptypes.BondedRoleConfig)
+	}
+	m.bondedRoleConfigs[cfg.RoleType] = cfg
 	return nil
 }
 
@@ -464,14 +579,24 @@ func (f *testFixture) addItem(t *testing.T, collectionID uint64, creator string)
 	return resp.Id
 }
 
-// registerCurator registers a curator with the given bond amount.
+// registerCurator seeds a BondedRole(ROLE_TYPE_COLLECT_CURATOR, creator) in
+// the mock rep keeper with the given bond amount. Stands in for what would
+// be done by MsgBondRole in x/rep.
 func (f *testFixture) registerCurator(t *testing.T, creator string, bond int64) {
 	t.Helper()
-	_, err := f.msgServer.RegisterCurator(f.ctx, &types.MsgRegisterCurator{
-		Creator:    creator,
-		BondAmount: math.NewInt(bond),
-	})
-	require.NoError(t, err)
+	currentBlock := sdk.UnwrapSDKContext(f.ctx).BlockHeight()
+	f.repKeeper.SeedBondedRole(
+		reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		creator,
+		reptypes.BondedRole{
+			Address:            creator,
+			RoleType:           reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+			BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+			CurrentBond:        math.NewInt(bond).String(),
+			TotalCommittedBond: "0",
+			RegisteredAt:       currentBlock,
+		},
+	)
 }
 
 // addCollaborator adds a collaborator to a collection.

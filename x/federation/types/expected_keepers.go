@@ -36,12 +36,22 @@ type CommonsKeeper interface {
 type RepKeeper interface {
 	// GetTrustLevel returns the trust level for a member.
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
-	// BurnDREAM burns DREAM from an address (for verifier slashing).
+	// BurnDREAM burns DREAM from an address (used for challenge-fee burns).
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	// LockDREAM locks DREAM tokens (moves from available balance to staked).
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	// UnlockDREAM unlocks DREAM tokens (moves from staked to available balance).
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+
+	// Bonded-role accountability (Phase 4). Federation verifier is the
+	// module role keyed as ROLE_TYPE_FEDERATION_VERIFIER.
+	GetBondedRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
+	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
+	ReleaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
+	SlashBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int, reason string) error
+	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error
+	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
+	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error
 }
 
 // NameKeeper defines the expected interface for the Name module.

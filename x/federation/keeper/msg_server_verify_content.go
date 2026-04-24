@@ -6,9 +6,11 @@ import (
 	"fmt"
 
 	"sparkdream/x/federation/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -17,22 +19,31 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
-	// 1. Verify creator is a bonded verifier with NORMAL or RECOVERY status
-	verifier, err := k.Verifiers.Get(ctx, msg.Creator)
-	if err != nil {
-		return nil, errorsmod.Wrapf(types.ErrVerifierNotFound, "verifier %s not found", msg.Creator)
+	if k.late.repKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrVerifierNotFound, "rep keeper not wired")
 	}
-	if verifier.BondStatus != types.VerifierBondStatus_VERIFIER_BOND_STATUS_NORMAL &&
-		verifier.BondStatus != types.VerifierBondStatus_VERIFIER_BOND_STATUS_RECOVERY {
-		return nil, errorsmod.Wrapf(types.ErrVerifierNotActive, "verifier bond status is %s", verifier.BondStatus)
+
+	// 1. Verify creator is a bonded verifier (ROLE_TYPE_FEDERATION_VERIFIER)
+	//    with NORMAL or RECOVERY status (DEMOTED cannot verify).
+	role, err := k.late.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator)
+	if err != nil {
+		return nil, errorsmod.Wrapf(types.ErrVerifierNotFound, "verifier %s not bonded", msg.Creator)
+	}
+	if role.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
+		role.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
+		return nil, errorsmod.Wrapf(types.ErrVerifierNotActive, "verifier bond status is %s", role.BondStatus)
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 
-	// 2. Verify not in overturn cooldown
-	if verifier.OverturnCooldownUntil > 0 && blockTime < verifier.OverturnCooldownUntil {
-		return nil, errorsmod.Wrapf(types.ErrVerifierOverturnCooldown, "cooldown until %d", verifier.OverturnCooldownUntil)
+	// 2. Verify not in per-module overturn cooldown.
+	activity, _ := k.VerifierActivity.Get(ctx, msg.Creator)
+	if activity.Address == "" {
+		activity.Address = msg.Creator
+	}
+	if activity.OverturnCooldownUntil > 0 && blockTime < activity.OverturnCooldownUntil {
+		return nil, errorsmod.Wrapf(types.ErrVerifierOverturnCooldown, "cooldown until %d", activity.OverturnCooldownUntil)
 	}
 
 	// 3. Verify content exists and is PENDING_VERIFICATION (first-verifier-wins)
@@ -60,30 +71,35 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		return nil, errorsmod.Wrapf(types.ErrVerificationWindowExpired, "window expired at %d", verificationDeadline)
 	}
 
-	// 6. Verify sufficient uncommitted bond
-	availableBond := verifier.CurrentBond.Sub(verifier.TotalCommittedBond)
-	if availableBond.LT(params.VerifierSlashAmount) {
-		return nil, errorsmod.Wrapf(types.ErrInsufficientVerifierBond, "available bond %s < slash amount %s", availableBond, params.VerifierSlashAmount)
+	// 6. Reserve slash budget against the verifier's bonded role. Failure
+	//    propagates as ErrInsufficientVerifierBond.
+	if err := k.late.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
+		msg.Creator, params.VerifierSlashAmount); err != nil {
+		return nil, errorsmod.Wrapf(types.ErrInsufficientVerifierBond, "reserve bond: %s", err)
 	}
 
 	// 7. Compare content_hash
 	hashMatch := bytes.Equal(msg.ContentHash, content.ContentHash)
 
-	// Create VerificationRecord
+	// Create VerificationRecord — bond snapshot is the verifier's current_bond
+	// at verify time (parsed from the math.Int-string on BondedRole).
+	bondSnapshot, _ := math.NewIntFromString(role.CurrentBond)
+	if bondSnapshot.IsNil() {
+		bondSnapshot = math.ZeroInt()
+	}
 	record := types.VerificationRecord{
-		ContentId:         msg.ContentId,
-		Verifier:          msg.Creator,
-		VerifierHash:      msg.ContentHash,
-		VerifiedAt:        blockTime,
-		ChallengeWindowEnds: blockTime + int64(params.ChallengeWindow.Seconds()),
-		CommittedAmount:   params.VerifierSlashAmount,
-		VerifierBondSnapshot: verifier.CurrentBond,
+		ContentId:            msg.ContentId,
+		Verifier:             msg.Creator,
+		VerifierHash:         msg.ContentHash,
+		VerifiedAt:           blockTime,
+		ChallengeWindowEnds:  blockTime + int64(params.ChallengeWindow.Seconds()),
+		CommittedAmount:      params.VerifierSlashAmount,
+		VerifierBondSnapshot: bondSnapshot,
 	}
 
-	// Commit bond
-	verifier.TotalCommittedBond = verifier.TotalCommittedBond.Add(params.VerifierSlashAmount)
-	verifier.TotalVerifications++
-	verifier.EpochVerifications++
+	// Bump per-module verifier activity counters.
+	activity.TotalVerifications++
+	activity.EpochVerifications++
 
 	if hashMatch {
 		// Match: content → VERIFIED
@@ -128,6 +144,9 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		)
 	}
 
+	// Stamp last_active_epoch on the generic bonded-role record.
+	_ = k.late.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator)
+
 	// Save all state
 	if err := k.Content.Set(ctx, msg.ContentId, content); err != nil {
 		return nil, err
@@ -135,7 +154,7 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 	if err := k.VerificationRecords.Set(ctx, msg.ContentId, record); err != nil {
 		return nil, err
 	}
-	if err := k.Verifiers.Set(ctx, msg.Creator, verifier); err != nil {
+	if err := k.VerifierActivity.Set(ctx, msg.Creator, activity); err != nil {
 		return nil, err
 	}
 

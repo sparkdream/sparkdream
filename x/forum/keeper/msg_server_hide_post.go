@@ -43,7 +43,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 
 	// Rep-owned accountability state for non-gov senders.
 	var (
-		repSentinel reptypes.SentinelActivity
+		repSentinel reptypes.BondedRole
 		bondSnapshot string
 	)
 	slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
@@ -52,14 +52,14 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		if k.repKeeper == nil {
 			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
 		}
-		sa, err := k.repKeeper.GetSentinel(ctx, msg.Creator)
+		br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
 		if err != nil {
 			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
 		}
-		repSentinel = sa
-		bondSnapshot = sa.CurrentBond
+		repSentinel = br
+		bondSnapshot = br.CurrentBond
 
-		if sa.BondStatus == reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED {
+		if br.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
 			return nil, types.ErrSentinelDemoted
 		}
 
@@ -77,7 +77,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		}
 
 		// Reserve the slash amount out of available bond before committing.
-		if err := k.repKeeper.ReserveBond(ctx, msg.Creator, slashAmount); err != nil {
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to hide")
 		}
 	}
@@ -135,7 +135,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 		}
 
-		_ = k.repKeeper.RecordActivity(ctx, msg.Creator)
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
 	}
 
 	if k.repKeeper != nil {

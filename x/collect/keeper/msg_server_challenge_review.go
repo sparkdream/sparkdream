@@ -4,10 +4,11 @@ import (
 	"context"
 	"strconv"
 
-	"sparkdream/x/collect/types"
-
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeReview) (*types.MsgChallengeReviewResponse, error) {
@@ -74,21 +75,38 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 		return nil, errorsmod.Wrap(err, "failed to lock challenge deposit")
 	}
 
-	// Mark review challenged=true, set challenger
+	// Reserve slash budget against the curator's bonded role. Amount equals
+	// CuratorSlashFraction × MinCuratorBond — a fixed per-challenge commit so
+	// resolution slashes only this chunk (not a fraction of the whole bond).
+	// This is the Phase-3 commit-per-action upgrade: the curator can hold
+	// multiple challenges concurrently as long as their available bond covers
+	// the sum of reservations.
+	slashBudget := params.CuratorSlashFraction.MulInt(params.MinCuratorBond).TruncateInt()
+	if slashBudget.IsPositive() {
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, review.Curator, slashBudget); err != nil {
+			// Refund the already-locked challenge deposit so the challenger
+			// isn't stuck paying for a failed reservation.
+			_ = k.repKeeper.UnlockDREAM(ctx, creatorAddr, params.ChallengeDeposit)
+			return nil, errorsmod.Wrap(err, "failed to reserve curator slash budget")
+		}
+	}
+
+	// Mark review challenged=true, set challenger + committed_slash.
 	review.Challenged = true
 	review.Challenger = msg.Creator
+	review.CommittedSlash = slashBudget
 	if err := k.CurationReview.Set(ctx, msg.ReviewId, review); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update review")
 	}
 
-	// Increment pending_challenges on curator
-	curator, err := k.Curator.Get(ctx, review.Curator)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to get curator")
+	// Bump per-module curator activity counters.
+	activity, _ := k.CuratorActivity.Get(ctx, review.Curator)
+	if activity.Address == "" {
+		activity.Address = review.Curator
 	}
-	curator.PendingChallenges++
-	if err := k.Curator.Set(ctx, review.Curator, curator); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to update curator")
+	activity.ChallengedReviews++
+	if err := k.CuratorActivity.Set(ctx, review.Curator, activity); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update curator activity")
 	}
 
 	// Emit event
@@ -98,6 +116,7 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 		sdk.NewAttribute("challenger", msg.Creator),
 		sdk.NewAttribute("curator", review.Curator),
 		sdk.NewAttribute("challenge_deposit", params.ChallengeDeposit.String()),
+		sdk.NewAttribute("committed_slash", slashBudget.String()),
 	))
 
 	return &types.MsgChallengeReviewResponse{}, nil

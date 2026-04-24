@@ -132,8 +132,17 @@ var (
 	DecayLastProcessedEpochKey = collections.NewPrefix("econ/decay_last_processed_epoch")
 )
 
-// SentinelActivityKey: address -> SentinelActivity (accountability record)
-var SentinelActivityKey = collections.NewPrefix("sentinelactivity/value/")
+// Bonded-role primitive (generalization of sentinel / curator / verifier).
+var (
+	// BondedRoleKey: (role_type, address) -> BondedRole. Compound key lets a
+	// single address hold multiple roles; prefix iteration on role_type gives
+	// the list-all-of-role-type query for free.
+	BondedRoleKey = collections.NewPrefix("bondedrole/value/")
+
+	// BondedRoleConfigKey: role_type -> BondedRoleConfig. Policy snapshot
+	// written through by the owning module on operational-params update.
+	BondedRoleConfigKey = collections.NewPrefix("bondedrole/config/")
+)
 
 // Content challenge keys
 var (

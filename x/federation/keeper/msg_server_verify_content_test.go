@@ -4,10 +4,12 @@ import (
 	"crypto/sha256"
 	"testing"
 
+	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestVerifyContentMatch(t *testing.T) {
@@ -32,9 +34,16 @@ func TestVerifyContentMatch(t *testing.T) {
 	record, _ := f.keeper.VerificationRecords.Get(f.ctx, contentID)
 	require.Equal(t, verifierStr, record.Verifier)
 
-	verifier, _ := f.keeper.Verifiers.Get(f.ctx, verifierStr)
-	require.True(t, verifier.TotalCommittedBond.IsPositive())
-	require.Equal(t, uint64(1), verifier.TotalVerifications)
+	// Generic bond commitment lives on rep's BondedRole; per-module counters
+	// live on federation's VerifierActivity.
+	br, err := f.repKeeper.GetBondedRole(f.ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr)
+	require.NoError(t, err)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	require.True(t, committed.IsPositive())
+
+	activity, _ := f.keeper.VerifierActivity.Get(f.ctx, verifierStr)
+	require.Equal(t, uint64(1), activity.TotalVerifications)
 }
 
 func TestVerifyContentMismatch(t *testing.T) {
@@ -67,8 +76,17 @@ func TestVerifyContentSelfVerification(t *testing.T) {
 	hash := sha256.Sum256([]byte("self verify"))
 	contentID := submitTestContent(t, f, ms, opStr, "self-peer", hash[:])
 
-	// Bond the operator as verifier
-	_, _ = ms.BondVerifier(f.ctx, &types.MsgBondVerifier{Creator: opStr, Amount: types.DefaultMinVerifierBond})
+	// Bond the operator as verifier directly in the mock rep keeper.
+	f.repKeeper.SeedBondedRole(
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, opStr,
+		reptypes.BondedRole{
+			Address:            opStr,
+			RoleType:           reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
+			BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+			CurrentBond:        types.DefaultMinVerifierBond.String(),
+			TotalCommittedBond: "0",
+		},
+	)
 
 	_, err := ms.VerifyContent(f.ctx, &types.MsgVerifyContent{
 		Creator: opStr, ContentId: contentID, ContentHash: hash[:],

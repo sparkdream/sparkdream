@@ -81,17 +81,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 
 				{
-					RpcMethod:      "Curator",
-					Use:            "curator [address]",
-					Short:          "Query Curator",
+					RpcMethod:      "CuratorActivity",
+					Use:            "curator-activity [address]",
+					Short:          "Query collect-side per-curator counters (reviews, challenged, upheld, overturned). Generic bond state lives in x/rep bonded-role.",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
-				},
-
-				{
-					RpcMethod:      "ActiveCurators",
-					Use:            "active-curators ",
-					Short:          "Query ActiveCurators",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 
 				{
@@ -267,18 +260,6 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "update-collaborator-role [collection-id] [address] [role]",
 					Short:          "Send a UpdateCollaboratorRole tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}, {ProtoField: "address"}, {ProtoField: "role"}},
-				},
-				{
-					RpcMethod:      "RegisterCurator",
-					Use:            "register-curator [bond-amount]",
-					Short:          "Send a RegisterCurator tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "bond_amount"}},
-				},
-				{
-					RpcMethod:      "UnregisterCurator",
-					Use:            "unregister-curator ",
-					Short:          "Send a UnregisterCurator tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 				{
 					RpcMethod:      "RateCollection",

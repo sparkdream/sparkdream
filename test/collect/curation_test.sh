@@ -25,43 +25,68 @@ assert_tx_success "Transfer 200 DREAM from Alice to collector1" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 1: Register curator ---"
-TX_OUT=$(send_tx collect register-curator 500 --from alice)
+TX_OUT=$(send_tx rep bond-role collect-curator 500 --from alice)
 assert_tx_success "Register Alice as curator" "$TX_OUT"
 
 # =========================================================================
-# Test 2: Query curator record
+# Test 2: Query curator bonded-role record (Phase 3: lives in x/rep).
 # =========================================================================
 echo ""
 echo "--- Test 2: Query curator record ---"
-CURATOR_QUERY=$(query collect curator "$ALICE_ADDR")
-CURATOR_ACTIVE=$(echo "$CURATOR_QUERY" | jq -r '.curator.active // "false"' 2>/dev/null)
-CURATOR_BOND=$(echo "$CURATOR_QUERY" | jq -r '.curator.bond_amount // "0"' 2>/dev/null)
-assert_equal "Curator is active" "true" "$CURATOR_ACTIVE"
-assert_equal "Curator bond is 500" "500" "$CURATOR_BOND"
+CURATOR_QUERY=$(query rep bonded-role collect-curator "$ALICE_ADDR")
+# The response wraps the record under `.bonded_role`. BondStatus is an enum
+# name; NORMAL means the bond is at or above min_bond.
+CURATOR_STATUS=$(echo "$CURATOR_QUERY" | jq -r '.bonded_role.bond_status // "MISSING"')
+CURATOR_BOND=$(echo "$CURATOR_QUERY" | jq -r '.bonded_role.current_bond // "0"')
+assert_equal "Curator bond status is NORMAL" "BONDED_ROLE_STATUS_NORMAL" "$CURATOR_STATUS"
+assert_equal "Curator current_bond is 500" "500" "$CURATOR_BOND"
 
 # =========================================================================
-# Test 3: Query active-curators list
+# Test 3: Query bonded-roles-by-type for curators (Phase 3: replaces the old
+# query collect active-curators).
 # =========================================================================
 echo ""
-echo "--- Test 3: Query active-curators ---"
-ACTIVE_CURATORS=$(query collect active-curators)
-CURATOR_COUNT=$(echo "$ACTIVE_CURATORS" | jq -r '.curators | length' 2>/dev/null)
+echo "--- Test 3: Query bonded-roles-by-type collect-curator ---"
+ACTIVE_CURATORS=$(query rep bonded-roles-by-type collect-curator)
+CURATOR_COUNT=$(echo "$ACTIVE_CURATORS" | jq -r '.bonded_roles | length' 2>/dev/null)
 assert_gt "Active curators exist" "0" "$CURATOR_COUNT"
+# Also verify alice is specifically in the list (safer than just counting).
+FOUND_ALICE=$(echo "$ACTIVE_CURATORS" | jq -r --arg a "$ALICE_ADDR" '.bonded_roles[] | select(.address==$a) | .address' | head -1)
+assert_equal "Alice appears in bonded-roles-by-type response" "$ALICE_ADDR" "$FOUND_ALICE"
 
 # =========================================================================
-# Test 4: Cannot register as curator twice
+# Test 3b: New curator-activity query (collect-side per-curator counters).
+# Alice has not rated anything yet, so the response is a zero-valued record
+# (NotFound is soft-converted to a zeroed record by the query handler).
 # =========================================================================
 echo ""
-echo "--- Test 4: Cannot register as curator twice ---"
-TX_OUT=$(send_tx collect register-curator 500 --from alice)
-assert_tx_failure "Cannot register as curator twice" "$TX_OUT"
+echo "--- Test 3b: Query curator-activity (counters) ---"
+ACTIVITY=$(query collect curator-activity "$ALICE_ADDR")
+ACT_ADDR=$(echo "$ACTIVITY" | jq -r '.activity.address // ""')
+ACT_TOTAL=$(echo "$ACTIVITY" | jq -r '.activity.total_reviews // "0"')
+assert_equal "curator-activity returns alice's address" "$ALICE_ADDR" "$ACT_ADDR"
+assert_equal "curator-activity.total_reviews is zero pre-rating" "0" "$ACT_TOTAL"
+
+# =========================================================================
+# Test 4: bond-role on an existing record tops up the current_bond
+# (Phase 3: the old "register twice fails" contract is gone — bond-role is a
+# generic top-up primitive, so the second call succeeds and adds to the bond).
+# =========================================================================
+echo ""
+echo "--- Test 4: bond-role on existing record tops up current_bond ---"
+TX_OUT=$(send_tx rep bond-role collect-curator 500 --from alice)
+assert_tx_success "Top-up bond-role succeeds on existing record" "$TX_OUT"
+
+CURATOR_QUERY=$(query rep bonded-role collect-curator "$ALICE_ADDR")
+TOPPED_UP_BOND=$(echo "$CURATOR_QUERY" | jq -r '.bonded_role.current_bond // "0"')
+assert_equal "current_bond after top-up is 1000" "1000" "$TOPPED_UP_BOND"
 
 # =========================================================================
 # Test 5: Non-member cannot register as curator
 # =========================================================================
 echo ""
 echo "--- Test 5: Non-member cannot register as curator ---"
-TX_OUT=$(send_tx collect register-curator 500 --from nonmember1)
+TX_OUT=$(send_tx rep bond-role collect-curator 500 --from nonmember1)
 assert_tx_failure "Non-member cannot register as curator" "$TX_OUT"
 
 # =========================================================================
@@ -70,7 +95,7 @@ assert_tx_failure "Non-member cannot register as curator" "$TX_OUT"
 echo ""
 echo "--- Test 6: Low-trust member cannot register as curator ---"
 # collector1 is TRUST_LEVEL_NEW, below PROVISIONAL requirement
-TX_OUT=$(send_tx collect register-curator 500 --from collector1)
+TX_OUT=$(send_tx rep bond-role collect-curator 500 --from collector1)
 assert_tx_failure "Low-trust member cannot register as curator" "$TX_OUT"
 
 # =========================================================================
@@ -120,25 +145,43 @@ CURATOR_REVIEW_COUNT=$(echo "$CURATOR_REVIEWS" | jq -r '.curation_reviews | leng
 assert_equal "No reviews by curator" "0" "$CURATOR_REVIEW_COUNT"
 
 # =========================================================================
-# Test 12: Unregister curator
+# Test 12: Partial unbond updates current_bond.
+# Phase 3: unbonding no longer "unregisters" — the BondedRole record persists
+# with a recomputed bond_status. Alice has 1000 bonded after Test 4's top-up;
+# we unbond 600 so she lands at 400, which is below MinBond=500 (RECOVERY)
+# but above DemotionThreshold=250 (no cooldown). tag_test.sh runs after this
+# suite and tops her bond back up — a cooldown-triggering drop would block
+# that top-up. Demotion-cooldown behavior itself is covered in
+# test/rep/bonded_role_test.sh.
 # =========================================================================
 echo ""
-echo "--- Test 12: Unregister curator ---"
-TX_OUT=$(send_tx collect unregister-curator --from alice)
-assert_tx_success "Unregister curator" "$TX_OUT"
+echo "--- Test 12: Partial unbond updates current_bond ---"
+TX_OUT=$(send_tx rep unbond-role collect-curator 600 --from alice)
+assert_tx_success "Partial unbond curator" "$TX_OUT"
 
-# Verify curator record gone
-CURATOR_QUERY=$(query collect curator "$ALICE_ADDR" 2>&1)
-CURATOR_ACTIVE=$(echo "$CURATOR_QUERY" | jq -r '.curator.active // empty' 2>/dev/null)
-assert_equal "Curator no longer active" "" "$CURATOR_ACTIVE"
+CURATOR_QUERY=$(query rep bonded-role collect-curator "$ALICE_ADDR")
+PARTIAL_BOND=$(echo "$CURATOR_QUERY" | jq -r '.bonded_role.current_bond // "0"')
+PARTIAL_STATUS=$(echo "$CURATOR_QUERY" | jq -r '.bonded_role.bond_status // "MISSING"')
+assert_equal "current_bond reduced to 400" "400" "$PARTIAL_BOND"
+# 400 < MinBond(500) but 400 >= DemotionThreshold(250) → RECOVERY (no cooldown).
+assert_equal "bond_status is RECOVERY below min_bond" "BONDED_ROLE_STATUS_RECOVERY" "$PARTIAL_STATUS"
 
 # =========================================================================
-# Test 13: Cannot unregister when not a curator
+# Test 13: Cannot unbond when no BondedRole record exists
 # =========================================================================
 echo ""
-echo "--- Test 13: Cannot unregister when not a curator ---"
-TX_OUT=$(send_tx collect unregister-curator --from collector2)
-assert_tx_failure "Cannot unregister when not a curator" "$TX_OUT"
+echo "--- Test 13: Cannot unbond when no BondedRole record ---"
+TX_OUT=$(send_tx rep unbond-role collect-curator 1 --from collector2)
+assert_tx_failure "Cannot unbond when record missing" "$TX_OUT"
+
+# =========================================================================
+# Test 14: Cannot unbond more than current_bond
+# =========================================================================
+echo ""
+echo "--- Test 14: Cannot unbond more than current_bond ---"
+# Alice has 400 bonded after Test 12. Try to drain 500 — rejected as insufficient.
+TX_OUT=$(send_tx rep unbond-role collect-curator 500 --from alice)
+assert_tx_failure "Cannot unbond past current_bond" "$TX_OUT"
 
 echo ""
 print_summary

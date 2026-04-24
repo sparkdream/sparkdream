@@ -23,10 +23,10 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 	// Check if sender is an active sentinel (not demoted) via x/rep.
 	isSentinel := false
 	if !isGovAuthority && k.repKeeper != nil {
-		sa, serr := k.repKeeper.GetSentinel(ctx, msg.Creator)
+		br, serr := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
 		isSentinel = serr == nil &&
-			sa.CurrentBond != "" &&
-			sa.BondStatus != reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED
+			br.CurrentBond != "" &&
+			br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
 	}
 
 	if !isGovAuthority && !isSentinel {

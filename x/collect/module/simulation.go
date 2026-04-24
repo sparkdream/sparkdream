@@ -210,36 +210,6 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		collectsimulation.SimulateMsgUpdateCollaboratorRole(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
-		opWeightMsgRegisterCurator          = "op_weight_msg_collect"
-		defaultWeightMsgRegisterCurator int = 100
-	)
-
-	var weightMsgRegisterCurator int
-	simState.AppParams.GetOrGenerate(opWeightMsgRegisterCurator, &weightMsgRegisterCurator, nil,
-		func(_ *rand.Rand) {
-			weightMsgRegisterCurator = defaultWeightMsgRegisterCurator
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgRegisterCurator,
-		collectsimulation.SimulateMsgRegisterCurator(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgUnregisterCurator          = "op_weight_msg_collect"
-		defaultWeightMsgUnregisterCurator int = 100
-	)
-
-	var weightMsgUnregisterCurator int
-	simState.AppParams.GetOrGenerate(opWeightMsgUnregisterCurator, &weightMsgUnregisterCurator, nil,
-		func(_ *rand.Rand) {
-			weightMsgUnregisterCurator = defaultWeightMsgUnregisterCurator
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgUnregisterCurator,
-		collectsimulation.SimulateMsgUnregisterCurator(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
 		opWeightMsgRateCollection          = "op_weight_msg_collect"
 		defaultWeightMsgRateCollection int = 100
 	)

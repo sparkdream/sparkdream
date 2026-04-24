@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -110,11 +111,12 @@ func seedSlashableSentinel(t *testing.T, f *fixture, sentinel string, bond math.
 	require.NoError(t, err)
 	_ = saAddr
 
-	err = f.keeper.SentinelActivity.Set(f.ctx, sentinel, types.SentinelActivity{
+	err = f.keeper.BondedRoles.Set(f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), sentinel), types.BondedRole{
 		Address:            sentinel,
+		RoleType:           types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
 		CurrentBond:        bond.String(),
 		TotalCommittedBond: "0",
-		BondStatus:         types.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
+		BondStatus:         types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 	})
 	require.NoError(t, err)
 }
@@ -198,10 +200,10 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		require.True(t, rf.burnedCoins.AmountOf(types.RewardDenom).IsZero())
 
 		// Sentinel's bond was reduced by DefaultSentinelOverturnSlash.
-		sa, err := rf.f.keeper.SentinelActivity.Get(rf.f.ctx, rf.sentinel)
+		br, err := rf.f.keeper.BondedRoles.Get(rf.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), rf.sentinel))
 		require.NoError(t, err)
 		expectedRemaining := bond.SubRaw(types.DefaultSentinelOverturnSlash)
-		require.Equal(t, expectedRemaining.String(), sa.CurrentBond)
+		require.Equal(t, expectedRemaining.String(), br.CurrentBond)
 
 		// Overturned forum hook invoked.
 		require.Len(t, rf.fk.overturnedCalls, 1)

@@ -181,45 +181,10 @@ func findAnyCollaborator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types
 	return &selected.collab, selected.key, nil
 }
 
-// findCurator returns a random active curator.
-func findCurator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Curator, string, error) {
-	type entry struct {
-		addr    string
-		curator types.Curator
-	}
-	var matches []entry
-	err := k.Curator.Walk(ctx, nil, func(addr string, curator types.Curator) (bool, error) {
-		if curator.Active {
-			matches = append(matches, entry{addr, curator})
-		}
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, "", err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.curator, selected.addr, nil
-}
-
-// findRemovableCurator returns an active curator with PendingChallenges==0.
-func findRemovableCurator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Curator, string, error) {
-	type entry struct {
-		addr    string
-		curator types.Curator
-	}
-	var matches []entry
-	err := k.Curator.Walk(ctx, nil, func(addr string, curator types.Curator) (bool, error) {
-		if curator.Active && curator.PendingChallenges == 0 {
-			matches = append(matches, entry{addr, curator})
-		}
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, "", err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.curator, selected.addr, nil
-}
+// Note: findCurator / findRemovableCurator were removed along with the local
+// Curator collection in Phase 3 of the bonded-role generalization. Simulations
+// that need a bonded curator should assume it exists (the underlying tx will
+// error cleanly if not), matching how simulations handle other rep-owned state.
 
 // findUnchallengedReview returns a random review that has not been challenged.
 func findUnchallengedReview(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.CurationReview, uint64, error) {
@@ -475,21 +440,15 @@ func getOrCreateCollaborator(ctx sdk.Context, k keeper.Keeper, collectionID uint
 	return k.Collection.Set(ctx, collectionID, coll)
 }
 
-// getOrCreateCurator creates an active curator record if one doesn't exist.
-func getOrCreateCurator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, curatorAddr string) error {
-	_, err := k.Curator.Get(ctx, curatorAddr)
-	if err == nil {
-		return nil
-	}
-
-	curator := types.Curator{
-		Address:      curatorAddr,
-		BondAmount:   math.NewInt(int64(r.Intn(10000) + 1000)),
-		RegisteredAt: ctx.BlockHeight(),
-		Active:       true,
-	}
-
-	return k.Curator.Set(ctx, curatorAddr, curator)
+// getOrCreateCurator is a no-op under the Phase 3 bonded-role refactor:
+// curator bonding now lives on x/rep's BondedRole (ROLE_TYPE_COLLECT_CURATOR)
+// and simulations cannot directly create bonds from within the collect sim
+// (cross-module state seeding not supported). When the simulation invokes a
+// downstream msg that requires a curator, the msg handler will return
+// ErrNotCurator and the sim records a NoOp, which is acceptable for fuzz
+// coverage.
+func getOrCreateCurator(_ *rand.Rand, _ sdk.Context, _ keeper.Keeper, _ string) error {
+	return nil
 }
 
 // getOrCreateCurationReview creates a curation review if one doesn't exist for curator+collection.

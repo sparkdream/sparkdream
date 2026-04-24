@@ -53,7 +53,7 @@ fi
 # =========================================================================
 echo ""
 echo "--- Test 4: Query active-curators ---"
-CURATORS=$(query collect active-curators)
+CURATORS=$(query rep bonded-roles-by-type collect-curator)
 CURATOR_COUNT=$(echo "$CURATORS" | jq -r '.curators | length' 2>/dev/null)
 if [ "$CURATOR_COUNT" -ge 0 ] 2>/dev/null; then
     echo "PASS: Query active-curators works ($CURATOR_COUNT found)"

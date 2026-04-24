@@ -141,4 +141,29 @@ message Params {
   // --- Pinning parameters — OPERATIONAL ---
   uint32 pin_min_trust_level = 61; // Min trust level to pin collections (default: 2 = ESTABLISHED)
   uint32 max_pins_per_day = 62; // Max pins per address per day (default: 10)
+
+  // --- Curator bonded-role config (flattened) — OPERATIONAL ---
+  //
+  // Collect owns the curator role (ROLE_TYPE_COLLECT_CURATOR). These fields
+  // are the source of truth; any update is written through to x/rep's
+  // BondedRoleConfig so MsgBondRole enforcement matches what the council sets.
+  // min_curator_bond, min_curator_trust_level, and min_curator_age_blocks are
+  // already defined above (fields 25–27) for backwards compat; the two below
+  // extend the config with demotion thresholds rep's SlashBond consults.
+
+  // curator_demotion_cooldown is the number of seconds a DEMOTED curator
+  // must wait before re-bonding.
+  int64 curator_demotion_cooldown = 63;
+
+  // curator_demotion_threshold is the bond floor (DREAM) below which a
+  // curator transitions from RECOVERY to DEMOTED.
+  string curator_demotion_threshold = 64 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // curator_overturn_demotion_streak is the number of consecutive overturned
+  // challenge outcomes against a curator before they are demoted. Zero = no
+  // streak-based demotion.
+  uint64 curator_overturn_demotion_streak = 65;
 }

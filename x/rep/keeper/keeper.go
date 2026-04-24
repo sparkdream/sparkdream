@@ -105,8 +105,11 @@ type Keeper struct {
 	TagBudgetAward    collections.Map[uint64, types.TagBudgetAward]
 	TagBudgetAwardSeq collections.Sequence
 
-	// Sentinel accountability
-	SentinelActivity collections.Map[string, types.SentinelActivity]
+	// Bonded-role primitive (generalization of sentinel / curator / verifier).
+	// Key: (role_type int32, address string). Compound key lets one address
+	// hold multiple roles; prefix scan on role_type yields list-by-type.
+	BondedRoles       collections.Map[collections.Pair[int32, string], types.BondedRole]
+	BondedRoleConfigs collections.Map[int32, types.BondedRoleConfig]
 
 	// Accountability
 	JuryParticipation  collections.Map[string, types.JuryParticipation]
@@ -237,8 +240,17 @@ func NewKeeper(
 		TagBudgetAward:    collections.NewMap(sb, types.TagBudgetAwardKey, "tagBudgetAward", collections.Uint64Key, codec.CollValue[types.TagBudgetAward](cdc)),
 		TagBudgetAwardSeq: collections.NewSequence(sb, types.TagBudgetAwardCountKey, "tagBudgetAwardSequence"),
 
-		// Sentinel accountability
-		SentinelActivity: collections.NewMap(sb, types.SentinelActivityKey, "sentinelActivity", collections.StringKey, codec.CollValue[types.SentinelActivity](cdc)),
+		// Bonded-role primitive
+		BondedRoles: collections.NewMap(
+			sb, types.BondedRoleKey, "bondedRoles",
+			collections.PairKeyCodec(collections.Int32Key, collections.StringKey),
+			codec.CollValue[types.BondedRole](cdc),
+		),
+		BondedRoleConfigs: collections.NewMap(
+			sb, types.BondedRoleConfigKey, "bondedRoleConfigs",
+			collections.Int32Key,
+			codec.CollValue[types.BondedRoleConfig](cdc),
+		),
 
 		// Accountability
 		JuryParticipation:  collections.NewMap(sb, types.JuryParticipationKey, "juryParticipation", collections.StringKey, codec.CollValue[types.JuryParticipation](cdc)),

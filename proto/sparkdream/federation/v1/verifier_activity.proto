@@ -1,0 +1,38 @@
+syntax = "proto3";
+package sparkdream.federation.v1;
+
+import "cosmos_proto/cosmos.proto";
+
+option go_package = "sparkdream/x/federation/types";
+
+// VerifierActivity holds federation-specific per-verifier counters. The
+// generic bond/status/activity record lives in x/rep as BondedRole
+// (ROLE_TYPE_FEDERATION_VERIFIER) — this proto only tracks what's
+// federation-specific: verification counts and dispute outcomes.
+message VerifierActivity {
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // Lifetime metrics
+  uint64 total_verifications = 2;
+  uint64 upheld_verifications = 3;
+  uint64 overturned_verifications = 4;
+  uint64 unchallenged_verifications = 5;
+
+  // Epoch metrics
+  uint64 epoch_verifications = 6;
+  uint64 epoch_challenges_resolved = 7;
+
+  // Consecutive-outcome tracking for demotion triggers. Slash streak beyond
+  // UpheldToResetOverturns consecutive-overturn is the demotion signal.
+  uint64 consecutive_overturns = 8;
+  uint64 consecutive_upheld = 9;
+
+  // overturn_cooldown_until is the unix timestamp during which the verifier
+  // cannot submit new verifications after an overturn. Managed by the
+  // federation challenge-resolution flow.
+  int64 overturn_cooldown_until = 10;
+
+  // slash_count is the lifetime number of times this verifier has been
+  // slashed (overturn verdicts).
+  uint64 slash_count = 11;
+}

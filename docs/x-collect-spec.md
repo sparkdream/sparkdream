@@ -325,17 +325,25 @@ The collection **owner** has full control. Owner is not represented as a Collabo
 
 ### 3.12. Curator
 
-A curator is an `x/rep` member who stakes DREAM to rate public collection quality. Same bond-and-work pattern as x/forum sentinels but with quality assessment rather than moderation.
+> **Phase 1–4 bonded-role generalization:** curator bond/status state now lives in x/rep as `BondedRole(ROLE_TYPE_COLLECT_CURATOR, addr)`. Collect owns only the per-module counters (`CuratorActivity`, below). See [bonded-role-generalization.md](bonded-role-generalization.md).
+
+A curator is an `x/rep` member who stakes DREAM (via rep's `MsgBondRole ROLE_TYPE_COLLECT_CURATOR`) to rate public collection quality. Same generic bonded-role pattern as x/forum sentinels and x/federation verifiers, specialized for quality assessment.
+
+Bond state (address, `current_bond`, `total_committed_bond`, `bond_status`, `registered_at`, `demotion_cooldown_until`, `cumulative_rewards`) lives on rep's `BondedRole` record. Collect reads it via `repKeeper.GetBondedRole(ROLE_TYPE_COLLECT_CURATOR, addr)` when validating a `MsgRateCollection` or resolving a challenge.
+
+Per-module counters live on `CuratorActivity`:
 
 ```protobuf
-message Curator {
+// proto/sparkdream/collect/v1/curator_activity.proto
+message CuratorActivity {
   string address = 1;
-  string bond_amount = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  int64 registered_at = 3;
-  uint64 total_reviews = 4;
-  uint64 challenged_reviews = 5;   // Successfully challenged (overturned)
-  bool active = 6;                 // False if bond < min_curator_bond or unregistered
-  uint32 pending_challenges = 7;   // Count of unresolved challenges against this curator's reviews
+  uint64 total_reviews = 2;
+  uint64 challenged_reviews = 3;
+  uint64 upheld_reviews = 4;
+  uint64 overturned_reviews = 5;
+  uint64 consecutive_overturns = 6;
+  uint64 consecutive_upheld = 7;
+  uint64 epoch_reviews = 8;
 }
 ```
 
@@ -352,7 +360,8 @@ message CurationReview {
   int64 created_at = 7;
   bool challenged = 8;
   bool overturned = 9;
-  string challenger = 10;           // Address that filed the challenge (empty if unchallenged)
+  string challenger = 10;          // Address that filed the challenge (empty if unchallenged)
+  string committed_slash = 11;     // Bond amount reserved on the curator's BondedRole at challenge time (math.Int string; zero until challenged)
 }
 ```
 
@@ -1084,35 +1093,21 @@ message MsgUpdateCollaboratorRoleResponse {}
 - **Collection must not be `immutable`** (endorsed non-member collections cannot modify collaborator roles until owner becomes member)
 - Only owner can grant/revoke ADMIN
 
-### 5.13. MsgRegisterCurator
+### 5.13. Curator bonding (moved to x/rep)
 
-```protobuf
-message MsgRegisterCurator {
-  string creator = 1;
-  string bond_amount = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-}
+> **Phase 1–4 bonded-role generalization:** the former collect-local `MsgRegisterCurator` / `MsgUnregisterCurator` have been subsumed by x/rep's generic `MsgBondRole` / `MsgUnbondRole`. Curator bonding flows through rep's role-typed endpoint; collect no longer owns a registration message.
 
-message MsgRegisterCuratorResponse {}
-```
+Invoked as `tx rep bond-role ROLE_TYPE_COLLECT_CURATOR <amount>` / `tx rep unbond-role ROLE_TYPE_COLLECT_CURATOR <amount>`.
 
-**Validation:**
-- `creator` must be active `x/rep` member at or above `min_curator_trust_level`
-- `bond_amount` ≥ `min_curator_bond`
-- Not already a registered active curator
+**Bond validation (enforced in rep against the collect-seeded `BondedRoleConfig`):**
+- `creator` must be active `x/rep` member at or above `min_trust_level` (seeded from collect's `min_curator_trust_level`).
+- Initial `amount` ≥ `min_bond` (seeded from collect's `min_curator_bond`).
+- If previously demoted, must wait past `demotion_cooldown_until`.
+- Age gate (`min_age_blocks`, seeded from collect's `min_curator_age_blocks`) is enforced by collect at action time (see `MsgRateCollection`), not at bond time.
 
-### 5.14. MsgUnregisterCurator
-
-```protobuf
-message MsgUnregisterCurator {
-  string creator = 1;
-}
-
-message MsgUnregisterCuratorResponse {}
-```
-
-**Validation:**
-- Must be a registered active curator
-- Must have `pending_challenges == 0` (cannot unregister while challenges are in-flight; bond must remain locked until resolution)
+**Unbond validation (enforced in rep):**
+- Record must exist.
+- Available bond (`current_bond - total_committed_bond`) must cover the unbond amount. Slash budgets reserved by in-flight `MsgChallengeReview` lock the corresponding chunk until the challenge resolves.
 - Remaining bond refunded
 
 ### 5.15. MsgRateCollection
@@ -1645,19 +1640,18 @@ type Keeper interface {
     IsCollaborator(ctx context.Context, collectionID uint64, address string) (bool, CollaboratorRole, error)
     HasWriteAccess(ctx context.Context, collectionID uint64, address string) (bool, error)
 
-    // Curation
-    RegisterCurator(ctx context.Context, msg *MsgRegisterCurator) error
-    UnregisterCurator(ctx context.Context, creator string) error
+    // Curation (bonding lives in x/rep as MsgBondRole/MsgUnbondRole with
+    // role_type = ROLE_TYPE_COLLECT_CURATOR; collect owns only rating and
+    // challenge-resolution flows, plus per-module activity counters).
     RateCollection(ctx context.Context, msg *MsgRateCollection) (uint64, error)
     ChallengeReview(ctx context.Context, msg *MsgChallengeReview) error
     ResolveChallengeResult(ctx context.Context, reviewID uint64, upheld bool) error
-    GetCurator(ctx context.Context, address string) (Curator, error)
-    GetActiveCurators(ctx context.Context, pagination *query.PageRequest) ([]Curator, *query.PageResponse, error)
+    GetCuratorActivity(ctx context.Context, address string) (CuratorActivity, error)
     GetCurationSummary(ctx context.Context, collectionID uint64) (CurationSummary, error)
     GetCurationReviews(ctx context.Context, collectionID uint64, pagination *query.PageRequest) ([]CurationReview, *query.PageResponse, error)
     GetCurationReviewsByCurator(ctx context.Context, curator string, pagination *query.PageRequest) ([]CurationReview, *query.PageResponse, error)
     RecalculateSummary(ctx context.Context, collectionID uint64) error
-    CleanupCollectionCuration(ctx context.Context, collectionID uint64) error  // Refund pending challenge deposits, update curator state, then delete all reviews + summary
+    CleanupCollectionCuration(ctx context.Context, collectionID uint64) error  // Refund pending challenge deposits, release committed slash budgets, then delete all reviews + summary
 
     // Sponsorship
     RequestSponsorship(ctx context.Context, msg *MsgRequestSponsorship) error
@@ -2020,12 +2014,12 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `collaborator_added` | `collection_id`, `address`, `role`, `added_by` | MsgAddCollaborator |
 | `collaborator_removed` | `collection_id`, `address`, `removed_by` | MsgRemoveCollaborator |
 | `collaborator_role_updated` | `collection_id`, `address`, `old_role`, `new_role` | MsgUpdateCollaboratorRole |
-| `curator_registered` | `address`, `bond_amount` | MsgRegisterCurator |
-| `curator_unregistered` | `address`, `bond_refunded` | MsgUnregisterCurator |
-| `curator_deactivated` | `address`, `reason` | Bond fell below min_curator_bond after slash |
+| `bonded_role_bonded` (role_type=ROLE_TYPE_COLLECT_CURATOR) | `address`, `amount`, `total_bond`, `bond_status` | Emitted by x/rep on `MsgBondRole` |
+| `bonded_role_unbonded` (role_type=ROLE_TYPE_COLLECT_CURATOR) | `address`, `amount`, `remaining_bond`, `bond_status` | Emitted by x/rep on `MsgUnbondRole` |
+| `bonded_role_status_updated` (role_type=ROLE_TYPE_COLLECT_CURATOR) | `address`, `bond_status`, `cooldown_until` | Emitted by x/rep on slash-triggered demotion |
 | `collection_rated` | `review_id`, `collection_id`, `curator`, `verdict`, `tags` | MsgRateCollection |
 | `review_challenged` | `review_id`, `challenger` | MsgChallengeReview |
-| `challenge_resolved` | `review_id`, `upheld`, `curator`, `slash_amount`, `reward_amount`, `burn_amount`, `curator_deactivated`, `challenger_refunded` | x/rep jury callback |
+| `challenge_resolved` | `review_id`, `upheld`, `curator`, `slash_amount`, `reward_amount`, `burn_amount`, `curator_demoted`, `challenger_refunded` | x/rep jury callback |
 | `sponsorship_requested` | `collection_id`, `requester`, `escrowed_deposit`, `expires_at` | MsgRequestSponsorship |
 | `sponsorship_cancelled` | `collection_id`, `requester`, `deposit_refunded` | MsgCancelSponsorshipRequest |
 | `collection_sponsored` | `collection_id`, `owner`, `sponsored_by`, `sponsor_fee_burned`, `permanent_deposit_burned`, `ttl_deposit_refunded` | MsgSponsorCollection |
@@ -2099,7 +2093,7 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `ErrChallengeWindowExpired` | 1142 | Past `challenge_window_blocks` |
 | `ErrCannotChallengeSelf` | 1143 | Cannot challenge own review |
 | `ErrReasonTooLong` | 1144 | Challenge reason exceeds `max_challenge_reason_length` |
-| `ErrCuratorHasPendingChallenges` | 1145 | Cannot unregister with pending challenges |
+| `ErrCuratorHasPendingChallenges` | 1145 | Retained for backwards-compat; after Phase 3, committed-bond reservations in x/rep enforce this at unbond time via `ErrInsufficientBond`. |
 | `ErrCuratorBondInsufficient` | 1146 | Curator bond dropped below `min_curator_bond` (auto-deactivated) |
 | `ErrNonMemberPermanent` | 1147 | Non-members cannot create permanent collections (must use TTL + sponsorship) |
 | `ErrNonMemberTTLExceeded` | 1148 | Non-member TTL exceeds `max_non_member_ttl_blocks` |

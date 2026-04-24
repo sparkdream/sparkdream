@@ -217,11 +217,11 @@ func TestRecordSentinelActionOverturnedTriggersDemotion(t *testing.T) {
 	}))
 	// Register sentinel on rep mock so SetBondStatus can find it.
 	if f.repKeeper.sentinels == nil {
-		f.repKeeper.sentinels = make(map[string]reptypes.SentinelActivity)
+		f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
 	}
-	f.repKeeper.sentinels[sentinel] = reptypes.SentinelActivity{
+	f.repKeeper.sentinels[sentinel] = reptypes.BondedRole{
 		Address:    sentinel,
-		BondStatus: reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_NORMAL,
+		BondStatus: reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 	}
 
 	for i := uint64(100); i < 103; i++ {
@@ -239,6 +239,6 @@ func TestRecordSentinelActionOverturnedTriggersDemotion(t *testing.T) {
 	// Demotion was applied via rep keeper.
 	repSa, ok := f.repKeeper.sentinels[sentinel]
 	require.True(t, ok)
-	require.Equal(t, reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED, repSa.BondStatus)
+	require.Equal(t, reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, repSa.BondStatus)
 	require.Greater(t, repSa.DemotionCooldownUntil, int64(0))
 }

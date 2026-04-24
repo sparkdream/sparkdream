@@ -41,7 +41,10 @@ type Keeper struct {
 	Peers              collections.Map[string, types.Peer]
 	PeerPolicies       collections.Map[string, types.PeerPolicy]
 	BridgeOperators    collections.Map[collections.Pair[string, string], types.BridgeOperator]
-	Verifiers          collections.Map[string, types.FederationVerifier]
+	// VerifierActivity holds federation-specific per-verifier counters. The
+	// generic bond/status record lives in x/rep as BondedRole
+	// (ROLE_TYPE_FEDERATION_VERIFIER).
+	VerifierActivity   collections.Map[string, types.VerifierActivity]
 	VerificationRecords collections.Map[uint64, types.VerificationRecord]
 	ArbiterSubmissions collections.Map[collections.Pair[uint64, string], types.ArbiterHashSubmission]
 	Content            collections.Map[uint64, types.FederatedContent]
@@ -121,8 +124,8 @@ func NewKeeper(
 		BridgeOperators: collections.NewMap(sb, types.BridgeOperatorsKey, "bridgeOperators",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 			codec.CollValue[types.BridgeOperator](cdc)),
-		Verifiers: collections.NewMap(sb, types.VerifiersKey, "verifiers",
-			collections.StringKey, codec.CollValue[types.FederationVerifier](cdc)),
+		VerifierActivity: collections.NewMap(sb, types.VerifierActivityKey, "verifierActivity",
+			collections.StringKey, codec.CollValue[types.VerifierActivity](cdc)),
 		VerificationRecords: collections.NewMap(sb, types.VerificationRecsKey, "verificationRecords",
 			collections.Uint64Key, codec.CollValue[types.VerificationRecord](cdc)),
 		ArbiterSubmissions: collections.NewMap(sb, types.ArbiterSubmissionsKey, "arbiterSubmissions",

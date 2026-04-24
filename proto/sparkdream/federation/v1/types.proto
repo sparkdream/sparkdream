@@ -47,12 +47,8 @@ enum IdentityLinkStatus {
   IDENTITY_LINK_STATUS_REVOKED = 2;
 }
 
-enum VerifierBondStatus {
-  VERIFIER_BOND_STATUS_UNSPECIFIED = 0;
-  VERIFIER_BOND_STATUS_NORMAL = 1;
-  VERIFIER_BOND_STATUS_RECOVERY = 2;
-  VERIFIER_BOND_STATUS_DEMOTED = 3;
-}
+// NOTE: Phase 4 of the bonded-role generalization removed VerifierBondStatus
+// in favor of x/rep's generic BondedRoleStatus.
 
 enum VerificationOutcome {
   VERIFICATION_OUTCOME_UNSPECIFIED = 0;
@@ -119,41 +115,10 @@ message BridgeOperator {
   uint64 content_unverified = 15;
 }
 
-// FederationVerifier represents a community member who verifies bridged content.
-message FederationVerifier {
-  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string current_bond = 2 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  string total_committed_bond = 3 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  VerifierBondStatus bond_status = 4;
-  int64 bonded_at = 5;
-  int64 demotion_cooldown_until = 6;
-
-  // Lifetime metrics
-  uint64 total_verifications = 7;
-  uint64 upheld_verifications = 8;
-  uint64 overturned_verifications = 9;
-  uint64 unchallenged_verifications = 10;
-
-  // Epoch metrics
-  uint64 epoch_verifications = 11;
-  uint64 epoch_challenges_resolved = 12;
-  int64 last_reward_epoch = 13;
-  int64 last_active_epoch = 14;
-
-  // Cooldown tracking
-  uint64 consecutive_overturns = 15;
-  uint64 consecutive_upheld = 16;
-  int64 overturn_cooldown_until = 17;
-  uint64 slash_count = 18;
-}
+// NOTE: Phase 4 of the bonded-role generalization removed FederationVerifier.
+// Generic bond/status/activity state now lives in x/rep as
+// BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr). Per-module counters are
+// tracked in VerifierActivity (see verifier_activity.proto).
 
 // VerificationRecord tracks a verifier's verification of specific content.
 message VerificationRecord {

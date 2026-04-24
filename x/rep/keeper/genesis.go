@@ -137,13 +137,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	// Sentinel accountability records
-	for _, elem := range genState.SentinelActivityMap {
-		if err := k.SentinelActivity.Set(ctx, elem.Address, elem); err != nil {
-			return err
-		}
-	}
-
 	// Accountability
 	for _, elem := range genState.JuryParticipationMap {
 		if err := k.JuryParticipation.Set(ctx, elem.Juror, elem); err != nil {
@@ -170,6 +163,18 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 	if err := k.GovActionAppealSeq.Set(ctx, genState.GovActionAppealCount); err != nil {
 		return err
+	}
+
+	// Bonded-role configs and records.
+	for _, cfg := range genState.BondedRoleConfigList {
+		if err := k.BondedRoleConfigs.Set(ctx, int32(cfg.RoleType), cfg); err != nil {
+			return err
+		}
+	}
+	for _, br := range genState.BondedRoleList {
+		if err := k.BondedRoles.Set(ctx, collections.Join(int32(br.RoleType), br.Address), br); err != nil {
+			return err
+		}
 	}
 
 	// If there are members, trigger a full trust tree rebuild on next EndBlock.
@@ -356,13 +361,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 
-	if err := k.SentinelActivity.Walk(ctx, nil, func(_ string, val types.SentinelActivity) (stop bool, err error) {
-		genesis.SentinelActivityMap = append(genesis.SentinelActivityMap, val)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-
 	// Accountability
 	if err := k.JuryParticipation.Walk(ctx, nil, func(_ string, val types.JuryParticipation) (stop bool, err error) {
 		genesis.JuryParticipationMap = append(genesis.JuryParticipationMap, val)
@@ -394,6 +392,19 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	genesis.GovActionAppealCount, err = k.GovActionAppealSeq.Peek(ctx)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := k.BondedRoleConfigs.Walk(ctx, nil, func(_ int32, val types.BondedRoleConfig) (stop bool, err error) {
+		genesis.BondedRoleConfigList = append(genesis.BondedRoleConfigList, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.BondedRoles.Walk(ctx, nil, func(_ collections.Pair[int32, string], val types.BondedRole) (stop bool, err error) {
+		genesis.BondedRoleList = append(genesis.BondedRoleList, val)
+		return false, nil
+	}); err != nil {
 		return nil, err
 	}
 

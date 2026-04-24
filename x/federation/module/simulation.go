@@ -316,36 +316,6 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		federationsimulation.SimulateMsgRequestReputationAttestation(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
-		opWeightMsgBondVerifier          = "op_weight_msg_federation"
-		defaultWeightMsgBondVerifier int = 100
-	)
-
-	var weightMsgBondVerifier int
-	simState.AppParams.GetOrGenerate(opWeightMsgBondVerifier, &weightMsgBondVerifier, nil,
-		func(_ *rand.Rand) {
-			weightMsgBondVerifier = defaultWeightMsgBondVerifier
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgBondVerifier,
-		federationsimulation.SimulateMsgBondVerifier(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgUnbondVerifier          = "op_weight_msg_federation"
-		defaultWeightMsgUnbondVerifier int = 100
-	)
-
-	var weightMsgUnbondVerifier int
-	simState.AppParams.GetOrGenerate(opWeightMsgUnbondVerifier, &weightMsgUnbondVerifier, nil,
-		func(_ *rand.Rand) {
-			weightMsgUnbondVerifier = defaultWeightMsgUnbondVerifier
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgUnbondVerifier,
-		federationsimulation.SimulateMsgUnbondVerifier(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
 		opWeightMsgVerifyContent          = "op_weight_msg_federation"
 		defaultWeightMsgVerifyContent int = 100
 	)

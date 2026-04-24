@@ -8,6 +8,7 @@ import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/federation/v1/params.proto";
 import "sparkdream/federation/v1/types.proto";
+import "sparkdream/federation/v1/verifier_activity.proto";
 
 option go_package = "sparkdream/x/federation/types";
 
@@ -58,11 +59,12 @@ service Query {
   rpc ListOutboundAttestations(QueryListOutboundAttestationsRequest) returns (QueryListOutboundAttestationsResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/list_outbound_attestations";
   }
-  rpc GetVerifier(QueryGetVerifierRequest) returns (QueryGetVerifierResponse) {
-    option (google.api.http).get = "/sparkdream/federation/v1/get_verifier/{address}";
-  }
-  rpc ListVerifiers(QueryListVerifiersRequest) returns (QueryListVerifiersResponse) {
-    option (google.api.http).get = "/sparkdream/federation/v1/list_verifiers";
+  // VerifierActivity returns federation-specific per-verifier counters
+  // (verifications, upheld, overturned, consecutive streaks). The generic
+  // bond/status record lives in x/rep under
+  // BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr).
+  rpc VerifierActivity(QueryVerifierActivityRequest) returns (QueryVerifierActivityResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/verifier_activity/{address}";
   }
   rpc GetVerificationRecord(QueryGetVerificationRecordRequest) returns (QueryGetVerificationRecordResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/get_verification_record/{content_id}";
@@ -157,16 +159,10 @@ message QueryListOutboundAttestationsResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-// --- Verifier ---
-message QueryGetVerifierRequest { string address = 1; }
-message QueryGetVerifierResponse { FederationVerifier verifier = 1 [(gogoproto.nullable) = false]; }
-
-message QueryListVerifiersRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-message QueryListVerifiersResponse {
-  repeated FederationVerifier verifiers = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+// --- Verifier (bond state lives in x/rep BondedRole) ---
+message QueryVerifierActivityRequest { string address = 1; }
+message QueryVerifierActivityResponse {
+  VerifierActivity activity = 1 [(gogoproto.nullable) = false];
 }
 
 // --- VerificationRecord ---

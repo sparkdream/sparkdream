@@ -56,14 +56,6 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgUnregisterCurator{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgRegisterCurator{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgUpdateCollaboratorRole{},
 	)
 

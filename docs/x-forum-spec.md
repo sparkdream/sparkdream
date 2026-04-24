@@ -2,7 +2,7 @@
 
 > **Scope**
 >
-> `x/forum` owns content storage, moderation, bounties, appeals, and thread operations. Tag registry/moderation/budgets, sentinel bond and accountability, and member-level accountability (reports, warnings, gov-action appeals) live in `x/rep` — consult [`docs/x-rep-spec.md`](x-rep-spec.md) for those primitives. Forum's `SentinelActivity` holds only per-action counters (hides/locks/moves/pins/proposals, per-epoch tallies, local cooldowns); sentinel auth/bond mechanics go through the rep keeper (`IsSentinel`, `GetSentinel`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`).
+> `x/forum` owns content storage, moderation, bounties, appeals, and thread operations. Tag registry/moderation/budgets, bonded-role accountability (sentinel bond/status/slash), and member-level accountability (reports, warnings, gov-action appeals) live in `x/rep` — consult [`docs/x-rep-spec.md`](x-rep-spec.md) and [`docs/bonded-role-generalization.md`](bonded-role-generalization.md) for those primitives. Forum's `SentinelActivity` holds only per-action counters (hides/locks/moves/pins/proposals, per-epoch tallies, local cooldowns); sentinel auth/bond mechanics go through the rep keeper's role-typed API (`IsBondedRole(ROLE_TYPE_FORUM_SENTINEL, …)`, `GetBondedRole`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`).
 >
 > Sections that diverge from the current implementation are annotated with `> **Implementation status:**` or `> **Implementation note:**` callouts.
 >
@@ -284,23 +284,35 @@ enum SentinelBondStatus {
   SENTINEL_BOND_STATUS_DEMOTED = 3;                      // Bond < demotion_threshold (loses sentinel privileges)
 }
 
-// > **Implementation note:** `SentinelActivity` is split into two messages:
+// > **Implementation note (Phase 1–4 bonded-role generalization):** sentinel
+// > state is split between x/rep and x/forum:
 // >
-// > - `sparkdream.rep.v1.SentinelActivity` — generic accountability: `address`,
-// >   `bond_status`, `current_bond`, `total_committed_bond`, `last_active_epoch`,
-// >   `consecutive_inactive_epochs`, `demotion_cooldown_until`, `cumulative_rewards`.
+// > - `sparkdream.rep.v1.BondedRole` (keyed by `(role_type, address)`) — generic
+// >   accountability: `address`, `role_type = ROLE_TYPE_FORUM_SENTINEL`,
+// >   `bond_status`, `current_bond`, `total_committed_bond`, `registered_at`,
+// >   `last_active_epoch`, `consecutive_inactive_epochs`,
+// >   `demotion_cooldown_until`, `cumulative_rewards`, `last_reward_epoch`.
 // >
 // > - `sparkdream.forum.v1.SentinelActivity` — forum-specific action counters:
 // >   hides/locks/moves/pins/proposals totals, per-epoch tallies, upheld/overturned
 // >   counts, local cooldowns (fields 1..29).
 // >
-// > `MsgBondSentinel` / `MsgUnbondSentinel` live in x/rep and operate on
-// > the rep record. Forum content-action handlers authenticate and reserve
-// > bond via the rep keeper (`IsSentinel`, `GetSentinel`, `GetAvailableBond`,
-// > `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`,
-// > `SetBondStatus`).
+// > Bonding flows through x/rep's generic `MsgBondRole` / `MsgUnbondRole`.
+// > Forum content-action handlers authenticate and reserve bond via the rep
+// > keeper using the role-typed API:
+// > `IsBondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)`,
+// > `GetBondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)`,
+// > `GetAvailableBond(ROLE_TYPE_FORUM_SENTINEL, addr)`,
+// > `ReserveBond(ROLE_TYPE_FORUM_SENTINEL, addr, amount)`,
+// > `ReleaseBond(ROLE_TYPE_FORUM_SENTINEL, addr, amount)`,
+// > `SlashBond(ROLE_TYPE_FORUM_SENTINEL, addr, amount, reason)`,
+// > `RecordActivity(ROLE_TYPE_FORUM_SENTINEL, addr)`,
+// > `SetBondStatus(ROLE_TYPE_FORUM_SENTINEL, addr, status, cooldown_until)`.
 // >
-// > The message below shows the unified shape for reference.
+// > The legacy unified `SentinelActivity` message below (with inline
+// > `bond_status`, `current_bond`, etc.) is kept for reference; at runtime the
+// > bond fields live on `BondedRole` and the action counters live on forum's
+// > per-module `SentinelActivity`.
 
 // Accuracy-based sentinel metrics - rewards based on moderation quality, not volume
 message SentinelActivity {
@@ -3696,63 +3708,65 @@ HR Committee resolves a tag report.
 
 ---
 
-#### `MsgBondSentinel`
+#### `MsgBondRole` (role_type = `ROLE_TYPE_FORUM_SENTINEL`)
 
-Sentinel bonds DREAM to become a sentinel or add to existing bond.
+> **Phase 1–4 bonded-role generalization:** the former forum-local `MsgBondSentinel` has been subsumed by x/rep's generic `MsgBondRole`. Forum no longer owns a bonding message; bonding flows through rep's role-typed endpoint.
+
+Sentinel bonds DREAM to become a forum moderator (or adds to existing bond). Invoked as a standard `tx rep bond-role ROLE_TYPE_FORUM_SENTINEL <amount>`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sentinel` | `string` | Sentinel address (signer) |
+| `creator` | `string` | Sentinel address (signer) |
+| `role_type` | `RoleType` | `ROLE_TYPE_FORUM_SENTINEL` |
 | `amount` | `string` | DREAM amount to bond |
 
-**Logic:**
-1. Verify sentinel meets reputation tier requirement (`min_rep_tier_sentinel`)
+**Logic** (implemented in rep, enforced against the forum-owned `BondedRoleConfig(ROLE_TYPE_FORUM_SENTINEL)`):
+1. Verify caller meets reputation tier requirement (`min_rep_tier` on the role config, seeded from forum's `min_sentinel_rep_tier` via write-through).
 2. **Check demotion cooldown (prevents accuracy reset attack):**
-   - Load existing `SentinelActivity` if exists
-   - If `sentinel.demotion_cooldown_until > now`: Fail with `ErrDemotionCooldown`
-   - *This prevents: get slashed to DEMOTED → unbond all → immediately re-bond with fresh stats*
-3. Transfer DREAM from sentinel to module account (locked for sentinel duty)
-4. Load or create `SentinelActivity` for address
-5. Add amount to `current_bond`
-6. Update `bond_status` based on thresholds:
-   - If `current_bond >= min_sentinel_bond`: `NORMAL`
-   - If `current_bond >= demotion_threshold`: `RECOVERY`
-   - Otherwise: `DEMOTED` (should not happen on bonding)
-7. Emit `EventSentinelBonded`
+   - Load existing `BondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)` if present.
+   - If `demotion_cooldown_until > now`: Fail with `ErrDemotionCooldown`.
+   - *This prevents: get slashed to DEMOTED → unbond all → immediately re-bond with fresh stats.*
+3. Lock DREAM via rep's `LockDREAM` (author-bond pattern: moves from available balance to staked).
+4. Load or create `BondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)` record.
+5. Add amount to `current_bond`.
+6. Update `bond_status` based on thresholds (computed from the role's `BondedRoleConfig`):
+   - If `current_bond >= min_bond`: `BONDED_ROLE_STATUS_NORMAL`.
+   - If `current_bond >= demotion_threshold`: `BONDED_ROLE_STATUS_RECOVERY`.
+   - Otherwise: `BONDED_ROLE_STATUS_DEMOTED` (should not happen on first bond since rep rejects first bonds below `min_bond`).
+7. Emit `bonded_role_bonded` event.
 
-**Note:** Initial bond must be >= `min_sentinel_bond` (1000 DREAM) to become sentinel. If sentinel was previously demoted, must wait `sentinel_demotion_cooldown` (default 7d) before re-bonding.
+**Note:** Initial bond must be ≥ the forum-seeded `min_sentinel_bond` (default 1000 DREAM) to become sentinel. If sentinel was previously demoted, must wait `sentinel_demotion_cooldown` (default 7d) before re-bonding.
 
 ---
 
-#### `MsgUnbondSentinel`
+#### `MsgUnbondRole` (role_type = `ROLE_TYPE_FORUM_SENTINEL`)
 
-Sentinel withdraws bonded DREAM (exits sentinel role or reduces bond at loss).
+> **Phase 1–4 bonded-role generalization:** the former forum-local `MsgUnbondSentinel` has been subsumed by x/rep's generic `MsgUnbondRole`.
+
+Sentinel withdraws bonded DREAM (exits the sentinel role or reduces bond at loss). Invoked as `tx rep unbond-role ROLE_TYPE_FORUM_SENTINEL <amount>`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sentinel` | `string` | Sentinel address (signer) |
-| `amount` | `string` | DREAM amount to unbond (or "all") |
+| `creator` | `string` | Sentinel address (signer) |
+| `role_type` | `RoleType` | `ROLE_TYPE_FORUM_SENTINEL` |
+| `amount` | `string` | DREAM amount to unbond |
 
-**Logic:**
-1. Load `SentinelActivity` for sentinel
-2. Fail with `ErrSentinelNotFound` if not a sentinel
+**Logic** (implemented in rep, with forum-side active-appeal checks enforced via the `total_committed_bond` reservation model):
+1. Load `BondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)`.
+2. Fail with `ErrBondedRoleNotFound` if not a sentinel.
 3. **Extended Appeal Window Check (prevents bounty sniping):**
-   - Fail with `ErrActiveChallenges` if sentinel has any pending appeals (active HideRecord with appeal filed)
-   - **Also check:** Count `HideRecord` entries where `sentinel == this_sentinel` AND `hidden_at + appeal_window > now`
-   - Fail with `ErrActiveChallenges` if any hides are still within appeal window
-   - *This prevents: hide post → unbond immediately → appeal filed later → sentinel escaped with bounty damage done*
-4. Calculate amount to return:
-   - If `amount == "all"`: return full `current_bond`
-   - Otherwise: return min(amount, current_bond)
-5. Transfer DREAM from module to sentinel
-6. Update `current_bond` and `bond_status`:
+   - rep blocks unbond amounts that exceed `current_bond - total_committed_bond` (i.e. any bond currently reserved against a pending hide/lock/move or an active appeal window).
+   - forum's `MsgHideContent` / `MsgLockThread` / `MsgMoveThread` call `ReserveBond`; the reservation is only released when the action ages out unchallenged or the appeal resolves. Sentinel cannot escape accountability mid-appeal because the committed portion of the bond is non-withdrawable.
+   - *Without this: hide post → unbond immediately → appeal filed later → sentinel escapes with bounty damage done.*
+4. `UnlockDREAM` the amount back to the sentinel's available balance.
+5. Update `current_bond` and `bond_status`:
    - If remaining bond < `demotion_threshold`:
-     - Set `DEMOTED`
-     - **Set demotion cooldown:** `sentinel.demotion_cooldown_until = now + sentinel_demotion_cooldown`
-     - *This prevents immediate re-bonding to reset accuracy stats*
-   - If remaining bond < `min_sentinel_bond`: set `RECOVERY`
-   - If remaining bond == 0: delete `SentinelActivity` record (but keep `sentinel_demotion_cooldown/{sentinel}` key for cooldown enforcement)
-7. Emit `EventSentinelUnbonded`
+     - Set `BONDED_ROLE_STATUS_DEMOTED`.
+     - **Set demotion cooldown:** `demotion_cooldown_until = now + demotion_cooldown`.
+     - *This prevents immediate re-bonding to reset accuracy stats.*
+   - If remaining bond < `min_bond`: set `BONDED_ROLE_STATUS_RECOVERY`.
+   - If remaining bond == 0: the `BondedRole` record persists (it's how we track `demotion_cooldown_until` for cooldown enforcement).
+6. Emit `bonded_role_unbonded` event.
 
 **Note:** Unbonding while in RECOVERY mode means voluntarily taking a loss. This is allowed but the sentinel loses privileges until they re-bond to minimum.
 
@@ -5681,7 +5695,7 @@ The x/forum module should be implemented in phases to manage complexity and allo
 - MsgAppealHide (post author → x/rep initiative)
 - MsgLockThread, MsgUnlockThread (sentinel/HR)
 - MsgAppealThreadLock
-- MsgBondSentinel, MsgUnbondSentinel
+- Sentinel bonding: `MsgBondRole` / `MsgUnbondRole` (x/rep, with `role_type = ROLE_TYPE_FORUM_SENTINEL`)
 
 **Integration:**
 - x/rep: Sentinel bond/backing checks
@@ -5894,8 +5908,8 @@ Approximate gas costs for common operations. Actual costs depend on state size a
 
 | Operation | Gas (approx) | Notes |
 |-----------|-------------|-------|
-| `MsgBondSentinel` | 80,000-120,000 | Initial bond |
-| `MsgUnbondSentinel` | 60,000-100,000 | + pending appeals check |
+| `MsgBondRole` (FORUM_SENTINEL) | 80,000-120,000 | Initial bond (lives in x/rep) |
+| `MsgUnbondRole` (FORUM_SENTINEL) | 60,000-100,000 | + pending-action commit check (lives in x/rep) |
 | `MsgDelegateSentinel` | 50,000-80,000 | Backing delegation |
 
 ### Reactions (Counter-Only)

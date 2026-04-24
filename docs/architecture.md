@@ -196,10 +196,10 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **ZK key registration:** Members register ZK public keys (`MsgRegisterZkPublicKey`) stored on Member proto (field 28: `bytes zk_public_key`), used as trust tree leaves via `MiMC(zk_public_key, trust_level)`
 - **Tag registry:** `Tag`, `ReservedTag`, `MsgCreateTag` (permissionless, ESTABLISHED+ trust, fee-burn), `TagReport`, `MsgReportTag`, `MsgResolveTagReport`; tag expiry GC in EndBlocker
 - **Tag budgets:** Five `*TagBudget*` messages for per-tag SPARK reward pools; awards delegate to x/forum via the narrow `ForumKeeper.GetPostAuthor`/`GetPostTags` interface
-- **Sentinel accountability:** Generic `SentinelActivity` (bond, bond status, activity stamps), `MsgBondSentinel`/`MsgUnbondSentinel`, and the 8-method keeper surface (`IsSentinel`, `GetSentinel`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`) used by content-module moderation handlers
+- **Bonded-role accountability** (generic primitive for forum sentinels, collect curators, federation verifiers): `BondedRole(role_type, address)` record plus per-role `BondedRoleConfig`; `MsgBondRole`/`MsgUnbondRole` (role-typed); keeper surface `IsBondedRole`, `GetBondedRole`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`, `SetBondedRoleConfig`, `GetBondedRoleConfig`. Role types: `ROLE_TYPE_FORUM_SENTINEL`, `ROLE_TYPE_COLLECT_CURATOR`, `ROLE_TYPE_FEDERATION_VERIFIER`. DREAM-bond only — SPARK-staked roles like federation bridge operators keep their own primitives. See [bonded-role-generalization.md](bonded-role-generalization.md).
 - **Member accountability:** `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`, and the 5 member-report messages + `MsgAppealGovAction`; salvation counters live on the `Member` proto (`epoch_salvations`, `last_salvation_epoch`)
 - **Sentinel reward pool:** SPARK pool fed by split of forum spam taxes/edit fees and `UPHELD` appeal bonds, capped (`max_sentinel_reward_pool`) with overflow burn; epoch distribution is accuracy-weighted via `accuracy_rate * sqrt(appeals_resolved) + action bonuses`, pro-rata in `uspark`
-- **Gov-action appeal resolution:** two paths — `MsgResolveGovActionAppeal` (Operations Committee on commons council) and rep EndBlocker timeout; verdicts (`UPHELD`/`OVERTURNED`/`TIMEOUT`) drive appellant-bond burn/refund, sentinel bond slash on OVERTURNED, and forum counter updates via `RecordSentinelActionUpheld` / `RecordSentinelActionOverturned`
+- **Gov-action appeal resolution:** two paths — `MsgResolveGovActionAppeal` (Operations Committee on commons council) and rep EndBlocker timeout; verdicts (`UPHELD`/`OVERTURNED`/`TIMEOUT`) drive appellant-bond burn/refund, sentinel `SlashBond(ROLE_TYPE_FORUM_SENTINEL, ...)` on OVERTURNED, and forum counter updates via `RecordSentinelActionUpheld` / `RecordSentinelActionOverturned`
 
 **Messages (31):** `invite_member`, `accept_invitation`, `transfer_dream`, `propose_project`, `approve_project_budget`, `cancel_project`, `create_initiative`, `assign_initiative`, `submit_initiative_work`, `approve_initiative`, `complete_initiative`, `abandon_initiative`, `stake`, `unstake`, `claim_staking_rewards`, `compound_staking_rewards`, `create_challenge`, `respond_to_challenge`, `submit_juror_vote`, `submit_expert_testimony`, `challenge_content`, `respond_to_content_challenge`, `create_interim`, `assign_interim`, `submit_interim_work`, `approve_interim`, `complete_interim`, `abandon_interim`, `register_zk_public_key`, `update_params`, `update_operational_params`
 
@@ -286,11 +286,11 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 
 ### x/forum (Decentralized Discussion)
 
-**Purpose:** Discussion platform with hierarchical content, content-action sentinel moderation, bounties, and economic incentives. Cross-cutting primitives (tag registry, tag budgets, sentinel bond/unbond, member accountability) live in x/rep post-refactor.
+**Purpose:** Discussion platform with hierarchical content, content-action sentinel moderation, bounties, and economic incentives. Cross-cutting primitives (tag registry, tag budgets, bonded-role bond/unbond, member accountability) live in x/rep post-refactor.
 
 **Key Features:**
 - **Hierarchical content:** Governance-controlled categories; posts reference tags by name against the x/rep tag registry
-- **Content-action sentinel moderation:** Sentinels (registered and bonded in x/rep) hide, lock, move, and dismiss flags on forum content; forum tracks per-sentinel action counters (`sparkdream.forum.v1.SentinelActivity`: 29 counter fields) and enforces local cooldowns. Bond/status/slash mechanics delegated to x/rep.
+- **Content-action sentinel moderation:** Sentinels (bonded in x/rep as `BondedRole(ROLE_TYPE_FORUM_SENTINEL)`) hide, lock, move, and dismiss flags on forum content; forum tracks per-sentinel action counters (`sparkdream.forum.v1.SentinelActivity`: 29 counter fields) and enforces local cooldowns. Bond/status/slash mechanics delegated to x/rep's role-typed BondedRole API.
 - **Content lifecycle:** Ephemeral TTL (24h) for non-members, permanent for members, conviction renewal for initiative-linked content
 - **Bounties:** Thread-attached SPARK bounties with assignment, cancellation (10% fee), and expiry
 - **Shield-aware:** Implements `ShieldAware` interface; anonymous threads/replies/reactions routed via x/shield's `MsgShieldedExec`
@@ -299,9 +299,9 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Rate limiting:** 50 posts/day, 100 reactions/day, 20 downvotes/day, 20 flags/day
 - **`ForumKeeper` surface exposed to x/rep (3 methods):** `PruneTagReferences`, `GetPostAuthor`, `GetPostTags`
 
-**Messages (49):** Post operations (6), moderation (6), thread control (5), reactions (2), reply management (5), bounties (5), tag budgets (5), tags (2), appeals (4), thread ops (3), emergency (2), sentinel (2), member reports (4), governance (1), `update_params`, `update_operational_params`
+**Messages (47):** Post operations (6), moderation (6), thread control (5), reactions (2), reply management (5), bounties (5), tag budgets (5), tags (2), appeals (4), thread ops (3), emergency (2), member reports (4), governance (1), `update_params`, `update_operational_params`. Sentinel bond/unbond flows through `MsgBondRole` / `MsgUnbondRole` in x/rep (`role_type=ROLE_TYPE_FORUM_SENTINEL`), not a forum-local msg.
 
-**Queries (73):** CRUD queries for posts, categories, tags, reserved tags, rate limits, reaction limits, sentinel activity, hide records, thread lock/move records, post flags, bounties, tag budgets, tag budget awards, thread metadata, thread follows, thread follow counts, archive metadata, tag reports, member salvation status, jury participation, member reports, member warnings, gov action appeals (46 CRUD). Plus specialized: posts, thread, categories, user_posts, sentinel_status, sentinel_bond_commitment, archive_cooldown, tag_exists, tag_reports, forum_status, appeal_cooldown, member_reports, member_warnings, member_standing, pinned_posts, locked_threads, thread_lock_status, top_posts, thread_followers, user_followed_threads, is_following_thread, bounty_by_thread, active_bounties, user_bounties, bounty_expiring_soon, tag_budget_by_tag, tag_budgets, tag_budget_awards, post_flags, flag_review_queue, gov_action_appeals, params (27 specialized).
+**Queries (70):** CRUD queries for posts, categories, tags, reserved tags, rate limits, reaction limits, sentinel activity (per-action counters), hide records, thread lock/move records, post flags, bounties, tag budgets, tag budget awards, thread metadata, thread follows, thread follow counts, archive metadata, tag reports, member salvation status, jury participation, member reports, member warnings, gov action appeals. Plus specialized: posts, thread, categories, user_posts, archive_cooldown, tag_exists, tag_reports, forum_status, appeal_cooldown, member_reports, member_warnings, member_standing, pinned_posts, locked_threads, thread_lock_status, top_posts, thread_followers, user_followed_threads, is_following_thread, bounty_by_thread, active_bounties, user_bounties, bounty_expiring_soon, tag_budget_by_tag, tag_budgets, tag_budget_awards, post_flags, flag_review_queue, gov_action_appeals, params. Sentinel bond/status now queried via `query rep bonded-role ROLE_TYPE_FORUM_SENTINEL <addr>`.
 
 **EndBlocker (4 phases):**
 1. Prune expired ephemeral posts (max 100/block, conviction renewal check for initiatives)
@@ -318,7 +318,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Collaboration:** Role-based permissions (EDITOR, ADMIN) with up to 20 collaborators
 - **Privacy:** Client-side encryption for private collections
 - **Two-tier content:** Members get permanent storage, non-members get TTL + PENDING status
-- **Curator bonding:** DREAM-staked curator registration (min 500 DREAM, PROVISIONAL+ trust), quality ratings, challenge mechanism (250 DREAM deposit)
+- **Curator bonding:** DREAM-staked via x/rep's `MsgBondRole ROLE_TYPE_COLLECT_CURATOR` (min 500 DREAM, PROVISIONAL+ trust). Per-module counters live in collect's `CuratorActivity`. Quality ratings and challenge mechanism (250 DREAM deposit) remain collect-owned; committed-bond slashing via rep's `ReserveBond`/`SlashBond`/`ReleaseBond`.
 - **Community reactions:** Upvotes free (max 100/day), downvotes cost 25 SPARK (max 20/day)
 - **Endorsements:** 10 SPARK creation fee + 100 DREAM stake for 30 days, 80% fee share to endorser
 - **Sponsorship:** Non-members can request sponsorship (1 SPARK fee) for ESTABLISHED+ members to sponsor
@@ -327,9 +327,9 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Pinning:** ESTABLISHED+ trust, max 10 pins/day
 - **On-chain references:** Validate content existence in x/blog and x/forum
 
-**Messages (29):** Collection CRUD (3), items (5), collaborators (3), curation (4), sponsorship (3), endorsement (2), reactions (3), moderation (3), pin (1), `update_params`, `update_operational_params`
+**Messages (27):** Collection CRUD (3), items (5), collaborators (3), curation action/challenge (2), sponsorship (3), endorsement (2), reactions (3), moderation (3), pin (1), `update_params`, `update_operational_params`. Curator bond/unbond flows through `MsgBondRole` / `MsgUnbondRole` in x/rep (`role_type=ROLE_TYPE_COLLECT_CURATOR`), not a collect-local msg.
 
-**Queries (25):** `params`, `collection`, `collections_by_owner`, `public_collections`, `public_collections_by_type`, `collections_by_collaborator`, `item`, `items`, `items_by_owner`, `collaborators`, `curator`, `active_curators`, `curation_summary`, `curation_reviews`, `curation_reviews_by_curator`, `sponsorship_request`, `sponsorship_requests`, `content_flag`, `flagged_content`, `hide_record`, `hide_records_by_target`, `pending_collections`, `endorsement`, `collections_by_content`, `collection_conviction`
+**Queries (24):** `params`, `collection`, `collections_by_owner`, `public_collections`, `public_collections_by_type`, `collections_by_collaborator`, `item`, `items`, `items_by_owner`, `collaborators`, `curator_activity`, `curation_summary`, `curation_reviews`, `curation_reviews_by_curator`, `sponsorship_request`, `sponsorship_requests`, `content_flag`, `flagged_content`, `hide_record`, `hide_records_by_target`, `pending_collections`, `endorsement`, `collections_by_content`, `collection_conviction`. Curator bond/status queried via `query rep bonded-role ROLE_TYPE_COLLECT_CURATOR <addr>`.
 
 **EndBlocker (6 phases, cap 100/block total):**
 1. Prune expired collections (conviction renewal for anonymous collections)

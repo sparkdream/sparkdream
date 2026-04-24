@@ -1,0 +1,120 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// RoleType identifies a kind of bonded role across the chain. Values are
+// module-scoped: naming convention is ROLE_TYPE_<OWNING_MODULE>_<ROLE>. A role
+// is owned by exactly one module, which is the sole writer of its
+// BondedRoleConfig. Independent bond pools, configs, and slashing surfaces per
+// role; cross-role coupling (if ever needed) belongs in the gaining module, not
+// in this primitive.
+enum RoleType {
+  ROLE_TYPE_UNSPECIFIED = 0;
+  ROLE_TYPE_FORUM_SENTINEL = 1;
+  ROLE_TYPE_COLLECT_CURATOR = 2;
+  ROLE_TYPE_FEDERATION_VERIFIER = 3;
+}
+
+// BondedRoleStatus represents the lifecycle status of a bonded role record.
+// NORMAL: full privileges; bond at or above min_bond.
+// RECOVERY: bond dropped below min_bond but at or above demotion_threshold;
+//   reduced privileges depending on role, rewards may auto-bond.
+// DEMOTED: bond below demotion_threshold; privileges revoked; cooldown
+//   enforced before re-bonding.
+enum BondedRoleStatus {
+  BONDED_ROLE_STATUS_UNSPECIFIED = 0;
+  BONDED_ROLE_STATUS_NORMAL = 1;
+  BONDED_ROLE_STATUS_RECOVERY = 2;
+  BONDED_ROLE_STATUS_DEMOTED = 3;
+}
+
+// BondedRole is the generic accountability record for a role-playing member:
+// identity, bond, bond status, and activity stamps. Module-specific action
+// counters (hides, reviews, verifications, etc.) live in per-module activity
+// protos owned by the role's module.
+message BondedRole {
+  // address is the bech32 address of the member holding this role.
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // role_type identifies which role this record represents. The composite key
+  // (role_type, address) allows a single address to hold multiple roles.
+  RoleType role_type = 2;
+
+  // bond_status is the current lifecycle status (NORMAL / RECOVERY / DEMOTED).
+  BondedRoleStatus bond_status = 3;
+
+  // current_bond is the total DREAM locked as this role's bond (math.Int string).
+  string current_bond = 4;
+
+  // total_committed_bond is the portion of current_bond reserved against
+  // pending actions (math.Int string). Available bond = current_bond -
+  // total_committed_bond.
+  string total_committed_bond = 5;
+
+  // registered_at is the block height at which this role was first bonded.
+  int64 registered_at = 6;
+
+  // last_active_epoch is the most recent epoch in which the role performed a
+  // tracked action. Used for inactivity cleanup.
+  int64 last_active_epoch = 7;
+
+  // consecutive_inactive_epochs counts epochs since last activity, reset to 0
+  // when RecordActivity fires.
+  uint64 consecutive_inactive_epochs = 8;
+
+  // demotion_cooldown_until is the unix timestamp until which a demoted role
+  // cannot re-bond.
+  int64 demotion_cooldown_until = 9;
+
+  // cumulative_rewards tracks DREAM rewards earned in this role (math.Int
+  // string). Module-specific reward distributors write here.
+  string cumulative_rewards = 10;
+
+  // last_reward_epoch is the most recent epoch in which rewards were paid for
+  // this role.
+  int64 last_reward_epoch = 11;
+}
+
+// BondedRoleConfig holds the per-role policy knobs enforced by x/rep at
+// MsgBondRole time. The source-of-truth field values live on the owning
+// module's operational params (flattened); the owning module write-throughs
+// the full config via SetBondedRoleConfig on change and at InitGenesis.
+//
+// Every field is mutable via the owning module's operational-params flow. No
+// chain-upgrade gates — these are operational accountability knobs, not
+// monetary policy.
+message BondedRoleConfig {
+  // role_type is the key this config applies to.
+  RoleType role_type = 1;
+
+  // min_bond is the minimum DREAM required to bond this role (math.Int
+  // string). Bonds at or above this amount are NORMAL.
+  string min_bond = 2;
+
+  // min_rep_tier is the minimum reputation tier required to bond the role.
+  // Zero = no rep-tier gate.
+  uint64 min_rep_tier = 3;
+
+  // min_trust_level is the minimum trust level required to bond the role, as
+  // a string enum name (e.g. "TRUST_LEVEL_ESTABLISHED"). Empty = no
+  // trust-level gate.
+  string min_trust_level = 4;
+
+  // min_age_blocks is a shared policy knob: the minimum block-age the role
+  // must have been bonded before the owning module will let the role take
+  // action. Enforced by the role's owning module at action time (read via
+  // GetBondedRoleConfig), NOT by x/rep at bond time. Zero = no age gate.
+  int64 min_age_blocks = 5;
+
+  // demotion_cooldown is the number of seconds a DEMOTED role must wait
+  // before re-bonding.
+  int64 demotion_cooldown = 6;
+
+  // demotion_threshold is the bond floor below which the role transitions
+  // from RECOVERY to DEMOTED (math.Int string).
+  string demotion_threshold = 7;
+}

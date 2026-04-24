@@ -28,14 +28,6 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgUnbondVerifier{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgBondVerifier{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgRequestReputationAttestation{},
 	)
 

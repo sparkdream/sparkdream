@@ -190,8 +190,8 @@ func (k Keeper) RecordSentinelActionOverturned(ctx context.Context, actionType r
 			return nil
 		}
 		cooldownUntil := sdkCtx.BlockTime().Unix() + reptypes.DefaultSentinelDemotionCooldown
-		if err := k.repKeeper.SetBondStatus(ctx, sentinel,
-			reptypes.SentinelBondStatus_SENTINEL_BOND_STATUS_DEMOTED, cooldownUntil); err != nil {
+		if err := k.repKeeper.SetBondStatus(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinel,
+			reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, cooldownUntil); err != nil {
 			sdkCtx.Logger().Error("failed to demote sentinel after overturn streak",
 				"sentinel", sentinel, "consecutive_overturns", local.ConsecutiveOverturns,
 				"error", err)

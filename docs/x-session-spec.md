@@ -673,7 +673,7 @@ The following message types form the genesis ceiling (`max_allowed_msg_types`) a
 
 **Excluded** (financial, irreversible, or abuse-prone — require main wallet):
 - `MsgDeletePost` — permanent deletion
-- `MsgBondSentinel` / `MsgUnbondSentinel` — locks/unlocks DREAM
+- `MsgBondRole` / `MsgUnbondRole` (x/rep) — locks/unlocks DREAM against a bonded role (sentinel / curator / verifier)
 - `MsgCreateBounty` / `MsgAwardBounty` — escrows DREAM
 - `MsgHidePost` — sentinel moderation (requires bond)
 - `MsgAppealPost` — initiates dispute resolution

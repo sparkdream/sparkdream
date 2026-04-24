@@ -9,8 +9,30 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
+	"sparkdream/x/forum/types"
 	reptypes "sparkdream/x/rep/types"
 )
+
+// SyncSentinelBondedRoleConfig pushes forum's sentinel config fields through
+// to x/rep's BondedRoleConfig for ROLE_TYPE_FORUM_SENTINEL. Called from
+// MsgUpdateOperationalParams and InitGenesis so rep's enforcement state
+// tracks forum's source-of-truth params. No-op when the rep keeper is not
+// wired (tests may construct the forum keeper standalone).
+func (k Keeper) SyncSentinelBondedRoleConfig(ctx context.Context, p types.Params) error {
+	if k.repKeeper == nil {
+		return nil
+	}
+	minBond, trustLevel, demotionThreshold, repTier, ageBlocks, demotionCooldown := p.SentinelBondedRoleConfigFields()
+	return k.repKeeper.SetBondedRoleConfig(ctx, reptypes.BondedRoleConfig{
+		RoleType:          reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		MinBond:           minBond,
+		MinRepTier:        repTier,
+		MinTrustLevel:     trustLevel,
+		MinAgeBlocks:      ageBlocks,
+		DemotionCooldown:  demotionCooldown,
+		DemotionThreshold: demotionThreshold,
+	})
+}
 
 // shieldModuleAddress is the deterministic address for the shield module account.
 // When the shield module routes a message via MsgShieldedExec, the ZK proof has

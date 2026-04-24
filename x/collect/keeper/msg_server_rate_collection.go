@@ -6,9 +6,11 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollection) (*types.MsgRateCollectionResponse, error) {
@@ -21,19 +23,22 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
-	// Creator must be registered active curator with bond >= min_curator_bond
-	curator, err := k.Curator.Get(ctx, msg.Creator)
+	// Creator must hold an active bonded role (ROLE_TYPE_COLLECT_CURATOR) in
+	// x/rep. Registration is via MsgBondRole there — not via this module.
+	if k.repKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrNotCurator, "rep keeper not wired")
+	}
+	role, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, msg.Creator)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrNotCurator, msg.Creator)
 	}
-	if !curator.Active {
-		return nil, errorsmod.Wrap(types.ErrNotCurator, "curator is not active")
-	}
-	if curator.BondAmount.LT(params.MinCuratorBond) {
-		return nil, errorsmod.Wrapf(types.ErrCuratorBondInsufficient, "bond %s < min %s", curator.BondAmount, params.MinCuratorBond)
+	// NORMAL and RECOVERY can both rate; DEMOTED cannot.
+	if role.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
+		role.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
+		return nil, errorsmod.Wrap(types.ErrNotCurator, "curator is demoted")
 	}
 
-	// Creator must meet min_curator_trust_level (re-check on every rating)
+	// Creator must meet min_curator_trust_level (re-check on every rating).
 	if !k.meetsMinTrustLevel(ctx, msg.Creator, params.MinCuratorTrustLevel) {
 		return nil, errorsmod.Wrapf(types.ErrTrustLevelTooLow, "must be at or above %s", params.MinCuratorTrustLevel)
 	}
@@ -46,10 +51,10 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 		return nil, errorsmod.Wrap(err, "curator daily review limit exceeded")
 	}
 
-	// Curator registered for at least min_curator_age_blocks
-	if currentBlock-curator.RegisteredAt < params.MinCuratorAgeBlocks {
-		return nil, errorsmod.Wrapf(types.ErrCuratorTooNew, "registered %d blocks ago, need %d",
-			currentBlock-curator.RegisteredAt, params.MinCuratorAgeBlocks)
+	// Curator bonded for at least min_curator_age_blocks (action-time check).
+	if currentBlock-role.RegisteredAt < params.MinCuratorAgeBlocks {
+		return nil, errorsmod.Wrapf(types.ErrCuratorTooNew, "bonded %d blocks ago, need %d",
+			currentBlock-role.RegisteredAt, params.MinCuratorAgeBlocks)
 	}
 
 	// Collection must be VISIBILITY_PUBLIC, status=ACTIVE, community_feedback_enabled=true
@@ -139,26 +144,33 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	}
 
 	review := types.CurationReview{
-		Id:           reviewID,
-		CollectionId: msg.CollectionId,
-		Curator:      msg.Creator,
-		Verdict:      msg.Verdict,
-		Tags:         msg.Tags,
-		Comment:      msg.Comment,
-		CreatedAt:    currentBlock,
-		Challenged:   false,
-		Overturned:   false,
-		Challenger:   "",
+		Id:             reviewID,
+		CollectionId:   msg.CollectionId,
+		Curator:        msg.Creator,
+		Verdict:        msg.Verdict,
+		Tags:           msg.Tags,
+		Comment:        msg.Comment,
+		CreatedAt:      currentBlock,
+		Challenged:     false,
+		Overturned:     false,
+		Challenger:     "",
+		CommittedSlash: math.ZeroInt(),
 	}
 	if err := k.CurationReview.Set(ctx, reviewID, review); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store review")
 	}
 
-	// Increment curator total_reviews
-	curator.TotalReviews++
-	if err := k.Curator.Set(ctx, msg.Creator, curator); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to update curator")
+	// Bump per-module curator activity counters (collect-specific).
+	activity, _ := k.CuratorActivity.Get(ctx, msg.Creator)
+	if activity.Address == "" {
+		activity.Address = msg.Creator
 	}
+	activity.TotalReviews++
+	if err := k.CuratorActivity.Set(ctx, msg.Creator, activity); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update curator activity")
+	}
+	// Stamp BondedRole activity timestamp on rep's side (tracks inactivity).
+	_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, msg.Creator)
 
 	// Update CurationSummary (up_count/down_count, merge tags, last_reviewed_at)
 	summary, err := k.CurationSummary.Get(ctx, msg.CollectionId)

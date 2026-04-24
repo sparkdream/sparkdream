@@ -4,6 +4,7 @@ package sparkdream.rep.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/rep/v1/bonded_role.proto";
 import "sparkdream/rep/v1/challenge.proto";
 import "sparkdream/rep/v1/content_challenge.proto";
 import "sparkdream/rep/v1/gov_action_appeal.proto";
@@ -19,7 +20,6 @@ import "sparkdream/rep/v1/member_warning.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
 import "sparkdream/rep/v1/reserved_tag.proto";
-import "sparkdream/rep/v1/sentinel_activity.proto";
 import "sparkdream/rep/v1/stake.proto";
 import "sparkdream/rep/v1/tag.proto";
 import "sparkdream/rep/v1/tag_budget.proto";
@@ -77,9 +77,6 @@ message GenesisState {
   repeated TagBudgetAward tag_budget_award_list = 29 [(gogoproto.nullable) = false];
   uint64 tag_budget_award_count = 30;
 
-  // Sentinel accountability records
-  repeated SentinelActivity sentinel_activity_map = 31 [(gogoproto.nullable) = false];
-
   // Accountability state
   repeated JuryParticipation jury_participation_map = 32 [(gogoproto.nullable) = false];
   repeated MemberReport member_report_map = 33 [(gogoproto.nullable) = false];
@@ -87,6 +84,10 @@ message GenesisState {
   uint64 member_warning_count = 35;
   repeated GovActionAppeal gov_action_appeal_list = 36 [(gogoproto.nullable) = false];
   uint64 gov_action_appeal_count = 37;
+
+  // Bonded-role primitive (Phase 1 of bonded-role generalization).
+  repeated BondedRole bonded_role_list = 38 [(gogoproto.nullable) = false];
+  repeated BondedRoleConfig bonded_role_config_list = 39 [(gogoproto.nullable) = false];
 }
 
 // ContentInitiativeLink defines a link between content and an initiative for conviction propagation.

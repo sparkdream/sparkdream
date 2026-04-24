@@ -55,6 +55,16 @@ type RepKeeper interface {
 	TagExists(ctx context.Context, name string) (bool, error)
 	IsReservedTag(ctx context.Context, name string) (bool, error)
 	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
+
+	// Bonded-role accountability (owned by x/rep). Curator is the collect
+	// role keyed as ROLE_TYPE_COLLECT_CURATOR.
+	GetBondedRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
+	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
+	ReleaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
+	SlashBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int, reason string) error
+	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error
+	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
+	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.

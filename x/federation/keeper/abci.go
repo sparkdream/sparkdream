@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/federation/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 // EndBlocker runs at the end of each block.
@@ -304,12 +305,19 @@ func (k Keeper) releaseVerifierBondCommitments(ctx context.Context, now int64, m
 		record, err := k.VerificationRecords.Get(ctx, contentID)
 		if err == nil && record.Outcome == types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING {
 			record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_CONFIRMED
-			verifier, verr := k.Verifiers.Get(ctx, record.Verifier)
-			if verr == nil {
-				verifier.TotalCommittedBond = verifier.TotalCommittedBond.Sub(record.CommittedAmount)
-				verifier.UnchallengedVerifications++
-				_ = k.Verifiers.Set(ctx, record.Verifier, verifier)
+			// Release the verifier's committed bond back to available and
+			// bump per-module unchallenged counter.
+			if k.late.repKeeper != nil {
+				_ = k.late.repKeeper.ReleaseBond(ctx,
+					reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
+					record.Verifier, record.CommittedAmount)
 			}
+			activity, _ := k.VerifierActivity.Get(ctx, record.Verifier)
+			if activity.Address == "" {
+				activity.Address = record.Verifier
+			}
+			activity.UnchallengedVerifications++
+			_ = k.VerifierActivity.Set(ctx, record.Verifier, activity)
 			_ = k.VerificationRecords.Set(ctx, contentID, record)
 		}
 		_ = k.ChallengeWindow.Remove(ctx, key)

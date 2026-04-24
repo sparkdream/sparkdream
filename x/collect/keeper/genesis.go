@@ -80,9 +80,10 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Import curators
-	for _, curator := range genState.Curators {
-		if err := k.Curator.Set(ctx, curator.Address, curator); err != nil {
+	// Import curator activity (collect-specific counters only — generic bond
+	// state lives in x/rep BondedRole records).
+	for _, activity := range genState.CuratorActivities {
+		if err := k.CuratorActivity.Set(ctx, activity.Address, activity); err != nil {
 			return err
 		}
 	}
@@ -173,6 +174,12 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// Write-through the curator bond-role config to x/rep so MsgBondRole
+	// enforcement uses collect's seeded values (Phase 3 bonded-role generalization).
+	if err := k.SyncCuratorBondedRoleConfig(ctx, genState.Params); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -233,9 +240,9 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 
-	// Export curators
-	err = k.Curator.Walk(ctx, nil, func(key string, curator types.Curator) (bool, error) {
-		genesis.Curators = append(genesis.Curators, curator)
+	// Export curator activity
+	err = k.CuratorActivity.Walk(ctx, nil, func(_ string, activity types.CuratorActivity) (bool, error) {
+		genesis.CuratorActivities = append(genesis.CuratorActivities, activity)
 		return false, nil
 	})
 	if err != nil {

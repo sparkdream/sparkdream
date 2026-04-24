@@ -28,8 +28,8 @@ service Msg {
   rpc AddCollaborator(MsgAddCollaborator) returns (MsgAddCollaboratorResponse);
   rpc RemoveCollaborator(MsgRemoveCollaborator) returns (MsgRemoveCollaboratorResponse);
   rpc UpdateCollaboratorRole(MsgUpdateCollaboratorRole) returns (MsgUpdateCollaboratorRoleResponse);
-  rpc RegisterCurator(MsgRegisterCurator) returns (MsgRegisterCuratorResponse);
-  rpc UnregisterCurator(MsgUnregisterCurator) returns (MsgUnregisterCuratorResponse);
+  // RateCollection submits a curation review. The creator must hold a bonded
+  // ROLE_TYPE_COLLECT_CURATOR in x/rep (created via MsgBondRole there).
   rpc RateCollection(MsgRateCollection) returns (MsgRateCollectionResponse);
   rpc ChallengeReview(MsgChallengeReview) returns (MsgChallengeReviewResponse);
   rpc RequestSponsorship(MsgRequestSponsorship) returns (MsgRequestSponsorshipResponse);
@@ -227,24 +227,6 @@ message MsgUpdateCollaboratorRole {
 }
 
 message MsgUpdateCollaboratorRoleResponse {}
-
-message MsgRegisterCurator {
-  option (cosmos.msg.v1.signer) = "creator";
-  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string bond_amount = 2 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-}
-
-message MsgRegisterCuratorResponse {}
-
-message MsgUnregisterCurator {
-  option (cosmos.msg.v1.signer) = "creator";
-  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-}
-
-message MsgUnregisterCuratorResponse {}
 
 message MsgRateCollection {
   option (cosmos.msg.v1.signer) = "creator";

@@ -81,6 +81,12 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
+	// Write-through forum's sentinel bond-role config to x/rep so MsgBondRole
+	// enforcement uses forum's seeded values (Phase 2 bonded-role generalization).
+	if err := k.SyncSentinelBondedRoleConfig(ctx, genState.Params); err != nil {
+		return err
+	}
+
 	// Prime PostSeq to start at 1 if not already advanced. ID 0 is reserved
 	// (PostId=0 conflicts with ParentId=0 meaning "no parent").
 	postSeqVal, err := k.PostSeq.Peek(ctx)

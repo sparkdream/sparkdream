@@ -33,6 +33,7 @@ type fixture struct {
 	keeper       keeper.Keeper
 	addressCodec address.Codec
 	authority    string
+	repKeeper    *mockRepKeeper
 }
 
 func initFixture(t *testing.T) *fixture {
@@ -62,7 +63,8 @@ func initFixture(t *testing.T) *fixture {
 
 	// Wire mock commons keeper for authorization tests
 	k.SetCommonsKeeper(&mockCommonsKeeper{})
-	k.SetRepKeeper(&mockRepKeeper{})
+	repKeeper := &mockRepKeeper{}
+	k.SetRepKeeper(repKeeper)
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
@@ -76,6 +78,7 @@ func initFixture(t *testing.T) *fixture {
 		keeper:       k,
 		addressCodec: addressCodec,
 		authority:    authorityStr,
+		repKeeper:    repKeeper,
 	}
 }
 
@@ -128,7 +131,28 @@ func (m *mockCommonsKeeper) IsCouncilAuthorized(_ context.Context, addr string, 
 	return true
 }
 
-type mockRepKeeper struct{}
+type mockRepKeeper struct {
+	// In-memory BondedRole state keyed by (roleType, addr). Tests seed this
+	// via SeedBondedRole to simulate a verifier having bonded via x/rep.
+	bondedRoles map[string]reptypes.BondedRole
+	// BondedRoleConfig write-throughs land here keyed by role_type; the
+	// bonded_role_sync tests assert against this map.
+	bondedRoleConfigs map[reptypes.RoleType]reptypes.BondedRoleConfig
+}
+
+// SeedBondedRole inserts a BondedRole record into the mock keyed by
+// (roleType, addr). Used by tests to stand in for a verifier having bonded
+// via x/rep before federation runs its handlers.
+func (m *mockRepKeeper) SeedBondedRole(roleType reptypes.RoleType, addr string, role reptypes.BondedRole) {
+	if m.bondedRoles == nil {
+		m.bondedRoles = make(map[string]reptypes.BondedRole)
+	}
+	m.bondedRoles[mockBondedRoleKey(roleType, addr)] = role
+}
+
+func mockBondedRoleKey(roleType reptypes.RoleType, addr string) string {
+	return reptypes.RoleType_name[int32(roleType)] + "/" + addr
+}
 
 func (m *mockRepKeeper) GetTrustLevel(_ context.Context, _ sdk.AccAddress) (reptypes.TrustLevel, error) {
 	return reptypes.TrustLevel(3), nil // TRUSTED
@@ -143,6 +167,102 @@ func (m *mockRepKeeper) LockDREAM(_ context.Context, _ sdk.AccAddress, _ math.In
 }
 
 func (m *mockRepKeeper) UnlockDREAM(_ context.Context, _ sdk.AccAddress, _ math.Int) error {
+	return nil
+}
+
+// --- BondedRole stubs (verifier is ROLE_TYPE_FEDERATION_VERIFIER). ---
+
+func (m *mockRepKeeper) GetBondedRole(_ context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error) {
+	if br, ok := m.bondedRoles[mockBondedRoleKey(roleType, addr)]; ok {
+		return br, nil
+	}
+	return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
+}
+
+func (m *mockRepKeeper) ReserveBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	current, _ := math.NewIntFromString(br.CurrentBond)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	if committed.IsNil() {
+		committed = math.ZeroInt()
+	}
+	if current.Sub(committed).LT(amount) {
+		return reptypes.ErrInsufficientBond
+	}
+	br.TotalCommittedBond = committed.Add(amount).String()
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) ReleaseBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	if committed.IsNil() {
+		committed = math.ZeroInt()
+	}
+	released := committed.Sub(amount)
+	if released.IsNegative() {
+		released = math.ZeroInt()
+	}
+	br.TotalCommittedBond = released.String()
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) SlashBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int, _ string) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	current, _ := math.NewIntFromString(br.CurrentBond)
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	if committed.IsNil() {
+		committed = math.ZeroInt()
+	}
+	slash := amount
+	if slash.GT(current) {
+		slash = current
+	}
+	br.CurrentBond = current.Sub(slash).String()
+	released := committed.Sub(slash)
+	if released.IsNegative() {
+		released = math.ZeroInt()
+	}
+	br.TotalCommittedBond = released.String()
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) RecordActivity(_ context.Context, _ reptypes.RoleType, _ string) error {
+	return nil
+}
+
+func (m *mockRepKeeper) SetBondStatus(_ context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	br.BondStatus = status
+	br.DemotionCooldownUntil = cooldownUntil
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) SetBondedRoleConfig(_ context.Context, cfg reptypes.BondedRoleConfig) error {
+	if m.bondedRoleConfigs == nil {
+		m.bondedRoleConfigs = make(map[reptypes.RoleType]reptypes.BondedRoleConfig)
+	}
+	m.bondedRoleConfigs[cfg.RoleType] = cfg
 	return nil
 }
 
@@ -254,14 +374,22 @@ func submitTestContent(t *testing.T, f *fixture, ms types.MsgServer, operatorStr
 	return resp.ContentId
 }
 
-// bondTestVerifier creates and bonds a verifier, returns address string.
-func bondTestVerifier(t *testing.T, f *fixture, ms types.MsgServer, seed string) string {
+// bondTestVerifier seeds a BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr)
+// in the mock rep keeper, standing in for what x/rep's MsgBondRole would do.
+// Returns the bonded address string.
+func bondTestVerifier(t *testing.T, f *fixture, _ types.MsgServer, seed string) string {
 	t.Helper()
 	addr := testAddr(t, f, seed)
-	_, err := ms.BondVerifier(f.ctx, &types.MsgBondVerifier{
-		Creator: addr,
-		Amount:  math.NewInt(500),
-	})
-	require.NoError(t, err)
+	f.repKeeper.SeedBondedRole(
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
+		addr,
+		reptypes.BondedRole{
+			Address:            addr,
+			RoleType:           reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
+			BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+			CurrentBond:        "500",
+			TotalCommittedBond: "0",
+		},
+	)
 	return addr
 }
