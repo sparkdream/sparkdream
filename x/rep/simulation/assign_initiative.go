@@ -21,7 +21,11 @@ func SimulateMsgAssignInitiative(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create a committee member (creator) who can assign work
+		// Get or create a member who will own the parent project. Using the
+		// project creator as the msg.Creator satisfies the handler's
+		// authorization gate ("only the assignee, project creator, or
+		// operations committee may assign") regardless of which initiative
+		// gets selected below.
 		creator, creatorAcc, err := getOrCreateMember(r, ctx, k, accs)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get/create creator"), nil, nil
@@ -39,10 +43,25 @@ func SimulateMsgAssignInitiative(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get initiative"), nil, nil
 		}
 
-		// Get the project to check the creator
+		// Get the project to determine its creator (the authorized assigner).
 		project, err := k.Project.Get(ctx, initiative.ProjectId)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get project"), nil, nil
+		}
+
+		// If the initiative came from an existing project (not the one we
+		// just created with `creator`), the signer must match the project
+		// creator. Look up the matching simAccount.
+		signerAcc := creatorAcc
+		signerAddr := creator.Address
+		if project.Creator != creator.Address {
+			projectCreatorMember := &types.Member{Address: project.Creator}
+			acc, found := getAccountFromMember(projectCreatorMember, accs)
+			if !found {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "project creator not in sim accounts"), nil, nil
+			}
+			signerAcc = acc
+			signerAddr = project.Creator
 		}
 
 		// Get or create an assignee with appropriate reputation for the initiative tier
@@ -64,7 +83,7 @@ func SimulateMsgAssignInitiative(
 		}
 
 		msg := &types.MsgAssignInitiative{
-			Creator:      creator.Address,
+			Creator:      signerAddr,
 			InitiativeId: initID,
 			Assignee:     assignee.Address,
 		}
@@ -77,7 +96,7 @@ func SimulateMsgAssignInitiative(
 			Msg:             msg,
 			CoinsSpentInMsg: sdk.NewCoins(),
 			Context:         ctx,
-			SimAccount:      creatorAcc,
+			SimAccount:      signerAcc,
 			AccountKeeper:   ak,
 			Bankkeeper:      bk,
 			ModuleName:      types.ModuleName,

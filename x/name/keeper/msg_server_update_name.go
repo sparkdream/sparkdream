@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"strings"
 
 	"sparkdream/x/name/types"
 
@@ -13,9 +14,15 @@ import (
 func (k msgServer) UpdateName(goCtx context.Context, msg *types.MsgUpdateName) (*types.MsgUpdateNameResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	name := strings.ToLower(strings.TrimSpace(msg.Name))
+
+	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
+		return nil, errorsmod.Wrap(err, "invalid creator address")
+	}
+
 	// 1. Retrieve the existing name record
 	// We rely on the Keeper to fetch the record directly.
-	val, err := k.Names.Get(ctx, msg.Name)
+	val, err := k.Names.Get(ctx, name)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrNameNotFound, "name does not exist")
 	}
@@ -30,21 +37,26 @@ func (k msgServer) UpdateName(goCtx context.Context, msg *types.MsgUpdateName) (
 	val.Data = msg.Data
 
 	// 4. Save the updated record
-	if err := k.Names.Set(ctx, msg.Name, val); err != nil {
+	if err := k.Names.Set(ctx, name, val); err != nil {
+		return nil, err
+	}
+
+	// Refresh owner activity so this name does not become scavengeable.
+	if err := k.RecordOwnerActivity(ctx, msg.Creator); err != nil {
 		return nil, err
 	}
 
 	// 5. Emit an event (Optional but recommended)
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent("name_updated",
-			sdk.NewAttribute("name", msg.Name),
+			sdk.NewAttribute("name", name),
 			sdk.NewAttribute("owner", msg.Creator),
 			sdk.NewAttribute("new_data", msg.Data),
 		),
 	)
 
 	return &types.MsgUpdateNameResponse{
-		Name:  msg.Name,
+		Name:  name,
 		Owner: val.Owner,
 	}, nil
 }

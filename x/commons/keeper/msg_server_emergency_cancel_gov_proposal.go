@@ -68,6 +68,7 @@ func (k msgServer) EmergencyCancelGovProposal(goCtx context.Context, msg *types.
 	}
 
 	// STEP 5: TALLY
+	origStatus := prop.Status
 	_, _, tallyResult, err := k.late.govKeeper.Tally(ctx, prop)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to tally votes during cancellation")
@@ -90,7 +91,7 @@ func (k msgServer) EmergencyCancelGovProposal(goCtx context.Context, msg *types.
 			return nil, err
 		}
 	}
-	if prop.Status == v1.StatusVotingPeriod {
+	if origStatus == v1.StatusVotingPeriod {
 		err = k.late.govKeeper.VotingPeriodProposalsRemove(ctx, prop.Id)
 		if err != nil {
 			return nil, err

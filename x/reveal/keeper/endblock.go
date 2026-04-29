@@ -74,6 +74,8 @@ func (k Keeper) processContributionDeadlines(ctx context.Context, contrib *types
 
 		case types.TrancheStatus_TRANCHE_STATUS_BACKED:
 			if tranche.RevealDeadline > 0 && currentEpoch >= tranche.RevealDeadline {
+				// Capture slashed amount before unlock/burn consumes BondRemaining.
+				slashed := contrib.BondRemaining
 				// Reveal deadline expired — fail tranche, slash full remaining bond
 				if err := k.handleRevealTimeout(ctx, contrib, tranche); err != nil {
 					return err
@@ -83,7 +85,7 @@ func (k Keeper) processContributionDeadlines(ctx context.Context, contrib *types
 						sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contrib.Id)),
 						sdk.NewAttribute("tranche_id", fmt.Sprintf("%d", tranche.Id)),
 						sdk.NewAttribute("reason", "reveal deadline expired"),
-						sdk.NewAttribute("bond_slashed", contrib.BondAmount.String()),
+						sdk.NewAttribute("bond_slashed", slashed.String()),
 					),
 				)
 				return nil // contribution is now cancelled
@@ -457,12 +459,23 @@ func (k Keeper) completeContribution(ctx context.Context, contrib *types.Contrib
 		return err
 	}
 
-	// Release holdback to contributor
+	// Transition status + index BEFORE any mint/unlock that may fail due to epoch caps
+	// or transient errors — the contribution must still be marked complete.
+	if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
+		return err
+	}
+	contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_COMPLETED
+	if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
+		return err
+	}
+
+	// Release holdback to contributor (log-only on failure: contribution is already COMPLETED)
 	if contrib.HoldbackAmount.IsPositive() {
 		if err := k.repKeeper.MintDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.HoldbackAmount); err != nil {
-			return err
+			sdkCtx.Logger().Error("failed to mint holdback on completion", "error", err, "contribution_id", contrib.Id)
+		} else {
+			contrib.HoldbackAmount = math.ZeroInt()
 		}
-		contrib.HoldbackAmount = math.ZeroInt()
 	}
 
 	// Return bond to contributor
@@ -493,15 +506,6 @@ func (k Keeper) completeContribution(ctx context.Context, contrib *types.Contrib
 	} else {
 		contrib.TransitionedToProject = true
 		contrib.ProjectId = projectID
-	}
-
-	// Update status
-	if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
-		return err
-	}
-	contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_COMPLETED
-	if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
-		return err
 	}
 
 	// Emit completion event

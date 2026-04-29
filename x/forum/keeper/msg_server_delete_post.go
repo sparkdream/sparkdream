@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 	reptypes "sparkdream/x/rep/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -42,6 +43,14 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 		sdkCtx := sdk.UnwrapSDKContext(ctx)
 		if err := k.repKeeper.RemoveContentInitiativeLink(ctx, post.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_FORUM_CONTENT), msg.PostId); err != nil {
 			sdkCtx.Logger().Error("failed to remove content initiative link on delete", "post_id", msg.PostId, "error", err)
+		}
+	}
+
+	// FORUM-S2-8: drop secondary index entries for the now-DELETED post.
+	if post.ParentId == 0 {
+		_ = k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId))
+		if post.Pinned {
+			_ = k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, post.PostId))
 		}
 	}
 

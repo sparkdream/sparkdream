@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
@@ -82,6 +83,20 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 	// multiple challenges concurrently as long as their available bond covers
 	// the sum of reservations.
 	slashBudget := params.CuratorSlashFraction.MulInt(params.MinCuratorBond).TruncateInt()
+
+	// Reject challenges when the curator is already demoted and their bond
+	// cannot cover the commit — the reservation would fail anyway, but
+	// rejecting early avoids locking the challenger's deposit first.
+	if curatorRole, rErr := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, review.Curator); rErr == nil {
+		curatorBond, ok := math.NewIntFromString(curatorRole.CurrentBond)
+		if !ok {
+			curatorBond = math.ZeroInt()
+		}
+		if curatorRole.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED && curatorBond.LT(slashBudget) {
+			return nil, errorsmod.Wrap(types.ErrCuratorBondInsufficient, "curator demoted with bond below slash budget")
+		}
+	}
+
 	if slashBudget.IsPositive() {
 		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, review.Curator, slashBudget); err != nil {
 			// Refund the already-locked challenge deposit so the challenger

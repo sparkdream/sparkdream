@@ -156,9 +156,9 @@ func TestGenesisValidation(t *testing.T) {
 		require.NoError(t, gs.Validate())
 	})
 
-	t.Run("default genesis has 12 registered ops", func(t *testing.T) {
+	t.Run("default genesis has 13 registered ops", func(t *testing.T) {
 		gs := types.DefaultGenesis()
-		require.Len(t, gs.RegisteredOps, 12)
+		require.Len(t, gs.RegisteredOps, 13)
 	})
 }
 
@@ -212,6 +212,16 @@ func TestDefaultGenesisOpsContent(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD, op.NullifierScopeType)
 		require.Equal(t, "proposal_id", op.ScopeFieldPath)
+	})
+
+	// FEDERATION-S2-5: per-content nullifier scope ensures one identity =
+	// one vote per content, defeating the lone-attacker quorum drive.
+	t.Run("federation MsgSubmitArbiterHash", func(t *testing.T) {
+		op, ok := ops["/sparkdream.federation.v1.MsgSubmitArbiterHash"]
+		require.True(t, ok)
+		require.Equal(t, types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD, op.NullifierScopeType)
+		require.Equal(t, "content_id", op.ScopeFieldPath)
+		require.Equal(t, uint32(2), op.MinTrustLevel, "must require ESTABLISHED+ to match identified bridge gate")
 	})
 
 	// Verify nullifier domains are unique

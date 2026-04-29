@@ -44,6 +44,7 @@ func (m mockAuthKeeper) GetAccount(ctx context.Context, addr sdk.AccAddress) sdk
 type mockBankKeeper struct {
 	SpendableCoinsFn               func(ctx context.Context, addr sdk.AccAddress) sdk.Coins
 	GetBalanceFn                   func(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin
+	SendCoinsFn                    func(ctx context.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromAccountToModuleFn func(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromModuleToAccountFn func(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	MintCoinsFn                    func(ctx context.Context, moduleName string, amt sdk.Coins) error
@@ -62,6 +63,13 @@ func (m mockBankKeeper) GetBalance(ctx context.Context, addr sdk.AccAddress, den
 		return m.GetBalanceFn(ctx, addr, denom)
 	}
 	return sdk.NewCoin(denom, math.ZeroInt())
+}
+
+func (m mockBankKeeper) SendCoins(ctx context.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
+	if m.SendCoinsFn != nil {
+		return m.SendCoinsFn(ctx, fromAddr, toAddr, amt)
+	}
+	return nil
 }
 
 func (m mockBankKeeper) SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {

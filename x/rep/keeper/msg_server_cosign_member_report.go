@@ -54,6 +54,10 @@ func (k msgServer) CosignMemberReport(ctx context.Context, msg *types.MsgCosignM
 	}
 
 	report.Reporters = append(report.Reporters, msg.Creator)
+	report.ReporterBonds = append(report.ReporterBonds, &types.ReporterBondEntry{
+		Address: msg.Creator,
+		Amount:  sentinelBond.String(),
+	})
 
 	totalBond, _ := math.NewIntFromString(report.TotalBond)
 	newTotal := totalBond.Add(sentinelBond)

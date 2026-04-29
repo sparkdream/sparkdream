@@ -3,11 +3,13 @@ package futarchy
 import (
 	"context"
 	"fmt"
-	"math"
+	stdmath "math"
 
 	"sparkdream/x/futarchy/keeper"
+	"sparkdream/x/futarchy/types"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -17,7 +19,7 @@ func EndBlocker(ctx context.Context, k keeper.Keeper) error {
 
 	// 1. Define Range
 	rng := new(collections.Range[collections.Pair[int64, uint64]]).
-		EndInclusive(collections.Join(currentHeight, uint64(math.MaxUint64)))
+		EndInclusive(collections.Join(currentHeight, uint64(stdmath.MaxUint64)))
 
 	// 2. Walk only the expired markets
 	err := k.ActiveMarkets.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
@@ -47,13 +49,37 @@ func EndBlocker(ctx context.Context, k keeper.Keeper) error {
 			resolution = "RESOLVED_INVALID"
 		} else if poolYes.GT(poolNo) {
 			resolution = "RESOLVED_YES"
-		} else {
+		} else if poolNo.GT(poolYes) {
 			resolution = "RESOLVED_NO"
+		} else {
+			resolution = "RESOLVED_INVALID"
 		}
 
 		// 4. Update State
 		market.Status = resolution
 		market.ResolutionHeight = currentHeight
+
+		// FUTARCHY-S2-1: INVALID resolutions with outstanding shares need a
+		// settlement price snapshot so holders can redeem at LMSR-implied
+		// price. RESOLVED_YES/NO use winner-pays-1:1 and don't need this.
+		if resolution == "RESOLVED_INVALID" && (market.PoolYes.IsPositive() || market.PoolNo.IsPositive()) {
+			params, perr := k.Params.Get(ctx)
+			if perr != nil {
+				return true, perr
+			}
+			maxExp, mErr := math.LegacyNewDecFromStr(params.MaxLmsrExponent)
+			if mErr != nil {
+				maxExp = types.DefaultMaxExponent
+			}
+			qYes := math.LegacyNewDecFromInt(*market.PoolYes)
+			qNo := math.LegacyNewDecFromInt(*market.PoolNo)
+			pYes, pErr := types.SettlementPriceYes(sdkCtx, *market.BValue, qYes, qNo, maxExp)
+			if pErr != nil {
+				return true, pErr
+			}
+			market.SettlementPriceYes = &pYes
+		}
+
 		if err := k.Market.Set(ctx, marketId, market); err != nil {
 			return true, err
 		}
@@ -63,8 +89,8 @@ func EndBlocker(ctx context.Context, k keeper.Keeper) error {
 			return true, err
 		}
 
-		// 6. Trigger Hooks
-		if k.Hooks != nil {
+		// 6. Trigger Hooks (skip for INVALID resolutions — no winner to announce)
+		if k.Hooks != nil && resolution != "RESOLVED_INVALID" {
 			// winner is "yes" or "no" based on resolution string
 			winnerShort := "no"
 			if resolution == "RESOLVED_YES" {

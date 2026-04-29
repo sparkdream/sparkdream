@@ -15,9 +15,27 @@ import (
 	reptypes "sparkdream/x/rep/types"
 )
 
-// validatePostTags validates a list of tags for use on a post and updates tag metadata
-// via the rep tag registry. Unknown tags are rejected (no auto-creation).
+// validatePostTags validates a list of tags for use on a post and bumps usage
+// metadata for every tag in the list via the rep tag registry. Unknown tags
+// are rejected (no auto-creation). Used on the create path where every tag is
+// new to the post.
 func (k msgServer) validatePostTags(ctx context.Context, tags []string, now int64) error {
+	if err := k.validatePostTagsNoIncrement(ctx, tags); err != nil {
+		return err
+	}
+	for _, tagName := range tags {
+		if err := k.repKeeper.IncrementTagUsage(ctx, tagName, now); err != nil {
+			return errorsmod.Wrap(err, "failed to update tag metadata")
+		}
+	}
+	return nil
+}
+
+// validatePostTagsNoIncrement runs the same validation as validatePostTags
+// (count, format, length, registry existence, reserved check, duplicates) but
+// does not touch tag usage metadata. Update paths use this so they can
+// selectively increment only tags genuinely new on this edit.
+func (k msgServer) validatePostTagsNoIncrement(ctx context.Context, tags []string) error {
 	if uint64(len(tags)) > types.DefaultMaxTagsPerPost {
 		return errorsmod.Wrapf(types.ErrTagLimitExceeded, "max %d tags per post", types.DefaultMaxTagsPerPost)
 	}
@@ -54,10 +72,6 @@ func (k msgServer) validatePostTags(ctx context.Context, tags []string, now int6
 		}
 		if reserved {
 			return errorsmod.Wrapf(types.ErrReservedTag, "tag %q is reserved", tagName)
-		}
-
-		if err := k.repKeeper.IncrementTagUsage(ctx, tagName, now); err != nil {
-			return errorsmod.Wrap(err, "failed to update tag metadata")
 		}
 	}
 
@@ -233,6 +247,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	// Store post
 	if err := k.Post.Set(ctx, postID, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store post")
+	}
+	// FORUM-S2-8: seed PostsByUpvotes (root posts only) so newly-created
+	// posts are eligible for the TopPosts query at zero votes.
+	if post.ParentId == 0 {
+		if err := k.PostsByUpvotes.Set(ctx, collections.Join(post.UpvoteCount, postID)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to seed upvote index")
+		}
 	}
 
 	// Register initiative reference link for conviction propagation

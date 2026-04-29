@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/reveal/types"
@@ -33,23 +34,32 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 			return nil, types.ErrCannotCancelBacked
 		}
 	} else {
+		if contrib.Status != types.ContributionStatus_CONTRIBUTION_STATUS_PROPOSED &&
+			contrib.Status != types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS {
+			return nil, types.ErrInvalidStatus.Wrapf("contribution already finalized (status: %s)", contrib.Status)
+		}
 		// REVEAL-2 fix: Non-contributor callers must be Operations Committee members.
 		// Without this check, any address could cancel any contribution.
 		authorityAddr, err := k.addressCodec.StringToBytes(msg.Authority)
 		if err != nil {
 			return nil, types.ErrUnauthorized.Wrapf("invalid authority address: %s", err)
 		}
-		// Check all three councils' Operations Committees since CouncilId is a numeric
-		// identifier and reveal governance spans across councils.
-		isMember := false
-		for _, council := range []string{"Commons Council", "Technical Council", "Ecosystem Council"} {
-			ok, err := k.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(authorityAddr), council, "operations")
+		authorized := false
+		// Gov authority (chain upgrades / governance) always permitted.
+		if msg.Authority == k.GetAuthorityString() {
+			authorized = true
+		}
+		// Commons Council policy address or Operations Committee member.
+		if !authorized && k.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "Commons Council", "operations") {
+			authorized = true
+		}
+		if !authorized {
+			ok, err := k.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(authorityAddr), "Commons Council", "operations")
 			if err == nil && ok {
-				isMember = true
-				break
+				authorized = true
 			}
 		}
-		if !isMember {
+		if !authorized {
 			return nil, types.ErrUnauthorized.Wrapf("caller %s is not the contributor and not an Operations Committee member", msg.Authority)
 		}
 	}
@@ -79,6 +89,7 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 				return nil, err
 			}
 		}
+		contrib.BondRemaining = math.ZeroInt()
 	}
 
 	// Return holdback if committee cancelled (not contributor's fault)
@@ -86,6 +97,7 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 		if err := k.repKeeper.MintDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.HoldbackAmount); err != nil {
 			return nil, err
 		}
+		contrib.HoldbackAmount = math.ZeroInt()
 	}
 	// If contributor cancels, holdback doesn't exist yet (no tranche BACKED+)
 

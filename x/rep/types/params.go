@@ -357,9 +357,9 @@ func (p Params) Validate() error {
 		return fmt.Errorf("min appeal rate must be in [0,1]: %s", p.MinAppealRate)
 	}
 
-	// DREAM emission cap (0 = unbounded; negative/nil disallowed)
-	if p.MaxDreamMintPerEpoch.IsNil() || p.MaxDreamMintPerEpoch.IsNegative() {
-		return fmt.Errorf("max dream mint per epoch cannot be nil or negative: %v", p.MaxDreamMintPerEpoch)
+	// DREAM emission cap must be strictly positive; zero/negative/nil disallowed.
+	if p.MaxDreamMintPerEpoch.IsNil() || p.MaxDreamMintPerEpoch.IsZero() || p.MaxDreamMintPerEpoch.IsNegative() {
+		return fmt.Errorf("max_dream_mint_per_epoch must be positive")
 	}
 
 	return nil
@@ -606,8 +606,8 @@ func (op RepOperationalParams) Validate() error {
 	if op.MinAppealRate.IsNegative() || op.MinAppealRate.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("min appeal rate must be in [0,1]: %s", op.MinAppealRate)
 	}
-	if op.MaxDreamMintPerEpoch.IsNil() || op.MaxDreamMintPerEpoch.IsNegative() {
-		return fmt.Errorf("max dream mint per epoch cannot be nil or negative: %v", op.MaxDreamMintPerEpoch)
+	if op.MaxDreamMintPerEpoch.IsNil() || op.MaxDreamMintPerEpoch.IsZero() || op.MaxDreamMintPerEpoch.IsNegative() {
+		return fmt.Errorf("max_dream_mint_per_epoch must be positive")
 	}
 	return nil
 }

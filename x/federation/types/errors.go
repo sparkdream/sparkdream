@@ -9,6 +9,7 @@ var (
 	ErrInvalidSigner        = errors.Register(ModuleName, 1100, "expected gov account as only signer for proposal message")
 	ErrInvalidPacketTimeout = errors.Register(ModuleName, 1500, "invalid packet timeout")
 	ErrInvalidVersion       = errors.Register(ModuleName, 1501, "invalid version")
+	ErrInvalidRequest       = errors.Register(ModuleName, 1502, "invalid request")
 
 	// Peer errors
 	ErrPeerNotFound           = errors.Register(ModuleName, 2300, "peer ID does not exist")

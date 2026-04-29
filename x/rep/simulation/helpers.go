@@ -699,6 +699,14 @@ func createStake(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, staker *types.M
 		return 0, err
 	}
 
+	// Mirror the StakesByTarget index update that MsgStake's handler performs;
+	// without it GetStakesByTarget / GetInitiativeStakes return empty and
+	// downstream handlers (e.g. MsgApproveInitiative's authorization check)
+	// fail to recognize the seeded stake.
+	if err := k.AddStakeToTargetIndex(ctx, stake); err != nil {
+		return 0, err
+	}
+
 	// Update member's staked dream and balance
 	staker.DreamBalance = PtrInt(staker.DreamBalance.Sub(stakeAmount))
 	staker.StakedDream = PtrInt(staker.StakedDream.Add(stakeAmount))

@@ -15,12 +15,10 @@ import (
 var tleSuite = bn256.NewSuiteG1()
 
 // computeThreshold computes ceil(numerator / denominator * total).
+// Thin wrapper around types.ComputeThreshold so the keeper and ABCI share
+// one implementation.
 func computeThreshold(numerator, denominator, total uint64) uint64 {
-	if denominator == 0 {
-		return total
-	}
-	// ceil(numerator * total / denominator)
-	return (numerator*total + denominator - 1) / denominator
+	return types.ComputeThreshold(numerator, denominator, total)
 }
 
 // ReconstructEpochDecryptionKey reconstructs the epoch decryption key

@@ -58,6 +58,12 @@ type Keeper struct {
 
 	ContentSeq        collections.Sequence
 	OutboundAttestSeq collections.Sequence
+	// ArbiterAnonSubSeq generates monotonic IDs for ArbiterSubmissions keys on
+	// the anonymous (shield-dispatched) path so each accepted call gets a
+	// unique entry instead of overwriting the prior one (FEDERATION-S2-5).
+	// Per-identity uniqueness is enforced upstream by shield's per-content
+	// nullifier scope.
+	ArbiterAnonSubSeq collections.Sequence
 
 	// --- Secondary Indexes ---
 
@@ -150,6 +156,7 @@ func NewKeeper(
 		// Sequences
 		ContentSeq:        collections.NewSequence(sb, types.ContentSeqKey, "contentSequence"),
 		OutboundAttestSeq: collections.NewSequence(sb, types.OutboundAttestationSeqKey, "outboundAttestSequence"),
+		ArbiterAnonSubSeq: collections.NewSequence(sb, types.ArbiterAnonSubSeqKey, "arbiterAnonSubmissionSequence"),
 
 		// Content indexes
 		ContentByPeer: collections.NewKeySet(sb, types.ContentByPeerKey, "contentByPeer",

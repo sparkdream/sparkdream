@@ -27,20 +27,20 @@ func makeValidCommitments(n int) [][]byte {
 func TestValidateFeldmanCommitments(t *testing.T) {
 	t.Run("valid commitments pass", func(t *testing.T) {
 		cs := makeValidCommitments(3)
-		err := validateFeldmanCommitments(cs, 3)
+		err := ValidateFeldmanCommitments(cs, 3)
 		require.NoError(t, err)
 	})
 
 	t.Run("wrong count rejected", func(t *testing.T) {
 		cs := makeValidCommitments(2)
-		err := validateFeldmanCommitments(cs, 3)
+		err := ValidateFeldmanCommitments(cs, 3)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "expected 3 commitments, got 2")
 	})
 
 	t.Run("invalid G1 point rejected", func(t *testing.T) {
 		cs := [][]byte{makeValidG1Point(), []byte("not a G1 point")}
-		err := validateFeldmanCommitments(cs, 2)
+		err := ValidateFeldmanCommitments(cs, 2)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not a valid G1 point")
 	})
@@ -49,13 +49,13 @@ func TestValidateFeldmanCommitments(t *testing.T) {
 		identity := tleSuite.G1().Point().Null()
 		identityBytes, _ := identity.MarshalBinary()
 		cs := [][]byte{makeValidG1Point(), identityBytes}
-		err := validateFeldmanCommitments(cs, 2)
+		err := ValidateFeldmanCommitments(cs, 2)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "identity element")
 	})
 
 	t.Run("empty commitments with zero expected passes", func(t *testing.T) {
-		err := validateFeldmanCommitments(nil, 0)
+		err := ValidateFeldmanCommitments(nil, 0)
 		require.NoError(t, err)
 	})
 }

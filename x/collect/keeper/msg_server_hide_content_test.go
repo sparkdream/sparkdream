@@ -1,14 +1,13 @@
 package keeper_test
 
 import (
-	"context"
 	"testing"
 
-	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/collect/types"
 	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestHideContent(t *testing.T) {
@@ -52,12 +51,13 @@ func TestHideContent(t *testing.T) {
 			},
 		},
 		{
-			name: "error not active sentinel",
+			name: "error not active sentinel (DEMOTED)",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.forumKeeper.isSentinelActiveFn = func(_ context.Context, sentinel string) (bool, error) {
-					return false, nil
-				}
+				key := mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)
+				br := f.repKeeper.bondedRoles[key]
+				br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
+				f.repKeeper.bondedRoles[key] = br
 				return collID
 			},
 			creator:        "sentinel",
@@ -69,9 +69,10 @@ func TestHideContent(t *testing.T) {
 			name: "error insufficient bond",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.forumKeeper.getAvailableBondFn = func(_ context.Context, _ string) (math.Int, error) {
-					return math.ZeroInt(), nil
-				}
+				key := mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)
+				br := f.repKeeper.bondedRoles[key]
+				br.CurrentBond = "0"
+				f.repKeeper.bondedRoles[key] = br
 				return collID
 			},
 			creator:        "sentinel",
@@ -82,15 +83,10 @@ func TestHideContent(t *testing.T) {
 		{
 			name: "error member (non-sentinel) tries to hide",
 			setup: func(f *testFixture) uint64 {
-				collID := f.createCollection(t, f.owner)
-				f.forumKeeper.isSentinelActiveFn = func(_ context.Context, sentinel string) (bool, error) {
-					// Only f.sentinel is active
-					if sentinel == f.sentinel {
-						return true, nil
-					}
-					return false, nil
-				}
-				return collID
+				return f.createCollection(t, f.owner)
+				// f.member has no FORUM_SENTINEL BondedRole record (only the
+				// default f.sentinel does), so GetBondedRole returns
+				// ErrBondedRoleNotFound and the handler rejects.
 			},
 			creator:        "", // f.member
 			targetType:     types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,

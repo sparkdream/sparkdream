@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
@@ -124,7 +125,7 @@ func TestDistributeSentinelRewards_NonEpochNoOp(t *testing.T) {
 		return sdk.NewCoin(denom, math.NewInt(1_000))
 	}
 	var sendCount int
-	rf.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, _ sdk.Coins) error {
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, _ sdk.Coins) error {
 		sendCount++
 		return nil
 	}
@@ -151,7 +152,7 @@ func TestDistributeSentinelRewards_PoolEmpty(t *testing.T) {
 		return sdk.NewCoin(denom, math.ZeroInt())
 	}
 	sendCalled := false
-	rf.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, _ sdk.Coins) error {
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, _ sdk.Coins) error {
 		sendCalled = true
 		return nil
 	}
@@ -186,7 +187,7 @@ func TestDistributeSentinelRewards_NoEligibleSentinels(t *testing.T) {
 		return sdk.NewCoin(denom, math.NewInt(1_000))
 	}
 	sendCount := 0
-	rf.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, _ sdk.Coins) error {
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, _ sdk.Coins) error {
 		sendCount++
 		return nil
 	}
@@ -219,8 +220,8 @@ func TestDistributeSentinelRewards_HappyPath(t *testing.T) {
 		return sdk.NewCoin(denom, poolAmount)
 	}
 	sent := map[string]math.Int{}
-	rf.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
-		require.Equal(t, types.ModuleName, senderModule)
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, fromAddr sdk.AccAddress, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
+		require.True(t, fromAddr.Equals(keeper.SentinelRewardPoolAddress()))
 		s, _ := rf.addressCodec.BytesToString(recipientAddr)
 		sent[s] = amt.AmountOf(types.RewardDenom)
 		return nil
@@ -273,7 +274,7 @@ func TestDistributeSentinelRewards_DemotedExcluded(t *testing.T) {
 		return sdk.NewCoin(denom, poolAmount)
 	}
 	sent := map[string]math.Int{}
-	rf.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
 		s, _ := rf.addressCodec.BytesToString(recipientAddr)
 		sent[s] = amt.AmountOf(types.RewardDenom)
 		return nil
@@ -310,7 +311,7 @@ func TestDistributeSentinelRewards_AppealRateGate(t *testing.T) {
 		return sdk.NewCoin(denom, math.NewInt(1_000))
 	}
 	sendCount := 0
-	rf.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, _ sdk.Coins) error {
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, _ sdk.Coins) error {
 		sendCount++
 		return nil
 	}
@@ -338,7 +339,7 @@ func TestDistributeSentinelRewards_AccuracyGate(t *testing.T) {
 		return sdk.NewCoin(denom, math.NewInt(1_000))
 	}
 	sendCount := 0
-	rf.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, _ sdk.Coins) error {
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, _ sdk.Coins) error {
 		sendCount++
 		return nil
 	}
@@ -360,7 +361,7 @@ func TestDistributeSentinelRewards_SinglePayoutFullPool(t *testing.T) {
 	}
 	var got math.Int
 	got = math.ZeroInt()
-	rf.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, amt sdk.Coins) error {
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, amt sdk.Coins) error {
 		got = amt.AmountOf(types.RewardDenom)
 		return nil
 	}

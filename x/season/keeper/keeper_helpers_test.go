@@ -422,24 +422,25 @@ func TestCrossModuleHelpers(t *testing.T) {
 	f := initFixture(t)
 	ctx := sdk.UnwrapSDKContext(f.ctx)
 	k := f.keeper
+	// Exercise the unwired-rep failure path explicitly.
+	k.SetRepKeeper(nil)
 
 	addr := TestAddrMember1
 	addrStr := addr.String()
 
-	// Without rep/name keepers, these should gracefully skip
-	t.Run("BurnDREAM without rep keeper", func(t *testing.T) {
-		err := k.BurnDREAM(ctx, addrStr, 100)
-		require.NoError(t, err, "should not error when rep keeper is nil")
+	// NAME-S2-8: dreamutil now panics when the rep keeper is unwired rather
+	// than silently no-opping, so escrow/lock/burn calls fail loudly in
+	// misconfigured deployments instead of pretending to succeed.
+	t.Run("BurnDREAM without rep keeper panics", func(t *testing.T) {
+		require.Panics(t, func() { _ = k.BurnDREAM(ctx, addrStr, 100) })
 	})
 
-	t.Run("LockDREAM without rep keeper", func(t *testing.T) {
-		err := k.LockDREAM(ctx, addrStr, 100)
-		require.NoError(t, err, "should not error when rep keeper is nil")
+	t.Run("LockDREAM without rep keeper panics", func(t *testing.T) {
+		require.Panics(t, func() { _ = k.LockDREAM(ctx, addrStr, 100) })
 	})
 
-	t.Run("UnlockDREAM without rep keeper", func(t *testing.T) {
-		err := k.UnlockDREAM(ctx, addrStr, 100)
-		require.NoError(t, err, "should not error when rep keeper is nil")
+	t.Run("UnlockDREAM without rep keeper panics", func(t *testing.T) {
+		require.Panics(t, func() { _ = k.UnlockDREAM(ctx, addrStr, 100) })
 	})
 
 	t.Run("GetDREAMBalance without rep keeper", func(t *testing.T) {

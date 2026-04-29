@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -82,6 +83,9 @@ func (k msgServer) CancelBounty(ctx context.Context, msg *types.MsgCancelBounty)
 	if err := k.Bounty.Set(ctx, msg.BountyId, bounty); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update bounty")
 	}
+	// FORUM-S2-8: only ACTIVE bounties belong in the BountiesByExpiry index;
+	// drop the entry on cancel so BountyExpiringSoon doesn't return it.
+	_ = k.BountiesByExpiry.Remove(ctx, collections.Join(bounty.ExpiresAt, bounty.Id))
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

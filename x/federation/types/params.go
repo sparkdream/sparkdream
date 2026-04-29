@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"time"
 
 	"cosmossdk.io/math"
@@ -137,7 +138,10 @@ func DefaultParams() Params {
 
 // Validate validates the set of params.
 func (p Params) Validate() error {
+	if p.MinVerifierBond.IsNil() || !p.MinVerifierBond.IsPositive() {
+		return fmt.Errorf("min_verifier_bond must be positive")
+	}
 	// Validation ranges from spec Section 4.13 will be implemented
-	// during the param validation phase. For now, accept all values.
+	// during the param validation phase. For now, accept all other values.
 	return nil
 }

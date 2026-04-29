@@ -102,13 +102,16 @@ func TestOps_Burn(t *testing.T) {
 }
 
 func TestOps_NilKeeper(t *testing.T) {
+	// NAME-S2-8: dreamutil panics rather than silently no-opping when wired
+	// without a rep keeper, so misconfigured deployments surface a fatal
+	// error instead of pretending to escrow/burn.
 	ops := NewOps(nil, mockAddressCodec{})
 	ctx := context.Background()
 
-	require.NoError(t, ops.Lock(ctx, "alice", 100))
-	require.NoError(t, ops.Unlock(ctx, "alice", 100))
-	require.NoError(t, ops.Burn(ctx, "alice", 100))
-	require.NoError(t, ops.SettleStakes(ctx, "alice", 100, "bob", 200))
+	require.Panics(t, func() { _ = ops.Lock(ctx, "alice", 100) })
+	require.Panics(t, func() { _ = ops.Unlock(ctx, "alice", 100) })
+	require.Panics(t, func() { _ = ops.Burn(ctx, "alice", 100) })
+	require.Panics(t, func() { _ = ops.SettleStakes(ctx, "alice", 100, "bob", 200) })
 }
 
 func TestOps_InvalidAddress(t *testing.T) {

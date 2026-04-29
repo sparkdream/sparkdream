@@ -6,10 +6,12 @@ import (
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveInitiative) (*types.MsgApproveInitiativeResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
+	creatorBytes, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
@@ -22,6 +24,28 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 	// Validate status - must be SUBMITTED
 	if initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED {
 		return nil, errorsmod.Wrap(types.ErrInvalidInitiativeStatus, "initiative must be in SUBMITTED status")
+	}
+
+	// Authorization: caller must have an active stake on this initiative OR be on the Commons Operations Committee.
+	stakes, err := k.Keeper.GetInitiativeStakes(ctx, msg.InitiativeId)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to get initiative stakes")
+	}
+	authorized := false
+	for _, s := range stakes {
+		if s.Staker == msg.Creator {
+			authorized = true
+			break
+		}
+	}
+	if !authorized {
+		isOps, opsErr := k.Keeper.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(creatorBytes), "commons", "operations")
+		if opsErr != nil {
+			return nil, errorsmod.Wrap(opsErr, "failed to check operations committee membership")
+		}
+		if !isOps {
+			return nil, errorsmod.Wrap(types.ErrUnauthorized, "only active stakers or operations committee may approve/disapprove this initiative")
+		}
 	}
 
 	// This is a staker approval - store the criteria votes and comments

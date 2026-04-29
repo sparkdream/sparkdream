@@ -30,6 +30,9 @@ func TestLinkIdentity(t *testing.T) {
 	link, err := f.keeper.IdentityLinks.Get(f.ctx, collections.Join(userStr, "link-peer"))
 	require.NoError(t, err)
 	require.Equal(t, types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED, link.Status)
+	// FEDERATION-S2-1: a non-empty challenge must be persisted so the
+	// confirmation packet can be echo-checked when it arrives.
+	require.NotEmpty(t, link.Challenge, "expected stored challenge for echo-check")
 
 	// Reverse index
 	resolved, err := f.keeper.IdentityLinksByRemote.Get(f.ctx, collections.Join("link-peer", "@alice@mastodon.social"))

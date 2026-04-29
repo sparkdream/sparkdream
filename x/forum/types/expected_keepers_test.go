@@ -115,6 +115,7 @@ func (stubRepKeeper) GetBondedRole(context.Context, reptypes.RoleType, string) (
 	return reptypes.BondedRole{}, nil
 }
 func (stubRepKeeper) ReserveBond(context.Context, reptypes.RoleType, string, math.Int) error { return nil }
+func (stubRepKeeper) ReleaseBond(context.Context, reptypes.RoleType, string, math.Int) error { return nil }
 func (stubRepKeeper) RecordActivity(context.Context, reptypes.RoleType, string) error        { return nil }
 func (stubRepKeeper) SetBondStatus(context.Context, reptypes.RoleType, string, reptypes.BondedRoleStatus, int64) error {
 	return nil

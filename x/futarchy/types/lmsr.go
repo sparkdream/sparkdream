@@ -123,3 +123,93 @@ func Ln(ctx sdk.Context, x math.LegacyDec) (math.LegacyDec, error) {
 
 	return result.MulInt64(2), nil
 }
+
+// SettlementPriceYes returns p_yes = exp(qYes/b) / (exp(qYes/b) + exp(qNo/b)),
+// the LMSR-implied probability of YES at the given pool state. Returns 1/2
+// when both pools are zero (no information, fair price). Numerically stable:
+// subtracts max(qYes, qNo)/b from both exponents so neither overflows.
+//
+// Used by CancelMarket and RESOLVED_INVALID resolution to snapshot a fair
+// price at which holders can redeem their YES/NO shares (FUTARCHY-S2-1).
+func SettlementPriceYes(ctx sdk.Context, b, qYes, qNo, maxExp math.LegacyDec) (math.LegacyDec, error) {
+	if b.LTE(math.LegacyZeroDec()) {
+		return math.LegacyZeroDec(), fmt.Errorf("SettlementPriceYes: b must be positive, got %s", b.String())
+	}
+	if qYes.IsZero() && qNo.IsZero() {
+		// Symmetry: with no information, both outcomes are equally likely.
+		return math.LegacyMustNewDecFromStr("0.5"), nil
+	}
+
+	x := qYes.Quo(b)
+	y := qNo.Quo(b)
+	x = ClampExponent(x, maxExp)
+	y = ClampExponent(y, maxExp)
+
+	max := x
+	if y.GT(x) {
+		max = y
+	}
+	expX := Exp(ctx, x.Sub(max))
+	expY := Exp(ctx, y.Sub(max))
+	sum := expX.Add(expY)
+	if sum.IsZero() {
+		return math.LegacyZeroDec(), fmt.Errorf("SettlementPriceYes: degenerate denominator")
+	}
+	return expX.Quo(sum), nil
+}
+
+// CreatorResidualResolved returns the LMSR remainder after a YES/NO winner
+// claims 1 spark per winning share:
+//
+//	residual = b * ln(1 + exp((qLoser - qWinner) / b))
+//
+// This is the creator's correct WithdrawLiquidity payout for RESOLVED_YES and
+// RESOLVED_NO markets (FUTARCHY-S2-1). Bounded between 0 (one-sided market)
+// and InitialLiquidity = b*ln(2) (no trades or perfectly tied — but ties
+// resolve INVALID, not YES/NO).
+func CreatorResidualResolved(ctx sdk.Context, b, qWinner, qLoser, maxExp math.LegacyDec) (math.LegacyDec, error) {
+	if b.LTE(math.LegacyZeroDec()) {
+		return math.LegacyZeroDec(), fmt.Errorf("CreatorResidualResolved: b must be positive")
+	}
+	exponent := qLoser.Sub(qWinner).Quo(b)
+	exponent = ClampExponent(exponent, maxExp)
+	expTerm := Exp(ctx, exponent)
+	onePlus := math.LegacyOneDec().Add(expTerm)
+	lnTerm, err := Ln(ctx, onePlus)
+	if err != nil {
+		return math.LegacyZeroDec(), fmt.Errorf("CreatorResidualResolved: ln failed: %w", err)
+	}
+	return b.Mul(lnTerm), nil
+}
+
+// CreatorResidualSettled returns the LMSR market-maker's residual after every
+// outstanding YES/NO share is redeemed at LMSR-implied prices (the
+// CANCELLED / RESOLVED_INVALID payout model):
+//
+//	residual = b * H(p_yes) where H(p) = -p*ln(p) - (1-p)*ln(1-p)
+//
+// This is the entropy of the implied probability distribution scaled by b.
+// At p=1/2: residual = b*ln(2) = InitialLiquidity (no information lost).
+// At p→0 or p→1: residual → 0 (creator's full subsidy paid out as price
+// discovery). Mathematically equivalent to C(qYes,qNo) - qYes*p_yes - qNo*p_no.
+func CreatorResidualSettled(ctx sdk.Context, b, pYes math.LegacyDec) (math.LegacyDec, error) {
+	if b.LTE(math.LegacyZeroDec()) {
+		return math.LegacyZeroDec(), fmt.Errorf("CreatorResidualSettled: b must be positive")
+	}
+	if pYes.LTE(math.LegacyZeroDec()) || pYes.GTE(math.LegacyOneDec()) {
+		// Limit cases: H(0) = H(1) = 0 (no entropy, full subsidy paid out).
+		return math.LegacyZeroDec(), nil
+	}
+	pNo := math.LegacyOneDec().Sub(pYes)
+	lnYes, err := Ln(ctx, pYes)
+	if err != nil {
+		return math.LegacyZeroDec(), fmt.Errorf("CreatorResidualSettled: ln(p_yes) failed: %w", err)
+	}
+	lnNo, err := Ln(ctx, pNo)
+	if err != nil {
+		return math.LegacyZeroDec(), fmt.Errorf("CreatorResidualSettled: ln(p_no) failed: %w", err)
+	}
+	// H = -p*ln(p) - (1-p)*ln(1-p) — both terms positive since ln(p<1) < 0.
+	entropy := pYes.Mul(lnYes).Neg().Sub(pNo.Mul(lnNo))
+	return b.Mul(entropy), nil
+}

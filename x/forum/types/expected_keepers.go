@@ -112,6 +112,7 @@ type RepKeeper interface {
 	// Sentinel is the forum role keyed as ROLE_TYPE_FORUM_SENTINEL.
 	GetBondedRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
 	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
+	ReleaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error
 	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
 	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error

@@ -9,6 +9,7 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 // ResolveGovActionAppeal resolves a pending appeal via commons council
@@ -49,7 +50,10 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 			"verdict must be UPHELD or OVERTURNED, got %s", msg.Verdict.String())
 	}
 
-	bond := parseIntOrZero(appeal.AppealBond)
+	bond, err := parseIntOrZero(appeal.AppealBond)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid appeal bond on appeal record")
+	}
 	appellantAddr, err := sdk.AccAddressFromBech32(appeal.Appellant)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid appellant address on appeal record")
@@ -59,14 +63,48 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 
 	switch msg.Verdict {
 	case types.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD:
-		// Half of the bond is burned; the other half stays in the rep
-		// module account, topping up the sentinel reward pool.
+		// Half of the bond is burned; the other half is moved to the sentinel
+		// reward pool sub-address. Both halves flow through the rep module
+		// account briefly so BurnCoins (which requires module-account Burner
+		// permission) has a registered identity to burn from.
 		if bond.IsPositive() {
 			half := bond.QuoRaw(2)
+			remainder := bond.Sub(half)
 			if half.IsPositive() {
 				burnCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, half))
+				if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), authtypes.NewModuleAddress(types.ModuleName), burnCoins); err != nil {
+					return nil, errorsmod.Wrap(err, "failed to move appeal bond half to module account")
+				}
 				if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, burnCoins); err != nil {
 					return nil, errorsmod.Wrap(err, "failed to burn appeal bond half")
+				}
+			}
+			if remainder.IsPositive() {
+				poolCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, remainder))
+				if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), SentinelRewardPoolAddress(), poolCoins); err != nil {
+					return nil, errorsmod.Wrap(err, "failed to forward appeal bond remainder to sentinel pool")
+				}
+			}
+		}
+
+		// Release the sentinel's reserved bond (the action was upheld, so no
+		// slash applies — the reservation must be freed so future actions can
+		// draw on the same pool).
+		if fk := k.late.forumKeeper; fk != nil {
+			sentinelAddr, sErr := fk.GetActionSentinel(ctx, appeal.ActionType, appeal.ActionTarget)
+			if sErr != nil {
+				sdkCtx.Logger().Warn("failed to resolve sentinel for upheld appeal",
+					"appeal_id", msg.AppealId, "error", sErr)
+			} else if sentinelAddr != "" {
+				committed, cErr := fk.GetActionCommittedAmount(ctx, appeal.ActionType, appeal.ActionTarget)
+				if cErr != nil {
+					sdkCtx.Logger().Warn("failed to read sentinel committed amount on uphold",
+						"sentinel", sentinelAddr, "appeal_id", msg.AppealId, "error", cErr)
+				} else if committed.IsPositive() {
+					if err := k.ReleaseBond(ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, committed); err != nil {
+						sdkCtx.Logger().Warn("failed to release sentinel bond on uphold",
+							"sentinel", sentinelAddr, "appeal_id", msg.AppealId, "error", err)
+					}
 				}
 			}
 		}
@@ -83,7 +121,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 		// Full bond refund to appellant.
 		if bond.IsPositive() {
 			refundCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, bond))
-			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, appellantAddr, refundCoins); err != nil {
+			if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), appellantAddr, refundCoins); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to refund appeal bond")
 			}
 		}

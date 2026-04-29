@@ -180,6 +180,9 @@ message IdentityLink {
   IdentityLinkStatus status = 4;
   int64 linked_at = 5;
   int64 verified_at = 6;
+  // Challenge bytes generated at LinkIdentity time and echo-checked when the
+  // confirmation packet returns from the remote peer (FEDERATION-S2-1).
+  bytes challenge = 7;
 }
 
 // PendingIdentityChallenge stores an IBC identity verification challenge.

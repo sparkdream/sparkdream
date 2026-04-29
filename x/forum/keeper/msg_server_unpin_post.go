@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -35,6 +36,10 @@ func (k msgServer) UnpinPost(ctx context.Context, msg *types.MsgUnpinPost) (*typ
 		return nil, errorsmod.Wrap(types.ErrNotPinned, "post is not pinned")
 	}
 
+	// Capture the categoryID before clearing pin metadata so we can drop the
+	// PostsByPinned index entry (FORUM-S2-8).
+	prevCategoryID := post.CategoryId
+
 	// Unpin the post
 	post.Pinned = false
 	post.PinnedBy = ""
@@ -44,6 +49,7 @@ func (k msgServer) UnpinPost(ctx context.Context, msg *types.MsgUnpinPost) (*typ
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
+	_ = k.PostsByPinned.Remove(ctx, collections.Join(prevCategoryID, post.PostId))
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

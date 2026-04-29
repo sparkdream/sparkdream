@@ -14,6 +14,10 @@ func (k msgServer) FileDispute(goCtx context.Context, msg *types.MsgFileDispute)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	params := k.GetParams(ctx)
 
+	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
+		return nil, errorsmod.Wrap(err, "invalid authority address")
+	}
+
 	// 1. Verify name exists and has an owner
 	record, found := k.GetName(ctx, msg.Name)
 	if !found {
@@ -21,6 +25,9 @@ func (k msgServer) FileDispute(goCtx context.Context, msg *types.MsgFileDispute)
 	}
 	if record.Owner == "" {
 		return nil, errorsmod.Wrapf(types.ErrNameNotFound, "name %q has no owner", msg.Name)
+	}
+	if msg.Authority == record.Owner {
+		return nil, errorsmod.Wrapf(types.ErrCannotDisputeOwnName, "name %q", msg.Name)
 	}
 
 	// 2. Check no active dispute already exists for this name
@@ -59,6 +66,11 @@ func (k msgServer) FileDispute(goCtx context.Context, msg *types.MsgFileDispute)
 		Amount:      stakeAmount,
 	}
 	if err := k.DisputeStakes.Set(ctx, challengeID, disputeStake); err != nil {
+		return nil, err
+	}
+
+	// Refresh disputer's owner activity (only effective if they own a name).
+	if err := k.RecordOwnerActivity(ctx, msg.Authority); err != nil {
 		return nil, err
 	}
 

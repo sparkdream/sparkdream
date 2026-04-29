@@ -6,41 +6,23 @@ import (
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/rep/types"
 )
 
-// ---------------------------------------------------------------------------
-// Sentinel SPARK reward pool
-// ---------------------------------------------------------------------------
-//
-// Stage A infrastructure: the pool is a SPARK (uspark) balance held by the
-// x/rep module account. It will be fed by spam taxes (Stage B) and drained by
-// an epoch-based distribution EndBlocker (Stage D).
-//
-// The pool does NOT use a separate collections.Item balance tracker; the bank
-// balance of uspark on the rep module account IS the pool. SPARK and DREAM use
-// different denoms (uspark vs udream), so there's no ambiguity between the
-// sentinel reward pool and DREAM-denominated escrow/bonds held in the same
-// module account.
-//
-// Helper methods below exist to keep Stage A call sites clean and to give
-// Stage B/D a stable internal API.
+// Sentinel SPARK reward pool. Held at SentinelRewardPoolAddress() (a derived
+// rep sub-address) to keep it partitioned from tag-budget escrows and gov
+// appeal bonds, which are also denominated in uspark and live under x/rep.
 
-// GetSentinelRewardPool returns the current SPARK (uspark) balance of the
-// x/rep module account — i.e., the current sentinel reward pool size.
+// GetSentinelRewardPool returns the current sentinel reward pool size — the
+// uspark balance held at SentinelRewardPoolAddress.
 func (k Keeper) GetSentinelRewardPool(ctx context.Context) math.Int {
-	repAddr := authtypes.NewModuleAddress(types.ModuleName)
-	return k.bankKeeper.GetBalance(ctx, repAddr, types.RewardDenom).Amount
+	return k.bankKeeper.GetBalance(ctx, SentinelRewardPoolAddress(), types.RewardDenom).Amount
 }
 
 // AddToSentinelRewardPool transfers `amount` of SPARK (uspark) from `sender`
-// into the x/rep module account, growing the sentinel reward pool. Intended
-// for spam-tax collectors in Stage B.
-//
-// Returns an error if the transfer fails (e.g., insufficient balance). Zero
-// or negative amounts are rejected.
+// to the sentinel reward pool address. Intended for spam-tax collectors.
+// Zero or negative amounts are rejected.
 func (k Keeper) AddToSentinelRewardPool(
 	ctx context.Context,
 	sender sdk.AccAddress,
@@ -50,5 +32,5 @@ func (k Keeper) AddToSentinelRewardPool(
 		return fmt.Errorf("sentinel reward pool contribution must be positive: %s", amount)
 	}
 	coins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, amount))
-	return k.bankKeeper.SendCoinsFromAccountToModule(ctx, sender, types.ModuleName, coins)
+	return k.bankKeeper.SendCoins(ctx, sender, SentinelRewardPoolAddress(), coins)
 }

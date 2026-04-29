@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/forum/types"
@@ -96,6 +97,43 @@ func (k Keeper) GetActionSentinel(ctx context.Context, actionType reptypes.GovAc
 	}
 }
 
+// GetActionCommittedAmount returns the bond amount reserved by the sentinel
+// for the given gov action. Hide actions record committed_amount on the
+// HideRecord proto; lock/move actions reserve a flat DefaultSentinelSlashAmount.
+// Returns zero (no error) when the record is missing — caller should treat as
+// a soft skip.
+func (k Keeper) GetActionCommittedAmount(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) (math.Int, error) {
+	id, err := strconv.ParseUint(actionTarget, 10, 64)
+	if err != nil {
+		return math.ZeroInt(), fmt.Errorf("invalid action target %q: %w", actionTarget, err)
+	}
+	switch actionType {
+	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:
+		if _, err := k.ThreadLockRecord.Get(ctx, id); err != nil {
+			return math.ZeroInt(), nil
+		}
+		return math.NewInt(types.DefaultSentinelSlashAmount), nil
+	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
+		if _, err := k.ThreadMoveRecord.Get(ctx, id); err != nil {
+			return math.ZeroInt(), nil
+		}
+		return math.NewInt(types.DefaultSentinelSlashAmount), nil
+	default:
+		rec, err := k.HideRecord.Get(ctx, id)
+		if err != nil {
+			return math.ZeroInt(), nil
+		}
+		if rec.CommittedAmount == "" {
+			return math.ZeroInt(), nil
+		}
+		v, ok := math.NewIntFromString(rec.CommittedAmount)
+		if !ok {
+			return math.ZeroInt(), nil
+		}
+		return v, nil
+	}
+}
+
 // RecordSentinelActionUpheld updates forum's SentinelActivity counters when
 // an appeal is resolved in the sentinel's favor. Increments the upheld_*
 // counter (hide / lock / move) and consecutive_upheld, and resets
@@ -133,6 +171,7 @@ func (k Keeper) RecordSentinelActionUpheld(ctx context.Context, actionType repty
 
 	local.ConsecutiveUpheld++
 	local.ConsecutiveOverturns = 0
+	local.EpochAppealsResolved++
 
 	if err := k.SentinelActivity.Set(ctx, sentinel, local); err != nil {
 		return fmt.Errorf("persist sentinel activity (upheld): %w", err)
@@ -178,6 +217,8 @@ func (k Keeper) RecordSentinelActionOverturned(ctx context.Context, actionType r
 
 	local.ConsecutiveOverturns++
 	local.ConsecutiveUpheld = 0
+	local.EpochAppealsResolved++
+	local.OverturnCooldownUntil = sdkCtx.BlockTime().Unix() + types.DefaultSentinelOverturnCooldown
 
 	if err := k.SentinelActivity.Set(ctx, sentinel, local); err != nil {
 		return fmt.Errorf("persist sentinel activity (overturned): %w", err)

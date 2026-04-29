@@ -192,7 +192,7 @@ echo ""
 # ========================================================================
 echo "--- PART 4: SET USERNAME ---"
 
-USERNAME_TO_SET="testuser_$(date +%s)"
+USERNAME_TO_SET="testuser$(date +%s)"
 echo "Setting username to: $USERNAME_TO_SET"
 
 TX_RES=$($BINARY tx season set-username \

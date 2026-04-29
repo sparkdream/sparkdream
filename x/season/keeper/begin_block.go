@@ -846,9 +846,16 @@ func (k Keeper) processExpiredModerations(ctx context.Context) {
 	// Batch limit: process at most 50 expired moderations per block to bound gas usage
 	const maxPerBlock = 50
 	processed := 0
+	iterCount := 0
 
 	for ; iter.Valid(); iter.Next() {
 		if processed >= maxPerBlock {
+			break
+		}
+		// Bound total iterator work even when most records are skipped via `continue`
+		// so a backlog of ineligible entries cannot stall the EndBlocker.
+		iterCount++
+		if iterCount >= maxPerBlock*4 {
 			break
 		}
 

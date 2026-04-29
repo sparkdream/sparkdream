@@ -2,7 +2,8 @@ package keeper
 
 import (
 	"context"
-	"fmt"
+	"crypto/sha256"
+	"encoding/binary"
 
 	"sparkdream/x/federation/types"
 
@@ -10,6 +11,30 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
+
+// generateLinkChallenge derives an unpredictable, deterministic-per-validator
+// challenge from consensus state plus the link key. Including app_hash and
+// block_hash means an off-chain observer cannot precompute the challenge from
+// the public tx, defeating the front-run / replay class of attacks called out
+// in FEDERATION-S2-1 / S2-2.
+func generateLinkChallenge(sdkCtx sdk.Context, creator, peerID, remote string) []byte {
+	h := sha256.New()
+	header := sdkCtx.BlockHeader()
+	var heightBuf [8]byte
+	binary.BigEndian.PutUint64(heightBuf[:], uint64(sdkCtx.BlockHeight()))
+	h.Write(heightBuf[:])
+	var timeBuf [8]byte
+	binary.BigEndian.PutUint64(timeBuf[:], uint64(sdkCtx.BlockTime().UnixNano()))
+	h.Write(timeBuf[:])
+	h.Write(header.AppHash)
+	h.Write(header.LastBlockId.Hash)
+	h.Write([]byte(creator))
+	h.Write([]byte{0})
+	h.Write([]byte(peerID))
+	h.Write([]byte{0})
+	h.Write([]byte(remote))
+	return h.Sum(nil)
+}
 
 func (k msgServer) LinkIdentity(ctx context.Context, msg *types.MsgLinkIdentity) (*types.MsgLinkIdentityResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
@@ -47,14 +72,18 @@ func (k msgServer) LinkIdentity(ctx context.Context, msg *types.MsgLinkIdentity)
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
+	challengeData := generateLinkChallenge(sdkCtx, msg.Creator, msg.PeerId, msg.RemoteIdentity)
 
-	// 5. Create IdentityLink with status UNVERIFIED
+	// 5. Create IdentityLink with status UNVERIFIED. The challenge is stored
+	// so OnRecvIdentityConfirmPacket can echo-check it when the peer's
+	// confirmation arrives.
 	link := types.IdentityLink{
 		LocalAddress:   msg.Creator,
 		PeerId:         msg.PeerId,
 		RemoteIdentity: msg.RemoteIdentity,
 		Status:         types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED,
 		LinkedAt:       blockTime,
+		Challenge:      challengeData,
 	}
 	if err := k.IdentityLinks.Set(ctx, linkKey, link); err != nil {
 		return nil, err
@@ -76,11 +105,7 @@ func (k msgServer) LinkIdentity(ctx context.Context, msg *types.MsgLinkIdentity)
 		return nil, err
 	}
 
-	// 9. Send IdentityVerificationPacket via IBC (Phase 1 challenge)
-	// Generate challenge bytes from block hash + addresses for uniqueness
-	challengeData := []byte(fmt.Sprintf("%d:%s:%s:%s",
-		sdkCtx.BlockHeight(), msg.Creator, msg.PeerId, msg.RemoteIdentity))
-
+	// 9. Send IdentityVerificationPacket via IBC (Phase 1 challenge).
 	packetData := &types.FederationPacketData{
 		Packet: &types.FederationPacketData_IdentityVerification{
 			IdentityVerification: &types.IdentityVerificationPacket{

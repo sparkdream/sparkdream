@@ -2,9 +2,11 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -18,26 +20,29 @@ func (q queryServer) UserFollowedThreads(ctx context.Context, req *types.QueryUs
 		return nil, status.Error(codes.InvalidArgument, "user address required")
 	}
 
-	// Find first thread followed by this user (simplified - in production would return list)
-	var threadFollow *types.ThreadFollow
+	// FORUM-S2-8: prefix-walk ThreadsByFollower instead of scanning all follows.
+	rng := collections.NewPrefixedPairRange[string, uint64](req.User)
 
-	err := q.k.ThreadFollow.Walk(ctx, nil, func(key string, follow types.ThreadFollow) (bool, error) {
-		if follow.Follower == req.User {
-			threadFollow = &follow
-			return true, nil // Stop after first
+	var threadID uint64
+	var followedAt int64
+
+	err := q.k.ThreadsByFollower.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+		tid := key.K2()
+		followKey := fmt.Sprintf("%s:%d", req.User, tid)
+		f, getErr := q.k.ThreadFollow.Get(ctx, followKey)
+		if getErr != nil {
+			return false, nil
 		}
-		return false, nil
+		threadID = f.ThreadId
+		followedAt = f.FollowedAt
+		return true, nil
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if threadFollow != nil {
-		return &types.QueryUserFollowedThreadsResponse{
-			ThreadId:   threadFollow.ThreadId,
-			FollowedAt: threadFollow.FollowedAt,
-		}, nil
-	}
-
-	return &types.QueryUserFollowedThreadsResponse{}, nil
+	return &types.QueryUserFollowedThreadsResponse{
+		ThreadId:   threadID,
+		FollowedAt: followedAt,
+	}, nil
 }

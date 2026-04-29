@@ -132,11 +132,11 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 
 // Helper to check expiration
 func (k Keeper) IsOwnerExpired(ctx sdk.Context, ownerAddr sdk.AccAddress) bool {
+	// LastActiveTime is seeded by AddNameToOwner and refreshed by
+	// RecordOwnerActivity on every owner-driven message; a zero value here
+	// means we have no recent activity record and the owner is treated as
+	// expired (scavengeable). Pre-mainnet there are no legacy zero records.
 	lastActive := k.GetLastActiveTime(ctx, ownerAddr)
-	if lastActive == 0 {
-		// If never active (e.g. imported account or genesis), assume active to satisfy safety
-		return false
-	}
 
 	params := k.GetParams(ctx)
 	expirationDuration := params.ExpirationDuration.Seconds() // int64

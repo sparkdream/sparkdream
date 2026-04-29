@@ -309,13 +309,8 @@ func TestResolveHideAppeal_Upheld(t *testing.T) {
 		return nil
 	}
 
-	// Track sentinel bond slash
-	var slashCalled bool
-	f.forumKeeper.slashBondCommitmentFn = func(_ context.Context, sentinel string, amount math.Int, mod string, refID uint64) error {
-		slashCalled = true
-		require.Equal(t, f.sentinel, sentinel)
-		return nil
-	}
+	// Capture sentinel's pre-resolve bond so we can verify SlashBond fired.
+	preSentinelBond := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].CurrentBond
 
 	// Track burn (20% of appeal fee)
 	var burnCalled bool
@@ -344,8 +339,9 @@ func TestResolveHideAppeal_Upheld(t *testing.T) {
 	expectedRefund := types.DefaultAppealFee.MulRaw(80).Quo(math.NewInt(100))
 	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", expectedRefund)), refundAmount)
 
-	// Verify sentinel bond was slashed
-	require.True(t, slashCalled)
+	// Verify sentinel bond was slashed (CurrentBond decreased).
+	postSentinelBond := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].CurrentBond
+	require.NotEqual(t, preSentinelBond, postSentinelBond, "expected SlashBond to reduce current_bond")
 
 	// Verify 20% was burned
 	require.True(t, burnCalled)
@@ -378,13 +374,9 @@ func TestResolveHideAppeal_Rejected(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Track sentinel bond release (no slash)
-	var bondReleased bool
-	f.forumKeeper.releaseBondCommitmentFn = func(_ context.Context, sentinel string, _ math.Int, _ string, _ uint64) error {
-		bondReleased = true
-		require.Equal(t, f.sentinel, sentinel)
-		return nil
-	}
+	// Capture sentinel's pre-resolve bond commitment so we can verify
+	// ReleaseBond fired (TotalCommittedBond decreases on release).
+	preSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
 
 	// Track sentinel reward
 	var sentinelRewarded bool
@@ -415,8 +407,9 @@ func TestResolveHideAppeal_Rejected(t *testing.T) {
 	_, err = f.keeper.Collection.Get(f.ctx, collID)
 	require.Error(t, err)
 
-	// Verify sentinel bond was released
-	require.True(t, bondReleased)
+	// Verify sentinel bond was released (TotalCommittedBond decreased).
+	postSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	require.NotEqual(t, preSentinelCommitted, postSentinelCommitted, "expected ReleaseBond to reduce total_committed_bond")
 
 	// Verify sentinel was rewarded (50% of appeal fee)
 	require.True(t, sentinelRewarded)

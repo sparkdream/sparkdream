@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"cosmossdk.io/collections"
+	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/forum/types"
@@ -135,6 +136,14 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 			}
 		}
 
+		// FORUM-S2-8: drop secondary index entries for the now-deleted post.
+		if post.ParentId == 0 {
+			_ = k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, postID))
+			if post.Pinned {
+				_ = k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, postID))
+			}
+		}
+
 		// Hard-delete the post
 		if removeErr := k.Post.Remove(ctx, postID); removeErr != nil {
 			sdkCtx.Logger().Error("failed to remove expired post", "post_id", postID, "error", removeErr)
@@ -224,6 +233,26 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 			sdkCtx.Logger().Error("failed to delete expired hidden post", "post_id", postID, "error", setErr)
 			return false, nil
 		}
+		// FORUM-S2-8: drop from secondary indexes; the post is no longer
+		// eligible for TopPosts/PinnedPosts.
+		if post.ParentId == 0 {
+			_ = k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId))
+			if post.Pinned {
+				_ = k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, post.PostId))
+			}
+		}
+
+		// Release the sentinel's reserved bond before dropping the hide record.
+		// The hide passed the appeal window without being appealed, so the
+		// reservation must be freed so the sentinel's available bond recovers.
+		if k.repKeeper != nil && hr.Sentinel != "" && hr.CommittedAmount != "" {
+			if committed, ok := sdkmath.NewIntFromString(hr.CommittedAmount); ok && committed.IsPositive() {
+				if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, committed); err != nil {
+					sdkCtx.Logger().Warn("failed to release sentinel bond on hide expiry",
+						"post_id", postID, "sentinel", hr.Sentinel, "error", err)
+				}
+			}
+		}
 
 		// Clean up hide record
 		_ = k.HideRecord.Remove(ctx, postID)
@@ -274,6 +303,9 @@ func (k Keeper) ExpireBounties(ctx context.Context, now int64) error {
 			sdkCtx.Logger().Error("failed to expire bounty", "bounty_id", id, "error", setErr)
 			return false, nil
 		}
+		// FORUM-S2-8: drop the entry from BountiesByExpiry now that the
+		// bounty is no longer ACTIVE.
+		_ = k.BountiesByExpiry.Remove(ctx, collections.Join(bounty.ExpiresAt, id))
 
 		// Refund escrowed amount to creator (best effort)
 		if bounty.Amount != "" && bounty.Creator != "" {

@@ -5,6 +5,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -14,19 +15,24 @@ func (q queryServer) TopPosts(ctx context.Context, req *types.QueryTopPostsReque
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Find post with highest upvote count (simplified - in production would use proper ranking)
-	var topPost *types.Post
-	var maxUpvotes uint64
+	// FORUM-S2-8: walk PostsByUpvotes in descending order so the first ACTIVE
+	// root post we hit is the highest-ranked one. Avoids a full Post scan.
+	rng := new(collections.Range[collections.Pair[uint64, uint64]]).Descending()
 
-	err := q.k.Post.Walk(ctx, nil, func(key uint64, post types.Post) (bool, error) {
-		// Only include root posts (threads)
-		if post.ParentId == 0 && post.Status == types.PostStatus_POST_STATUS_ACTIVE {
-			if post.UpvoteCount > maxUpvotes {
-				maxUpvotes = post.UpvoteCount
-				topPost = &post
-			}
+	var topPost *types.Post
+
+	err := q.k.PostsByUpvotes.Walk(ctx, rng, func(key collections.Pair[uint64, uint64]) (bool, error) {
+		postID := key.K2()
+		p, getErr := q.k.Post.Get(ctx, postID)
+		if getErr != nil {
+			// Stale index — skip.
+			return false, nil
 		}
-		return false, nil
+		if p.ParentId != 0 || p.Status != types.PostStatus_POST_STATUS_ACTIVE {
+			return false, nil
+		}
+		topPost = &p
+		return true, nil
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

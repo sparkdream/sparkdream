@@ -128,22 +128,13 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 		executedTypeURLs = append(executedTypeURLs, typeURL)
 	}
 
-	// Update session state: increment by number of inner messages executed
+	// Update session state: increment by number of inner messages executed.
+	// SESSION-S2-1 fix: Spend-limit accounting moved to the ante handler, which
+	// debits Spent in fee units (uspark) atomically with the actual fee
+	// deduction. This avoids the gas-vs-fee unit mismatch and ensures failed
+	// inner messages still consume budget (SESSION-S2-2).
 	session.ExecCount += uint64(len(msg.Msgs))
 	session.LastUsedAt = blockTime
-
-	// SESSION-3 fix: Decrement spend limit by gas consumed (as uspark proxy).
-	// The ante handler checks the fee budget up front, but we must also track
-	// cumulative spend so subsequent executions see the correct remaining budget.
-	if session.SpendLimit.IsPositive() {
-		gasUsed := sdkCtx.GasMeter().GasConsumed()
-		fee := sdk.NewInt64Coin("uspark", int64(gasUsed))
-		newSpent := session.Spent.Add(fee)
-		if newSpent.Amount.GT(session.SpendLimit.Amount) {
-			return nil, types.ErrSpendLimitExceeded
-		}
-		session.Spent = newSpent
-	}
 
 	if err := k.Sessions.Set(ctx, key, session); err != nil {
 		return nil, err

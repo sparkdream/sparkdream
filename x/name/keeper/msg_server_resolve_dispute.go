@@ -61,7 +61,17 @@ func (k msgServer) ResolveDispute(goCtx context.Context, msg *types.MsgResolveDi
 func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Dispute, transferApproved bool) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
+	if !dispute.StakeAmount.IsUint64() {
+		return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "dispute stake amount too large for uint64: %s", dispute.StakeAmount.String())
+	}
+	claimantStake := dispute.StakeAmount.Uint64()
+
 	if dispute.ContestChallengeId != "" {
+		contestAmount, err := k.getContestAmount(ctx, dispute.ContestChallengeId)
+		if err != nil {
+			return err
+		}
+		contestOwner := k.getContestOwner(ctx, dispute.ContestChallengeId)
 		// CONTESTED path: winner's stake unlocked, loser's burned
 		if transferApproved {
 			// Claimant wins: transfer name, unlock claimant stake, burn owner stake
@@ -69,18 +79,16 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 				return err
 			}
 			if err := k.dreamOps.SettleStakes(ctx,
-				dispute.Claimant, dispute.StakeAmount.Uint64(),
-				k.getContestOwner(ctx, dispute.ContestChallengeId), k.getContestAmount(ctx, dispute.ContestChallengeId),
+				dispute.Claimant, claimantStake,
+				contestOwner, contestAmount,
 			); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "settle stakes: %s", err)
 			}
 		} else {
 			// Owner wins: name stays, unlock owner stake, burn claimant stake
-			contestOwner := k.getContestOwner(ctx, dispute.ContestChallengeId)
-			contestAmount := k.getContestAmount(ctx, dispute.ContestChallengeId)
 			if err := k.dreamOps.SettleStakes(ctx,
 				contestOwner, contestAmount,
-				dispute.Claimant, dispute.StakeAmount.Uint64(),
+				dispute.Claimant, claimantStake,
 			); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "settle stakes: %s", err)
 			}
@@ -96,12 +104,12 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 			if err := k.transferName(ctx, dispute.Name, dispute.Claimant); err != nil {
 				return err
 			}
-			if err := k.dreamOps.Unlock(ctx, dispute.Claimant, dispute.StakeAmount.Uint64()); err != nil {
+			if err := k.dreamOps.Unlock(ctx, dispute.Claimant, claimantStake); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "unlock claimant stake: %s", err)
 			}
 		} else {
 			// Dispute dismissed: name stays, burn claimant stake
-			if err := k.dreamOps.Burn(ctx, dispute.Claimant, dispute.StakeAmount.Uint64()); err != nil {
+			if err := k.dreamOps.Burn(ctx, dispute.Claimant, claimantStake); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "burn claimant stake: %s", err)
 			}
 		}
@@ -143,6 +151,15 @@ func (k Keeper) transferName(ctx context.Context, name string, newOwnerStr strin
 	currentOwner, found := k.GetNameOwner(ctx, name)
 	if found {
 		k.RemoveNameFromOwner(ctx, currentOwner, name) //nolint:errcheck
+
+		// Clear old owner's PrimaryName if it matches the transferred name.
+		oldOwnerInfo, err := k.Owners.Get(ctx, currentOwner.String())
+		if err == nil && oldOwnerInfo.PrimaryName == name {
+			oldOwnerInfo.PrimaryName = ""
+			if err := k.Owners.Set(ctx, currentOwner.String(), oldOwnerInfo); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Add to new owner
@@ -173,10 +190,13 @@ func (k Keeper) getContestOwner(ctx context.Context, challengeID string) string 
 }
 
 // getContestAmount returns the stake amount from a ContestStake record.
-func (k Keeper) getContestAmount(ctx context.Context, challengeID string) uint64 {
+func (k Keeper) getContestAmount(ctx context.Context, challengeID string) (uint64, error) {
 	stake, err := k.ContestStakes.Get(ctx, challengeID)
 	if err != nil {
-		return 0
+		return 0, nil
 	}
-	return stake.Amount.Uint64()
+	if !stake.Amount.IsUint64() {
+		return 0, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "contest stake amount too large for uint64: %s", stake.Amount.String())
+	}
+	return stake.Amount.Uint64(), nil
 }

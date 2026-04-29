@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -163,7 +164,28 @@ func (k Keeper) OnRecvContentPacket(ctx context.Context, sourcePort, sourceChann
 }
 
 // OnRecvReputationQueryPacket responds to a reputation query from a remote peer.
-func (k Keeper) OnRecvReputationQueryPacket(ctx context.Context, packet *types.ReputationQueryPacket) (*types.ReputationResponseData, error) {
+func (k Keeper) OnRecvReputationQueryPacket(ctx context.Context, sourceChannel string, packet *types.ReputationQueryPacket) (*types.ReputationResponseData, error) {
+	peerID, err := k.findPeerByChannel(ctx, sourceChannel)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "unknown source channel")
+	}
+
+	peer, err := k.Peers.Get(ctx, peerID)
+	if err != nil {
+		return nil, errorsmod.Wrapf(types.ErrPeerNotFound, "peer %q not found", peerID)
+	}
+	if peer.Type != types.PeerType_PEER_TYPE_SPARK_DREAM {
+		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "reputation queries only allowed from Spark Dream peers")
+	}
+
+	policy, err := k.PeerPolicies.Get(ctx, peerID)
+	if err != nil {
+		return nil, errorsmod.Wrapf(err, "no policy for peer %s", peerID)
+	}
+	if !policy.AllowReputationQueries {
+		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "peer %s does not allow reputation queries", peerID)
+	}
+
 	resp := &types.ReputationResponseData{
 		Address: packet.QueriedAddress,
 	}
@@ -240,6 +262,20 @@ func (k Keeper) OnRecvIdentityConfirmPacket(ctx context.Context, sourceChannel s
 		return errorsmod.Wrapf(types.ErrIdentityLinkNotFound, "no link for %s on peer %s", packet.ClaimantAddress, peerID)
 	}
 
+	// FEDERATION-S2-1: defense-in-depth checks against malformed / stale /
+	// hijacked confirmation packets. The remote signer mechanism already
+	// proves ownership of ClaimedAddress on the peer chain; these checks
+	// ensure the packet is bound to the link that actually requested it.
+	if packet.ClaimedAddress != link.RemoteIdentity {
+		return errorsmod.Wrapf(types.ErrIdentityLinkNotFound,
+			"confirmation claimed_address %q does not match link remote_identity %q",
+			packet.ClaimedAddress, link.RemoteIdentity)
+	}
+	if !bytes.Equal(packet.Challenge, link.Challenge) {
+		return errorsmod.Wrap(types.ErrIdentityLinkNotFound,
+			"confirmation challenge does not match originally-issued challenge")
+	}
+
 	// Mark as verified
 	link.Status = types.IdentityLinkStatus_IDENTITY_LINK_STATUS_VERIFIED
 	link.VerifiedAt = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
@@ -248,7 +284,9 @@ func (k Keeper) OnRecvIdentityConfirmPacket(ctx context.Context, sourceChannel s
 	}
 
 	// Remove from unverified expiration queue
-	_ = k.UnverifiedLinkExp.Remove(ctx, collections.Join3(link.LinkedAt+int64(7*24*3600), packet.ClaimantAddress, peerID))
+	params, _ := k.Params.Get(ctx)
+	expiry := link.LinkedAt + int64(params.UnverifiedLinkTtl.Seconds())
+	_ = k.UnverifiedLinkExp.Remove(ctx, collections.Join3(expiry, packet.ClaimantAddress, peerID))
 
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeIdentityVerified,

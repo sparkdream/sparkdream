@@ -26,10 +26,10 @@ func (k Keeper) SyncVerifierBondedRoleConfig(ctx context.Context, p types.Params
 	if k.late.repKeeper == nil {
 		return nil
 	}
-	minBond := "0"
-	if !p.MinVerifierBond.IsNil() {
-		minBond = p.MinVerifierBond.String()
+	if p.MinVerifierBond.IsNil() {
+		panic("MinVerifierBond is nil; must be validated upstream in Params.Validate")
 	}
+	minBond := p.MinVerifierBond.String()
 	demotionThreshold := "0"
 	if !p.VerifierRecoveryThreshold.IsNil() {
 		demotionThreshold = p.VerifierRecoveryThreshold.String()

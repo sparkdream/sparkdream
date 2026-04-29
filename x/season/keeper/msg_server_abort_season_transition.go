@@ -37,8 +37,15 @@ func (k msgServer) AbortSeasonTransition(ctx context.Context, msg *types.MsgAbor
 		return nil, types.ErrNoActiveTransition
 	}
 
-	// Cannot abort after critical phases have started (data would be inconsistent)
-	if state.Phase > types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT {
+	// Cannot abort after critical phases have started (data would be inconsistent).
+	// Use an explicit allowlist so enum renumbering (retro phases added with higher numeric values)
+	// can't silently widen the abort window past reputation mutations.
+	allowedAbortPhases := map[types.TransitionPhase]bool{
+		types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS:            true,
+		types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES: true,
+		types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT:                 true,
+	}
+	if !allowedAbortPhases[state.Phase] {
 		return nil, errorsmod.Wrapf(types.ErrTransitionTooFarToAbort,
 			"cannot abort at phase %s, data may be inconsistent", state.Phase.String())
 	}

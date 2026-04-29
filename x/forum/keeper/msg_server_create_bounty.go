@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -110,6 +111,13 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 	// Update secondary index for O(1) thread-to-bounty lookup
 	if err := k.ActiveBountyByThread.Set(ctx, msg.ThreadId, bountyID); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update bounty thread index")
+	}
+	// FORUM-S2-8: indexes for paginated UserBounties / BountyExpiringSoon.
+	if err := k.BountiesByCreator.Set(ctx, collections.Join(msg.Creator, bountyID)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update bounties-by-creator index")
+	}
+	if err := k.BountiesByExpiry.Set(ctx, collections.Join(bounty.ExpiresAt, bountyID)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update bounties-by-expiry index")
 	}
 
 	// Emit event

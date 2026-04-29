@@ -23,8 +23,8 @@ func TestGenesisState_Validate(t *testing.T) {
 		{
 			desc: "valid genesis state",
 			genState: &types.GenesisState{ShareMap: []types.Share{
-				{Address: sdk.AccAddress([]byte("share_addr_1________")).String()},
-				{Address: sdk.AccAddress([]byte("share_addr_2________")).String()},
+				{Address: sdk.AccAddress([]byte("share_addr_1________")).String(), Weight: 5000},
+				{Address: sdk.AccAddress([]byte("share_addr_2________")).String(), Weight: 5000},
 			}},
 			valid: true,
 		}, {
@@ -33,12 +33,28 @@ func TestGenesisState_Validate(t *testing.T) {
 				ShareMap: []types.Share{
 					{
 						Address: sdk.AccAddress([]byte("share_addr_dup______")).String(),
+						Weight:  5000,
 					},
 					{
 						Address: sdk.AccAddress([]byte("share_addr_dup______")).String(),
+						Weight:  5000,
 					},
 				},
 			},
+			valid: false,
+		},
+		{
+			desc: "zero-weight share",
+			genState: &types.GenesisState{ShareMap: []types.Share{
+				{Address: sdk.AccAddress([]byte("share_addr_zero_____")).String(), Weight: 0},
+			}},
+			valid: false,
+		},
+		{
+			desc: "weight exceeds max",
+			genState: &types.GenesisState{ShareMap: []types.Share{
+				{Address: sdk.AccAddress([]byte("share_addr_huge_____")).String(), Weight: 10001},
+			}},
 			valid: false,
 		},
 	}

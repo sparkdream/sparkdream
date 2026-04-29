@@ -22,4 +22,5 @@ var (
 	ErrContestPeriodExpired = errors.Register(ModuleName, 1111, "contest period has expired")
 	ErrDREAMOperationFailed = errors.Register(ModuleName, 1112, "DREAM token operation failed")
 	ErrNotAuthorized        = errors.Register(ModuleName, 1113, "sender not authorized for this action")
+	ErrCannotDisputeOwnName = errors.Register(ModuleName, 1114, "cannot file a dispute against your own name")
 )

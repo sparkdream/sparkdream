@@ -209,7 +209,7 @@ OUTSIDER_ADDR="$CAROL_ADDR"
 # Helper: create a guild with a given key and return the guild ID
 create_fixture_guild() {
     local FROM_KEY=$1
-    FIXTURE_GUILD_NAME="ErrTestGuild_$(date +%s)"
+    FIXTURE_GUILD_NAME="errtestguild-$(date +%s)"
 
     TX_RES=$($BINARY tx season create-guild \
         "$FIXTURE_GUILD_NAME" "Guild for error path testing" "false" \

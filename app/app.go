@@ -253,6 +253,7 @@ func New(
 
 	// Wire RepKeeper into Collect after depinject.
 	app.CollectKeeper.SetRepKeeper(app.RepKeeper)
+	app.CollectKeeper.SetForumKeeper(app.ForumKeeper)
 
 	// Wire SeasonKeeper into Rep after depinject.
 	app.RepKeeper.SetSeasonKeeper(app.SeasonKeeper)
@@ -260,6 +261,12 @@ func New(
 	// Wire ForumKeeper into Rep so tag-moderation can prune stale references.
 	// Retired when forum's sentinel state moves into x/rep (future commit).
 	app.RepKeeper.SetForumKeeper(app.ForumKeeper)
+
+	// Wire BlogKeeper and CollectKeeper into Rep so stake validation resolves
+	// the true author/owner for self-stake prevention rather than trusting the
+	// user-supplied target_identifier.
+	app.RepKeeper.SetBlogKeeper(app.BlogKeeper)
+	app.RepKeeper.SetCollectKeeper(app.CollectKeeper)
 
 	// Wire DistrKeeper into Split after depinject (adapter adds GetCommunityPool).
 	app.SplitKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))

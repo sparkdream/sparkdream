@@ -35,21 +35,28 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market must be resolved before withdrawing liquidity (current status: %s)", market.Status)
 	}
 
-	// Get market state
 	initialLiquidity := *market.InitialLiquidity
 	liquidityWithdrawn := *market.LiquidityWithdrawn
 
-	// Calculate available liquidity.
-	// LMSR is a scoring rule: InitialLiquidity is the total subsidy deposited by the creator.
-	// The module account holds exactly InitialLiquidity minus any prior withdrawals.
-	// Pool quantities (PoolYes/PoolNo) are scoring-rule state, not collateral claims.
-	availableLiquidity := initialLiquidity.Sub(liquidityWithdrawn)
+	// FUTARCHY-S2-1: refund the LMSR-correct creator residual, not the full
+	// InitialLiquidity. The wrong formula drained shared module collateral
+	// and caused redemptions to fail when trades pushed the market to a
+	// corner. See types/lmsr.go for the residual derivation.
+	residual, err := k.computeCreatorResidual(ctx, market)
+	if err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+	}
+	// Cap at InitialLiquidity defensively; the math should never exceed it
+	// but rounding could otherwise let the creator over-withdraw.
+	if residual.GT(initialLiquidity) {
+		residual = initialLiquidity
+	}
 
+	availableLiquidity := residual.Sub(liquidityWithdrawn)
 	if availableLiquidity.LTE(math.ZeroInt()) {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "No liquidity available to withdraw")
 	}
 
-	// Update market state
 	newWithdrawn := liquidityWithdrawn.Add(availableLiquidity)
 	market.LiquidityWithdrawn = &newWithdrawn
 
@@ -57,7 +64,6 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 		return nil, err
 	}
 
-	// Transfer liquidity to creator
 	creatorAddr, err := sdk.AccAddressFromBech32(msg.Creator)
 	if err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, "invalid creator address")
@@ -68,7 +74,6 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 		return nil, err
 	}
 
-	// Emit event
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"liquidity_withdrawn",

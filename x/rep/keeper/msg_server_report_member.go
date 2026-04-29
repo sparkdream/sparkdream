@@ -66,6 +66,9 @@ func (k msgServer) ReportMember(ctx context.Context, msg *types.MsgReportMember)
 		Reporters:         []string{msg.Creator},
 		EvidencePostIds:   []uint64{},
 		DefensePostIds:    []uint64{},
+		ReporterBonds: []*types.ReporterBondEntry{
+			{Address: msg.Creator, Amount: reportBond.String()},
+		},
 	}
 
 	if err := k.MemberReport.Set(ctx, msg.Member, report); err != nil {
@@ -102,16 +105,43 @@ func (k Keeper) getReporterBond(ctx context.Context, addr sdk.AccAddress) math.I
 	return *member.StakedDream
 }
 
-// refundReportBonds refunds DREAM bonds to a list of addresses by unlocking their staked DREAM.
-func (k Keeper) refundReportBonds(ctx context.Context, recipients []string, totalAmount math.Int) error {
-	if len(recipients) == 0 || totalAmount.IsZero() {
+// refundReportBonds refunds DREAM bonds to each reporter using the per-signer
+// locked amount recorded on the report. Falls back to legacy averaged refund
+// only when reporter_bonds is empty (defense-in-depth: should not happen for
+// reports created after this change).
+func (k Keeper) refundReportBonds(ctx context.Context, report types.MemberReport) error {
+	if len(report.ReporterBonds) > 0 {
+		for _, entry := range report.ReporterBonds {
+			if entry == nil {
+				continue
+			}
+			amt, ok := math.NewIntFromString(entry.Amount)
+			if !ok || amt.IsZero() {
+				continue
+			}
+			recipientBytes, err := k.addressCodec.StringToBytes(entry.Address)
+			if err != nil {
+				continue
+			}
+			_ = k.UnlockDREAM(ctx, sdk.AccAddress(recipientBytes), amt)
+		}
 		return nil
 	}
-	amountPerRecipient := totalAmount.Quo(math.NewInt(int64(len(recipients))))
+
+	// Fallback for any pre-existing reports written before reporter_bonds
+	// was added. Should be unreachable on a fresh chain.
+	if len(report.Reporters) == 0 {
+		return nil
+	}
+	totalAmount, ok := math.NewIntFromString(report.TotalBond)
+	if !ok || totalAmount.IsZero() {
+		return nil
+	}
+	amountPerRecipient := totalAmount.Quo(math.NewInt(int64(len(report.Reporters))))
 	if amountPerRecipient.IsZero() {
 		return nil
 	}
-	for _, recipient := range recipients {
+	for _, recipient := range report.Reporters {
 		recipientBytes, err := k.addressCodec.StringToBytes(recipient)
 		if err != nil {
 			continue

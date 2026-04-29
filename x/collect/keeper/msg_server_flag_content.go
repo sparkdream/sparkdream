@@ -60,7 +60,9 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 
 	// Get or create CollectionFlag
 	flag, err := k.Flag.Get(ctx, flagKey)
-	if err != nil {
+	flagIsNew := err != nil
+	prevLastFlagAt := int64(0)
+	if flagIsNew {
 		// New flag record for this target
 		flag = types.CollectionFlag{
 			TargetId:      msg.TargetId,
@@ -72,6 +74,7 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 			InReviewQueue: false,
 		}
 	} else {
+		prevLastFlagAt = flag.LastFlagAt
 		// Check if creator already flagged this target
 		for _, record := range flag.FlagRecords {
 			if record.Flagger == msg.Creator {
@@ -117,9 +120,13 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 		return nil, errorsmod.Wrap(err, "failed to store flag")
 	}
 
-	// Update FlagExpiry index: remove old entry (if any), add new one
-	// Use lastFlagAt + expiration for the expiry key
-	// Old entries with different expiry will be cleaned by the EndBlocker
+	// Update FlagExpiry index: remove old entry (if any), add new one.
+	// Using prev_last_flag_at + expiration as the stale key so we don't leave
+	// orphan expiry rows behind when a subsequent flag lands in a new block.
+	if !flagIsNew && prevLastFlagAt > 0 {
+		prevExpiry := prevLastFlagAt + params.FlagExpirationBlocks
+		_ = k.FlagExpiry.Remove(ctx, collections.Join(prevExpiry, flagKey))
+	}
 	expiryBlock := blockHeight + params.FlagExpirationBlocks
 	if err := k.FlagExpiry.Set(ctx, collections.Join(expiryBlock, flagKey)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set flag expiry")

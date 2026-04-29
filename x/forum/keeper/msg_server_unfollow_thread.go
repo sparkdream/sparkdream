@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -28,6 +29,9 @@ func (k msgServer) UnfollowThread(ctx context.Context, msg *types.MsgUnfollowThr
 	if err := k.ThreadFollow.Remove(ctx, followKey); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to remove follow record")
 	}
+	// FORUM-S2-8: drop the bidirectional indexes too.
+	_ = k.FollowersByThread.Remove(ctx, collections.Join(msg.ThreadId, msg.Creator))
+	_ = k.ThreadsByFollower.Remove(ctx, collections.Join(msg.Creator, msg.ThreadId))
 
 	// Update follow count
 	followCount, err := k.ThreadFollowCount.Get(ctx, msg.ThreadId)

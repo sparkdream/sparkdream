@@ -152,6 +152,7 @@ func TestMsgCreateMarket(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Init fresh fixture
 			f := initFixture(t)
+			f.keeper.SetRepKeeper(&stubRepKeeper{trust: reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED})
 			ms := keeper.NewMsgServerImpl(f.keeper)
 			ctx := sdk.UnwrapSDKContext(f.ctx)
 
@@ -177,9 +178,8 @@ func TestMsgCreateMarket(t *testing.T) {
 	}
 }
 
-// TestMsgCreateMarket_TrustLevelGating covers FUTARCHY-6: once a RepKeeper is
-// wired, CreateMarket requires the caller to have ESTABLISHED+ trust level.
-// The existing tests above exercise the no-repKeeper (dev) fallback.
+// TestMsgCreateMarket_TrustLevelGating covers FUTARCHY-6: CreateMarket
+// requires the caller to have ESTABLISHED+ trust level via the wired RepKeeper.
 func TestMsgCreateMarket_TrustLevelGating(t *testing.T) {
 	alice := sdk.AccAddress([]byte("alice_trust_test___"))
 

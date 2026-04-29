@@ -12,6 +12,7 @@ import (
 
 	"sparkdream/x/collect/types"
 	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestPruneExpiredCollections(t *testing.T) {
@@ -115,12 +116,8 @@ func TestPruneUnappealedHides(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.CollectionStatus_COLLECTION_STATUS_HIDDEN, coll.Status)
 
-	// Track bond release
-	var bondReleased bool
-	f.forumKeeper.releaseBondCommitmentFn = func(_ context.Context, _ string, _ math.Int, _ string, _ uint64) error {
-		bondReleased = true
-		return nil
-	}
+	// Capture pre-prune commitment so we can verify ReleaseBond fires.
+	preCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
 
 	// Advance past hide_expiry_blocks (default 100800)
 	// Hidden at block 100, appeal deadline = 100 + 100800 = 100900
@@ -138,8 +135,9 @@ func TestPruneUnappealedHides(t *testing.T) {
 	_, err = f.keeper.Collection.Get(f.ctx, collID)
 	require.Error(t, err)
 
-	// Verify sentinel bond was released
-	require.True(t, bondReleased)
+	// Verify sentinel bond was released (TotalCommittedBond decreased).
+	postCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	require.NotEqual(t, preCommitted, postCommitted, "expected ReleaseBond to reduce total_committed_bond")
 }
 
 func TestPruneAppealTimeouts(t *testing.T) {
@@ -188,12 +186,8 @@ func TestPruneAppealTimeouts(t *testing.T) {
 		return nil
 	}
 
-	// Track bond release
-	var bondReleased bool
-	f.forumKeeper.releaseBondCommitmentFn = func(_ context.Context, _ string, _ math.Int, _ string, _ uint64) error {
-		bondReleased = true
-		return nil
-	}
+	// Capture pre-prune commitment so we can verify ReleaseBond fires.
+	preCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
 
 	// Advance past appeal_deadline_blocks (default 201600)
 	// Appeal was filed, new deadline = current_block + 201600
@@ -216,8 +210,9 @@ func TestPruneAppealTimeouts(t *testing.T) {
 	require.True(t, refundCalled)
 	require.True(t, burnCalled)
 
-	// Verify sentinel bond released
-	require.True(t, bondReleased)
+	// Verify sentinel bond released (TotalCommittedBond decreased).
+	postCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	require.NotEqual(t, preCommitted, postCommitted, "expected ReleaseBond to reduce total_committed_bond")
 }
 
 func TestPruneExpiredFlags(t *testing.T) {

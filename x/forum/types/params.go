@@ -5,6 +5,8 @@ import (
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // DefaultMinSentinelBond is the minimum DREAM required to be a sentinel
@@ -169,6 +171,11 @@ func (p Params) Validate() error {
 	if p.EphemeralTtl <= 0 {
 		return fmt.Errorf("ephemeral_ttl must be positive: %d", p.EphemeralTtl)
 	}
+	if p.MinSentinelTrustLevel != "" {
+		if _, ok := reptypes.TrustLevel_value[p.MinSentinelTrustLevel]; !ok {
+			return fmt.Errorf("invalid min_sentinel_trust_level: %s", p.MinSentinelTrustLevel)
+		}
+	}
 	return nil
 }
 
@@ -259,6 +266,11 @@ func (p ForumOperationalParams) Validate() error {
 	}
 	if p.ConvictionRenewalPeriod < 0 {
 		return fmt.Errorf("conviction_renewal_period cannot be negative: %d", p.ConvictionRenewalPeriod)
+	}
+	if p.MinSentinelTrustLevel != "" {
+		if _, ok := reptypes.TrustLevel_value[p.MinSentinelTrustLevel]; !ok {
+			return fmt.Errorf("invalid min_sentinel_trust_level: %s", p.MinSentinelTrustLevel)
+		}
 	}
 	return nil
 }

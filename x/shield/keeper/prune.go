@@ -24,6 +24,7 @@ func (k Keeper) pruneStaleState(ctx context.Context, currentEpoch uint64) {
 	// 1. Prune identity rate limits from old epochs.
 	if currentEpoch > 1 {
 		_ = k.PruneIdentityRateLimits(ctx, currentEpoch-1)
+		_ = k.PruneSubmitterRateLimits(ctx, currentEpoch-1)
 	}
 
 	// 2. Prune epoch-scoped nullifiers.

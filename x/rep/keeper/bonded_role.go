@@ -60,8 +60,14 @@ func (k Keeper) GetAvailableBond(ctx context.Context, roleType types.RoleType, a
 	if err != nil {
 		return math.ZeroInt(), nil
 	}
-	current := parseIntOrZero(br.CurrentBond)
-	committed := parseIntOrZero(br.TotalCommittedBond)
+	current, err := parseIntOrZero(br.CurrentBond)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	committed, err := parseIntOrZero(br.TotalCommittedBond)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
 	available := current.Sub(committed)
 	if available.IsNegative() {
 		return math.ZeroInt(), nil
@@ -83,8 +89,14 @@ func (k Keeper) ReserveBond(ctx context.Context, roleType types.RoleType, addr s
 	if err != nil {
 		return errorsmod.Wrapf(types.ErrBondedRoleNotFound, "%s:%s", roleType.String(), addr)
 	}
-	current := parseIntOrZero(br.CurrentBond)
-	committed := parseIntOrZero(br.TotalCommittedBond)
+	current, err := parseIntOrZero(br.CurrentBond)
+	if err != nil {
+		return err
+	}
+	committed, err := parseIntOrZero(br.TotalCommittedBond)
+	if err != nil {
+		return err
+	}
 	available := current.Sub(committed)
 	if available.LT(amount) {
 		return errorsmod.Wrapf(types.ErrInsufficientBond,
@@ -108,7 +120,10 @@ func (k Keeper) ReleaseBond(ctx context.Context, roleType types.RoleType, addr s
 	if err != nil {
 		return errorsmod.Wrapf(types.ErrBondedRoleNotFound, "%s:%s", roleType.String(), addr)
 	}
-	committed := parseIntOrZero(br.TotalCommittedBond)
+	committed, err := parseIntOrZero(br.TotalCommittedBond)
+	if err != nil {
+		return err
+	}
 	released := committed.Sub(amount)
 	if released.IsNegative() {
 		released = math.ZeroInt()
@@ -133,8 +148,14 @@ func (k Keeper) SlashBond(ctx context.Context, roleType types.RoleType, addr str
 	if err != nil {
 		return errorsmod.Wrapf(types.ErrBondedRoleNotFound, "%s:%s", roleType.String(), addr)
 	}
-	current := parseIntOrZero(br.CurrentBond)
-	committed := parseIntOrZero(br.TotalCommittedBond)
+	current, err := parseIntOrZero(br.CurrentBond)
+	if err != nil {
+		return err
+	}
+	committed, err := parseIntOrZero(br.TotalCommittedBond)
+	if err != nil {
+		return err
+	}
 
 	// Cap the slash at current_bond (can't slash more than exists).
 	slash := amount
@@ -288,8 +309,10 @@ func (k Keeper) computeBondStatus(ctx context.Context, roleType types.RoleType, 
 		}
 		return types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
 	}
-	minBond := parseIntOrZero(cfg.MinBond)
-	demotionThreshold := parseIntOrZero(cfg.DemotionThreshold)
+	// SetBondedRoleConfig validates these fields on write, so a parse error here
+	// signals corrupt state and must not be silently coerced to zero.
+	minBond := mustParseIntOrZero(cfg.MinBond)
+	demotionThreshold := mustParseIntOrZero(cfg.DemotionThreshold)
 	switch {
 	case currentBond.GTE(minBond):
 		return types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL
@@ -300,14 +323,26 @@ func (k Keeper) computeBondStatus(ctx context.Context, roleType types.RoleType, 
 	}
 }
 
-// parseIntOrZero parses a math.Int-string, returning zero on empty or parse failure.
-func parseIntOrZero(s string) math.Int {
+// parseIntOrZero parses a math.Int-string; empty strings map to zero. A non-empty
+// string that fails to parse is a data-corruption error — callers decide whether
+// to propagate or, in genesis paths where the chain cannot boot, to panic.
+func parseIntOrZero(s string) (math.Int, error) {
 	if s == "" {
-		return math.ZeroInt()
+		return math.ZeroInt(), nil
 	}
 	v, ok := math.NewIntFromString(s)
 	if !ok {
-		return math.ZeroInt()
+		return math.ZeroInt(), fmt.Errorf("invalid math.Int string: %q", s)
+	}
+	return v, nil
+}
+
+// mustParseIntOrZero is a thin wrapper for genesis-loading paths where a parse
+// failure indicates corrupt state and the chain cannot safely boot.
+func mustParseIntOrZero(s string) math.Int {
+	v, err := parseIntOrZero(s)
+	if err != nil {
+		panic(fmt.Errorf("corrupt bonded role field: %w", err))
 	}
 	return v
 }

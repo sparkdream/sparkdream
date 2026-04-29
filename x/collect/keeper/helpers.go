@@ -106,6 +106,16 @@ func (k Keeper) IsCollaborator(ctx context.Context, collectionID uint64, address
 
 // --- Target resolution ---
 
+// GetCollectionOwner returns the owner address of the given collection. Used
+// by x/rep to resolve true owners for content self-stake prevention.
+func (k Keeper) GetCollectionOwner(ctx context.Context, collectionID uint64) (string, error) {
+	coll, err := k.Collection.Get(ctx, collectionID)
+	if err != nil {
+		return "", fmt.Errorf("collection %d not found: %w", collectionID, err)
+	}
+	return coll.Owner, nil
+}
+
 // GetCollectionForTarget resolves the parent collection for a target (collection or item).
 func (k Keeper) GetCollectionForTarget(ctx context.Context, targetType types.FlagTargetType, targetID uint64) (types.Collection, error) {
 	switch targetType {
@@ -402,15 +412,9 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			if hr.Appealed && !hr.Resolved {
 				// Burn escrowed appeal fee
 				k.BurnSPARK(ctx, params.AppealFee) //nolint:errcheck
-				// Release sentinel bond
-				if k.forumKeeper != nil {
-					k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
-				}
-			} else if !hr.Resolved {
-				// Unappealed hide: release sentinel bond
-				if k.forumKeeper != nil {
-					k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
-				}
+			}
+			if !hr.Resolved && k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 			}
 			hr.Resolved = true
 			k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
@@ -588,13 +592,9 @@ func (k Keeper) cleanupItemHideRecords(ctx context.Context, item types.Item, par
 			}
 			if hr.Appealed && !hr.Resolved {
 				k.BurnSPARK(ctx, params.AppealFee) //nolint:errcheck
-				if k.forumKeeper != nil {
-					k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
-				}
-			} else if !hr.Resolved {
-				if k.forumKeeper != nil {
-					k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
-				}
+			}
+			if !hr.Resolved && k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 			}
 			hr.Resolved = true
 			k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
@@ -701,6 +701,16 @@ func attrsToValues(attrs []*types.KeyValuePair) []types.KeyValuePair {
 // isTTLCollection returns true if the collection has a TTL and deposits are held (not burned).
 func isTTLCollection(coll types.Collection) bool {
 	return coll.ExpiresAt > 0 && !coll.DepositBurned
+}
+
+// decrementItemCount saturates at zero to avoid uint64 underflow when a
+// collection's item counter has drifted below the decrement amount.
+func (k Keeper) decrementItemCount(coll *types.Collection, n uint64) {
+	if coll.ItemCount < n {
+		coll.ItemCount = 0
+	} else {
+		coll.ItemCount -= n
+	}
 }
 
 // validateReferenceFields validates that the correct reference is set for the given type

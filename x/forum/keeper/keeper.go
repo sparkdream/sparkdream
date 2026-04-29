@@ -44,6 +44,14 @@ type Keeper struct {
 	ExpirationQueue       collections.KeySet[collections.Pair[int64, uint64]]
 	PostVote              collections.KeySet[collections.Pair[uint64, string]]
 	ActiveBountyByThread  collections.Map[uint64, uint64]
+
+	// FORUM-S2-8 secondary indexes for paginated / prefix queries.
+	PostsByPinned     collections.KeySet[collections.Pair[uint64, uint64]]
+	PostsByUpvotes    collections.KeySet[collections.Pair[uint64, uint64]]
+	FollowersByThread collections.KeySet[collections.Pair[uint64, string]]
+	ThreadsByFollower collections.KeySet[collections.Pair[string, uint64]]
+	BountiesByCreator collections.KeySet[collections.Pair[string, uint64]]
+	BountiesByExpiry  collections.KeySet[collections.Pair[int64, uint64]]
 }
 
 func NewKeeper(
@@ -98,6 +106,19 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey),
 		),
 		ActiveBountyByThread: collections.NewMap(sb, types.ActiveBountyByThreadKey, "activeBountyByThread", collections.Uint64Key, collections.Uint64Value),
+
+		PostsByPinned: collections.NewKeySet(sb, types.PostsByPinnedKey, "postsByPinned",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		PostsByUpvotes: collections.NewKeySet(sb, types.PostsByUpvotesKey, "postsByUpvotes",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		FollowersByThread: collections.NewKeySet(sb, types.FollowersByThreadKey, "followersByThread",
+			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey)),
+		ThreadsByFollower: collections.NewKeySet(sb, types.ThreadsByFollowerKey, "threadsByFollower",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		BountiesByCreator: collections.NewKeySet(sb, types.BountiesByCreatorKey, "bountiesByCreator",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		BountiesByExpiry: collections.NewKeySet(sb, types.BountiesByExpiryKey, "bountiesByExpiry",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 	}
 	schema, err := sb.Build()
 	if err != nil {

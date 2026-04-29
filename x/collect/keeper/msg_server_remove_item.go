@@ -90,7 +90,7 @@ func (k msgServer) RemoveItem(ctx context.Context, msg *types.MsgRemoveItem) (*t
 	}
 
 	// Update collection
-	coll.ItemCount--
+	k.decrementItemCount(&coll, 1)
 	coll.UpdatedAt = blockHeight
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update collection")

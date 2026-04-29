@@ -116,7 +116,7 @@ echo ""
 # ========================================================================
 echo "--- PART 2: CREATE A GUILD ---"
 
-GUILD_NAME="TestGuild_$(date +%s)"
+GUILD_NAME="testguild-$(date +%s)"
 GUILD_DESC="A guild for testing x/season functionality"
 
 echo "Creating guild: $GUILD_NAME"

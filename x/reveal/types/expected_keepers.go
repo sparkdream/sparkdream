@@ -50,6 +50,10 @@ type CommonsKeeper interface {
 	IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 	// IsCouncilAuthorized checks if an address is the governance authority, a council policy address, or a committee member
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+	// IsCouncilPolicyOrGov checks ONLY for the gov authority or the council's policy address.
+	// Individual committee membership does NOT satisfy this check — required for actions that
+	// must come through a council vote (e.g. reveal approve/reject/resolve-dispute).
+	IsCouncilPolicyOrGov(ctx context.Context, addr string, council string) bool
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

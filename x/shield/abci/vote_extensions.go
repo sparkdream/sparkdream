@@ -296,8 +296,30 @@ func (h *DKGVoteExtensionHandler) buildDecryptionShareExtension(ctx sdk.Context,
 		return nil, nil
 	}
 
-	// Compute our decryption share
-	share, err := h.keyStore.ComputeDecryptionShare(dkgState.Round, epoch)
+	// SHIELD-S2-2: assemble the encrypted evaluations from every other
+	// validator's CONTRIBUTING contribution that targeted our index. The
+	// keystore decrypts these with our registration private key and sums
+	// them with our own polynomial evaluation at selfIdx to form the
+	// aggregated Shamir share s_self that Lagrange reconstruction expects.
+	selfIdx := valDKGIndex(dkgState, opAddr)
+	if selfIdx == 0 {
+		return nil, fmt.Errorf("operator %s not in expected_validators", opAddr)
+	}
+	contribs := h.keeper.GetAllDKGContributions(ctx)
+	var incomingCiphertexts [][]byte
+	for _, c := range contribs {
+		if c.ValidatorAddress == opAddr {
+			continue // skip self; covered by our local polynomial evaluation
+		}
+		for _, e := range c.EncryptedEvaluations {
+			if e.TargetIndex == selfIdx {
+				incomingCiphertexts = append(incomingCiphertexts, e.Ciphertext)
+				break
+			}
+		}
+	}
+
+	share, err := h.keyStore.ComputeDecryptionShare(dkgState.Round, epoch, selfIdx, incomingCiphertexts)
 	if err != nil {
 		return nil, fmt.Errorf("decryption share computation failed: %w", err)
 	}
@@ -382,6 +404,18 @@ func (h *DKGVoteExtensionHandler) verifyContributionExtension(ext *types.DKGVote
 		if point.Equal(tleSuite.G1().Point().Null()) {
 			return fmt.Errorf("commitment %d is identity", i)
 		}
+	}
+
+	// Validate G2 commitments and pairing consistency: a Byzantine validator
+	// could submit consistent G1 commitments paired with malformed/inconsistent
+	// G2 commitments, which would later cause decryption-share verification to
+	// blame honest validators. Enforce both checks here so verification rejects
+	// the proposal at the source.
+	if err := keeper.ValidateFeldmanCommitmentsG2(ext.FeldmanCommitmentsG2, int(threshold)); err != nil {
+		return fmt.Errorf("invalid G2 commitments: %w", err)
+	}
+	if err := keeper.ValidateFeldmanCommitmentsConsistency(ext.FeldmanCommitments, ext.FeldmanCommitmentsG2); err != nil {
+		return fmt.Errorf("G1/G2 commitment mismatch: %w", err)
 	}
 
 	// Validate encrypted evaluations have non-empty ciphertexts
@@ -481,15 +515,9 @@ func valDKGIndex(state types.DKGState, valAddr string) uint32 {
 }
 
 func computeThreshold(state types.DKGState) uint64 {
-	n := uint64(len(state.ExpectedValidators))
-	num := uint64(state.ThresholdNumerator)
-	den := uint64(state.ThresholdDenominator)
-	if den == 0 || n == 0 {
-		return 0
-	}
-	t := (n * num) / den
-	if t == 0 {
-		t = 1
-	}
-	return t
+	return types.ComputeThreshold(
+		uint64(state.ThresholdNumerator),
+		uint64(state.ThresholdDenominator),
+		uint64(len(state.ExpectedValidators)),
+	)
 }

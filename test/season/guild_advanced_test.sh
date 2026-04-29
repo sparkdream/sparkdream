@@ -316,7 +316,7 @@ echo ""
 # ========================================================================
 echo "--- PART 1: CREATE TEST GUILD FOR ADVANCED OPERATIONS ---"
 
-ADV_GUILD_NAME="AdvTestGuild_$(date +%s)"
+ADV_GUILD_NAME="advtestguild-$(date +%s)"
 ADV_GUILD_DESC="A guild for testing advanced operations"
 
 echo "Creating guild: $ADV_GUILD_NAME"
@@ -645,7 +645,7 @@ if [ -z "$CLAIM_FOUNDER_KEY" ]; then
     CLAIM_GUILD_ID=""
     pass "Create claim test guild (skipped - no account without cooldown)"
 else
-    CLAIM_GUILD_NAME="ClaimTestGuild_$(date +%s)"
+    CLAIM_GUILD_NAME="claimtestguild-$(date +%s)"
     CLAIM_GUILD_DESC="A guild for testing claim founder"
 
     echo "Creating guild: $CLAIM_GUILD_NAME (using $CLAIM_FOUNDER_KEY)"

@@ -335,9 +335,9 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 			k.BurnSPARK(ctx, burnAmount) //nolint:errcheck
 		}
 
-		// Slash sentinel's committed bond
-		if k.forumKeeper != nil {
-			k.forumKeeper.SlashBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
+		// Slash sentinel's reserved bond (appeal upheld → sentinel was wrong)
+		if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+			k.repKeeper.SlashBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount, "collect_hide_appeal_upheld") //nolint:errcheck
 		}
 
 		hr.Resolved = true
@@ -388,7 +388,7 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 					k.Item.Remove(ctx, item.Id)                                         //nolint:errcheck
 					k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id)) //nolint:errcheck
 					k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))   //nolint:errcheck
-					coll.ItemCount--
+					k.decrementItemCount(&coll, 1)
 					coll.UpdatedAt = sdkCtx.BlockHeight()
 					k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
 
@@ -407,11 +407,11 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 		sentinelReward := params.AppealFee.MulRaw(50).Quo(math.NewInt(100))
 		burnAmount := params.AppealFee.Sub(sentinelReward)
 
-		// Send sentinel reward
-		if k.forumKeeper != nil && sentinelReward.IsPositive() {
-			// Release the sentinel's bond commitment (no slash)
-			k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
-			// Reward sentinel from escrowed appeal fee
+		// Sentinel won the appeal — release the reserved bond and reward.
+		if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+			k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+		}
+		if sentinelReward.IsPositive() {
 			sentinelAddr, addrErr := k.addressCodec.StringToBytes(hr.Sentinel)
 			if addrErr == nil {
 				k.RefundSPARK(ctx, sentinelAddr, sentinelReward) //nolint:errcheck

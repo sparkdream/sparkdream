@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 
 	"sparkdream/x/name/types"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -74,12 +76,28 @@ func (k Keeper) IsNameAvailable(ctx context.Context, name string) bool {
 // council membership checks, and scavenge logic — it is intended for
 // cross-module programmatic registration (e.g., guild name reservation).
 func (k Keeper) ClaimName(ctx context.Context, name string, owner string, data string) error {
+	// Normalize and validate the name to match MsgRegisterName's rules.
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return types.ErrInvalidName
+	}
+
+	params := k.GetParams(ctx)
+	if uint64(len(name)) < params.MinNameLength {
+		return errorsmod.Wrapf(types.ErrInvalidName, "name too short (min %d)", params.MinNameLength)
+	}
+	if uint64(len(name)) > params.MaxNameLength {
+		return errorsmod.Wrapf(types.ErrInvalidName, "name too long (max %d)", params.MaxNameLength)
+	}
+	if !validNameRegex.MatchString(name) {
+		return errorsmod.Wrap(types.ErrInvalidName, "name contains invalid characters (allowed: a-z, 0-9, -; cannot start/end with -)")
+	}
+
 	if !k.IsNameAvailable(ctx, name) {
 		return types.ErrNameTaken
 	}
 
 	// Check blocked names
-	params := k.GetParams(ctx)
 	for _, blocked := range params.BlockedNames {
 		if name == blocked {
 			return types.ErrNameReserved
@@ -128,17 +146,37 @@ func (k Keeper) AddNameToOwner(ctx context.Context, owner sdk.AccAddress, name s
 		return err
 	}
 
-	// 2. Ensure OwnerInfo exists for metadata (LastActiveTime, PrimaryName)
-	_, err := k.Owners.Get(ctx, owner.String())
+	// 2. Ensure OwnerInfo exists for metadata (LastActiveTime, PrimaryName).
+	// Acquiring or being assigned a name counts as owner activity, so seed
+	// LastActiveTime on creation; otherwise refresh it on the existing record.
+	now := sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
+	info, err := k.Owners.Get(ctx, owner.String())
 	if err != nil {
 		if !errors.Is(err, collections.ErrNotFound) {
 			return err
 		}
-		// Initialize if not found
-		info := types.OwnerInfo{Address: owner.String()}
+		info = types.OwnerInfo{Address: owner.String(), LastActiveTime: now}
 		return k.Owners.Set(ctx, owner.String(), info)
 	}
-	return nil
+	info.LastActiveTime = now
+	return k.Owners.Set(ctx, owner.String(), info)
+}
+
+// RecordOwnerActivity bumps the LastActiveTime on the OwnerInfo record for the
+// given address. Called from every msg handler that represents the owner
+// taking a public action; lets the scavenge logic (IsOwnerExpired) identify
+// owners who have been silent past the expiration window.
+func (k Keeper) RecordOwnerActivity(ctx context.Context, addr string) error {
+	info, err := k.Owners.Get(ctx, addr)
+	if err != nil {
+		// No OwnerInfo yet (e.g. caller does not own a name): nothing to bump.
+		if errors.Is(err, collections.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	info.LastActiveTime = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
+	return k.Owners.Set(ctx, addr, info)
 }
 
 // --- Helper Implementations ---

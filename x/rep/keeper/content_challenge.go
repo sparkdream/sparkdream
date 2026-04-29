@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 
@@ -380,7 +381,7 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 	}
 
 	// Select jurors (excluding challenger and author)
-	jurors, err := k.SelectContentJury(ctx, params.JurySize, cc.Challenger, cc.Author)
+	jurors, err := k.SelectContentJury(ctx, ccID, params.JurySize, cc.Challenger, cc.Author)
 	if err != nil {
 		return fmt.Errorf("failed to select content jury: %w", err)
 	}
@@ -465,6 +466,7 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 // since content challenges may not have domain-specific tags.
 func (k Keeper) SelectContentJury(
 	ctx context.Context,
+	ccID uint64,
 	jurySize uint32,
 	excludeAddrs ...string,
 ) ([]string, error) {
@@ -531,9 +533,20 @@ func (k Keeper) SelectContentJury(
 		weights[i] = m.totalRep.MustFloat64()
 	}
 
+	// Seed deterministic PRNG from block AppHash XOR ccID to avoid consensus divergence.
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	appHash := sdkCtx.BlockHeader().AppHash
+	var seed int64
+	if len(appHash) >= 8 {
+		seed = int64(binary.BigEndian.Uint64(appHash[:8])) ^ int64(ccID)
+	} else {
+		seed = int64(ccID) ^ sdkCtx.BlockHeight()
+	}
+	rng := rand.New(rand.NewSource(seed))
+
 	selectedJurors := make([]string, 0, jurySize)
 	for i := 0; i < int(jurySize); i++ {
-		selected := contentWeightedRandomSelect(weights)
+		selected := contentWeightedRandomSelect(rng, weights)
 		selectedJurors = append(selectedJurors, eligible[selected].address)
 
 		// Remove selected from pool
@@ -544,18 +557,18 @@ func (k Keeper) SelectContentJury(
 	return selectedJurors, nil
 }
 
-// contentWeightedRandomSelect performs weighted random selection (same as weightedRandomSelect)
-func contentWeightedRandomSelect(weights []float64) int {
+// contentWeightedRandomSelect performs weighted random selection using a deterministic PRNG.
+func contentWeightedRandomSelect(rng *rand.Rand, weights []float64) int {
 	totalWeight := 0.0
 	for _, w := range weights {
 		totalWeight += w
 	}
 
 	if totalWeight <= 0 {
-		return rand.Intn(len(weights))
+		return rng.Intn(len(weights))
 	}
 
-	r := rand.Float64() * totalWeight
+	r := rng.Float64() * totalWeight
 	cumulative := 0.0
 	for i, w := range weights {
 		cumulative += w

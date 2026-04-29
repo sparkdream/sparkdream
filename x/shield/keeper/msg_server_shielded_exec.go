@@ -333,9 +333,11 @@ func (k Keeper) executeInnerMessage(ctx sdk.Context, params types.Params, innerM
 		if err != nil || len(signerBytes) == 0 || !sdk.AccAddress(signerBytes[0]).Equals(moduleAddr) {
 			return nil, types.ErrInvalidInnerMessageSigner
 		}
+	} else {
+		// Neither path could validate the inner signer — fail closed instead of
+		// relying on the operation whitelist alone.
+		return nil, errorsmod.Wrap(types.ErrInvalidInnerMessageSigner, "cannot extract inner message signer for validation")
 	}
-	// If neither check can be performed (no LegacyMsg, no ProtoCodec),
-	// we rely on the registered operation whitelist for security.
 
 	// Check ShieldAware gate: target module MUST explicitly opt in.
 	// Both the governance whitelist (registered operation) AND the ShieldAware gate

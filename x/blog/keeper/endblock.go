@@ -1,10 +1,10 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
-	"strings"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -53,20 +53,28 @@ func (k Keeper) processExpiredContent(ctx context.Context, blockTime int64) {
 	for ; iter.Valid(); iter.Next() {
 		key := iter.Key()
 		// Key format from expiryKey(): {timestamp_8bytes}/{type}/{id_8bytes}
-		// where type separator is "/{type}/"
 		if len(key) < 18 { // 8 (ts) + min 2 (separator) + 8 (id) = 18 minimum
 			continue
 		}
 		expiresAt := int64(binary.BigEndian.Uint64(key[:8]))
-		// Parse "/{type}/" from key[8:]
-		rest := string(key[8:])
-		// rest should be "/{type}/" + 8 bytes of id
-		// The id is the last 8 bytes of the full key
-		idBytes := key[len(key)-8:]
-		id := binary.BigEndian.Uint64(idBytes)
-		// contentType is between the separators
-		middle := rest[:len(rest)-8] // remove id bytes
-		contentType := strings.Trim(middle, "/")
+		// Parse "/{type}/" from key[8:]. Use byte-offset parsing so that raw
+		// id bytes (which may contain '/') cannot corrupt the contentType.
+		rest := key[8:]
+		sep1 := bytes.IndexByte(rest, '/')
+		if sep1 != 0 {
+			continue
+		}
+		afterFirst := rest[sep1+1:]
+		sep2 := bytes.IndexByte(afterFirst, '/')
+		if sep2 < 0 {
+			continue
+		}
+		contentType := string(afterFirst[:sep2])
+		idStart := 8 + sep1 + 1 + sep2 + 1
+		if len(key)-idStart != 8 {
+			continue
+		}
+		id := binary.BigEndian.Uint64(key[idStart:])
 
 		entries = append(entries, expiryEntry{
 			fullKey:     append([]byte{}, key...),
@@ -165,9 +173,11 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 	}
 
 	// Tombstone: clear content, mark deleted
+	k.removeTagIndexEntries(ctx, post.Id, post.Tags)
 	post.Title = ""
 	post.Body = ""
 	post.Status = types.PostStatus_POST_STATUS_DELETED
+	post.Tags = nil
 	k.SetPost(ctx, post)
 	k.RemoveFromExpiryIndex(ctx, expiresAt, "post", id)
 

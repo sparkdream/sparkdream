@@ -91,8 +91,14 @@ func (p Params) Validate() error {
 	if p.DisputeStakeDream.IsNegative() {
 		return fmt.Errorf("dispute stake must be non-negative")
 	}
+	if !p.DisputeStakeDream.IsUint64() {
+		return fmt.Errorf("dispute stake must fit in uint64")
+	}
 	if p.ContestStakeDream.IsNegative() {
 		return fmt.Errorf("contest stake must be non-negative")
+	}
+	if !p.ContestStakeDream.IsUint64() {
+		return fmt.Errorf("contest stake must fit in uint64")
 	}
 
 	return nil

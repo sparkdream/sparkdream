@@ -6,6 +6,7 @@ import (
 	"sparkdream/x/rep/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 const maxTagExpirations = 50
@@ -188,7 +189,15 @@ func (k Keeper) BurnSentinelRewardPoolOverflow(ctx context.Context) error {
 		return nil
 	}
 
+	// BurnCoins requires a registered module account with Burner permission, so
+	// move the overflow from the sentinel sub-address to the rep module account
+	// (which holds Burner) and then burn from there. The two ops are atomic
+	// inside this BeginBlocker call, so no other path observes the intermediate
+	// balance on the rep module account.
 	coins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, burnAmount))
+	if err := k.bankKeeper.SendCoins(ctx, SentinelRewardPoolAddress(), authtypes.NewModuleAddress(types.ModuleName), coins); err != nil {
+		return fmt.Errorf("move sentinel overflow to module account: %w", err)
+	}
 	if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins); err != nil {
 		return fmt.Errorf("burn sentinel reward pool overflow: %w", err)
 	}
@@ -209,9 +218,15 @@ func (k Keeper) BurnSentinelRewardPoolOverflow(ctx context.Context) error {
 func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	expired := 0
+	// Collect candidates during iteration, remove after the iterator closes
+	// to avoid mutation-during-iteration undefined behavior.
+	type expiredTag struct {
+		name            string
+		expirationIndex int64
+	}
+	var toRemove []expiredTag
 	err := k.Tag.Walk(ctx, nil, func(name string, tag types.Tag) (bool, error) {
-		if expired >= maxTagExpirations {
+		if len(toRemove) >= maxTagExpirations {
 			return true, nil
 		}
 		if tag.ExpirationIndex <= 0 {
@@ -223,19 +238,28 @@ func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
 		if reserved, rErr := k.ReservedTag.Has(ctx, name); rErr == nil && reserved {
 			return false, nil
 		}
-		if rmErr := k.Tag.Remove(ctx, name); rmErr != nil {
-			sdkCtx.Logger().Error("failed to remove expired tag", "tag", name, "error", rmErr)
-			return false, nil
-		}
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("tag_expired",
-			sdk.NewAttribute("tag_name", name),
-			sdk.NewAttribute("expiration_index", fmt.Sprintf("%d", tag.ExpirationIndex)),
-		))
-		expired++
+		toRemove = append(toRemove, expiredTag{name: name, expirationIndex: tag.ExpirationIndex})
 		return false, nil
 	})
 	if err != nil {
 		return nil
+	}
+
+	expired := 0
+	for _, t := range toRemove {
+		if rmErr := k.Tag.Remove(ctx, t.name); rmErr != nil {
+			sdkCtx.Logger().Error("failed to remove expired tag", "tag", t.name, "error", rmErr)
+			continue
+		}
+		if k.late.forumKeeper != nil {
+			// Best-effort cleanup of stale references; non-fatal.
+			_ = k.late.forumKeeper.PruneTagReferences(ctx, t.name)
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("tag_expired",
+			sdk.NewAttribute("tag_name", t.name),
+			sdk.NewAttribute("expiration_index", fmt.Sprintf("%d", t.expirationIndex)),
+		))
+		expired++
 	}
 	if expired > 0 {
 		sdkCtx.Logger().Info("expired tags", "count", expired)

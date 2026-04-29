@@ -5,6 +5,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -18,27 +19,30 @@ func (q queryServer) UserBounties(ctx context.Context, req *types.QueryUserBount
 		return nil, status.Error(codes.InvalidArgument, "user address required")
 	}
 
-	// Find first bounty created by this user (simplified - in production would return list)
-	var userBounty *types.Bounty
+	// FORUM-S2-8: prefix-walk BountiesByCreator instead of scanning all bounties.
+	rng := collections.NewPrefixedPairRange[string, uint64](req.User)
 
-	err := q.k.Bounty.Walk(ctx, nil, func(key uint64, bounty types.Bounty) (bool, error) {
-		if bounty.Creator == req.User {
-			userBounty = &bounty
-			return true, nil // Stop after first
+	var resp types.QueryUserBountiesResponse
+	found := false
+
+	err := q.k.BountiesByCreator.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+		bid := key.K2()
+		b, getErr := q.k.Bounty.Get(ctx, bid)
+		if getErr != nil {
+			return false, nil
 		}
-		return false, nil
+		resp.BountyId = b.Id
+		resp.ThreadId = b.ThreadId
+		resp.Status = uint64(b.Status)
+		found = true
+		return true, nil
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if userBounty != nil {
-		return &types.QueryUserBountiesResponse{
-			BountyId: userBounty.Id,
-			ThreadId: userBounty.ThreadId,
-			Status:   uint64(userBounty.Status),
-		}, nil
+	if !found {
+		return &types.QueryUserBountiesResponse{}, nil
 	}
-
-	return &types.QueryUserBountiesResponse{}, nil
+	return &resp, nil
 }

@@ -44,6 +44,9 @@ func (k msgServer) ContestDispute(goCtx context.Context, msg *types.MsgContestDi
 
 	// 5. Lock owner's DREAM stake
 	contestStake := params.ContestStakeDream
+	if !contestStake.IsUint64() {
+		return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "contest stake amount too large for uint64: %s", contestStake.String())
+	}
 	if err := k.dreamOps.Lock(ctx, msg.Authority, contestStake.Uint64()); err != nil {
 		return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to lock contest DREAM stake: %s", err)
 	}
@@ -63,6 +66,11 @@ func (k msgServer) ContestDispute(goCtx context.Context, msg *types.MsgContestDi
 		Amount:      contestStake,
 	}
 	if err := k.ContestStakes.Set(ctx, contestChallengeID, contestStakeRecord); err != nil {
+		return nil, err
+	}
+
+	// Contesting a dispute is a public owner action; refresh activity.
+	if err := k.RecordOwnerActivity(ctx, msg.Authority); err != nil {
 		return nil, err
 	}
 

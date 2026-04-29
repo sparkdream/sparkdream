@@ -39,5 +39,10 @@ func (k msgServer) SetPrimary(goCtx context.Context, msg *types.MsgSetPrimary) (
 		return nil, err
 	}
 
+	// Refresh owner activity so the owner's other names do not become scavengeable.
+	if err := k.RecordOwnerActivity(ctx, msg.Authority); err != nil {
+		return nil, err
+	}
+
 	return &types.MsgSetPrimaryResponse{}, nil
 }

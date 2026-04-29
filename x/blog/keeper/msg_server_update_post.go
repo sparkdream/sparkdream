@@ -83,16 +83,27 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Validate tags and bump usage metadata for any new tags on this edit.
-	// Forum increments on every edit that carries tags (even if the tag set is
-	// unchanged) — match that precedent so usage_count reflects activity.
+	oldTags := val.Tags
+
+	// Validate the full new tag set without touching usage metadata, then bump
+	// usage only for tags genuinely new on this edit (diff vs oldTags).
 	if len(msg.Tags) > 0 {
-		if err := k.validatePostTags(ctx, msg.Tags, sdkCtx.BlockTime().Unix()); err != nil {
+		if err := k.validatePostTagsNoIncrement(ctx, msg.Tags); err != nil {
 			return nil, err
 		}
+		oldSet := make(map[string]struct{}, len(oldTags))
+		for _, t := range oldTags {
+			oldSet[t] = struct{}{}
+		}
+		now := sdkCtx.BlockTime().Unix()
+		for _, t := range msg.Tags {
+			if _, had := oldSet[t]; !had {
+				if err := k.repKeeper.IncrementTagUsage(ctx, t, now); err != nil {
+					return nil, errorsmod.Wrap(err, "failed to update tag metadata")
+				}
+			}
+		}
 	}
-
-	oldTags := val.Tags
 
 	// Update post fields, preserving existing fields not in update message
 	val.Title = msg.Title

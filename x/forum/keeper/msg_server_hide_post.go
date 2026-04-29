@@ -56,6 +56,9 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		if err != nil {
 			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
 		}
+		if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
+			return nil, errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
+		}
 		repSentinel = br
 		bondSnapshot = br.CurrentBond
 

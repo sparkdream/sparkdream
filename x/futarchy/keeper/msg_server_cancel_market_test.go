@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"fmt"
 	"testing"
 
 	"sparkdream/x/futarchy/keeper"
@@ -145,6 +146,36 @@ func TestCancelMarket_WithTrades(t *testing.T) {
 	market, err := f.keeper.Market.Get(ctx, marketId)
 	require.NoError(t, err)
 	require.Equal(t, "CANCELLED", market.Status)
+
+	// FUTARCHY-S2-1 trapped-funds fix: cancellation with outstanding shares
+	// must snapshot the LMSR settlement price so holders can redeem.
+	require.NotNil(t, market.SettlementPriceYes,
+		"CANCELLED market with non-zero pools must have a settlement price snapshot")
+	require.True(t, market.SettlementPriceYes.IsPositive())
+	require.True(t, market.SettlementPriceYes.LT(math.LegacyOneDec()))
+
+	// Creator's refund must be less than InitialLiquidity (some subsidy was
+	// consumed by the trade) but still positive.
+	withdrawn := *market.LiquidityWithdrawn
+	require.True(t, withdrawn.IsPositive())
+	require.True(t, withdrawn.LT(*market.InitialLiquidity),
+		"cancellation with trades must not refund full subsidy")
+
+	// The trader's YES shares must redeem at p_yes via Redeem.
+	yesDenom := "f/" + uint64ToString(marketId) + "/yes"
+	yesBal := f.bankKeeper.GetBalance(ctx, trader, yesDenom)
+	require.True(t, yesBal.Amount.IsPositive(), "trader should hold YES shares")
+
+	_, err = msgServer.Redeem(ctx, &types.MsgRedeem{
+		Creator:  trader.String(),
+		MarketId: marketId,
+	})
+	require.NoError(t, err, "trader must be able to redeem on CANCELLED market")
+}
+
+func uint64ToString(n uint64) string {
+	// avoid pulling strconv into the test if not already; existing fmt works too.
+	return fmt.Sprintf("%d", n)
 }
 
 func TestCancelMarket_AlreadyResolved(t *testing.T) {

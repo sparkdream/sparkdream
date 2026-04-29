@@ -43,6 +43,17 @@ func initFixture(t *testing.T) *fixture {
 		authority,
 		nil, // bankKeeper
 	)
+	// dreamutil panics when the rep keeper is unwired (NAME-S2-8); wire a
+	// permissive mock so msg-server happy paths can exercise LockDREAM /
+	// BurnDREAM / etc. Tests that need to exercise the unwired-rep failure
+	// mode call k.SetRepKeeper(nil) explicitly.
+	mockRep := newMockRepKeeper()
+	for addr := range alwaysMembers() {
+		mockRep.Members[addr] = true
+	}
+	// nonexistent_____ is the canonical "not a member" address used by IsMember tests.
+	delete(mockRep.Members, sdk.AccAddress([]byte("nonexistent_____")).String())
+	k.SetRepKeeper(mockRep)
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {

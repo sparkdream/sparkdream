@@ -80,8 +80,17 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 		}
 	}
 
-	// Increment upvote count
+	// FORUM-S2-8: keep PostsByUpvotes in sync. Only root posts (threads)
+	// participate in TopPosts; replies are excluded.
+	if post.ParentId == 0 && post.Status == types.PostStatus_POST_STATUS_ACTIVE {
+		_ = k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId))
+	}
 	post.UpvoteCount++
+	if post.ParentId == 0 && post.Status == types.PostStatus_POST_STATUS_ACTIVE {
+		if err := k.PostsByUpvotes.Set(ctx, collections.Join(post.UpvoteCount, post.PostId)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update upvote index")
+		}
+	}
 
 	// Store updated post
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {

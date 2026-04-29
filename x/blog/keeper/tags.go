@@ -18,6 +18,22 @@ import (
 //
 // Mirrors x/forum/keeper.msgServer.validatePostTags.
 func (k Keeper) validatePostTags(ctx context.Context, tags []string, now int64) error {
+	if err := k.validatePostTagsNoIncrement(ctx, tags); err != nil {
+		return err
+	}
+	for _, tagName := range tags {
+		if err := k.repKeeper.IncrementTagUsage(ctx, tagName, now); err != nil {
+			return errorsmod.Wrap(err, "failed to update tag metadata")
+		}
+	}
+	return nil
+}
+
+// validatePostTagsNoIncrement runs the same validation as validatePostTags
+// (format, length, registry existence, reserved check, duplicates, count) but
+// does not touch tag usage metadata. Callers can then selectively increment
+// only genuinely new tags on update paths.
+func (k Keeper) validatePostTagsNoIncrement(ctx context.Context, tags []string) error {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return errorsmod.Wrap(err, "failed to get params")
@@ -59,10 +75,6 @@ func (k Keeper) validatePostTags(ctx context.Context, tags []string, now int64) 
 		}
 		if reserved {
 			return errorsmod.Wrapf(types.ErrReservedTag, "tag %q is reserved", tagName)
-		}
-
-		if err := k.repKeeper.IncrementTagUsage(ctx, tagName, now); err != nil {
-			return errorsmod.Wrap(err, "failed to update tag metadata")
 		}
 	}
 

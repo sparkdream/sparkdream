@@ -2,6 +2,7 @@ package dreamutil
 
 import (
 	"context"
+	"fmt"
 
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/math"
@@ -32,7 +33,7 @@ func NewOps(keeper DREAMKeeper, addressCodec address.Codec) Ops {
 // Lock escrows DREAM tokens for the given address.
 func (o Ops) Lock(ctx context.Context, addr string, amount uint64) error {
 	if o.keeper == nil {
-		return nil
+		panic(fmt.Errorf("dream keeper not wired"))
 	}
 	addrBytes, err := o.addressCodec.StringToBytes(addr)
 	if err != nil {
@@ -44,7 +45,7 @@ func (o Ops) Lock(ctx context.Context, addr string, amount uint64) error {
 // Unlock releases escrowed DREAM tokens for the given address.
 func (o Ops) Unlock(ctx context.Context, addr string, amount uint64) error {
 	if o.keeper == nil {
-		return nil
+		panic(fmt.Errorf("dream keeper not wired"))
 	}
 	addrBytes, err := o.addressCodec.StringToBytes(addr)
 	if err != nil {
@@ -56,7 +57,7 @@ func (o Ops) Unlock(ctx context.Context, addr string, amount uint64) error {
 // Burn destroys DREAM tokens from the given address's locked balance.
 func (o Ops) Burn(ctx context.Context, addr string, amount uint64) error {
 	if o.keeper == nil {
-		return nil
+		panic(fmt.Errorf("dream keeper not wired"))
 	}
 	addrBytes, err := o.addressCodec.StringToBytes(addr)
 	if err != nil {
@@ -68,6 +69,9 @@ func (o Ops) Burn(ctx context.Context, addr string, amount uint64) error {
 // SettleStakes handles the common dispute resolution pattern:
 // the winner's stake is unlocked (returned) and the loser's stake is burned.
 func (o Ops) SettleStakes(ctx context.Context, winnerAddr string, winnerAmount uint64, loserAddr string, loserAmount uint64) error {
+	if o.keeper == nil {
+		panic(fmt.Errorf("dream keeper not wired"))
+	}
 	if err := o.Unlock(ctx, winnerAddr, winnerAmount); err != nil {
 		return err
 	}

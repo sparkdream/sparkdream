@@ -9,7 +9,23 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
+
+// reactionCount returns the count field for a given reaction type.
+func reactionCount(counts types.ReactionCounts, rt types.ReactionType) uint64 {
+	switch rt {
+	case types.ReactionType_REACTION_TYPE_LIKE:
+		return counts.LikeCount
+	case types.ReactionType_REACTION_TYPE_INSIGHTFUL:
+		return counts.InsightfulCount
+	case types.ReactionType_REACTION_TYPE_DISAGREE:
+		return counts.DisagreeCount
+	case types.ReactionType_REACTION_TYPE_FUNNY:
+		return counts.FunnyCount
+	}
+	return 0
+}
 
 // adjustReactionCount modifies a specific reaction count field by delta.
 // For decrement (delta < 0), it checks for underflow and clamps to 0.
@@ -120,6 +136,12 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 		// Different type - change reaction
 		oldType := existing.ReactionType
 		counts := k.GetReactionCounts(ctx, msg.PostId, msg.ReplyId)
+		// Defensive: if the stored count for the old type is already 0, the
+		// reaction-count index is inconsistent with the reaction records.
+		// Reject rather than silently inflating the new-type count.
+		if reactionCount(counts, oldType) == 0 {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "reaction state inconsistent; please remove and re-add reaction")
+		}
 		adjustReactionCount(&counts, oldType, -1)
 		adjustReactionCount(&counts, msg.ReactionType, 1)
 		k.SetReactionCounts(ctx, msg.PostId, msg.ReplyId, counts)

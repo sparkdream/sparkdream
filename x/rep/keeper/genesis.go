@@ -167,11 +167,18 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// Bonded-role configs and records.
 	for _, cfg := range genState.BondedRoleConfigList {
+		// Validate numeric string fields at genesis time so downstream reads can
+		// trust that parseIntOrZero will not surface corruption mid-block.
+		_ = mustParseIntOrZero(cfg.MinBond)
+		_ = mustParseIntOrZero(cfg.DemotionThreshold)
 		if err := k.BondedRoleConfigs.Set(ctx, int32(cfg.RoleType), cfg); err != nil {
 			return err
 		}
 	}
 	for _, br := range genState.BondedRoleList {
+		_ = mustParseIntOrZero(br.CurrentBond)
+		_ = mustParseIntOrZero(br.TotalCommittedBond)
+		_ = mustParseIntOrZero(br.CumulativeRewards)
 		if err := k.BondedRoles.Set(ctx, collections.Join(int32(br.RoleType), br.Address), br); err != nil {
 			return err
 		}

@@ -81,10 +81,24 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 		}
 	}
 
-	// Validate tags (if provided, replace all tags; empty list clears tags)
+	// Validate the full new tag set without touching usage metadata, then bump
+	// usage only for tags genuinely new on this edit (diff vs post.Tags).
+	// Without the diff, repeated edits within the edit window inflate
+	// UsageCount on tags the post already carried.
 	if len(msg.Tags) > 0 {
-		if err := k.validatePostTags(ctx, msg.Tags, now); err != nil {
+		if err := k.validatePostTagsNoIncrement(ctx, msg.Tags); err != nil {
 			return nil, err
+		}
+		oldSet := make(map[string]struct{}, len(post.Tags))
+		for _, t := range post.Tags {
+			oldSet[t] = struct{}{}
+		}
+		for _, t := range msg.Tags {
+			if _, had := oldSet[t]; !had {
+				if err := k.repKeeper.IncrementTagUsage(ctx, t, now); err != nil {
+					return nil, errorsmod.Wrap(err, "failed to update tag metadata")
+				}
+			}
 		}
 	}
 

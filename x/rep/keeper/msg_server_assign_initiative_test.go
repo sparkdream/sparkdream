@@ -34,12 +34,13 @@ func TestMsgServerAssignInitiative(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = ms.AssignInitiative(f.ctx, &types.MsgAssignInitiative{
+			Creator:      assigneeStr,
 			Assignee:     assigneeStr,
 			InitiativeId: 99999,
 		})
 
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to assign initiative")
+		require.Contains(t, err.Error(), "failed to get initiative")
 	})
 
 	t.Run("successful assignment", func(t *testing.T) {
@@ -77,8 +78,9 @@ func TestMsgServerAssignInitiative(t *testing.T) {
 			ReputationScores: map[string]string{"tag": "100.0"},
 		})
 
-		// Assign initiative
+		// Assign initiative — caller is the assignee, satisfying REP-S2-13's consent rule.
 		_, err = ms.AssignInitiative(ctx, &types.MsgAssignInitiative{
+			Creator:      assigneeStr,
 			Assignee:     assigneeStr,
 			InitiativeId: initID,
 		})

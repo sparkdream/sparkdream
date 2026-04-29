@@ -19,17 +19,20 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
-	// If forumKeeper is nil, sentinel operations are not available
-	if k.forumKeeper == nil {
+	if k.repKeeper == nil {
 		return nil, types.ErrNotSentinel
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockHeight := sdkCtx.BlockHeight()
 
-	// Creator must be an active sentinel
-	active, err := k.forumKeeper.IsSentinelActive(ctx, msg.Creator)
-	if err != nil || !active {
+	// Creator must hold an active FORUM_SENTINEL bonded role (the shared
+	// moderation role across forum and collect — see commit c286f48).
+	role, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
+	if err != nil {
+		return nil, types.ErrNotSentinel
+	}
+	if role.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
 		return nil, types.ErrNotSentinel
 	}
 
@@ -69,7 +72,7 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 	}
 
 	// Sentinel must have available bond >= sentinel_commit_amount
-	availableBond, err := k.forumKeeper.GetAvailableBond(ctx, msg.Creator)
+	availableBond, err := k.repKeeper.GetAvailableBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get sentinel bond")
 	}
@@ -106,9 +109,10 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, errorsmod.Wrap(err, "failed to get next hide record ID")
 	}
 
-	// Commit sentinel_commit_amount from sentinel bond
-	if err := k.forumKeeper.CommitBond(ctx, msg.Creator, params.SentinelCommitAmount, types.ModuleName, hideRecordID); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to commit sentinel bond")
+	// Reserve sentinel_commit_amount on the sentinel's bond record. The
+	// committed amount is mirrored on the HideRecord for later release/slash.
+	if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, params.SentinelCommitAmount); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to reserve sentinel bond")
 	}
 
 	appealDeadline := blockHeight + params.HideExpiryBlocks

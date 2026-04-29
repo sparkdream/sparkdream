@@ -360,9 +360,7 @@ func (k Keeper) handleUnappealedHideExpiry(
 					k.RefundSPARK(ctx, ownerAddr, params.PerItemDeposit) //nolint:errcheck
 				}
 				// Decrement item_count and item_deposit_total
-				if coll.ItemCount > 0 {
-					coll.ItemCount--
-				}
+				k.decrementItemCount(&coll, 1)
 				coll.ItemDepositTotal = coll.ItemDepositTotal.Sub(params.PerItemDeposit)
 				if coll.ItemDepositTotal.IsNegative() {
 					coll.ItemDepositTotal = math.ZeroInt() // safety clamp
@@ -397,9 +395,9 @@ func (k Keeper) handleUnappealedHideExpiry(
 		}
 	}
 
-	// Release sentinel's committed bond (no penalty — content was not appealed)
-	if k.forumKeeper != nil {
-		k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
+	// Release sentinel's reserved bond (no penalty — content was not appealed)
+	if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+		k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 	}
 
 	// Mark HideRecord resolved
@@ -486,9 +484,9 @@ func (k Keeper) handleAppealedHideExpiry(
 		k.BurnSPARK(ctx, burnAmt) //nolint:errcheck
 	}
 
-	// Release sentinel's committed bond (no penalty — jury timed out)
-	if k.forumKeeper != nil {
-		k.forumKeeper.ReleaseBondCommitment(ctx, hr.Sentinel, hr.CommittedAmount, types.ModuleName, hr.Id) //nolint:errcheck
+	// Release sentinel's reserved bond (no penalty — jury timed out)
+	if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+		k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 	}
 
 	// Mark HideRecord resolved

@@ -45,8 +45,15 @@ func (k msgServer) SkipTransitionPhase(ctx context.Context, msg *types.MsgSkipTr
 
 	skippedPhase := state.Phase
 
-	// Advance to next phase
-	state.Phase++
+	// Advance to next phase using the canonical sequence helper (avoids naive ++ that
+	// would mis-advance across the non-contiguous retro/snapshot phases).
+	nextPhase := k.nextTransitionPhase(state.Phase)
+	if nextPhase == types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION ||
+		nextPhase == types.TransitionPhase_TRANSITION_PHASE_RESET_REPUTATION {
+		return nil, errorsmod.Wrapf(types.ErrCannotSkipCriticalPhase,
+			"cannot skip into critical phase %s", nextPhase.String())
+	}
+	state.Phase = nextPhase
 	state.ProcessedCount = 0
 	state.LastProcessed = ""
 

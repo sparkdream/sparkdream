@@ -372,9 +372,13 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 	// Include anonymous votes (weight=1 each)
 	anonTally, anonErr := k.AnonVoteTallies.Get(ctx, proposal.Id)
 	if anonErr == nil {
-		anonTotal := anonTally.YesCount + anonTally.NoCount + anonTally.AbstainCount + anonTally.NoWithVetoCount
-		yesWeight = yesWeight.Add(math.LegacyNewDec(int64(anonTally.YesCount)))
-		totalWeight = totalWeight.Add(math.LegacyNewDec(int64(anonTotal)))
+		yesDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.YesCount))
+		noDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.NoCount))
+		abstainDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.AbstainCount))
+		vetoDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.NoWithVetoCount))
+		anonTotalDec := yesDec.Add(noDec).Add(abstainDec).Add(vetoDec)
+		yesWeight = yesWeight.Add(yesDec)
+		totalWeight = totalWeight.Add(anonTotalDec)
 	}
 
 	if totalWeight.IsZero() {
@@ -402,8 +406,12 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 		}
 		// Add anonymous votes to the denominator
 		if anonErr == nil {
-			anonTotal := anonTally.YesCount + anonTally.NoCount + anonTally.AbstainCount + anonTally.NoWithVetoCount
-			groupWeight = groupWeight.Add(math.LegacyNewDec(int64(anonTotal)))
+			yesDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.YesCount))
+			noDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.NoCount))
+			abstainDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.AbstainCount))
+			vetoDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.NoWithVetoCount))
+			anonTotalDec := yesDec.Add(noDec).Add(abstainDec).Add(vetoDec)
+			groupWeight = groupWeight.Add(anonTotalDec)
 		}
 		if groupWeight.IsZero() {
 			return false, nil

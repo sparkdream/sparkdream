@@ -15,8 +15,10 @@ import (
 // (to break cyclic dependencies). All value copies of Keeper share the same
 // pointer, so mutations via SetSeasonKeeper are visible everywhere.
 type lateKeepers struct {
-	seasonKeeper types.SeasonKeeper
-	forumKeeper  types.ForumKeeper
+	seasonKeeper  types.SeasonKeeper
+	forumKeeper   types.ForumKeeper
+	blogKeeper    types.BlogKeeper
+	collectKeeper types.CollectKeeper
 }
 
 type Keeper struct {
@@ -104,6 +106,9 @@ type Keeper struct {
 	TagBudgetSeq      collections.Sequence
 	TagBudgetAward    collections.Map[uint64, types.TagBudgetAward]
 	TagBudgetAwardSeq collections.Sequence
+	// TagBudgetAwardByPost tracks the block height of the most recent award for each
+	// (budget_id, post_id) pair to enforce a cooldown against single-post drain attacks.
+	TagBudgetAwardByPost collections.Map[collections.Pair[uint64, uint64], int64]
 
 	// Bonded-role primitive (generalization of sentinel / curator / verifier).
 	// Key: (role_type int32, address string). Compound key lets one address
@@ -239,6 +244,11 @@ func NewKeeper(
 		TagBudgetSeq:      collections.NewSequence(sb, types.TagBudgetCountKey, "tagBudgetSequence"),
 		TagBudgetAward:    collections.NewMap(sb, types.TagBudgetAwardKey, "tagBudgetAward", collections.Uint64Key, codec.CollValue[types.TagBudgetAward](cdc)),
 		TagBudgetAwardSeq: collections.NewSequence(sb, types.TagBudgetAwardCountKey, "tagBudgetAwardSequence"),
+		TagBudgetAwardByPost: collections.NewMap(
+			sb, types.TagBudgetAwardByPostKey, "tagBudgetAwardByPost",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key),
+			collections.Int64Value,
+		),
 
 		// Bonded-role primitive
 		BondedRoles: collections.NewMap(
@@ -282,6 +292,20 @@ func (k Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
 // into x/rep.
 func (k Keeper) SetForumKeeper(fk types.ForumKeeper) {
 	k.late.forumKeeper = fk
+}
+
+// SetBlogKeeper sets the blog keeper after depinject initialization.
+// Used by stake validation to resolve true content authors for self-stake
+// prevention.
+func (k Keeper) SetBlogKeeper(bk types.BlogKeeper) {
+	k.late.blogKeeper = bk
+}
+
+// SetCollectKeeper sets the collect keeper after depinject initialization.
+// Used by stake validation to resolve true collection owners for self-stake
+// prevention.
+func (k Keeper) SetCollectKeeper(ck types.CollectKeeper) {
+	k.late.collectKeeper = ck
 }
 
 // GetAuthority returns the module's authority.

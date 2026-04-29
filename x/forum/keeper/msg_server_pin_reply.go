@@ -8,6 +8,8 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // PinReply pins a reply within a thread.
@@ -21,7 +23,24 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 	now := sdkCtx.BlockTime().Unix()
 
 	isGov := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
-	isSentinel := k.GetRepTier(ctx, msg.Creator) >= 3 && k.GetSentinelBond(ctx, msg.Creator).GTE(types.DefaultMinSentinelBond)
+
+	// Sentinel gating must use the BondedRole record so DEMOTED sentinels
+	// (overturn streak / SlashBond) cannot pin via residual general stake.
+	// Hide/lock/move use the same check; PinReply was the last bypass.
+	isSentinel := false
+	if !isGov {
+		if k.repKeeper == nil {
+			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
+		}
+		br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
+		if err != nil {
+			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
+		}
+		if br.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
+			return nil, types.ErrSentinelDemoted
+		}
+		isSentinel = true
+	}
 
 	if !isGov && !isSentinel {
 		return nil, errorsmod.Wrap(types.ErrNotSentinel, "only operations committee or qualified sentinels can pin replies")

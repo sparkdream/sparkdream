@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 
 	"sparkdream/x/ecosystem/types"
@@ -13,14 +14,25 @@ import (
 func (k msgServer) Spend(goCtx context.Context, msg *types.MsgSpend) (*types.MsgSpendResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// 1. Authority Check (Gov Module)
-	// Convert the Keeper's stored bytes into a Bech32 string
-	expectedAuthority := sdk.AccAddress(k.GetAuthority()).String()
-	if expectedAuthority != msg.Authority {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "invalid authority: expected %s, got %s", k.GetAuthority(), msg.Authority)
+	// 1. Authority Check (Gov Module) — compare bytes via the address codec to
+	// avoid any bech32-string normalization drift.
+	authorityBytes, err := k.addressCodec.StringToBytes(msg.Authority)
+	if err != nil {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "invalid authority address: %s", err)
+	}
+	if !bytes.Equal(authorityBytes, k.GetAuthority()) {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "invalid authority: got %s", msg.Authority)
 	}
 
-	// 2. Validate Recipient
+	// 2. Validate Amount
+	if !msg.Amount.IsValid() {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidCoins, msg.Amount.String())
+	}
+	if !msg.Amount.IsAllPositive() {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidCoins, "amount must be positive")
+	}
+
+	// 3. Validate Recipient
 	recipient, err := sdk.AccAddressFromBech32(msg.Recipient)
 	if err != nil {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidAddress, "invalid recipient address: %s", err)

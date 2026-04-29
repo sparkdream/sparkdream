@@ -39,16 +39,26 @@ func (k msgServer) SubmitArbiterHash(ctx context.Context, msg *types.MsgSubmitAr
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 
-	// Determine submission key (operator address for identified, hash of creator for anonymous)
-	submitterKey := msg.Creator
-
-	// For identified path: verify it's an active bridge for the same peer, not the submitting operator
-	// (Anonymous path: x/shield has already verified trust level and nullifier uniqueness)
 	creatorBytes, _ := k.addressCodec.StringToBytes(msg.Creator)
 	shieldModuleAddr := k.authKeeper.GetModuleAddress("shield")
 	isShieldModule := shieldModuleAddr != nil && sdk.AccAddress(creatorBytes).Equals(shieldModuleAddr)
-	if !isShieldModule {
+
+	// Determine the submission key. Identified callers key by their bech32
+	// address so the "no double vote per operator" rule has a stable handle.
+	// Anonymous callers key by a monotonic sequence: per-identity uniqueness
+	// is enforced upstream by shield's per-content nullifier scope, so the
+	// federation-side key only needs to keep ArbiterSubmissions entries from
+	// overwriting each other (FEDERATION-S2-5).
+	var submitterKey string
+	if isShieldModule {
+		seq, err := k.ArbiterAnonSubSeq.Next(ctx)
+		if err != nil {
+			return nil, errorsmod.Wrap(err, "failed to allocate anonymous arbiter sequence")
+		}
+		submitterKey = fmt.Sprintf("anon:%d", seq)
+	} else {
 		// Identified path — must be active bridge for same peer
+		submitterKey = msg.Creator
 		bridgeKey := collections.Join(msg.Creator, content.PeerId)
 		_, err := k.BridgeOperators.Get(ctx, bridgeKey)
 		if err != nil {
@@ -71,7 +81,7 @@ func (k msgServer) SubmitArbiterHash(ctx context.Context, msg *types.MsgSubmitAr
 		ContentId:   msg.ContentId,
 		ContentHash: msg.ContentHash,
 		SubmittedAt: blockTime,
-		Operator:    msg.Creator, // empty for anonymous path in production
+		Operator:    msg.Creator, // shield module address for anonymous path
 	}
 	arbiterKey := collections.Join(msg.ContentId, submitterKey)
 	if err := k.ArbiterSubmissions.Set(ctx, arbiterKey, submission); err != nil {

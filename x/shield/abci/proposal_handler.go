@@ -224,6 +224,17 @@ func validateInjectedDKGData(ctx sdk.Context, k keeper.Keeper, data *types.Injec
 					return fmt.Errorf("extension %d commitment %d: invalid: %w", i, j, err)
 				}
 			}
+			// G2 well-formedness + G1/G2 pairing consistency. Without these
+			// the proposer can include a Byzantine contribution whose G2
+			// commitments don't match its G1 commitments, deferring the
+			// failure to decryption-share verification (which then blames
+			// honest validators).
+			if err := keeper.ValidateFeldmanCommitmentsG2(ext.FeldmanCommitmentsG2, int(threshold)); err != nil {
+				return fmt.Errorf("extension %d: invalid G2 commitments: %w", i, err)
+			}
+			if err := keeper.ValidateFeldmanCommitmentsConsistency(ext.FeldmanCommitments, ext.FeldmanCommitmentsG2); err != nil {
+				return fmt.Errorf("extension %d: G1/G2 commitment mismatch: %w", i, err)
+			}
 		}
 	}
 

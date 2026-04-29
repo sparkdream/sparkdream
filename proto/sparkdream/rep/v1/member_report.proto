@@ -18,4 +18,15 @@ message MemberReport {
   repeated string reporters = 10;
   repeated uint64 evidence_post_ids = 11;
   repeated uint64 defense_post_ids = 12;
+  // Per-signer locked bond amounts. Initial reporter and each cosigner lock
+  // different amounts; refunds must use the recorded per-signer amount, not
+  // an averaged share, to prevent cross-signer bond theft.
+  repeated ReporterBondEntry reporter_bonds = 13;
+}
+
+// ReporterBondEntry tracks the DREAM amount locked by a specific reporter
+// or cosigner against a member report.
+message ReporterBondEntry {
+  string address = 1;
+  string amount = 2;
 }

@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	stdmath "math"
 
 	"cosmossdk.io/math"
 
@@ -22,6 +23,10 @@ func TrancheKey(contributionID uint64, trancheID uint32) string {
 // effective_min_votes = max(min_verification_votes, stake_threshold / 5000)
 func EffectiveMinVotes(minVerificationVotes uint32, stakeThreshold math.Int) uint32 {
 	scaled := stakeThreshold.Quo(math.NewInt(5000))
+	// Saturate at MaxUint32 to avoid silent narrowing when stakeThreshold is large.
+	if scaled.GT(math.NewInt(int64(stdmath.MaxUint32))) {
+		return stdmath.MaxUint32
+	}
 	scaledU32 := uint32(scaled.Uint64())
 	if scaledU32 > minVerificationVotes {
 		return scaledU32

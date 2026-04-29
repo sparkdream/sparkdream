@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"go.dedis.ch/kyber/v4"
+	"go.dedis.ch/kyber/v4/encrypt/ecies"
 	"go.dedis.ch/kyber/v4/sign/schnorr"
 )
 
@@ -224,11 +225,36 @@ func (s *DKGLocalKeyStore) SignPoP(round uint64, validatorAddr string) ([]byte, 
 }
 
 // ComputeDecryptionShare computes this validator's epoch decryption share:
-// share_i = private_key_i * H_to_G1(epoch_tag)
-// This is used during ACTIVE phase to produce the share that, when combined
-// with other validators' shares via Lagrange interpolation, reconstructs
-// the epoch decryption key.
-func (s *DKGLocalKeyStore) ComputeDecryptionShare(round uint64, epoch uint64) ([]byte, error) {
+//
+//	share_j = s_j * H_to_G1(epoch_tag)
+//
+// where s_j is the validator's AGGREGATED Shamir share — the sum of every
+// dealer i's polynomial evaluated at j:
+//
+//	s_j = Σ_i p_i(j) = p_self(j) + Σ_{i ≠ self} decrypt(eval_i_to_j)
+//
+// Lagrange reconstruction at x=0 over {(j, share_j)} then yields
+//
+//	Σ_j L_j(0) * share_j = (Σ_j L_j(0) * s_j) * tag = (Σ_i a_{i,0}) * tag = master * tag
+//
+// which is the epoch decryption key. SHIELD-S2-2: the prior implementation
+// returned `a_{self,0} * tag` (registration key only), which fails Lagrange
+// reconstruction for any non-trivial subset and is rejected by the G2
+// pairing check in verifyDecryptionShare.
+//
+// `incomingCiphertexts` is the list of ECIES ciphertexts targeting selfIdx,
+// one per other validator's CONTRIBUTING vote extension. The caller assembles
+// this list from on-chain DKG contributions before invoking.
+func (s *DKGLocalKeyStore) ComputeDecryptionShare(
+	round uint64,
+	epoch uint64,
+	selfIdx uint32,
+	incomingCiphertexts [][]byte,
+) ([]byte, error) {
+	if selfIdx == 0 {
+		return nil, fmt.Errorf("selfIdx must be 1-based, got 0")
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -246,13 +272,61 @@ func (s *DKGLocalKeyStore) ComputeDecryptionShare(round uint64, epoch uint64) ([
 		return nil, fmt.Errorf("invalid private key: %w", err)
 	}
 
+	// Start with our own polynomial evaluated at our own index.
+	selfEval, err := s.evaluatePolynomialFromData(data, selfIdx)
+	if err != nil {
+		return nil, fmt.Errorf("self polynomial eval failed: %w", err)
+	}
+	aggregated := tleSuite.Scalar().Set(selfEval)
+
+	// Add each decrypted incoming evaluation. These are p_i(selfIdx) for i ≠ self.
+	for n, ciphertext := range incomingCiphertexts {
+		plaintext, err := ecies.Decrypt(tleSuite, privKey, ciphertext, nil)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt evaluation %d: %w", n, err)
+		}
+		evalScalar := tleSuite.Scalar()
+		if err := evalScalar.UnmarshalBinary(plaintext); err != nil {
+			return nil, fmt.Errorf("unmarshal evaluation %d: %w", n, err)
+		}
+		aggregated = aggregated.Add(aggregated, evalScalar)
+	}
+
 	// Compute the epoch tag: H_to_G1("shield_epoch_<N>")
 	epochData := fmt.Appendf(nil, "shield_epoch_%d", epoch)
 	epochTag := tleSuite.Point().Pick(tleSuite.XOF(epochData))
 
-	// share_i = private_key_i * epochTag
-	sharePoint := tleSuite.Point().Mul(privKey, epochTag)
+	// share_j = s_j * epochTag
+	sharePoint := tleSuite.Point().Mul(aggregated, epochTag)
 	return sharePoint.MarshalBinary()
+}
+
+// evaluatePolynomialFromData evaluates the polynomial loaded from data at j.
+// Caller must hold s.mu (read or write).
+func (s *DKGLocalKeyStore) evaluatePolynomialFromData(data *dkgLocalKeyData, j uint32) (kyber.Scalar, error) {
+	if len(data.PolynomialHex) == 0 {
+		return nil, fmt.Errorf("no polynomial stored for round %d", data.Round)
+	}
+
+	poly := make([]kyber.Scalar, len(data.PolynomialHex))
+	for i, h := range data.PolynomialHex {
+		b, err := hex.DecodeString(h)
+		if err != nil {
+			return nil, fmt.Errorf("invalid polynomial coeff %d: %w", i, err)
+		}
+		poly[i] = tleSuite.Scalar()
+		if err := poly[i].UnmarshalBinary(b); err != nil {
+			return nil, fmt.Errorf("invalid polynomial coeff %d: %w", i, err)
+		}
+	}
+
+	jScalar := tleSuite.Scalar().SetInt64(int64(j))
+	result := tleSuite.Scalar().Zero()
+	for i := len(poly) - 1; i >= 0; i-- {
+		result = result.Mul(result, jScalar)
+		result = result.Add(result, poly[i])
+	}
+	return result, nil
 }
 
 // Cleanup removes key files for rounds older than keepRound.

@@ -15,14 +15,16 @@ func (k msgServer) TopUpBridgeStake(ctx context.Context, msg *types.MsgTopUpBrid
 		return nil, errorsmod.Wrap(err, "invalid operator address")
 	}
 
-	// 1. Verify bridge exists and is ACTIVE or UNBONDING
+	// 1. Verify bridge exists and is ACTIVE
 	bridgeKey := collections.Join(msg.Operator, msg.PeerId)
 	bridge, err := k.BridgeOperators.Get(ctx, bridgeKey)
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrBridgeNotFound, "operator %s not found for peer %s", msg.Operator, msg.PeerId)
 	}
-	if bridge.Status != types.BridgeStatus_BRIDGE_STATUS_ACTIVE &&
-		bridge.Status != types.BridgeStatus_BRIDGE_STATUS_UNBONDING {
+	if bridge.Status == types.BridgeStatus_BRIDGE_STATUS_UNBONDING {
+		return nil, errorsmod.Wrap(types.ErrInvalidRequest, "cannot top up unbonding bridge; re-register instead")
+	}
+	if bridge.Status != types.BridgeStatus_BRIDGE_STATUS_ACTIVE {
 		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge status is %s, cannot top up", bridge.Status)
 	}
 

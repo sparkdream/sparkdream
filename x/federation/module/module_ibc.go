@@ -125,7 +125,7 @@ func (im IBCModule) OnRecvPacket(
 		return channeltypes.NewResultAcknowledgement([]byte{0x01})
 
 	case *types.FederationPacketData_ReputationQuery:
-		resp, err := im.keeper.OnRecvReputationQueryPacket(ctx, packet.ReputationQuery)
+		resp, err := im.keeper.OnRecvReputationQueryPacket(ctx, modulePacket.GetSourceChannel(), packet.ReputationQuery)
 		if err != nil {
 			return channeltypes.NewErrorAcknowledgement(err)
 		}

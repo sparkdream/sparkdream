@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/rep/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 // maxAppealTimeoutsPerBlock bounds the EndBlocker work to a safe amount of
@@ -59,7 +60,12 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 	iter.Close()
 
 	for _, p := range toProcess {
-		bond := parseIntOrZero(p.appeal.AppealBond)
+		bond, parseErr := parseIntOrZero(p.appeal.AppealBond)
+		if parseErr != nil {
+			sdkCtx.Logger().Error("invalid appeal bond on timeout",
+				"appeal_id", p.id, "error", parseErr)
+			continue
+		}
 		if bond.IsPositive() {
 			half := bond.QuoRaw(2)
 			refund := bond.Sub(half)
@@ -69,16 +75,23 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 				if addrErr != nil {
 					sdkCtx.Logger().Error("invalid appellant on appeal",
 						"appeal_id", p.id, "error", addrErr)
-				} else if err := k.bankKeeper.SendCoinsFromModuleToAccount(
-					ctx, types.ModuleName, appellantAddr, refundCoins,
+				} else if err := k.bankKeeper.SendCoins(
+					ctx, AppealBondEscrowAddress(), appellantAddr, refundCoins,
 				); err != nil {
 					sdkCtx.Logger().Error("failed to refund appeal bond on timeout",
 						"appeal_id", p.id, "error", err)
 				}
 			}
 			if half.IsPositive() {
+				// Round-trip through the rep module account so BurnCoins has a
+				// module-account identity with Burner permission.
 				burnCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, half))
-				if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, burnCoins); err != nil {
+				if err := k.bankKeeper.SendCoins(
+					ctx, AppealBondEscrowAddress(), authtypes.NewModuleAddress(types.ModuleName), burnCoins,
+				); err != nil {
+					sdkCtx.Logger().Error("failed to move appeal bond half to module account",
+						"appeal_id", p.id, "error", err)
+				} else if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, burnCoins); err != nil {
 					sdkCtx.Logger().Error("failed to burn appeal bond on timeout",
 						"appeal_id", p.id, "error", err)
 				}

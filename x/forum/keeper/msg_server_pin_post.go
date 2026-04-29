@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -54,6 +55,11 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
+	}
+
+	// FORUM-S2-8: index pinned posts by category for the PinnedPosts query.
+	if err := k.PostsByPinned.Set(ctx, collections.Join(post.CategoryId, post.PostId)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update pinned index")
 	}
 
 	// Emit event

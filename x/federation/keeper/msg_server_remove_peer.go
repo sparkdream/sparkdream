@@ -18,7 +18,7 @@ func (k msgServer) RemovePeer(ctx context.Context, msg *types.MsgRemovePeer) (*t
 
 	// 1. Verify authority is governance or Commons Council
 	if !bytes.Equal(k.authority, authorityBytes) {
-		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "") {
+		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
 			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or Commons Council")
 		}
 	}

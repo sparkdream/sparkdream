@@ -167,16 +167,18 @@ func (k Keeper) TrackInitiativeRewardMint(ctx context.Context, amount math.Int) 
 }
 
 // CheckAndTrackEpochMint atomically enforces the per-epoch DREAM mint ceiling
-// (params.MaxDreamMintPerEpoch) and advances the counter. A zero cap disables
-// enforcement. The tracked epoch rolls over automatically on the first mint of
-// a new epoch, so no separate bookkeeping is required in the EndBlocker.
+// (params.MaxDreamMintPerEpoch) and advances the counter. The tracked epoch
+// rolls over automatically on the first mint of a new epoch, so no separate
+// bookkeeping is required in the EndBlocker. Param validation now rejects a
+// zero cap, so an unset/zero cap here is a configuration error rather than an
+// "unbounded" escape hatch.
 func (k Keeper) CheckAndTrackEpochMint(ctx context.Context, amount math.Int) error {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return err
 	}
 	if params.MaxDreamMintPerEpoch.IsNil() || !params.MaxDreamMintPerEpoch.IsPositive() {
-		return nil // unbounded
+		return fmt.Errorf("max_dream_mint_per_epoch must be a positive value (got %v)", params.MaxDreamMintPerEpoch)
 	}
 
 	currentEpoch, err := k.GetCurrentEpoch(ctx)

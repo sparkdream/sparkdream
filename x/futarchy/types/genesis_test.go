@@ -3,10 +3,28 @@ package types_test
 import (
 	"testing"
 
+	"cosmossdk.io/math"
+
 	"sparkdream/x/futarchy/types"
 
 	"github.com/stretchr/testify/require"
 )
+
+func validMarket(index uint64) types.Market {
+	bv := math.LegacyOneDec()
+	pool := math.ZeroInt()
+	tick := math.OneInt()
+	liq := math.ZeroInt()
+	return types.Market{
+		Index:              index,
+		BValue:             &bv,
+		PoolYes:            &pool,
+		PoolNo:             &pool,
+		MinTick:            &tick,
+		InitialLiquidity:   &liq,
+		LiquidityWithdrawn: &liq,
+	}
+}
 
 func TestGenesisState_Validate(t *testing.T) {
 	tests := []struct {
@@ -24,7 +42,7 @@ func TestGenesisState_Validate(t *testing.T) {
 			// Initialize Params using DefaultParams(), otherwise MinLiquidity is 0 (invalid)
 			genState: &types.GenesisState{
 				Params:    types.DefaultParams(),
-				MarketMap: []types.Market{{Index: 0}, {Index: 1}},
+				MarketMap: []types.Market{validMarket(0), validMarket(1)},
 			},
 			valid: true,
 		},
@@ -33,15 +51,8 @@ func TestGenesisState_Validate(t *testing.T) {
 			genState: &types.GenesisState{
 				// Params not strictly needed here because duplicate check happens first,
 				// but good practice to include them.
-				Params: types.DefaultParams(),
-				MarketMap: []types.Market{
-					{
-						Index: 0,
-					},
-					{
-						Index: 0,
-					},
-				},
+				Params:    types.DefaultParams(),
+				MarketMap: []types.Market{validMarket(0), validMarket(0)},
 			},
 			valid: false,
 		},

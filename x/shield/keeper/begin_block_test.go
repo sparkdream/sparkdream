@@ -157,7 +157,7 @@ func TestBeginBlockerEmptyPool(t *testing.T) {
 	require.False(t, distrMock.distributeCalled)
 
 	// No day funding recorded
-	day := uint64(f.ctx.BlockHeight()) / 14400
+	day := uint64(f.ctx.BlockTime().Unix()) / 86400
 	amount := f.keeper.GetDayFunding(f.ctx, day)
 	require.True(t, amount.IsZero())
 }
@@ -184,7 +184,7 @@ func TestBeginBlockerFundingDayCap(t *testing.T) {
 	// Set day funding to max already
 	params, err := f.keeper.Params.Get(f.ctx)
 	require.NoError(t, err)
-	day := uint64(f.ctx.BlockHeight()) / 14400
+	day := uint64(f.ctx.BlockTime().Unix()) / 86400
 	require.NoError(t, f.keeper.SetDayFunding(f.ctx, day, params.MaxFundingPerDay))
 
 	err = f.keeper.BeginBlocker(f.ctx)

@@ -27,6 +27,9 @@ func (gs GenesisState) Validate() error {
 		if _, err := sdk.AccAddressFromBech32(elem.Address); err != nil {
 			return fmt.Errorf("invalid share address %q: %w", elem.Address, err)
 		}
+		if elem.Weight == 0 || elem.Weight > MaxShareWeight {
+			return fmt.Errorf("share %q: weight %d out of range (1..%d)", elem.Address, elem.Weight, MaxShareWeight)
+		}
 		shareIndexMap[index] = struct{}{}
 	}
 

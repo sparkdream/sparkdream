@@ -197,6 +197,27 @@ func processContributions(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGSt
 			continue
 		}
 
+		// Validate G2 commitments and G1/G2 pairing consistency before storing.
+		// A contribution that survives ProcessProposal but fails these checks here
+		// would still be stored verbatim and cause honest validators to be blamed
+		// during decryption-share verification.
+		if err := keeper.ValidateFeldmanCommitmentsG2(ext.FeldmanCommitmentsG2, int(threshold)); err != nil {
+			ctx.Logger().With("module", "x/shield").Debug(
+				"DKG contribution G2 validation failed",
+				"validator", opAddr,
+				"err", err,
+			)
+			continue
+		}
+		if err := keeper.ValidateFeldmanCommitmentsConsistency(ext.FeldmanCommitments, ext.FeldmanCommitmentsG2); err != nil {
+			ctx.Logger().With("module", "x/shield").Debug(
+				"DKG contribution G1/G2 consistency check failed",
+				"validator", opAddr,
+				"err", err,
+			)
+			continue
+		}
+
 		// Verify PoP (Schnorr signature over operator address using a₀)
 		if len(ext.ContributionPop) == 0 || len(ext.FeldmanCommitments) == 0 {
 			continue

@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"cosmossdk.io/math"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 var (
@@ -231,6 +233,9 @@ func (p Params) Validate() error {
 	if p.MinCuratorTrustLevel == "" {
 		return fmt.Errorf("min_curator_trust_level must not be empty")
 	}
+	if _, ok := reptypes.TrustLevel_value[p.MinCuratorTrustLevel]; !ok {
+		return fmt.Errorf("invalid min_curator_trust_level: %s", p.MinCuratorTrustLevel)
+	}
 	if p.MinCuratorAgeBlocks < 0 {
 		return fmt.Errorf("min_curator_age_blocks must be non-negative: %d", p.MinCuratorAgeBlocks)
 	}
@@ -379,6 +384,11 @@ func (op CollectOperationalParams) Validate() error {
 	}
 	if !op.ConvictionRenewalThreshold.IsNil() && op.ConvictionRenewalThreshold.IsNegative() {
 		return fmt.Errorf("conviction_renewal_threshold must be non-negative: %s", op.ConvictionRenewalThreshold)
+	}
+	if op.MinCuratorTrustLevel != "" {
+		if _, ok := reptypes.TrustLevel_value[op.MinCuratorTrustLevel]; !ok {
+			return fmt.Errorf("invalid min_curator_trust_level: %s", op.MinCuratorTrustLevel)
+		}
 	}
 	return nil
 }

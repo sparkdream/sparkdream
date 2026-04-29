@@ -19,29 +19,18 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// Find bounty for thread
-	var bounty types.Bounty
-	var bountyID uint64
-	var found bool
-
-	iter, err := k.Bounty.Iterate(ctx, nil)
+	// Lookup active bounty via the by-thread index (O(1)) instead of scanning
+	// the full bounty table.
+	bountyID, err := k.ActiveBountyByThread.Get(ctx, msg.ThreadId)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to iterate bounties")
-	}
-	defer iter.Close()
-
-	for ; iter.Valid(); iter.Next() {
-		b, _ := iter.Value()
-		if b.ThreadId == msg.ThreadId && b.Status == types.BountyStatus_BOUNTY_STATUS_ACTIVE {
-			bounty = b
-			bountyID = b.Id
-			found = true
-			break
-		}
-	}
-
-	if !found {
 		return nil, errorsmod.Wrap(types.ErrBountyNotFound, fmt.Sprintf("no active bounty for thread %d", msg.ThreadId))
+	}
+	bounty, err := k.Bounty.Get(ctx, bountyID)
+	if err != nil {
+		return nil, errorsmod.Wrap(types.ErrBountyNotFound, fmt.Sprintf("bounty %d not found", bountyID))
+	}
+	if bounty.Status != types.BountyStatus_BOUNTY_STATUS_ACTIVE {
+		return nil, errorsmod.Wrapf(types.ErrBountyNotActive, "bounty status is %s", bounty.Status.String())
 	}
 
 	// Verify creator is the bounty creator
@@ -62,6 +51,13 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 	// Check max winners
 	if uint64(len(bounty.Awards)) >= types.DefaultMaxBountyWinners {
 		return nil, types.ErrMaxBountyWinners
+	}
+
+	// Prevent duplicate awards for the same reply post.
+	for _, existing := range bounty.Awards {
+		if existing.PostId == msg.ReplyId {
+			return nil, errorsmod.Wrap(types.ErrBountyAlreadyAwarded, "reply already received a bounty award")
+		}
 	}
 
 	// Load reply post

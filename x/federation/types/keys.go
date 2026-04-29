@@ -46,8 +46,9 @@ var (
 
 	// --- Sequences ---
 
-	ContentSeqKey          = collections.NewPrefix("fed/seq/content")
+	ContentSeqKey            = collections.NewPrefix("fed/seq/content")
 	OutboundAttestationSeqKey = collections.NewPrefix("fed/seq/outbound")
+	ArbiterAnonSubSeqKey     = collections.NewPrefix("fed/seq/arbiter_anon")
 
 	// --- Secondary Indexes ---
 

@@ -96,17 +96,18 @@ func (k msgServer) UpdateGroupMembers(goCtx context.Context, msg *types.MsgUpdat
 	}
 
 	// 5. Execute — apply changes to native Members collection
-	for _, m := range adds {
-		m.AddedAt = ctx.BlockTime().Unix()
-		if err := k.Members.Set(ctx, collections.Join(councilName, m.Address), m); err != nil {
-			return nil, err
-		}
-	}
+	// Removals first so that "add wins" matches the projection above.
 	for _, addr := range msg.MembersToRemove {
 		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidAddress, "invalid removal address: %s", addr)
 		}
 		_ = k.Members.Remove(ctx, collections.Join(councilName, addr))
+	}
+	for _, m := range adds {
+		m.AddedAt = ctx.BlockTime().Unix()
+		if err := k.Members.Set(ctx, collections.Join(councilName, m.Address), m); err != nil {
+			return nil, err
+		}
 	}
 
 	// 6. Update cooldown

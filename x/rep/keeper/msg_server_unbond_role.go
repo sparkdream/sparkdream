@@ -36,13 +36,19 @@ func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*t
 			"%s:%s", msg.RoleType.String(), msg.Creator)
 	}
 
-	currentBond := parseIntOrZero(br.CurrentBond)
+	currentBond, err := parseIntOrZero(br.CurrentBond)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid current_bond in bonded role record")
+	}
 	if amount.GT(currentBond) {
 		return nil, errorsmod.Wrapf(types.ErrInsufficientBond,
 			"cannot unbond %s, only %s bonded", amount.String(), currentBond.String())
 	}
 
-	committed := parseIntOrZero(br.TotalCommittedBond)
+	committed, err := parseIntOrZero(br.TotalCommittedBond)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid total_committed_bond in bonded role record")
+	}
 	available := currentBond.Sub(committed)
 	if amount.GT(available) {
 		return nil, errorsmod.Wrapf(types.ErrInsufficientBond,
@@ -61,7 +67,14 @@ func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*t
 	cfg, cfgErr := k.GetBondedRoleConfig(ctx, msg.RoleType)
 
 	prevStatus := br.BondStatus
-	br.BondStatus = k.computeBondStatus(ctx, msg.RoleType, newBond)
+	newStatus := k.computeBondStatus(ctx, msg.RoleType, newBond)
+
+	// Reject unbonds that would drop the role below the recovery threshold while actions
+	// are still committed — outstanding liability must remain fully collateralized.
+	if newStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED && committed.IsPositive() {
+		return nil, errorsmod.Wrap(types.ErrInvalidRequest, "cannot unbond below required threshold while bond is committed")
+	}
+	br.BondStatus = newStatus
 
 	// Enter demotion cooldown only when crossing below the RECOVERY floor.
 	if cfgErr == nil &&

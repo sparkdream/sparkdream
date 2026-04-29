@@ -227,7 +227,7 @@ func (k Keeper) payoutSentinelReward(
 	}
 
 	coins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, amount))
-	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, sentinelAddr, coins); err != nil {
+	if err := k.bankKeeper.SendCoins(ctx, SentinelRewardPoolAddress(), sentinelAddr, coins); err != nil {
 		return fmt.Errorf("send coins: %w", err)
 	}
 
@@ -236,7 +236,10 @@ func (k Keeper) payoutSentinelReward(
 	if err != nil {
 		return fmt.Errorf("load bonded role: %w", err)
 	}
-	prev := parseIntOrZero(br.CumulativeRewards)
+	prev, err := parseIntOrZero(br.CumulativeRewards)
+	if err != nil {
+		return fmt.Errorf("invalid cumulative_rewards on bonded role: %w", err)
+	}
 	br.CumulativeRewards = prev.Add(amount).String()
 	br.LastRewardEpoch = int64(epochNum)
 	if err := k.BondedRoles.Set(ctx, key, br); err != nil {

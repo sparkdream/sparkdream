@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/core/address"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -25,6 +26,7 @@ type AuthKeeper interface {
 type BankKeeper interface {
 	SpendableCoins(context.Context, sdk.AccAddress) sdk.Coins
 	GetBalance(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin
+	SendCoins(ctx context.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error
@@ -138,4 +140,24 @@ type ForumKeeper interface {
 	// epoch_appeals_filed / epoch_appeals_resolved). Cumulative counters are
 	// preserved. No-op when the sentinel has no forum record.
 	ResetSentinelEpochCounters(ctx context.Context, addr string) error
+
+	// GetActionCommittedAmount returns the bond amount that was reserved by
+	// the sentinel for the given gov action. Used by the rep appeal-resolver
+	// to release the exact reservation on UPHELD verdicts. Returns zero (no
+	// error) when the record is missing or does not track a committed amount.
+	GetActionCommittedAmount(ctx context.Context, actionType GovActionType, actionTarget string) (math.Int, error)
+}
+
+// BlogKeeper defines the minimal blog surface area required by x/rep to
+// validate self-stake on blog content. Late-wired from app.go.
+type BlogKeeper interface {
+	// GetPostAuthor returns the author address for the given blog post.
+	GetPostAuthor(ctx context.Context, postID uint64) (string, error)
+}
+
+// CollectKeeper defines the minimal collect surface area required by x/rep
+// to validate self-stake on collection content. Late-wired from app.go.
+type CollectKeeper interface {
+	// GetCollectionOwner returns the owner address for the given collection.
+	GetCollectionOwner(ctx context.Context, collectionID uint64) (string, error)
 }

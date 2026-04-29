@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestMsgServerPinReply(t *testing.T) {
@@ -23,9 +24,12 @@ func TestMsgServerPinReply(t *testing.T) {
 		require.Contains(t, err.Error(), "invalid creator address")
 	})
 
-	t.Run("any user with sentinel status can pin", func(t *testing.T) {
-		// Note: With repKeeper=nil stubs, GetRepTier returns 5 and GetSentinelBond returns 2000
-		// So all users are effectively sentinels in tests
+	t.Run("registered sentinel can pin", func(t *testing.T) {
+		// PinReply requires a BondedRole record (ROLE_TYPE_FORUM_SENTINEL) in
+		// non-DEMOTED status, matching hide/lock/move. Register the sentinel
+		// via the helper so the BondedRole lookup succeeds.
+		f.createTestSentinel(t, testCreator, "2000")
+
 		rootPost := f.createTestPost(t, testCreator, 0, 0)
 		reply := f.createTestPost(t, testCreator2, rootPost.PostId, 0)
 
@@ -35,7 +39,47 @@ func TestMsgServerPinReply(t *testing.T) {
 			ReplyId:  reply.PostId,
 		}
 		_, err := f.msgServer.PinReply(f.ctx, msg)
-		require.NoError(t, err) // Passes due to sentinel stub returning high values
+		require.NoError(t, err)
+	})
+
+	t.Run("non-sentinel cannot pin", func(t *testing.T) {
+		rootPost := f.createTestPost(t, testCreator2, 0, 0)
+		reply := f.createTestPost(t, testCreator, rootPost.PostId, 0)
+
+		msg := &types.MsgPinReply{
+			Creator:  testCreator2, // not registered as a sentinel
+			ThreadId: rootPost.PostId,
+			ReplyId:  reply.PostId,
+		}
+		_, err := f.msgServer.PinReply(f.ctx, msg)
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrNotSentinel)
+	})
+
+	t.Run("demoted sentinel cannot pin", func(t *testing.T) {
+		// Register sentinel with DEMOTED status — bypass attempted in
+		// FORUM-S2-5 must be rejected.
+		if f.repKeeper.sentinels == nil {
+			f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
+		}
+		f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
+			Address:            testSentinel,
+			CurrentBond:        "2000",
+			TotalCommittedBond: "0",
+			BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED,
+		}
+
+		rootPost := f.createTestPost(t, testCreator, 0, 0)
+		reply := f.createTestPost(t, testCreator2, rootPost.PostId, 0)
+
+		msg := &types.MsgPinReply{
+			Creator:  testSentinel,
+			ThreadId: rootPost.PostId,
+			ReplyId:  reply.PostId,
+		}
+		_, err := f.msgServer.PinReply(f.ctx, msg)
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrSentinelDemoted)
 	})
 
 	t.Run("thread not found", func(t *testing.T) {

@@ -55,22 +55,19 @@ func TestSyncVerifierBondedRoleConfig_TrustLevelIdToEnumName(t *testing.T) {
 	}
 }
 
-func TestSyncVerifierBondedRoleConfig_NilAmountsNormalizeToZero(t *testing.T) {
+func TestSyncVerifierBondedRoleConfig_NilAmountsPanic(t *testing.T) {
 	f := initFixture(t)
 
-	// Mostly-empty params to exercise the defensive nil-checks on
-	// MinVerifierBond and VerifierRecoveryThreshold.
+	// Nil MinVerifierBond must be rejected upstream by Params.Validate; if it
+	// reaches the sync helper, it panics rather than silently disabling the
+	// bond requirement (FEDERATION-S2-15).
 	params := types.Params{
 		MinVerifierTrustLevel:    2,
 		VerifierDemotionCooldown: 3600 * time.Second,
 	}
-	require.NoError(t, f.keeper.SyncVerifierBondedRoleConfig(f.ctx, params))
-
-	cfg := f.repKeeper.bondedRoleConfigs[reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER]
-	require.Equal(t, "0", cfg.MinBond)
-	require.Equal(t, "0", cfg.DemotionThreshold)
-	require.Equal(t, int64(3600), cfg.DemotionCooldown)
-	require.Equal(t, "TRUST_LEVEL_ESTABLISHED", cfg.MinTrustLevel)
+	require.Panics(t, func() {
+		_ = f.keeper.SyncVerifierBondedRoleConfig(f.ctx, params)
+	})
 }
 
 func TestSyncVerifierBondedRoleConfig_OverwritesExisting(t *testing.T) {

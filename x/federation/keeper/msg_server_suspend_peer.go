@@ -17,7 +17,7 @@ func (k msgServer) SuspendPeer(ctx context.Context, msg *types.MsgSuspendPeer) (
 	}
 
 	if !bytes.Equal(k.authority, authorityBytes) {
-		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "") {
+		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
 			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or Commons Council")
 		}
 	}

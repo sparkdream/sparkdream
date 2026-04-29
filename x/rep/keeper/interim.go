@@ -270,6 +270,9 @@ func (k Keeper) ApproveInterim(
 
 	// If approved, pay assignees and mark complete
 	if approved {
+		if interim.Status != types.InterimStatus_INTERIM_STATUS_IN_PROGRESS && interim.Status != types.InterimStatus_INTERIM_STATUS_PENDING {
+			return fmt.Errorf("interim already finalized: status %s", interim.Status)
+		}
 		// Distribute payment equally among assignees
 		if len(interim.Assignees) > 0 {
 			paymentPerAssignee := interim.Budget.QuoRaw(int64(len(interim.Assignees)))

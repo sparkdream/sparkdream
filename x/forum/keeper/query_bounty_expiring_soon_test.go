@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	"cosmossdk.io/collections"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,6 +47,7 @@ func TestQueryBountyExpiringSoon(t *testing.T) {
 			CreatedAt: now,
 		}
 		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.BountiesByExpiry.Set(f.ctx, collections.Join(bounty.ExpiresAt, bounty.Id)))
 
 		resp, err := qs.BountyExpiringSoon(f.ctx, &types.QueryBountyExpiringSoonRequest{
 			WithinSeconds: 3600, // 1 hour

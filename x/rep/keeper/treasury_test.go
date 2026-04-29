@@ -102,15 +102,12 @@ func TestSeasonCounters_TrackMintAndBurn(t *testing.T) {
 	require.Equal(t, math.NewInt(300), initRewards)
 }
 
-func TestCheckAndTrackEpochMint_UnboundedWhenCapZero(t *testing.T) {
+func TestCheckAndTrackEpochMint_RejectsZeroCap(t *testing.T) {
+	// REP-S2-14: MaxDreamMintPerEpoch=0 is rejected at Validate so it can no
+	// longer be used as an "unbounded" sentinel.
 	params := types.DefaultParams()
 	params.MaxDreamMintPerEpoch = math.ZeroInt()
-	f := initFixture(t, WithCustomParams(params))
-	k := f.keeper
-	ctx := f.ctx
-
-	// A huge mint succeeds when cap is zero (unbounded).
-	require.NoError(t, k.CheckAndTrackEpochMint(ctx, math.NewInt(9_999_999_999_999)))
+	require.Error(t, params.Validate())
 }
 
 func TestCheckAndTrackEpochMint_EnforcesCapWithinEpoch(t *testing.T) {

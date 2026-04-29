@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -75,4 +76,14 @@ func (k Keeper) GetPost(ctx context.Context, id uint64) (val types.Post, found b
 	}
 	k.cdc.MustUnmarshal(b, &val)
 	return val, true
+}
+
+// GetPostAuthor returns the creator address of the given blog post. Used by
+// x/rep to resolve true authors for content self-stake prevention.
+func (k Keeper) GetPostAuthor(ctx context.Context, id uint64) (string, error) {
+	post, found := k.GetPost(ctx, id)
+	if !found {
+		return "", fmt.Errorf("blog post %d not found", id)
+	}
+	return post.Creator, nil
 }

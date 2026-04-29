@@ -9,14 +9,23 @@ import (
 )
 
 // IsShieldCompatible implements x/shield's ShieldAware interface.
-// Returns true for MsgSubmitArbiterHash, which is the only message
-// that anonymous members can submit via x/shield for quorum-based
-// challenge resolution.
-func (k Keeper) IsShieldCompatible(_ context.Context, msg sdk.Msg) bool {
-	switch msg.(type) {
-	case *types.MsgSubmitArbiterHash:
-		return true
-	default:
+// Returns true for MsgSubmitArbiterHash only when the inner message targets a
+// real content record that is currently in CHALLENGED or DISPUTED state. This
+// gives FEDERATION-S2-5 a defensible second line of defense alongside shield's
+// per-content nullifier scope: shield rejects useless submissions before they
+// touch the federation handler at all.
+func (k Keeper) IsShieldCompatible(ctx context.Context, msg sdk.Msg) bool {
+	arbiter, ok := msg.(*types.MsgSubmitArbiterHash)
+	if !ok {
 		return false
 	}
+	if arbiter.ContentId == 0 {
+		return false
+	}
+	content, err := k.Content.Get(ctx, arbiter.ContentId)
+	if err != nil {
+		return false
+	}
+	return content.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_CHALLENGED ||
+		content.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_DISPUTED
 }

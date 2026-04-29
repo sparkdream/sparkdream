@@ -8,6 +8,7 @@ import (
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/rep/keeper"
@@ -59,8 +60,18 @@ func setupResolveFixture(t *testing.T, opts ...FixtureOption) *resolveFixture {
 		sentinel:     sdk.AccAddress([]byte("sentinel_happy__")).String(),
 	}
 
-	// Observe bank transfers / burns.
-	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, amt sdk.Coins) error {
+	// Observe bank transfers / burns. Refunds are transfers FROM the appeal
+	// escrow address TO the appellant; the escrow → module-account hop and
+	// escrow → sentinel-pool hop are excluded.
+	escrowAddr := keeper.AppealBondEscrowAddress()
+	repModuleAddr := authtypes.NewModuleAddress(types.ModuleName)
+	f.bankKeeper.SendCoinsFn = func(_ context.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
+		if !fromAddr.Equals(escrowAddr) {
+			return nil
+		}
+		if toAddr.Equals(repModuleAddr) || toAddr.Equals(keeper.SentinelRewardPoolAddress()) {
+			return nil
+		}
 		rf.refundedCoins = rf.refundedCoins.Add(amt...)
 		return nil
 	}
@@ -306,7 +317,15 @@ func TestTimeoutExpiredAppeals(t *testing.T) {
 	f.keeper.SetForumKeeper(fk)
 
 	var refunded, burned sdk.Coins
-	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, amt sdk.Coins) error {
+	escrowAddr := keeper.AppealBondEscrowAddress()
+	repModuleAddr := authtypes.NewModuleAddress(types.ModuleName)
+	f.bankKeeper.SendCoinsFn = func(_ context.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
+		if !fromAddr.Equals(escrowAddr) {
+			return nil
+		}
+		if toAddr.Equals(repModuleAddr) || toAddr.Equals(keeper.SentinelRewardPoolAddress()) {
+			return nil
+		}
 		refunded = refunded.Add(amt...)
 		return nil
 	}

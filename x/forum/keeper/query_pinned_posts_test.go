@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	"cosmossdk.io/collections"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -39,6 +40,7 @@ func TestQueryPinnedPosts(t *testing.T) {
 		post.PinnedAt = f.sdkCtx().BlockTime().Unix()
 		post.PinPriority = 5
 		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.PostsByPinned.Set(f.ctx, collections.Join(post.CategoryId, post.PostId)))
 
 		resp, err := qs.PinnedPosts(f.ctx, &types.QueryPinnedPostsRequest{})
 		require.NoError(t, err)
@@ -56,6 +58,7 @@ func TestQueryPinnedPosts(t *testing.T) {
 		post.PinnedBy = authority
 		post.PinPriority = 3
 		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.PostsByPinned.Set(f.ctx, collections.Join(post.CategoryId, post.PostId)))
 
 		// Query with category filter
 		resp, err := qs.PinnedPosts(f.ctx, &types.QueryPinnedPostsRequest{CategoryId: cat.CategoryId})

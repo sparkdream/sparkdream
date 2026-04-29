@@ -7,7 +7,6 @@ import (
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -41,16 +40,12 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 	}
 
 	action := types.GovActionType(msg.Action)
-	totalBond, _ := math.NewIntFromString(report.TotalBond)
-	if report.TotalBond == "" {
-		totalBond = math.ZeroInt()
-	}
 
 	memberBytes, _ := k.addressCodec.StringToBytes(msg.Member)
 
 	if action == types.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED {
 		// Dismiss: refund bonds, no slashing.
-		if err := k.refundReportBonds(ctx, report.Reporters, totalBond); err != nil {
+		if err := k.refundReportBonds(ctx, report); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
 		}
 	} else {
@@ -87,7 +82,7 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 				return nil, errorsmod.Wrap(err, "failed to store warning")
 			}
 
-			if err := k.refundReportBonds(ctx, report.Reporters, totalBond); err != nil {
+			if err := k.refundReportBonds(ctx, report); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
 			}
 
@@ -100,7 +95,7 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 			if err := k.ZeroMember(ctx, sdk.AccAddress(memberBytes), msg.Reason); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to zero member")
 			}
-			if err := k.refundReportBonds(ctx, report.Reporters, totalBond); err != nil {
+			if err := k.refundReportBonds(ctx, report); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
 			}
 		}

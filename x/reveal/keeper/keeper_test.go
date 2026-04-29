@@ -152,6 +152,7 @@ func (m *mockRepKeeper) CreateProject(ctx context.Context, creator sdk.AccAddres
 type mockCommonsKeeper struct {
 	isCommitteeMemberFn    func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 	isCouncilAuthorizedFn  func(ctx context.Context, addr string, council string, committee string) bool
+	isCouncilPolicyOrGovFn func(ctx context.Context, addr string, council string) bool
 }
 
 func (m *mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
@@ -164,6 +165,13 @@ func (m *mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.A
 func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
 	if m.isCouncilAuthorizedFn != nil {
 		return m.isCouncilAuthorizedFn(ctx, addr, council, committee)
+	}
+	return true
+}
+
+func (m *mockCommonsKeeper) IsCouncilPolicyOrGov(ctx context.Context, addr string, council string) bool {
+	if m.isCouncilPolicyOrGovFn != nil {
+		return m.isCouncilPolicyOrGovFn(ctx, addr, council)
 	}
 	return true
 }

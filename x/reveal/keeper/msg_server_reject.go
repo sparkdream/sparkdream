@@ -15,9 +15,11 @@ func (k msgServer) Reject(ctx context.Context, msg *types.MsgReject) (*types.Msg
 		return nil, types.ErrUnauthorized.Wrapf("invalid authority address: %s", err)
 	}
 
-	// Verify the caller is authorized: governance authority, council policy, or operations committee.
-	if !k.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
-		return nil, types.ErrUnauthorized.Wrapf("unauthorized: must be governance, council, or operations committee")
+	// Reveal rejections must come through a Commons Council vote (or governance).
+	// Individual committee members cannot unilaterally reject — that would let a
+	// single rogue member kill competitors' contributions.
+	if !k.commonsKeeper.IsCouncilPolicyOrGov(ctx, msg.Authority, "commons") {
+		return nil, types.ErrUnauthorized.Wrapf("unauthorized: must be governance or Commons Council")
 	}
 
 	// Get the contribution

@@ -113,13 +113,13 @@ func (k Keeper) ApproveProject(
 		return fmt.Errorf("project must be in PROPOSED status, got %s", project.Status.String())
 	}
 
-	// Validate approver has authority (Operations Committee member or council policy address)
-	// Council policy addresses pass via IsCouncilAuthorized when projects are approved via council proposals.
-	isCommittee := k.IsOperationsCommittee(ctx, approver)
-	isCouncilAuth := false
-	if k.commonsKeeper != nil {
-		isCouncilAuth = k.commonsKeeper.IsCouncilAuthorized(ctx, approver.String(), project.Council, "operations")
+	// Validate approver has authority (Operations Committee member or council policy address).
+	// commonsKeeper is required: a nil keeper is a configuration error, not an authorization bypass.
+	if k.commonsKeeper == nil {
+		return fmt.Errorf("commons keeper not wired; cannot approve project")
 	}
+	isCommittee := k.IsOperationsCommittee(ctx, approver)
+	isCouncilAuth := k.commonsKeeper.IsCouncilAuthorized(ctx, approver.String(), project.Council, "operations")
 	if !isCommittee && !isCouncilAuth {
 		return fmt.Errorf("approver %s is not authorized (requires Operations Committee or council proposal)", approver.String())
 	}

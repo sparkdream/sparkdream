@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -99,6 +100,10 @@ func (m *mockForumKeeper) ResetSentinelEpochCounters(_ context.Context, addr str
 		}
 	}
 	return nil
+}
+
+func (m *mockForumKeeper) GetActionCommittedAmount(_ context.Context, _ types.GovActionType, _ string) (sdkmath.Int, error) {
+	return sdkmath.ZeroInt(), nil
 }
 
 func TestMsgServerAwardFromTagBudget(t *testing.T) {

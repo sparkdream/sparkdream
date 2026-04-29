@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	"sparkdream/x/futarchy/types"
 
@@ -21,17 +22,17 @@ func (k msgServer) CreateMarket(goCtx context.Context, msg *types.MsgCreateMarke
 	}
 
 	// FUTARCHY-6: Require ESTABLISHED+ trust level to create markets.
-	// This prevents spam market creation while keeping markets accessible to
-	// established community members without requiring council membership.
-	if k.late.repKeeper != nil {
-		trustLevel, err := k.late.repKeeper.GetTrustLevel(ctx, creator)
-		if err != nil {
-			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "market creation requires an active member account")
-		}
-		if trustLevel < reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED {
-			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
-				"market creation requires ESTABLISHED+ trust level (current: %s)", trustLevel.String())
-		}
+	// Fail closed if the rep keeper is not wired: market creation MUST be gated.
+	if k.late.repKeeper == nil {
+		return nil, fmt.Errorf("rep keeper not wired; market creation requires trust-level gating")
+	}
+	trustLevel, err := k.late.repKeeper.GetTrustLevel(ctx, creator)
+	if err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "market creation requires an active member account")
+	}
+	if trustLevel < reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+			"market creation requires ESTABLISHED+ trust level (current: %s)", trustLevel.String())
 	}
 
 	// Calculate duration (EndBlock - Current)

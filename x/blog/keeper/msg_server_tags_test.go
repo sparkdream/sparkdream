@@ -155,9 +155,9 @@ func TestUpdatePostTagsDiff(t *testing.T) {
 	requireListByTag(t, qs, ctx, "b", nil)
 	requireListByTag(t, qs, ctx, "c", []uint64{createResp.Id})
 
-	// Forum's precedent: edits that carry tags IncrementTagUsage for every
-	// tag in the new list (not just added ones).
-	require.Len(t, rep.IncrementTagUsageCalls, 2+2)
+	// IncrementTagUsage fires only for newly-added tags on edit (BLOG-S2-3).
+	// Initial create incremented a, b (2); update added c only (+1).
+	require.Len(t, rep.IncrementTagUsageCalls, 2+1)
 }
 
 func TestDeletePostClearsTagIndex(t *testing.T) {

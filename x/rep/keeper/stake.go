@@ -111,8 +111,10 @@ func (k Keeper) CreateStake(
 		if targetID == 0 {
 			return 0, fmt.Errorf("content ID must be positive")
 		}
-		// Self-stake prevention: targetIdentifier holds author address
-		if targetIdentifier != "" && targetIdentifier == staker.String() {
+		// Self-stake prevention: resolve the true author/owner from the owning
+		// module's keeper. The user-supplied targetIdentifier cannot be trusted
+		// for security checks (an empty or forged value would bypass).
+		if author := k.resolveContentAuthor(ctx, targetType, targetID); author != "" && author == staker.String() {
 			return 0, types.ErrSelfContentStake
 		}
 		// Per-member cap: sum existing stakes by this member on this target
@@ -410,4 +412,42 @@ func (k Keeper) HasMemberStakeOn(ctx context.Context, stakerAddr, targetAddr str
 		return false, err
 	}
 	return found, nil
+}
+
+// resolveContentAuthor returns the on-chain author/owner address for the given
+// content stake target by querying the owning module. Returns "" when the
+// owning keeper is not wired or the lookup fails — callers must treat an
+// empty result as "unable to verify" (fails closed: stake will not be blocked
+// by self-stake check, but the lookup is not the only safeguard).
+func (k Keeper) resolveContentAuthor(ctx context.Context, targetType types.StakeTargetType, targetID uint64) string {
+	switch targetType {
+	case types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT:
+		if k.late.blogKeeper == nil {
+			return ""
+		}
+		author, err := k.late.blogKeeper.GetPostAuthor(ctx, targetID)
+		if err != nil {
+			return ""
+		}
+		return author
+	case types.StakeTargetType_STAKE_TARGET_FORUM_CONTENT:
+		if k.late.forumKeeper == nil {
+			return ""
+		}
+		author, err := k.late.forumKeeper.GetPostAuthor(ctx, targetID)
+		if err != nil {
+			return ""
+		}
+		return author
+	case types.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT:
+		if k.late.collectKeeper == nil {
+			return ""
+		}
+		owner, err := k.late.collectKeeper.GetCollectionOwner(ctx, targetID)
+		if err != nil {
+			return ""
+		}
+		return owner
+	}
+	return ""
 }

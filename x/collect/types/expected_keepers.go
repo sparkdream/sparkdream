@@ -56,9 +56,11 @@ type RepKeeper interface {
 	IsReservedTag(ctx context.Context, name string) (bool, error)
 	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
 
-	// Bonded-role accountability (owned by x/rep). Curator is the collect
-	// role keyed as ROLE_TYPE_COLLECT_CURATOR.
+	// Bonded-role accountability (owned by x/rep). Curators are keyed as
+	// ROLE_TYPE_COLLECT_CURATOR; the moderation sentinel role for hide-content
+	// is the shared ROLE_TYPE_FORUM_SENTINEL.
 	GetBondedRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
+	GetAvailableBond(ctx context.Context, roleType reptypes.RoleType, addr string) (math.Int, error)
 	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	ReleaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	SlashBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int, reason string) error
@@ -84,28 +86,19 @@ type BlogKeeper interface {
 }
 
 // ForumKeeper defines the expected interface for the x/forum module.
-// Used for sentinel bond operations in content moderation (MsgHideContent)
-// and OnChainReference validation for forum posts/replies.
-// This is optional — if nil, sentinel operations return ErrNotSentinel.
+// Used solely for OnChainReference validation against forum posts/replies.
+// Optional — if nil, forum-typed references are accepted without validation.
+//
+// Sentinel-bond operations live on RepKeeper now (BondedRole API): the
+// FORUM_SENTINEL role is shared across moderation surfaces (forum + collect).
 type ForumKeeper interface {
-	// IsSentinelActive checks if the address is an active sentinel (bonded, not demoted, not in cooldown).
-	IsSentinelActive(ctx context.Context, sentinel string) (bool, error)
-
-	// GetAvailableBond returns the sentinel's available bond (total bond - committed across all modules).
-	GetAvailableBond(ctx context.Context, sentinel string) (math.Int, error)
-
-	// CommitBond commits a portion of the sentinel's bond for a moderation action.
-	CommitBond(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
-
-	// ReleaseBondCommitment releases a previously committed bond amount back to the sentinel.
-	ReleaseBondCommitment(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
-
-	// SlashBondCommitment slashes a committed bond amount from the sentinel (burned).
-	SlashBondCommitment(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
-
-	// Post existence check for OnChainReference validation.
-	// Forum replies are posts with ParentId > 0, both stored in Post collection.
+	// HasPost reports whether a forum post (or reply, since replies are posts
+	// with ParentId > 0) exists under the given id.
 	HasPost(ctx context.Context, id uint64) bool
+	// HasCategory disambiguates this from x/blog's keeper, which also has
+	// HasPost. depinject sees both keepers as satisfying ForumKeeper without
+	// this discriminator and errors with "Multiple implementations found".
+	HasCategory(ctx context.Context, id uint64) bool
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

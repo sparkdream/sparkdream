@@ -50,7 +50,7 @@ func (k msgServer) CreateTagBudget(ctx context.Context, msg *types.MsgCreateTagB
 
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 	escrowCoins := sdk.NewCoins(sdk.NewCoin(types.TagBudgetFeeDenom, initialPool))
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, escrowCoins); err != nil {
+	if err := k.bankKeeper.SendCoins(ctx, creatorAddr, TagBudgetEscrowAddress(), escrowCoins); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to escrow tag budget funds")
 	}
 

@@ -56,4 +56,5 @@ var (
 
 	// Cancel errors
 	ErrCannotCancelBacked = errors.Register(ModuleName, 1170, "contributor cannot cancel after a tranche has been backed or beyond")
+	ErrInvalidStatus      = errors.Register(ModuleName, 1171, "contribution is in an invalid status for this operation")
 )

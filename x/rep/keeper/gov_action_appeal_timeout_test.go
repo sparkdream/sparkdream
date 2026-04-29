@@ -6,8 +6,10 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
@@ -21,11 +23,16 @@ func TestTimeoutExpiredAppeals_TransitionsAndSplitsBond(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
 
-	// Track bank interactions from the timeout path.
+	// Track bank interactions from the timeout path. The intermediate
+	// escrow → module-account hop that precedes BurnCoins is not a refund.
 	var refunded sdk.Coins
 	var burned sdk.Coins
-	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, module string, _ sdk.AccAddress, amt sdk.Coins) error {
-		require.Equal(t, types.ModuleName, module)
+	repModuleAddr := authtypes.NewModuleAddress(types.ModuleName)
+	f.bankKeeper.SendCoinsFn = func(_ context.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
+		require.True(t, fromAddr.Equals(keeper.AppealBondEscrowAddress()))
+		if toAddr.Equals(repModuleAddr) {
+			return nil
+		}
 		refunded = amt
 		return nil
 	}
@@ -92,8 +99,8 @@ func TestTimeoutExpiredAppeals_ZeroBondSkipsBankCalls(t *testing.T) {
 
 	// If the split-bond path is exercised for a zero bond we want the test to
 	// fail loudly — neither bank method should be invoked.
-	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(context.Context, string, sdk.AccAddress, sdk.Coins) error {
-		t.Fatalf("refund should not run for zero bond")
+	f.bankKeeper.SendCoinsFn = func(context.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error {
+		t.Fatalf("refund/move should not run for zero bond")
 		return nil
 	}
 	f.bankKeeper.BurnCoinsFn = func(context.Context, string, sdk.Coins) error {

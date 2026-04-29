@@ -157,14 +157,82 @@ func TestWithdrawLiquidity_WithTrades(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	// Verify withdrawal amount is tracked
+	// FUTARCHY-S2-1: After trades on a YES-resolved market, the creator's
+	// claim is the LMSR remainder b * ln(1 + e^((q_no - q_yes)/b)), which is
+	// strictly less than InitialLiquidity once any YES trade happens. Prior
+	// to the fix the test (incorrectly) asserted full subsidy refund.
 	market, err = f.keeper.Market.Get(ctx, marketId)
 	require.NoError(t, err)
-	require.True(t, market.LiquidityWithdrawn.GT(math.ZeroInt()))
+	require.True(t, market.LiquidityWithdrawn.IsPositive(),
+		"creator should receive a positive remainder")
+	require.True(t, market.LiquidityWithdrawn.LT(*market.InitialLiquidity),
+		"YES-resolved market with YES trades must leave less than InitialLiquidity for the creator (had %s, initial %s)",
+		market.LiquidityWithdrawn.String(), market.InitialLiquidity.String())
+}
 
-	// In LMSR, trades add collateral to the module account — they don't reduce the creator's
-	// subsidy claim. So the full InitialLiquidity is available for withdrawal.
-	require.True(t, market.LiquidityWithdrawn.Equal(*market.InitialLiquidity))
+// FUTARCHY-S2-1: prior to the fix, after heavy YES trades + RESOLVED_YES the
+// creator could withdraw the full InitialLiquidity, leaving the module short
+// of what winning redeemers needed (`q_yes` spark). The corrected residual
+// formula bounds the creator's claim to `b * ln(1 + e^((q_no-q_yes)/b))`,
+// which together with `q_yes` exactly equals `C(q_yes, q_no)` — the total
+// collateral the module holds for this market — so the system is solvent.
+func TestWithdrawLiquidity_SolvencyAfterHeavyTrade(t *testing.T) {
+	f := initFixture(t)
+	msgServer := keeper.NewMsgServerImpl(f.keeper)
+	ctx := sdk.UnwrapSDKContext(f.ctx)
+
+	creator := sdk.AccAddress("creator_____________")
+	trader := sdk.AccAddress("trader______________")
+	liquidity := sdk.NewCoin("uspark", math.NewInt(200000))
+	tradeCoin := sdk.NewCoin("uspark", math.NewInt(150000)) // heavy YES bet
+
+	f.bankKeeper.SetBalance(creator, liquidity)
+	f.bankKeeper.SetBalance(trader, tradeCoin)
+
+	marketId, err := f.keeper.CreateMarketInternal(ctx, creator, "TEST", "Heavy YES", 1000, 0, liquidity)
+	require.NoError(t, err)
+
+	_, err = msgServer.Trade(ctx, &types.MsgTrade{
+		Creator:  trader.String(),
+		MarketId: marketId,
+		IsYes:    true,
+		AmountIn: &tradeCoin.Amount,
+	})
+	require.NoError(t, err)
+
+	// Resolve YES.
+	market, err := f.keeper.Market.Get(ctx, marketId)
+	require.NoError(t, err)
+	market.Status = "RESOLVED_YES"
+	market.ResolutionHeight = ctx.BlockHeight()
+	require.NoError(t, f.keeper.Market.Set(ctx, marketId, market))
+
+	resp, err := msgServer.WithdrawLiquidity(ctx, &types.MsgWithdrawLiquidity{
+		Creator:  creator.String(),
+		MarketId: marketId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Amount)
+
+	// Solvency invariant: creator residual + winning_pool ≤ initial + trader_in.
+	// The mock bank doesn't enforce module-account balance, so we check the
+	// math directly: the LMSR identity guarantees equality up to truncation
+	// rounding, so residual must be strictly less than InitialLiquidity once
+	// any YES trade lands on a YES-resolved market.
+	market, err = f.keeper.Market.Get(ctx, marketId)
+	require.NoError(t, err)
+	withdrawn := *resp.Amount
+	require.True(t, withdrawn.IsPositive())
+	require.True(t, withdrawn.LT(*market.InitialLiquidity),
+		"heavy YES trade + RESOLVED_YES must leave less than InitialLiquidity for the creator (got %s, initial %s)",
+		withdrawn.String(), market.InitialLiquidity.String())
+
+	// The leftover (initial - withdrawn) should cover the winning shares the
+	// trader received: that's the solvency property.
+	leftoverForRedemption := market.InitialLiquidity.Sub(withdrawn).Add(tradeCoin.Amount)
+	require.True(t, leftoverForRedemption.GTE(*market.PoolYes),
+		"leftover %s must cover winning pool %s", leftoverForRedemption.String(), market.PoolYes.String())
 }
 
 func TestWithdrawLiquidity_NonExistentMarket(t *testing.T) {

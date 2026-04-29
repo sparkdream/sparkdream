@@ -8,6 +8,7 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -24,7 +25,6 @@ func (k msgServer) CancelMarket(goCtx context.Context, msg *types.MsgCancelMarke
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "invalid authority; expected %s, got %s", authorityStr, msg.Authority)
 	}
 
-	// Fetch market
 	market, err := k.Market.Get(ctx, msg.MarketId)
 	if err != nil {
 		if errorsmod.IsOf(err, collections.ErrNotFound) {
@@ -33,47 +33,76 @@ func (k msgServer) CancelMarket(goCtx context.Context, msg *types.MsgCancelMarke
 		return nil, err
 	}
 
-	// Only active markets can be cancelled
 	if market.Status != "ACTIVE" {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market %d is not active (status: %s)", msg.MarketId, market.Status)
 	}
 
-	// Mark market as CANCELLED
+	if market.BValue == nil || market.PoolYes == nil || market.PoolNo == nil ||
+		market.InitialLiquidity == nil || market.LiquidityWithdrawn == nil {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market %d missing LMSR fields", msg.MarketId)
+	}
+
 	market.Status = "CANCELLED"
 	market.ResolutionHeight = ctx.BlockHeight()
 
-	// Save updated market
-	if err := k.Market.Set(ctx, msg.MarketId, market); err != nil {
-		return nil, err
-	}
-
-	// Remove from active markets index
 	if err := k.ActiveMarkets.Remove(ctx, collections.Join(market.EndBlock, msg.MarketId)); err != nil {
-		// Log but don't fail if not in index
 		ctx.Logger().Info("market not in active index during cancellation", "market_id", msg.MarketId)
 	}
 
-	// Refund the full initial liquidity to creator.
-	// LMSR is a scoring rule: the initial liquidity is the maximum subsidy the market maker deposits.
-	// Trades adjust pool quantities but the cost function operates on these quantities —
-	// it does not subtract collateral from a pool. The module account holds exactly
-	// InitialLiquidity minus any prior withdrawals, so refunding InitialLiquidity is correct.
+	// FUTARCHY-S2-1 (trapped funds): if any trades happened, snapshot the
+	// LMSR-implied YES price on the market. Holders later use Redeem on the
+	// CANCELLED market to claim their pro-rata share of the collateral; the
+	// creator's withdraw is the LMSR-residual (entropy-bounded subsidy).
+	hasTrades := market.PoolYes.IsPositive() || market.PoolNo.IsPositive()
+	if hasTrades {
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return nil, err
+		}
+		maxExp, mErr := math.LegacyNewDecFromStr(params.MaxLmsrExponent)
+		if mErr != nil {
+			maxExp = types.DefaultMaxExponent
+		}
+		qYes := math.LegacyNewDecFromInt(*market.PoolYes)
+		qNo := math.LegacyNewDecFromInt(*market.PoolNo)
+		pYes, pErr := types.SettlementPriceYes(ctx, *market.BValue, qYes, qNo, maxExp)
+		if pErr != nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, pErr.Error())
+		}
+		market.SettlementPriceYes = &pYes
+	}
+
+	residual, err := k.computeCreatorResidual(ctx, market)
+	if err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+	}
+	if residual.GT(*market.InitialLiquidity) {
+		residual = *market.InitialLiquidity
+	}
+
 	alreadyWithdrawn := *market.LiquidityWithdrawn
-	liquidityToRefund := market.InitialLiquidity.Sub(alreadyWithdrawn)
+	liquidityToRefund := residual.Sub(alreadyWithdrawn)
+	if liquidityToRefund.IsNegative() {
+		liquidityToRefund = math.ZeroInt()
+	}
 
 	if liquidityToRefund.IsPositive() {
 		creatorAddr, err := sdk.AccAddressFromBech32(market.Creator)
 		if err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, "invalid creator address")
 		}
-
 		refundCoin := sdk.NewCoin(market.Denom, liquidityToRefund)
 		if err := k.bankKeeper.SendCoinsFromModuleToAccount(goCtx, types.ModuleName, creatorAddr, sdk.NewCoins(refundCoin)); err != nil {
 			return nil, err
 		}
+		newWithdrawn := alreadyWithdrawn.Add(liquidityToRefund)
+		market.LiquidityWithdrawn = &newWithdrawn
 	}
 
-	// Emit event
+	if err := k.Market.Set(ctx, msg.MarketId, market); err != nil {
+		return nil, err
+	}
+
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"market_cancelled",

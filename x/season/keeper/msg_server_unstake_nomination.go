@@ -49,6 +49,9 @@ func (k msgServer) UnstakeNomination(ctx context.Context, msg *types.MsgUnstakeN
 	// 5. Convert amount to integer and unlock DREAM
 	amountInt := stake.Amount.TruncateInt()
 	if !amountInt.IsZero() {
+		if !amountInt.BigInt().IsUint64() {
+			return nil, fmt.Errorf("stake amount overflows uint64")
+		}
 		if err := k.UnlockDREAM(ctx, msg.Creator, amountInt.Uint64()); err != nil {
 			return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to unlock DREAM for nomination unstake")
 		}

@@ -42,7 +42,7 @@ func (k Keeper) autoFundModule(ctx context.Context, sdkCtx sdk.Context, params t
 
 	gap := params.MinGasReserve.Sub(balance.Amount)
 
-	day := uint64(sdkCtx.BlockHeight()) / 14400
+	day := uint64(sdkCtx.BlockTime().Unix()) / 86400
 	funded := k.GetDayFunding(ctx, day)
 	remaining := params.MaxFundingPerDay.Sub(funded)
 
@@ -153,10 +153,20 @@ func (k Keeper) dkgCheckAutoTrigger(ctx context.Context, sdkCtx sdk.Context, par
 		return
 	}
 
-	// Determine round number
+	// Determine round number. Only bump the round when the previous DKG
+	// actually completed (received at least one contribution); otherwise
+	// re-use the existing round so repeated INACTIVE→REGISTERING entries
+	// with no progress don't inflate the counter.
 	var round uint64 = 1
 	if existing, found := k.GetDKGStateVal(ctx); found {
-		round = existing.Round + 1
+		if existing.Phase == types.DKGPhase_DKG_PHASE_INACTIVE && existing.ContributionsReceived > 0 {
+			round = existing.Round + 1
+		} else {
+			round = existing.Round
+			if round == 0 {
+				round = 1
+			}
+		}
 	}
 
 	height := sdkCtx.BlockHeight()

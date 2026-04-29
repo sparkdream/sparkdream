@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
@@ -45,15 +46,17 @@ func TestSentinelRewardPool_Defaults(t *testing.T) {
 }
 
 // TestSentinelRewardPool_GetReadsBankBalance ensures GetSentinelRewardPool is a
-// pure read of the rep module's uspark bank balance.
+// pure read of the sentinel reward pool sub-address's uspark bank balance.
 func TestSentinelRewardPool_GetReadsBankBalance(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
 	ctx := fixture.ctx
 
 	// Reconfigure the mock bank so GetBalance returns a known amount for the
-	// rep module account.
-	fixture.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
+	// sentinel reward pool sub-address (REP-S2-4 partition).
+	poolAddr := keeper.SentinelRewardPoolAddress()
+	fixture.bankKeeper.GetBalanceFn = func(_ context.Context, addr sdk.AccAddress, denom string) sdk.Coin {
+		require.True(t, addr.Equals(poolAddr), "pool read must target sentinel sub-address")
 		require.Equal(t, types.RewardDenom, denom, "pool should read uspark")
 		return sdk.NewCoin(denom, math.NewInt(12345))
 	}
@@ -62,21 +65,21 @@ func TestSentinelRewardPool_GetReadsBankBalance(t *testing.T) {
 	require.Equal(t, math.NewInt(12345), got)
 }
 
-// TestSentinelRewardPool_AddTransfersToModule verifies AddToSentinelRewardPool
-// invokes SendCoinsFromAccountToModule with the correct (uspark, amount, rep).
-func TestSentinelRewardPool_AddTransfersToModule(t *testing.T) {
+// TestSentinelRewardPool_AddTransfersToSubAddress verifies AddToSentinelRewardPool
+// routes funds via SendCoins to the sentinel reward pool sub-address (REP-S2-4).
+func TestSentinelRewardPool_AddTransfersToSubAddress(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
 	ctx := fixture.ctx
 
 	var called bool
-	var gotModule string
+	var gotTo sdk.AccAddress
 	var gotCoins sdk.Coins
-	fixture.bankKeeper.SendCoinsFromAccountToModuleFn = func(
-		_ context.Context, _ sdk.AccAddress, recipientModule string, amt sdk.Coins,
+	fixture.bankKeeper.SendCoinsFn = func(
+		_ context.Context, _ sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins,
 	) error {
 		called = true
-		gotModule = recipientModule
+		gotTo = toAddr
 		gotCoins = amt
 		return nil
 	}
@@ -85,7 +88,7 @@ func TestSentinelRewardPool_AddTransfersToModule(t *testing.T) {
 	err := k.AddToSentinelRewardPool(ctx, sender, math.NewInt(1_000))
 	require.NoError(t, err)
 	require.True(t, called)
-	require.Equal(t, types.ModuleName, gotModule)
+	require.True(t, gotTo.Equals(keeper.SentinelRewardPoolAddress()))
 	require.Equal(t, sdk.NewCoins(sdk.NewCoin(types.RewardDenom, math.NewInt(1_000))), gotCoins)
 }
 
@@ -129,7 +132,8 @@ func TestBurnSentinelRewardPoolOverflow_UnderCapNoOp(t *testing.T) {
 }
 
 // TestBurnSentinelRewardPoolOverflow_AboveCapBurnsRatio ensures burn amount is
-// ratio * overflow (truncated), and the burn targets the rep module account.
+// ratio * overflow (truncated), is moved out of the sentinel sub-address into
+// the rep module account, and then burned from the module account.
 func TestBurnSentinelRewardPoolOverflow_AboveCapBurnsRatio(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
@@ -140,6 +144,16 @@ func TestBurnSentinelRewardPoolOverflow_AboveCapBurnsRatio(t *testing.T) {
 	overflow := math.NewInt(1000)
 	fixture.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
 		return sdk.NewCoin(denom, maxPool.Add(overflow))
+	}
+
+	var movedFrom sdk.AccAddress
+	var movedCoins sdk.Coins
+	moveCount := 0
+	fixture.bankKeeper.SendCoinsFn = func(_ context.Context, from sdk.AccAddress, _ sdk.AccAddress, amt sdk.Coins) error {
+		movedFrom = from
+		movedCoins = amt
+		moveCount++
+		return nil
 	}
 
 	var burnedModule string
@@ -153,6 +167,9 @@ func TestBurnSentinelRewardPoolOverflow_AboveCapBurnsRatio(t *testing.T) {
 	}
 
 	require.NoError(t, k.BurnSentinelRewardPoolOverflow(ctx))
+	require.Equal(t, 1, moveCount, "expected exactly one move out of sentinel sub-address")
+	require.True(t, movedFrom.Equals(keeper.SentinelRewardPoolAddress()))
+	require.Equal(t, sdk.NewCoins(sdk.NewCoin(types.RewardDenom, math.NewInt(500))), movedCoins)
 	require.Equal(t, 1, burnCount, "expected exactly one burn call")
 	require.Equal(t, types.ModuleName, burnedModule)
 	require.Equal(t, sdk.NewCoins(sdk.NewCoin(types.RewardDenom, math.NewInt(500))), burnedCoins)

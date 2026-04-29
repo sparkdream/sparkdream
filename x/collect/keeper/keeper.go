@@ -245,6 +245,13 @@ func (k *Keeper) SetBlogKeeper(bk types.BlogKeeper) {
 	k.blogKeeper = bk
 }
 
+// SetForumKeeper sets the optional forum keeper for OnChainReference validation
+// of forum post/reply references. Wired manually in app.go (depinject can't
+// auto-resolve the interface from the concrete forummodulekeeper.Keeper type).
+func (k *Keeper) SetForumKeeper(fk types.ForumKeeper) {
+	k.forumKeeper = fk
+}
+
 // HasCollection returns true if a collection with the given ID exists.
 func (k Keeper) HasCollection(ctx context.Context, id uint64) bool {
 	has, _ := k.Collection.Has(ctx, id)

@@ -247,6 +247,26 @@ func (m *mockRepKeeper) GetBondedRole(_ context.Context, roleType reptypes.RoleT
 	return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
 }
 
+func (m *mockRepKeeper) GetAvailableBond(_ context.Context, roleType reptypes.RoleType, addr string) (math.Int, error) {
+	br, ok := m.bondedRoles[mockBondedRoleKey(roleType, addr)]
+	if !ok {
+		return math.ZeroInt(), reptypes.ErrBondedRoleNotFound
+	}
+	current, _ := math.NewIntFromString(br.CurrentBond)
+	if current.IsNil() {
+		current = math.ZeroInt()
+	}
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	if committed.IsNil() {
+		committed = math.ZeroInt()
+	}
+	avail := current.Sub(committed)
+	if avail.IsNegative() {
+		avail = math.ZeroInt()
+	}
+	return avail, nil
+}
+
 func (m *mockRepKeeper) ReserveBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error {
 	key := mockBondedRoleKey(roleType, addr)
 	br, ok := m.bondedRoles[key]
@@ -350,62 +370,32 @@ func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string
 }
 
 // ---------------------------------------------------------------------------
-// Mock ForumKeeper
+// Mock ForumKeeper (HasPost-only after COLLECT-S2-1; sentinel-bond ops live
+// on RepKeeper/BondedRole now).
 // ---------------------------------------------------------------------------
 
-type mockForumKeeper struct {
-	isSentinelActiveFn      func(ctx context.Context, sentinel string) (bool, error)
-	getAvailableBondFn      func(ctx context.Context, sentinel string) (math.Int, error)
-	commitBondFn            func(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
-	releaseBondCommitmentFn func(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
-	slashBondCommitmentFn   func(ctx context.Context, sentinel string, amount math.Int, module string, referenceID uint64) error
-}
-
-func (m *mockForumKeeper) IsSentinelActive(ctx context.Context, sentinel string) (bool, error) {
-	if m.isSentinelActiveFn != nil {
-		return m.isSentinelActiveFn(ctx, sentinel)
-	}
-	return true, nil
-}
-
-func (m *mockForumKeeper) GetAvailableBond(ctx context.Context, sentinel string) (math.Int, error) {
-	if m.getAvailableBondFn != nil {
-		return m.getAvailableBondFn(ctx, sentinel)
-	}
-	return math.NewInt(1000), nil
-}
-
-func (m *mockForumKeeper) CommitBond(ctx context.Context, sentinel string, amount math.Int, mod string, referenceID uint64) error {
-	if m.commitBondFn != nil {
-		return m.commitBondFn(ctx, sentinel, amount, mod, referenceID)
-	}
-	return nil
-}
-
-func (m *mockForumKeeper) ReleaseBondCommitment(ctx context.Context, sentinel string, amount math.Int, mod string, referenceID uint64) error {
-	if m.releaseBondCommitmentFn != nil {
-		return m.releaseBondCommitmentFn(ctx, sentinel, amount, mod, referenceID)
-	}
-	return nil
-}
-
-func (m *mockForumKeeper) SlashBondCommitment(ctx context.Context, sentinel string, amount math.Int, mod string, referenceID uint64) error {
-	if m.slashBondCommitmentFn != nil {
-		return m.slashBondCommitmentFn(ctx, sentinel, amount, mod, referenceID)
-	}
-	return nil
-}
-
-func (m *mockForumKeeper) TagExists(ctx context.Context, name string) (bool, error) {
-	return true, nil
-}
-
-func (m *mockForumKeeper) IsReservedTag(ctx context.Context, name string) (bool, error) {
-	return false, nil
-}
+type mockForumKeeper struct{}
 
 func (m *mockForumKeeper) HasPost(_ context.Context, _ uint64) bool {
 	return true
+}
+
+func (m *mockForumKeeper) HasCategory(_ context.Context, _ uint64) bool {
+	return true
+}
+
+// seedActiveSentinel registers a NORMAL-status FORUM_SENTINEL bonded role on
+// the rep mock with `currentBond` available, so HideContent's authorization
+// check passes. Use in tests that exercise the sentinel-moderation path.
+func seedActiveSentinel(t *testing.T, rk *mockRepKeeper, addr string, currentBond math.Int) {
+	t.Helper()
+	rk.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr)] = reptypes.BondedRole{
+		Address:            addr,
+		RoleType:           reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		CurrentBond:        currentBond.String(),
+		TotalCommittedBond: "0",
+		BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +473,13 @@ func initTestFixture(t *testing.T) *testFixture {
 	rk.isMemberFn = func(_ context.Context, addr sdk.AccAddress) bool {
 		return addr.Equals(ownerAddr) || addr.Equals(memberAddr) || addr.Equals(sentinelAddr)
 	}
+	// The default sentinel holds a NORMAL FORUM_SENTINEL bonded role with
+	// ample available bond. Tests that need to disable this (cooldown,
+	// insufficient bond, etc.) overwrite the entry directly.
+	if rk.bondedRoles == nil {
+		rk.bondedRoles = make(map[string]reptypes.BondedRole)
+	}
+	seedActiveSentinel(t, rk, sentinelStr, math.NewInt(1_000_000))
 
 	return &testFixture{
 		ctx:           sdkCtx,

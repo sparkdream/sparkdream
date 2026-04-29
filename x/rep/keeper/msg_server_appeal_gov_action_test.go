@@ -145,8 +145,8 @@ func TestMsgServerAppealGovAction(t *testing.T) {
 
 	t.Run("bond transfer failure surfaces as error", func(t *testing.T) {
 		f := initFixture(t)
-		// Force the bank send-to-module to fail: simulates insufficient funds.
-		f.bankKeeper.SendCoinsFromAccountToModuleFn = func(_ context.Context, _ sdk.AccAddress, _ string, _ sdk.Coins) error {
+		// Force the bank send-to-escrow to fail: simulates insufficient funds.
+		f.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, _ sdk.Coins) error {
 			return types.ErrInsufficientBalance
 		}
 

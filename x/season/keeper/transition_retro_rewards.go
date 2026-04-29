@@ -105,9 +105,12 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 
 			// Mint DREAM to nominator
 			mintSuccess := false
+			var mintFailReason string
 			if k.repKeeper != nil {
 				addr, err := k.addressCodec.StringToBytes(n.nomination.Nominator)
-				if err == nil {
+				if err != nil {
+					mintFailReason = err.Error()
+				} else {
 					rewardInt := reward.TruncateInt()
 					if rewardInt.IsPositive() {
 						if mintErr := k.repKeeper.MintDREAM(ctx, addr, rewardInt); mintErr != nil {
@@ -116,11 +119,16 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 								"nominator", n.nomination.Nominator,
 								"amount", rewardInt.String(),
 								"error", mintErr)
+							mintFailReason = mintErr.Error()
 						} else {
 							mintSuccess = true
 						}
+					} else {
+						mintFailReason = "reward amount truncated to zero"
 					}
 				}
+			} else {
+				mintFailReason = "rep keeper not wired"
 			}
 
 			// Update nomination — only mark as Rewarded if mint succeeded
@@ -130,30 +138,44 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 			nom.Conviction = n.conviction
 			_ = k.Nomination.Set(ctx, nom.Id, nom)
 
-			// Create RetroRewardRecord
-			recordKey := fmt.Sprintf("%d/%d", season.Number, nom.Id)
-			record := types.RetroRewardRecord{
-				Season:             season.Number,
-				NominationId:       nom.Id,
-				Recipient:          nom.Nominator,
-				ContentRef:         nom.ContentRef,
-				Conviction:         n.conviction,
-				RewardAmount:       reward,
-				DistributedAtBlock: sdkCtx.BlockHeight(),
-			}
-			_ = k.RetroRewardRecord.Set(ctx, recordKey, record)
+			if mintSuccess {
+				// Create RetroRewardRecord only on successful mint.
+				recordKey := fmt.Sprintf("%d/%d", season.Number, nom.Id)
+				record := types.RetroRewardRecord{
+					Season:             season.Number,
+					NominationId:       nom.Id,
+					Recipient:          nom.Nominator,
+					ContentRef:         nom.ContentRef,
+					Conviction:         n.conviction,
+					RewardAmount:       reward,
+					DistributedAtBlock: sdkCtx.BlockHeight(),
+				}
+				_ = k.RetroRewardRecord.Set(ctx, recordKey, record)
 
-			sdkCtx.EventManager().EmitEvent(
-				sdk.NewEvent(
-					"retro_reward_distributed",
-					sdk.NewAttribute("season", fmt.Sprintf("%d", season.Number)),
-					sdk.NewAttribute("nomination_id", fmt.Sprintf("%d", nom.Id)),
-					sdk.NewAttribute("recipient", nom.Nominator),
-					sdk.NewAttribute("content_ref", nom.ContentRef),
-					sdk.NewAttribute("reward_amount", reward.String()),
-					sdk.NewAttribute("conviction", n.conviction.String()),
-				),
-			)
+				sdkCtx.EventManager().EmitEvent(
+					sdk.NewEvent(
+						"retro_reward_distributed",
+						sdk.NewAttribute("season", fmt.Sprintf("%d", season.Number)),
+						sdk.NewAttribute("nomination_id", fmt.Sprintf("%d", nom.Id)),
+						sdk.NewAttribute("recipient", nom.Nominator),
+						sdk.NewAttribute("content_ref", nom.ContentRef),
+						sdk.NewAttribute("reward_amount", reward.String()),
+						sdk.NewAttribute("conviction", n.conviction.String()),
+					),
+				)
+			} else {
+				sdkCtx.EventManager().EmitEvent(
+					sdk.NewEvent(
+						"retro_reward_mint_failed",
+						sdk.NewAttribute("season", fmt.Sprintf("%d", season.Number)),
+						sdk.NewAttribute("nomination_id", fmt.Sprintf("%d", nom.Id)),
+						sdk.NewAttribute("recipient", nom.Nominator),
+						sdk.NewAttribute("content_ref", nom.ContentRef),
+						sdk.NewAttribute("reward_amount", reward.String()),
+						sdk.NewAttribute("reason", mintFailReason),
+					),
+				)
+			}
 		}
 	}
 

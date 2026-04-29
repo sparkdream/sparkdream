@@ -32,7 +32,9 @@ func (k Keeper) EndBlocker(ctx sdk.Context) error {
 		sessionKey := collections.Join(granter, grantee)
 		session, err := k.Sessions.Get(ctx, sessionKey)
 		if err != nil {
-			// Index is stale — just remove the index entry
+			// Index is stale — log so operators can detect drift, then remove it.
+			ctx.Logger().Debug("session pruner: stale expiration index entry",
+				"granter", granter, "grantee", grantee, "expiration", key.K1(), "err", err)
 			_ = k.SessionsByExpiration.Remove(ctx, key)
 			pruned++
 			return false, nil

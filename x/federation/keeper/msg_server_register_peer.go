@@ -18,7 +18,7 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 
 	// 1. Verify authority is governance or Commons Council policy address
 	if !bytes.Equal(k.authority, authorityBytes) {
-		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "") {
+		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
 			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or Commons Council")
 		}
 	}
@@ -43,6 +43,19 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 		hasRemoval, _ := k.PeerRemovalQueue.Has(ctx, msg.PeerId)
 		if hasRemoval {
 			return nil, errorsmod.Wrapf(types.ErrPeerCleanupInProgress, "peer %q removal cleanup still in progress", msg.PeerId)
+		}
+	}
+
+	// 4b. Reject duplicate IBC channel bindings (non-REMOVED peers)
+	if msg.IbcChannelId != "" {
+		err := k.Peers.Walk(ctx, nil, func(_ string, p types.Peer) (bool, error) {
+			if p.Status != types.PeerStatus_PEER_STATUS_REMOVED && p.IbcChannelId == msg.IbcChannelId && p.Id != msg.PeerId {
+				return true, errorsmod.Wrap(types.ErrInvalidRequest, "channel id already bound to another peer")
+			}
+			return false, nil
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 

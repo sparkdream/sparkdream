@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"cosmossdk.io/collections"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -49,6 +50,8 @@ func TestQueryUserFollowedThreads(t *testing.T) {
 			FollowedAt: f.sdkCtx().BlockTime().Unix(),
 		}
 		f.keeper.ThreadFollow.Set(f.ctx, followKey, follow)
+		require.NoError(t, f.keeper.FollowersByThread.Set(f.ctx, collections.Join(post.PostId, testCreator2)))
+		require.NoError(t, f.keeper.ThreadsByFollower.Set(f.ctx, collections.Join(testCreator2, post.PostId)))
 
 		resp, err := qs.UserFollowedThreads(f.ctx, &types.QueryUserFollowedThreadsRequest{User: testCreator2})
 		require.NoError(t, err)

@@ -37,6 +37,22 @@ var (
 	TestAddrCouncilPolicy = sdk.AccAddress([]byte("council_policy__"))
 )
 
+// alwaysMembers returns the bech32 strings of every test address that should
+// be treated as a member by the default mockRepKeeper wired into initFixture.
+// Tests that need a non-member can use a fresh address not in this set.
+func alwaysMembers() map[string]struct{} {
+	addrs := []sdk.AccAddress{
+		TestAddrCreator, TestAddrMember1, TestAddrMember2, TestAddrMember3,
+		TestAddrReporter, TestAddrTarget, TestAddrFounder, TestAddrOfficer,
+		TestAddrCouncilPolicy,
+	}
+	out := make(map[string]struct{}, len(addrs))
+	for _, a := range addrs {
+		out[a.String()] = struct{}{}
+	}
+	return out
+}
+
 // SetupMemberProfile creates a member profile for testing
 func SetupMemberProfile(t *testing.T, k keeper.Keeper, ctx sdk.Context, addr sdk.AccAddress, displayName string, username string) {
 	t.Helper()

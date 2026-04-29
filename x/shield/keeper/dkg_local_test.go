@@ -151,14 +151,25 @@ func TestDKGLocalKeyStoreComputeDecryptionShare(t *testing.T) {
 	_, _, err := store.EnsureRegistrationKey(1)
 	require.NoError(t, err)
 
-	share, err := store.ComputeDecryptionShare(1, 5)
+	// SHIELD-S2-2: ComputeDecryptionShare aggregates the validator's
+	// polynomial evaluation at selfIdx plus any decrypted incoming
+	// evaluations. With a single-validator setup (threshold=1, no incoming
+	// ciphertexts), s_self = p_self(1) = a_{0,0}.
+	_, _, err = store.GeneratePolynomial(1, 1)
+	require.NoError(t, err)
+
+	share, err := store.ComputeDecryptionShare(1, 5, 1, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, share)
 
-	// Different epochs should produce different shares
-	share2, err := store.ComputeDecryptionShare(1, 6)
+	// Different epochs produce different shares (epoch tag enters the product).
+	share2, err := store.ComputeDecryptionShare(1, 6, 1, nil)
 	require.NoError(t, err)
 	require.NotEqual(t, share, share2)
+
+	// selfIdx == 0 is rejected.
+	_, err = store.ComputeDecryptionShare(1, 5, 0, nil)
+	require.Error(t, err)
 }
 
 func TestDKGLocalKeyStoreCleanup(t *testing.T) {

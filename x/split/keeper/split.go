@@ -18,6 +18,7 @@ func (k Keeper) SplitFunds(ctx context.Context) error {
 	logger := sdkCtx.Logger().With("module", "x/split")
 
 	if k.late.distrKeeper == nil {
+		logger.Error("split: distrKeeper not wired; skipping community-pool distribution")
 		return nil
 	}
 

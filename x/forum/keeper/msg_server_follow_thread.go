@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -50,6 +51,14 @@ func (k msgServer) FollowThread(ctx context.Context, msg *types.MsgFollowThread)
 
 	if err := k.ThreadFollow.Set(ctx, followKey, follow); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store follow record")
+	}
+	// FORUM-S2-8: maintain bidirectional indexes for paginated lookups by
+	// thread (ThreadFollowers query) and by follower (UserFollowedThreads).
+	if err := k.FollowersByThread.Set(ctx, collections.Join(msg.ThreadId, msg.Creator)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update followers index")
+	}
+	if err := k.ThreadsByFollower.Set(ctx, collections.Join(msg.Creator, msg.ThreadId)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update follower index")
 	}
 
 	// Update follow count

@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
@@ -72,6 +73,9 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		if err != nil {
 			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
 		}
+		if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
+			return nil, errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
+		}
 		bondSnapshot = br.CurrentBond
 
 		if br.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
@@ -95,6 +99,13 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		}
 
 		backing := k.GetSentinelBacking(ctx, msg.Creator)
+
+		// Reserve slash amount against the sentinel's bond so overturned
+		// appeals have funds to slash. Mirrors the HidePost reservation path.
+		slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
+			return nil, errorsmod.Wrap(err, "insufficient bond to move")
+		}
 
 		moveRecord := types.ThreadMoveRecord{
 			RootId:                  msg.RootId,

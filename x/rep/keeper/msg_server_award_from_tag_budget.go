@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/rep/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -76,6 +77,23 @@ func (k msgServer) AwardFromTagBudget(ctx context.Context, msg *types.MsgAwardFr
 		return nil, errorsmod.Wrap(types.ErrTagBudgetInsufficient, "award amount exceeds pool balance")
 	}
 
+	// Cap a single award at 25% of the current pool balance so a single post can't drain the budget.
+	maxSingle := poolBalance.QuoRaw(4)
+	if maxSingle.IsPositive() && awardAmount.GT(maxSingle) {
+		return nil, errorsmod.Wrapf(types.ErrTagBudgetInsufficient,
+			"award amount %s exceeds per-call cap of 25%% of pool (%s)", awardAmount.String(), maxSingle.String())
+	}
+
+	// Enforce a per-(budget, post) cooldown to prevent a single post from being awarded repeatedly in a short window.
+	budgetPostKey := collections.Join(msg.BudgetId, msg.PostId)
+	if lastHeight, err := k.TagBudgetAwardByPost.Get(ctx, budgetPostKey); err == nil {
+		if sdkCtx.BlockHeight()-lastHeight < types.TagBudgetAwardCooldownBlocks {
+			return nil, errorsmod.Wrapf(types.ErrTagBudgetInsufficient,
+				"post %d was awarded from budget %d at height %d; cooldown of %d blocks not yet elapsed",
+				msg.PostId, msg.BudgetId, lastHeight, types.TagBudgetAwardCooldownBlocks)
+		}
+	}
+
 	newBalance := poolBalance.Sub(awardAmount)
 	budget.PoolBalance = newBalance.String()
 
@@ -103,9 +121,13 @@ func (k msgServer) AwardFromTagBudget(ctx context.Context, msg *types.MsgAwardFr
 		return nil, errorsmod.Wrap(err, "failed to store tag budget award")
 	}
 
+	if err := k.TagBudgetAwardByPost.Set(ctx, budgetPostKey, sdkCtx.BlockHeight()); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to record tag budget award cooldown")
+	}
+
 	recipientAddr, _ := sdk.AccAddressFromBech32(author)
 	awardCoins := sdk.NewCoins(sdk.NewCoin(types.TagBudgetFeeDenom, awardAmount))
-	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipientAddr, awardCoins); err != nil {
+	if err := k.bankKeeper.SendCoins(ctx, TagBudgetEscrowAddress(), recipientAddr, awardCoins); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to transfer award funds")
 	}
 

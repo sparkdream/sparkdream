@@ -124,7 +124,10 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrCannotSkipCriticalPhase)
 	})
 
-	t.Run("successful skip snapshot phase", func(t *testing.T) {
+	t.Run("successful skip return_nomination_stakes phase", func(t *testing.T) {
+		// REP-S2-6: skips landing on a critical phase (ARCHIVE_REPUTATION /
+		// RESET_REPUTATION) are rejected, so we exercise a non-critical
+		// transition: RETURN_NOMINATION_STAKES -> SNAPSHOT.
 		f := initFixture(t)
 		ctx := sdk.UnwrapSDKContext(f.ctx)
 		k := f.keeper
@@ -132,9 +135,8 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 
 		authority, _ := f.addressCodec.BytesToString(k.GetAuthority())
 
-		// Set transition state to snapshot phase
 		state := types.SeasonTransitionState{
-			Phase:          types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT,
+			Phase:          types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES,
 			ProcessedCount: 10,
 			LastProcessed:  "something",
 		}
@@ -146,12 +148,32 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 
 		require.NoError(t, err)
 
-		// Verify phase was advanced
 		state, err = k.SeasonTransitionState.Get(ctx)
 		require.NoError(t, err)
-		require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION, state.Phase)
+		require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT, state.Phase)
 		require.Equal(t, uint64(0), state.ProcessedCount)
 		require.Equal(t, "", state.LastProcessed)
+	})
+
+	t.Run("skip into critical phase rejected", func(t *testing.T) {
+		f := initFixture(t)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		k := f.keeper
+		ms := keeper.NewMsgServerImpl(k)
+
+		authority, _ := f.addressCodec.BytesToString(k.GetAuthority())
+
+		state := types.SeasonTransitionState{
+			Phase: types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT,
+		}
+		k.SeasonTransitionState.Set(ctx, state)
+
+		_, err := ms.SkipTransitionPhase(ctx, &types.MsgSkipTransitionPhase{
+			Authority: authority,
+		})
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrCannotSkipCriticalPhase)
 	})
 
 	t.Run("skip clears recovery mode", func(t *testing.T) {
@@ -162,9 +184,8 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 
 		authority, _ := f.addressCodec.BytesToString(k.GetAuthority())
 
-		// Set transition state to snapshot phase
 		state := types.SeasonTransitionState{
-			Phase: types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT,
+			Phase: types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES,
 		}
 		k.SeasonTransitionState.Set(ctx, state)
 

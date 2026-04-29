@@ -106,6 +106,29 @@ func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council st
 	return false
 }
 
+// IsCouncilPolicyOrGov returns true only if addr is the gov authority or the
+// council's policy address. Unlike IsCouncilAuthorized, individual committee
+// membership does NOT satisfy this check — it is for handlers that require an
+// actual council vote (executed via MsgExecuteProposal whose signer is the
+// policy address) or governance.
+func (k Keeper) IsCouncilPolicyOrGov(ctx context.Context, addr string, council string) bool {
+	// gov authority
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return false
+	}
+	if bytes.Equal(k.authority, addrBytes) {
+		return true
+	}
+
+	// council policy address (the address that signs executed council proposals)
+	councilGroup, err := k.Groups.Get(ctx, normalizeCouncilName(council))
+	if err != nil {
+		return false
+	}
+	return councilGroup.PolicyAddress == addr
+}
+
 // GetModuleAddress returns the address of the x/commons module account
 func (k Keeper) GetModuleAddress() sdk.AccAddress {
 	return k.authKeeper.GetModuleAddress(types.ModuleName)

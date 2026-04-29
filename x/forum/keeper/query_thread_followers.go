@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"cosmossdk.io/collections"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -19,28 +20,30 @@ func (q queryServer) ThreadFollowers(ctx context.Context, req *types.QueryThread
 		return nil, status.Error(codes.InvalidArgument, "thread_id required")
 	}
 
-	// Find first follower of this thread (simplified - in production would return list)
-	var threadFollow *types.ThreadFollow
-	keyPrefix := fmt.Sprintf("%d:", req.ThreadId)
+	// FORUM-S2-8: prefix-walk FollowersByThread instead of scanning all follows.
+	rng := collections.NewPrefixedPairRange[uint64, string](req.ThreadId)
 
-	err := q.k.ThreadFollow.Walk(ctx, nil, func(key string, follow types.ThreadFollow) (bool, error) {
-		if follow.ThreadId == req.ThreadId {
-			threadFollow = &follow
-			return true, nil // Stop after first
+	var follower string
+	var followedAt int64
+
+	err := q.k.FollowersByThread.Walk(ctx, rng, func(key collections.Pair[uint64, string]) (bool, error) {
+		addr := key.K2()
+		followKey := fmt.Sprintf("%s:%d", addr, req.ThreadId)
+		f, getErr := q.k.ThreadFollow.Get(ctx, followKey)
+		if getErr != nil {
+			// Stale index entry — skip.
+			return false, nil
 		}
-		return false, nil
+		follower = f.Follower
+		followedAt = f.FollowedAt
+		return true, nil
 	})
-	_ = keyPrefix // suppress unused warning
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if threadFollow != nil {
-		return &types.QueryThreadFollowersResponse{
-			Follower:   threadFollow.Follower,
-			FollowedAt: threadFollow.FollowedAt,
-		}, nil
-	}
-
-	return &types.QueryThreadFollowersResponse{}, nil
+	return &types.QueryThreadFollowersResponse{
+		Follower:   follower,
+		FollowedAt: followedAt,
+	}, nil
 }

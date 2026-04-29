@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	"cosmossdk.io/collections"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -10,6 +11,19 @@ import (
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
+
+// reupvote re-indexes a post in PostsByUpvotes after the test mutates
+// post.UpvoteCount directly. It mirrors what msg_server_upvote_post does.
+func reupvote(t *testing.T, f *fixture, oldUpvotes uint64, post types.Post) {
+	t.Helper()
+	if post.ParentId != 0 {
+		return
+	}
+	_ = f.keeper.PostsByUpvotes.Remove(f.ctx, collections.Join(oldUpvotes, post.PostId))
+	if err := f.keeper.PostsByUpvotes.Set(f.ctx, collections.Join(post.UpvoteCount, post.PostId)); err != nil {
+		t.Fatalf("reindex PostsByUpvotes: %v", err)
+	}
+}
 
 func TestQueryTopPosts(t *testing.T) {
 	f := initFixture(t)
@@ -38,12 +52,15 @@ func TestQueryTopPosts(t *testing.T) {
 		// Set upvote counts
 		post1.UpvoteCount = 10
 		f.keeper.Post.Set(f.ctx, post1.PostId, post1)
+		reupvote(t, f, 0, post1)
 
 		post2.UpvoteCount = 50 // Highest
 		f.keeper.Post.Set(f.ctx, post2.PostId, post2)
+		reupvote(t, f, 0, post2)
 
 		post3.UpvoteCount = 25
 		f.keeper.Post.Set(f.ctx, post3.PostId, post3)
+		reupvote(t, f, 0, post3)
 
 		resp, err := qs.TopPosts(f.ctx, &types.QueryTopPostsRequest{})
 		require.NoError(t, err)
@@ -55,12 +72,13 @@ func TestQueryTopPosts(t *testing.T) {
 		rootPost := f.createTestPost(t, testCreator, 0, 0)
 		reply := f.createTestPost(t, testCreator, rootPost.PostId, 0)
 
-		// Give reply higher upvotes
+		// Give reply higher upvotes (reply has no PostsByUpvotes index, by design)
 		reply.UpvoteCount = 100
 		f.keeper.Post.Set(f.ctx, reply.PostId, reply)
 
 		rootPost.UpvoteCount = 5
 		f.keeper.Post.Set(f.ctx, rootPost.PostId, rootPost)
+		reupvote(t, f, 0, rootPost)
 
 		resp, err := qs.TopPosts(f.ctx, &types.QueryTopPostsRequest{})
 		require.NoError(t, err)
@@ -74,10 +92,12 @@ func TestQueryTopPosts(t *testing.T) {
 
 		activePost.UpvoteCount = 5
 		f.keeper.Post.Set(f.ctx, activePost.PostId, activePost)
+		reupvote(t, f, 0, activePost)
 
 		deletedPost.UpvoteCount = 100
 		deletedPost.Status = types.PostStatus_POST_STATUS_DELETED
 		f.keeper.Post.Set(f.ctx, deletedPost.PostId, deletedPost)
+		reupvote(t, f, 0, deletedPost)
 
 		resp, err := qs.TopPosts(f.ctx, &types.QueryTopPostsRequest{})
 		require.NoError(t, err)

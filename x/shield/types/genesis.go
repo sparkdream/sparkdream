@@ -137,6 +137,21 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 			Active:             true,
 			BatchMode:          ShieldBatchMode_SHIELD_BATCH_MODE_EITHER,
 		},
+		// --- x/federation (anonymous arbiter quorum) ---
+		// FEDERATION-S2-5: scope nullifier per content_id so a single identity
+		// cannot cast multiple votes for the same federated content. Without
+		// this scope, a single identity could drive ArbiterHashCounts to
+		// quorum alone via cross-epoch nullifier rotation.
+		{
+			MessageTypeUrl:     "/sparkdream.federation.v1.MsgSubmitArbiterHash",
+			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+			MinTrustLevel:      2, // ESTABLISHED+: same gate as identified bridge operators
+			NullifierDomain:    51,
+			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD,
+			ScopeFieldPath:     "content_id",
+			Active:             true,
+			BatchMode:          ShieldBatchMode_SHIELD_BATCH_MODE_EITHER,
+		},
 	}
 }
 

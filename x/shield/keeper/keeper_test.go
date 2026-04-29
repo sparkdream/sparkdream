@@ -337,8 +337,8 @@ func TestShieldedOpRegistration(t *testing.T) {
 			return false
 		})
 		require.NoError(t, err)
-		// Default genesis registers 12 ops (blog:3, forum:3, collect:3, rep:1, commons:2)
-		require.Equal(t, 12, count)
+		// Default genesis registers 13 ops (blog:3, forum:3, collect:3, rep:1, commons:2, federation:1)
+		require.Equal(t, 13, count)
 	})
 }
 

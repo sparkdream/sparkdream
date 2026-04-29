@@ -17,7 +17,7 @@ func (k msgServer) ResumePeer(ctx context.Context, msg *types.MsgResumePeer) (*t
 	}
 
 	if !bytes.Equal(k.authority, authorityBytes) {
-		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "") {
+		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
 			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or Commons Council")
 		}
 	}

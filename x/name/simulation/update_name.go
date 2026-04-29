@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"math/rand"
+	"strings"
 
 	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -38,8 +39,10 @@ func SimulateMsgUpdateName(
 		}
 
 		// 2. Generate a random name and data
-		// We use a safe length (e.g. 10 chars) to satisfy min/max params
-		name := simtypes.RandStringOfLength(r, 10)
+		// We use a safe length (e.g. 10 chars) to satisfy min/max params.
+		// Lowercase to match MsgUpdateName's normalization (strings.ToLower)
+		// — mixed-case keys would not be found on lookup.
+		name := strings.ToLower(simtypes.RandStringOfLength(r, 10))
 		initialData := "initial_sim_data"
 
 		// 3. SEED STATE: Create the name directly in the store

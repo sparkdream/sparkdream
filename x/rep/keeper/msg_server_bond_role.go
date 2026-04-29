@@ -67,7 +67,10 @@ func (k msgServer) BondRole(ctx context.Context, msg *types.MsgBondRole) (*types
 	// requires the aggregate current_bond after this deposit to reach that
 	// floor on first bond. Top-ups below min_bond are allowed provided a
 	// non-zero record already exists (so role-holders can rebuild in RECOVERY).
-	minBond := parseIntOrZero(cfg.MinBond)
+	minBond, err := parseIntOrZero(cfg.MinBond)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid min_bond in bonded role config")
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -93,7 +96,10 @@ func (k msgServer) BondRole(ctx context.Context, msg *types.MsgBondRole) (*types
 			"cannot bond until %d", br.DemotionCooldownUntil)
 	}
 
-	currentBond := parseIntOrZero(br.CurrentBond)
+	currentBond, err := parseIntOrZero(br.CurrentBond)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid current_bond in bonded role record")
+	}
 	newBond := currentBond.Add(amount)
 
 	// First bond must land the record at or above min_bond (otherwise the

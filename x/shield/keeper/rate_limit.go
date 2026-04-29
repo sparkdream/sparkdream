@@ -63,3 +63,32 @@ func (k Keeper) PruneIdentityRateLimits(ctx context.Context, cutoffEpoch uint64)
 	}
 	return nil
 }
+
+// PruneSubmitterRateLimits removes per-submitter rate limit entries for epochs
+// before cutoffEpoch. Mirrors PruneIdentityRateLimits for SubmitterRateLimits.
+func (k Keeper) PruneSubmitterRateLimits(ctx context.Context, cutoffEpoch uint64) error {
+	iter, err := k.SubmitterRateLimits.Iterate(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+
+	var toDelete []collections.Pair[uint64, string]
+	for ; iter.Valid(); iter.Next() {
+		key, err := iter.Key()
+		if err != nil {
+			return err
+		}
+		epoch := key.K1()
+		if epoch < cutoffEpoch {
+			toDelete = append(toDelete, key)
+		}
+	}
+
+	for _, key := range toDelete {
+		if err := k.SubmitterRateLimits.Remove(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}

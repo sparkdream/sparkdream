@@ -31,4 +31,10 @@ message Market {
   // Liquidity tracking
   string initial_liquidity = 14 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   string liquidity_withdrawn = 15 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
+  // Settlement price for CANCELLED and RESOLVED_INVALID markets that have
+  // outstanding shares. p_yes = exp(q_yes/b) / (exp(q_yes/b) + exp(q_no/b)).
+  // Holders redeem 1 YES share for p_yes spark and 1 NO share for (1 - p_yes)
+  // spark. Empty for ACTIVE or RESOLVED_YES/NO markets.
+  string settlement_price_yes = 16 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
 }

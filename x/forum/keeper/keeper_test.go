@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
@@ -338,6 +339,21 @@ func (m *mockRepKeeper) ReserveBond(_ context.Context, _ reptypes.RoleType, addr
 	return nil
 }
 
+func (m *mockRepKeeper) ReleaseBond(_ context.Context, _ reptypes.RoleType, addr string, amount math.Int) error {
+	br, ok := m.sentinels[addr]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
+	released := committed.Sub(amount)
+	if released.IsNegative() {
+		released = math.ZeroInt()
+	}
+	br.TotalCommittedBond = released.String()
+	m.sentinels[addr] = br
+	return nil
+}
+
 func (m *mockRepKeeper) RecordActivity(_ context.Context, _ reptypes.RoleType, addr string) error {
 	br, ok := m.sentinels[addr]
 	if !ok {
@@ -560,6 +576,12 @@ func (f *fixture) createTestPost(t *testing.T, author string, parentId, category
 	if err := f.keeper.Post.Set(f.ctx, postID, post); err != nil {
 		t.Fatalf("failed to create test post: %v", err)
 	}
+	// FORUM-S2-8: seed PostsByUpvotes for root posts so query helpers find it.
+	if parentId == 0 {
+		if err := f.keeper.PostsByUpvotes.Set(f.ctx, collections.Join(post.UpvoteCount, postID)); err != nil {
+			t.Fatalf("failed to seed PostsByUpvotes: %v", err)
+		}
+	}
 
 	return post
 }
@@ -599,6 +621,16 @@ func (f *fixture) createTestBounty(t *testing.T, creator string, threadId uint64
 
 	if err := f.keeper.Bounty.Set(f.ctx, bountyID, bounty); err != nil {
 		t.Fatalf("failed to create test bounty: %v", err)
+	}
+	if err := f.keeper.ActiveBountyByThread.Set(f.ctx, threadId, bountyID); err != nil {
+		t.Fatalf("failed to set active bounty index: %v", err)
+	}
+	// FORUM-S2-8: seed creator/expiry indexes used by query helpers.
+	if err := f.keeper.BountiesByCreator.Set(f.ctx, collections.Join(creator, bountyID)); err != nil {
+		t.Fatalf("failed to seed BountiesByCreator: %v", err)
+	}
+	if err := f.keeper.BountiesByExpiry.Set(f.ctx, collections.Join(bounty.ExpiresAt, bountyID)); err != nil {
+		t.Fatalf("failed to seed BountiesByExpiry: %v", err)
 	}
 
 	return bounty

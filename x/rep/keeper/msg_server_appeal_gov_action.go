@@ -44,11 +44,11 @@ func (k msgServer) AppealGovAction(ctx context.Context, msg *types.MsgAppealGovA
 		}
 	}
 
-	// Charge the appellant an SPARK bond. Held by the rep module account
-	// until the appeal is resolved; returned / burned / split per verdict.
+	// Charge the appellant an SPARK bond. Held at the appeal-bond escrow
+	// sub-address until the appeal is resolved; returned / burned per verdict.
 	bondAmount := math.NewInt(types.DefaultAppealBondAmount)
 	bondCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, bondAmount))
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, bondCoins); err != nil {
+	if err := k.bankKeeper.SendCoins(ctx, creatorAddr, AppealBondEscrowAddress(), bondCoins); err != nil {
 		return nil, errorsmod.Wrap(types.ErrInsufficientBalance, fmt.Sprintf("failed to charge appeal bond: %s", err.Error()))
 	}
 

@@ -12,8 +12,8 @@ import (
 // dkgG2Suite is the BN256 G2 suite used for G2 commitment operations during DKG.
 var dkgG2Suite = bn256.NewSuiteG2()
 
-// validateFeldmanCommitments checks that each commitment is a valid BN256 G1 point.
-func validateFeldmanCommitments(commitments [][]byte, expectedCount int) error {
+// ValidateFeldmanCommitments checks that each commitment is a valid BN256 G1 point.
+func ValidateFeldmanCommitments(commitments [][]byte, expectedCount int) error {
 	if len(commitments) != expectedCount {
 		return fmt.Errorf("expected %d commitments, got %d", expectedCount, len(commitments))
 	}
@@ -94,8 +94,8 @@ func evalCommitmentsAtIndex(commitments [][]byte, j uint32) (kyber.Point, error)
 	return result, nil
 }
 
-// validateFeldmanCommitmentsG2 checks that each G2 commitment is a valid BN256 G2 point.
-func validateFeldmanCommitmentsG2(commitments [][]byte, expectedCount int) error {
+// ValidateFeldmanCommitmentsG2 checks that each G2 commitment is a valid BN256 G2 point.
+func ValidateFeldmanCommitmentsG2(commitments [][]byte, expectedCount int) error {
 	if len(commitments) != expectedCount {
 		return fmt.Errorf("expected %d G2 commitments, got %d", expectedCount, len(commitments))
 	}
@@ -111,9 +111,9 @@ func validateFeldmanCommitmentsG2(commitments [][]byte, expectedCount int) error
 	return nil
 }
 
-// validateFeldmanCommitmentsConsistency verifies G1 and G2 commitments encode the same
+// ValidateFeldmanCommitmentsConsistency verifies G1 and G2 commitments encode the same
 // scalars using the pairing check: e(C_k_G1, G2_gen) == e(G1_gen, C_k_G2) for each k.
-func validateFeldmanCommitmentsConsistency(g1Commitments, g2Commitments [][]byte) error {
+func ValidateFeldmanCommitmentsConsistency(g1Commitments, g2Commitments [][]byte) error {
 	if len(g1Commitments) != len(g2Commitments) {
 		return fmt.Errorf("commitment count mismatch: %d G1, %d G2", len(g1Commitments), len(g2Commitments))
 	}
