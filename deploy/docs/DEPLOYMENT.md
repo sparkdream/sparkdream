@@ -15,7 +15,7 @@ Step-by-step guide to deploying a SparkDream validator with sentry architecture 
 Set `VERSION` to the latest release tag (check the repo's tags or releases):
 
 ```bash
-VERSION=v1.0.3  # replace with latest version
+VERSION=v1.0.4  # replace with latest version
 NETWORK=devnet  # devnet, testnet, or mainnet
 
 # Build base image and SSH image
