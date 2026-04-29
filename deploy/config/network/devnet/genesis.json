@@ -200,7 +200,7 @@
       "curation_review_count": "1",
       "curation_reviews": [],
       "curation_summaries": [],
-      "curators": [],
+      "curator_activities": [],
       "endorsements": [],
       "flags": [],
       "hide_record_count": "1",
@@ -217,6 +217,9 @@
         "challenge_window_blocks": "100800",
         "conviction_renewal_period": "432000",
         "conviction_renewal_threshold": "0.000000000000000000",
+        "curator_demotion_cooldown": "604800",
+        "curator_demotion_threshold": "250",
+        "curator_overturn_demotion_streak": "3",
         "curator_slash_fraction": "0.100000000000000000",
         "downvote_cost": "25000000",
         "endorsement_creation_fee": "10000000",
@@ -409,7 +412,7 @@
       "port_id": "federation",
       "reputation_attestations": [],
       "verification_records": [],
-      "verifiers": []
+      "verifier_activities": []
     },
     "forum": {
       "archive_metadata_map": [],
@@ -460,6 +463,10 @@
         "max_content_size": "10240",
         "max_follows_per_day": "50",
         "max_reply_depth": 10,
+        "min_sentinel_age_blocks": "0",
+        "min_sentinel_bond": "500",
+        "min_sentinel_rep_tier": "3",
+        "min_sentinel_trust_level": "",
         "moderation_paused": false,
         "move_appeal_cooldown": "1800",
         "move_appeal_fee": {
@@ -471,6 +478,8 @@
           "denom": "uspark"
         },
         "reactions_enabled": true,
+        "sentinel_demotion_cooldown": "604800",
+        "sentinel_demotion_threshold": "250",
         "spam_tax": {
           "amount": "1000000",
           "denom": "uspark"
@@ -781,6 +790,36 @@
     },
     "params": null,
     "rep": {
+      "bonded_role_config_list": [
+        {
+          "demotion_cooldown": "604800",
+          "demotion_threshold": "500",
+          "min_age_blocks": "0",
+          "min_bond": "1000",
+          "min_rep_tier": "3",
+          "min_trust_level": "",
+          "role_type": "ROLE_TYPE_FORUM_SENTINEL"
+        },
+        {
+          "demotion_cooldown": "604800",
+          "demotion_threshold": "250",
+          "min_age_blocks": "14400",
+          "min_bond": "500",
+          "min_rep_tier": "0",
+          "min_trust_level": "TRUST_LEVEL_PROVISIONAL",
+          "role_type": "ROLE_TYPE_COLLECT_CURATOR"
+        },
+        {
+          "demotion_cooldown": "604800",
+          "demotion_threshold": "250",
+          "min_age_blocks": "0",
+          "min_bond": "500",
+          "min_rep_tier": "0",
+          "min_trust_level": "TRUST_LEVEL_ESTABLISHED",
+          "role_type": "ROLE_TYPE_FEDERATION_VERIFIER"
+        }
+      ],
+      "bonded_role_list": [],
       "challenge_count": "1",
       "challenge_list": [],
       "content_challenge_count": "1",
@@ -1003,7 +1042,6 @@
       "project_list": [],
       "project_stake_info_list": [],
       "reserved_tag_map": [],
-      "sentinel_activity_map": [],
       "stake_count": "1",
       "stake_list": [],
       "tag_budget_award_count": "1",
@@ -1530,6 +1568,16 @@
           "nullifier_scope_type": "NULLIFIER_SCOPE_MESSAGE_FIELD",
           "proof_domain": "PROOF_DOMAIN_TRUST_TREE",
           "scope_field_path": "proposal_id"
+        },
+        {
+          "active": true,
+          "batch_mode": "SHIELD_BATCH_MODE_EITHER",
+          "message_type_url": "/sparkdream.federation.v1.MsgSubmitArbiterHash",
+          "min_trust_level": 2,
+          "nullifier_domain": 51,
+          "nullifier_scope_type": "NULLIFIER_SCOPE_MESSAGE_FIELD",
+          "proof_domain": "PROOF_DOMAIN_TRUST_TREE",
+          "scope_field_path": "content_id"
         }
       ],
       "shield_epoch_state": {
