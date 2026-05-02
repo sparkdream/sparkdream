@@ -21,6 +21,25 @@ import (
 	"sparkdream/x/reveal/types"
 )
 
+// testParams returns module params tuned for unit tests:
+//   - small block-count deadlines so advanceBlockHeight can drive deadline
+//     transitions in tens of blocks (production defaults are hundreds of thousands)
+//   - small udream-denominated valuation/stake bounds so test assertions can use
+//     compact integer literals (production defaults are in micro-DREAM and would
+//     require unwieldy 1e10 / 1e8 literals throughout the test suite)
+func testParams() types.Params {
+	p := types.DefaultParams()
+	p.StakeDeadlineEpochs = 60
+	p.RevealDeadlineEpochs = 14
+	p.VerificationPeriodEpochs = 14
+	p.DisputeResolutionEpochs = 30
+	p.ProposalCooldownEpochs = 14
+	p.MaxTrancheValuation = math.NewInt(50000)
+	p.MaxTotalValuation = math.NewInt(50000)
+	p.MinStakeAmount = math.NewInt(100)
+	return p
+}
+
 // ---------------------------------------------------------------------------
 // Minimal fixture (used by legacy param/genesis tests)
 // ---------------------------------------------------------------------------
@@ -222,7 +241,7 @@ func initTestFixture(t *testing.T) *testFixture {
 		ck,
 	)
 
-	if err := k.Params.Set(sdkCtx, types.DefaultParams()); err != nil {
+	if err := k.Params.Set(sdkCtx, testParams()); err != nil {
 		t.Fatalf("failed to set params: %v", err)
 	}
 

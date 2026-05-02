@@ -287,13 +287,14 @@ echo ""
 # ========================================================================
 echo "--- TEST 7: NEGATIVE - VALUATION TOO HIGH ---"
 
+# max_total_valuation default is 50_000_000_000 udream (50K DREAM); exceed it
 TX_RES=$($BINARY tx reveal propose \
     "Overvalued Project" \
     "Way too expensive" \
-    "100000" \
+    "100000000000" \
     "MIT" \
     "MIT" \
-    --tranches '{"name":"T1","description":"d","components":["a"],"stakeThreshold":"100000","previewUri":""}' \
+    --tranches '{"name":"T1","description":"d","components":["a"],"stakeThreshold":"100000000000","previewUri":""}' \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

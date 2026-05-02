@@ -98,7 +98,7 @@ func TestProcessDeadlines_VerificationPass(t *testing.T) {
 
 	// We need 3 votes to meet min verification votes. We have 2 stakers.
 	// Let's reduce min verification votes via params.
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 2
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -135,7 +135,7 @@ func TestProcessDeadlines_VerificationFailDisputed(t *testing.T) {
 	f.stakeOnTranche(t, contribID, 0, f.staker2, 500)
 	f.revealTranche(t, contribID, 0)
 
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 2
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -161,7 +161,7 @@ func TestProcessDeadlines_VerificationNoVotesDisputed(t *testing.T) {
 	f.revealTranche(t, contribID, 0)
 
 	// Set min verification votes to 1 so we can test the extension + no-vote path
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 1
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -241,7 +241,7 @@ func TestProcessDeadlines_MultiTrancheAdvance(t *testing.T) {
 	f.stakeOnTranche(t, contribID, 0, f.staker2, 2000)
 	f.revealTranche(t, contribID, 0)
 
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 2
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -269,7 +269,7 @@ func TestProcessDeadlines_MultiTrancheAdvance(t *testing.T) {
 func TestFullLifecycle_SingleTranche(t *testing.T) {
 	f := initTestFixture(t)
 
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 1
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -313,7 +313,7 @@ func TestFullLifecycle_SingleTranche(t *testing.T) {
 func TestFullLifecycle_MultiTranche(t *testing.T) {
 	f := initTestFixture(t)
 
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 1
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -360,7 +360,7 @@ func TestFullLifecycle_MultiTranche(t *testing.T) {
 func TestConfirmTranche_HoldbackAccumulation(t *testing.T) {
 	f := initTestFixture(t)
 
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 1
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -383,7 +383,7 @@ func TestConfirmTranche_HoldbackAccumulation(t *testing.T) {
 func TestCompleteContribution_HoldbackRelease(t *testing.T) {
 	f := initTestFixture(t)
 
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 1
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -413,7 +413,7 @@ func TestCompleteContribution_HoldbackRelease(t *testing.T) {
 func TestCompleteContribution_ProjectCreationFails(t *testing.T) {
 	f := initTestFixture(t)
 
-	params := types.DefaultParams()
+	params := testParams()
 	params.MinVerificationVotes = 1
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 

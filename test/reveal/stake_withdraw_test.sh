@@ -134,13 +134,15 @@ vote_and_execute() {
 # ========================================================================
 echo "--- SETUP: PROPOSE AND APPROVE CONTRIBUTION ---"
 
-TRANCHE_STAKE='{"name":"Widget Module","description":"Widget implementation","components":["widget.go"],"stakeThreshold":"1000","previewUri":""}'
+# Threshold 700 DREAM (700_000_000 udream); each staker has ~485 DREAM available so
+# we keep individual stakes below balance while still being able to overshoot the threshold.
+TRANCHE_STAKE='{"name":"Widget Module","description":"Widget implementation","components":["widget.go"],"stakeThreshold":"700000000","previewUri":""}'
 
-echo "  Proposing: Project Vega (1 tranche, 1000 DREAM)..."
+echo "  Proposing: Project Vega (1 tranche, 700 DREAM)..."
 TX_RES=$($BINARY tx reveal propose \
     "Project Vega" \
     "For staking tests" \
-    "1000" \
+    "700000000" \
     "MIT" \
     "MIT" \
     --tranches "$TRANCHE_STAKE" \
@@ -217,7 +219,7 @@ echo "--- TEST 1: STAKE DREAM ON TRANCHE ---"
 
 echo "  Staker3 staking 200 DREAM on tranche 0..."
 TX_RES=$($BINARY tx reveal stake \
-    $CONTRIB_ID 0 "200" \
+    $CONTRIB_ID 0 "200000000" \
     --from staker3 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -365,7 +367,7 @@ echo "--- TEST 6: NEGATIVE - WITHDRAW BY NON-OWNER ---"
 # Create a stake by staker1, then try to withdraw it as staker2
 echo "  Staker1 staking 200 DREAM..."
 TX_RES=$($BINARY tx reveal stake \
-    $CONTRIB_ID 0 "200" \
+    $CONTRIB_ID 0 "200000000" \
     --from staker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -436,10 +438,10 @@ echo ""
 # ========================================================================
 echo "--- TEST 7: NEGATIVE - STAKE AMOUNT TOO LOW ---"
 
-# min_stake_amount is 100 DREAM, try staking 50
+# min_stake_amount is 100_000_000 udream (100 DREAM); try 50_000_000 (50 DREAM)
 echo "  Staker3 trying to stake 50 DREAM (below minimum 100)..."
 TX_RES=$($BINARY tx reveal stake \
-    $CONTRIB_ID 0 "50" \
+    $CONTRIB_ID 0 "50000000" \
     --from staker3 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -507,11 +509,11 @@ echo ""
 # ========================================================================
 echo "--- TEST 9: NEGATIVE - STAKE EXCEEDS THRESHOLD ---"
 
-# Tranche threshold is 1000 DREAM, try staking the full amount (but must not exceed)
-# First stake 500, then try 600 (total would be 1100 > 1000 threshold)
-echo "  Staker1 staking 500 DREAM..."
+# Tranche threshold is 700 DREAM (700_000_000 udream).
+# First stake 400 DREAM, then try 400 more (total would be 800 > 700 threshold).
+echo "  Staker1 staking 400 DREAM..."
 TX_RES=$($BINARY tx reveal stake \
-    $CONTRIB_ID 0 "500" \
+    $CONTRIB_ID 0 "400000000" \
     --from staker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -527,9 +529,9 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     HELPER_STAKE_ID=$(extract_event_value "$TX_RESULT" "staked" "stake_id")
 fi
 
-echo "  Staker2 trying to stake 600 DREAM (would exceed 1000 threshold)..."
+echo "  Staker2 trying to stake 400 DREAM (would push total to 800 > 700 threshold)..."
 TX_RES=$($BINARY tx reveal stake \
-    $CONTRIB_ID 0 "600" \
+    $CONTRIB_ID 0 "400000000" \
     --from staker2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -579,12 +581,12 @@ echo "--- TEST 10: NEGATIVE - STAKE ON CANCELLED CONTRIBUTION ---"
 
 # Propose and then cancel a contribution, then try staking on it
 echo "  Proposing Project Orbit for cancel test..."
-TRANCHE_ORBIT='{"name":"Orbit Core","description":"Orbit","components":["orbit.go"],"stakeThreshold":"500","previewUri":""}'
+TRANCHE_ORBIT='{"name":"Orbit Core","description":"Orbit","components":["orbit.go"],"stakeThreshold":"500000000","previewUri":""}'
 
 TX_RES=$($BINARY tx reveal propose \
     "Project Orbit" \
     "Will be cancelled" \
-    "500" \
+    "500000000" \
     "MIT" \
     "MIT" \
     --tranches "$TRANCHE_ORBIT" \
@@ -625,7 +627,7 @@ if [ -n "$ORBIT_ID" ]; then
     # Now try to stake on the cancelled contribution
     echo "  Staker1 trying to stake on cancelled contribution #$ORBIT_ID..."
     TX_RES=$($BINARY tx reveal stake \
-        $ORBIT_ID 0 "200" \
+        $ORBIT_ID 0 "200000000" \
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

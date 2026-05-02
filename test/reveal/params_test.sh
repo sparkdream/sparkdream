@@ -42,28 +42,34 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     MIN_VERIFICATION_VOTES=$(echo "$PARAMS_JSON" | jq -r '.params.min_verification_votes')
     MIN_PROPOSER_TRUST=$(echo "$PARAMS_JSON" | jq -r '.params.min_proposer_trust_level')
 
-    echo "  stake_deadline_epochs:      $STAKE_DEADLINE (expected: 60)"
-    echo "  reveal_deadline_epochs:     $REVEAL_DEADLINE (expected: 14)"
-    echo "  verification_period_epochs: $VERIFICATION_PERIOD (expected: 14)"
-    echo "  dispute_resolution_epochs:  $DISPUTE_RESOLUTION (expected: 30)"
+    # Defaults are stored as block counts (~5s block time); see x/reveal/types/params.go
+    EXPECTED_STAKE_DEADLINE=1036800     # ~60 days
+    EXPECTED_REVEAL_DEADLINE=241920     # ~2 weeks
+    EXPECTED_VERIFICATION_PERIOD=241920 # ~2 weeks
+    EXPECTED_DISPUTE_RESOLUTION=518400  # ~30 days
+
+    echo "  stake_deadline_epochs:      $STAKE_DEADLINE (expected: $EXPECTED_STAKE_DEADLINE)"
+    echo "  reveal_deadline_epochs:     $REVEAL_DEADLINE (expected: $EXPECTED_REVEAL_DEADLINE)"
+    echo "  verification_period_epochs: $VERIFICATION_PERIOD (expected: $EXPECTED_VERIFICATION_PERIOD)"
+    echo "  dispute_resolution_epochs:  $DISPUTE_RESOLUTION (expected: $EXPECTED_DISPUTE_RESOLUTION)"
     echo "  max_tranches:               $MAX_TRANCHES (expected: 10)"
     echo "  min_verification_votes:     $MIN_VERIFICATION_VOTES (expected: 3)"
     echo "  min_proposer_trust_level:   $MIN_PROPOSER_TRUST (expected: 2)"
 
     # Verify key defaults
-    if [ "$STAKE_DEADLINE" != "60" ]; then
+    if [ "$STAKE_DEADLINE" != "$EXPECTED_STAKE_DEADLINE" ]; then
         echo "  stake_deadline_epochs mismatch"
         VERIFY_OK=false
     fi
-    if [ "$REVEAL_DEADLINE" != "14" ]; then
+    if [ "$REVEAL_DEADLINE" != "$EXPECTED_REVEAL_DEADLINE" ]; then
         echo "  reveal_deadline_epochs mismatch"
         VERIFY_OK=false
     fi
-    if [ "$VERIFICATION_PERIOD" != "14" ]; then
+    if [ "$VERIFICATION_PERIOD" != "$EXPECTED_VERIFICATION_PERIOD" ]; then
         echo "  verification_period_epochs mismatch"
         VERIFY_OK=false
     fi
-    if [ "$DISPUTE_RESOLUTION" != "30" ]; then
+    if [ "$DISPUTE_RESOLUTION" != "$EXPECTED_DISPUTE_RESOLUTION" ]; then
         echo "  dispute_resolution_epochs mismatch"
         VERIFY_OK=false
     fi

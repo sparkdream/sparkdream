@@ -152,15 +152,17 @@ vote_and_execute() {
 # ========================================================================
 echo "--- STEP 1: PROPOSE CONTRIBUTION ---"
 
-# Single tranche, camelCase JSON, one per --tranches flag
-TRANCHE1='{"name":"Core Module","description":"Core functionality","components":["module.go","handler.go"],"stakeThreshold":"1000","previewUri":"https://example.com/preview-core"}'
+# All amounts are micro-DREAM (1 DREAM = 1_000_000 udream).
+# min_stake_amount default = 100_000_000 udream (100 DREAM); use 100M per staker
+# and a 200M threshold so two stakers reach BACKED.
+TRANCHE1='{"name":"Core Module","description":"Core functionality","components":["module.go","handler.go"],"stakeThreshold":"200000000","previewUri":"https://example.com/preview-core"}'
 
-echo "  Proposing: Project Aurora (1 tranche, 1000 DREAM)..."
+echo "  Proposing: Project Aurora (1 tranche, 200 DREAM)..."
 
 TX_RES=$($BINARY tx reveal propose \
     "Project Aurora" \
     "A lifecycle test project" \
-    "1000" \
+    "200000000" \
     "MIT" \
     "Apache-2.0" \
     --tranches "$TRANCHE1" \
@@ -290,10 +292,10 @@ STAKE1_ID=""
 STAKE2_ID=""
 
 if [ "$TRANCHE_STAKING_RESULT" == "PASS" ]; then
-    # Staker1 stakes 500 DREAM
-    echo "  Staker1 staking 500 DREAM..."
+    # Staker1 stakes 100 DREAM (= min_stake_amount)
+    echo "  Staker1 staking 100 DREAM..."
     TX_RES=$($BINARY tx reveal stake \
-        $CONTRIB_ID 0 "500" \
+        $CONTRIB_ID 0 "100000000" \
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -318,10 +320,10 @@ if [ "$TRANCHE_STAKING_RESULT" == "PASS" ]; then
         echo "  Raw: $TX_RES"
     fi
 
-    # Staker2 stakes 500 DREAM (should push total to 1000 = threshold, auto-transition to BACKED)
-    echo "  Staker2 staking 500 DREAM (should reach threshold)..."
+    # Staker2 stakes 100 DREAM (should push total to 200 = threshold, auto-transition to BACKED)
+    echo "  Staker2 staking 100 DREAM (should reach threshold)..."
     TX_RES=$($BINARY tx reveal stake \
-        $CONTRIB_ID 0 "500" \
+        $CONTRIB_ID 0 "100000000" \
         --from staker2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -770,12 +772,13 @@ echo "--- TEST 6f: NEGATIVE - NON-CONTRIBUTOR REVEAL ---"
 
 # Propose a second contribution, approve it, stake to BACKED, then try reveal from staker1
 echo "  Setting up: Proposing Project Ember for non-contributor reveal test..."
-TRANCHE_EMBER='{"name":"Ember Core","description":"Test module","components":["ember.go"],"stakeThreshold":"200","previewUri":""}'
+# 200 DREAM threshold (200_000_000 udream); staker1 alone backs it with 200 DREAM
+TRANCHE_EMBER='{"name":"Ember Core","description":"Test module","components":["ember.go"],"stakeThreshold":"200000000","previewUri":""}'
 
 TX_RES=$($BINARY tx reveal propose \
     "Project Ember" \
     "For non-contributor reveal test" \
-    "200" \
+    "200000000" \
     "MIT" \
     "MIT" \
     --tranches "$TRANCHE_EMBER" \
@@ -823,9 +826,9 @@ if [ -n "$EMBER_ID" ]; then
     if [ -n "$EMBER_PROP_ID" ]; then
         vote_and_execute $EMBER_PROP_ID > /dev/null 2>&1
 
-        # Stake to BACKED with staker1 (200 = threshold)
+        # Stake to BACKED with staker1 (200 DREAM = 200_000_000 udream = threshold)
         TX_RES=$($BINARY tx reveal stake \
-            $EMBER_ID 0 "200" \
+            $EMBER_ID 0 "200000000" \
             --from staker1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \

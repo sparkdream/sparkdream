@@ -4,6 +4,8 @@ echo "--- TESTING: x/reveal QUERY ENDPOINTS ---"
 echo ""
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROPOSAL_DIR="$SCRIPT_DIR/proposals"
+mkdir -p "$PROPOSAL_DIR"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 
@@ -13,6 +15,113 @@ if [ -f "$SCRIPT_DIR/.test_env" ]; then
 else
     echo "ERROR: .test_env not found. Run setup_test_accounts.sh first."
     exit 1
+fi
+
+# --- Test Helpers (used to seed data when running standalone) ---
+wait_for_tx_q() {
+    local TXHASH=$1
+    local MAX_ATTEMPTS=20
+    local ATTEMPT=0
+    while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+        local R
+        R=$($BINARY q tx $TXHASH --output json 2>&1)
+        if echo "$R" | jq -e '.code' > /dev/null 2>&1; then
+            echo "$R"
+            return 0
+        fi
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 1
+    done
+    return 1
+}
+
+get_proposal_id_q() {
+    local TX_RES=$1
+    echo "$TX_RES" | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"'
+}
+
+# --- Seed Data (if not already present) ---
+# Query tests need at least one IN_PROGRESS contribution + one stake + one vote
+# so the per-tranche/per-staker/per-voter queries have something to return.
+SEED_NEEDED=true
+EXISTING=$($BINARY query reveal contributions-by-status in-progress --output json 2>&1 | jq -r '.contributions // [] | length')
+if [ "$EXISTING" -gt 0 ] 2>/dev/null; then
+    SEED_NEEDED=false
+fi
+
+if [ "$SEED_NEEDED" = true ]; then
+    echo "--- SEEDING TEST DATA ---"
+    echo "  Proposing seed contribution..."
+    SEED_TRANCHE='{"name":"Query Seed","description":"For query tests","components":["q.go"],"stakeThreshold":"200000000","previewUri":""}'
+    TX_RES=$($BINARY tx reveal propose \
+        "Project QuerySeed" "Seed for query tests" "200000000" "MIT" "MIT" \
+        --tranches "$SEED_TRANCHE" \
+        --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000uspark --output json 2>&1)
+    SEED_TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    SEED_CONTRIB_ID=""
+    if [ -n "$SEED_TXHASH" ] && [ "$SEED_TXHASH" != "null" ]; then
+        sleep 6
+        SEED_TX_RES=$(wait_for_tx_q $SEED_TXHASH)
+        SEED_CONTRIB_ID=$(echo "$SEED_TX_RES" | jq -r '.events[] | select(.type=="contribution_proposed") | .attributes[] | select(.key=="contribution_id") | .value' | tr -d '"')
+    fi
+
+    if [ -n "$SEED_CONTRIB_ID" ] && [ -n "$COUNCIL_POLICY" ]; then
+        echo "  Approving seed contribution #$SEED_CONTRIB_ID via council..."
+        jq -n \
+            --arg policy "$COUNCIL_POLICY" \
+            --arg alice "$ALICE_ADDR" \
+            --arg cid "$SEED_CONTRIB_ID" \
+        '{
+            policy_address: $policy,
+            metadata: "Approve seed for query tests",
+            messages: [{
+                "@type": "/sparkdream.reveal.v1.MsgApprove",
+                authority: $policy,
+                proposer: $alice,
+                contribution_id: $cid
+            }]
+        }' > "$PROPOSAL_DIR/approve_query_seed.json"
+
+        SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/approve_query_seed.json" \
+            --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000000uspark --output json 2>&1)
+        SUBMIT_TXHASH=$(echo "$SUBMIT_RES" | jq -r '.txhash')
+        sleep 4
+        SUBMIT_TX_RES=$(wait_for_tx_q $SUBMIT_TXHASH)
+        PROP_ID=$(get_proposal_id_q "$SUBMIT_TX_RES")
+
+        if [ -n "$PROP_ID" ]; then
+            $BINARY tx commons vote-proposal $PROP_ID yes --from alice -y \
+                --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000000uspark --output json > /dev/null 2>&1
+            sleep 3
+            $BINARY tx commons vote-proposal $PROP_ID yes --from bob -y \
+                --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000000uspark --output json > /dev/null 2>&1
+            sleep 3
+            $BINARY tx commons execute-proposal $PROP_ID --from alice -y \
+                --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000000uspark --output json > /dev/null 2>&1
+            sleep 6
+
+            # Stake from staker1 (below threshold so tranche stays in STAKING for query tests)
+            echo "  Staker1 staking on seed tranche..."
+            STAKE_TX=$($BINARY tx reveal stake \
+                $SEED_CONTRIB_ID 0 "100000000" --from staker1 -y \
+                --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000uspark --output json 2>&1)
+            STAKE_TXHASH=$(echo "$STAKE_TX" | jq -r '.txhash')
+            if [ -n "$STAKE_TXHASH" ] && [ "$STAKE_TXHASH" != "null" ]; then
+                sleep 6
+                wait_for_tx_q $STAKE_TXHASH > /dev/null 2>&1
+            fi
+        fi
+        echo "  Seed data ready"
+    else
+        echo "  WARNING: Could not seed data — query tests may SKIP/FAIL"
+    fi
+    echo ""
 fi
 
 # --- Result Tracking ---

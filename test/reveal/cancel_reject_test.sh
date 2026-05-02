@@ -140,12 +140,12 @@ echo ""
 # Step 1: Propose a contribution to cancel
 echo "--- TEST 1: PROPOSE FOR CANCEL ---"
 
-TRANCHE_CANCEL='{"name":"Module Alpha","description":"Alpha module","components":["alpha.go"],"stakeThreshold":"500","previewUri":""}'
+TRANCHE_CANCEL='{"name":"Module Alpha","description":"Alpha module","components":["alpha.go"],"stakeThreshold":"500000000","previewUri":""}'
 
 TX_RES=$($BINARY tx reveal propose \
     "Project Zenith" \
     "Will be cancelled by contributor" \
-    "500" \
+    "500000000" \
     "MIT" \
     "MIT" \
     --tranches "$TRANCHE_CANCEL" \
@@ -246,13 +246,13 @@ echo "=== PRE-PROPOSE: Creating contributions for later tests ==="
 echo ""
 
 # Pre-propose for negative tests (Test 7: self-stake, Test 8: cancel-after-backed)
-TRANCHE_NEG='{"name":"Test Module","description":"For negative tests","components":["test.go"],"stakeThreshold":"500","previewUri":""}'
+TRANCHE_NEG='{"name":"Test Module","description":"For negative tests","components":["test.go"],"stakeThreshold":"500000000","previewUri":""}'
 
 echo "  Pre-proposing Project Sigma for negative tests..."
 TX_RES=$($BINARY tx reveal propose \
     "Project Sigma" \
     "For negative testing" \
-    "500" \
+    "500000000" \
     "MIT" \
     "MIT" \
     --tranches "$TRANCHE_NEG" \
@@ -291,12 +291,12 @@ echo ""
 # Step 4: Propose a contribution to reject
 echo "--- TEST 4: PROPOSE FOR REJECTION ---"
 
-TRANCHE_REJECT='{"name":"Bad Module","description":"Will be rejected","components":["bad.go"],"stakeThreshold":"500","previewUri":""}'
+TRANCHE_REJECT='{"name":"Bad Module","description":"Will be rejected","components":["bad.go"],"stakeThreshold":"500000000","previewUri":""}'
 
 TX_RES=$($BINARY tx reveal propose \
     "Project Nebula" \
     "Will be rejected by council" \
-    "500" \
+    "500000000" \
     "MIT" \
     "MIT" \
     --tranches "$TRANCHE_REJECT" \
@@ -447,7 +447,7 @@ if [ -n "$NEG_CONTRIB_ID" ] && [ -n "$COUNCIL_POLICY" ]; then
         # Now try self-staking (alice is the contributor, should be rejected)
         echo "  Alice trying to stake on her own contribution #$NEG_CONTRIB_ID..."
         TX_RES=$($BINARY tx reveal stake \
-            $NEG_CONTRIB_ID 0 "200" \
+            $NEG_CONTRIB_ID 0 "200000000" \
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -484,9 +484,9 @@ echo "--- TEST 8: NEGATIVE - CANCEL AFTER BACKED ---"
 
 # We need the NEG_CONTRIB_ID to be BACKED. Stake on it first.
 if [ -n "$NEG_CONTRIB_ID" ]; then
-    # Have staker1 and staker2 stake to reach threshold
+    # Have staker1 and staker2 stake to reach 500_000_000 threshold
     TX_RES=$($BINARY tx reveal stake \
-        $NEG_CONTRIB_ID 0 "300" \
+        $NEG_CONTRIB_ID 0 "300000000" \
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -500,7 +500,7 @@ if [ -n "$NEG_CONTRIB_ID" ]; then
     fi
 
     TX_RES=$($BINARY tx reveal stake \
-        $NEG_CONTRIB_ID 0 "200" \
+        $NEG_CONTRIB_ID 0 "200000000" \
         --from staker2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

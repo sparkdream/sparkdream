@@ -6,24 +6,28 @@ import (
 	"cosmossdk.io/math"
 )
 
+// Time-denominated deadlines are stored as block counts. Conversion assumes ~5s
+// block times (matching x/season's DefaultEpochBlocks), so 1 day ≈ 17,280 blocks.
+//
+// DREAM-denominated amounts are stored in micro-DREAM (udream); 1 DREAM = 1e6 udream.
 var (
-	DefaultStakeDeadlineEpochs      int64 = 60 // ~2 months
-	DefaultRevealDeadlineEpochs     int64 = 14 // ~2 weeks after backed
-	DefaultVerificationPeriodEpochs int64 = 14 // ~2 weeks
-	DefaultDisputeResolutionEpochs  int64 = 30 // ~1 month for council
+	DefaultStakeDeadlineEpochs      int64 = 1_036_800 // ~2 months  (60 days at 5s blocks)
+	DefaultRevealDeadlineEpochs     int64 = 241_920   // ~2 weeks after backed
+	DefaultVerificationPeriodEpochs int64 = 241_920   // ~2 weeks
+	DefaultDisputeResolutionEpochs  int64 = 518_400   // ~1 month for council
 
 	DefaultVerificationThreshold        = math.LegacyNewDecWithPrec(60, 2) // 60%
-	DefaultMinVerificationVotes  uint32 = 3                                // base minimum; effective = max(3, stake_threshold/5000)
+	DefaultMinVerificationVotes  uint32 = 3                                // base minimum; effective = max(3, stake_threshold/5000 DREAM)
 
 	DefaultMaxTranches           uint32 = 10
-	DefaultMaxTrancheValuation          = math.NewInt(50000)
+	DefaultMaxTrancheValuation          = math.NewInt(50_000_000_000)      // 50,000 DREAM (50K * 1e6 udream)
 	DefaultBondRate                     = math.LegacyNewDecWithPrec(10, 2) // 10% of total valuation
 	DefaultMinProposerTrustLevel uint32 = 2                                // TRUST_LEVEL_ESTABLISHED
 
-	DefaultMaxTotalValuation            = math.NewInt(50000)               // valuation cap per contribution
-	DefaultMinStakeAmount               = math.NewInt(100)                 // 100 DREAM minimum per stake
+	DefaultMaxTotalValuation            = math.NewInt(50_000_000_000)      // 50,000 DREAM cap per contribution
+	DefaultMinStakeAmount               = math.NewInt(100_000_000)         // 100 DREAM minimum per stake
 	DefaultPayoutHoldbackRate           = math.LegacyNewDecWithPrec(20, 2) // 20% held back per tranche
-	DefaultProposalCooldownEpochs int64 = 14                               // ~2 weeks after rejection
+	DefaultProposalCooldownEpochs int64 = 241_920                          // ~2 weeks after rejection
 )
 
 // NewParams creates a new Params instance.

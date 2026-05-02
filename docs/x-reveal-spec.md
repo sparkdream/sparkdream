@@ -842,27 +842,32 @@ message EventWithdrawn {
 
 ## Default Parameters
 
+Time-denominated deadlines are stored as block counts. Conversion assumes ~5s
+block times (matching `x/season`'s `DefaultEpochBlocks`), so 1 day ≈ 17,280 blocks.
+
+DREAM-denominated amounts are stored in micro-DREAM (udream); 1 DREAM = 1e6 udream.
+
 ```go
 var DefaultParams = Params{
-    StakeDeadlineEpochs:    60,    // ~2 months
-    RevealDeadlineEpochs:     14,    // ~2 weeks after backed
-    VerificationPeriodEpochs: 14,    // ~2 weeks
-    DisputeResolutionEpochs:  30,    // ~1 month for council
+    StakeDeadlineEpochs:      1_036_800, // ~2 months (60 days at 5s blocks)
+    RevealDeadlineEpochs:     241_920,   // ~2 weeks after backed
+    VerificationPeriodEpochs: 241_920,   // ~2 weeks
+    DisputeResolutionEpochs:  518_400,   // ~1 month for council
 
     VerificationThreshold: math.LegacyNewDecWithPrec(60, 2), // 60%
-    MinVerificationVotes:  3,        // base minimum; effective = max(3, stake_threshold/5000)
+    MinVerificationVotes:  3,        // base minimum; effective = max(3, stake_threshold/5000 DREAM)
 
     MaxTranches:         10,
-    MaxTrancheValuation: math.NewInt(50000),
-    MaxTotalValuation:   math.NewInt(50000),  // valuation cap per contribution
+    MaxTrancheValuation: math.NewInt(50_000_000_000), // 50,000 DREAM
+    MaxTotalValuation:   math.NewInt(50_000_000_000), // 50,000 DREAM cap per contribution
 
     BondRate: math.LegacyNewDecWithPrec(10, 2), // 10% of total valuation
 
     MinProposerTrustLevel: 2, // TRUST_LEVEL_ESTABLISHED
 
-    MinStakeAmount:          math.NewInt(100),  // 100 DREAM minimum per stake
+    MinStakeAmount:          math.NewInt(100_000_000),         // 100 DREAM minimum per stake
     PayoutHoldbackRate:       math.LegacyNewDecWithPrec(20, 2), // 20% held back per tranche
-    ProposalCooldownEpochs: 14,               // ~2 weeks after rejection
+    ProposalCooldownEpochs: 241_920,                            // ~2 weeks after rejection
 }
 ```
 
