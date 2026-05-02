@@ -2,11 +2,20 @@ FROM headscale/headscale:v0.28.0 AS headscale
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata curl vim
+ARG LITESTREAM_VERSION=0.3.13
+ARG TARGETARCH=amd64
+
+RUN set -eux; \
+    apk add --no-cache ca-certificates tzdata curl vim sqlite; \
+    curl -fsSL -o /tmp/litestream.tar.gz "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-${TARGETARCH}.tar.gz"; \
+    tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin; \
+    rm /tmp/litestream.tar.gz; \
+    litestream version
 
 COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
 
 COPY headscale-config.yaml /opt/headscale/default-config.yaml
+COPY litestream.yml /etc/litestream.yml
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
