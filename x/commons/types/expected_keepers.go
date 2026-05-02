@@ -58,6 +58,16 @@ type UpgradeKeeper interface {
 	ScheduleUpgrade(context.Context, upgradetypes.Plan) error
 }
 
+// NameKeeper is a narrow surface used by genesis bootstrap to seed
+// human-readable display names on OwnerInfo records (replacing the
+// historical use of Member.metadata for display names).
+//
+// Wired post-depinject via Keeper.SetNameKeeper to avoid a depinject cycle
+// (x/name already depends on x/commons via its CommonsKeeper interface).
+type NameKeeper interface {
+	SetDisplayName(ctx context.Context, addr string, displayName string) error
+}
+
 // ParamSubspace defines the expected Subspace interface for parameters.
 type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})

@@ -54,11 +54,30 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			continue
 		}
 
+		// Member.metadata is generic per-membership context (matches the
+		// other entries below: "Founder", "Lead Core Dev", "Tech Guardian",
+		// etc.). The human-readable display name also lives on x/name
+		// OwnerInfo.display_name (seeded below) — that is the field the UI
+		// resolves; this metadata is just bookkeeping for the membership row.
 		foundingMembers = append(foundingMembers, MemberRequest{Address: addr, Weight: "1", Metadata: name})
 
 		if name == FounderName {
 			founderMembers = append(founderMembers, MemberRequest{Address: addr, Weight: "1", Metadata: "Founder"})
 		}
+	}
+
+	// Seed OwnerInfo.display_name for each genesis member so the UI can
+	// render human-readable names without falling back to Member.metadata.
+	// SetNameKeeper is wired in app.go after depinject; if the keeper is
+	// missing (e.g. tests that don't wire it) we skip silently and log.
+	if k.late.nameKeeper != nil {
+		for addr, name := range GenesisNames {
+			if err := k.late.nameKeeper.SetDisplayName(ctx, addr, name); err != nil {
+				logger.Warn("failed to seed display name for genesis member", "address", addr, "name", name, "error", err)
+			}
+		}
+	} else {
+		logger.Warn("nameKeeper not wired; skipping genesis display name seeding")
 	}
 
 	if len(foundingMembers) == 0 {

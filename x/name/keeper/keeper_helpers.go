@@ -5,13 +5,68 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"sparkdream/x/name/types"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"golang.org/x/text/unicode/norm"
 )
+
+// MaxDisplayNameRunes is the maximum length of a display name in Unicode
+// codepoints (not bytes).
+const MaxDisplayNameRunes = 32
+
+// validateDisplayName enforces bytes-level rules for a display name. Empty
+// input is allowed and signals "clear the field"; non-empty input must:
+//  1. Be free of leading/trailing whitespace (canonical form).
+//  2. Be 1-32 codepoints long.
+//  3. Contain no control, format/zero-width, surrogate, private-use, or
+//     unassigned code points.
+//  4. Contain no newline characters.
+//  5. Be in Unicode NFC form.
+//
+// Aesthetic rules (similarity, profanity) are explicitly out of scope —
+// those belong in the UI.
+func validateDisplayName(s string) error {
+	if s == "" {
+		return nil
+	}
+	if strings.TrimSpace(s) != s {
+		return errorsmod.Wrap(types.ErrInvalidDisplayName, "display name has leading or trailing whitespace")
+	}
+	if !utf8.ValidString(s) {
+		return errorsmod.Wrap(types.ErrInvalidDisplayName, "display name is not valid UTF-8")
+	}
+	n := utf8.RuneCountInString(s)
+	if n < 1 || n > MaxDisplayNameRunes {
+		return errorsmod.Wrapf(types.ErrInvalidDisplayName, "display name must be 1-%d codepoints, got %d", MaxDisplayNameRunes, n)
+	}
+	for _, r := range s {
+		switch r {
+		// Explicit newline rejection (covers Cc-class \n \r \v \f and
+		// the non-Cc separators U+2028, U+2029, plus U+0085 NEL).
+		case '\n', '\r', '\v', '\f', '', ' ', ' ':
+			return errorsmod.Wrap(types.ErrInvalidDisplayName, "display name contains a newline")
+		}
+		if unicode.In(r,
+			unicode.Cc, // control
+			unicode.Cf, // format / bidi-override / zero-width
+			unicode.Co, // private use
+			unicode.Cn, // unassigned
+			unicode.Cs, // surrogate
+		) {
+			return errorsmod.Wrapf(types.ErrInvalidDisplayName, "display name contains a forbidden code point U+%04X", r)
+		}
+	}
+	if norm.NFC.String(s) != s {
+		return errorsmod.Wrap(types.ErrInvalidDisplayName, "display name must be in Unicode NFC form")
+	}
+	return nil
+}
 
 // --- Params Helper ---
 
@@ -206,6 +261,31 @@ func (k Keeper) SetPrimaryName(ctx context.Context, owner sdk.AccAddress, name s
 	}
 	info.PrimaryName = name
 	return k.Owners.Set(ctx, owner.String(), info)
+}
+
+// SetDisplayName writes (or clears, when displayName == "") the free-form
+// display name on the OwnerInfo for the given bech32 address. The address
+// does not need to own a registered handle. Validation matches the
+// MsgSetDisplayName handler. OwnerInfo is created if it does not exist.
+//
+// Used by x/commons genesis bootstrap to seed founding members; safe to call
+// from other modules via the NameKeeper interface in their expected_keepers.
+func (k Keeper) SetDisplayName(ctx context.Context, addr string, displayName string) error {
+	if _, err := sdk.AccAddressFromBech32(addr); err != nil {
+		return err
+	}
+	if err := validateDisplayName(displayName); err != nil {
+		return err
+	}
+	info, err := k.Owners.Get(ctx, addr)
+	if err != nil {
+		if !errors.Is(err, collections.ErrNotFound) {
+			return err
+		}
+		info = types.OwnerInfo{Address: addr}
+	}
+	info.DisplayName = displayName
+	return k.Owners.Set(ctx, addr, info)
 }
 
 // GetLastActiveTime retrieves the last active timestamp for an address.

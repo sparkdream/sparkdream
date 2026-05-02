@@ -39,5 +39,9 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 		&MsgResolveDispute{},
 	)
 
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgSetDisplayName{},
+	)
+
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

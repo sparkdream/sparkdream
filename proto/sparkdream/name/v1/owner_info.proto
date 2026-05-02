@@ -8,4 +8,8 @@ message OwnerInfo {
   string address = 1;
   string primary_name = 2;
   int64 last_active_time = 3;
+  // Free-form display name. Bytes-validated only: NFC, no control or
+  // zero-width chars, no newlines, 1-32 codepoints. Not unique. Not
+  // required to own a primary_name.
+  string display_name = 4;
 }

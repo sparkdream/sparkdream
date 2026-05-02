@@ -235,6 +235,11 @@ func New(
 	// Wire GovKeeper into Commons via adapter (concrete keeper → interface adapter).
 	app.CommonsKeeper.SetGovKeeper(NewGovKeeperAdapter(app.GovKeeper))
 
+	// Wire NameKeeper into Commons so genesis bootstrap can seed
+	// OwnerInfo.display_name for founding members. Late-wired because
+	// x/name already depends on x/commons (would cycle otherwise).
+	app.CommonsKeeper.SetNameKeeper(app.NameKeeper)
+
 	// Wire CommonsKeeper and RepKeeper into Futarchy after depinject to break cyclic dependency.
 	app.FutarchyKeeper.SetCommonsKeeper(app.CommonsKeeper)
 	app.FutarchyKeeper.SetRepKeeper(app.RepKeeper)

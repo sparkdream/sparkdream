@@ -50,6 +50,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Alias:          []string{"show-dispute"},
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}},
 				},
+				{
+					RpcMethod:      "GetOwnerInfo",
+					Use:            "owner-info [address]",
+					Short:          "Get owner info (primary_name, display_name, last_active_time) for an address",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
+				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -100,6 +106,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "update-name [name] [data]",
 					Short:          "Send a update-name tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "data"}},
+				},
+				{
+					RpcMethod:      "SetDisplayName",
+					Use:            "set-display-name [display-name]",
+					Short:          "Set (or clear, with empty string) the free-form display name on the signer's OwnerInfo",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "display_name"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

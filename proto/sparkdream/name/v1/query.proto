@@ -8,6 +8,7 @@ import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/name/v1/dispute.proto";
 import "sparkdream/name/v1/name_record.proto";
+import "sparkdream/name/v1/owner_info.proto";
 import "sparkdream/name/v1/params.proto";
 
 option go_package = "sparkdream/x/name/types";
@@ -42,6 +43,13 @@ service Query {
   // ListDispute defines the ListDispute RPC.
   rpc ListDispute(QueryAllDisputeRequest) returns (QueryAllDisputeResponse) {
     option (google.api.http).get = "/sparkdream/name/v1/dispute";
+  }
+
+  // GetOwnerInfo returns the OwnerInfo (primary_name, display_name,
+  // last_active_time) for an address. Works for any address, including
+  // ones that never registered a handle.
+  rpc GetOwnerInfo(QueryGetOwnerInfoRequest) returns (QueryGetOwnerInfoResponse) {
+    option (google.api.http).get = "/sparkdream/name/v1/owner_info/{address}";
   }
 }
 
@@ -108,4 +116,16 @@ message QueryAllDisputeRequest {
 message QueryAllDisputeResponse {
   repeated Dispute dispute = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetOwnerInfoRequest defines the request type for the GetOwnerInfo RPC.
+message QueryGetOwnerInfoRequest {
+  string address = 1;
+}
+
+// QueryGetOwnerInfoResponse defines the response type for the GetOwnerInfo RPC.
+// owner_info is always populated; for addresses with no record it is returned
+// with the address echoed and all other fields empty/zero.
+message QueryGetOwnerInfoResponse {
+  OwnerInfo owner_info = 1 [(gogoproto.nullable) = false];
 }

@@ -19,8 +19,9 @@ import (
 // Stored as a shared pointer so value-copies of Keeper (e.g. in AppModule, msgServer)
 // see updates made after NewAppModule().
 type lateKeepers struct {
-	govKeeper types.GovKeeper
-	router    baseapp.MessageRouter
+	govKeeper  types.GovKeeper
+	router     baseapp.MessageRouter
+	nameKeeper types.NameKeeper
 }
 
 type Keeper struct {
@@ -200,6 +201,13 @@ func (k *Keeper) SetGovKeeper(gk types.GovKeeper) {
 // SetRouter wires the MsgServiceRouter after app build for proposal execution.
 func (k *Keeper) SetRouter(router baseapp.MessageRouter) {
 	k.late.router = router
+}
+
+// SetNameKeeper wires the NameKeeper after depinject. Used by genesis bootstrap
+// to seed OwnerInfo.display_name for founding members. Late-wired to avoid a
+// depinject cycle (x/name already depends on x/commons).
+func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
+	k.late.nameKeeper = nk
 }
 
 // DeriveCouncilAddress generates a deterministic address for a council based on its ID.

@@ -40,6 +40,10 @@ service Msg {
 
   // UpdateName defines the UpdateName RPC.
   rpc UpdateName(MsgUpdateName) returns (MsgUpdateNameResponse);
+
+  // SetDisplayName sets (or clears) the free-form display name on the
+  // signer's OwnerInfo. Empty display_name clears the field.
+  rpc SetDisplayName(MsgSetDisplayName) returns (MsgSetDisplayNameResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -157,3 +161,18 @@ message MsgUpdateNameResponse {
   string name = 1;
   string owner = 2;
 }
+
+// MsgSetDisplayName sets (or clears) the free-form display name on the
+// signer's OwnerInfo. Empty display_name clears the field. Aesthetic
+// policing (impersonation similarity, profanity) is a frontend concern;
+// chain-level validation is bytes-only.
+message MsgSetDisplayName {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/name/MsgSetDisplayName";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // display_name is the new value. Empty string clears the field.
+  string display_name = 2;
+}
+
+// MsgSetDisplayNameResponse defines the response for MsgSetDisplayName.
+message MsgSetDisplayNameResponse {}
