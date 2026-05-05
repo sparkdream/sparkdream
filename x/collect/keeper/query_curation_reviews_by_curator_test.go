@@ -27,7 +27,7 @@ func TestQueryCurationReviewsByCurator(t *testing.T) {
 			name: "returns reviews by curator",
 			setup: func(f *testFixture) {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				_, err := f.msgServer.RateCollection(f.ctx, &types.MsgRateCollection{
 					Creator:      f.member,
@@ -46,7 +46,7 @@ func TestQueryCurationReviewsByCurator(t *testing.T) {
 			name: "different curator returns empty",
 			setup: func(f *testFixture) {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				_, err := f.msgServer.RateCollection(f.ctx, &types.MsgRateCollection{
 					Creator:      f.member,

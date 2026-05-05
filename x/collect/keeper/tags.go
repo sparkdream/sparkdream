@@ -6,8 +6,8 @@ import (
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // validateTags validates a list of tags against module params and the shared

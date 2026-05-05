@@ -58,7 +58,7 @@ func TestQueryMemberStanding(t *testing.T) {
 			Address:          addr.String(),
 			Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
 			DreamBalance:     keeper.PtrInt(math.ZeroInt()),
-			StakedDream:     keeper.PtrInt(math.ZeroInt()),
+			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"backend": "250.0"}, // total 250 => tier 3

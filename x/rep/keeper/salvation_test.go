@@ -58,4 +58,3 @@ func TestSalvationCounters_UpdateOnMissingMemberIsNoop(t *testing.T) {
 	err := k.UpdateSalvationCounters(f.ctx, sdk.AccAddress([]byte("ghost")).String(), 5, 100)
 	require.NoError(t, err)
 }
-

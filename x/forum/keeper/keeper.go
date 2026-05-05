@@ -23,27 +23,27 @@ type Keeper struct {
 	Schema collections.Schema
 	Params collections.Item[types.Params]
 
-	bankKeeper            types.BankKeeper
-	repKeeper             types.RepKeeper
-	commonsKeeper         types.CommonsKeeper
-	Post                  collections.Map[uint64, types.Post]
-	PostSeq               collections.Sequence
-	UserRateLimit         collections.Map[string, types.UserRateLimit]
-	UserReactionLimit     collections.Map[string, types.UserReactionLimit]
-	SentinelActivity      collections.Map[string, types.SentinelActivity]
-	HideRecord            collections.Map[uint64, types.HideRecord]
-	ThreadLockRecord      collections.Map[uint64, types.ThreadLockRecord]
-	ThreadMoveRecord      collections.Map[uint64, types.ThreadMoveRecord]
-	PostFlag              collections.Map[uint64, types.PostFlag]
-	BountySeq             collections.Sequence
-	Bounty                collections.Map[uint64, types.Bounty]
-	ThreadMetadata        collections.Map[uint64, types.ThreadMetadata]
-	ThreadFollow          collections.Map[string, types.ThreadFollow]
-	ThreadFollowCount     collections.Map[uint64, types.ThreadFollowCount]
-	ArchiveMetadata       collections.Map[uint64, types.ArchiveMetadata]
-	ExpirationQueue       collections.KeySet[collections.Pair[int64, uint64]]
-	PostVote              collections.KeySet[collections.Pair[uint64, string]]
-	ActiveBountyByThread  collections.Map[uint64, uint64]
+	bankKeeper           types.BankKeeper
+	repKeeper            types.RepKeeper
+	commonsKeeper        types.CommonsKeeper
+	Post                 collections.Map[uint64, types.Post]
+	PostSeq              collections.Sequence
+	UserRateLimit        collections.Map[string, types.UserRateLimit]
+	UserReactionLimit    collections.Map[string, types.UserReactionLimit]
+	SentinelActivity     collections.Map[string, types.SentinelActivity]
+	HideRecord           collections.Map[uint64, types.HideRecord]
+	ThreadLockRecord     collections.Map[uint64, types.ThreadLockRecord]
+	ThreadMoveRecord     collections.Map[uint64, types.ThreadMoveRecord]
+	PostFlag             collections.Map[uint64, types.PostFlag]
+	BountySeq            collections.Sequence
+	Bounty               collections.Map[uint64, types.Bounty]
+	ThreadMetadata       collections.Map[uint64, types.ThreadMetadata]
+	ThreadFollow         collections.Map[string, types.ThreadFollow]
+	ThreadFollowCount    collections.Map[uint64, types.ThreadFollowCount]
+	ArchiveMetadata      collections.Map[uint64, types.ArchiveMetadata]
+	ExpirationQueue      collections.KeySet[collections.Pair[int64, uint64]]
+	PostVote             collections.KeySet[collections.Pair[uint64, string]]
+	ActiveBountyByThread collections.Map[uint64, uint64]
 
 	// FORUM-S2-8 secondary indexes for paginated / prefix queries.
 	PostsByPinned     collections.KeySet[collections.Pair[uint64, uint64]]

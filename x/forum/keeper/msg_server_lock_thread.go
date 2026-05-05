@@ -84,19 +84,19 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 			return nil, types.ErrLockLimitExceeded
 		}
 
-		// Higher bond requirement for locking (2x normal bond).
+		// Higher bond requirement for locking (2x normal bond, in udream).
 		currentBond := parseIntOrZero(br.CurrentBond)
-		minLockBond := math.NewInt(2000)
+		minLockBond := math.NewInt(2_000_000_000) // 2000 DREAM
 		if currentBond.LT(minLockBond) {
 			return nil, errorsmod.Wrapf(types.ErrInsufficientLockBond,
-				"need %s DREAM bonded for locking, have %s", minLockBond.String(), currentBond.String())
+				"need %s udream bonded for locking, have %s", minLockBond.String(), currentBond.String())
 		}
 
 		backing := k.GetSentinelBacking(ctx, msg.Creator)
-		minLockBacking := math.NewInt(20000)
+		minLockBacking := math.NewInt(20_000_000_000) // 20000 DREAM
 		if backing.LT(minLockBacking) {
 			return nil, errorsmod.Wrapf(types.ErrInsufficientLockBacking,
-				"need %s DREAM backing for locking, have %s", minLockBacking.String(), backing.String())
+				"need %s udream backing for locking, have %s", minLockBacking.String(), backing.String())
 		}
 
 		if msg.Reason == "" {

@@ -7,8 +7,8 @@ import (
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // validatePostTags validates a list of tags for use on a post and updates tag

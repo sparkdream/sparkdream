@@ -314,7 +314,7 @@ echo "Step 2: Creating challenge to trigger ADJUDICATION interim..."
 TX_RES=$($BINARY tx rep create-challenge \
     $INITIATIVE_ID \
     "Quality issues found" \
-    "1000000" \
+    "50000000" \
     --evidence "https://example.com/issues" \
     --from challenger \
     --chain-id $CHAIN_ID \

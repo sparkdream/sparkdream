@@ -231,7 +231,7 @@ func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 }
 
 func (m *mockRepKeeper) GetBalance(ctx context.Context, addr sdk.AccAddress) (math.Int, error) {
-	return math.NewInt(1000000), nil
+	return math.NewInt(30_000_000_000), nil // 30000 DREAM (covers sentinel locking backing requirement)
 }
 
 func (m *mockRepKeeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddress, amount math.Int, purpose reptypes.TransferPurpose) error {
@@ -536,7 +536,7 @@ func initFixture(t *testing.T) *fixture {
 		addressCodec:  addressCodec,
 		msgServer:     keeper.NewMsgServerImpl(k),
 		bankKeeper:    bankKeeper,
-		repKeeper:    repKeeper,
+		repKeeper:     repKeeper,
 		commonsKeeper: commonsKeeper,
 	}
 }
@@ -681,4 +681,3 @@ func (f *fixture) createTestTag(t *testing.T, name string) reptypes.Tag {
 	f.repKeeper.tags[name] = tag
 	return tag
 }
-

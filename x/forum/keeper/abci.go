@@ -343,4 +343,3 @@ func (k Keeper) ExpireBounties(ctx context.Context, now int64) error {
 
 	return nil
 }
-

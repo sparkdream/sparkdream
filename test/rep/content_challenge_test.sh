@@ -125,7 +125,7 @@ echo ""
 
 # Get params to know min author bond
 PARAMS=$($BINARY query rep params --output json 2>&1)
-MIN_CHALLENGE_STAKE=$(echo "$PARAMS" | jq -r '.params.min_challenge_stake // "1000000"')
+MIN_CHALLENGE_STAKE=$(echo "$PARAMS" | jq -r '.params.min_challenge_stake // "50000000"')
 echo "  MinChallengeStake: $MIN_CHALLENGE_STAKE"
 
 # Create a blog post with an author bond of 50 DREAM (50000000)

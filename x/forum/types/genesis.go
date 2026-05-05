@@ -7,7 +7,7 @@ import (
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
-		Params:  DefaultParams(),
+		Params:               DefaultParams(),
 		PostMap:              []Post{},
 		UserRateLimitMap:     []UserRateLimit{},
 		UserReactionLimitMap: []UserReactionLimit{},

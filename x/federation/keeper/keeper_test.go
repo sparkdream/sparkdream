@@ -7,7 +7,6 @@ import (
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
-	"github.com/stretchr/testify/require"
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -20,6 +19,7 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
 	ibctypes "github.com/cosmos/ibc-go/v10/modules/core/types"
+	"github.com/stretchr/testify/require"
 
 	reptypes "sparkdream/x/rep/types"
 
@@ -387,7 +387,7 @@ func bondTestVerifier(t *testing.T, f *fixture, _ types.MsgServer, seed string) 
 			Address:            addr,
 			RoleType:           reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
 			BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
-			CurrentBond:        "500",
+			CurrentBond:        "500000000", // 500 DREAM in udream — covers MinVerifierBond
 			TotalCommittedBond: "0",
 		},
 	)

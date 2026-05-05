@@ -17,10 +17,13 @@ import (
 // update per the verdict, then transitions the appeal to its terminal status.
 //
 // UPHELD:     50% of appellant bond burned, 50% retained in rep module (tops
-//             up the sentinel reward pool). Forum counter RecordSentinelActionUpheld.
+//
+//	up the sentinel reward pool). Forum counter RecordSentinelActionUpheld.
+//
 // OVERTURNED: 100% refund to appellant. Sentinel slashed DefaultSentinelOverturnSlash
-//             DREAM. Forum counter RecordSentinelActionOverturned (which may trigger
-//             demotion on streak).
+//
+//	DREAM. Forum counter RecordSentinelActionOverturned (which may trigger
+//	demotion on streak).
 //
 // TIMEOUT and UNSPECIFIED verdicts are rejected — TIMEOUT is driven only by
 // the EndBlocker (see TimeoutExpiredAppeals).

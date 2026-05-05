@@ -20,16 +20,16 @@ type federationGenesisParams struct {
 	AttestationTTL time.Duration
 
 	MaxIdentityLinksPerUser uint32
-	UnverifiedLinkTTL      time.Duration
-	ChallengeTTL           time.Duration
+	UnverifiedLinkTTL       time.Duration
+	ChallengeTTL            time.Duration
 
-	VerificationWindow          time.Duration
-	ChallengeWindow             time.Duration
-	ChallengeFee                sdk.Coin
-	ChallengeJuryDeadline       time.Duration
-	VerifierDemotionCooldown    time.Duration
+	VerificationWindow           time.Duration
+	ChallengeWindow              time.Duration
+	ChallengeFee                 sdk.Coin
+	ChallengeJuryDeadline        time.Duration
+	VerifierDemotionCooldown     time.Duration
 	VerifierOverturnBaseCooldown time.Duration
-	ChallengeCooldown           time.Duration
+	ChallengeCooldown            time.Duration
 
 	ArbiterResolutionWindow time.Duration
 	ArbiterEscalationWindow time.Duration
@@ -57,17 +57,17 @@ var (
 	DefaultIBCChannelVersion         = Version
 	DefaultMaxPrunePerBlock          = uint64(100)
 
-	// Verification — network-independent
-	DefaultMinVerifierTrustLevel       = uint32(2) // ESTABLISHED
-	DefaultMinVerifierBond             = math.NewInt(500)
-	DefaultVerifierRecoveryThreshold   = math.NewInt(250)
-	DefaultVerifierSlashAmount         = math.NewInt(50)
-	DefaultUpheldToResetOverturns      = uint32(3)
-	DefaultMinEpochVerifications       = uint32(3)
-	DefaultMinVerifierAccuracy         = math.LegacyNewDecWithPrec(8, 1) // 0.8
-	DefaultOperatorRewardShare         = math.LegacyNewDecWithPrec(6, 1) // 0.6
-	DefaultVerifierDreamReward         = math.NewInt(5)
-	DefaultMaxVerifierDreamMintPerEpoch = math.NewInt(100)
+	// Verification — network-independent (DREAM amounts in udream: 1 DREAM = 1e6 udream)
+	DefaultMinVerifierTrustLevel        = uint32(2)                       // ESTABLISHED
+	DefaultMinVerifierBond              = math.NewInt(500_000_000)        // 500 DREAM
+	DefaultVerifierRecoveryThreshold    = math.NewInt(250_000_000)        // 250 DREAM
+	DefaultVerifierSlashAmount          = math.NewInt(50_000_000)         // 50 DREAM
+	DefaultUpheldToResetOverturns       = uint32(3)
+	DefaultMinEpochVerifications        = uint32(3)
+	DefaultMinVerifierAccuracy          = math.LegacyNewDecWithPrec(8, 1) // 0.8
+	DefaultOperatorRewardShare          = math.LegacyNewDecWithPrec(6, 1) // 0.6
+	DefaultVerifierDreamReward          = math.NewInt(5_000_000)          // 5 DREAM
+	DefaultMaxVerifierDreamMintPerEpoch = math.NewInt(100_000_000)        // 100 DREAM
 
 	// Arbiter — network-independent
 	DefaultArbiterQuorum = uint32(3)
@@ -85,46 +85,46 @@ func DefaultParams() Params {
 	gp := getFederationGenesisParams()
 
 	return Params{
-		MinBridgeStake:           gp.MinBridgeStake,
-		MaxBridgesPerPeer:        DefaultMaxBridgesPerPeer,
-		BridgeRevocationCooldown: gp.BridgeRevocationCooldown,
-		BridgeUnbondingPeriod:    gp.BridgeUnbondingPeriod,
-		KnownContentTypes:       DefaultKnownContentTypes,
-		MaxInboundPerBlock:       DefaultMaxInboundPerBlock,
-		MaxOutboundPerBlock:      DefaultMaxOutboundPerBlock,
-		MaxContentBodySize:       DefaultMaxContentBodySize,
-		MaxContentUriSize:        DefaultMaxContentUriSize,
-		MaxProtocolMetadataSize:  DefaultMaxProtocolMetadataSize,
-		ContentTtl:               gp.ContentTTL,
-		AttestationTtl:           gp.AttestationTTL,
-		GlobalMaxTrustCredit:     DefaultGlobalMaxTrustCredit,
-		TrustDiscountRate:        DefaultTrustDiscountRate,
-		MaxIdentityLinksPerUser:  gp.MaxIdentityLinksPerUser,
-		UnverifiedLinkTtl:        gp.UnverifiedLinkTTL,
-		ChallengeTtl:             gp.ChallengeTTL,
+		MinBridgeStake:            gp.MinBridgeStake,
+		MaxBridgesPerPeer:         DefaultMaxBridgesPerPeer,
+		BridgeRevocationCooldown:  gp.BridgeRevocationCooldown,
+		BridgeUnbondingPeriod:     gp.BridgeUnbondingPeriod,
+		KnownContentTypes:         DefaultKnownContentTypes,
+		MaxInboundPerBlock:        DefaultMaxInboundPerBlock,
+		MaxOutboundPerBlock:       DefaultMaxOutboundPerBlock,
+		MaxContentBodySize:        DefaultMaxContentBodySize,
+		MaxContentUriSize:         DefaultMaxContentUriSize,
+		MaxProtocolMetadataSize:   DefaultMaxProtocolMetadataSize,
+		ContentTtl:                gp.ContentTTL,
+		AttestationTtl:            gp.AttestationTTL,
+		GlobalMaxTrustCredit:      DefaultGlobalMaxTrustCredit,
+		TrustDiscountRate:         DefaultTrustDiscountRate,
+		MaxIdentityLinksPerUser:   gp.MaxIdentityLinksPerUser,
+		UnverifiedLinkTtl:         gp.UnverifiedLinkTTL,
+		ChallengeTtl:              gp.ChallengeTTL,
 		BridgeInactivityThreshold: DefaultBridgeInactivityThreshold,
-		IbcPort:                  DefaultIBCPort,
-		IbcChannelVersion:        DefaultIBCChannelVersion,
-		IbcPacketTimeout:         gp.IBCPacketTimeout,
-		MaxPrunePerBlock:         DefaultMaxPrunePerBlock,
-		RateLimitWindow:          gp.RateLimitWindow,
+		IbcPort:                   DefaultIBCPort,
+		IbcChannelVersion:         DefaultIBCChannelVersion,
+		IbcPacketTimeout:          gp.IBCPacketTimeout,
+		MaxPrunePerBlock:          DefaultMaxPrunePerBlock,
+		RateLimitWindow:           gp.RateLimitWindow,
 
 		// Verification
-		MinVerifierTrustLevel:       DefaultMinVerifierTrustLevel,
-		MinVerifierBond:             DefaultMinVerifierBond,
-		VerifierRecoveryThreshold:   DefaultVerifierRecoveryThreshold,
-		VerifierSlashAmount:         DefaultVerifierSlashAmount,
-		VerificationWindow:          gp.VerificationWindow,
-		ChallengeWindow:             gp.ChallengeWindow,
-		ChallengeFee:                gp.ChallengeFee,
-		ChallengeJuryDeadline:       gp.ChallengeJuryDeadline,
-		VerifierDemotionCooldown:    gp.VerifierDemotionCooldown,
+		MinVerifierTrustLevel:        DefaultMinVerifierTrustLevel,
+		MinVerifierBond:              DefaultMinVerifierBond,
+		VerifierRecoveryThreshold:    DefaultVerifierRecoveryThreshold,
+		VerifierSlashAmount:          DefaultVerifierSlashAmount,
+		VerificationWindow:           gp.VerificationWindow,
+		ChallengeWindow:              gp.ChallengeWindow,
+		ChallengeFee:                 gp.ChallengeFee,
+		ChallengeJuryDeadline:        gp.ChallengeJuryDeadline,
+		VerifierDemotionCooldown:     gp.VerifierDemotionCooldown,
 		VerifierOverturnBaseCooldown: gp.VerifierOverturnBaseCooldown,
-		UpheldToResetOverturns:      DefaultUpheldToResetOverturns,
-		MinEpochVerifications:       DefaultMinEpochVerifications,
-		MinVerifierAccuracy:         DefaultMinVerifierAccuracy,
-		OperatorRewardShare:         DefaultOperatorRewardShare,
-		VerifierDreamReward:         DefaultVerifierDreamReward,
+		UpheldToResetOverturns:       DefaultUpheldToResetOverturns,
+		MinEpochVerifications:        DefaultMinEpochVerifications,
+		MinVerifierAccuracy:          DefaultMinVerifierAccuracy,
+		OperatorRewardShare:          DefaultOperatorRewardShare,
+		VerifierDreamReward:          DefaultVerifierDreamReward,
 		MaxVerifierDreamMintPerEpoch: DefaultMaxVerifierDreamMintPerEpoch,
 
 		// Arbiter

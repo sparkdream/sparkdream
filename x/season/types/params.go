@@ -25,7 +25,7 @@ var (
 	DefaultMinGuildMembers              uint32 = 3
 	DefaultMaxGuildMembers              uint32 = 100
 	DefaultMaxGuildOfficers             uint32 = 5
-	DefaultGuildCreationCost                   = math.NewInt(100) // 100 DREAM
+	DefaultGuildCreationCost                   = math.NewInt(100_000_000) // 100 DREAM (in udream)
 	DefaultGuildHopCooldownEpochs       uint64 = 30               // ~1 month
 	DefaultMaxGuildsPerSeason           uint32 = 3
 	DefaultMinGuildAgeEpochs            uint64 = 7 // ~1 week
@@ -36,7 +36,7 @@ var (
 	DefaultUsernameMinLength            uint32 = 3
 	DefaultUsernameMaxLength            uint32 = 20
 	DefaultUsernameChangeCooldown       uint64 = 30              // 30 epochs
-	DefaultUsernameCostDream                   = math.NewInt(10) // 10 DREAM
+	DefaultUsernameCostDream                   = math.NewInt(10_000_000) // 10 DREAM (in udream)
 	DefaultMaxTransitionEpochs          uint64 = 7
 	DefaultTransitionBatchSize          uint32 = 100
 	DefaultMaxSeasonExtensions          uint32 = 3
@@ -56,8 +56,8 @@ var (
 	DefaultForumXpSelfReplyCooldown     uint64 = 3
 	DefaultTransitionGracePeriod        uint32 = 50400 // ~1 week in blocks
 	DefaultTransitionMaxRetries         uint32 = 3
-	DefaultDisplayNameReportStake              = math.NewInt(50)  // 50 DREAM
-	DefaultDisplayNameAppealStake              = math.NewInt(100) // 100 DREAM
+	DefaultDisplayNameReportStake              = math.NewInt(50_000_000)  // 50 DREAM (in udream)
+	DefaultDisplayNameAppealStake              = math.NewInt(100_000_000) // 100 DREAM (in udream)
 	DefaultDisplayNameAppealPeriod      uint64 = 100800           // ~7 days in blocks
 	DefaultMaxDisplayableTitles         uint32 = 50
 	DefaultMaxArchivedTitles            uint32 = 200
@@ -68,9 +68,9 @@ var (
 	DefaultNominationWindowEpochs             uint64 = 5
 	DefaultMaxNominationsPerMember            uint64 = 3
 	DefaultRetroRewardMaxRecipients           uint64 = 20
-	DefaultRetroRewardBudgetRatio                     = math.LegacyNewDecWithPrec(25, 2) // 0.25
-	DefaultRetroRewardBudgetMin                       = math.NewInt(10_000_000_000)       // 10,000 DREAM in micro-DREAM
-	DefaultRetroRewardBudgetMax                       = math.NewInt(75_000_000_000)       // 75,000 DREAM in micro-DREAM
+	DefaultRetroRewardBudgetRatio                    = math.LegacyNewDecWithPrec(25, 2) // 0.25
+	DefaultRetroRewardBudgetMin                      = math.NewInt(10_000_000_000)      // 10,000 DREAM in micro-DREAM
+	DefaultRetroRewardBudgetMax                      = math.NewInt(75_000_000_000)      // 75,000 DREAM in micro-DREAM
 	DefaultRetroRewardMinConviction                  = math.LegacyMustNewDecFromStr("50")
 	DefaultNominationConvictionHalfLifeEpochs uint64 = 3
 	DefaultNominationRationaleMaxLength       uint32 = 500

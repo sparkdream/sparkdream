@@ -9,8 +9,8 @@ import (
 	reptypes "sparkdream/x/rep/types"
 )
 
-// DefaultMinSentinelBond is the minimum DREAM required to be a sentinel
-var DefaultMinSentinelBond = math.NewInt(500)
+// DefaultMinSentinelBond is the minimum DREAM required to be a sentinel (in udream).
+var DefaultMinSentinelBond = math.NewInt(500_000_000) // 500 DREAM
 
 // Default fee coin denomination
 const DefaultFeeDenom = "uspark"
@@ -64,8 +64,8 @@ const (
 	DefaultMaxSentinelMovesPerEpoch = uint64(10)
 	DefaultSentinelOverturnCooldown = int64(86400)  // 24 hours
 	DefaultSentinelDemotionCooldown = int64(604800) // 7 days
-	DefaultMinSentinelBondAmount    = int64(500)    // 500 DREAM
-	DefaultSentinelSlashAmount      = int64(100)    // 100 DREAM per overturned appeal
+	DefaultMinSentinelBondAmount    = int64(500_000_000) // 500 DREAM (in udream)
+	DefaultSentinelSlashAmount      = int64(100_000_000) // 100 DREAM per overturned appeal (in udream)
 
 	// Archive limits
 	DefaultMaxArchiveCycles  = uint64(5)
@@ -105,7 +105,7 @@ var (
 	DefaultLockAppealFeeAmount        = math.NewInt(5000000) // 5 SPARK
 	DefaultMoveAppealFeeAmount        = math.NewInt(5000000) // 5 SPARK
 	DefaultEditFeeAmount              = math.NewInt(10000)   // 0.01 SPARK
-	DefaultTagReportBond              = math.NewInt(10)      // 10 DREAM
+	DefaultTagReportBond              = math.NewInt(10_000_000) // 10 DREAM (in udream)
 	DefaultCostPerByteAmount          = math.NewInt(100)     // 100 uspark/byte (~1 SPARK for 10KB)
 	DefaultConvictionRenewalThreshold = math.LegacyNewDec(100)
 )

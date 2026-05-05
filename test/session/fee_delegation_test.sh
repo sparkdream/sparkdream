@@ -197,7 +197,10 @@ sleep 6
 # Invite fee_granter to x/rep (required for blog posts)
 MEMBER_INFO=$($BINARY query rep get-member "$FEE_GRANTER_ADDR" --output json 2>&1)
 if echo "$MEMBER_INFO" | grep -q "not found"; then
-    TX_RES=$($BINARY tx rep invite-member "$FEE_GRANTER_ADDR" "100" \
+    ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test 2>/dev/null)
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+        | jq -r '.required_stake // "100000000"')
+    TX_RES=$($BINARY tx rep invite-member "$FEE_GRANTER_ADDR" "$REQUIRED_STAKE" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then

@@ -21,7 +21,7 @@ func TestQueryCurationSummary(t *testing.T) {
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
 				// Register curator and advance past min_curator_age_blocks
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				// Rate the collection
 				_, err := f.msgServer.RateCollection(f.ctx, &types.MsgRateCollection{

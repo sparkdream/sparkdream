@@ -89,7 +89,9 @@ func TestNameOperationalParams_Validate(t *testing.T) {
 		{"default ok", func(op *types.NameOperationalParams) {}, ""},
 		{"zero expiration", func(op *types.NameOperationalParams) { op.ExpirationDuration = 0 }, "expiration duration must be positive"},
 		{"negative expiration", func(op *types.NameOperationalParams) { op.ExpirationDuration = -time.Hour }, "expiration duration must be positive"},
-		{"invalid fee", func(op *types.NameOperationalParams) { op.RegistrationFee = sdk.Coin{Denom: "", Amount: math.NewInt(1)} }, "invalid registration fee coin"},
+		{"invalid fee", func(op *types.NameOperationalParams) {
+			op.RegistrationFee = sdk.Coin{Denom: "", Amount: math.NewInt(1)}
+		}, "invalid registration fee coin"},
 		{"negative dispute stake", func(op *types.NameOperationalParams) { op.DisputeStakeDream = math.NewInt(-1) }, "dispute stake must be non-negative"},
 		{"negative contest stake", func(op *types.NameOperationalParams) { op.ContestStakeDream = math.NewInt(-1) }, "contest stake must be non-negative"},
 	}

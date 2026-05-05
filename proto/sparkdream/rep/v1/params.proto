@@ -317,8 +317,8 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  bool treasury_funds_interims = 67;    // Pay interims from treasury first, mint only if empty (default true)
-  bool treasury_funds_retro_pgf = 68;   // Pay retro PGF from treasury first, mint remainder (default true)
+  bool treasury_funds_interims = 67; // Pay interims from treasury first, mint only if empty (default true)
+  bool treasury_funds_retro_pgf = 68; // Pay retro PGF from treasury first, mint remainder (default true)
 
   // Anti-whale staking cap: max DREAM one member can stake on a single initiative (default 50,000 DREAM)
   // Prevents reward pool extraction — conviction is already capped by max_conviction_share_per_member,
@@ -364,7 +364,7 @@ message Params {
 
   // Permissionless access control (governance-only — not in RepOperationalParams)
   uint32 permissionless_min_trust_level = 75; // Minimum trust level to create a permissionless project (default 2 = ESTABLISHED)
-  uint32 permissionless_max_tier = 76;        // Highest initiative tier allowed in permissionless projects (default 1 = STANDARD)
+  uint32 permissionless_max_tier = 76; // Highest initiative tier allowed in permissionless projects (default 1 = STANDARD)
 
   string tag_creation_fee = 77 [ // DREAM burned when creating a member-registered tag (default 100 micro-DREAM)
     (cosmos_proto.scalar) = "cosmos.Int",
@@ -400,7 +400,7 @@ message Params {
 
   // Per-member active work caps (anti-monopolization). 0 = unbounded.
   uint32 max_active_initiatives_per_member = 85; // Max in-flight initiatives (OPEN..CHALLENGED) where the member is assignee (default 10)
-  uint32 max_active_interims_per_member = 86;    // Max in-flight interims (PENDING/IN_PROGRESS) where the member is an assignee (default 10)
+  uint32 max_active_interims_per_member = 86; // Max in-flight interims (PENDING/IN_PROGRESS) where the member is an assignee (default 10)
 
   // Global per-epoch ceiling on DREAM minted across every path (initiative rewards,
   // referral rewards, interim compensation, retro PGF, jury rewards, etc.). Counter

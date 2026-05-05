@@ -32,3 +32,11 @@ func getTrustLevelConfig() TrustLevelConfig {
 func getSentinelRewardEpochBlocks() uint64 {
 	return 20
 }
+
+// getInvitationCostMultiplier disables per-invitation cost escalation in
+// testparams so a single founder (alice) can fan out 13+ invitations during
+// E2E setup without exhausting their genesis DREAM balance. Production keeps
+// the 1.1x escalation as an anti-sybil deterrent.
+func getInvitationCostMultiplier() math.LegacyDec {
+	return math.LegacyOneDec()
+}

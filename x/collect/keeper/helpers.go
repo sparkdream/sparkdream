@@ -513,7 +513,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	for _, compositeKey := range collabKeys {
 		// Extract address from composite key "collectionID/address"
 		addr := compositeKey[len(collabPrefix):]
-		k.Collaborator.Remove(ctx, compositeKey)                                        //nolint:errcheck
+		k.Collaborator.Remove(ctx, compositeKey)                           //nolint:errcheck
 		k.CollaboratorReverse.Remove(ctx, collections.Join(addr, coll.Id)) //nolint:errcheck
 	}
 

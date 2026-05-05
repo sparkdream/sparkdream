@@ -35,9 +35,9 @@ func TestSyncCuratorBondedRoleConfig_NilAmountsNormalizeToZero(t *testing.T) {
 	// Construct params with nil math.Int fields to exercise the defensive
 	// nil-check path in the sync helper.
 	params := types.Params{
-		MinCuratorTrustLevel:     "TRUST_LEVEL_ESTABLISHED",
-		MinCuratorAgeBlocks:      100,
-		CuratorDemotionCooldown:  3600,
+		MinCuratorTrustLevel:    "TRUST_LEVEL_ESTABLISHED",
+		MinCuratorAgeBlocks:     100,
+		CuratorDemotionCooldown: 3600,
 		// MinCuratorBond and CuratorDemotionThreshold are intentionally left
 		// as the proto zero value (nil math.Int) to hit the branch.
 	}

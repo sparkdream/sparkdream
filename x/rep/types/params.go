@@ -15,11 +15,11 @@ func DefaultParams() Params {
 		SeasonDurationEpochs: 150,   // ~5 months (150 days)
 
 		// DREAM economics
-		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3),  // 0.2% per epoch (~73% annualized)
-		StakedDecayRate:           math.LegacyNewDecWithPrec(5, 4),  // 0.05% per epoch (~18% annualized)
-		NewMemberDecayGraceEpochs: 30,                                // ~1 month grace period (no decay)
-		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2),  // 3%
-		MaxTipAmount:              math.NewInt(100000000),            // 100 DREAM (100 * 1e6 micro-DREAM)
+		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3), // 0.2% per epoch (~73% annualized)
+		StakedDecayRate:           math.LegacyNewDecWithPrec(5, 4), // 0.05% per epoch (~18% annualized)
+		NewMemberDecayGraceEpochs: 30,                              // ~1 month grace period (no decay)
+		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2), // 3%
+		MaxTipAmount:              math.NewInt(100000000),          // 100 DREAM (100 * 1e6 micro-DREAM)
 		MaxTipsPerEpoch:           10,
 		MaxGiftAmount:             math.NewInt(500000000), // 500 DREAM (500 * 1e6 micro-DREAM)
 		GiftOnlyToInvitees:        true,
@@ -77,11 +77,11 @@ func DefaultParams() Params {
 		DefaultReviewPeriodEpochs:    7, // 7 epochs = ~1 week
 		DefaultChallengePeriodEpochs: 7, // 7 epochs = ~1 week
 
-		// Invitations - PRODUCTION values
-		MinInvitationStake:             math.NewInt(100),
-		InvitationAccountabilityEpochs: 150,                               // 150 epochs = ~5 months (1 season)
-		ReferralRewardRate:             math.LegacyNewDecWithPrec(5, 2),   // 5%
-		InvitationCostMultiplier:       math.LegacyNewDecWithPrec(110, 2), // 1.1x
+		// Invitations - PRODUCTION values (in micro-DREAM: 1 DREAM = 1e6 micro-DREAM)
+		MinInvitationStake:             math.NewInt(100000000),          // 100 DREAM
+		InvitationAccountabilityEpochs: 150,                             // 150 epochs = ~5 months (1 season)
+		ReferralRewardRate:             math.LegacyNewDecWithPrec(5, 2), // 5%
+		InvitationCostMultiplier:       getInvitationCostMultiplier(),   // 1.1x prod, 1.0 in testparams (see params_vals_*.go)
 
 		// Trust levels configuration
 		// NOTE: TrustLevelConfig values are hardcoded here because Ignite's YAML parser
@@ -90,8 +90,8 @@ func DefaultParams() Params {
 		// See x/commons/keeper/genesis_vals.go for the same pattern.
 		TrustLevelConfig: getTrustLevelConfig(),
 
-		// Challenges
-		MinChallengeStake:    math.NewInt(50),
+		// Challenges (stake in micro-DREAM: 1 DREAM = 1e6 micro-DREAM)
+		MinChallengeStake:    math.NewInt(50000000),            // 50 DREAM
 		ChallengerRewardRate: math.LegacyNewDecWithPrec(20, 2), // 20%
 		JurySize:             5,
 		JurySuperMajority:    math.LegacyNewDecWithPrec(67, 2), // 67%
@@ -162,23 +162,23 @@ func DefaultParams() Params {
 		LargeProjectBudgetThreshold: math.NewInt(10000000000), // 10,000 DREAM (Epic tier max)
 
 		// Permissionless creation fees (burned on creation — anti-spam + deflationary)
-		ProjectCreationFee:              math.NewInt(5000000),  // 5 DREAM
-		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
-		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
-		TagCreationFee:                  math.NewInt(100),      // 100 micro-DREAM
+		ProjectCreationFee:              math.NewInt(5000000), // 5 DREAM
+		InitiativeCreationFeeApprentice: math.NewInt(1000000), // 1 DREAM
+		InitiativeCreationFeeStandard:   math.NewInt(3000000), // 3 DREAM
+		TagCreationFee:                  math.NewInt(100),     // 100 micro-DREAM
 
 		// Permissionless access control (governance-only)
 		PermissionlessMinTrustLevel: 2, // ESTABLISHED
 		PermissionlessMaxTier:       1, // STANDARD (0=APPRENTICE, 1=STANDARD)
 
 		// Sentinel SPARK reward pool (Stage A infrastructure; funding + distribution added in later stages)
-		MaxSentinelRewardPool:                math.NewInt(100000000000),           // 100,000 SPARK in uspark
-		SentinelRewardPoolOverflowBurnRatio:  math.LegacyNewDecWithPrec(5, 1),     // 0.5 (50%)
-		SentinelRewardEpochBlocks:            getSentinelRewardEpochBlocks(),      // build-tag dependent (14400 production, 20 testparams)
-		MinSentinelAccuracy:                  math.LegacyNewDecWithPrec(70, 2),    // 0.70
-		MinAppealsForAccuracy:                10,
-		MinEpochActivityForReward:            1,
-		MinAppealRate:                        math.LegacyNewDecWithPrec(5, 2),     // 0.05
+		MaxSentinelRewardPool:               math.NewInt(100000000000),        // 100,000 SPARK in uspark
+		SentinelRewardPoolOverflowBurnRatio: math.LegacyNewDecWithPrec(5, 1),  // 0.5 (50%)
+		SentinelRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // build-tag dependent (14400 production, 20 testparams)
+		MinSentinelAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
+		MinAppealsForAccuracy:               10,
+		MinEpochActivityForReward:           1,
+		MinAppealRate:                       math.LegacyNewDecWithPrec(5, 2), // 0.05
 
 		// Per-member active work caps (anti-monopolization)
 		MaxActiveInitiativesPerMember: 10,
@@ -372,11 +372,11 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		EpochBlocks:          14400,
 		SeasonDurationEpochs: 150,
 		// DREAM economics
-		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3),  // 0.2%
-		StakedDecayRate:           math.LegacyNewDecWithPrec(5, 4),  // 0.05%
+		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3), // 0.2%
+		StakedDecayRate:           math.LegacyNewDecWithPrec(5, 4), // 0.05%
 		NewMemberDecayGraceEpochs: 30,
 		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2), // 3%
-		MaxTipAmount:              math.NewInt(100000000),           // 100 DREAM
+		MaxTipAmount:              math.NewInt(100000000),          // 100 DREAM
 		MaxTipsPerEpoch:           10,
 		MaxGiftAmount:             math.NewInt(500000000), // 500 DREAM
 		GiftOnlyToInvitees:        true,
@@ -391,13 +391,13 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		// Review periods
 		DefaultReviewPeriodEpochs:    7,
 		DefaultChallengePeriodEpochs: 7,
-		// Invitations
-		MinInvitationStake:             math.NewInt(100),
+		// Invitations (stake in micro-DREAM)
+		MinInvitationStake:             math.NewInt(100000000), // 100 DREAM
 		InvitationAccountabilityEpochs: 150,
-		ReferralRewardRate:             math.LegacyNewDecWithPrec(5, 2),   // 5%
-		InvitationCostMultiplier:       math.LegacyNewDecWithPrec(110, 2), // 1.1x
-		// Challenges
-		MinChallengeStake:    math.NewInt(50),
+		ReferralRewardRate:             math.LegacyNewDecWithPrec(5, 2), // 5%
+		InvitationCostMultiplier:       getInvitationCostMultiplier(),   // 1.1x prod, 1.0 in testparams
+		// Challenges (stake in micro-DREAM)
+		MinChallengeStake:    math.NewInt(50000000),            // 50 DREAM
 		ChallengerRewardRate: math.LegacyNewDecWithPrec(20, 2), // 20%
 		JurySize:             5,
 		JurySuperMajority:    math.LegacyNewDecWithPrec(67, 2), // 67%
@@ -446,19 +446,19 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MaxInitiativeRewardsPerSeason: math.NewInt(100000000000000), // 100,000 DREAM
 		LargeProjectBudgetThreshold:   math.NewInt(10000000000),     // 10,000 DREAM
 		// Permissionless creation fees
-		ProjectCreationFee:              math.NewInt(5000000),  // 5 DREAM
-		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
-		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
-		TagCreationFee:                  math.NewInt(100),      // 100 micro-DREAM
+		ProjectCreationFee:              math.NewInt(5000000), // 5 DREAM
+		InitiativeCreationFeeApprentice: math.NewInt(1000000), // 1 DREAM
+		InitiativeCreationFeeStandard:   math.NewInt(3000000), // 3 DREAM
+		TagCreationFee:                  math.NewInt(100),     // 100 micro-DREAM
 
 		// Sentinel SPARK reward pool
-		MaxSentinelRewardPool:                math.NewInt(100000000000),           // 100,000 SPARK in uspark
-		SentinelRewardPoolOverflowBurnRatio:  math.LegacyNewDecWithPrec(5, 1),     // 0.5 (50%)
-		SentinelRewardEpochBlocks:            getSentinelRewardEpochBlocks(),      // build-tag dependent (14400 production, 20 testparams)
-		MinSentinelAccuracy:                  math.LegacyNewDecWithPrec(70, 2),    // 0.70
-		MinAppealsForAccuracy:                10,
-		MinEpochActivityForReward:            1,
-		MinAppealRate:                        math.LegacyNewDecWithPrec(5, 2),     // 0.05
+		MaxSentinelRewardPool:               math.NewInt(100000000000),        // 100,000 SPARK in uspark
+		SentinelRewardPoolOverflowBurnRatio: math.LegacyNewDecWithPrec(5, 1),  // 0.5 (50%)
+		SentinelRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // build-tag dependent (14400 production, 20 testparams)
+		MinSentinelAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
+		MinAppealsForAccuracy:               10,
+		MinEpochActivityForReward:           1,
+		MinAppealRate:                       math.LegacyNewDecWithPrec(5, 2), // 0.05
 
 		// Per-member active work caps
 		MaxActiveInitiativesPerMember: 10,
@@ -799,13 +799,13 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		InitiativeCreationFeeStandard:   p.InitiativeCreationFeeStandard,
 		TagCreationFee:                  p.TagCreationFee,
 		// Sentinel SPARK reward pool
-		MaxSentinelRewardPool:                p.MaxSentinelRewardPool,
-		SentinelRewardPoolOverflowBurnRatio:  p.SentinelRewardPoolOverflowBurnRatio,
-		SentinelRewardEpochBlocks:            p.SentinelRewardEpochBlocks,
-		MinSentinelAccuracy:                  p.MinSentinelAccuracy,
-		MinAppealsForAccuracy:                p.MinAppealsForAccuracy,
-		MinEpochActivityForReward:            p.MinEpochActivityForReward,
-		MinAppealRate:                        p.MinAppealRate,
+		MaxSentinelRewardPool:               p.MaxSentinelRewardPool,
+		SentinelRewardPoolOverflowBurnRatio: p.SentinelRewardPoolOverflowBurnRatio,
+		SentinelRewardEpochBlocks:           p.SentinelRewardEpochBlocks,
+		MinSentinelAccuracy:                 p.MinSentinelAccuracy,
+		MinAppealsForAccuracy:               p.MinAppealsForAccuracy,
+		MinEpochActivityForReward:           p.MinEpochActivityForReward,
+		MinAppealRate:                       p.MinAppealRate,
 		// Per-member active work caps
 		MaxActiveInitiativesPerMember: p.MaxActiveInitiativesPerMember,
 		MaxActiveInterimsPerMember:    p.MaxActiveInterimsPerMember,

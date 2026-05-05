@@ -127,10 +127,10 @@ func (q queryServer) TreasuryStatus(ctx context.Context, req *types.QueryTreasur
 	seasonBurned, _ := q.k.GetSeasonBurned(ctx)
 
 	return &types.QueryTreasuryStatusResponse{
-		Balance:      balance,
-		MaxBalance:   params.MaxTreasuryBalance,
-		SeasonInflow: seasonMinted, // approximate: total minted includes non-treasury sources
+		Balance:       balance,
+		MaxBalance:    params.MaxTreasuryBalance,
+		SeasonInflow:  seasonMinted,   // approximate: total minted includes non-treasury sources
 		SeasonOutflow: math.ZeroInt(), // TODO: treasury inflow/outflow not yet wired — TreasuryShare is computed and discarded in CompleteInitiative, and TreasuryFundsInterims/TreasuryFundsRetroPgf are unenforced.
-		SeasonBurned: seasonBurned,
+		SeasonBurned:  seasonBurned,
 	}, nil
 }

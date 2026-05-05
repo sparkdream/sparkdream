@@ -194,7 +194,7 @@ if [ -n "$DAVE_ADDR" ]; then
     echo "  Dave (non-member) tries to invite a new address..."
 
     TX_RES=$($BINARY tx rep invite-member \
-        "$INVITE_TARGET" "100" \
+        "$INVITE_TARGET" "100000000" \
         --from dave \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

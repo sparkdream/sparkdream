@@ -43,7 +43,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 
 	// Rep-owned accountability state for non-gov senders.
 	var (
-		repSentinel reptypes.BondedRole
+		repSentinel  reptypes.BondedRole
 		bondSnapshot string
 	)
 	slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)

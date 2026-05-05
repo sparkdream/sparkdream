@@ -19,12 +19,12 @@ func TestConfirmIdentityLink(t *testing.T) {
 
 	// Pre-populate a pending challenge
 	challenge := types.PendingIdentityChallenge{
-		ClaimedAddress:     claimedAddr,
+		ClaimedAddress:      claimedAddr,
 		ClaimantChainPeerId: claimantPeer,
-		ClaimantAddress:    "remote-user",
-		Challenge:          []byte("random-challenge-bytes"),
-		ReceivedAt:         100,
-		ExpiresAt:          9999999999, // far future (year 2286)
+		ClaimantAddress:     "remote-user",
+		Challenge:           []byte("random-challenge-bytes"),
+		ReceivedAt:          100,
+		ExpiresAt:           9999999999, // far future (year 2286)
 	}
 	require.NoError(t, f.keeper.PendingIdChallenges.Set(f.ctx, collections.Join(claimedAddr, claimantPeer), challenge))
 

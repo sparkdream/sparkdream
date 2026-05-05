@@ -78,7 +78,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 
 	t.Run("sentinel dismisses flags in review queue", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
-		f.createTestSentinel(t, testSentinel, "1000")
+		f.createTestSentinel(t, testSentinel, "1000000000")
 
 		// Create flag record in review queue
 		flag := types.PostFlag{
@@ -102,7 +102,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 
 	t.Run("sentinel cannot dismiss flags not in review queue", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
-		f.createTestSentinel(t, testCreator2, "1000")
+		f.createTestSentinel(t, testCreator2, "1000000000")
 
 		// Create flag record NOT in review queue
 		flag := types.PostFlag{

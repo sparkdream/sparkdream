@@ -74,12 +74,19 @@ service Query {
 // --- Params ---
 message QueryParamsRequest {}
 message QueryParamsResponse {
-  Params params = 1 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
 }
 
 // --- Peer ---
-message QueryGetPeerRequest { string peer_id = 1; }
-message QueryGetPeerResponse { Peer peer = 1 [(gogoproto.nullable) = false]; }
+message QueryGetPeerRequest {
+  string peer_id = 1;
+}
+message QueryGetPeerResponse {
+  Peer peer = 1 [(gogoproto.nullable) = false];
+}
 
 message QueryListPeersRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
@@ -90,12 +97,21 @@ message QueryListPeersResponse {
 }
 
 // --- PeerPolicy ---
-message QueryGetPeerPolicyRequest { string peer_id = 1; }
-message QueryGetPeerPolicyResponse { PeerPolicy policy = 1 [(gogoproto.nullable) = false]; }
+message QueryGetPeerPolicyRequest {
+  string peer_id = 1;
+}
+message QueryGetPeerPolicyResponse {
+  PeerPolicy policy = 1 [(gogoproto.nullable) = false];
+}
 
 // --- BridgeOperator ---
-message QueryGetBridgeOperatorRequest { string address = 1; string peer_id = 2; }
-message QueryGetBridgeOperatorResponse { BridgeOperator bridge_operator = 1 [(gogoproto.nullable) = false]; }
+message QueryGetBridgeOperatorRequest {
+  string address = 1;
+  string peer_id = 2;
+}
+message QueryGetBridgeOperatorResponse {
+  BridgeOperator bridge_operator = 1 [(gogoproto.nullable) = false];
+}
 
 message QueryListBridgeOperatorsRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
@@ -106,8 +122,12 @@ message QueryListBridgeOperatorsResponse {
 }
 
 // --- FederatedContent ---
-message QueryGetFederatedContentRequest { uint64 id = 1; }
-message QueryGetFederatedContentResponse { FederatedContent content = 1 [(gogoproto.nullable) = false]; }
+message QueryGetFederatedContentRequest {
+  uint64 id = 1;
+}
+message QueryGetFederatedContentResponse {
+  FederatedContent content = 1 [(gogoproto.nullable) = false];
+}
 
 message QueryListFederatedContentRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
@@ -118,8 +138,13 @@ message QueryListFederatedContentResponse {
 }
 
 // --- IdentityLink ---
-message QueryGetIdentityLinkRequest { string local_address = 1; string peer_id = 2; }
-message QueryGetIdentityLinkResponse { IdentityLink link = 1 [(gogoproto.nullable) = false]; }
+message QueryGetIdentityLinkRequest {
+  string local_address = 1;
+  string peer_id = 2;
+}
+message QueryGetIdentityLinkResponse {
+  IdentityLink link = 1 [(gogoproto.nullable) = false];
+}
 
 message QueryListIdentityLinksRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
@@ -130,12 +155,22 @@ message QueryListIdentityLinksResponse {
 }
 
 // --- ResolveRemoteIdentity ---
-message QueryResolveRemoteIdentityRequest { string peer_id = 1; string remote_identity = 2; }
-message QueryResolveRemoteIdentityResponse { string local_address = 1; }
+message QueryResolveRemoteIdentityRequest {
+  string peer_id = 1;
+  string remote_identity = 2;
+}
+message QueryResolveRemoteIdentityResponse {
+  string local_address = 1;
+}
 
 // --- PendingIdentityChallenge ---
-message QueryGetPendingIdentityChallengeRequest { string claimed_address = 1; string peer_id = 2; }
-message QueryGetPendingIdentityChallengeResponse { PendingIdentityChallenge challenge = 1 [(gogoproto.nullable) = false]; }
+message QueryGetPendingIdentityChallengeRequest {
+  string claimed_address = 1;
+  string peer_id = 2;
+}
+message QueryGetPendingIdentityChallengeResponse {
+  PendingIdentityChallenge challenge = 1 [(gogoproto.nullable) = false];
+}
 
 message QueryListPendingIdentityChallengesRequest {
   string claimed_address = 1;
@@ -147,8 +182,13 @@ message QueryListPendingIdentityChallengesResponse {
 }
 
 // --- ReputationAttestation ---
-message QueryGetReputationAttestationRequest { string local_address = 1; string peer_id = 2; }
-message QueryGetReputationAttestationResponse { ReputationAttestation attestation = 1 [(gogoproto.nullable) = false]; }
+message QueryGetReputationAttestationRequest {
+  string local_address = 1;
+  string peer_id = 2;
+}
+message QueryGetReputationAttestationResponse {
+  ReputationAttestation attestation = 1 [(gogoproto.nullable) = false];
+}
 
 // --- OutboundAttestation ---
 message QueryListOutboundAttestationsRequest {
@@ -160,11 +200,17 @@ message QueryListOutboundAttestationsResponse {
 }
 
 // --- Verifier (bond state lives in x/rep BondedRole) ---
-message QueryVerifierActivityRequest { string address = 1; }
+message QueryVerifierActivityRequest {
+  string address = 1;
+}
 message QueryVerifierActivityResponse {
   VerifierActivity activity = 1 [(gogoproto.nullable) = false];
 }
 
 // --- VerificationRecord ---
-message QueryGetVerificationRecordRequest { uint64 content_id = 1; }
-message QueryGetVerificationRecordResponse { VerificationRecord record = 1 [(gogoproto.nullable) = false]; }
+message QueryGetVerificationRecordRequest {
+  uint64 content_id = 1;
+}
+message QueryGetVerificationRecordResponse {
+  VerificationRecord record = 1 [(gogoproto.nullable) = false];
+}

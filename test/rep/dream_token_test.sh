@@ -91,8 +91,10 @@ ensure_member() {
         $BINARY tx bank send alice $addr 10000000uspark --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
         sleep 2
 
-        # Alice invites this member
-        $BINARY tx rep invite-member $addr 100 --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+        # Alice invites this member (query required stake — escalates per invitation)
+        local req_stake=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+            | jq -r '.required_stake // "100000000"')
+        $BINARY tx rep invite-member $addr "$req_stake" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
         sleep 2
 
         # Accept invitation

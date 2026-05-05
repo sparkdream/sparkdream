@@ -21,22 +21,22 @@ func getFederationGenesisParams() federationGenesisParams {
 		AttestationTTL: 30 * 24 * time.Hour, // 30 days
 
 		MaxIdentityLinksPerUser: uint32(10),
-		UnverifiedLinkTTL:      30 * 24 * time.Hour, // 30 days
-		ChallengeTTL:           7 * 24 * time.Hour,  // 7 days
+		UnverifiedLinkTTL:       30 * 24 * time.Hour, // 30 days
+		ChallengeTTL:            7 * 24 * time.Hour,  // 7 days
 
-		VerificationWindow:          24 * time.Hour,
-		ChallengeWindow:             7 * 24 * time.Hour,  // 7 days
-		ChallengeFee:                sdk.NewCoin("uspark", math.NewInt(250_000_000)), // 250 SPARK
-		ChallengeJuryDeadline:       14 * 24 * time.Hour, // 14 days
-		VerifierDemotionCooldown:    7 * 24 * time.Hour,  // 7 days
+		VerificationWindow:           24 * time.Hour,
+		ChallengeWindow:              7 * 24 * time.Hour,                              // 7 days
+		ChallengeFee:                 sdk.NewCoin("uspark", math.NewInt(250_000_000)), // 250 SPARK
+		ChallengeJuryDeadline:        14 * 24 * time.Hour,                             // 14 days
+		VerifierDemotionCooldown:     7 * 24 * time.Hour,                              // 7 days
 		VerifierOverturnBaseCooldown: 24 * time.Hour,
-		ChallengeCooldown:           7 * 24 * time.Hour,  // 7 days
+		ChallengeCooldown:            7 * 24 * time.Hour, // 7 days
 
 		ArbiterResolutionWindow: 24 * time.Hour,
 		ArbiterEscalationWindow: 48 * time.Hour,
 		EscalationFee:           sdk.NewCoin("uspark", math.NewInt(100_000_000)), // 100 SPARK
 
-		RateLimitWindow: 24 * time.Hour,
+		RateLimitWindow:  24 * time.Hour,
 		IBCPacketTimeout: 10 * time.Minute,
 	}
 }

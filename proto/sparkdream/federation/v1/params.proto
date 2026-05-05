@@ -17,8 +17,14 @@ message Params {
   // Bridge operator requirements
   cosmos.base.v1beta1.Coin min_bridge_stake = 1 [(gogoproto.nullable) = false];
   uint64 max_bridges_per_peer = 2;
-  google.protobuf.Duration bridge_revocation_cooldown = 3 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
-  google.protobuf.Duration bridge_unbonding_period = 4 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration bridge_revocation_cooldown = 3 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  google.protobuf.Duration bridge_unbonding_period = 4 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 
   // Content types
   repeated string known_content_types = 5;
@@ -28,10 +34,16 @@ message Params {
   uint64 max_content_body_size = 7;
   uint64 max_content_uri_size = 8;
   uint64 max_protocol_metadata_size = 9;
-  google.protobuf.Duration content_ttl = 10 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration content_ttl = 10 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 
   // Reputation
-  google.protobuf.Duration attestation_ttl = 11 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration attestation_ttl = 11 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
   uint32 global_max_trust_credit = 12;
   string trust_discount_rate = 13 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
@@ -40,8 +52,14 @@ message Params {
 
   // Identity
   uint32 max_identity_links_per_user = 14;
-  google.protobuf.Duration unverified_link_ttl = 15 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
-  google.protobuf.Duration challenge_ttl = 16 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration unverified_link_ttl = 15 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  google.protobuf.Duration challenge_ttl = 16 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 
   // Bridge monitoring
   uint64 bridge_inactivity_threshold = 17;
@@ -49,7 +67,10 @@ message Params {
   // IBC
   string ibc_port = 18;
   string ibc_channel_version = 19;
-  google.protobuf.Duration ibc_packet_timeout = 20 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration ibc_packet_timeout = 20 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 
   // Pruning
   uint64 max_prune_per_block = 21;
@@ -58,7 +79,10 @@ message Params {
   uint64 max_outbound_per_block = 22;
 
   // Rate limiting
-  google.protobuf.Duration rate_limit_window = 23 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration rate_limit_window = 23 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 
   // Verification (sentinel-style)
   uint32 min_verifier_trust_level = 24;
@@ -77,12 +101,27 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  google.protobuf.Duration verification_window = 28 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
-  google.protobuf.Duration challenge_window = 29 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration verification_window = 28 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  google.protobuf.Duration challenge_window = 29 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
   cosmos.base.v1beta1.Coin challenge_fee = 30 [(gogoproto.nullable) = false];
-  google.protobuf.Duration challenge_jury_deadline = 31 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
-  google.protobuf.Duration verifier_demotion_cooldown = 32 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
-  google.protobuf.Duration verifier_overturn_base_cooldown = 33 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration challenge_jury_deadline = 31 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  google.protobuf.Duration verifier_demotion_cooldown = 32 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  google.protobuf.Duration verifier_overturn_base_cooldown = 33 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
   uint32 upheld_to_reset_overturns = 34;
   uint32 min_epoch_verifications = 35;
   string min_verifier_accuracy = 36 [
@@ -106,10 +145,19 @@ message Params {
 
   // Anonymous challenge resolution
   uint32 arbiter_quorum = 40;
-  google.protobuf.Duration arbiter_resolution_window = 41 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
-  google.protobuf.Duration arbiter_escalation_window = 42 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration arbiter_resolution_window = 41 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  google.protobuf.Duration arbiter_escalation_window = 42 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
   cosmos.base.v1beta1.Coin escalation_fee = 43 [(gogoproto.nullable) = false];
-  google.protobuf.Duration challenge_cooldown = 44 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration challenge_cooldown = 44 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 }
 
 // FederationOperationalParams is the subset of Params updateable by Operations Committee.
@@ -119,8 +167,14 @@ message FederationOperationalParams {
   uint64 max_content_body_size = 3;
   uint64 max_content_uri_size = 4;
   uint64 max_protocol_metadata_size = 5;
-  google.protobuf.Duration content_ttl = 6 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
-  google.protobuf.Duration attestation_ttl = 7 [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration content_ttl = 6 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+  google.protobuf.Duration attestation_ttl = 7 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
   uint32 global_max_trust_credit = 8;
   string trust_discount_rate = 9 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",

@@ -10,21 +10,21 @@ import (
 
 func TestGenesis(t *testing.T) {
 	genesisState := types.GenesisState{
-		Params:                   types.DefaultParams(),
-		PostMap:                  []types.Post{{PostId: 0}, {PostId: 1}},
-		UserRateLimitMap:         []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
-		UserReactionLimitMap:     []types.UserReactionLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
-		SentinelActivityMap:      []types.SentinelActivity{{Address: "sentinel0"}, {Address: "sentinel1"}},
-		HideRecordMap:            []types.HideRecord{{PostId: 0}, {PostId: 1}},
-		ThreadLockRecordMap:      []types.ThreadLockRecord{{RootId: 0}, {RootId: 1}},
-		ThreadMoveRecordMap:      []types.ThreadMoveRecord{{RootId: 0}, {RootId: 1}},
-		PostFlagMap:              []types.PostFlag{{PostId: 0}, {PostId: 1}},
-		BountyList:               []types.Bounty{{Id: 0}, {Id: 1}},
-		BountyCount:              2,
-		ThreadMetadataMap:        []types.ThreadMetadata{{ThreadId: 0}, {ThreadId: 1}},
-		ThreadFollowMap:          []types.ThreadFollow{{Follower: "follower0"}, {Follower: "follower1"}},
-		ThreadFollowCountMap:     []types.ThreadFollowCount{{ThreadId: 0}, {ThreadId: 1}},
-		ArchiveMetadataMap:       []types.ArchiveMetadata{{RootId: 0}, {RootId: 1}},
+		Params:               types.DefaultParams(),
+		PostMap:              []types.Post{{PostId: 0}, {PostId: 1}},
+		UserRateLimitMap:     []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
+		UserReactionLimitMap: []types.UserReactionLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
+		SentinelActivityMap:  []types.SentinelActivity{{Address: "sentinel0"}, {Address: "sentinel1"}},
+		HideRecordMap:        []types.HideRecord{{PostId: 0}, {PostId: 1}},
+		ThreadLockRecordMap:  []types.ThreadLockRecord{{RootId: 0}, {RootId: 1}},
+		ThreadMoveRecordMap:  []types.ThreadMoveRecord{{RootId: 0}, {RootId: 1}},
+		PostFlagMap:          []types.PostFlag{{PostId: 0}, {PostId: 1}},
+		BountyList:           []types.Bounty{{Id: 0}, {Id: 1}},
+		BountyCount:          2,
+		ThreadMetadataMap:    []types.ThreadMetadata{{ThreadId: 0}, {ThreadId: 1}},
+		ThreadFollowMap:      []types.ThreadFollow{{Follower: "follower0"}, {Follower: "follower1"}},
+		ThreadFollowCountMap: []types.ThreadFollowCount{{ThreadId: 0}, {ThreadId: 1}},
+		ArchiveMetadataMap:   []types.ArchiveMetadata{{RootId: 0}, {RootId: 1}},
 	}
 	f := initFixture(t)
 	err := f.keeper.InitGenesis(f.ctx, genesisState)

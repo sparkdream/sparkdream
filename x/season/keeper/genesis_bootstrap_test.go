@@ -21,8 +21,8 @@ func TestBootstrapTitlesAndAchievements(t *testing.T) {
 		reqType   types.RequirementType
 		threshold uint64
 	}{
-		"first_step":        {types.Rarity_RARITY_COMMON, 100, types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL, 1},
-		"proven_contributor": {types.Rarity_RARITY_UNCOMMON, 400, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 5},
+		"first_step":          {types.Rarity_RARITY_COMMON, 100, types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL, 1},
+		"proven_contributor":  {types.Rarity_RARITY_UNCOMMON, 400, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 5},
 		"veteran_contributor": {types.Rarity_RARITY_RARE, 800, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 20},
 		"master_contributor":  {types.Rarity_RARITY_EPIC, 2000, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 50},
 		"legendary_builder":   {types.Rarity_RARITY_LEGENDARY, 5000, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 100},
@@ -47,11 +47,11 @@ func TestBootstrapTitlesAndAchievements(t *testing.T) {
 		seasonal bool
 		reqType  types.RequirementType
 	}{
-		"newcomer":     {types.Rarity_RARITY_COMMON, false, types.RequirementType_REQUIREMENT_TYPE_SEASONS_ACTIVE},
-		"architect":    {types.Rarity_RARITY_LEGENDARY, false, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED},
-		"champion":     {types.Rarity_RARITY_EPIC, true, types.RequirementType_REQUIREMENT_TYPE_TOP_XP},
-		"legend":       {types.Rarity_RARITY_LEGENDARY, true, types.RequirementType_REQUIREMENT_TYPE_MIN_LEVEL},
-		"rising_star":  {types.Rarity_RARITY_UNCOMMON, true, types.RequirementType_REQUIREMENT_TYPE_MIN_LEVEL},
+		"newcomer":    {types.Rarity_RARITY_COMMON, false, types.RequirementType_REQUIREMENT_TYPE_SEASONS_ACTIVE},
+		"architect":   {types.Rarity_RARITY_LEGENDARY, false, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED},
+		"champion":    {types.Rarity_RARITY_EPIC, true, types.RequirementType_REQUIREMENT_TYPE_TOP_XP},
+		"legend":      {types.Rarity_RARITY_LEGENDARY, true, types.RequirementType_REQUIREMENT_TYPE_MIN_LEVEL},
+		"rising_star": {types.Rarity_RARITY_UNCOMMON, true, types.RequirementType_REQUIREMENT_TYPE_MIN_LEVEL},
 	}
 
 	for id, expected := range expectedTitles {

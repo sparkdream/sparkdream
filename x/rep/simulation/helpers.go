@@ -761,7 +761,6 @@ func createInterim(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, creator *type
 	return interimID, k.Interim.Set(ctx, interimID, interim)
 }
 
-
 // getOrCreateSimTagBudget returns an existing tag budget or creates one for the
 // simulation. It does not enforce group-membership or SPARK escrow checks —
 // those are exercised in unit + integration tests.
@@ -802,4 +801,3 @@ func randomTagBudgetTag(r *rand.Rand) string {
 	tags := []string{"golang", "rust", "python", "design", "docs", "frontend", "backend"}
 	return tags[r.Intn(len(tags))]
 }
-

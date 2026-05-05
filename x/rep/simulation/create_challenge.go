@@ -23,8 +23,18 @@ func SimulateMsgCreateChallenge(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create a challenger with DREAM
-		minStake := math.NewInt(100)
+		// Pull the chain's challenge-stake floor from params instead of
+		// hardcoding. The on-chain minimum is denominated in micro-DREAM
+		// (default 50 DREAM = 50_000_000 udream). A hardcoded `100` made
+		// every simulated challenge fail with "insufficient stake".
+		params, perr := k.Params.Get(ctx)
+		if perr != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to read params"), nil, nil
+		}
+		minStake := params.MinChallengeStake
+		if minStake.IsNil() || minStake.IsZero() {
+			minStake = math.NewInt(50_000_000)
+		}
 		challenger, challengerAcc, err := getOrCreateMemberWithDream(r, ctx, k, accs, minStake)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get/create challenger with DREAM"), nil, nil

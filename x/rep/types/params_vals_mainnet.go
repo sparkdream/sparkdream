@@ -31,3 +31,11 @@ func getTrustLevelConfig() TrustLevelConfig {
 func getSentinelRewardEpochBlocks() uint64 {
 	return 14400
 }
+
+// getInvitationCostMultiplier returns the per-invitation cost escalation
+// applied on top of MinInvitationStake. 1.1x raised to the credits-spent
+// power makes spam invitations exponentially more expensive while leaving
+// the first invitation at the floor.
+func getInvitationCostMultiplier() math.LegacyDec {
+	return math.LegacyNewDecWithPrec(110, 2) // 1.1x
+}

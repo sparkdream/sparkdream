@@ -47,9 +47,9 @@ var (
 	DefaultMaxNamesPerAddress   = uint64(5)
 	DefaultRegistrationFee      = sdk.NewCoin("uspark", math.NewInt(10000000)) // 10 SPARK
 	DefaultExpirationDuration   = time.Hour * 24 * 365                         // 1 Year
-	DefaultDisputeStakeDream    = math.NewInt(50)                              // 50 DREAM (aligned with x/season report stake)
+	DefaultDisputeStakeDream    = math.NewInt(50_000_000)                      // 50 DREAM in udream (aligned with x/season report stake)
 	DefaultDisputeTimeoutBlocks = uint64(100800)                               // ~7 days in blocks (aligned with x/season appeal period)
-	DefaultContestStakeDream    = math.NewInt(100)                             // 100 DREAM (aligned with x/season appeal stake)
+	DefaultContestStakeDream    = math.NewInt(100_000_000)                     // 100 DREAM in udream (aligned with x/season appeal stake)
 )
 
 // DefaultBlockedNames includes critical system names and project-specific reserved terms

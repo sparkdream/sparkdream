@@ -19,8 +19,8 @@ import (
 
 type stubAuthKeeper struct{}
 
-func (stubAuthKeeper) AddressCodec() address.Codec                               { return nil }
-func (stubAuthKeeper) GetAccount(context.Context, sdk.AccAddress) sdk.AccountI    { return nil }
+func (stubAuthKeeper) AddressCodec() address.Codec                             { return nil }
+func (stubAuthKeeper) GetAccount(context.Context, sdk.AccAddress) sdk.AccountI { return nil }
 
 type stubBankKeeper struct{}
 
@@ -98,9 +98,11 @@ func (stubRepKeeper) RegisterContentInitiativeLink(context.Context, uint64, int3
 func (stubRepKeeper) RemoveContentInitiativeLink(context.Context, uint64, int32, uint64) error {
 	return nil
 }
-func (stubRepKeeper) TagExists(context.Context, string) (bool, error)      { return false, nil }
-func (stubRepKeeper) IsReservedTag(context.Context, string) (bool, error)  { return false, nil }
-func (stubRepKeeper) GetTag(context.Context, string) (reptypes.Tag, error) { return reptypes.Tag{}, nil }
+func (stubRepKeeper) TagExists(context.Context, string) (bool, error)     { return false, nil }
+func (stubRepKeeper) IsReservedTag(context.Context, string) (bool, error) { return false, nil }
+func (stubRepKeeper) GetTag(context.Context, string) (reptypes.Tag, error) {
+	return reptypes.Tag{}, nil
+}
 func (stubRepKeeper) IncrementTagUsage(context.Context, string, int64) error { return nil }
 func (stubRepKeeper) SetReservedTag(context.Context, reptypes.ReservedTag) error {
 	return nil
@@ -114,13 +116,19 @@ func (stubRepKeeper) UpdateSalvationCounters(context.Context, string, uint32, in
 func (stubRepKeeper) GetBondedRole(context.Context, reptypes.RoleType, string) (reptypes.BondedRole, error) {
 	return reptypes.BondedRole{}, nil
 }
-func (stubRepKeeper) ReserveBond(context.Context, reptypes.RoleType, string, math.Int) error { return nil }
-func (stubRepKeeper) ReleaseBond(context.Context, reptypes.RoleType, string, math.Int) error { return nil }
-func (stubRepKeeper) RecordActivity(context.Context, reptypes.RoleType, string) error        { return nil }
+func (stubRepKeeper) ReserveBond(context.Context, reptypes.RoleType, string, math.Int) error {
+	return nil
+}
+func (stubRepKeeper) ReleaseBond(context.Context, reptypes.RoleType, string, math.Int) error {
+	return nil
+}
+func (stubRepKeeper) RecordActivity(context.Context, reptypes.RoleType, string) error { return nil }
 func (stubRepKeeper) SetBondStatus(context.Context, reptypes.RoleType, string, reptypes.BondedRoleStatus, int64) error {
 	return nil
 }
-func (stubRepKeeper) SetBondedRoleConfig(context.Context, reptypes.BondedRoleConfig) error { return nil }
+func (stubRepKeeper) SetBondedRoleConfig(context.Context, reptypes.BondedRoleConfig) error {
+	return nil
+}
 
 func TestExpectedKeepersImplementable(t *testing.T) {
 	var (

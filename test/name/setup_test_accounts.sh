@@ -123,9 +123,11 @@ if ! echo "$MEMBER_INFO" | grep -q "not found"; then
     echo "  $ACCOUNT is already a member, skipping invitation"
     INVITATION_ID=""
 else
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+        | jq -r '.required_stake // "100000000"')
     TX_RES=$($BINARY tx rep invite-member \
         $CLAIMANT_ADDR \
-        "100000000" \
+        "$REQUIRED_STAKE" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

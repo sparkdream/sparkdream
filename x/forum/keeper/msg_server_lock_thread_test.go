@@ -17,7 +17,7 @@ func TestLockThread(t *testing.T) {
 	thread := f.createTestPost(t, testCreator, 0, cat.CategoryId)
 
 	// Create a sentinel with sufficient bond (bond record in x/rep).
-	f.createTestSentinel(t, testSentinel, "3000")
+	f.createTestSentinel(t, testSentinel, "3000000000")
 
 	tests := []struct {
 		name        string
@@ -151,7 +151,7 @@ func TestLockThread(t *testing.T) {
 			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel})
 			f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
 				Address:            testSentinel,
-				CurrentBond:        "3000",
+				CurrentBond:        "3000000000",
 				TotalCommittedBond: "0",
 				BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 			}

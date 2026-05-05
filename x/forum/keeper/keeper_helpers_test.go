@@ -131,9 +131,9 @@ func TestGetSentinelBond_InvalidAddress(t *testing.T) {
 func TestGetSentinelBacking_WithRepKeeper(t *testing.T) {
 	f := initFixture(t)
 
-	// Default mock GetBalance returns 1000000
+	// Default mock GetBalance returns 30_000_000_000
 	backing := f.keeper.GetSentinelBacking(f.ctx, testCreator)
-	require.Equal(t, math.NewInt(1000000), backing)
+	require.Equal(t, math.NewInt(30_000_000_000), backing)
 }
 
 func TestGetSentinelBacking_InvalidAddress(t *testing.T) {

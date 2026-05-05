@@ -81,7 +81,7 @@ sleep 6
 TX_RES=$($BINARY tx rep create-challenge \
     $INITIATIVE_ID \
     "Incomplete security analysis" \
-    "1000000" \
+    "50000000" \
     "false" \
     "$CHALLENGER_ADDR" \
     --evidence "https://example.com/issues" \

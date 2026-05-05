@@ -34,30 +34,30 @@ var (
 	// VerifierActivityKey: address -> VerifierActivity (federation-specific
 	// per-verifier counters). Generic bond state lives in x/rep as
 	// BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr).
-	VerifierActivityKey = collections.NewPrefix("fed/verifier_activity/")
-	VerificationRecsKey = collections.NewPrefix("fed/verifyrecs/")
-	ArbiterSubmissionsKey = collections.NewPrefix("fed/arbiters/")
-	ContentKey         = collections.NewPrefix("fed/content/")
-	IdentityLinksKey   = collections.NewPrefix("fed/idlinks/")
-	PendingIdChallengesKey = collections.NewPrefix("fed/idchallenges/")
-	RepAttestationsKey = collections.NewPrefix("fed/repattest/")
+	VerifierActivityKey     = collections.NewPrefix("fed/verifier_activity/")
+	VerificationRecsKey     = collections.NewPrefix("fed/verifyrecs/")
+	ArbiterSubmissionsKey   = collections.NewPrefix("fed/arbiters/")
+	ContentKey              = collections.NewPrefix("fed/content/")
+	IdentityLinksKey        = collections.NewPrefix("fed/idlinks/")
+	PendingIdChallengesKey  = collections.NewPrefix("fed/idchallenges/")
+	RepAttestationsKey      = collections.NewPrefix("fed/repattest/")
 	OutboundAttestationsKey = collections.NewPrefix("fed/outbound/")
-	PeerRemovalQueueKey = collections.NewPrefix("fed/peerremoval/")
+	PeerRemovalQueueKey     = collections.NewPrefix("fed/peerremoval/")
 
 	// --- Sequences ---
 
-	ContentSeqKey            = collections.NewPrefix("fed/seq/content")
+	ContentSeqKey             = collections.NewPrefix("fed/seq/content")
 	OutboundAttestationSeqKey = collections.NewPrefix("fed/seq/outbound")
-	ArbiterAnonSubSeqKey     = collections.NewPrefix("fed/seq/arbiter_anon")
+	ArbiterAnonSubSeqKey      = collections.NewPrefix("fed/seq/arbiter_anon")
 
 	// --- Secondary Indexes ---
 
 	// Content indexes
-	ContentByPeerKey       = collections.NewPrefix("fed/idx/content_peer/")
-	ContentByTypeKey       = collections.NewPrefix("fed/idx/content_type/")
-	ContentByCreatorKey    = collections.NewPrefix("fed/idx/content_creator/")
-	ContentByHashKey       = collections.NewPrefix("fed/idx/content_hash/")
-	ContentExpirationKey   = collections.NewPrefix("fed/idx/content_exp/")
+	ContentByPeerKey     = collections.NewPrefix("fed/idx/content_peer/")
+	ContentByTypeKey     = collections.NewPrefix("fed/idx/content_type/")
+	ContentByCreatorKey  = collections.NewPrefix("fed/idx/content_creator/")
+	ContentByHashKey     = collections.NewPrefix("fed/idx/content_hash/")
+	ContentExpirationKey = collections.NewPrefix("fed/idx/content_exp/")
 
 	// Bridge indexes
 	BridgesByPeerKey = collections.NewPrefix("fed/idx/bridges_peer/")
@@ -71,8 +71,8 @@ var (
 	AttestationExpKey = collections.NewPrefix("fed/idx/attest_exp/")
 
 	// Verification indexes
-	VerificationWindowKey  = collections.NewPrefix("fed/idx/verify_window/")
-	ChallengeWindowKey     = collections.NewPrefix("fed/idx/challenge_window/")
+	VerificationWindowKey = collections.NewPrefix("fed/idx/verify_window/")
+	ChallengeWindowKey    = collections.NewPrefix("fed/idx/challenge_window/")
 
 	// Arbiter resolution indexes
 	ArbiterHashCountsKey      = collections.NewPrefix("fed/idx/arbiter_counts/")

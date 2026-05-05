@@ -479,7 +479,7 @@ func initTestFixture(t *testing.T) *testFixture {
 	if rk.bondedRoles == nil {
 		rk.bondedRoles = make(map[string]reptypes.BondedRole)
 	}
-	seedActiveSentinel(t, rk, sentinelStr, math.NewInt(1_000_000))
+	seedActiveSentinel(t, rk, sentinelStr, math.NewInt(1_000_000_000)) // 1000 DREAM (covers SentinelCommitAmount + headroom)
 
 	return &testFixture{
 		ctx:           sdkCtx,

@@ -25,7 +25,7 @@ func TestQueryCurationReviews(t *testing.T) {
 			name: "returns review after rating",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				_, err := f.msgServer.RateCollection(f.ctx, &types.MsgRateCollection{
 					Creator:      f.member,

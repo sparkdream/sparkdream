@@ -34,7 +34,7 @@ func TestAppealPost(t *testing.T) {
 	_ = f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)
 
 	// Create sentinel activity
-	f.createTestSentinel(t, testSentinel, "2000")
+	f.createTestSentinel(t, testSentinel, "2000000000")
 
 	tests := []struct {
 		name        string
@@ -210,7 +210,7 @@ func TestAppealPostWithFee(t *testing.T) {
 	_ = f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)
 
 	// Create sentinel
-	f.createTestSentinel(t, testSentinel, "2000")
+	f.createTestSentinel(t, testSentinel, "2000000000")
 
 	// File appeal
 	_, err := f.msgServer.AppealPost(f.ctx, &types.MsgAppealPost{

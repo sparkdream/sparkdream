@@ -127,8 +127,12 @@ expect_tx_failure() {
 echo "--- TEST 1: Invite already-existing member ---"
 echo "  Alice invites Bob, who is already a member..."
 
+# Use the live required stake so the chain rejects on "already exists",
+# not on "insufficient stake" once cost escalation kicks in.
+REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+    | jq -r '.required_stake // "100000000"')
 TX_RES=$($BINARY tx rep invite-member \
-    "$BOB_ADDR" "1000000" \
+    "$BOB_ADDR" "$REQUIRED_STAKE" \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

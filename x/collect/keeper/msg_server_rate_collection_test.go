@@ -22,7 +22,7 @@ func TestRateCollection(t *testing.T) {
 			name: "success: curator rates UP",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				// Advance past min_curator_age_blocks (14400)
 				f.advanceBlockHeight(14401)
 				return collID
@@ -67,7 +67,7 @@ func TestRateCollection(t *testing.T) {
 			name: "error: curator is collection owner",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.owner, 500)
+				f.registerCurator(t, f.owner, 500_000_000)
 				f.advanceBlockHeight(14401)
 				return collID
 			},
@@ -85,7 +85,7 @@ func TestRateCollection(t *testing.T) {
 			name: "error: already reviewed this collection",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				// First review
 				_, err := f.msgServer.RateCollection(f.ctx, &types.MsgRateCollection{
@@ -110,7 +110,7 @@ func TestRateCollection(t *testing.T) {
 			name: "error: max reviews reached",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				// Set params to allow only 0 reviews (already at max)
 				params, _ := f.keeper.Params.Get(f.ctx)
@@ -136,7 +136,7 @@ func TestRateCollection(t *testing.T) {
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Visibility = types.Visibility_VISIBILITY_PRIVATE
 				f.keeper.Collection.Set(f.ctx, collID, coll)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				return collID
 			},
@@ -154,7 +154,7 @@ func TestRateCollection(t *testing.T) {
 			name: "error: curator too new",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				// Do NOT advance block height past min_curator_age_blocks
 				return collID
 			},
@@ -172,7 +172,7 @@ func TestRateCollection(t *testing.T) {
 			name: "error: curator demoted",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				f.registerCurator(t, f.member, 500)
+				f.registerCurator(t, f.member, 500_000_000)
 				// Demote the bonded role directly on the mock rep keeper.
 				// After Phase 3, bond-below-min is enforced at bond time in
 				// x/rep; the rate handler only checks bond_status.

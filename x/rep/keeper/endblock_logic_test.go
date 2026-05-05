@@ -251,9 +251,9 @@ func TestApplyDecay_MixedStakingLevels(t *testing.T) {
 		stakedBalance   math.Int
 		expectedBalance math.Int
 	}{
-		{"all_staked", math.NewInt(1000), math.NewInt(1000), math.NewInt(999)},  // Staked decay: 1000*0.0005=0.5→trunc 999, decay 1
-		{"half_staked", math.NewInt(1000), math.NewInt(500), math.NewInt(998)},  // Unstaked: 500*0.002=1 decay, Staked: 500*0.0005→decay 1, total -2
-		{"none_staked", math.NewInt(1000), math.NewInt(0), math.NewInt(998)},    // Unstaked: 1000*0.002=2 decay
+		{"all_staked", math.NewInt(1000), math.NewInt(1000), math.NewInt(999)}, // Staked decay: 1000*0.0005=0.5→trunc 999, decay 1
+		{"half_staked", math.NewInt(1000), math.NewInt(500), math.NewInt(998)}, // Unstaked: 500*0.002=1 decay, Staked: 500*0.0005→decay 1, total -2
+		{"none_staked", math.NewInt(1000), math.NewInt(0), math.NewInt(998)},   // Unstaked: 1000*0.002=2 decay
 	}
 
 	for _, tc := range testCases {

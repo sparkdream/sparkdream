@@ -10,12 +10,40 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
+// computeRequiredInvitationStake returns the effective minimum stake required
+// for the next invitation by a member, applying InvitationCostMultiplier to
+// MinInvitationStake based on how many credits the member has already spent
+// this season:
+//
+//	required = floor( MinInvitationStake * CostMultiplier ^ invitations_used )
+//
+// where invitations_used = max_credits_for_trust_level - current_invitation_credits.
+// This makes each successive invitation more expensive, deterring sybil farming
+// while leaving the first invitation at the base floor.
+func computeRequiredInvitationStake(params types.Params, member types.Member) math.Int {
+	maxCredits := GetMaxInvitationCredits(params.TrustLevelConfig, member.TrustLevel)
+	if maxCredits <= member.InvitationCredits {
+		return params.MinInvitationStake
+	}
+	used := uint64(maxCredits - member.InvitationCredits)
+	if used == 0 || params.InvitationCostMultiplier.LTE(math.LegacyOneDec()) {
+		return params.MinInvitationStake
+	}
+	multiplier := params.InvitationCostMultiplier.Power(used)
+	return multiplier.MulInt(params.MinInvitationStake).TruncateInt()
+}
+
 // CreateInvitation creates a new invitation from an inviter to an invitee.
 // The inviter must stake DREAM tokens and have available invitation credits.
 func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAddress, stakedAmount math.Int, vouchedTags []string) (uint64, error) {
 	// Validate amount
 	if stakedAmount.IsNegative() || stakedAmount.IsZero() {
 		return 0, types.ErrInvalidAmount
+	}
+
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return 0, err
 	}
 
 	// Lazily reset invitation credits if we're in a new season
@@ -33,6 +61,12 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 	// Check invitation credits
 	if inviterMember.InvitationCredits == 0 {
 		return 0, types.ErrNoInvitationCredits
+	}
+
+	// Enforce stake floor, escalated by InvitationCostMultiplier per credit used
+	requiredStake := computeRequiredInvitationStake(params, inviterMember)
+	if stakedAmount.LT(requiredStake) {
+		return 0, fmt.Errorf("insufficient stake: %s, required: %s", stakedAmount, requiredStake)
 	}
 
 	// Check if invitee already exists or has pending invitation
@@ -70,12 +104,6 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 	// Get current time
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentTime := sdkCtx.BlockTime().Unix()
-
-	// Get params for accountability period
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return 0, err
-	}
 
 	currentEpoch, err := k.GetCurrentEpoch(ctx)
 	if err != nil {

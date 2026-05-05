@@ -27,7 +27,7 @@ func TestJuryWorkflow(t *testing.T) {
 		"technical",
 		math.NewInt(10000),
 		math.NewInt(1000),
-	false,
+		false,
 	)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
@@ -80,9 +80,9 @@ func TestJuryWorkflow(t *testing.T) {
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
 	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000))
+	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Reason", nil, math.NewInt(50))
+	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Reason", nil, math.NewInt(50000000)) // 50 DREAM
 	require.NoError(t, err)
 
 	// Create some potential jurors with reputation
@@ -470,9 +470,9 @@ func TestTallyJuryVotes(t *testing.T) {
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
 		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000))
+		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50))
+		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000)) // 50 DREAM
 		require.NoError(t, err)
 
 		// Set challenge to IN_JURY_REVIEW status

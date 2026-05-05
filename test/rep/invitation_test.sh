@@ -126,9 +126,13 @@ elif [ -z "$EXISTING_MEMBER" ]; then
         echo "⚠️  Alice is not a member yet (genesis members should be auto-created)"
     fi
 
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+      | jq -r '.required_stake // "200000000"')
+    # Invite at the required stake (or higher to demonstrate "high stake = higher referral")
+    if [ "$REQUIRED_STAKE" -lt 200000000 ]; then REQUIRED_STAKE="200000000"; fi
     INVITE_RES=$($BINARY tx rep invite-member \
       "$INVITEE1_ADDR" \
-      "200" \
+      "$REQUIRED_STAKE" \
       --vouched-tags "rust","golang" \
       --from alice \
       --chain-id $CHAIN_ID \
@@ -337,9 +341,11 @@ if [ -n "$INVITATION_ID2" ]; then
 else
     # Only Alice (founder) can create invitations
     echo "Alice invites Invitee2..."
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+      | jq -r '.required_stake // "150000000"')
     INVITE2_RES=$($BINARY tx rep invite-member \
       "$INVITEE2_ADDR" \
-      "150" \
+      "$REQUIRED_STAKE" \
       --vouched-tags "security" \
       --from alice \
       --chain-id $CHAIN_ID \
@@ -454,9 +460,11 @@ if [ -n "$INVITATION_ID3" ]; then
     echo "ℹ️  Invitation already exists for Invitee3 (ID: $INVITATION_ID3)"
 else
     echo "Alice invites Invitee3..."
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+      | jq -r '.required_stake // "100000000"')
     INVITE3_RES=$($BINARY tx rep invite-member \
       "$INVITEE3_ADDR" \
-      "100" \
+      "$REQUIRED_STAKE" \
       --vouched-tags "testing" \
       --from alice \
       --chain-id $CHAIN_ID \
@@ -545,9 +553,11 @@ if [ -n "$INVITATION_ID4" ]; then
     echo "ℹ️  Invitation already exists for Invitee4 (ID: $INVITATION_ID4)"
 else
     echo "Alice invites Invitee4 as separate branch..."
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+      | jq -r '.required_stake // "100000000"')
     INVITE4_RES=$($BINARY tx rep invite-member \
       "$INVITEE4_ADDR" \
-      "100" \
+      "$REQUIRED_STAKE" \
       --vouched-tags "documentation" \
       --from alice \
       --chain-id $CHAIN_ID \

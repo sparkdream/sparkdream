@@ -91,8 +91,8 @@ type mockRepKeeper struct {
 	ReservedTags map[string]bool
 
 	// Track calls
-	CreateAuthorBondCalls   []createAuthorBondCall
-	IncrementTagUsageCalls  []incrementTagUsageCall
+	CreateAuthorBondCalls  []createAuthorBondCall
+	IncrementTagUsageCalls []incrementTagUsageCall
 }
 
 type incrementTagUsageCall struct {

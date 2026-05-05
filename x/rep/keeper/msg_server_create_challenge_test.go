@@ -20,7 +20,7 @@ func TestMsgServerCreateChallenge(t *testing.T) {
 			Challenger:   "invalid-address",
 			InitiativeId: 1,
 			Reason:       "Test",
-			StakedDream:  keeper.PtrInt(math.NewInt(100)),
+			StakedDream:  keeper.PtrInt(math.NewInt(100000000)), // 100 DREAM
 		})
 
 		require.Error(t, err)
@@ -58,7 +58,7 @@ func TestMsgServerCreateChallenge(t *testing.T) {
 			Challenger:   challengerStr,
 			InitiativeId: 99999,
 			Reason:       "Test",
-			StakedDream:  keeper.PtrInt(math.NewInt(100)),
+			StakedDream:  keeper.PtrInt(math.NewInt(100000000)), // 100 DREAM
 		})
 
 		require.Error(t, err)
@@ -115,7 +115,7 @@ func TestMsgServerCreateChallenge(t *testing.T) {
 
 		k.Member.Set(ctx, challengerStr, types.Member{
 			Address:          challengerStr,
-			DreamBalance:     keeper.PtrInt(math.NewInt(1000)),
+			DreamBalance:     keeper.PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
@@ -127,7 +127,7 @@ func TestMsgServerCreateChallenge(t *testing.T) {
 			InitiativeId: initID,
 			Reason:       "Poor quality",
 			Evidence:     []string{"http://example.com/evidence"},
-			StakedDream:  keeper.PtrInt(math.NewInt(100)),
+			StakedDream:  keeper.PtrInt(math.NewInt(100000000)), // 100 DREAM
 		})
 		require.NoError(t, err)
 

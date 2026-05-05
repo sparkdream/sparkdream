@@ -28,7 +28,7 @@ func TestCreateChallenge(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
-	false,
+		false,
 	)
 	require.NoError(t, err)
 
@@ -70,7 +70,7 @@ func TestCreateChallenge(t *testing.T) {
 
 	// Test Case 1: Normal Challenge
 	challenger := sdk.AccAddress([]byte("challenger"))
-	stakedAmount := math.NewInt(50) // Min stake
+	stakedAmount := math.NewInt(50000000) // Min stake
 	k.Member.Set(ctx, challenger.String(), types.Member{
 		Address:          challenger.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
@@ -79,7 +79,7 @@ func TestCreateChallenge(t *testing.T) {
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
 	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000))
+	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
 	chalID, err := k.CreateChallenge(
 		ctx,
@@ -119,7 +119,7 @@ func TestRespondToChallenge(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
-	false,
+		false,
 	)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
 
@@ -177,8 +177,8 @@ func TestRespondToChallenge(t *testing.T) {
 	params.MinJurorReputation = math.LegacyOneDec()
 	k.Params.Set(ctx, params)
 
-	k.MintDREAM(ctx, challenger, math.NewInt(1000))
-	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Reason", nil, math.NewInt(50))
+	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Reason", nil, math.NewInt(50000000))
 	require.NoError(t, err)
 
 	// Valid Response
@@ -223,7 +223,7 @@ func TestChallengeResponseDeadline(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
-	false,
+		false,
 	)
 	require.NoError(t, err)
 
@@ -272,7 +272,7 @@ func TestChallengeResponseDeadline(t *testing.T) {
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
 	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000))
+	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
 	// Create a challenge
 	chalID, err := k.CreateChallenge(
@@ -281,7 +281,7 @@ func TestChallengeResponseDeadline(t *testing.T) {
 		initID,
 		"Bad work",
 		[]string{"evidence1"},
-		math.NewInt(50),
+		math.NewInt(50000000),
 	)
 	require.NoError(t, err)
 
@@ -314,7 +314,7 @@ func TestChallengeAutoUpholdOnExpiration(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
-	false,
+		false,
 	)
 	require.NoError(t, err)
 
@@ -363,7 +363,7 @@ func TestChallengeAutoUpholdOnExpiration(t *testing.T) {
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
 	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000))
+	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
 	// Set short deadline for testing
 	params, _ := k.Params.Get(ctx)
@@ -378,7 +378,7 @@ func TestChallengeAutoUpholdOnExpiration(t *testing.T) {
 		initID,
 		"Bad work",
 		[]string{"evidence1"},
-		math.NewInt(50),
+		math.NewInt(50000000),
 	)
 	require.NoError(t, err)
 
@@ -430,7 +430,7 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 		"technical",
 		math.NewInt(1000),
 		math.NewInt(100),
-	false,
+		false,
 	)
 	require.NoError(t, err)
 
@@ -479,7 +479,7 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
 	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000))
+	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
 	// Create a juror for the jury selection
 	juror := sdk.AccAddress([]byte("juror"))
@@ -507,7 +507,7 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 		initID,
 		"Bad work",
 		[]string{"evidence1"},
-		math.NewInt(50),
+		math.NewInt(50000000),
 	)
 	require.NoError(t, err)
 
@@ -593,9 +593,9 @@ func TestHasActiveChallenges(t *testing.T) {
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
 		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000))
+		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-		_, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50))
+		_, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
 
 		hasActive, err := k.HasActiveChallenges(ctx, initID)
@@ -615,9 +615,9 @@ func TestHasActiveChallenges(t *testing.T) {
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
 		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000))
+		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50))
+		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
 
 		// Uphold the challenge to resolve it
@@ -641,9 +641,9 @@ func TestHasActiveChallenges(t *testing.T) {
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
 		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000))
+		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50))
+		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
 
 		// Reject the challenge to resolve it
@@ -667,9 +667,9 @@ func TestHasActiveChallenges(t *testing.T) {
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
 		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000))
+		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50))
+		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
 
 		// Manually set the challenge status to IN_JURY_REVIEW
@@ -719,9 +719,9 @@ func TestTriageChallenge(t *testing.T) {
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
 		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000))
+		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50))
+		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
 
 		result, err := k.TriageChallenge(ctx, chalID, "", nil)
@@ -761,9 +761,9 @@ func TestTriageChallenge(t *testing.T) {
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
 		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000))
+		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50))
+		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
 
 		result, err := k.TriageChallenge(ctx, chalID, "I disagree with this challenge", []string{"my_evidence"})
@@ -806,9 +806,9 @@ func TestEscalateChallengeToCommittee(t *testing.T) {
 		StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
 	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000))
+	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", []string{"evidence"}, math.NewInt(50))
+	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", []string{"evidence"}, math.NewInt(50000000))
 	require.NoError(t, err)
 
 	// Verify challenge is active before escalation

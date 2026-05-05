@@ -267,7 +267,7 @@ func TestInvitationStakePartialBurn(t *testing.T) {
 	k := f.keeper
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 
-	initialBalance := int64(10000)
+	initialBalance := int64(1000000000) // 1000 DREAM
 
 	// Setup inviter with sufficient DREAM
 	cfg := DefaultMemberConfig(TestAddrInviter)
@@ -282,7 +282,7 @@ func TestInvitationStakePartialBurn(t *testing.T) {
 	require.NoError(t, k.Member.Set(sdkCtx, TestAddrInviter.String(), inviter))
 
 	// Create invitation
-	stakeAmount := math.NewInt(1000)
+	stakeAmount := math.NewInt(100000000) // 100 DREAM
 	invitationID, err := k.CreateInvitation(sdkCtx, TestAddrInviter, TestAddrInvitee, stakeAmount, []string{TestTagBackend})
 	require.NoError(t, err)
 
@@ -309,7 +309,7 @@ func TestInvitationStakeZeroBurnRate(t *testing.T) {
 	k := f.keeper
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 
-	initialBalance := int64(10000)
+	initialBalance := int64(1000000000) // 1000 DREAM
 
 	cfg := DefaultMemberConfig(TestAddrInviter)
 	cfg.DreamBalance = initialBalance
@@ -320,7 +320,7 @@ func TestInvitationStakeZeroBurnRate(t *testing.T) {
 	inviter.InvitationCredits = 5
 	require.NoError(t, k.Member.Set(sdkCtx, TestAddrInviter.String(), inviter))
 
-	stakeAmount := math.NewInt(1000)
+	stakeAmount := math.NewInt(100000000) // 100 DREAM
 	invitationID, err := k.CreateInvitation(sdkCtx, TestAddrInviter, TestAddrInvitee, stakeAmount, []string{TestTagBackend})
 	require.NoError(t, err)
 
@@ -751,4 +751,3 @@ func DerefDec(d *math.LegacyDec) math.LegacyDec {
 	}
 	return *d
 }
-

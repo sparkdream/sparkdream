@@ -35,11 +35,11 @@ var (
 	ErrNotMember               = errors.Register(ModuleName, 1207, "address is not a member")
 
 	// Project errors
-	ErrProjectNotFound           = errors.Register(ModuleName, 1301, "project not found")
-	ErrInvalidProjectStatus      = errors.Register(ModuleName, 1302, "invalid project status")
-	ErrInsufficientBudget        = errors.Register(ModuleName, 1303, "insufficient budget")
-	ErrUnauthorized              = errors.Register(ModuleName, 1304, "unauthorized: insufficient permissions")
-	ErrLargeProjectNeedsCouncil  = errors.Register(ModuleName, 1305, "project budget exceeds threshold; requires council proposal approval")
+	ErrProjectNotFound          = errors.Register(ModuleName, 1301, "project not found")
+	ErrInvalidProjectStatus     = errors.Register(ModuleName, 1302, "invalid project status")
+	ErrInsufficientBudget       = errors.Register(ModuleName, 1303, "insufficient budget")
+	ErrUnauthorized             = errors.Register(ModuleName, 1304, "unauthorized: insufficient permissions")
+	ErrLargeProjectNeedsCouncil = errors.Register(ModuleName, 1305, "project budget exceeds threshold; requires council proposal approval")
 
 	// Initiative errors
 	ErrInitiativeNotFound      = errors.Register(ModuleName, 1401, "initiative not found")
@@ -59,14 +59,14 @@ var (
 	ErrStakePoolNotFound = errors.Register(ModuleName, 1506, "stake pool not found")
 
 	// Content conviction / author bond staking errors
-	ErrSelfContentStake     = errors.Register(ModuleName, 1507, "cannot stake conviction on own content")
-	ErrContentStakeCap      = errors.Register(ModuleName, 1508, "exceeds max content stake per member for this content")
-	ErrAuthorBondCap        = errors.Register(ModuleName, 1509, "exceeds max author bond per content item")
-	ErrAuthorBondExists     = errors.Register(ModuleName, 1510, "author bond already exists for this content item")
-	ErrAuthorBondNotFound   = errors.Register(ModuleName, 1511, "no author bond found for this content item")
-	ErrNotContentTargetType = errors.Register(ModuleName, 1512, "target type is not a content conviction type")
-	ErrNotAuthorBondType    = errors.Register(ModuleName, 1513, "target type is not an author bond type")
-	ErrAuthorBondViaMsg     = errors.Register(ModuleName, 1514, "author bonds must be created via content module, not MsgStake")
+	ErrSelfContentStake           = errors.Register(ModuleName, 1507, "cannot stake conviction on own content")
+	ErrContentStakeCap            = errors.Register(ModuleName, 1508, "exceeds max content stake per member for this content")
+	ErrAuthorBondCap              = errors.Register(ModuleName, 1509, "exceeds max author bond per content item")
+	ErrAuthorBondExists           = errors.Register(ModuleName, 1510, "author bond already exists for this content item")
+	ErrAuthorBondNotFound         = errors.Register(ModuleName, 1511, "no author bond found for this content item")
+	ErrNotContentTargetType       = errors.Register(ModuleName, 1512, "target type is not a content conviction type")
+	ErrNotAuthorBondType          = errors.Register(ModuleName, 1513, "target type is not an author bond type")
+	ErrAuthorBondViaMsg           = errors.Register(ModuleName, 1514, "author bonds must be created via content module, not MsgStake")
 	ErrInitiativeStakeCap         = errors.Register(ModuleName, 1515, "exceeds max initiative stake per member for this target")
 	ErrInitiativeRewardCapReached = errors.Register(ModuleName, 1516, "season initiative reward minting cap reached")
 
@@ -90,9 +90,9 @@ var (
 	ErrTrustTreeNotBuilt = errors.Register(ModuleName, 1901, "member trust tree has not been built yet")
 
 	// Permissionless creation errors
-	ErrInsufficientTrustLevel      = errors.Register(ModuleName, 1902, "trust level too low for permissionless creation")
-	ErrPermissionlessTierExceeded  = errors.Register(ModuleName, 1903, "tier exceeds maximum allowed for permissionless projects")
-	ErrInsufficientCreationFee     = errors.Register(ModuleName, 1904, "insufficient DREAM balance for creation fee")
+	ErrInsufficientTrustLevel     = errors.Register(ModuleName, 1902, "trust level too low for permissionless creation")
+	ErrPermissionlessTierExceeded = errors.Register(ModuleName, 1903, "tier exceeds maximum allowed for permissionless projects")
+	ErrInsufficientCreationFee    = errors.Register(ModuleName, 1904, "insufficient DREAM balance for creation fee")
 
 	// Tag registry errors
 	ErrTagAlreadyExists = errors.Register(ModuleName, 1910, "tag already exists")

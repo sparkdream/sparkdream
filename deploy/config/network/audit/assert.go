@@ -9,11 +9,11 @@ import (
 
 // AssertGenesisParams loads the genesis at genesisPath and asserts, for
 // every project and SDK module the chain registers, that the params block:
-//   1. Has every key the build-tag-active Params struct defines (missing).
-//   2. Does not carry any key the struct doesn't recognize (extra/renamed).
-//   3. Round-trips into the typed struct without error (catches type
-//      mismatches like a quoted "5" where a uint64 is expected, and
-//      validates nested structs such as trust_level_config).
+//  1. Has every key the build-tag-active Params struct defines (missing).
+//  2. Does not carry any key the struct doesn't recognize (extra/renamed).
+//  3. Round-trips into the typed struct without error (catches type
+//     mismatches like a quoted "5" where a uint64 is expected, and
+//     validates nested structs such as trust_level_config).
 //
 // Each module gets its own subtest so a single network's drift surfaces
 // every affected module at once instead of bailing on the first failure.

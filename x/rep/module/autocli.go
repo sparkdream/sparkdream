@@ -438,6 +438,13 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 
 				// this line is used by ignite scaffolding # autocli/query
+				{
+					RpcMethod:      "RequiredInvitationStake",
+					Use:            "required-invitation-stake [inviter]",
+					Short:          "Show the minimum DREAM stake required for an inviter's next invitation",
+					Long:           "Reports the effective MinInvitationStake floor for an inviter's next MsgInviteMember, accounting for InvitationCostMultiplier escalation based on credits spent this season.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "inviter"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

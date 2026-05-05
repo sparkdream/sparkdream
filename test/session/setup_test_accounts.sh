@@ -138,9 +138,11 @@ MEMBER_INFO=$($BINARY query rep get-member $GRANTER_ADDR --output json 2>&1)
 if echo "$MEMBER_INFO" | grep -q "not found"; then
     echo "  Inviting session_granter ($GRANTER_ADDR)..."
 
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+        | jq -r '.required_stake // "100000000"')
     TX_RES=$($BINARY tx rep invite-member \
         $GRANTER_ADDR \
-        "100" \
+        "$REQUIRED_STAKE" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

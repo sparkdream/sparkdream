@@ -14,6 +14,22 @@ import (
 	"sparkdream/x/rep/types"
 )
 
+// requiredInvitationStakeForSim mirrors keeper.computeRequiredInvitationStake
+// (which is unexported). Kept in lock-step so simulation never selects a
+// stake that the on-chain handler would reject.
+func requiredInvitationStakeForSim(params types.Params, member types.Member) math.Int {
+	maxCredits := keeper.GetMaxInvitationCredits(params.TrustLevelConfig, member.TrustLevel)
+	if maxCredits <= member.InvitationCredits {
+		return params.MinInvitationStake
+	}
+	used := uint64(maxCredits - member.InvitationCredits)
+	if used == 0 || params.InvitationCostMultiplier.LTE(math.LegacyOneDec()) {
+		return params.MinInvitationStake
+	}
+	multiplier := params.InvitationCostMultiplier.Power(used)
+	return multiplier.MulInt(params.MinInvitationStake).TruncateInt()
+}
+
 func SimulateMsgInviteMember(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -22,8 +38,20 @@ func SimulateMsgInviteMember(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create an inviter with sufficient DREAM
-		minAmount := math.NewInt(100)
+		// Pull the chain's minimum invitation stake from params instead of
+		// hardcoding. The on-chain minimum is denominated in micro-DREAM
+		// (default 100 DREAM = 100_000_000 udream), and escalates per
+		// credit consumed. A hardcoded `100` produced a stake well under
+		// the floor and made every simulated invite fail with
+		// "insufficient stake".
+		params, perr := k.Params.Get(ctx)
+		if perr != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteMember{}), "failed to read params"), nil, nil
+		}
+		minAmount := params.MinInvitationStake
+		if minAmount.IsNil() || minAmount.IsZero() {
+			minAmount = math.NewInt(100_000_000)
+		}
 		inviterMember, inviterAcc, err := getOrCreateMemberWithDream(r, ctx, k, accs, minAmount)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteMember{}), "failed to get/create inviter with DREAM"), nil, nil
@@ -73,7 +101,12 @@ func SimulateMsgInviteMember(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteMember{}), "failed to reload inviter"), nil, nil
 		}
 
-		minStake := math.NewInt(100)
+		// Floor the simulated stake at the chain's required minimum, scaled
+		// up by the per-credit escalator if the inviter has already spent
+		// credits this season. ComputeRequiredInvitationStake mirrors the
+		// keeper's check exactly so we never pick a number that would be
+		// rejected by the message handler.
+		minStake := requiredInvitationStakeForSim(params, reloadedMember)
 		if reloadedMember.DreamBalance == nil || reloadedMember.DreamBalance.LT(minStake) {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteMember{}), "insufficient balance"), nil, nil
 		}

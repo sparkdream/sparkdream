@@ -34,3 +34,10 @@ func getTrustLevelConfig() TrustLevelConfig {
 func getSentinelRewardEpochBlocks() uint64 {
 	return 3600
 }
+
+// getInvitationCostMultiplier returns 1.1x per-invitation escalation
+// matching production. Devnet keeps the same anti-sybil mechanic so dev
+// builds exercise the same code path as mainnet.
+func getInvitationCostMultiplier() math.LegacyDec {
+	return math.LegacyNewDecWithPrec(110, 2) // 1.1x
+}

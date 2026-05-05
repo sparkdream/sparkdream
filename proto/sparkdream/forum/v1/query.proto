@@ -254,7 +254,6 @@ service Query {
   rpc FlagReviewQueue(QueryFlagReviewQueueRequest) returns (QueryFlagReviewQueueResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/flag_review_queue";
   }
-
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -781,4 +780,3 @@ message QueryFlagReviewQueueResponse {
   string total_weight = 2;
   cosmos.base.query.v1beta1.PageResponse pagination = 3;
 }
-

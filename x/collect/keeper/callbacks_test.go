@@ -99,7 +99,7 @@ func TestResolveChallengeResult_Upheld(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	// Register member as curator with bond of 500 DREAM
-	f.registerCurator(t, f.member, 500)
+	f.registerCurator(t, f.member, 500_000_000)
 
 	// Advance past min_curator_age_blocks (default 14400)
 	f.advanceBlockHeight(14401)
@@ -176,7 +176,7 @@ func TestResolveChallengeResult_Upheld(t *testing.T) {
 	br, err := f.repKeeper.GetBondedRole(f.ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, f.member)
 	require.NoError(t, err)
 	currentBond, _ := math.NewIntFromString(br.CurrentBond)
-	require.Equal(t, math.NewInt(500).Sub(expectedSlash), currentBond)
+	require.Equal(t, math.NewInt(500_000_000).Sub(expectedSlash), currentBond)
 	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
 	require.True(t, committed.IsZero())
 
@@ -195,7 +195,7 @@ func TestResolveChallengeResult_Rejected(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 
 	// Register member as curator with bond of 500 DREAM
-	f.registerCurator(t, f.member, 500)
+	f.registerCurator(t, f.member, 500_000_000)
 
 	// Advance past min_curator_age_blocks
 	f.advanceBlockHeight(14401)
@@ -262,7 +262,7 @@ func TestResolveChallengeResult_Rejected(t *testing.T) {
 	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
 	require.True(t, committed.IsZero())
 	currentBond, _ := math.NewIntFromString(br.CurrentBond)
-	require.Equal(t, math.NewInt(500), currentBond)
+	require.Equal(t, math.NewInt(500_000_000), currentBond)
 
 	// Per-module activity counters bumped.
 	activity, err := f.keeper.CuratorActivity.Get(f.ctx, f.member)

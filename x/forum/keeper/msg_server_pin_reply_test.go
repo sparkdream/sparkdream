@@ -28,7 +28,7 @@ func TestMsgServerPinReply(t *testing.T) {
 		// PinReply requires a BondedRole record (ROLE_TYPE_FORUM_SENTINEL) in
 		// non-DEMOTED status, matching hide/lock/move. Register the sentinel
 		// via the helper so the BondedRole lookup succeeds.
-		f.createTestSentinel(t, testCreator, "2000")
+		f.createTestSentinel(t, testCreator, "2000000000")
 
 		rootPost := f.createTestPost(t, testCreator, 0, 0)
 		reply := f.createTestPost(t, testCreator2, rootPost.PostId, 0)

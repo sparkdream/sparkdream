@@ -32,28 +32,28 @@ type Keeper struct {
 	Schema collections.Schema
 	Params collections.Item[types.Params]
 
-	authKeeper      types.AuthKeeper
-	bankKeeper      types.BankKeeper
-	commonsKeeper   types.CommonsKeeper
-	late            *lateKeepers // shared across value copies
-	Member          collections.Map[string, types.Member]
-	InvitationSeq   collections.Sequence
-	Invitation          collections.Map[uint64, types.Invitation]
+	authKeeper           types.AuthKeeper
+	bankKeeper           types.BankKeeper
+	commonsKeeper        types.CommonsKeeper
+	late                 *lateKeepers // shared across value copies
+	Member               collections.Map[string, types.Member]
+	InvitationSeq        collections.Sequence
+	Invitation           collections.Map[uint64, types.Invitation]
 	InvitationsByInvitee collections.Map[string, uint64] // invitee address -> invitation ID
-	ProjectSeq      collections.Sequence
-	Project         collections.Map[uint64, types.Project]
-	InitiativeSeq   collections.Sequence
-	Initiative      collections.Map[uint64, types.Initiative]
-	StakeSeq        collections.Sequence
-	Stake           collections.Map[uint64, types.Stake]
-	ChallengeSeq    collections.Sequence
-	Challenge       collections.Map[uint64, types.Challenge]
-	JuryReviewSeq   collections.Sequence
-	JuryReview      collections.Map[uint64, types.JuryReview]
-	InterimSeq      collections.Sequence
-	Interim         collections.Map[uint64, types.Interim]
-	InterimTemplate collections.Map[string, types.InterimTemplate]
-	GiftRecord      collections.Map[collections.Pair[string, string], types.GiftRecord]
+	ProjectSeq           collections.Sequence
+	Project              collections.Map[uint64, types.Project]
+	InitiativeSeq        collections.Sequence
+	Initiative           collections.Map[uint64, types.Initiative]
+	StakeSeq             collections.Sequence
+	Stake                collections.Map[uint64, types.Stake]
+	ChallengeSeq         collections.Sequence
+	Challenge            collections.Map[uint64, types.Challenge]
+	JuryReviewSeq        collections.Sequence
+	JuryReview           collections.Map[uint64, types.JuryReview]
+	InterimSeq           collections.Sequence
+	Interim              collections.Map[uint64, types.Interim]
+	InterimTemplate      collections.Map[string, types.InterimTemplate]
+	GiftRecord           collections.Map[collections.Pair[string, string], types.GiftRecord]
 
 	// Secondary indexes for efficient lookups (avoid full table scans in EndBlocker)
 	// Key: (status, id) - allows iteration by status
@@ -82,15 +82,15 @@ type Keeper struct {
 	ContentInitiativeLinks collections.KeySet[collections.Pair[uint64, collections.Pair[int32, uint64]]]
 
 	// Seasonal staking reward pool state (MasterChef-style accumulator)
-	SeasonalPoolRemaining  collections.Item[string] // remaining DREAM in pool (as Int string)
+	SeasonalPoolRemaining   collections.Item[string] // remaining DREAM in pool (as Int string)
 	SeasonalPoolAccPerShare collections.Item[string] // accumulated reward per share (as Dec string)
 	SeasonalPoolTotalStaked collections.Item[string] // total DREAM staked in initiatives + projects (as Int string)
-	SeasonalPoolSeason     collections.Item[uint64]  // which season this pool was initialized for
+	SeasonalPoolSeason      collections.Item[uint64] // which season this pool was initialized for
 
 	// Treasury and economic tracking
-	TreasuryBalance              collections.Item[string] // x/rep module treasury DREAM balance (as Int string)
-	SeasonMinted                 collections.Item[string] // total DREAM minted this season (as Int string)
-	SeasonBurned                 collections.Item[string] // total DREAM burned this season (as Int string)
+	TreasuryBalance               collections.Item[string] // x/rep module treasury DREAM balance (as Int string)
+	SeasonMinted                  collections.Item[string] // total DREAM minted this season (as Int string)
+	SeasonBurned                  collections.Item[string] // total DREAM burned this season (as Int string)
 	SeasonInitiativeRewardsMinted collections.Item[string] // DREAM minted via initiative completion this season (as Int string)
 	EpochMintedEpoch              collections.Item[uint64] // tracked epoch for the per-epoch mint counter
 	EpochMintedAmount             collections.Item[string] // DREAM minted during tracked epoch (as Int string)
@@ -147,28 +147,28 @@ func NewKeeper(
 		addressCodec: addressCodec,
 		authority:    authority,
 
-		authKeeper:      authKeeper,
-		bankKeeper:      bankKeeper,
-		commonsKeeper:   commonsKeeper,
-		late:            &lateKeepers{},
-		Params:          collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
-		Member:          collections.NewMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc)),
+		authKeeper:           authKeeper,
+		bankKeeper:           bankKeeper,
+		commonsKeeper:        commonsKeeper,
+		late:                 &lateKeepers{},
+		Params:               collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
+		Member:               collections.NewMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc)),
 		Invitation:           collections.NewMap(sb, types.InvitationKey, "invitation", collections.Uint64Key, codec.CollValue[types.Invitation](cdc)),
 		InvitationsByInvitee: collections.NewMap(sb, types.InvitationsByInviteeKey, "invitationsByInvitee", collections.StringKey, collections.Uint64Value),
 		InvitationSeq:        collections.NewSequence(sb, types.InvitationCountKey, "invitationSequence"),
-		Project:         collections.NewMap(sb, types.ProjectKey, "project", collections.Uint64Key, codec.CollValue[types.Project](cdc)),
-		ProjectSeq:      collections.NewSequence(sb, types.ProjectCountKey, "projectSequence"),
-		Initiative:      collections.NewMap(sb, types.InitiativeKey, "initiative", collections.Uint64Key, codec.CollValue[types.Initiative](cdc)),
-		InitiativeSeq:   collections.NewSequence(sb, types.InitiativeCountKey, "initiativeSequence"),
-		Stake:           collections.NewMap(sb, types.StakeKey, "stake", collections.Uint64Key, codec.CollValue[types.Stake](cdc)),
-		StakeSeq:        collections.NewSequence(sb, types.StakeCountKey, "stakeSequence"),
-		Challenge:       collections.NewMap(sb, types.ChallengeKey, "challenge", collections.Uint64Key, codec.CollValue[types.Challenge](cdc)),
-		ChallengeSeq:    collections.NewSequence(sb, types.ChallengeCountKey, "challengeSequence"),
-		JuryReview:      collections.NewMap(sb, types.JuryReviewKey, "juryReview", collections.Uint64Key, codec.CollValue[types.JuryReview](cdc)),
-		JuryReviewSeq:   collections.NewSequence(sb, types.JuryReviewCountKey, "juryReviewSequence"),
-		Interim:         collections.NewMap(sb, types.InterimKey, "interim", collections.Uint64Key, codec.CollValue[types.Interim](cdc)),
-		InterimSeq:      collections.NewSequence(sb, types.InterimCountKey, "interimSequence"),
-		InterimTemplate: collections.NewMap(sb, types.InterimTemplateKey, "interimTemplate", collections.StringKey, codec.CollValue[types.InterimTemplate](cdc)),
+		Project:              collections.NewMap(sb, types.ProjectKey, "project", collections.Uint64Key, codec.CollValue[types.Project](cdc)),
+		ProjectSeq:           collections.NewSequence(sb, types.ProjectCountKey, "projectSequence"),
+		Initiative:           collections.NewMap(sb, types.InitiativeKey, "initiative", collections.Uint64Key, codec.CollValue[types.Initiative](cdc)),
+		InitiativeSeq:        collections.NewSequence(sb, types.InitiativeCountKey, "initiativeSequence"),
+		Stake:                collections.NewMap(sb, types.StakeKey, "stake", collections.Uint64Key, codec.CollValue[types.Stake](cdc)),
+		StakeSeq:             collections.NewSequence(sb, types.StakeCountKey, "stakeSequence"),
+		Challenge:            collections.NewMap(sb, types.ChallengeKey, "challenge", collections.Uint64Key, codec.CollValue[types.Challenge](cdc)),
+		ChallengeSeq:         collections.NewSequence(sb, types.ChallengeCountKey, "challengeSequence"),
+		JuryReview:           collections.NewMap(sb, types.JuryReviewKey, "juryReview", collections.Uint64Key, codec.CollValue[types.JuryReview](cdc)),
+		JuryReviewSeq:        collections.NewSequence(sb, types.JuryReviewCountKey, "juryReviewSequence"),
+		Interim:              collections.NewMap(sb, types.InterimKey, "interim", collections.Uint64Key, codec.CollValue[types.Interim](cdc)),
+		InterimSeq:           collections.NewSequence(sb, types.InterimCountKey, "interimSequence"),
+		InterimTemplate:      collections.NewMap(sb, types.InterimTemplateKey, "interimTemplate", collections.StringKey, codec.CollValue[types.InterimTemplate](cdc)),
 		GiftRecord: collections.NewMap(sb, types.GiftRecordKey, "giftRecord",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 			codec.CollValue[types.GiftRecord](cdc)),
@@ -227,12 +227,12 @@ func NewKeeper(
 
 		// Treasury and economic tracking
 		TreasuryBalance:               collections.NewItem(sb, types.TreasuryBalanceKey, "treasuryBalance", collections.StringValue),
-		SeasonMinted:                   collections.NewItem(sb, types.SeasonMintedKey, "seasonMinted", collections.StringValue),
-		SeasonBurned:                   collections.NewItem(sb, types.SeasonBurnedKey, "seasonBurned", collections.StringValue),
-		SeasonInitiativeRewardsMinted:  collections.NewItem(sb, types.SeasonInitiativeRewardsMintedKey, "seasonInitiativeRewards", collections.StringValue),
-		EpochMintedEpoch:               collections.NewItem(sb, types.EpochMintedEpochKey, "epochMintedEpoch", collections.Uint64Value),
-		EpochMintedAmount:              collections.NewItem(sb, types.EpochMintedAmountKey, "epochMintedAmount", collections.StringValue),
-		DecayLastProcessedEpoch:        collections.NewItem(sb, types.DecayLastProcessedEpochKey, "decayLastProcessedEpoch", collections.Uint64Value),
+		SeasonMinted:                  collections.NewItem(sb, types.SeasonMintedKey, "seasonMinted", collections.StringValue),
+		SeasonBurned:                  collections.NewItem(sb, types.SeasonBurnedKey, "seasonBurned", collections.StringValue),
+		SeasonInitiativeRewardsMinted: collections.NewItem(sb, types.SeasonInitiativeRewardsMintedKey, "seasonInitiativeRewards", collections.StringValue),
+		EpochMintedEpoch:              collections.NewItem(sb, types.EpochMintedEpochKey, "epochMintedEpoch", collections.Uint64Value),
+		EpochMintedAmount:             collections.NewItem(sb, types.EpochMintedAmountKey, "epochMintedAmount", collections.StringValue),
+		DecayLastProcessedEpoch:       collections.NewItem(sb, types.DecayLastProcessedEpochKey, "decayLastProcessedEpoch", collections.Uint64Value),
 
 		// Tag registry
 		Tag:         collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[types.Tag](cdc)),

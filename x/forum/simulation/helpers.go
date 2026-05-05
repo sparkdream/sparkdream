@@ -13,7 +13,6 @@ import (
 	"sparkdream/x/forum/types"
 )
 
-
 // simCategoryID is the placeholder id every forum sim operation uses; the
 // commons sim genesis is expected to seed a category with this id.
 const simCategoryID uint64 = 1

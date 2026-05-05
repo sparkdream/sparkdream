@@ -114,11 +114,11 @@ func TestUpdateCollectionTagDiff(t *testing.T) {
 
 	// Update: drop b, add c (keep a).
 	_, err = f.msgServer.UpdateCollection(f.ctx, &types.MsgUpdateCollection{
-		Creator:    f.owner,
-		Id:         createResp.Id,
-		Type:       types.CollectionType_COLLECTION_TYPE_MIXED,
-		Name:       "tagged-collection",
-		Tags:       []string{"a", "c"},
+		Creator: f.owner,
+		Id:      createResp.Id,
+		Type:    types.CollectionType_COLLECTION_TYPE_MIXED,
+		Name:    "tagged-collection",
+		Tags:    []string{"a", "c"},
 	})
 	require.NoError(t, err)
 

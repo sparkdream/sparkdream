@@ -138,7 +138,7 @@ func (k Keeper) GetSentinelBond(ctx context.Context, addr string) math.Int {
 // GetSentinelBacking returns the DREAM backing amount (total balance) for a sentinel.
 func (k Keeper) GetSentinelBacking(ctx context.Context, addr string) math.Int {
 	if k.repKeeper == nil {
-		return math.NewInt(20000) // Fallback: high value when x/rep not wired
+		return math.NewInt(20_000_000_000) // Fallback: 20000 DREAM (high value when x/rep not wired)
 	}
 	addrBytes, err := k.addressCodec.StringToBytes(addr)
 	if err != nil {

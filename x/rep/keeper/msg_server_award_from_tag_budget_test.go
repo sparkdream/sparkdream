@@ -29,7 +29,7 @@ type mockForumKeeper struct {
 	overturnedError  error
 	getSentinelError error
 	// Stage D hooks (populated by sentinel-reward distribution tests):
-	counters  map[string]types.SentinelActivityCounters
+	counters   map[string]types.SentinelActivityCounters
 	resetAddrs []string
 }
 

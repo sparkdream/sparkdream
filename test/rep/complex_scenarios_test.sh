@@ -68,8 +68,10 @@ echo "Setting up Bob and Carol for staking tests..."
 # Check if Bob is already a member
 BOB_MEMBER=$($BINARY query rep get-member "$BOB_ADDR" --output json 2>/dev/null | jq -r '.member.address' 2>/dev/null)
 if [ -z "$BOB_MEMBER" ] || [ "$BOB_MEMBER" == "null" ]; then
-    # Invite Bob
-    INV_RES=$($BINARY tx rep invite-member "$BOB_ADDR" "100" --vouched-tags "staking" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>/dev/null)
+    # Invite Bob (query required stake — escalates per invitation)
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+        | jq -r '.required_stake // "100000000"')
+    INV_RES=$($BINARY tx rep invite-member "$BOB_ADDR" "$REQUIRED_STAKE" --vouched-tags "staking" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>/dev/null)
     sleep 1
     INV_TX=$(echo $INV_RES | jq -r '.txhash' 2>/dev/null)
     if [ -n "$INV_TX" ] && [ "$INV_TX" != "null" ]; then
@@ -86,8 +88,10 @@ fi
 # Check if Carol is already a member
 CAROL_MEMBER=$($BINARY query rep get-member "$CAROL_ADDR" --output json 2>/dev/null | jq -r '.member.address' 2>/dev/null)
 if [ -z "$CAROL_MEMBER" ] || [ "$CAROL_MEMBER" == "null" ]; then
-    # Invite Carol
-    INV_RES=$($BINARY tx rep invite-member "$CAROL_ADDR" "100" --vouched-tags "staking" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>/dev/null)
+    # Invite Carol (query required stake — escalates per invitation)
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+        | jq -r '.required_stake // "100000000"')
+    INV_RES=$($BINARY tx rep invite-member "$CAROL_ADDR" "$REQUIRED_STAKE" --vouched-tags "staking" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>/dev/null)
     sleep 1
     INV_TX=$(echo $INV_RES | jq -r '.txhash' 2>/dev/null)
     if [ -n "$INV_TX" ] && [ "$INV_TX" != "null" ]; then
@@ -628,10 +632,12 @@ if [ "$NEW_CREDITS" != "0" ] && [ -n "$NEW_CREDITS" ]; then
                 -y > /dev/null 2>&1
             sleep 3
 
-            # Assignee invites ref_child1
+            # Assignee invites ref_child1 (query required stake — escalates per invitation)
+            REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ASSIGNEE_ADDR" --output json 2>/dev/null \
+                | jq -r '.required_stake // "100000000"')
             TX_RES=$($BINARY tx rep invite-member \
                 "$REF_CHILD1_ADDR" \
-                "100000000" \
+                "$REQUIRED_STAKE" \
                 --vouched-tags "cascade-test" \
                 --from assignee \
                 --chain-id $CHAIN_ID \

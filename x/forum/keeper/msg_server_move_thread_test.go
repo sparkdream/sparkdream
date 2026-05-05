@@ -20,7 +20,7 @@ func TestMoveThread(t *testing.T) {
 	thread := f.createTestPost(t, testCreator, 0, cat1.CategoryId)
 
 	// Create a sentinel (bond record in x/rep; forum counter-only locally).
-	f.createTestSentinel(t, testSentinel, "2000")
+	f.createTestSentinel(t, testSentinel, "2000000000")
 
 	tests := []struct {
 		name        string
@@ -152,7 +152,7 @@ func TestMoveThread(t *testing.T) {
 			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel})
 			f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
 				Address:            testSentinel,
-				CurrentBond:        "2000",
+				CurrentBond:        "2000000000",
 				TotalCommittedBond: "0",
 				BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 			}
@@ -241,7 +241,7 @@ func TestMoveThreadWithReservedTag(t *testing.T) {
 	_ = f.repKeeper.SetReservedTag(f.ctx, reservedTag)
 
 	// Create a sentinel (bond record in x/rep; forum counter-only locally).
-	f.createTestSentinel(t, testSentinel, "2000")
+	f.createTestSentinel(t, testSentinel, "2000000000")
 
 	// Sentinel should not be able to move thread with reserved tag
 	_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{

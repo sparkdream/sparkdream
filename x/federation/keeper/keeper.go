@@ -38,21 +38,21 @@ type Keeper struct {
 
 	// --- Primary Collections ---
 
-	Peers              collections.Map[string, types.Peer]
-	PeerPolicies       collections.Map[string, types.PeerPolicy]
-	BridgeOperators    collections.Map[collections.Pair[string, string], types.BridgeOperator]
+	Peers           collections.Map[string, types.Peer]
+	PeerPolicies    collections.Map[string, types.PeerPolicy]
+	BridgeOperators collections.Map[collections.Pair[string, string], types.BridgeOperator]
 	// VerifierActivity holds federation-specific per-verifier counters. The
 	// generic bond/status record lives in x/rep as BondedRole
 	// (ROLE_TYPE_FEDERATION_VERIFIER).
-	VerifierActivity   collections.Map[string, types.VerifierActivity]
-	VerificationRecords collections.Map[uint64, types.VerificationRecord]
-	ArbiterSubmissions collections.Map[collections.Pair[uint64, string], types.ArbiterHashSubmission]
-	Content            collections.Map[uint64, types.FederatedContent]
-	IdentityLinks      collections.Map[collections.Pair[string, string], types.IdentityLink]
-	PendingIdChallenges collections.Map[collections.Pair[string, string], types.PendingIdentityChallenge]
-	RepAttestations    collections.Map[collections.Pair[string, string], types.ReputationAttestation]
+	VerifierActivity     collections.Map[string, types.VerifierActivity]
+	VerificationRecords  collections.Map[uint64, types.VerificationRecord]
+	ArbiterSubmissions   collections.Map[collections.Pair[uint64, string], types.ArbiterHashSubmission]
+	Content              collections.Map[uint64, types.FederatedContent]
+	IdentityLinks        collections.Map[collections.Pair[string, string], types.IdentityLink]
+	PendingIdChallenges  collections.Map[collections.Pair[string, string], types.PendingIdentityChallenge]
+	RepAttestations      collections.Map[collections.Pair[string, string], types.ReputationAttestation]
 	OutboundAttestations collections.Map[uint64, types.OutboundAttestation]
-	PeerRemovalQueue   collections.Map[string, types.PeerRemovalState]
+	PeerRemovalQueue     collections.Map[string, types.PeerRemovalState]
 
 	// --- Sequences ---
 
@@ -67,10 +67,10 @@ type Keeper struct {
 
 	// --- Secondary Indexes ---
 
-	ContentByPeer    collections.KeySet[collections.Pair[string, uint64]]
-	ContentByType    collections.KeySet[collections.Pair[string, uint64]]
-	ContentByCreator collections.KeySet[collections.Pair[string, uint64]]
-	ContentByHash    collections.Map[string, uint64]
+	ContentByPeer     collections.KeySet[collections.Pair[string, uint64]]
+	ContentByType     collections.KeySet[collections.Pair[string, uint64]]
+	ContentByCreator  collections.KeySet[collections.Pair[string, uint64]]
+	ContentByHash     collections.Map[string, uint64]
 	ContentExpiration collections.KeySet[collections.Pair[int64, uint64]]
 
 	BridgesByPeer collections.KeySet[collections.Pair[string, string]]
@@ -242,4 +242,3 @@ func (k Keeper) SetRepKeeper(rk types.RepKeeper) {
 func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
 	k.late.nameKeeper = nk
 }
-

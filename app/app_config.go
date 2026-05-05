@@ -162,7 +162,7 @@ var (
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
-					    // this line is used by starport scaffolding # stargate/app/beginBlockers
+						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
 						govtypes.ModuleName,
@@ -184,7 +184,7 @@ var (
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
-					    // this line is used by starport scaffolding # stargate/app/endBlockers
+						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
 					OverrideStoreKeys: []*runtimev1alpha1.StoreKeyConfig{

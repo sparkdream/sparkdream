@@ -19,7 +19,7 @@ func TestMsgServerInviteMember(t *testing.T) {
 		_, err := ms.InviteMember(f.ctx, &types.MsgInviteMember{
 			Inviter:        "invalid-address",
 			InviteeAddress: "addr",
-			StakedDream:    keeper.PtrInt(math.NewInt(100)),
+			StakedDream:    keeper.PtrInt(math.NewInt(100000000)), // 100 DREAM
 			VouchedTags:    []string{"tag"},
 		})
 
@@ -38,7 +38,7 @@ func TestMsgServerInviteMember(t *testing.T) {
 		_, err = ms.InviteMember(f.ctx, &types.MsgInviteMember{
 			Inviter:        inviterStr,
 			InviteeAddress: "invalid-address",
-			StakedDream:    keeper.PtrInt(math.NewInt(100)),
+			StakedDream:    keeper.PtrInt(math.NewInt(100000000)), // 100 DREAM
 			VouchedTags:    []string{"tag"},
 		})
 
@@ -61,7 +61,7 @@ func TestMsgServerInviteMember(t *testing.T) {
 		_, err = ms.InviteMember(f.ctx, &types.MsgInviteMember{
 			Inviter:        inviterStr,
 			InviteeAddress: inviteeStr.String(),
-			StakedDream:    keeper.PtrInt(math.NewInt(100)),
+			StakedDream:    keeper.PtrInt(math.NewInt(100000000)), // 100 DREAM
 			VouchedTags:    []string{"tag"},
 		})
 
@@ -79,7 +79,7 @@ func TestMsgServerInviteMember(t *testing.T) {
 		inviter := sdk.AccAddress([]byte("inviter"))
 		k.Member.Set(ctx, inviter.String(), types.Member{
 			Address:           inviter.String(),
-			DreamBalance:      keeper.PtrInt(math.NewInt(1000)),
+			DreamBalance:      keeper.PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 			StakedDream:       keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:    keeper.PtrInt(math.ZeroInt()),
 			ReputationScores:  map[string]string{"tag": "100.0"},
@@ -97,7 +97,7 @@ func TestMsgServerInviteMember(t *testing.T) {
 		_, err = ms.InviteMember(ctx, &types.MsgInviteMember{
 			Inviter:        inviterStr,
 			InviteeAddress: inviteeStr.String(),
-			StakedDream:    keeper.PtrInt(math.NewInt(100)),
+			StakedDream:    keeper.PtrInt(math.NewInt(100000000)), // 100 DREAM
 			VouchedTags:    []string{"tag"},
 		})
 		require.NoError(t, err)

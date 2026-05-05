@@ -17,7 +17,7 @@ func TestHidePost(t *testing.T) {
 	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
 
 	// Create a sentinel with sufficient bond
-	f.createTestSentinel(t, testSentinel, "2000")
+	f.createTestSentinel(t, testSentinel, "2000000000")
 
 	tests := []struct {
 		name        string
@@ -123,7 +123,7 @@ func TestHidePost(t *testing.T) {
 			_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
 
 			// Reset sentinel activity
-			f.createTestSentinel(t, testSentinel, "2000")
+			f.createTestSentinel(t, testSentinel, "2000000000")
 
 			if tt.setup != nil {
 				tt.setup()
@@ -191,7 +191,7 @@ func TestHidePostSentinelBondCommitment(t *testing.T) {
 	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
 
 	// Create a sentinel with specific bond
-	initialBond := "2000"
+	initialBond := "2000000000"
 	f.createTestSentinel(t, testSentinel, initialBond)
 
 	// Hide the post

@@ -170,10 +170,15 @@ for i in "${!ACCOUNTS[@]}"; do
 
     echo "  → Inviting $ACCOUNT ($ADDR)..."
 
-    # Stake 100 DREAM (100000000 micro-DREAM) on the invitation
+    # Query the chain for the current required stake — escalates per-invitation
+    # via InvitationCostMultiplier (see x/rep params).
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+        | jq -r '.required_stake // "100000000"')
+    echo "    Required stake: $REQUIRED_STAKE micro-DREAM"
+
     TX_RES=$($BINARY tx rep invite-member \
         $ADDR \
-        "100000000" \
+        "$REQUIRED_STAKE" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

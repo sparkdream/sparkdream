@@ -110,7 +110,7 @@ func TestCreateContentChallenge_NoBond(t *testing.T) {
 		999,
 		"No bond here",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.ErrorIs(t, err, types.ErrNoAuthorBond)
 }
@@ -126,7 +126,7 @@ func TestCreateContentChallenge_SelfChallenge(t *testing.T) {
 		1,
 		"Self challenge",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.ErrorIs(t, err, types.ErrCannotChallengeOwnContent)
 }
@@ -142,7 +142,7 @@ func TestCreateContentChallenge_DuplicateChallenge(t *testing.T) {
 		1,
 		"First challenge",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.NoError(t, err)
 
@@ -154,7 +154,7 @@ func TestCreateContentChallenge_DuplicateChallenge(t *testing.T) {
 		1,
 		"Duplicate challenge",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.ErrorIs(t, err, types.ErrContentChallengeExists)
 }
@@ -187,7 +187,7 @@ func TestCreateContentChallenge_InvalidTargetType(t *testing.T) {
 		1,
 		"Wrong type",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.ErrorIs(t, err, types.ErrNotAuthorBondType)
 }
@@ -203,7 +203,7 @@ func TestRespondToContentChallenge_EmptyResponse(t *testing.T) {
 		1,
 		"Bad content",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.NoError(t, err)
 
@@ -228,7 +228,7 @@ func TestRespondToContentChallenge_WrongAuthor(t *testing.T) {
 		1,
 		"Bad content",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.NoError(t, err)
 
@@ -249,7 +249,7 @@ func TestRespondToContentChallenge_NotActive(t *testing.T) {
 		1,
 		"Bad content",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.NoError(t, err)
 	err = f.keeper.UpholdContentChallenge(f.ctx, ccID)
@@ -400,7 +400,7 @@ func TestBondLockedDuringChallenge(t *testing.T) {
 		1,
 		"Challenge in progress",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.NoError(t, err)
 
@@ -460,7 +460,7 @@ func TestEndBlockerAutoUpholdsExpiredContentChallenge(t *testing.T) {
 		1,
 		"Expired deadline",
 		nil,
-		math.NewInt(100),
+		math.NewInt(100000000), // 100 DREAM
 	)
 	require.NoError(t, err)
 

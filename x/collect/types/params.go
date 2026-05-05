@@ -36,7 +36,7 @@ var (
 	DefaultMinSponsorTrustLevel              = "TRUST_LEVEL_ESTABLISHED"
 	DefaultSponsorshipRequestTTLBlocks int64 = 100800 // ~7 days
 
-	DefaultMinCuratorBond                  = math.NewInt(500) // 500 DREAM
+	DefaultMinCuratorBond                  = math.NewInt(500_000_000) // 500 DREAM (in udream)
 	DefaultMinCuratorTrustLevel            = "TRUST_LEVEL_PROVISIONAL"
 	DefaultMinCuratorAgeBlocks      int64  = 14400 // ~1 day
 	DefaultMaxTagsPerReview         uint32 = 5
@@ -45,12 +45,12 @@ var (
 	DefaultCuratorSlashFraction            = math.LegacyNewDecWithPrec(10, 2) // 10%
 	DefaultChallengeRewardFraction         = math.LegacyNewDecWithPrec(80, 2) // 80%
 	DefaultChallengeWindowBlocks    int64  = 100800                           // ~7 days
-	DefaultChallengeDeposit                = math.NewInt(250)                 // 250 DREAM
+	DefaultChallengeDeposit                = math.NewInt(250_000_000)        // 250 DREAM (in udream)
 	DefaultMaxChallengeReasonLength uint32 = 1024
 
 	// Bonded-role demotion thresholds for ROLE_TYPE_COLLECT_CURATOR.
-	DefaultCuratorDemotionCooldown       int64  = 604800 // 7 days
-	DefaultCuratorDemotionThreshold             = math.NewInt(250) // 250 DREAM
+	DefaultCuratorDemotionCooldown       int64  = 604800           // 7 days
+	DefaultCuratorDemotionThreshold             = math.NewInt(250_000_000) // 250 DREAM (in udream)
 	DefaultCuratorOverturnDemotionStreak uint64 = 3
 
 	// Reaction defaults
@@ -66,7 +66,7 @@ var (
 	DefaultMaxFlagReasonLength  uint32 = 512
 
 	// Sentinel moderation defaults
-	DefaultSentinelCommitAmount       = math.NewInt(100)     // 100 DREAM
+	DefaultSentinelCommitAmount       = math.NewInt(100_000_000) // 100 DREAM (in udream)
 	DefaultHideExpiryBlocks     int64 = 100800               // ~7 days
 	DefaultAppealFee                  = math.NewInt(5000000) // 5 SPARK
 	DefaultAppealCooldownBlocks int64 = 600                  // ~1 hour
@@ -74,7 +74,7 @@ var (
 
 	// Endorsement defaults
 	DefaultEndorsementCreationFee                = math.NewInt(10000000)            // 10 SPARK
-	DefaultEndorsementDreamStake                 = math.NewInt(100)                 // 100 DREAM
+	DefaultEndorsementDreamStake                 = math.NewInt(100_000_000)        // 100 DREAM (in udream)
 	DefaultEndorsementStakeDuration        int64 = 432000                           // ~30 days
 	DefaultEndorsementExpiryBlocks         int64 = 432000                           // ~30 days
 	DefaultEndorsementFeeEndorserShare           = math.LegacyNewDecWithPrec(80, 2) // 80%
