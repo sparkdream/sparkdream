@@ -56,6 +56,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Get owner info (primary_name, display_name, last_active_time) for an address",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
 				},
+				{
+					RpcMethod:      "Targets",
+					Use:            "targets [address]",
+					Short:          "List names where the given address is the accepted resolver target",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
+				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -112,6 +118,24 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "set-display-name [display-name]",
 					Short:          "Set (or clear, with empty string) the free-form display name on the signer's OwnerInfo",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "display_name"}},
+				},
+				{
+					RpcMethod:      "SetTarget",
+					Use:            "set-target [name] [target]",
+					Short:          "Point a name at a target address for forward resolution (empty target clears)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "target"}},
+				},
+				{
+					RpcMethod:      "AcceptTarget",
+					Use:            "accept-target [name]",
+					Short:          "Consent to being the resolver target of a name",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}},
+				},
+				{
+					RpcMethod:      "TransferName",
+					Use:            "transfer-name [name] [new-owner]",
+					Short:          "Transfer ownership of a name to a new owner (must be an active x/rep member)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "name"}, {ProtoField: "new_owner"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

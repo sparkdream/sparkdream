@@ -43,5 +43,17 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 		&MsgSetDisplayName{},
 	)
 
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgSetTarget{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAcceptTarget{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgTransferName{},
+	)
+
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

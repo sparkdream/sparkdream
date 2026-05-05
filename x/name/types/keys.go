@@ -21,13 +21,14 @@ const (
 
 // Collections Prefixes
 var (
-	ParamsKey        = collections.NewPrefix("p_name")
-	KeyNames         = collections.NewPrefix("names")
-	KeyOwners        = collections.NewPrefix("owners")
-	KeyDisputes      = collections.NewPrefix("disputes")
-	KeyOwnerNames    = collections.NewPrefix("owner_names")
-	KeyDisputeStakes = collections.NewPrefix("dispute_stakes")
-	KeyContestStakes = collections.NewPrefix("contest_stakes")
+	ParamsKey          = collections.NewPrefix("p_name")
+	KeyNames           = collections.NewPrefix("names")
+	KeyOwners          = collections.NewPrefix("owners")
+	KeyDisputes        = collections.NewPrefix("disputes")
+	KeyOwnerNames      = collections.NewPrefix("owner_names")
+	KeyDisputeStakes   = collections.NewPrefix("dispute_stakes")
+	KeyContestStakes   = collections.NewPrefix("contest_stakes")
+	KeyAcceptedTargets = collections.NewPrefix("accepted_targets")
 )
 
 // Parameter keys

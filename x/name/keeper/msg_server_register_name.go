@@ -13,7 +13,13 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-var validNameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+// validNameRegex permits lowercase alphanumerics, hyphens, and underscores.
+// Names must start and end with an alphanumeric or underscore (matching X /
+// Twitter handle rules where leading/trailing underscores are valid).
+// Hyphens, by contrast, remain restricted to the interior — leading/trailing
+// hyphens are rejected to avoid DNS-like ambiguity and URL-parsing edge
+// cases (X also disallows hyphens entirely).
+var validNameRegex = regexp.MustCompile(`^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?$`)
 
 func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterName) (*types.MsgRegisterNameResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
@@ -34,7 +40,7 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name too long (max %d)", params.MaxNameLength)
 	}
 	if !validNameRegex.MatchString(name) {
-		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name contains invalid characters (allowed: a-z, 0-9, -; cannot start/end with -)")
+		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name contains invalid characters (allowed: a-z, 0-9, -, _; cannot start/end with -)")
 	}
 	for _, blocked := range params.BlockedNames {
 		if name == blocked {
@@ -42,16 +48,18 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 		}
 	}
 
-	// 3. Council Membership Check (The Republic Logic)
-	isMember, err := k.IsCommonsCouncilMember(ctx, msg.Authority)
+	// 3. Membership Gate: any active x/rep member may register a name.
+	// Invitation acceptance creates the Member record with
+	// MEMBER_STATUS_ACTIVE, so newly invited members (including AI agents)
+	// can claim a handle immediately. Anti-squatting / anti-impersonation
+	// continues to be enforced by the registration_fee, max_names_per_address,
+	// blocked_names list, and the dispute mechanism.
+	isMember, err := k.IsActiveRepMember(ctx, msg.Authority)
 	if err != nil {
-		// Handle critical error (e.g., failure to find council group in commons module)
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "authorization check failed: %s", err.Error())
 	}
-
 	if !isMember {
-		// Since we can't reliably get the Group ID here without re-querying, we use a generic unauthorized error.
-		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only commons council members can register names")
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only active x/rep members can register names")
 	}
 
 	// 4. Check Fees

@@ -51,6 +51,13 @@ service Query {
   rpc GetOwnerInfo(QueryGetOwnerInfoRequest) returns (QueryGetOwnerInfoResponse) {
     option (google.api.http).get = "/sparkdream/name/v1/owner_info/{address}";
   }
+
+  // Targets returns the list of names where the given address is the
+  // accepted resolver target (i.e., names eligible to be set as the
+  // address's primary for reverse resolution).
+  rpc Targets(QueryTargetsRequest) returns (QueryTargetsResponse) {
+    option (google.api.http).get = "/sparkdream/name/v1/targets/{address}";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -128,4 +135,17 @@ message QueryGetOwnerInfoRequest {
 // with the address echoed and all other fields empty/zero.
 message QueryGetOwnerInfoResponse {
   OwnerInfo owner_info = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryTargetsRequest defines the request type for the Targets RPC.
+message QueryTargetsRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryTargetsResponse defines the response type for the Targets RPC.
+// Returns NameRecord entries for which `address` is the accepted target.
+message QueryTargetsResponse {
+  repeated NameRecord names = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

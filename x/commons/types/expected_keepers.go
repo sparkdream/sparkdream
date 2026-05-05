@@ -59,13 +59,21 @@ type UpgradeKeeper interface {
 }
 
 // NameKeeper is a narrow surface used by genesis bootstrap to seed
-// human-readable display names on OwnerInfo records (replacing the
-// historical use of Member.metadata for display names).
+// human-readable display names on OwnerInfo records and to register
+// canonical handles for founding members.
 //
 // Wired post-depinject via Keeper.SetNameKeeper to avoid a depinject cycle
 // (x/name already depends on x/commons via its CommonsKeeper interface).
 type NameKeeper interface {
 	SetDisplayName(ctx context.Context, addr string, displayName string) error
+	// ClaimName atomically registers a name on behalf of a specific owner.
+	// Skips fees and the membership gate (intended for cross-module / genesis
+	// programmatic registration). Enforces format, blocked-names, taken,
+	// and the per-address name cap.
+	ClaimName(ctx context.Context, name string, owner string, data string) error
+	// SetPrimaryName sets the address's primary name for reverse resolution.
+	// The name must already be owned by addr (callers must claim first).
+	SetPrimaryName(ctx context.Context, addr sdk.AccAddress, name string) error
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

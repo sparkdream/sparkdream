@@ -38,7 +38,7 @@ func SimulateMsgResolveDispute(
 			GroupId:       uint64(simtypes.RandIntBetween(r, 1, 1000)),
 			PolicyAddress: policyAddr,
 		}
-		if err := ck.SetGroup(ctx, CouncilName, mockGroup); err != nil {
+		if err := ck.SetGroup(ctx, "Commons Council", mockGroup); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveDispute{}), "failed to set group"), nil, nil
 		}
 

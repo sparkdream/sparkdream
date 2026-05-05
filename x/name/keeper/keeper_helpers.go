@@ -145,7 +145,7 @@ func (k Keeper) ClaimName(ctx context.Context, name string, owner string, data s
 		return errorsmod.Wrapf(types.ErrInvalidName, "name too long (max %d)", params.MaxNameLength)
 	}
 	if !validNameRegex.MatchString(name) {
-		return errorsmod.Wrap(types.ErrInvalidName, "name contains invalid characters (allowed: a-z, 0-9, -; cannot start/end with -)")
+		return errorsmod.Wrap(types.ErrInvalidName, "name contains invalid characters (allowed: a-z, 0-9, -, _; cannot start/end with -)")
 	}
 
 	if !k.IsNameAvailable(ctx, name) {
@@ -319,11 +319,19 @@ func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council st
 	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
-// IsCommonsCouncilMember checks if the provided address is a member of the "Commons Council".
-// Uses the native x/commons membership check instead of x/group queries.
-func (k Keeper) IsCommonsCouncilMember(ctx context.Context, memberAddr string) (bool, error) {
-	if k.commonsKeeper == nil {
-		return false, errors.New("commons keeper not configured")
+// IsActiveRepMember reports whether the bech32 address is an active x/rep
+// member (MEMBER_STATUS_ACTIVE). This is the registration / transfer gate;
+// any accepted, non-zeroed invitee may claim names. The earlier "Commons
+// Council only" gate has been retired — invitation already provides the
+// accountability properties (staked DREAM, slashable up the chain) that
+// previously justified the council restriction. See docs/x-name-spec.md.
+func (k Keeper) IsActiveRepMember(ctx context.Context, memberAddr string) (bool, error) {
+	if k.repKeeper == nil {
+		return false, errors.New("rep keeper not configured")
 	}
-	return k.commonsKeeper.HasMember(ctx, "Commons Council", memberAddr)
+	addr, err := sdk.AccAddressFromBech32(memberAddr)
+	if err != nil {
+		return false, err
+	}
+	return k.repKeeper.IsActiveMember(ctx, addr), nil
 }

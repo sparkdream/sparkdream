@@ -294,20 +294,20 @@ func TestIsGovAuthority(t *testing.T) {
 	require.False(t, f.keeper.IsGovAuthority(randomAddr))
 }
 
-func TestIsCommonsCouncilMember(t *testing.T) {
+func TestIsActiveRepMember(t *testing.T) {
 	f := initFixture(t)
 
-	memberAddr := sdk.AccAddress([]byte("council_member______")).String()
+	memberAddr := sdk.AccAddress([]byte("rep_member__________")).String()
 
 	// Not a member initially
-	isMember, err := f.keeper.IsCommonsCouncilMember(f.ctx, memberAddr)
+	isMember, err := f.keeper.IsActiveRepMember(f.ctx, memberAddr)
 	require.NoError(t, err)
 	require.False(t, isMember)
 
-	// Add as member
-	f.mockCommons.Members["Commons Council|"+memberAddr] = true
+	// Mark as active member in the rep mock
+	f.mockRep.SetActiveMember(memberAddr)
 
-	isMember, err = f.keeper.IsCommonsCouncilMember(f.ctx, memberAddr)
+	isMember, err = f.keeper.IsActiveRepMember(f.ctx, memberAddr)
 	require.NoError(t, err)
 	require.True(t, isMember)
 }

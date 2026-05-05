@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sparkdream/x/commons/types"
 	"time"
 
@@ -68,16 +69,63 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 
 	// Seed OwnerInfo.display_name for each genesis member so the UI can
 	// render human-readable names without falling back to Member.metadata.
-	// SetNameKeeper is wired in app.go after depinject; if the keeper is
-	// missing (e.g. tests that don't wire it) we skip silently and log.
+	// Also claim canonical x/name handles for each founder (per
+	// GenesisHandles) so a squatter cannot snipe a founder's identity in the
+	// open registration window. SetNameKeeper is wired in app.go after
+	// depinject; if the keeper is missing (e.g. tests that don't wire it) we
+	// skip silently and log.
 	if k.late.nameKeeper != nil {
-		for addr, name := range GenesisNames {
-			if err := k.late.nameKeeper.SetDisplayName(ctx, addr, name); err != nil {
-				logger.Warn("failed to seed display name for genesis member", "address", addr, "name", name, "error", err)
+		// Iterate GenesisNames in sorted order so the seeded display-name
+		// state is deterministic across nodes.
+		nameAddrs := make([]string, 0, len(GenesisNames))
+		for addr := range GenesisNames {
+			nameAddrs = append(nameAddrs, addr)
+		}
+		sort.Strings(nameAddrs)
+		for _, addr := range nameAddrs {
+			displayName := GenesisNames[addr]
+			if err := k.late.nameKeeper.SetDisplayName(ctx, addr, displayName); err != nil {
+				logger.Warn("failed to seed display name for genesis member", "address", addr, "name", displayName, "error", err)
+			}
+		}
+
+		// Claim canonical handles. Iterate GenesisHandles in sorted order so
+		// that, if two addresses ever request the same handle (a misconfig),
+		// the earliest bech32 wins deterministically. The first handle in
+		// each address's slice is set as that address's primary.
+		handleAddrs := make([]string, 0, len(GenesisHandles))
+		for addr := range GenesisHandles {
+			handleAddrs = append(handleAddrs, addr)
+		}
+		sort.Strings(handleAddrs)
+		for _, addr := range handleAddrs {
+			handles := GenesisHandles[addr]
+			if len(handles) == 0 {
+				continue
+			}
+			accAddr, err := sdk.AccAddressFromBech32(addr)
+			if err != nil {
+				logger.Error("invalid address in GenesisHandles", "address", addr, "error", err)
+				continue
+			}
+			var firstClaimed string
+			for _, handle := range handles {
+				if err := k.late.nameKeeper.ClaimName(ctx, handle, addr, ""); err != nil {
+					logger.Warn("failed to claim genesis handle", "address", addr, "handle", handle, "error", err)
+					continue
+				}
+				if firstClaimed == "" {
+					firstClaimed = handle
+				}
+			}
+			if firstClaimed != "" {
+				if err := k.late.nameKeeper.SetPrimaryName(ctx, accAddr, firstClaimed); err != nil {
+					logger.Warn("failed to set genesis primary handle", "address", addr, "handle", firstClaimed, "error", err)
+				}
 			}
 		}
 	} else {
-		logger.Warn("nameKeeper not wired; skipping genesis display name seeding")
+		logger.Warn("nameKeeper not wired; skipping genesis name seeding")
 	}
 
 	if len(foundingMembers) == 0 {

@@ -4,8 +4,6 @@ import (
 	"math/rand"
 	"strings"
 
-	commonstypes "sparkdream/x/commons/types"
-
 	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -17,13 +15,10 @@ import (
 	"sparkdream/x/name/types"
 )
 
-// Constants used for setup
-const CouncilName = "Commons Council"
-
 func SimulateMsgRegisterName(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
-	ck types.CommonsKeeper,
+	rk types.RepKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
@@ -32,41 +27,25 @@ func SimulateMsgRegisterName(
 
 		// 1. Get Current Params
 		params := k.GetParams(ctx)
+
+		// 2. Pick a sim account that is an active x/rep member. If none exist,
+		// skip — name registration requires a real Member record and
+		// simulation cannot conjure one without crossing module boundaries.
 		var simAccount simtypes.Account
 		var found bool
-
-		// 2. ATTEMPT 1: Try to find an existing Council Member via native collections
-		council, err := ck.GetGroup(ctx, CouncilName)
-		if err == nil {
-			// Shuffle accounts and find one that's a member
+		if rk != nil {
 			perm := r.Perm(len(accs))
 			for _, idx := range perm {
 				acc := accs[idx]
-				isMember, mErr := ck.HasMember(ctx, CouncilName, acc.Address.String())
-				if mErr == nil && isMember {
+				if rk.IsActiveMember(ctx, acc.Address) {
 					simAccount = acc
 					found = true
 					break
 				}
 			}
-			_ = council
 		}
-
-		// 3. ATTEMPT 2: Fallback (God Mode) - Create a mock council and add simAccount as member
 		if !found {
-			simAccount, _ = simtypes.RandomAcc(r, accs)
-
-			mockGroup := commonstypes.Group{
-				GroupId:       uint64(simtypes.RandIntBetween(r, 1, 1000)),
-				PolicyAddress: simAccount.Address.String(),
-			}
-			if err := ck.SetGroup(ctx, CouncilName, mockGroup); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to register extended group"), nil, err
-			}
-			// Add simAccount as a council member so HasMember check passes
-			if err := ck.AddMember(ctx, CouncilName, commonstypes.Member{Address: simAccount.Address.String(), Weight: "1"}); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "failed to add council member"), nil, err
-			}
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "no active x/rep member among sim accounts"), nil, nil
 		}
 
 		// 4. Check Solvency (registration fee + explicit gas fees of 5M uspark)

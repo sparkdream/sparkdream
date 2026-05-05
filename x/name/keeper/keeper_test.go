@@ -204,11 +204,13 @@ func (m *MockBankKeeper) SpendableCoins(ctx context.Context, addr sdk.AccAddress
 	return sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000000000)))
 }
 
-// MockRepKeeper implements the RepKeeper interface for DREAM token operations.
+// MockRepKeeper implements the RepKeeper interface for DREAM token operations
+// and the IsActiveMember gate used to authorize name registration.
 type MockRepKeeper struct {
 	LockedDREAM   map[string]math.Int // addr -> total locked
 	UnlockedDREAM map[string]math.Int // addr -> total unlocked
 	BurnedDREAM   map[string]math.Int // addr -> total burned
+	ActiveMembers map[string]bool     // bech32 -> active
 	lockErr       error
 	unlockErr     error
 	burnErr       error
@@ -219,6 +221,7 @@ func NewMockRepKeeper() *MockRepKeeper {
 		LockedDREAM:   make(map[string]math.Int),
 		UnlockedDREAM: make(map[string]math.Int),
 		BurnedDREAM:   make(map[string]math.Int),
+		ActiveMembers: make(map[string]bool),
 	}
 }
 
@@ -226,9 +229,19 @@ func (m *MockRepKeeper) Reset() {
 	m.LockedDREAM = make(map[string]math.Int)
 	m.UnlockedDREAM = make(map[string]math.Int)
 	m.BurnedDREAM = make(map[string]math.Int)
+	m.ActiveMembers = make(map[string]bool)
 	m.lockErr = nil
 	m.unlockErr = nil
 	m.burnErr = nil
+}
+
+// SetActiveMember marks an address as an active x/rep member for tests.
+func (m *MockRepKeeper) SetActiveMember(addr string) {
+	m.ActiveMembers[addr] = true
+}
+
+func (m *MockRepKeeper) IsActiveMember(_ context.Context, addr sdk.AccAddress) bool {
+	return m.ActiveMembers[addr.String()]
 }
 
 func (m *MockRepKeeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {

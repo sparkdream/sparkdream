@@ -19,7 +19,24 @@ var GenesisNames = map[string]string{
 	"sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs": "N/A",
 }
 
-var FounderName = "Alice"
+// GenesisHandles maps each founding address to the x/name handles that should
+// be registered in its name at chain start. The first handle in the slice is
+// auto-set as the address's primary (so reverse resolution works out of the
+// box). Founders without an entry here can register handles manually post-
+// genesis. Squat-prevention rationale: without this seeding, anyone who
+// becomes an x/rep member could snipe a founder's canonical handle.
+var GenesisHandles = map[string][]string{
+	"sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd": {"kingofbitchain", "kob", "kobot"},
+	"sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu": {"valya", "valyanarts", "valya_narts"},
+	"sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p": {"cozmonika", "cozmonika_art"},
+	"sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8": {"viorika", "viorika_art"},
+	"sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge": {"uyen", "uyentrangjerde", "utgdeergirl"},
+	"sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak": {"houri", "hourinaeimi"},
+	"sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu": {"gilda", "atefatg"},
+	// N/A founders intentionally omitted; can be added by chain upgrade.
+}
+
+var FounderName = "King of Bitchain"
 
 // --- COMMONS PILLAR ---
 var CommonsCouncilStandardMinExecution = 72 * time.Hour // 3 Days

@@ -14,11 +14,11 @@ if ! command -v jq &> /dev/null; then
 fi
 
 # Actors
-ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test) # Council Member
-DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test) # Non-Member (Plebeian)
+ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test) # Genesis x/rep member
+DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test)   # Non-member (no x/rep Member record)
 
-echo "Alice (Council): $ALICE_ADDR"
-echo "Dave (Public):  $DAVE_ADDR"
+echo "Alice (rep member): $ALICE_ADDR"
+echo "Dave  (non-member): $DAVE_ADDR"
 
 # Fetch Params
 echo "Fetching Name Params..."
@@ -29,30 +29,22 @@ FEE_AMOUNT=$(echo $PARAMS | jq -r '.params.registration_fee.amount')
 
 echo "Constraints: Min $MIN_LEN, Max $MAX_LEN, Fee $FEE_AMOUNT $DENOM"
 
-# --- PRE-FLIGHT CHECK: IS ALICE IN COUNCIL? ---
-# We query the Commons Council via the commons module to get the Group ID.
-# (The group module's metadata is the description, not the name, so groups-by-name fails)
-echo "Locating Commons Council..."
-COUNCIL_INFO=$($BINARY query commons get-group "Commons Council" --output json)
-COUNCIL_POLICY=$(echo $COUNCIL_INFO | jq -r '.group.policy_address')
+# --- PRE-FLIGHT CHECK: IS ALICE AN ACTIVE x/rep MEMBER? ---
+# Registration is gated on x/rep active membership (any accepted invitee
+# qualifies). Council membership is no longer relevant to this gate.
+echo "Verifying Alice is an active x/rep member..."
+ALICE_MEMBER=$($BINARY query rep get-member "$ALICE_ADDR" --output json 2>/dev/null)
+ALICE_STATUS=$(echo "$ALICE_MEMBER" | jq -r '.member.status // "missing"')
 
-if [ -z "$COUNCIL_POLICY" ] || [ "$COUNCIL_POLICY" == "null" ]; then
-    echo "❌ Error: Could not find 'Commons Council'."
-    exit 1
-fi
-echo "Found Commons Council (Policy: $COUNCIL_POLICY)"
-
-MEMBERSHIP=$($BINARY query commons get-council-members "Commons Council" --output json | jq -r --arg ADDR "$ALICE_ADDR" '.members[] | select(.address==$ADDR)')
-
-if [ -z "$MEMBERSHIP" ]; then
-    echo "⚠️  WARNING: Alice is NOT found in the Commons Council."
+if [ "$ALICE_STATUS" != "MEMBER_STATUS_ACTIVE" ]; then
+    echo "⚠️  WARNING: Alice is not an active x/rep member (status=$ALICE_STATUS)."
     echo "    Valid registration tests are likely to fail."
 else
-    echo "✅ Pre-flight: Alice is a verified Council member."
+    echo "✅ Pre-flight: Alice is an active x/rep member."
 fi
 
 # --- 1. TEST: UNAUTHORIZED REGISTRATION (Dave) ---
-echo "--- CASE 1: Dave (Non-Council) tries to register 'dave' ---"
+echo "--- CASE 1: Dave (Non-rep-member) tries to register 'dave' ---"
 
 RES=$($BINARY tx name register-name "dave" "meta" --from dave -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
 CODE=$(echo $RES | jq -r '.code')
@@ -68,7 +60,7 @@ else
     RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
 
     if [ "$FINAL_CODE" != "0" ]; then
-        if echo "$RAW_LOG" | grep -q "unauthorized" || echo "$RAW_LOG" | grep -q "not in council"; then
+        if echo "$RAW_LOG" | grep -q "unauthorized" || echo "$RAW_LOG" | grep -q "x/rep"; then
             echo "✅ SUCCESS: Dave blocked (Unauthorized)."
         else
             echo "✅ SUCCESS: Dave blocked (Code $FINAL_CODE)."
@@ -129,6 +121,64 @@ elif [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
 else
     echo "❌ FAILURE: Invalid characters accepted."
     echo "DEBUG LOG: $RAW_LOG"
+fi
+
+# B2. Hyphen at start is rejected (boundary rule still enforced for hyphens
+# even though underscores are now allowed at boundaries).
+LEADING_HYPHEN="-alice-test"
+echo "Attempting Leading Hyphen: '$LEADING_HYPHEN'..."
+RES=$($BINARY tx name register-name "$LEADING_HYPHEN" "meta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
+TX_HASH=$(echo $RES | jq -r '.txhash')
+sleep 4
+QUERY_RES=$($BINARY query tx $TX_HASH --output json 2>&1)
+RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
+if echo "$RAW_LOG" | grep -q "invalid character"; then
+    echo "✅ SUCCESS: Leading hyphen rejected."
+elif [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
+    echo "✅ SUCCESS: Leading hyphen rejected (Code != 0)."
+else
+    echo "❌ FAILURE: Leading hyphen accepted."
+    echo "DEBUG LOG: $RAW_LOG"
+fi
+
+# B2b. Hyphen at end is also rejected (mirror of B2; the boundary rule
+# applies to both ends and we cover both explicitly so a regex regression
+# at either edge fails the test).
+TRAILING_HYPHEN="alice-test-"
+echo "Attempting Trailing Hyphen: '$TRAILING_HYPHEN'..."
+RES=$($BINARY tx name register-name "$TRAILING_HYPHEN" "meta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
+TX_HASH=$(echo $RES | jq -r '.txhash')
+sleep 4
+QUERY_RES=$($BINARY query tx $TX_HASH --output json 2>&1)
+RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
+if echo "$RAW_LOG" | grep -q "invalid character"; then
+    echo "✅ SUCCESS: Trailing hyphen rejected."
+elif [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
+    echo "✅ SUCCESS: Trailing hyphen rejected (Code != 0)."
+else
+    echo "❌ FAILURE: Trailing hyphen accepted."
+    echo "DEBUG LOG: $RAW_LOG"
+fi
+
+# B3. Underscores anywhere (leading, middle, trailing) match X handle rules.
+# We exercise the boundary case explicitly: leading + trailing underscore.
+EDGE_UNDERSCORE="_alice_under_"
+echo "Attempting Edge Underscores: '$EDGE_UNDERSCORE'..."
+RES=$($BINARY tx name register-name "$EDGE_UNDERSCORE" "underscore-meta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+TX_HASH=$(echo $RES | jq -r '.txhash')
+sleep 4
+QUERY_RES=$($BINARY query tx $TX_HASH --output json 2>&1)
+CODE=$(echo $QUERY_RES | jq -r '.code')
+if [ "$CODE" = "0" ]; then
+    OWNER=$($BINARY query name resolve "$EDGE_UNDERSCORE" --output json 2>/dev/null | jq -r '.name_record.owner')
+    if [ "$OWNER" = "$ALICE_ADDR" ]; then
+        echo "✅ SUCCESS: Underscore-at-boundary name registered to Alice."
+    else
+        echo "❌ FAILURE: tx code 0 but owner is '$OWNER', expected $ALICE_ADDR."
+    fi
+else
+    echo "❌ FAILURE: Boundary underscore rejected. Log:"
+    echo "$QUERY_RES" | jq -r '.raw_log'
 fi
 
 # C. Blocked/Reserved Word

@@ -456,6 +456,14 @@ genesis:
         # too new" rejection still fires for a curator rating on the same
         # block they registered (currentBlock - registeredAt = 0-1).
         min_curator_age_blocks: "5"
+    name:
+      params:
+        # Bumped from 5 → 10 for E2E. Alice now auto-claims `alice` at
+        # genesis (GenesisHandles) and the suite registers up to 6 names for
+        # her across name_registration/primary_name/dispute_resolution. The
+        # production default (5) is unchanged in code; this override is
+        # testparams-only.
+        max_names_per_address: "10"
 validators:
 - name: alice
   bonded: 15000000000000uspark

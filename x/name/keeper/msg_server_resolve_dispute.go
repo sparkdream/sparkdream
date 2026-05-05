@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/name/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -145,8 +146,29 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 	return nil
 }
 
-// transferName moves a name from its current owner to the new owner.
+// transferName moves a name from its current owner to the new owner. Used by
+// dispute resolution (the only path where ownership changes adversarially);
+// for cooperative transfers see msg_server_transfer_name.go. Adversarial
+// transfer clears any resolver target and acceptance — the prior owner's
+// choice of target should not survive a forced ownership change.
 func (k Keeper) transferName(ctx context.Context, name string, newOwnerStr string) error {
+	record, recordFound := k.GetName(ctx, name)
+
+	// Clear any accepted-target relationship: the prior target's consent was
+	// tied to the prior owner's identity; the new owner must re-establish it.
+	if recordFound && record.Target != "" && record.TargetAccepted {
+		if err := k.AcceptedTargets.Remove(ctx, collections.Join(record.Target, name)); err != nil {
+			return err
+		}
+		prevInfo, err := k.Owners.Get(ctx, record.Target)
+		if err == nil && prevInfo.PrimaryName == name {
+			prevInfo.PrimaryName = ""
+			if err := k.Owners.Set(ctx, record.Target, prevInfo); err != nil {
+				return err
+			}
+		}
+	}
+
 	// Remove from old owner
 	currentOwner, found := k.GetNameOwner(ctx, name)
 	if found {
@@ -171,12 +193,13 @@ func (k Keeper) transferName(ctx context.Context, name string, newOwnerStr strin
 		return err
 	}
 
-	// Update record
-	record, found := k.GetName(ctx, name)
-	if !found {
+	// Update record (and drop forward target so the new owner starts clean).
+	if !recordFound {
 		record = types.NameRecord{Name: name}
 	}
 	record.Owner = newOwnerStr
+	record.Target = ""
+	record.TargetAccepted = false
 	return k.SetName(ctx, record)
 }
 

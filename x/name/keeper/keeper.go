@@ -38,6 +38,12 @@ type Keeper struct {
 	// This allows efficient iteration of names owned by a specific address.
 	OwnerNames collections.KeySet[collections.Pair[string, string]]
 
+	// Secondary Index: (TargetAddress, Name) -> Empty
+	// Records names where TargetAddress has accepted being the resolver target.
+	// Used by MsgSetPrimary to authorize an accepted target setting the name
+	// as primary, and by the Targets query.
+	AcceptedTargets collections.KeySet[collections.Pair[string, string]]
+
 	// Dispute stake tracking
 	DisputeStakes collections.Map[string, types.DisputeStake] // Key: challenge_id
 	ContestStakes collections.Map[string, types.ContestStake] // Key: challenge_id
@@ -46,6 +52,11 @@ type Keeper struct {
 // GetCommonsKeeper returns the commons keeper for simulation use.
 func (k Keeper) GetCommonsKeeper() types.CommonsKeeper {
 	return k.commonsKeeper
+}
+
+// GetRepKeeper returns the rep keeper for simulation use.
+func (k Keeper) GetRepKeeper() types.RepKeeper {
+	return k.repKeeper
 }
 
 func NewKeeper(
@@ -82,6 +93,14 @@ func NewKeeper(
 			sb,
 			types.KeyOwnerNames,
 			"owner_names",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
+		),
+
+		// Index of (target_address, name) for accepted resolver targets.
+		AcceptedTargets: collections.NewKeySet(
+			sb,
+			types.KeyAcceptedTargets,
+			"accepted_targets",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 		),
 

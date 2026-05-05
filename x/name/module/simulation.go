@@ -42,7 +42,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgRegisterName,
-		namesimulation.SimulateMsgRegisterName(am.authKeeper, am.bankKeeper, am.keeper.GetCommonsKeeper(), am.keeper, simState.TxConfig),
+		namesimulation.SimulateMsgRegisterName(am.authKeeper, am.bankKeeper, am.keeper.GetRepKeeper(), am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgSetPrimary          = "op_weight_msg_name"

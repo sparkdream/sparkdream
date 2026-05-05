@@ -8,8 +8,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	commonstypes "sparkdream/x/commons/types"
-
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -21,7 +19,7 @@ func TestRegisterName(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
 	ctx := f.ctx
-	mockCK := f.mockCommons
+	mockRK := f.mockRep
 	ms := keeper.NewMsgServerImpl(k)
 
 	// Define Users
@@ -33,18 +31,9 @@ func TestRegisterName(t *testing.T) {
 
 	// Helper function for the common setup required by RegisterName
 	commonSetup := func(c sdk.Context) {
-		mockCK.Reset()
-
-		// 1. Setup CommonsKeeper mock with council and membership
-		mockCK.Groups["Commons Council"] = commonstypes.Group{
-			GroupId:       1,
-			PolicyAddress: f.councilAddr,
-		}
-		// 2. Setup membership via CommonsKeeper.HasMember
-		mockCK.Members["Commons Council|"+alice] = true
-		mockCK.Members["Commons Council|"+bob] = false
-
-		// 3. Set default params
+		mockRK.Reset()
+		// Alice is an active x/rep member; bob is not.
+		mockRK.SetActiveMember(alice)
 		k.SetParams(c, types.DefaultParams())
 	}
 

@@ -38,11 +38,15 @@ type CommonsKeeper interface {
 	AddMember(ctx context.Context, councilName string, member commonstypes.Member) error
 }
 
-// RepKeeper defines the expected interface for the x/rep module (DREAM token operations).
+// RepKeeper defines the expected interface for the x/rep module (DREAM token
+// operations and active-membership check used to gate name registration).
 type RepKeeper interface {
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	// IsActiveMember reports whether addr is a registered x/rep member with
+	// status MEMBER_STATUS_ACTIVE. Used as the registration / transfer gate.
+	IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

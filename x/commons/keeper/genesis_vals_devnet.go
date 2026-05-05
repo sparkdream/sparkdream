@@ -13,6 +13,13 @@ var GenesisNames = map[string]string{
 	"sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw": "Carol",
 }
 
+// GenesisHandles — see genesis_vals_mainnet.go for the design rationale.
+var GenesisHandles = map[string][]string{
+	"sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs": {"alice"},
+	"sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6": {"bob"},
+	"sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw": {"carol"},
+}
+
 var FounderName = "Alice"
 
 // --- COMMONS PILLAR ---

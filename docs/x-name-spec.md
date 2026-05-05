@@ -2,10 +2,12 @@
 
 ## 1. Abstract
 
-The `x/name` module implements a governance-controlled name registration and identity system for the Spark Dream appchain. It provides human-readable identity mapping (e.g., "alice" → `sprkdrm1x...`), reverse name resolution, and dispute resolution mechanisms.
+The `x/name` module implements a name registration and identity system for the Spark Dream appchain. It provides human-readable identity mapping (e.g., "alice" → `sprkdrm1x...`), opt-in ENS-style resolver targets, reverse name resolution, owner-to-owner transfers, and dispute resolution mechanisms.
 
 Key principles:
-- **Council-gated registration**: Only Commons Council members can register names ("The Republic" model)
+- **Membership-gated registration**: Any active x/rep member may register a name. Invitation acceptance creates the Member record, so newly invited accounts (including AI agents) can claim a handle immediately. Squatting / impersonation is bounded by the registration fee, the per-address name cap, the blocked-names list, and the dispute mechanism — invitation already provides the staked-DREAM accountability that previously justified a council-only gate.
+- **ENS-style resolver target**: A name's owner can point it at any address (`target`). Forward resolution returns `target` when set, owner otherwise. Reverse resolution requires explicit consent from the target via `MsgAcceptTarget` to prevent identity hijacking.
+- **Direct transfers**: Owner-to-owner name transfers (`MsgTransferName`) for cooperative handoffs (e.g., reserving an agent's name at genesis and transferring it post-launch).
 - **Name scavenging**: Inactive owners lose names after expiration period
 - **DREAM-staked disputes**: Formal challenge mechanism with DREAM staking, owner contest option, and jury/council arbitration
 - **BeginBlocker auto-resolution**: Uncontested disputes auto-resolve after timeout
@@ -16,10 +18,10 @@ Key principles:
 
 | Module | Purpose |
 |--------|---------|
-| `x/commons` | Council membership verification, policy address, Operations Committee authorization |
+| `x/rep` | Active-membership gate for registration / transfer (`IsActiveMember`); DREAM token operations (Lock/Unlock/Burn) for dispute staking via `dreamutil.Ops` |
+| `x/commons` | Policy address + Operations Committee authorization for dispute resolution and operational param updates |
 | `x/bank` | Fee collection for registration |
 | `x/auth` | Address codec for bech32 conversion |
-| `x/rep` | DREAM token operations (Lock/Unlock/Burn) for dispute staking via `dreamutil.Ops` |
 
 ---
 
@@ -27,13 +29,18 @@ Key principles:
 
 ### 3.1. NameRecord
 
-Primary mapping from name to owner.
+Primary mapping from name to owner. `target` is an optional ENS-style
+resolver: when non-empty, forward resolution returns it instead of `owner`.
+`target_accepted` flips to true only after the target signs `MsgAcceptTarget`,
+and is reset whenever `target` changes (re-consent required).
 
 ```protobuf
 message NameRecord {
-  string name = 1;   // Registered name (lowercase, validated)
-  string owner = 2;  // Owner's bech32 address
-  string data = 3;   // Arbitrary metadata (IPFS hash, profile JSON, etc.)
+  string name = 1;             // Registered name (lowercase, validated)
+  string owner = 2;            // Owner's bech32 address
+  string data = 3;             // Arbitrary metadata (IPFS hash, profile JSON, etc.)
+  string target = 4;           // Optional resolver target; empty = resolve to owner
+  bool   target_accepted = 5;  // True once target has signed MsgAcceptTarget
 }
 ```
 
@@ -128,10 +135,11 @@ Using Cosmos SDK collections framework:
 
 | Collection | Key | Value | Purpose |
 |------------|-----|-------|---------|
-| `Names` | name (string) | NameRecord | Primary lookup: name → owner + data |
+| `Names` | name (string) | NameRecord | Primary lookup: name → owner + data + target |
 | `Owners` | address (string) | OwnerInfo | Reverse lookup + activity tracking |
 | `Disputes` | name (string) | Dispute | Active dispute tracking |
 | `OwnerNames` | (address, name) pair | - | Secondary index for "names by owner" queries |
+| `AcceptedTargets` | (target_address, name) pair | - | Secondary index for "names where this address is the accepted target" |
 | `DisputeStakes` | challenge_id (string) | DisputeStake | Claimant DREAM stake tracking |
 | `ContestStakes` | challenge_id (string) | ContestStake | Owner contest DREAM stake tracking |
 
@@ -145,21 +153,21 @@ Register a new name or scavenge an expired name.
 
 ```protobuf
 message MsgRegisterName {
-  string authority = 1;  // Must be Commons Council member
+  string authority = 1;  // Must be an active x/rep member
   string name = 2;       // Name to register
   string data = 3;       // Optional metadata
 }
 ```
 
 **Validation:**
-- Name format: lowercase alphanumeric + hyphens (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+- Name format: lowercase alphanumeric, hyphens, and underscores (`^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?$`). Underscores are permitted anywhere (including leading/trailing) to mirror X / Twitter handle conventions. Hyphens remain restricted to the interior — leading/trailing hyphens are rejected to avoid DNS-like ambiguity and URL parsing edge cases.
 - Length: `min_name_length` ≤ len ≤ `max_name_length`
 - Not in `blocked_names` list
-- Registrant is Commons Council member
+- Registrant is an active x/rep member (`MEMBER_STATUS_ACTIVE`)
 
 **Logic:**
 1. Validate name format and length
-2. Check council membership via `x/commons` (`HasMember`)
+2. Check `x/rep` active membership (`IsActiveMember`)
 3. Deduct `registration_fee` from registrant
 4. If name exists:
    - If owner active → reject with `ErrNameTaken`
@@ -171,18 +179,20 @@ message MsgRegisterName {
 
 ### 5.2. SetPrimary
 
-Set the primary name for reverse resolution.
+Set the primary name for reverse resolution. The signer must either own the
+name or be its accepted resolver target — see §7.6 for the rationale.
 
 ```protobuf
 message MsgSetPrimary {
-  string authority = 1;  // Must own the name
+  string authority = 1;  // Owner OR accepted target
   string name = 2;       // Name to set as primary
 }
 ```
 
 **Logic:**
-1. Verify sender owns the name
-2. Update `OwnerInfo.PrimaryName`
+1. Verify sender is the owner OR the accepted target (`target == authority && target_accepted`)
+2. If sender is the target but `target_accepted == false`, return `ErrTargetNotAccepted`
+3. Update `OwnerInfo.PrimaryName`
 
 ### 5.3. UpdateName
 
@@ -273,7 +283,74 @@ message MsgResolveDispute {
 5. Set dispute `active = false`
 6. Emit `name_dispute_resolved` event with outcome (`upheld` or `dismissed`) and contested flag
 
-### 5.7. UpdateParams
+### 5.7. SetTarget
+
+Point a name at a resolver target address (or clear an existing target).
+Setting always resets `target_accepted` to false; the new target must
+re-consent via `MsgAcceptTarget`.
+
+```protobuf
+message MsgSetTarget {
+  string authority = 1;  // Must own the name
+  string name = 2;
+  string target = 3;     // Empty clears the target (resolution falls back to owner)
+}
+```
+
+**Logic:**
+1. Verify name exists and `authority` is the owner
+2. If `target` is non-empty, validate bech32
+3. If a previous target was accepted, remove `(prev_target, name)` from `AcceptedTargets`; if their `OwnerInfo.PrimaryName == name`, clear it (reverse resolution must reflect current consent)
+4. Update `NameRecord.Target` and set `target_accepted = false`
+5. Refresh owner activity
+6. Emit `name_target_set`
+
+### 5.8. AcceptTarget
+
+Consent to being the resolver target of a name. After acceptance, the signer
+is eligible to set this name as its primary for reverse resolution.
+
+```protobuf
+message MsgAcceptTarget {
+  string authority = 1;  // Must equal NameRecord.target
+  string name = 2;
+}
+```
+
+**Logic:**
+1. Verify name exists and has a non-empty `target`
+2. Verify `authority == target`
+3. Idempotent if already accepted
+4. Set `target_accepted = true`; insert `(target, name)` into `AcceptedTargets`
+5. Emit `name_target_accepted`
+
+### 5.9. TransferName
+
+Owner-to-owner transfer of a name. Used for cooperative handoffs (e.g.,
+reserving an agent's name at genesis and transferring it post-launch). The
+adversarial path (dispute) is unchanged.
+
+```protobuf
+message MsgTransferName {
+  string authority = 1;  // Must own the name
+  string name = 2;
+  string new_owner = 3;  // Must be an active x/rep member
+}
+```
+
+**Logic:**
+1. Verify name exists and `authority` is the owner
+2. Reject if `new_owner == authority` (`ErrCannotTransferToSelf`)
+3. Reject if the name has an active dispute (`ErrCannotTransferDisputed`) — prevents dumping disputed names on third parties to escape stake-burn
+4. Verify `new_owner` is an active x/rep member (`ErrRecipientNotMember`)
+5. Enforce `max_names_per_address` against the recipient (`ErrTooManyNames`)
+6. Move primary record (`Owner` field), swap secondary indexes (`OwnerNames`)
+7. Existing `target` / `target_accepted` carry over — the new owner can revoke by re-setting target. (Adversarial transfer via dispute resolution clears them; see §7.7.)
+8. Clear old owner's `PrimaryName` if it was this name
+9. Refresh both parties' activity timestamps
+10. Emit `name_transferred`
+
+### 5.10. UpdateParams
 
 Governance parameter update.
 
@@ -284,7 +361,7 @@ message MsgUpdateParams {
 }
 ```
 
-### 5.8. UpdateOperationalParams
+### 5.11. UpdateOperationalParams
 
 Operational parameter update by Commons Council Operations Committee (no full governance proposal required).
 
@@ -308,24 +385,34 @@ message MsgUpdateOperationalParams {
 
 | Query | Input | Output | Description |
 |-------|-------|--------|-------------|
-| `Resolve` | name | NameRecord | Name → address + data lookup |
+| `Resolve` | name | NameRecord | Name → full record (owner + data + target + target_accepted). Forward resolution: prefer `target` when set, else `owner`. |
 | `ReverseResolve` | address | string | Address → primary name lookup |
-| `Names` | address, pagination | []NameRecord | List all names owned by address |
+| `Names` | address, pagination | []NameRecord | List names owned by address |
+| `Targets` | address, pagination | []NameRecord | List names where address is the accepted resolver target |
 | `GetDispute` | name | Dispute | Get active dispute for name |
 | `ListDispute` | pagination | []Dispute | List all active disputes |
+| `GetOwnerInfo` | address | OwnerInfo | OwnerInfo (primary_name, display_name, last_active_time) |
 | `Params` | - | Params | Get current module parameters |
 
 ---
 
 ## 7. Business Logic
 
-### 7.1. Council Membership Check
+### 7.1. Active-Membership Gate
+
+Registration and direct transfer both check x/rep active membership. Any
+account with `MEMBER_STATUS_ACTIVE` qualifies — including accounts that were
+just created by accepting an invitation (`TRUST_LEVEL_NEW`). The earlier
+"Commons Council only" gate has been retired; invitation already provides the
+staked-DREAM accountability that the council gate was meant to backstop.
 
 ```go
-func (k Keeper) IsCommonsCouncilMember(ctx context.Context, memberAddr string) (bool, error) {
-    // Check membership via x/commons HasMember
-    // "Commons Council" is the group index name
-    return k.commonsKeeper.HasMember(ctx, "Commons Council", memberAddr)
+func (k Keeper) IsActiveRepMember(ctx context.Context, memberAddr string) (bool, error) {
+    addr, err := sdk.AccAddressFromBech32(memberAddr)
+    if err != nil {
+        return false, err
+    }
+    return k.repKeeper.IsActiveMember(ctx, addr), nil
 }
 ```
 
@@ -389,6 +476,48 @@ Two resolution paths exist:
 3. Jury/council issues verdict via `MsgResolveDispute`
 4. Winner's stake returned, loser's stake burned
 
+### 7.6. Forward vs. Reverse Resolution (Hijacking Prevention)
+
+Forward resolution (`name → address`) is a claim about the *name*. The owner
+controls the name, so it is fine for them to point `target` wherever they
+want — anyone querying `Resolve("alice")` knows they are looking up a name,
+and the answer is whatever its owner says.
+
+Reverse resolution (`address → name`) is a claim about the *address*. It
+controls how that address gets *displayed* to other people. Letting one
+address dictate another address's apparent identity unilaterally would
+enable a hijacking attack:
+
+> Mallory registers `"vitalik"` (assuming it is not blocked), sets
+> `target = bob.address`. Without acceptance, any UI doing reverse
+> resolution on bob's address would display `"vitalik"`.
+
+To block this, reverse resolution requires the target's explicit consent:
+- `MsgSetTarget` (owner-signed) sets the forward pointer but always leaves
+  `target_accepted = false`.
+- `MsgAcceptTarget` (target-signed) flips `target_accepted` to `true` and
+  inserts `(target, name)` into `AcceptedTargets`.
+- `MsgSetPrimary` accepts either the owner or the *accepted* target — never
+  an unaccepted one.
+- Any change to `target` (including clearing it) revokes acceptance and
+  clears the previous target's primary if it pointed at this name.
+
+The result: forward pointers are unilateral; reverse identity always
+requires the target's signed opt-in.
+
+### 7.7. Adversarial vs. Cooperative Transfer
+
+Two transfer paths exist with different policies:
+
+| Path | Trigger | Target / acceptance | Primary cleanup |
+|------|---------|---------------------|-----------------|
+| Cooperative (`MsgTransferName`) | Current owner signs; recipient must be active x/rep member; rejected if name has active dispute | Carry over (new owner can revoke via `MsgSetTarget`) | Old owner's primary cleared if it was this name |
+| Adversarial (dispute resolution) | Council / Operations Committee / governance / claimant-as-victor | Cleared (target & acceptance reset, prior target's primary cleared) | Old owner's primary cleared if it was this name |
+
+Adversarial transfer wipes target/acceptance because the prior target's
+consent was tied to the prior owner's identity. The new owner must
+re-establish any resolver pointer.
+
 ---
 
 ## 8. Default Parameters
@@ -425,6 +554,14 @@ Two resolution paths exist:
 | `ErrContestPeriodExpired` | 1111 | Contest period has expired |
 | `ErrDREAMOperationFailed` | 1112 | DREAM token operation failed (lock/unlock/burn) |
 | `ErrNotAuthorized` | 1113 | Sender not authorized for this action |
+| `ErrCannotDisputeOwnName` | 1114 | Cannot file a dispute against your own name |
+| `ErrInvalidDisplayName` | 1115 | Display name is invalid |
+| `ErrTargetNotSet` | 1116 | Name has no resolver target set |
+| `ErrNotTarget` | 1117 | Sender is not the current target of this name |
+| `ErrTargetNotAccepted` | 1118 | Target has not accepted this name |
+| `ErrCannotTransferDisputed` | 1119 | Cannot transfer a name with an active dispute |
+| `ErrRecipientNotMember` | 1120 | Recipient is not an active x/rep member |
+| `ErrCannotTransferToSelf` | 1121 | Cannot transfer name to current owner |
 
 ---
 
@@ -439,17 +576,24 @@ Two resolution paths exist:
 | `name_dispute_contested` | name, owner, contest_stake, contest_challenge_id, reason, contested_at | Owner contests a dispute |
 | `name_dispute_resolved` | name, claimant, outcome (upheld/dismissed), contested | Dispute resolved by authority or jury |
 | `name_dispute_expired_upheld` | name, claimant, expired_at_block | Uncontested dispute auto-resolved by BeginBlocker |
+| `name_target_set` | name, owner, target | Resolver target set or cleared by owner |
+| `name_target_accepted` | name, target | Target signed `MsgAcceptTarget` for this name |
+| `name_transferred` | name, old_owner, new_owner | Cooperative ownership transfer via `MsgTransferName` |
 
 ---
 
 ## 11. Integration Points
 
-### 11.1. x/commons Integration
+### 11.1. x/rep Integration (Membership Gate)
 
 ```go
-// Check council membership (replaces old x/group approach)
-isMember, _ := k.commonsKeeper.HasMember(ctx, "Commons Council", memberAddr.String())
+// Registration / transfer gate: any active x/rep member qualifies.
+isMember := k.repKeeper.IsActiveMember(ctx, addr)
+```
 
+### 11.2. x/commons Integration
+
+```go
 // Check Operations Committee authorization for operational param updates
 authorized := k.commonsKeeper.IsCouncilAuthorized(ctx, addr, "commons", "operations")
 
@@ -492,6 +636,7 @@ type RepKeeper interface {
     LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
     UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
     BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+    IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
 }
 ```
 
@@ -499,12 +644,19 @@ type RepKeeper interface {
 
 ## 12. Security Considerations
 
-### 12.1. Council-Only Registration
+### 12.1. Membership-Only Registration
 
-Registration is restricted to Commons Council members to prevent:
-- Name squatting by speculators
-- Impersonation attacks
-- Namespace pollution
+Registration is restricted to active x/rep members. The squatting /
+impersonation / namespace-pollution properties are upheld by a layered
+defense, not by a single council gate:
+
+- **Invitation accountability** — every member traces back to an inviter who
+  staked DREAM on their behalf; bad behavior is slashable up the chain.
+- **Registration fee** — `registration_fee` (default 10 SPARK) makes
+  large-scale squatting expensive.
+- **Per-address cap** — `max_names_per_address` (default 5) caps hoarding.
+- **Blocked names** — see §12.2.
+- **Disputes** — see §12.4.
 
 ### 12.2. Blocked Names
 
@@ -513,7 +665,16 @@ A comprehensive list of reserved names prevents:
 - `founder`, `council`, `committee` - Governance impersonation
 - Brand names and trademarks
 
-### 12.3. Dispute Resolution
+### 12.3. Identity Hijacking via Resolver Target
+
+ENS-style targets are an attack surface for reverse resolution: an attacker
+could register a name and point it at a victim's address, making the victim
+appear to be that name in any UI doing reverse resolution. The defense is
+asymmetric: forward resolution is unilateral (owner controls), reverse
+resolution requires explicit target consent (`MsgAcceptTarget`), and any
+change to `target` revokes acceptance. See §7.6 for full rationale.
+
+### 12.4. Dispute Resolution
 
 The dispute mechanism uses DREAM staking with two resolution paths:
 
@@ -525,22 +686,42 @@ The dispute mechanism uses DREAM staking with two resolution paths:
 - Owner must stake 100 DREAM to contest (higher conviction required)
 - Losing party's stake is burned (prevents frivolous challenges and bad-faith contests)
 - Resolution authorized for governance, Commons Council, or Operations Committee
+- Direct transfer (`MsgTransferName`) is rejected while a dispute is active so an owner cannot dump a disputed name on a third party
 
-### 12.4. Scavenging Attack Prevention
+### 12.5. Scavenging Attack Prevention
 
-- Only council members can register (limits attackers)
+- Only active x/rep members can register (limits attackers and ties names to invitation-accountable identities)
 - 1-year expiration gives owners ample time to renew activity
 - Scavenging emits events for monitoring
+
+### 12.6. Genesis Handle Squat Protection
+
+Without seeding, founders are vulnerable to handle-snipes during the open
+registration window after chain start: any active x/rep member could
+register `kingofbitchain` (or any other founder's canonical handle) and
+become the address that resolves under that name in mentions/links.
+Display names alone do not protect against this — they are non-unique and
+self-asserted, so a squatter can also set `display_name="King of Bitchain"`
+on their own address.
+
+Mitigation: the x/commons genesis bootstrap pre-claims a list of canonical
+handles per founding address (`GenesisHandles` in
+`x/commons/keeper/genesis_vals_*.go`), iterating addresses in sorted order
+for determinism. The first handle in each address's slice is set as that
+address's primary, so reverse resolution returns the correct handle from
+block 1. Handles are claimed via `NameKeeper.ClaimName`, which bypasses the
+fee and membership gate (the founder is being seeded, not registering on
+their own behalf) but still enforces format rules, blocked names, and the
+per-address cap.
 
 ---
 
 ## 13. Future Considerations
 
-1. **Name Transfers**: Allow direct owner-to-owner transfers without disputes
-2. **Subdomain Support**: Hierarchical names (e.g., `project.alice`)
-3. **Name Auctions**: Auction mechanism for premium names
-4. **Integration with x/rep**: Tie name privileges to reputation level
-5. **ENS Compatibility**: Cross-chain name resolution
+1. **Subdomain Support**: Hierarchical names (e.g., `project.alice`)
+2. **Name Auctions**: Auction mechanism for premium names
+3. **Trust-level gating**: Optionally tighten registration to a higher trust level (e.g., `PROVISIONAL+`) if name-spam becomes a problem in practice
+4. **ENS Compatibility**: Cross-chain name resolution and federation bridges
 
 ---
 

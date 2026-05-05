@@ -13,6 +13,14 @@ var GenesisNames = map[string]string{
 	"sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz": "Carol",
 }
 
+// GenesisHandles — see genesis_vals_mainnet.go for the design rationale.
+// E2E tests rely on these being claimed at chain start.
+var GenesisHandles = map[string][]string{
+	"sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan": {"alice"},
+	"sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y": {"bob"},
+	"sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz": {"carol"},
+}
+
 var FounderName = "Alice"
 
 // All execution periods set to 1 second for fast test iteration.

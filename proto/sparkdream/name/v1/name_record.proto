@@ -3,9 +3,23 @@ package sparkdream.name.v1;
 
 option go_package = "sparkdream/x/name/types";
 
-// NameRecord defines the NameRecord message.
+// NameRecord is the on-chain record for a registered handle.
+//
+// Forward resolution (`name -> address`) returns `target` when set, otherwise
+// `owner`. Reverse resolution (`address -> name`) is owner-driven via
+// OwnerInfo.primary_name. A target address that wants reverse resolution to
+// point at this name must first call MsgAcceptTarget; only then may that
+// address set the name as its primary. This separation prevents an owner from
+// unilaterally hijacking another address's apparent identity.
 message NameRecord {
   string name = 1;
   string owner = 2;
   string data = 3;
+  // target, when non-empty, overrides forward resolution: Resolve(name) returns
+  // this address. Cleared by passing the empty string to MsgSetTarget.
+  string target = 4;
+  // target_accepted is true once the current `target` address has signed
+  // MsgAcceptTarget. Reset to false whenever `target` changes (re-consent
+  // required). Only an accepted target may set this name as its primary.
+  bool target_accepted = 5;
 }

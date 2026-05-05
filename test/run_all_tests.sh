@@ -433,8 +433,10 @@ if [ "$RUN_LEGACY" = true ]; then
     echo -e "\n${BLUE}=== PHASE 3: FEATURE MODULES ===${NC}"
     # Name module
     run_test "name/setup_test_accounts.sh"
+    run_test "name/genesis_handles_test.sh"
     run_test "name/name_registration_test.sh"
     run_test "name/primary_name_test.sh"
+    run_test "name/target_and_transfer_test.sh"
     run_test "name/dispute_resolution_test.sh"
     run_test "name/operational_params_test.sh"
 

@@ -102,3 +102,50 @@ func TestSetPrimary(t *testing.T) {
 		})
 	}
 }
+
+// TestSetPrimary_AcceptedTarget exercises the widened authorization that
+// allows an address to set as its primary a name it does not own, provided
+// the name's owner has pointed `target` at that address and the address has
+// signed `MsgAcceptTarget` to consent.
+func TestSetPrimary_AcceptedTarget(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+
+	owner := sdk.AccAddress([]byte("owner_for_kob_______")).String()
+	agent := sdk.AccAddress([]byte("agent_address_______")).String()
+
+	t.Run("accepted target can set as primary", func(t *testing.T) {
+		ctx, _ := f.ctx.CacheContext()
+		require.NoError(t, f.keeper.Names.Set(ctx, "kob", types.NameRecord{
+			Name: "kob", Owner: owner, Target: agent, TargetAccepted: true,
+		}))
+
+		_, err := ms.SetPrimary(ctx, &types.MsgSetPrimary{Authority: agent, Name: "kob"})
+		require.NoError(t, err)
+
+		info, err := f.keeper.Owners.Get(ctx, agent)
+		require.NoError(t, err)
+		require.Equal(t, "kob", info.PrimaryName)
+	})
+
+	t.Run("unaccepted target cannot set as primary", func(t *testing.T) {
+		ctx, _ := f.ctx.CacheContext()
+		require.NoError(t, f.keeper.Names.Set(ctx, "kob", types.NameRecord{
+			Name: "kob", Owner: owner, Target: agent, TargetAccepted: false,
+		}))
+
+		_, err := ms.SetPrimary(ctx, &types.MsgSetPrimary{Authority: agent, Name: "kob"})
+		require.ErrorIs(t, err, types.ErrTargetNotAccepted)
+	})
+
+	t.Run("non-target non-owner is unauthorized", func(t *testing.T) {
+		ctx, _ := f.ctx.CacheContext()
+		stranger := sdk.AccAddress([]byte("stranger_set_primary")).String()
+		require.NoError(t, f.keeper.Names.Set(ctx, "kob", types.NameRecord{
+			Name: "kob", Owner: owner, Target: agent, TargetAccepted: true,
+		}))
+
+		_, err := ms.SetPrimary(ctx, &types.MsgSetPrimary{Authority: stranger, Name: "kob"})
+		require.ErrorIs(t, err, sdkerrors.ErrUnauthorized)
+	})
+}
