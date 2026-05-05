@@ -77,6 +77,7 @@ message MsgUpdateParamsResponse {}
 // - Bond (bond_rate * total_valuation) deducted and locked
 message MsgPropose {
   option (cosmos.msg.v1.signer) = "contributor";
+  option (amino.name) = "sparkdream/x/reveal/MsgPropose";
   string contributor = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string project_name = 2;
   string description = 3;
@@ -99,6 +100,7 @@ message MsgProposeResponse {
 // Accept-or-reject only (no term modification by committee or council).
 message MsgApprove {
   option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/reveal/MsgApprove";
   // Commons Council group policy account (executed via proposal)
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   // Operations Committee member who initiated the proposal
@@ -112,6 +114,7 @@ message MsgApproveResponse {}
 // Contributor may re-propose after proposal_cooldown_epochs.
 message MsgReject {
   option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/reveal/MsgReject";
   // Commons Council group policy account (executed via proposal)
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   // Operations Committee member who initiated the proposal
@@ -131,6 +134,7 @@ message MsgRejectResponse {}
 // - Total staked must not exceed stake_threshold (excess stakes rejected)
 message MsgStake {
   option (cosmos.msg.v1.signer) = "staker";
+  option (amino.name) = "sparkdream/x/reveal/MsgStake";
   string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 contribution_id = 2;
   uint32 tranche_id = 3;
@@ -148,6 +152,7 @@ message MsgStakeResponse {
 // Withdraw a stake (only allowed before verification period).
 message MsgWithdraw {
   option (cosmos.msg.v1.signer) = "staker";
+  option (amino.name) = "sparkdream/x/reveal/MsgWithdraw";
   string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 stake_id = 2;
 }
@@ -157,6 +162,7 @@ message MsgWithdrawResponse {}
 // Contributor reveals the code for a backed tranche.
 message MsgReveal {
   option (cosmos.msg.v1.signer) = "contributor";
+  option (amino.name) = "sparkdream/x/reveal/MsgReveal";
   string contributor = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 contribution_id = 2;
   uint32 tranche_id = 3;
@@ -171,6 +177,7 @@ message MsgRevealResponse {}
 // Voter must NOT be the contribution's contributor (prevents self-verification).
 message MsgVerify {
   option (cosmos.msg.v1.signer) = "voter";
+  option (amino.name) = "sparkdream/x/reveal/MsgVerify";
   string voter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 contribution_id = 2;
   uint32 tranche_id = 3;
@@ -185,6 +192,7 @@ message MsgVerifyResponse {}
 // Operations Committee can cancel any contribution at any time.
 message MsgCancel {
   option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/reveal/MsgCancel";
   // contributor or committee member
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 contribution_id = 2;
@@ -197,6 +205,7 @@ message MsgCancelResponse {}
 // Prevents a single committee member from unilaterally siding with a contributor.
 message MsgResolveDispute {
   option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/reveal/MsgResolveDispute";
   // Commons Council group policy account (executed via proposal)
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   // Operations Committee member who initiated the proposal

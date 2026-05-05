@@ -215,6 +215,7 @@ message MsgUpdateOperationalParamsResponse {}
 // MsgInviteMember defines the MsgInviteMember message.
 message MsgInviteMember {
   option (cosmos.msg.v1.signer) = "inviter";
+  option (amino.name) = "sparkdream/x/rep/MsgInviteMember";
   string inviter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string invitee_address = 2;
   string staked_dream = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
@@ -227,6 +228,7 @@ message MsgInviteMemberResponse {}
 // MsgAcceptInvitation defines the MsgAcceptInvitation message.
 message MsgAcceptInvitation {
   option (cosmos.msg.v1.signer) = "invitee";
+  option (amino.name) = "sparkdream/x/rep/MsgAcceptInvitation";
   string invitee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 invitation_id = 2;
 }
@@ -237,6 +239,7 @@ message MsgAcceptInvitationResponse {}
 // MsgTransferDream defines the MsgTransferDream message.
 message MsgTransferDream {
   option (cosmos.msg.v1.signer) = "sender";
+  option (amino.name) = "sparkdream/x/rep/MsgTransferDream";
   string sender = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string recipient = 2;
   string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
@@ -256,6 +259,7 @@ message MsgTransferDreamResponse {}
 // MsgCreateInterim defines the MsgCreateInterim message.
 message MsgCreateInterim {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCreateInterim";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   InterimType interim_type = 2;
   uint64 reference_id = 3;
@@ -270,6 +274,7 @@ message MsgCreateInterimResponse {}
 // MsgAssignInterim defines the MsgAssignInterim message.
 message MsgAssignInterim {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgAssignInterim";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 interim_id = 2;
   string assignee = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -281,6 +286,7 @@ message MsgAssignInterimResponse {}
 // MsgSubmitInterimWork defines the MsgSubmitInterimWork message.
 message MsgSubmitInterimWork {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgSubmitInterimWork";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 interim_id = 2;
   string deliverable_uri = 3;
@@ -293,6 +299,7 @@ message MsgSubmitInterimWorkResponse {}
 // MsgApproveInterim defines the MsgApproveInterim message.
 message MsgApproveInterim {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgApproveInterim";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 interim_id = 2;
   bool approved = 3;
@@ -305,6 +312,7 @@ message MsgApproveInterimResponse {}
 // MsgAbandonInterim defines the MsgAbandonInterim message.
 message MsgAbandonInterim {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgAbandonInterim";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 interim_id = 2;
   string reason = 3;
@@ -316,6 +324,7 @@ message MsgAbandonInterimResponse {}
 // MsgCompleteInterim defines the MsgCompleteInterim message.
 message MsgCompleteInterim {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCompleteInterim";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 interim_id = 2;
   string completion_notes = 3;
@@ -327,6 +336,7 @@ message MsgCompleteInterimResponse {}
 // MsgProposeProject defines the MsgProposeProject message.
 message MsgProposeProject {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgProposeProject";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string name = 2;
   string description = 3;
@@ -345,6 +355,7 @@ message MsgProposeProjectResponse {}
 // MsgApproveProjectBudget defines the MsgApproveProjectBudget message.
 message MsgApproveProjectBudget {
   option (cosmos.msg.v1.signer) = "approver";
+  option (amino.name) = "sparkdream/x/rep/MsgApproveProjectBudget";
   string approver = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 project_id = 2;
   string approved_budget = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
@@ -357,6 +368,7 @@ message MsgApproveProjectBudgetResponse {}
 // MsgCancelProject defines the MsgCancelProject message.
 message MsgCancelProject {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCancelProject";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 project_id = 2;
   string reason = 3;
@@ -368,6 +380,7 @@ message MsgCancelProjectResponse {}
 // MsgCreateInitiative defines the MsgCreateInitiative message.
 message MsgCreateInitiative {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCreateInitiative";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 project_id = 2;
   string title = 3;
@@ -387,6 +400,7 @@ message MsgCreateInitiativeResponse {
 // MsgAssignInitiative defines the MsgAssignInitiative message.
 message MsgAssignInitiative {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgAssignInitiative";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
   string assignee = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -398,6 +412,7 @@ message MsgAssignInitiativeResponse {}
 // MsgSubmitInitiativeWork defines the MsgSubmitInitiativeWork message.
 message MsgSubmitInitiativeWork {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgSubmitInitiativeWork";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
   string deliverable_uri = 3;
@@ -410,6 +425,7 @@ message MsgSubmitInitiativeWorkResponse {}
 // MsgApproveInitiative defines the MsgApproveInitiative message.
 message MsgApproveInitiative {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgApproveInitiative";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
   repeated CriteriaVote criteria_votes = 3;
@@ -423,6 +439,7 @@ message MsgApproveInitiativeResponse {}
 // MsgAbandonInitiative defines the MsgAbandonInitiative message.
 message MsgAbandonInitiative {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgAbandonInitiative";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
   string reason = 3;
@@ -434,6 +451,7 @@ message MsgAbandonInitiativeResponse {}
 // MsgCompleteInitiative defines the MsgCompleteInitiative message.
 message MsgCompleteInitiative {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCompleteInitiative";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
   string completion_notes = 3;
@@ -445,6 +463,7 @@ message MsgCompleteInitiativeResponse {}
 // MsgStake defines the MsgStake message.
 message MsgStake {
   option (cosmos.msg.v1.signer) = "staker";
+  option (amino.name) = "sparkdream/x/rep/MsgStake";
   string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   StakeTargetType target_type = 2;
   uint64 target_id = 3; // For INITIATIVE/PROJECT
@@ -460,6 +479,7 @@ message MsgStakeResponse {
 // MsgUnstake defines the MsgUnstake message.
 message MsgUnstake {
   option (cosmos.msg.v1.signer) = "staker";
+  option (amino.name) = "sparkdream/x/rep/MsgUnstake";
   string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 stake_id = 2;
   string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
@@ -474,6 +494,7 @@ message MsgUnstakeResponse {
 // MsgClaimStakingRewards defines the MsgClaimStakingRewards message.
 message MsgClaimStakingRewards {
   option (cosmos.msg.v1.signer) = "staker";
+  option (amino.name) = "sparkdream/x/rep/MsgClaimStakingRewards";
   string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 stake_id = 2;
 }
@@ -486,6 +507,7 @@ message MsgClaimStakingRewardsResponse {
 // MsgCompoundStakingRewards defines the MsgCompoundStakingRewards message.
 message MsgCompoundStakingRewards {
   option (cosmos.msg.v1.signer) = "staker";
+  option (amino.name) = "sparkdream/x/rep/MsgCompoundStakingRewards";
   string staker = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 stake_id = 2;
 }
@@ -499,6 +521,7 @@ message MsgCompoundStakingRewardsResponse {
 // MsgCreateChallenge defines the MsgCreateChallenge message.
 message MsgCreateChallenge {
   option (cosmos.msg.v1.signer) = "challenger";
+  option (amino.name) = "sparkdream/x/rep/MsgCreateChallenge";
   string challenger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
   string reason = 3;
@@ -512,6 +535,7 @@ message MsgCreateChallengeResponse {}
 // MsgRespondToChallenge defines the MsgRespondToChallenge message.
 message MsgRespondToChallenge {
   option (cosmos.msg.v1.signer) = "assignee";
+  option (amino.name) = "sparkdream/x/rep/MsgRespondToChallenge";
   string assignee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 challenge_id = 2;
   string response = 3;
@@ -524,6 +548,7 @@ message MsgRespondToChallengeResponse {}
 // MsgSubmitJurorVote defines the MsgSubmitJurorVote message.
 message MsgSubmitJurorVote {
   option (cosmos.msg.v1.signer) = "juror";
+  option (amino.name) = "sparkdream/x/rep/MsgSubmitJurorVote";
   string juror = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 jury_review_id = 2;
   repeated CriteriaVote criteria_votes = 3;
@@ -541,6 +566,7 @@ message MsgSubmitJurorVoteResponse {}
 // MsgSubmitExpertTestimony defines the MsgSubmitExpertTestimony message.
 message MsgSubmitExpertTestimony {
   option (cosmos.msg.v1.signer) = "expert";
+  option (amino.name) = "sparkdream/x/rep/MsgSubmitExpertTestimony";
   string expert = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 jury_review_id = 2;
   string opinion = 3;
@@ -553,6 +579,7 @@ message MsgSubmitExpertTestimonyResponse {}
 // MsgChallengeContent creates a challenge against bonded content.
 message MsgChallengeContent {
   option (cosmos.msg.v1.signer) = "challenger";
+  option (amino.name) = "sparkdream/x/rep/MsgChallengeContent";
   string challenger = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 target_type = 2; // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND)
   uint64 target_id = 3;
@@ -573,6 +600,7 @@ message MsgChallengeContentResponse {
 // MsgRespondToContentChallenge allows the content author to respond to a challenge.
 message MsgRespondToContentChallenge {
   option (cosmos.msg.v1.signer) = "author";
+  option (amino.name) = "sparkdream/x/rep/MsgRespondToContentChallenge";
   string author = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 content_challenge_id = 2;
   string response = 3;
@@ -585,6 +613,7 @@ message MsgRespondToContentChallengeResponse {}
 // MsgRegisterZkPublicKey defines the MsgRegisterZkPublicKey message.
 message MsgRegisterZkPublicKey {
   option (cosmos.msg.v1.signer) = "member";
+  option (amino.name) = "sparkdream/x/rep/MsgRegisterZkPublicKey";
   string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   bytes zk_public_key = 2;
 }
@@ -597,6 +626,7 @@ message MsgRegisterZkPublicKeyResponse {}
 // tag-creation fee.
 message MsgCreateTag {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCreateTag";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string name = 2;
 }
@@ -609,6 +639,7 @@ message MsgCreateTagResponse {
 // MsgReportTag defines the MsgReportTag message.
 message MsgReportTag {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgReportTag";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string tag_name = 2;
   string reason = 3;
@@ -620,6 +651,7 @@ message MsgReportTagResponse {}
 // MsgResolveTagReport defines the MsgResolveTagReport message.
 message MsgResolveTagReport {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgResolveTagReport";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string tag_name = 2;
   uint64 action = 3;
@@ -633,6 +665,7 @@ message MsgResolveTagReportResponse {}
 // MsgCreateTagBudget defines the MsgCreateTagBudget message.
 message MsgCreateTagBudget {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCreateTagBudget";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string tag = 2;
   string initial_pool = 3;
@@ -645,6 +678,7 @@ message MsgCreateTagBudgetResponse {}
 // MsgAwardFromTagBudget defines the MsgAwardFromTagBudget message.
 message MsgAwardFromTagBudget {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgAwardFromTagBudget";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 budget_id = 2;
   uint64 post_id = 3;
@@ -658,6 +692,7 @@ message MsgAwardFromTagBudgetResponse {}
 // MsgTopUpTagBudget defines the MsgTopUpTagBudget message.
 message MsgTopUpTagBudget {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgTopUpTagBudget";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 budget_id = 2;
   string amount = 3;
@@ -669,6 +704,7 @@ message MsgTopUpTagBudgetResponse {}
 // MsgToggleTagBudget defines the MsgToggleTagBudget message.
 message MsgToggleTagBudget {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgToggleTagBudget";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 budget_id = 2;
   bool active = 3;
@@ -680,6 +716,7 @@ message MsgToggleTagBudgetResponse {}
 // MsgWithdrawTagBudget defines the MsgWithdrawTagBudget message.
 message MsgWithdrawTagBudget {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgWithdrawTagBudget";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 budget_id = 2;
 }
@@ -692,6 +729,7 @@ message MsgWithdrawTagBudgetResponse {}
 // min_trust_level, min_age_blocks) and demotion behaviour.
 message MsgBondRole {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgBondRole";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   RoleType role_type = 2;
   string amount = 3;
@@ -705,6 +743,7 @@ message MsgBondRoleResponse {}
 // non-withdrawable.
 message MsgUnbondRole {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgUnbondRole";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   RoleType role_type = 2;
   string amount = 3;
@@ -716,6 +755,7 @@ message MsgUnbondRoleResponse {}
 // MsgReportMember defines the MsgReportMember message.
 message MsgReportMember {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgReportMember";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string member = 2;
   string reason = 3;
@@ -728,6 +768,7 @@ message MsgReportMemberResponse {}
 // MsgCosignMemberReport defines the MsgCosignMemberReport message.
 message MsgCosignMemberReport {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCosignMemberReport";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string member = 2;
 }
@@ -738,6 +779,7 @@ message MsgCosignMemberReportResponse {}
 // MsgResolveMemberReport defines the MsgResolveMemberReport message.
 message MsgResolveMemberReport {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgResolveMemberReport";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string member = 2;
   uint64 action = 3;
@@ -750,6 +792,7 @@ message MsgResolveMemberReportResponse {}
 // MsgDefendMemberReport defines the MsgDefendMemberReport message.
 message MsgDefendMemberReport {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgDefendMemberReport";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string defense = 2;
 }
@@ -760,6 +803,7 @@ message MsgDefendMemberReportResponse {}
 // MsgAppealGovAction defines the MsgAppealGovAction message.
 message MsgAppealGovAction {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgAppealGovAction";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 action_type = 2;
   string action_target = 3;
@@ -775,6 +819,7 @@ message MsgAppealGovActionResponse {}
 // UNSPECIFIED is rejected.
 message MsgResolveGovActionAppeal {
   option (cosmos.msg.v1.signer) = "resolver";
+  option (amino.name) = "sparkdream/x/rep/MsgResolveGovActionAppeal";
   string resolver = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 appeal_id = 2;
   GovAppealStatus verdict = 3;

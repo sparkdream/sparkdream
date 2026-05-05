@@ -75,6 +75,7 @@ message MsgUpdateOperationalParamsResponse {}
 // MsgCreateSession creates a new session key delegation. Signed by the granter.
 message MsgCreateSession {
   option (cosmos.msg.v1.signer) = "granter";
+  option (amino.name) = "sparkdream/x/session/MsgCreateSession";
 
   string granter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string grantee = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -92,6 +93,7 @@ message MsgCreateSessionResponse {}
 // MsgRevokeSession revokes an active session. Signed by the granter.
 message MsgRevokeSession {
   option (cosmos.msg.v1.signer) = "granter";
+  option (amino.name) = "sparkdream/x/session/MsgRevokeSession";
 
   string granter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string grantee = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -102,6 +104,7 @@ message MsgRevokeSessionResponse {}
 // MsgExecSession executes messages using a session key. Signed by the grantee.
 message MsgExecSession {
   option (cosmos.msg.v1.signer) = "grantee";
+  option (amino.name) = "sparkdream/x/session/MsgExecSession";
 
   string grantee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string granter = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];

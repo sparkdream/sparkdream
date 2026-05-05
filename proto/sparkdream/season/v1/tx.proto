@@ -182,6 +182,7 @@ message MsgUpdateOperationalParamsResponse {}
 // MsgSetDisplayName defines the MsgSetDisplayName message.
 message MsgSetDisplayName {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgSetDisplayName";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string name = 2;
 }
@@ -192,6 +193,7 @@ message MsgSetDisplayNameResponse {}
 // MsgSetUsername defines the MsgSetUsername message.
 message MsgSetUsername {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgSetUsername";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string username = 2;
 }
@@ -202,6 +204,7 @@ message MsgSetUsernameResponse {}
 // MsgSetDisplayTitle defines the MsgSetDisplayTitle message.
 message MsgSetDisplayTitle {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgSetDisplayTitle";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string title_id = 2;
 }
@@ -212,6 +215,7 @@ message MsgSetDisplayTitleResponse {}
 // MsgCreateGuild defines the MsgCreateGuild message.
 message MsgCreateGuild {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgCreateGuild";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string name = 2;
   string description = 3;
@@ -224,6 +228,7 @@ message MsgCreateGuildResponse {}
 // MsgJoinGuild defines the MsgJoinGuild message.
 message MsgJoinGuild {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgJoinGuild";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
 }
@@ -234,6 +239,7 @@ message MsgJoinGuildResponse {}
 // MsgLeaveGuild defines the MsgLeaveGuild message.
 message MsgLeaveGuild {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgLeaveGuild";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 }
 
@@ -243,6 +249,7 @@ message MsgLeaveGuildResponse {}
 // MsgTransferGuildFounder defines the MsgTransferGuildFounder message.
 message MsgTransferGuildFounder {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgTransferGuildFounder";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
   string new_founder = 3;
@@ -254,6 +261,7 @@ message MsgTransferGuildFounderResponse {}
 // MsgDissolveGuild defines the MsgDissolveGuild message.
 message MsgDissolveGuild {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgDissolveGuild";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
 }
@@ -264,6 +272,7 @@ message MsgDissolveGuildResponse {}
 // MsgPromoteToOfficer defines the MsgPromoteToOfficer message.
 message MsgPromoteToOfficer {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgPromoteToOfficer";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
   string member = 3;
@@ -275,6 +284,7 @@ message MsgPromoteToOfficerResponse {}
 // MsgDemoteOfficer defines the MsgDemoteOfficer message.
 message MsgDemoteOfficer {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgDemoteOfficer";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
   string officer = 3;
@@ -286,6 +296,7 @@ message MsgDemoteOfficerResponse {}
 // MsgInviteToGuild defines the MsgInviteToGuild message.
 message MsgInviteToGuild {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgInviteToGuild";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
   string invitee = 3;
@@ -297,6 +308,7 @@ message MsgInviteToGuildResponse {}
 // MsgAcceptGuildInvite defines the MsgAcceptGuildInvite message.
 message MsgAcceptGuildInvite {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgAcceptGuildInvite";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
 }
@@ -307,6 +319,7 @@ message MsgAcceptGuildInviteResponse {}
 // MsgRevokeGuildInvite defines the MsgRevokeGuildInvite message.
 message MsgRevokeGuildInvite {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgRevokeGuildInvite";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
   string invitee = 3;
@@ -318,6 +331,7 @@ message MsgRevokeGuildInviteResponse {}
 // MsgSetGuildInviteOnly defines the MsgSetGuildInviteOnly message.
 message MsgSetGuildInviteOnly {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgSetGuildInviteOnly";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
   bool invite_only = 3;
@@ -329,6 +343,7 @@ message MsgSetGuildInviteOnlyResponse {}
 // MsgUpdateGuildDescription defines the MsgUpdateGuildDescription message.
 message MsgUpdateGuildDescription {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgUpdateGuildDescription";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
   string description = 3;
@@ -340,6 +355,7 @@ message MsgUpdateGuildDescriptionResponse {}
 // MsgKickFromGuild defines the MsgKickFromGuild message.
 message MsgKickFromGuild {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgKickFromGuild";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
   string member = 3;
@@ -352,6 +368,7 @@ message MsgKickFromGuildResponse {}
 // MsgClaimGuildFounder defines the MsgClaimGuildFounder message.
 message MsgClaimGuildFounder {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgClaimGuildFounder";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 guild_id = 2;
 }
@@ -362,6 +379,7 @@ message MsgClaimGuildFounderResponse {}
 // MsgStartQuest defines the MsgStartQuest message.
 message MsgStartQuest {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgStartQuest";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string quest_id = 2;
 }
@@ -372,6 +390,7 @@ message MsgStartQuestResponse {}
 // MsgClaimQuestReward defines the MsgClaimQuestReward message.
 message MsgClaimQuestReward {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgClaimQuestReward";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string quest_id = 2;
 }
@@ -382,6 +401,7 @@ message MsgClaimQuestRewardResponse {}
 // MsgAbandonQuest defines the MsgAbandonQuest message.
 message MsgAbandonQuest {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgAbandonQuest";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string quest_id = 2;
 }
@@ -494,6 +514,7 @@ message MsgSkipTransitionPhaseResponse {}
 // MsgReportDisplayName defines the MsgReportDisplayName message.
 message MsgReportDisplayName {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgReportDisplayName";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string target = 2;
   string reason = 3;
@@ -505,6 +526,7 @@ message MsgReportDisplayNameResponse {}
 // MsgAppealDisplayNameModeration defines the MsgAppealDisplayNameModeration message.
 message MsgAppealDisplayNameModeration {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgAppealDisplayNameModeration";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string appeal_reason = 2;
 }
@@ -680,6 +702,7 @@ message MsgResolveUnappealedModerationResponse {}
 // MsgNominate creates a retroactive public goods funding nomination.
 message MsgNominate {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgNominate";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string content_ref = 2; // e.g. "blog/post/42"
   string rationale = 3;
@@ -693,6 +716,7 @@ message MsgNominateResponse {
 // MsgStakeNomination stakes DREAM on a nomination.
 message MsgStakeNomination {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgStakeNomination";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 nomination_id = 2;
   string amount = 3; // DREAM amount as decimal string
@@ -704,6 +728,7 @@ message MsgStakeNominationResponse {}
 // MsgUnstakeNomination removes a DREAM stake from a nomination.
 message MsgUnstakeNomination {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/season/MsgUnstakeNomination";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 nomination_id = 2;
 }

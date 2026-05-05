@@ -85,6 +85,7 @@ message MsgUpdateOperationalParamsResponse {}
 // MsgCreateMarket defines the MsgCreateMarket message.
 message MsgCreateMarket {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/futarchy/MsgCreateMarket";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string symbol = 2;
   string initial_liquidity = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
@@ -100,6 +101,7 @@ message MsgCreateMarketResponse {
 // MsgTrade defines the MsgTrade message.
 message MsgTrade {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/futarchy/MsgTrade";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 market_id = 2;
   bool is_yes = 3;
@@ -114,6 +116,7 @@ message MsgTradeResponse {
 // MsgRedeem defines the MsgRedeem message.
 message MsgRedeem {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/futarchy/MsgRedeem";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 market_id = 2;
 }
@@ -138,6 +141,7 @@ message MsgCancelMarketResponse {}
 // MsgWithdrawLiquidity defines the MsgWithdrawLiquidity message.
 message MsgWithdrawLiquidity {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/futarchy/MsgWithdrawLiquidity";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 market_id = 2;
 }

@@ -170,6 +170,7 @@ message MsgUpdateOperationalParamsResponse {}
 // MsgCreatePost defines the MsgCreatePost message.
 message MsgCreatePost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgCreatePost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 category_id = 2;
   uint64 parent_id = 3;
@@ -190,6 +191,7 @@ message MsgCreatePostResponse {}
 // MsgEditPost defines the MsgEditPost message.
 message MsgEditPost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgEditPost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
   string new_content = 3;
@@ -203,6 +205,7 @@ message MsgEditPostResponse {}
 // MsgDeletePost defines the MsgDeletePost message.
 message MsgDeletePost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgDeletePost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
 }
@@ -213,6 +216,7 @@ message MsgDeletePostResponse {}
 // MsgFreezeThread defines the MsgFreezeThread message.
 message MsgFreezeThread {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgFreezeThread";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
 }
@@ -223,6 +227,7 @@ message MsgFreezeThreadResponse {}
 // MsgUnarchiveThread defines the MsgUnarchiveThread message.
 message MsgUnarchiveThread {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgUnarchiveThread";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
 }
@@ -233,6 +238,7 @@ message MsgUnarchiveThreadResponse {}
 // MsgPinPost defines the MsgPinPost message.
 message MsgPinPost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgPinPost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
   uint64 priority = 3;
@@ -244,6 +250,7 @@ message MsgPinPostResponse {}
 // MsgUnpinPost defines the MsgUnpinPost message.
 message MsgUnpinPost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgUnpinPost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
 }
@@ -254,6 +261,7 @@ message MsgUnpinPostResponse {}
 // MsgLockThread defines the MsgLockThread message.
 message MsgLockThread {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgLockThread";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
   string reason = 3;
@@ -265,6 +273,7 @@ message MsgLockThreadResponse {}
 // MsgUnlockThread defines the MsgUnlockThread message.
 message MsgUnlockThread {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgUnlockThread";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
 }
@@ -275,6 +284,7 @@ message MsgUnlockThreadResponse {}
 // MsgMoveThread defines the MsgMoveThread message.
 message MsgMoveThread {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgMoveThread";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
   uint64 new_category_id = 3;
@@ -287,6 +297,7 @@ message MsgMoveThreadResponse {}
 // MsgFollowThread defines the MsgFollowThread message.
 message MsgFollowThread {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgFollowThread";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
 }
@@ -297,6 +308,7 @@ message MsgFollowThreadResponse {}
 // MsgUnfollowThread defines the MsgUnfollowThread message.
 message MsgUnfollowThread {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgUnfollowThread";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
 }
@@ -307,6 +319,7 @@ message MsgUnfollowThreadResponse {}
 // MsgUpvotePost defines the MsgUpvotePost message.
 message MsgUpvotePost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgUpvotePost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
 }
@@ -317,6 +330,7 @@ message MsgUpvotePostResponse {}
 // MsgDownvotePost defines the MsgDownvotePost message.
 message MsgDownvotePost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgDownvotePost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
 }
@@ -327,6 +341,7 @@ message MsgDownvotePostResponse {}
 // MsgFlagPost defines the MsgFlagPost message.
 message MsgFlagPost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgFlagPost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
   uint64 category = 3;
@@ -339,6 +354,7 @@ message MsgFlagPostResponse {}
 // MsgDismissFlags defines the MsgDismissFlags message.
 message MsgDismissFlags {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgDismissFlags";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
   string reason = 3;
@@ -350,6 +366,7 @@ message MsgDismissFlagsResponse {}
 // MsgHidePost defines the MsgHidePost message.
 message MsgHidePost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgHidePost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
   uint64 reason_code = 3;
@@ -362,6 +379,7 @@ message MsgHidePostResponse {}
 // MsgAppealPost defines the MsgAppealPost message.
 message MsgAppealPost {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgAppealPost";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
 }
@@ -372,6 +390,7 @@ message MsgAppealPostResponse {}
 // MsgAppealThreadLock defines the MsgAppealThreadLock message.
 message MsgAppealThreadLock {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgAppealThreadLock";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
 }
@@ -382,6 +401,7 @@ message MsgAppealThreadLockResponse {}
 // MsgAppealThreadMove defines the MsgAppealThreadMove message.
 message MsgAppealThreadMove {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgAppealThreadMove";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
 }
@@ -392,6 +412,7 @@ message MsgAppealThreadMoveResponse {}
 // MsgCreateBounty defines the MsgCreateBounty message.
 message MsgCreateBounty {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgCreateBounty";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
   string amount = 3;
@@ -404,6 +425,7 @@ message MsgCreateBountyResponse {}
 // MsgAwardBounty defines the MsgAwardBounty message.
 message MsgAwardBounty {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgAwardBounty";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 bounty_id = 2;
 }
@@ -414,6 +436,7 @@ message MsgAwardBountyResponse {}
 // MsgIncreaseBounty defines the MsgIncreaseBounty message.
 message MsgIncreaseBounty {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgIncreaseBounty";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 bounty_id = 2;
   string additional_amount = 3;
@@ -425,6 +448,7 @@ message MsgIncreaseBountyResponse {}
 // MsgCancelBounty defines the MsgCancelBounty message.
 message MsgCancelBounty {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgCancelBounty";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 bounty_id = 2;
 }
@@ -435,6 +459,7 @@ message MsgCancelBountyResponse {}
 // MsgAssignBountyToReply defines the MsgAssignBountyToReply message.
 message MsgAssignBountyToReply {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgAssignBountyToReply";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
   uint64 reply_id = 3;
@@ -447,6 +472,7 @@ message MsgAssignBountyToReplyResponse {}
 // MsgPinReply defines the MsgPinReply message.
 message MsgPinReply {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgPinReply";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
   uint64 reply_id = 3;
@@ -458,6 +484,7 @@ message MsgPinReplyResponse {}
 // MsgUnpinReply defines the MsgUnpinReply message.
 message MsgUnpinReply {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgUnpinReply";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
   uint64 reply_id = 3;
@@ -469,6 +496,7 @@ message MsgUnpinReplyResponse {}
 // MsgDisputePin defines the MsgDisputePin message.
 message MsgDisputePin {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgDisputePin";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
   uint64 reply_id = 3;
@@ -481,6 +509,7 @@ message MsgDisputePinResponse {}
 // MsgMarkAcceptedReply defines the MsgMarkAcceptedReply message.
 message MsgMarkAcceptedReply {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgMarkAcceptedReply";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
   uint64 reply_id = 3;
@@ -492,6 +521,7 @@ message MsgMarkAcceptedReplyResponse {}
 // MsgConfirmProposedReply defines the MsgConfirmProposedReply message.
 message MsgConfirmProposedReply {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgConfirmProposedReply";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
 }
@@ -502,6 +532,7 @@ message MsgConfirmProposedReplyResponse {}
 // MsgRejectProposedReply defines the MsgRejectProposedReply message.
 message MsgRejectProposedReply {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgRejectProposedReply";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 thread_id = 2;
   string reason = 3;
@@ -513,6 +544,7 @@ message MsgRejectProposedReplyResponse {}
 // MsgSetForumPaused defines the MsgSetForumPaused message.
 message MsgSetForumPaused {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgSetForumPaused";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   bool paused = 2;
 }
@@ -523,6 +555,7 @@ message MsgSetForumPausedResponse {}
 // MsgSetModerationPaused defines the MsgSetModerationPaused message.
 message MsgSetModerationPaused {
   option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgSetModerationPaused";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   bool paused = 2;
 }
