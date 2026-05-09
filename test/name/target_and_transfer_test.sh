@@ -15,7 +15,7 @@ CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 if ! command -v jq &> /dev/null; then
-    echo "❌ Error: jq is not installed."
+    echo "[FAIL] Error: jq is not installed."
     exit 1
 fi
 
@@ -24,7 +24,7 @@ if [ -f "$SCRIPT_DIR/.test_env" ]; then
     # shellcheck source=/dev/null
     . "$SCRIPT_DIR/.test_env"
 else
-    echo "❌ Error: $SCRIPT_DIR/.test_env not found. Run setup_test_accounts.sh first."
+    echo "[FAIL] Error: $SCRIPT_DIR/.test_env not found. Run setup_test_accounts.sh first."
     exit 1
 fi
 
@@ -33,7 +33,7 @@ DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test)
 CLAIMANT_ADDR=${NAME_CLAIMANT_ADDR:-}
 
 if [ -z "$CLAIMANT_ADDR" ]; then
-    echo "❌ Error: NAME_CLAIMANT_ADDR not set in .test_env."
+    echo "[FAIL] Error: NAME_CLAIMANT_ADDR not set in .test_env."
     exit 1
 fi
 
@@ -55,9 +55,9 @@ wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
 CODE=$(echo "$QRES" | jq -r '.code')
 if [ "$CODE" = "0" ]; then
-    echo "✅ Invited member registered a name (gate change works)."
+    echo "[ OK ] Invited member registered a name (gate change works)."
 else
-    echo "❌ Failed: invited member could not register. Log:"
+    echo "[FAIL] Failed: invited member could not register. Log:"
     echo "$QRES" | jq -r '.raw_log'
     exit 1
 fi
@@ -76,20 +76,22 @@ wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
 CODE=$(echo "$QRES" | jq -r '.code')
 if [ "$CODE" = "0" ]; then
-    echo "✅ Target set."
+    echo "[ OK ] Target set."
 else
-    echo "❌ set-target failed. Log:"
+    echo "[FAIL] set-target failed. Log:"
     echo "$QRES" | jq -r '.raw_log'
     exit 1
 fi
 
 REC=$($BINARY query name resolve "kob" --output json)
 TARGET=$(echo "$REC" | jq -r '.name_record.target')
-ACCEPTED=$(echo "$REC" | jq -r '.name_record.target_accepted')
+# proto3 omits zero-valued bool fields from JSON; default to "false" when
+# target_accepted is absent.
+ACCEPTED=$(echo "$REC" | jq -r '.name_record.target_accepted // false')
 if [ "$TARGET" = "$CLAIMANT_ADDR" ] && [ "$ACCEPTED" = "false" ]; then
-    echo "✅ NameRecord reflects target=$TARGET, target_accepted=false (consent still pending)."
+    echo "[ OK ] NameRecord reflects target=$TARGET, target_accepted=false (consent still pending)."
 else
-    echo "❌ Unexpected NameRecord: target=$TARGET accepted=$ACCEPTED"
+    echo "[FAIL] Unexpected NameRecord: target=$TARGET accepted=$ACCEPTED"
     exit 1
 fi
 
@@ -103,11 +105,11 @@ wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
 RAW=$(echo "$QRES" | jq -r '.raw_log')
 if echo "$RAW" | grep -q "AcceptTarget\|target has not accepted"; then
-    echo "✅ Blocked with target-not-accepted error."
+    echo "[ OK ] Blocked with target-not-accepted error."
 elif [ "$(echo "$QRES" | jq -r '.code')" != "0" ]; then
-    echo "✅ Blocked (code != 0)."
+    echo "[ OK ] Blocked (code != 0)."
 else
-    echo "❌ Unaccepted target was allowed to set primary."
+    echo "[FAIL] Unaccepted target was allowed to set primary."
     exit 1
 fi
 
@@ -120,11 +122,11 @@ TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
 if [ "$(echo "$QRES" | jq -r '.code')" != "0" ]; then
-    echo "❌ accept-target failed. Log:"
+    echo "[FAIL] accept-target failed. Log:"
     echo "$QRES" | jq -r '.raw_log'
     exit 1
 fi
-echo "✅ Target accepted."
+echo "[ OK ] Target accepted."
 
 RES=$($BINARY tx name set-primary "kob" --from name_claimant -y \
     --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
@@ -132,17 +134,17 @@ TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
 if [ "$(echo "$QRES" | jq -r '.code')" != "0" ]; then
-    echo "❌ set-primary (accepted target path) failed. Log:"
+    echo "[FAIL] set-primary (accepted target path) failed. Log:"
     echo "$QRES" | jq -r '.raw_log'
     exit 1
 fi
-echo "✅ Primary set."
+echo "[ OK ] Primary set."
 
 REVERSE=$($BINARY query name reverse-resolve "$CLAIMANT_ADDR" --output json 2>/dev/null | jq -r '.name')
 if [ "$REVERSE" = "kob" ]; then
-    echo "✅ ReverseResolve($CLAIMANT_ADDR) = 'kob'."
+    echo "[ OK ] ReverseResolve($CLAIMANT_ADDR) = 'kob'."
 else
-    echo "❌ Reverse resolution returned '$REVERSE', expected 'kob'."
+    echo "[FAIL] Reverse resolution returned '$REVERSE', expected 'kob'."
     exit 1
 fi
 
@@ -155,23 +157,23 @@ TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
 if [ "$(echo "$QRES" | jq -r '.code')" != "0" ]; then
-    echo "❌ set-target re-point failed. Log:"
+    echo "[FAIL] set-target re-point failed. Log:"
     echo "$QRES" | jq -r '.raw_log'
     exit 1
 fi
-ACCEPTED=$($BINARY query name resolve "kob" --output json | jq -r '.name_record.target_accepted')
+ACCEPTED=$($BINARY query name resolve "kob" --output json | jq -r '.name_record.target_accepted // false')
 if [ "$ACCEPTED" = "false" ]; then
-    echo "✅ target_accepted reset to false on re-point."
+    echo "[ OK ] target_accepted reset to false on re-point."
 else
-    echo "❌ Expected target_accepted=false, got '$ACCEPTED'."
+    echo "[FAIL] Expected target_accepted=false, got '$ACCEPTED'."
     exit 1
 fi
 
 REVERSE=$($BINARY query name reverse-resolve "$CLAIMANT_ADDR" --output json 2>/dev/null | jq -r '.name')
 if [ -z "$REVERSE" ] || [ "$REVERSE" = "null" ]; then
-    echo "✅ Agent's primary cleared after re-point (reverse resolution returns no primary)."
+    echo "[ OK ] Agent's primary cleared after re-point (reverse resolution returns no primary)."
 else
-    echo "⚠️  Agent reverse-resolves to '$REVERSE' (expected cleared). Continuing."
+    echo "[WARN]  Agent reverse-resolves to '$REVERSE' (expected cleared). Continuing."
 fi
 
 # --- 6. TRANSFER 'kob' TO AGENT (HAPPY PATH) ---
@@ -188,15 +190,15 @@ TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
 if [ "$(echo "$QRES" | jq -r '.code')" != "0" ]; then
-    echo "❌ transfer-name failed. Log:"
+    echo "[FAIL] transfer-name failed. Log:"
     echo "$QRES" | jq -r '.raw_log'
     exit 1
 fi
 NEW_OWNER=$($BINARY query name resolve "kob" --output json | jq -r '.name_record.owner')
 if [ "$NEW_OWNER" = "$CLAIMANT_ADDR" ]; then
-    echo "✅ Ownership of 'kob' is now $CLAIMANT_ADDR."
+    echo "[ OK ] Ownership of 'kob' is now $CLAIMANT_ADDR."
 else
-    echo "❌ Expected new owner $CLAIMANT_ADDR, got '$NEW_OWNER'."
+    echo "[FAIL] Expected new owner $CLAIMANT_ADDR, got '$NEW_OWNER'."
     exit 1
 fi
 
@@ -211,15 +213,15 @@ wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
 RAW=$(echo "$QRES" | jq -r '.raw_log')
 if echo "$RAW" | grep -q "active x/rep member\|recipient is not"; then
-    echo "✅ Transfer to non-member blocked with member error."
+    echo "[ OK ] Transfer to non-member blocked with member error."
 elif [ "$(echo "$QRES" | jq -r '.code')" != "0" ]; then
-    echo "✅ Transfer to non-member blocked (code != 0)."
+    echo "[ OK ] Transfer to non-member blocked (code != 0)."
 else
     NEW_OWNER=$($BINARY query name resolve "kob" --output json | jq -r '.name_record.owner')
     if [ "$NEW_OWNER" != "$DAVE_ADDR" ]; then
-        echo "✅ Owner unchanged after rejected transfer."
+        echo "[ OK ] Owner unchanged after rejected transfer."
     else
-        echo "❌ Transfer to non-member succeeded."
+        echo "[FAIL] Transfer to non-member succeeded."
         exit 1
     fi
 fi

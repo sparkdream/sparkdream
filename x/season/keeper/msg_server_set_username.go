@@ -64,9 +64,10 @@ func (k msgServer) SetUsername(ctx context.Context, msg *types.MsgSetUsername) (
 		}
 	}
 
-	// Charge DREAM cost via x/rep integration
+	// Charge DREAM cost via x/rep integration.
+	// Preserve underlying x/rep error in the wrapped message for debuggability.
 	if err := k.BurnDREAM(ctx, msg.Creator, params.UsernameCostDream.Uint64()); err != nil {
-		return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to burn DREAM for username")
+		return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to burn DREAM for username: %s", err)
 	}
 
 	// Release old username if set

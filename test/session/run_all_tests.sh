@@ -14,7 +14,14 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../check_testparams.sh"
+source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
+
+# Wall-clock timing for the suite — captured here so the summary's
+# "Started" line reflects when the runner was invoked, not when the
+# first test fired.
+SUITE_START_EPOCH=$(timing_now_epoch)
+SUITE_START_HUMAN=$(timing_now_human)
 
 # Parse command line arguments
 RUN_SETUP=true
@@ -29,6 +36,7 @@ RUN_OPPARAMS=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
+AUTO_SNAPSHOT=true
 for arg in "$@"; do
     case $arg in
         --no-setup)
@@ -110,6 +118,7 @@ for arg in "$@"; do
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
+            echo "  --no-auto-snapshot Disable auto-snapshot (run setup every time, no caching)"
             echo "  --no-tests       Skip all tests"
             echo "  --help, -h       Show this help message"
             echo ""
@@ -117,6 +126,9 @@ for arg in "$@"; do
             echo "  1. bash $0 --save-setup      # One-time: run setup and save state"
             echo "  2. bash $0 --restore-setup   # Restore and run tests (repeatable)"
             exit 0
+            ;;
+        --no-auto-snapshot)
+            AUTO_SNAPSHOT=false
             ;;
         *)
             echo "Unknown option: $arg"
@@ -126,6 +138,11 @@ for arg in "$@"; do
     esac
 done
 
+
+# Auto-snapshot: when no explicit save/restore flag is passed, reuse an
+# existing fresh snapshot or save one after setup. See test/_auto_snapshot.sh.
+source "$SCRIPT_DIR/../_auto_snapshot.sh"
+auto_snapshot_pre
 echo "============================================================================"
 echo "                    X/SESSION MODULE E2E TEST SUITE"
 echo "============================================================================"
@@ -241,6 +258,11 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 declare -a FAILED_TESTS
 
+# Per-test timing — populated by run_test, consumed by the summary block.
+declare -a TIMED_NAMES=()
+declare -a TIMED_RESULTS=()
+declare -a TIMED_DURATIONS_S=()
+
 run_test() {
     local TEST_NAME=$1
     local TEST_SCRIPT=$2
@@ -252,15 +274,29 @@ run_test() {
 
     TESTS_RUN=$((TESTS_RUN + 1))
 
+    local _t0 _t1 _dur_s _dur
+    _t0=$(timing_now_epoch)
     if bash "$SCRIPT_DIR/$TEST_SCRIPT"; then
+        _t1=$(timing_now_epoch)
+        _dur_s=$((_t1 - _t0))
+        _dur=$(timing_format_duration "$_dur_s")
         TESTS_PASSED=$((TESTS_PASSED + 1))
+        TIMED_NAMES+=("$TEST_NAME")
+        TIMED_RESULTS+=("PASS")
+        TIMED_DURATIONS_S+=("$_dur_s")
         echo ""
-        echo ">>> $TEST_NAME: PASSED <<<"
+        echo ">>> $TEST_NAME: PASSED ($_dur) <<<"
     else
+        _t1=$(timing_now_epoch)
+        _dur_s=$((_t1 - _t0))
+        _dur=$(timing_format_duration "$_dur_s")
         TESTS_FAILED=$((TESTS_FAILED + 1))
         FAILED_TESTS+=("$TEST_NAME")
+        TIMED_NAMES+=("$TEST_NAME")
+        TIMED_RESULTS+=("FAIL")
+        TIMED_DURATIONS_S+=("$_dur_s")
         echo ""
-        echo ">>> $TEST_NAME: FAILED <<<"
+        echo ">>> $TEST_NAME: FAILED ($_dur) <<<"
     fi
 
     echo ""
@@ -274,6 +310,10 @@ run_test() {
 # Setup
 if [ "$RUN_SETUP" = true ]; then
     run_test "Account Setup" "setup_test_accounts.sh"
+
+    # Auto-save the post-setup snapshot if AUTO_SNAPSHOT was set and
+    # no fresh snapshot existed at the start of this run.
+    auto_snapshot_post
 
     if [ "$SAVE_SETUP" = true ]; then
         echo "============================================================================"
@@ -387,10 +427,24 @@ echo "==========================================================================
 echo "                         TEST SUITE SUMMARY"
 echo "============================================================================"
 echo ""
+
+# Wall-clock summary (Started/Ended/Duration), captured by the helper.
+SUITE_END_EPOCH=$(timing_now_epoch)
+SUITE_END_HUMAN=$(timing_now_human)
+timing_print_summary_block "$SUITE_START_EPOCH" "$SUITE_END_EPOCH" \
+    "$SUITE_START_HUMAN" "$SUITE_END_HUMAN"
+echo ""
+
 echo "  Tests Run:    $TESTS_RUN"
 echo "  Tests Passed: $TESTS_PASSED"
 echo "  Tests Failed: $TESTS_FAILED"
 echo ""
+
+# Per-test timings table (in execution order).
+if [ ${#TIMED_NAMES[@]} -gt 0 ]; then
+    timing_print_per_test_table TIMED_RESULTS TIMED_DURATIONS_S TIMED_NAMES
+    echo ""
+fi
 
 if [ $TESTS_FAILED -gt 0 ]; then
     echo "Failed Tests:"

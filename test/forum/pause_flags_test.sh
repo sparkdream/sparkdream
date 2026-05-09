@@ -242,7 +242,7 @@ SENTINEL_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --
 if echo "$SENTINEL_ACTIVITY" | grep -q "not found"; then
     echo "  Sentinel1 not bonded, bonding now..."
     TX_RES=$($BINARY tx rep bond-role forum-sentinel \
-        "10000" \
+        "500000000" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

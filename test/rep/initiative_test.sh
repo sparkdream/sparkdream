@@ -13,9 +13,9 @@ CHAIN_ID="sparkdream"
 # Load test environment (created by setup_test_accounts.sh)
 if [ -f "$SCRIPT_DIR/.test_env" ]; then
     source "$SCRIPT_DIR/.test_env"
-    echo "✅ Loaded test environment from .test_env"
+    echo "[ OK ] Loaded test environment from .test_env"
 else
-    echo "⚠️  .test_env not found. Run setup_test_accounts.sh first!"
+    echo "[WARN]  .test_env not found. Run setup_test_accounts.sh first!"
     exit 1
 fi
 
@@ -58,10 +58,10 @@ echo "Project status: $PROJECT_STATUS"
 echo "Approved DREAM budget: $APPROVED_BUDGET"
 
 if [ "$PROJECT_STATUS" == "PROJECT_STATUS_ACTIVE" ]; then
-    echo "✅ Project is ACTIVE and ready for initiatives"
+    echo "[ OK ] Project is ACTIVE and ready for initiatives"
     NEW_STATUS="$PROJECT_STATUS"
 else
-    echo "⚠️  Project status: $PROJECT_STATUS (expected ACTIVE)"
+    echo "[WARN]  Project status: $PROJECT_STATUS (expected ACTIVE)"
     NEW_STATUS="$PROJECT_STATUS"
 fi
 
@@ -114,18 +114,18 @@ fi
 
 # Method 4: Fallback to querying latest initiative from project
 if [ -z "$APPRENTICE_ID" ] || [ "$APPRENTICE_ID" == "null" ] || [ "$APPRENTICE_ID" == "" ]; then
-    echo "⚠️  Failed to extract from events, querying latest initiative..."
+    echo "[WARN]  Failed to extract from events, querying latest initiative..."
     APPRENTICE_ID=$($BINARY query rep initiatives-by-project $PROJECT_ID -o json 2>/dev/null | \
       jq -r '.initiatives | sort_by(.id) | .[-1].id' 2>/dev/null)
 fi
 
 # Final check
 if [ -z "$APPRENTICE_ID" ] || [ "$APPRENTICE_ID" == "null" ] || [ "$APPRENTICE_ID" == "" ]; then
-    echo "⚠️  Failed to extract apprentice initiative ID from tx $APPRENTICE_TX"
+    echo "[WARN]  Failed to extract apprentice initiative ID from tx $APPRENTICE_TX"
     APPRENTICE_ID="unknown"
 fi
 
-echo "✅ Apprentice initiative created: $APPRENTICE_ID (budget: 95 DREAM)"
+echo "[ OK ] Apprentice initiative created: $APPRENTICE_ID (budget: 95 DREAM)"
 
 # Create Standard tier initiative
 echo "Creating STANDARD tier initiative..."
@@ -166,18 +166,18 @@ fi
 
 # Method 4: Fallback to querying latest initiative from project (exclude APPRENTICE_ID)
 if [ -z "$STANDARD_ID" ] || [ "$STANDARD_ID" == "null" ] || [ "$STANDARD_ID" == "" ]; then
-    echo "⚠️  Failed to extract from events, querying latest initiative..."
+    echo "[WARN]  Failed to extract from events, querying latest initiative..."
     STANDARD_ID=$($BINARY query rep initiatives-by-project $PROJECT_ID -o json 2>/dev/null | \
       jq -r --arg app_id "$APPRENTICE_ID" '.initiatives | sort_by(.id) | .[] | select(.id != ($app_id | tonumber)) | .id' 2>/dev/null | tail -1)
 fi
 
 # Final check
 if [ -z "$STANDARD_ID" ] || [ "$STANDARD_ID" == "null" ] || [ "$STANDARD_ID" == "" ]; then
-    echo "⚠️  Failed to extract standard initiative ID from tx $STANDARD_TX"
+    echo "[WARN]  Failed to extract standard initiative ID from tx $STANDARD_TX"
     STANDARD_ID="unknown"
 fi
 
-echo "✅ Standard initiative created: $STANDARD_ID (budget: 500 DREAM)"
+echo "[ OK ] Standard initiative created: $STANDARD_ID (budget: 500 DREAM)"
 
 # ========================================================================
 # PART 4: QUERY INITIATIVES BY PROJECT
@@ -191,9 +191,9 @@ INITIATIVE_COUNT=$(echo "$PROJECT_INITIATIVES" | jq -r '.initiatives | length')
 echo "Project has $INITIATIVE_COUNT initiatives"
 
 if [ "$INITIATIVE_COUNT" -ge 2 ]; then
-    echo "✅ Multiple initiatives found for project"
+    echo "[ OK ] Multiple initiatives found for project"
 else
-    echo "⚠️  Initiative count: $INITIATIVE_COUNT"
+    echo "[WARN]  Initiative count: $INITIATIVE_COUNT"
 fi
 
 # Query available initiatives (OPEN status)
@@ -229,7 +229,7 @@ ASSIGN_TX_RESULT=$($BINARY query tx $ASSIGN_TX -o json 2>/dev/null)
 ASSIGN_CODE=$(echo "$ASSIGN_TX_RESULT" | jq -r '.code // 0')
 if [ "$ASSIGN_CODE" != "0" ]; then
     ASSIGN_ERROR=$(echo "$ASSIGN_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "⚠️  Assign transaction failed: $ASSIGN_ERROR"
+    echo "[WARN]  Assign transaction failed: $ASSIGN_ERROR"
 fi
 
 # Use APPRENTICE_ID for rest of test flow
@@ -246,11 +246,11 @@ echo "New initiative status: $NEW_INIT_STATUS"
 echo "Assignee: $ASSIGNEE"
 
 if [ "$NEW_INIT_STATUS" == "INITIATIVE_STATUS_ASSIGNED" ]; then
-    echo "✅ Initiative is now ASSIGNED"
+    echo "[ OK ] Initiative is now ASSIGNED"
 elif [ "$NEW_INIT_STATUS" == "INITIATIVE_STATUS_OPEN" ] || [ -z "$NEW_INIT_STATUS" ]; then
-    echo "⚠️  Initiative still OPEN (assign may require self-assignment)"
+    echo "[WARN]  Initiative still OPEN (assign may require self-assignment)"
 else
-    echo "⚠️  Initiative status: $NEW_INIT_STATUS"
+    echo "[WARN]  Initiative status: $NEW_INIT_STATUS"
 fi
 
 # ========================================================================
@@ -270,10 +270,10 @@ if [ -n "$WORKER_INIT_ID" ] && [ "$WORKER_INIT_ID" != "null" ] && [ "$WORKER_INI
     echo "  ID: $WORKER_INIT_ID"
     echo "  Title: $WORKER_INIT_TITLE"
     echo "  Status: $WORKER_INIT_STATUS"
-    echo "✅ Worker's assigned initiative found"
+    echo "[ OK ] Worker's assigned initiative found"
 else
     echo "Worker has 0 assigned initiatives"
-    echo "⚠️  Query may not have found the assigned initiative"
+    echo "[WARN]  Query may not have found the assigned initiative"
 fi
 
 # ========================================================================
@@ -306,11 +306,11 @@ echo "Initiative status after submit: $SUBMIT_STATUS"
 echo "Deliverable URI: $DELIVERABLE_URI"
 
 if [ "$SUBMIT_STATUS" == "INITIATIVE_STATUS_SUBMITTED" ]; then
-    echo "✅ Initiative is SUBMITTED"
+    echo "[ OK ] Initiative is SUBMITTED"
 elif [ "$SUBMIT_STATUS" == "INITIATIVE_STATUS_IN_REVIEW" ]; then
-    echo "✅ Initiative is IN_REVIEW (may have auto-transitioned)"
+    echo "[ OK ] Initiative is IN_REVIEW (may have auto-transitioned)"
 else
-    echo "⚠️  Initiative status: $SUBMIT_STATUS"
+    echo "[WARN]  Initiative status: $SUBMIT_STATUS"
 fi
 
 # ========================================================================
@@ -322,13 +322,13 @@ echo ""
 echo "--- PART 8: CHALLENGER CREATES CHALLENGE AGAINST INITIATIVE ---"
 echo "Note: Creating challenge while initiative is still in SUBMITTED status"
 
-# create-challenge [initiative-id] [reason] [staked-dream] [is-anonymous] [payout-address]
+# create-challenge [initiative-id] [reason] [staked-dream]
+# (anonymity now lives in x/shield's MsgShieldedExec; the positional anon
+# flag and challenger-payout address were removed when this was de-coupled.)
 CHALLENGE_RES=$($BINARY tx rep create-challenge \
   $FLOW_INITIATIVE_ID \
   "Work does not meet requirements" \
   "50000000" \
-  "false" \
-  $CHALLENGER_ADDR \
   --evidence "ipfs://QmEvidence1","ipfs://QmEvidence2" \
   --from challenger \
   --chain-id $CHAIN_ID \
@@ -345,7 +345,7 @@ CHALLENGE_TX_RESULT=$($BINARY query tx $CHALLENGE_TX -o json 2>/dev/null)
 CHALLENGE_CODE=$(echo "$CHALLENGE_TX_RESULT" | jq -r '.code // 0')
 if [ "$CHALLENGE_CODE" != "0" ]; then
     CHALLENGE_ERROR=$(echo "$CHALLENGE_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "⚠️  Challenge transaction failed: $CHALLENGE_ERROR"
+    echo "[WARN]  Challenge transaction failed: $CHALLENGE_ERROR"
 fi
 
 # Extract challenge ID with fallback methods
@@ -368,11 +368,11 @@ if [ -z "$CHALLENGE_ID" ] || [ "$CHALLENGE_ID" == "null" ] || [ "$CHALLENGE_ID" 
 fi
 
 if [ -z "$CHALLENGE_ID" ] || [ "$CHALLENGE_ID" == "null" ] || [ "$CHALLENGE_ID" == "" ]; then
-    echo "⚠️  Could not extract challenge ID from transaction"
+    echo "[WARN]  Could not extract challenge ID from transaction"
     CHALLENGE_ID="unknown"
-    echo "⚠️  Challenge creation may have failed or ID extraction failed"
+    echo "[WARN]  Challenge creation may have failed or ID extraction failed"
 else
-    echo "✅ Challenge created: $CHALLENGE_ID"
+    echo "[ OK ] Challenge created: $CHALLENGE_ID"
 fi
 
 # Verify initiative status changed to CHALLENGED
@@ -383,9 +383,9 @@ CHALLENGED_STATUS=$(echo "$CHALLENGED_INITIATIVE" | jq -r '.initiative.status //
 echo "Initiative status after challenge: $CHALLENGED_STATUS"
 
 if [ "$CHALLENGED_STATUS" == "INITIATIVE_STATUS_CHALLENGED" ]; then
-    echo "✅ Initiative is CHALLENGED"
+    echo "[ OK ] Initiative is CHALLENGED"
 else
-    echo "⚠️  Initiative status: $CHALLENGED_STATUS"
+    echo "[WARN]  Initiative status: $CHALLENGED_STATUS"
 fi
 
 # Verify challenge details (only if challenge ID was extracted)
@@ -407,7 +407,7 @@ else
 fi
 
 if [ "$CHALLENGE_STATUS" == "CHALLENGE_STATUS_ACTIVE" ]; then
-    echo "✅ Challenge is ACTIVE (awaiting response)"
+    echo "[ OK ] Challenge is ACTIVE (awaiting response)"
 fi
 
 # ========================================================================
@@ -431,7 +431,7 @@ if [ "$CHALLENGE_ID" != "unknown" ] && [ -n "$CHALLENGE_ID" ]; then
     RESPOND_TX=$(echo $RESPOND_RES | jq -r '.txhash')
     sleep 2
 
-    echo "✅ Worker responded to challenge"
+    echo "[ OK ] Worker responded to challenge"
 
     # Check challenge status after response
     RESPONDED_CHALLENGE=$($BINARY query rep get-challenge $CHALLENGE_ID -o json 2>/dev/null)
@@ -442,7 +442,7 @@ if [ "$CHALLENGE_ID" != "unknown" ] && [ -n "$CHALLENGE_ID" ]; then
         echo "Challenge status after response: $RESPONDED_STATUS"
     fi
 else
-    echo "⚠️  Skipping challenge response - challenge creation failed"
+    echo "[WARN]  Skipping challenge response - challenge creation failed"
     echo "Challenge status after response: Unknown"
 fi
 
@@ -469,15 +469,22 @@ STAKER1_STAKE_RES=$($BINARY tx rep stake \
   -y \
   -o json 2>&1)
 
-STAKER1_STAKE_TX=$(echo $STAKER1_STAKE_RES | jq -r '.txhash')
+STAKER1_STAKE_TX=$(echo "$STAKER1_STAKE_RES" | jq -r '.txhash // empty' 2>/dev/null)
 sleep 2
 
-# Check if transaction succeeded
-STAKER1_STAKE_TX_RESULT=$($BINARY query tx $STAKER1_STAKE_TX -o json 2>/dev/null)
-STAKER1_STAKE_CODE=$(echo "$STAKER1_STAKE_TX_RESULT" | jq -r '.code // 0')
-if [ "$STAKER1_STAKE_CODE" != "0" ]; then
-    STAKER1_STAKE_ERROR=$(echo "$STAKER1_STAKE_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "⚠️  Staker1 stake transaction failed: $STAKER1_STAKE_ERROR"
+# Check if transaction succeeded. Suppress jq parse errors — when the broadcast
+# response is non-JSON (e.g. "gas estimate: ..." prepended to stdout via 2>&1)
+# or when `query tx` returns a not-yet-indexed error, jq prints to stderr and
+# `code` ends up empty. Treat empty as "no failure detected" — the fallback
+# stake-id query below is the source of truth.
+STAKER1_STAKE_TX_RESULT=""
+if [ -n "$STAKER1_STAKE_TX" ]; then
+    STAKER1_STAKE_TX_RESULT=$($BINARY query tx $STAKER1_STAKE_TX -o json 2>/dev/null)
+fi
+STAKER1_STAKE_CODE=$(echo "$STAKER1_STAKE_TX_RESULT" | jq -r '.code // 0' 2>/dev/null)
+if [ -n "$STAKER1_STAKE_CODE" ] && [ "$STAKER1_STAKE_CODE" != "0" ]; then
+    STAKER1_STAKE_ERROR=$(echo "$STAKER1_STAKE_TX_RESULT" | jq -r '.raw_log // "Unknown error"' 2>/dev/null)
+    echo "[WARN]  Staker1 stake transaction failed: $STAKER1_STAKE_ERROR"
 fi
 
 STAKER1_STAKE_ID=$(echo "$STAKER1_STAKE_TX_RESULT" | \
@@ -499,11 +506,11 @@ if [ -z "$STAKER1_STAKE_ID" ] || [ "$STAKER1_STAKE_ID" == "null" ] || [ "$STAKER
 fi
 
 if [ -z "$STAKER1_STAKE_ID" ] || [ "$STAKER1_STAKE_ID" == "null" ] || [ "$STAKER1_STAKE_ID" == "" ]; then
-    echo "⚠️  Could not extract stake ID from transaction"
+    echo "[WARN]  Could not extract stake ID from transaction"
     STAKER1_STAKE_ID="unknown"
-    echo "⚠️  Staker1 stake may have failed"
+    echo "[WARN]  Staker1 stake may have failed"
 else
-    echo "✅ Staker1 staked: $STAKER1_STAKE_ID (100 DREAM)"
+    echo "[ OK ] Staker1 staked: $STAKER1_STAKE_ID (100 DREAM)"
 fi
 
 # Staker2 stakes 150 DREAM (150,000,000 micro-DREAM)
@@ -521,15 +528,18 @@ STAKER2_STAKE_RES=$($BINARY tx rep stake \
   -y \
   -o json 2>&1)
 
-STAKER2_STAKE_TX=$(echo $STAKER2_STAKE_RES | jq -r '.txhash')
+STAKER2_STAKE_TX=$(echo "$STAKER2_STAKE_RES" | jq -r '.txhash // empty' 2>/dev/null)
 sleep 2
 
-# Check if transaction succeeded
-STAKER2_STAKE_TX_RESULT=$($BINARY query tx $STAKER2_STAKE_TX -o json 2>/dev/null)
-STAKER2_STAKE_CODE=$(echo "$STAKER2_STAKE_TX_RESULT" | jq -r '.code // 0')
-if [ "$STAKER2_STAKE_CODE" != "0" ]; then
-    STAKER2_STAKE_ERROR=$(echo "$STAKER2_STAKE_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "⚠️  Staker2 stake transaction failed: $STAKER2_STAKE_ERROR"
+# See Staker1 block above — guard against jq parse errors and empty txhash.
+STAKER2_STAKE_TX_RESULT=""
+if [ -n "$STAKER2_STAKE_TX" ]; then
+    STAKER2_STAKE_TX_RESULT=$($BINARY query tx $STAKER2_STAKE_TX -o json 2>/dev/null)
+fi
+STAKER2_STAKE_CODE=$(echo "$STAKER2_STAKE_TX_RESULT" | jq -r '.code // 0' 2>/dev/null)
+if [ -n "$STAKER2_STAKE_CODE" ] && [ "$STAKER2_STAKE_CODE" != "0" ]; then
+    STAKER2_STAKE_ERROR=$(echo "$STAKER2_STAKE_TX_RESULT" | jq -r '.raw_log // "Unknown error"' 2>/dev/null)
+    echo "[WARN]  Staker2 stake transaction failed: $STAKER2_STAKE_ERROR"
 fi
 
 STAKER2_STAKE_ID=$(echo "$STAKER2_STAKE_TX_RESULT" | \
@@ -551,11 +561,11 @@ if [ -z "$STAKER2_STAKE_ID" ] || [ "$STAKER2_STAKE_ID" == "null" ] || [ "$STAKER
 fi
 
 if [ -z "$STAKER2_STAKE_ID" ] || [ "$STAKER2_STAKE_ID" == "null" ] || [ "$STAKER2_STAKE_ID" == "" ]; then
-    echo "⚠️  Could not extract stake ID from transaction"
+    echo "[WARN]  Could not extract stake ID from transaction"
     STAKER2_STAKE_ID="unknown"
-    echo "⚠️  Staker2 stake may have failed"
+    echo "[WARN]  Staker2 stake may have failed"
 else
-    echo "✅ Staker2 staked: $STAKER2_STAKE_ID (150 DREAM)"
+    echo "[ OK ] Staker2 staked: $STAKER2_STAKE_ID (150 DREAM)"
 fi
 
 # ========================================================================
@@ -576,9 +586,9 @@ echo "Required conviction: $REQUIRED_CONVICTION"
 echo "Total staked: 250 DREAM (Staker1: 100, Staker2: 150)"
 
 if [ -n "$CURRENT_CONVICTION" ] && [ "$CURRENT_CONVICTION" != "0" ] && [ "$CURRENT_CONVICTION" != "null" ]; then
-    echo "✅ Conviction tracking active"
+    echo "[ OK ] Conviction tracking active"
 else
-    echo "⚠️  Conviction may not be calculated yet (needs epoch blocks)"
+    echo "[WARN]  Conviction may not be calculated yet (needs epoch blocks)"
 fi
 
 # ========================================================================
@@ -596,10 +606,10 @@ if ! echo "$INITIATIVE_STAKES" | grep -q "not found"; then
     echo "Stakes on initiative: $STAKE_COUNT"
 
     if [ "$STAKE_COUNT" -ge 2 ]; then
-        echo "✅ Found staker1 and staker2's stakes on initiative"
+        echo "[ OK ] Found staker1 and staker2's stakes on initiative"
     fi
 else
-    echo "⚠️  stakes-by-target query may not be implemented"
+    echo "[WARN]  stakes-by-target query may not be implemented"
 fi
 
 # Query Staker1's stakes
@@ -615,11 +625,11 @@ if [ -n "$STAKER1_STAKE_ID_FROM_QUERY" ] && [ "$STAKER1_STAKE_ID_FROM_QUERY" != 
     echo "Staker1 has 1 stake:"
     echo "  Stake ID: $STAKER1_STAKE_ID"
     echo "  Amount: $STAKER1_STAKE_AMOUNT_DREAM DREAM"
-    echo "✅ Staker1's stake found"
-    echo "ℹ️  Updated stake ID for use in later parts"
+    echo "[ OK ] Staker1's stake found"
+    echo "[INFO]  Updated stake ID for use in later parts"
 else
     echo "Staker1 has 0 total stakes"
-    echo "⚠️  Query may not have found the stake"
+    echo "[WARN]  Query may not have found the stake"
     # Keep STAKER1_STAKE_ID as it was (likely "unknown" from Part 8)
 fi
 
@@ -639,11 +649,11 @@ if [ -n "$FOUND_CHALLENGE_ID" ] && [ "$FOUND_CHALLENGE_ID" != "null" ] && [ "$FO
     echo "Initiative has 1 challenge:"
     echo "  Challenge ID: $FOUND_CHALLENGE_ID"
     echo "  Status: $FOUND_CHALLENGE_STATUS"
-    echo "✅ Challenge found for initiative"
+    echo "[ OK ] Challenge found for initiative"
 else
     echo "Initiative has 0 challenge(s)"
     if [ "$CHALLENGE_ID" != "unknown" ] && [ -n "$CHALLENGE_ID" ]; then
-        echo "⚠️  Challenge #$CHALLENGE_ID was created but not found by query (may be for different initiative or already resolved)"
+        echo "[WARN]  Challenge #$CHALLENGE_ID was created but not found by query (may be for different initiative or already resolved)"
     fi
 fi
 
@@ -692,7 +702,7 @@ fi
 
 # Method 4: Fallback to querying latest initiative from project
 if [ -z "$ABANDON_TEST_INIT_ID" ] || [ "$ABANDON_TEST_INIT_ID" == "null" ] || [ "$ABANDON_TEST_INIT_ID" == "" ]; then
-    echo "⚠️  Failed to extract from events, querying latest initiative..."
+    echo "[WARN]  Failed to extract from events, querying latest initiative..."
     ABANDON_TEST_INIT_ID=$($BINARY query rep initiatives-by-project $PROJECT_ID -o json 2>/dev/null | \
       jq -r '.initiatives | sort_by(.id) | .[-1].id' 2>/dev/null)
 fi
@@ -701,7 +711,7 @@ echo "Created test initiative: $ABANDON_TEST_INIT_ID"
 
 # Final check
 if [ -z "$ABANDON_TEST_INIT_ID" ] || [ "$ABANDON_TEST_INIT_ID" == "null" ] || [ "$ABANDON_TEST_INIT_ID" == "" ]; then
-    echo "⚠️  Failed to extract abandon test initiative ID, skipping abandon test"
+    echo "[WARN]  Failed to extract abandon test initiative ID, skipping abandon test"
     # Skip the rest of Part 14
 else
 
@@ -724,8 +734,8 @@ ASSIGN_ABANDON_TX_RESULT=$($BINARY query tx $ASSIGN_ABANDON_TX -o json 2>/dev/nu
 ASSIGN_ABANDON_CODE=$(echo "$ASSIGN_ABANDON_TX_RESULT" | jq -r '.code // 0')
 if [ "$ASSIGN_ABANDON_CODE" != "0" ]; then
     ASSIGN_ABANDON_ERROR=$(echo "$ASSIGN_ABANDON_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "⚠️  Assignment failed: $ASSIGN_ABANDON_ERROR"
-    echo "⚠️  Skipping abandon test - assignment failed"
+    echo "[WARN]  Assignment failed: $ASSIGN_ABANDON_ERROR"
+    echo "[WARN]  Skipping abandon test - assignment failed"
     # Skip abandon
 else
     # Verify initiative is actually assigned to Worker
@@ -738,10 +748,10 @@ else
     echo "Initiative status: $ABANDON_TEST_STATUS"
 
     if [ "$ABANDON_TEST_ASSIGNEE" != "$WORKER_ADDR" ]; then
-        echo "⚠️  Assignment verification failed - assignee mismatch"
-        echo "⚠️  Expected: $WORKER_ADDR"
-        echo "⚠️  Got: $ABANDON_TEST_ASSIGNEE"
-        echo "⚠️  Skipping abandon test - assignment not verified"
+        echo "[WARN]  Assignment verification failed - assignee mismatch"
+        echo "[WARN]  Expected: $WORKER_ADDR"
+        echo "[WARN]  Got: $ABANDON_TEST_ASSIGNEE"
+        echo "[WARN]  Skipping abandon test - assignment not verified"
     else
         # Now Worker abandons it
         echo "Worker abandons the assigned initiative..."
@@ -763,7 +773,7 @@ ABANDON_TX_RESULT=$($BINARY query tx $ABANDON_TX -o json 2>/dev/null)
 ABANDON_CODE=$(echo "$ABANDON_TX_RESULT" | jq -r '.code // 0')
 if [ "$ABANDON_CODE" != "0" ]; then
     ABANDON_ERROR=$(echo "$ABANDON_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "⚠️  Abandon transaction failed: $ABANDON_ERROR"
+    echo "[WARN]  Abandon transaction failed: $ABANDON_ERROR"
 fi
 
 # Verify initiative status changed to ABANDONED
@@ -774,11 +784,11 @@ ABANDON_STATUS=$(echo "$ABANDONED_INITIATIVE" | jq -r '.initiative.status // "IN
 echo "Abandoned initiative status: $ABANDON_STATUS"
 
 if [ "$ABANDON_STATUS" == "INITIATIVE_STATUS_ABANDONED" ]; then
-    echo "✅ Initiative successfully ABANDONED"
+    echo "[ OK ] Initiative successfully ABANDONED"
 elif [ "$ABANDON_CODE" != "0" ]; then
-    echo "⚠️  Abandon failed - see error above"
+    echo "[WARN]  Abandon failed - see error above"
 else
-    echo "⚠️  Initiative status: $ABANDON_STATUS (transaction succeeded but status not changed)"
+    echo "[WARN]  Initiative status: $ABANDON_STATUS (transaction succeeded but status not changed)"
 fi
 
     fi  # End of assignee verification check
@@ -825,18 +835,18 @@ if [ "$COMPLETE_CODE" == "0" ]; then
     echo "Completed at: $COMPLETED_AT"
 
     if [ "$FINAL_STATUS" == "INITIATIVE_STATUS_COMPLETED" ]; then
-        echo "✅ Initiative COMPLETED successfully"
+        echo "[ OK ] Initiative COMPLETED successfully"
         echo "→ DREAM minted to worker"
         echo "→ Reputation granted to worker"
         echo "→ Staking rewards distributed to stakers"
         echo "→ Budget distribution: 10% treasury, 90% worker"
     else
-        echo "⚠️  Initiative status: $FINAL_STATUS"
+        echo "[WARN]  Initiative status: $FINAL_STATUS"
         echo "→ May require more conviction/staking or wait for periods"
     fi
 else
     COMPLETE_ERROR=$(echo "$COMPLETE_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "⚠️  Completion failed (expected - conviction threshold not met or challenge active)"
+    echo "[WARN]  Completion failed (expected - conviction threshold not met or challenge active)"
     echo "→ Error: $COMPLETE_ERROR"
     echo "→ This is normal - completion requires conviction threshold + periods"
 fi
@@ -852,7 +862,7 @@ if [ "$STAKER1_STAKE_ID" != "unknown" ] && [ -n "$STAKER1_STAKE_ID" ]; then
     STAKER1_STAKE_DETAIL=$($BINARY query rep get-stake $STAKER1_STAKE_ID -o json 2>&1)
     if echo "$STAKER1_STAKE_DETAIL" | grep -q "key not found"; then
         echo "Staker1's stake #$STAKER1_STAKE_ID:"
-        echo "  ⚠️  Stake not found (may have been deleted or ID incorrect)"
+        echo "  [WARN]  Stake not found (may have been deleted or ID incorrect)"
     else
         STAKER1_AMOUNT=$(echo "$STAKER1_STAKE_DETAIL" | jq -r '.stake.amount // "0"')
         STAKER1_CREATED=$(echo "$STAKER1_STAKE_DETAIL" | jq -r '.stake.created_at // "0"')
@@ -871,7 +881,7 @@ if [ "$STAKER2_STAKE_ID" != "unknown" ] && [ -n "$STAKER2_STAKE_ID" ]; then
     STAKER2_STAKE_DETAIL=$($BINARY query rep get-stake $STAKER2_STAKE_ID -o json 2>&1)
     if echo "$STAKER2_STAKE_DETAIL" | grep -q "key not found"; then
         echo "Staker2's stake #$STAKER2_STAKE_ID:"
-        echo "  ⚠️  Stake not found (may have been deleted or ID incorrect)"
+        echo "  [WARN]  Stake not found (may have been deleted or ID incorrect)"
     else
         STAKER2_AMOUNT=$(echo "$STAKER2_STAKE_DETAIL" | jq -r '.stake.amount // "0"')
         STAKER2_CREATED=$(echo "$STAKER2_STAKE_DETAIL" | jq -r '.stake.created_at // "0"')
@@ -910,16 +920,16 @@ if [ "$STAKER1_STAKE_ID" != "unknown" ] && [ -n "$STAKER1_STAKE_ID" ]; then
     UNSTAKE_CODE=$(echo "$UNSTAKE_RESULT" | jq -r '.code // 0')
 
     if [ "$UNSTAKE_CODE" == "0" ]; then
-        echo "✅ Staker1 unstaked successfully"
+        echo "[ OK ] Staker1 unstaked successfully"
         echo "→ Principal (100 DREAM) returned"
         echo "→ Rewards claimed"
     else
         UNSTAKE_ERROR=$(echo "$UNSTAKE_RESULT" | jq -r '.raw_log // "Unknown error"')
-        echo "⚠️  Unstake failed (code: $UNSTAKE_CODE): $UNSTAKE_ERROR"
+        echo "[WARN]  Unstake failed (code: $UNSTAKE_CODE): $UNSTAKE_ERROR"
         echo "→ May need minimum duration, or initiative not completed yet"
     fi
 else
-    echo "⚠️  Staker1 unstake skipped - stake ID unknown (stake creation may have failed)"
+    echo "[WARN]  Staker1 unstake skipped - stake ID unknown (stake creation may have failed)"
 fi
 
 # ========================================================================
@@ -939,7 +949,7 @@ FOUND_APPRENTICE=$(echo "$ALL_INITIATIVES" | jq -r '.initiative // [] | .[] | se
 FOUND_STANDARD=$(echo "$ALL_INITIATIVES" | jq -r '.initiative // [] | .[] | select(.id=="'$FLOW_INITIATIVE_ID'") | .id' 2>/dev/null)
 
 if [ -n "$FOUND_APPRENTICE" ] && [ -n "$FOUND_STANDARD" ]; then
-    echo "✅ Both test initiatives found in system list"
+    echo "[ OK ] Both test initiatives found in system list"
 fi
 
 # ========================================================================
@@ -964,15 +974,15 @@ echo "Standard tier budget: $STANDARD_BUDGET_DISPLAY DREAM (max: 500)"
 
 # Verify budgets are within tier limits (compare in micro-DREAM)
 if [ "$APPRENTICE_BUDGET" -le "100000000" ]; then
-    echo "✅ Apprentice budget within tier limit"
+    echo "[ OK ] Apprentice budget within tier limit"
 else
-    echo "⚠️  Apprentice budget exceeds limit"
+    echo "[WARN]  Apprentice budget exceeds limit"
 fi
 
 if [ "$STANDARD_BUDGET" -le "500000000" ]; then
-    echo "✅ Standard budget within tier limit"
+    echo "[ OK ] Standard budget within tier limit"
 else
-    echo "⚠️  Standard budget exceeds limit"
+    echo "[WARN]  Standard budget exceeds limit"
 fi
 
 # ========================================================================
@@ -1004,38 +1014,38 @@ echo "  ABANDONED: $ABANDONED_COUNT"
 echo ""
 echo "--- INITIATIVE FLOW TEST SUMMARY ---"
 echo ""
-echo "✅ Part 1:  Project created           ID $PROJECT_ID"
-echo "✅ Part 2:  Budget approved             Status: $NEW_STATUS"
-echo "✅ Part 3:  Initiatives created        Apprentice: $APPRENTICE_ID, Standard: $FLOW_INITIATIVE_ID"
-echo "✅ Part 4:  Initiatives by project     $INITIATIVE_COUNT found"
-echo "✅ Part 5:  Initiative assigned         Status: $NEW_INIT_STATUS"
-echo "✅ Part 6:  By assignee               $WORKER_INIT_COUNT found"
-echo "✅ Part 7:  Work submitted             Status: $SUBMIT_STATUS"
-echo "✅ Part 8:  Challenge created          ID $CHALLENGE_ID, Status: $CHALLENGE_STATUS"
-echo "✅ Part 9:  Challenge response           Responded"
-echo "✅ Part 10: Staking (conviction)     Staker1: 100, Staker2: 150 DREAM"
-echo "✅ Part 11: Conviction query            Current: $CURRENT_CONVICTION"
-echo "✅ Part 12: Stakes by target           Tracked"
-echo "✅ Part 13: Challenges by initiative    $CHALLENGE_COUNT found"
-echo "✅ Part 14: Abandoned flow            Status: $ABANDON_STATUS"
-echo "✅ Part 15: Completion attempt          Status: $FINAL_STATUS"
-echo "✅ Part 16: Pending rewards           Queried"
-echo "✅ Part 17: Unstake/claim            Attempted"
-echo "✅ Part 18: List all initiatives     $TOTAL_INITIATIVES total"
-echo "✅ Part 19: Tier budget limits        Verified"
-echo "✅ Part 20: Project summary           $FINAL_INIT_COUNT initiatives"
+echo "[ OK ] Part 1:  Project created           ID $PROJECT_ID"
+echo "[ OK ] Part 2:  Budget approved             Status: $NEW_STATUS"
+echo "[ OK ] Part 3:  Initiatives created        Apprentice: $APPRENTICE_ID, Standard: $FLOW_INITIATIVE_ID"
+echo "[ OK ] Part 4:  Initiatives by project     $INITIATIVE_COUNT found"
+echo "[ OK ] Part 5:  Initiative assigned         Status: $NEW_INIT_STATUS"
+echo "[ OK ] Part 6:  By assignee               $WORKER_INIT_COUNT found"
+echo "[ OK ] Part 7:  Work submitted             Status: $SUBMIT_STATUS"
+echo "[ OK ] Part 8:  Challenge created          ID $CHALLENGE_ID, Status: $CHALLENGE_STATUS"
+echo "[ OK ] Part 9:  Challenge response           Responded"
+echo "[ OK ] Part 10: Staking (conviction)     Staker1: 100, Staker2: 150 DREAM"
+echo "[ OK ] Part 11: Conviction query            Current: $CURRENT_CONVICTION"
+echo "[ OK ] Part 12: Stakes by target           Tracked"
+echo "[ OK ] Part 13: Challenges by initiative    $CHALLENGE_COUNT found"
+echo "[ OK ] Part 14: Abandoned flow            Status: $ABANDON_STATUS"
+echo "[ OK ] Part 15: Completion attempt          Status: $FINAL_STATUS"
+echo "[ OK ] Part 16: Pending rewards           Queried"
+echo "[ OK ] Part 17: Unstake/claim            Attempted"
+echo "[ OK ] Part 18: List all initiatives     $TOTAL_INITIATIVES total"
+echo "[ OK ] Part 19: Tier budget limits        Verified"
+echo "[ OK ] Part 20: Project summary           $FINAL_INIT_COUNT initiatives"
 echo ""
-echo "📊 CONVICTION VOTING DEMONSTRATED:"
+echo " CONVICTION VOTING DEMONSTRATED:"
 echo "   → Staker1 ($STAKER1_NAME) staked 100 DREAM on initiative"
 echo "   → Staker2 ($STAKER2_NAME) staked 150 DREAM on initiative"
 echo "   → Total: 250 DREAM conviction"
 echo "   → External conviction requirement: 50%"
 echo ""
-echo "🔄 COMPLETION REQUIREMENTS (for production):"
+echo " COMPLETION REQUIREMENTS (for production):"
 echo "   1. Total conviction ≥ threshold"
 echo "   2. External conviction ≥ 50%"
 echo "   3. No active challenges"
 echo "   4. Review period passed"
 echo "   5. Challenge period passed"
 echo ""
-echo "✅✅✅ INITIATIVE FLOW TEST COMPLETED ✅✅✅"
+echo "=== INITIATIVE FLOW TEST COMPLETED ==="

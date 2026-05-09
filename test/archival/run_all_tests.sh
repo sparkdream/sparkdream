@@ -10,6 +10,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/../_timing.sh"
+
+# Wall-clock timing for the suite (Started/Ended/Duration in summary).
+SUITE_START_EPOCH=$(timing_now_epoch)
+SUITE_START_HUMAN=$(timing_now_human)
 
 TESTS=(replay manifest pinata filebase storacha jackal arweave)
 
@@ -53,6 +58,11 @@ echo ""
 echo "================================================================"
 echo " Archival Integration Test Summary"
 echo "================================================================"
+SUITE_END_EPOCH=$(timing_now_epoch)
+SUITE_END_HUMAN=$(timing_now_human)
+timing_print_summary_block "$SUITE_START_EPOCH" "$SUITE_END_EPOCH" \
+    "$SUITE_START_HUMAN" "$SUITE_END_HUMAN"
+echo ""
 echo "  Total:   $TOTAL"
 echo "  Passed:  $PASSED"
 echo "  Failed:  $FAILED"

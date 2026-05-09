@@ -29,7 +29,7 @@ echo ""
 
 wait_for_tx() {
     local TXHASH=$1
-    local MAX_ATTEMPTS=20
+    local MAX_ATTEMPTS=60
     local ATTEMPT=0
 
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
@@ -53,6 +53,25 @@ check_tx_success() {
     if [ "$CODE" != "0" ]; then
         echo "Transaction failed with code: $CODE"
         echo "$TX_RESULT" | jq -r '.raw_log'
+        return 1
+    fi
+    return 0
+}
+
+# check_broadcast inspects the JSON response from `tx ... -y --output json` and
+# rejects CheckTx failures (non-zero, non-null .code) BEFORE we wait_for_tx —
+# otherwise CheckTx-rejected txs sit forever in q-tx-not-found land and the
+# only signal back to the test is the unhelpful "Transaction not found after N
+# attempts" timeout. Returns 0 if the broadcast was accepted into mempool
+# (code is 0 or absent), 1 otherwise.
+check_broadcast() {
+    local TX_RES=$1
+    # jq with `// 0` so a missing .code (older CLI output formats) is treated
+    # as success, matching the existing TX_CODE extraction in this file.
+    local CODE=$(echo "$TX_RES" | jq -r '.code // 0' 2>/dev/null)
+    if [ "$CODE" != "0" ] && [ "$CODE" != "null" ]; then
+        echo "Broadcast rejected at CheckTx (code=$CODE)"
+        echo "$TX_RES" | jq -r '.raw_log // .'
         return 1
     fi
     return 0
@@ -129,11 +148,14 @@ TX_RES=$($BINARY tx season set-display-name \
     --output json 2>&1)
 
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-TX_CODE=$(echo "$TX_RES" | jq -r '.code // 0')
 
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
     fail "Set display name - no txhash"
     echo "  $TX_RES"
+elif ! check_broadcast "$TX_RES"; then
+    # CheckTx already rejected this — q tx will never find it. Fail fast with
+    # the real reason instead of timing out in wait_for_tx.
+    fail "Set display name - broadcast rejected at CheckTx"
 else
     echo "  Transaction: $TXHASH"
     sleep 6
@@ -209,6 +231,8 @@ TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
     fail "Set username - no txhash"
     echo "  $TX_RES"
+elif ! check_broadcast "$TX_RES"; then
+    fail "Set username - broadcast rejected at CheckTx"
 else
     echo "  Transaction: $TXHASH"
     sleep 6
@@ -421,6 +445,8 @@ if [ "$SECOND_TITLE" != "none" ] && [ "$SECOND_TITLE" != "null" ] && [ -n "$SECO
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
         fail "Set display title - no txhash"
+    elif ! check_broadcast "$TX_RES"; then
+        fail "Set display title - broadcast rejected at CheckTx"
     else
         echo "  Transaction: $TXHASH"
         sleep 6

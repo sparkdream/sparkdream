@@ -124,6 +124,22 @@ MIN_CHALLENGE_STAKE=$(echo "$PARAMS" | jq -r '.params.min_challenge_stake // "50
 echo "MinChallengeStake: $MIN_CHALLENGE_STAKE"
 echo ""
 
+# Earlier suite tests drain the challenger; top up via uncapped bounty so this
+# test can post the 50-DREAM challenge stake regardless of upstream test order.
+CHALLENGER_BAL_JSON=$($BINARY query rep get-member "$CHALLENGER_ADDR" -o json 2>/dev/null)
+CHALLENGER_BAL=$(echo "$CHALLENGER_BAL_JSON" | jq -r '.member.dream_balance // "0"')
+CHALLENGER_STAKED=$(echo "$CHALLENGER_BAL_JSON" | jq -r '.member.staked_dream // "0"')
+CHALLENGER_AVAILABLE=$((${CHALLENGER_BAL:-0} - ${CHALLENGER_STAKED:-0}))
+NEEDED=300000000
+if [ "$CHALLENGER_AVAILABLE" -lt "$NEEDED" ]; then
+    echo "  Topping up challenger (available: $CHALLENGER_AVAILABLE)..."
+    $BINARY tx rep transfer-dream "$CHALLENGER_ADDR" 500000000 bounty \
+        "bond_locked_test top-up" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000uspark -y --output json > /dev/null 2>&1
+    sleep 6
+fi
+
 # ========================================================================
 # TEST 1: Create blog post with author bond
 # ========================================================================

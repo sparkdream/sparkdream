@@ -35,7 +35,13 @@ func (k msgServer) RequestReputationAttestation(ctx context.Context, msg *types.
 		return nil, errorsmod.Wrapf(types.ErrReputationNotSupported, "peer %q does not accept reputation attestations", msg.PeerId)
 	}
 
-	// 3. Send IBC ReputationQueryPacket (best-effort: event emitted even if IBC unavailable)
+	// 3. Send IBC ReputationQueryPacket. The reputation_attested event is still
+	// emitted on success so callers see their request acknowledged on-chain;
+	// the actual attestation is stored later in OnAcknowledgementPacket once
+	// the remote chain responds. If SendFederationPacket fails (IBC not wired,
+	// channel closed, marshal error, etc.) we surface that via a dedicated
+	// event + log line — silently swallowing with `_, _ =` was the exact
+	// regression `test_crosschain_reputation.sh` TEST 1 catches.
 	packetData := &types.FederationPacketData{
 		Packet: &types.FederationPacketData_ReputationQuery{
 			ReputationQuery: &types.ReputationQueryPacket{
@@ -44,11 +50,24 @@ func (k msgServer) RequestReputationAttestation(ctx context.Context, msg *types.
 			},
 		},
 	}
-	// Non-fatal: IBC may not be available in all environments (e.g., tests).
-	// The response will arrive via OnAcknowledgementPacket when IBC is operational.
-	_, _ = k.SendFederationPacket(ctx, msg.PeerId, packetData)
-
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	if _, sendErr := k.SendFederationPacket(ctx, msg.PeerId, packetData); sendErr != nil {
+		sdkCtx.Logger().With("module", "x/federation").Error(
+			"RequestReputationAttestation: SendFederationPacket failed; no IBC packet was committed",
+			"peer_id", msg.PeerId,
+			"requester", msg.Creator,
+			"queried_address", msg.RemoteAddress,
+			"error", sendErr,
+		)
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(types.EventTypeFederationPacketSendFailed,
+				sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId),
+				sdk.NewAttribute(types.AttributeKeyPacketKind, "reputation_query"),
+				sdk.NewAttribute(types.AttributeKeyLocalAddress, msg.Creator),
+				sdk.NewAttribute(types.AttributeKeyError, sendErr.Error())),
+		)
+	}
+
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(types.EventTypeReputationAttested,
 			sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId),

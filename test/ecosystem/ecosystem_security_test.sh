@@ -13,7 +13,7 @@ DENOM="uspark"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then
-    echo "❌ Error: jq is not installed."
+    echo "[FAIL] Error: jq is not installed."
     exit 1
 fi
 
@@ -58,9 +58,9 @@ echo "Carol calls MsgSpend claiming SHE is the authority..."
 ATTACK_A_OUT=$($BINARY tx ecosystem spend $CAROL_ADDR 1000000$DENOM --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>&1 || true)
 
 if echo "$ATTACK_A_OUT" | grep -q "invalid authority" || echo "$ATTACK_A_OUT" | grep -q "unauthorized"; then
-    echo "✅ Attack A blocked: Module logic correctly rejected Carol as authority."
+    echo "[ OK ] Attack A blocked: Module logic correctly rejected Carol as authority."
 elif echo "$ATTACK_A_OUT" | grep -q "failed to execute message"; then
-    echo "✅ Attack A blocked: Execution failed."
+    echo "[ OK ] Attack A blocked: Execution failed."
 else
     # Check tx code if broadcasted
     TX_HASH=$(echo "$ATTACK_A_OUT" | jq -r '.txhash // empty')
@@ -68,13 +68,13 @@ else
         sleep 6
         TX_RES=$($BINARY query tx $TX_HASH --output json 2>/dev/null)
         if [ "$(echo "$TX_RES" | jq -r '.code')" != "0" ]; then
-             echo "✅ Attack A blocked on-chain (Code != 0)."
+             echo "[ OK ] Attack A blocked on-chain (Code != 0)."
         else
-             echo "❌ CRITICAL FAILURE: Attack A succeeded."
+             echo "[FAIL] CRITICAL FAILURE: Attack A succeeded."
              exit 1
         fi
     else
-         echo "❌ FAILURE: Unexpected output for Attack A."
+         echo "[FAIL] FAILURE: Unexpected output for Attack A."
          echo "$ATTACK_A_OUT"
     fi
 fi
@@ -112,10 +112,10 @@ echo "Broadcast Result: $ATTACK_B_OUT"
 # Analyze B
 IS_B_SAFE=false
 if echo "$ATTACK_B_OUT" | grep -q "pubKey does not match signer address" || echo "$ATTACK_B_OUT" | grep -q "signature verification failed" || echo "$ATTACK_B_OUT" | grep -q "invalid pubkey"; then
-    echo "✅ Attack B blocked: Signature verification failed (AnteHandler)."
+    echo "[ OK ] Attack B blocked: Signature verification failed (AnteHandler)."
     IS_B_SAFE=true
 elif echo "$ATTACK_B_OUT" | grep -q "unauthorized"; then
-    echo "✅ Attack B blocked: Unauthorized."
+    echo "[ OK ] Attack B blocked: Unauthorized."
     IS_B_SAFE=true
 else
      # If broadcasted, check code
@@ -127,15 +127,15 @@ else
         
         # Code 32 is "incorrect signature"
         if [ "$TX_CODE" != "0" ] && [ "$TX_CODE" != "null" ]; then
-             echo "✅ Attack B blocked on-chain (Code $TX_CODE)."
+             echo "[ OK ] Attack B blocked on-chain (Code $TX_CODE)."
              IS_B_SAFE=true
         elif [ "$TX_CODE" == "0" ]; then
-             echo "❌ CRITICAL FAILURE: Attack B succeeded! Signature check bypassed."
+             echo "[FAIL] CRITICAL FAILURE: Attack B succeeded! Signature check bypassed."
              exit 1
         fi
      else
         # If we are here, it might have failed cleanly at CLI level
-        echo "✅ Attack B blocked (CLI/Validation error)."
+        echo "[ OK ] Attack B blocked (CLI/Validation error)."
         IS_B_SAFE=true
      fi
 fi
@@ -154,7 +154,7 @@ echo "Carol End:     $CAROL_END $DENOM"
 
 # Check for THEFT (Decrease in Ecosystem)
 if [ "$ECO_END" -lt "$ECO_START" ]; then
-    echo "❌ ALARM: Ecosystem balance DECREASED! Theft occurred."
+    echo "[FAIL] ALARM: Ecosystem balance DECREASED! Theft occurred."
     echo "Lost: $((ECO_START - ECO_END)) $DENOM"
     exit 1
 fi
@@ -163,8 +163,8 @@ fi
 # If Carol succeeded, she would have +1,000,000. 
 # If she failed, she has Start - Fees.
 if [ "$CAROL_END" -gt "$((CAROL_START + 5000))" ]; then
-    echo "❌ ALARM: Carol's balance increased significantly!"
+    echo "[FAIL] ALARM: Carol's balance increased significantly!"
     exit 1
 fi
 
-echo "🎉 SECURITY AUDIT PASSED: All attack vectors failed. Funds are safe."
+echo " SECURITY AUDIT PASSED: All attack vectors failed. Funds are safe."

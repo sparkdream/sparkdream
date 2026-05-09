@@ -92,7 +92,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 | Module | Messages | Queries | EndBlocker | BeginBlocker | Purpose |
 |--------|----------|---------|------------|--------------|---------|
-| x/commons | 18 | 9 | 2 phases | — | Three Pillars governance, anonymous proposals |
+| x/commons | 18 | 11 | 2 phases | — | Three Pillars governance, anonymous proposals |
 | x/split | 1 | 3 | — | BeginBlock | Automated revenue distribution |
 | x/futarchy | 7 | 4 | Yes | — | LMSR prediction markets, elastic tenure |
 | x/ecosystem | 2 | 1 | — | — | Governance-gated ecosystem treasury |
@@ -112,7 +112,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 ### x/commons (The Orchestrator)
 
-**Purpose:** Central engine for the "Three Pillars" governance, native proposal system, and anonymous governance.
+**Purpose:** Central engine for the "Three Pillars" governance, native proposal system, and anonymous governance. Full specification at [`docs/x-commons-spec.md`](x-commons-spec.md).
 
 **Mechanism:** Native `Group` structure with built-in proposal lifecycle (submit → vote → execute). Replaced x/group dependency.
 
@@ -128,7 +128,9 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 **Messages (18):** `register_group`, `renew_group`, `update_group_members`, `update_group_config`, `delete_group`, `spend_from_commons`, `policy_permissions` (create/update/delete), `force_upgrade`, `emergency_cancel_gov_proposal`, `veto_group_proposals`, `submit_proposal`, `vote_proposal`, `execute_proposal`, `submit_anonymous_proposal`, `anonymous_vote_proposal`, `update_params`
 
-**Queries (9):** `params`, `get_policy_permissions`, `list_policy_permissions`, `get_group`, `list_groups`, `get_council_members`, `get_proposal`, `list_proposals`, `get_proposal_votes`
+**Queries (11):** `params`, `get_policy_permissions`, `list_policy_permissions`, `get_decision_policy`, `list_decision_policies`, `get_group`, `list_groups`, `get_council_members`, `get_proposal`, `list_proposals`, `get_proposal_votes`
+
+The `get_decision_policy` and `list_decision_policies` queries expose each council policy's voting rules — `policy_type` ("percentage" or "threshold"), `threshold`, `voting_period` (seconds), and `min_execution_period` (seconds between acceptance and earliest execution). These complement `get_policy_permissions` (allowed message types per policy) and round out the public surface for council configuration: every council has a `Group` (identity), `PolicyPermissions` (what it can do), and a `DecisionPolicy` (how it votes).
 
 **EndBlocker (2 phases):**
 1. Market trigger queue — schedules and fires futarchy confidence vote markets for groups

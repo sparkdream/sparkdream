@@ -16,6 +16,26 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
+# wait_for_tx polls `query tx <hash>` until the tx is indexed or until the
+# timeout elapses. Replaces the fragile `sleep N; query tx` pattern that
+# fails under suite-wide load (the master e2e suite saw `tx not found`
+# when block production slipped past 5s). Mirrors the helper in
+# parent_veto_test.sh / executive_veto_test.sh.
+wait_for_tx() {
+    local hash=$1
+    local timeout=${2:-30}
+    local out
+    for i in $(seq 1 $timeout); do
+        out=$($BINARY query tx "$hash" --output json 2>/dev/null)
+        if [ -n "$out" ] && echo "$out" | jq -e '.txhash' >/dev/null 2>&1; then
+            echo "$out"
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 # Actors
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test) # Tech Lead (Weight 3)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)     # Commons Member
@@ -109,10 +129,14 @@ echo '{
 
 SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/real_upgrade.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 5
 
-# Robust ID Extraction
-TX_RES=$($BINARY query tx $TX_HASH --output json)
+# Robust ID Extraction — wait for the tx to be indexed before querying it
+TX_RES=$(wait_for_tx "$TX_HASH")
+if [ -z "$TX_RES" ]; then
+    echo "ERROR: submit-proposal tx $TX_HASH was not indexed within timeout."
+    echo "       broadcast response: $SUBMIT_RES"
+    exit 1
+fi
 TECH_PROP_ID=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"')
 
 # Fallback extraction

@@ -391,6 +391,16 @@ func New(
 		panic(err)
 	}
 
+	// Wire the IBC keeper into Federation now that registerIBCModules has
+	// constructed app.IBCKeeper. Federation's SendFederationPacket relies on
+	// this to actually emit IBC send_packet events; without this call the
+	// keeper silently no-ops every packet send and Hermes has nothing to
+	// relay (see test/federation/multichain/test_crosschain_content.sh
+	// "Silent SendPacket regression"). Closure form is required because
+	// IBCKeeper is constructed AFTER depinject runs (the federation keeper
+	// stores the closure during construction and dereferences it lazily).
+	app.FederationKeeper.SetIBCKeeperFn(func() *ibckeeper.Keeper { return app.IBCKeeper })
+
 	/****  Module Options ****/
 
 	// create the simulation manager and define the order of the modules for deterministic simulations

@@ -31,7 +31,7 @@ fi
 # Wait for transaction and extract result
 wait_for_tx() {
     local TXHASH=$1
-    local MAX_ATTEMPTS=20
+    local MAX_ATTEMPTS=60
     local ATTEMPT=0
 
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
@@ -257,10 +257,17 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         *) continue ;;
     esac
 
-    # Guild founder needs more DREAM for guild creation
+    # Guild founder needs more DREAM for guild creation.
+    # display_user reports + appeals (50 DREAM lock + 100 DREAM lock) and the
+    # 3% transfer tax + per-epoch unstaked decay eat into the seed, so we
+    # also bump display_user above the 250-DREAM default to leave clear
+    # headroom for the appeal-stake escrow (x/season ErrDREAMOperationFailed).
     if [ "$ACCOUNT" == "guild_founder" ]; then
         DREAM_AMOUNT="500000000"  # 500 DREAM
         echo "  Sending 500 DREAM to $ACCOUNT (extra for guild creation)..."
+    elif [ "$ACCOUNT" == "display_user" ]; then
+        DREAM_AMOUNT="500000000"  # 500 DREAM (covers report+appeal + tax + decay)
+        echo "  Sending 500 DREAM to $ACCOUNT (extra for moderation appeal escrow)..."
     else
         DREAM_AMOUNT="250000000"  # 250 DREAM
         echo "  Sending 250 DREAM to $ACCOUNT..."

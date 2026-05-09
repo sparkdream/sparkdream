@@ -28,7 +28,14 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../check_testparams.sh"
+source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
+
+# Wall-clock timing for the suite — captured here so the summary's
+# "Started" line reflects when the runner was invoked, not when the
+# first test fired.
+SUITE_START_EPOCH=$(timing_now_epoch)
+SUITE_START_HUMAN=$(timing_now_human)
 
 # Parse command line arguments
 RUN_SETUP=true
@@ -46,9 +53,15 @@ RUN_EXEC_MODE=true
 RUN_RATE_LIMIT=true
 RUN_ENCRYPTED_BATCH=true
 RUN_DKG_CEREMONY=true
+# Master gate for the entire test-execution loop. Two later invocations
+# (dkg_error_test, cross_module_test) sit at column 0 with no per-test gate;
+# this master flag lets `--no-tests` skip them too, preventing state drift
+# in the `--restore-setup --no-tests` workflow.
+RUN_TESTS=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
+AUTO_SNAPSHOT=true
 for arg in "$@"; do
     case $arg in
         --no-setup)
@@ -134,6 +147,7 @@ for arg in "$@"; do
             RUN_SETUP=false
             ;;
         --no-tests)
+            RUN_TESTS=false
             RUN_REGISTRATION=false
             RUN_QUERY=false
             RUN_TLE=false
@@ -170,6 +184,7 @@ for arg in "$@"; do
             echo "  --only-setup        Run only setup (skip all tests)"
             echo "  --save-setup        Run setup, save chain state, then exit"
             echo "  --restore-setup     Restore saved setup state, then run tests"
+            echo "  --no-auto-snapshot Disable auto-snapshot (run setup every time, no caching)"
             echo "  --no-tests          Skip all tests (use with --restore-setup for manual testing)"
             echo "  --help, -h          Show this help message"
             echo ""
@@ -181,6 +196,9 @@ for arg in "$@"; do
             echo "  bash $0 --restore-setup --no-tests  # Restore state, start chain, exit"
             exit 0
             ;;
+        --no-auto-snapshot)
+            AUTO_SNAPSHOT=false
+            ;;
         *)
             echo "Unknown option: $arg"
             echo "Use --help for usage information"
@@ -189,6 +207,11 @@ for arg in "$@"; do
     esac
 done
 
+
+# Auto-snapshot: when no explicit save/restore flag is passed, reuse an
+# existing fresh snapshot or save one after setup. See test/_auto_snapshot.sh.
+source "$SCRIPT_DIR/../_auto_snapshot.sh"
+auto_snapshot_pre
 echo "============================================================================"
 echo "                    X/SHIELD MODULE E2E TEST SUITE"
 echo "============================================================================"
@@ -314,6 +337,31 @@ if [ "$RESTORE_SETUP" = true ]; then
     fi
 
     echo ""
+
+    # `--restore-setup --no-tests`: the user wants a fresh post-setup chain
+    # to run a specific test against — don't fall through into the test
+    # loop, which would drift state via the un-gated tests further down
+    # (dkg_error_test, cross_module_test).
+    if [ "$RUN_TESTS" != true ]; then
+        BLOCK_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
+        echo "============================================================================"
+        echo "  RESTORE COMPLETE — TEST EXECUTION SKIPPED (--no-tests)"
+        echo "============================================================================"
+        echo ""
+        echo "  Chain home:   $HOME/.sparkdream"
+        echo "  Block height: $BLOCK_HEIGHT"
+        echo "  Test env:     $SCRIPT_DIR/.test_env  (already sourced)"
+        echo "  Chain log:    /tmp/chain_after_restore.log"
+        echo ""
+        echo "  Run any specific test against the freshly restored state:"
+        echo "    bash $SCRIPT_DIR/registration_test.sh"
+        echo "    bash $SCRIPT_DIR/<other_test>.sh"
+        echo ""
+        echo "  Stop the chain when done:"
+        echo "    pkill -f 'sparkdreamd start --home $HOME/.sparkdream'"
+        echo ""
+        exit 0
+    fi
 fi
 
 # ============================================================================
@@ -323,6 +371,11 @@ TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 declare -a FAILED_TESTS
+
+# Per-test timing — populated by run_test, consumed by the summary block.
+declare -a TIMED_NAMES=()
+declare -a TIMED_RESULTS=()
+declare -a TIMED_DURATIONS_S=()
 
 run_test() {
     local TEST_NAME=$1
@@ -335,15 +388,29 @@ run_test() {
 
     TESTS_RUN=$((TESTS_RUN + 1))
 
+    local _t0 _t1 _dur_s _dur
+    _t0=$(timing_now_epoch)
     if bash "$SCRIPT_DIR/$TEST_SCRIPT"; then
+        _t1=$(timing_now_epoch)
+        _dur_s=$((_t1 - _t0))
+        _dur=$(timing_format_duration "$_dur_s")
         TESTS_PASSED=$((TESTS_PASSED + 1))
+        TIMED_NAMES+=("$TEST_NAME")
+        TIMED_RESULTS+=("PASS")
+        TIMED_DURATIONS_S+=("$_dur_s")
         echo ""
-        echo ">>> $TEST_NAME: PASSED <<<"
+        echo ">>> $TEST_NAME: PASSED ($_dur) <<<"
     else
+        _t1=$(timing_now_epoch)
+        _dur_s=$((_t1 - _t0))
+        _dur=$(timing_format_duration "$_dur_s")
         TESTS_FAILED=$((TESTS_FAILED + 1))
         FAILED_TESTS+=("$TEST_NAME")
+        TIMED_NAMES+=("$TEST_NAME")
+        TIMED_RESULTS+=("FAIL")
+        TIMED_DURATIONS_S+=("$_dur_s")
         echo ""
-        echo ">>> $TEST_NAME: FAILED <<<"
+        echo ">>> $TEST_NAME: FAILED ($_dur) <<<"
     fi
 
     echo ""
@@ -357,6 +424,10 @@ run_test() {
 # Setup (always first if enabled)
 if [ "$RUN_SETUP" = true ]; then
     run_test "Account Setup" "setup_test_accounts.sh"
+
+    # Auto-save the post-setup snapshot if AUTO_SNAPSHOT was set and
+    # no fresh snapshot existed at the start of this run.
+    auto_snapshot_post
 
     # If --save-setup mode, save chain state and exit
     if [ "$SAVE_SETUP" = true ]; then
@@ -516,11 +587,17 @@ else
     echo ""
 fi
 
-# DKG ceremony error paths tests (P3)
-run_test "DKG Error Paths Tests" "dkg_error_test.sh"
+# Always-on tests below have no per-test --no-X flag. Wrap in the master
+# RUN_TESTS guard so `--no-tests` skips them too — the early exit in the
+# restore branch handles `--restore-setup --no-tests`; this defends against
+# `--no-tests` without `--restore-setup`.
+if [ "$RUN_TESTS" = true ]; then
+    # DKG ceremony error paths tests (P3)
+    run_test "DKG Error Paths Tests" "dkg_error_test.sh"
 
-# Cross-module shield-aware integration tests (P3)
-run_test "Cross-Module Shield-Aware Tests" "cross_module_test.sh"
+    # Cross-module shield-aware integration tests (P3)
+    run_test "Cross-Module Shield-Aware Tests" "cross_module_test.sh"
+fi
 
 # Governance operation tests (slow: requires proposal voting periods)
 if [ "$RUN_GOVERNANCE" = true ]; then
@@ -537,10 +614,24 @@ echo "==========================================================================
 echo "                         TEST SUITE SUMMARY"
 echo "============================================================================"
 echo ""
+
+# Wall-clock summary (Started/Ended/Duration), captured by the helper.
+SUITE_END_EPOCH=$(timing_now_epoch)
+SUITE_END_HUMAN=$(timing_now_human)
+timing_print_summary_block "$SUITE_START_EPOCH" "$SUITE_END_EPOCH" \
+    "$SUITE_START_HUMAN" "$SUITE_END_HUMAN"
+echo ""
+
 echo "  Tests Run:    $TESTS_RUN"
 echo "  Tests Passed: $TESTS_PASSED"
 echo "  Tests Failed: $TESTS_FAILED"
 echo ""
+
+# Per-test timings table (in execution order).
+if [ ${#TIMED_NAMES[@]} -gt 0 ]; then
+    timing_print_per_test_table TIMED_RESULTS TIMED_DURATIONS_S TIMED_NAMES
+    echo ""
+fi
 
 if [ $TESTS_FAILED -gt 0 ]; then
     echo "Failed Tests:"

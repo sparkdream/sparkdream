@@ -64,7 +64,7 @@ check_tx_success() {
     local CODE=$(echo "$TX_RESULT" | jq -r '.code')
 
     if [ "$CODE" != "0" ]; then
-        echo "❌ Transaction failed with code: $CODE"
+        echo "[FAIL] Transaction failed with code: $CODE"
         echo "$TX_RESULT" | jq -r '.raw_log'
         return 1
     fi
@@ -81,9 +81,9 @@ ACCOUNTS=("challenger" "anonymous_challenger" "assignee" "juror1" "juror2" "juro
 for ACCOUNT in "${ACCOUNTS[@]}"; do
     if ! $BINARY keys show $ACCOUNT --keyring-backend test > /dev/null 2>&1; then
         $BINARY keys add $ACCOUNT --keyring-backend test --output json > /dev/null 2>&1
-        echo "  ✅ Created key: $ACCOUNT"
+        echo "  [ OK ] Created key: $ACCOUNT"
     else
-        echo "  ⏭️  Key exists: $ACCOUNT"
+        echo "  [SKIP]  Key exists: $ACCOUNT"
     fi
 done
 
@@ -122,14 +122,14 @@ for ADDR in $CHALLENGER_ADDR $ANON_CHALLENGER_ADDR $ASSIGNEE_ADDR $JUROR1_ADDR $
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  ❌ Failed to send SPARK: no txhash"
+        echo "  [FAIL] Failed to send SPARK: no txhash"
         continue
     fi
 
     sleep 6
 done
 
-echo "  ✅ All accounts funded with SPARK"
+echo "  [ OK ] All accounts funded with SPARK"
 echo ""
 
 # ========================================================================
@@ -163,7 +163,7 @@ for i in "${!ACCOUNTS[@]}"; do
     # Skip inviting if already a member (idempotent rerun)
     EXISTING_MEMBER=$($BINARY query rep get-member $ADDR --output json 2>&1)
     if ! echo "$EXISTING_MEMBER" | grep -q "not found"; then
-        echo "  ⏭️  $ACCOUNT is already a member, skipping invitation"
+        echo "  [SKIP]  $ACCOUNT is already a member, skipping invitation"
         INVITATION_IDS+=("")
         continue
     fi
@@ -188,7 +188,7 @@ for i in "${!ACCOUNTS[@]}"; do
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  ❌ Failed to invite $ACCOUNT: no txhash"
+        echo "  [FAIL] Failed to invite $ACCOUNT: no txhash"
         continue
     fi
 
@@ -198,18 +198,18 @@ for i in "${!ACCOUNTS[@]}"; do
     if check_tx_success "$TX_RESULT"; then
         INVITATION_ID=$(extract_event_value "$TX_RESULT" "create_invitation" "invitation_id")
         if [ -z "$INVITATION_ID" ]; then
-            echo "  ⚠️  Could not extract invitation_id, using index: $((i + 1))"
+            echo "  [WARN]  Could not extract invitation_id, using index: $((i + 1))"
             INVITATION_ID=$((i + 1))
         fi
         INVITATION_IDS+=($INVITATION_ID)
-        echo "  ✅ Invited $ACCOUNT (invitation #$INVITATION_ID)"
+        echo "  [ OK ] Invited $ACCOUNT (invitation #$INVITATION_ID)"
     else
         RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
         if echo "$RAW_LOG" | grep -qi "invitation already exists"; then
-            echo "  ⏭️  $ACCOUNT already has an invitation"
+            echo "  [SKIP]  $ACCOUNT already has an invitation"
             INVITATION_IDS+=("")
         else
-            echo "  ❌ Failed to invite $ACCOUNT: $RAW_LOG"
+            echo "  [FAIL] Failed to invite $ACCOUNT: $RAW_LOG"
             INVITATION_IDS+=("")
         fi
     fi
@@ -227,7 +227,7 @@ for i in "${!ACCOUNTS[@]}"; do
     INVITATION_ID="${INVITATION_IDS[$i]}"
 
     if [ -z "$INVITATION_ID" ]; then
-        echo "  ⏭️  Skipping $ACCOUNT (no invitation ID)"
+        echo "  [SKIP]  Skipping $ACCOUNT (no invitation ID)"
         continue
     fi
 
@@ -244,7 +244,7 @@ for i in "${!ACCOUNTS[@]}"; do
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  ❌ Failed to accept invitation: no txhash"
+        echo "  [FAIL] Failed to accept invitation: no txhash"
         continue
     fi
 
@@ -252,9 +252,9 @@ for i in "${!ACCOUNTS[@]}"; do
     TX_RESULT=$(wait_for_tx $TXHASH)
 
     if check_tx_success "$TX_RESULT"; then
-        echo "  ✅ $ACCOUNT is now a member"
+        echo "  [ OK ] $ACCOUNT is now a member"
     else
-        echo "  ❌ Failed: $ACCOUNT could not accept invitation"
+        echo "  [FAIL] Failed: $ACCOUNT could not accept invitation"
     fi
 done
 
@@ -291,14 +291,17 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
     esac
 
     # Assignee needs more DREAM for staking tests (used heavily across test suite)
-    # sentinel1 needs 500 to cover 100 DREAM bond + 3% tax + working capital
+    # Sentinels need to cover the 500 DREAM min_bond from x/forum + ongoing
+    # bonded_role_test deltas + 3% transfer tax + working capital. We send 1500
+    # so after the 3% gift tax (~45 DREAM) they hold ~1455 — enough to bond
+    # 500, add the 50-DREAM Part 1 delta in bonded_role_test, and leave room.
     if [ "$ACCOUNT" == "assignee" ]; then
         DREAM_AMOUNT="500000000"  # 500 DREAM
         echo "  → Sending 500 DREAM to $ACCOUNT (extra for staking tests)..."
-    elif [ "$ACCOUNT" == "sentinel1" ]; then
-        DREAM_AMOUNT="500000000"  # 500 DREAM
-        echo "  → Sending 500 DREAM to $ACCOUNT (for sentinel bonding + working capital)..."
-    elif [ "$ACCOUNT" == "sentinel2" ] || [ "$ACCOUNT" == "poster1" ] || [ "$ACCOUNT" == "moderator" ]; then
+    elif [ "$ACCOUNT" == "sentinel1" ] || [ "$ACCOUNT" == "sentinel2" ]; then
+        DREAM_AMOUNT="1500000000"  # 1500 DREAM
+        echo "  → Sending 1500 DREAM to $ACCOUNT (for sentinel bonding + working capital)..."
+    elif [ "$ACCOUNT" == "poster1" ] || [ "$ACCOUNT" == "moderator" ]; then
         DREAM_AMOUNT="250000000"  # 250 DREAM
         echo "  → Sending 250 DREAM to $ACCOUNT..."
     else
@@ -306,11 +309,18 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         echo "  → Sending 250 DREAM to $ACCOUNT..."
     fi
 
-    # Gift DREAM to the new member
+    # Choose transfer purpose: gift caps at 500 DREAM (MaxGiftAmount), so for
+    # 1500-DREAM sentinel funding we use "bounty" which is uncapped.
+    PURPOSE="gift"
+    if [ "${DREAM_AMOUNT:-0}" -gt 500000000 ]; then
+        PURPOSE="bounty"
+    fi
+
+    # Transfer DREAM to the new member
     TX_RES=$($BINARY tx rep transfer-dream \
         $ADDR \
         "$DREAM_AMOUNT" \
-        "gift" \
+        "$PURPOSE" \
         "Test setup funding" \
         --from alice \
         --chain-id $CHAIN_ID \
@@ -321,7 +331,7 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  ❌ Failed to send DREAM to $ACCOUNT: no txhash"
+        echo "  [FAIL] Failed to send DREAM to $ACCOUNT: no txhash"
         continue
     fi
 
@@ -330,9 +340,9 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
 
     if check_tx_success "$TX_RESULT"; then
         DREAM_DISPLAY=$((DREAM_AMOUNT / 1000000))
-        echo "  ✅ Transferred $DREAM_DISPLAY DREAM to $ACCOUNT"
+        echo "  [ OK ] Transferred $DREAM_DISPLAY DREAM to $ACCOUNT"
     else
-        echo "  ❌ Failed to transfer DREAM to $ACCOUNT"
+        echo "  [FAIL] Failed to transfer DREAM to $ACCOUNT"
         echo "     $(echo "$TX_RESULT" | jq -r '.raw_log')"
     fi
 done
@@ -368,11 +378,11 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
     MEMBER_INFO=$($BINARY query rep get-member $ADDR --output json 2>&1)
 
     if echo "$MEMBER_INFO" | grep -q "not found"; then
-        echo "  ❌ $ACCOUNT is NOT a member"
+        echo "  [FAIL] $ACCOUNT is NOT a member"
         ALL_SUCCESS=false
     else
         DREAM_BALANCE=$(echo "$MEMBER_INFO" | jq -r '.member.dream_balance')
-        echo "  ✅ $ACCOUNT: $DREAM_BALANCE DREAM"
+        echo "  [ OK ] $ACCOUNT: $DREAM_BALANCE DREAM"
     fi
 done
 
@@ -403,7 +413,7 @@ TX_RES=$($BINARY tx rep propose-project \
 
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "❌ Failed to create project: no txhash"
+    echo "[FAIL] Failed to create project: no txhash"
     exit 1
 fi
 
@@ -411,17 +421,17 @@ sleep 6
 TX_RESULT=$(wait_for_tx $TXHASH)
 
 if ! check_tx_success "$TX_RESULT"; then
-    echo "❌ Failed to create project"
+    echo "[FAIL] Failed to create project"
     exit 1
 fi
 
 PROJECT_ID=$(extract_event_value "$TX_RESULT" "project_proposed" "project_id")
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" == "null" ]; then
-    echo "⚠️  Could not extract project_id, assuming ID 1"
+    echo "[WARN]  Could not extract project_id, assuming ID 1"
     PROJECT_ID="1"
 fi
 
-echo "✅ Project created: #$PROJECT_ID"
+echo "[ OK ] Project created: #$PROJECT_ID"
 
 # Approve project budget
 echo "  → Approving project budget..."
@@ -441,7 +451,7 @@ TX_RES=$($BINARY tx rep approve-project-budget \
 
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "❌ Failed to approve project: no txhash"
+    echo "[FAIL] Failed to approve project: no txhash"
     exit 1
 fi
 
@@ -449,9 +459,9 @@ sleep 6
 TX_RESULT=$(wait_for_tx $TXHASH)
 
 if check_tx_success "$TX_RESULT"; then
-    echo "✅ Project #$PROJECT_ID approved and ready for initiatives"
+    echo "[ OK ] Project #$PROJECT_ID approved and ready for initiatives"
 else
-    echo "❌ Failed to approve project"
+    echo "[FAIL] Failed to approve project"
     exit 1
 fi
 
@@ -472,7 +482,7 @@ CATEGORY_COUNT=$(echo "$CATEGORIES" | jq -r '.category | length' 2>/dev/null || 
 
 if [ "$CATEGORY_COUNT" -gt 0 ] 2>/dev/null; then
     FIRST_CATEGORY=$(echo "$CATEGORIES" | jq -r '.category[0].category_id')
-    echo "  ⏭️  Using existing category ID: $FIRST_CATEGORY"
+    echo "  [SKIP]  Using existing category ID: $FIRST_CATEGORY"
 else
     echo "  → Creating a test category via alice (Commons Ops Committee)..."
     TX_RES=$($BINARY tx commons create-category \
@@ -494,13 +504,13 @@ else
         if check_tx_success "$TX_RESULT"; then
             FIRST_CATEGORY=$(extract_event_value "$TX_RESULT" "category_created" "category_id")
             [ -z "$FIRST_CATEGORY" ] && FIRST_CATEGORY="1"
-            echo "  ✅ Category created: $FIRST_CATEGORY"
+            echo "  [ OK ] Category created: $FIRST_CATEGORY"
         else
-            echo "  ⚠️  Category creation tx failed; defaulting to ID 1"
+            echo "  [WARN]  Category creation tx failed; defaulting to ID 1"
             FIRST_CATEGORY="1"
         fi
     else
-        echo "  ⚠️  Failed to submit category creation; defaulting to ID 1"
+        echo "  [WARN]  Failed to submit category creation; defaulting to ID 1"
         FIRST_CATEGORY="1"
     fi
 fi
@@ -515,7 +525,7 @@ echo "Step 8: Building juror reputation on test tags..."
 # Query the actual minimum juror reputation requirement from chain
 MIN_JUROR_REP=$($BINARY query rep params --output json 2>/dev/null | jq -r '.params.min_juror_reputation')
 if [ -z "$MIN_JUROR_REP" ] || [ "$MIN_JUROR_REP" == "null" ]; then
-    echo "  ⚠️  Could not query min_juror_reputation, using default 20"
+    echo "  [WARN]  Could not query min_juror_reputation, using default 20"
     MIN_JUROR_REP_DEC="20"
 else
     # LegacyDec values have 18 decimals when serialized
@@ -523,7 +533,7 @@ else
     MIN_JUROR_REP_DEC=$(python3 -c "print(int(int('$MIN_JUROR_REP') / (10**18)))" 2>/dev/null)
     # Fallback if python fails or returns empty
     if [ -z "$MIN_JUROR_REP_DEC" ]; then
-        echo "  ⚠️  Conversion failed, using default 20"
+        echo "  [WARN]  Conversion failed, using default 20"
         MIN_JUROR_REP_DEC="20"
     fi
 fi
@@ -559,7 +569,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
     fi
 
     if [ "$CURRENT_REP" -ge "$MIN_JUROR_REP_DEC" ] 2>/dev/null; then
-        echo "    ✅ $JUROR already has $CURRENT_REP reputation (requirement: $MIN_JUROR_REP_DEC)"
+        echo "    [ OK ] $JUROR already has $CURRENT_REP reputation (requirement: $MIN_JUROR_REP_DEC)"
         continue
     fi
 
@@ -578,8 +588,8 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
     # Budget: 0.25 DREAM (250000 micro) → rep grant = 25 per tag
     # Required conviction = conviction_per_dream × sqrt(budget) = 0.2 × 500 = 100
     # Per-member cap = 33% of required = 33 per staker
-    # 4 stakers × 33 cap = 132 > 100 required ✓
-    # External conviction: 3 external × 33 = 99 > 50 required ✓
+    # 4 stakers × 33 cap = 132 > 100 required [ OK ]
+    # External conviction: 3 external × 33 = 99 > 50 required [ OK ]
     TX_RES=$($BINARY tx rep create-initiative \
         $PROJECT_ID \
         "Reputation builder for $JUROR" \
@@ -598,7 +608,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "    ⚠️  Failed to create initiative for $JUROR"
+        echo "    [WARN]  Failed to create initiative for $JUROR"
         continue
     fi
 
@@ -606,22 +616,22 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
     TX_RESULT=$(wait_for_tx $TXHASH)
 
     if ! check_tx_success "$TX_RESULT"; then
-        echo "    ⚠️  Failed to create initiative for $JUROR"
+        echo "    [WARN]  Failed to create initiative for $JUROR"
         continue
     fi
 
     INIT_ID=$(extract_event_value "$TX_RESULT" "initiative_created" "initiative_id")
     if [ -z "$INIT_ID" ] || [ "$INIT_ID" == "null" ]; then
-        echo "    ⚠️  Could not extract initiative_id from event, querying latest initiative..."
+        echo "    [WARN]  Could not extract initiative_id from event, querying latest initiative..."
         QUERY_RESULT=$($BINARY query rep list-initiative --output json 2>/dev/null)
         if [ $? -eq 0 ] && [ -n "$QUERY_RESULT" ]; then
             INIT_ID=$(echo "$QUERY_RESULT" | jq -r '.initiative[-1].id // empty')
             if [ -z "$INIT_ID" ]; then
-                echo "    ❌ No initiatives found in query result"
+                echo "    [FAIL] No initiatives found in query result"
                 continue
             fi
         else
-            echo "    ❌ Failed to query initiatives"
+            echo "    [FAIL] Failed to query initiatives"
             continue
         fi
     fi
@@ -641,7 +651,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "    ❌ Failed to assign initiative to $JUROR"
+        echo "    [FAIL] Failed to assign initiative to $JUROR"
         continue
     fi
 
@@ -661,7 +671,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "    ⚠️  Failed to submit work for $JUROR"
+        echo "    [WARN]  Failed to submit work for $JUROR"
         continue
     fi
 
@@ -691,18 +701,18 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         if echo "$TX_RES" | jq -e '.' >/dev/null 2>&1; then
             TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
             if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-                echo "    ⚠️  Failed to create $STAKER stake (no txhash)"
+                echo "    [WARN]  Failed to create $STAKER stake (no txhash)"
             else
                 sleep 6
                 TX_RESULT=$(wait_for_tx $TXHASH)
                 if check_tx_success "$TX_RESULT"; then
-                    echo "    ✅ $STAKER staked 5 DREAM on initiative #$INIT_ID"
+                    echo "    [ OK ] $STAKER staked 5 DREAM on initiative #$INIT_ID"
                 else
-                    echo "    ⚠️  $STAKER stake transaction failed"
+                    echo "    [WARN]  $STAKER stake transaction failed"
                 fi
             fi
         else
-            echo "    ⚠️  $STAKER stake failed (invalid JSON response)"
+            echo "    [WARN]  $STAKER stake failed (invalid JSON response)"
         fi
     done
 
@@ -725,7 +735,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
 
         # If already COMPLETED (auto-completed by EndBlocker), skip manual completion
         if [ "$STATUS" == "INITIATIVE_STATUS_COMPLETED" ]; then
-            echo "    ✅ Initiative #$INIT_ID auto-completed by EndBlocker for $JUROR"
+            echo "    [ OK ] Initiative #$INIT_ID auto-completed by EndBlocker for $JUROR"
             continue
         fi
 
@@ -760,7 +770,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
             echo "    → Final status: $FINAL_STATUS"
 
             if [ "$FINAL_STATUS" == "INITIATIVE_STATUS_COMPLETED" ]; then
-                echo "    ✅ Initiative #$INIT_ID completed for $JUROR"
+                echo "    [ OK ] Initiative #$INIT_ID completed for $JUROR"
                 continue
             fi
 
@@ -780,9 +790,9 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
             VERIFY_INFO=$($BINARY query rep get-initiative $INIT_ID --output json 2>/dev/null)
             VERIFY_STATUS=$(echo "$VERIFY_INFO" | jq -r '.initiative.status')
             if [ "$VERIFY_STATUS" == "INITIATIVE_STATUS_COMPLETED" ]; then
-                echo "    ✅ Initiative #$INIT_ID manually completed for $JUROR"
+                echo "    [ OK ] Initiative #$INIT_ID manually completed for $JUROR"
             else
-                echo "    ⚠️  Initiative #$INIT_ID still not completed (status: $VERIFY_STATUS)"
+                echo "    [WARN]  Initiative #$INIT_ID still not completed (status: $VERIFY_STATUS)"
             fi
             continue
         fi
@@ -819,7 +829,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
 
     # Debug: Check if TX_RES is valid JSON
     if ! echo "$TX_RES" | jq empty 2>/dev/null; then
-        echo "    ⚠️  Failed to complete initiative for $JUROR"
+        echo "    [WARN]  Failed to complete initiative for $JUROR"
         echo "       Raw output: $TX_RES"
         continue
     fi
@@ -829,15 +839,15 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         sleep 6
         TX_RESULT=$(wait_for_tx $TXHASH)
         if check_tx_success "$TX_RESULT"; then
-            echo "    ✅ $JUROR completed initiative #$INIT_ID and earned reputation"
+            echo "    [ OK ] $JUROR completed initiative #$INIT_ID and earned reputation"
         else
             RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
-            echo "    ⚠️  Failed to complete initiative for $JUROR"
+            echo "    [WARN]  Failed to complete initiative for $JUROR"
             echo "       Error: $RAW_LOG"
         fi
     else
         RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // .message // "unknown error"')
-        echo "    ⚠️  Failed to submit complete-initiative tx for $JUROR"
+        echo "    [WARN]  Failed to submit complete-initiative tx for $JUROR"
         echo "       Error: $RAW_LOG"
     fi
     done  # End initiatives loop
@@ -854,9 +864,9 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
             FINAL_REP=0
         fi
         if [ "$FINAL_REP" -ge "$MIN_JUROR_REP_DEC" ] 2>/dev/null; then
-            echo "    ✅ $JUROR final reputation: ${FINAL_REP} (meets ${MIN_JUROR_REP_DEC} requirement)"
+            echo "    [ OK ] $JUROR final reputation: ${FINAL_REP} (meets ${MIN_JUROR_REP_DEC} requirement)"
         else
-            echo "    ⚠️  $JUROR final reputation: ${FINAL_REP} (below ${MIN_JUROR_REP_DEC} requirement)"
+            echo "    [WARN]  $JUROR final reputation: ${FINAL_REP} (below ${MIN_JUROR_REP_DEC} requirement)"
             JUROR_REP_SUCCESS=false
         fi
     fi
@@ -864,10 +874,10 @@ done  # End jurors loop
 
 echo ""
 if [ "$JUROR_REP_SUCCESS" = true ]; then
-    echo "✅ Juror reputation building complete"
+    echo "[ OK ] Juror reputation building complete"
     echo "   All jurors meet minimum requirement: ${MIN_JUROR_REP_DEC} reputation"
 else
-    echo "⚠️  Juror reputation building incomplete"
+    echo "[WARN]  Juror reputation building incomplete"
     echo "   Some jurors did not meet minimum requirement: ${MIN_JUROR_REP_DEC} reputation"
     echo "   Challenge tests requiring jury may fail"
 fi
@@ -906,13 +916,13 @@ bootstrap_reputation() {
             --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
         if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-            echo "    ⚠️  Failed to create interim $i"
+            echo "    [WARN]  Failed to create interim $i"
             return 1
         fi
         sleep 6
         TX_RESULT=$(wait_for_tx $TXHASH)
         if ! check_tx_success "$TX_RESULT"; then
-            echo "    ⚠️  Failed to create interim $i"
+            echo "    [WARN]  Failed to create interim $i"
             return 1
         fi
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
@@ -927,18 +937,18 @@ bootstrap_reputation() {
             --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
         if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-            echo "    ⚠️  Failed to complete interim $i"
+            echo "    [WARN]  Failed to complete interim $i"
             return 1
         fi
         sleep 6
         TX_RESULT=$(wait_for_tx $TXHASH)
         if ! check_tx_success "$TX_RESULT"; then
-            echo "    ⚠️  Failed to complete interim $i"
+            echo "    [WARN]  Failed to complete interim $i"
             return 1
         fi
-        echo "    ✅ Completed interim $i/$COUNT (ID: $INTERIM_ID)"
+        echo "    [ OK ] Completed interim $i/$COUNT (ID: $INTERIM_ID)"
     done
-    echo "  ✅ Reputation bootstrapped for $ACCOUNT"
+    echo "  [ OK ] Reputation bootstrapped for $ACCOUNT"
     return 0
 }
 
@@ -968,13 +978,15 @@ echo "Step 10: Bonding sentinels..."
 
 bond_sentinel_if_needed() {
     local ACCOUNT=$1
-    local AMOUNT="100000000"  # 100 DREAM
+    # x/forum's MinSentinelBond is 500 DREAM (500_000_000 micro-DREAM); bond
+    # exactly the minimum so the bonded_role_test can layer a delta on top.
+    local AMOUNT="500000000"  # 500 DREAM
 
     # Check existing bond via bonded-role query (exit non-zero if no record)
     STATUS_JSON=$($BINARY query rep bonded-role forum-sentinel $($BINARY keys show $ACCOUNT -a --keyring-backend test) --output json 2>&1)
     EXISTING_BOND=$(echo "$STATUS_JSON" | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
     if [ -n "$EXISTING_BOND" ] && [ "$EXISTING_BOND" != "0" ] && [ "$EXISTING_BOND" != "null" ]; then
-        echo "  ⏭️  $ACCOUNT already bonded ($EXISTING_BOND micro-DREAM), skipping"
+        echo "  [SKIP]  $ACCOUNT already bonded ($EXISTING_BOND micro-DREAM), skipping"
         return 0
     fi
 
@@ -988,15 +1000,15 @@ bond_sentinel_if_needed() {
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  ⚠️  Failed to bond $ACCOUNT: no txhash"
+        echo "  [WARN]  Failed to bond $ACCOUNT: no txhash"
         return 1
     fi
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
     if check_tx_success "$TX_RESULT"; then
-        echo "  ✅ $ACCOUNT bonded"
+        echo "  [ OK ] $ACCOUNT bonded"
     else
-        echo "  ⚠️  Failed to bond $ACCOUNT"
+        echo "  [WARN]  Failed to bond $ACCOUNT"
     fi
 }
 
@@ -1029,7 +1041,7 @@ export TEST_CATEGORY_ID=$FIRST_CATEGORY
 EOF
 
 echo "=================================================="
-echo "✅✅✅ SETUP COMPLETE ✅✅✅"
+echo "=== SETUP COMPLETE ==="
 echo "=================================================="
 echo ""
 echo "Test environment ready:"
@@ -1044,7 +1056,7 @@ echo "Source this file in your tests: source .test_env"
 echo ""
 
 if [ "$ALL_SUCCESS" = false ]; then
-    echo "⚠️  Some accounts may not be properly initialized"
+    echo "[WARN]  Some accounts may not be properly initialized"
     echo "Review the output above for errors"
     exit 1
 fi

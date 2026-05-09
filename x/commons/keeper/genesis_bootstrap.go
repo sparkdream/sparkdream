@@ -171,6 +171,9 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.federation.v1.MsgRemovePeer",
 			"/sparkdream.federation.v1.MsgSuspendPeer",
 			"/sparkdream.federation.v1.MsgResumePeer",
+			"/sparkdream.reveal.v1.MsgApprove",
+			"/sparkdream.reveal.v1.MsgReject",
+			"/sparkdream.reveal.v1.MsgResolveDispute",
 		},
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",

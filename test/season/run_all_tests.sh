@@ -10,8 +10,13 @@ echo ""
 # ========================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../check_testparams.sh"
+source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+
+# Wall-clock timing for the suite (Started/Ended/Duration in summary).
+SUITE_START_EPOCH=$(timing_now_epoch)
+SUITE_START_HUMAN=$(timing_now_human)
 
 # Test execution flags
 RUN_SETUP=true
@@ -26,9 +31,15 @@ RUN_OPERATIONAL_PARAMS_TEST=true
 RUN_NOMINATION_TEST=true
 RUN_GUILD_ERRORS_TEST=true
 RUN_QUEST_ERRORS_TEST=true
+# Master gate for the entire test-execution loop. The validation_test step
+# is gated only on file presence (`if [ -f ... ]`), so without this flag
+# `--restore-setup --no-tests` would still run it and drift the freshly
+# restored chain state before the user could run a specific test manually.
+RUN_TESTS=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
+AUTO_SNAPSHOT=true
 # ========================================================================
 # Parse Arguments
 # ========================================================================
@@ -118,6 +129,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --no-tests)
+            RUN_TESTS=false
             RUN_PROFILE_TEST=false
             RUN_GUILD_TEST=false
             RUN_GUILD_ADVANCED_TEST=false
@@ -150,6 +162,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --only-setup        Run only setup (skip all tests)"
             echo "  --save-setup        Run setup, save chain state, then exit"
             echo "  --restore-setup     Restore saved setup state, then run tests"
+            echo "  --no-auto-snapshot Disable auto-snapshot (run setup every time, no caching)"
             echo "  --no-tests          Skip all tests (use with --restore-setup for manual testing)"
             echo "  --help              Show this help message"
             echo ""
@@ -163,6 +176,9 @@ while [[ $# -gt 0 ]]; do
             echo "  bash $0 --restore-setup --no-tests  # Restore state, start chain, exit"
             exit 0
             ;;
+        --no-auto-snapshot)
+            AUTO_SNAPSHOT=false
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Use --help for usage information"
@@ -171,6 +187,28 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ============================================================================
+# Parallel-runner test order manifest (read by test/run_parallel.sh).
+#
+# `test/run_parallel.sh::get_module_test_order` parses the single-line
+# `# TEST_ORDER:` comment below to discover the canonical execution
+# order for the parallel runner. Comment-based manifest is preferred over
+# the previous "no-op run_test stub + actual run_test calls" pattern
+# because there is nowhere for the manifest to drift to — it isn't shell
+# code, so a future contributor can't accidentally execute it in the
+# wrong scope or duplicate it later in the file.
+#
+# Without this manifest the parallel runner falls back to alphabetical
+# ordering, which breaks order-dependent suites (e.g. xp_tracking_test
+# must run BEFORE season_test transitions the season; guild_errors_test
+# must run BEFORE guild_test consumes the cooldown on display_user).
+# ============================================================================
+# TEST_ORDER: profile_test.sh guild_test.sh guild_advanced_test.sh guild_errors_test.sh quest_test.sh quest_errors_test.sh display_name_moderation_test.sh xp_tracking_test.sh operational_params_test.sh nomination_test.sh season_test.sh validation_test.sh
+
+# Auto-snapshot: when no explicit save/restore flag is passed, reuse an
+# existing fresh snapshot or save one after setup. See test/_auto_snapshot.sh.
+source "$SCRIPT_DIR/../_auto_snapshot.sh"
+auto_snapshot_pre
 # ========================================================================
 # Pre-flight Checks
 # ========================================================================
@@ -294,6 +332,31 @@ if [ "$RESTORE_SETUP" = true ]; then
     fi
 
     echo ""
+
+    # `--restore-setup --no-tests`: the user wants a fresh post-setup chain
+    # to run a specific test against — don't fall through into the test
+    # loop, which would drift state via validation_test (file-presence
+    # gated, so per-test --no-* flags don't reach it).
+    if [ "$RUN_TESTS" != true ]; then
+        BLOCK_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
+        echo "========================================================================="
+        echo "  RESTORE COMPLETE — TEST EXECUTION SKIPPED (--no-tests)"
+        echo "========================================================================="
+        echo ""
+        echo "  Chain home:   $HOME/.sparkdream"
+        echo "  Block height: $BLOCK_HEIGHT"
+        echo "  Test env:     $SCRIPT_DIR/.test_env  (already sourced)"
+        echo "  Chain log:    /tmp/chain_after_restore.log"
+        echo ""
+        echo "  Run any specific test against the freshly restored state:"
+        echo "    bash $SCRIPT_DIR/guild_errors_test.sh"
+        echo "    bash $SCRIPT_DIR/<other_test>.sh"
+        echo ""
+        echo "  Stop the chain when done:"
+        echo "    pkill -f 'sparkdreamd start --home $HOME/.sparkdream'"
+        echo ""
+        exit 0
+    fi
 fi
 
 # ========================================================================
@@ -360,6 +423,10 @@ if [ "$RUN_SETUP" = true ]; then
     echo ""
     echo "Setup completed successfully"
     echo ""
+
+    # Auto-save the post-setup snapshot if AUTO_SNAPSHOT was set and
+    # no fresh snapshot existed at the start of this run.
+    auto_snapshot_post
 
     # If --save-setup mode, save chain state and exit
     if [ "$SAVE_SETUP" = true ]; then
@@ -441,7 +508,7 @@ if [ "$RUN_PROFILE_TEST" = true ]; then
     if [ $PROFILE_EXIT_CODE -eq 0 ]; then
         echo "Profile test completed"
     else
-        echo "Profile test exited with code: $PROFILE_EXIT_CODE"
+        echo "[FAIL] Profile test exited with code: $PROFILE_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -468,7 +535,7 @@ if [ "$RUN_GUILD_TEST" = true ]; then
     if [ $GUILD_EXIT_CODE -eq 0 ]; then
         echo "Guild test completed"
     else
-        echo "Guild test exited with code: $GUILD_EXIT_CODE"
+        echo "[FAIL] Guild test exited with code: $GUILD_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -495,7 +562,7 @@ if [ "$RUN_GUILD_ADVANCED_TEST" = true ]; then
     if [ $GUILD_ADVANCED_EXIT_CODE -eq 0 ]; then
         echo "Guild advanced test completed"
     else
-        echo "Guild advanced test exited with code: $GUILD_ADVANCED_EXIT_CODE"
+        echo "[FAIL] Guild advanced test exited with code: $GUILD_ADVANCED_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -522,7 +589,7 @@ if [ "$RUN_GUILD_ERRORS_TEST" = true ]; then
     if [ $GUILD_ERRORS_EXIT_CODE -eq 0 ]; then
         echo "Guild errors test completed"
     else
-        echo "Guild errors test exited with code: $GUILD_ERRORS_EXIT_CODE"
+        echo "[FAIL] Guild errors test exited with code: $GUILD_ERRORS_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -549,7 +616,7 @@ if [ "$RUN_QUEST_TEST" = true ]; then
     if [ $QUEST_EXIT_CODE -eq 0 ]; then
         echo "Quest test completed"
     else
-        echo "Quest test exited with code: $QUEST_EXIT_CODE"
+        echo "[FAIL] Quest test exited with code: $QUEST_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -576,7 +643,7 @@ if [ "$RUN_QUEST_ERRORS_TEST" = true ]; then
     if [ $QUEST_ERRORS_EXIT_CODE -eq 0 ]; then
         echo "Quest errors test completed"
     else
-        echo "Quest errors test exited with code: $QUEST_ERRORS_EXIT_CODE"
+        echo "[FAIL] Quest errors test exited with code: $QUEST_ERRORS_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -603,7 +670,7 @@ if [ "$RUN_MODERATION_TEST" = true ]; then
     if [ $MODERATION_EXIT_CODE -eq 0 ]; then
         echo "Display name moderation test completed"
     else
-        echo "Display name moderation test exited with code: $MODERATION_EXIT_CODE"
+        echo "[FAIL] Display name moderation test exited with code: $MODERATION_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -630,7 +697,7 @@ if [ "$RUN_XP_TRACKING_TEST" = true ]; then
     if [ $XP_TRACKING_EXIT_CODE -eq 0 ]; then
         echo "XP tracking test completed"
     else
-        echo "XP tracking test exited with code: $XP_TRACKING_EXIT_CODE"
+        echo "[FAIL] XP tracking test exited with code: $XP_TRACKING_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -657,7 +724,7 @@ if [ "$RUN_OPERATIONAL_PARAMS_TEST" = true ]; then
     if [ $OPERATIONAL_PARAMS_EXIT_CODE -eq 0 ]; then
         echo "Operational params test completed"
     else
-        echo "Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
+        echo "[FAIL] Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -684,7 +751,7 @@ if [ "$RUN_NOMINATION_TEST" = true ]; then
     if [ $NOMINATION_EXIT_CODE -eq 0 ]; then
         echo "Nomination test completed"
     else
-        echo "Nomination test exited with code: $NOMINATION_EXIT_CODE"
+        echo "[FAIL] Nomination test exited with code: $NOMINATION_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -711,7 +778,7 @@ if [ "$RUN_SEASON_TEST" = true ]; then
     if [ $SEASON_EXIT_CODE -eq 0 ]; then
         echo "Season test completed"
     else
-        echo "Season test exited with code: $SEASON_EXIT_CODE"
+        echo "[FAIL] Season test exited with code: $SEASON_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -725,7 +792,11 @@ fi
 # ========================================================================
 # Step 10: Run Validation Test (P2)
 # ========================================================================
-if [ -f "$SCRIPT_DIR/validation_test.sh" ]; then
+# Gated on RUN_TESTS too — file-presence alone would let `--no-tests`
+# bypass the per-test flags and drift the chain state. The early exit in
+# the restore branch handles `--restore-setup --no-tests`; this defends
+# against `--no-tests` without `--restore-setup`.
+if [ "$RUN_TESTS" = true ] && [ -f "$SCRIPT_DIR/validation_test.sh" ]; then
     echo "========================================================================="
     echo "STEP 10: VALIDATION TEST (P2)"
     echo "========================================================================="
@@ -738,7 +809,7 @@ if [ -f "$SCRIPT_DIR/validation_test.sh" ]; then
     if [ $VALIDATION_EXIT_CODE -eq 0 ]; then
         echo "Validation test completed"
     else
-        echo "Validation test exited with code: $VALIDATION_EXIT_CODE"
+        echo "[FAIL] Validation test exited with code: $VALIDATION_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -750,6 +821,11 @@ fi
 echo "========================================================================="
 echo "  TEST SUITE SUMMARY"
 echo "========================================================================="
+echo ""
+SUITE_END_EPOCH=$(timing_now_epoch)
+SUITE_END_HUMAN=$(timing_now_human)
+timing_print_summary_block "$SUITE_START_EPOCH" "$SUITE_END_EPOCH" \
+    "$SUITE_START_HUMAN" "$SUITE_END_HUMAN"
 echo ""
 echo "Results:"
 echo "  Setup:                  $([ "$RUN_SETUP" = true ] && echo "Completed" || echo "Skipped")"
@@ -768,3 +844,48 @@ echo ""
 echo "========================================================================="
 echo "TEST SUITE EXECUTION COMPLETED"
 echo "========================================================================="
+
+# ========================================================================
+# Aggregate exit codes so the parent test/run_all_tests.sh records FAILED
+# when any sub-test reports issues. Without this, the master suite saw
+# `>>> PASSED: x/season` even though inner assertions failed (e.g. Bob
+# XP mismatch, display-name moderation stake cleanup), masking real bugs.
+#
+# A test "counts" toward failure only if it was actually selected to run
+# (RUN_*=true). Skipped tests stay neutral. We default each EXIT_CODE to
+# 1 for selected-but-not-yet-set so a missing assignment also fails loudly.
+# ========================================================================
+SUITE_FAILED=0
+check_test() {
+    local enabled=$1
+    local code=$2
+    local label=$3
+    if [ "$enabled" = true ] && [ "${code:-1}" -ne 0 ]; then
+        echo "  [FAIL] $label exited with code ${code:-1}"
+        SUITE_FAILED=1
+    fi
+}
+
+# Setup is special: $? lives in $SETUP_EXIT_CODE if tracked, otherwise we
+# infer from RUN_SETUP + the absence of an early `exit 1`.
+check_test "$RUN_SETUP"               "${SETUP_EXIT_CODE:-0}"               "Setup"
+check_test "$RUN_PROFILE_TEST"        "$PROFILE_EXIT_CODE"                  "Profile Test"
+check_test "$RUN_GUILD_TEST"          "$GUILD_EXIT_CODE"                    "Guild Test"
+check_test "$RUN_GUILD_ADVANCED_TEST" "$GUILD_ADVANCED_EXIT_CODE"           "Guild Advanced Test"
+check_test "$RUN_GUILD_ERRORS_TEST"   "${GUILD_ERRORS_EXIT_CODE:-1}"        "Guild Errors Test"
+check_test "$RUN_QUEST_TEST"          "$QUEST_EXIT_CODE"                    "Quest Test"
+check_test "$RUN_QUEST_ERRORS_TEST"   "${QUEST_ERRORS_EXIT_CODE:-1}"        "Quest Errors Test"
+check_test "$RUN_MODERATION_TEST"     "$MODERATION_EXIT_CODE"               "Moderation Test"
+check_test "$RUN_XP_TRACKING_TEST"    "$XP_TRACKING_EXIT_CODE"              "XP Tracking Test"
+check_test "$RUN_OPERATIONAL_PARAMS_TEST" "${OPERATIONAL_PARAMS_EXIT_CODE:-1}" "Op Params Test"
+check_test "$RUN_NOMINATION_TEST"     "$NOMINATION_EXIT_CODE"               "Nomination Test"
+check_test "$RUN_SEASON_TEST"         "$SEASON_EXIT_CODE"                   "Season Test"
+# VALIDATION_EXIT_CODE is set under STEP 10 if the validation step ran;
+# guard it the same way as the optional-but-tracked tests above.
+check_test "${RUN_VALIDATION_TEST:-true}" "${VALIDATION_EXIT_CODE:-0}"      "Validation Test"
+
+if [ $SUITE_FAILED -ne 0 ]; then
+    echo ""
+    echo "RESULT: x/season suite has failures — exiting non-zero."
+    exit 1
+fi

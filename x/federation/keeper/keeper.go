@@ -15,10 +15,17 @@ import (
 // lateKeepers holds dependencies wired after depinject via Set* methods.
 // Stored as a shared pointer so value-copies of Keeper (in AppModule, msgServer)
 // see updates made after NewAppModule().
+//
+// ibcKeeperFn lives here (not on Keeper directly) because the IBC keeper is
+// constructed in app.go AFTER depinject runs, so the wiring happens via
+// SetIBCKeeperFn() post-NewAppModule. If ibcKeeperFn were on the Keeper
+// struct, the AppModule's value-copy would never see the assignment and
+// SendFederationPacket would silently no-op forever.
 type lateKeepers struct {
 	commonsKeeper types.CommonsKeeper
 	repKeeper     types.RepKeeper
 	nameKeeper    types.NameKeeper
+	ibcKeeperFn   func() *ibckeeper.Keeper
 }
 
 type Keeper struct {
@@ -27,10 +34,9 @@ type Keeper struct {
 	addressCodec address.Codec
 	authority    []byte
 
-	authKeeper  types.AuthKeeper
-	bankKeeper  types.BankKeeper
-	ibcKeeperFn func() *ibckeeper.Keeper
-	late        *lateKeepers
+	authKeeper types.AuthKeeper
+	bankKeeper types.BankKeeper
+	late       *lateKeepers
 
 	Schema collections.Schema
 	Params collections.Item[types.Params]
@@ -116,8 +122,11 @@ func NewKeeper(
 		authority:    authority,
 		authKeeper:   authKeeper,
 		bankKeeper:   bankKeeper,
-		ibcKeeperFn:  ibcKeeperFn,
-		late:         &lateKeepers{},
+		// ibcKeeperFn goes through `late` (shared pointer) so post-NewAppModule
+		// SetIBCKeeperFn() updates are visible to msgServer's value-copy.
+		// depinject may pass nil here (IBC keeper is constructed later in app.go);
+		// app.go calls SetIBCKeeperFn after that.
+		late: &lateKeepers{ibcKeeperFn: ibcKeeperFn},
 
 		Params: collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Port:   collections.NewItem(sb, types.PortKey, "port", collections.StringValue),
@@ -241,4 +250,15 @@ func (k Keeper) SetRepKeeper(rk types.RepKeeper) {
 
 func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
 	k.late.nameKeeper = nk
+}
+
+// SetIBCKeeperFn wires the IBC keeper accessor late, after the IBC keeper is
+// constructed in app.go. Pass a closure rather than the *ibckeeper.Keeper
+// directly so callers don't need to worry about the IBC keeper being nil at
+// the time of supply (it isn't created until later in app.New()).
+//
+// The wiring goes through `late` (shared pointer) so the AppModule's value-copy
+// of Keeper sees the assignment too — see lateKeepers comment.
+func (k Keeper) SetIBCKeeperFn(fn func() *ibckeeper.Keeper) {
+	k.late.ibcKeeperFn = fn
 }

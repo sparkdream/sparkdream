@@ -318,7 +318,7 @@ echo ""
 echo "--- Test 15: rate-collection with tags populates review + bumps usage ---"
 
 # curation_test.sh unregistered alice (test 12), so re-register her as curator.
-TX_OUT=$(send_tx rep bond-role collect-curator 500 --from alice)
+TX_OUT=$(send_tx rep bond-role collect-curator 500000000 --from alice)
 assert_tx_success "Re-register alice as curator" "$TX_OUT"
 
 # Create a fresh collection owned by bob (alice is neither owner nor

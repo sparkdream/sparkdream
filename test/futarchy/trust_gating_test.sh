@@ -25,7 +25,7 @@ echo "Outsider Address: $OUTSIDER_ADDR"
 MEMBER_CHECK=$($BINARY query rep get-member "$OUTSIDER_ADDR" --output json 2>/dev/null || echo '{}')
 IS_MEMBER=$(echo "$MEMBER_CHECK" | jq -r '.member.address // empty' 2>/dev/null)
 if [ -n "$IS_MEMBER" ]; then
-    echo "❌ SETUP ERROR: $OUTSIDER_KEY is unexpectedly an x/rep member."
+    echo "[FAIL] SETUP ERROR: $OUTSIDER_KEY is unexpectedly an x/rep member."
     echo "   This test requires a non-member account. Remove the key and re-run."
     exit 1
 fi
@@ -49,12 +49,12 @@ sleep 3
 
 FUND_CODE=$(echo "$FUND_RES" | jq -r '.code // "1"')
 if [ "$FUND_CODE" != "0" ]; then
-    echo "❌ SETUP ERROR: Failed to fund outsider: $(echo "$FUND_RES" | jq -r '.raw_log // .')"
+    echo "[FAIL] SETUP ERROR: Failed to fund outsider: $(echo "$FUND_RES" | jq -r '.raw_log // .')"
     exit 1
 fi
 
 OUTSIDER_BAL=$($BINARY query bank balance "$OUTSIDER_ADDR" uspark --output json | jq -r '.balance.amount // "0"')
-echo "✅ Outsider funded. Balance: ${OUTSIDER_BAL}uspark"
+echo "[ OK ] Outsider funded. Balance: ${OUTSIDER_BAL}uspark"
 
 # --- 1. ATTEMPT MARKET CREATION AS NON-MEMBER ---
 echo ""
@@ -89,23 +89,23 @@ elif [ -n "$TX_HASH" ] && [ "$TX_HASH" != "null" ]; then
     FINAL_CODE=$(echo "$TX_RESULT" | jq -r '.code // "0"')
     RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // .')
 else
-    echo "❌ FAILURE: Could not parse broadcast response:"
+    echo "[FAIL] FAILURE: Could not parse broadcast response:"
     echo "$CREATE_RES" | head -c 500
     exit 1
 fi
 
 if [ "$FINAL_CODE" == "0" ]; then
-    echo "❌ FAILURE: Non-member was allowed to create a market (tx succeeded)."
+    echo "[FAIL] FAILURE: Non-member was allowed to create a market (tx succeeded)."
     echo "   Expected rejection with ESTABLISHED+ trust requirement."
     exit 1
 fi
 
 # Match either the trust-level gate message or the not-a-member fallback.
 if echo "$RAW_LOG" | grep -qiE "ESTABLISHED|active member|unauthorized"; then
-    echo "✅ create-market correctly rejected for non-member (code: $FINAL_CODE)"
+    echo "[ OK ] create-market correctly rejected for non-member (code: $FINAL_CODE)"
     echo "   raw_log: $(echo "$RAW_LOG" | head -c 200)"
 else
-    echo "❌ FAILURE: Rejected but error message is unexpected."
+    echo "[FAIL] FAILURE: Rejected but error message is unexpected."
     echo "   raw_log: $RAW_LOG"
     exit 1
 fi
@@ -135,11 +135,11 @@ CONTROL_TX_RESULT=$($BINARY query tx "$CONTROL_TX" --output json 2>/dev/null)
 CONTROL_CODE=$(echo "$CONTROL_TX_RESULT" | jq -r '.code // "1"')
 
 if [ "$CONTROL_CODE" != "0" ]; then
-    echo "❌ FAILURE: Alice's control create-market unexpectedly failed (code: $CONTROL_CODE)"
+    echo "[FAIL] FAILURE: Alice's control create-market unexpectedly failed (code: $CONTROL_CODE)"
     echo "   raw_log: $(echo "$CONTROL_TX_RESULT" | jq -r '.raw_log')"
     exit 1
 fi
-echo "✅ Alice successfully created control market (trust gate allows ESTABLISHED+)"
+echo "[ OK ] Alice successfully created control market (trust gate allows ESTABLISHED+)"
 
 echo ""
 echo "============================================================================"

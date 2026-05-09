@@ -7,7 +7,7 @@ DENOM="uspark"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then
-    echo "❌ Error: jq is not installed."
+    echo "[FAIL] Error: jq is not installed."
     exit 1
 fi
 

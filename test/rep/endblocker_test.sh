@@ -10,7 +10,7 @@ CHAIN_ID="sparkdream"
 
 # Load test environment (contains pre-setup member addresses)
 if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
-    echo "❌ Test environment not found (.test_env missing)"
+    echo "[FAIL] Test environment not found (.test_env missing)"
     echo "   Run: bash setup_test_accounts.sh"
     exit 1
 fi
@@ -70,9 +70,19 @@ ensure_dream_balance() {
     if [ "$AVAILABLE" -lt "$NEEDED" ]; then
         local TOP_UP=$((NEEDED - AVAILABLE + 50000000))  # +50 DREAM buffer
         echo "  Funding $NAME with $((TOP_UP / 1000000)) DREAM (current available: $((AVAILABLE / 1000000)) DREAM)..."
-        $BINARY tx rep transfer-dream "$ADDR" "$TOP_UP" "tip" "Funding for endblocker test" \
-            --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
-        sleep 2
+        local _RES _HASH
+        _RES=$($BINARY tx rep transfer-dream "$ADDR" "$TOP_UP" "tip" "Funding for endblocker test" \
+            --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+        _HASH=$(echo "$_RES" | jq -r '.txhash // empty' 2>/dev/null)
+        # Poll until indexed so the next alice tx fetches the committed
+        # sequence (bumped sleep 2 wasn't reliable on busy parallel chains).
+        local _i
+        for _i in $(seq 1 20); do
+            sleep 1
+            if [ -n "$_HASH" ] && $BINARY query tx "$_HASH" --output json 2>/dev/null | jq -e '.txhash' >/dev/null 2>&1; then
+                break
+            fi
+        done
     fi
 }
 ensure_dream_balance "$BOB_ADDR" "Bob"
@@ -104,21 +114,32 @@ PROJECT_RES=$($BINARY tx rep propose-project \
   -y \
   --output json)
 
-sleep 2
-
 PROJECT_TX=$(echo $PROJECT_RES | jq -r '.txhash' 2>/dev/null)
 PROJECT_ID=""
 if [ -n "$PROJECT_TX" ] && [ "$PROJECT_TX" != "null" ]; then
+    # Poll for tx indexing rather than relying on a fixed sleep — under
+    # parallel-runner load the indexer is eventually consistent and 2s
+    # races against block production. Up to 20s total.
+    PROJECT_TX_JSON=""
+    for _i in $(seq 1 20); do
+        sleep 1
+        PROJECT_TX_JSON=$($BINARY query tx $PROJECT_TX --output json 2>/dev/null)
+        if echo "$PROJECT_TX_JSON" | jq -e '.txhash' >/dev/null 2>&1; then
+            break
+        fi
+    done
     # Event type is "project_proposed" (not sparkdream.rep.v1.EventProjectCreated)
-    PROJECT_ID=$($BINARY query tx $PROJECT_TX --output json 2>/dev/null | \
+    PROJECT_ID=$(echo "$PROJECT_TX_JSON" | \
         jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | \
         tr -d '"')
 fi
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" == "null" ]; then
-    echo "⚠️  Could not extract project ID from tx, test cannot continue reliably"
+    echo "[WARN]  Could not extract project ID from tx, test cannot continue reliably"
+    echo "  txhash: $PROJECT_TX"
+    echo "  raw_log: $(echo "$PROJECT_TX_JSON" | jq -r '.raw_log // empty' 2>/dev/null)"
     exit 1
 fi
-echo "✅ Project created: ID $PROJECT_ID"
+echo "[ OK ] Project created: ID $PROJECT_ID"
 
 # Approve project with 100 DREAM budget (100000000 micro-DREAM)
 $BINARY tx rep approve-project-budget $PROJECT_ID "100000000" "10000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
@@ -144,7 +165,7 @@ INIT1_RES=$($BINARY tx rep create-initiative \
   -y \
   --output json)
 
-sleep 2
+sleep 6
 
 INIT1_TX=$(echo $INIT1_RES | jq -r '.txhash' 2>/dev/null)
 INIT1_ID=""
@@ -155,10 +176,10 @@ if [ -n "$INIT1_TX" ] && [ "$INIT1_TX" != "null" ]; then
         tr -d '"')
 fi
 if [ -z "$INIT1_ID" ] || [ "$INIT1_ID" == "null" ]; then
-    echo "⚠️  Could not extract Initiative 1 ID from tx, test cannot continue reliably"
+    echo "[WARN]  Could not extract Initiative 1 ID from tx, test cannot continue reliably"
     exit 1
 fi
-echo "✅ Initiative 1 created: ID $INIT1_ID"
+echo "[ OK ] Initiative 1 created: ID $INIT1_ID"
 
 # Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
 # Use tier 0 (APPRENTICE) because test members have no reputation
@@ -177,7 +198,7 @@ INIT2_RES=$($BINARY tx rep create-initiative \
   -y \
   --output json)
 
-sleep 2
+sleep 6
 
 INIT2_TX=$(echo $INIT2_RES | jq -r '.txhash' 2>/dev/null)
 INIT2_ID=""
@@ -188,10 +209,10 @@ if [ -n "$INIT2_TX" ] && [ "$INIT2_TX" != "null" ]; then
         tr -d '"')
 fi
 if [ -z "$INIT2_ID" ] || [ "$INIT2_ID" == "null" ]; then
-    echo "⚠️  Could not extract Initiative 2 ID from tx, test cannot continue reliably"
+    echo "[WARN]  Could not extract Initiative 2 ID from tx, test cannot continue reliably"
     exit 1
 fi
-echo "✅ Initiative 2 created: ID $INIT2_ID"
+echo "[ OK ] Initiative 2 created: ID $INIT2_ID"
 
 # Create stakes on initiative 1
 # Usage: stake [target-type] [target-id] [amount]
@@ -203,7 +224,7 @@ sleep 1
 $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "300000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
-echo "✅ Stakes created on Initiative 1: Bob (200), Carol (300) = 500 total"
+echo "[ OK ] Stakes created on Initiative 1: Bob (200), Carol (300) = 500 total"
 
 # Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
 echo ""
@@ -223,9 +244,9 @@ echo "  Required: $REQUIRED"
 
 # Verify conviction is non-zero after waiting
 if [ "$CURRENT1" != "0" ] && [ -n "$CURRENT1" ]; then
-    echo "  ✅ Conviction is non-zero ($CURRENT1) - time-weighting working correctly"
+    echo "  [ OK ] Conviction is non-zero ($CURRENT1) - time-weighting working correctly"
 else
-    echo "  ⚠️  Conviction still 0 after waiting (may need more time or epoch to pass)"
+    echo "  [WARN]  Conviction still 0 after waiting (may need more time or epoch to pass)"
 fi
 
 # Assign and submit work
@@ -234,9 +255,9 @@ $BINARY tx rep assign-initiative $INIT1_ID $WORKER1_ADDR --from alice --chain-id
 sleep 1
 # Note: worker1 = assignee key from test setup
 $BINARY tx rep submit-initiative-work $INIT1_ID "ipfs://QmTestWork1" "Work completed for conviction test" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
-sleep 2
+sleep 6
 
-echo "✅ Initiative 1 submitted for review"
+echo "[ OK ] Initiative 1 submitted for review"
 
 echo ""
 echo "Note: Conviction will increase over time as EndBlocker processes epochs"
@@ -286,15 +307,15 @@ echo "  review_epochs = $DEFAULT_REVIEW_EPOCHS, epoch_blocks = $EPOCH_BLOCKS"
 
 # Verify review_period_end is a reasonable block height (not 0 or timestamp)
 if [ "$REVIEW_END" -gt "$EXPECTED_REVIEW_END_MIN" ] && [ "$REVIEW_END" -lt "$EXPECTED_REVIEW_END_MAX" ]; then
-    echo "✅ Review period end correctly set to block $REVIEW_END"
+    echo "[ OK ] Review period end correctly set to block $REVIEW_END"
 else
     # Check if REVIEW_END looks like a block height (reasonable) or something else
     if [ "$REVIEW_END" -gt 1000000000 ]; then
-        echo "⚠️  Review end looks like a timestamp instead of block height: $REVIEW_END"
+        echo "[WARN]  Review end looks like a timestamp instead of block height: $REVIEW_END"
     elif [ "$REVIEW_END" == "0" ]; then
-        echo "⚠️  Review period not set (still 0)"
+        echo "[WARN]  Review period not set (still 0)"
     else
-        echo "⚠️  Review end: $REVIEW_END (expected between $EXPECTED_REVIEW_END_MIN and $EXPECTED_REVIEW_END_MAX)"
+        echo "[WARN]  Review end: $REVIEW_END (expected between $EXPECTED_REVIEW_END_MIN and $EXPECTED_REVIEW_END_MAX)"
     fi
 fi
 
@@ -343,12 +364,12 @@ INIT3_RES=$($BINARY tx rep create-initiative \
   -y \
   --output json 2>&1)
 
-sleep 2
+sleep 6
 
 # Check if creation succeeded
 INIT3_CODE=$(echo "$INIT3_RES" | jq -r '.code // 0' 2>/dev/null)
 if [ "$INIT3_CODE" != "0" ]; then
-    echo "⚠️  Initiative 3 creation may have failed (code: $INIT3_CODE)"
+    echo "[WARN]  Initiative 3 creation may have failed (code: $INIT3_CODE)"
     INIT3_RAW_LOG=$(echo "$INIT3_RES" | jq -r '.raw_log // "unknown error"' 2>/dev/null)
     echo "  Error: $INIT3_RAW_LOG"
 fi
@@ -365,10 +386,10 @@ if [ -n "$INIT3_TX" ] && [ "$INIT3_TX" != "null" ]; then
 fi
 
 if [ -z "$INIT3_ID" ] || [ "$INIT3_ID" == "null" ]; then
-    echo "⚠️  Could not extract Initiative 3 ID from tx, skipping status transition test"
+    echo "[WARN]  Could not extract Initiative 3 ID from tx, skipping status transition test"
     SKIP_INIT3_TEST=true
 else
-    echo "✅ Initiative 3 created with ID: $INIT3_ID"
+    echo "[ OK ] Initiative 3 created with ID: $INIT3_ID"
     SKIP_INIT3_TEST=false
 fi
 
@@ -379,69 +400,69 @@ if [ "$SKIP_INIT3_TEST" != "true" ]; then
 
     # Verify initial status is OPEN
     if [ "$INIT3_INITIAL_STATUS" == "INITIATIVE_STATUS_OPEN" ]; then
-        echo "✅ Initial status is OPEN as expected"
+        echo "[ OK ] Initial status is OPEN as expected"
     else
-        echo "⚠️  Expected OPEN, got: $INIT3_INITIAL_STATUS"
+        echo "[WARN]  Expected OPEN, got: $INIT3_INITIAL_STATUS"
     fi
 
     # Assign to worker2
     # Usage: assign-initiative [initiative-id] [assignee]
     echo "Assigning to worker2..."
     ASSIGN_RES=$($BINARY tx rep assign-initiative $INIT3_ID $WORKER2_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
-    sleep 2
+    sleep 6
     # Check if assign transaction failed
     ASSIGN_CODE=$(echo "$ASSIGN_RES" | jq -r '.code // 0' 2>/dev/null)
     if [ "$ASSIGN_CODE" != "0" ]; then
         ASSIGN_LOG=$(echo "$ASSIGN_RES" | jq -r '.raw_log // "unknown"' 2>/dev/null)
-        echo "⚠️  Assign tx failed (code: $ASSIGN_CODE): $ASSIGN_LOG"
+        echo "[WARN]  Assign tx failed (code: $ASSIGN_CODE): $ASSIGN_LOG"
     fi
     INIT3_ASSIGNED=$($BINARY query rep get-initiative $INIT3_ID --output json | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
     echo "After assignment: $INIT3_ASSIGNED"
 
     if [ "$INIT3_ASSIGNED" == "INITIATIVE_STATUS_ASSIGNED" ]; then
-        echo "✅ Status transitioned to ASSIGNED"
+        echo "[ OK ] Status transitioned to ASSIGNED"
     else
-        echo "⚠️  Expected ASSIGNED, got: $INIT3_ASSIGNED"
+        echo "[WARN]  Expected ASSIGNED, got: $INIT3_ASSIGNED"
     fi
 
     # Submit work (must be from worker2, the assignee)
     echo "Submitting work from worker2..."
     # Note: worker2 = challenger key from test setup
     SUBMIT_RES=$($BINARY tx rep submit-initiative-work $INIT3_ID "ipfs://QmTestWork3" "Work submitted" --from challenger --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
-    sleep 2
+    sleep 6
     # Check if submit transaction failed
     SUBMIT_CODE=$(echo "$SUBMIT_RES" | jq -r '.code // 0' 2>/dev/null)
     if [ "$SUBMIT_CODE" != "0" ]; then
         SUBMIT_LOG=$(echo "$SUBMIT_RES" | jq -r '.raw_log // "unknown"' 2>/dev/null)
-        echo "⚠️  Submit tx failed (code: $SUBMIT_CODE): $SUBMIT_LOG"
+        echo "[WARN]  Submit tx failed (code: $SUBMIT_CODE): $SUBMIT_LOG"
     fi
     INIT3_SUBMITTED=$($BINARY query rep get-initiative $INIT3_ID --output json | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
     echo "After submission: $INIT3_SUBMITTED"
 
     if [ "$INIT3_SUBMITTED" == "INITIATIVE_STATUS_SUBMITTED" ]; then
-        echo "✅ Status transitioned to SUBMITTED"
+        echo "[ OK ] Status transitioned to SUBMITTED"
     else
-        echo "⚠️  Expected SUBMITTED, got: $INIT3_SUBMITTED"
+        echo "[WARN]  Expected SUBMITTED, got: $INIT3_SUBMITTED"
     fi
 
     # Test abandon (must be from worker2, the assignee - not alice!)
     echo "Abandoning from worker2 (assignee)..."
     # Note: worker2 = challenger key from test setup
     ABANDON_RES=$($BINARY tx rep abandon-initiative $INIT3_ID "Testing abandon flow" --from challenger --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
-    sleep 2
+    sleep 6
     # Check if abandon transaction failed
     ABANDON_CODE=$(echo "$ABANDON_RES" | jq -r '.code // 0' 2>/dev/null)
     if [ "$ABANDON_CODE" != "0" ]; then
         ABANDON_LOG=$(echo "$ABANDON_RES" | jq -r '.raw_log // "unknown"' 2>/dev/null)
-        echo "⚠️  Abandon tx failed (code: $ABANDON_CODE): $ABANDON_LOG"
+        echo "[WARN]  Abandon tx failed (code: $ABANDON_CODE): $ABANDON_LOG"
     fi
     INIT3_ABANDONED=$($BINARY query rep get-initiative $INIT3_ID --output json | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
     echo "After abandon: $INIT3_ABANDONED"
 
     if [ "$INIT3_ABANDONED" == "INITIATIVE_STATUS_ABANDONED" ]; then
-        echo "✅ Status transition to ABANDONED successful"
+        echo "[ OK ] Status transition to ABANDONED successful"
     else
-        echo "⚠️  Status: $INIT3_ABANDONED (expected ABANDONED)"
+        echo "[WARN]  Status: $INIT3_ABANDONED (expected ABANDONED)"
     fi
 else
     echo "(Skipping status transition tests due to initiative creation failure)"
@@ -478,7 +499,7 @@ INIT4_RES=$($BINARY tx rep create-initiative \
   -y \
   --output json)
 
-sleep 2
+sleep 6
 
 INIT4_TX=$(echo $INIT4_RES | jq -r '.txhash' 2>/dev/null)
 INIT4_ID=""
@@ -489,7 +510,7 @@ if [ -n "$INIT4_TX" ] && [ "$INIT4_TX" != "null" ]; then
         tr -d '"')
 fi
 if [ -z "$INIT4_ID" ] || [ "$INIT4_ID" == "null" ]; then
-    echo "⚠️  Could not extract Initiative 4 ID from tx, skipping jury test"
+    echo "[WARN]  Could not extract Initiative 4 ID from tx, skipping jury test"
     SKIP_INIT4_TEST=true
 else
     SKIP_INIT4_TEST=false
@@ -509,7 +530,7 @@ if [ "$SKIP_INIT4_TEST" != "true" ]; then
     $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT4_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
     sleep 1
 
-    echo "✅ Initiative 4 set up for jury testing"
+    echo "[ OK ] Initiative 4 set up for jury testing"
 else
     echo "(Skipping Initiative 4 setup due to creation failure)"
 fi
@@ -594,13 +615,13 @@ echo "Blocks until next epoch: $BLOCKS_TO_EPOCH"
 
 echo ""
 echo "At epoch end, EndBlocker processes:"
-echo "  ✓ Update conviction for all active stakes"
-echo "  ✓ Apply decay to unstaked DREAM"
-echo "  ✓ Transition initiatives (review → challenge → complete)"
-echo "  ✓ Process jury deadlines"
-echo "  ✓ Expire pending interims"
-echo "  ✓ Update trust levels"
-echo "  ✓ Reset tip counters"
+echo "  [ OK ] Update conviction for all active stakes"
+echo "  [ OK ] Apply decay to unstaked DREAM"
+echo "  [ OK ] Transition initiatives (review → challenge → complete)"
+echo "  [ OK ] Process jury deadlines"
+echo "  [ OK ] Expire pending interims"
+echo "  [ OK ] Update trust levels"
+echo "  [ OK ] Reset tip counters"
 
 # ========================================================================
 # PART 7: CONVICTION CALCULATION DETAILS
@@ -645,9 +666,9 @@ echo "  2. When checking completion conditions"
 echo "  3. When EndBlocker processes epoch"
 echo ""
 echo "Benefits of lazy calculation:"
-echo "  ✓ Reduces per-block computation"
-echo "  ✓ Only updates when needed"
-echo "  ✓ Scales to many initiatives"
+echo "  [ OK ] Reduces per-block computation"
+echo "  [ OK ] Only updates when needed"
+echo "  [ OK ] Scales to many initiatives"
 echo ""
 
 # Query conviction again (should trigger lazy update since time passed)
@@ -658,12 +679,12 @@ echo "Initiative 1 conviction (lazy re-query): $CURRENT_LAZY"
 
 # Verify lazy conviction is at least as large as earlier query (conviction grows with time)
 if [ -n "$CURRENT_LAZY" ] && [ "$CURRENT_LAZY" != "0" ]; then
-    echo "  ✅ Lazy conviction update: $CURRENT_LAZY (non-zero, time-weighted)"
+    echo "  [ OK ] Lazy conviction update: $CURRENT_LAZY (non-zero, time-weighted)"
     if [ "$CURRENT_LAZY" -ge "$CURRENT1" ] 2>/dev/null; then
-        echo "  ✅ Conviction grew or stayed stable: $CURRENT1 → $CURRENT_LAZY"
+        echo "  [ OK ] Conviction grew or stayed stable: $CURRENT1 → $CURRENT_LAZY"
     fi
 else
-    echo "  ⚠️  Lazy conviction still 0"
+    echo "  [WARN]  Lazy conviction still 0"
 fi
 
 # ========================================================================
@@ -868,24 +889,24 @@ echo ""
 echo "--- ENDBLOCKER LOGIC TEST SUMMARY ---"
 echo ""
 echo "TESTED (with assertions):"
-echo "✅ Part 1:  Conviction updates            Time-weighted conviction verified non-zero"
-echo "✅ Part 2:  Auto-complete flow           Review period end verified"
-echo "✅ Part 3:  Status transitions           OPEN→ASSIGNED→SUBMITTED→ABANDONED verified"
-echo "✅ Part 4:  Jury deadlines               Initiative setup for jury testing"
-echo "✅ Part 5:  Expired interims             Interim count and status queried"
-echo "✅ Part 8:  Lazy calculation            Conviction growth verified on re-query"
-echo "✅ Part 9:  Parallel processing          Initiative count and status breakdown verified"
-echo "✅ Part 11: Apply decay               Member decay state queried"
-echo "✅ Part 13: Trust level updates        Member trust levels queried"
+echo "[ OK ] Part 1:  Conviction updates            Time-weighted conviction verified non-zero"
+echo "[ OK ] Part 2:  Auto-complete flow           Review period end verified"
+echo "[ OK ] Part 3:  Status transitions           OPEN→ASSIGNED→SUBMITTED→ABANDONED verified"
+echo "[ OK ] Part 4:  Jury deadlines               Initiative setup for jury testing"
+echo "[ OK ] Part 5:  Expired interims             Interim count and status queried"
+echo "[ OK ] Part 8:  Lazy calculation            Conviction growth verified on re-query"
+echo "[ OK ] Part 9:  Parallel processing          Initiative count and status breakdown verified"
+echo "[ OK ] Part 11: Apply decay               Member decay state queried"
+echo "[ OK ] Part 13: Trust level updates        Member trust levels queried"
 echo ""
 echo "DOCUMENTATION ONLY (design notes, no on-chain assertions):"
-echo "📋 Part 6:  Epoch end detection          Design: block % epoch_blocks == 0"
-echo "📋 Part 7:  Conviction formula           Design: stake * time_weight"
-echo "📋 Part 10: Events emitted              Design: event types listed"
-echo "📋 Part 12: Staking rewards           Design: 5-10% APY, 90% to stakers"
-echo "📋 Part 14: Tip counter reset          Design: per epoch, max 10"
+echo " Part 6:  Epoch end detection          Design: block % epoch_blocks == 0"
+echo " Part 7:  Conviction formula           Design: stake * time_weight"
+echo " Part 10: Events emitted              Design: event types listed"
+echo " Part 12: Staking rewards           Design: 5-10% APY, 90% to stakers"
+echo " Part 14: Tip counter reset          Design: per epoch, max 10"
 echo ""
-echo "🔄 ENDBLOCKER PROCESSING ORDER:"
+echo " ENDBLOCKER PROCESSING ORDER:"
 echo "  1. Is epoch end? (block % epoch_blocks == 0)"
 echo "  2. If yes:"
 echo "     a. Update conviction for all stakes"
@@ -899,7 +920,7 @@ echo "     h. Reset tip counters"
 echo "     i. Distribute staking rewards (if applicable)"
 echo ""
 echo "⏱️  TIMING: All processes happen in a single block"
-echo "📊 SCALING: Lazy calculation reduces per-block work"
-echo "🔒 CORRECTNESS: Events emitted for all state changes"
+echo " SCALING: Lazy calculation reduces per-block work"
+echo " CORRECTNESS: Events emitted for all state changes"
 echo ""
-echo "✅✅✅ ENDBLOCKER LOGIC TEST COMPLETED ✅✅✅"
+echo "=== ENDBLOCKER LOGIC TEST COMPLETED ==="

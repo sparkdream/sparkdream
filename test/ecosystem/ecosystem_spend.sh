@@ -13,7 +13,7 @@ DENOM="uspark"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then
-    echo "❌ Error: jq is not installed."
+    echo "[FAIL] Error: jq is not installed."
     exit 1
 fi
 
@@ -37,7 +37,7 @@ GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account
 ECO_MODULE_ADDR=$($BINARY query auth module-account ecosystem --output json | jq -r '.account.base_account.address // .account.value.address')
 
 if [ -z "$GOV_ADDR" ] || [ -z "$ECO_MODULE_ADDR" ]; then
-    echo "❌ Error: Could not fetch module addresses."
+    echo "[FAIL] Error: Could not fetch module addresses."
     exit 1
 fi
 
@@ -49,7 +49,7 @@ echo "--- STEP 1: FUNDING ECOSYSTEM MODULE ---"
 # We send funds to the ecosystem module to ensure the spend doesn't fail due to insufficient funds
 $BINARY tx bank send alice $ECO_MODULE_ADDR 5000000${DENOM} --chain-id $CHAIN_ID -y --fees 5000${DENOM} --keyring-backend test > /dev/null
 sleep 5
-echo "✅ Ecosystem Module funded."
+echo "[ OK ] Ecosystem Module funded."
 
 # --- 2. SECURITY TEST (DIRECT SPEND ATTACK) ---
 echo "--- STEP 2: SECURITY CHECK (EVE ATTEMPTS DIRECT SPEND) ---"
@@ -85,13 +85,13 @@ echo "TX Log:  $TX_LOG"
 if [ "$TX_CODE" != "0" ]; then
     # Verify it failed for the RIGHT reason (authority check)
     if echo "$TX_LOG" | grep -q "invalid authority" || echo "$TX_LOG" | grep -q "unauthorized" || echo "$TX_LOG" | grep -q "does not match"; then
-        echo "✅ SUCCESS: Eve was blocked. The chain rejected the invalid authority."
+        echo "[ OK ] SUCCESS: Eve was blocked. The chain rejected the invalid authority."
     else
-        echo "⚠️  WARNING: Transaction failed, but possibly for the wrong reason."
+        echo "[WARN]  WARNING: Transaction failed, but possibly for the wrong reason."
         echo "    Log: $TX_LOG"
     fi
 else
-    echo "❌ CRITICAL FAILURE: Eve successfully spent funds! (Code 0)"
+    echo "[FAIL] CRITICAL FAILURE: Eve successfully spent funds! (Code 0)"
     exit 1
 fi
 
@@ -153,7 +153,7 @@ for i in {1..14}; do
     STATUS=$($BINARY query gov proposal $PROPOSAL_ID --output json | jq -r '.proposal.status')
     if [ "$STATUS" == "PROPOSAL_STATUS_PASSED" ]; then
         PASSED=true
-        echo "✅ Proposal PASSED."
+        echo "[ OK ] Proposal PASSED."
         break
     fi
     echo "Current Status: $STATUS... (Attempt $i/14)"
@@ -161,7 +161,7 @@ for i in {1..14}; do
 done
 
 if [ "$PASSED" = false ]; then
-    echo "❌ ERROR: Proposal did not pass in time."
+    echo "[FAIL] ERROR: Proposal did not pass in time."
     exit 1
 fi
 
@@ -181,9 +181,9 @@ DIFFERENCE=$((FINAL_BAL - INITIAL_BAL))
 EXPECTED_NET=$((1000000 - VOTE_FEE))
 
 if [ "$DIFFERENCE" -eq "$EXPECTED_NET" ]; then
-    echo "✅ SUCCESS: Bob received 1M less fees (Net: +$DIFFERENCE)"
+    echo "[ OK ] SUCCESS: Bob received 1M less fees (Net: +$DIFFERENCE)"
 else
-    echo "❌ FAILURE: Balance mismatch." 
+    echo "[FAIL] FAILURE: Balance mismatch." 
     echo "   Expected Net: +$EXPECTED_NET (1M grant - $VOTE_FEE fee)"
     echo "   Actual Net:   +$DIFFERENCE"
     exit 1

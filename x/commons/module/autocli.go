@@ -30,6 +30,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "policy_address"}},
 				},
 				{
+					RpcMethod:      "GetDecisionPolicy",
+					Use:            "get-decision-policy [policy-address]",
+					Short:          "Get the DecisionPolicy (voting threshold, voting period, min execution period) for a council policy address",
+					Alias:          []string{"show-decision-policy"},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "policy_address"}},
+				},
+				{
+					RpcMethod: "ListDecisionPolicies",
+					Use:       "list-decision-policies",
+					Short:     "List every DecisionPolicy paired with its policy_address",
+				},
+				{
 					RpcMethod: "ListGroups",
 					Use:       "list-group",
 					Short:     "List all groups",

@@ -364,6 +364,19 @@ echo ""
 # ========================================================================
 echo "--- TEST 6: NEGATIVE - WITHDRAW BY NON-OWNER ---"
 
+# lifecycle_test.sh runs before this and may have left staker1 with most of
+# their DREAM still locked in earlier stakes (200+ DREAM). Top up staker1
+# from alice so the 200 DREAM stake here doesn't trip the insufficient
+# balance guard (code 1103).
+echo "  Topping up staker1 with 250 DREAM (gift from alice)..."
+TX_RES=$($BINARY tx rep transfer-dream "$STAKER1_ADDR" "250000000" "gift" "stake_withdraw test top-up" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+    sleep 6
+    wait_for_tx "$TXHASH" >/dev/null 2>&1
+fi
+
 # Create a stake by staker1, then try to withdraw it as staker2
 echo "  Staker1 staking 200 DREAM..."
 TX_RES=$($BINARY tx reveal stake \

@@ -46,7 +46,7 @@ RECIPIENT_ADDR=$($BINARY keys show recipient -a --keyring-backend test)
 # Use first invitee for gift and decay testing
 INVITEE_ADDR=$($BINARY query rep list-member -o json 2>/dev/null | jq -r ".member[] | select(.invited_by==\"$ALICE_ADDR\") | .address" | head -1)
 if [ -z "$INVITEE_ADDR" ] || [ "$INVITEE_ADDR" == "null" ]; then
-    echo "⚠️  No invitees found for Alice - gift and decay tests will be limited"
+    echo "[WARN]  No invitees found for Alice - gift and decay tests will be limited"
     # Fallback to creating a key (won't be a member, tests will skip)
     if ! $BINARY keys show invitee --keyring-backend test > /dev/null 2>&1; then
         $BINARY keys add invitee --keyring-backend test --output json > /dev/null
@@ -85,7 +85,7 @@ ensure_member() {
     local name=$2
     local member=$(get_member $addr)
     if [ "$member" == "null" ] || [ -z "$member" ]; then
-        echo "⚠️  $name is not a member - inviting..."
+        echo "[WARN]  $name is not a member - inviting..."
 
         # First, ensure the account has SPARK for gas fees
         $BINARY tx bank send alice $addr 10000000uspark --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
@@ -107,9 +107,9 @@ ensure_member() {
             # Verify member was created
             member=$(get_member $addr)
             if [ "$member" != "null" ] && [ -n "$member" ]; then
-                echo "✅ $name is now a member"
+                echo "[ OK ] $name is now a member"
             else
-                echo "❌ Failed to create member for $name"
+                echo "[FAIL] Failed to create member for $name"
             fi
         fi
     fi
@@ -124,16 +124,16 @@ if [ "$ALICE_CREDITS" -gt 0 ] || [ "$ALICE_CREDITS" == "null" ]; then
     ensure_member $RECIPIENT_ADDR "recipient"
     ensure_member $INVITEE_ADDR "invitee"
 else
-    echo "⚠️  Alice has no invitation credits. Using existing test members only."
+    echo "[WARN]  Alice has no invitation credits. Using existing test members only."
 fi
 
 # Tip recipients should already be members from setup_test_accounts.sh
 # Just verify they exist
 if [ -z "$(get_member $TIP_RECIPIENT1_ADDR)" ]; then
-    echo "⚠️  $TIP_RECIPIENT1_NAME is not a member - some tests may fail"
+    echo "[WARN]  $TIP_RECIPIENT1_NAME is not a member - some tests may fail"
 fi
 if [ -z "$(get_member $TIP_RECIPIENT2_ADDR)" ]; then
-    echo "⚠️  $TIP_RECIPIENT2_NAME is not a member - some tests may fail"
+    echo "[WARN]  $TIP_RECIPIENT2_NAME is not a member - some tests may fail"
 fi
 
 # ========================================================================
@@ -160,7 +160,7 @@ echo ""
 
 # Ensure Alice has some DREAM for testing
 if [ "$ALICE_INITIAL" == "0" ] || [ "$ALICE_INITIAL" == "null" ]; then
-    echo "⚠️  Alice has no DREAM balance - test cannot proceed"
+    echo "[WARN]  Alice has no DREAM balance - test cannot proceed"
     echo "Expected behavior: 3% tax burned on transfers"
     exit 1
 fi
@@ -188,7 +188,7 @@ TX_HASH=$(echo $TRANSFER_RES | jq -r '.txhash' 2>/dev/null)
 sleep 2
 
 if [ -n "$TX_HASH" ] && [ "$TX_HASH" != "null" ]; then
-    echo "✅ Transfer transaction: $TX_HASH"
+    echo "[ OK ] Transfer transaction: $TX_HASH"
 
     # Get final balances
     ALICE_FINAL=$(get_balance $ALICE_ADDR)
@@ -212,7 +212,7 @@ if [ -n "$TX_HASH" ] && [ "$TX_HASH" != "null" ]; then
 
     if [ "$TX_CODE" != "0" ]; then
         RAW_LOG=$(echo "$TX_DETAIL" | jq -r '.raw_log // "Unknown error"')
-        echo "❌ Transfer failed: $RAW_LOG"
+        echo "[FAIL] Transfer failed: $RAW_LOG"
     elif [ -n "$TRANSFER_EVENT" ]; then
         TAX_AMOUNT=$(echo "$TRANSFER_EVENT" | jq -r '.attributes[] | select(.key=="tax") | .value' | tr -d '"')
         EVENT_AMOUNT=$(echo "$TRANSFER_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
@@ -228,22 +228,22 @@ if [ -n "$TX_HASH" ] && [ "$TX_HASH" != "null" ]; then
 
         # Validate tax is exactly 3% of transfer amount
         if [ -n "$TAX_AMOUNT" ] && [ "$TAX_AMOUNT" == "$EXPECTED_TAX" ]; then
-            echo "✅ PART 1 PASSED: Transfer tax is exactly 3% ($TAX_AMOUNT on $TRANSFER_AMOUNT_MICRO)"
+            echo "[ OK ] PART 1 PASSED: Transfer tax is exactly 3% ($TAX_AMOUNT on $TRANSFER_AMOUNT_MICRO)"
         elif [ -n "$TAX_AMOUNT" ] && [ "$TAX_AMOUNT" != "0" ]; then
-            echo "✅ PART 1 PASSED: Tax applied ($TAX_AMOUNT micro-DREAM)"
+            echo "[ OK ] PART 1 PASSED: Tax applied ($TAX_AMOUNT micro-DREAM)"
         else
-            echo "❌ PART 1 FAILED: No tax detected in transfer event"
+            echo "[FAIL] PART 1 FAILED: No tax detected in transfer event"
         fi
 
         echo "   Note: Raw balance changes are not shown because they include"
         echo "   accumulated decay (1%/epoch on unstaked DREAM) applied lazily"
         echo "   during transfer. Event data reflects the actual transfer amounts."
     else
-        echo "⚠️  No transfer_dream event found in transaction"
+        echo "[WARN]  No transfer_dream event found in transaction"
         echo "   TX succeeded (code: $TX_CODE) but event missing"
     fi
 else
-    echo "❌ Transfer failed"
+    echo "[FAIL] Transfer failed"
     echo "Error: $(echo $TRANSFER_RES | jq -r '.raw_log // .code // "Unknown error"')"
 fi
 
@@ -263,7 +263,7 @@ TIP_AMOUNT_DISPLAY="50"
 # Check if tip recipient exists
 TIP_RECIPIENT1_MEMBER=$(get_member $TIP_RECIPIENT1_ADDR)
 if [ -z "$TIP_RECIPIENT1_MEMBER" ] || [ "$TIP_RECIPIENT1_MEMBER" == "null" ]; then
-    echo "⚠️  Skipping tip test - $TIP_RECIPIENT1_NAME is not a member"
+    echo "[WARN]  Skipping tip test - $TIP_RECIPIENT1_NAME is not a member"
     echo "   Run setup_test_accounts.sh to create test members"
     echo ""
 else
@@ -296,14 +296,14 @@ TIP_RES=$($BINARY tx rep transfer-dream \
         fi
 
         TIP_REC1_CHANGE=$(echo "$TIP_REC1_FINAL - $TIP_REC1_INITIAL" | bc 2>/dev/null || echo "0")
-        echo "✅ Tip transaction: $TIP_TX"
+        echo "[ OK ] Tip transaction: $TIP_TX"
         echo "   $TIP_RECIPIENT1_NAME received: $TIP_REC1_CHANGE micro-DREAM (expected: 48,500,000 after 3% tax)"
 
         # Note: Received amount may be slightly less due to decay between balance checks
         # Decay accumulates during test execution (1% per epoch on unstaked DREAM)
         EXPECTED_MIN="46000000"  # Allow up to ~2.5 DREAM variance for decay
         if [ "$(echo "$TIP_REC1_CHANGE < $EXPECTED_MIN" | bc)" -eq 1 ]; then
-            echo "   ℹ️  Received less than expected - likely due to decay during test"
+            echo "   [INFO]  Received less than expected - likely due to decay during test"
         fi
 
         # Check Alice's tip counter
@@ -311,7 +311,7 @@ TIP_RES=$($BINARY tx rep transfer-dream \
         TIPS_GIVEN=$(echo "$ALICE_MEMBER" | jq -r '.member.tips_given_this_epoch // 0')
         echo "   Alice tips given this epoch: $TIPS_GIVEN"
     else
-        echo "❌ Tip failed"
+        echo "[FAIL] Tip failed"
         echo "Error: $(echo $TIP_RES | jq -r '.raw_log // .code // "Unknown error"')"
     fi
 fi
@@ -338,16 +338,16 @@ LARGE_TIP_TX=$(echo $LARGE_TIP_RES | jq -r '.txhash' 2>/dev/null)
 LARGE_TIP_CODE=$(echo $LARGE_TIP_RES | jq -r '.code' 2>/dev/null)
 
 if [ "$LARGE_TIP_CODE" != "0" ] || [ -z "$LARGE_TIP_TX" ] || [ "$LARGE_TIP_TX" == "null" ]; then
-    echo "✅ Large tip rejected as expected (> 100 limit)"
+    echo "[ OK ] Large tip rejected as expected (> 100 limit)"
     echo "   Error: $(echo $LARGE_TIP_RES | jq -r '.raw_log' 2>/dev/null | head -1)"
 else
     sleep 2
     TX_DETAIL=$($BINARY query tx $LARGE_TIP_TX --output json)
     TX_CODE=$(echo "$TX_DETAIL" | jq -r '.code // 0')
     if [ "$TX_CODE" != "0" ]; then
-        echo "✅ Large tip rejected in execution (> 100 limit)"
+        echo "[ OK ] Large tip rejected in execution (> 100 limit)"
     else
-        echo "⚠️  Large tip succeeded (limit may not be enforced yet)"
+        echo "[WARN]  Large tip succeeded (limit may not be enforced yet)"
     fi
 fi
 
@@ -368,10 +368,10 @@ INVITEE_MEMBER=$(get_member $INVITEE_ADDR)
 
 # Check if invitee is a member
 if [ -z "$INVITEE_MEMBER" ] || [ "$INVITEE_MEMBER" == "null" ] || echo "$INVITEE_MEMBER" | grep -q "not found"; then
-    echo "⚠️  Gift test skipped - invitee account is not a member"
+    echo "[WARN]  Gift test skipped - invitee account is not a member"
     echo "   → Invitee: $INVITEE_ADDR"
     echo "   → Gifts require recipient to be an invited member"
-    echo "   ℹ️  Run invitation test first to create invitees, or gifts test will be limited"
+    echo "   [INFO]  Run invitation test first to create invitees, or gifts test will be limited"
     echo ""
     echo "Test: Alice attempts to gift > 500 DREAM (testing limit enforcement)"
 else
@@ -382,7 +382,7 @@ else
     echo "Invited by: $INVITER"
 
     if [ "$INVITER" != "$ALICE_ADDR" ]; then
-        echo "⚠️  Invitee was not invited by Alice - gift test will fail (expected)"
+        echo "[WARN]  Invitee was not invited by Alice - gift test will fail (expected)"
         echo "Note: Gifts only allowed to invitees from their inviter"
     fi
 
@@ -423,10 +423,10 @@ if [ -n "$GIFT_TX" ] && [ "$GIFT_TX" != "null" ]; then
         if [ -z "$INVITEE_FINAL" ]; then INVITEE_FINAL="0"; fi
 
         INVITEE_CHANGE=$(echo "$INVITEE_FINAL - $INVITEE_INITIAL" | bc 2>/dev/null || echo "0")
-        echo "✅ Gift transaction: $GIFT_TX"
+        echo "[ OK ] Gift transaction: $GIFT_TX"
         echo "   Invitee received: $INVITEE_CHANGE micro-DREAM (expected: 194,000,000 after 3% tax)"
     else
-        echo "❌ Gift failed in execution"
+        echo "[FAIL] Gift failed in execution"
         echo "   Error: $(echo "$TX_DETAIL" | jq -r '.raw_log')"
 
         # Check if it's a balance issue and suggest alternative
@@ -437,7 +437,7 @@ if [ -n "$GIFT_TX" ] && [ "$GIFT_TX" != "null" ]; then
         fi
     fi
 else
-    echo "❌ Gift failed"
+    echo "[FAIL] Gift failed"
     echo "Error: $(echo $GIFT_RES | jq -r '.raw_log // .code // "Unknown error"')"
 fi
 
@@ -472,12 +472,12 @@ if [ -n "$LARGE_GIFT_TX" ] && [ "$LARGE_GIFT_TX" != "null" ]; then
     TX_CODE=$(echo "$TX_DETAIL" | jq -r '.code // 0')
 
     if [ "$TX_CODE" != "0" ]; then
-        echo "✅ Large gift rejected as expected (> 500 limit)"
+        echo "[ OK ] Large gift rejected as expected (> 500 limit)"
     else
-        echo "⚠️  Large gift succeeded (limit may not be enforced yet)"
+        echo "[WARN]  Large gift succeeded (limit may not be enforced yet)"
     fi
 else
-    echo "✅ Large gift rejected as expected (> 500 limit)"
+    echo "[ OK ] Large gift rejected as expected (> 500 limit)"
 fi
 
 echo ""
@@ -500,21 +500,21 @@ DECAY_TESTER_MEMBER=$(get_member $DECAY_TESTER_ADDR 2>/dev/null)
 DECAY_TESTER_BALANCE=$(echo "$DECAY_TESTER_MEMBER" | jq -r '.member.dream_balance // "0"')
 
 if [ -z "$DECAY_TESTER_MEMBER" ] || [ "$DECAY_TESTER_MEMBER" == "null" ] || echo "$DECAY_TESTER_MEMBER" | grep -q "not found"; then
-    echo "⚠️  Decay test limited - invitee is not a member"
+    echo "[WARN]  Decay test limited - invitee is not a member"
     echo "   → Run invitation test first to create invitees"
-    echo "   ℹ️  Decay mechanics work correctly (demonstrated by Alice's balance changes throughout test suite)"
-    echo "   ℹ️  Alice lost ~5,800 DREAM to decay during test execution (1% per epoch on unstaked balance)"
+    echo "   [INFO]  Decay mechanics work correctly (demonstrated by Alice's balance changes throughout test suite)"
+    echo "   [INFO]  Alice lost ~5,800 DREAM to decay during test execution (1% per epoch on unstaked balance)"
     echo ""
     echo "Note: Member has no unstaked DREAM to test decay directly"
     DECAY_TEST_SKIPPED=true
 elif [ "$DECAY_TESTER_BALANCE" == "0" ] || [ "$DECAY_TESTER_BALANCE" == "null" ] || [ -z "$DECAY_TESTER_BALANCE" ]; then
-    echo "⚠️  Decay test limited - invitee has no DREAM balance"
+    echo "[WARN]  Decay test limited - invitee has no DREAM balance"
     echo "   → Gift in Part 3 may have failed"
-    echo "   ℹ️  Decay mechanics work correctly (demonstrated by Alice's balance changes throughout test suite)"
+    echo "   [INFO]  Decay mechanics work correctly (demonstrated by Alice's balance changes throughout test suite)"
     echo ""
     DECAY_TEST_SKIPPED=true
 else
-    echo "✅ Invitee has DREAM balance: $(echo "scale=2; $DECAY_TESTER_BALANCE / 1000000" | bc) DREAM"
+    echo "[ OK ] Invitee has DREAM balance: $(echo "scale=2; $DECAY_TESTER_BALANCE / 1000000" | bc) DREAM"
     DECAY_TEST_SKIPPED=false
 fi
 
@@ -606,11 +606,11 @@ fi
 echo ""
 
 if [ "$LIFETIME_EARNED" != "0" ] && [ "$LIFETIME_EARNED" != "null" ]; then
-    echo "✅ Lifetime earned tracking active"
+    echo "[ OK ] Lifetime earned tracking active"
 fi
 
 if [ "$LIFETIME_BURNED" != "0" ] && [ "$LIFETIME_BURNED" != "null" ]; then
-    echo "✅ Lifetime burned tracking active"
+    echo "[ OK ] Lifetime burned tracking active"
 fi
 
 echo ""
@@ -652,12 +652,12 @@ echo "DREAM TOKEN ECONOMICS TEST SUMMARY"
 echo "========================================================================="
 echo ""
 echo "Test Results:"
-echo "  ✅ Part 1: Transfer with 3% tax"
-echo "  ✅ Part 2: Tips (max 100, 10/epoch)"
-echo "  ✅ Part 3: Gifts (max 500, invitees only)"
-echo "  ✅ Part 4: Unstaked decay ($DECAY_PCT%/epoch)"
-echo "  ✅ Part 5: Lifetime tracking"
-echo "  ✅ Part 6: Balance queries"
+echo "  [ OK ] Part 1: Transfer with 3% tax"
+echo "  [ OK ] Part 2: Tips (max 100, 10/epoch)"
+echo "  [ OK ] Part 3: Gifts (max 500, invitees only)"
+echo "  [ OK ] Part 4: Unstaked decay ($DECAY_PCT%/epoch)"
+echo "  [ OK ] Part 5: Lifetime tracking"
+echo "  [ OK ] Part 6: Balance queries"
 echo ""
 echo "DREAM Token Rules:"
 echo "  • Transfer Tax:    3% burned on all transfers"
@@ -668,5 +668,5 @@ echo "  • Staked:          IMMUNE from decay"
 echo "  • Trading:         NOT ALLOWED (module-managed, no x/bank, no IBC)"
 echo ""
 echo "========================================================================="
-echo "✅ DREAM TOKEN ECONOMICS TEST COMPLETED"
+echo "[ OK ] DREAM TOKEN ECONOMICS TEST COMPLETED"
 echo "========================================================================="

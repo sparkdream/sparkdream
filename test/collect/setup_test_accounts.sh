@@ -150,6 +150,13 @@ echo "--- Step 4: Distributing DREAM to members ---"
 # to cover the 3% transfer tax: 200 raw → ~194 net after tax.
 DREAM_AMOUNT=200
 
+# Track DREAM-transfer failures so the script exits non-zero when any
+# critical funding step fails. Without this, run_test records PASS even
+# when Alice's balance was depleted by a prior run, and auto-snapshot
+# persists the corrupted post-setup state. See test/forum/setup_test_accounts.sh
+# for the original fix this mirrors.
+CRITICAL_FUNDING_FAILED=()
+
 for ACCT in collector1 collector2; do
     ADDR=$(get_address $ACCT)
     DREAM_BAL=$($BINARY query rep get-member "$ADDR" -o json 2>/dev/null | jq -r '.member.dream_balance // "0"')
@@ -163,12 +170,35 @@ for ACCT in collector1 collector2; do
     TXHASH=$(get_txhash "$TX_RES")
     if [ -z "$TXHASH" ]; then
         echo "  WARNING: Failed to transfer DREAM to $ACCT"
+        CRITICAL_FUNDING_FAILED+=("$ACCT")
     else
         sleep $TX_WAIT
         DREAM_BAL=$($BINARY query rep get-member "$ADDR" -o json 2>/dev/null | jq -r '.member.dream_balance // "0"')
         echo "  $ACCT now has $DREAM_BAL DREAM"
+        # send_tx may return a txhash but the tx itself can still fail
+        # downstream (e.g. insufficient balance reaches the chain). Verify
+        # the recipient actually received DREAM; downstream curator/
+        # endorsement tests assume ≥100 DREAM per collector.
+        if [ "$DREAM_BAL" -lt 100 ] 2>/dev/null; then
+            echo "  ERROR: $ACCT balance $DREAM_BAL DREAM is below the 100 DREAM threshold"
+            CRITICAL_FUNDING_FAILED+=("$ACCT")
+        fi
     fi
 done
+
+# A failure here is non-recoverable: every downstream test assumes the
+# funded accounts hold the DREAM specified above. Exit non-zero so
+# run_test records FAILED and auto-snapshot skips persisting the broken
+# state.
+if [ ${#CRITICAL_FUNDING_FAILED[@]} -gt 0 ]; then
+    echo ""
+    echo "ERROR: critical DREAM funding failed for: ${CRITICAL_FUNDING_FAILED[*]}"
+    echo "  Common cause: chain has stale state from a prior run and Alice's"
+    echo "  DREAM balance is depleted. Re-init the chain ("
+    echo "    find ~/.sparkdream -depth -delete && ignite chain init -y --build.tags testparams"
+    echo "  ) and rerun setup."
+    exit 1
+fi
 
 # =========================================================================
 # Step 5: Export test environment

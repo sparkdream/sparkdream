@@ -18,7 +18,7 @@ echo "Alice Address: $ALICE_ADDR"
 echo "Gov Address:   $GOV_ADDR"
 
 if [ -z "$GOV_ADDR" ] || [ "$GOV_ADDR" == "null" ]; then
-    echo "❌ SETUP ERROR: Gov Address not found."
+    echo "[FAIL] SETUP ERROR: Gov Address not found."
     exit 1
 fi
 
@@ -39,11 +39,11 @@ echo "Initial trading_fee_bps:     $INITIAL_TRADING_FEE"
 echo "Initial max_duration:        $INITIAL_MAX_DURATION"
 
 if [ -z "$INITIAL_MIN_LIQ" ] || [ "$INITIAL_MIN_LIQ" == "null" ]; then
-    echo "❌ FAILURE: Could not query initial parameters"
+    echo "[FAIL] FAILURE: Could not query initial parameters"
     exit 1
 fi
 
-echo "✅ Successfully queried initial parameters"
+echo "[ OK ] Successfully queried initial parameters"
 
 # --- 2. CREATE MARKET WITH CURRENT PARAMETERS ---
 echo "--- STEP 2: CREATE MARKET WITH CURRENT MIN LIQUIDITY ---"
@@ -66,7 +66,7 @@ CREATE_RES=$($BINARY tx futarchy create-market \
   --output json)
 
 sleep 3
-echo "✅ Market created with minimum liquidity"
+echo "[ OK ] Market created with minimum liquidity"
 
 # --- 3. SUBMIT PARAMETER UPDATE PROPOSAL ---
 echo "--- STEP 3: SUBMIT GOVERNANCE PROPOSAL TO UPDATE PARAMETERS ---"
@@ -115,11 +115,11 @@ PROP_ID=$($BINARY query tx $PROP_TX_HASH --output json | \
   tr -d '"' | head -n 1)
 
 if [ -z "$PROP_ID" ] || [ "$PROP_ID" == "null" ]; then
-    echo "❌ FAILURE: Could not submit governance proposal"
+    echo "[FAIL] FAILURE: Could not submit governance proposal"
     exit 1
 fi
 
-echo "✅ Parameter update proposal submitted with ID: $PROP_ID"
+echo "[ OK ] Parameter update proposal submitted with ID: $PROP_ID"
 
 # --- 4. VOTE ON PROPOSAL ---
 echo "--- STEP 4: VOTE ON PARAMETER UPDATE PROPOSAL ---"
@@ -140,11 +140,11 @@ sleep 65
 PROP_STATUS=$($BINARY query gov proposal $PROP_ID --output json | jq -r '.proposal.status')
 
 if [ "$PROP_STATUS" != "PROPOSAL_STATUS_PASSED" ]; then
-    echo "❌ FAILURE: Proposal should have PASSED, got status: $PROP_STATUS"
+    echo "[FAIL] FAILURE: Proposal should have PASSED, got status: $PROP_STATUS"
     exit 1
 fi
 
-echo "✅ Governance proposal PASSED"
+echo "[ OK ] Governance proposal PASSED"
 
 # Wait for execution
 sleep 5
@@ -163,21 +163,21 @@ echo "Updated trading_fee_bps:     $UPDATED_TRADING_FEE (expected: $NEW_TRADING_
 echo "Updated max_duration:        $UPDATED_MAX_DURATION (expected: $NEW_MAX_DURATION)"
 
 if [ "$UPDATED_MIN_LIQ" != "$NEW_MIN_LIQ" ]; then
-    echo "❌ FAILURE: min_liquidity not updated correctly"
+    echo "[FAIL] FAILURE: min_liquidity not updated correctly"
     exit 1
 fi
 
 if [ "$UPDATED_TRADING_FEE" != "$NEW_TRADING_FEE" ]; then
-    echo "❌ FAILURE: trading_fee_bps not updated correctly"
+    echo "[FAIL] FAILURE: trading_fee_bps not updated correctly"
     exit 1
 fi
 
 if [ "$UPDATED_MAX_DURATION" != "$NEW_MAX_DURATION" ]; then
-    echo "❌ FAILURE: max_duration not updated correctly"
+    echo "[FAIL] FAILURE: max_duration not updated correctly"
     exit 1
 fi
 
-echo "✅ All parameters updated correctly"
+echo "[ OK ] All parameters updated correctly"
 
 # --- 7. ATTEMPT TO CREATE MARKET BELOW NEW MINIMUM (SHOULD FAIL) ---
 echo "--- STEP 7: ATTEMPT TO CREATE MARKET BELOW NEW MINIMUM (SHOULD FAIL) ---"
@@ -200,9 +200,9 @@ LOW_LIQ_ATTEMPT=$($BINARY tx futarchy create-market \
 
 # Should fail with liquidity below minimum
 if echo "$LOW_LIQ_ATTEMPT" | grep -q "below minimum"; then
-    echo "✅ Low liquidity market correctly rejected"
+    echo "[ OK ] Low liquidity market correctly rejected"
 else
-    echo "✅ Low liquidity market prevented (expected behavior)"
+    echo "[ OK ] Low liquidity market prevented (expected behavior)"
 fi
 
 # --- 8. CREATE MARKET WITH NEW MINIMUM ---
@@ -229,7 +229,7 @@ CREATE_NEW_RES=$($BINARY tx futarchy create-market \
 
 NEW_TX_HASH=$(echo $CREATE_NEW_RES | jq -r '.txhash')
 if [ -z "$NEW_TX_HASH" ] || [ "$NEW_TX_HASH" == "null" ]; then
-    echo "❌ FAILURE: create-market tx did not return a txhash"
+    echo "[FAIL] FAILURE: create-market tx did not return a txhash"
     echo "$CREATE_NEW_RES"
     exit 1
 fi
@@ -241,11 +241,11 @@ NEW_MARKET_ID=$($BINARY query tx $NEW_TX_HASH --output json | \
   tr -d '"')
 
 if [ -z "$NEW_MARKET_ID" ] || [ "$NEW_MARKET_ID" == "null" ]; then
-    echo "❌ FAILURE: Could not create market with new parameters"
+    echo "[FAIL] FAILURE: Could not create market with new parameters"
     exit 1
 fi
 
-echo "✅ Market created with new minimum liquidity: $NEW_MARKET_ID"
+echo "[ OK ] Market created with new minimum liquidity: $NEW_MARKET_ID"
 
 # --- 9. VERIFY NEW TRADING FEE APPLIES ---
 echo "--- STEP 9: VERIFY HIGHER TRADING FEE IS APPLIED ---"
@@ -273,12 +273,12 @@ YES_TOKEN="f/${NEW_MARKET_ID}/yes"
 ALICE_YES_BALANCE=$($BINARY query bank balance $ALICE_ADDR $YES_TOKEN --output json | jq -r '.balance.amount')
 
 if [ "$ALICE_YES_BALANCE" == "0" ] || [ -z "$ALICE_YES_BALANCE" ]; then
-    echo "❌ FAILURE: Alice should have YES shares"
+    echo "[FAIL] FAILURE: Alice should have YES shares"
     exit 1
 fi
 
-echo "✅ Trade executed with new fee structure"
+echo "[ OK ] Trade executed with new fee structure"
 echo "   Alice received $ALICE_YES_BALANCE YES shares"
 
 echo ""
-echo "✅✅✅ PARAMETER UPDATE TEST COMPLETED SUCCESSFULLY ✅✅✅"
+echo "=== PARAMETER UPDATE TEST COMPLETED SUCCESSFULLY ==="

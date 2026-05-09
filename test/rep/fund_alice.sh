@@ -20,7 +20,7 @@ AMOUNT_MICRO=$((AMOUNT_DREAM * 1000000))
 # Load Test Environment
 # ========================================================================
 if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
-    echo "❌ Test environment not found"
+    echo "[FAIL] Test environment not found"
     echo "   Run setup_test_accounts.sh first"
     exit 1
 fi
@@ -73,7 +73,7 @@ for ACCOUNT in "challenger" "assignee" "juror1" "juror2" "juror3" "expert"; do
 done
 
 if [ -z "$BEST_SOURCE" ] || [ "$BEST_BALANCE" -eq 0 ]; then
-    echo "❌ No test accounts with DREAM found"
+    echo "[FAIL] No test accounts with DREAM found"
     echo "   Run setup_test_accounts.sh to create funded test accounts"
     exit 1
 fi
@@ -86,7 +86,7 @@ echo ""
 # Calculate Amount to Transfer
 # ========================================================================
 if [ "$ALICE_DREAM" -ge "$AMOUNT_MICRO" ]; then
-    echo "✅ Alice already has sufficient DREAM"
+    echo "[ OK ] Alice already has sufficient DREAM"
     exit 0
 fi
 
@@ -98,7 +98,7 @@ echo ""
 
 # Check if source has enough
 if [ "$BEST_BALANCE" -lt "$NEEDED" ]; then
-    echo "⚠️  Warning: $BEST_SOURCE only has $BEST_BALANCE_DISPLAY DREAM"
+    echo "[WARN]  Warning: $BEST_SOURCE only has $BEST_BALANCE_DISPLAY DREAM"
     echo "   Will transfer what's available"
     NEEDED=$BEST_BALANCE
 fi
@@ -136,7 +136,7 @@ while [ $REMAINING -gt 0 ]; do
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  ❌ Failed to send tip (no txhash)"
+        echo "  [FAIL] Failed to send tip (no txhash)"
         CODE=$(echo "$TX_RES" | jq -r '.code // "unknown"')
         RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // "unknown"' | head -1)
         echo "     Code: $CODE"
@@ -151,10 +151,10 @@ while [ $REMAINING -gt 0 ]; do
     TX_CODE=$(echo "$TX_DETAIL" | jq -r '.code // 1')
 
     if [ "$TX_CODE" == "0" ]; then
-        echo "  ✅ Tip #$TIP_COUNT successful"
+        echo "  [ OK ] Tip #$TIP_COUNT successful"
         REMAINING=$((REMAINING - TIP_AMOUNT))
     else
-        echo "  ❌ Tip #$TIP_COUNT failed"
+        echo "  [FAIL] Tip #$TIP_COUNT failed"
         RAW_LOG=$(echo "$TX_DETAIL" | jq -r '.raw_log // "unknown"')
         echo "     Error: $RAW_LOG"
         break
@@ -162,7 +162,7 @@ while [ $REMAINING -gt 0 ]; do
 
     # Prevent hitting tip limit (10 tips per epoch)
     if [ $TIP_COUNT -ge 10 ]; then
-        echo "  ⚠️  Reached max tips per epoch (10)"
+        echo "  [WARN]  Reached max tips per epoch (10)"
         break
     fi
 done
@@ -183,11 +183,11 @@ echo "  Alice new balance: $ALICE_DREAM_NEW_DISPLAY DREAM"
 echo ""
 
 if [ "$ALICE_DREAM_NEW" -ge "$AMOUNT_MICRO" ]; then
-    echo "✅ Alice has been successfully funded"
+    echo "[ OK ] Alice has been successfully funded"
 else
     STILL_NEEDED=$((AMOUNT_MICRO - ALICE_DREAM_NEW))
     STILL_NEEDED_DISPLAY=$(echo "scale=2; $STILL_NEEDED / 1000000" | bc 2>/dev/null || echo "0")
-    echo "⚠️  Alice still needs $STILL_NEEDED_DISPLAY more DREAM"
+    echo "[WARN]  Alice still needs $STILL_NEEDED_DISPLAY more DREAM"
     echo "   This may be due to:"
     echo "     - Transfer tax (3% burned on each tip)"
     echo "     - Tip limit (max 10 tips per epoch)"

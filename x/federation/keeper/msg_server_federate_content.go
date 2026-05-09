@@ -71,11 +71,30 @@ func (k msgServer) FederateContent(ctx context.Context, msg *types.MsgFederateCo
 			},
 		},
 	}
-	// Best-effort: the outbound attestation is recorded locally regardless.
-	// Content delivery completes when the remote chain acknowledges the packet.
-	_, _ = k.SendFederationPacket(ctx, msg.PeerId, packetData)
-
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	// Best-effort: the outbound attestation is recorded locally regardless, and
+	// content delivery completes when the remote chain acknowledges the packet.
+	// However, if SendFederationPacket fails (IBC not wired, channel closed, etc.)
+	// we MUST surface that — silently dropping packets via `_, _ =` is the exact
+	// regression `test_crosschain_content.sh` TEST 5 was named to catch.
+	if _, sendErr := k.SendFederationPacket(ctx, msg.PeerId, packetData); sendErr != nil {
+		sdkCtx.Logger().With("module", "x/federation").Error(
+			"FederateContent: SendFederationPacket failed; outbound attestation still recorded but no IBC packet was committed",
+			"peer_id", msg.PeerId,
+			"content_type", msg.ContentType,
+			"local_content_id", msg.LocalContentId,
+			"error", sendErr,
+		)
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(types.EventTypeFederationPacketSendFailed,
+				sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId),
+				sdk.NewAttribute(types.AttributeKeyPacketKind, "content"),
+				sdk.NewAttribute(types.AttributeKeyContentType, msg.ContentType),
+				sdk.NewAttribute(types.AttributeKeyLocalContentID, msg.LocalContentId),
+				sdk.NewAttribute(types.AttributeKeyError, sendErr.Error())),
+		)
+	}
+
 	blockTime := sdkCtx.BlockTime().Unix()
 
 	// 6. Store OutboundAttestation

@@ -10,7 +10,7 @@ CHAIN_ID="sparkdream"
 
 # Load test environment
 if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
-    echo "❌ Test environment not found (.test_env missing)"
+    echo "[FAIL] Test environment not found (.test_env missing)"
     echo "   Run: bash setup_test_accounts.sh"
     exit 1
 fi
@@ -26,7 +26,7 @@ check_stake_tx() {
 
     # Check if response is empty (RPC error went to stderr, not captured)
     if [ -z "$tx_res" ]; then
-        echo "❌ $stake_name creation failed: RPC error (not captured in response)" >&2
+        echo "[FAIL] $stake_name creation failed: RPC error (not captured in response)" >&2
         echo "   Error: Transaction submission failed (likely insufficient balance or RPC error)" >&2
         echo "   Note: Check stderr output above for full RPC error message" >&2
         return 1
@@ -39,7 +39,7 @@ check_stake_tx() {
 
     # Check if response is valid JSON
     if ! echo "$json_response" | jq empty 2>/dev/null; then
-        echo "❌ $stake_name creation failed: Invalid JSON response" >&2
+        echo "[FAIL] $stake_name creation failed: Invalid JSON response" >&2
         echo "   Response: ${tx_res:0:200}..." >&2
         echo "   Error: Likely an RPC error or malformed response" >&2
         return 1
@@ -49,14 +49,14 @@ check_stake_tx() {
     local txhash=$(echo "$json_response" | jq -r '.txhash // "unknown"')
 
     if [ "$tx_code" != "0" ] && [ "$tx_code" != "unknown" ]; then
-        echo "❌ $stake_name creation failed: code $tx_code (TX: $txhash)" >&2
+        echo "[FAIL] $stake_name creation failed: code $tx_code (TX: $txhash)" >&2
         local raw_log=$(echo "$json_response" | jq -r '.raw_log // .message // "no error message"')
         echo "   Error: $raw_log" >&2
         return 1
     fi
 
     if [ "$txhash" == "unknown" ] || [ -z "$txhash" ]; then
-        echo "❌ $stake_name creation failed: no transaction hash" >&2
+        echo "[FAIL] $stake_name creation failed: no transaction hash" >&2
         echo "   Error: Transaction may have failed during broadcast" >&2
         return 1
     fi
@@ -68,14 +68,14 @@ check_stake_tx() {
 
     # Check if transaction query succeeded
     if ! echo "$tx_query" | jq empty 2>/dev/null; then
-        echo "⚠️  Could not query TX $txhash (may not be indexed yet)" >&2
+        echo "[WARN]  Could not query TX $txhash (may not be indexed yet)" >&2
         return 1
     fi
 
     # Check transaction execution result
     local query_code=$(echo "$tx_query" | jq -r '.code // "0"')
     if [ "$query_code" != "0" ]; then
-        echo "❌ $stake_name transaction failed during execution: code $query_code (TX: $txhash)" >&2
+        echo "[FAIL] $stake_name transaction failed during execution: code $query_code (TX: $txhash)" >&2
         local exec_log=$(echo "$tx_query" | jq -r '.raw_log // "no error message"')
         echo "   Error: $exec_log" >&2
         return 1
@@ -86,7 +86,7 @@ check_stake_tx() {
         tr -d '"')
 
     if [ -z "$stake_id" ] || [ "$stake_id" == "null" ]; then
-        echo "⚠️  Could not extract stake ID from TX $txhash" >&2
+        echo "[WARN]  Could not extract stake ID from TX $txhash" >&2
         echo "   Checking transaction events..." >&2
         local error_msg=$(echo "$tx_query" | jq -r '.raw_log // "no log available"')
         echo "   Transaction log: $error_msg" >&2
@@ -123,7 +123,7 @@ echo "Creating test initiative for staking..."
 
 # Use existing test project from setup
 PROJECT_ID=$TEST_PROJECT_ID
-echo "✅ Using test project: $PROJECT_ID"
+echo "[ OK ] Using test project: $PROJECT_ID"
 
 # Create initiative
 # Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
@@ -153,7 +153,7 @@ INIT_TX_CODE=$(echo $INITIATIVE_RES | jq -r '.code')
 INIT_TXHASH=$(echo $INITIATIVE_RES | jq -r '.txhash')
 
 if [ "$INIT_TX_CODE" != "0" ]; then
-    echo "❌ Initiative creation failed: code $INIT_TX_CODE"
+    echo "[FAIL] Initiative creation failed: code $INIT_TX_CODE"
     echo "Error: $(echo $INITIATIVE_RES | jq -r '.raw_log')"
     exit 1
 fi
@@ -163,11 +163,11 @@ INITIATIVE_ID=$($BINARY query tx $INIT_TXHASH -o json 2>&1 | \
   tr -d '"')
 
 if [ -z "$INITIATIVE_ID" ] || [ "$INITIATIVE_ID" == "null" ]; then
-    echo "⚠️  Could not extract initiative ID from events, using fallback"
+    echo "[WARN]  Could not extract initiative ID from events, using fallback"
     INITIATIVE_ID="1"
 fi
 
-echo "✅ Initiative created: $INITIATIVE_ID (TX: $INIT_TXHASH)"
+echo "[ OK ] Initiative created: $INITIATIVE_ID (TX: $INIT_TXHASH)"
 
 # Multiple stakers stake on the same initiative
 echo ""
@@ -190,10 +190,10 @@ STAKE1_RES=$($BINARY tx rep stake \
 
 STAKE1_ID=$(check_stake_tx "$STAKE1_RES" "Staker1")
 if [ $? -ne 0 ]; then
-    echo "⚠️  Staker1 stake creation failed, continuing with test..."
+    echo "[WARN]  Staker1 stake creation failed, continuing with test..."
     STAKE1_ID="unknown"
 else
-    echo "✅ Staker1 stake #$STAKE1_ID: 100 DREAM"
+    echo "[ OK ] Staker1 stake #$STAKE1_ID: 100 DREAM"
 fi
 
 echo "Staker2 staking 100 DREAM on initiative..."
@@ -213,7 +213,7 @@ echo "   Total balance: $ASSIGNEE_BALANCE_DREAM DREAM (staked: $LOCKED_DREAM_DIS
 
 # Fund assignee from Alice if insufficient available balance
 if [ "$AVAILABLE_BALANCE" -lt "100000000" ]; then
-    echo "   ⚠️  Insufficient available balance for 100 DREAM stake"
+    echo "   [WARN]  Insufficient available balance for 100 DREAM stake"
     NEEDED=$((100000000 - AVAILABLE_BALANCE + 10000000))  # +10 for buffer
     NEEDED_DREAM=$(echo "scale=2; $NEEDED / 1000000" | bc 2>/dev/null || echo "0")
     echo "   → Transferring $NEEDED_DREAM DREAM from Alice to assignee..."
@@ -235,9 +235,9 @@ if [ "$AVAILABLE_BALANCE" -lt "100000000" ]; then
 
     if [ -n "$FUND_TXHASH" ]; then
         sleep 3
-        echo "   ✅ Funded assignee (TX: $FUND_TXHASH)"
+        echo "   [ OK ] Funded assignee (TX: $FUND_TXHASH)"
     else
-        echo "   ⚠️  Funding failed, Staker2 may not have enough DREAM"
+        echo "   [WARN]  Funding failed, Staker2 may not have enough DREAM"
     fi
 fi
 
@@ -256,10 +256,10 @@ STAKE2_RES=$($BINARY tx rep stake \
 
 STAKE2_ID=$(check_stake_tx "$STAKE2_RES" "Staker2")
 if [ $? -ne 0 ]; then
-    echo "⚠️  Staker2 stake creation failed, continuing with test..."
+    echo "[WARN]  Staker2 stake creation failed, continuing with test..."
     STAKE2_ID="unknown"
 else
-    echo "✅ Staker2 stake #$STAKE2_ID: 100 DREAM"
+    echo "[ OK ] Staker2 stake #$STAKE2_ID: 100 DREAM"
 fi
 
 echo "Staker3 staking 100 DREAM on initiative..."
@@ -272,7 +272,7 @@ JUROR1_AVAILABLE=$((JUROR1_BALANCE - JUROR1_LOCKED))
 if [ "$JUROR1_AVAILABLE" -lt "100000000" ]; then
     NEEDED=$((100000000 - JUROR1_AVAILABLE + 10000000))  # +10 for buffer
     NEEDED_DREAM=$(echo "scale=2; $NEEDED / 1000000" | bc 2>/dev/null || echo "0")
-    echo "   ⚠️  Staker3 (juror1) has insufficient balance, transferring $NEEDED_DREAM DREAM from Alice..."
+    echo "   [WARN]  Staker3 (juror1) has insufficient balance, transferring $NEEDED_DREAM DREAM from Alice..."
     FUND_RES=$($BINARY tx rep transfer-dream \
       $JUROR1_ADDR \
       "$NEEDED" \
@@ -287,9 +287,9 @@ if [ "$JUROR1_AVAILABLE" -lt "100000000" ]; then
     FUND_TXHASH=$(echo "$FUND_RES" | grep -v "^gas estimate:" | grep -v "^Falling back" | jq -r '.txhash // ""')
     if [ -n "$FUND_TXHASH" ]; then
         sleep 3
-        echo "   ✅ Funded Staker3 (TX: $FUND_TXHASH)"
+        echo "   [ OK ] Funded Staker3 (TX: $FUND_TXHASH)"
     else
-        echo "   ⚠️  Funding failed, Staker3 may not have enough DREAM"
+        echo "   [WARN]  Funding failed, Staker3 may not have enough DREAM"
     fi
 fi
 
@@ -308,10 +308,10 @@ STAKE3_RES=$($BINARY tx rep stake \
 
 STAKE3_ID=$(check_stake_tx "$STAKE3_RES" "Staker3")
 if [ $? -ne 0 ]; then
-    echo "⚠️  Staker3 stake creation failed, continuing with test..."
+    echo "[WARN]  Staker3 stake creation failed, continuing with test..."
     STAKE3_ID="unknown"
 else
-    echo "✅ Staker3 stake #$STAKE3_ID: 100 DREAM"
+    echo "[ OK ] Staker3 stake #$STAKE3_ID: 100 DREAM"
 fi
 
 # Calculate actual total staked
@@ -332,11 +332,11 @@ if [ "$STAKE3_ID" != "unknown" ]; then
 fi
 
 if [ $STAKERS_COUNT -eq 3 ]; then
-    echo "✅ Total staked on initiative: $TOTAL_STAKED DREAM ($STAKERS_COUNT stakers)"
+    echo "[ OK ] Total staked on initiative: $TOTAL_STAKED DREAM ($STAKERS_COUNT stakers)"
 elif [ $STAKERS_COUNT -gt 0 ]; then
-    echo "⚠️  Total staked on initiative: $TOTAL_STAKED DREAM ($STAKERS_COUNT of 3 stakers succeeded)"
+    echo "[WARN]  Total staked on initiative: $TOTAL_STAKED DREAM ($STAKERS_COUNT of 3 stakers succeeded)"
 else
-    echo "❌ No stakes created successfully"
+    echo "[FAIL] No stakes created successfully"
 fi
 
 # ========================================================================
@@ -378,10 +378,10 @@ TAG1_STAKE_RES=$($BINARY tx rep stake \
 
 TAG1_STAKE_ID=$(check_stake_tx "$TAG1_STAKE_RES" "Tag1")
 if [ $? -ne 0 ]; then
-    echo "⚠️  Tag 'staking' stake creation failed, continuing with test..."
+    echo "[WARN]  Tag 'staking' stake creation failed, continuing with test..."
     TAG1_STAKE_ID="unknown"
 else
-    echo "✅ Tag stake #$TAG1_STAKE_ID: 100 DREAM on 'staking'"
+    echo "[ OK ] Tag stake #$TAG1_STAKE_ID: 100 DREAM on 'staking'"
 fi
 
 echo "Staking on 'test' tag..."
@@ -402,10 +402,10 @@ TAG2_STAKE_RES=$($BINARY tx rep stake \
 
 TAG2_STAKE_ID=$(check_stake_tx "$TAG2_STAKE_RES" "Tag2")
 if [ $? -ne 0 ]; then
-    echo "⚠️  Tag 'test' stake creation failed, continuing with test..."
+    echo "[WARN]  Tag 'test' stake creation failed, continuing with test..."
     TAG2_STAKE_ID="unknown"
 else
-    echo "✅ Tag stake #$TAG2_STAKE_ID: 10 DREAM on 'test'"
+    echo "[ OK ] Tag stake #$TAG2_STAKE_ID: 10 DREAM on 'test'"
 fi
 
 echo ""
@@ -436,10 +436,10 @@ PROJECT_STAKE_RES=$($BINARY tx rep stake \
 
 PROJECT_STAKE_ID=$(check_stake_tx "$PROJECT_STAKE_RES" "Project")
 if [ $? -ne 0 ]; then
-    echo "⚠️  Project stake creation failed, continuing with test..."
+    echo "[WARN]  Project stake creation failed, continuing with test..."
     PROJECT_STAKE_ID="unknown"
 else
-    echo "✅ Project stake #$PROJECT_STAKE_ID: 100 DREAM"
+    echo "[ OK ] Project stake #$PROJECT_STAKE_ID: 100 DREAM"
     echo "→ Earns 8% APY while project is ACTIVE"
     echo "→ Gets 5% bonus when project COMPLETES"
 fi
@@ -498,7 +498,7 @@ elif echo "$INITIATIVE_STAKES" | jq -e '.stake' >/dev/null 2>&1; then
     echo "Initiative #$INITIATIVE_ID has 1 stake"
     echo "$INITIATIVE_STAKES" | jq -r '"→ Staker: \(.stake.staker) - \(.stake.amount) micro-DREAM"'
 else
-    echo "⚠️  stakes-by-target query not implemented or returned error for initiatives"
+    echo "[WARN]  stakes-by-target query not implemented or returned error for initiatives"
 fi
 
 echo ""
@@ -519,7 +519,7 @@ elif echo "$PROJECT_STAKES" | jq -e '.stake' >/dev/null 2>&1; then
     echo "Project #$PROJECT_ID has 1 stake"
     echo "$PROJECT_STAKES" | jq -r '"→ Staker: \(.stake.staker) - \(.stake.amount) micro-DREAM"'
 else
-    echo "⚠️  stakes-by-target query not implemented or returned error for projects"
+    echo "[WARN]  stakes-by-target query not implemented or returned error for projects"
 fi
 
 # ========================================================================
@@ -549,7 +549,7 @@ elif echo "$ALICE_POOL" | grep -q "not found"; then
     echo "  → No one has staked on Alice as a member yet"
     echo "  → Pool will be created when first member stakes on Alice"
 else
-    echo "⚠️  member-stake-pool query returned unexpected error"
+    echo "[WARN]  member-stake-pool query returned unexpected error"
 fi
 
 # ========================================================================
@@ -569,7 +569,7 @@ if echo "$STAKING_TAG_POOL" | jq -e '.pool' >/dev/null 2>&1; then
     echo "  → Total staked: $STAKING_TOTAL_STAKED DREAM"
     echo "  → Acc reward per share: $STAKING_ACC_REWARD"
 else
-    echo "⚠️  tag-stake-pool query for 'staking' returned error"
+    echo "[WARN]  tag-stake-pool query for 'staking' returned error"
 fi
 
 # Query 'test' tag pool (has stakes from Part 3)
@@ -584,7 +584,7 @@ if echo "$TEST_TAG_POOL" | jq -e '.pool' >/dev/null 2>&1; then
     echo "  → Total staked: $TEST_TOTAL_STAKED DREAM"
     echo "  → Acc reward per share: $TEST_ACC_REWARD"
 else
-    echo "⚠️  tag-stake-pool query for 'test' returned error"
+    echo "[WARN]  tag-stake-pool query for 'test' returned error"
 fi
 
 # ========================================================================
@@ -604,7 +604,7 @@ if echo "$PROJECT_INFO" | jq -e '.info' >/dev/null 2>&1; then
     echo "  → Completion bonus pool: $PROJECT_BONUS_POOL DREAM"
     echo "  → 5% bonus distributed to stakers on project completion"
 else
-    echo "⚠️  project-stake-info query not implemented or returned error"
+    echo "[WARN]  project-stake-info query not implemented or returned error"
 fi
 
 # ========================================================================
@@ -628,10 +628,10 @@ if [ "$STAKE1_ID" != "unknown" ]; then
         echo "  → Created at: $STAKE1_CREATED"
         echo "  → Last claimed at: $STAKE1_LAST_CLAIMED"
     else
-        echo "  ⚠️  Could not query stake #$STAKE1_ID"
+        echo "  [WARN]  Could not query stake #$STAKE1_ID"
     fi
 else
-    echo "  ⚠️  Stake ID not available (creation may have failed)"
+    echo "  [WARN]  Stake ID not available (creation may have failed)"
 fi
 
 echo ""
@@ -646,10 +646,10 @@ if [ "$PROJECT_STAKE_ID" != "unknown" ]; then
         echo "  → Amount: $PROJECT_STAKE_AMOUNT DREAM"
         echo "  → Target: Project #$PROJECT_ID"
     else
-        echo "  ⚠️  Could not query stake #$PROJECT_STAKE_ID"
+        echo "  [WARN]  Could not query stake #$PROJECT_STAKE_ID"
     fi
 else
-    echo "  ⚠️  Stake ID not available (creation may have failed)"
+    echo "  [WARN]  Stake ID not available (creation may have failed)"
 fi
 
 # ========================================================================
@@ -658,7 +658,7 @@ fi
 echo ""
 echo "--- PART 10.5: ADVANCING BLOCKS FOR REWARD ACCUMULATION ---"
 echo ""
-echo "📝 Note: Staking rewards in this test"
+echo " Note: Staking rewards in this test"
 echo "   • Initiative/project time-based APY calculated lazily (gas-efficient design)"
 echo "   • Member/tag pools updated when revenue events occur (event-driven)"
 echo "   • Short test duration (seconds) means tiny reward amounts"
@@ -690,7 +690,7 @@ done
 sleep 10
 
 NEW_BLOCK=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
-echo "✅ Advanced to block: $NEW_BLOCK"
+echo "[ OK ] Advanced to block: $NEW_BLOCK"
 echo "Note: Rewards accumulate over time. More blocks = more rewards."
 
 # ========================================================================
@@ -722,20 +722,20 @@ if [ "$STAKE1_ID" != "unknown" ]; then
             CLAIMED_AMOUNT=$(echo "$CLAIM_RESULT" | jq -r '.events[] | select(.type=="staking_rewards_claimed") | .attributes[] | select(.key=="rewards") | .value' | \
               tr -d '"')
             if [ -n "$CLAIMED_AMOUNT" ] && [ "$CLAIMED_AMOUNT" != "null" ] && [ "$CLAIMED_AMOUNT" != "0" ]; then
-                echo "✅ Staker1 claimed rewards: $CLAIMED_AMOUNT micro-DREAM"
+                echo "[ OK ] Staker1 claimed rewards: $CLAIMED_AMOUNT micro-DREAM"
             else
-                echo "✅ Claim succeeded (rewards: 0-10 micro-DREAM due to short duration)"
+                echo "[ OK ] Claim succeeded (rewards: 0-10 micro-DREAM due to short duration)"
                 echo "   Note: Time-based APY calculated correctly"
                 echo "   Formula: 100 DREAM × 10% APY × (~30 seconds / year) ≈ 9 micro-DREAM"
             fi
         else
-            echo "❌ Claim failed: $(echo "$CLAIM_RESULT" | jq -r '.raw_log // .log')"
+            echo "[FAIL] Claim failed: $(echo "$CLAIM_RESULT" | jq -r '.raw_log // .log')"
         fi
     else
-        echo "⚠️  Could not parse transaction result"
+        echo "[WARN]  Could not parse transaction result"
     fi
 else
-    echo "⚠️  Skipping claim test - Stake #1 was not created successfully"
+    echo "[WARN]  Skipping claim test - Stake #1 was not created successfully"
 fi
 
 # ========================================================================
@@ -768,16 +768,16 @@ if [ "$STAKE2_ID" != "unknown" ]; then
             COMPOUNDED_AMOUNT=$(echo "$COMPOUND_RESULT" | jq -r '.events[] | select(.type=="staking_rewards_compounded") | .attributes[] | select(.key=="compounded") | .value' | \
               tr -d '"')
             if [ -n "$COMPOUNDED_AMOUNT" ] && [ "$COMPOUNDED_AMOUNT" != "null" ] && [ "$COMPOUNDED_AMOUNT" != "0" ]; then
-                echo "✅ Staker2 compounded rewards: $COMPOUNDED_AMOUNT micro-DREAM"
+                echo "[ OK ] Staker2 compounded rewards: $COMPOUNDED_AMOUNT micro-DREAM"
             else
-                echo "✅ Compound succeeded (rewards: 0-10 micro-DREAM due to short duration)"
+                echo "[ OK ] Compound succeeded (rewards: 0-10 micro-DREAM due to short duration)"
                 echo "   Note: Rewards calculated correctly using lazy APY calculation"
             fi
         else
-            echo "❌ Compound failed: $(echo "$COMPOUND_RESULT" | jq -r '.raw_log // .log')"
+            echo "[FAIL] Compound failed: $(echo "$COMPOUND_RESULT" | jq -r '.raw_log // .log')"
         fi
     else
-        echo "⚠️  Could not parse transaction result"
+        echo "[WARN]  Could not parse transaction result"
     fi
 
     # Verify updated stake
@@ -786,10 +786,10 @@ if [ "$STAKE2_ID" != "unknown" ]; then
         UPDATED_AMOUNT=$(echo "$UPDATED_STAKE2" | jq -r '.stake.amount // "0"')
         echo "Updated stake #$STAKE2_ID amount: $UPDATED_AMOUNT DREAM"
     else
-        echo "⚠️  Could not query updated stake amount"
+        echo "[WARN]  Could not query updated stake amount"
     fi
 else
-    echo "⚠️  Skipping compound test - Stake #2 was not created successfully"
+    echo "[WARN]  Skipping compound test - Stake #2 was not created successfully"
 fi
 
 # ========================================================================
@@ -823,7 +823,7 @@ if [ "$STAKE3_ID" != "unknown" ]; then
               tr -d '"')
             REWARD_AMOUNT=$(echo "$UNSTAKE_RESULT" | jq -r '.events[] | select(.type=="stake_removed") | .attributes[] | select(.key=="reward") | .value' | \
               tr -d '"')
-            echo "✅ Staker3 unstaked successfully:"
+            echo "[ OK ] Staker3 unstaked successfully:"
             if [ -n "$RETURNED_AMOUNT" ] && [ "$RETURNED_AMOUNT" != "null" ]; then
                 echo "  → Returned principal: $RETURNED_AMOUNT micro-DREAM"
             fi
@@ -839,26 +839,26 @@ if [ "$STAKE3_ID" != "unknown" ]; then
                 echo "   Current stake age is less than required minimum"
                 echo "   Note: For testing, consider reducing min_stake_duration_seconds param"
             else
-                echo "⚠️  Unstake failed: $ERROR_MSG"
+                echo "[WARN]  Unstake failed: $ERROR_MSG"
             fi
         fi
     else
-        echo "⚠️  Could not parse transaction result"
+        echo "[WARN]  Could not parse transaction result"
     fi
 
     # Verify stake is removed or amount reduced
     FINAL_STAKE3=$($BINARY query rep get-stake $STAKE3_ID --output json 2>&1)
 
     if echo "$FINAL_STAKE3" | grep -q "not found"; then
-        echo "✅ Stake #$STAKE3_ID fully removed"
+        echo "[ OK ] Stake #$STAKE3_ID fully removed"
     else
         if echo "$FINAL_STAKE3" | jq -e '.stake' >/dev/null 2>&1; then
             FINAL_AMOUNT=$(echo "$FINAL_STAKE3" | jq -r '.stake.amount // "0"')
-            echo "✅ Stake #$STAKE3_ID reduced to: $FINAL_AMOUNT DREAM"
+            echo "[ OK ] Stake #$STAKE3_ID reduced to: $FINAL_AMOUNT DREAM"
         fi
     fi
 else
-    echo "⚠️  Skipping unstake test - Stake #3 was not created successfully"
+    echo "[WARN]  Skipping unstake test - Stake #3 was not created successfully"
 fi
 
 # ========================================================================
@@ -877,10 +877,10 @@ if [ "$STAKE1_ID" != "unknown" ]; then
         echo "Staker1's stake #$STAKE1_ID reward debt: $REWARD_DEBT"
         echo "→ Represents unclaimed, accumulated rewards"
     else
-        echo "⚠️  Could not query pending rewards for stake #$STAKE1_ID"
+        echo "[WARN]  Could not query pending rewards for stake #$STAKE1_ID"
     fi
 else
-    echo "⚠️  Cannot query pending rewards - Stake #1 was not created successfully"
+    echo "[WARN]  Cannot query pending rewards - Stake #1 was not created successfully"
 fi
 
 # ========================================================================
@@ -896,13 +896,13 @@ BLOCK_TIME=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_time' | tr -d 
 echo "Current block: $CURRENT_BLOCK"
 echo "Minimum duration: 86400 seconds (24 hours)"
 echo ""
-echo "📊 REWARD CALCULATION EXAMPLES (100 DREAM @ 10% APY):"
+echo " REWARD CALCULATION EXAMPLES (100 DREAM @ 10% APY):"
 echo "   1 hour:  0.0114 DREAM (11,400 micro-DREAM)"
 echo "   1 day:   0.274 DREAM (274,000 micro-DREAM)"
 echo "   1 week:  1.916 DREAM (1,916,000 micro-DREAM)"
 echo "   1 year:  10 DREAM (10,000,000 micro-DREAM)"
 echo ""
-echo "📝 This test's stakes last ~seconds, so rewards are tiny but mathematically correct"
+echo " This test's stakes last ~seconds, so rewards are tiny but mathematically correct"
 echo "   Rewards use lazy calculation (gas-efficient) rather than periodic distribution"
 
 # ========================================================================
@@ -965,12 +965,12 @@ if echo "$ALL_STAKES" | jq -e '.stake' >/dev/null 2>&1; then
     # Expect 5 stakes (Stake1, Stake2, Tag1, Tag2, Project)
     # Note: Stake3 was unstaked in Part 13, so it should NOT be found
     if [ "$TEST_STAKES_FOUND" -ge 5 ]; then
-        echo "✅ All $TEST_STAKES_FOUND/5 test stakes found in system list"
+        echo "[ OK ] All $TEST_STAKES_FOUND/5 test stakes found in system list"
     else
-        echo "⚠️  Only $TEST_STAKES_FOUND/5 test stakes found (Stake3 was unstaked)"
+        echo "[WARN]  Only $TEST_STAKES_FOUND/5 test stakes found (Stake3 was unstaked)"
     fi
 else
-    echo "⚠️  Could not list stakes (query may have returned error)"
+    echo "[WARN]  Could not list stakes (query may have returned error)"
     echo "Total stakes in system: 0"
 fi
 
@@ -1004,30 +1004,30 @@ echo "    3. Update reward_debt = stake.amount * current_acc_reward_per_share"
 echo ""
 echo "--- STAKING MECHANICS TEST SUMMARY ---"
 echo ""
-echo "✅ Part 1: Initiative staking         $STAKERS_COUNT stakers, $TOTAL_STAKED DREAM total"
-echo "✅ Part 2: Member staking              Skipped (accounts have limited DREAM)"
-echo "✅ Part 3: Tag staking                 'staking': 100, 'test': 10 DREAM"
-echo "✅ Part 4: Project staking              100 DREAM (8% APY + 5% bonus)"
-echo "✅ Part 5: Query by staker            Verified: Bob, Staker1, Tag Staker, etc."
-echo "✅ Part 6: Query by target             Initiative and project stakes queried"
-echo "✅ Part 7: Member stake pool           Alice's pool queried (total, pending)"
-echo "✅ Part 8: Tag stake pools            'staking' and 'test' pools queried"
-echo "✅ Part 9: Project stake info           Bonus pool tracked"
-echo "✅ Part 10: Individual stake details    All stake details verified"
-echo "✅ Part 11: Claim rewards              Staker1 claimed rewards"
-echo "✅ Part 12: Compound rewards           Staker2 compounded rewards"
+echo "[ OK ] Part 1: Initiative staking         $STAKERS_COUNT stakers, $TOTAL_STAKED DREAM total"
+echo "[ OK ] Part 2: Member staking              Skipped (accounts have limited DREAM)"
+echo "[ OK ] Part 3: Tag staking                 'staking': 100, 'test': 10 DREAM"
+echo "[ OK ] Part 4: Project staking              100 DREAM (8% APY + 5% bonus)"
+echo "[ OK ] Part 5: Query by staker            Verified: Bob, Staker1, Tag Staker, etc."
+echo "[ OK ] Part 6: Query by target             Initiative and project stakes queried"
+echo "[ OK ] Part 7: Member stake pool           Alice's pool queried (total, pending)"
+echo "[ OK ] Part 8: Tag stake pools            'staking' and 'test' pools queried"
+echo "[ OK ] Part 9: Project stake info           Bonus pool tracked"
+echo "[ OK ] Part 10: Individual stake details    All stake details verified"
+echo "[ OK ] Part 11: Claim rewards              Staker1 claimed rewards"
+echo "[ OK ] Part 12: Compound rewards           Staker2 compounded rewards"
 if [ "$STAKE3_ID" != "unknown" ]; then
-    echo "✅ Part 13: Unstake                  Staker3 removed stake (principal + rewards)"
+    echo "[ OK ] Part 13: Unstake                  Staker3 removed stake (principal + rewards)"
 else
-    echo "⚠️  Part 13: Unstake                  Skipped (Staker3 stake failed)"
+    echo "[WARN]  Part 13: Unstake                  Skipped (Staker3 stake failed)"
 fi
-echo "✅ Part 14: Pending rewards           Reward debt tracking verified"
-echo "✅ Part 15: Minimum duration           24-hour minimum enforced"
-echo "✅ Part 16: Target types summary         4 types with different reward mechanics"
-echo "✅ Part 17: List all stakes           $TOTAL_STAKES total stakes"
-echo "✅ Part 18: MasterChef pattern        Lazy reward calculation explained"
+echo "[ OK ] Part 14: Pending rewards           Reward debt tracking verified"
+echo "[ OK ] Part 15: Minimum duration           24-hour minimum enforced"
+echo "[ OK ] Part 16: Target types summary         4 types with different reward mechanics"
+echo "[ OK ] Part 17: List all stakes           $TOTAL_STAKES total stakes"
+echo "[ OK ] Part 18: MasterChef pattern        Lazy reward calculation explained"
 echo ""
-echo "📊 STAKING POSITIONS CREATED IN THIS TEST:"
+echo " STAKING POSITIONS CREATED IN THIS TEST:"
 echo "   Initiative #$INITIATIVE_ID:"
 if [ "$STAKE1_ID" != "unknown" ]; then
     echo "     → Staker1: 100 DREAM (STAKE_TARGET_INITIATIVE)"
@@ -1054,10 +1054,10 @@ echo ""
 echo "   Project #$PROJECT_ID:"
 echo "     → Project Staker: 100 DREAM (STAKE_TARGET_PROJECT)"
 echo ""
-echo "🔄 REWARD MECHANICS:"
+echo " REWARD MECHANICS:"
 echo "   Initiative: Time APY (10%), Conviction bonus on completion"
 echo "   Project: 8% APY while ACTIVE, 5% bonus on COMPLETED"
 echo "   Member: 5% share of member's earnings (lazy MasterChef)"
 echo "   Tag: 2% share per matching tag (lazy MasterChef)"
 echo ""
-echo "✅✅✅ STAKING MECHANICS TEST COMPLETED ✅✅✅"
+echo "=== STAKING MECHANICS TEST COMPLETED ==="

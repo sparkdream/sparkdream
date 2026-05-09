@@ -84,7 +84,7 @@ echo ""
 echo "--- TEST 1: Bond as verifier ---"
 
 TX_RES=$($BINARY tx rep bond-role federation-verifier \
-    500 \
+    500000000 \
     --from $VERIFIER_A \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -121,7 +121,7 @@ echo ""
 echo "--- TEST 2: Bond second verifier ---"
 
 TX_RES=$($BINARY tx rep bond-role federation-verifier \
-    600 \
+    600000000 \
     --from $VERIFIER_B \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -162,7 +162,7 @@ else
 fi
 
 TX_RES=$($BINARY tx rep bond-role federation-verifier \
-    200 \
+    200000000 \
     --from $VERIFIER_A \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -205,7 +205,7 @@ else
 fi
 
 TX_RES=$($BINARY tx rep unbond-role federation-verifier \
-    100 \
+    100000000 \
     --from $VERIFIER_A \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -241,7 +241,7 @@ echo ""
 echo "--- TEST 5: Non-verifier unbond fails ---"
 
 TX_RES=$($BINARY tx rep unbond-role federation-verifier \
-    100 \
+    100000000 \
     --from linker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -808,7 +808,7 @@ echo ""
 echo "--- TEST 16: Trust level gate rejects NEWCOMER ---"
 
 TX_RES=$($BINARY tx rep bond-role federation-verifier \
-    500 \
+    500000000 \
     --from verifier1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -1011,7 +1011,7 @@ if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
             if [ "$BOB_STATUS" == "BONDED_ROLE_STATUS_DEMOTED" ]; then
                 # Now try to re-bond — should fail with demotion cooldown
                 TX_RES=$($BINARY tx rep bond-role federation-verifier \
-                    500 \
+                    500000000 \
                     --from $VERIFIER_B \
                     --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
 

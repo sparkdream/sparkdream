@@ -1,0 +1,90 @@
+# Hermes IBC Relayer configuration for fedtest-a <-> fedtest-b.
+# Used by: setup_ibc.sh, start_relayer.sh, lib_multichain.sh
+
+[global]
+log_level = 'info'
+
+[mode]
+
+[mode.clients]
+enabled = true
+refresh = true
+misbehaviour = true
+
+[mode.connections]
+enabled = true
+
+[mode.channels]
+enabled = true
+
+[mode.packets]
+enabled = true
+clear_interval = 100
+clear_on_start = true
+tx_confirmation = true
+
+[telemetry]
+enabled = false
+host = '127.0.0.1'
+port = 3001
+
+[tracing_server]
+enabled = false
+port = 5555
+
+[[chains]]
+id = 'fedtest-a'
+type = 'CosmosSdk'
+rpc_addr = 'http://localhost:26657'
+grpc_addr = 'http://localhost:9090'
+event_source = { mode = 'push', url = 'ws://localhost:26657/websocket', batch_delay = '500ms' }
+rpc_timeout = '10s'
+account_prefix = 'sprkdrm'
+key_name = 'hermes-a'
+address_type = { derivation = 'cosmos' }
+store_prefix = 'ibc'
+default_gas = 200000
+max_gas = 4000000
+# gas_price.price MUST be >= chain min-gas-prices (init_chains.sh sets 0.001uspark)
+gas_price = { price = 0.0025, denom = 'uspark' }
+gas_multiplier = 3.0
+max_msg_num = 30
+max_tx_size = 180000
+clock_drift = '5s'
+max_block_time = '30s'
+trusting_period = '14days'
+ccv_consumer_chain = false
+trust_threshold = { numerator = '2', denominator = '3' }
+memo_prefix = ''
+
+[chains.packet_filter]
+policy = 'allow'
+list = [['federation', '*']]
+
+[[chains]]
+id = 'fedtest-b'
+type = 'CosmosSdk'
+rpc_addr = 'http://localhost:36657'
+grpc_addr = 'http://localhost:9190'
+event_source = { mode = 'push', url = 'ws://localhost:36657/websocket', batch_delay = '500ms' }
+rpc_timeout = '10s'
+account_prefix = 'sprkdrm'
+key_name = 'hermes-b'
+address_type = { derivation = 'cosmos' }
+store_prefix = 'ibc'
+default_gas = 200000
+max_gas = 4000000
+gas_price = { price = 0.0025, denom = 'uspark' }
+gas_multiplier = 3.0
+max_msg_num = 30
+max_tx_size = 180000
+clock_drift = '5s'
+max_block_time = '30s'
+trusting_period = '14days'
+ccv_consumer_chain = false
+trust_threshold = { numerator = '2', denominator = '3' }
+memo_prefix = ''
+
+[chains.packet_filter]
+policy = 'allow'
+list = [['federation', '*']]

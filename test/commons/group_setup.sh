@@ -31,9 +31,9 @@ wait_for_pass() {
     
     STATUS=$($BINARY query gov proposal $prop_id --output json | jq -r '.proposal.status')
     if [ "$STATUS" == "PROPOSAL_STATUS_PASSED" ]; then
-        echo "✅ Proposal $prop_id PASSED."
+        echo "[ OK ] Proposal $prop_id PASSED."
     else
-        echo "❌ Proposal $prop_id FAILED (Status: $STATUS)."
+        echo "[FAIL] Proposal $prop_id FAILED (Status: $STATUS)."
         exit 1
     fi
 }
@@ -59,7 +59,7 @@ echo '{
       "members": ["'$ALICE_ADDR'", "'$BOB_ADDR'", "'$CAROL_ADDR'"],
       "member_weights": ["1", "1", "1"],
       "funding_weight": "50",
-      "max_spend_per_epoch": "500000000000uspark",
+      "max_spend_per_epoch": "500000000000",
       "update_cooldown": "604800",
       "vote_threshold": "2",
       "futarchy_enabled": true,
@@ -96,7 +96,7 @@ echo '{
       "members": ["'$ALICE_ADDR'", "'$BOB_ADDR'", "'$CAROL_ADDR'"],
       "member_weights": ["1", "1", "1"],
       "funding_weight": "30",
-      "max_spend_per_epoch": "500000000000uspark",
+      "max_spend_per_epoch": "500000000000",
       "update_cooldown": "604800",
       "vote_threshold": "2",
       "futarchy_enabled": true,
@@ -133,7 +133,7 @@ echo '{
       "members": ["'$ALICE_ADDR'", "'$BOB_ADDR'", "'$CAROL_ADDR'"],
       "member_weights": ["1", "1", "1"],
       "funding_weight": "20",
-      "max_spend_per_epoch": "500000000000uspark",
+      "max_spend_per_epoch": "500000000000",
       "update_cooldown": "604800",
       "vote_threshold": "2",
       "futarchy_enabled": true,
@@ -166,15 +166,15 @@ COMMONS_POLICY=$(echo $COMMONS_INFO | jq -r '.group.policy_address')
 COMMONS_PARENT=$(echo $COMMONS_INFO | jq -r '.group.parent_policy_address')
 
 if [ "$COMMONS_PARENT" == "$GOV_ADDR" ]; then
-    echo "✅ Commons Council Registered. Policy: $COMMONS_POLICY"
+    echo "[ OK ] Commons Council Registered. Policy: $COMMONS_POLICY"
 else
-    echo "❌ Commons Council Setup Failed."
+    echo "[FAIL] Commons Council Setup Failed."
 fi
 
 # Check Funding Shares in Split
 echo "--- VERIFYING FUNDING ---"
 # Note: You might need to query the KVStore or a dedicated query if you implemented one in x/split
 # For now, we assume success if the group registration succeeded (since it calls x/split)
-echo "✅ Funding Shares should be active (50/30/20)."
+echo "[ OK ] Funding Shares should be active (50/30/20)."
 
 echo "--- SETUP COMPLETE ---"

@@ -247,6 +247,13 @@ echo ""
 # ========================================================================
 echo "Step 5: Transferring DREAM to test accounts..."
 
+# Track critical funding failures so the script exits non-zero when an
+# essential transfer (e.g., sentinel1's bond + lock-backing balance) fails.
+# This is what lets auto-snapshot avoid persisting a corrupted post-setup
+# state — without a non-zero exit, run_test silently records PASS even when
+# the chain has stale balances from a prior run.
+CRITICAL_FUNDING_FAILED=()
+
 for ACCOUNT in "${ACCOUNTS[@]}"; do
     # Get address based on account name
     case "$ACCOUNT" in
@@ -259,15 +266,21 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         *) continue ;;
     esac
 
-    # Sentinel bonding requires 100 DREAM (100000000 micro-DREAM).
-    # Gift enough to cover the bond plus the 3% transfer tax.
+    # Sentinel funding has to cover both the bond AND the GetSentinelBacking
+    # floor (msg_server_lock_thread.go requires 20000 DREAM total balance for
+    # thread locking, separate from the 500-DREAM MinBond enforced by
+    # x/forum SyncSentinelBondedRoleConfig).
     # Alice (Tier 1 founder) has 50000 DREAM, so these amounts are fine.
     if [ "$ACCOUNT" == "sentinel1" ]; then
-        DREAM_AMOUNT="200000000"  # 200 DREAM (covers 100 DREAM bond + tax + extra for sentinel2 unbond test)
-        echo "  Sending 200 DREAM to $ACCOUNT (for sentinel bonding)..."
+        # 25000 DREAM gross → ~24250 net after 3% transfer tax. Enough to bond
+        # ≥ 2500 DREAM AND meet the 20000 DREAM total-balance "backing" floor
+        # checked by msg_server_lock_thread.go (GetSentinelBacking).
+        DREAM_AMOUNT="25000000000"
+        echo "  Sending 25000 DREAM to $ACCOUNT (for sentinel bonding incl. lock backing)..."
     elif [ "$ACCOUNT" == "sentinel2" ]; then
-        DREAM_AMOUNT="150000000"  # 150 DREAM (covers 100 DREAM bond + tax)
-        echo "  Sending 150 DREAM to $ACCOUNT (for sentinel bonding)..."
+        # 3000 DREAM gross → ~2910 net after tax. Covers 2500 DREAM bond + extras.
+        DREAM_AMOUNT="3000000000"
+        echo "  Sending 3000 DREAM to $ACCOUNT (for sentinel bonding)..."
     elif [ "$ACCOUNT" == "bounty_creator" ]; then
         DREAM_AMOUNT="200000"  # 0.2 DREAM
         echo "  Sending 0.2 DREAM to $ACCOUNT (for bounties)..."
@@ -276,11 +289,16 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         echo "  Sending 0.1 DREAM to $ACCOUNT..."
     fi
 
-    # Gift DREAM to the new member
+    # Use "gift" for small amounts; sentinel funding exceeds the 500-DREAM
+    # gift cap, so use "bounty" purpose for sentinels (uncapped, escrowed-style).
+    PURPOSE="gift"
+    if [ "$ACCOUNT" == "sentinel1" ] || [ "$ACCOUNT" == "sentinel2" ]; then
+        PURPOSE="bounty"
+    fi
     TX_RES=$($BINARY tx rep transfer-dream \
         $ADDR \
         "$DREAM_AMOUNT" \
-        "gift" \
+        "$PURPOSE" \
         "Test setup funding" \
         --from alice \
         --chain-id $CHAIN_ID \
@@ -292,6 +310,10 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
         echo "  Failed to send DREAM to $ACCOUNT: no txhash"
+        echo "     $(echo "$TX_RES" | head -c 300)"
+        if [ "$ACCOUNT" = "sentinel1" ] || [ "$ACCOUNT" = "sentinel2" ]; then
+            CRITICAL_FUNDING_FAILED+=("$ACCOUNT")
+        fi
         continue
     fi
 
@@ -303,8 +325,25 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
     else
         echo "  Failed to transfer DREAM to $ACCOUNT"
         echo "     $(echo "$TX_RESULT" | jq -r '.raw_log')"
+        if [ "$ACCOUNT" = "sentinel1" ] || [ "$ACCOUNT" = "sentinel2" ]; then
+            CRITICAL_FUNDING_FAILED+=("$ACCOUNT")
+        fi
     fi
 done
+
+# Critical failures are non-recoverable: the sentinel-* and bond-* test scripts
+# all assume sentinel1/sentinel2 hold their funded DREAM. Without it, every
+# downstream test fails in opaque ways. Fail the setup loudly so run_test
+# records FAILED (which auto-snapshot then uses to skip saving).
+if [ ${#CRITICAL_FUNDING_FAILED[@]} -gt 0 ]; then
+    echo ""
+    echo "ERROR: critical DREAM funding failed for: ${CRITICAL_FUNDING_FAILED[*]}"
+    echo "  Common cause: chain has stale state from a prior run and Alice's"
+    echo "  DREAM balance is depleted. Re-init the chain ("
+    echo "    find ~/.sparkdream -depth -delete && ignite chain init -y --build.tags testparams"
+    echo "  ) and rerun setup."
+    exit 1
+fi
 
 echo ""
 

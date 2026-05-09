@@ -55,6 +55,15 @@ echo "--- STEP 2: COMMONS COUNCIL CREATES 'DIGITAL ART DAO' ---"
 COMMONS_INFO=$($BINARY query commons get-group "Commons Council" --output json)
 COMMONS_POLICY=$(echo $COMMONS_INFO | jq -r '.group.policy_address')
 
+# x/commons MsgRegisterGroup deducts a per-group ProposalFee (5 SPARK by default)
+# from the authority (the Commons Council policy here). The genesis-bootstrapped
+# council balance is short of that, so top it up before any register-group
+# proposal in this test.
+$BINARY tx bank send alice "$COMMONS_POLICY" 50000000uspark \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y \
+    --output json > /dev/null 2>&1
+sleep 5
+
 # We set term_duration to 60s so we can test renewal quickly!
 # NOTE: futarchy_enabled=false because the x/commons module account needs funding
 # for futarchy markets (1000 SPARK subsidy). Futarchy is tested separately.
@@ -181,8 +190,15 @@ fi
 
 
 # --- 4. RENEW MEMBERS (WAIT FOR EXPIRATION) ---
-echo "--- STEP 4: WAITING FOR TERM EXPIRATION (30s remaining)... ---"
-sleep 30
+# Sleep long enough that block_time at renewal-execute exceeds term_expiration
+# (= group_creation_block_time + 60s). With ~20s of wall-clock spent in step 3
+# (proposal submit + 3× sleep 5 + execute) and ~15s for the renewal voting
+# cycle below, sleeping 65 here puts us at ~T_c + ~100s before renewal-execute,
+# leaving a comfortable margin past the 60s term. Earlier value of 30s
+# occasionally failed when the parallel runner restored from a snapshot whose
+# block_time replayed faster than wall clock.
+echo "--- STEP 4: WAITING FOR TERM EXPIRATION (sleeping 65s to comfortably exceed 60s term)... ---"
+sleep 65
 
 echo "--- EXECUTING RENEWAL (SWAP DAVE -> CAROL) ---"
 

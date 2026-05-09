@@ -10,8 +10,13 @@ echo ""
 # ========================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../check_testparams.sh"
+source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+
+# Wall-clock timing for the suite (Started/Ended/Duration in summary).
+SUITE_START_EPOCH=$(timing_now_epoch)
+SUITE_START_HUMAN=$(timing_now_human)
 
 # Test execution flags
 RUN_SETUP=true
@@ -29,11 +34,21 @@ RUN_OPERATIONAL_PARAMS_TEST=true
 RUN_CONTENT_CHALLENGE_TEST=true
 RUN_BOND_LOCKED_TEST=true
 RUN_BONDED_ROLE_TEST=true
+# Master gate for the entire test-execution loop. The per-test RUN_*_TEST
+# flags above only cover steps 3-15 (which were authored with explicit
+# gating); steps 16-24 (staking_errors, validation, anon_challenge,
+# trust_level, member_report, gov_action_appeal, jury_participation,
+# tag_budget, tag_moderation) are gated only on `--no-tests` setting this
+# master flag to false. Without this, `--restore-setup --no-tests` would
+# still execute the un-gated tests and drift the freshly-restored state
+# before the user could run a specific test manually.
+RUN_TESTS=true
 FUND_ALICE=true
 RESET_CHAIN=false
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
+AUTO_SNAPSHOT=true
 # ========================================================================
 # Parse Arguments
 # ========================================================================
@@ -128,6 +143,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --no-tests)
+            RUN_TESTS=false
             RUN_CHALLENGE_TEST=false
             RUN_INVITATION_TEST=false
             RUN_MEMBER_TEST=false
@@ -141,6 +157,7 @@ while [[ $# -gt 0 ]]; do
             RUN_OPERATIONAL_PARAMS_TEST=false
             RUN_CONTENT_CHALLENGE_TEST=false
             RUN_BOND_LOCKED_TEST=false
+            RUN_BONDED_ROLE_TEST=false
             shift
             ;;
         --help)
@@ -165,6 +182,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --reset-chain    Reset chain before running tests (requires manual restart)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
+            echo "  --no-auto-snapshot Disable auto-snapshot (run setup every time, no caching)"
             echo "  --help           Show this help message"
             echo ""
             echo "Default: Run full test suite with setup and funding"
@@ -178,6 +196,9 @@ while [[ $# -gt 0 ]]; do
             echo "  2. bash ./committee_escalation_test.sh  # Run specific test manually"
             exit 0
             ;;
+        --no-auto-snapshot)
+            AUTO_SNAPSHOT=false
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Use --help for usage information"
@@ -186,6 +207,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+
+# Auto-snapshot: when no explicit save/restore flag is passed, reuse an
+# existing fresh snapshot or save one after setup. See test/_auto_snapshot.sh.
+source "$SCRIPT_DIR/../_auto_snapshot.sh"
+auto_snapshot_pre
 # ========================================================================
 # Pre-flight Checks
 # ========================================================================
@@ -193,11 +219,11 @@ echo "=== PRE-FLIGHT CHECKS ==="
 
 # Skip chain running check for restore-setup (it will start the chain)
 if [ "$RESTORE_SETUP" = true ]; then
-    echo "ℹ️  Restore mode: Chain will be stopped and restarted during restore"
+    echo "[INFO] Restore mode: Chain will be stopped and restarted during restore"
 else
     # Check if chain is running
     if ! $BINARY status &> /dev/null; then
-        echo "❌ Chain is not running!"
+        echo "[FAIL] Chain is not running!"
         echo ""
         echo "Please start the chain first:"
         echo "  cd /home/chill/cosmos/sparkdream/sparkdream"
@@ -207,7 +233,7 @@ else
     fi
 
     BLOCK_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
-    echo "✅ Chain is running (block height: $BLOCK_HEIGHT)"
+    echo "[ OK ] Chain is running (block height: $BLOCK_HEIGHT)"
 fi
 
 # Skip Alice checks for restore-setup (chain not running yet)
@@ -215,22 +241,22 @@ if [ "$RESTORE_SETUP" != true ]; then
     # Check if Alice exists
     ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test 2>/dev/null)
     if [ -z "$ALICE_ADDR" ]; then
-        echo "❌ Alice account not found in keyring"
+        echo "[FAIL] Alice account not found in keyring"
         echo "   Make sure the chain is initialized with genesis accounts"
         exit 1
     fi
-    echo "✅ Alice account found: $ALICE_ADDR"
+    echo "[ OK ] Alice account found: $ALICE_ADDR"
 
     # Check Alice's current DREAM balance
     ALICE_MEMBER=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null)
     if [ -z "$ALICE_MEMBER" ] || [ "$ALICE_MEMBER" == "null" ]; then
-        echo "⚠️  Alice is not a member in x/rep (genesis may not be loaded)"
+        echo "[WARN] Alice is not a member in x/rep (genesis may not be loaded)"
         ALICE_DREAM=0
     else
         ALICE_DREAM=$(echo "$ALICE_MEMBER" | jq -r '.member.dream_balance // 0')
         ALICE_CREDITS=$(echo "$ALICE_MEMBER" | jq -r '.member.invitation_credits // 0')
         ALICE_DREAM_DISPLAY=$(echo "scale=2; $ALICE_DREAM / 1000000" | bc 2>/dev/null || echo "0")
-        echo "✅ Alice DREAM balance: $ALICE_DREAM_DISPLAY DREAM"
+        echo "[ OK ] Alice DREAM balance: $ALICE_DREAM_DISPLAY DREAM"
         echo "   Alice invitation credits: $ALICE_CREDITS"
     fi
 
@@ -243,7 +269,7 @@ fi
 if [ "$RESET_CHAIN" = true ]; then
     echo "=== CHAIN RESET REQUESTED ==="
     echo ""
-    echo "⚠️  To reset the chain:"
+    echo "[WARN] To reset the chain:"
     echo "   1. Stop the running chain (Ctrl+C in ignite terminal)"
     echo "   2. Run: cd /home/chill/cosmos/sparkdream/sparkdream && ignite chain serve --reset-once"
     echo "   3. Wait for chain to start"
@@ -270,7 +296,7 @@ if [ "$RESTORE_SETUP" = true ]; then
     RESTORE_SCRIPT="$SNAPSHOT_PATH/restore.sh"
 
     if [ ! -f "$RESTORE_SCRIPT" ]; then
-        echo "❌ Snapshot 'post-setup' not found at: $SNAPSHOT_PATH"
+        echo "[FAIL] Snapshot 'post-setup' not found at: $SNAPSHOT_PATH"
         echo "   Run with --save-setup first to create the snapshot"
         exit 1
     fi
@@ -284,20 +310,20 @@ if [ "$RESTORE_SETUP" = true ]; then
     RESTORE_EXIT_CODE=$?
 
     if [ $RESTORE_EXIT_CODE -ne 0 ]; then
-        echo "❌ Failed to restore setup state (exit code: $RESTORE_EXIT_CODE)"
+        echo "[FAIL] Failed to restore setup state (exit code: $RESTORE_EXIT_CODE)"
         exit 1
     fi
 
     echo ""
-    echo "✅ Setup state restored successfully"
+    echo "[ OK ] Setup state restored successfully"
     echo ""
 
     # Load .test_env from restored state
     if [ -f "$SCRIPT_DIR/.test_env" ]; then
         source "$SCRIPT_DIR/.test_env"
-        echo "✅ Loaded test environment from restored snapshot"
+        echo "[ OK ] Loaded test environment from restored snapshot"
     else
-        echo "⚠️  Warning: .test_env not found in restored snapshot"
+        echo "[WARN] Warning: .test_env not found in restored snapshot"
     fi
 
     echo ""
@@ -316,7 +342,7 @@ if [ "$RESTORE_SETUP" = true ]; then
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
         if $BINARY status &> /dev/null; then
             BLOCK_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
-            echo "✅ Chain is running (block height: $BLOCK_HEIGHT)"
+            echo "[ OK ] Chain is running (block height: $BLOCK_HEIGHT)"
             break
         fi
         ATTEMPT=$((ATTEMPT + 1))
@@ -325,12 +351,39 @@ if [ "$RESTORE_SETUP" = true ]; then
 
     # Final check
     if ! $BINARY status &> /dev/null; then
-        echo "❌ Chain failed to start after 30 seconds"
+        echo "[FAIL] Chain failed to start after 30 seconds"
         echo "   Check logs: tail -f /tmp/chain_after_restore.log"
         exit 1
     fi
 
     echo ""
+
+    # If `--restore-setup --no-tests` was passed, the user wants a fresh
+    # post-setup chain to run a specific test against — don't fall through
+    # into the test-execution loop, which would drift the state via the
+    # un-gated steps 16-24 (staking_errors, validation, anon_challenge,
+    # trust_level, member_report, gov_action_appeal, jury_participation,
+    # tag_budget, tag_moderation) before the user's manual test could run.
+    if [ "$RUN_TESTS" != true ]; then
+        BLOCK_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
+        echo "========================================================================="
+        echo "  RESTORE COMPLETE — TEST EXECUTION SKIPPED (--no-tests)"
+        echo "========================================================================="
+        echo ""
+        echo "  Chain home:   $HOME/.sparkdream"
+        echo "  Block height: $BLOCK_HEIGHT"
+        echo "  Test env:     $SCRIPT_DIR/.test_env  (already sourced)"
+        echo "  Chain log:    /tmp/chain_after_restore.log"
+        echo ""
+        echo "  Run any specific test against the freshly restored state:"
+        echo "    bash $SCRIPT_DIR/challenge_test.sh"
+        echo "    bash $SCRIPT_DIR/<other_test>.sh"
+        echo ""
+        echo "  Stop the chain when done:"
+        echo "    pkill -f 'sparkdreamd start --home $HOME/.sparkdream'"
+        echo ""
+        exit 0
+    fi
 fi
 
 # ========================================================================
@@ -339,30 +392,30 @@ fi
 echo "=== TEST EXECUTION PLAN ==="
 if [ "$SAVE_SETUP" = true ]; then
     echo ""
-    echo "💾 SAVE-SETUP MODE"
+    echo "[SAVE] SAVE-SETUP MODE"
     echo "   → Running setup, saving chain state, then exiting"
     echo ""
 elif [ "$RESTORE_SETUP" = true ]; then
     echo ""
-    echo "♻️  RESTORE-SETUP MODE"
+    echo "[RESTORE] RESTORE-SETUP MODE"
     echo "   → Restored saved setup state, now running tests"
     echo ""
 fi
-echo "  1. Setup test accounts:      $([ "$RUN_SETUP" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  2. Fund Alice (if needed):   $([ "$FUND_ALICE" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  3. Member lifecycle test:    $([ "$RUN_MEMBER_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  4. Content challenge test:   $([ "$RUN_CONTENT_CHALLENGE_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  5. Invitation test:          $([ "$RUN_INVITATION_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  6. DREAM token test:         $([ "$RUN_DREAM_TOKEN_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  7. Initiative flow test:     $([ "$RUN_INITIATIVE_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  8. Staking mechanics test:   $([ "$RUN_STAKING_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo "  9. Interim test:             $([ "$RUN_INTERIM_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 10. Challenge test:           $([ "$RUN_CHALLENGE_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 11. Complex scenarios test:   $([ "$RUN_COMPLEX_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 12. Edge cases test:          $([ "$RUN_EDGE_CASES_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 13. EndBlocker test:          $([ "$RUN_ENDBLOCKER_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 14. Operational params test:  $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
-echo " 15. Bond locked test (P0):   $([ "$RUN_BOND_LOCKED_TEST" = true ] && echo "✅ YES" || echo "⏭️  SKIP")"
+echo "  1. Setup test accounts:      $([ "$RUN_SETUP" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo "  2. Fund Alice (if needed):   $([ "$FUND_ALICE" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo "  3. Member lifecycle test:    $([ "$RUN_MEMBER_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo "  4. Content challenge test:   $([ "$RUN_CONTENT_CHALLENGE_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo "  5. Invitation test:          $([ "$RUN_INVITATION_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo "  6. DREAM token test:         $([ "$RUN_DREAM_TOKEN_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo "  7. Initiative flow test:     $([ "$RUN_INITIATIVE_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo "  8. Staking mechanics test:   $([ "$RUN_STAKING_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo "  9. Interim test:             $([ "$RUN_INTERIM_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo " 10. Challenge test:           $([ "$RUN_CHALLENGE_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo " 11. Complex scenarios test:   $([ "$RUN_COMPLEX_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo " 12. Edge cases test:          $([ "$RUN_EDGE_CASES_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo " 13. EndBlocker test:          $([ "$RUN_ENDBLOCKER_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo " 14. Operational params test:  $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
+echo " 15. Bond locked test (P0):   $([ "$RUN_BOND_LOCKED_TEST" = true ] && echo "[ OK ] YES" || echo "[SKIP] SKIP")"
 echo ""
 
 # ========================================================================
@@ -379,14 +432,18 @@ if [ "$RUN_SETUP" = true ]; then
 
     if [ $SETUP_EXIT_CODE -ne 0 ]; then
         echo ""
-        echo "❌ Setup failed with exit code: $SETUP_EXIT_CODE"
+        echo "[FAIL] Setup failed with exit code: $SETUP_EXIT_CODE"
         echo "   Cannot proceed with tests"
         exit 1
     fi
 
     echo ""
-    echo "✅ Setup completed successfully"
+    echo "[ OK ] Setup completed successfully"
     echo ""
+
+    # Auto-save the post-setup snapshot if AUTO_SNAPSHOT was set and
+    # no fresh snapshot existed at the start of this run.
+    auto_snapshot_post
 
     # If --save-setup mode, save chain state and exit
     if [ "$SAVE_SETUP" = true ]; then
@@ -397,7 +454,7 @@ if [ "$RUN_SETUP" = true ]; then
 
         SNAPSHOT_SCRIPT="$SCRIPT_DIR/../snapshot_datadir.sh"
         if [ ! -f "$SNAPSHOT_SCRIPT" ]; then
-            echo "❌ snapshot_datadir.sh not found at $SNAPSHOT_SCRIPT"
+            echo "[FAIL] snapshot_datadir.sh not found at $SNAPSHOT_SCRIPT"
             echo "   Cannot save chain state"
             exit 1
         fi
@@ -407,7 +464,7 @@ if [ "$RUN_SETUP" = true ]; then
         SAVE_EXIT_CODE=$?
 
         if [ $SAVE_EXIT_CODE -ne 0 ]; then
-            echo "❌ Failed to save chain state (exit code: $SAVE_EXIT_CODE)"
+            echo "[FAIL] Failed to save chain state (exit code: $SAVE_EXIT_CODE)"
             exit 1
         fi
 
@@ -416,7 +473,7 @@ if [ "$RUN_SETUP" = true ]; then
         echo "SAVE-SETUP MODE COMPLETE"
         echo "========================================================================="
         echo ""
-        echo "✅ Setup completed and chain state saved to 'post-setup' snapshot"
+        echo "[ OK ] Setup completed and chain state saved to 'post-setup' snapshot"
         echo ""
         echo "Snapshot location: $SCRIPT_DIR/snapshots/post-setup"
         echo ""
@@ -441,11 +498,11 @@ else
 
     # Verify .test_env exists
     if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
-        echo "❌ Test environment not found (.test_env missing)"
+        echo "[FAIL] Test environment not found (.test_env missing)"
         echo "   Run without --no-setup flag to create it"
         exit 1
     fi
-    echo "✅ Using existing test environment"
+    echo "[ OK ] Using existing test environment"
     echo ""
 fi
 
@@ -492,7 +549,7 @@ if [ "$FUND_ALICE" = true ]; then
         DREAM_TO_ADD=$((DREAM_NEEDED_MICRO - ALICE_DREAM))
         DREAM_TO_ADD_DISPLAY=$(echo "scale=2; $DREAM_TO_ADD / 1000000" | bc 2>/dev/null || echo "0")
 
-        echo "⚠️  Alice needs at least $DREAM_NEEDED_FOR_TESTS DREAM for tests"
+        echo "[WARN] Alice needs at least $DREAM_NEEDED_FOR_TESTS DREAM for tests"
         echo "   Funding Alice with $DREAM_TO_ADD_DISPLAY DREAM from challenger..."
         echo ""
 
@@ -527,7 +584,7 @@ if [ "$FUND_ALICE" = true ]; then
                     sleep 2
                     REMAINING=$((REMAINING - TIP_AMOUNT))
                 else
-                    echo "  ❌ Failed to send tip"
+                    echo "  [FAIL] Failed to send tip"
                     break
                 fi
             done
@@ -548,9 +605,9 @@ if [ "$FUND_ALICE" = true ]; then
             TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
             if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                 sleep 2
-                echo "  ✅ Funded Alice"
+                echo "  [ OK ] Funded Alice"
             else
-                echo "  ❌ Failed to fund Alice"
+                echo "  [FAIL] Failed to fund Alice"
             fi
         fi
 
@@ -561,9 +618,9 @@ if [ "$FUND_ALICE" = true ]; then
 
         echo ""
         echo "Alice new balance: $ALICE_DREAM_NEW_DISPLAY DREAM"
-        echo "✅ Funding complete"
+        echo "[ OK ] Funding complete"
     else
-        echo "✅ Alice has sufficient DREAM ($ALICE_DREAM_DISPLAY >= $DREAM_NEEDED_FOR_TESTS)"
+        echo "[ OK ] Alice has sufficient DREAM ($ALICE_DREAM_DISPLAY >= $DREAM_NEEDED_FOR_TESTS)"
     fi
 
     echo ""
@@ -589,9 +646,9 @@ if [ "$RUN_MEMBER_TEST" = true ]; then
 
     echo ""
     if [ $MEMBER_EXIT_CODE -eq 0 ]; then
-        echo "✅ Member lifecycle test completed"
+        echo "[ OK ] Member lifecycle test completed"
     else
-        echo "⚠️  Member lifecycle test exited with code: $MEMBER_EXIT_CODE"
+        echo "[FAIL] Member lifecycle test exited with code: $MEMBER_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -616,9 +673,9 @@ if [ "$RUN_CONTENT_CHALLENGE_TEST" = true ]; then
 
     echo ""
     if [ $CONTENT_CHALLENGE_EXIT_CODE -eq 0 ]; then
-        echo "✅ Content challenge test completed"
+        echo "[ OK ] Content challenge test completed"
     else
-        echo "⚠️  Content challenge test exited with code: $CONTENT_CHALLENGE_EXIT_CODE"
+        echo "[FAIL] Content challenge test exited with code: $CONTENT_CHALLENGE_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -643,9 +700,9 @@ if [ "$RUN_INVITATION_TEST" = true ]; then
 
     echo ""
     if [ $INVITATION_EXIT_CODE -eq 0 ]; then
-        echo "✅ Invitation test completed"
+        echo "[ OK ] Invitation test completed"
     else
-        echo "⚠️  Invitation test exited with code: $INVITATION_EXIT_CODE"
+        echo "[FAIL] Invitation test exited with code: $INVITATION_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -670,9 +727,9 @@ if [ "$RUN_DREAM_TOKEN_TEST" = true ]; then
 
     echo ""
     if [ $DREAM_EXIT_CODE -eq 0 ]; then
-        echo "✅ DREAM token test completed"
+        echo "[ OK ] DREAM token test completed"
     else
-        echo "⚠️  DREAM token test exited with code: $DREAM_EXIT_CODE"
+        echo "[FAIL] DREAM token test exited with code: $DREAM_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -697,9 +754,9 @@ if [ "$RUN_INITIATIVE_TEST" = true ]; then
 
     echo ""
     if [ $INITIATIVE_EXIT_CODE -eq 0 ]; then
-        echo "✅ Initiative flow test completed"
+        echo "[ OK ] Initiative flow test completed"
     else
-        echo "⚠️  Initiative flow test exited with code: $INITIATIVE_EXIT_CODE"
+        echo "[FAIL] Initiative flow test exited with code: $INITIATIVE_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -724,9 +781,9 @@ if [ "$RUN_STAKING_TEST" = true ]; then
 
     echo ""
     if [ $STAKING_EXIT_CODE -eq 0 ]; then
-        echo "✅ Staking mechanics test completed"
+        echo "[ OK ] Staking mechanics test completed"
     else
-        echo "⚠️  Staking mechanics test exited with code: $STAKING_EXIT_CODE"
+        echo "[FAIL] Staking mechanics test exited with code: $STAKING_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -751,9 +808,9 @@ if [ "$RUN_INTERIM_TEST" = true ]; then
 
     echo ""
     if [ $INTERIM_EXIT_CODE -eq 0 ]; then
-        echo "✅ Interim compensation test completed"
+        echo "[ OK ] Interim compensation test completed"
     else
-        echo "⚠️  Interim compensation test exited with code: $INTERIM_EXIT_CODE"
+        echo "[FAIL] Interim compensation test exited with code: $INTERIM_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -778,9 +835,9 @@ if [ "$RUN_CHALLENGE_TEST" = true ]; then
 
     echo ""
     if [ $CHALLENGE_EXIT_CODE -eq 0 ]; then
-        echo "✅ Challenge test completed"
+        echo "[ OK ] Challenge test completed"
     else
-        echo "⚠️  Challenge test exited with code: $CHALLENGE_EXIT_CODE"
+        echo "[FAIL] Challenge test exited with code: $CHALLENGE_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -805,9 +862,9 @@ if [ "$RUN_COMPLEX_TEST" = true ]; then
 
     echo ""
     if [ $COMPLEX_EXIT_CODE -eq 0 ]; then
-        echo "✅ Complex scenarios test completed"
+        echo "[ OK ] Complex scenarios test completed"
     else
-        echo "⚠️  Complex scenarios test exited with code: $COMPLEX_EXIT_CODE"
+        echo "[FAIL] Complex scenarios test exited with code: $COMPLEX_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -832,9 +889,9 @@ if [ "$RUN_EDGE_CASES_TEST" = true ]; then
 
     echo ""
     if [ $EDGE_CASES_EXIT_CODE -eq 0 ]; then
-        echo "✅ Edge cases test completed"
+        echo "[ OK ] Edge cases test completed"
     else
-        echo "⚠️  Edge cases test exited with code: $EDGE_CASES_EXIT_CODE"
+        echo "[FAIL] Edge cases test exited with code: $EDGE_CASES_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -859,9 +916,9 @@ if [ "$RUN_ENDBLOCKER_TEST" = true ]; then
 
     echo ""
     if [ $ENDBLOCKER_EXIT_CODE -eq 0 ]; then
-        echo "✅ EndBlocker test completed"
+        echo "[ OK ] EndBlocker test completed"
     else
-        echo "⚠️  EndBlocker test exited with code: $ENDBLOCKER_EXIT_CODE"
+        echo "[FAIL] EndBlocker test exited with code: $ENDBLOCKER_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -886,9 +943,9 @@ if [ "$RUN_OPERATIONAL_PARAMS_TEST" = true ]; then
 
     echo ""
     if [ $OPERATIONAL_PARAMS_EXIT_CODE -eq 0 ]; then
-        echo "✅ Operational params test completed"
+        echo "[ OK ] Operational params test completed"
     else
-        echo "⚠️  Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
+        echo "[FAIL] Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -913,9 +970,9 @@ if [ "$RUN_BOND_LOCKED_TEST" = true ]; then
 
     echo ""
     if [ $BOND_LOCKED_EXIT_CODE -eq 0 ]; then
-        echo "✅ Bond locked test completed"
+        echo "[ OK ] Bond locked test completed"
     else
-        echo "⚠️  Bond locked test exited with code: $BOND_LOCKED_EXIT_CODE"
+        echo "[FAIL] Bond locked test exited with code: $BOND_LOCKED_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -940,9 +997,9 @@ if [ "$RUN_BONDED_ROLE_TEST" = true ]; then
 
     echo ""
     if [ $BONDED_ROLE_EXIT_CODE -eq 0 ]; then
-        echo "✅ Bonded role test completed"
+        echo "[ OK ] Bonded role test completed"
     else
-        echo "⚠️  Bonded role test exited with code: $BONDED_ROLE_EXIT_CODE"
+        echo "[FAIL] Bonded role test exited with code: $BONDED_ROLE_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -952,6 +1009,15 @@ else
     echo "========================================================================="
     echo ""
 fi
+
+# ========================================================================
+# Steps 16-24: Always-on tests (file-presence gated, no per-test RUN_*).
+# Wrapped in a single RUN_TESTS guard so `--no-tests` skips them too —
+# without this, `--restore-setup --no-tests` would fall through and drift
+# the freshly restored chain state before the user could run a specific
+# test manually. The matching `fi` is right before the Summary block.
+# ========================================================================
+if [ "$RUN_TESTS" = true ]; then
 
 # ========================================================================
 # Step 16: Run Staking Errors Test (P1)
@@ -968,7 +1034,7 @@ echo ""
 if [ $STAKING_ERRORS_EXIT_CODE -eq 0 ]; then
     echo "Staking errors test completed"
 else
-    echo "Staking errors test exited with code: $STAKING_ERRORS_EXIT_CODE"
+    echo "[FAIL] Staking errors test exited with code: $STAKING_ERRORS_EXIT_CODE"
 fi
 echo ""
 sleep 2
@@ -989,7 +1055,7 @@ if [ -f "$SCRIPT_DIR/validation_test.sh" ]; then
     if [ $VALIDATION_EXIT_CODE -eq 0 ]; then
         echo "Validation test completed"
     else
-        echo "Validation test exited with code: $VALIDATION_EXIT_CODE"
+        echo "[FAIL] Validation test exited with code: $VALIDATION_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -1011,7 +1077,7 @@ if [ -f "$SCRIPT_DIR/anon_challenge_test.sh" ]; then
     if [ $ANON_CHALLENGE_EXIT_CODE -eq 0 ]; then
         echo "Anonymous challenge test completed"
     else
-        echo "Anonymous challenge test exited with code: $ANON_CHALLENGE_EXIT_CODE"
+        echo "[FAIL] Anonymous challenge test exited with code: $ANON_CHALLENGE_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -1033,7 +1099,7 @@ if [ -f "$SCRIPT_DIR/trust_level_test.sh" ]; then
     if [ $TRUST_LEVEL_EXIT_CODE -eq 0 ]; then
         echo "Trust level test completed"
     else
-        echo "Trust level test exited with code: $TRUST_LEVEL_EXIT_CODE"
+        echo "[FAIL] Trust level test exited with code: $TRUST_LEVEL_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -1055,7 +1121,7 @@ if [ -f "$SCRIPT_DIR/member_report_test.sh" ]; then
     if [ $MEMBER_REPORT_EXIT_CODE -eq 0 ]; then
         echo "Member report test completed"
     else
-        echo "Member report test exited with code: $MEMBER_REPORT_EXIT_CODE"
+        echo "[FAIL] Member report test exited with code: $MEMBER_REPORT_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -1077,7 +1143,7 @@ if [ -f "$SCRIPT_DIR/gov_action_appeal_test.sh" ]; then
     if [ $GOV_ACTION_APPEAL_EXIT_CODE -eq 0 ]; then
         echo "Gov action appeal test completed"
     else
-        echo "Gov action appeal test exited with code: $GOV_ACTION_APPEAL_EXIT_CODE"
+        echo "[FAIL] Gov action appeal test exited with code: $GOV_ACTION_APPEAL_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -1099,7 +1165,7 @@ if [ -f "$SCRIPT_DIR/jury_participation_test.sh" ]; then
     if [ $JURY_PARTICIPATION_EXIT_CODE -eq 0 ]; then
         echo "Jury participation test completed"
     else
-        echo "Jury participation test exited with code: $JURY_PARTICIPATION_EXIT_CODE"
+        echo "[FAIL] Jury participation test exited with code: $JURY_PARTICIPATION_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -1121,7 +1187,7 @@ if [ -f "$SCRIPT_DIR/tag_budget_test.sh" ]; then
     if [ $TAG_BUDGET_EXIT_CODE -eq 0 ]; then
         echo "Tag budget test completed"
     else
-        echo "Tag budget test exited with code: $TAG_BUDGET_EXIT_CODE"
+        echo "[FAIL] Tag budget test exited with code: $TAG_BUDGET_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -1143,11 +1209,13 @@ if [ -f "$SCRIPT_DIR/tag_moderation_test.sh" ]; then
     if [ $TAG_MODERATION_EXIT_CODE -eq 0 ]; then
         echo "Tag moderation test completed"
     else
-        echo "Tag moderation test exited with code: $TAG_MODERATION_EXIT_CODE"
+        echo "[FAIL] Tag moderation test exited with code: $TAG_MODERATION_EXIT_CODE"
     fi
     echo ""
     sleep 2
 fi
+
+fi  # end of RUN_TESTS guard wrapping steps 16-24
 
 # ========================================================================
 # Summary
@@ -1156,23 +1224,105 @@ echo "========================================================================="
 echo "  TEST SUITE SUMMARY"
 echo "========================================================================="
 echo ""
-echo "Results:"
-echo "  Setup:              $([ "$RUN_SETUP" = true ] && echo "✅ Completed" || echo "⏭️  Skipped")"
-echo "  Alice Funding:      $([ "$FUND_ALICE" = true ] && echo "✅ Completed" || echo "⏭️  Skipped")"
-echo "  Member Test:        $([ "$RUN_MEMBER_TEST" = true ] && ([ $MEMBER_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Content Challenge:  $([ "$RUN_CONTENT_CHALLENGE_TEST" = true ] && ([ ${CONTENT_CHALLENGE_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Invitation Test:    $([ "$RUN_INVITATION_TEST" = true ] && ([ $INVITATION_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  DREAM Token Test:   $([ "$RUN_DREAM_TOKEN_TEST" = true ] && ([ $DREAM_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Initiative Test:    $([ "$RUN_INITIATIVE_TEST" = true ] && ([ $INITIATIVE_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Staking Test:       $([ "$RUN_STAKING_TEST" = true ] && ([ $STAKING_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Interim Test:       $([ "$RUN_INTERIM_TEST" = true ] && ([ $INTERIM_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Challenge Test:     $([ "$RUN_CHALLENGE_TEST" = true ] && ([ $CHALLENGE_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Complex Test:       $([ "$RUN_COMPLEX_TEST" = true ] && ([ $COMPLEX_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Edge Cases Test:    $([ "$RUN_EDGE_CASES_TEST" = true ] && ([ $EDGE_CASES_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  EndBlocker Test:    $([ "$RUN_ENDBLOCKER_TEST" = true ] && ([ $ENDBLOCKER_EXIT_CODE -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Op Params Test:     $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
-echo "  Bond Locked Test:   $([ "$RUN_BOND_LOCKED_TEST" = true ] && ([ ${BOND_LOCKED_EXIT_CODE:-1} -eq 0 ] && echo "✅ Passed" || echo "⚠️  Issues") || echo "⏭️  Skipped")"
+SUITE_END_EPOCH=$(timing_now_epoch)
+SUITE_END_HUMAN=$(timing_now_human)
+timing_print_summary_block "$SUITE_START_EPOCH" "$SUITE_END_EPOCH" \
+    "$SUITE_START_HUMAN" "$SUITE_END_HUMAN"
 echo ""
+# ========================================================================
+# Aggregate results across every sub-test. A test "counts" toward failure
+# only if it was actually selected to run (RUN_*=true). Skipped tests stay
+# neutral. Steps without an RUN_* gate (e.g. STAKING_ERRORS) are checked
+# unconditionally with `true` as the enabled flag.
+#
+# IMPORTANT: this runner USED to print "[WARN] X exited with code: N" and
+# then exit 0, which masked real failures from the parent suite (the
+# sequential full-suite run reported `>>> PASSED: x/rep` while the inner
+# jury-review test was failing). Every sub-step is now [FAIL]'d on
+# non-zero exit AND aggregated below so the parent suite sees a non-zero
+# exit. The summary table previously only listed 13 of the 22 sub-tests;
+# the missing ones (steps 14-24) are now included here too.
+# ========================================================================
+SUITE_FAILED=0
+declare -a FAILED_TESTS=()
+
+check_test() {
+    local enabled=$1
+    local code=$2
+    local label=$3
+    if [ "$enabled" = true ] && [ "${code:-1}" -ne 0 ]; then
+        SUITE_FAILED=1
+        FAILED_TESTS+=("$label (exit ${code:-1})")
+    fi
+}
+
+print_row() {
+    local enabled=$1
+    local code=$2
+    local label=$3
+    if [ "$enabled" != true ]; then
+        printf "  %-26s [SKIP] Skipped\n" "$label"
+    elif [ "${code:-1}" -eq 0 ]; then
+        printf "  %-26s [PASS] Passed\n" "$label"
+    else
+        printf "  %-26s [FAIL] Issues (exit ${code:-1})\n" "$label"
+    fi
+}
+
+echo "Results:"
+echo "  Setup:                     $([ "$RUN_SETUP" = true ] && echo "[ OK ] Completed" || echo "[SKIP] Skipped")"
+echo "  Alice Funding:             $([ "$FUND_ALICE" = true ] && echo "[ OK ] Completed" || echo "[SKIP] Skipped")"
+print_row "$RUN_MEMBER_TEST"              "${MEMBER_EXIT_CODE:-1}"              "Member Test"
+print_row "$RUN_CONTENT_CHALLENGE_TEST"   "${CONTENT_CHALLENGE_EXIT_CODE:-1}"   "Content Challenge"
+print_row "$RUN_INVITATION_TEST"          "${INVITATION_EXIT_CODE:-1}"          "Invitation Test"
+print_row "$RUN_DREAM_TOKEN_TEST"         "${DREAM_EXIT_CODE:-1}"               "DREAM Token Test"
+print_row "$RUN_INITIATIVE_TEST"          "${INITIATIVE_EXIT_CODE:-1}"          "Initiative Test"
+print_row "$RUN_STAKING_TEST"             "${STAKING_EXIT_CODE:-1}"             "Staking Test"
+print_row "$RUN_INTERIM_TEST"             "${INTERIM_EXIT_CODE:-1}"             "Interim Test"
+print_row "$RUN_CHALLENGE_TEST"           "${CHALLENGE_EXIT_CODE:-1}"           "Challenge Test"
+print_row "$RUN_COMPLEX_TEST"             "${COMPLEX_EXIT_CODE:-1}"             "Complex Test"
+print_row "$RUN_EDGE_CASES_TEST"          "${EDGE_CASES_EXIT_CODE:-1}"          "Edge Cases Test"
+print_row "$RUN_ENDBLOCKER_TEST"          "${ENDBLOCKER_EXIT_CODE:-1}"          "EndBlocker Test"
+print_row "$RUN_OPERATIONAL_PARAMS_TEST"  "${OPERATIONAL_PARAMS_EXIT_CODE:-1}"  "Op Params Test"
+print_row "$RUN_BOND_LOCKED_TEST"         "${BOND_LOCKED_EXIT_CODE:-1}"         "Bond Locked Test"
+print_row "${RUN_BONDED_ROLE_TEST:-true}" "${BONDED_ROLE_EXIT_CODE:-0}"         "Bonded Role Test"
+# Steps below are gated only on the script file being present (no RUN_*).
+# Defaulting EXIT_CODE to 0 means "did not run" is treated as neutral, not
+# failed — matching the existing behaviour of those `if [ -f ... ]` blocks.
+print_row true                            "${STAKING_ERRORS_EXIT_CODE:-1}"      "Staking Errors Test"
+print_row true                            "${VALIDATION_EXIT_CODE:-0}"          "Validation Test"
+print_row true                            "${ANON_CHALLENGE_EXIT_CODE:-0}"      "Anonymous Challenge Test"
+print_row true                            "${TRUST_LEVEL_EXIT_CODE:-0}"         "Trust Level Test"
+print_row true                            "${MEMBER_REPORT_EXIT_CODE:-0}"       "Member Report Test"
+print_row true                            "${GOV_ACTION_APPEAL_EXIT_CODE:-0}"   "Gov Action Appeal Test"
+print_row true                            "${JURY_PARTICIPATION_EXIT_CODE:-0}"  "Jury Participation Test"
+print_row true                            "${TAG_BUDGET_EXIT_CODE:-0}"          "Tag Budget Test"
+print_row true                            "${TAG_MODERATION_EXIT_CODE:-0}"      "Tag Moderation Test"
+echo ""
+
+check_test "$RUN_MEMBER_TEST"              "${MEMBER_EXIT_CODE:-1}"              "Member Test"
+check_test "$RUN_CONTENT_CHALLENGE_TEST"   "${CONTENT_CHALLENGE_EXIT_CODE:-1}"   "Content Challenge"
+check_test "$RUN_INVITATION_TEST"          "${INVITATION_EXIT_CODE:-1}"          "Invitation Test"
+check_test "$RUN_DREAM_TOKEN_TEST"         "${DREAM_EXIT_CODE:-1}"               "DREAM Token Test"
+check_test "$RUN_INITIATIVE_TEST"          "${INITIATIVE_EXIT_CODE:-1}"          "Initiative Test"
+check_test "$RUN_STAKING_TEST"             "${STAKING_EXIT_CODE:-1}"             "Staking Test"
+check_test "$RUN_INTERIM_TEST"             "${INTERIM_EXIT_CODE:-1}"             "Interim Test"
+check_test "$RUN_CHALLENGE_TEST"           "${CHALLENGE_EXIT_CODE:-1}"           "Challenge Test"
+check_test "$RUN_COMPLEX_TEST"             "${COMPLEX_EXIT_CODE:-1}"             "Complex Test"
+check_test "$RUN_EDGE_CASES_TEST"          "${EDGE_CASES_EXIT_CODE:-1}"          "Edge Cases Test"
+check_test "$RUN_ENDBLOCKER_TEST"          "${ENDBLOCKER_EXIT_CODE:-1}"          "EndBlocker Test"
+check_test "$RUN_OPERATIONAL_PARAMS_TEST"  "${OPERATIONAL_PARAMS_EXIT_CODE:-1}"  "Op Params Test"
+check_test "$RUN_BOND_LOCKED_TEST"         "${BOND_LOCKED_EXIT_CODE:-1}"         "Bond Locked Test"
+check_test "${RUN_BONDED_ROLE_TEST:-true}" "${BONDED_ROLE_EXIT_CODE:-0}"         "Bonded Role Test"
+check_test true                            "${STAKING_ERRORS_EXIT_CODE:-1}"      "Staking Errors Test"
+check_test true                            "${VALIDATION_EXIT_CODE:-0}"          "Validation Test"
+check_test true                            "${ANON_CHALLENGE_EXIT_CODE:-0}"      "Anonymous Challenge Test"
+check_test true                            "${TRUST_LEVEL_EXIT_CODE:-0}"         "Trust Level Test"
+check_test true                            "${MEMBER_REPORT_EXIT_CODE:-0}"       "Member Report Test"
+check_test true                            "${GOV_ACTION_APPEAL_EXIT_CODE:-0}"   "Gov Action Appeal Test"
+check_test true                            "${JURY_PARTICIPATION_EXIT_CODE:-0}"  "Jury Participation Test"
+check_test true                            "${TAG_BUDGET_EXIT_CODE:-0}"          "Tag Budget Test"
+check_test true                            "${TAG_MODERATION_EXIT_CODE:-0}"      "Tag Moderation Test"
 
 # Final Alice balance
 ALICE_MEMBER=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null)
@@ -1181,5 +1331,15 @@ ALICE_DREAM_FINAL_DISPLAY=$(echo "scale=2; $ALICE_DREAM_FINAL / 1000000" | bc 2>
 echo "Final Alice balance: $ALICE_DREAM_FINAL_DISPLAY DREAM"
 echo ""
 echo "========================================================================="
-echo "✅ TEST SUITE EXECUTION COMPLETED"
+echo "TEST SUITE EXECUTION COMPLETED"
 echo "========================================================================="
+
+if [ $SUITE_FAILED -ne 0 ]; then
+    echo ""
+    echo "RESULT: x/rep suite has failures — exiting non-zero."
+    for f in "${FAILED_TESTS[@]}"; do
+        echo "  [FAIL] $f"
+    done
+    exit 1
+fi
+exit 0

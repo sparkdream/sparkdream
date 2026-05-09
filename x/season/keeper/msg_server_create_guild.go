@@ -62,9 +62,10 @@ func (k msgServer) CreateGuild(ctx context.Context, msg *types.MsgCreateGuild) (
 		return nil, types.ErrMaxGuildsPerSeason
 	}
 
-	// Burn DREAM cost via x/rep integration
+	// Burn DREAM cost via x/rep integration.
+	// Preserve underlying x/rep error in the wrapped message for debuggability.
 	if err := k.BurnDREAM(ctx, msg.Creator, params.GuildCreationCost.Uint64()); err != nil {
-		return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to burn DREAM for guild creation")
+		return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to burn DREAM for guild creation: %s", err)
 	}
 
 	// Reserve guild name via x/name integration

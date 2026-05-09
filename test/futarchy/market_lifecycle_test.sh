@@ -55,11 +55,11 @@ MARKET_ID=$($BINARY query tx $TX_HASH --output json | \
   tr -d '"')
 
 if [ -z "$MARKET_ID" ] || [ "$MARKET_ID" == "null" ]; then
-    echo "❌ FAILURE: Could not extract market ID."
+    echo "[FAIL] FAILURE: Could not extract market ID."
     exit 1
 fi
 
-echo "✅ Market created with ID: $MARKET_ID"
+echo "[ OK ] Market created with ID: $MARKET_ID"
 
 # --- 2. QUERY MARKET ---
 echo "--- STEP 2: QUERY MARKET DETAILS ---"
@@ -69,16 +69,16 @@ MARKET_STATUS=$(echo $MARKET_INFO | jq -r '.market.status')
 MARKET_SYMBOL=$(echo $MARKET_INFO | jq -r '.market.symbol')
 
 if [ "$MARKET_STATUS" != "ACTIVE" ]; then
-    echo "❌ FAILURE: Market status should be ACTIVE, got $MARKET_STATUS"
+    echo "[FAIL] FAILURE: Market status should be ACTIVE, got $MARKET_STATUS"
     exit 1
 fi
 
 if [ "$MARKET_SYMBOL" != "PROP-1" ]; then
-    echo "❌ FAILURE: Market symbol mismatch"
+    echo "[FAIL] FAILURE: Market symbol mismatch"
     exit 1
 fi
 
-echo "✅ Market is ACTIVE with symbol $MARKET_SYMBOL"
+echo "[ OK ] Market is ACTIVE with symbol $MARKET_SYMBOL"
 
 # --- 3. QUERY MARKET PRICE ---
 echo "--- STEP 3: QUERY INITIAL MARKET PRICE ---"
@@ -92,11 +92,11 @@ echo "YES Price for 1000 uspark: $YES_PRICE"
 echo "Expected YES Shares: $YES_SHARES"
 
 if [ -z "$YES_PRICE" ] || [ "$YES_PRICE" == "null" ]; then
-    echo "❌ FAILURE: Could not query market price"
+    echo "[FAIL] FAILURE: Could not query market price"
     exit 1
 fi
 
-echo "✅ Market price query successful"
+echo "[ OK ] Market price query successful"
 
 # --- 4. TRADE (BUY YES) ---
 echo "--- STEP 4: BOB BUYS YES SHARES ---"
@@ -119,22 +119,22 @@ sleep 3
 # Verify trade succeeded by checking TX code
 TRADE_TX_CODE=$(echo $TRADE_RES | jq -r '.code // 0')
 if [ "$TRADE_TX_CODE" != "0" ]; then
-    echo "❌ FAILURE: Trade transaction failed with code $TRADE_TX_CODE"
+    echo "[FAIL] FAILURE: Trade transaction failed with code $TRADE_TX_CODE"
     exit 1
 fi
 
-echo "✅ Bob successfully purchased YES shares"
+echo "[ OK ] Bob successfully purchased YES shares"
 
 # Verify Bob received YES token
 YES_TOKEN="f/${MARKET_ID}/yes"
 BOB_YES_BALANCE=$($BINARY query bank balance $BOB_ADDR $YES_TOKEN --output json | jq -r '.balance.amount')
 
 if [ "$BOB_YES_BALANCE" == "0" ] || [ -z "$BOB_YES_BALANCE" ]; then
-    echo "❌ FAILURE: Bob should have YES shares"
+    echo "[FAIL] FAILURE: Bob should have YES shares"
     exit 1
 fi
 
-echo "✅ Bob has $BOB_YES_BALANCE YES shares (token: $YES_TOKEN)"
+echo "[ OK ] Bob has $BOB_YES_BALANCE YES shares (token: $YES_TOKEN)"
 
 # --- 5. TRADE (BUY NO) ---
 echo "--- STEP 5: CAROL BUYS NO SHARES ---"
@@ -152,18 +152,18 @@ TRADE_NO_RES=$($BINARY tx futarchy trade \
   --output json)
 
 sleep 3
-echo "✅ Carol successfully purchased NO shares"
+echo "[ OK ] Carol successfully purchased NO shares"
 
 # Verify Carol received NO token
 NO_TOKEN="f/${MARKET_ID}/no"
 CAROL_NO_BALANCE=$($BINARY query bank balance $CAROL_ADDR $NO_TOKEN --output json | jq -r '.balance.amount')
 
 if [ "$CAROL_NO_BALANCE" == "0" ] || [ -z "$CAROL_NO_BALANCE" ]; then
-    echo "❌ FAILURE: Carol should have NO shares"
+    echo "[FAIL] FAILURE: Carol should have NO shares"
     exit 1
 fi
 
-echo "✅ Carol has $CAROL_NO_BALANCE NO shares (token: $NO_TOKEN)"
+echo "[ OK ] Carol has $CAROL_NO_BALANCE NO shares (token: $NO_TOKEN)"
 
 # --- 6. QUERY UPDATED PRICE ---
 echo "--- STEP 6: VERIFY PRICE CHANGED AFTER TRADES ---"
@@ -177,11 +177,11 @@ echo "Original YES Price: $YES_PRICE"
 
 # Note: We can't easily compare decimal strings in bash, so we just verify it's not empty
 if [ -z "$NEW_YES_PRICE" ] || [ "$NEW_YES_PRICE" == "null" ]; then
-    echo "❌ FAILURE: Could not query updated market price"
+    echo "[FAIL] FAILURE: Could not query updated market price"
     exit 1
 fi
 
-echo "✅ Market price updated after trades"
+echo "[ OK ] Market price updated after trades"
 
 # --- 7. LIST ALL MARKETS ---
 echo "--- STEP 7: LIST ALL MARKETS ---"
@@ -190,11 +190,11 @@ MARKETS_LIST=$($BINARY query futarchy list-market --output json)
 MARKET_COUNT=$(echo $MARKETS_LIST | jq -r '.market | length')
 
 if [ "$MARKET_COUNT" -lt "1" ]; then
-    echo "❌ FAILURE: Should have at least 1 market"
+    echo "[FAIL] FAILURE: Should have at least 1 market"
     exit 1
 fi
 
-echo "✅ Found $MARKET_COUNT market(s) in the system"
+echo "[ OK ] Found $MARKET_COUNT market(s) in the system"
 
 # --- 8. WAIT FOR MARKET TO END ---
 echo "--- STEP 8: WAITING FOR MARKET TO REACH END BLOCK ---"
@@ -209,7 +209,7 @@ while true; do
     sleep 3
 done
 
-echo "✅ Market duration completed"
+echo "[ OK ] Market duration completed"
 
 # --- 9. VERIFY MARKET STATUS ---
 echo "--- STEP 9: VERIFY MARKET RESOLVED ---"
@@ -222,9 +222,9 @@ FINAL_STATUS=$(echo $FINAL_MARKET_INFO | jq -r '.market.status')
 
 # Market should be resolved (YES, NO, or INVALID)
 if [[ "$FINAL_STATUS" == "RESOLVED_YES" ]] || [[ "$FINAL_STATUS" == "RESOLVED_NO" ]] || [[ "$FINAL_STATUS" == "RESOLVED_INVALID" ]]; then
-    echo "✅ Market resolved with status: $FINAL_STATUS"
+    echo "[ OK ] Market resolved with status: $FINAL_STATUS"
 else
-    echo "⚠️  Market status: $FINAL_STATUS (may still be processing)"
+    echo "[WARN]  Market status: $FINAL_STATUS (may still be processing)"
 fi
 
 # --- 10. REDEMPTION ---
@@ -241,7 +241,7 @@ if [[ "$FINAL_STATUS" == "RESOLVED_YES" ]]; then
       --output json)
 
     sleep 3
-    echo "✅ Bob redeemed YES shares"
+    echo "[ OK ] Bob redeemed YES shares"
 
 elif [[ "$FINAL_STATUS" == "RESOLVED_NO" ]]; then
     echo "--- STEP 10: CAROL REDEEMS WINNING NO SHARES ---"
@@ -256,10 +256,10 @@ elif [[ "$FINAL_STATUS" == "RESOLVED_NO" ]]; then
       --output json)
 
     sleep 3
-    echo "✅ Carol redeemed NO shares"
+    echo "[ OK ] Carol redeemed NO shares"
 else
     echo "--- STEP 10: SKIPPED (Market not resolved or resolved as INVALID) ---"
 fi
 
 echo ""
-echo "✅✅✅ FUTARCHY MARKET LIFECYCLE TEST COMPLETED SUCCESSFULLY ✅✅✅"
+echo "=== FUTARCHY MARKET LIFECYCLE TEST COMPLETED SUCCESSFULLY ==="

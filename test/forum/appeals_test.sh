@@ -147,7 +147,7 @@ SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR"
 
 if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
     echo "Bonding sentinel1..."
-    BOND_AMOUNT="100000000"
+    BOND_AMOUNT="500000000"  # 500 DREAM matches MinBond
 
     TX_RES=$($BINARY tx rep bond-role forum-sentinel \
         "$BOND_AMOUNT" \

@@ -19,7 +19,12 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../check_testparams.sh"
+source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
+
+# Wall-clock timing for the suite (Started/Ended/Duration in summary).
+SUITE_START_EPOCH=$(timing_now_epoch)
+SUITE_START_HUMAN=$(timing_now_human)
 
 # Parse command line arguments
 RUN_SETUP=true
@@ -66,6 +71,12 @@ fi
 echo "=============================================="
 echo "  X/GNOVM E2E TEST SUITE COMPLETE"
 echo "=============================================="
+echo ""
+SUITE_END_EPOCH=$(timing_now_epoch)
+SUITE_END_HUMAN=$(timing_now_human)
+timing_print_summary_block "$SUITE_START_EPOCH" "$SUITE_END_EPOCH" \
+    "$SUITE_START_HUMAN" "$SUITE_END_HUMAN"
+echo ""
 
 if [ $TOTAL_FAIL -gt 0 ]; then
     echo "  SOME TEST FILES FAILED"

@@ -89,9 +89,12 @@ echo ""
 # ========================================================================
 echo "Step 2: Funding $ACCOUNT with SPARK for gas fees..."
 
+# 25 SPARK: enough to cover the 10-SPARK x/name registration fee plus
+# accept-invitation gas and a few extra register/set-target/transfer fees
+# downstream tests issue from this account.
 TX_RES=$($BINARY tx bank send \
     alice $CLAIMANT_ADDR \
-    10000000uspark \
+    25000000uspark \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000uspark \
@@ -103,7 +106,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
     if check_tx_success "$TX_RESULT"; then
-        echo "  Sent 10 SPARK to $ACCOUNT"
+        echo "  Sent 25 SPARK to $ACCOUNT"
     else
         echo "  Failed to send SPARK"
     fi

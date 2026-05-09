@@ -8,7 +8,7 @@ CHAIN_ID="sparkdream"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then
-    echo "❌ Error: jq is not installed."
+    echo "[FAIL] Error: jq is not installed."
     exit 1
 fi
 
@@ -45,7 +45,7 @@ RES=$($BINARY tx name set-primary "bob-main" --from alice -y --chain-id $CHAIN_I
 CODE=$(echo $RES | jq -r '.code')
 
 if [ "$CODE" != "0" ]; then
-     echo "✅ SUCCESS: Alice blocked from setting 'bob-main' (Ante/CheckTx)."
+     echo "[ OK ] SUCCESS: Alice blocked from setting 'bob-main' (Ante/CheckTx)."
 else
      # Check On-Chain result
      TX_HASH=$(echo $RES | jq -r '.txhash')
@@ -56,12 +56,12 @@ else
 
      if [ "$FINAL_CODE" != "0" ]; then
         if echo "$RAW_LOG" | grep -q "not owner"; then
-            echo "✅ SUCCESS: Alice blocked on-chain (Not Owner)."
+            echo "[ OK ] SUCCESS: Alice blocked on-chain (Not Owner)."
         else
-            echo "✅ SUCCESS: Alice blocked on-chain (Code $FINAL_CODE)."
+            echo "[ OK ] SUCCESS: Alice blocked on-chain (Code $FINAL_CODE)."
         fi
      else
-        echo "❌ FAILURE: Alice successfully set Bob's name as her primary!"
+        echo "[FAIL] FAILURE: Alice successfully set Bob's name as her primary!"
         exit 1
      fi
 fi
@@ -74,9 +74,9 @@ sleep 4
 QUERY_RES=$($BINARY query tx $TX_HASH --output json)
 
 if [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
-    echo "✅ SUCCESS: Setting non-existent name failed."
+    echo "[ OK ] SUCCESS: Setting non-existent name failed."
 else
-    echo "❌ FAILURE: Setting non-existent name succeeded."
+    echo "[FAIL] FAILURE: Setting non-existent name succeeded."
     exit 1
 fi
 
@@ -91,7 +91,7 @@ QUERY_RES=$($BINARY query tx $TX_HASH --output json)
 CODE=$(echo $QUERY_RES | jq -r '.code')
 
 if [ "$CODE" != "0" ]; then
-    echo "❌ FAILURE: Failed to set primary."
+    echo "[FAIL] FAILURE: Failed to set primary."
     echo "Log: $(echo $QUERY_RES | jq -r '.raw_log')"
     exit 1
 fi
@@ -101,9 +101,9 @@ RESOLVED=$($BINARY query name reverse-resolve $ALICE_ADDR --output json | jq -r 
 echo "Resolved: $RESOLVED"
 
 if [ "$RESOLVED" == "alice-alpha" ]; then
-    echo "✅ SUCCESS: Reverse resolve returns 'alice-alpha'."
+    echo "[ OK ] SUCCESS: Reverse resolve returns 'alice-alpha'."
 else
-    echo "❌ FAILURE: Expected 'alice-alpha', got '$RESOLVED'."
+    echo "[FAIL] FAILURE: Expected 'alice-alpha', got '$RESOLVED'."
     exit 1
 fi
 
@@ -120,9 +120,9 @@ RESOLVED=$($BINARY query name reverse-resolve $ALICE_ADDR --output json | jq -r 
 echo "Resolved: $RESOLVED"
 
 if [ "$RESOLVED" == "alice-beta" ]; then
-    echo "✅ SUCCESS: Primary updated to 'alice-beta'."
+    echo "[ OK ] SUCCESS: Primary updated to 'alice-beta'."
 else
-    echo "❌ FAILURE: Expected 'alice-beta', got '$RESOLVED'."
+    echo "[FAIL] FAILURE: Expected 'alice-beta', got '$RESOLVED'."
     exit 1
 fi
 
@@ -132,7 +132,7 @@ NAMES_COUNT=$($BINARY query name names $ALICE_ADDR --output json | jq '.names | 
 
 echo "Alice owns $NAMES_COUNT names."
 if [ "$NAMES_COUNT" -ge 2 ]; then
-    echo "✅ SUCCESS: Found multiple names for Alice."
+    echo "[ OK ] SUCCESS: Found multiple names for Alice."
 else
-    echo "❌ FAILURE: Name count incorrect (Expected >= 2)."
+    echo "[FAIL] FAILURE: Name count incorrect (Expected >= 2)."
 fi

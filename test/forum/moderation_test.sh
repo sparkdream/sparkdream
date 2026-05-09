@@ -141,47 +141,66 @@ bootstrap_reputation() {
     return 0
 }
 
-# Helper: bond a sentinel account
+# Helper: bond a sentinel account.
+#
+# If no bond record exists, bonds for $BOND_AMOUNT.
+# If a record exists but the current bond is below $BOND_AMOUNT (e.g. drained
+# by slashes/unbonds in earlier tests), tops the bond up to $BOND_AMOUNT.
+# Otherwise leaves the bond as-is.
+#
+# Top-up matters because PART 25 (lock-thread) requires ≥2_000_000_000 udream
+# of bonded DREAM — see x/forum/keeper/msg_server_lock_thread.go.
 bond_sentinel() {
     local ACCOUNT=$1
     local ADDR=$2
-    local BOND_AMOUNT=${3:-100000000}
+    # 2500 DREAM bonded — exceeds the 2000 DREAM floor required for thread
+    # locking (msg_server_lock_thread.go) and meets the 500 DREAM min bond.
+    local BOND_AMOUNT=${3:-2500000000}
 
     SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel $ADDR --output json 2>&1)
     CURRENT_BOND=$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
+    [ -z "$CURRENT_BOND" ] || [ "$CURRENT_BOND" = "null" ] && CURRENT_BOND="0"
 
-    # Bond if no record exists OR current bond is zero/insufficient
+    # Determine how much to bond: full BOND_AMOUNT if no record; the shortfall
+    # if the record exists but is below BOND_AMOUNT; nothing if already enough.
+    local TX_AMOUNT=""
+    local ACTION=""
     if echo "$SENTINEL_STATUS" | grep -q "error\|not found" \
        || [ "$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.address // empty')" = "" ] \
-       || [ "$CURRENT_BOND" = "0" ] || [ "$CURRENT_BOND" = "null" ] || [ -z "$CURRENT_BOND" ]; then
-        echo "  Bonding $ACCOUNT (amount: $BOND_AMOUNT)..."
-
-        TX_RES=$($BINARY tx rep bond-role forum-sentinel \
-            "$BOND_AMOUNT" \
-            --from $ACCOUNT \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000uspark \
-            -y \
-            --output json 2>&1)
-
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-        if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-            sleep 6
-            TX_RESULT=$(wait_for_tx $TXHASH)
-            if check_tx_success "$TX_RESULT"; then
-                echo "  $ACCOUNT bonded successfully"
-                return 0
-            else
-                echo "  Failed to bond $ACCOUNT"
-                return 1
-            fi
-        fi
-        return 1
+       || [ "$CURRENT_BOND" = "0" ]; then
+        TX_AMOUNT="$BOND_AMOUNT"
+        ACTION="Bonding"
+    elif [ "$CURRENT_BOND" -lt "$BOND_AMOUNT" ] 2>/dev/null; then
+        TX_AMOUNT=$((BOND_AMOUNT - CURRENT_BOND))
+        ACTION="Topping up bond from $CURRENT_BOND by $TX_AMOUNT to reach $BOND_AMOUNT for"
     else
-        echo "  $ACCOUNT already bonded (bond: $CURRENT_BOND)"
+        echo "  $ACCOUNT already bonded (bond: $CURRENT_BOND, target: $BOND_AMOUNT)"
         return 0
     fi
+
+    echo "  $ACTION $ACCOUNT (amount: $TX_AMOUNT)..."
+    TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+        "$TX_AMOUNT" \
+        --from $ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000uspark \
+        -y \
+        --output json 2>&1)
+
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        sleep 6
+        TX_RESULT=$(wait_for_tx $TXHASH)
+        if check_tx_success "$TX_RESULT"; then
+            echo "  $ACCOUNT bonded successfully"
+            return 0
+        else
+            echo "  Failed to bond $ACCOUNT"
+            return 1
+        fi
+    fi
+    return 1
 }
 
 # Bootstrap sentinel1 reputation: tier 4 (500+ rep) for thread locking.
@@ -212,10 +231,11 @@ if [ "$BOND2_RC" -ne 0 ]; then
     SECOND_SENTINEL_ADDR="$MODERATOR_ADDR"
     bootstrap_reputation moderator 5
 
-    # Fund moderator with enough DREAM for bonding + cosign escrow
+    # Fund moderator with enough DREAM for bonding (2500 default) + cosign
+    # escrow. Use "bounty" purpose to bypass the 500-DREAM gift cap.
     echo "  Funding moderator with DREAM for sentinel operations..."
     TX_RES=$($BINARY tx rep transfer-dream \
-        "$MODERATOR_ADDR" "500000000" "gift" "Fund moderator for sentinel ops" \
+        "$MODERATOR_ADDR" "3000000000" "bounty" "Fund moderator for sentinel ops" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -357,37 +377,77 @@ echo ""
 echo "--- PART 4: APPEAL THREAD MOVE ---"
 PART4_RESULT="FAIL"
 
-# The appeal cooldown is set to 5 seconds in config.yml (test params).
-# By the time we reach this point (after Part 2 create + sleep 6 + Part 3
-# move + sleep 6), well over 5 seconds have elapsed since the move, so the
-# appeal should succeed.
+# The keeper enforces `now < moved_at + move_appeal_cooldown` using on-chain
+# BlockTime, not wall time. Both timestamps come from the proposer's clock,
+# but block-time drift relative to wall time means a fixed "sleep 6" between
+# Part 3 (move) and Part 4 (appeal) can race the 5-second cooldown when the
+# appeal block is committed close to the move block. To make the test
+# order-independent, we (a) read the move record's moved_at and the latest
+# block time, (b) sleep until the cooldown has demonstrably elapsed (with
+# a 3-second safety buffer), then (c) retry the appeal up to 3 times if a
+# late cooldown error still slips through.
 
 if [ -n "$MOVE_THREAD_ID" ]; then
-    echo "  Appealing thread move (cooldown=5s in test config, should succeed)..."
+    # Read on-chain MovedAt and current block time
+    MOVE_REC=$($BINARY query forum get-thread-move-record $MOVE_THREAD_ID --output json 2>/dev/null)
+    MOVED_AT=$(echo "$MOVE_REC" | jq -r '.move_record.moved_at // .moved_at // "0"' 2>/dev/null)
+    CURRENT_BLOCK_TIME=$(sparkdreamd status 2>/dev/null | jq -r '.sync_info.latest_block_time // empty' 2>/dev/null)
+    NOW_EPOCH=$(date -d "$CURRENT_BLOCK_TIME" +%s 2>/dev/null || date +%s)
+    COOLDOWN=5  # matches forum.params.move_appeal_cooldown in config.yml
+    BUFFER=3
+    REMAINING=$(( MOVED_AT + COOLDOWN + BUFFER - NOW_EPOCH ))
+    if [ "$REMAINING" -gt 0 ] 2>/dev/null; then
+        echo "  Sleeping ${REMAINING}s for move-appeal cooldown (moved_at=$MOVED_AT, now=$NOW_EPOCH)..."
+        sleep "$REMAINING"
+    fi
 
-    TX_RES=$($BINARY tx forum appeal-thread-move \
-        "$MOVE_THREAD_ID" \
-        --from poster1 \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000uspark \
-        -y \
-        --output json 2>&1)
+    echo "  Appealing thread move (cooldown=${COOLDOWN}s in test config)..."
 
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    # Retry on cooldown errors — the on-chain block time may still be just
+    # under cooldownEnd if blocks lag wall time.
+    APPEAL_ATTEMPT=0
+    APPEAL_MAX=3
+    while [ "$APPEAL_ATTEMPT" -lt "$APPEAL_MAX" ]; do
+        TX_RES=$($BINARY tx forum appeal-thread-move \
+            "$MOVE_THREAD_ID" \
+            --from poster1 \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000uspark \
+            -y \
+            --output json 2>&1)
 
-    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-        CODE=$(echo "$TX_RESULT" | jq -r '.code')
+        TXHASH=$(echo "$TX_RES" | jq -r '.txhash' 2>/dev/null)
 
-        if [ "$CODE" = "0" ]; then
-            echo "  PASS: Appeal filed successfully (cooldown already elapsed)"
-            PART4_RESULT="PASS"
-        else
-            RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
+        if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+            sleep 6
+            TX_RESULT=$(wait_for_tx $TXHASH)
+            CODE=$(echo "$TX_RESULT" | jq -r '.code' 2>/dev/null)
+
+            if [ "$CODE" = "0" ]; then
+                echo "  PASS: Appeal filed successfully"
+                PART4_RESULT="PASS"
+                break
+            fi
+
+            RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)
+            if echo "$RAW_LOG" | grep -qi "cooldown not yet passed\|appeal cooldown"; then
+                APPEAL_ATTEMPT=$((APPEAL_ATTEMPT + 1))
+                echo "  Cooldown still active (attempt $APPEAL_ATTEMPT/$APPEAL_MAX), sleeping 4s and retrying..."
+                sleep 4
+                continue
+            fi
+
             echo "  FAIL: Appeal was rejected: $(echo "$RAW_LOG" | head -c 120)"
+            break
+        else
+            echo "  FAIL: Appeal broadcast did not return a txhash"
+            break
         fi
+    done
+
+    if [ "$PART4_RESULT" != "PASS" ] && [ "$APPEAL_ATTEMPT" -ge "$APPEAL_MAX" ]; then
+        echo "  FAIL: Cooldown never elapsed across $APPEAL_MAX attempts"
     fi
 else
     echo "  No moved thread available to appeal"

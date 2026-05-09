@@ -91,7 +91,7 @@ func (k msgServer) StakeNomination(ctx context.Context, msg *types.MsgStakeNomin
 		return nil, errorsmod.Wrap(types.ErrStakeAmountTooLow, "truncated amount is zero")
 	}
 	if err := k.LockDREAM(ctx, msg.Creator, amountInt.Uint64()); err != nil {
-		return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to lock DREAM for nomination stake")
+		return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to lock DREAM for nomination stake: %s", err)
 	}
 
 	// 8. Create NominationStake record and save

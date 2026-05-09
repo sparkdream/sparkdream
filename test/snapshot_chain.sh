@@ -23,16 +23,16 @@ echo "→ Exporting chain state to genesis..."
 sparkdreamd export --home ~/.sparkdream > "$SNAPSHOT_PATH/genesis_exported.json" 2>&1
 
 if [ $? -eq 0 ]; then
-    echo "  ✅ Genesis exported: $SNAPSHOT_PATH/genesis_exported.json"
+    echo "  [ OK ] Genesis exported: $SNAPSHOT_PATH/genesis_exported.json"
 else
-    echo "  ❌ Failed to export genesis"
+    echo "  [FAIL] Failed to export genesis"
     exit 1
 fi
 
 # 2. Save current params for reference
 echo "→ Saving current module params..."
 sparkdreamd q rep params --output json > "$SNAPSHOT_PATH/rep_params.json" 2>/dev/null
-echo "  ✅ Rep params saved"
+echo "  [ OK ] Rep params saved"
 
 # 3. Save member states
 echo "→ Saving member states..."
@@ -42,12 +42,12 @@ for MEMBER in alice challenger juror1 juror2 juror3; do
         sparkdreamd q rep show-member $ADDR --output json > "$SNAPSHOT_PATH/member_${MEMBER}.json" 2>/dev/null
     fi
 done
-echo "  ✅ Member states saved"
+echo "  [ OK ] Member states saved"
 
 # 4. Save current block height
 BLOCK_HEIGHT=$(sparkdreamd status 2>&1 | jq -r '.sync_info.latest_block_height')
 echo "$BLOCK_HEIGHT" > "$SNAPSHOT_PATH/block_height.txt"
-echo "  ✅ Block height saved: $BLOCK_HEIGHT"
+echo "  [ OK ] Block height saved: $BLOCK_HEIGHT"
 
 # 5. Create metadata file
 cat > "$SNAPSHOT_PATH/metadata.json" <<EOF
@@ -59,7 +59,7 @@ cat > "$SNAPSHOT_PATH/metadata.json" <<EOF
   "notes": "Includes: 7 test accounts with DREAM, test project, jurors with reputation"
 }
 EOF
-echo "  ✅ Metadata saved"
+echo "  [ OK ] Metadata saved"
 
 # 6. Create restoration script
 cat > "$SNAPSHOT_PATH/restore.sh" <<'RESTORE_SCRIPT'
@@ -85,8 +85,15 @@ if [ -d ~/.sparkdream ]; then
     mv ~/.sparkdream ~/.sparkdream_$BACKUP_NAME
 fi
 
-# Remove old state
-rm -rf ~/.sparkdream
+# Remove any leftover state. CLAUDE.md forbids `rm -rf`; use `find -delete`
+# with explicit guards so a misconfigured $HOME can't escalate. The mv above
+# will normally have moved ~/.sparkdream out of the way, so this only
+# matters if the mv was skipped (no -d) and a stray file/symlink remains.
+if [ -e "$HOME/.sparkdream" ] || [ -L "$HOME/.sparkdream" ]; then
+    if [ -n "$HOME" ] && [ "$HOME" != "/" ]; then
+        find "$HOME/.sparkdream" -depth -delete 2>/dev/null
+    fi
+fi
 
 # Initialize with exported genesis
 echo "→ Initializing chain with snapshot genesis..."
@@ -100,7 +107,7 @@ cp "$SCRIPT_DIR/genesis_exported.json" ~/.sparkdream/config/genesis.json
 echo "→ Keys should already exist in keyring (shared across home dirs)"
 
 echo ""
-echo "✅ Snapshot restored successfully!"
+echo "[ OK ] Snapshot restored successfully!"
 echo ""
 echo "Start the chain with:"
 echo "  ignite chain serve --skip-proto --reset-once"
@@ -112,11 +119,11 @@ echo ""
 RESTORE_SCRIPT
 
 chmod +x "$SNAPSHOT_PATH/restore.sh"
-echo "  ✅ Restore script created"
+echo "  [ OK ] Restore script created"
 
 echo ""
 echo "=========================================="
-echo "✅ Snapshot Created Successfully!"
+echo "[ OK ] Snapshot Created Successfully!"
 echo "=========================================="
 echo ""
 echo "Snapshot location: $SNAPSHOT_PATH"

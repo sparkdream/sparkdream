@@ -16,6 +16,7 @@
 #   ./run_all_tests.sh --no-identity # Skip identity link tests
 #   ./run_all_tests.sh --no-verifier # Skip verifier tests
 #   ./run_all_tests.sh --no-query   # Skip query tests
+#   ./run_all_tests.sh --multichain # Also run multi-chain IBC tests (test/federation/multichain/)
 #
 # Prerequisites:
 #   - sparkdreamd chain running locally
@@ -29,7 +30,14 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../check_testparams.sh"
+source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
+
+# Wall-clock timing for the suite — captured here so the summary's
+# "Started" line reflects when the runner was invoked, not when the
+# first test fired.
+SUITE_START_EPOCH=$(timing_now_epoch)
+SUITE_START_HUMAN=$(timing_now_human)
 
 # Parse command line arguments
 RUN_SETUP=true
@@ -43,7 +51,9 @@ RUN_VERIFIER=true
 RUN_QUERY=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
+RUN_MULTICHAIN=false
 
+AUTO_SNAPSHOT=true
 for arg in "$@"; do
     case $arg in
         --no-setup)
@@ -99,6 +109,9 @@ for arg in "$@"; do
             RESTORE_SETUP=true
             RUN_SETUP=false
             ;;
+        --multichain)
+            RUN_MULTICHAIN=true
+            ;;
         --no-tests)
             RUN_PARAMS=false
             RUN_PEER=false
@@ -125,6 +138,8 @@ for arg in "$@"; do
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
+            echo "  --multichain     Run multi-chain IBC federation tests after the single-chain suite (requires hermes binary)"
+            echo "  --no-auto-snapshot Disable auto-snapshot (run setup every time, no caching)"
             echo "  --no-tests       Skip all tests (use with --restore-setup for manual testing)"
             echo "  --help, -h       Show this help message"
             echo ""
@@ -134,6 +149,9 @@ for arg in "$@"; do
             echo ""
             exit 0
             ;;
+        --no-auto-snapshot)
+            AUTO_SNAPSHOT=false
+            ;;
         *)
             echo "Unknown option: $arg"
             echo "Use --help for usage information"
@@ -142,6 +160,11 @@ for arg in "$@"; do
     esac
 done
 
+
+# Auto-snapshot: when no explicit save/restore flag is passed, reuse an
+# existing fresh snapshot or save one after setup. See test/_auto_snapshot.sh.
+source "$SCRIPT_DIR/../_auto_snapshot.sh"
+auto_snapshot_pre
 echo "============================================================================"
 echo "                    X/FEDERATION MODULE E2E TEST SUITE"
 echo "============================================================================"
@@ -318,6 +341,11 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 declare -a FAILED_TESTS
 
+# Per-test timing — populated by run_test, consumed by the summary block.
+declare -a TIMED_NAMES=()
+declare -a TIMED_RESULTS=()
+declare -a TIMED_DURATIONS_S=()
+
 run_test() {
     local TEST_NAME=$1
     local TEST_SCRIPT=$2
@@ -329,15 +357,29 @@ run_test() {
 
     TESTS_RUN=$((TESTS_RUN + 1))
 
+    local _t0 _t1 _dur_s _dur
+    _t0=$(timing_now_epoch)
     if bash "$SCRIPT_DIR/$TEST_SCRIPT"; then
+        _t1=$(timing_now_epoch)
+        _dur_s=$((_t1 - _t0))
+        _dur=$(timing_format_duration "$_dur_s")
         TESTS_PASSED=$((TESTS_PASSED + 1))
+        TIMED_NAMES+=("$TEST_NAME")
+        TIMED_RESULTS+=("PASS")
+        TIMED_DURATIONS_S+=("$_dur_s")
         echo ""
-        echo ">>> $TEST_NAME: PASSED <<<"
+        echo ">>> $TEST_NAME: PASSED ($_dur) <<<"
     else
+        _t1=$(timing_now_epoch)
+        _dur_s=$((_t1 - _t0))
+        _dur=$(timing_format_duration "$_dur_s")
         TESTS_FAILED=$((TESTS_FAILED + 1))
         FAILED_TESTS+=("$TEST_NAME")
+        TIMED_NAMES+=("$TEST_NAME")
+        TIMED_RESULTS+=("FAIL")
+        TIMED_DURATIONS_S+=("$_dur_s")
         echo ""
-        echo ">>> $TEST_NAME: FAILED <<<"
+        echo ">>> $TEST_NAME: FAILED ($_dur) <<<"
     fi
 
     echo ""
@@ -351,6 +393,10 @@ run_test() {
 # Setup (always first if enabled)
 if [ "$RUN_SETUP" = true ]; then
     run_test "Account Setup" "setup_test_accounts.sh"
+
+    # Auto-save the post-setup snapshot if AUTO_SNAPSHOT was set and
+    # no fresh snapshot existed at the start of this run.
+    auto_snapshot_post
 
     # If --save-setup mode, save chain state and exit
     if [ "$SAVE_SETUP" = true ]; then
@@ -461,6 +507,30 @@ else
     echo ""
 fi
 
+# Multi-Chain IBC Federation Tests (orchestrates two chains + hermes)
+if [ "$RUN_MULTICHAIN" = true ]; then
+    echo "============================================================================"
+    echo "RUNNING: Multi-Chain Federation Tests"
+    echo "============================================================================"
+    echo ""
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+
+    if bash "$SCRIPT_DIR/multichain/run_all_multichain_tests.sh"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo ""
+        echo ">>> Multi-Chain Federation Tests: PASSED <<<"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        FAILED_TESTS+=("Multi-Chain Federation Tests")
+        echo ""
+        echo ">>> Multi-Chain Federation Tests: FAILED <<<"
+    fi
+
+    echo ""
+    sleep 2
+fi
+
 # ============================================================================
 # Final Summary
 # ============================================================================
@@ -468,10 +538,24 @@ echo "==========================================================================
 echo "                         TEST SUITE SUMMARY"
 echo "============================================================================"
 echo ""
+
+# Wall-clock summary (Started/Ended/Duration), captured by the helper.
+SUITE_END_EPOCH=$(timing_now_epoch)
+SUITE_END_HUMAN=$(timing_now_human)
+timing_print_summary_block "$SUITE_START_EPOCH" "$SUITE_END_EPOCH" \
+    "$SUITE_START_HUMAN" "$SUITE_END_HUMAN"
+echo ""
+
 echo "  Tests Run:    $TESTS_RUN"
 echo "  Tests Passed: $TESTS_PASSED"
 echo "  Tests Failed: $TESTS_FAILED"
 echo ""
+
+# Per-test timings table (in execution order).
+if [ ${#TIMED_NAMES[@]} -gt 0 ]; then
+    timing_print_per_test_table TIMED_RESULTS TIMED_DURATIONS_S TIMED_NAMES
+    echo ""
+fi
 
 if [ $TESTS_FAILED -gt 0 ]; then
     echo "Failed Tests:"

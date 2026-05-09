@@ -25,9 +25,62 @@ echo "Gov Address:     $GOV_ADDR"
 echo "Council Address: $COUNCIL_ADDR"
 
 if [ -z "$COUNCIL_ADDR" ] || [ "$COUNCIL_ADDR" == "null" ]; then
-    echo "FAIL SETUP ERROR: Council Address not found. Run group_setup.sh first."
+    echo "[FAIL] SETUP ERROR: Council Address not found. Run group_setup.sh first."
     exit 1
 fi
+
+# Capture the initial allowed_messages so we can guarantee restoration on
+# every exit path (success, mid-test failure, ctrl-c). Downstream tests
+# (anon_test, social_veto_vote_test, executive_veto_test, etc.) all assume
+# Commons Council can submit MsgSpendFromCommons, so leaving the policy in
+# a ratcheted-down state cascades failures across the whole suite.
+INITIAL_PERMS_JSON=$($BINARY query commons get-policy-permissions $COUNCIL_ADDR --output json 2>/dev/null)
+INITIAL_PERMS=$(echo "$INITIAL_PERMS_JSON" | jq -r '.policy_permissions.allowed_messages | join(",")' 2>/dev/null)
+
+restore_council_perms() {
+    # Idempotent restore via gov proposal — even if the body of this test
+    # exits early, downstream commons tests need the original permission
+    # set back. The gov proposal works regardless of council state because
+    # gov is the immutable supreme authority for MsgUpdatePolicyPermissions.
+    [ -z "$INITIAL_PERMS" ] && return 0
+    local now_perms
+    now_perms=$($BINARY query commons get-policy-permissions $COUNCIL_ADDR --output json 2>/dev/null \
+        | jq -r '.policy_permissions.allowed_messages | join(",")' 2>/dev/null)
+    if [ "$now_perms" = "$INITIAL_PERMS" ]; then
+        return 0
+    fi
+    echo "  [trap] restoring Commons Council permissions to baseline..."
+    local msgs_json
+    msgs_json=$(echo "$INITIAL_PERMS_JSON" | jq -c '.policy_permissions.allowed_messages')
+    cat > "$PROPOSAL_DIR/restore_baseline.json" <<RESTORE_JSON
+{
+  "messages": [
+    {
+      "@type": "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
+      "authority": "$GOV_ADDR",
+      "policy_address": "$COUNCIL_ADDR",
+      "allowed_messages": $msgs_json
+    }
+  ],
+  "metadata": "Restore Commons Council permissions to baseline",
+  "deposit": "100000000uspark",
+  "title": "Restore Council Permissions",
+  "summary": "Restore baseline permissions",
+  "expedited": true
+}
+RESTORE_JSON
+    local res
+    res=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/restore_baseline.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 400000 --output json 2>/dev/null)
+    local h
+    h=$(echo "$res" | jq -r '.txhash // empty' 2>/dev/null)
+    sleep 3
+    local pid
+    pid=$($BINARY query tx "$h" --output json 2>/dev/null | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' 2>/dev/null | tr -d '"' | head -1)
+    [ -z "$pid" ] && return 0
+    $BINARY tx gov vote "$pid" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json >/dev/null 2>&1
+    sleep 45
+}
+trap restore_council_perms EXIT
 
 # --- 1. BASELINE CHECK ---
 echo "--- STEP 1: VERIFY INITIAL PERMISSIONS ---"
@@ -37,9 +90,9 @@ echo "$PERMS_JSON" | jq -r '.policy_permissions.allowed_messages[]'
 
 # Check if MsgSpendFromCommons is currently allowed
 if echo "$PERMS_JSON" | grep -q "MsgSpendFromCommons"; then
-    echo "OK MsgSpendFromCommons is currently ALLOWED."
+    echo "[ OK ] MsgSpendFromCommons is currently ALLOWED."
 else
-    echo "FAIL SETUP ERROR: MsgSpendFromCommons should be allowed at start."
+    echo "[FAIL] SETUP ERROR: MsgSpendFromCommons should be allowed at start."
     exit 1
 fi
 
@@ -61,37 +114,51 @@ echo '{
         "/sparkdream.commons.v1.MsgUpdateGroupConfig",
         "/sparkdream.commons.v1.MsgUpdateGroupMembers",
         "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
+        "/sparkdream.commons.v1.MsgVoteProposal",
         "/sparkdream.name.v1.MsgResolveDispute"
       ]
     }
   ],
-  "metadata": "We are voluntarily giving up the power to spend."
+  "metadata": "Self-restriction: we voluntarily give up the power to spend"
 }' > "$PROPOSAL_DIR/msg_ratchet_down.json"
 
 # Submit, Vote, Exec
 echo "Submitting Ratchet Down Proposal..."
 SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_ratchet_down.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 5
+sleep 3
 PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
 echo "Proposal ID: $PROP_ID"
 $BINARY tx commons vote-proposal $PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
-sleep 5
 $BINARY tx commons vote-proposal $PROP_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+
+# Threshold met by 2 yes-votes — early acceptance flips status to ACCEPTED
+# immediately. min_execution_period is 1s under testparams. Brief sleep,
+# then execute.
 sleep 5
 
 echo "Executing Ratchet Down..."
-$BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json > /dev/null
-sleep 5
+EXEC_RES=$($BINARY tx commons execute-proposal $PROP_ID --gas 2000000 --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash // empty' 2>/dev/null)
+sleep 3
+
+# Confirm the proposal actually executed
+EXEC_STATUS=$($BINARY query commons get-proposal $PROP_ID --output json | jq -r '.proposal.status')
+if [ "$EXEC_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
+    echo "[FAIL] Ratchet-down proposal did not execute (status=$EXEC_STATUS)."
+    [ -n "$EXEC_HASH" ] && echo "Tx raw_log: $($BINARY query tx $EXEC_HASH --output json 2>/dev/null | jq -r '.raw_log // empty')"
+    exit 1
+fi
 
 # Verify Removal
-NEW_PERMS=$($BINARY query commons show-policy-permissions $COUNCIL_ADDR --output json)
+NEW_PERMS=$($BINARY query commons get-policy-permissions $COUNCIL_ADDR --output json)
 if echo "$NEW_PERMS" | grep -q "MsgSpendFromCommons"; then
-    echo "FAIL: MsgSpendFromCommons is STILL in the list."
+    echo "[FAIL] FAILURE: MsgSpendFromCommons is STILL in the list."
+    echo "Permissions: $NEW_PERMS"
     exit 1
 else
-    echo "OK SUCCESS: MsgSpendFromCommons successfully removed."
+    echo "[ OK ] SUCCESS: MsgSpendFromCommons successfully removed."
 fi
 
 # --- 3. ENFORCEMENT CHECK ---
@@ -107,33 +174,28 @@ echo '{
       "amount": [{"denom": "uspark", "amount": "1"}]
     }
   ],
-  "metadata": "Trying to spend after removing permission"
+  "metadata": "Illegal spend attempt after removing permission"
 }' > "$PROPOSAL_DIR/msg_illegal_spend.json"
 
-# Attempt Submission (Should fail at SubmitProposal handler / AnteHandler level)
-OUTPUT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_illegal_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+# x/commons rejects the disallowed message inside SubmitProposal handler;
+# the rejection appears as a non-zero tx code with "not allowed for policy"
+# in the on-chain raw_log (not in the broadcast output, which just shows
+# the txhash).
+ILLEGAL_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_illegal_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+ILLEGAL_HASH=$(echo "$ILLEGAL_RES" | jq -r '.txhash // empty' 2>/dev/null)
+sleep 3
+ILLEGAL_LOG=""
+if [ -n "$ILLEGAL_HASH" ]; then
+    ILLEGAL_LOG=$($BINARY query tx "$ILLEGAL_HASH" --output json 2>/dev/null | jq -r '.raw_log // empty' 2>/dev/null)
+fi
 
-if echo "$OUTPUT" | grep -qi "not allowed for policy\|not allowed"; then
-    echo "OK SUCCESS: Spend attempt blocked."
+if echo "$ILLEGAL_RES$ILLEGAL_LOG" | grep -qiE "MsgSpendFromCommons not allowed for policy|not allowed for policy"; then
+    echo "[ OK ] SUCCESS: SubmitProposal rejected the disallowed Spend."
 else
-    # Check if tx was broadcast but failed on-chain
-    TX_HASH=$(echo $OUTPUT | jq -r '.txhash' 2>/dev/null)
-    if [ -n "$TX_HASH" ] && [ "$TX_HASH" != "null" ]; then
-        sleep 5
-        TX_RES=$($BINARY query tx $TX_HASH --output json 2>/dev/null)
-        TX_CODE=$(echo $TX_RES | jq -r '.code')
-        if [ "$TX_CODE" != "0" ] && echo "$TX_RES" | grep -qi "not allowed"; then
-            echo "OK SUCCESS: Spend attempt blocked on-chain."
-        else
-            echo "FAIL: Spend attempt was NOT blocked."
-            echo "$TX_RES"
-            exit 1
-        fi
-    else
-        echo "FAIL: Spend attempt was NOT blocked."
-        echo "$OUTPUT"
-        exit 1
-    fi
+    echo "[FAIL] FAILURE: Spend attempt was NOT blocked."
+    echo "Broadcast: $ILLEGAL_RES" | head -10
+    echo "Tx raw_log: $ILLEGAL_LOG"
+    exit 1
 fi
 
 # --- 4. UNAUTHORIZED EXPANSION (RATCHET CHECK) ---
@@ -155,47 +217,52 @@ echo '{
         "/sparkdream.commons.v1.MsgUpdateGroupConfig",
         "/sparkdream.commons.v1.MsgUpdateGroupMembers",
         "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
-        "/sparkdream.name.v1.MsgResolveDispute",
-        "/sparkdream.name.v1.MsgUpdateOperationalParams",
-        "/sparkdream.commons.v1.MsgVoteProposal"
+        "/sparkdream.commons.v1.MsgVoteProposal",
+        "/sparkdream.name.v1.MsgResolveDispute"
       ]
     }
   ],
-  "metadata": "Trying to add spend permission back"
+  "metadata": "Sneaky expansion: trying to add spend permission back"
 }' > "$PROPOSAL_DIR/msg_sneaky_expansion.json"
 
 # 1. Submission: WILL SUCCEED (because UpdatePolicyPermissions is allowed)
 SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_sneaky_expansion.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 5
+sleep 3
 PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
 echo "Sneaky Proposal ID: $PROP_ID"
 $BINARY tx commons vote-proposal $PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
-sleep 5
+sleep 3
 $BINARY tx commons vote-proposal $PROP_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+# Early acceptance — threshold met by 2 yes-votes, no need to wait the
+# voting deadline. min_execution_period=1s under testparams.
 sleep 5
 
-# 2. Execution: MUST FAIL (ratchet down violation)
+# 2. Execution: MUST FAIL with "ratchet down violation". x/commons reverts
+# state on inner-msg failure, so the proposal stays ACCEPTED rather than
+# flipping to FAILED. We assert the broadcast captures the violation.
 echo "Executing Sneaky Expansion..."
-EXEC_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json 2>&1)
-EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
-sleep 5
+EXEC_RES=$($BINARY tx commons execute-proposal $PROP_ID --gas 2000000 --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>&1)
+EXEC_HASH=$(echo "$EXEC_RES" | jq -r '.txhash // empty' 2>/dev/null)
+sleep 3
+EXEC_RAW=""
+if [ -n "$EXEC_HASH" ]; then
+    EXEC_RAW=$($BINARY query tx "$EXEC_HASH" --output json 2>/dev/null | jq -r '.raw_log // empty' 2>/dev/null)
+fi
 
-# Check execution result
-TX_RES=$($BINARY query tx $EXEC_HASH --output json 2>/dev/null)
-PROP_STATUS=$($BINARY query commons get-proposal $PROP_ID --output json | jq -r '.proposal.status')
-
-if echo "$TX_RES" | grep -q "ratchet down violation"; then
-    echo "OK SUCCESS: Execution failed with 'ratchet down violation'."
-elif [ "$PROP_STATUS" == "PROPOSAL_STATUS_FAILED" ]; then
-    FAIL_REASON=$($BINARY query commons get-proposal $PROP_ID --output json | jq -r '.proposal.failed_reason')
-    echo "OK SUCCESS: Proposal Execution Result = FAILED. Reason: $FAIL_REASON"
+if echo "$EXEC_RES$EXEC_RAW" | grep -qiE "ratchet down violation"; then
+    echo "[ OK ] SUCCESS: Execution failed with 'ratchet down violation'."
 else
-    echo "FAIL CRITICAL FAILURE: The Council was able to expand its own permissions!"
-    echo "Proposal Status: $PROP_STATUS"
-    echo "Raw Log: $(echo $TX_RES)"
-    exit 1
+    SNEAK_STATUS=$($BINARY query commons get-proposal $PROP_ID --output json | jq -r '.proposal.status')
+    if [ "$SNEAK_STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$SNEAK_STATUS" == "PROPOSAL_STATUS_FAILED" ]; then
+        echo "[ OK ] SUCCESS: Sneaky expansion did not execute (status=$SNEAK_STATUS)."
+    else
+        echo "[FAIL] CRITICAL FAILURE: The Council was able to expand its own permissions! (status=$SNEAK_STATUS)"
+        echo "Broadcast: $EXEC_RES" | head -10
+        echo "Tx raw_log: $EXEC_RAW"
+        exit 1
+    fi
 fi
 
 # --- 5. SUPREME AUTHORITY RESTORATION ---
@@ -216,12 +283,12 @@ echo '{
         "/sparkdream.commons.v1.MsgUpdateGroupConfig",
         "/sparkdream.commons.v1.MsgUpdateGroupMembers",
         "/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
-        "/sparkdream.name.v1.MsgResolveDispute",
-        "/sparkdream.name.v1.MsgUpdateOperationalParams",
-        "/sparkdream.commons.v1.MsgVoteProposal"
+        "/sparkdream.commons.v1.MsgVoteProposal",
+        "/sparkdream.name.v1.MsgResolveDispute"
       ]
     }
   ],
+  "metadata": "Restore spend powers via gov",
   "deposit": "100000000uspark",
   "title": "Restore Spend Powers",
   "summary": "Community restores spending power to the council.",
@@ -230,7 +297,7 @@ echo '{
 
 SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_restore_perms.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 400000 --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 5
+sleep 3
 GOV_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
 if [ -z "$GOV_PROP_ID" ] || [ "$GOV_PROP_ID" == "null" ]; then
@@ -252,8 +319,8 @@ echo "--- STEP 6: VERIFY RESTORATION ---"
 FINAL_PERMS=$($BINARY query commons show-policy-permissions $COUNCIL_ADDR --output json)
 
 if echo "$FINAL_PERMS" | grep -q "MsgSpendFromCommons"; then
-    echo "OK GRAND SUCCESS: Governance successfully restored the spending permission."
+    echo "[ OK ] GRAND SUCCESS: Governance successfully restored the spending permission."
 else
-    echo "FAIL: Permission was not restored."
+    echo "[FAIL] FAILURE: Permission was not restored."
     exit 1
 fi

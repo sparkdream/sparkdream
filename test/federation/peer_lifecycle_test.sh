@@ -64,23 +64,27 @@ submit_and_wait() {
     local LABEL=${2:-"transaction"}
     TX_OK=false
 
-    local TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
+    # Note: tests use `record_result` for actual pass/fail accounting; this
+    # helper is purely informational. Many tests submit deliberately invalid
+    # txs to verify rejection paths, so we use neutral "[reject]" wording
+    # instead of "FAIL:" to avoid scaring readers of the run log.
+    local TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty' 2>/dev/null)
     if [ -z "$TXHASH" ]; then
-        echo "  FAIL: $LABEL - no txhash in response"
+        echo "  [reject] $LABEL: no txhash in response"
         echo "  $TX_RES"
         return 1
     fi
 
-    local BCODE=$(echo "$TX_RES" | jq -r '.code // "0"')
+    local BCODE=$(echo "$TX_RES" | jq -r '.code // "0"' 2>/dev/null)
     if [ "$BCODE" != "0" ] && [ "$BCODE" != "null" ]; then
-        local RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // "unknown error"')
+        local RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // "unknown error"' 2>/dev/null)
         # Retry on sequence mismatch (race condition between txs)
         if echo "$RAW_LOG" | grep -q "account sequence mismatch"; then
             echo "  Sequence mismatch, retrying after wait..."
             sleep 6
             return 2
         fi
-        echo "  FAIL: $LABEL - rejected at broadcast (code=$BCODE)"
+        echo "  [reject] $LABEL: rejected at broadcast (code=$BCODE)"
         echo "  $RAW_LOG"
         TX_RESULT="$TX_RES"
         return 1
@@ -89,13 +93,13 @@ submit_and_wait() {
     sleep 6
     TX_RESULT=$(wait_for_tx "$TXHASH")
     if [ $? -ne 0 ]; then
-        echo "  FAIL: $LABEL - tx not found on chain"
+        echo "  [reject] $LABEL: tx not found on chain"
         return 1
     fi
 
-    local CODE=$(echo "$TX_RESULT" | jq -r '.code')
+    local CODE=$(echo "$TX_RESULT" | jq -r '.code' 2>/dev/null)
     if [ "$CODE" != "0" ]; then
-        echo "  FAIL: $LABEL - tx failed (code=$CODE)"
+        echo "  [reject] $LABEL: tx exited code=$CODE"
         echo "  $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
         return 1
     fi
@@ -153,7 +157,7 @@ vote_and_execute_commons() {
             return 0
         fi
     else
-        echo "  FAIL: Could not execute proposal"
+        echo "  [reject] proposal execution did not complete"
         return 1
     fi
 }
@@ -187,7 +191,7 @@ submit_federation_proposal() {
         return 1
     done
     if [ $ATTEMPT -ge $RETRIES ]; then
-        echo "  FAIL: $LABEL - sequence mismatch after $RETRIES retries"
+        echo "  [reject] $LABEL: sequence mismatch after $RETRIES retries"
         return 1
     fi
 

@@ -71,7 +71,7 @@ func (k Keeper) ResolveUnappealedModerationInternal(ctx context.Context, member 
 	reportStake, err := k.DisplayNameReportStake.Get(ctx, reportChallengeID)
 	if err == nil {
 		if unlockErr := k.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); unlockErr != nil {
-			return errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to unlock reporter stake")
+			return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock reporter stake: %s", unlockErr)
 		}
 		_ = k.DisplayNameReportStake.Remove(ctx, reportChallengeID)
 	}

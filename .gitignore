@@ -44,6 +44,8 @@ vue/dist
 test/*/proposals
 test/*/snapshots
 .test_env
+# Parallel E2E runner workdir (per-run isolated chain homes + logs)
+/e2e/
 
 # IDE and editors
 .idea/

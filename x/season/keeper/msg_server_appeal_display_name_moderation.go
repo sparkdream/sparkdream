@@ -41,9 +41,13 @@ func (k msgServer) AppealDisplayNameModeration(ctx context.Context, msg *types.M
 		return nil, types.ErrAppealPeriodExpired
 	}
 
-	// Escrow appellant's DREAM stake via x/rep integration
+	// Escrow appellant's DREAM stake via x/rep integration.
+	// Preserve the underlying x/rep error in the wrapped message so callers
+	// can distinguish ErrInsufficientBalance vs ErrMemberNotFound vs decay
+	// failures — the bare "DREAM operation failed" string was opaque enough
+	// to mask an under-funded test fixture for several CI runs.
 	if err := k.LockDREAM(ctx, msg.Creator, params.DisplayNameAppealStakeDream.Uint64()); err != nil {
-		return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to escrow DREAM stake for appeal")
+		return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to escrow DREAM stake for appeal: %s", err)
 	}
 
 	// Generate appeal challenge ID

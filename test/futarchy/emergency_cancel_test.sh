@@ -20,7 +20,7 @@ echo "Bob Address:   $BOB_ADDR"
 echo "Gov Address:   $GOV_ADDR"
 
 if [ -z "$GOV_ADDR" ] || [ "$GOV_ADDR" == "null" ]; then
-    echo "❌ SETUP ERROR: Gov Address not found."
+    echo "[FAIL] SETUP ERROR: Gov Address not found."
     exit 1
 fi
 
@@ -58,11 +58,11 @@ MARKET_ID=$($BINARY query tx $TX_HASH --output json | \
   tr -d '"')
 
 if [ -z "$MARKET_ID" ] || [ "$MARKET_ID" == "null" ]; then
-    echo "❌ FAILURE: Could not create market."
+    echo "[FAIL] FAILURE: Could not create market."
     exit 1
 fi
 
-echo "✅ Market created with ID: $MARKET_ID"
+echo "[ OK ] Market created with ID: $MARKET_ID"
 
 # --- 2. ADD SOME TRADING ACTIVITY ---
 echo "--- STEP 2: BOB TRADES ON THE MARKET ---"
@@ -80,18 +80,18 @@ TRADE_RES=$($BINARY tx futarchy trade \
   --output json)
 
 sleep 3
-echo "✅ Bob traded on the market"
+echo "[ OK ] Bob traded on the market"
 
 # Verify Bob has YES shares
 YES_TOKEN="f/${MARKET_ID}/yes"
 BOB_YES_BALANCE=$($BINARY query bank balance $BOB_ADDR $YES_TOKEN --output json | jq -r '.balance.amount')
 
 if [ "$BOB_YES_BALANCE" == "0" ] || [ -z "$BOB_YES_BALANCE" ]; then
-    echo "❌ FAILURE: Bob should have YES shares"
+    echo "[FAIL] FAILURE: Bob should have YES shares"
     exit 1
 fi
 
-echo "✅ Bob has $BOB_YES_BALANCE YES shares"
+echo "[ OK ] Bob has $BOB_YES_BALANCE YES shares"
 
 # --- 3. VERIFY MARKET IS ACTIVE ---
 echo "--- STEP 3: VERIFY MARKET IS ACTIVE ---"
@@ -100,11 +100,11 @@ MARKET_INFO=$($BINARY query futarchy get-market $MARKET_ID --output json)
 MARKET_STATUS=$(echo $MARKET_INFO | jq -r '.market.status')
 
 if [ "$MARKET_STATUS" != "ACTIVE" ]; then
-    echo "❌ FAILURE: Market should be ACTIVE, got $MARKET_STATUS"
+    echo "[FAIL] FAILURE: Market should be ACTIVE, got $MARKET_STATUS"
     exit 1
 fi
 
-echo "✅ Market is ACTIVE"
+echo "[ OK ] Market is ACTIVE"
 
 # --- 4. ATTEMPT UNAUTHORIZED CANCELLATION ---
 echo "--- STEP 4: ALICE ATTEMPTS UNAUTHORIZED CANCELLATION (SHOULD FAIL) ---"
@@ -124,10 +124,10 @@ CANCEL_ATTEMPT=$($BINARY tx futarchy cancel-market \
 
 # This should fail with "invalid authority" error
 if echo "$CANCEL_ATTEMPT" | grep -q "invalid authority"; then
-    echo "✅ Unauthorized cancellation correctly rejected"
+    echo "[ OK ] Unauthorized cancellation correctly rejected"
 else
     # The command might fail at CLI level (which is expected)
-    echo "✅ Unauthorized cancellation prevented (expected behavior)"
+    echo "[ OK ] Unauthorized cancellation prevented (expected behavior)"
 fi
 
 # Verify market is still ACTIVE
@@ -135,11 +135,11 @@ MARKET_INFO=$($BINARY query futarchy get-market $MARKET_ID --output json)
 MARKET_STATUS=$(echo $MARKET_INFO | jq -r '.market.status')
 
 if [ "$MARKET_STATUS" != "ACTIVE" ]; then
-    echo "❌ FAILURE: Market should still be ACTIVE after failed cancellation"
+    echo "[FAIL] FAILURE: Market should still be ACTIVE after failed cancellation"
     exit 1
 fi
 
-echo "✅ Market remains ACTIVE after unauthorized attempt"
+echo "[ OK ] Market remains ACTIVE after unauthorized attempt"
 
 # --- 5. AUTHORIZED CANCELLATION VIA GOVERNANCE ---
 echo "--- STEP 5: SUBMIT GOVERNANCE PROPOSAL TO CANCEL MARKET ---"
@@ -173,11 +173,11 @@ PROP_ID=$($BINARY query tx $PROP_TX_HASH --output json | \
   tr -d '"' | head -n 1)
 
 if [ -z "$PROP_ID" ] || [ "$PROP_ID" == "null" ]; then
-    echo "❌ FAILURE: Could not submit governance proposal"
+    echo "[FAIL] FAILURE: Could not submit governance proposal"
     exit 1
 fi
 
-echo "✅ Governance proposal submitted with ID: $PROP_ID"
+echo "[ OK ] Governance proposal submitted with ID: $PROP_ID"
 
 # --- 6. VOTE AND WAIT FOR PROPOSAL TO PASS ---
 echo "--- STEP 6: VOTE ON CANCELLATION PROPOSAL ---"
@@ -198,11 +198,11 @@ sleep 65
 PROP_STATUS=$($BINARY query gov proposal $PROP_ID --output json | jq -r '.proposal.status')
 
 if [ "$PROP_STATUS" != "PROPOSAL_STATUS_PASSED" ]; then
-    echo "❌ FAILURE: Proposal should have PASSED, got status: $PROP_STATUS"
+    echo "[FAIL] FAILURE: Proposal should have PASSED, got status: $PROP_STATUS"
     exit 1
 fi
 
-echo "✅ Governance proposal PASSED"
+echo "[ OK ] Governance proposal PASSED"
 
 # --- 8. VERIFY MARKET IS CANCELLED ---
 echo "--- STEP 8: VERIFY MARKET STATUS IS CANCELLED ---"
@@ -214,11 +214,11 @@ FINAL_MARKET_INFO=$($BINARY query futarchy get-market $MARKET_ID --output json)
 FINAL_STATUS=$(echo $FINAL_MARKET_INFO | jq -r '.market.status')
 
 if [ "$FINAL_STATUS" != "CANCELLED" ]; then
-    echo "❌ FAILURE: Market should be CANCELLED, got $FINAL_STATUS"
+    echo "[FAIL] FAILURE: Market should be CANCELLED, got $FINAL_STATUS"
     exit 1
 fi
 
-echo "✅ Market successfully CANCELLED"
+echo "[ OK ] Market successfully CANCELLED"
 
 # --- 9. VERIFY LIQUIDITY REFUNDED ---
 echo "--- STEP 9: VERIFY CREATOR RECEIVED LIQUIDITY REFUND ---"
@@ -229,11 +229,11 @@ echo "--- STEP 9: VERIFY CREATOR RECEIVED LIQUIDITY REFUND ---"
 RESOLUTION_HEIGHT=$(echo $FINAL_MARKET_INFO | jq -r '.market.resolution_height')
 
 if [ -z "$RESOLUTION_HEIGHT" ] || [ "$RESOLUTION_HEIGHT" == "null" ] || [ "$RESOLUTION_HEIGHT" == "0" ]; then
-    echo "❌ FAILURE: Resolution height should be set"
+    echo "[FAIL] FAILURE: Resolution height should be set"
     exit 1
 fi
 
-echo "✅ Market resolved at block height: $RESOLUTION_HEIGHT"
+echo "[ OK ] Market resolved at block height: $RESOLUTION_HEIGHT"
 
 # --- 10. VERIFY TRADING IS DISABLED ---
 echo "--- STEP 10: VERIFY TRADING ON CANCELLED MARKET FAILS ---"
@@ -252,10 +252,10 @@ TRADE_ATTEMPT=$($BINARY tx futarchy trade \
 
 # Should fail because market is not active
 if echo "$TRADE_ATTEMPT" | grep -q "not active"; then
-    echo "✅ Trading correctly disabled on cancelled market"
+    echo "[ OK ] Trading correctly disabled on cancelled market"
 else
-    echo "✅ Trading prevented on cancelled market (expected behavior)"
+    echo "[ OK ] Trading prevented on cancelled market (expected behavior)"
 fi
 
 echo ""
-echo "✅✅✅ EMERGENCY MARKET CANCELLATION TEST COMPLETED SUCCESSFULLY ✅✅✅"
+echo "=== EMERGENCY MARKET CANCELLATION TEST COMPLETED SUCCESSFULLY ==="

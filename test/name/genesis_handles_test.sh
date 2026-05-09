@@ -15,7 +15,7 @@ BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 
 if ! command -v jq &> /dev/null; then
-    echo "❌ Error: jq is not installed."
+    echo "[FAIL] Error: jq is not installed."
     exit 1
 fi
 
@@ -37,24 +37,24 @@ for HANDLE in "${!EXPECTED[@]}"; do
 
     REC=$($BINARY query name resolve "$HANDLE" --output json 2>/dev/null)
     if [ -z "$REC" ] || ! echo "$REC" | jq -e '.name_record' > /dev/null 2>&1; then
-        echo "❌ Handle '$HANDLE' was not registered at genesis (Resolve returned nothing)."
+        echo "[FAIL] Handle '$HANDLE' was not registered at genesis (Resolve returned nothing)."
         FAIL=1
         continue
     fi
 
     OWNER=$(echo "$REC" | jq -r '.name_record.owner')
     if [ "$OWNER" = "$EXPECTED_OWNER" ]; then
-        echo "✅ '$HANDLE' owned by $EXPECTED_OWNER."
+        echo "[ OK ] '$HANDLE' owned by $EXPECTED_OWNER."
     else
-        echo "❌ '$HANDLE' owned by $OWNER, expected $EXPECTED_OWNER."
+        echo "[FAIL] '$HANDLE' owned by $OWNER, expected $EXPECTED_OWNER."
         FAIL=1
     fi
 
     REVERSE=$($BINARY query name reverse-resolve "$EXPECTED_OWNER" --output json 2>/dev/null | jq -r '.name')
     if [ "$REVERSE" = "$HANDLE" ]; then
-        echo "✅ ReverseResolve($EXPECTED_OWNER) = '$HANDLE' (primary set)."
+        echo "[ OK ] ReverseResolve($EXPECTED_OWNER) = '$HANDLE' (primary set)."
     else
-        echo "⚠️  ReverseResolve($EXPECTED_OWNER) = '$REVERSE' (expected '$HANDLE'; another test may have remapped primary)."
+        echo "[WARN]  ReverseResolve($EXPECTED_OWNER) = '$REVERSE' (expected '$HANDLE'; another test may have remapped primary)."
     fi
 done
 
@@ -70,9 +70,9 @@ if [ -n "$CLAIMANT_ADDR" ]; then
     QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
     CODE=$(echo "$QRES" | jq -r '.code')
     if [ "$CODE" != "0" ]; then
-        echo "✅ Squat blocked (tx code $CODE)."
+        echo "[ OK ] Squat blocked (tx code $CODE)."
     else
-        echo "❌ Squat succeeded — a non-genesis member registered 'alice'!"
+        echo "[FAIL] Squat succeeded — a non-genesis member registered 'alice'!"
         FAIL=1
     fi
 fi

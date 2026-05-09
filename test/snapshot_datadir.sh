@@ -7,6 +7,16 @@ echo ""
 
 # Usage: snapshot_datadir.sh [snapshot_name] [output_dir]
 # If output_dir not provided, uses test/snapshots
+#
+# Honors $CHAIN_HOME if set (used by parallel runners); defaults to
+# ~/.sparkdream. The pkill/check is scoped to the active CHAIN_HOME so
+# concurrent suites against different home dirs don't disturb each other.
+CHAIN_HOME_DIR="${CHAIN_HOME:-$HOME/.sparkdream}"
+
+# Shared safe-rmtree helper (CLAUDE.md forbids `rm -rf`).
+SCRIPT_DIR_FOR_HELPERS="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# shellcheck source=./_safe_rm.sh
+source "$SCRIPT_DIR_FOR_HELPERS/_safe_rm.sh"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SNAPSHOT_NAME="${1:-datadir_$TIMESTAMP}"
 SNAPSHOT_DIR="${2:-$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/snapshots}"
@@ -16,41 +26,67 @@ SNAPSHOT_PATH="$SNAPSHOT_DIR/$SNAPSHOT_NAME"
 mkdir -p "$SNAPSHOT_PATH"
 
 echo "Creating snapshot: $SNAPSHOT_NAME"
+echo "Chain home: $CHAIN_HOME_DIR"
 echo ""
 
-# Get current block height
-BLOCK_HEIGHT=$(sparkdreamd status 2>&1 | jq -r '.sync_info.latest_block_height // "unknown"')
+# Get current block height (use --home so we hit the right chain when CHAIN_HOME is set)
+BLOCK_HEIGHT=$(sparkdreamd status --home "$CHAIN_HOME_DIR" 2>&1 | jq -r '.sync_info.latest_block_height // "unknown"')
 echo "Current block height: $BLOCK_HEIGHT"
 echo ""
 
-# Stop the chain gracefully (SIGTERM allows LevelDB to flush)
-echo "→ Stopping chain for consistent snapshot..."
-pkill ignite 2>/dev/null
-pkill sparkdreamd 2>/dev/null
+# Stop the chain gracefully (SIGTERM allows LevelDB to flush). Scope the kill
+# to the active CHAIN_HOME so other parallel suites are unaffected.
+echo "→ Stopping chain for consistent snapshot (home=$CHAIN_HOME_DIR)..."
+if [ "$CHAIN_HOME_DIR" = "$HOME/.sparkdream" ]; then
+    # Default-home path: preserve original broad-kill behavior (covers ignite
+    # processes and any orphaned sparkdreamd lacking explicit --home).
+    pkill ignite 2>/dev/null
+    pkill sparkdreamd 2>/dev/null
+else
+    # Parallel-suite path: only kill processes bound to this chain home.
+    pkill -f "sparkdreamd .*--home $CHAIN_HOME_DIR" 2>/dev/null
+fi
 # Wait for graceful shutdown (up to 15 seconds)
 for i in $(seq 1 15); do
-    if ! pgrep -x sparkdreamd > /dev/null 2>&1; then break; fi
+    if [ "$CHAIN_HOME_DIR" = "$HOME/.sparkdream" ]; then
+        pgrep -x sparkdreamd > /dev/null 2>&1 || break
+    else
+        pgrep -f "sparkdreamd .*--home $CHAIN_HOME_DIR" > /dev/null 2>&1 || break
+    fi
     sleep 1
 done
 # Force kill only if graceful shutdown failed
-if pgrep -x sparkdreamd > /dev/null 2>&1; then
-    echo "  → Graceful shutdown timed out, forcing..."
-    pkill -9 sparkdreamd 2>/dev/null
-    sleep 2
+if [ "$CHAIN_HOME_DIR" = "$HOME/.sparkdream" ]; then
+    if pgrep -x sparkdreamd > /dev/null 2>&1; then
+        echo "  → Graceful shutdown timed out, forcing..."
+        pkill -9 sparkdreamd 2>/dev/null
+        sleep 2
+    fi
+else
+    if pgrep -f "sparkdreamd .*--home $CHAIN_HOME_DIR" > /dev/null 2>&1; then
+        echo "  → Graceful shutdown timed out, forcing..."
+        pkill -9 -f "sparkdreamd .*--home $CHAIN_HOME_DIR" 2>/dev/null
+        sleep 2
+    fi
 fi
 
-# Copy the entire data directory (remove existing to prevent nesting)
-echo "→ Copying ~/.sparkdream to snapshot..."
-if [ -d "$SNAPSHOT_PATH/sparkdream_data" ]; then
+# Copy the entire data directory (remove existing to prevent nesting).
+# Also remove any stray symlink at the same path (the `-d` test alone
+# wouldn't catch a dangling symlink, and `cp -r` would then nest under it).
+echo "→ Copying $CHAIN_HOME_DIR to snapshot..."
+if [ -e "$SNAPSHOT_PATH/sparkdream_data" ] || [ -L "$SNAPSHOT_PATH/sparkdream_data" ]; then
     echo "  → Removing existing snapshot data..."
-    rm -rf "$SNAPSHOT_PATH/sparkdream_data"
+    safe_rmtree "$SNAPSHOT_PATH/sparkdream_data" || {
+        echo "  [FAIL] Failed to remove existing snapshot at $SNAPSHOT_PATH/sparkdream_data"
+        exit 1
+    }
 fi
-cp -r ~/.sparkdream "$SNAPSHOT_PATH/sparkdream_data"
+cp -r "$CHAIN_HOME_DIR" "$SNAPSHOT_PATH/sparkdream_data"
 
 if [ $? -eq 0 ]; then
-    echo "  ✅ Data directory copied"
+    echo "  [ OK ] Data directory copied"
 else
-    echo "  ❌ Failed to copy data directory"
+    echo "  [FAIL] Failed to copy data directory"
     exit 1
 fi
 
@@ -64,12 +100,15 @@ cat > "$SNAPSHOT_PATH/metadata.json" <<EOF
   "data_path": "$SNAPSHOT_PATH/sparkdream_data"
 }
 EOF
-echo "  ✅ Metadata saved"
+echo "  [ OK ] Metadata saved"
 
 # Get data directory size
 DIR_SIZE=$(du -sh "$SNAPSHOT_PATH/sparkdream_data" | cut -f1)
 
-# Create restoration script
+# Create restoration script.
+# Using a single-quoted heredoc so $CHAIN_HOME / $HOME stay literal and are
+# evaluated at restore-time — letting the same snapshot land in any chain
+# home (parallel suites set CHAIN_HOME; legacy callers get ~/.sparkdream).
 cat > "$SNAPSHOT_PATH/restore.sh" <<'RESTORE_SCRIPT'
 #!/bin/bash
 
@@ -79,32 +118,44 @@ echo "=========================================="
 echo ""
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+CHAIN_HOME_DIR="${CHAIN_HOME:-$HOME/.sparkdream}"
+echo "Restoring into: $CHAIN_HOME_DIR"
 
-# Stop any running chain
+# Stop any running chain — scoped to this home dir when CHAIN_HOME is set.
 echo "→ Stopping any running chain..."
-pkill sparkdreamd 2>/dev/null
-for i in $(seq 1 10); do
-    if ! pgrep -x sparkdreamd > /dev/null 2>&1; then break; fi
-    sleep 1
-done
-pkill -9 sparkdreamd 2>/dev/null
+if [ "$CHAIN_HOME_DIR" = "$HOME/.sparkdream" ]; then
+    pkill sparkdreamd 2>/dev/null
+    for i in $(seq 1 10); do
+        if ! pgrep -x sparkdreamd > /dev/null 2>&1; then break; fi
+        sleep 1
+    done
+    pkill -9 sparkdreamd 2>/dev/null
+else
+    pkill -f "sparkdreamd .*--home $CHAIN_HOME_DIR" 2>/dev/null
+    for i in $(seq 1 10); do
+        if ! pgrep -f "sparkdreamd .*--home $CHAIN_HOME_DIR" > /dev/null 2>&1; then break; fi
+        sleep 1
+    done
+    pkill -9 -f "sparkdreamd .*--home $CHAIN_HOME_DIR" 2>/dev/null
+fi
 sleep 1
 
 # Backup current state (optional)
-if [ -d ~/.sparkdream ]; then
+if [ -d "$CHAIN_HOME_DIR" ]; then
     BACKUP_NAME="backup_$(date +%Y%m%d_%H%M%S)"
-    echo "→ Backing up current state to ~/.sparkdream_$BACKUP_NAME"
-    mv ~/.sparkdream ~/.sparkdream_$BACKUP_NAME
+    echo "→ Backing up current state to ${CHAIN_HOME_DIR}_$BACKUP_NAME"
+    mv "$CHAIN_HOME_DIR" "${CHAIN_HOME_DIR}_$BACKUP_NAME"
 fi
 
 # Restore from snapshot
 echo "→ Restoring data directory from snapshot..."
-cp -r "$SCRIPT_DIR/sparkdream_data" ~/.sparkdream
+mkdir -p "$(dirname "$CHAIN_HOME_DIR")"
+cp -r "$SCRIPT_DIR/sparkdream_data" "$CHAIN_HOME_DIR"
 
 if [ $? -eq 0 ]; then
-    echo "  ✅ Data directory restored"
+    echo "  [ OK ] Data directory restored"
 else
-    echo "  ❌ Failed to restore data directory"
+    echo "  [FAIL] Failed to restore data directory"
     exit 1
 fi
 
@@ -113,7 +164,7 @@ fi
 # height higher than the restored app state (e.g. due to hard kills during
 # snapshot capture). CometBFT refuses to sign at a lower height as a
 # double-sign safety measure. Resetting it is safe for local dev chains.
-PVS_FILE="$HOME/.sparkdream/data/priv_validator_state.json"
+PVS_FILE="$CHAIN_HOME_DIR/data/priv_validator_state.json"
 if [ -f "$PVS_FILE" ]; then
     echo "→ Resetting priv_validator_state.json..."
     cat > "$PVS_FILE" <<PVSTATE
@@ -123,17 +174,17 @@ if [ -f "$PVS_FILE" ]; then
   "step": 0
 }
 PVSTATE
-    echo "  ✅ Validator state reset"
+    echo "  [ OK ] Validator state reset"
 fi
 
 echo ""
-echo "✅ Snapshot restored successfully!"
+echo "[ OK ] Snapshot restored successfully!"
 echo ""
 echo "Start the chain with:"
 echo "  ignite chain serve --skip-proto"
 echo ""
 echo "Or manually with:"
-echo "  sparkdreamd start --home ~/.sparkdream"
+echo "  sparkdreamd start --home $CHAIN_HOME_DIR"
 echo ""
 
 # Show snapshot metadata
@@ -145,11 +196,11 @@ fi
 RESTORE_SCRIPT
 
 chmod +x "$SNAPSHOT_PATH/restore.sh"
-echo "  ✅ Restore script created"
+echo "  [ OK ] Restore script created"
 
 echo ""
 echo "=========================================="
-echo "✅ Snapshot Created Successfully!"
+echo "[ OK ] Snapshot Created Successfully!"
 echo "=========================================="
 echo ""
 echo "Snapshot location: $SNAPSHOT_PATH"

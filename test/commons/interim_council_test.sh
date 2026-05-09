@@ -40,7 +40,7 @@ echo '{
 # Submit & Vote
 SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/set_bob_dictator.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 5
+sleep 3
 
 # Get Prop ID
 TX_RES=$($BINARY query tx $TX_HASH --output json)
@@ -56,18 +56,20 @@ echo "Waiting for Expedited Voting (45s)..."
 sleep 45
 
 # Verify Bob is Sole Member
+# 1. Get Group ID
 GROUP_INFO=$($BINARY query commons get-group "Commons Council" --output json)
+GROUP_ID=$(echo $GROUP_INFO | jq -r '.group.group_id // "0"')
 POLICY_ADDR=$(echo $GROUP_INFO | jq -r '.group.policy_address')
 
-# Check Members via commons query
+# 2. Check Members (x/commons get-council-members returns {"members": [...]} of Member)
 MEMBERS_JSON=$($BINARY query commons get-council-members "Commons Council" --output json)
 COUNT=$(echo $MEMBERS_JSON | jq '.members | length')
 MEMBER_ADDR=$(echo $MEMBERS_JSON | jq -r '.members[0].address')
 
 if [ "$COUNT" == "1" ] && [ "$MEMBER_ADDR" == "$BOB_ADDR" ]; then
-    echo "SUCCESS: Bob is now the sole member (Dictator)."
+    echo "[ OK ] SUCCESS: Bob is now the sole member (Dictator)."
 else
-    echo "FAILURE: Membership update failed. Count: $COUNT"
+    echo "[FAIL] FAILURE: Membership update failed. Count: $COUNT"
     exit 1
 fi
 
@@ -91,59 +93,61 @@ echo '{
 
 SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/bad_prop_bob.json" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 5
+sleep 3
 BAD_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 echo "Bad Prop ID: $BAD_PROP_ID"
 
 echo "Discovering Veto Policy..."
 
-# Discover Veto Policy from get-group
+# 1. DISCOVER VETO POLICY for Commons Council (exposed directly on Group)
 VETO_POLICY_ADDR=$($BINARY query commons get-group "Commons Council" --output json | jq -r '.group.veto_policy_address')
 
 if [ -z "$VETO_POLICY_ADDR" ] || [ "$VETO_POLICY_ADDR" == "null" ]; then
-    echo "ERROR: Could not find Veto Policy for Commons Council"
+    echo "[FAIL] ERROR: Could not find Veto Policy for Group $GROUP_ID"
     exit 1
 fi
 
 echo "Using Veto Policy: $VETO_POLICY_ADDR"
 
-# Bob submits Veto via VETO Policy
-echo "Bob submits Veto via Commons Proposal..."
+# 2. Bob submits Veto via VETO Policy
+echo "Bob submits Veto via Group Proposal..."
 echo '{
   "policy_address": "'$VETO_POLICY_ADDR'",
+  "proposers": ["'$BOB_ADDR'"],
+  "title": "FAST VETO",
+  "summary": "Immediate execution.",
   "messages": [
     {
       "@type": "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
       "authority": "'$VETO_POLICY_ADDR'",
       "proposal_id": '$BAD_PROP_ID'
     }
-  ],
-  "metadata": "FAST VETO - Immediate execution."
+  ]
 }' > "$PROPOSAL_DIR/fast_veto.json"
 
-# Submit Commons Proposal
+# Submit Group Proposal
 SUBMIT_GROUP=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/fast_veto.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 GROUP_TX=$(echo $SUBMIT_GROUP | jq -r '.txhash')
-sleep 5
+sleep 3
 
 GROUP_PROP_ID=$(echo $($BINARY query tx $GROUP_TX --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 if [ -z "$GROUP_PROP_ID" ] || [ "$GROUP_PROP_ID" == "null" ]; then
    GROUP_PROP_ID=$(echo $($BINARY query tx $GROUP_TX --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 fi
-echo "Commons Prop ID: $GROUP_PROP_ID"
+echo "Group Prop ID: $GROUP_PROP_ID"
 
-# Bob Votes YES (100% of weight - sole member)
+# Bob Votes YES (100% of weight)
 $BINARY tx commons vote-proposal $GROUP_PROP_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test
-sleep 5
-$BINARY tx commons execute-proposal $GROUP_PROP_ID --from bob -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000
-sleep 5
+sleep 3
+$BINARY tx commons execute-proposal $GROUP_PROP_ID --gas 2000000 --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 3
 
 # Verify Kill
 STATUS=$($BINARY query gov proposal $BAD_PROP_ID --output json | jq -r '.proposal.status')
 if [ "$STATUS" == "PROPOSAL_STATUS_FAILED" ] || [ "$STATUS" == "PROPOSAL_STATUS_REJECTED" ]; then
-    echo "SUCCESS: Bob successfully vetoed using Veto Policy."
+    echo "[ OK ] SUCCESS: Bob successfully vetoed using Veto Policy."
 else
-    echo "FAILURE: Proposal is still $STATUS"
+    echo "[FAIL] FAILURE: Proposal is still $STATUS"
     exit 1
 fi
 
@@ -173,7 +177,7 @@ echo '{
 # Submit Proposal
 SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/restore_council.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
-sleep 5
+sleep 3
 RESTORE_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 if [ -z "$RESTORE_PROP_ID" ] || [ "$RESTORE_PROP_ID" == "null" ]; then
    RESTORE_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.logs[0].events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
@@ -187,12 +191,12 @@ $BINARY tx gov vote $RESTORE_PROP_ID yes --from alice -y --chain-id $CHAIN_ID --
 echo "Waiting for Expedited Voting (45s)..."
 sleep 45
 
-# Verify Final State via commons query
+# Verify Final State
 FINAL_MEMBERS=$($BINARY query commons get-council-members "Commons Council" --output json)
 FINAL_COUNT=$(echo $FINAL_MEMBERS | jq '.members | length')
 
 if [ "$FINAL_COUNT" == "3" ]; then
-    echo "SUCCESS: The Republic is Restored. 3 Members found."
+    echo "[ OK ] SUCCESS: The Republic is Restored. 3 Members found."
 else
-    echo "FAILURE: Restoration failed. Count: $FINAL_COUNT"
+    echo "[FAIL] FAILURE: Restoration failed. Count: $FINAL_COUNT"
 fi

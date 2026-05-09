@@ -45,7 +45,7 @@ record_result() {
 
 wait_for_tx() {
     local TXHASH=$1
-    local MAX_ATTEMPTS=20
+    local MAX_ATTEMPTS=60
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
         RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
@@ -249,6 +249,28 @@ has_member_profile() {
     ! echo "$PROFILE" | grep -q "not found"
 }
 
+# Helper: check if account has an active guild-hop cooldown.
+# Returns 0 (true) if LeftEpoch != 0 — pessimistic: rejects accounts whose
+# cooldown may have expired numerically but for which we'd need to query the
+# current epoch + cooldown_epochs param to be sure. The keeper's actual check
+# is `currentEpoch - LeftEpoch < GuildHopCooldownEpochs`; the simpler check
+# below mirrors what guild_advanced_test.sh uses.
+#
+# Why this matters: prior tests (guild_advanced_test.sh PART 4) intentionally
+# call leave-guild on an account picked from setup keys (display_user being
+# the first candidate), which sets LeftEpoch on its membership record. If
+# guild_errors_test.sh later picks the same account purely on "guild_id == 0"
+# the create-guild call fails with "guild hop cooldown not passed" — flaky in
+# parallel runs where fewer wall-clock blocks have ticked between the two
+# tests. Filtering out cooldown-active candidates here removes the timing
+# dependency entirely.
+has_guild_cooldown() {
+    local ADDR=$1
+    local MEM=$($BINARY query season get-guild-membership "$ADDR" --output json 2>&1)
+    local LEFT_EPOCH=$(echo "$MEM" | jq -r '.guild_membership.left_epoch // "0"' 2>/dev/null)
+    [ "$LEFT_EPOCH" != "0" ] && [ "$LEFT_EPOCH" != "null" ] && [ -n "$LEFT_EPOCH" ]
+}
+
 # Helper: create a member profile via set-display-name if missing
 ensure_member_profile() {
     local KEY=$1
@@ -298,20 +320,43 @@ if [ -z "$ERR_GUILD_ID" ]; then
     CANDIDATE_KEYS="display_user quest_user guild_member2 guild_member1 guild_officer guild_founder"
     PICKED_KEY=""
     PICKED_ADDR=""
-    for CANDIDATE in $CANDIDATE_KEYS; do
-        CAND_ADDR=$($BINARY keys show "$CANDIDATE" -a --keyring-backend test 2>/dev/null)
-        [ -z "$CAND_ADDR" ] && continue
-        CAND_PROFILE=$($BINARY query season get-member-profile "$CAND_ADDR" --output json 2>/dev/null)
-        CAND_GUILD=$(echo "$CAND_PROFILE" | jq -r '.member_profile.guild_id // "0"')
-        if [ "$CAND_GUILD" = "0" ] || [ -z "$CAND_GUILD" ] || [ "$CAND_GUILD" = "null" ]; then
-            PICKED_KEY="$CANDIDATE"
-            PICKED_ADDR="$CAND_ADDR"
-            echo "  Using existing account $CANDIDATE ($CAND_ADDR) — not in a guild"
-            break
-        fi
+    # First pass: prefer accounts that are not in a guild AND not in a hop-cooldown.
+    # Second pass falls back to any not-in-guild candidate; create_fixture_guild
+    # will surface a clear "cooldown not passed" error there if it still hits.
+    for FILTER_PASS in strict relaxed; do
+        for CANDIDATE in $CANDIDATE_KEYS; do
+            CAND_ADDR=$($BINARY keys show "$CANDIDATE" -a --keyring-backend test 2>/dev/null)
+            [ -z "$CAND_ADDR" ] && continue
+            CAND_PROFILE=$($BINARY query season get-member-profile "$CAND_ADDR" --output json 2>/dev/null)
+            CAND_GUILD=$(echo "$CAND_PROFILE" | jq -r '.member_profile.guild_id // "0"')
+            if [ "$CAND_GUILD" = "0" ] || [ -z "$CAND_GUILD" ] || [ "$CAND_GUILD" = "null" ]; then
+                if [ "$FILTER_PASS" = "strict" ] && has_guild_cooldown "$CAND_ADDR"; then
+                    echo "  Skipping $CANDIDATE — has active guild-hop cooldown (LeftEpoch != 0)"
+                    continue
+                fi
+                PICKED_KEY="$CANDIDATE"
+                PICKED_ADDR="$CAND_ADDR"
+                if [ "$FILTER_PASS" = "relaxed" ]; then
+                    echo "  Using existing account $CANDIDATE ($CAND_ADDR) — not in a guild (cooldown ignored)"
+                else
+                    echo "  Using existing account $CANDIDATE ($CAND_ADDR) — not in a guild"
+                fi
+                break 2
+            fi
+        done
     done
     if [ -z "$PICKED_KEY" ]; then
         echo "  All setup accounts are in guilds — skipping dependent tests"
+    fi
+    # If the picked candidate has no member profile yet (e.g. guild_founder
+    # comes through with `query get-member-profile` returning "not found"),
+    # create_fixture_guild → MsgCreateGuild would fail with ErrProfileNotFound.
+    # The relaxed-pass picker treats "no profile" the same as "not in a guild"
+    # because jq returns "" for the missing field — bootstrap a profile here
+    # so create-guild can succeed.
+    if [ -n "$PICKED_KEY" ] && ! has_member_profile "$PICKED_ADDR"; then
+        echo "  $PICKED_KEY has no member profile yet — bootstrapping via set-display-name"
+        ensure_member_profile "$PICKED_KEY"
     fi
     if [ -n "$PICKED_KEY" ] && create_fixture_guild "$PICKED_KEY"; then
         FOUNDER_KEY="$PICKED_KEY"

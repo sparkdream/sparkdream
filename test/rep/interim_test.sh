@@ -84,7 +84,7 @@ TX_RES=$($BINARY tx rep create-interim \
 
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
 if [ -z "$TXHASH" ]; then
-    echo "❌ Failed to create interim"
+    echo "[FAIL] Failed to create interim"
     echo "$TX_RES"
     exit 1
 fi
@@ -100,7 +100,7 @@ if [ -z "$INTERIM_ID" ] || [ "$INTERIM_ID" = "null" ]; then
     INTERIM_ID=$($BINARY query rep list-interim --output json 2>&1 | jq -r '.interim[-1].id // "1"')
 fi
 
-echo "✅ Interim #$INTERIM_ID created (complexity: SIMPLE)"
+echo "[ OK ] Interim #$INTERIM_ID created (complexity: SIMPLE)"
 
 # Verify interim details
 INTERIM_DETAIL=$($BINARY query rep get-interim $INTERIM_ID --output json 2>&1)
@@ -138,11 +138,11 @@ CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
 
 if [ "$CODE" != "0" ]; then
     ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log // "unknown error"')
-    echo "❌ Interim completion failed: $ERROR"
+    echo "[FAIL] Interim completion failed: $ERROR"
     exit 1
 fi
 
-echo "✅ Interim completed successfully"
+echo "[ OK ] Interim completed successfully"
 
 # Verify completion
 INTERIM_DETAIL=$($BINARY query rep get-interim $INTERIM_ID --output json 2>&1)
@@ -161,24 +161,24 @@ if [ -n "$MINT_EVENT" ]; then
     MINT_AMOUNT=$(echo "$MINT_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
     MINT_RECIPIENT=$(echo "$MINT_EVENT" | jq -r '.attributes[] | select(.key=="recipient") | .value' | tr -d '"')
 
-    echo "   ✅ DREAM minted via event:"
+    echo "   [ OK ] DREAM minted via event:"
     echo "      Amount: $MINT_AMOUNT micro-DREAM"
     echo "      Recipient: ${MINT_RECIPIENT:0:20}..."
 
     # SIMPLE complexity = 50 DREAM = 50000000 micro-DREAM
     EXPECTED_MINT="50000000"
     if [ "$MINT_AMOUNT" == "$EXPECTED_MINT" ]; then
-        echo "      ✅ Exact match: 50 DREAM (SIMPLE complexity)"
+        echo "      [ OK ] Exact match: 50 DREAM (SIMPLE complexity)"
     elif [ -n "$MINT_AMOUNT" ] && [ "$MINT_AMOUNT" != "0" ]; then
         MINT_DREAM=$(echo "scale=2; $MINT_AMOUNT / 1000000" | bc 2>/dev/null || echo "unknown")
-        echo "      ℹ️  Minted $MINT_DREAM DREAM (expected 50 DREAM for SIMPLE)"
+        echo "      [INFO]  Minted $MINT_DREAM DREAM (expected 50 DREAM for SIMPLE)"
     fi
 elif [ -n "$INTERIM_COMPLETED_EVENT" ]; then
     # Fallback: check the interim_completed event for compensation info
     COMP_AMOUNT=$(echo "$INTERIM_COMPLETED_EVENT" | jq -r '.attributes[] | select(.key=="compensation" or .key=="budget") | .value' | tr -d '"')
-    echo "   ✅ Interim completed (compensation: ${COMP_AMOUNT:-unknown} micro-DREAM)"
+    echo "   [ OK ] Interim completed (compensation: ${COMP_AMOUNT:-unknown} micro-DREAM)"
 else
-    echo "   ℹ️  No mint_dream event found in tx (may use different event name)"
+    echo "   [INFO]  No mint_dream event found in tx (may use different event name)"
     echo "      Checking balance as fallback..."
 
     ALICE_BALANCE_AFTER=$(get_dream_balance "$ALICE_ADDR")
@@ -194,7 +194,7 @@ else
 
         # Verify at least the status changed to completed
         if [ "$INTERIM_STATUS" == "INTERIM_STATUS_COMPLETED" ]; then
-            echo "   ✅ Interim status is COMPLETED - compensation was processed"
+            echo "   [ OK ] Interim status is COMPLETED - compensation was processed"
         fi
     fi
 fi
@@ -212,12 +212,12 @@ if [ -n "$ALICE_INTERIMS" ] && [ "$ALICE_INTERIMS" != "null" ]; then
     # Check if it returned a single interim or error
     INTERIM_ID=$(echo "$ALICE_INTERIMS" | jq -r '.interim_id // empty')
     if [ -n "$INTERIM_ID" ]; then
-        echo "   ✅ Found interim #$INTERIM_ID for Alice"
+        echo "   [ OK ] Found interim #$INTERIM_ID for Alice"
     else
-        echo "   ⚠️  No interims found for Alice"
+        echo "   [WARN]  No interims found for Alice"
     fi
 else
-    echo "   ⚠️  Query may not be implemented yet"
+    echo "   [WARN]  Query may not be implemented yet"
 fi
 
 # Test query by reference
@@ -228,12 +228,12 @@ if [ -n "$PROJECT_INTERIMS" ] && [ "$PROJECT_INTERIMS" != "null" ]; then
     # Check if it returned a single interim or error
     INTERIM_ID=$(echo "$PROJECT_INTERIMS" | jq -r '.interim_id // empty')
     if [ -n "$INTERIM_ID" ]; then
-        echo "   ✅ Found interim #$INTERIM_ID for project #$PROJECT_ID"
+        echo "   [ OK ] Found interim #$INTERIM_ID for project #$PROJECT_ID"
     else
-        echo "   ⚠️  No interims found for project"
+        echo "   [WARN]  No interims found for project"
     fi
 else
-    echo "   ⚠️  Query may not be implemented yet"
+    echo "   [WARN]  Query may not be implemented yet"
 fi
 
 # Test query by type (11 = OTHER type, 0 = JURY_DUTY)
@@ -244,12 +244,12 @@ if [ -n "$OPS_INTERIMS" ] && [ "$OPS_INTERIMS" != "null" ] && [ "$OPS_INTERIMS" 
     # Check if it returned a single interim or error
     INTERIM_ID=$(echo "$OPS_INTERIMS" | jq -r '.interim_id // empty')
     if [ -n "$INTERIM_ID" ]; then
-        echo "   ✅ Found interim #$INTERIM_ID with type OTHER (11)"
+        echo "   [ OK ] Found interim #$INTERIM_ID with type OTHER (11)"
     else
-        echo "   ⚠️  Query successful but returned no results"
+        echo "   [WARN]  Query successful but returned no results"
     fi
 else
-    echo "   ⚠️  Query returned no results"
+    echo "   [WARN]  Query returned no results"
 fi
 
 # List all interims
@@ -258,7 +258,7 @@ echo "Step 4: List all interims..."
 ALL_INTERIMS=$($BINARY query rep list-interim --output json 2>&1)
 if [ -n "$ALL_INTERIMS" ] && [ "$ALL_INTERIMS" != "null" ]; then
     TOTAL_COUNT=$(echo "$ALL_INTERIMS" | jq -r '.interim | length // 0')
-    echo "   ✅ Total interims in system: $TOTAL_COUNT"
+    echo "   [ OK ] Total interims in system: $TOTAL_COUNT"
 
     # Count by status
     PENDING=$(echo "$ALL_INTERIMS" | jq -r '[.interim[] | select(.status=="INTERIM_STATUS_PENDING")] | length')
@@ -299,7 +299,7 @@ TX_RES=$($BINARY tx rep create-initiative \
 sleep 6
 
 INITIATIVE_ID=$($BINARY query rep list-initiative --output json 2>&1 | jq -r '.initiative[-1].id // "1"')
-echo "   ✅ Initiative #$INITIATIVE_ID created"
+echo "   [ OK ] Initiative #$INITIATIVE_ID created"
 
 # Assign and submit work
 $BINARY tx rep assign-initiative $INITIATIVE_ID $ASSIGNEE_ADDR --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
@@ -326,7 +326,7 @@ TX_RES=$($BINARY tx rep create-challenge \
 sleep 6
 
 CHALLENGE_ID=$($BINARY query rep list-challenge --output json 2>&1 | jq -r '.challenge[-1].id // "1"')
-echo "   ✅ Challenge #$CHALLENGE_ID created"
+echo "   [ OK ] Challenge #$CHALLENGE_ID created"
 
 # Respond to challenge (triggers escalation if not enough jurors)
 echo ""
@@ -350,7 +350,7 @@ INTERIMS=$($BINARY query rep list-interim --output json 2>&1)
 ADJUDICATION_ID=$(echo "$INTERIMS" | jq -r '.interim[] | select(.type == "INTERIM_TYPE_ADJUDICATION") | .id' | tail -1)
 
 if [ -n "$ADJUDICATION_ID" ] && [ "$ADJUDICATION_ID" != "null" ]; then
-    echo "   ✅ ADJUDICATION interim #$ADJUDICATION_ID found"
+    echo "   [ OK ] ADJUDICATION interim #$ADJUDICATION_ID found"
 
     # Committee member completes the adjudication
     echo ""
@@ -372,7 +372,7 @@ if [ -n "$ADJUDICATION_ID" ] && [ "$ADJUDICATION_ID" != "null" ]; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
 
     if [ "$CODE" = "0" ]; then
-        echo "   ✅ ADJUDICATION interim completed successfully"
+        echo "   [ OK ] ADJUDICATION interim completed successfully"
 
         # Verify challenge was auto-resolved
         CHALLENGE_DETAIL=$($BINARY query rep get-challenge $CHALLENGE_ID --output json 2>&1)
@@ -380,10 +380,10 @@ if [ -n "$ADJUDICATION_ID" ] && [ "$ADJUDICATION_ID" != "null" ]; then
         echo "   Challenge #$CHALLENGE_ID status: $CHALLENGE_STATUS"
     else
         ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log // "unknown error"')
-        echo "   ⚠️  Adjudication completion failed: $ERROR"
+        echo "   [WARN]  Adjudication completion failed: $ERROR"
     fi
 else
-    echo "   ℹ️  ADJUDICATION interim not created (may have enough jurors)"
+    echo "   [INFO]  ADJUDICATION interim not created (may have enough jurors)"
     echo "      This is expected if jury selection succeeded"
 fi
 
@@ -392,36 +392,36 @@ echo "==========================================================================
 echo "INTERIM TEST SUMMARY"
 echo "================================================================================"
 echo ""
-echo "✅ Test 1: Committee interim creation and completion"
+echo "[ OK ] Test 1: Committee interim creation and completion"
 echo "   - Created interim with SIMPLE complexity (50 DREAM budget)"
 echo "   - Alice completed work and received 50 DREAM compensation"
 echo "   - Compensation verified via transaction events (not balance diff)"
 echo "   - Status transition to COMPLETED verified"
 echo ""
-echo "✅ Test 2: Interim query functions"
+echo "[ OK ] Test 2: Interim query functions"
 echo "   - Query by assignee (interims-by-assignee)"
 echo "   - Query by reference (interims-by-reference)"
 echo "   - Query by type (interims-by-type)"
 echo "   - List all interims (list-interim)"
 echo ""
-echo "✅ Test 3: ADJUDICATION interim (committee challenge resolution)"
+echo "[ OK ] Test 3: ADJUDICATION interim (committee challenge resolution)"
 echo "   - Challenge created and responded to"
 echo "   - ADJUDICATION interim created (if needed)"
 echo "   - Committee member completed adjudication"
 echo "   - Challenge auto-resolved based on decision"
 echo ""
-echo "📊 INTERIM TYPES TESTED:"
-echo "   ✅ OPERATIONS - Committee operational work"
-echo "   ✅ ADJUDICATION - Challenge resolution when jury unavailable"
+echo " INTERIM TYPES TESTED:"
+echo "   [ OK ] OPERATIONS - Committee operational work"
+echo "   [ OK ] ADJUDICATION - Challenge resolution when jury unavailable"
 echo ""
-echo "🔄 INTERIM LIFECYCLE VERIFIED:"
+echo " INTERIM LIFECYCLE VERIFIED:"
 echo "   CREATED → ASSIGNED → IN_PROGRESS → COMPLETED"
 echo ""
-echo "💰 COMPENSATION VERIFIED:"
+echo " COMPENSATION VERIFIED:"
 echo "   - DREAM minted on completion"
 echo "   - Balance updated correctly"
 echo "   - No payment for ADJUDICATION type"
 echo ""
 echo "================================================================================"
-echo "✅ INTERIM INTEGRATION TEST COMPLETED"
+echo "[ OK ] INTERIM INTEGRATION TEST COMPLETED"
 echo "================================================================================"

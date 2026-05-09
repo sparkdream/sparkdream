@@ -26,7 +26,7 @@ echo ""
 
 wait_for_tx() {
     local TXHASH=$1
-    local MAX_ATTEMPTS=20
+    local MAX_ATTEMPTS=60
     local ATTEMPT=0
 
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do

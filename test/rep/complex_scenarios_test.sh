@@ -40,26 +40,26 @@ for i in "${!WORKERS[@]}"; do
     esac
 
     if [ -z "$ADDR" ]; then
-        echo "  ⚠️ No address found for $WORKER in .test_env"
+        echo "  [WARN] No address found for $WORKER in .test_env"
         WORKERS_SETUP_OK=false
     else
         # Verify this is a member
         MEMBER_CHECK=$($BINARY query rep get-member "$ADDR" --output json 2>/dev/null | jq -r '.member.address // ""' 2>/dev/null)
         if [ "$MEMBER_CHECK" == "$ADDR" ]; then
             WORKER_ADDRS+=("$ADDR")
-            echo "  $WORKER: $ADDR (member ✓)"
+            echo "  $WORKER: $ADDR (member [ OK ])"
         else
-            echo "  ⚠️ $WORKER ($ADDR) is not a member"
+            echo "  [WARN] $WORKER ($ADDR) is not a member"
             WORKERS_SETUP_OK=false
             WORKER_ADDRS+=("$ADDR")  # Still add for logging
         fi
     fi
 done
 
-echo "✅ ${#WORKER_ADDRS[@]} workers configured from pre-setup members"
+echo "[ OK ] ${#WORKER_ADDRS[@]} workers configured from pre-setup members"
 
 if [ "$WORKERS_SETUP_OK" != "true" ]; then
-    echo "⚠️ Some workers are not members - test may have partial results"
+    echo "[WARN] Some workers are not members - test may have partial results"
 fi
 
 # Ensure Bob and Carol are members with DREAM for staking tests
@@ -110,7 +110,7 @@ $BINARY tx rep transfer-dream "$BOB_ADDR" "500000000" "gift" "Staking test setup
 sleep 1
 $BINARY tx rep transfer-dream "$CAROL_ADDR" "500000000" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
-echo "✅ Bob and Carol setup complete"
+echo "[ OK ] Bob and Carol setup complete"
 
 echo "Alice:       $ALICE_ADDR (Project creator)"
 echo "Bob:         $BOB_ADDR (Staker 1)"
@@ -161,7 +161,7 @@ if [ -n "$PROJECT_TX" ] && [ "$PROJECT_TX" != "null" ]; then
         PROJECT_ID="1"
     fi
 fi
-echo "✅ Project created: ID $PROJECT_ID"
+echo "[ OK ] Project created: ID $PROJECT_ID"
 
 # Approve project with 100 DREAM budget
 $BINARY tx rep approve-project-budget "$PROJECT_ID" "1000000000" "100000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
@@ -201,7 +201,7 @@ for i in "${!WORKERS[@]}"; do
     INIT_CODE=$(echo "$INIT_RES" | jq -r '.code // 0' 2>/dev/null)
     if [ "$INIT_CODE" != "0" ]; then
         INIT_LOG=$(echo "$INIT_RES" | jq -r '.raw_log // "unknown"' 2>/dev/null)
-        echo "⚠️  Initiative $INIT_NUM tx failed (code: $INIT_CODE): $INIT_LOG"
+        echo "[WARN]  Initiative $INIT_NUM tx failed (code: $INIT_CODE): $INIT_LOG"
     fi
 
     # Wait for tx to be indexed (2 seconds to avoid sequence conflicts)
@@ -215,7 +215,7 @@ for i in "${!WORKERS[@]}"; do
         TX_CODE=$(echo "$TX_RESULT" | jq -r '.code // 0' 2>/dev/null)
         if [ "$TX_CODE" != "0" ]; then
             TX_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // "unknown"' 2>/dev/null)
-            echo "⚠️  Initiative $INIT_NUM tx failed on-chain (code: $TX_CODE): $TX_LOG"
+            echo "[WARN]  Initiative $INIT_NUM tx failed on-chain (code: $TX_CODE): $TX_LOG"
         fi
 
         # Debug: show all initiative_created events
@@ -238,19 +238,19 @@ for i in "${!WORKERS[@]}"; do
         VERIFY_CODE=$?
 
         if [ $VERIFY_CODE -ne 0 ]; then
-            echo "⚠️  Initiative $INIT_NUM: Query failed for ID $INIT_ID: $VERIFY_RESULT"
+            echo "[WARN]  Initiative $INIT_NUM: Query failed for ID $INIT_ID: $VERIFY_RESULT"
         else
             VERIFY_ID=$(echo "$VERIFY_RESULT" | jq -r '.initiative.id // ""' 2>/dev/null)
             if [ "$VERIFY_ID" == "$INIT_ID" ]; then
                 INITIATIVE_IDS+=("$INIT_ID")
-                echo "✅ Initiative $INIT_NUM created: ID $INIT_ID (budget: 50000000 micro-DREAM = 50 DREAM)"
+                echo "[ OK ] Initiative $INIT_NUM created: ID $INIT_ID (budget: 50000000 micro-DREAM = 50 DREAM)"
             else
-                echo "⚠️  Initiative $INIT_NUM: ID mismatch - extracted $INIT_ID but query returned '$VERIFY_ID'"
+                echo "[WARN]  Initiative $INIT_NUM: ID mismatch - extracted $INIT_ID but query returned '$VERIFY_ID'"
                 echo "    Raw response: ${VERIFY_RESULT:0:200}"
             fi
         fi
     else
-        echo "⚠️  Initiative $INIT_NUM: Could not extract ID from tx (INIT_ID='$INIT_ID')"
+        echo "[WARN]  Initiative $INIT_NUM: Could not extract ID from tx (INIT_ID='$INIT_ID')"
     fi
 done
 
@@ -278,7 +278,7 @@ for i in "${!INITIATIVE_IDS[@]}"; do
     ASSIGN_CODE=$(echo "$ASSIGN_RES" | jq -r '.code // 0' 2>/dev/null)
     if [ "$ASSIGN_CODE" != "0" ]; then
         ASSIGN_LOG=$(echo "$ASSIGN_RES" | jq -r '.raw_log // "unknown"' 2>/dev/null)
-        echo "⚠️  Assign initiative $INIT_ID to $WORKER failed (code: $ASSIGN_CODE): $ASSIGN_LOG"
+        echo "[WARN]  Assign initiative $INIT_ID to $WORKER failed (code: $ASSIGN_CODE): $ASSIGN_LOG"
     fi
 
     INIT_DETAIL=$($BINARY query rep get-initiative "$INIT_ID" --output json 2>&1)
@@ -325,7 +325,7 @@ for i in "${!INITIATIVE_IDS[@]}"; do
     SUBMIT_CODE=$(echo "$SUBMIT_RES" | jq -r '.code // 0' 2>/dev/null)
     if [ "$SUBMIT_CODE" != "0" ]; then
         SUBMIT_LOG=$(echo "$SUBMIT_RES" | jq -r '.raw_log // "unknown"' 2>/dev/null)
-        echo "⚠️  Submit work for initiative $INIT_ID by $WORKER failed (code: $SUBMIT_CODE): $SUBMIT_LOG"
+        echo "[WARN]  Submit work for initiative $INIT_ID by $WORKER failed (code: $SUBMIT_CODE): $SUBMIT_LOG"
     fi
 
     INIT_DETAIL=$($BINARY query rep get-initiative "$INIT_ID" --output json 2>/dev/null)
@@ -343,10 +343,10 @@ echo "Project approved budget: $PROJECT_BUDGET DREAM"
 
 if [ -n "$PROJECT_BUDGET" ] && [ "$PROJECT_BUDGET" != "0" ] && [ $TOTAL_BUDGET_USED -le $PROJECT_BUDGET ]; then
     REMAINING=$((PROJECT_BUDGET - TOTAL_BUDGET_USED))
-    echo "✅ Within budget: $REMAINING DREAM remaining"
+    echo "[ OK ] Within budget: $REMAINING DREAM remaining"
 else
     EXCEEDED=$((TOTAL_BUDGET_USED - PROJECT_BUDGET))
-    echo "⚠️  Budget exceeded by: $EXCEEDED DREAM"
+    echo "[WARN]  Budget exceeded by: $EXCEEDED DREAM"
 fi
 
 # Query all initiatives for this project
@@ -671,7 +671,7 @@ if [ "$NEW_CREDITS" != "0" ] && [ -n "$NEW_CREDITS" ]; then
                     INVITED_BY=$(echo "$REF_CHILD1_MEMBER" | jq -r '.member.invited_by // empty')
                     CHAIN_LEN=$(echo "$REF_CHILD1_MEMBER" | jq -r '.member.invitation_chain | length // 0')
 
-                    echo "  ✅ ref_child1 is now a member!"
+                    echo "  [ OK ] ref_child1 is now a member!"
                     echo "     Invited by: ${INVITED_BY:0:20}..."
                     echo "     Chain length: $CHAIN_LEN (Alice -> assignee -> ref_child1)"
                 else
@@ -803,7 +803,7 @@ if [ -n "$TXHASH" ]; then
         TX_CODE=$(echo "$TX_DETAIL" | jq -r '.code // 99')
 
         if [ "$TX_CODE" == "0" ]; then
-            echo "✅ Initiative completed successfully"
+            echo "[ OK ] Initiative completed successfully"
 
             # Check for DREAM minting event (initiative completion reward)
             MINT_EVENT=$(echo "$TX_DETAIL" | jq -r '.events[] | select(.type=="mint_dream")' 2>/dev/null)
@@ -818,12 +818,12 @@ if [ -n "$TXHASH" ]; then
             if [ -n "$REFERRAL_EVENT" ]; then
                 REF_AMOUNT=$(echo "$REFERRAL_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
                 REF_INVITER=$(echo "$REFERRAL_EVENT" | jq -r '.attributes[] | select(.key=="inviter") | .value' | tr -d '"')
-                echo "  ✅ Referral reward: $REF_AMOUNT to ${REF_INVITER:0:20}..."
+                echo "  [ OK ] Referral reward: $REF_AMOUNT to ${REF_INVITER:0:20}..."
             else
-                echo "  ℹ️  No referral_reward event (referral may be tracked differently)"
+                echo "  [INFO]  No referral_reward event (referral may be tracked differently)"
             fi
         else
-            echo "⚠️  Complete tx failed (code: $TX_CODE)"
+            echo "[WARN]  Complete tx failed (code: $TX_CODE)"
         fi
     else
         echo "Initiative completed (no txhash to verify)"
@@ -862,9 +862,9 @@ if [ -n "$ALL_INVITATIONS" ]; then
         echo "    - Referral end: $REF_END"
 
         if [ -n "$REF_EARNED" ] && [ "$REF_EARNED" != "0" ] && [ "$REF_EARNED" != "null" ]; then
-            echo "    ✅ Referral earnings recorded"
+            echo "    [ OK ] Referral earnings recorded"
         else
-            echo "    ℹ️  No referral earnings yet (may be credited on next query)"
+            echo "    [INFO]  No referral earnings yet (may be credited on next query)"
         fi
     else
         echo "  No invitation record found for assignee in list-invitation"
@@ -892,7 +892,7 @@ if [ -n "$REF_CHILD1_ADDR" ]; then
     fi
 fi
 echo ""
-echo "✅ Referral cascade system tested"
+echo "[ OK ] Referral cascade system tested"
 
 # ========================================================================
 # PART 3: PROJECT BUDGET EXHAUSTION
@@ -936,7 +936,7 @@ fi
 $BINARY tx rep approve-project-budget "$BUDGET_PROJECT_ID" "10000000000" "50000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
-echo "✅ Limited budget project created: ID $BUDGET_PROJECT_ID (10,000 DREAM)"
+echo "[ OK ] Limited budget project created: ID $BUDGET_PROJECT_ID (10,000 DREAM)"
 
 # Create initiatives that would exhaust budget
 # Let's say we create 3 initiatives with 4,000 each (total 12,000 > 10,000)
@@ -1026,7 +1026,7 @@ if [ -n "$COMP_TX" ] && [ "$COMP_TX" != "null" ]; then
         COMP_ID="6"
     fi
 fi
-echo "✅ Competition initiative created: ID $COMP_ID"
+echo "[ OK ] Competition initiative created: ID $COMP_ID"
 
 # Multiple stakers compete to build conviction
 echo ""
@@ -1071,16 +1071,16 @@ echo "  - Total = 300 + 500 + 200 = 1000"
 echo "  - External ratio = 800 / 1000 = 80%"
 
 if [ -n "$CURRENT" ] && [ "$CURRENT" != "0" ]; then
-    echo "  ✅ Conviction is non-zero ($CURRENT) - time-weighting working correctly"
+    echo "  [ OK ] Conviction is non-zero ($CURRENT) - time-weighting working correctly"
     if [ -n "$EXTERNAL" ] && [ "$EXTERNAL" != "0" ]; then
         EXTERNAL_RATIO=$((EXTERNAL * 100 / CURRENT))
         echo "  External ratio: $EXTERNAL_RATIO%"
         if [ $EXTERNAL_RATIO -ge 50 ]; then
-            echo "  ✅ External conviction >= 50% requirement met"
+            echo "  [ OK ] External conviction >= 50% requirement met"
         fi
     fi
 else
-    echo "  ⚠️  Conviction still 0 (may need more time or epoch to pass)"
+    echo "  [WARN]  Conviction still 0 (may need more time or epoch to pass)"
 fi
 
 # ========================================================================
@@ -1188,7 +1188,7 @@ fi
 $BINARY tx rep approve-project-budget "$PROJECT2_ID" "100000000" "50000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
-echo "✅ Secondary project created: ID $PROJECT2_ID"
+echo "[ OK ] Secondary project created: ID $PROJECT2_ID"
 
 # Create initiative in project 2
 PROJECT2_INIT_RES=$($BINARY tx rep create-initiative \
@@ -1246,14 +1246,14 @@ echo "  - Budget tracked per project separately"
 echo ""
 echo "--- COMPLEX MULTI-ACTOR SCENARIOS TEST SUMMARY ---"
 echo ""
-echo "✅ Part 1:  Concurrent initiatives          5 workers, same project"
-echo "✅ Part 2:  Referral cascade system         Trust building + multi-level chain"
-echo "✅ Part 3:  Budget exhaustion               Prevent overspending"
-echo "✅ Part 4:  Conviction competition           Multi-staker competition"
-echo "✅ Part 5:  Parallel challenges             Simultaneous resolution"
-echo "✅ Part 6:  Cross-project workers           Worker movement"
+echo "[ OK ] Part 1:  Concurrent initiatives          5 workers, same project"
+echo "[ OK ] Part 2:  Referral cascade system         Trust building + multi-level chain"
+echo "[ OK ] Part 3:  Budget exhaustion               Prevent overspending"
+echo "[ OK ] Part 4:  Conviction competition           Multi-staker competition"
+echo "[ OK ] Part 5:  Parallel challenges             Simultaneous resolution"
+echo "[ OK ] Part 6:  Cross-project workers           Worker movement"
 echo ""
-echo "📊 SCENARIO RESULTS:"
+echo " SCENARIO RESULTS:"
 echo ""
 echo "Concurrent Initiatives:"
 echo "  Project: $PROJECT_ID"
@@ -1290,4 +1290,4 @@ echo "  Project 1: $PROJECT_ID"
 echo "  Project 2: $PROJECT2_ID"
 echo "  Worker1 has initiatives in both projects"
 echo ""
-echo "✅✅✅ COMPLEX MULTI-ACTOR SCENARIOS TEST COMPLETED ✅✅✅"
+echo "=== COMPLEX MULTI-ACTOR SCENARIOS TEST COMPLETED ==="

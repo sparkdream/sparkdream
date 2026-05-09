@@ -43,7 +43,7 @@ record_result() {
 
 wait_for_tx() {
     local TXHASH=$1
-    local MAX_ATTEMPTS=20
+    local MAX_ATTEMPTS=60
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
         RESULT=$($BINARY q tx $TXHASH --output json 2>&1)

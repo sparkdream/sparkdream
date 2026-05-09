@@ -53,7 +53,7 @@ func (k msgServer) UnstakeNomination(ctx context.Context, msg *types.MsgUnstakeN
 			return nil, fmt.Errorf("stake amount overflows uint64")
 		}
 		if err := k.UnlockDREAM(ctx, msg.Creator, amountInt.Uint64()); err != nil {
-			return nil, errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to unlock DREAM for nomination unstake")
+			return nil, errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock DREAM for nomination unstake: %s", err)
 		}
 	}
 

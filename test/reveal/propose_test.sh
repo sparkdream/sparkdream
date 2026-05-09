@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# UNIT NOTE: All DREAM amounts in this file are in udream (micro-DREAM).
+# 1 DREAM = 1_000_000 udream. The `min_stake_amount` param defaults to
+# 100_000_000 udream (100 DREAM); tranche thresholds and total valuations
+# must therefore be at least that big OR these tests cannot be staked
+# on by other suites that share fixtures (propose_test only proposes,
+# but lifecycle/cancel_reject/stake_withdraw all use the same units).
+#
+# Historic note: this file used to use raw values (e.g. "1000" for a
+# 1000-DREAM threshold), which only worked because propose_test never
+# stakes — it just submits propose-side validation tests. Normalized to
+# udream so the suite is self-consistent and these definitions can be
+# safely lifted into a stake-followup test without surprise.
+
 echo "--- TESTING: x/reveal PROPOSE CONTRIBUTIONS ---"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -81,17 +94,17 @@ expect_tx_failure() {
 echo ""
 echo "--- TEST 1: PROPOSE BASIC CONTRIBUTION ---"
 
-# Two tranches: 1000 DREAM each = 2000 total (use camelCase JSON, one per --tranches flag)
+# Two tranches: 1000 DREAM each = 2000 total (1_000_000_000 udream per tranche)
 echo "  Submitting proposal: Project Phoenix (2 tranches, 2000 DREAM total)..."
 
 TX_RES=$($BINARY tx reveal propose \
     "Project Phoenix" \
     "A progressive reveal test project" \
-    "2000" \
+    "2000000000" \
     "MIT" \
     "Apache-2.0" \
-    --tranches '{"name":"Core Module","description":"Core functionality","components":["module.go","handler.go"],"stakeThreshold":"1000","previewUri":"https://example.com/preview-core"}' \
-    --tranches '{"name":"API Layer","description":"REST API endpoints","components":["api.go","routes.go"],"stakeThreshold":"1000","previewUri":"https://example.com/preview-api"}' \
+    --tranches '{"name":"Core Module","description":"Core functionality","components":["module.go","handler.go"],"stakeThreshold":"1000000000","previewUri":"https://example.com/preview-core"}' \
+    --tranches '{"name":"API Layer","description":"REST API endpoints","components":["api.go","routes.go"],"stakeThreshold":"1000000000","previewUri":"https://example.com/preview-api"}' \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -213,10 +226,10 @@ echo "--- TEST 5: NEGATIVE - EMPTY PROJECT NAME ---"
 TX_RES=$($BINARY tx reveal propose \
     "" \
     "Bad project with no name" \
-    "1000" \
+    "1000000000" \
     "MIT" \
     "MIT" \
-    --tranches '{"name":"T1","description":"d","components":["a"],"stakeThreshold":"1000","previewUri":""}' \
+    --tranches '{"name":"T1","description":"d","components":["a"],"stakeThreshold":"1000000000","previewUri":""}' \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -248,15 +261,16 @@ echo ""
 # ========================================================================
 echo "--- TEST 6: NEGATIVE - VALUATION MISMATCH ---"
 
-# Total 1000 but tranches sum to 800
+# Total 1000 DREAM but tranches sum to 800 DREAM (mismatch is preserved
+# at any consistent unit scale — both sides stay in udream).
 TX_RES=$($BINARY tx reveal propose \
     "Bad Valuation Project" \
     "Mismatched valuation" \
-    "1000" \
+    "1000000000" \
     "MIT" \
     "MIT" \
-    --tranches '{"name":"T1","description":"d","components":["a"],"stakeThreshold":"500","previewUri":""}' \
-    --tranches '{"name":"T2","description":"d","components":["b"],"stakeThreshold":"300","previewUri":""}' \
+    --tranches '{"name":"T1","description":"d","components":["a"],"stakeThreshold":"500000000","previewUri":""}' \
+    --tranches '{"name":"T2","description":"d","components":["b"],"stakeThreshold":"300000000","previewUri":""}' \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -328,7 +342,7 @@ echo "--- TEST 8: NEGATIVE - NO TRANCHES ---"
 TX_RES=$($BINARY tx reveal propose \
     "No Tranche Project" \
     "Has zero tranches" \
-    "1000" \
+    "1000000000" \
     "MIT" \
     "MIT" \
     --from alice \
@@ -362,15 +376,16 @@ echo ""
 echo "--- TEST 9: NEGATIVE - TOO MANY TRANCHES ---"
 
 # Build 11 tranches (max is 10) each worth 100 DREAM = 1100 total
+# (100_000_000 udream per tranche; 1_100_000_000 udream total).
 TRANCHE_ARGS=""
 for i in $(seq 1 11); do
-    TRANCHE_ARGS="$TRANCHE_ARGS --tranches {\"name\":\"T$i\",\"description\":\"d\",\"components\":[\"a\"],\"stakeThreshold\":\"100\",\"previewUri\":\"\"}"
+    TRANCHE_ARGS="$TRANCHE_ARGS --tranches {\"name\":\"T$i\",\"description\":\"d\",\"components\":[\"a\"],\"stakeThreshold\":\"100000000\",\"previewUri\":\"\"}"
 done
 
 TX_RES=$(eval $BINARY tx reveal propose \
     '"Too Many Tranches"' \
     '"11 tranches exceed max"' \
-    '"1100"' \
+    '"1100000000"' \
     '"MIT"' \
     '"MIT"' \
     $TRANCHE_ARGS \

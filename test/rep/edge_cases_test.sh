@@ -52,8 +52,27 @@ echo ""
 
 # Query module parameters
 PARAMS=$($BINARY query rep params --output json)
-EXTERNAL_REQ=$(echo "$PARAMS" | jq -r '.params.external_conviction_threshold // "50"')
-echo "External conviction threshold: $EXTERNAL_REQ%"
+# external_conviction_threshold was renamed to external_conviction_ratio.
+# CLI returns it as a raw 18-precision LegacyDec integer (e.g. "500000000000000000"
+# for 0.5). Strip the trailing 16 zeros to get the percentage as an integer
+# so the integer-comparison checks below still make sense (0.5 → 50).
+RAW_RATIO=$(echo "$PARAMS" | jq -r '.params.external_conviction_ratio // "500000000000000000"')
+case "$RAW_RATIO" in
+    *.*)
+        # Already decimal form (newer SDKs). Multiply by 100 -> integer percent.
+        EXTERNAL_REQ=$(awk -v v="$RAW_RATIO" 'BEGIN{printf "%d", v*100}')
+        ;;
+    *)
+        # Raw 18-precision int. Trim trailing 16 digits, default to 0 if too short.
+        if [ ${#RAW_RATIO} -gt 16 ]; then
+            EXTERNAL_REQ=${RAW_RATIO:0:${#RAW_RATIO}-16}
+        else
+            EXTERNAL_REQ=0
+        fi
+        ;;
+esac
+[ -z "$EXTERNAL_REQ" ] && EXTERNAL_REQ=50
+echo "External conviction ratio: ${EXTERNAL_REQ}% (raw: $RAW_RATIO)"
 
 # Create test project
 # Usage: propose-project [name] [description] [category] [council] [requested-budget] [requested-spark]
@@ -89,7 +108,7 @@ fi
 $BINARY tx rep approve-project-budget $PROJECT_ID "100000000" "10000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
 sleep 1
 
-echo "✅ Project created: ID $PROJECT_ID"
+echo "[ OK ] Project created: ID $PROJECT_ID"
 
 # Create initiative for threshold testing
 # Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
@@ -123,7 +142,7 @@ if [ -n "$THRESH_TX" ] && [ "$THRESH_TX" != "null" ]; then
         THRESH_ID="1"
     fi
 fi
-echo "✅ Threshold test initiative: ID $THRESH_ID"
+echo "[ OK ] Threshold test initiative: ID $THRESH_ID"
 
 # Assign to edge_user
 $BINARY tx rep assign-initiative $THRESH_ID $EDGE_USER_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
@@ -183,9 +202,9 @@ if [ -n "$EXTERNAL" ] && [ "$EXTERNAL" != "0" ] && [ -n "$CURRENT" ] && [ "$CURR
     EXTERNAL_RATIO=$((EXTERNAL * 100 / CURRENT))
     echo "  Calculated external ratio: $EXTERNAL_RATIO%"
     if [ "$EXTERNAL_RATIO" -ge "$EXTERNAL_REQ" ]; then
-        echo "  ✅ External conviction >= $EXTERNAL_REQ% threshold met"
+        echo "  [ OK ] External conviction >= $EXTERNAL_REQ% threshold met"
     else
-        echo "  ⚠️  External conviction ($EXTERNAL_RATIO%) < $EXTERNAL_REQ% threshold"
+        echo "  [WARN]  External conviction ($EXTERNAL_RATIO%) < $EXTERNAL_REQ% threshold"
     fi
 fi
 
@@ -207,7 +226,7 @@ if [ -n "$EXTERNAL2" ] && [ "$EXTERNAL2" != "0" ] && [ -n "$CURRENT2" ] && [ "$C
     echo "  Total: $CURRENT2, External: $EXTERNAL2"
     echo "  External ratio: $EXTERNAL_RATIO2% (should be ~49%)"
     if [ "$EXTERNAL_RATIO2" -lt "$EXTERNAL_REQ" ]; then
-        echo "  ✅ Below threshold as expected (< $EXTERNAL_REQ%)"
+        echo "  [ OK ] Below threshold as expected (< $EXTERNAL_REQ%)"
     fi
 fi
 
@@ -257,7 +276,7 @@ if [ -n "$DUR_TX" ] && [ "$DUR_TX" != "null" ]; then
         DUR_ID="2"
     fi
 fi
-echo "✅ Duration test initiative: ID $DUR_ID"
+echo "[ OK ] Duration test initiative: ID $DUR_ID"
 
 # Early unstaker creates a stake
 # Usage: stake [target-type] [target-id] [amount]
@@ -266,11 +285,13 @@ sleep 2
 
 # Get stake ID
 EARLY_STAKES=$($BINARY query rep stakes-by-staker $EARLY_UNSTAKER_ADDR --output json)
-STAKE_COUNT=$(echo "$EARLY_STAKES" | jq -r '.stakes | length // 0')
+# stakes-by-staker returns a singular stake (first match), not a list — count
+# how many "stake_id" attestations come back via list-stake instead.
+STAKE_COUNT=$(echo "$EARLY_STAKES" | jq -r 'if .stake_id then 1 else 0 end // 0')
 
 if [ "$STAKE_COUNT" -gt 0 ]; then
-    EARLY_STAKE_ID=$(echo "$EARLY_STAKES" | jq -r '.stakes[0].id // "1"')
-    echo "✅ Early stake created: ID $EARLY_STAKE_ID"
+    EARLY_STAKE_ID=$(echo "$EARLY_STAKES" | jq -r '.stake_id // "1"')
+    echo "[ OK ] Early stake created: ID $EARLY_STAKE_ID"
 
     # Query stake details
     STAKE_DETAIL=$($BINARY query rep get-stake $EARLY_STAKE_ID --output json)
@@ -291,7 +312,7 @@ if [ "$STAKE_COUNT" -gt 0 ]; then
 
     if [ $EPOCHS_ELAPSED -lt $MIN_DURATION ]; then
         echo ""
-        echo "✅ Not enough epochs elapsed ($EPOCHS_ELAPSED < $MIN_DURATION)"
+        echo "[ OK ] Not enough epochs elapsed ($EPOCHS_ELAPSED < $MIN_DURATION)"
 
         # Try to unstake early
         echo ""
@@ -312,10 +333,10 @@ if [ "$STAKE_COUNT" -gt 0 ]; then
         UNSTAKE_LOG=$(echo "$UNSTAKE_RES" | jq -r '.raw_log // empty')
 
         if [ "$UNSTAKE_CODE" != "0" ]; then
-            echo "✅ Early unstake rejected (code: $UNSTAKE_CODE)"
+            echo "[ OK ] Early unstake rejected (code: $UNSTAKE_CODE)"
             echo "  Log: $UNSTAKE_LOG"
         else
-            echo "⚠️  Early unstake succeeded (may apply penalty)"
+            echo "[WARN]  Early unstake succeeded (may apply penalty)"
             echo "  In production: Penalty = stake * penalty_rate"
         fi
     else
@@ -327,10 +348,10 @@ fi
 
 echo ""
 echo "Minimum duration enforcement:"
-echo "  ✓ Cannot unstake before $MIN_DURATION epochs"
-echo "  ✓ Penalty applied if early unstake allowed"
-echo "  ✓ Penalty rate: typically 10-50% of stake"
-echo "  ✓ Penalty burned, remainder returned to staker"
+echo "  [ OK ] Cannot unstake before $MIN_DURATION epochs"
+echo "  [ OK ] Penalty applied if early unstake allowed"
+echo "  [ OK ] Penalty rate: typically 10-50% of stake"
+echo "  [ OK ] Penalty burned, remainder returned to staker"
 
 # ========================================================================
 # PART 3: REPUTATION CAPS
@@ -355,10 +376,10 @@ echo "  Epic:       $EPIC_CAP reputation points"
 
 echo ""
 echo "When a member reaches tier cap:"
-echo "  ✓ No further reputation gains in that tier"
-echo "  ✓ Can still earn DREAM rewards"
-echo "  ✓ Can complete initiatives"
-echo "  ✓ Reputation capped but not lost"
+echo "  [ OK ] No further reputation gains in that tier"
+echo "  [ OK ] Can still earn DREAM rewards"
+echo "  [ OK ] Can complete initiatives"
+echo "  [ OK ] Reputation capped but not lost"
 
 # Check capped_member reputation
 CAPPED_MEMBER=$($BINARY query rep get-member $CAPPED_MEMBER_ADDR --output json 2>/dev/null)
@@ -441,16 +462,16 @@ echo "Testing that zeroing allows restart with new address"
 
 echo ""
 echo "Zeroing consequences:"
-echo "  ✓ All DREAM burned"
-echo "  ✓ Reputation reset to 0"
-echo "  ✓ Trust level reset to ZEROED"
-echo "  ✓ All staking rewards lost"
-echo "  ✓ Invitation accountability failed"
+echo "  [ OK ] All DREAM burned"
+echo "  [ OK ] Reputation reset to 0"
+echo "  [ OK ] Trust level reset to ZEROED"
+echo "  [ OK ] All staking rewards lost"
+echo "  [ OK ] Invitation accountability failed"
 echo ""
 echo "Zeroing is NOT:"
-echo "  ✗ NOT a permanent ban"
-echo "  ✗ NOT irreversible"
-echo "  ✗ NOT blocking of new addresses"
+echo "  [FAIL] NOT a permanent ban"
+echo "  [FAIL] NOT irreversible"
+echo "  [FAIL] NOT blocking of new addresses"
 echo ""
 echo "Recovery path after zeroing:"
 echo "  1. Create new address"
@@ -474,7 +495,7 @@ echo "Testing various boundary values:"
 # Minimum values
 echo ""
 echo "Minimum values:"
-echo "  Minimum stake: $(echo "$PARAMS" | jq -r '.params.minimum_stake_amount // "10"') DREAM"
+echo "  Min invitation stake: $(echo "$PARAMS" | jq -r '.params.min_invitation_stake // "100000000"') micro-DREAM"
 echo "  Minimum initiative budget: 10 DREAM (Apprentice tier)"
 echo "  Minimum epoch blocks: $(echo "$PARAMS" | jq -r '.params.epoch_blocks // "100"')"
 echo "  Minimum jury size: 3"
@@ -528,9 +549,9 @@ EPIC_CODE=$(echo $EPIC_RES | jq -r '.code // 0')
 
 if [ "$EPIC_CODE" != "0" ]; then
     EPIC_LOG=$(echo $EPIC_RES | jq -r '.raw_log // empty')
-    echo "✅ Epic tier with 10000 budget: $EPIC_LOG (at max limit)"
+    echo "[ OK ] Epic tier with 10000 budget: $EPIC_LOG (at max limit)"
 else
-    echo "✓ Epic tier initiative created (at max limit)"
+    echo "[ OK ] Epic tier initiative created (at max limit)"
 fi
 
 # Try exceeding epic tier budget
@@ -570,10 +591,10 @@ else
 fi
 
 if [ "$EXCEED_CODE" != "0" ]; then
-    echo "✅ Exceeding tier limit rejected (code: $EXCEED_CODE)"
+    echo "[ OK ] Exceeding tier limit rejected (code: $EXCEED_CODE)"
     echo "  Error: $EXCEED_LOG"
 else
-    echo "⚠️  Exceeded tier limit accepted (may not be enforced)"
+    echo "[WARN]  Exceeded tier limit accepted (may not be enforced)"
 fi
 
 # ========================================================================
@@ -586,11 +607,11 @@ echo "Testing that negative values are prevented:"
 
 echo ""
 echo "Protected against negative values:"
-echo "  ✗ Cannot stake negative amounts"
-echo "  ✗ Cannot transfer negative DREAM"
-echo "  ✗ Cannot have negative reputation"
-echo "  ✗ Cannot have negative balances"
-echo "  ✗ Cannot set negative durations"
+echo "  [FAIL] Cannot stake negative amounts"
+echo "  [FAIL] Cannot transfer negative DREAM"
+echo "  [FAIL] Cannot have negative reputation"
+echo "  [FAIL] Cannot have negative balances"
+echo "  [FAIL] Cannot set negative durations"
 echo ""
 echo "Implementation uses:"
 echo "  - Integer types (non-negative)"
@@ -608,11 +629,11 @@ echo "Testing protection against arithmetic overflow:"
 
 echo ""
 echo "Overflow-protected operations:"
-echo "  ✓ DREAM balance additions (minting, rewards)"
-echo "  ✓ Reputation score updates"
-echo "  ✓ Conviction calculations"
-echo "  ✓ Treasury transfers"
-echo "  ✓ Stake reward distributions"
+echo "  [ OK ] DREAM balance additions (minting, rewards)"
+echo "  [ OK ] Reputation score updates"
+echo "  [ OK ] Conviction calculations"
+echo "  [ OK ] Treasury transfers"
+echo "  [ OK ] Stake reward distributions"
 echo ""
 echo "Uses:"
 echo "  - uint64 for balances (max: ~18.4 quintillion)"
@@ -656,7 +677,8 @@ echo "Testing behavior with empty states:"
 # Query with no stakes
 NO_STAKE_MEMBER=$($BINARY query rep get-member $EDGE_USER_ADDR --output json 2>/dev/null)
 NO_STAKES=$($BINARY query rep stakes-by-staker $EDGE_USER_ADDR --output json)
-NO_STAKE_COUNT=$(echo "$NO_STAKES" | jq -r '.stakes | length // 0')
+# Empty response from stakes-by-staker is "{}" (no stake_id field).
+NO_STAKE_COUNT=$(echo "$NO_STAKES" | jq -r 'if .stake_id then 1 else 0 end // 0')
 
 echo ""
 echo "Edge cases with empty states:"
@@ -673,10 +695,10 @@ echo "  Non-existent member query: handled gracefully"
 
 echo ""
 echo "Empty state handling:"
-echo "  ✓ Returns empty arrays for no results"
-echo "  ✓ Returns 0 for counts"
-echo "  ✓ Returns errors for invalid queries"
-echo "  ✓ No panics on missing data"
+echo "  [ OK ] Returns empty arrays for no results"
+echo "  [ OK ] Returns 0 for counts"
+echo "  [ OK ] Returns errors for invalid queries"
+echo "  [ OK ] No panics on missing data"
 
 # ========================================================================
 # PART 11: VERY LONG STRINGS
@@ -711,10 +733,10 @@ echo "Testing pagination for queries with many results:"
 
 echo ""
 echo "Pagination support:"
-echo "  ✓ Query with limit parameter"
-echo "  ✓ Query with offset (skip)"
-echo "  ✓ Return pagination.total_count"
-echo "  ✓ Return pagination.next_key"
+echo "  [ OK ] Query with limit parameter"
+echo "  [ OK ] Query with offset (skip)"
+echo "  [ OK ] Return pagination.total_count"
+echo "  [ OK ] Return pagination.next_key"
 echo ""
 echo "Default limits:"
 echo "  List initiatives: 100 per page"
@@ -733,44 +755,44 @@ echo ""
 echo "--- EDGE CASES AND BOUNDS TEST SUMMARY ---"
 echo ""
 echo "TESTED (with on-chain assertions):"
-echo "✅ Part 1:  Conviction threshold edge        50% external tested with wait"
-echo "✅ Part 2:  Stake minimum duration           Early unstake rejection tested"
-echo "✅ Part 6:  Boundary value testing           Tier budget enforcement tested"
-echo "✅ Part 10: Empty state handling              Edge queries tested"
+echo "[ OK ] Part 1:  Conviction threshold edge        50% external tested with wait"
+echo "[ OK ] Part 2:  Stake minimum duration           Early unstake rejection tested"
+echo "[ OK ] Part 6:  Boundary value testing           Tier budget enforcement tested"
+echo "[ OK ] Part 10: Empty state handling              Edge queries tested"
 echo ""
 echo "DOCUMENTATION ONLY (design notes, no on-chain assertions):"
-echo "📋 Part 3:  Reputation caps per tier         Design: Apprent: $APPRENTICE_CAP, Std: $STANDARD_CAP"
-echo "📋 Part 4:  Trust level rollback             Design: CORE → TRUSTED → ... → ZEROED"
-echo "📋 Part 5:  Zeroing (no permanent ban)       Design: restart with new address"
-echo "📋 Part 7:  Negative value protection        Design: all fields non-negative"
-echo "📋 Part 8:  Overflow protection              Design: uint64, checks before ops"
-echo "📋 Part 9:  Concurrent modifications          Design: state machine protection"
-echo "📋 Part 11: String length limits             Design: input validation"
-echo "📋 Part 12: Pagination                       Design: large result sets"
+echo " Part 3:  Reputation caps per tier         Design: Apprent: $APPRENTICE_CAP, Std: $STANDARD_CAP"
+echo " Part 4:  Trust level rollback             Design: CORE → TRUSTED → ... → ZEROED"
+echo " Part 5:  Zeroing (no permanent ban)       Design: restart with new address"
+echo " Part 7:  Negative value protection        Design: all fields non-negative"
+echo " Part 8:  Overflow protection              Design: uint64, checks before ops"
+echo " Part 9:  Concurrent modifications          Design: state machine protection"
+echo " Part 11: String length limits             Design: input validation"
+echo " Part 12: Pagination                       Design: large result sets"
 echo ""
-echo "🔒 SECURITY BOUNDARIES:"
+echo " SECURITY BOUNDARIES:"
 echo ""
 echo "Financial:"
-echo "  ✓ No negative balances"
-echo "  ✓ No overflow in arithmetic"
-echo "  ✓ No exceeding tier budgets"
-echo "  ✓ No unstaking before minimum duration"
+echo "  [ OK ] No negative balances"
+echo "  [ OK ] No overflow in arithmetic"
+echo "  [ OK ] No exceeding tier budgets"
+echo "  [ OK ] No unstaking before minimum duration"
 echo ""
 echo "Reputation:"
-echo "  ✓ Reputation capped per tier"
-echo "  ✓ Trust level based on reputation"
-echo "  ✓ Severe penalties reduce trust"
-echo "  ✓ Zeroing allows restart (not ban)"
+echo "  [ OK ] Reputation capped per tier"
+echo "  [ OK ] Trust level based on reputation"
+echo "  [ OK ] Severe penalties reduce trust"
+echo "  [ OK ] Zeroing allows restart (not ban)"
 echo ""
 echo "Conviction:"
-echo "  ✓ External conviction >= 50% required"
-echo "  ✓ Conviction = stake * time"
-echo "  ✓ Affiliated stakes don't count as external"
+echo "  [ OK ] External conviction >= 50% required"
+echo "  [ OK ] Conviction = stake * time"
+echo "  [ OK ] Affiliated stakes don't count as external"
 echo ""
 echo "State:"
-echo "  ✓ State machine enforces valid transitions"
-echo "  ✓ Concurrent modifications handled"
-echo "  ✓ Empty states return gracefully"
-echo "  ✓ Pagination for large results"
+echo "  [ OK ] State machine enforces valid transitions"
+echo "  [ OK ] Concurrent modifications handled"
+echo "  [ OK ] Empty states return gracefully"
+echo "  [ OK ] Pagination for large results"
 echo ""
-echo "✅✅✅ EDGE CASES AND BOUNDS TEST COMPLETED ✅✅✅"
+echo "=== EDGE CASES AND BOUNDS TEST COMPLETED ==="

@@ -17,11 +17,12 @@ import (
 
 // getIBCChannelKeeper returns the raw IBC channel keeper for SendPacket calls.
 // We use the concrete type to avoid interface mismatches (sdk.Context vs context.Context).
+// Returns nil only if the IBC keeper hasn't been wired yet (test fixtures).
 func (k Keeper) getIBCChannelKeeper() *ibcchannelkeeper.Keeper {
-	if k.ibcKeeperFn == nil {
+	if k.late == nil || k.late.ibcKeeperFn == nil {
 		return nil
 	}
-	ibcK := k.ibcKeeperFn()
+	ibcK := k.late.ibcKeeperFn()
 	if ibcK == nil {
 		return nil
 	}
@@ -29,11 +30,16 @@ func (k Keeper) getIBCChannelKeeper() *ibcchannelkeeper.Keeper {
 }
 
 // SendFederationPacket marshals and sends a FederationPacketData to the specified peer's IBC channel.
-// Returns (0, nil) if IBC is not available (e.g., in unit tests without a full IBC stack).
+// Returns an error in every failure case — including IBC keeper not wired — so callers cannot
+// silently swallow a missed packet send. (Earlier versions returned (0, nil) when IBC was not
+// wired, which made the broken state look like success and meant SendPacket failures emitted
+// no events for relayers like Hermes to act on. See the multichain suite's
+// test_crosschain_content.sh "Silent SendPacket regression" test.)
 func (k Keeper) SendFederationPacket(ctx context.Context, peerID string, packetData *types.FederationPacketData) (uint64, error) {
 	channelKeeper := k.getIBCChannelKeeper()
 	if channelKeeper == nil {
-		return 0, nil // IBC not wired — skip send (test/development mode)
+		return 0, errorsmod.Wrap(types.ErrIBCNotAvailable,
+			"IBC channel keeper not wired into x/federation; app.go must call FederationKeeper.SetIBCKeeperFn(...)")
 	}
 
 	peer, err := k.Peers.Get(ctx, peerID)

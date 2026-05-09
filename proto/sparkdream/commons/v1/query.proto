@@ -30,6 +30,19 @@ service Query {
     option (google.api.http).get = "/sparkdream/commons/v1/policy_permissions";
   }
 
+  // GetDecisionPolicy returns the DecisionPolicy (voting threshold, voting
+  // period, min execution period) for a given council policy address. Read-only.
+  rpc GetDecisionPolicy(QueryGetDecisionPolicyRequest) returns (QueryGetDecisionPolicyResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/decision_policy/{policy_address}";
+  }
+
+  // ListDecisionPolicies returns every stored DecisionPolicy paginated, paired
+  // with its policy_address. Useful for UIs that want to render every council's
+  // voting rules in one pass.
+  rpc ListDecisionPolicies(QueryAllDecisionPoliciesRequest) returns (QueryAllDecisionPoliciesResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/decision_policy";
+  }
+
   // GetGroup queries a specific group by name.
   rpc GetGroup(QueryGetGroupRequest) returns (QueryGetGroupResponse) {
     option (google.api.http).get = "/sparkdream/commons/v1/group/{index}";
@@ -101,6 +114,39 @@ message QueryAllPolicyPermissionsRequest {
 // QueryAllPolicyPermissionsResponse defines the QueryAllPolicyPermissionsResponse message.
 message QueryAllPolicyPermissionsResponse {
   repeated PolicyPermissions policy_permissions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetDecisionPolicyRequest fetches a single DecisionPolicy by policy_address.
+message QueryGetDecisionPolicyRequest {
+  string policy_address = 1;
+}
+
+// QueryGetDecisionPolicyResponse returns the DecisionPolicy registered for a
+// given council policy address.
+message QueryGetDecisionPolicyResponse {
+  DecisionPolicy decision_policy = 1 [(gogoproto.nullable) = false];
+}
+
+// DecisionPolicyEntry pairs a policy_address with its DecisionPolicy. Used as
+// the element type for the paginated list response — the underlying
+// collections.Map is keyed by policy_address, and consumers of the list query
+// need the key alongside the value to disambiguate which council each entry
+// belongs to.
+message DecisionPolicyEntry {
+  string policy_address = 1;
+  DecisionPolicy decision_policy = 2 [(gogoproto.nullable) = false];
+}
+
+// QueryAllDecisionPoliciesRequest paginates over every DecisionPolicy.
+message QueryAllDecisionPoliciesRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllDecisionPoliciesResponse returns every DecisionPolicy paired with
+// its policy_address.
+message QueryAllDecisionPoliciesResponse {
+  repeated DecisionPolicyEntry entries = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 

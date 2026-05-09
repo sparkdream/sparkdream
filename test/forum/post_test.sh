@@ -643,13 +643,17 @@ echo ""
 echo "--- PART 15: QUERY POSTS BY CATEGORY AND STATUS ---"
 
 if [ -n "$TEST_CATEGORY_ID" ]; then
-    FILTERED=$($BINARY query forum posts $TEST_CATEGORY_ID 0 --output json 2>&1)
+    # Status filter: 1 = POST_STATUS_ACTIVE. Passing 0 (POST_STATUS_UNSPECIFIED)
+    # filters for unspecified-status posts and returns nothing.
+    FILTERED=$($BINARY query forum posts $TEST_CATEGORY_ID 1 --output json 2>&1)
 
     if echo "$FILTERED" | grep -q "error"; then
         echo "  Failed to query posts by category"
         POSTS_BY_CAT_RESULT="FAIL"
     else
-        F_POST_ID=$(echo "$FILTERED" | jq -r '.post_id // "0"')
+        # Response is { pagination, posts: [{post_id, ...}, ...] } — read the
+        # first element's post_id, not the (non-existent) top-level .post_id.
+        F_POST_ID=$(echo "$FILTERED" | jq -r '.posts[0].post_id // "0"')
         echo "  First root post in category $TEST_CATEGORY_ID: $F_POST_ID"
 
         if [ "$F_POST_ID" != "0" ] && [ -n "$F_POST_ID" ]; then
@@ -678,7 +682,8 @@ if echo "$USER_POSTS" | grep -q "error"; then
     echo "  Failed to query user posts"
     USER_POSTS_RESULT="FAIL"
 else
-    UP_POST_ID=$(echo "$USER_POSTS" | jq -r '.post_id // "0"')
+    # Same shape as the posts query: { pagination, posts: [{post_id, ...}] }.
+    UP_POST_ID=$(echo "$USER_POSTS" | jq -r '.posts[0].post_id // "0"')
     echo "  First post by poster1: $UP_POST_ID"
 
     if [ "$UP_POST_ID" != "0" ] && [ -n "$UP_POST_ID" ]; then
@@ -1890,3 +1895,11 @@ fi
 echo ""
 echo "POST TEST COMPLETED"
 echo ""
+
+# Propagate the failure count as the script's exit status so the caller's
+# `run_test "Post Tests"` records FAILED instead of swallowing internal
+# failures and reporting PASSED. Without this, the runner-level summary
+# disagreed with the in-script summary.
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    exit 1
+fi

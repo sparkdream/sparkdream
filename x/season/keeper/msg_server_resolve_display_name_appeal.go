@@ -67,15 +67,15 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 		// Winner = appellant (stake returned), Loser = reporter (stake burned)
 		if appealStakeErr == nil && reportStakeErr == nil {
 			if err := k.dreamOps.SettleStakes(ctx, appealStake.Appellant, appealStake.Amount.Uint64(), reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
-				return errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to settle stakes")
+				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to settle stakes: %s", err)
 			}
 		} else if appealStakeErr == nil {
 			if err := k.dreamOps.Unlock(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
-				return errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to unlock appellant stake")
+				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock appellant stake: %s", err)
 			}
 		} else if reportStakeErr == nil {
 			if err := k.dreamOps.Burn(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
-				return errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to burn reporter stake")
+				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to burn reporter stake: %s", err)
 			}
 		}
 
@@ -92,15 +92,15 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 		// Winner = reporter (stake returned), Loser = appellant (stake burned)
 		if reportStakeErr == nil && appealStakeErr == nil {
 			if err := k.dreamOps.SettleStakes(ctx, reportStake.Reporter, reportStake.Amount.Uint64(), appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
-				return errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to settle stakes")
+				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to settle stakes: %s", err)
 			}
 		} else if appealStakeErr == nil {
 			if err := k.dreamOps.Burn(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
-				return errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to burn appellant stake")
+				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to burn appellant stake: %s", err)
 			}
 		} else if reportStakeErr == nil {
 			if err := k.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
-				return errorsmod.Wrap(types.ErrDREAMOperationFailed, "failed to unlock reporter stake")
+				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock reporter stake: %s", err)
 			}
 		}
 		// Display name stays cleared (already cleared during report)

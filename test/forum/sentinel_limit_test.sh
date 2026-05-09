@@ -174,14 +174,22 @@ fi
 echo ""
 
 # ========================================================================
-# TEST 1: ErrAlreadySentinel - Bond as sentinel when already bonded
+# TEST 1: Re-bonding adds to existing commitment (top-up semantics)
 # ========================================================================
-echo "--- TEST 1: ErrAlreadySentinel - Bond when already bonded ---"
+# The bonded-role generalization in x/rep changed the semantics of bonding
+# while already bonded: the second BondRole tx is now an additive top-up
+# rather than an error. (Operators can deposit more DREAM into the same
+# commitment to grow available_bond.) We verify the additive behavior here.
+echo "--- TEST 1: Re-bond adds to existing commitment (top-up) ---"
 
 if [ "$SENTINEL_BONDED" = true ]; then
-    echo "  Sentinel1 is bonded, attempting to bond again..."
+    BEFORE_BOND=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null \
+        | jq -r '.bonded_role.current_bond // "0"')
+    echo "  Sentinel1 bond before top-up: $BEFORE_BOND"
+
+    TOPUP_AMOUNT="100000000"
     TX_RES=$($BINARY tx rep bond-role forum-sentinel \
-        "100000000" \
+        "$TOPUP_AMOUNT" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -189,10 +197,25 @@ if [ "$SENTINEL_BONDED" = true ]; then
         -y \
         --output json 2>&1)
 
-    expect_tx_failure "$TX_RES" "already registered as sentinel\|already sentinel\|already bonded\|insufficient balance" "ErrAlreadySentinel: bond when already bonded"
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        AFTER_BOND=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null \
+            | jq -r '.bonded_role.current_bond // "0"')
+        echo "  Sentinel1 bond after top-up:  $AFTER_BOND"
+        if [ "$AFTER_BOND" -gt "$BEFORE_BOND" ] 2>/dev/null; then
+            echo "  current_bond increased by $((AFTER_BOND - BEFORE_BOND)) udream"
+            record_result "Re-bond top-up increases current_bond" "PASS"
+        else
+            echo "  ERROR: current_bond did not increase"
+            record_result "Re-bond top-up increases current_bond" "FAIL"
+        fi
+    else
+        echo "  ERROR: top-up bond tx failed"
+        echo "  raw_log: $(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)"
+        record_result "Re-bond top-up increases current_bond" "FAIL"
+    fi
 else
-    echo "  SKIP: Sentinel1 not bonded, cannot test double-bond"
-    record_result "ErrAlreadySentinel: bond when already bonded" "FAIL"
+    echo "  SKIP: Sentinel1 not bonded, cannot test top-up"
+    record_result "Re-bond top-up increases current_bond" "FAIL"
 fi
 
 # ========================================================================

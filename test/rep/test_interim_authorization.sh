@@ -50,7 +50,7 @@ sleep 6
 
 # Get initiative ID
 INITIATIVE_ID=$($BINARY query rep list-initiative --output json 2>&1 | jq -r '.initiative[-1].id')
-echo "✅ Initiative #$INITIATIVE_ID created"
+echo "[ OK ] Initiative #$INITIATIVE_ID created"
 
 # Assign to assignee
 $BINARY tx rep assign-initiative \
@@ -82,8 +82,6 @@ TX_RES=$($BINARY tx rep create-challenge \
     $INITIATIVE_ID \
     "Incomplete security analysis" \
     "50000000" \
-    "false" \
-    "$CHALLENGER_ADDR" \
     --evidence "https://example.com/issues" \
     --from challenger \
     --chain-id $CHAIN_ID \
@@ -95,7 +93,7 @@ TX_RES=$($BINARY tx rep create-challenge \
 sleep 6
 
 CHALLENGE_ID=$($BINARY query rep list-challenge --output json 2>&1 | jq -r '.challenge[-1].id')
-echo "✅ Challenge #$CHALLENGE_ID created"
+echo "[ OK ] Challenge #$CHALLENGE_ID created"
 
 # Assignee responds (triggers escalation)
 TX_RES=$($BINARY tx rep respond-to-challenge \
@@ -116,11 +114,11 @@ INTERIMS=$($BINARY query rep list-interim --output json 2>&1)
 ADJUDICATION_ID=$(echo "$INTERIMS" | jq -r '.interim[] | select(.type == "INTERIM_TYPE_ADJUDICATION") | .id' | tail -1)
 
 if [ -z "$ADJUDICATION_ID" ] || [ "$ADJUDICATION_ID" = "null" ]; then
-    echo "❌ ADJUDICATION interim not found"
+    echo "[FAIL] ADJUDICATION interim not found"
     exit 1
 fi
 
-echo "✅ ADJUDICATION interim #$ADJUDICATION_ID created"
+echo "[ OK ] ADJUDICATION interim #$ADJUDICATION_ID created"
 echo ""
 
 echo "================================================================================"
@@ -146,14 +144,14 @@ CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
 if [ "$CODE" != "0" ]; then
     ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log')
     if echo "$ERROR" | grep -q "only technical committee members can complete ADJUDICATION"; then
-        echo "✅ CORRECT: Assignee was blocked from completing ADJUDICATION interim"
+        echo "[ OK ] CORRECT: Assignee was blocked from completing ADJUDICATION interim"
         echo "   Error: $ERROR"
     else
-        echo "⚠️  Transaction failed but with unexpected error:"
+        echo "[WARN]  Transaction failed but with unexpected error:"
         echo "   $ERROR"
     fi
 else
-    echo "❌ FAILED: Assignee should NOT be able to complete ADJUDICATION interim!"
+    echo "[FAIL] FAILED: Assignee should NOT be able to complete ADJUDICATION interim!"
     exit 1
 fi
 
@@ -179,7 +177,7 @@ TX_RESULT=$($BINARY query tx $TXHASH --output json 2>&1)
 CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
 
 if [ "$CODE" = "0" ]; then
-    echo "✅ CORRECT: Alice (committee member) completed ADJUDICATION interim"
+    echo "[ OK ] CORRECT: Alice (committee member) completed ADJUDICATION interim"
 
     # Verify challenge was resolved
     CHALLENGE_DETAIL=$($BINARY query rep get-challenge $CHALLENGE_ID --output json 2>&1)
@@ -187,7 +185,7 @@ if [ "$CODE" = "0" ]; then
     echo "   Challenge #$CHALLENGE_ID status: $CHALLENGE_STATUS"
 else
     ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log')
-    echo "❌ FAILED: Alice should be able to complete ADJUDICATION interim!"
+    echo "[FAIL] FAILED: Alice should be able to complete ADJUDICATION interim!"
     echo "   Error: $ERROR"
     exit 1
 fi
@@ -197,7 +195,7 @@ echo "==========================================================================
 echo "AUTHORIZATION TEST SUMMARY"
 echo "================================================================================"
 echo ""
-echo "✅ Security Fix Verified:"
+echo "[ OK ] Security Fix Verified:"
 echo "   1. Non-committee members CANNOT complete ADJUDICATION interims"
 echo "   2. Committee members CAN complete ADJUDICATION interims"
 echo "   3. Challenge auto-resolved based on committee decision"

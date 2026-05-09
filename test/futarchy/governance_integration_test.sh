@@ -27,7 +27,7 @@ if [ -n "$COUNCIL_INFO" ] && [ "$COUNCIL_INFO" != "null" ]; then
     echo "Commons Council Address: $COUNCIL_ADDR"
     echo "Futarchy Enabled: $FUTARCHY_ENABLED"
 else
-    echo "⚠️  Commons Council not found in genesis (this is OK for basic futarchy tests)"
+    echo "[WARN]  Commons Council not found in genesis (this is OK for basic futarchy tests)"
     COUNCIL_ADDR=""
     FUTARCHY_ENABLED="false"
 fi
@@ -71,11 +71,11 @@ MARKET_ID=$($BINARY query tx $TX_HASH --output json | \
   tr -d '"')
 
 if [ -z "$MARKET_ID" ] || [ "$MARKET_ID" == "null" ]; then
-    echo "❌ FAILURE: Could not create governance prediction market."
+    echo "[FAIL] FAILURE: Could not create governance prediction market."
     exit 1
 fi
 
-echo "✅ Governance prediction market created with ID: $MARKET_ID"
+echo "[ OK ] Governance prediction market created with ID: $MARKET_ID"
 
 # --- 2. MULTIPLE TRADERS PARTICIPATE ---
 echo "--- STEP 2: MULTIPLE PARTICIPANTS TRADE ON OUTCOME ---"
@@ -126,7 +126,7 @@ $BINARY tx futarchy trade \
 
 sleep 2
 
-echo "✅ Multiple traders participated in governance prediction market"
+echo "[ OK ] Multiple traders participated in governance prediction market"
 
 # --- 3. QUERY MARKET SENTIMENT ---
 echo "--- STEP 3: ANALYZE MARKET SENTIMENT ---"
@@ -148,10 +148,10 @@ echo ""
 # This information could be used by governance participants to inform their voting
 
 if [ -n "$YES_PRICE" ] && [ -n "$NO_PRICE" ] && [ "$YES_PRICE" != "null" ] && [ "$NO_PRICE" != "null" ]; then
-    echo "✅ Market sentiment successfully captured"
+    echo "[ OK ] Market sentiment successfully captured"
     echo "   (In a full futarchy implementation, this would influence governance decisions)"
 else
-    echo "⚠️  Could not fully analyze market sentiment"
+    echo "[WARN]  Could not fully analyze market sentiment"
 fi
 
 # --- 4. TEST CONDITIONAL TOKENS ---
@@ -172,9 +172,9 @@ echo "  Carol NO shares:  $CAROL_NO"
 echo ""
 
 if [ "$ALICE_YES" -gt "0" ] && [ "$BOB_YES" -gt "0" ] && [ "$CAROL_NO" -gt "0" ]; then
-    echo "✅ Conditional tokens correctly distributed to traders"
+    echo "[ OK ] Conditional tokens correctly distributed to traders"
 else
-    echo "❌ FAILURE: Conditional tokens not distributed correctly"
+    echo "[FAIL] FAILURE: Conditional tokens not distributed correctly"
     exit 1
 fi
 
@@ -213,11 +213,11 @@ PROP_ID=$($BINARY query tx $PROP_TX --output json | \
   tr -d '"' | head -n 1)
 
 if [ -z "$PROP_ID" ] || [ "$PROP_ID" == "null" ]; then
-    echo "❌ FAILURE: Could not submit governance proposal"
+    echo "[FAIL] FAILURE: Could not submit governance proposal"
     exit 1
 fi
 
-echo "✅ Governance proposal #$PROP_ID submitted"
+echo "[ OK ] Governance proposal #$PROP_ID submitted"
 
 # --- 6. VOTE ON GOVERNANCE PROPOSAL ---
 echo "--- STEP 6: COMMUNITY VOTES ON GOVERNANCE PROPOSAL ---"
@@ -265,14 +265,14 @@ echo ""
 
 # --- 10. VALIDATE PREDICTION ACCURACY ---
 if [[ "$GOV_OUTCOME" == "PROPOSAL_STATUS_PASSED" ]] && [[ "$MARKET_STATUS" == "RESOLVED_YES" ]]; then
-    echo "✅ PERFECT PREDICTION: Market correctly predicted proposal would PASS"
+    echo "[ OK ] PERFECT PREDICTION: Market correctly predicted proposal would PASS"
     echo "   Winners: Alice and Bob (YES share holders)"
 elif [[ "$GOV_OUTCOME" == "PROPOSAL_STATUS_REJECTED" ]] && [[ "$MARKET_STATUS" == "RESOLVED_NO" ]]; then
-    echo "✅ PERFECT PREDICTION: Market correctly predicted proposal would FAIL"
+    echo "[ OK ] PERFECT PREDICTION: Market correctly predicted proposal would FAIL"
     echo "   Winner: Carol (NO share holder)"
 else
-    echo "📊 Market Status: $MARKET_STATUS"
-    echo "📊 Governance Outcome: $GOV_OUTCOME"
+    echo " Market Status: $MARKET_STATUS"
+    echo " Governance Outcome: $GOV_OUTCOME"
     echo "   (Market prediction may differ from actual outcome - this is normal in prediction markets)"
 fi
 
@@ -302,7 +302,7 @@ if [[ "$MARKET_STATUS" == "RESOLVED_YES" ]]; then
       -y \
       --output json > /dev/null
 
-    echo "✅ YES share holders redeemed their winnings"
+    echo "[ OK ] YES share holders redeemed their winnings"
 
 elif [[ "$MARKET_STATUS" == "RESOLVED_NO" ]]; then
     echo "--- STEP 11: WINNER REDEEMS NO SHARES ---"
@@ -317,7 +317,7 @@ elif [[ "$MARKET_STATUS" == "RESOLVED_NO" ]]; then
       -y \
       --output json > /dev/null
 
-    echo "✅ NO share holder redeemed their winnings"
+    echo "[ OK ] NO share holder redeemed their winnings"
 fi
 
 # --- 12. SUMMARY ---
@@ -346,4 +346,4 @@ if [ "$FUTARCHY_ENABLED" == "true" ] && [ -n "$COUNCIL_ADDR" ]; then
     echo ""
 fi
 
-echo "✅✅✅ GOVERNANCE INTEGRATION TEST COMPLETED SUCCESSFULLY ✅✅✅"
+echo "=== GOVERNANCE INTEGRATION TEST COMPLETED SUCCESSFULLY ==="

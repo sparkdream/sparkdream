@@ -32,7 +32,7 @@ echo ""
 
 wait_for_tx() {
     local TXHASH=$1
-    local MAX_ATTEMPTS=20
+    local MAX_ATTEMPTS=60
     local ATTEMPT=0
 
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
@@ -636,11 +636,12 @@ else
     echo "  Failed to submit transaction"
 fi
 
-# Snapshot global report stake count before PART 10's report
-PRE10_REPORT_STAKES=$($BINARY query season list-display-name-report-stake --output json 2>&1)
-PRE10_REPORT_COUNT=$(echo "$PRE10_REPORT_STAKES" | jq -r '.display_name_report_stake | length' 2>/dev/null || echo "0")
-
 # 10b. Report the display name (from guild_member1)
+# We track only THIS moderation's stake (by challenge_id) — checking the
+# global stake count is racy because BeginBlock may auto-resolve OTHER
+# expired moderations that linger from earlier test parts (e.g. when
+# Part 5's appeal failed, display_user's moderation was left active and
+# its 20-block window can expire mid-test).
 if [ "$PART10_READY" == "true" ]; then
     echo ""
     echo "  Reporting guild_member2's display name..."
@@ -674,6 +675,12 @@ if [ "$PART10_READY" == "true" ]; then
             # Verify no appeal challenge ID (unappealed)
             APPEAL_ID=$(echo "$MOD_RECORD" | jq -r '.display_name_moderation.appeal_challenge_id // ""')
             assert_equals "no appeal filed" "" "$APPEAL_ID"
+
+            # Capture THIS moderation's specific challenge_id for end-of-test
+            # cleanup verification. Stake key format: dn:<member>:<moderated_at>
+            PART10_MODERATED_AT=$(echo "$MOD_RECORD" | jq -r '.display_name_moderation.moderated_at // "0"')
+            PART10_CHALLENGE_ID="dn:${PART10_TARGET_ADDR}:${PART10_MODERATED_AT}"
+            echo "  Tracking stake for challenge: $PART10_CHALLENGE_ID"
         else
             echo "  Failed to report"
             PART10_READY=false
@@ -829,10 +836,18 @@ if [ "$PART10_READY" == "true" ]; then
     FINAL_NAME=$(echo "$PROFILE" | jq -r '.member_profile.display_name // ""')
     assert_equals "unappealed display name stays cleared" "" "$FINAL_NAME"
 
-    # Verify reporter's stake was returned (count back to pre-report level)
-    REPORT_STAKES=$($BINARY query season list-display-name-report-stake --output json 2>&1)
-    POST10_REPORT_COUNT=$(echo "$REPORT_STAKES" | jq -r '.display_name_report_stake | length' 2>/dev/null || echo "0")
-    assert_equals "unappealed report stake cleaned up (back to pre-report count)" "$PRE10_REPORT_COUNT" "$POST10_REPORT_COUNT"
+    # Verify THIS report's stake was cleaned up (challenge_id-specific check).
+    # Counting global stakes would be racy: other expired moderations from
+    # earlier test parts can be auto-resolved by BeginBlock during the same
+    # window, dropping the global count below the pre-report baseline.
+    if [ -n "$PART10_CHALLENGE_ID" ]; then
+        REPORT_STAKE_AFTER=$($BINARY query season list-display-name-report-stake --output json 2>&1)
+        STAKE_REMAINING=$(echo "$REPORT_STAKE_AFTER" | jq -r --arg cid "$PART10_CHALLENGE_ID" \
+            '[.display_name_report_stake[]? | select(.challenge_id == $cid)] | length' 2>/dev/null || echo "?")
+        assert_equals "unappealed report stake cleaned up (challenge-specific: $PART10_CHALLENGE_ID)" "0" "$STAKE_REMAINING"
+    else
+        fail "PART10_CHALLENGE_ID was never captured — cannot verify stake cleanup"
+    fi
 fi
 
 echo ""

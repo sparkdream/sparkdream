@@ -10,8 +10,13 @@ echo ""
 # ========================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../check_testparams.sh"
+source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+
+# Wall-clock timing for the suite (Started/Ended/Duration in summary).
+SUITE_START_EPOCH=$(timing_now_epoch)
+SUITE_START_HUMAN=$(timing_now_human)
 
 # Test execution flags
 RUN_SETUP=true
@@ -26,6 +31,7 @@ RESET_CHAIN=false
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
+AUTO_SNAPSHOT=true
 # ========================================================================
 # Parse Arguments
 # ========================================================================
@@ -110,6 +116,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --reset-chain                 Reset chain before running tests"
             echo "  --save-setup                  Run setup, save chain state, then exit"
             echo "  --restore-setup               Restore saved setup state, then run tests"
+            echo "  --no-auto-snapshot Disable auto-snapshot (run setup every time, no caching)"
             echo "  --help                        Show this help message"
             echo ""
             echo "Default: Run full test suite"
@@ -123,6 +130,9 @@ while [[ $# -gt 0 ]]; do
             echo "  2. bash ./market_lifecycle_test.sh     # Run specific test manually"
             exit 0
             ;;
+        --no-auto-snapshot)
+            AUTO_SNAPSHOT=false
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Use --help for usage information"
@@ -131,6 +141,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+
+# Auto-snapshot: when no explicit save/restore flag is passed, reuse an
+# existing fresh snapshot or save one after setup. See test/_auto_snapshot.sh.
+source "$SCRIPT_DIR/../_auto_snapshot.sh"
+auto_snapshot_pre
 # ========================================================================
 # Pre-flight Checks
 # ========================================================================
@@ -344,6 +359,13 @@ if [ "$SAVE_SETUP" = true ]; then
     exit 0
 fi
 
+# Auto-save the post-setup snapshot if AUTO_SNAPSHOT was set and no fresh
+# snapshot existed at the start of this run. (No-op when --restore-setup
+# already restored a snapshot or when --no-auto-snapshot was passed.)
+# Futarchy has no setup_test_accounts.sh — the snapshot just captures the
+# genesis-bootstrapped state.
+auto_snapshot_post
+
 # ========================================================================
 # Step 1: Market Lifecycle Test
 # ========================================================================
@@ -360,7 +382,7 @@ if [ "$RUN_MARKET_LIFECYCLE_TEST" = true ]; then
     if [ $MARKET_LIFECYCLE_EXIT_CODE -eq 0 ]; then
         echo "  Market lifecycle test completed"
     else
-        echo "  Market lifecycle test exited with code: $MARKET_LIFECYCLE_EXIT_CODE"
+        echo "  [FAIL] Market lifecycle test exited with code: $MARKET_LIFECYCLE_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -387,7 +409,7 @@ if [ "$RUN_GOVERNANCE_INTEGRATION_TEST" = true ]; then
     if [ $GOVERNANCE_INTEGRATION_EXIT_CODE -eq 0 ]; then
         echo "  Governance integration test completed"
     else
-        echo "  Governance integration test exited with code: $GOVERNANCE_INTEGRATION_EXIT_CODE"
+        echo "  [FAIL] Governance integration test exited with code: $GOVERNANCE_INTEGRATION_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -414,7 +436,7 @@ if [ "$RUN_PARAMS_UPDATE_TEST" = true ]; then
     if [ $PARAMS_UPDATE_EXIT_CODE -eq 0 ]; then
         echo "  Params update test completed"
     else
-        echo "  Params update test exited with code: $PARAMS_UPDATE_EXIT_CODE"
+        echo "  [FAIL] Params update test exited with code: $PARAMS_UPDATE_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -441,7 +463,7 @@ if [ "$RUN_LIQUIDITY_WITHDRAWAL_TEST" = true ]; then
     if [ $LIQUIDITY_WITHDRAWAL_EXIT_CODE -eq 0 ]; then
         echo "  Liquidity withdrawal test completed"
     else
-        echo "  Liquidity withdrawal test exited with code: $LIQUIDITY_WITHDRAWAL_EXIT_CODE"
+        echo "  [FAIL] Liquidity withdrawal test exited with code: $LIQUIDITY_WITHDRAWAL_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -468,7 +490,7 @@ if [ "$RUN_EMERGENCY_CANCEL_TEST" = true ]; then
     if [ $EMERGENCY_CANCEL_EXIT_CODE -eq 0 ]; then
         echo "  Emergency cancel test completed"
     else
-        echo "  Emergency cancel test exited with code: $EMERGENCY_CANCEL_EXIT_CODE"
+        echo "  [FAIL] Emergency cancel test exited with code: $EMERGENCY_CANCEL_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -495,7 +517,7 @@ if [ "$RUN_OPERATIONAL_PARAMS_TEST" = true ]; then
     if [ $OPERATIONAL_PARAMS_EXIT_CODE -eq 0 ]; then
         echo "  Operational params test completed"
     else
-        echo "  Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
+        echo "  [FAIL] Operational params test exited with code: $OPERATIONAL_PARAMS_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -522,7 +544,7 @@ if [ "$RUN_TRUST_GATING_TEST" = true ]; then
     if [ $TRUST_GATING_EXIT_CODE -eq 0 ]; then
         echo "  Trust-level gating test completed"
     else
-        echo "  Trust-level gating test exited with code: $TRUST_GATING_EXIT_CODE"
+        echo "  [FAIL] Trust-level gating test exited with code: $TRUST_GATING_EXIT_CODE"
     fi
     echo ""
     sleep 2
@@ -540,15 +562,62 @@ echo "========================================================================="
 echo "  TEST SUITE SUMMARY"
 echo "========================================================================="
 echo ""
-echo "Results:"
-echo "  Market Lifecycle:        $([ "$RUN_MARKET_LIFECYCLE_TEST" = true ] && ([ ${MARKET_LIFECYCLE_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
-echo "  Governance Integration:  $([ "$RUN_GOVERNANCE_INTEGRATION_TEST" = true ] && ([ ${GOVERNANCE_INTEGRATION_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
-echo "  Params Update:           $([ "$RUN_PARAMS_UPDATE_TEST" = true ] && ([ ${PARAMS_UPDATE_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
-echo "  Liquidity Withdrawal:    $([ "$RUN_LIQUIDITY_WITHDRAWAL_TEST" = true ] && ([ ${LIQUIDITY_WITHDRAWAL_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
-echo "  Emergency Cancel:        $([ "$RUN_EMERGENCY_CANCEL_TEST" = true ] && ([ ${EMERGENCY_CANCEL_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
-echo "  Operational Params:      $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
-echo "  Trust-Level Gating:      $([ "$RUN_TRUST_GATING_TEST" = true ] && ([ ${TRUST_GATING_EXIT_CODE:-1} -eq 0 ] && echo "Passed" || echo "Issues") || echo "Skipped")"
+SUITE_END_EPOCH=$(timing_now_epoch)
+SUITE_END_HUMAN=$(timing_now_human)
+timing_print_summary_block "$SUITE_START_EPOCH" "$SUITE_END_EPOCH" \
+    "$SUITE_START_HUMAN" "$SUITE_END_HUMAN"
 echo ""
+# ========================================================================
+# Aggregate results across every sub-test. A test "counts" toward failure
+# only if it was selected to run (RUN_*=true). Skipped tests stay neutral.
+#
+# IMPORTANT: this runner USED to print a plain "  X test exited with
+# code: N" and then exit 0, which masked real failures from the parent
+# suite — the same anti-pattern that hid the rep jury-review failure.
+# Every sub-step's failure branch now prints "[FAIL]" AND is aggregated
+# below so the parent suite sees a non-zero exit when anything failed.
+# ========================================================================
+SUITE_FAILED=0
+declare -a FAILED_TESTS=()
+
+check_test() {
+    local enabled=$1
+    local code=$2
+    local label=$3
+    if [ "$enabled" = true ] && [ "${code:-1}" -ne 0 ]; then
+        SUITE_FAILED=1
+        FAILED_TESTS+=("$label (exit ${code:-1})")
+    fi
+}
+
+echo "Results:"
+echo "  Market Lifecycle:        $([ "$RUN_MARKET_LIFECYCLE_TEST" = true ] && ([ ${MARKET_LIFECYCLE_EXIT_CODE:-1} -eq 0 ] && echo "[PASS] Passed" || echo "[FAIL] Issues (exit ${MARKET_LIFECYCLE_EXIT_CODE:-1})") || echo "[SKIP] Skipped")"
+echo "  Governance Integration:  $([ "$RUN_GOVERNANCE_INTEGRATION_TEST" = true ] && ([ ${GOVERNANCE_INTEGRATION_EXIT_CODE:-1} -eq 0 ] && echo "[PASS] Passed" || echo "[FAIL] Issues (exit ${GOVERNANCE_INTEGRATION_EXIT_CODE:-1})") || echo "[SKIP] Skipped")"
+echo "  Params Update:           $([ "$RUN_PARAMS_UPDATE_TEST" = true ] && ([ ${PARAMS_UPDATE_EXIT_CODE:-1} -eq 0 ] && echo "[PASS] Passed" || echo "[FAIL] Issues (exit ${PARAMS_UPDATE_EXIT_CODE:-1})") || echo "[SKIP] Skipped")"
+echo "  Liquidity Withdrawal:    $([ "$RUN_LIQUIDITY_WITHDRAWAL_TEST" = true ] && ([ ${LIQUIDITY_WITHDRAWAL_EXIT_CODE:-1} -eq 0 ] && echo "[PASS] Passed" || echo "[FAIL] Issues (exit ${LIQUIDITY_WITHDRAWAL_EXIT_CODE:-1})") || echo "[SKIP] Skipped")"
+echo "  Emergency Cancel:        $([ "$RUN_EMERGENCY_CANCEL_TEST" = true ] && ([ ${EMERGENCY_CANCEL_EXIT_CODE:-1} -eq 0 ] && echo "[PASS] Passed" || echo "[FAIL] Issues (exit ${EMERGENCY_CANCEL_EXIT_CODE:-1})") || echo "[SKIP] Skipped")"
+echo "  Operational Params:      $([ "$RUN_OPERATIONAL_PARAMS_TEST" = true ] && ([ ${OPERATIONAL_PARAMS_EXIT_CODE:-1} -eq 0 ] && echo "[PASS] Passed" || echo "[FAIL] Issues (exit ${OPERATIONAL_PARAMS_EXIT_CODE:-1})") || echo "[SKIP] Skipped")"
+echo "  Trust-Level Gating:      $([ "$RUN_TRUST_GATING_TEST" = true ] && ([ ${TRUST_GATING_EXIT_CODE:-1} -eq 0 ] && echo "[PASS] Passed" || echo "[FAIL] Issues (exit ${TRUST_GATING_EXIT_CODE:-1})") || echo "[SKIP] Skipped")"
+echo ""
+
+check_test "$RUN_MARKET_LIFECYCLE_TEST"       "${MARKET_LIFECYCLE_EXIT_CODE:-1}"       "Market Lifecycle"
+check_test "$RUN_GOVERNANCE_INTEGRATION_TEST" "${GOVERNANCE_INTEGRATION_EXIT_CODE:-1}" "Governance Integration"
+check_test "$RUN_PARAMS_UPDATE_TEST"          "${PARAMS_UPDATE_EXIT_CODE:-1}"          "Params Update"
+check_test "$RUN_LIQUIDITY_WITHDRAWAL_TEST"   "${LIQUIDITY_WITHDRAWAL_EXIT_CODE:-1}"   "Liquidity Withdrawal"
+check_test "$RUN_EMERGENCY_CANCEL_TEST"       "${EMERGENCY_CANCEL_EXIT_CODE:-1}"       "Emergency Cancel"
+check_test "$RUN_OPERATIONAL_PARAMS_TEST"     "${OPERATIONAL_PARAMS_EXIT_CODE:-1}"     "Operational Params"
+check_test "$RUN_TRUST_GATING_TEST"           "${TRUST_GATING_EXIT_CODE:-1}"           "Trust-Level Gating"
+
 echo "========================================================================="
 echo "  TEST SUITE EXECUTION COMPLETED"
 echo "========================================================================="
+
+if [ $SUITE_FAILED -ne 0 ]; then
+    echo ""
+    echo "RESULT: x/futarchy suite has failures — exiting non-zero."
+    for f in "${FAILED_TESTS[@]}"; do
+        echo "  [FAIL] $f"
+    done
+    exit 1
+fi
+exit 0

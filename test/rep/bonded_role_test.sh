@@ -75,12 +75,22 @@ send_tx() {
     fi
 }
 
-# Read BondedRole.current_bond (string math.Int).
+# Read BondedRole.current_bond (string math.Int). Returns "0" when the role
+# record does not exist (the get query emits no JSON in that case, so we have
+# to coerce the empty-input jq result back to "0" ourselves).
 bonded_current_bond() {
     local role=$1
     local addr=$2
-    $BINARY q rep bonded-role "$role" "$addr" --output json 2>/dev/null | \
-        jq -r '.bonded_role.current_bond // "0"'
+    local out
+    out=$($BINARY q rep bonded-role "$role" "$addr" --output json 2>/dev/null)
+    if [ -z "$out" ]; then
+        echo "0"
+        return
+    fi
+    local v
+    v=$(echo "$out" | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
+    [ -z "$v" ] && v="0"
+    echo "$v"
 }
 
 # Read BondedRole.bond_status (enum name string).
@@ -140,7 +150,7 @@ if [ "$RES" == "ok" ]; then
     EXPECTED=$((${BEFORE:-0} - UNBOND_AMOUNT))
     if [ "$AFTER" == "$EXPECTED" ]; then
         T2_UNBOND_PARTIAL="PASS"
-        echo "  $BEFORE → $AFTER (delta -$UNBOND_AMOUNT) ✓"
+        echo "  $BEFORE → $AFTER (delta -$UNBOND_AMOUNT) [ OK ]"
     else
         echo "  expected $EXPECTED, got $AFTER"
     fi
@@ -238,8 +248,11 @@ echo ""
 # ========================================================================
 echo "--- PART 7: QUERY bonded-roles-by-type forum-sentinel ---"
 LIST=$($BINARY q rep bonded-roles-by-type forum-sentinel --output json 2>/dev/null)
-COUNT=$(echo "$LIST" | jq -r '.bonded_roles | length')
-FOUND=$(echo "$LIST" | jq -r --arg a "$SENTINEL1_ADDR" '.bonded_roles[] | select(.address==$a) | .address' | head -1)
+# When no records exist the query response omits the bonded_roles field
+# entirely (returns just {"pagination":{}}). Coalesce to an empty array so
+# `length` and the iteration both work.
+COUNT=$(echo "$LIST" | jq -r '(.bonded_roles // []) | length')
+FOUND=$(echo "$LIST" | jq -r --arg a "$SENTINEL1_ADDR" '(.bonded_roles // [])[] | select(.address==$a) | .address' | head -1)
 echo "  list returned $COUNT entries; sentinel1 present: $FOUND"
 if [ -n "$FOUND" ] && [ "$COUNT" -ge "1" ]; then
     T7_QUERY_LIST_BY_TYPE="PASS"

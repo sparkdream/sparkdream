@@ -9,7 +9,7 @@ CHAIN_ID="sparkdream"
 
 # Load test environment
 if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
-    echo "❌ Test environment not found (.test_env missing)"
+    echo "[FAIL] Test environment not found (.test_env missing)"
     echo "   Run: bash setup_test_accounts.sh"
     exit 1
 fi
@@ -42,7 +42,7 @@ verify_member() {
     local member=$($BINARY query rep get-member $addr -o json 2>&1)
 
     if echo "$member" | grep -q "not found"; then
-        echo "ℹ️  $name is not a member (expected - not invited to x/rep)"
+        echo "[INFO]  $name is not a member (expected - not invited to x/rep)"
         return 1
     fi
 
@@ -51,7 +51,7 @@ verify_member() {
     local dream_balance=$(echo "$member" | jq -r '.member.dream_balance // "0"')
     local invited_by=$(echo "$member" | jq -r '.member.invited_by // "null"')
 
-    echo "✅ $name:"
+    echo "[ OK ] $name:"
     echo "   Trust Level: $trust_level"
     echo "   Status: $status"
     echo "   DREAM Balance: $dream_balance micro-DREAM ($(echo "scale=2; $dream_balance / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
@@ -74,11 +74,11 @@ echo "--- STEP 2: LIST ALL MEMBERS ---"
 ALL_MEMBERS=$($BINARY query rep list-member -o json 2>&1)
 
 if echo "$ALL_MEMBERS" | grep -q "error"; then
-    echo "❌ Failed to query member list"
+    echo "[FAIL] Failed to query member list"
     echo "$ALL_MEMBERS"
 else
     TOTAL_MEMBERS=$(echo "$ALL_MEMBERS" | jq -r '.member | length' 2>/dev/null || echo "0")
-    echo "✅ Total members in system: $TOTAL_MEMBERS"
+    echo "[ OK ] Total members in system: $TOTAL_MEMBERS"
 
     # Show first few members
     echo ""
@@ -120,7 +120,7 @@ for level_num in 0 1 2 3 4; do
         MEMBER_ADDR=$(echo "$MEMBER_RESULT" | jq -r '.address // empty' 2>/dev/null)
         if [ -n "$MEMBER_ADDR" ]; then
             MEMBER_BALANCE=$(echo "$MEMBER_RESULT" | jq -r '.dream_balance // "0"' 2>/dev/null)
-            echo "✅ Found member with $level_name: $MEMBER_ADDR ($(echo "scale=2; $MEMBER_BALANCE / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
+            echo "[ OK ] Found member with $level_name: $MEMBER_ADDR ($(echo "scale=2; $MEMBER_BALANCE / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
         else
             echo "  No members found with $level_name"
         fi
@@ -150,7 +150,7 @@ echo "  Member2: $MEMBER2_INITIAL micro-DREAM ($(echo "scale=2; $MEMBER2_INITIAL
 # Member1 tips Member2 (small amount since test accounts have limited DREAM)
 # Check if Member1 has enough, otherwise skip test
 if [ "$MEMBER1_INITIAL" -lt "100000" ]; then
-    echo "⚠️  Member1 has insufficient DREAM for transfer test (has $(echo "scale=2; $MEMBER1_INITIAL / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
+    echo "[WARN]  Member1 has insufficient DREAM for transfer test (has $(echo "scale=2; $MEMBER1_INITIAL / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
     echo "   Skipping DREAM transfer test"
     echo ""
 else
@@ -174,7 +174,7 @@ TRANSFER_RES=$($BINARY tx rep transfer-dream \
 TRANSFER_TX=$(echo "$TRANSFER_RES" | jq -r '.txhash' 2>/dev/null)
 
 if [ -z "$TRANSFER_TX" ] || [ "$TRANSFER_TX" == "null" ]; then
-    echo "❌ Transfer failed to broadcast"
+    echo "[FAIL] Transfer failed to broadcast"
     echo "$TRANSFER_RES"
 else
     echo "Transfer transaction: $TRANSFER_TX"
@@ -186,10 +186,10 @@ else
 
     if [ "$TX_CODE" != "0" ]; then
         RAW_LOG=$(echo "$TRANSFER_RESULT" | jq -r '.raw_log // "Unknown error"')
-        echo "❌ Transfer failed with code $TX_CODE:"
+        echo "[FAIL] Transfer failed with code $TX_CODE:"
         echo "   $RAW_LOG"
     else
-        echo "✅ DREAM transfer successful"
+        echo "[ OK ] DREAM transfer successful"
 
         # Validate via transaction events (not balance changes, which include decay)
         TRANSFER_EVENT=$(echo "$TRANSFER_RESULT" | jq -r '.events[] | select(.type=="transfer_dream")' 2>/dev/null)
@@ -209,14 +209,14 @@ else
             # Validate tax is 3% of amount
             EXPECTED_TAX=$(echo "$TIP_AMOUNT_MICRO * 3 / 100" | bc 2>/dev/null || echo "3000")
             if [ -n "$EVENT_TAX" ] && [ "$EVENT_TAX" == "$EXPECTED_TAX" ]; then
-                echo "✅ Tax is exactly 3% ($EVENT_TAX micro-DREAM on $TIP_AMOUNT_MICRO sent)"
+                echo "[ OK ] Tax is exactly 3% ($EVENT_TAX micro-DREAM on $TIP_AMOUNT_MICRO sent)"
             elif [ -n "$EVENT_TAX" ] && [ "$EVENT_TAX" != "0" ]; then
-                echo "✅ Tax applied: $EVENT_TAX micro-DREAM (expected $EXPECTED_TAX)"
+                echo "[ OK ] Tax applied: $EVENT_TAX micro-DREAM (expected $EXPECTED_TAX)"
             else
-                echo "⚠️  Tax not detected in event"
+                echo "[WARN]  Tax not detected in event"
             fi
         else
-            echo "⚠️  No transfer_dream event found - verifying tx succeeded (code: $TX_CODE)"
+            echo "[WARN]  No transfer_dream event found - verifying tx succeeded (code: $TX_CODE)"
         fi
 
         # Note: Raw balance changes are unreliable for validation because
@@ -237,7 +237,7 @@ for member in "$ALICE_ADDR" "$MEMBER_1" "$MEMBER_2"; do
     REPUTATION=$($BINARY query rep reputation $member -o json 2>&1)
 
     if echo "$REPUTATION" | grep -q "error"; then
-        echo "⚠️  Reputation query failed (may not be implemented or member has no reputation)"
+        echo "[WARN]  Reputation query failed (may not be implemented or member has no reputation)"
     else
         # Try to extract reputation scores
         REP_SCORES=$(echo "$REPUTATION" | jq -r '.reputation_scores // .reputation // {}' 2>/dev/null)
@@ -254,7 +254,7 @@ for member_addr in "$MEMBER_1" "$MEMBER_2" "$MEMBER_3"; do
     MEMBER_DETAIL=$($BINARY query rep get-member $member_addr -o json 2>&1)
 
     if echo "$MEMBER_DETAIL" | grep -q "not found"; then
-        echo "⚠️  Member not found: $member_addr"
+        echo "[WARN]  Member not found: $member_addr"
         continue
     fi
 
@@ -267,9 +267,9 @@ for member_addr in "$MEMBER_1" "$MEMBER_2" "$MEMBER_3"; do
     echo "  Chain length: $CHAIN_LENGTH"
 
     if [ "$INVITED_BY" != "null" ] && [ -n "$INVITED_BY" ]; then
-        echo "✅ Invitation chain tracked"
+        echo "[ OK ] Invitation chain tracked"
     else
-        echo "⚠️  No inviter tracked (may be genesis member)"
+        echo "[WARN]  No inviter tracked (may be genesis member)"
     fi
 done
 
@@ -282,27 +282,27 @@ echo "--- STEP 7: QUERY INVITATIONS BY INVITER (ALICE) ---"
 INVITER_INVITATIONS=$($BINARY query rep invitations-by-inviter $ALICE_ADDR -o json 2>&1)
 
 if echo "$INVITER_INVITATIONS" | grep -q "error"; then
-    echo "⚠️  Query failed (invitations-by-inviter may return single result, not list)"
+    echo "[WARN]  Query failed (invitations-by-inviter may return single result, not list)"
 
     # Try list-invitation and filter
     ALL_INVITATIONS=$($BINARY query rep list-invitation -o json 2>&1)
     if echo "$ALL_INVITATIONS" | grep -q "error"; then
-        echo "⚠️  list-invitation also failed"
+        echo "[WARN]  list-invitation also failed"
     else
         ALICE_INV_COUNT=$(echo "$ALL_INVITATIONS" | jq -r "[.invitation[] | select(.inviter==\"$ALICE_ADDR\")] | length" 2>/dev/null || echo "0")
-        echo "✅ Alice created $ALICE_INV_COUNT invitations (via list-invitation)"
+        echo "[ OK ] Alice created $ALICE_INV_COUNT invitations (via list-invitation)"
     fi
 else
     # Check if it's a single result or array
     INV_TYPE=$(echo "$INVITER_INVITATIONS" | jq -r 'type' 2>/dev/null)
     if [ "$INV_TYPE" == "object" ]; then
-        echo "✅ Found single invitation by Alice"
+        echo "[ OK ] Found single invitation by Alice"
     elif [ "$INV_TYPE" == "array" ]; then
         INV_COUNT=$(echo "$INVITER_INVITATIONS" | jq -r 'length' 2>/dev/null)
-        echo "✅ Alice created $INV_COUNT invitations"
+        echo "[ OK ] Alice created $INV_COUNT invitations"
     else
         INV_COUNT=$(echo "$INVITER_INVITATIONS" | jq -r '.invitation | length' 2>/dev/null || echo "0")
-        echo "✅ Alice created $INV_COUNT invitations"
+        echo "[ OK ] Alice created $INV_COUNT invitations"
     fi
 fi
 
@@ -329,9 +329,9 @@ for member_addr in "$ALICE_ADDR" "$BOB_ADDR" "$MEMBER_1" "$MEMBER_2"; do
     echo "  Times zeroed: $ZEROED_COUNT"
 
     if [ "$STATUS" == "MEMBER_STATUS_ZEROED" ]; then
-        echo "⚠️  Member is ZEROED"
+        echo "[WARN]  Member is ZEROED"
     elif [ "$STATUS" == "MEMBER_STATUS_ACTIVE" ] || [ "$STATUS" == "null" ]; then
-        echo "✅ Member is ACTIVE"
+        echo "[ OK ] Member is ACTIVE"
     else
         echo "  Status: $STATUS"
     fi
@@ -388,11 +388,11 @@ echo "  Trusted: $TRUSTED_MEMBERS"
 echo "  Core: $CORE_MEMBERS"
 
 if [ $NEW_MEMBERS -gt 0 ]; then
-    echo "✅ New members found (null trust_level = NEW)"
+    echo "[ OK ] New members found (null trust_level = NEW)"
 fi
 
 if [ $CORE_MEMBERS -gt 0 ]; then
-    echo "✅ Core members found"
+    echo "[ OK ] Core members found"
 fi
 
 echo ""
@@ -400,15 +400,15 @@ echo ""
 # --- 10. SUMMARY ---
 echo "--- MEMBER LIFECYCLE TEST SUMMARY ---"
 echo ""
-echo "✅ Member verification:        Existing members validated"
-echo "✅ Member listing:             Total members: $TOTAL_MEMBERS"
-echo "✅ Trust level queries:        Multiple levels queried"
-echo "✅ DREAM transfers:            Tip with 3% tax tested"
-echo "✅ Reputation queries:         Reputation data accessed"
-echo "✅ Invitation chains:          Chain tracking verified"
-echo "✅ Inviter queries:            Invitation lists validated"
-echo "✅ Member status tracking:     Status field checked"
-echo "✅ Trust level distribution:   New: $NEW_MEMBERS, Core: $CORE_MEMBERS"
+echo "[ OK ] Member verification:        Existing members validated"
+echo "[ OK ] Member listing:             Total members: $TOTAL_MEMBERS"
+echo "[ OK ] Trust level queries:        Multiple levels queried"
+echo "[ OK ] DREAM transfers:            Tip with 3% tax tested"
+echo "[ OK ] Reputation queries:         Reputation data accessed"
+echo "[ OK ] Invitation chains:          Chain tracking verified"
+echo "[ OK ] Inviter queries:            Invitation lists validated"
+echo "[ OK ] Member status tracking:     Status field checked"
+echo "[ OK ] Trust level distribution:   New: $NEW_MEMBERS, Core: $CORE_MEMBERS"
 echo ""
-echo "✅✅✅ MEMBER LIFECYCLE TEST COMPLETED ✅✅✅"
+echo "=== MEMBER LIFECYCLE TEST COMPLETED ==="
 echo ""

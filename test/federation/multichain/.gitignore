@@ -1,0 +1,23 @@
+# Runtime artifacts produced by the multichain federation suite.
+# Everything here is regenerated on each `run_all_multichain_tests.sh` run.
+
+# Cloned chain homes (full sparkdreamd state, ~hundreds of MB)
+data/
+
+# Generated council proposal payloads
+proposals/
+
+# BIP-39 mnemonics for the hermes relayer keys.
+# DO NOT COMMIT — these control funded test-chain accounts.
+.hermes_mnemonics/
+
+# Per-run state captured by setup_ibc.sh / setup_chain_keys.sh
+.ibc_channels
+.chain_keys
+
+# Background-process pid files
+.chain_pids
+.hermes_pid
+
+# Chain-process logs (also under data/, but covered for safety)
+*.log

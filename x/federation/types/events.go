@@ -30,6 +30,11 @@ const (
 	EventTypeContentFederated          = "content_federated"
 	EventTypeOutboundAttested          = "outbound_attested"
 
+	// IBC packet send failures (best-effort path: tx still succeeds, but the
+	// failure is surfaced as an event + log entry so that silent packet drops
+	// are observable instead of being swallowed by `_, _ =`).
+	EventTypeFederationPacketSendFailed = "federation_packet_send_failed"
+
 	// Identity
 	EventTypeIdentityLinked              = "identity_linked"
 	EventTypeIdentityVerified            = "identity_verified"
@@ -100,4 +105,6 @@ const (
 	AttributeKeyRemainingBond   = "remaining_bond"
 	AttributeKeyLocalContentID  = "local_content_id"
 	AttributeKeyCreator         = "creator"
+	AttributeKeyError           = "error"
+	AttributeKeyPacketKind      = "packet_kind"
 )

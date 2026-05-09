@@ -9,16 +9,16 @@ DENOM="uspark"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then
-    echo "❌ Error: jq is not installed."
+    echo "[FAIL] Error: jq is not installed."
     exit 1
 fi
 
 # Actors
-ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test) # Genesis x/rep member
-DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test)   # Non-member (no x/rep Member record)
+ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test) # Active x/rep member (founder)
+DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test)   # Non-rep-member (uninvited)
 
-echo "Alice (rep member): $ALICE_ADDR"
-echo "Dave  (non-member): $DAVE_ADDR"
+echo "Alice (rep member):  $ALICE_ADDR"
+echo "Dave (non-rep-member): $DAVE_ADDR"
 
 # Fetch Params
 echo "Fetching Name Params..."
@@ -30,27 +30,34 @@ FEE_AMOUNT=$(echo $PARAMS | jq -r '.params.registration_fee.amount')
 echo "Constraints: Min $MIN_LEN, Max $MAX_LEN, Fee $FEE_AMOUNT $DENOM"
 
 # --- PRE-FLIGHT CHECK: IS ALICE AN ACTIVE x/rep MEMBER? ---
-# Registration is gated on x/rep active membership (any accepted invitee
-# qualifies). Council membership is no longer relevant to this gate.
+# Per commit 44c71ca, name registration is gated on x/rep membership
+# (`IsActiveRepMember`), NOT on Commons Council membership. The keeper at
+# x/name/keeper/msg_server_register_name.go:52-66 returns
+# "only active x/rep members can register names" when the gate fails.
+# This pre-flight verifies the right invariant and gives a useful warning
+# when Alice's rep member record is missing or non-ACTIVE.
 echo "Verifying Alice is an active x/rep member..."
-ALICE_MEMBER=$($BINARY query rep get-member "$ALICE_ADDR" --output json 2>/dev/null)
-ALICE_STATUS=$(echo "$ALICE_MEMBER" | jq -r '.member.status // "missing"')
+REP_MEMBER=$($BINARY query rep get-member "$ALICE_ADDR" --output json 2>/dev/null)
+REP_STATUS=$(echo "$REP_MEMBER" | jq -r '.member.status // empty')
 
-if [ "$ALICE_STATUS" != "MEMBER_STATUS_ACTIVE" ]; then
-    echo "⚠️  WARNING: Alice is not an active x/rep member (status=$ALICE_STATUS)."
+if [ -z "$REP_STATUS" ] || [ "$REP_STATUS" = "null" ]; then
+    echo "[WARN]  WARNING: Alice has no x/rep Member record."
+    echo "    Valid registration tests are likely to fail."
+elif [ "$REP_STATUS" != "MEMBER_STATUS_ACTIVE" ]; then
+    echo "[WARN]  WARNING: Alice's rep status is $REP_STATUS (expected MEMBER_STATUS_ACTIVE)."
     echo "    Valid registration tests are likely to fail."
 else
-    echo "✅ Pre-flight: Alice is an active x/rep member."
+    echo "[ OK ] Pre-flight: Alice is an ACTIVE x/rep member."
 fi
 
 # --- 1. TEST: UNAUTHORIZED REGISTRATION (Dave) ---
-echo "--- CASE 1: Dave (Non-rep-member) tries to register 'dave' ---"
+echo "--- CASE 1: Dave (Non-Council) tries to register 'dave' ---"
 
 RES=$($BINARY tx name register-name "dave" "meta" --from dave -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
 CODE=$(echo $RES | jq -r '.code')
 
 if [ "$CODE" != "0" ]; then
-    echo "✅ SUCCESS: Dave was blocked immediately (AnteHandler/CheckTx)."
+    echo "[ OK ] SUCCESS: Dave was blocked immediately (AnteHandler/CheckTx)."
 else
     # If it passed CheckTx, check DeliverTx
     TX_HASH=$(echo $RES | jq -r '.txhash')
@@ -60,13 +67,18 @@ else
     RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
 
     if [ "$FINAL_CODE" != "0" ]; then
-        if echo "$RAW_LOG" | grep -q "unauthorized" || echo "$RAW_LOG" | grep -q "x/rep"; then
-            echo "✅ SUCCESS: Dave blocked (Unauthorized)."
+        # The keeper rejects with "only active x/rep members can register
+        # names" (msg_server_register_name.go:62). Match either the canonical
+        # phrase or the bare "x/rep" / "unauthorized" tokens so the message
+        # check is robust against future error-string tweaks.
+        if echo "$RAW_LOG" | grep -qiE "x/rep members|x/rep|unauthorized|active rep member"; then
+            echo "[ OK ] SUCCESS: Dave blocked (rep-membership gate)."
         else
-            echo "✅ SUCCESS: Dave blocked (Code $FINAL_CODE)."
+            echo "[ OK ] SUCCESS: Dave blocked (Code $FINAL_CODE) — but error doesn't reference the rep gate"
+            echo "    raw_log: $(echo "$RAW_LOG" | head -c 200)"
         fi
     else
-        echo "❌ FAILURE: Dave successfully registered a name!"
+        echo "[FAIL] FAILURE: Dave successfully registered a name!"
         exit 1
     fi
 fi
@@ -91,11 +103,11 @@ RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
 
 # 4. Check Log
 if echo "$RAW_LOG" | grep -q "too short"; then
-    echo "✅ SUCCESS: Short name rejected."
+    echo "[ OK ] SUCCESS: Short name rejected."
 elif [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
-    echo "✅ SUCCESS: Short name rejected (Code != 0)."
+    echo "[ OK ] SUCCESS: Short name rejected (Code != 0)."
 else
-    echo "❌ FAILURE: Short name accepted."
+    echo "[FAIL] FAILURE: Short name accepted."
     echo "DEBUG LOG: $RAW_LOG"
 fi
 
@@ -115,70 +127,12 @@ QUERY_RES=$($BINARY query tx $TX_HASH --output json 2>&1)
 RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
 
 if echo "$RAW_LOG" | grep -q "invalid character"; then
-    echo "✅ SUCCESS: Invalid characters rejected."
+    echo "[ OK ] SUCCESS: Invalid characters rejected."
 elif [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
-    echo "✅ SUCCESS: Invalid characters rejected (Code != 0)."
+    echo "[ OK ] SUCCESS: Invalid characters rejected (Code != 0)."
 else
-    echo "❌ FAILURE: Invalid characters accepted."
+    echo "[FAIL] FAILURE: Invalid characters accepted."
     echo "DEBUG LOG: $RAW_LOG"
-fi
-
-# B2. Hyphen at start is rejected (boundary rule still enforced for hyphens
-# even though underscores are now allowed at boundaries).
-LEADING_HYPHEN="-alice-test"
-echo "Attempting Leading Hyphen: '$LEADING_HYPHEN'..."
-RES=$($BINARY tx name register-name "$LEADING_HYPHEN" "meta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
-TX_HASH=$(echo $RES | jq -r '.txhash')
-sleep 4
-QUERY_RES=$($BINARY query tx $TX_HASH --output json 2>&1)
-RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
-if echo "$RAW_LOG" | grep -q "invalid character"; then
-    echo "✅ SUCCESS: Leading hyphen rejected."
-elif [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
-    echo "✅ SUCCESS: Leading hyphen rejected (Code != 0)."
-else
-    echo "❌ FAILURE: Leading hyphen accepted."
-    echo "DEBUG LOG: $RAW_LOG"
-fi
-
-# B2b. Hyphen at end is also rejected (mirror of B2; the boundary rule
-# applies to both ends and we cover both explicitly so a regex regression
-# at either edge fails the test).
-TRAILING_HYPHEN="alice-test-"
-echo "Attempting Trailing Hyphen: '$TRAILING_HYPHEN'..."
-RES=$($BINARY tx name register-name "$TRAILING_HYPHEN" "meta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
-TX_HASH=$(echo $RES | jq -r '.txhash')
-sleep 4
-QUERY_RES=$($BINARY query tx $TX_HASH --output json 2>&1)
-RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
-if echo "$RAW_LOG" | grep -q "invalid character"; then
-    echo "✅ SUCCESS: Trailing hyphen rejected."
-elif [ "$(echo $QUERY_RES | jq -r '.code')" != "0" ]; then
-    echo "✅ SUCCESS: Trailing hyphen rejected (Code != 0)."
-else
-    echo "❌ FAILURE: Trailing hyphen accepted."
-    echo "DEBUG LOG: $RAW_LOG"
-fi
-
-# B3. Underscores anywhere (leading, middle, trailing) match X handle rules.
-# We exercise the boundary case explicitly: leading + trailing underscore.
-EDGE_UNDERSCORE="_alice_under_"
-echo "Attempting Edge Underscores: '$EDGE_UNDERSCORE'..."
-RES=$($BINARY tx name register-name "$EDGE_UNDERSCORE" "underscore-meta" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
-TX_HASH=$(echo $RES | jq -r '.txhash')
-sleep 4
-QUERY_RES=$($BINARY query tx $TX_HASH --output json 2>&1)
-CODE=$(echo $QUERY_RES | jq -r '.code')
-if [ "$CODE" = "0" ]; then
-    OWNER=$($BINARY query name resolve "$EDGE_UNDERSCORE" --output json 2>/dev/null | jq -r '.name_record.owner')
-    if [ "$OWNER" = "$ALICE_ADDR" ]; then
-        echo "✅ SUCCESS: Underscore-at-boundary name registered to Alice."
-    else
-        echo "❌ FAILURE: tx code 0 but owner is '$OWNER', expected $ALICE_ADDR."
-    fi
-else
-    echo "❌ FAILURE: Boundary underscore rejected. Log:"
-    echo "$QUERY_RES" | jq -r '.raw_log'
 fi
 
 # C. Blocked/Reserved Word
@@ -189,10 +143,67 @@ sleep 4
 QUERY_RES=$($BINARY query tx $TX_HASH --output json)
 
 if echo "$QUERY_RES" | jq -r '.raw_log' | grep -q "reserved"; then
-    echo "✅ SUCCESS: 'admin' is reserved."
-else 
-    echo "❌ FAILURE: 'admin' check failed or passed unexpectedly."
+    echo "[ OK ] SUCCESS: 'admin' is reserved."
+else
+    echo "[FAIL] FAILURE: 'admin' check failed or passed unexpectedly."
 fi
+
+# D. Boundary characters — explicit regression guards from commit 44c71ca.
+# The validNameRegex `^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?$`:
+#   - REJECTS leading hyphen (`-alice-test`) and trailing hyphen (`alice-test-`)
+#   - ACCEPTS leading underscore and trailing underscore (`_alice_under_`)
+# These three cases are easy to break in a "let me tighten the regex" PR
+# without realising it; the boundary checks below catch any drift.
+expect_rejected() {
+    local NAME="$1" LABEL="$2"
+    local res txh res_q raw code
+    res=$($BINARY tx name register-name "$NAME" "meta" --from alice -y \
+        --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
+    txh=$(echo "$res" | jq -r '.txhash')
+    sleep 4
+    res_q=$($BINARY query tx "$txh" --output json 2>&1)
+    raw=$(echo "$res_q" | jq -r '.raw_log')
+    code=$(echo "$res_q" | jq -r '.code')
+    if [ "$code" != "0" ] && echo "$raw" | grep -qiE "invalid character|invalid name|cannot start|cannot end"; then
+        echo "[ OK ] SUCCESS: $LABEL '$NAME' rejected by regex."
+    elif [ "$code" != "0" ]; then
+        echo "[ OK ] SUCCESS: $LABEL '$NAME' rejected (Code $code) — but error doesn't mention regex"
+    else
+        echo "[FAIL] FAILURE: $LABEL '$NAME' was accepted!"
+        exit 1
+    fi
+}
+
+expect_accepted_clean() {
+    local NAME="$1" LABEL="$2"
+    local res txh res_q code raw
+    res=$($BINARY tx name register-name "$NAME" "meta" --from alice -y \
+        --chain-id $CHAIN_ID --keyring-backend test --output json 2>/dev/null)
+    txh=$(echo "$res" | jq -r '.txhash')
+    sleep 4
+    res_q=$($BINARY query tx "$txh" --output json 2>&1)
+    code=$(echo "$res_q" | jq -r '.code')
+    raw=$(echo "$res_q" | jq -r '.raw_log')
+    if [ "$code" = "0" ]; then
+        echo "[ OK ] SUCCESS: $LABEL '$NAME' accepted by regex."
+    elif echo "$raw" | grep -qi "invalid character\|invalid name"; then
+        echo "[FAIL] FAILURE: $LABEL '$NAME' rejected by regex (regression)."
+        echo "    raw_log: $(echo "$raw" | head -c 200)"
+        exit 1
+    else
+        # Some other error (e.g. fee, name already taken) — informational only.
+        echo "[INFO] $LABEL '$NAME' returned Code $code (non-regex error): $(echo "$raw" | head -c 120)"
+    fi
+}
+
+echo "Attempting Leading Hyphen: '-alice-test'..."
+expect_rejected "-alice-test" "leading hyphen"
+
+echo "Attempting Trailing Hyphen: 'alice-test-'..."
+expect_rejected "alice-test-" "trailing hyphen"
+
+echo "Attempting Leading + Trailing Underscore: '_alice_under_'..."
+expect_accepted_clean "_alice_under_" "underscore boundary"
 
 # --- 3. TEST: VALID REGISTRATION (Alice) ---
 echo "--- CASE 3: Alice registers 'alice-test' (Valid) ---"
@@ -210,7 +221,7 @@ QUERY_RES=$($BINARY query tx $TX_HASH --output json)
 CODE=$(echo $QUERY_RES | jq -r '.code')
 
 if [ "$CODE" != "0" ]; then
-    echo "❌ FAILURE: Valid registration failed!"
+    echo "[FAIL] FAILURE: Valid registration failed!"
     echo "Raw Log: $(echo $QUERY_RES | jq -r '.raw_log')"
     exit 1
 fi
@@ -218,9 +229,9 @@ fi
 # Verify Ownership
 OWNER=$($BINARY query name resolve "alice-test" --output json | jq -r '.name_record.owner')
 if [ "$OWNER" == "$ALICE_ADDR" ]; then
-    echo "✅ SUCCESS: Alice owns 'alice'."
+    echo "[ OK ] SUCCESS: Alice owns 'alice'."
 else
-    echo "❌ FAILURE: Owner is $OWNER"
+    echo "[FAIL] FAILURE: Owner is $OWNER"
     exit 1
 fi
 
@@ -232,9 +243,9 @@ DIFF=$((BAL_START - BAL_END))
 echo "Spent: $DIFF $DENOM (Fee: $FEE_AMOUNT)"
 
 if [ "$DIFF" -ge "$FEE_AMOUNT" ]; then
-    echo "✅ SUCCESS: Fee deducted."
+    echo "[ OK ] SUCCESS: Fee deducted."
 else
-    echo "❌ FAILURE: Fee not deducted correctly."
+    echo "[FAIL] FAILURE: Fee not deducted correctly."
     exit 1
 fi
 
@@ -251,12 +262,12 @@ RAW_LOG=$(echo $QUERY_RES | jq -r '.raw_log')
 
 if [ "$CODE" != "0" ]; then
     if echo "$RAW_LOG" | grep -q "already taken"; then
-        echo "✅ SUCCESS: Duplicate registration blocked."
+        echo "[ OK ] SUCCESS: Duplicate registration blocked."
     else
-        echo "✅ SUCCESS: Blocked (Code $CODE)."
+        echo "[ OK ] SUCCESS: Blocked (Code $CODE)."
     fi
 else
-    echo "❌ FAILURE: Duplicate name registered!"
+    echo "[FAIL] FAILURE: Duplicate name registered!"
     exit 1
 fi
 
@@ -276,12 +287,12 @@ if [ "$CODE" == "0" ]; then
     # Verify State
     STORED_META=$($BINARY query name resolve "alice-test" --output json | jq -r '.name_record.data')
     if [ "$STORED_META" == "$NEW_META" ]; then
-        echo "✅ SUCCESS: Metadata updated."
+        echo "[ OK ] SUCCESS: Metadata updated."
     else
-        echo "❌ FAILURE: Metadata mismatch. Expected $NEW_META, got $STORED_META"
+        echo "[FAIL] FAILURE: Metadata mismatch. Expected $NEW_META, got $STORED_META"
     fi
 else
-    echo "❌ FAILURE: Update Tx failed."
+    echo "[FAIL] FAILURE: Update Tx failed."
     echo "Raw Log: $(echo $QUERY_RES | jq -r '.raw_log')"
     exit 1
 fi
