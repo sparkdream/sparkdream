@@ -38,6 +38,7 @@ var NonDelegableSessionMsgs = map[string]bool{
 var DreamFieldsToStrip = map[string][]string{
 	"/sparkdream.blog.v1.MsgCreatePost":  {"author_bond"},
 	"/sparkdream.blog.v1.MsgCreateReply": {"author_bond"},
+	"/sparkdream.forum.v1.MsgCreatePost": {"author_bond"},
 }
 
 // ContextKeySessionFeePaid is set by SessionFeeDecorator when it pays fees

@@ -43,7 +43,15 @@ bench:
 
 test: govet govulncheck test-unit
 
-.PHONY: test test-unit test-race test-cover bench
+# Purge per-module E2E `post-setup` snapshots so the next run of any
+# `test/<module>/run_all_tests.sh` rebuilds them against current config.yml /
+# DefaultParams. Use after changes that alter chain state but leave
+# setup_test_accounts.sh unchanged (the SHA-256 hash gate would otherwise
+# reuse stale snapshots). Pass MODULES="forum rep" to limit scope.
+clean-snapshots:
+	@scripts/clean-test-snapshots.sh $(MODULES)
+
+.PHONY: test test-unit test-race test-cover bench clean-snapshots
 
 #################
 ###  Install  ###

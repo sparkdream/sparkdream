@@ -450,7 +450,37 @@ var NonDelegableSessionMsgs = map[string]bool{
 | **Multi-signer message injection** | Inner messages with multiple signers are rejected (Section 6.3 step 7). Signer rewriting only supports single-signer messages to prevent ambiguous authorization. |
 | **Content griefing via mass-flagging** | `MsgFlagPost` excluded from default allowlist. A compromised session key cannot mass-flag forum content. |
 
-### 8.3. Interaction with x/commons ForbiddenMessages
+### 8.3. Parameter Ceilings: Why 7 Days and 20 Types
+
+Two ceiling parameters bound how *long* and how *broadly* a single session can act if its key is compromised. These values are deliberately conservative; this section records the reasoning so future governance proposals or chain upgrades can be evaluated against the original design intent rather than re-litigated from scratch.
+
+#### Why `max_expiration` is 7 days
+
+The ceiling is the **worst case**, not the default — granters pick any duration ≤ ceiling when calling `MsgCreateSession`. Raising it does not improve UX for short sessions; it only enlarges the window in which a leaked key can act.
+
+Arguments for keeping 7 days:
+
+1. **Compromise damage scales linearly with the window.** A leaked session key remains usable until expiration. At 7 days a granter is forced into a re-auth checkpoint roughly weekly; at 30 days, the attacker has a month to exhaust the spend budget, mass-spam content, and mass-mutate guild membership. The financial blast radius is bounded by `max_spend_limit`, but the *non-financial* damage (spam, social griefing) scales directly with duration.
+2. **Granters retain full discretion below the ceiling.** A kiosk login can request a 1-hour session; a daily-driver wallet can request 7 days. Raising the ceiling changes only the maximum, not the median.
+3. **The spec already routes long-term delegation to governance.** Section 8.2 ("Permanent delegation") notes that anything outliving a week should go through `x/commons`, where it gets explicit deliberation rather than a single-signature grant.
+4. **Mobile and long-lived devices are exactly the wrong case for a longer ceiling.** Stolen-phone scenarios are the most common physical-compromise vector. A short ceiling forces theft-recovery via re-auth instead of leaving keys live for weeks.
+
+Acceptable upper bound if revisited: **14 days**. Anything longer should be a chain-upgrade decision with explicit governance review, not a parameter change.
+
+#### Why `max_msg_types_per_session` is 20
+
+This is a least-privilege lever, not a UX cap. With 41 types in the genesis ceiling, a per-session limit of 20 forces apps to scope sessions by *purpose*: a blog client needs ~6 types, a guild admin tool needs ~10, a season player needs ~15. A single session that mashes all 41 types together is exactly the failure mode the cap prevents — one compromised key would span content, identity, and social modules.
+
+Arguments for keeping 20:
+
+1. **Per-session scope = compromise blast radius.** A 6-type compromise affects one feature; a 41-type compromise touches five modules. Capping per-session size mechanically limits how broad any single key can be.
+2. **`max_sessions_per_granter = 10` already covers power users.** A granter can run 10 concurrent purpose-scoped sessions. Total addressable types per granter = 10 × 20 = 200, far above the 41-type ceiling. There is no real "ran out of types" problem to solve by raising the per-session cap.
+3. **Storage cost.** Each session's `allowed_msg_types` list is stored on chain (and indexed three ways via `SessionsByGranter`, `SessionsByGrantee`, `SessionsByExpiration`). A 20-entry list is roughly 1KB per session; doubling it to 41 doubles that cost with no UX benefit, because no legitimate single app needs all 41 types.
+4. **Design intent: one session per app/feature.** The "single sign-on for everything" pattern is the case the bounded-allowlist model explicitly discourages, in favor of narrow, short-lived, purpose-scoped grants.
+
+The recent ceiling expansion from 19 → 41 types **strengthens** the case for keeping the per-session cap well below the ceiling, rather than weakening it. Future ceiling expansions should not automatically trigger raising this cap.
+
+### 8.4. Interaction with x/commons ForbiddenMessages
 
 The `x/commons` `ForbiddenMessages` map blocks certain message types from being used in council `AllowedMessages`. For consistency, session messages should be added — councils should not be able to create or execute session keys via proposals:
 
@@ -671,24 +701,33 @@ The following message types form the genesis ceiling (`max_allowed_msg_types`) a
 | `/sparkdream.forum.v1.MsgConfirmProposedReply` | Confirming sentinel proposals |
 | `/sparkdream.forum.v1.MsgRejectProposedReply` | Rejecting sentinel proposals |
 
+> **Implementation note:** `forum.MsgCreatePost` also has an optional `author_bond` field that locks DREAM. Like the blog equivalents, this field is zeroed out at dispatch via `DreamFieldsToStrip`.
+
 **Excluded** (financial, irreversible, or abuse-prone — require main wallet):
 - `MsgDeletePost` — permanent deletion
 - `MsgBondRole` / `MsgUnbondRole` (x/rep) — locks/unlocks DREAM against a bonded role (sentinel / curator / verifier)
 - `MsgCreateBounty` / `MsgAwardBounty` — escrows DREAM
 - `MsgHidePost` — sentinel moderation (requires bond)
-- `MsgAppealPost` — initiates dispute resolution
+- `MsgAppealPost` / `MsgAppealThreadLock` / `MsgAppealThreadMove` — initiate dispute resolution and escrow appeal fees
 - `MsgFlagPost` — a compromised session key could mass-flag content to grief creators; flagging is deliberate enough to warrant main wallet
+- `MsgPinPost` / `MsgUnpinPost` / `MsgPinReply` / `MsgUnpinReply` — governance/sentinel-privileged
+- `MsgDisputePin` — initiates a dispute initiative
+- `MsgLockThread` / `MsgUnlockThread` / `MsgFreezeThread` / `MsgMoveThread` / `MsgUnarchiveThread` / `MsgDismissFlags` — sentinel actions
 
-### 12.3. x/name (Identity — Limited)
+### 12.3. x/name (Identity Metadata)
 
 | Message Type | Rationale |
 |-------------|-----------|
 | `/sparkdream.name.v1.MsgSetPrimary` | Changing primary display name |
 | `/sparkdream.name.v1.MsgUpdateName` | Updating name metadata |
+| `/sparkdream.name.v1.MsgSetDisplayName` | Setting per-name display label |
+| `/sparkdream.name.v1.MsgSetTarget` | Pointing a name at a routing target (consent-gated) |
+| `/sparkdream.name.v1.MsgAcceptTarget` | Accepting a name pointed at the grantee |
 
-**Excluded** (governance-gated or financial):
+**Excluded** (governance-gated, fund-locking, or identity-significant):
 - `MsgRegisterName` — requires council membership, pays fee
-- `MsgFileDispute` / `MsgContestDispute` — locks DREAM
+- `MsgTransferName` — transfers ownership of a name (rare, identity-significant)
+- `MsgFileDispute` / `MsgContestDispute` / `MsgResolveDispute` — locks DREAM / privileged
 
 ### 12.4. x/collect (Collections — Limited)
 
@@ -696,6 +735,51 @@ The following message types form the genesis ceiling (`max_allowed_msg_types`) a
 |-------------|-----------|
 | `/sparkdream.collect.v1.MsgReact` | Reacting to collections |
 | `/sparkdream.collect.v1.MsgRemoveReaction` | Removing reactions |
+| `/sparkdream.collect.v1.MsgUpvoteContent` | Member-only upvote, no funds moved |
+| `/sparkdream.collect.v1.MsgUpdateItem` | Metadata edit on own item |
+| `/sparkdream.collect.v1.MsgReorderItem` | Reordering own collection items |
+| `/sparkdream.collect.v1.MsgSetSeekingEndorsement` | Toggling own collection's discovery flag |
+
+**Excluded** (escrow SPARK deposits, lock DREAM, burn fees, or require bonded role):
+- `MsgCreateCollection` / `MsgUpdateCollection` / `MsgDeleteCollection` — escrow / refund / burn SPARK deposits
+- `MsgAddItem` / `MsgAddItems` / `MsgRemoveItem` / `MsgRemoveItems` — per-item SPARK deposit + spam tax
+- `MsgDownvoteContent` — burns SPARK
+- `MsgFlagContent` — non-member spam tax + moderation grief vector
+- `MsgEndorseCollection` / `MsgRequestSponsorship` / `MsgSponsorCollection` / `MsgAppealHide` — lock or escrow tokens
+- `MsgRateCollection` — requires bonded `ROLE_TYPE_COLLECT_CURATOR`
+- `MsgPinCollection` — burns held deposits, trust-level gated
+- `MsgAddCollaborator` / `MsgRemoveCollaborator` / `MsgUpdateCollaboratorRole` — affect access control of others; safe but rare, kept out of the ceiling for now
+
+### 12.5. x/season (Gamification UX)
+
+| Message Type | Rationale |
+|-------------|-----------|
+| `/sparkdream.season.v1.MsgJoinGuild` | Member joins a public guild |
+| `/sparkdream.season.v1.MsgLeaveGuild` | Member leaves a guild |
+| `/sparkdream.season.v1.MsgAcceptGuildInvite` | Accepting a guild invite |
+| `/sparkdream.season.v1.MsgInviteToGuild` | Founder/officer invites a member |
+| `/sparkdream.season.v1.MsgRevokeGuildInvite` | Founder/officer/invitee cancels an invite |
+| `/sparkdream.season.v1.MsgKickFromGuild` | Founder/officer removes a member |
+| `/sparkdream.season.v1.MsgUpdateGuildDescription` | Founder edits guild description |
+| `/sparkdream.season.v1.MsgSetGuildInviteOnly` | Founder toggles invite-only mode |
+| `/sparkdream.season.v1.MsgPromoteToOfficer` | Founder promotes a member |
+| `/sparkdream.season.v1.MsgDemoteOfficer` | Founder demotes an officer |
+| `/sparkdream.season.v1.MsgSetDisplayName` | Setting season-scoped display name (cooldown-gated) |
+| `/sparkdream.season.v1.MsgSetDisplayTitle` | Equipping an earned title |
+| `/sparkdream.season.v1.MsgStartQuest` | Beginning a quest |
+| `/sparkdream.season.v1.MsgAbandonQuest` | Abandoning quest progress |
+| `/sparkdream.season.v1.MsgClaimQuestReward` | Claiming XP from a completed quest |
+
+**Excluded** (DREAM-burning, fund-locking, identity-significant, or admin-only):
+- `MsgCreateGuild` — burns DREAM (guild creation cost)
+- `MsgSetUsername` — burns DREAM, reserves a name in x/name
+- `MsgReportDisplayName` / `MsgAppealDisplayNameModeration` — lock DREAM
+- `MsgClaimGuildFounder` / `MsgTransferGuildFounder` / `MsgDissolveGuild` — rare, identity-significant
+- `Msg{Create,Update,Deactivate}Quest`, `Msg{Create,Update,Delete}Achievement`, `Msg{Create,Update,Delete}Title`, `MsgResolveDisplayNameAppeal`, `MsgResolveUnappealedModeration`, `Msg{SetNextSeasonInfo,SkipTransitionPhase,ExtendSeason,RetrySeasonTransition,AbortSeasonTransition}` — admin/governance-only
+
+### 12.6. Modules with no session-delegable messages
+
+x/rep, x/reveal, x/futarchy, x/commons, x/federation, x/shield, x/ecosystem, x/split, x/sparkdream — every signer Msg in these modules either moves SPARK/DREAM, locks a bond, requires bonded-role / committee / council privilege, or is governance/admin infrastructure. They are deliberately not in the ceiling and adding any of them requires a chain upgrade.
 
 ---
 
@@ -720,6 +804,8 @@ At genesis, `max_allowed_msg_types` and `allowed_msg_types` are identical — al
 3. No duplicate entries in either list
 4. Both lists are non-empty (a chain with zero delegable messages means the module is useless — reject)
 
+At genesis the ceiling and active list are identical. Both lists below are abbreviated for readability — see [Section 12](#12-default-allowed-message-types) for the full annotated breakdown by module. The 41 entries are: blog (6), forum (9), name (5), collect (6), season (15).
+
 ```json
 {
   "params": {
@@ -741,30 +827,32 @@ At genesis, `max_allowed_msg_types` and `allowed_msg_types` are identical — al
       "/sparkdream.forum.v1.MsgRejectProposedReply",
       "/sparkdream.name.v1.MsgSetPrimary",
       "/sparkdream.name.v1.MsgUpdateName",
+      "/sparkdream.name.v1.MsgSetDisplayName",
+      "/sparkdream.name.v1.MsgSetTarget",
+      "/sparkdream.name.v1.MsgAcceptTarget",
       "/sparkdream.collect.v1.MsgReact",
-      "/sparkdream.collect.v1.MsgRemoveReaction"
+      "/sparkdream.collect.v1.MsgRemoveReaction",
+      "/sparkdream.collect.v1.MsgUpvoteContent",
+      "/sparkdream.collect.v1.MsgUpdateItem",
+      "/sparkdream.collect.v1.MsgReorderItem",
+      "/sparkdream.collect.v1.MsgSetSeekingEndorsement",
+      "/sparkdream.season.v1.MsgJoinGuild",
+      "/sparkdream.season.v1.MsgLeaveGuild",
+      "/sparkdream.season.v1.MsgAcceptGuildInvite",
+      "/sparkdream.season.v1.MsgInviteToGuild",
+      "/sparkdream.season.v1.MsgRevokeGuildInvite",
+      "/sparkdream.season.v1.MsgKickFromGuild",
+      "/sparkdream.season.v1.MsgUpdateGuildDescription",
+      "/sparkdream.season.v1.MsgSetGuildInviteOnly",
+      "/sparkdream.season.v1.MsgPromoteToOfficer",
+      "/sparkdream.season.v1.MsgDemoteOfficer",
+      "/sparkdream.season.v1.MsgSetDisplayName",
+      "/sparkdream.season.v1.MsgSetDisplayTitle",
+      "/sparkdream.season.v1.MsgStartQuest",
+      "/sparkdream.season.v1.MsgAbandonQuest",
+      "/sparkdream.season.v1.MsgClaimQuestReward"
     ],
-    "allowed_msg_types": [
-      "/sparkdream.blog.v1.MsgCreatePost",
-      "/sparkdream.blog.v1.MsgUpdatePost",
-      "/sparkdream.blog.v1.MsgCreateReply",
-      "/sparkdream.blog.v1.MsgEditReply",
-      "/sparkdream.blog.v1.MsgReact",
-      "/sparkdream.blog.v1.MsgRemoveReaction",
-      "/sparkdream.forum.v1.MsgCreatePost",
-      "/sparkdream.forum.v1.MsgEditPost",
-      "/sparkdream.forum.v1.MsgUpvotePost",
-      "/sparkdream.forum.v1.MsgDownvotePost",
-      "/sparkdream.forum.v1.MsgFollowThread",
-      "/sparkdream.forum.v1.MsgUnfollowThread",
-      "/sparkdream.forum.v1.MsgMarkAcceptedReply",
-      "/sparkdream.forum.v1.MsgConfirmProposedReply",
-      "/sparkdream.forum.v1.MsgRejectProposedReply",
-      "/sparkdream.name.v1.MsgSetPrimary",
-      "/sparkdream.name.v1.MsgUpdateName",
-      "/sparkdream.collect.v1.MsgReact",
-      "/sparkdream.collect.v1.MsgRemoveReaction"
-    ],
+    "allowed_msg_types": "<same 41 entries as max_allowed_msg_types>",
     "max_sessions_per_granter": 10,
     "max_msg_types_per_session": 20,
     "max_expiration": "604800s",

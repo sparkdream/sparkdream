@@ -66,7 +66,27 @@ genesis:
         description: "Governance proposals and discussion"
         members_only_write: true
         admin_only_write: false
-      next_category_id: 3
+      - category_id: 3
+        title: "Announcements"
+        description: "Official chain announcements — upgrades, season transitions, council notices, security advisories"
+        members_only_write: false
+        admin_only_write: true
+      - category_id: 4
+        title: "Help & Support"
+        description: "Onboarding questions and general support — open to non-members"
+        members_only_write: false
+        admin_only_write: false
+      - category_id: 5
+        title: "Bugs & Feedback"
+        description: "Bug reports and feedback on the chain, modules, and UX"
+        members_only_write: false
+        admin_only_write: false
+      - category_id: 6
+        title: "Initiatives & Projects"
+        description: "Coordination on x/rep initiatives, x/reveal contributions, and member projects"
+        members_only_write: true
+        admin_only_write: false
+      next_category_id: 7
     gnovm:
       params:
         sysnames_pkgpath: ""

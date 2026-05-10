@@ -15,17 +15,20 @@ var (
 	DefaultMaxSpendLimit                = sdk.NewInt64Coin("uspark", 100_000_000) // 100 SPARK
 
 	// DefaultAllowedMsgTypes is the genesis ceiling and initial active allowlist.
-	// Each message was reviewed as low-risk, high-frequency content operations
-	// safe for ephemeral key delegation. Only expandable via chain upgrade.
+	// Each message was reviewed as a low-risk, UX-frequent content/identity/social
+	// operation safe for ephemeral key delegation. Excluded across all modules:
+	// any message that locks/burns/transfers SPARK or DREAM, requires a bonded
+	// role / committee / council privilege, or initiates a dispute that escrows
+	// fees. Only expandable via chain upgrade.
 	DefaultAllowedMsgTypes = []string{
-		// x/blog
+		// x/blog — content CRUD + reactions (DREAM author_bond fields stripped at dispatch)
 		"/sparkdream.blog.v1.MsgCreatePost",
 		"/sparkdream.blog.v1.MsgUpdatePost",
 		"/sparkdream.blog.v1.MsgCreateReply",
 		"/sparkdream.blog.v1.MsgEditReply",
 		"/sparkdream.blog.v1.MsgReact",
 		"/sparkdream.blog.v1.MsgRemoveReaction",
-		// x/forum
+		// x/forum — content CRUD + voting + thread subscription (author_bond stripped)
 		"/sparkdream.forum.v1.MsgCreatePost",
 		"/sparkdream.forum.v1.MsgEditPost",
 		"/sparkdream.forum.v1.MsgUpvotePost",
@@ -35,12 +38,43 @@ var (
 		"/sparkdream.forum.v1.MsgMarkAcceptedReply",
 		"/sparkdream.forum.v1.MsgConfirmProposedReply",
 		"/sparkdream.forum.v1.MsgRejectProposedReply",
-		// x/name
+		// x/name — identity metadata (no fee, no dispute). MsgRegisterName, transfer,
+		// and dispute messages are deliberately excluded.
 		"/sparkdream.name.v1.MsgSetPrimary",
 		"/sparkdream.name.v1.MsgUpdateName",
-		// x/collect
+		"/sparkdream.name.v1.MsgSetDisplayName",
+		"/sparkdream.name.v1.MsgSetTarget",
+		"/sparkdream.name.v1.MsgAcceptTarget",
+		// x/collect — UX-frequent collection actions. Excluded: any item/collection
+		// CRUD that escrows a SPARK deposit, MsgDownvoteContent (burns SPARK),
+		// MsgFlagContent (non-member spam tax), endorsement/sponsorship (lock DREAM),
+		// and MsgRateCollection (requires bonded curator role).
 		"/sparkdream.collect.v1.MsgReact",
 		"/sparkdream.collect.v1.MsgRemoveReaction",
+		"/sparkdream.collect.v1.MsgUpvoteContent",
+		"/sparkdream.collect.v1.MsgUpdateItem",
+		"/sparkdream.collect.v1.MsgReorderItem",
+		"/sparkdream.collect.v1.MsgSetSeekingEndorsement",
+		// x/season — gamification UX (guild membership, quests, identity cosmetics).
+		// Excluded: MsgCreateGuild and MsgSetUsername (burn DREAM), report/appeal
+		// (lock DREAM), founder-transfer/dissolve (rare, identity-significant), and
+		// all admin Msgs (Create/Update/Delete{Achievement,Title,Quest}, season
+		// transition controls).
+		"/sparkdream.season.v1.MsgJoinGuild",
+		"/sparkdream.season.v1.MsgLeaveGuild",
+		"/sparkdream.season.v1.MsgAcceptGuildInvite",
+		"/sparkdream.season.v1.MsgInviteToGuild",
+		"/sparkdream.season.v1.MsgRevokeGuildInvite",
+		"/sparkdream.season.v1.MsgKickFromGuild",
+		"/sparkdream.season.v1.MsgUpdateGuildDescription",
+		"/sparkdream.season.v1.MsgSetGuildInviteOnly",
+		"/sparkdream.season.v1.MsgPromoteToOfficer",
+		"/sparkdream.season.v1.MsgDemoteOfficer",
+		"/sparkdream.season.v1.MsgSetDisplayName",
+		"/sparkdream.season.v1.MsgSetDisplayTitle",
+		"/sparkdream.season.v1.MsgStartQuest",
+		"/sparkdream.season.v1.MsgAbandonQuest",
+		"/sparkdream.season.v1.MsgClaimQuestReward",
 	}
 )
 

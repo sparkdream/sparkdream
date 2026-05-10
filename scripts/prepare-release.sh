@@ -14,6 +14,11 @@
 #      params_vals_<network>.go and config.yml files.
 #   4. VERIFY GENESIS       — run `make verify-genesis` to run the per-network
 #      and cross-network audit tests.
+#   5. REFRESH E2E SNAPSHOTS — if root config.yml changed in this working tree
+#      (vs HEAD), invalidate test/*/snapshots/post-setup so the next E2E run
+#      rebuilds against the new config. The auto-snapshot helper in
+#      test/_auto_snapshot.sh keys off setup_test_accounts.sh's SHA-256 only,
+#      so config-only changes need explicit invalidation.
 #
 # This script does NOT commit. It prints a diff summary and a suggested commit
 # message at the end so you can stage and commit yourself.
@@ -209,6 +214,25 @@ if [ "$DO_REGEN" = true ]; then
     else
         fail "make verify-genesis failed — inspect output above"
         exit 1
+    fi
+fi
+
+# --- 5. refresh e2e snapshots ----------------------------------------------
+# Local E2E `post-setup` snapshots are gated on setup_test_accounts.sh's
+# SHA-256 (test/_auto_snapshot.sh), not on config.yml — so config-only
+# changes silently reuse stale snapshots. Invalidate when root config.yml
+# was modified in this working tree relative to HEAD; otherwise keep
+# snapshots warm so post-release E2E iteration stays fast.
+section "5. REFRESH E2E SNAPSHOTS"
+
+if git diff --quiet HEAD -- config.yml 2>/dev/null; then
+    note "root config.yml unchanged vs HEAD — local E2E snapshots stay fresh, skipping clean"
+else
+    echo "  root config.yml changed — invalidating local E2E post-setup snapshots"
+    if scripts/clean-test-snapshots.sh --quiet; then
+        ok "snapshots invalidated; next per-module run_all_tests.sh will regenerate lazily"
+    else
+        warn "snapshot cleanup reported errors — see above; continuing"
     fi
 fi
 

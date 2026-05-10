@@ -139,16 +139,19 @@ Updates the active allowlist within the ceiling bounds. Intended for the Operati
 | `max_msg_types_per_session` | 20 | Max message types per session |
 | `max_expiration` | 7 days | Maximum session duration |
 | `max_spend_limit` | 100 SPARK | Maximum fee delegation budget |
-| `max_allowed_msg_types` | 19 types | Ceiling — only shrinkable via governance, expandable only via chain upgrade |
-| `allowed_msg_types` | 19 types | Active allowlist — must be subset of ceiling |
+| `max_allowed_msg_types` | 41 types | Ceiling — only shrinkable via governance, expandable only via chain upgrade |
+| `allowed_msg_types` | 41 types | Active allowlist — must be subset of ceiling |
 
 ### Default Allowed Message Types
 
 The genesis ceiling includes message types from:
-- **x/blog**: `MsgCreatePost`, `MsgUpdatePost`, `MsgCreateReply`, `MsgEditReply`, `MsgReact`, `MsgRemoveReaction`
-- **x/forum**: `MsgCreatePost`, `MsgEditPost`, `MsgUpvotePost`, `MsgDownvotePost`, `MsgFollowThread`, `MsgUnfollowThread`, `MsgMarkAcceptedReply`, `MsgConfirmProposedReply`, `MsgRejectProposedReply`
-- **x/name**: `MsgSetPrimary`, `MsgUpdateName`
-- **x/collect**: `MsgReact`, `MsgRemoveReaction`
+- **x/blog (6)**: `MsgCreatePost`, `MsgUpdatePost`, `MsgCreateReply`, `MsgEditReply`, `MsgReact`, `MsgRemoveReaction`
+- **x/forum (9)**: `MsgCreatePost`, `MsgEditPost`, `MsgUpvotePost`, `MsgDownvotePost`, `MsgFollowThread`, `MsgUnfollowThread`, `MsgMarkAcceptedReply`, `MsgConfirmProposedReply`, `MsgRejectProposedReply`
+- **x/name (5)**: `MsgSetPrimary`, `MsgUpdateName`, `MsgSetDisplayName`, `MsgSetTarget`, `MsgAcceptTarget`
+- **x/collect (6)**: `MsgReact`, `MsgRemoveReaction`, `MsgUpvoteContent`, `MsgUpdateItem`, `MsgReorderItem`, `MsgSetSeekingEndorsement`
+- **x/season (15)**: `MsgJoinGuild`, `MsgLeaveGuild`, `MsgAcceptGuildInvite`, `MsgInviteToGuild`, `MsgRevokeGuildInvite`, `MsgKickFromGuild`, `MsgUpdateGuildDescription`, `MsgSetGuildInviteOnly`, `MsgPromoteToOfficer`, `MsgDemoteOfficer`, `MsgSetDisplayName`, `MsgSetDisplayTitle`, `MsgStartQuest`, `MsgAbandonQuest`, `MsgClaimQuestReward`
+
+Excluded across all modules: any message that locks/burns/transfers SPARK or DREAM, requires a bonded role / committee / council privilege, or initiates a dispute that escrows fees.
 
 ### Non-Delegable Messages
 
