@@ -167,7 +167,6 @@ Start here:
 
 - [docs/architecture.md](docs/architecture.md) — system overview and fund flows
 - [docs/tokenomics.md](docs/tokenomics.md) — full SPARK and DREAM mechanics
-- [docs/implementation-plan.md](docs/implementation-plan.md) — phased 28-week roadmap
 
 Module specifications:
 
@@ -188,11 +187,6 @@ Operational:
 - [deploy/docs/archival-strategy.md](deploy/docs/archival-strategy.md) — block archival to Arweave
 - [deploy/docs/state-sync.md](deploy/docs/state-sync.md) — state sync setup
 - [docs/security-hardening.md](docs/security-hardening.md) — immutable parameters and what they protect
-
-Conventions:
-
-- [docs/naming-conventions.md](docs/naming-conventions.md) — RPC method and CLI naming (no CRUD prefixes)
-- [CLAUDE.md](CLAUDE.md) — project instructions and known footguns
 
 ---
 
