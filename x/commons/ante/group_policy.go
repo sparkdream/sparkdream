@@ -31,8 +31,11 @@ func (ad ProposalFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 			continue
 		}
 
-		// Determine if this proposal requires a fee
-		requiresFee := false
+		// Determine if this proposal requires a fee. Signaling proposals
+		// (no inner messages) pay the fee too — they still consume proposal
+		// storage and voter attention, so making them free would invite
+		// cheap spam.
+		requiresFee := len(submitMsg.Messages) == 0
 		for _, anyMsg := range submitMsg.Messages {
 			var sdkMsg sdk.Msg
 			if err := ad.commonsKeeper.Codec().UnpackAny(anyMsg, &sdkMsg); err != nil {

@@ -160,6 +160,19 @@ func TestProposalFeeDecorator(t *testing.T) {
 			expectErr: true,
 			errMsg:    "Commons Council requires min fee",
 		},
+		{
+			name:      "Block: Signaling Proposal (no inner messages) is PAID",
+			msgs:      nil,
+			fee:       insufficientFee,
+			expectErr: true,
+			errMsg:    "Commons Council requires min fee",
+		},
+		{
+			name:      "Success: Signaling Proposal with Sufficient Fee",
+			msgs:      nil,
+			fee:       requiredFee,
+			expectErr: false,
+		},
 	}
 
 	for _, tc := range tests {
