@@ -19,11 +19,13 @@ The full design is laid out in [docs/architecture.md](docs/architecture.md) and 
 
 Authority is partitioned across three councils, each with a different mandate, decision policy, and treasury share:
 
-| Pillar | Mandate | Treasury share |
-|---|---|---|
-| **Commons Council** | Identity, membership, social policy, name registry | 50% |
-| **Technical Council** | Protocol upgrades, infrastructure, code reveals | 30% |
-| **Ecosystem Council** | Partnerships, grants, external integrations | 20% |
+| Pillar | Mandate | Pillar share | Council / Ops split |
+|---|---|---|---|
+| **Commons Council** | Identity, membership, social policy, name registry | 50% | 47.5% / 2.5% |
+| **Technical Council** | Protocol upgrades, infrastructure, code reveals | 30% | 28.5% / 1.5% |
+| **Ecosystem Council** | Partnerships, grants, external integrations | 20% | 19% / 1% |
+
+Within each pillar, 5% of the share is routed continuously to the pillar's Operations Committee so day-to-day spending has its own budget without a council proposal cycle.
 
 Each council is a wrapped `x/group` whose `AllowedMessages` set bounds what it can execute on chain. Funding is automated: 15% of all chain revenue flows to the community pool, and `x/split` redistributes it to council treasuries every block. Tenure is **elastic** — `x/futarchy` runs confidence markets per council; high confidence extends terms, low confidence cuts them short.
 

@@ -22,16 +22,23 @@ This module provides:
 
 ```
 GOVERNANCE (x/gov)
-├── Commons Council (Culture, Arts, Events) — 50% funding
-│   ├── Commons Operations Committee
+├── Commons Council (Culture, Arts, Events) — 47.5% funding
+│   ├── Commons Operations Committee — 2.5% funding
 │   └── Commons Governance Committee
-├── Technical Council (Chain Upgrades & Security) — 30% funding
-│   ├── Technical Operations Committee
+├── Technical Council (Chain Upgrades & Security) — 28.5% funding
+│   ├── Technical Operations Committee — 1.5% funding
 │   └── Technical Governance Committee
-├── Ecosystem Council (Treasury & Growth) — 20% funding
-│   ├── Ecosystem Operations Committee
+├── Ecosystem Council (Treasury & Growth) — 19% funding
+│   ├── Ecosystem Operations Committee — 1% funding
 │   └── Ecosystem Governance Committee
 └── Commons Supervisory Board (oversees HR decisions)
+
+Each pillar's combined share (Council + Operations Committee) sums to its
+macro allocation — 50% Commons, 30% Technical, 20% Ecosystem. 5% of each
+pillar is routed continuously to its Operations Committee so day-to-day
+spending has its own budget without requiring a council
+`MsgSpendFromCommons` proposal. Governance committees and the Supervisory
+Board keep `FundingWeight=0` because their `MaxSpendPerEpoch=0`.
 ```
 
 ### Groups

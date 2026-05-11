@@ -23,9 +23,15 @@ SPARK Inflation + Tx Fees
     └── 15% → Community Pool (x/distribution)
                 │
                 └── x/split BeginBlock distributes to:
-                    ├── Commons Council  — 50% weight
-                    ├── Technical Council — 30% weight
-                    └── Ecosystem Council — 20% weight
+                    ├── Commons pillar    — 50% (Council 47.5%, Commons Operations 2.5%)
+                    ├── Technical pillar  — 30% (Council 28.5%, Technical Operations 1.5%)
+                    └── Ecosystem pillar  — 20% (Council 19%,   Ecosystem Operations 1%)
+
+Within each pillar, 5% of the pillar's share is routed directly to its
+Operations Committee so day-to-day spending has its own continuous budget
+without a council `MsgSpendFromCommons` proposal. Governance committees and
+the Supervisory Board keep `FundingWeight=0` because their
+`MaxSpendPerEpoch` is also 0.
 ```
 
 ### Cross-Module Wiring

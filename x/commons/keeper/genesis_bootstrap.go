@@ -145,7 +145,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	commonsConfig := GroupConfig{
 		Name:          "Commons Council",
 		Description:   "Culture, Arts, and Events (Top Level)",
-		FundingWeight: 50,
+		// Pillar share: 50% of community-pool inflow (475/1000). Of that,
+		// 25/1000 (5% of the pillar) is diverted to the Commons Operations
+		// Committee below so day-to-day spending has its own continuous
+		// budget instead of needing a council MsgSpendFromCommons every time.
+		FundingWeight: 475,
 		ParentPolicy:  govAddr,
 
 		PolicyType:           "percentage",
@@ -203,7 +207,9 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	techConfig := GroupConfig{
 		Name:          "Technical Council",
 		Description:   "Chain Upgrades & Security (Top Level)",
-		FundingWeight: 30,
+		// Pillar share: 30% of community-pool inflow (285/1000). Of that,
+		// 15/1000 (5% of the pillar) goes to Technical Operations below.
+		FundingWeight: 285,
 		ParentPolicy:  govAddr,
 
 		PolicyType:           "percentage",
@@ -244,7 +250,10 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	k.createGroup(ctx, GroupConfig{
 		Name:                 "Technical Operations Committee",
 		Description:          "Operational arm for Tech",
-		FundingWeight:        0,
+		// 5% of the Technical pillar (15/1000 of community pool). Governance
+		// committees keep FundingWeight=0 because their MaxSpendPerEpoch is
+		// also 0 — only the operations arm needs a treasury.
+		FundingWeight:        15,
 		ParentPolicy:         techPolicy,
 		PolicyType:           "threshold",
 		StandardValue:        "1",
@@ -290,7 +299,9 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	ecoConfig := GroupConfig{
 		Name:          "Ecosystem Council",
 		Description:   "Treasury & Growth (Top Level)",
-		FundingWeight: 20,
+		// Pillar share: 20% of community-pool inflow (190/1000). Of that,
+		// 10/1000 (5% of the pillar) goes to Ecosystem Operations below.
+		FundingWeight: 190,
 		ParentPolicy:  govAddr,
 
 		PolicyType:           "percentage",
@@ -329,7 +340,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	k.createGroup(ctx, GroupConfig{
 		Name:                 "Ecosystem Operations Committee",
 		Description:          "Operational arm for Ecosystem",
-		FundingWeight:        0,
+		// 5% of the Ecosystem pillar (10/1000 of community pool).
+		FundingWeight:        10,
 		ParentPolicy:         ecoPolicy,
 		PolicyType:           "threshold",
 		StandardValue:        "1",
@@ -406,7 +418,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	commOpsPolicy := k.createGroup(ctx, GroupConfig{
 		Name:          "Commons Operations Committee",
 		Description:   "Day-to-day spending for Commons",
-		FundingWeight: 0,
+		// 5% of the Commons pillar (25/1000 of community pool). Largest of
+		// the three Ops budgets because Commons holds the biggest pillar
+		// share and has the most operational mandates (categories, tag
+		// budgets, federation moderation, name disputes, etc.).
+		FundingWeight: 25,
 		ParentPolicy:  commonsPolicy,
 
 		PolicyType:           "threshold",
