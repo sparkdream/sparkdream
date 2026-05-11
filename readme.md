@@ -95,7 +95,7 @@ Active development. Mainnet has not launched.
 
 | Network | Chain ID | Status |
 |---|---|---|
-| Devnet  | `sparkdream-dev-1`  | Live |
+| Devnet  | `sparkdream-dev-1`  | N/A |
 | Testnet | `sparkdream-test-1` | Live |
 | Mainnet | `sparkdream-1`      | Pre-launch |
 
@@ -105,7 +105,7 @@ Active development. Mainnet has not launched.
 |---|---|
 | RPC       | https://rpc-test.sparkdream.io |
 | REST API  | https://api-test.sparkdream.io |
-| Explorer  | https://explorer-test.sparkdream.io |
+| Explorer  | https://explorer-testnet.sparkdream.io |
 | Frontend  | https://app-test.sparkdream.io |
 
 APIs, genesis, and module parameters may change without notice until mainnet. Validator and sentry deployment lives on Akash with archive nodes streaming blocks to Arweave; see [deploy/docs/DEPLOYMENT.md](deploy/docs/DEPLOYMENT.md) and [provenance.md](provenance.md) for the archival record.
