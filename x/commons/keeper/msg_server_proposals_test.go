@@ -94,7 +94,9 @@ func TestSubmitProposal_NotMember(t *testing.T) {
 	require.Contains(t, err.Error(), "is not a member")
 }
 
-func TestSubmitProposal_EmptyMessages(t *testing.T) {
+// Signaling proposals (no executable messages) are allowed when metadata is
+// set, but rejected when metadata is empty.
+func TestSubmitProposal_EmptyMessagesNoMetadata(t *testing.T) {
 	k, ctx, _ := setupCommonsKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
@@ -110,7 +112,65 @@ func TestSubmitProposal_EmptyMessages(t *testing.T) {
 		Messages:      nil,
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "empty proposal")
+	require.Contains(t, err.Error(), "signaling proposal requires non-empty metadata")
+}
+
+func TestSubmitProposal_SignalingVote_Success(t *testing.T) {
+	k, ctx, _ := setupCommonsKeeper(t)
+	msgServer := keeper.NewMsgServerImpl(k)
+
+	councilName := "TestCouncil"
+	policyAddr := sdk.AccAddress([]byte("policy_signaling____")).String()
+	proposer := sdk.AccAddress([]byte("proposer_signaling__")).String()
+
+	setupProposalState(t, k, ctx, councilName, policyAddr, proposer)
+
+	resp, err := msgServer.SubmitProposal(ctx, &types.MsgSubmitProposal{
+		Proposer:      proposer,
+		PolicyAddress: policyAddr,
+		Messages:      nil,
+		Metadata:      "Should we adopt the new charter?",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	proposal, err := k.Proposals.Get(ctx, resp.ProposalId)
+	require.NoError(t, err)
+	require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED, proposal.Status)
+	require.Empty(t, proposal.Messages, "signaling vote stores no executable messages")
+	require.Equal(t, "Should we adopt the new charter?", proposal.Metadata)
+}
+
+func TestSubmitProposal_TermExpired_EmptyMessagesBlocked(t *testing.T) {
+	k, ctx, _ := setupCommonsKeeper(t)
+	msgServer := keeper.NewMsgServerImpl(k)
+
+	councilName := "ExpiredSignalingCouncil"
+	policyAddr := sdk.AccAddress([]byte("policy_exp_sig______")).String()
+	proposer := sdk.AccAddress([]byte("proposer_exp_sig____")).String()
+
+	// Set up with expired term.
+	require.NoError(t, k.Groups.Set(ctx, councilName, types.Group{
+		PolicyAddress:         policyAddr,
+		CurrentTermExpiration: ctx.BlockTime().Unix() - 100,
+	}))
+	require.NoError(t, k.PolicyToName.Set(ctx, policyAddr, councilName))
+	require.NoError(t, k.AddMember(ctx, councilName, types.Member{Address: proposer, Weight: "1"}))
+	require.NoError(t, k.PolicyPermissions.Set(ctx, policyAddr, types.PolicyPermissions{
+		PolicyAddress:   policyAddr,
+		AllowedMessages: []string{"/sparkdream.commons.v1.MsgRenewGroup"},
+	}))
+
+	// Signaling vote submitted during term expiration must be blocked, not
+	// silently allowed via the empty-loop path.
+	_, err := msgServer.SubmitProposal(ctx, &types.MsgSubmitProposal{
+		Proposer:      proposer,
+		PolicyAddress: policyAddr,
+		Messages:      nil,
+		Metadata:      "signal during expired term",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "TERM EXPIRED")
 }
 
 func TestSubmitProposal_UnauthorizedMessage(t *testing.T) {

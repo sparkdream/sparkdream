@@ -32,7 +32,16 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 
 	// 3. Check term expiration
 	if ctx.BlockTime().Unix() > extGroup.CurrentTermExpiration {
-		// Allow only MsgRenewGroup when expired
+		// Allow only MsgRenewGroup when expired. A signaling proposal (no
+		// executable messages) doesn't carry MsgRenewGroup either, so reject
+		// it here rather than letting the empty for-loop below silently pass.
+		if len(msg.Messages) == 0 {
+			return nil, errorsmod.Wrapf(
+				sdkerrors.ErrUnauthorized,
+				"TERM EXPIRED: Group %s expired on %d. You can only submit MsgRenewGroup proposals.",
+				councilName, extGroup.CurrentTermExpiration,
+			)
+		}
 		for _, anyMsg := range msg.Messages {
 			var sdkMsg sdk.Msg
 			if err := k.cdc.UnpackAny(anyMsg, &sdkMsg); err != nil {
@@ -63,8 +72,12 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "no permissions found for %s", msg.PolicyAddress)
 	}
 
-	if len(msg.Messages) == 0 {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "empty proposal")
+	// Signaling proposals (no executable messages) are allowed — they record
+	// council sentiment without changing state — but they must carry a
+	// non-empty metadata so the vote isn't totally blank. Proposals with
+	// executable messages are permission-checked in the loop below.
+	if len(msg.Messages) == 0 && msg.Metadata == "" {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "signaling proposal requires non-empty metadata")
 	}
 
 	for _, anyMsg := range msg.Messages {
