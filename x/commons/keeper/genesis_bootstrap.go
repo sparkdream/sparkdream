@@ -435,6 +435,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgCreateCategory",
 			"/sparkdream.commons.v1.MsgDeleteCategory",
+			"/sparkdream.forum.v1.MsgUnhidePost",
 			"/sparkdream.blog.v1.MsgUpdateOperationalParams",
 			"/sparkdream.collect.v1.MsgUpdateOperationalParams",
 			"/sparkdream.rep.v1.MsgCreateTagBudget",
