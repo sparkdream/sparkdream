@@ -430,6 +430,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "reason_code"}, {ProtoField: "reason_text"}},
 				},
 				{
+					RpcMethod:      "UnhidePost",
+					Use:            "unhide-post [post-id]",
+					Short:          "Reverse a hide; sentinel within self-correction window OR Commons Operations Committee / governance anytime",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
+				},
+				{
 					RpcMethod:      "AppealPost",
 					Use:            "appeal-post [post-id]",
 					Short:          "Send a appeal-post tx",

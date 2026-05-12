@@ -477,6 +477,10 @@ fi
 # Appeals tests
 if [ "$RUN_APPEALS" = true ]; then
     run_test "Appeals Tests" "appeals_test.sh"
+    # unhide_post_test.sh exercises the user-driven reverse of MsgHidePost
+    # (sentinel self-correct + council override) alongside the appeal flow;
+    # keep it in the same phase so it benefits from the appeals --no-* gate.
+    run_test "Unhide Post Tests" "unhide_post_test.sh"
 else
     echo "Skipping appeals tests (--no-appeals)"
     echo ""

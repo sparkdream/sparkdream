@@ -287,6 +287,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		forumsimulation.SimulateMsgHidePost(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
+		opWeightMsgUnhidePost          = "op_weight_msg_forum"
+		defaultWeightMsgUnhidePost int = 100
+	)
+
+	var weightMsgUnhidePost int
+	simState.AppParams.GetOrGenerate(opWeightMsgUnhidePost, &weightMsgUnhidePost, nil,
+		func(_ *rand.Rand) {
+			weightMsgUnhidePost = defaultWeightMsgUnhidePost
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUnhidePost,
+		forumsimulation.SimulateMsgUnhidePost(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
 		opWeightMsgAppealPost          = "op_weight_msg_forum"
 		defaultWeightMsgAppealPost int = 100
 	)

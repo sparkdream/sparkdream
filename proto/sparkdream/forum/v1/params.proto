@@ -131,6 +131,12 @@ message Params {
   int64 sentinel_demotion_cooldown = 44;
   // sentinel_demotion_threshold — see ForumOperationalParams.sentinel_demotion_threshold.
   string sentinel_demotion_threshold = 45;
+
+  // sentinel_unhide_window in seconds. A sentinel who hid a post may
+  // self-correct (call MsgUnhidePost) within this window of the original
+  // hide; after it expires, only the Commons Operations Committee or
+  // governance can unhide. Analogous to edit_max_window for authors.
+  int64 sentinel_unhide_window = 46;
 }
 
 // ForumOperationalParams defines the operational parameters that can be updated
@@ -219,4 +225,10 @@ message ForumOperationalParams {
   // sentinel_demotion_threshold is the bond floor below which the sentinel
   // transitions from RECOVERY to DEMOTED (math.Int string).
   string sentinel_demotion_threshold = 45;
+
+  // sentinel_unhide_window in seconds. A sentinel who hid a post may
+  // self-correct (call MsgUnhidePost) within this window of the original
+  // hide; after it expires, only the Commons Operations Committee or
+  // governance can unhide.
+  int64 sentinel_unhide_window = 46;
 }

@@ -228,6 +228,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgCreateCategory,
 		commonssimulation.SimulateMsgCreateCategory(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgDeleteCategory          = "op_weight_msg_commons"
+		defaultWeightMsgDeleteCategory int = 100
+	)
+
+	var weightMsgDeleteCategory int
+	simState.AppParams.GetOrGenerate(opWeightMsgDeleteCategory, &weightMsgDeleteCategory, nil,
+		func(_ *rand.Rand) {
+			weightMsgDeleteCategory = defaultWeightMsgDeleteCategory
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgDeleteCategory,
+		commonssimulation.SimulateMsgDeleteCategory(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

@@ -107,6 +107,20 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
 
+	// Snapshot the author bond amount BEFORE SlashAuthorBond runs below.
+	// Reversal paths (MsgUnhidePost, appeal-OVERTURNED) read this back to
+	// mint+re-lock the equivalent bond, making the slash→restore round-trip
+	// net-zero on DREAM supply. Empty string when the post has no author
+	// bond attached (the optional CreateAuthorBond branch in MsgCreatePost
+	// was skipped) — a no-op on restore. Captured for BOTH sentinel and
+	// gov-authority paths so council unhides can also restore the bond.
+	authorBondAmount := ""
+	if k.repKeeper != nil {
+		if bond, err := k.repKeeper.GetAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND, msg.PostId); err == nil {
+			authorBondAmount = bond.Amount.String()
+		}
+	}
+
 	if !isGovAuthority {
 		_ = repSentinel // bond snapshot captured above
 
@@ -121,6 +135,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 			CommittedAmount:         slashAmount.String(),
 			ReasonCode:              reasonCode,
 			ReasonText:              msg.ReasonText,
+			AuthorBondAmount:        authorBondAmount,
 		}
 		if err := k.HideRecord.Set(ctx, msg.PostId, hideRecord); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store hide record")
@@ -139,6 +154,24 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		}
 
 		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
+	} else {
+		// Gov-authority hide: write a minimal HideRecord with Sentinel == ""
+		// as the gov-hide marker. The empty Sentinel field is what
+		// distinguishes gov hides from sentinel hides for AppealPost (which
+		// rejects gov hides as ErrGovLockNotAppealable) and for sentinel-
+		// counter callbacks (which soft-skip on missing sentinel). Only the
+		// fields needed for council-driven reversal are populated.
+		govRecord := types.HideRecord{
+			PostId:           msg.PostId,
+			Sentinel:         "", // gov-hide marker
+			HiddenAt:         now,
+			ReasonCode:       reasonCode,
+			ReasonText:       msg.ReasonText,
+			AuthorBondAmount: authorBondAmount,
+		}
+		if err := k.HideRecord.Set(ctx, msg.PostId, govRecord); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to store gov-hide record")
+		}
 	}
 
 	if k.repKeeper != nil {

@@ -41,6 +41,20 @@ func (k msgServer) UnarchiveThread(ctx context.Context, msg *types.MsgUnarchiveT
 		return nil, errorsmod.Wrap(types.ErrArchivedThreadNotFound, fmt.Sprintf("thread %d is not archived", msg.RootId))
 	}
 
+	// Refuse to resurrect an archived thread whose parent category has since
+	// been deleted. x/commons' MsgDeleteCategory only blocks on ACTIVE posts
+	// (HasPostInCategory ignores tombstones), so a category can legitimately
+	// be removed while its archived threads still reference it. Flipping the
+	// thread back to ACTIVE here without checking would create a dangling
+	// reference: an ACTIVE post pointing at a category that no longer exists.
+	// Any other future revival path (e.g. a MsgUnhidePost per the README's
+	// state machine) MUST apply the same guard.
+	if k.commonsKeeper == nil || !k.commonsKeeper.HasCategory(ctx, rootPost.CategoryId) {
+		return nil, errorsmod.Wrapf(types.ErrCategoryNotFound,
+			"cannot unarchive thread %d: parent category %d has been deleted",
+			msg.RootId, rootPost.CategoryId)
+	}
+
 	// Check unarchive cooldown
 	archiveMetadata, err := k.ArchiveMetadata.Get(ctx, msg.RootId)
 	if err == nil {

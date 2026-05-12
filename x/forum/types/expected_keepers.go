@@ -92,6 +92,20 @@ type RepKeeper interface {
 	CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error)
 	SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error
 
+	// GetAuthorBond returns the author bond stake for a content item. Used by
+	// MsgHidePost to snapshot the bond amount before slashing, so it can be
+	// restored on reversal. Returns ErrAuthorBondNotFound (or similar) when
+	// no bond is attached — callers should treat that as "nothing to record".
+	GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error)
+
+	// RestoreAuthorBond is the inverse of SlashAuthorBond used by reversal
+	// paths (MsgUnhidePost / appeal-OVERTURNED). Mints `amount` DREAM to
+	// `author` and re-locks it as a fresh author bond on `targetID`. The
+	// round-trip (slash → restore) is net-zero on DREAM supply. No-op if a
+	// bond already exists for the target (idempotent against accidental
+	// double-restore).
+	RestoreAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) error
+
 	// Initiative reference validation and linking for conviction propagation
 	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error

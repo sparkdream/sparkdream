@@ -172,6 +172,17 @@ type mockRepKeeper struct {
 	tags                            map[string]reptypes.Tag
 	reservedTags                    map[string]reptypes.ReservedTag
 	sentinels                       map[string]reptypes.BondedRole
+	// authorBonds keyed by "<targetType>:<targetID>" -> stake snapshot. Tests
+	// pre-seed entries to exercise the slash/restore lifecycle. Empty / nil
+	// map disables tracking (treat as "no bond exists").
+	authorBonds map[string]reptypes.Stake
+	// restoreCalls / restoreError observe RestoreAuthorBond invocations.
+	restoreCalls []reptypes.Stake
+	restoreError error
+}
+
+func authorBondKey(t reptypes.StakeTargetType, id uint64) string {
+	return fmt.Sprintf("%d:%d", int32(t), id)
 }
 
 func (m *mockRepKeeper) TagExists(_ context.Context, name string) (bool, error) {
@@ -287,10 +298,55 @@ func (m *mockRepKeeper) GetContentConviction(ctx context.Context, targetType rep
 }
 
 func (m *mockRepKeeper) CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error) {
+	if m.authorBonds == nil {
+		m.authorBonds = make(map[string]reptypes.Stake)
+	}
+	m.authorBonds[authorBondKey(targetType, targetID)] = reptypes.Stake{
+		Staker:     author.String(),
+		TargetType: targetType,
+		TargetId:   targetID,
+		Amount:     amount,
+	}
 	return 1, nil
 }
 
 func (m *mockRepKeeper) SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error {
+	if m.authorBonds != nil {
+		delete(m.authorBonds, authorBondKey(targetType, targetID))
+	}
+	return nil
+}
+
+func (m *mockRepKeeper) GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error) {
+	if m.authorBonds == nil {
+		return reptypes.Stake{}, reptypes.ErrAuthorBondNotFound
+	}
+	s, ok := m.authorBonds[authorBondKey(targetType, targetID)]
+	if !ok {
+		return reptypes.Stake{}, reptypes.ErrAuthorBondNotFound
+	}
+	return s, nil
+}
+
+func (m *mockRepKeeper) RestoreAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) error {
+	if m.restoreError != nil {
+		return m.restoreError
+	}
+	if m.authorBonds == nil {
+		m.authorBonds = make(map[string]reptypes.Stake)
+	}
+	// Idempotency: skip if a bond already exists for this target.
+	if _, exists := m.authorBonds[authorBondKey(targetType, targetID)]; exists {
+		return nil
+	}
+	stake := reptypes.Stake{
+		Staker:     author.String(),
+		TargetType: targetType,
+		TargetId:   targetID,
+		Amount:     amount,
+	}
+	m.authorBonds[authorBondKey(targetType, targetID)] = stake
+	m.restoreCalls = append(m.restoreCalls, stake)
 	return nil
 }
 

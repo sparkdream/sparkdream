@@ -146,6 +146,17 @@ type ForumKeeper interface {
 	// to release the exact reservation on UPHELD verdicts. Returns zero (no
 	// error) when the record is missing or does not track a committed amount.
 	GetActionCommittedAmount(ctx context.Context, actionType GovActionType, actionTarget string) (math.Int, error)
+
+	// ReverseSentinelAction reverses the content-state effects of a sentinel
+	// moderation action: unhides a hidden post, unlocks a locked thread, or
+	// restores a moved thread to its original category. Called from the
+	// appeal-OVERTURNED branch in MsgResolveGovActionAppeal so the appeal
+	// loop is end-to-end complete (sentinel slashed AND content restored).
+	// Bypasses user-facing auth/cooldown checks; carries its own dangling-
+	// reference guard (refuses to restore a post into a deleted category).
+	// Missing action records are a soft skip — caller should log and continue
+	// rather than abort the transaction.
+	ReverseSentinelAction(ctx context.Context, actionType GovActionType, actionTarget string) error
 }
 
 // BlogKeeper defines the minimal blog surface area required by x/rep to

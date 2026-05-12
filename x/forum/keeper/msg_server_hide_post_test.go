@@ -178,9 +178,16 @@ func TestHidePostByGovAuthority(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.PostStatus_POST_STATUS_HIDDEN, hiddenPost.Status)
 
-	// Verify no hide record was created (gov hides don't create hide records)
-	_, err = f.keeper.HideRecord.Get(f.ctx, post.PostId)
-	require.Error(t, err) // Should not find hide record
+	// Gov hides now write a minimal HideRecord (Sentinel == "" marker) so
+	// council-driven reversals can restore the slashed author bond. The
+	// record must be present and explicitly marked as a gov hide; the
+	// sentinel-specific bond-snapshot fields must remain empty.
+	hr, err := f.keeper.HideRecord.Get(f.ctx, post.PostId)
+	require.NoError(t, err, "gov hides must write a minimal HideRecord")
+	require.Empty(t, hr.Sentinel, "gov-hide marker: Sentinel must be empty")
+	require.Empty(t, hr.SentinelBondSnapshot, "gov hides do not reserve sentinel bond")
+	require.Empty(t, hr.CommittedAmount, "gov hides do not commit slash amount")
+	require.Equal(t, commontypes.ModerationReason_MODERATION_REASON_POLICY_VIOLATION, hr.ReasonCode)
 }
 
 func TestHidePostSentinelBondCommitment(t *testing.T) {

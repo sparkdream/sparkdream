@@ -148,3 +148,43 @@ func (k Keeper) HasCategory(ctx context.Context, id uint64) bool {
 	}
 	return k.commonsKeeper.HasCategory(ctx, id)
 }
+
+// HasPostInCategory reports whether any forum post still references the given
+// category. Used by x/commons' MsgDeleteCategory to refuse removal of
+// categories that still have content. O(n) over Post — there is no
+// PostsByCategory secondary index yet; if delete-category becomes hot or post
+// volume grows large, add one and switch to a prefix walk here.
+//
+// Only ACTIVE posts count: DeletePost / HidePost / archival are soft mutations
+// that leave a tombstone in storage, but those posts no longer "reference" the
+// category in any user-meaningful sense — counting them would mean an admin
+// could never delete a category that ever held a post, even after every post
+// has been removed. UNSPECIFIED is genesis-rejected so it should never occur
+// at runtime; treating it as a tombstone is the safe default.
+//
+// INVARIANT (DANGLING-REFERENCE GUARD): because tombstones do NOT block
+// category deletion here, every code path that transitions a post FROM a
+// terminal status BACK to POST_STATUS_ACTIVE must first check that the parent
+// category still exists. Otherwise the resurrected post points at a deleted
+// category — a dangling reference. Today only MsgUnarchiveThread can revive
+// a tombstone (ARCHIVED → ACTIVE) and it carries that guard. DELETED is
+// terminal in code; HIDDEN has no implemented unhide handler (the README's
+// MsgUnhidePost is aspirational). Any future revival path MUST apply the
+// same `commonsKeeper.HasCategory` check.
+func (k Keeper) HasPostInCategory(ctx context.Context, categoryID uint64) (bool, error) {
+	found := false
+	err := k.Post.Walk(ctx, nil, func(_ uint64, post types.Post) (stop bool, err error) {
+		if post.CategoryId != categoryID {
+			return false, nil
+		}
+		if post.Status != types.PostStatus_POST_STATUS_ACTIVE {
+			return false, nil
+		}
+		found = true
+		return true, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return found, nil
+}

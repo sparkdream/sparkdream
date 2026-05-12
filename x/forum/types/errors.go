@@ -185,6 +185,10 @@ var (
 	ErrEditWindowExpired     = errors.Register(ModuleName, 2150, "edit window has expired")
 	ErrCannotEditHiddenPost  = errors.Register(ModuleName, 2151, "cannot edit hidden post")
 	ErrCannotEditDeletedPost = errors.Register(ModuleName, 2152, "cannot edit deleted post")
+	// Sentinel self-correction window for MsgUnhidePost. After this window the
+	// sentinel can no longer unilaterally walk back their hide; only the
+	// Commons Operations Committee (or governance) can unhide.
+	ErrUnhideWindowExpired = errors.Register(ModuleName, 2153, "sentinel unhide window has expired")
 
 	// Payment errors (2200-2249)
 	ErrInsufficientFunds = errors.Register(ModuleName, 2200, "insufficient funds")

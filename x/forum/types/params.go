@@ -40,6 +40,7 @@ const (
 	DefaultAppealDeadline            = int64(1209600) // 14 days
 	DefaultEditGracePeriod           = int64(300)     // 5 minutes
 	DefaultEditMaxWindow             = int64(86400)   // 24 hours
+	DefaultSentinelUnhideWindow      = int64(86400)   // 24 hours; sentinel self-correct window for MsgUnhidePost
 	DefaultArchiveCooldown           = int64(2592000) // 30 days
 	DefaultUnarchiveCooldown         = int64(86400)   // 1 day
 	DefaultHideAppealCooldown        = int64(3600)    // 1 hour
@@ -151,6 +152,7 @@ func NewParams() Params {
 		MinSentinelAgeBlocks:         0,
 		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
 		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
+		SentinelUnhideWindow:         DefaultSentinelUnhideWindow,
 	}
 }
 
@@ -247,6 +249,7 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		MinSentinelAgeBlocks:         0,
 		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
 		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
+		SentinelUnhideWindow:         DefaultSentinelUnhideWindow,
 	}
 }
 
@@ -313,6 +316,7 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.MinSentinelAgeBlocks = op.MinSentinelAgeBlocks
 	p.SentinelDemotionCooldown = op.SentinelDemotionCooldown
 	p.SentinelDemotionThreshold = op.SentinelDemotionThreshold
+	p.SentinelUnhideWindow = op.SentinelUnhideWindow
 	return p
 }
 
@@ -354,6 +358,7 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		MinSentinelAgeBlocks:         p.MinSentinelAgeBlocks,
 		SentinelDemotionCooldown:     p.SentinelDemotionCooldown,
 		SentinelDemotionThreshold:    p.SentinelDemotionThreshold,
+		SentinelUnhideWindow:         p.SentinelUnhideWindow,
 	}
 }
 

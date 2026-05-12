@@ -178,3 +178,87 @@ func (k Keeper) SlashAuthorBond(ctx context.Context, targetType types.StakeTarge
 
 	return nil
 }
+
+// RestoreAuthorBond is the inverse of SlashAuthorBond. Called by content
+// modules when a moderation action is reversed (sentinel self-correct,
+// council unhide, or appeal-OVERTURNED). Mints `amount` DREAM to `author`
+// and re-locks it as a fresh author bond on the target, so the slash →
+// restore round-trip is net-zero on supply.
+//
+// Idempotent against accidental double-restore: returns nil silently when
+// an author bond already exists for the target. Validates the target type
+// the same way CreateAuthorBond does. Mints first, then locks, so a lock
+// failure leaves the freshly-minted DREAM in the author's free balance
+// rather than vanishing.
+func (k Keeper) RestoreAuthorBond(
+	ctx context.Context,
+	author sdk.AccAddress,
+	targetType types.StakeTargetType,
+	targetID uint64,
+	amount math.Int,
+) error {
+	if !types.IsAuthorBondType(targetType) {
+		return types.ErrNotAuthorBondType
+	}
+	if amount.IsNil() || amount.IsNegative() || amount.IsZero() {
+		// Empty / zero amount means "nothing was slashed, nothing to restore".
+		return nil
+	}
+
+	// Idempotency: if an author bond already exists for this target, skip.
+	// This can happen if the author created a new bond manually after the
+	// slash, or if a reversal callback fires twice for the same record.
+	if existing, _ := k.GetStakesByTarget(ctx, targetType, targetID); len(existing) > 0 {
+		return nil
+	}
+
+	// Mint fresh DREAM to the author's free balance to replace what was burned
+	// by SlashAuthorBond. This is the supply-restoration step.
+	if err := k.MintDREAM(ctx, author, amount); err != nil {
+		return fmt.Errorf("restore author bond: mint DREAM: %w", err)
+	}
+
+	// Re-create the bond. Skips the MaxAuthorBondPerContent cap check since
+	// the original bond by definition passed it; if the cap has since been
+	// lowered the operator is choosing to honor pre-existing commitments.
+	if err := k.LockDREAM(ctx, author, amount); err != nil {
+		return fmt.Errorf("restore author bond: lock DREAM: %w", err)
+	}
+
+	stakeID, err := k.StakeSeq.Next(ctx)
+	if err != nil {
+		return fmt.Errorf("restore author bond: next stake id: %w", err)
+	}
+
+	stake := types.Stake{
+		Id:               stakeID,
+		Staker:           author.String(),
+		TargetType:       targetType,
+		TargetId:         targetID,
+		TargetIdentifier: "",
+		Amount:           amount,
+		CreatedAt:        sdk.UnwrapSDKContext(ctx).BlockTime().Unix(),
+		LastClaimedAt:    0,
+		RewardDebt:       math.ZeroInt(),
+	}
+
+	if err := k.Stake.Set(ctx, stakeID, stake); err != nil {
+		return fmt.Errorf("restore author bond: persist stake: %w", err)
+	}
+	if err := k.AddStakeToTargetIndex(ctx, stake); err != nil {
+		return fmt.Errorf("restore author bond: index stake: %w", err)
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"author_bond_restored",
+			sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stakeID)),
+			sdk.NewAttribute("author", author.String()),
+			sdk.NewAttribute("target_type", targetType.String()),
+			sdk.NewAttribute("target_id", fmt.Sprintf("%d", targetID)),
+			sdk.NewAttribute("amount", amount.String()),
+		),
+	)
+	return nil
+}

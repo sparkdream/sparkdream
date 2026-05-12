@@ -6,8 +6,18 @@ import "sparkdream/common/v1/moderation_reason.proto";
 option go_package = "sparkdream/x/forum/types";
 
 // HideRecord defines the HideRecord message.
+//
+// Created by MsgHidePost for both sentinel hides and gov-authority hides.
+// The `sentinel` field distinguishes the two: a non-empty address means a
+// sentinel performed the hide and the record drives the appeal flow; an
+// empty string is the gov-hide marker and the record exists only to enable
+// council-driven reversal (author-bond restore + HideRecord cleanup).
 message HideRecord {
   uint64 post_id = 1;
+  // Address of the sentinel who hid the post. Empty string is the gov-hide
+  // marker: AppealPost rejects these as ErrGovLockNotAppealable (must go
+  // through MsgAppealGovAction); GetActionSentinel / RecordSentinelAction*
+  // helpers soft-skip on empty.
   string sentinel = 2;
   int64 hidden_at = 3;
   string sentinel_bond_snapshot = 4;
@@ -15,4 +25,12 @@ message HideRecord {
   string committed_amount = 6;
   sparkdream.common.v1.ModerationReason reason_code = 7;
   string reason_text = 8;
+  // author_bond_amount captures the author bond that was slashed by MsgHidePost
+  // (math.Int as string; empty / "0" means no bond was attached). On reversal
+  // (MsgUnhidePost or appeal-OVERTURNED via ReverseSentinelAction) this amount
+  // is minted back to the author and re-locked as a fresh author bond, so the
+  // round-trip net DREAM supply change is zero. Populated for BOTH sentinel
+  // hides and gov-authority hides — see the `sentinel` field for how the two
+  // hide flavors are distinguished.
+  string author_bond_amount = 9;
 }

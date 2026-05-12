@@ -25,8 +25,10 @@ type mockForumKeeper struct {
 	actionSentinels  map[string]string // key=<actionType>:<actionTarget>
 	upheldCalls      []string          // records "<actionType>:<actionTarget>"
 	overturnedCalls  []string
+	reverseCalls     []string // records ReverseSentinelAction invocations
 	upheldError      error
 	overturnedError  error
+	reverseError     error
 	getSentinelError error
 	// Stage D hooks (populated by sentinel-reward distribution tests):
 	counters   map[string]types.SentinelActivityCounters
@@ -73,6 +75,11 @@ func (m *mockForumKeeper) RecordSentinelActionUpheld(_ context.Context, actionTy
 func (m *mockForumKeeper) RecordSentinelActionOverturned(_ context.Context, actionType types.GovActionType, actionTarget string) error {
 	m.overturnedCalls = append(m.overturnedCalls, mockForumKey(actionType, actionTarget))
 	return m.overturnedError
+}
+
+func (m *mockForumKeeper) ReverseSentinelAction(_ context.Context, actionType types.GovActionType, actionTarget string) error {
+	m.reverseCalls = append(m.reverseCalls, mockForumKey(actionType, actionTarget))
+	return m.reverseError
 }
 
 func (m *mockForumKeeper) GetSentinelActivityCounters(_ context.Context, addr string) (types.SentinelActivityCounters, error) {

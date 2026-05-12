@@ -19,9 +19,10 @@ import (
 // Stored as a shared pointer so value-copies of Keeper (e.g. in AppModule, msgServer)
 // see updates made after NewAppModule().
 type lateKeepers struct {
-	govKeeper  types.GovKeeper
-	router     baseapp.MessageRouter
-	nameKeeper types.NameKeeper
+	govKeeper   types.GovKeeper
+	router      baseapp.MessageRouter
+	nameKeeper  types.NameKeeper
+	forumKeeper types.ForumKeeper
 }
 
 type Keeper struct {
@@ -208,6 +209,14 @@ func (k *Keeper) SetRouter(router baseapp.MessageRouter) {
 // depinject cycle (x/name already depends on x/commons).
 func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
 	k.late.nameKeeper = nk
+}
+
+// SetForumKeeper wires the ForumKeeper after depinject. Used by
+// MsgDeleteCategory to refuse removal of categories that still have
+// posts. Late-wired to avoid a depinject cycle (x/forum already depends
+// on x/commons via commonsKeeper.GetCategory).
+func (k Keeper) SetForumKeeper(fk types.ForumKeeper) {
+	k.late.forumKeeper = fk
 }
 
 // DeriveCouncilAddress generates a deterministic address for a council based on its ID.

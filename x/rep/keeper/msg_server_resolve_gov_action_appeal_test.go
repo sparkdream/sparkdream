@@ -179,6 +179,11 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		// Upheld forum hook invoked exactly once.
 		require.Len(t, rf.fk.upheldCalls, 1)
 		require.Empty(t, rf.fk.overturnedCalls)
+
+		// Content reversal MUST NOT fire on UPHELD — the sentinel was correct,
+		// the user's content should stay hidden / locked / moved.
+		require.Empty(t, rf.fk.reverseCalls,
+			"UPHELD must not trigger forum-side content reversal")
 	})
 
 	t.Run("overturned refunds full bond and slashes sentinel", func(t *testing.T) {
@@ -219,6 +224,15 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		// Overturned forum hook invoked.
 		require.Len(t, rf.fk.overturnedCalls, 1)
 		require.Empty(t, rf.fk.upheldCalls)
+
+		// Content reversal (ReverseSentinelAction) invoked exactly once with
+		// the same action type+target the counter hook saw. Without this,
+		// the sentinel gets slashed but the user's content stays hidden /
+		// locked / moved — the appeal loop would be incomplete.
+		require.Len(t, rf.fk.reverseCalls, 1,
+			"OVERTURNED must trigger forum-side content reversal")
+		require.Equal(t, rf.fk.overturnedCalls[0], rf.fk.reverseCalls[0],
+			"reverse call must target the same action as the counter update")
 	})
 
 	t.Run("rejects non-council resolver", func(t *testing.T) {

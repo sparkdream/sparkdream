@@ -156,6 +156,20 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 				sdkCtx.Logger().Warn("failed to record sentinel action overturned",
 					"appeal_id", msg.AppealId, "error", err)
 			}
+
+			// Reverse the underlying content action: unhide / unlock / un-move.
+			// Without this, the sentinel gets slashed but the user's content
+			// stays affected — the appeal loop would be incomplete. Errors
+			// here are logged and the appeal still finalizes; the dangling-
+			// reference guard inside ReverseSentinelAction may legitimately
+			// skip the reversal if the parent category has since been deleted.
+			if err := fk.ReverseSentinelAction(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
+				sdkCtx.Logger().Warn("failed to reverse sentinel action on overturn",
+					"appeal_id", msg.AppealId,
+					"action_type", appeal.ActionType.String(),
+					"action_target", appeal.ActionTarget,
+					"error", err)
+			}
 		}
 	}
 

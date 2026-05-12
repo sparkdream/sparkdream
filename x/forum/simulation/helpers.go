@@ -610,9 +610,12 @@ func getOrCreateHiddenPost(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, autho
 	// Try to find existing hidden post with a hide record
 	post, postID, err := findHiddenPost(r, ctx, k)
 	if err == nil && post != nil {
-		// Check if it has a hide record (sentinel hide)
-		_, hideErr := k.HideRecord.Get(ctx, postID)
-		if hideErr == nil {
+		// Reuse only sentinel hides (Sentinel != ""). Gov-hide records also
+		// land in this store but they're not appealable, so callers like
+		// SimulateMsgAppealPost would noop on them anyway — skip and create
+		// a fresh sentinel hide instead.
+		rec, hideErr := k.HideRecord.Get(ctx, postID)
+		if hideErr == nil && rec.Sentinel != "" {
 			return postID, nil
 		}
 	}

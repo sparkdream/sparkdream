@@ -60,6 +60,7 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgCreateCategory{},
+		&MsgDeleteCategory{},
 	)
 
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)

@@ -44,11 +44,17 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 		return nil, errorsmod.Wrap(types.ErrNotPostAuthor, "only the post author can appeal")
 	}
 
-	// Check if a hide record exists (sentinel hide vs gov hide)
+	// Check if a hide record exists and was created by a sentinel. Gov-
+	// authority hides write a minimal HideRecord with Sentinel == "" so the
+	// council can later restore the slashed author bond on unhide — but
+	// they're still not appealable via this path (gov hides must use
+	// MsgAppealGovAction).
 	hideRecord, err := k.HideRecord.Get(ctx, msg.PostId)
 	if err != nil {
-		// No hide record means governance authority hid this post
-		// Gov hides must be appealed via MsgAppealGovAction
+		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable,
+			"no hide record found — content was not hidden by a sentinel")
+	}
+	if hideRecord.Sentinel == "" {
 		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable,
 			"governance authority hides must be appealed via governance action appeal")
 	}

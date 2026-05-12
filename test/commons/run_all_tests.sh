@@ -388,6 +388,7 @@ fi
 if [ "$RUN_CATEGORY" = true ]; then
     echo ">>> PHASE 2: CATEGORY <<<"
     run_test "Category"                   "category_test.sh"
+    run_test "Category Delete"            "category_delete_test.sh"
 else
     echo "Skipping category phase (--no-category)"
     echo ""

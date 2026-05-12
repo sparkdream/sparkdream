@@ -91,6 +91,12 @@ func (stubRepKeeper) CreateAuthorBond(context.Context, sdk.AccAddress, reptypes.
 func (stubRepKeeper) SlashAuthorBond(context.Context, reptypes.StakeTargetType, uint64) error {
 	return nil
 }
+func (stubRepKeeper) GetAuthorBond(context.Context, reptypes.StakeTargetType, uint64) (reptypes.Stake, error) {
+	return reptypes.Stake{}, nil
+}
+func (stubRepKeeper) RestoreAuthorBond(context.Context, sdk.AccAddress, reptypes.StakeTargetType, uint64, math.Int) error {
+	return nil
+}
 func (stubRepKeeper) ValidateInitiativeReference(context.Context, uint64) error { return nil }
 func (stubRepKeeper) RegisterContentInitiativeLink(context.Context, uint64, int32, uint64) error {
 	return nil

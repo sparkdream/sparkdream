@@ -201,6 +201,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Create a shared content category (gov/council/operations only)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title"}, {ProtoField: "description"}, {ProtoField: "members_only_write"}, {ProtoField: "admin_only_write"}},
 				},
+				{
+					RpcMethod:      "DeleteCategory",
+					Use:            "delete-category [category-id]",
+					Short:          "Delete a shared content category (gov/council/operations only; rejected if forum posts still reference it)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}},
+				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},
 		},

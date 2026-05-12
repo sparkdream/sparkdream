@@ -76,6 +76,14 @@ type NameKeeper interface {
 	SetPrimaryName(ctx context.Context, addr sdk.AccAddress, name string) error
 }
 
+// ForumKeeper is a narrow surface used by MsgDeleteCategory to refuse
+// removing a category that still has posts attached. Wired post-depinject
+// via Keeper.SetForumKeeper to avoid a depinject cycle (x/forum already
+// depends on x/commons via its commonsKeeper.GetCategory call).
+type ForumKeeper interface {
+	HasPostInCategory(ctx context.Context, categoryID uint64) (bool, error)
+}
+
 // ParamSubspace defines the expected Subspace interface for parameters.
 type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})

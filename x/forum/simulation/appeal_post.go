@@ -31,10 +31,15 @@ func SimulateMsgAppealPost(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealPost{}), "failed to get/create hidden post"), nil, nil
 		}
 
-		// Verify that a hide record exists (required for appeal)
-		_, err = k.HideRecord.Get(ctx, postID)
+		// Verify that a SENTINEL hide record exists (required for appeal).
+		// Gov-hide records also land in HideRecord with Sentinel == "" but
+		// AppealPost rejects them as ErrGovLockNotAppealable.
+		rec, err := k.HideRecord.Get(ctx, postID)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealPost{}), "no hide record found"), nil, nil
+		}
+		if rec.Sentinel == "" {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealPost{}), "gov hide, not appealable here"), nil, nil
 		}
 
 		// In the real implementation, this creates an appeal initiative

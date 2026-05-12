@@ -39,11 +39,48 @@ Cross-links for primitives owned by x/rep:
 
 ```
 ACTIVE ◄─── MsgUnhidePost ─── HIDDEN ◄── MsgHidePost (sentinel)
-  │                                           │
-  ├── MsgDeletePost ──► DELETED               ├── Appeal filed → Jury review
-  │                                           │
-  └── TTL expiry ──► DELETED                  └── Unappealed → Content deleted
+  │             (sentinel             │
+  │              within window           │
+  │              OR council              │
+  │              anytime;                │
+  │              also driven by          │
+  │              appeal-OVERTURNED       │
+  │              via                     │
+  │              ReverseSentinelAction)  │
+  │                                      │
+  ├── MsgDeletePost ──► DELETED          ├── Appeal filed → Jury review
+  │                                      │
+  └── TTL expiry ──► DELETED             └── Unappealed → Content deleted
 ```
+
+`MsgUnhidePost` semantics:
+- The sentinel who hid the post may self-correct within
+  `params.sentinel_unhide_window` seconds of the original hide (default
+  24h, mirroring the author's `edit_max_window`).
+- The Commons Operations Committee / governance may unhide at any time
+  (council override), with or without a HideRecord (gov hides skip
+  HideRecord creation).
+- A successful unhide releases the sentinel's reserved bond, removes
+  the HideRecord, AND restores the author bond that `MsgHidePost`
+  slashed (mints + re-locks the snapshotted `AuthorBondAmount` from
+  the HideRecord). Net DREAM supply change across slash → restore is
+  zero. Same restoration fires when an appeal is OVERTURNED via
+  `ReverseSentinelAction`.
+- Gov-authority hides also write a minimal HideRecord (with
+  `Sentinel == ""` as the gov-hide marker) so council unhides can
+  restore the slashed author bond too. `MsgAppealPost` keys off the
+  empty `Sentinel` field to reject gov hides as
+  `ErrGovLockNotAppealable` — they must be appealed via
+  `MsgAppealGovAction`, not this path.
+- Refuses if the parent category has since been deleted (dangling-
+  reference guard — see [`Keeper.HasPostInCategory`](keeper/keeper.go)
+  comment for the cross-cutting invariant).
+- Mirror reversals exist for thread lock (`MsgUnlockThread`) and thread
+  move (call `MsgMoveThread` with the original category). When a hide /
+  lock / move appeal is resolved OVERTURNED, x/rep invokes
+  `ForumKeeper.ReverseSentinelAction` which performs the same content
+  rollback automatically — so the appeal loop is end-to-end complete
+  (sentinel slashed AND content restored).
 
 ### Sentinel System
 

@@ -78,6 +78,7 @@ service Msg {
   // CreateCategory registers a new shared content category. Restricted to
   // governance or the Commons Council Operations Committee.
   rpc CreateCategory(MsgCreateCategory) returns (MsgCreateCategoryResponse);
+  rpc DeleteCategory(MsgDeleteCategory) returns (MsgDeleteCategoryResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -400,3 +401,17 @@ message MsgCreateCategory {
 message MsgCreateCategoryResponse {
   uint64 category_id = 1;
 }
+
+// MsgDeleteCategory removes a shared content category. Restricted to
+// governance or the Commons Council Operations Committee. Refuses to
+// delete a category that still has forum posts attached — admins must
+// move/archive those first.
+message MsgDeleteCategory {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/commons/MsgDeleteCategory";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 category_id = 2;
+}
+
+// MsgDeleteCategoryResponse defines the MsgDeleteCategoryResponse message.
+message MsgDeleteCategoryResponse {}

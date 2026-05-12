@@ -433,6 +433,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
+			"/sparkdream.commons.v1.MsgCreateCategory",
+			"/sparkdream.commons.v1.MsgDeleteCategory",
 			"/sparkdream.blog.v1.MsgUpdateOperationalParams",
 			"/sparkdream.collect.v1.MsgUpdateOperationalParams",
 			"/sparkdream.rep.v1.MsgCreateTagBudget",

@@ -74,6 +74,14 @@ service Msg {
   // HidePost defines the HidePost RPC.
   rpc HidePost(MsgHidePost) returns (MsgHidePostResponse);
 
+  // UnhidePost reverses a prior MsgHidePost. Authorized for (a) the sentinel
+  // who originally hid the post, but only within sentinel_unhide_window
+  // seconds of the hide (self-correction grace window analogous to the
+  // edit_max_window for authors); and (b) the Commons Operations Committee
+  // / governance at any time (council override). Refuses if the post's
+  // parent category has since been deleted (dangling reference guard).
+  rpc UnhidePost(MsgUnhidePost) returns (MsgUnhidePostResponse);
+
   // AppealPost defines the AppealPost RPC.
   rpc AppealPost(MsgAppealPost) returns (MsgAppealPostResponse);
 
@@ -375,6 +383,17 @@ message MsgHidePost {
 
 // MsgHidePostResponse defines the MsgHidePostResponse message.
 message MsgHidePostResponse {}
+
+// MsgUnhidePost reverses MsgHidePost.
+message MsgUnhidePost {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgUnhidePost";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 2;
+}
+
+// MsgUnhidePostResponse defines the MsgUnhidePostResponse message.
+message MsgUnhidePostResponse {}
 
 // MsgAppealPost defines the MsgAppealPost message.
 message MsgAppealPost {

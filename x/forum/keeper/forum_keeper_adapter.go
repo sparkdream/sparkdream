@@ -281,3 +281,172 @@ func (k Keeper) ResetSentinelEpochCounters(ctx context.Context, addr string) err
 	local.EpochAppealsResolved = 0
 	return k.SentinelActivity.Set(ctx, addr, local)
 }
+
+// ReverseSentinelAction reverses the content-state effects of a sentinel
+// moderation action when an appeal is resolved against the sentinel
+// (OVERTURNED) or when the council otherwise overrides the action through
+// the rep module. Branches on actionType:
+//
+//   - GOV_ACTION_TYPE_THREAD_LOCK: clears post.Locked / LockedBy / LockedAt /
+//     LockReason on the root post and removes the ThreadLockRecord. Bypasses
+//     the LockAppealDeadline that MsgUnlockThread enforces — the appeal has
+//     just resolved, so the deadline is irrelevant.
+//   - GOV_ACTION_TYPE_THREAD_MOVE: restores post.CategoryId to the
+//     ThreadMoveRecord.OriginalCategoryId and removes the move record.
+//   - default (post-level hide): flips post.Status HIDDEN → ACTIVE, clears
+//     HiddenBy / HiddenAt, and removes the HideRecord.
+//
+// All branches apply the same dangling-reference guard used by
+// MsgUnhidePost / MsgUnarchiveThread: the post's destination category must
+// still exist in x/commons. If it doesn't, the reverse is refused — the
+// caller (x/rep's appeal resolver) should log and continue rather than
+// abort the appeal-resolution transaction. The invariant is documented on
+// Keeper.HasPostInCategory in keeper.go.
+//
+// This method does NOT enforce any caller-side authorization — it is
+// privileged and only callable from x/rep via the ForumKeeper interface.
+// User-driven reversals go through the MsgUnhidePost / MsgUnlockThread /
+// MsgMoveThread handlers, which carry their own auth.
+//
+// Missing action records are a soft skip (logs warning, returns nil): the
+// record may have been GC'd or never existed (e.g. the action was taken by
+// gov authority and bypassed record creation).
+func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	id, err := strconv.ParseUint(actionTarget, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid action target %q: %w", actionTarget, err)
+	}
+
+	switch actionType {
+	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:
+		post, err := k.Post.Get(ctx, id)
+		if err != nil {
+			sdkCtx.Logger().Warn("reverse sentinel action: post missing for unlock",
+				"root_id", id, "error", err)
+			return nil
+		}
+		if !post.Locked {
+			// Idempotent: already unlocked (e.g. self-unlocked then appeal resolved).
+			_ = k.ThreadLockRecord.Remove(ctx, id)
+			return nil
+		}
+		post.Locked = false
+		post.LockedBy = ""
+		post.LockedAt = 0
+		post.LockReason = ""
+		if err := k.Post.Set(ctx, id, post); err != nil {
+			return fmt.Errorf("reverse lock: update post: %w", err)
+		}
+		if err := k.ThreadLockRecord.Remove(ctx, id); err != nil {
+			sdkCtx.Logger().Warn("reverse sentinel action: remove lock record failed",
+				"root_id", id, "error", err)
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"thread_unlocked",
+			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("unlocked_by", "appeal_overturned"),
+			sdk.NewAttribute("is_gov_authority", "true"),
+		))
+		return nil
+
+	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
+		rec, err := k.ThreadMoveRecord.Get(ctx, id)
+		if err != nil {
+			sdkCtx.Logger().Warn("reverse sentinel action: move record missing",
+				"root_id", id, "error", err)
+			return nil
+		}
+		post, err := k.Post.Get(ctx, id)
+		if err != nil {
+			sdkCtx.Logger().Warn("reverse sentinel action: post missing for un-move",
+				"root_id", id, "error", err)
+			return nil
+		}
+		// Dangling-reference guard: the original category may have been
+		// deleted while the thread was sitting in the wrong category. Refuse
+		// rather than restore into a non-existent category.
+		if k.commonsKeeper == nil || !k.commonsKeeper.HasCategory(ctx, rec.OriginalCategoryId) {
+			sdkCtx.Logger().Warn("reverse sentinel action: original category gone, skipping un-move",
+				"root_id", id, "original_category_id", rec.OriginalCategoryId)
+			return nil
+		}
+		post.CategoryId = rec.OriginalCategoryId
+		if err := k.Post.Set(ctx, id, post); err != nil {
+			return fmt.Errorf("reverse move: update post: %w", err)
+		}
+		if err := k.ThreadMoveRecord.Remove(ctx, id); err != nil {
+			sdkCtx.Logger().Warn("reverse sentinel action: remove move record failed",
+				"root_id", id, "error", err)
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"thread_moved",
+			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("from_category", fmt.Sprintf("%d", rec.NewCategoryId)),
+			sdk.NewAttribute("to_category", fmt.Sprintf("%d", rec.OriginalCategoryId)),
+			sdk.NewAttribute("moved_by", "appeal_overturned"),
+		))
+		return nil
+
+	default:
+		// Hide-like (post-level).
+		post, err := k.Post.Get(ctx, id)
+		if err != nil {
+			sdkCtx.Logger().Warn("reverse sentinel action: post missing for unhide",
+				"post_id", id, "error", err)
+			return nil
+		}
+		// Read HideRecord BEFORE mutating anything — we need the snapshotted
+		// AuthorBondAmount to restore the slashed author bond.
+		hideRecord, hideRecordErr := k.HideRecord.Get(ctx, id)
+		haveHideRecord := hideRecordErr == nil
+
+		if post.Status != types.PostStatus_POST_STATUS_HIDDEN {
+			// Idempotent: already unhidden (e.g. sentinel self-corrected then appeal landed).
+			_ = k.HideRecord.Remove(ctx, id)
+			return nil
+		}
+		// Dangling-reference guard.
+		if k.commonsKeeper == nil || !k.commonsKeeper.HasCategory(ctx, post.CategoryId) {
+			sdkCtx.Logger().Warn("reverse sentinel action: parent category gone, skipping unhide",
+				"post_id", id, "category_id", post.CategoryId)
+			return nil
+		}
+		post.Status = types.PostStatus_POST_STATUS_ACTIVE
+		post.HiddenBy = ""
+		post.HiddenAt = 0
+		if err := k.Post.Set(ctx, id, post); err != nil {
+			return fmt.Errorf("reverse hide: update post: %w", err)
+		}
+
+		// Restore the author bond that MsgHidePost slashed (mint + re-lock).
+		// Net DREAM supply change across slash→restore is zero. Best-effort:
+		// failures are logged but do not abort the appeal-resolution tx.
+		if haveHideRecord && k.repKeeper != nil && hideRecord.AuthorBondAmount != "" {
+			if amt, ok := math.NewIntFromString(hideRecord.AuthorBondAmount); ok && amt.IsPositive() {
+				authorAddr, addrErr := sdk.AccAddressFromBech32(post.Author)
+				if addrErr != nil {
+					sdkCtx.Logger().Warn("reverse sentinel action: bad author address for bond restore",
+						"post_id", id, "author", post.Author, "error", addrErr)
+				} else if err := k.repKeeper.RestoreAuthorBond(ctx, authorAddr, reptypes.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND, id, amt); err != nil {
+					sdkCtx.Logger().Warn("reverse sentinel action: restore author bond failed",
+						"post_id", id, "author", post.Author, "error", err)
+				}
+			}
+		}
+
+		if err := k.HideRecord.Remove(ctx, id); err != nil {
+			sdkCtx.Logger().Warn("reverse sentinel action: remove hide record failed",
+				"post_id", id, "error", err)
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"post_unhidden",
+			sdk.NewAttribute("post_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("unhidden_by", "appeal_overturned"),
+			sdk.NewAttribute("is_council", "false"),
+			sdk.NewAttribute("is_self_correct", "false"),
+		))
+		return nil
+	}
+}

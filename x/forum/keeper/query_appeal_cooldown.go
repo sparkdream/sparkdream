@@ -19,10 +19,11 @@ func (q queryServer) AppealCooldown(ctx context.Context, req *types.QueryAppealC
 		return nil, status.Error(codes.InvalidArgument, "post_id required")
 	}
 
-	// Get the hide record for this post
+	// Get the hide record for this post. No record OR a gov-hide record
+	// (Sentinel == "") means there's no appealable hide here — return a
+	// zero cooldown so clients don't display a meaningless countdown.
 	hideRecord, err := q.k.HideRecord.Get(ctx, req.PostId)
-	if err != nil {
-		// No hide record means no cooldown
+	if err != nil || hideRecord.Sentinel == "" {
 		return &types.QueryAppealCooldownResponse{
 			InCooldown:   false,
 			CooldownEnds: 0,

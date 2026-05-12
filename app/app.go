@@ -240,6 +240,11 @@ func New(
 	// x/name already depends on x/commons (would cycle otherwise).
 	app.CommonsKeeper.SetNameKeeper(app.NameKeeper)
 
+	// Wire ForumKeeper into Commons so MsgDeleteCategory can refuse to
+	// remove a category that still has posts attached. Late-wired because
+	// x/forum already depends on x/commons (commonsKeeper.GetCategory).
+	app.CommonsKeeper.SetForumKeeper(app.ForumKeeper)
+
 	// Wire CommonsKeeper and RepKeeper into Futarchy after depinject to break cyclic dependency.
 	app.FutarchyKeeper.SetCommonsKeeper(app.CommonsKeeper)
 	app.FutarchyKeeper.SetRepKeeper(app.RepKeeper)

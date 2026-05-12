@@ -61,7 +61,10 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 	})
 
 	t.Run("unarchive cooldown", func(t *testing.T) {
-		post := f.createTestPost(t, testCreator, 0, 0)
+		// Register a parent category — MsgUnarchiveThread now refuses to
+		// revive a thread whose category was deleted (or never existed).
+		cat := f.createTestCategory(t, "UnarchiveCooldown")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
 		now := f.sdkCtx().BlockTime().Unix()
 
 		// Set post status to ARCHIVED
@@ -87,7 +90,10 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 	})
 
 	t.Run("successful unarchive", func(t *testing.T) {
-		post := f.createTestPost(t, testCreator, 0, 0)
+		// Register a parent category — MsgUnarchiveThread now refuses to
+		// revive a thread whose category has been deleted.
+		cat := f.createTestCategory(t, "UnarchiveHappy")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
 		now := f.sdkCtx().BlockTime().Unix()
 
 		// Set post status to ARCHIVED
@@ -114,6 +120,41 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		restoredPost, err := f.keeper.Post.Get(f.ctx, post.PostId)
 		require.NoError(t, err)
 		require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, restoredPost.Status)
+	})
+
+	t.Run("rejects when parent category has been deleted", func(t *testing.T) {
+		// Simulate the cross-module dangling-reference scenario: an admin
+		// deletes a category whose only remaining posts are ARCHIVED. Later
+		// someone tries to unarchive the thread. The handler must refuse,
+		// otherwise the post would become ACTIVE again pointing at a
+		// non-existent category. See the INVARIANT comment on
+		// Keeper.HasPostInCategory in keeper.go.
+		const ghostCategoryID uint64 = 0xDEAD_BEEF // never registered in mock
+		post := f.createTestPost(t, testCreator, 0, ghostCategoryID)
+		now := f.sdkCtx().BlockTime().Unix()
+
+		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
+		p.Status = types.PostStatus_POST_STATUS_ARCHIVED
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
+
+		meta := types.ArchiveMetadata{
+			RootId:         post.PostId,
+			ArchiveCount:   1,
+			LastArchivedAt: now - types.DefaultUnarchiveCooldown - 1,
+		}
+		require.NoError(t, f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, meta))
+
+		_, err := f.msgServer.UnarchiveThread(f.ctx, &types.MsgUnarchiveThread{
+			Creator: testCreator,
+			RootId:  post.PostId,
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrCategoryNotFound)
+
+		// Post must remain ARCHIVED — no partial mutation.
+		stillArchived, err := f.keeper.Post.Get(f.ctx, post.PostId)
+		require.NoError(t, err)
+		require.Equal(t, types.PostStatus_POST_STATUS_ARCHIVED, stillArchived.Status)
 	})
 
 	t.Run("successful unarchive with replies", func(t *testing.T) {

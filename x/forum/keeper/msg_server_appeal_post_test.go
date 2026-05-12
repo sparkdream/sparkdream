@@ -163,24 +163,54 @@ func TestAppealPost(t *testing.T) {
 }
 
 func TestAppealPostNoHideRecord(t *testing.T) {
-	f := initFixture(t)
+	// AppealPost rejects two flavors of non-sentinel hide. Both return
+	// ErrGovLockNotAppealable but with different messages so operators can
+	// see which path was taken.
+	t.Run("hidden post with NO HideRecord at all (stale state)", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "NoHideRecord")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
 
-	// Create a category and hidden post (hidden by gov, no hide record)
-	cat := f.createTestCategory(t, "General")
-	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
+		p.Status = types.PostStatus_POST_STATUS_HIDDEN
+		_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
 
-	// Hide the post but don't create hide record (simulating gov hide)
-	p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
-	p.Status = types.PostStatus_POST_STATUS_HIDDEN
-	_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
-
-	// Attempt appeal should fail because no hide record exists
-	_, err := f.msgServer.AppealPost(f.ctx, &types.MsgAppealPost{
-		Creator: testCreator,
-		PostId:  post.PostId,
+		_, err := f.msgServer.AppealPost(f.ctx, &types.MsgAppealPost{
+			Creator: testCreator,
+			PostId:  post.PostId,
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrGovLockNotAppealable)
+		require.Contains(t, err.Error(), "no hide record found")
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "governance authority hides")
+
+	t.Run("gov-hide HideRecord (Sentinel empty marker)", func(t *testing.T) {
+		// After the gov-hide-asymmetry fix, gov hides write a minimal
+		// HideRecord with Sentinel == "". AppealPost must still reject these
+		// as ErrGovLockNotAppealable — only sentinel hides are appealable
+		// via this path.
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "GovHideRecord")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+
+		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
+		p.Status = types.PostStatus_POST_STATUS_HIDDEN
+		_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+
+		require.NoError(t, f.keeper.HideRecord.Set(f.ctx, post.PostId, types.HideRecord{
+			PostId:   post.PostId,
+			Sentinel: "", // gov-hide marker
+			HiddenAt: f.sdkCtx().BlockTime().Unix(),
+		}))
+
+		_, err := f.msgServer.AppealPost(f.ctx, &types.MsgAppealPost{
+			Creator: testCreator,
+			PostId:  post.PostId,
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrGovLockNotAppealable)
+		require.Contains(t, err.Error(), "governance authority hides")
+	})
 }
 
 func TestAppealPostWithFee(t *testing.T) {
