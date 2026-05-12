@@ -266,8 +266,33 @@
         },
         "reaction_fee_exempt": false
       },
-      "post_count": "0",
-      "posts": [],
+      "post_count": "1",
+      "posts": [
+        {
+          "body": "Spark Dream is a Cosmos SDK chain for shared creative work, coordination, and self-publishing.\n\nFrom this site you can post dreams in Imaginarium, start discussions in Swarm, curate collections in Wonders, earn achievements and join guilds in Season, trade conditional shares in Futarchy, and follow governance and federation activity. Identity is anchored by onchain names, reputation is earned across initiatives, and councils route the more sensitive actions through governance.\n\nThis is a live demo. Everything you do here is signed through Keplr and broadcast against the real test chain (sparkdream-test-1). Posts, stakes, proposals, and reactions are written onchain, not mocked. The RSS feed at /feed.xml syndicates the activity stream for anyone who wants to follow along outside the UI.\n\nA few caveats while you explore:\n\nThis is a work in progress. Several modules already have full UI coverage: Imaginarium, Swarm, Wonders, Reveal, Governance, Sessions, Names. Two are still partial:\n\n• Futarchy markets. The LMSR market list and conditional-share trading work, but creator residuals, resolution flows, and some admin paths are still being built out.\n\n• Federation. Peers, identity links, and the verification queue render, but cross-chain attestation and bridge operator actions are scaffolded rather than fully wired.\n\nBeyond that, expect rough edges. Things will move, copy will change, and a few buttons may sit there looking pretty without doing much yet.\n\nFinally: the test chain is reset periodically to improve and add functionality to the chain. When that happens, every post, balance, market, contribution, and proposal you see disappears. That is on purpose. Resets let us land breaking changes without dragging legacy state along. Please don't get too attached to anything you publish here yet.\n\nHave fun. Break things. File issues.",
+          "content_type": "CONTENT_TYPE_MARKDOWN",
+          "conviction_sustained": false,
+          "created_at": 1776703948,
+          "creator": "sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd",
+          "edited": false,
+          "edited_at": 0,
+          "expires_at": 0,
+          "fee_bytes_high_water": 0,
+          "hidden_at": 0,
+          "hidden_by": "",
+          "id": 0,
+          "initiative_id": 0,
+          "min_reply_trust_level": 0,
+          "pinned_at": 0,
+          "pinned_by": "",
+          "replies_enabled": true,
+          "reply_count": 0,
+          "status": "POST_STATUS_ACTIVE",
+          "tags": [],
+          "title": "Welcome to Spark Dream",
+          "updated_at": 0
+        }
+      ],
       "reaction_counts": [],
       "reactions": [],
       "replies": [],
@@ -588,6 +613,7 @@
         "reactions_enabled": true,
         "sentinel_demotion_cooldown": "604800",
         "sentinel_demotion_threshold": "250",
+        "sentinel_unhide_window": "86400",
         "spam_tax": {
           "amount": "1000000",
           "denom": "uspark"

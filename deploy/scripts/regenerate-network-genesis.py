@@ -177,6 +177,60 @@ DEVNET_MEMBER_PROFILES = [
     },
 ]
 
+# Testnet-only welcome blog post (id=0), authored by kingofbitchain. Lives
+# in genesis so a fresh testnet always boots with the same landing post and
+# we don't have to re-post it after every chain reset. The body references
+# `sparkdream-test-1` and the testnet reset cadence explicitly, so devnet
+# and mainnet keep an empty blog state. The post is permanent (expires_at=0)
+# but not pinned: pinning in this chain semantically means "rescued from
+# ephemeral expiry", which is a meaningless flag on an already-permanent
+# post. created_at is tied to the network's genesis_time at write time.
+TESTNET_WELCOME_POST_TITLE = "Welcome to Spark Dream"
+TESTNET_WELCOME_POST_BODY = (
+    "Spark Dream is a Cosmos SDK chain for shared creative work, "
+    "coordination, and self-publishing.\n"
+    "\n"
+    "From this site you can post dreams in Imaginarium, start discussions "
+    "in Swarm, curate collections in Wonders, earn achievements and join "
+    "guilds in Season, trade conditional shares in Futarchy, and follow "
+    "governance and federation activity. Identity is anchored by onchain "
+    "names, reputation is earned across initiatives, and councils route the "
+    "more sensitive actions through governance.\n"
+    "\n"
+    "This is a live demo. Everything you do here is signed through Keplr "
+    "and broadcast against the real test chain (sparkdream-test-1). Posts, "
+    "stakes, proposals, and reactions are written onchain, not mocked. The "
+    "RSS feed at /feed.xml syndicates the activity stream for anyone who "
+    "wants to follow along outside the UI.\n"
+    "\n"
+    "A few caveats while you explore:\n"
+    "\n"
+    "This is a work in progress. Several modules already have full UI "
+    "coverage: Imaginarium, Swarm, Wonders, Reveal, Governance, Sessions, "
+    "Names. Two are still partial:\n"
+    "\n"
+    "• Futarchy markets. The LMSR market list and conditional-share "
+    "trading work, but creator residuals, resolution flows, and some admin "
+    "paths are still being built out.\n"
+    "\n"
+    "• Federation. Peers, identity links, and the verification queue "
+    "render, but cross-chain attestation and bridge operator actions are "
+    "scaffolded rather than fully wired.\n"
+    "\n"
+    "Beyond that, expect rough edges. Things will move, copy will change, "
+    "and a few buttons may sit there looking pretty without doing much yet.\n"
+    "\n"
+    "Finally: the test chain is reset periodically to improve and add "
+    "functionality to the chain. When that happens, every post, balance, "
+    "market, contribution, and proposal you see disappears. That is on "
+    "purpose. Resets let us land breaking changes without dragging legacy "
+    "state along. Please don't get too attached to anything you publish "
+    "here yet.\n"
+    "\n"
+    "Have fun. Break things. File issues."
+)
+
+
 NETWORKS = {
     "devnet": {
         "chain_id": "sparkdream-dev-1",
@@ -475,6 +529,18 @@ def preserve_or_now_genesis_time(network):
     return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
+def _rfc3339_to_unix(rfc3339_str):
+    """Convert a genesis_time RFC3339 string to an int64 unix timestamp.
+
+    Drops fractional seconds entirely — Go emits up to nanosecond precision
+    (9 digits) which Python's `datetime.fromisoformat` rejects in 3.10, and
+    blog `created_at` is a whole-second int64 anyway. The 'Z' suffix encodes
+    UTC; Cosmos always uses UTC for genesis_time."""
+    s = rfc3339_str.rstrip("Z").split(".", 1)[0]
+    dt = datetime.datetime.fromisoformat(s).replace(tzinfo=datetime.timezone.utc)
+    return int(dt.timestamp())
+
+
 def _bech32_data(addr):
     """Return the data portion of a bech32 address (chars between the final
     '1' separator and the 6-char checksum). The same underlying account bytes
@@ -659,6 +725,45 @@ def _set_user_state(g, principal_accounts, members, profiles):
     g["app_state"]["season"]["member_profile_map"] = profiles
 
 
+def _apply_testnet_welcome_blog_post(g):
+    """Inject the kingofbitchain testnet welcome post at blog post id=0.
+
+    Replaces the empty `posts` list and bumps `post_count` to 1. The
+    `created_at` is set to the network's genesis_time so the post's
+    timestamp moves with the chain start rather than drifting on each
+    regenerate. Testnet-only — the body references `sparkdream-test-1`
+    and the testnet reset cadence explicitly."""
+    genesis_unix = _rfc3339_to_unix(g["genesis_time"])
+    creator = next(f["address"] for f in FOUNDERS if f["name"] == "kingofbitchain")
+
+    welcome_post = {
+        "id": 0,
+        "title": TESTNET_WELCOME_POST_TITLE,
+        "body": TESTNET_WELCOME_POST_BODY,
+        "creator": creator,
+        "content_type": "CONTENT_TYPE_MARKDOWN",
+        "replies_enabled": True,
+        "reply_count": 0,
+        "min_reply_trust_level": 0,
+        "created_at": genesis_unix,
+        "updated_at": 0,
+        "status": "POST_STATUS_ACTIVE",
+        "hidden_by": "",
+        "hidden_at": 0,
+        "expires_at": 0,
+        "pinned_by": "",
+        "pinned_at": 0,
+        "fee_bytes_high_water": 0,
+        "edited": False,
+        "edited_at": 0,
+        "initiative_id": 0,
+        "conviction_sustained": False,
+        "tags": [],
+    }
+    g["app_state"]["blog"]["posts"] = [welcome_post]
+    g["app_state"]["blog"]["post_count"] = "1"
+
+
 def _build_with_founders(network, fresh):
     """Compose testnet/mainnet from the founder constants. Identical flow
     for both — only chain_id (from NETWORKS) differs."""
@@ -676,6 +781,8 @@ def _build_with_founders(network, fresh):
         [_founder_member(f) for f in FOUNDERS],
         [_founder_profile(f) for f in FOUNDERS],
     )
+    if network == "testnet":
+        _apply_testnet_welcome_blog_post(g)
     return g
 
 

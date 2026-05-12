@@ -508,6 +508,7 @@
         "reactions_enabled": true,
         "sentinel_demotion_cooldown": "604800",
         "sentinel_demotion_threshold": "250",
+        "sentinel_unhide_window": "86400",
         "spam_tax": {
           "amount": "1000000",
           "denom": "uspark"
