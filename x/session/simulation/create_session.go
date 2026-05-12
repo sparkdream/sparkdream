@@ -107,13 +107,9 @@ func SimulateMsgCreateSession(
 		}
 		expiration := ctx.BlockTime().Add(minDuration + time.Duration(r.Int63n(durationRange)))
 
-		// 8. Random max_exec_count
-		var maxExecCount uint64
-		if r.Intn(4) == 0 {
-			maxExecCount = 0 // unlimited
-		} else {
-			maxExecCount = uint64(r.Intn(50)) + 1
-		}
+		// 8. Random max_exec_count in [1, params.MaxExecCount]. The chain no
+		// longer accepts 0 (= unlimited) — every session must have a finite cap.
+		maxExecCount := uint64(r.Intn(50)) + 1
 
 		// 9. Construct and deliver
 		msg := &types.MsgCreateSession{

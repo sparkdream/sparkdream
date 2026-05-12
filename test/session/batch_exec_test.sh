@@ -155,7 +155,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost,/sparkdream.blog.v1.MsgReact" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

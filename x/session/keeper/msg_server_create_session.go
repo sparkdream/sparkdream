@@ -97,6 +97,17 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		return nil, types.ErrInvalidDenom
 	}
 
+	// 12. Exec count cap must be specified (0 was previously "unlimited" but is
+	// now forbidden — every session must declare a finite ceiling).
+	if msg.MaxExecCount == 0 {
+		return nil, types.ErrMaxExecCountRequired
+	}
+
+	// 13. Exec count cap upper bound check
+	if msg.MaxExecCount > params.MaxExecCount {
+		return nil, types.ErrMaxExecCountTooHigh
+	}
+
 	// Create the session
 	zeroCoin := sdk.NewInt64Coin("uspark", 0)
 	session := types.Session{

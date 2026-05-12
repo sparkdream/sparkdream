@@ -184,11 +184,13 @@ echo "--- TEST 1: Query initial session params ---"
 PARAMS=$($BINARY query session params --output json 2>&1)
 INITIAL_MAX_SESSIONS=$(echo "$PARAMS" | jq -r '.params.max_sessions_per_granter // "0"')
 INITIAL_MAX_MSG_TYPES=$(echo "$PARAMS" | jq -r '.params.max_msg_types_per_session // "0"')
+INITIAL_MAX_EXEC_COUNT=$(echo "$PARAMS" | jq -r '.params.max_exec_count // "10000"')
 INITIAL_CEILING_COUNT=$(echo "$PARAMS" | jq '.params.max_allowed_msg_types | length')
 INITIAL_ACTIVE_COUNT=$(echo "$PARAMS" | jq '.params.allowed_msg_types | length')
 
 echo "  max_sessions_per_granter: $INITIAL_MAX_SESSIONS"
 echo "  max_msg_types_per_session: $INITIAL_MAX_MSG_TYPES"
+echo "  max_exec_count: $INITIAL_MAX_EXEC_COUNT"
 echo "  ceiling types count: $INITIAL_CEILING_COUNT"
 echo "  active types count: $INITIAL_ACTIVE_COUNT"
 
@@ -222,6 +224,7 @@ else
     MAX_EXP_SECONDS=$(echo "$PARAMS" | jq -r '.params.max_expiration // "604800s"' | sed 's/s$//')
     MAX_SPEND_AMT=$(echo "$PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
     MAX_SPEND_DENOM=$(echo "$PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
+    MAX_EXEC_COUNT=$(echo "$PARAMS" | jq -r '.params.max_exec_count // "10000"')
 
     cat > "$PROPOSAL_DIR/narrow_allowlist.json" <<PROPEOF
 {
@@ -237,7 +240,8 @@ else
         "max_spend_limit": {
           "denom": "$MAX_SPEND_DENOM",
           "amount": "$MAX_SPEND_AMT"
-        }
+        },
+        "max_exec_count": "$MAX_EXEC_COUNT"
       }
     }
   ],
@@ -297,7 +301,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.name.v1.MsgSetPrimary" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -341,6 +345,7 @@ else
     MAX_EXP_SECONDS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_expiration // "604800s"' | sed 's/s$//')
     MAX_SPEND_AMT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
     MAX_SPEND_DENOM=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
+    MAX_EXEC_COUNT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_exec_count // "10000"')
 
     # Restore active list to full ceiling
     cat > "$PROPOSAL_DIR/restore_allowlist.json" <<PROPEOF
@@ -357,7 +362,8 @@ else
         "max_spend_limit": {
           "denom": "$MAX_SPEND_DENOM",
           "amount": "$MAX_SPEND_AMT"
-        }
+        },
+        "max_exec_count": "$MAX_EXEC_COUNT"
       }
     }
   ],
@@ -402,6 +408,7 @@ else
     MAX_EXP_SECONDS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_expiration // "604800s"' | sed 's/s$//')
     MAX_SPEND_AMT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
     MAX_SPEND_DENOM=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
+    MAX_EXEC_COUNT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_exec_count // "10000"')
 
     # Add a type that's NOT in the ceiling
     INVALID_ACTIVE=$(echo "$CURRENT_ACTIVE" | jq '. + ["/sparkdream.rep.v1.MsgInviteMember"]')
@@ -420,7 +427,8 @@ else
         "max_spend_limit": {
           "denom": "$MAX_SPEND_DENOM",
           "amount": "$MAX_SPEND_AMT"
-        }
+        },
+        "max_exec_count": "$MAX_EXEC_COUNT"
       }
     }
   ],
@@ -456,6 +464,7 @@ CURRENT_ACTIVE=$(echo "$CURRENT_PARAMS" | jq '.params.allowed_msg_types')
 MAX_EXP_SECONDS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_expiration // "604800s"' | sed 's/s$//')
 MAX_SPEND_AMT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
 MAX_SPEND_DENOM=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
+MAX_EXEC_COUNT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_exec_count // "10000"')
 
 # Use session_granter: a rep member but NOT on the Commons Operations
 # Committee, so isCouncilAuthorized should reject it. (Alice is a founder
@@ -475,7 +484,8 @@ cat > /tmp/session_nonauth_unsigned.json <<TXEOF
           "max_spend_limit": {
             "denom": "$MAX_SPEND_DENOM",
             "amount": "$MAX_SPEND_AMT"
-          }
+          },
+          "max_exec_count": "$MAX_EXEC_COUNT"
         }
       }
     ],

@@ -63,6 +63,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 					MaxMsgTypesPerSession: 20,
 					MaxExpiration:         7 * 24 * time.Hour,
 					MaxSpendLimit:         sdk.NewInt64Coin("uspark", 100_000_000),
+					MaxExecCount:          10_000,
 				},
 			},
 			expectError: false,
@@ -77,6 +78,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 					MaxMsgTypesPerSession: 20,
 					MaxExpiration:         7 * 24 * time.Hour,
 					MaxSpendLimit:         sdk.NewInt64Coin("uspark", 100_000_000),
+					MaxExecCount:          10_000,
 				},
 			},
 			expectError: true,
@@ -92,6 +94,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 					MaxMsgTypesPerSession: 20,
 					MaxExpiration:         7 * 24 * time.Hour,
 					MaxSpendLimit:         sdk.NewInt64Coin("uspark", 100_000_000),
+					MaxExecCount:          10_000,
 				},
 			},
 			setup: func() {
@@ -113,6 +116,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 					MaxMsgTypesPerSession: 10,
 					MaxExpiration:         3 * 24 * time.Hour,
 					MaxSpendLimit:         sdk.NewInt64Coin("uspark", 50_000_000),
+					MaxExecCount:          10_000,
 				},
 			},
 			setup: func() {
@@ -161,6 +165,7 @@ func TestUpdateOperationalParamsPreservesCeiling(t *testing.T) {
 			MaxMsgTypesPerSession: 10,
 			MaxExpiration:         3 * 24 * time.Hour,
 			MaxSpendLimit:         sdk.NewInt64Coin("uspark", 50_000_000),
+			MaxExecCount:          10_000,
 		},
 	})
 	require.NoError(t, err)

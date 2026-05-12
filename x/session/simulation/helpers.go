@@ -172,7 +172,7 @@ func getOrCreateSession(
 		CreatedAt:       ctx.BlockTime(),
 		LastUsedAt:      ctx.BlockTime(),
 		ExecCount:       0,
-		MaxExecCount:    0, // unlimited
+		MaxExecCount:    100, // finite cap (the chain rejects 0 at create-time)
 	}
 
 	// Store session + all indexes

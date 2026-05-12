@@ -38,6 +38,10 @@ message Params {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+
+  // Maximum exec_count per session. Must be > 0; sessions must declare
+  // a finite cap (1 <= session.max_exec_count <= params.max_exec_count).
+  uint64 max_exec_count = 7;
 }
 
 // SessionOperationalParams defines the operational parameters updateable by
@@ -63,4 +67,6 @@ message SessionOperationalParams {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+
+  uint64 max_exec_count = 6;
 }

@@ -13,6 +13,7 @@ var (
 	DefaultMaxMsgTypesPerSession uint64 = 20
 	DefaultMaxExpiration                = 7 * 24 * time.Hour                      // 7 days
 	DefaultMaxSpendLimit                = sdk.NewInt64Coin("uspark", 100_000_000) // 100 SPARK
+	DefaultMaxExecCount          uint64 = 10_000                                  // per-session execution ceiling
 
 	// DefaultAllowedMsgTypes is the genesis ceiling and initial active allowlist.
 	// Each message was reviewed as a low-risk, UX-frequent content/identity/social
@@ -86,6 +87,7 @@ func NewParams(
 	maxMsgTypesPerSession uint64,
 	maxExpiration time.Duration,
 	maxSpendLimit sdk.Coin,
+	maxExecCount uint64,
 ) Params {
 	return Params{
 		MaxAllowedMsgTypes:    maxAllowedMsgTypes,
@@ -94,6 +96,7 @@ func NewParams(
 		MaxMsgTypesPerSession: maxMsgTypesPerSession,
 		MaxExpiration:         maxExpiration,
 		MaxSpendLimit:         maxSpendLimit,
+		MaxExecCount:          maxExecCount,
 	}
 }
 
@@ -112,6 +115,7 @@ func DefaultParams() Params {
 		DefaultMaxMsgTypesPerSession,
 		DefaultMaxExpiration,
 		DefaultMaxSpendLimit,
+		DefaultMaxExecCount,
 	)
 }
 
@@ -128,6 +132,9 @@ func (p Params) Validate() error {
 	}
 	if !p.MaxSpendLimit.IsValid() || p.MaxSpendLimit.IsZero() {
 		return fmt.Errorf("max_spend_limit must be a valid positive coin")
+	}
+	if p.MaxExecCount == 0 {
+		return fmt.Errorf("max_exec_count must be > 0")
 	}
 	if len(p.MaxAllowedMsgTypes) == 0 {
 		return fmt.Errorf("max_allowed_msg_types must not be empty")
@@ -193,6 +200,7 @@ func DefaultSessionOperationalParams() SessionOperationalParams {
 		MaxMsgTypesPerSession: DefaultMaxMsgTypesPerSession,
 		MaxExpiration:         DefaultMaxExpiration,
 		MaxSpendLimit:         DefaultMaxSpendLimit,
+		MaxExecCount:          DefaultMaxExecCount,
 	}
 }
 
@@ -204,6 +212,7 @@ func (p Params) ApplyOperationalParams(op SessionOperationalParams) Params {
 	p.MaxMsgTypesPerSession = op.MaxMsgTypesPerSession
 	p.MaxExpiration = op.MaxExpiration
 	p.MaxSpendLimit = op.MaxSpendLimit
+	p.MaxExecCount = op.MaxExecCount
 	return p
 }
 
@@ -215,5 +224,6 @@ func (p Params) ExtractOperationalParams() SessionOperationalParams {
 		MaxMsgTypesPerSession: p.MaxMsgTypesPerSession,
 		MaxExpiration:         p.MaxExpiration,
 		MaxSpendLimit:         p.MaxSpendLimit,
+		MaxExecCount:          p.MaxExecCount,
 	}
 }

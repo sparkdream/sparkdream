@@ -209,6 +209,32 @@ func TestCreateSession(t *testing.T) {
 			expectError: true,
 			errContains: "spend_limit must be positive",
 		},
+		{
+			name: "zero max_exec_count is rejected",
+			msg: &types.MsgCreateSession{
+				Granter:         testAddr("granter10", f.addressCodec),
+				Grantee:         testAddr("grantee10", f.addressCodec),
+				AllowedMsgTypes: validTypes,
+				SpendLimit:      spendLimit,
+				Expiration:      futureExp,
+				MaxExecCount:    0,
+			},
+			expectError: true,
+			errContains: "max_exec_count must be positive",
+		},
+		{
+			name: "max_exec_count over params cap is rejected",
+			msg: &types.MsgCreateSession{
+				Granter:         testAddr("granter11", f.addressCodec),
+				Grantee:         testAddr("grantee11", f.addressCodec),
+				AllowedMsgTypes: validTypes,
+				SpendLimit:      spendLimit,
+				Expiration:      futureExp,
+				MaxExecCount:    999_999_999, // way above DefaultMaxExecCount (10_000)
+			},
+			expectError: true,
+			errContains: "exceeds params.max_exec_count",
+		},
 	}
 
 	for _, tt := range tests {
@@ -252,6 +278,7 @@ func TestCreateSessionIndexes(t *testing.T) {
 		AllowedMsgTypes: types.DefaultAllowedMsgTypes[:1],
 		SpendLimit:      sdk.NewInt64Coin("uspark", 1_000_000),
 		Expiration:      futureExp,
+		MaxExecCount:    100,
 	})
 	require.NoError(t, err)
 

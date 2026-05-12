@@ -187,7 +187,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -253,7 +253,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -314,7 +314,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -362,7 +362,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -419,7 +419,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$PAST_EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

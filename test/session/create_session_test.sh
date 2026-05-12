@@ -115,7 +115,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -188,7 +188,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -222,7 +222,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -261,7 +261,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.session.v1.MsgCreateSession" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -299,7 +299,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.rep.v1.MsgInviteMember" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -338,7 +338,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "200000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -377,7 +377,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uspark" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -455,7 +455,7 @@ TX_RES=$($BINARY tx session create-session \
     "/sparkdream.blog.v1.MsgCreatePost" \
     "50000000uatom" \
     "$EXPIRATION" \
-    "0" \
+    "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -475,6 +475,130 @@ if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
 else
     echo "  Expected failure but TX succeeded"
     record_result "Error: invalid denom" "FAIL"
+fi
+
+# ========================================================================
+# TEST 11: Error - max_exec_count = 0 (legacy "unlimited" no longer allowed)
+# ========================================================================
+echo "--- TEST 11: Error - max_exec_count = 0 ---"
+
+if ! $BINARY keys show session_temp7 --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add session_temp7 --keyring-backend test > /dev/null 2>&1
+fi
+TEMP7_ADDR=$($BINARY keys show session_temp7 -a --keyring-backend test)
+
+EXPIRATION=$(get_future_expiration 1)
+TX_RES=$($BINARY tx session create-session \
+    "$TEMP7_ADDR" \
+    "/sparkdream.blog.v1.MsgCreatePost" \
+    "50000000uspark" \
+    "$EXPIRATION" \
+    "0" \
+    --from session_granter \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    --gas 300000 \
+    -y \
+    --output json 2>&1)
+
+if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
+    if echo "$RAW_LOG" | grep -qi "max_exec_count must be positive"; then
+        echo "  Correctly rejected: zero max_exec_count"
+        record_result "Error: zero max_exec_count" "PASS"
+    else
+        echo "  TX failed but with unexpected error: $RAW_LOG"
+        record_result "Error: zero max_exec_count" "FAIL"
+    fi
+else
+    echo "  Expected failure but TX succeeded"
+    record_result "Error: zero max_exec_count" "FAIL"
+fi
+
+# ========================================================================
+# TEST 12: Error - max_exec_count exceeds params.max_exec_count
+# ========================================================================
+echo "--- TEST 12: Error - max_exec_count exceeds params cap ---"
+
+if ! $BINARY keys show session_temp8 --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add session_temp8 --keyring-backend test > /dev/null 2>&1
+fi
+TEMP8_ADDR=$($BINARY keys show session_temp8 -a --keyring-backend test)
+
+# Read the live param so the test stays correct after governance changes,
+# then request +1 over the cap.
+PARAMS_MAX_EXEC=$($BINARY query session params --output json 2>&1 \
+    | jq -r '.params.max_exec_count // "10000"')
+OVER_CAP=$((PARAMS_MAX_EXEC + 1))
+
+EXPIRATION=$(get_future_expiration 1)
+TX_RES=$($BINARY tx session create-session \
+    "$TEMP8_ADDR" \
+    "/sparkdream.blog.v1.MsgCreatePost" \
+    "50000000uspark" \
+    "$EXPIRATION" \
+    "$OVER_CAP" \
+    --from session_granter \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    --gas 300000 \
+    -y \
+    --output json 2>&1)
+
+if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
+    if echo "$RAW_LOG" | grep -qi "exceeds params.max_exec_count\|max_exec_count.*exceed"; then
+        echo "  Correctly rejected: max_exec_count over cap ($OVER_CAP > $PARAMS_MAX_EXEC)"
+        record_result "Error: max_exec_count exceeds cap" "PASS"
+    else
+        echo "  TX failed but with unexpected error: $RAW_LOG"
+        record_result "Error: max_exec_count exceeds cap" "FAIL"
+    fi
+else
+    echo "  Expected failure but TX succeeded"
+    record_result "Error: max_exec_count exceeds cap" "FAIL"
+fi
+
+# ========================================================================
+# TEST 13: Create session with max_exec_count = params cap (boundary)
+# ========================================================================
+echo "--- TEST 13: Create session with max_exec_count at params cap ---"
+
+if ! $BINARY keys show session_temp9 --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add session_temp9 --keyring-backend test > /dev/null 2>&1
+fi
+TEMP9_ADDR=$($BINARY keys show session_temp9 -a --keyring-backend test)
+
+EXPIRATION=$(get_future_expiration 1)
+TX_RES=$($BINARY tx session create-session \
+    "$TEMP9_ADDR" \
+    "/sparkdream.blog.v1.MsgCreatePost" \
+    "50000000uspark" \
+    "$EXPIRATION" \
+    "$PARAMS_MAX_EXEC" \
+    --from session_granter \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    --gas 300000 \
+    -y \
+    --output json 2>&1)
+
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    SESSION=$($BINARY query session session "$GRANTER_ADDR" "$TEMP9_ADDR" --output json 2>&1)
+    STORED_MAX_EXEC=$(echo "$SESSION" | jq -r '.session.max_exec_count // "0"')
+    if [ "$STORED_MAX_EXEC" = "$PARAMS_MAX_EXEC" ]; then
+        echo "  Session created with max_exec_count=$STORED_MAX_EXEC (== params cap)"
+        record_result "Create session at max_exec_count cap" "PASS"
+    else
+        echo "  Stored max_exec_count=$STORED_MAX_EXEC, expected $PARAMS_MAX_EXEC"
+        record_result "Create session at max_exec_count cap" "FAIL"
+    fi
+else
+    echo "  TX failed: $(echo "$TX_RESULT" | jq -r '.raw_log // "unknown"' 2>/dev/null)"
+    record_result "Create session at max_exec_count cap" "FAIL"
 fi
 
 # ========================================================================
