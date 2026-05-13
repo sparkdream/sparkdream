@@ -222,6 +222,47 @@ func (k Keeper) IterateChallengesByStatus(ctx context.Context, status types.Chal
 	})
 }
 
+// Project Index Management
+
+// AddProjectToStatusIndex adds a project to the status index.
+func (k Keeper) AddProjectToStatusIndex(ctx context.Context, project types.Project) error {
+	return k.ProjectsByStatus.Set(ctx, collections.Join(int32(project.Status), project.Id))
+}
+
+// RemoveProjectFromStatusIndex removes a project from the status index.
+func (k Keeper) RemoveProjectFromStatusIndex(ctx context.Context, status types.ProjectStatus, id uint64) error {
+	return k.ProjectsByStatus.Remove(ctx, collections.Join(int32(status), id))
+}
+
+// UpdateProjectStatusIndex updates the status index when a project's status changes.
+// Idempotent for the not-found case so existing genesis state (without an index
+// entry yet) and re-runs don't error.
+func (k Keeper) UpdateProjectStatusIndex(ctx context.Context, oldStatus, newStatus types.ProjectStatus, id uint64) error {
+	if oldStatus == newStatus {
+		return nil
+	}
+	if err := k.RemoveProjectFromStatusIndex(ctx, oldStatus, id); err != nil {
+		if !isNotFoundError(err) {
+			return err
+		}
+	}
+	return k.ProjectsByStatus.Set(ctx, collections.Join(int32(newStatus), id))
+}
+
+// IterateProjectsByStatus iterates over projects with a specific status. The
+// callback receives both the id and the hydrated project. Returning true from
+// the callback stops iteration.
+func (k Keeper) IterateProjectsByStatus(ctx context.Context, status types.ProjectStatus, fn func(id uint64, project types.Project) bool) error {
+	rng := collections.NewPrefixedPairRange[int32, uint64](int32(status))
+	return k.ProjectsByStatus.Walk(ctx, rng, func(key collections.Pair[int32, uint64]) (stop bool, err error) {
+		project, err := k.Project.Get(ctx, key.K2())
+		if err != nil {
+			return false, nil // Skip if not found (stale index entry)
+		}
+		return fn(key.K2(), project), nil
+	})
+}
+
 // Helper to check if error is "not found"
 func isNotFoundError(err error) bool {
 	return err != nil && err.Error() == "not found"

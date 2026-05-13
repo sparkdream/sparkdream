@@ -256,7 +256,11 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       min_appeal_rate,
       max_active_initiatives_per_member,
       max_active_interims_per_member,
-      max_dream_mint_per_epoch
+      max_dream_mint_per_epoch,
+
+      max_project_requested_budget,
+      max_project_requested_spark,
+      proposed_project_expiry_blocks
     }')
 
     # Modify test fields
@@ -471,7 +475,11 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       min_appeal_rate,
       max_active_initiatives_per_member,
       max_active_interims_per_member,
-      max_dream_mint_per_epoch
+      max_dream_mint_per_epoch,
+
+      max_project_requested_budget,
+      max_project_requested_spark,
+      proposed_project_expiry_blocks
     }')
 
     # Convert LegacyDec fields from raw format to decimal format

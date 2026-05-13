@@ -51,12 +51,24 @@ wait_for_tx() {
 
 check_tx_success() {
     local TX_RESULT=$1
+    if ! echo "$TX_RESULT" | jq -e . > /dev/null 2>&1; then
+        return 1
+    fi
     local CODE=$(echo "$TX_RESULT" | jq -r '.code')
     [ "$CODE" == "0" ]
 }
 
 submit_tx_and_wait() {
     local TX_RES="$1"
+
+    # If the broadcast didn't return parseable JSON (e.g. CLI printed a
+    # plain-text error), treat the response itself as the result. This avoids
+    # noisy `jq: parse error` output for expected-rejection paths.
+    if ! echo "$TX_RES" | jq -e . > /dev/null 2>&1; then
+        TX_RESULT="$TX_RES"
+        return 0
+    fi
+
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then

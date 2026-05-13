@@ -20,17 +20,32 @@ func (k msgServer) ProposeProject(ctx context.Context, msg *types.MsgProposeProj
 		return nil, errorsmod.Wrap(types.ErrNotMember, "creator must be a member")
 	}
 
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to get params")
+	}
+
+	// Proposal-time hard cap: reject obviously-absurd requested amounts before
+	// any state is written. The cap is set well above any legitimate project
+	// (default 1M DREAM / 100K SPARK) and exists purely to prevent state
+	// pollution from spammy proposals. Distinct from LargeProjectBudgetThreshold,
+	// which is an approval-time routing rule, not a cap.
+	if msg.RequestedBudget.GT(params.MaxProjectRequestedBudget) {
+		return nil, errorsmod.Wrapf(types.ErrRequestedBudgetExceedsCap,
+			"requested %s exceeds cap %s",
+			msg.RequestedBudget.String(), params.MaxProjectRequestedBudget.String())
+	}
+	if msg.RequestedSpark.GT(params.MaxProjectRequestedSpark) {
+		return nil, errorsmod.Wrapf(types.ErrRequestedSparkExceedsCap,
+			"requested %s exceeds cap %s",
+			msg.RequestedSpark.String(), params.MaxProjectRequestedSpark.String())
+	}
+
 	// Determine if this is a permissionless project (zero budget + zero SPARK)
 	permissionless := msg.RequestedBudget.IsZero() && msg.RequestedSpark.IsZero()
 
 	if permissionless {
 		// Permissionless path: validate trust level and burn creation fee
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			return nil, errorsmod.Wrap(err, "failed to get params")
-		}
-
-		// Check minimum trust level
 		if uint32(member.TrustLevel) < params.PermissionlessMinTrustLevel {
 			return nil, errorsmod.Wrapf(types.ErrInsufficientTrustLevel,
 				"permissionless project requires trust level >= %d, got %d",

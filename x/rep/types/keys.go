@@ -81,6 +81,11 @@ var (
 	// ChallengesByStatus: status -> []challengeID
 	// Enables O(1) lookup of challenges by status instead of full table scan
 	ChallengesByStatusKey = collections.NewPrefix("challenge/by_status/")
+
+	// ProjectsByStatus: status -> []projectID
+	// Enables O(1) lookup of projects by status — currently consumed by the
+	// EndBlocker expiry sweep over PROPOSED projects.
+	ProjectsByStatusKey = collections.NewPrefix("project/by_status/")
 )
 
 // Extended staking pool keys

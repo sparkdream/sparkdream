@@ -30,6 +30,13 @@ message Project {
   // Permissionless projects skip committee approval.
   // Zero budget, APPRENTICE/STANDARD initiatives only, rewards minted on completion.
   bool permissionless = 18;
+
+  // Block height at which this project will be expired by the EndBlocker if it
+  // is still in PROPOSED status. Set at creation for non-permissionless
+  // projects (creation_height + params.proposed_project_expiry_blocks). Zero
+  // for permissionless projects (no expiry — ACTIVE on creation) and cleared
+  // when the project transitions out of PROPOSED.
+  int64 expiry_block_height = 19;
 }
 
 enum ProjectCategory {
@@ -45,6 +52,10 @@ enum ProjectStatus {
   PROJECT_STATUS_ACTIVE = 1;
   PROJECT_STATUS_COMPLETED = 2;
   PROJECT_STATUS_CANCELLED = 3;
+  // EXPIRED is set by the EndBlocker when a PROPOSED project has not been
+  // approved before its expiry_block_height. Terminal state — kept (not
+  // deleted) so the audit trail of stale proposals survives.
+  PROJECT_STATUS_EXPIRED = 4;
 }
 
 message VerificationPolicy {

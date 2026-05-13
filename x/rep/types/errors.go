@@ -163,4 +163,9 @@ var (
 
 	// Global DREAM emission cap
 	ErrDreamMintCapExceeded = errors.Register(ModuleName, 2103, "DREAM minting would exceed the per-epoch cap")
+
+	// Proposal-time hard caps (rejected before the project is created so state
+	// doesn't accumulate junk proposals with absurd requested amounts).
+	ErrRequestedBudgetExceedsCap = errors.Register(ModuleName, 2104, "requested project budget exceeds the proposal-time cap")
+	ErrRequestedSparkExceedsCap  = errors.Register(ModuleName, 2105, "requested project SPARK exceeds the proposal-time cap")
 )

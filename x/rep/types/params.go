@@ -188,6 +188,17 @@ func DefaultParams() Params {
 		// 10,000 DREAM per epoch; at 150 epochs/season this bounds total inflation
 		// to ~1.5M DREAM/season even under pathological rubber-stamping.
 		MaxDreamMintPerEpoch: math.NewInt(10000000000000),
+
+		// Proposal-time hard caps. ~100× the routing threshold (10K DREAM) and
+		// 100K SPARK — never bites a legitimate proposal but rejects nonsense
+		// values that would pollute state.
+		MaxProjectRequestedBudget: math.NewInt(1000000000000), // 1,000,000 DREAM (micro-DREAM)
+		MaxProjectRequestedSpark:  math.NewInt(100000000000),  // 100,000 SPARK (uspark)
+
+		// PROPOSED projects expire ~2 weeks after creation at 6s blocks
+		// (200,000 blocks ≈ 13.9 days). Tunable; tests can shorten via the
+		// operational params if a faster e2e cycle is needed.
+		ProposedProjectExpiryBlocks: 200000,
 	}
 }
 
@@ -362,6 +373,19 @@ func (p Params) Validate() error {
 		return fmt.Errorf("max_dream_mint_per_epoch must be positive")
 	}
 
+	// Proposal-time caps must be strictly positive — a zero cap would block all
+	// proposals (including legitimate council-gated large ones), defeating the
+	// design. Use a very high value to disable spam protection, not zero.
+	if !p.MaxProjectRequestedBudget.IsPositive() {
+		return fmt.Errorf("max project requested budget must be positive: %s", p.MaxProjectRequestedBudget)
+	}
+	if !p.MaxProjectRequestedSpark.IsPositive() {
+		return fmt.Errorf("max project requested spark must be positive: %s", p.MaxProjectRequestedSpark)
+	}
+	if p.ProposedProjectExpiryBlocks <= 0 {
+		return fmt.Errorf("proposed project expiry blocks must be positive: %d", p.ProposedProjectExpiryBlocks)
+	}
+
 	return nil
 }
 
@@ -466,6 +490,13 @@ func DefaultRepOperationalParams() RepOperationalParams {
 
 		// Global per-epoch DREAM minting ceiling (10,000 DREAM/epoch)
 		MaxDreamMintPerEpoch: math.NewInt(10000000000000),
+
+		// Proposal-time hard caps (mirror Params.max_project_requested_*).
+		MaxProjectRequestedBudget: math.NewInt(1000000000000), // 1,000,000 DREAM
+		MaxProjectRequestedSpark:  math.NewInt(100000000000),  // 100,000 SPARK
+
+		// PROPOSED-project expiry (mirror Params.proposed_project_expiry_blocks).
+		ProposedProjectExpiryBlocks: 200000,
 	}
 }
 
@@ -609,6 +640,16 @@ func (op RepOperationalParams) Validate() error {
 	if op.MaxDreamMintPerEpoch.IsNil() || op.MaxDreamMintPerEpoch.IsZero() || op.MaxDreamMintPerEpoch.IsNegative() {
 		return fmt.Errorf("max_dream_mint_per_epoch must be positive")
 	}
+	// Proposal-time caps: see Params.Validate() for rationale.
+	if !op.MaxProjectRequestedBudget.IsPositive() {
+		return fmt.Errorf("max project requested budget must be positive: %s", op.MaxProjectRequestedBudget)
+	}
+	if !op.MaxProjectRequestedSpark.IsPositive() {
+		return fmt.Errorf("max project requested spark must be positive: %s", op.MaxProjectRequestedSpark)
+	}
+	if op.ProposedProjectExpiryBlocks <= 0 {
+		return fmt.Errorf("proposed project expiry blocks must be positive: %d", op.ProposedProjectExpiryBlocks)
+	}
 	return nil
 }
 
@@ -710,6 +751,10 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.MaxActiveInterimsPerMember = op.MaxActiveInterimsPerMember
 	// DREAM emission cap
 	p.MaxDreamMintPerEpoch = op.MaxDreamMintPerEpoch
+	// Proposal-time hard caps and PROPOSED-project expiry
+	p.MaxProjectRequestedBudget = op.MaxProjectRequestedBudget
+	p.MaxProjectRequestedSpark = op.MaxProjectRequestedSpark
+	p.ProposedProjectExpiryBlocks = op.ProposedProjectExpiryBlocks
 	return p
 }
 
@@ -811,5 +856,9 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		MaxActiveInterimsPerMember:    p.MaxActiveInterimsPerMember,
 		// DREAM emission cap
 		MaxDreamMintPerEpoch: p.MaxDreamMintPerEpoch,
+		// Proposal-time hard caps and PROPOSED-project expiry
+		MaxProjectRequestedBudget:   p.MaxProjectRequestedBudget,
+		MaxProjectRequestedSpark:    p.MaxProjectRequestedSpark,
+		ProposedProjectExpiryBlocks: p.ProposedProjectExpiryBlocks,
 	}
 }

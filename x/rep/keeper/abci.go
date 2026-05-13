@@ -103,6 +103,24 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		return false
 	})
 
+	// 7b. Expire stale PROPOSED projects that no committee has approved within
+	// their expiry window. Collect first, mutate after the iterator closes so
+	// we don't mutate the by-status index mid-walk.
+	var expiredProjects []uint64
+	if err := k.IterateProjectsByStatus(ctx, types.ProjectStatus_PROJECT_STATUS_PROPOSED, func(id uint64, project types.Project) bool {
+		if project.ExpiryBlockHeight > 0 && sdkCtx.BlockHeight() >= project.ExpiryBlockHeight {
+			expiredProjects = append(expiredProjects, id)
+		}
+		return false
+	}); err != nil {
+		sdkCtx.Logger().Error("failed to walk PROPOSED projects for expiry", "error", err)
+	}
+	for _, id := range expiredProjects {
+		if err := k.ExpireProject(ctx, id); err != nil {
+			sdkCtx.Logger().Error("failed to expire project", "project_id", id, "error", err)
+		}
+	}
+
 	// 8. Distribute staking rewards from seasonal pool
 	if err := k.DistributeEpochStakingRewards(ctx); err != nil {
 		return err

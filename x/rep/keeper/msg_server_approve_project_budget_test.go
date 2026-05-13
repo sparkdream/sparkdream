@@ -200,4 +200,41 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, math.NewInt(1000), keeper.DerefInt(project.ApprovedBudget))
 	})
+
+	// Regression test for the cross-council approval tightening: an
+	// operations-committee member of council A can no longer unilaterally
+	// approve a project pointed at council B. Previously the global
+	// IsOperationsCommittee helper would return true for either Technical or
+	// Commons ops members and the keeper's own check accepted that, letting
+	// any ops-committee member approve any project regardless of which council
+	// the project named.
+	t.Run("cross-council approval rejected", func(t *testing.T) {
+		f := initFixture(t)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		k := f.keeper
+		ctx := f.ctx
+
+		creator := sdk.AccAddress([]byte("creator"))
+		// Project is pointed at the commons council.
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "commons", math.NewInt(10000), math.NewInt(1000), false)
+
+		approver := sdk.AccAddress([]byte("approver"))
+		approverStr, _ := f.addressCodec.BytesToString(approver)
+
+		// Mock: approver is on the technical ops committee but NOT on the
+		// commons ops committee. Default IsCouncilAuthorizedFn returns false
+		// (no policy-address fallback).
+		f.commonsKeeper.IsCommitteeMemberFn = func(_ context.Context, _ sdk.AccAddress, council string, _ string) (bool, error) {
+			return council == "technical", nil
+		}
+
+		_, err := ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
+			Approver:       approverStr,
+			ProjectId:      projectID,
+			ApprovedBudget: keeper.PtrInt(math.NewInt(1000)),
+			ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrUnauthorized)
+	})
 }

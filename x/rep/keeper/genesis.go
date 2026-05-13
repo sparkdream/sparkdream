@@ -28,6 +28,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.Project.Set(ctx, elem.Id, elem); err != nil {
 			return err
 		}
+		// Rebuild the by-status index from the project list. The index is
+		// derived state (not separately exported in genesis), so importing the
+		// primary collection alone would leave the EndBlocker expiry sweep
+		// blind to existing PROPOSED projects.
+		if err := k.AddProjectToStatusIndex(ctx, elem); err != nil {
+			return err
+		}
 	}
 
 	if err := k.ProjectSeq.Set(ctx, genState.ProjectCount); err != nil {

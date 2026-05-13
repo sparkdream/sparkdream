@@ -397,3 +397,162 @@ func TestCompleteProject(t *testing.T) {
 			"allocated budget should be preserved")
 	})
 }
+
+// TestProjectExpiry covers the EndBlocker-driven TTL on PROPOSED projects:
+// CreateProject stamps an expiry deadline, ApproveProject clears it, the
+// EndBlocker sweep transitions stale proposals to EXPIRED, and ExpireProject
+// is a no-op against non-PROPOSED projects.
+func TestProjectExpiry(t *testing.T) {
+	memberOf := func(addr sdk.AccAddress) types.Member {
+		return types.Member{
+			Address:          addr.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: make(map[string]string),
+		}
+	}
+
+	t.Run("CreateProject stamps expiry for non-permissionless, zero for permissionless", func(t *testing.T) {
+		f := initFixture(t)
+		k := f.keeper
+		ctx := f.ctx
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+		params, err := k.Params.Get(ctx)
+		require.NoError(t, err)
+		params.ProposedProjectExpiryBlocks = 500
+		require.NoError(t, k.Params.Set(ctx, params))
+
+		creator := sdk.AccAddress([]byte("creator-exp"))
+		require.NoError(t, k.Member.Set(ctx, creator.String(), memberOf(creator)))
+
+		// Non-permissionless: expiry = blockHeight + 500.
+		budgetID, err := k.CreateProject(ctx, creator, "Budgeted", "desc", []string{"infra"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.NewInt(100), math.NewInt(10), false)
+		require.NoError(t, err)
+
+		p, err := k.GetProject(ctx, budgetID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_PROPOSED, p.Status)
+		require.Equal(t, sdkCtx.BlockHeight()+500, p.ExpiryBlockHeight,
+			"expiry should be current height + ProposedProjectExpiryBlocks")
+
+		// Permissionless: ACTIVE on creation, no expiry to set.
+		permID, err := k.CreateProject(ctx, creator, "Open", "desc", []string{"infra"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.ZeroInt(), math.ZeroInt(), true)
+		require.NoError(t, err)
+
+		p, err = k.GetProject(ctx, permID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_ACTIVE, p.Status)
+		require.Zero(t, p.ExpiryBlockHeight, "permissionless projects must not carry an expiry")
+	})
+
+	t.Run("ApproveProject clears ExpiryBlockHeight", func(t *testing.T) {
+		f := initFixture(t)
+		k := f.keeper
+		ctx := f.ctx
+
+		creator := sdk.AccAddress([]byte("creator-app"))
+		require.NoError(t, k.Member.Set(ctx, creator.String(), memberOf(creator)))
+
+		id, err := k.CreateProject(ctx, creator, "Approve me", "desc", []string{"infra"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.NewInt(100), math.NewInt(10), false)
+		require.NoError(t, err)
+
+		p, err := k.GetProject(ctx, id)
+		require.NoError(t, err)
+		require.NotZero(t, p.ExpiryBlockHeight)
+
+		approver := sdk.AccAddress([]byte("approver-app"))
+		require.NoError(t, k.ApproveProject(ctx, id, approver, math.NewInt(100), math.NewInt(10)))
+
+		p, err = k.GetProject(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_ACTIVE, p.Status)
+		require.Zero(t, p.ExpiryBlockHeight, "ApproveProject must clear ExpiryBlockHeight")
+	})
+
+	t.Run("ExpireProject transitions PROPOSED -> EXPIRED and is a no-op otherwise", func(t *testing.T) {
+		f := initFixture(t)
+		k := f.keeper
+		ctx := f.ctx
+
+		creator := sdk.AccAddress([]byte("creator-exp2"))
+		require.NoError(t, k.Member.Set(ctx, creator.String(), memberOf(creator)))
+
+		// PROPOSED -> EXPIRED.
+		id, err := k.CreateProject(ctx, creator, "Expire me", "desc", []string{"infra"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.NewInt(100), math.NewInt(10), false)
+		require.NoError(t, err)
+		require.NoError(t, k.ExpireProject(ctx, id))
+
+		p, err := k.GetProject(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_EXPIRED, p.Status)
+		require.Zero(t, p.ExpiryBlockHeight)
+
+		// ACTIVE -> ExpireProject must be a no-op (covers the race where a
+		// project is approved in the same block the EndBlocker would have
+		// expired it).
+		liveID, err := k.CreateProject(ctx, creator, "Live", "desc", []string{"infra"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.NewInt(100), math.NewInt(10), false)
+		require.NoError(t, err)
+		require.NoError(t, k.ApproveProject(ctx, liveID, sdk.AccAddress([]byte("approver-live")),
+			math.NewInt(100), math.NewInt(10)))
+		require.NoError(t, k.ExpireProject(ctx, liveID))
+
+		p, err = k.GetProject(ctx, liveID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_ACTIVE, p.Status,
+			"ExpireProject must leave a non-PROPOSED project alone")
+	})
+
+	t.Run("EndBlocker expires stale proposals and leaves fresh ones alone", func(t *testing.T) {
+		f := initFixture(t)
+		k := f.keeper
+		ctx := f.ctx
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+		// Short window so the test can step past it cheaply.
+		params, err := k.Params.Get(ctx)
+		require.NoError(t, err)
+		params.ProposedProjectExpiryBlocks = 10
+		require.NoError(t, k.Params.Set(ctx, params))
+
+		creator := sdk.AccAddress([]byte("creator-sweep"))
+		require.NoError(t, k.Member.Set(ctx, creator.String(), memberOf(creator)))
+
+		// Stale proposal created at height 0 (expiry = 10).
+		staleID, err := k.CreateProject(ctx, creator, "Stale", "desc", []string{"infra"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.NewInt(100), math.NewInt(10), false)
+		require.NoError(t, err)
+
+		// Advance height to 20 and create a fresh proposal at that height
+		// (expiry = 30). Then run EndBlocker — only the stale one should expire.
+		ctxAt20 := sdkCtx.WithBlockHeight(20)
+		freshID, err := k.CreateProject(ctxAt20, creator, "Fresh", "desc", []string{"infra"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.NewInt(100), math.NewInt(10), false)
+		require.NoError(t, err)
+
+		require.NoError(t, k.EndBlocker(ctxAt20))
+
+		stale, err := k.GetProject(ctxAt20, staleID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_EXPIRED, stale.Status)
+
+		fresh, err := k.GetProject(ctxAt20, freshID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_PROPOSED, fresh.Status,
+			"a proposal whose expiry is still in the future must survive the sweep")
+	})
+}

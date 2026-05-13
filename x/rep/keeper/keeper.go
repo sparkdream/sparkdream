@@ -64,6 +64,9 @@ type Keeper struct {
 	StakesByTarget collections.KeySet[collections.Triple[int32, uint64, uint64]]
 	// Key: (status, id) - allows iteration of challenges by status
 	ChallengesByStatus collections.KeySet[collections.Pair[int32, uint64]]
+	// Key: (status, id) - allows iteration of projects by status (currently
+	// drives the EndBlocker sweep that expires stale PROPOSED projects).
+	ProjectsByStatus collections.KeySet[collections.Pair[int32, uint64]]
 
 	// Extended staking pools (for O(1) reward distribution)
 	MemberStakePool  collections.Map[string, types.MemberStakePool]  // member address -> pool
@@ -192,6 +195,10 @@ func NewKeeper(
 		),
 		ChallengesByStatus: collections.NewKeySet(
 			sb, types.ChallengesByStatusKey, "challengesByStatus",
+			collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key),
+		),
+		ProjectsByStatus: collections.NewKeySet(
+			sb, types.ProjectsByStatusKey, "projectsByStatus",
 			collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key),
 		),
 

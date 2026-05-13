@@ -410,6 +410,30 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Absolute upper bound on requested_budget at proposal time. Distinct from
+  // large_project_budget_threshold (which is an approval-time routing rule):
+  // this is a hard cap that rejects nonsense values (e.g. 10^30 DREAM) and
+  // keeps state clean. Set well above any legitimate project size so council-
+  // gated large proposals are not blocked. Must be positive.
+  string max_project_requested_budget = 88 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Absolute upper bound on requested_spark at proposal time. Same role as
+  // max_project_requested_budget but for SPARK (uspark). Must be positive.
+  string max_project_requested_spark = 89 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Number of blocks a PROPOSED (non-permissionless) project stays open before
+  // the EndBlocker transitions it to PROJECT_STATUS_EXPIRED. Prevents state
+  // pollution by stale unapproved proposals. Must be positive.
+  int64 proposed_project_expiry_blocks = 90;
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -700,4 +724,18 @@ message RepOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Proposal-time hard caps and expiry (mirror Params.max_project_requested_*
+  // and Params.proposed_project_expiry_blocks).
+  string max_project_requested_budget = 72 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string max_project_requested_spark = 73 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 proposed_project_expiry_blocks = 74;
 }

@@ -1215,6 +1215,56 @@ if [ -f "$SCRIPT_DIR/tag_moderation_test.sh" ]; then
     sleep 2
 fi
 
+# ========================================================================
+# Step 25: Run Project Approval Test (tier + council-lock)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/project_approval_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 25: PROJECT APPROVAL TEST (tier + council-lock)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/project_approval_test.sh"
+    PROJECT_APPROVAL_EXIT_CODE=$?
+
+    echo ""
+    if [ $PROJECT_APPROVAL_EXIT_CODE -eq 0 ]; then
+        echo "Project approval test completed"
+    else
+        echo "[FAIL] Project approval test exited with code: $PROJECT_APPROVAL_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 26: Run Project Lifecycle Test (proposal caps + TTL expiry)
+# ========================================================================
+# Covers the proposal-time hard caps on requested_budget/requested_spark and
+# the EndBlocker-driven TTL on PROPOSED projects. The TTL portion temporarily
+# lowers proposed_project_expiry_blocks via an op-params council proposal and
+# restores it afterwards, so this test is safe to leave at any position in
+# the suite — but it does take ~90s end-to-end (two op-params proposals
+# bracket a ~35s sleep), so we run it last.
+if [ -f "$SCRIPT_DIR/project_lifecycle_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 26: PROJECT LIFECYCLE TEST (proposal caps + TTL expiry)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/project_lifecycle_test.sh"
+    PROJECT_LIFECYCLE_EXIT_CODE=$?
+
+    echo ""
+    if [ $PROJECT_LIFECYCLE_EXIT_CODE -eq 0 ]; then
+        echo "Project lifecycle test completed"
+    else
+        echo "[FAIL] Project lifecycle test exited with code: $PROJECT_LIFECYCLE_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
 fi  # end of RUN_TESTS guard wrapping steps 16-24
 
 # ========================================================================
@@ -1298,6 +1348,8 @@ print_row true                            "${GOV_ACTION_APPEAL_EXIT_CODE:-0}"   
 print_row true                            "${JURY_PARTICIPATION_EXIT_CODE:-0}"  "Jury Participation Test"
 print_row true                            "${TAG_BUDGET_EXIT_CODE:-0}"          "Tag Budget Test"
 print_row true                            "${TAG_MODERATION_EXIT_CODE:-0}"      "Tag Moderation Test"
+print_row true                            "${PROJECT_APPROVAL_EXIT_CODE:-0}"    "Project Approval"
+print_row true                            "${PROJECT_LIFECYCLE_EXIT_CODE:-0}"   "Project Lifecycle"
 echo ""
 
 check_test "$RUN_MEMBER_TEST"              "${MEMBER_EXIT_CODE:-1}"              "Member Test"
@@ -1323,6 +1375,8 @@ check_test true                            "${GOV_ACTION_APPEAL_EXIT_CODE:-0}"  
 check_test true                            "${JURY_PARTICIPATION_EXIT_CODE:-0}"  "Jury Participation Test"
 check_test true                            "${TAG_BUDGET_EXIT_CODE:-0}"          "Tag Budget Test"
 check_test true                            "${TAG_MODERATION_EXIT_CODE:-0}"      "Tag Moderation Test"
+check_test true                            "${PROJECT_APPROVAL_EXIT_CODE:-0}"    "Project Approval"
+check_test true                            "${PROJECT_LIFECYCLE_EXIT_CODE:-0}"   "Project Lifecycle"
 
 # Final Alice balance
 ALICE_MEMBER=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null)

@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -34,22 +35,38 @@ func (k Keeper) CreateProject(
 		status = types.ProjectStatus_PROJECT_STATUS_ACTIVE
 	}
 
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	// Non-permissionless projects sit in PROPOSED until a committee/council
+	// approves them. Stamp an absolute expiry deadline so the EndBlocker can
+	// reap stale proposals. Permissionless projects skip approval entirely
+	// (status = ACTIVE on creation) and have no expiry.
+	var expiryHeight int64
+	if !permissionless {
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get params: %w", err)
+		}
+		expiryHeight = sdkCtx.BlockHeight() + params.ProposedProjectExpiryBlocks
+	}
+
 	// Create project
 	project := types.Project{
-		Id:              projectID,
-		Name:            name,
-		Description:     description,
-		Creator:         creator.String(),
-		Tags:            tags,
-		Category:        category,
-		Council:         council,
-		ApprovedBudget:  PtrInt(math.ZeroInt()),
-		AllocatedBudget: PtrInt(math.ZeroInt()),
-		SpentBudget:     PtrInt(math.ZeroInt()),
-		ApprovedSpark:   PtrInt(math.ZeroInt()),
-		SpentSpark:      PtrInt(math.ZeroInt()),
-		Status:          status,
-		Permissionless:  permissionless,
+		Id:                projectID,
+		Name:              name,
+		Description:       description,
+		Creator:           creator.String(),
+		Tags:              tags,
+		Category:          category,
+		Council:           council,
+		ApprovedBudget:    PtrInt(math.ZeroInt()),
+		AllocatedBudget:   PtrInt(math.ZeroInt()),
+		SpentBudget:       PtrInt(math.ZeroInt()),
+		ApprovedSpark:     PtrInt(math.ZeroInt()),
+		SpentSpark:        PtrInt(math.ZeroInt()),
+		Status:            status,
+		Permissionless:    permissionless,
+		ExpiryBlockHeight: expiryHeight,
 	}
 
 	// Store project
@@ -57,8 +74,13 @@ func (k Keeper) CreateProject(
 		return 0, fmt.Errorf("failed to store project: %w", err)
 	}
 
+	// Maintain the by-status index so the EndBlocker expiry sweep can find
+	// PROPOSED projects in O(expired) instead of scanning the full table.
+	if err := k.AddProjectToStatusIndex(ctx, project); err != nil {
+		return 0, fmt.Errorf("failed to index project by status: %w", err)
+	}
+
 	// Emit event
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	eventType := "project_proposed"
 	if permissionless {
 		eventType = "project_created"
@@ -95,17 +117,30 @@ func (k Keeper) UpdateProject(ctx context.Context, project types.Project) error 
 	return k.Project.Set(ctx, project.Id, project)
 }
 
-// ApproveProject approves a project with specified budget
+// ApproveProject approves a project with specified budget.
+//
+// Authorization is tier-aware and locked to the picked council:
+//   - budget ≤ params.LargeProjectBudgetThreshold: an individual member of the
+//     picked council's operations committee is sufficient.
+//   - budget > params.LargeProjectBudgetThreshold: requires a passed council or
+//     operations-committee proposal (executor's policy address) or the gov
+//     authority — individual committee members cannot approve large budgets.
+//
+// The global Technical / Commons Operations Committee fallback that previously
+// let any operations-committee member approve any project (regardless of which
+// council the project was pointed at) has been removed: cross-council
+// unilateral approval is no longer permitted.
 func (k Keeper) ApproveProject(
 	ctx context.Context,
 	projectID uint64,
 	approver sdk.AccAddress,
 	approvedBudget, approvedSpark math.Int,
 ) error {
-	// Get project
+	// Get project. Wrap the collections-level not-found so callers can match
+	// on types.ErrProjectNotFound (and external API errors stay stable).
 	project, err := k.GetProject(ctx, projectID)
 	if err != nil {
-		return err
+		return errorsmod.Wrap(types.ErrProjectNotFound, err.Error())
 	}
 
 	// Validate status
@@ -113,27 +148,69 @@ func (k Keeper) ApproveProject(
 		return fmt.Errorf("project must be in PROPOSED status, got %s", project.Status.String())
 	}
 
-	// Validate approver has authority (Operations Committee member or council policy address).
-	// commonsKeeper is required: a nil keeper is a configuration error, not an authorization bypass.
+	// Authorization is required: commonsKeeper must be wired. Treat a nil
+	// keeper as a configuration error, not an authorization bypass.
 	if k.commonsKeeper == nil {
 		return fmt.Errorf("commons keeper not wired; cannot approve project")
 	}
-	isCommittee := k.IsOperationsCommittee(ctx, approver)
-	isCouncilAuth := k.commonsKeeper.IsCouncilAuthorized(ctx, approver.String(), project.Council, "operations")
-	if !isCommittee && !isCouncilAuth {
-		return fmt.Errorf("approver %s is not authorized (requires Operations Committee or council proposal)", approver.String())
+
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get params: %w", err)
+	}
+
+	approverStr, err := k.addressCodec.BytesToString(approver)
+	if err != nil {
+		return fmt.Errorf("invalid approver address: %w", err)
+	}
+
+	isMember, _ := k.commonsKeeper.IsCommitteeMember(ctx, approver, project.Council, "operations")
+	if approvedBudget.GT(params.LargeProjectBudgetThreshold) {
+		// Large budget: a personal committee member is not enough. When a
+		// council/committee proposal executes, the message's approver is the
+		// group's policy address (not a person) — so reject when the approver
+		// is a plain member, then accept only if they're council-authorized.
+		if isMember {
+			return errorsmod.Wrapf(types.ErrLargeProjectNeedsCouncil,
+				"budget %s exceeds threshold %s; individual committee members cannot approve — submit via council proposal",
+				approvedBudget.String(), params.LargeProjectBudgetThreshold.String())
+		}
+		if !k.commonsKeeper.IsCouncilAuthorized(ctx, approverStr, project.Council, "operations") {
+			return errorsmod.Wrapf(types.ErrLargeProjectNeedsCouncil,
+				"budget %s exceeds threshold %s; submit via council proposal",
+				approvedBudget.String(), params.LargeProjectBudgetThreshold.String())
+		}
+	} else {
+		// Small budget: an individual member of the picked council's
+		// operations committee suffices.
+		if !isMember {
+			return errorsmod.Wrapf(types.ErrUnauthorized,
+				"approver must be a member of the Operations Committee for council '%s'",
+				project.Council)
+		}
 	}
 
 	// Update project
+	oldStatus := project.Status
 	project.ApprovedBudget = PtrInt(approvedBudget)
 	project.ApprovedSpark = PtrInt(approvedSpark)
 	project.Status = types.ProjectStatus_PROJECT_STATUS_ACTIVE
 	project.ApprovedBy = approver.String()
 	project.ApprovedAt = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
+	// Project is no longer eligible for EndBlocker expiry — clear the deadline
+	// so a stale value can't accidentally be acted on if the status is ever
+	// reverted (defense-in-depth; current code has no such revert path).
+	project.ExpiryBlockHeight = 0
 
 	// Store updated project
 	if err := k.UpdateProject(ctx, project); err != nil {
 		return err
+	}
+
+	// Shift the by-status index entry (PROPOSED -> ACTIVE) so the expiry sweep
+	// no longer considers this project.
+	if err := k.UpdateProjectStatusIndex(ctx, oldStatus, project.Status, project.Id); err != nil {
+		return fmt.Errorf("failed to update project status index: %w", err)
 	}
 
 	// Emit event
@@ -165,11 +242,19 @@ func (k Keeper) CancelProject(ctx context.Context, projectID uint64, reason stri
 	}
 
 	// Update project
+	oldStatus := project.Status
 	project.Status = types.ProjectStatus_PROJECT_STATUS_CANCELLED
+	project.ExpiryBlockHeight = 0
 
 	// Store updated project
 	if err := k.UpdateProject(ctx, project); err != nil {
 		return err
+	}
+
+	// Shift the by-status index entry off PROPOSED/ACTIVE so the EndBlocker
+	// expiry sweep doesn't act on a cancelled project.
+	if err := k.UpdateProjectStatusIndex(ctx, oldStatus, project.Status, project.Id); err != nil {
+		return fmt.Errorf("failed to update project status index: %w", err)
 	}
 
 	// Emit event
@@ -182,6 +267,43 @@ func (k Keeper) CancelProject(ctx context.Context, projectID uint64, reason stri
 		),
 	)
 
+	return nil
+}
+
+// ExpireProject transitions a PROPOSED project to EXPIRED. Called only by the
+// EndBlocker sweep over PROPOSED projects past their expiry_block_height.
+// Idempotent w.r.t. non-PROPOSED status: a project that has been concurrently
+// approved/cancelled in the same block is left alone (and the stale index
+// entry, if any, will be reconciled on the next status update).
+func (k Keeper) ExpireProject(ctx context.Context, projectID uint64) error {
+	project, err := k.GetProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if project.Status != types.ProjectStatus_PROJECT_STATUS_PROPOSED {
+		return nil
+	}
+
+	oldStatus := project.Status
+	project.Status = types.ProjectStatus_PROJECT_STATUS_EXPIRED
+	project.ExpiryBlockHeight = 0
+
+	if err := k.UpdateProject(ctx, project); err != nil {
+		return err
+	}
+	if err := k.UpdateProjectStatusIndex(ctx, oldStatus, project.Status, project.Id); err != nil {
+		return fmt.Errorf("failed to update project status index: %w", err)
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"project_expired",
+			sdk.NewAttribute("project_id", fmt.Sprintf("%d", projectID)),
+			sdk.NewAttribute("creator", project.Creator),
+			sdk.NewAttribute("council", project.Council),
+		),
+	)
 	return nil
 }
 
@@ -208,11 +330,19 @@ func (k Keeper) CompleteProject(ctx context.Context, projectID uint64) error {
 	}
 
 	// Update project status
+	oldStatus := project.Status
 	project.Status = types.ProjectStatus_PROJECT_STATUS_COMPLETED
 
 	// Store updated project
 	if err := k.UpdateProject(ctx, project); err != nil {
 		return err
+	}
+
+	// Keep the by-status index in sync. ACTIVE -> COMPLETED is a noop for the
+	// expiry sweep (which only walks PROPOSED) but stays consistent for any
+	// future iteration over completed projects.
+	if err := k.UpdateProjectStatusIndex(ctx, oldStatus, project.Status, project.Id); err != nil {
+		return fmt.Errorf("failed to update project status index: %w", err)
 	}
 
 	// Emit event
