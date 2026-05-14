@@ -55,7 +55,7 @@ const (
 	DefaultFlagExpiration            = int64(604800)  // 7 days
 
 	// Sentinel requirements
-	DefaultMinRepTierSentinel   = uint64(3) // Tier 3
+	DefaultMinRepTierSentinel   = uint64(0) // No rep-tier floor; trust-level gate + bond + accuracy metrics are the eligibility filters
 	DefaultMinRepTierTags       = uint64(2) // Tier 2
 	DefaultMinRepTierThreadLock = uint64(4) // Tier 4
 
@@ -148,7 +148,7 @@ func NewParams() Params {
 		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
 		MinSentinelBond:              DefaultMinSentinelBond.String(),
 		MinSentinelRepTier:           DefaultMinRepTierSentinel,
-		MinSentinelTrustLevel:        "",
+		MinSentinelTrustLevel:        "TRUST_LEVEL_ESTABLISHED",
 		MinSentinelAgeBlocks:         0,
 		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
 		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
@@ -245,7 +245,7 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
 		MinSentinelBond:              DefaultMinSentinelBond.String(),
 		MinSentinelRepTier:           DefaultMinRepTierSentinel,
-		MinSentinelTrustLevel:        "",
+		MinSentinelTrustLevel:        "TRUST_LEVEL_ESTABLISHED",
 		MinSentinelAgeBlocks:         0,
 		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
 		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),

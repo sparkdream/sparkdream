@@ -598,8 +598,8 @@
         "max_reply_depth": 10,
         "min_sentinel_age_blocks": "0",
         "min_sentinel_bond": "500000000",
-        "min_sentinel_rep_tier": "3",
-        "min_sentinel_trust_level": "",
+        "min_sentinel_rep_tier": "0",
+        "min_sentinel_trust_level": "TRUST_LEVEL_ESTABLISHED",
         "moderation_paused": false,
         "move_appeal_cooldown": "3600",
         "move_appeal_fee": {
