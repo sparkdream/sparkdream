@@ -231,32 +231,42 @@ func (k Keeper) BurnSentinelRewardPoolOverflow(ctx context.Context) error {
 	return nil
 }
 
-// ExpireTags removes tags whose expiration_index has passed and that are not
-// reserved. Usage-active tags update their expiration on IncrementTagUsage.
+// ExpireTags removes tags that have fallen idle past DefaultTagExpiration
+// and that are not reserved. The GC trigger is `last_used_at +
+// DefaultTagExpiration <= now`; IncrementTagUsage refreshes last_used_at,
+// so actively referenced tags roll their deadline forward and survive,
+// while misspellings and stale tags hit their deadline and get reclaimed.
+//
+// Tags with last_used_at <= 0 are treated as permanent and skipped (used
+// by genesis-seeded sentinel tags that should never GC).
 func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// Collect candidates during iteration, remove after the iterator closes
 	// to avoid mutation-during-iteration undefined behavior.
 	type expiredTag struct {
-		name            string
-		expirationIndex int64
+		name       string
+		lastUsedAt int64
+		expiresAt  int64
 	}
 	var toRemove []expiredTag
 	err := k.Tag.Walk(ctx, nil, func(name string, tag types.Tag) (bool, error) {
 		if len(toRemove) >= maxTagExpirations {
 			return true, nil
 		}
-		if tag.ExpirationIndex <= 0 {
+		if tag.LastUsedAt <= 0 {
 			return false, nil
 		}
-		if tag.ExpirationIndex > now {
+		expiresAt := tag.LastUsedAt + types.DefaultTagExpiration
+		if expiresAt > now {
 			return false, nil
 		}
 		if reserved, rErr := k.ReservedTag.Has(ctx, name); rErr == nil && reserved {
 			return false, nil
 		}
-		toRemove = append(toRemove, expiredTag{name: name, expirationIndex: tag.ExpirationIndex})
+		toRemove = append(toRemove, expiredTag{
+			name: name, lastUsedAt: tag.LastUsedAt, expiresAt: expiresAt,
+		})
 		return false, nil
 	})
 	if err != nil {
@@ -275,7 +285,8 @@ func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
 		}
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("tag_expired",
 			sdk.NewAttribute("tag_name", t.name),
-			sdk.NewAttribute("expiration_index", fmt.Sprintf("%d", t.expirationIndex)),
+			sdk.NewAttribute("last_used_at", fmt.Sprintf("%d", t.lastUsedAt)),
+			sdk.NewAttribute("expired_at", fmt.Sprintf("%d", t.expiresAt)),
 		))
 		expired++
 	}

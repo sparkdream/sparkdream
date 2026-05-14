@@ -79,11 +79,11 @@ func (k msgServer) CreateTag(ctx context.Context, msg *types.MsgCreateTag) (*typ
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
+	// GC keys off `last_used_at + DefaultTagExpiration` (see ExpireTags).
 	tag := types.Tag{
-		Name:            name,
-		CreatedAt:       now,
-		LastUsedAt:      now,
-		ExpirationIndex: now + types.DefaultTagExpiration,
+		Name:       name,
+		CreatedAt:  now,
+		LastUsedAt: now,
 	}
 	if err := k.SetTag(ctx, tag); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store tag")
@@ -93,7 +93,7 @@ func (k msgServer) CreateTag(ctx context.Context, msg *types.MsgCreateTag) (*typ
 		"tag_created",
 		sdk.NewAttribute("name", name),
 		sdk.NewAttribute("creator", msg.Creator),
-		sdk.NewAttribute("expiration_index", fmt.Sprintf("%d", tag.ExpirationIndex)),
+		sdk.NewAttribute("expires_at", fmt.Sprintf("%d", now+types.DefaultTagExpiration)),
 	))
 
 	return &types.MsgCreateTagResponse{Name: name}, nil

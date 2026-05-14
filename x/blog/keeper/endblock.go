@@ -172,8 +172,10 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 		}
 	}
 
-	// Tombstone: clear content, mark deleted
+	// Tombstone: clear content, drop secondary index, drop rep-registry usage
+	// (the post no longer "uses" the tag), mark deleted.
 	k.removeTagIndexEntries(ctx, post.Id, post.Tags)
+	k.decrementTagUsages(ctx, post.Id, post.Tags)
 	post.Title = ""
 	post.Body = ""
 	post.Status = types.PostStatus_POST_STATUS_DELETED

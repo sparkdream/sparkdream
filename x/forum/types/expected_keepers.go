@@ -116,6 +116,7 @@ type RepKeeper interface {
 	IsReservedTag(ctx context.Context, name string) (bool, error)
 	GetTag(ctx context.Context, name string) (reptypes.Tag, error)
 	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
+	DecrementTagUsage(ctx context.Context, name string) error
 	SetReservedTag(ctx context.Context, rt reptypes.ReservedTag) error
 
 	// Salvation counters (stored on rep's Member record)

@@ -205,8 +205,7 @@ message Tag {
     string name = 1;
     uint64 usage_count = 2;
     int64  created_at = 3;
-    int64  last_used_at = 4;
-    int64  expiration_index = 5;
+    int64  last_used_at = 4;  // drives GC: expires at last_used_at + DefaultTagExpiration; 0 = permanent
 }
 
 // proto/sparkdream/rep/v1/reserved_tag.proto
@@ -1139,28 +1138,13 @@ Creates a new post or reply.
      - Fail with `ErrInvalidTag` if `len(tag) > max_tag_length`
      - Fail with `ErrInvalidTag` if tag contains non-alphanumeric characters (except hyphen)
      - **Check Existence:**
-       - If tag exists (in `tags/{tag_name}`):
-         - **Lazy Expiration Refresh** (reduces queue churn):
-           - Only update if `now - tag.last_used_at > 86400` (1 day since last use)
-           - If updating:
-             - Set `tag.last_used_at = now`
-             - Calculate new expiration: `new_expiry = now + tag_expiration`
-             - Set `tag.expiration_index = new_expiry` (authoritative queue entry)
-             - Add to `tag_expiration_queue` at `{new_expiry}/{tag_name}`
-             - *Note: Old queue entry becomes stale, will be skipped by GC via expiration_index check*
-             - **Same-Block Race Handling:** If multiple txs in same block update the same tag,
-               last-writer-wins for the Tag object. All other queue entries become stale
-               (expiration_index won't match) and are safely skipped by GC.
-           - If NOT updating: Skip queue operation (tag is "fresh enough")
-       - If tag is **new**:
-         - Fail with `ErrTagLimitExceeded` if `total_tags >= max_total_tags`
-         - Fail with `ErrUnauthorized` if tag in `reserved_tags` and author not authorized (see Reserved Tag Authorization below)
-         - Fail with `ErrInsufficientReputation` if author's Rep Tier < `min_rep_tier_tags`
-         - **Charge Fee:** Deduct `tag_creation_fee` from author (50% Burn, 50% Reward Pool)
-         - Calculate expiration: `expiry = now + tag_expiration`
-         - Store `Tag` object with `created_at = now`, `last_used_at = now`, `expiration_index = expiry`
-         - Add to `tag_expiration_queue` at `{expiry}/{tag_name}`
-         - Increment `total_tags`
+       - If tag exists: call `repKeeper.IncrementTagUsage(ctx, tag, now)`, which bumps
+         `usage_count` and sets `last_used_at = now`. The effective GC deadline
+         (`last_used_at + tag_expiration`) is therefore rolled forward on every
+         reference — actively used tags stay live, idle tags hit their natural deadline.
+       - If tag is **new**: the post is rejected. Tag creation is a separate
+         flow (`MsgCreateTag` in x/rep) gated on trust level, fee burn, and
+         reservation; posts may only reference tags already in the registry.
 
 4. **Membership Check & Spam Tax** (Query `x/commons`)
    - **Member:** `status = ACTIVE`, `expiration_time = 0`
@@ -1212,16 +1196,12 @@ Creates a new post or reply.
 6. **Lazy Garbage Collection** (Supplementary - see also EndBlocker GC)
    - **Ephemeral Posts:** Iterate `expiration_queue` (max `lazy_prune_limit` items), delete expired.
    - **Hidden Posts:** Iterate `hidden_queue` (max `lazy_prune_limit` items), delete expired, update sentinel metrics.
-   - **Expired Tags:** Iterate `tag_expiration_queue` (max `lazy_prune_limit` items).
-     - For each entry in queue at `{time}/{tag_name}`:
-       - Load tag from `tags/{tag_name}`
-       - **Race Condition Check:** Compare `tag.expiration_index` with queue entry timestamp
-         - If `tag.expiration_index != queue_entry_time`: skip (tag was refreshed, stale queue entry)
-         - If `tag.expiration_index == queue_entry_time`: tag is truly expired
-       - Delete `tags/{tag_name}`
-       - Decrement `total_tags`
-       - Emit `EventTagExpired`
-       - *Note: The `expiration_index` field in Tag tracks which queue entry is authoritative, preventing race conditions when tags are refreshed between queue entry creation and GC execution.*
+   - **Expired Tags:** x/rep's `ExpireTags` (called from rep's EndBlocker) walks the
+     tag store and reclaims tags where `last_used_at + DefaultTagExpiration <= now`,
+     skipping reserved tags and those with `last_used_at == 0` (permanent).
+     Each reclamation calls `forumKeeper.PruneTagReferences(ctx, tag_name)`
+     best-effort to drop stale references from forum posts. Capped at
+     `maxTagExpirations` per block to bound state I/O.
 
 7. **Initiative Link Registration** (Cross-Module Conviction Propagation)
    - If `initiative_id > 0` and `repKeeper` is not nil:
@@ -5453,7 +5433,6 @@ message EventInitiativeLinkRemoved {
 | **Sentinel Sybil via Self-Backing** | `min_sentinel_backing` must come from OTHER users (not self-delegation). Additionally, `min_backer_membership_duration` (30d default) ensures backing only counts from established members, preventing Sybil attacks via newly-created accounts. |
 | **Archive Count Off-by-One** | Thread post count includes root post (`1 + descendant_count`) preventing off-by-one when comparing to `max_archive_post_count`. |
 | **Archive Count Tampering** | `archive_count` stored in separate `ArchiveMetadata` (not in Post or compressed blob). Prevents manipulation via corrupted archives, blob tampering, or desync between storage locations. |
-| **Tag Expiration Race** | `expiration_index` field in Tag tracks authoritative queue entry. GC skips stale queue entries when tag is refreshed between queue creation and GC. |
 | **Reporter List Bloat** | `max_tag_reporters` and `max_member_reporters` cap reporters arrays. Prevents unbounded state growth from popular reports. |
 | **Defense Bypass** | `min_defense_wait` (24h) ensures HR Committee cannot resolve immediately after defense submitted. Member's response gets consideration time. |
 | **Archive Griefing Cycle** | `max_archive_cycles` (5) requires HR Committee approval for re-archiving after multiple cycles. Makes griefing attacks infeasible. |

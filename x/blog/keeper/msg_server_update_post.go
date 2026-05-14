@@ -86,22 +86,39 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 	oldTags := val.Tags
 
 	// Validate the full new tag set without touching usage metadata, then bump
-	// usage only for tags genuinely new on this edit (diff vs oldTags).
+	// usage for tags newly added on this edit and drop usage for tags removed.
+	// Both directions must run regardless of whether msg.Tags is empty, since
+	// clearing all tags on an edit needs to decrement usage on every oldTag.
 	if len(msg.Tags) > 0 {
 		if err := k.validatePostTagsNoIncrement(ctx, msg.Tags); err != nil {
 			return nil, err
 		}
-		oldSet := make(map[string]struct{}, len(oldTags))
-		for _, t := range oldTags {
-			oldSet[t] = struct{}{}
-		}
-		now := sdkCtx.BlockTime().Unix()
-		for _, t := range msg.Tags {
-			if _, had := oldSet[t]; !had {
-				if err := k.repKeeper.IncrementTagUsage(ctx, t, now); err != nil {
-					return nil, errorsmod.Wrap(err, "failed to update tag metadata")
-				}
+	}
+	oldSet := make(map[string]struct{}, len(oldTags))
+	for _, t := range oldTags {
+		oldSet[t] = struct{}{}
+	}
+	newSet := make(map[string]struct{}, len(msg.Tags))
+	for _, t := range msg.Tags {
+		newSet[t] = struct{}{}
+	}
+	now := sdkCtx.BlockTime().Unix()
+	for _, t := range msg.Tags {
+		if _, had := oldSet[t]; !had {
+			if err := k.repKeeper.IncrementTagUsage(ctx, t, now); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to update tag metadata")
 			}
+		}
+	}
+	for _, t := range oldTags {
+		if _, still := newSet[t]; still {
+			continue
+		}
+		if err := k.repKeeper.DecrementTagUsage(ctx, t); err != nil {
+			// Tag may have been GC'd between create and edit; non-fatal, log
+			// and continue so the user can still finish their edit.
+			sdkCtx.Logger().Error("failed to decrement dropped tag usage",
+				"post_id", val.Id, "tag", t, "error", err)
 		}
 	}
 

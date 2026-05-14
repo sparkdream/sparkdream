@@ -81,6 +81,9 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 	if err := k.incrementTagUsages(ctx, addedTags, sdkCtx.BlockTime().Unix()); err != nil {
 		return nil, err
 	}
+	// Drop usage on removed tags too — without this, dropping a tag from a
+	// collection leaves UsageCount inflated, which steers ExpireTags wrong.
+	k.decrementTagUsages(ctx, removedTags)
 
 	member := k.isMember(ctx, msg.Creator)
 

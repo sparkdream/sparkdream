@@ -79,17 +79,23 @@ func TestExpireTags_RemovesExpired(t *testing.T) {
 	k := f.keeper
 	ctx := f.ctx
 
-	// Tag whose expiration is in the past.
-	require.NoError(t, k.SetTag(ctx, types.Tag{Name: "stale", ExpirationIndex: 100}))
-	// Tag whose expiration is in the future — must survive.
-	require.NoError(t, k.SetTag(ctx, types.Tag{Name: "fresh", ExpirationIndex: 10_000}))
-	// Tag with no expiration — must survive.
+	// GC is driven by `last_used_at + DefaultTagExpiration <= now`. Build
+	// each fixture by picking a LastUsedAt relative to `now` so the cases
+	// stay readable regardless of what DefaultTagExpiration is set to.
+	const now = int64(10_000_000)
+	staleLastUsed := now - types.DefaultTagExpiration - 1 // already past deadline
+	freshLastUsed := now - types.DefaultTagExpiration + 1 // one second to go
+
+	// Tag past its rolled deadline.
+	require.NoError(t, k.SetTag(ctx, types.Tag{Name: "stale", LastUsedAt: staleLastUsed}))
+	// Tag whose deadline is one second in the future — must survive.
+	require.NoError(t, k.SetTag(ctx, types.Tag{Name: "fresh", LastUsedAt: freshLastUsed}))
+	// Tag with LastUsedAt == 0 — treated as permanent and must survive.
 	require.NoError(t, k.SetTag(ctx, types.Tag{Name: "permanent"}))
-	// Reserved tags are skipped even when expired.
-	require.NoError(t, k.SetTag(ctx, types.Tag{Name: "reserved_expired", ExpirationIndex: 100}))
+	// Reserved tags are skipped even when their deadline has passed.
+	require.NoError(t, k.SetTag(ctx, types.Tag{Name: "reserved_expired", LastUsedAt: staleLastUsed}))
 	require.NoError(t, k.SetReservedTag(ctx, types.ReservedTag{Name: "reserved_expired"}))
 
-	const now = 500
 	require.NoError(t, k.ExpireTags(ctx, now))
 
 	exists, err := k.TagExists(ctx, "stale")

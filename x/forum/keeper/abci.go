@@ -144,6 +144,12 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 			}
 		}
 
+		// Drop rep-registry UsageCount for every tag the post carried. The post
+		// is being hard-deleted by TTL; without this, ephemeral-post churn
+		// would inflate UsageCount monotonically and ExpireTags would lose
+		// its grip on idle tags.
+		k.decrementTagUsages(ctx, postID, post.Tags)
+
 		// Hard-delete the post
 		if removeErr := k.Post.Remove(ctx, postID); removeErr != nil {
 			sdkCtx.Logger().Error("failed to remove expired post", "post_id", postID, "error", removeErr)
@@ -226,9 +232,15 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 			return false, nil
 		}
 
+		// Drop rep-registry UsageCount for every tag the post carried — this is
+		// the second half of the "hidden post times out" tombstone path. Same
+		// rationale as the ephemeral-prune and explicit-delete paths.
+		k.decrementTagUsages(ctx, postID, post.Tags)
+
 		// Soft-delete the post
 		post.Status = types.PostStatus_POST_STATUS_DELETED
 		post.Content = "" // clear content to reclaim space
+		post.Tags = nil   // sever the (now-decremented) tag references
 		if setErr := k.Post.Set(ctx, postID, post); setErr != nil {
 			sdkCtx.Logger().Error("failed to delete expired hidden post", "post_id", postID, "error", setErr)
 			return false, nil

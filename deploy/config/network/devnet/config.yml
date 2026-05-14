@@ -308,69 +308,56 @@ genesis:
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "technical-council"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "ecosystem-council"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       # Six committees (ops + gov per council)
       - name: "commons-ops-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "commons-gov-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "technical-ops-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "technical-gov-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "ecosystem-ops-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "ecosystem-gov-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       # General topic tags
       - name: "security"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "documentation"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "budget"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "staking"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
     forum:
       params:
         # Archive timing - DEVNET: hours/days instead of seconds/months

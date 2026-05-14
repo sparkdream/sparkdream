@@ -444,6 +444,10 @@ fi
 # Post tests
 if [ "$RUN_POST" = true ]; then
     run_test "Post Tests" "post_test.sh"
+    # tag_test.sh exercises the create+edit usage-count bookkeeping in x/rep
+    # via forum CreatePost/EditPost. It depends on a category being present
+    # (post_test.sh creates one if absent), so it lives in the same phase.
+    run_test "Tag Tests" "tag_test.sh"
 else
     echo "Skipping post tests (--no-post)"
     echo ""

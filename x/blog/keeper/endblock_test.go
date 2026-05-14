@@ -12,6 +12,61 @@ import (
 	"sparkdream/x/blog/types"
 )
 
+// Regression: when EndBlock tombstones an ephemeral post that carried tags,
+// it must decrement UsageCount for each tag in the rep registry. Cousin of
+// the MsgDeletePost decrement fix — both paths walk through the tombstone
+// branch in endblock.go and need symmetric rep bookkeeping. Without this,
+// ephemeral-post churn silently inflates UsageCount and ExpireTags stops
+// reclaiming idle tags.
+func TestEndBlockTombstoneDecrementsTagUsage(t *testing.T) {
+	f := initFixture(t)
+	msgServer := keeper.NewMsgServerImpl(f.keeper)
+
+	f.repKeeper.IsActiveMemberFn = func(_ context.Context, _ sdk.AccAddress) bool { return false }
+	f.repKeeper.KnownTags = map[string]bool{"x": true, "y": true}
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.MaxPostsPerDay = 100
+	params.CostPerByteExempt = true
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	baseTime := int64(2_000_000)
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	f.ctx = sdkCtx.WithBlockTime(time.Unix(baseTime, 0))
+
+	resp, err := msgServer.CreatePost(f.ctx, &types.MsgCreatePost{
+		Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+		Title:   "Tagged Ephemeral",
+		Body:    "tombstone-bound",
+		Tags:    []string{"x", "y"},
+	})
+	require.NoError(t, err)
+	// Creates incremented usage for x and y (sanity check before delete path).
+	require.Len(t, f.repKeeper.IncrementTagUsageCalls, 2)
+	require.Empty(t, f.repKeeper.DecrementTagUsageCalls)
+
+	postID := resp.Id
+	expiresAt := baseTime + 100
+	post, found := f.keeper.GetPost(f.ctx, postID)
+	require.True(t, found)
+	post.ExpiresAt = expiresAt
+	f.keeper.SetPost(f.ctx, post)
+	f.keeper.AddToExpiryIndex(f.ctx, expiresAt, "post", postID)
+
+	sdkCtx = sdk.UnwrapSDKContext(f.ctx)
+	f.ctx = sdkCtx.WithBlockTime(time.Unix(expiresAt+1, 0))
+	require.NoError(t, f.keeper.EndBlock(f.ctx))
+
+	// Post tombstoned and tags decremented exactly once each.
+	post, found = f.keeper.GetPost(f.ctx, postID)
+	require.True(t, found)
+	require.Equal(t, types.PostStatus_POST_STATUS_DELETED, post.Status)
+	require.Nil(t, post.Tags, "tags must be cleared on tombstone")
+	require.ElementsMatch(t, []string{"x", "y"}, f.repKeeper.DecrementTagUsageCalls,
+		"each tag on the tombstoned post must be decremented exactly once")
+}
+
 func TestEndBlockExpiresEphemeralPost(t *testing.T) {
 	f := initFixture(t)
 	msgServer := keeper.NewMsgServerImpl(f.keeper)

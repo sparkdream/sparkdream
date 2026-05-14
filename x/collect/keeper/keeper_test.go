@@ -129,6 +129,7 @@ type mockRepKeeper struct {
 	knownTags              map[string]bool
 	reservedTags           map[string]bool
 	incrementTagUsageCalls []incrementTagUsageCall
+	decrementTagUsageCalls []string // ordered list of tag names passed to DecrementTagUsage
 
 	// Bonded-role state, keyed by (roleType, addr). Tests seed this directly
 	// via SeedBondedRole to simulate a curator having bonded via x/rep.
@@ -235,6 +236,11 @@ func (m *mockRepKeeper) IsReservedTag(_ context.Context, name string) (bool, err
 
 func (m *mockRepKeeper) IncrementTagUsage(_ context.Context, name string, timestamp int64) error {
 	m.incrementTagUsageCalls = append(m.incrementTagUsageCalls, incrementTagUsageCall{Name: name, Timestamp: timestamp})
+	return nil
+}
+
+func (m *mockRepKeeper) DecrementTagUsage(_ context.Context, name string) error {
+	m.decrementTagUsageCalls = append(m.decrementTagUsageCalls, name)
 	return nil
 }
 

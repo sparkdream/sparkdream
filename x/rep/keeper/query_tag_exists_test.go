@@ -15,12 +15,28 @@ func TestQueryTagExists_KnownTag(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
 
-	require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: "sometag", ExpirationIndex: 999}))
+	// ExpirationTime is derived: last_used_at + DefaultTagExpiration.
+	const lastUsed = int64(100_000)
+	require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: "sometag", LastUsedAt: lastUsed}))
 
 	resp, err := qs.TagExists(f.ctx, &types.QueryTagExistsRequest{TagName: "sometag"})
 	require.NoError(t, err)
 	require.True(t, resp.Exists)
-	require.Equal(t, int64(999), resp.ExpirationTime)
+	require.Equal(t, lastUsed+types.DefaultTagExpiration, resp.ExpirationTime)
+}
+
+// A tag with LastUsedAt == 0 is treated as permanent — the query reports
+// ExpirationTime = 0 to signal "no deadline".
+func TestQueryTagExists_PermanentTag(t *testing.T) {
+	f := initFixture(t)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+
+	require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: "permatag"}))
+
+	resp, err := qs.TagExists(f.ctx, &types.QueryTagExistsRequest{TagName: "permatag"})
+	require.NoError(t, err)
+	require.True(t, resp.Exists)
+	require.Equal(t, int64(0), resp.ExpirationTime, "permanent tags report ExpirationTime = 0")
 }
 
 func TestQueryTagExists_UnknownTag(t *testing.T) {

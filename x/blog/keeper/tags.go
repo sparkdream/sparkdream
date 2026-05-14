@@ -6,6 +6,7 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/blog/types"
 	commontypes "sparkdream/x/common/types"
@@ -110,6 +111,27 @@ func (k Keeper) removeTagIndexEntries(ctx context.Context, postID uint64, tags [
 	tagStore := prefix.NewStore(storeAdapter, []byte(types.TagPostKey))
 	for _, tag := range tags {
 		tagStore.Delete(tagPostIndexKey(tag, postID))
+	}
+}
+
+// decrementTagUsages drops UsageCount on every tag the post used to carry.
+// Used by delete / TTL-tombstone paths so the rep registry's UsageCount stays
+// in sync with the actual live-reference count — without this, dropping a
+// post leaves its tags' counts inflated, which steers ExpireTags wrong.
+//
+// ErrNotFound on an individual tag is treated as non-fatal (the tag may have
+// been GC'd between create and delete) and logged rather than aborting the
+// user's transaction.
+func (k Keeper) decrementTagUsages(ctx context.Context, postID uint64, tags []string) {
+	if k.repKeeper == nil || len(tags) == 0 {
+		return
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	for _, tag := range tags {
+		if err := k.repKeeper.DecrementTagUsage(ctx, tag); err != nil {
+			sdkCtx.Logger().Error("failed to decrement tag usage on post tombstone",
+				"post_id", postID, "tag", tag, "error", err)
+		}
 	}
 }
 

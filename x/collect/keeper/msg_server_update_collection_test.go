@@ -205,3 +205,60 @@ func TestUpdateCollectionBurnDeposit(t *testing.T) {
 	require.True(t, coll.DepositBurned)
 	require.Equal(t, int64(0), coll.ExpiresAt)
 }
+
+// Regression: UpdateCollection must call DecrementTagUsage for tags removed
+// on update. Before the fix, the handler diffed added/removed but only
+// incremented the added side, leaking usage_count in the rep registry for
+// dropped tags.
+func TestUpdateCollectionTagsDiff_DecrementsDroppedTags(t *testing.T) {
+	t.Run("partial drop", func(t *testing.T) {
+		f := initTestFixture(t)
+		// Create with tags a, b. createCollection doesn't take tags via options,
+		// so build the message inline.
+		resp, err := f.msgServer.CreateCollection(f.ctx, &types.MsgCreateCollection{
+			Creator:    f.owner,
+			Type:       types.CollectionType_COLLECTION_TYPE_MIXED,
+			Visibility: types.Visibility_VISIBILITY_PUBLIC,
+			Name:       "tagged",
+			Tags:       []string{"a", "b"},
+		})
+		require.NoError(t, err)
+		require.Len(t, f.repKeeper.incrementTagUsageCalls, 2)
+		f.repKeeper.decrementTagUsageCalls = nil
+
+		// Update: keep a, drop b, add c.
+		_, err = f.msgServer.UpdateCollection(f.ctx, &types.MsgUpdateCollection{
+			Creator: f.owner, Id: resp.Id,
+			Type: types.CollectionType_COLLECTION_TYPE_MIXED,
+			Name: "tagged",
+			Tags: []string{"a", "c"},
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, []string{"b"}, f.repKeeper.decrementTagUsageCalls,
+			"removed tag must be decremented exactly once")
+	})
+
+	t.Run("clear all", func(t *testing.T) {
+		f := initTestFixture(t)
+		resp, err := f.msgServer.CreateCollection(f.ctx, &types.MsgCreateCollection{
+			Creator:    f.owner,
+			Type:       types.CollectionType_COLLECTION_TYPE_MIXED,
+			Visibility: types.Visibility_VISIBILITY_PUBLIC,
+			Name:       "tagged",
+			Tags:       []string{"a", "b"},
+		})
+		require.NoError(t, err)
+		f.repKeeper.decrementTagUsageCalls = nil
+
+		_, err = f.msgServer.UpdateCollection(f.ctx, &types.MsgUpdateCollection{
+			Creator: f.owner, Id: resp.Id,
+			Type: types.CollectionType_COLLECTION_TYPE_MIXED,
+			Name: "tagged",
+			// Tags: nil
+		})
+		require.NoError(t, err)
+
+		require.ElementsMatch(t, []string{"a", "b"}, f.repKeeper.decrementTagUsageCalls)
+	})
+}

@@ -54,9 +54,15 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 		}
 	}
 
-	// Soft delete: update status and clear content
+	// Drop rep-registry UsageCount for every tag the post carried — the post
+	// is being soft-deleted and no longer "uses" those tags. Without this,
+	// delete leaks UsageCount and ExpireTags stops reclaiming idle tags.
+	k.decrementTagUsages(ctx, msg.PostId, post.Tags)
+
+	// Soft delete: update status, clear content, drop tag references.
 	post.Status = types.PostStatus_POST_STATUS_DELETED
 	post.Content = "[deleted]"
+	post.Tags = nil
 
 	// Store updated post
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {

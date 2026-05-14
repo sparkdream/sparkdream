@@ -50,6 +50,40 @@ func TestPruneExpiredCollections(t *testing.T) {
 	require.True(t, refundCalled)
 }
 
+// Regression: the EndBlocker prune path routes through deleteCollectionFull,
+// so it must also decrement UsageCount for every tag on the collection. Same
+// contract as the user-driven MsgDeleteCollection — see
+// TestDeleteCollectionDecrementsTagUsage for the direct-call variant.
+func TestPruneExpiredCollections_DecrementsTagUsage(t *testing.T) {
+	f := initTestFixture(t)
+	f.setBlockHeight(100)
+
+	// TTL collection with two tags. Expiry is at block 200.
+	resp, err := f.msgServer.CreateCollection(f.ctx, &types.MsgCreateCollection{
+		Creator:    f.owner,
+		Type:       types.CollectionType_COLLECTION_TYPE_MIXED,
+		Visibility: types.Visibility_VISIBILITY_PUBLIC,
+		Name:       "ttl-tagged",
+		ExpiresAt:  200,
+		Tags:       []string{"x", "y"},
+	})
+	require.NoError(t, err)
+	require.Len(t, f.repKeeper.incrementTagUsageCalls, 2)
+	f.repKeeper.decrementTagUsageCalls = nil
+
+	// Advance past expiry and prune.
+	f.setBlockHeight(201)
+	require.NoError(t, f.keeper.PruneExpired(f.ctx))
+
+	// Collection gone.
+	_, err = f.keeper.Collection.Get(f.ctx, resp.Id)
+	require.Error(t, err)
+
+	// Each tag decremented exactly once on the prune path.
+	require.ElementsMatch(t, []string{"x", "y"}, f.repKeeper.decrementTagUsageCalls,
+		"EndBlocker TTL prune must decrement every tag on the collection")
+}
+
 func TestPruneSponsorshipRequests(t *testing.T) {
 	f := initTestFixture(t)
 

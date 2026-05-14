@@ -27,8 +27,13 @@ func (k Keeper) GetReservedTag(ctx context.Context, name string) (types.Reserved
 	return k.ReservedTag.Get(ctx, name)
 }
 
-// IncrementTagUsage increments the usage count and updates last_used_at
-// on the named tag. Used by content modules when a tag is referenced.
+// IncrementTagUsage bumps usage_count and refreshes last_used_at on the
+// named tag. Used by content modules when a tag is referenced.
+//
+// LastUsedAt drives the GC schedule: ExpireTags reclaims tags where
+// `last_used_at + DefaultTagExpiration <= now`. Every reference therefore
+// rolls the deadline forward; tags that fall idle hit their natural expiry
+// and get reclaimed.
 func (k Keeper) IncrementTagUsage(ctx context.Context, name string, timestamp int64) error {
 	tag, err := k.Tag.Get(ctx, name)
 	if err != nil {
@@ -36,6 +41,31 @@ func (k Keeper) IncrementTagUsage(ctx context.Context, name string, timestamp in
 	}
 	tag.UsageCount++
 	tag.LastUsedAt = timestamp
+	return k.Tag.Set(ctx, name, tag)
+}
+
+// DecrementTagUsage decrements the usage count on the named tag without
+// touching LastUsedAt (a tag being released from content isn't a "use",
+// and dropping shouldn't pull the GC schedule forward — the tag still
+// expires `last_used_at + DefaultTagExpiration` after its last real
+// reference, whether or not someone has since released theirs). Used by
+// content modules when a tag is removed from a piece of content — e.g.
+// blog/forum edit dropping a tag, collect update dropping a tag, content
+// deletion.
+//
+// UsageCount is clamped at 0: an underflow attempt means an upstream caller
+// double-decremented, which is the kind of drift this helper exists to fix
+// in the first place — better to floor silently than to abort the user's
+// transaction. Returns ErrNotFound if the tag has been GC'd; callers
+// typically log and continue.
+func (k Keeper) DecrementTagUsage(ctx context.Context, name string) error {
+	tag, err := k.Tag.Get(ctx, name)
+	if err != nil {
+		return err
+	}
+	if tag.UsageCount > 0 {
+		tag.UsageCount--
+	}
 	return k.Tag.Set(ctx, name, tag)
 }
 

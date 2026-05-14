@@ -52,8 +52,12 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	creatorStore.Delete(creatorKey)
 
 	// Remove tag secondary index entries — tombstoned posts are excluded from
-	// ListPostsByTag results.
+	// ListPostsByTag results — AND drop rep-registry UsageCount for each tag
+	// the post used to carry. Without the decrement, repeatedly creating and
+	// deleting tagged posts drives UsageCount up monotonically and ExpireTags
+	// stops being able to reclaim slots.
 	k.removeTagIndexEntries(ctx, val.Id, val.Tags)
+	k.decrementTagUsages(ctx, val.Id, val.Tags)
 
 	// Tombstone the post instead of hard delete
 	val.Title = ""

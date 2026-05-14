@@ -5,6 +5,7 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
 	commontypes "sparkdream/x/common/types"
@@ -85,6 +86,24 @@ func (k Keeper) incrementTagUsages(ctx context.Context, tags []string, now int64
 		}
 	}
 	return nil
+}
+
+// decrementTagUsages bumps DecrementTagUsage for each tag — the symmetric
+// counterpart to incrementTagUsages, used when an update path drops tags
+// from content. ErrNotFound on an individual tag is treated as non-fatal
+// (the tag may have been GC'd by ExpireTags between create and update) and
+// logged rather than failing the user's transaction.
+func (k Keeper) decrementTagUsages(ctx context.Context, tags []string) {
+	if k.repKeeper == nil || len(tags) == 0 {
+		return
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	for _, tag := range tags {
+		if err := k.repKeeper.DecrementTagUsage(ctx, tag); err != nil {
+			sdkCtx.Logger().Error("failed to decrement dropped tag usage",
+				"tag", tag, "error", err)
+		}
+	}
 }
 
 // addCollectionTagIndex writes (tag, collectionID) entries for each tag.

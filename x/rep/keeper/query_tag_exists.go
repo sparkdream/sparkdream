@@ -26,8 +26,16 @@ func (q queryServer) TagExists(ctx context.Context, req *types.QueryTagExistsReq
 		}, nil
 	}
 
+	// GC is driven by LastUsedAt + DefaultTagExpiration; tags with
+	// LastUsedAt <= 0 (genesis-seeded permanent tags) report ExpirationTime
+	// = 0 to signal "never expires".
+	var expiresAt int64
+	if tag.LastUsedAt > 0 {
+		expiresAt = tag.LastUsedAt + types.DefaultTagExpiration
+	}
+
 	return &types.QueryTagExistsResponse{
 		Exists:         true,
-		ExpirationTime: tag.ExpirationIndex,
+		ExpirationTime: expiresAt,
 	}, nil
 }

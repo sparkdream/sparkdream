@@ -132,6 +132,49 @@ func TestDeleteCollection(t *testing.T) {
 	}
 }
 
+// Regression: DeleteCollection must call DecrementTagUsage for every tag the
+// collection carried, otherwise repeated create/delete cycles inflate
+// UsageCount in the rep registry and ExpireTags stops reclaiming idle tags.
+// Cousin of the update-side fix in TestUpdateCollectionTagsDiff_DecrementsDroppedTags.
+// Both the user-driven MsgDeleteCollection path and the EndBlocker prunes
+// route through deleteCollectionFull, so this exercises both.
+func TestDeleteCollectionDecrementsTagUsage(t *testing.T) {
+	t.Run("multi-tag delete decrements every tag exactly once", func(t *testing.T) {
+		f := initTestFixture(t)
+		resp, err := f.msgServer.CreateCollection(f.ctx, &types.MsgCreateCollection{
+			Creator:    f.owner,
+			Type:       types.CollectionType_COLLECTION_TYPE_MIXED,
+			Visibility: types.Visibility_VISIBILITY_PUBLIC,
+			Name:       "tagged-for-delete",
+			Tags:       []string{"a", "b", "c"},
+		})
+		require.NoError(t, err)
+		require.Len(t, f.repKeeper.incrementTagUsageCalls, 3)
+		f.repKeeper.decrementTagUsageCalls = nil
+
+		_, err = f.msgServer.DeleteCollection(f.ctx, &types.MsgDeleteCollection{
+			Creator: f.owner, Id: resp.Id,
+		})
+		require.NoError(t, err)
+
+		require.ElementsMatch(t, []string{"a", "b", "c"}, f.repKeeper.decrementTagUsageCalls,
+			"every tag the deleted collection carried must be decremented exactly once")
+	})
+
+	t.Run("untagged delete does not call DecrementTagUsage", func(t *testing.T) {
+		f := initTestFixture(t)
+		collID := f.createCollection(t, f.owner)
+		require.Empty(t, f.repKeeper.decrementTagUsageCalls)
+
+		_, err := f.msgServer.DeleteCollection(f.ctx, &types.MsgDeleteCollection{
+			Creator: f.owner, Id: collID,
+		})
+		require.NoError(t, err)
+		require.Empty(t, f.repKeeper.decrementTagUsageCalls,
+			"untagged collection delete must not synthesize tag activity")
+	})
+}
+
 func TestDeleteCollectionRefundsDeposit(t *testing.T) {
 	f := initTestFixture(t)
 

@@ -58,9 +58,12 @@ type RepKeeper interface {
 	// Tag registry (owned by x/rep). Tags referenced on posts must already exist
 	// in the registry and must not be reserved. IncrementTagUsage bumps the
 	// usage_count and last_used_at for a tag when a post references it.
+	// DecrementTagUsage decrements usage_count (floor 0) when a post stops
+	// referencing it — edit drops, delete, etc.
 	TagExists(ctx context.Context, name string) (bool, error)
 	IsReservedTag(ctx context.Context, name string) (bool, error)
 	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
+	DecrementTagUsage(ctx context.Context, name string) error
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

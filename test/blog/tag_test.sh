@@ -331,12 +331,21 @@ else
 fi
 
 # ========================================================================
-# TEST 13: Update post tags — old tag's index entry cleared, new tag's added
+# TEST 13: update-post tag diff updates the secondary index AND the rep
+# registry's usage_count. The pre-fix code only handled the add direction:
+# dropped tags kept their UsageCount, leaking it monotonically across edits.
+# This test pins the add+drop+keep contract end-to-end.
 # ========================================================================
-echo "--- TEST 13: update-post tag diff updates secondary index ---"
+echo "--- TEST 13: update-post tag diff updates index AND usage_count ---"
 
 if [ -n "$TAGGED_POST_ID" ]; then
-    # Post originally has TAG_A, TAG_B. Drop TAG_B, add TAG_C; keep TAG_A.
+    # Snapshot usage_count before the edit. Post currently has [TAG_A, TAG_B].
+    U_A_PRE=$(tag_usage_count "$TAG_A")
+    U_B_PRE=$(tag_usage_count "$TAG_B")
+    U_C_PRE=$(tag_usage_count "$TAG_C")
+    echo "  Pre-update usage: $TAG_A=$U_A_PRE $TAG_B=$U_B_PRE $TAG_C=$U_C_PRE"
+
+    # Drop TAG_B, add TAG_C; keep TAG_A.
     TX_RES=$($BINARY tx blog update-post \
         "Tagged Post (updated)" \
         "Body (updated)" \
@@ -354,31 +363,67 @@ if [ -n "$TAGGED_POST_ID" ]; then
         B_IDS=$(list_posts_by_tag_ids "$TAG_B")
         C_IDS=$(list_posts_by_tag_ids "$TAG_C")
 
-        # Expect: still under A, no longer under B, now under C.
-        if echo "$A_IDS" | grep -qx "$TAGGED_POST_ID" \
-            && ! echo "$B_IDS" | grep -qx "$TAGGED_POST_ID" \
-            && echo "$C_IDS" | grep -qx "$TAGGED_POST_ID"; then
-            record_result "Update post tags diffs secondary index" "PASS"
-        else
+        # Secondary index: still under A, no longer under B, now under C.
+        INDEX_OK=true
+        if ! echo "$A_IDS" | grep -qx "$TAGGED_POST_ID" \
+            || echo "$B_IDS" | grep -qx "$TAGGED_POST_ID" \
+            || ! echo "$C_IDS" | grep -qx "$TAGGED_POST_ID"; then
             echo "  A: $(echo $A_IDS | tr '\n' ' ')"
             echo "  B (expected no $TAGGED_POST_ID): $(echo $B_IDS | tr '\n' ' ')"
             echo "  C (expected $TAGGED_POST_ID): $(echo $C_IDS | tr '\n' ' ')"
-            record_result "Update post tags diffs secondary index" "FAIL"
+            INDEX_OK=false
+        fi
+
+        # usage_count: kept tag unchanged, dropped tag -1 (floor 0),
+        # added tag +1.
+        U_A_POST=$(tag_usage_count "$TAG_A")
+        U_B_POST=$(tag_usage_count "$TAG_B")
+        U_C_POST=$(tag_usage_count "$TAG_C")
+        echo "  Post-update usage: $TAG_A=$U_A_POST $TAG_B=$U_B_POST $TAG_C=$U_C_POST"
+
+        EXPECTED_B=$((U_B_PRE - 1)); [ "$EXPECTED_B" -lt 0 ] && EXPECTED_B=0
+        EXPECTED_C=$((U_C_PRE + 1))
+        USAGE_OK=true
+        if [ "$U_A_POST" != "$U_A_PRE" ]; then
+            echo "  $TAG_A (kept) should be unchanged: was $U_A_PRE, now $U_A_POST"
+            USAGE_OK=false
+        fi
+        if [ "$U_B_POST" != "$EXPECTED_B" ]; then
+            echo "  $TAG_B (dropped) should be $EXPECTED_B, got $U_B_POST"
+            USAGE_OK=false
+        fi
+        if [ "$U_C_POST" != "$EXPECTED_C" ]; then
+            echo "  $TAG_C (added) should be $EXPECTED_C, got $U_C_POST"
+            USAGE_OK=false
+        fi
+
+        if $INDEX_OK && $USAGE_OK; then
+            record_result "Update post tags diffs index AND usage_count" "PASS"
+        else
+            record_result "Update post tags diffs index AND usage_count" "FAIL"
         fi
     else
         echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
-        record_result "Update post tags diffs secondary index" "FAIL"
+        record_result "Update post tags diffs index AND usage_count" "FAIL"
     fi
 else
-    record_result "Update post tags diffs secondary index" "FAIL"
+    record_result "Update post tags diffs index AND usage_count" "FAIL"
 fi
 
 # ========================================================================
-# TEST 14: Delete post clears all remaining tag index entries
+# TEST 14: Delete post clears the tag secondary index AND decrements
+# usage_count for every tag the post carried. Pre-fix, delete left
+# UsageCount inflated and repeated create/delete cycles drove it up
+# monotonically.
 # ========================================================================
-echo "--- TEST 14: Delete post clears tag index entries ---"
+echo "--- TEST 14: Delete post clears index AND decrements usage_count ---"
 
 if [ -n "$TAGGED_POST_ID" ]; then
+    # Post currently carries [TAG_A, TAG_C] after TEST 13.
+    U_A_PRE=$(tag_usage_count "$TAG_A")
+    U_C_PRE=$(tag_usage_count "$TAG_C")
+    echo "  Pre-delete usage: $TAG_A=$U_A_PRE $TAG_C=$U_C_PRE"
+
     TX_RES=$($BINARY tx blog delete-post \
         "$TAGGED_POST_ID" \
         --from "$CREATOR" \
@@ -392,18 +437,44 @@ if [ -n "$TAGGED_POST_ID" ]; then
         A_IDS=$(list_posts_by_tag_ids "$TAG_A")
         C_IDS=$(list_posts_by_tag_ids "$TAG_C")
 
-        if ! echo "$A_IDS" | grep -qx "$TAGGED_POST_ID" \
-            && ! echo "$C_IDS" | grep -qx "$TAGGED_POST_ID"; then
-            record_result "Delete post removes all tag index entries" "PASS"
+        # Secondary index: post no longer appears under any tag.
+        INDEX_OK=true
+        if echo "$A_IDS" | grep -qx "$TAGGED_POST_ID" \
+            || echo "$C_IDS" | grep -qx "$TAGGED_POST_ID"; then
+            echo "  Stale index entry after delete"
+            echo "  $TAG_A: $(echo $A_IDS | tr '\n' ' ')"
+            echo "  $TAG_C: $(echo $C_IDS | tr '\n' ' ')"
+            INDEX_OK=false
+        fi
+
+        # usage_count: every tag the post carried decrements (floor at 0).
+        U_A_POST=$(tag_usage_count "$TAG_A")
+        U_C_POST=$(tag_usage_count "$TAG_C")
+        echo "  Post-delete usage: $TAG_A=$U_A_POST $TAG_C=$U_C_POST"
+
+        EXPECTED_A=$((U_A_PRE - 1)); [ "$EXPECTED_A" -lt 0 ] && EXPECTED_A=0
+        EXPECTED_C=$((U_C_PRE - 1)); [ "$EXPECTED_C" -lt 0 ] && EXPECTED_C=0
+        USAGE_OK=true
+        if [ "$U_A_POST" != "$EXPECTED_A" ]; then
+            echo "  $TAG_A: expected $EXPECTED_A, got $U_A_POST"
+            USAGE_OK=false
+        fi
+        if [ "$U_C_POST" != "$EXPECTED_C" ]; then
+            echo "  $TAG_C: expected $EXPECTED_C, got $U_C_POST"
+            USAGE_OK=false
+        fi
+
+        if $INDEX_OK && $USAGE_OK; then
+            record_result "Delete post clears index AND decrements usage_count" "PASS"
         else
-            record_result "Delete post removes all tag index entries" "FAIL"
+            record_result "Delete post clears index AND decrements usage_count" "FAIL"
         fi
     else
         echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
-        record_result "Delete post removes all tag index entries" "FAIL"
+        record_result "Delete post clears index AND decrements usage_count" "FAIL"
     fi
 else
-    record_result "Delete post removes all tag index entries" "FAIL"
+    record_result "Delete post clears index AND decrements usage_count" "FAIL"
 fi
 
 # ========================================================================

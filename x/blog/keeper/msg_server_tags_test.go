@@ -158,6 +158,42 @@ func TestUpdatePostTagsDiff(t *testing.T) {
 	// IncrementTagUsage fires only for newly-added tags on edit (BLOG-S2-3).
 	// Initial create incremented a, b (2); update added c only (+1).
 	require.Len(t, rep.IncrementTagUsageCalls, 2+1)
+
+	// DecrementTagUsage fires for tags dropped from the post — without this
+	// the rep registry's UsageCount drifts upward over edits and ExpireTags
+	// can never reclaim the slot. (Was a regression: the diff used to run
+	// only inside `if len(msg.Tags) > 0`, and only handled the add direction.)
+	require.Equal(t, []string{"b"}, rep.DecrementTagUsageCalls)
+}
+
+// Regression: an update that clears all tags (msg.Tags == nil/empty) must
+// still decrement usage on every previously attached tag. The pre-fix code
+// gated the entire diff on `len(msg.Tags) > 0` and silently leaked usage.
+func TestUpdatePostTagsDiff_ClearAll(t *testing.T) {
+	_, ms, ctx, _, rep := setupMsgServerWithRep(t)
+	rep.KnownTags = map[string]bool{"a": true, "b": true}
+
+	createResp, err := ms.CreatePost(ctx, &types.MsgCreatePost{
+		Creator: tagTestCreator,
+		Title:   "Original",
+		Body:    "Body",
+		Tags:    []string{"a", "b"},
+	})
+	require.NoError(t, err)
+	require.Len(t, rep.IncrementTagUsageCalls, 2)
+
+	_, err = ms.UpdatePost(ctx, &types.MsgUpdatePost{
+		Creator:        tagTestCreator,
+		Id:             createResp.Id,
+		Title:          "Updated",
+		Body:           "Body updated",
+		RepliesEnabled: true,
+		// Tags: nil — explicit clear.
+	})
+	require.NoError(t, err)
+
+	require.Len(t, rep.IncrementTagUsageCalls, 2, "no new increments on a clear")
+	require.ElementsMatch(t, []string{"a", "b"}, rep.DecrementTagUsageCalls)
 }
 
 func TestDeletePostClearsTagIndex(t *testing.T) {
@@ -183,6 +219,60 @@ func TestDeletePostClearsTagIndex(t *testing.T) {
 
 	// Tombstoned posts must not appear in ListPostsByTag.
 	requireListByTag(t, qs, ctx, "a", nil)
+}
+
+// Regression: DeletePost must call DecrementTagUsage for every tag the post
+// carried — without this, repeated create/delete cycles inflate UsageCount
+// in the rep registry and ExpireTags loses its ability to reclaim slots.
+// Cousin of the update-side BLOG-S2-4 / FORUM-S2-3 / COLLECT-S2-7 fixes.
+func TestDeletePostDecrementsTagUsage(t *testing.T) {
+	_, ms, ctx, _, rep := setupMsgServerWithRep(t)
+	rep.KnownTags = map[string]bool{"a": true, "b": true, "c": true}
+
+	createResp, err := ms.CreatePost(ctx, &types.MsgCreatePost{
+		Creator: tagTestCreator,
+		Title:   "Multi-tag",
+		Body:    "Body",
+		Tags:    []string{"a", "b", "c"},
+	})
+	require.NoError(t, err)
+	require.Len(t, rep.IncrementTagUsageCalls, 3)
+	require.Empty(t, rep.DecrementTagUsageCalls)
+
+	_, err = ms.DeletePost(ctx, &types.MsgDeletePost{
+		Creator: tagTestCreator,
+		Id:      createResp.Id,
+	})
+	require.NoError(t, err)
+
+	// One decrement per tag the post carried — order doesn't matter.
+	require.ElementsMatch(t, []string{"a", "b", "c"}, rep.DecrementTagUsageCalls,
+		"every tag on the deleted post must be decremented exactly once")
+}
+
+// Regression: deleting an untagged post must NOT call DecrementTagUsage at
+// all — a no-op decrement could surface ErrNotFound from the rep registry
+// or, worse, double-decrement a separately-tracked tag if some upstream
+// caller accidentally passes an empty/duplicate list.
+func TestDeletePostNoTags_NoDecrement(t *testing.T) {
+	_, ms, ctx, _, rep := setupMsgServerWithRep(t)
+
+	createResp, err := ms.CreatePost(ctx, &types.MsgCreatePost{
+		Creator: tagTestCreator,
+		Title:   "No tags",
+		Body:    "Body",
+		// Tags: nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, rep.IncrementTagUsageCalls)
+
+	_, err = ms.DeletePost(ctx, &types.MsgDeletePost{
+		Creator: tagTestCreator,
+		Id:      createResp.Id,
+	})
+	require.NoError(t, err)
+	require.Empty(t, rep.DecrementTagUsageCalls,
+		"deleting an untagged post must not call DecrementTagUsage")
 }
 
 func TestListPostsByTagPagination(t *testing.T) {

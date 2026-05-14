@@ -698,8 +698,7 @@ message Tag {
   string name              = 1;  // lowercase alphanumeric + hyphens
   uint64 usage_count       = 2;  // total uses across modules
   int64  created_at        = 3;
-  int64  last_used_at      = 4;  // for expiry
-  int64  expiration_index  = 5;  // absolute expiry timestamp
+  int64  last_used_at      = 4;  // drives GC: tag expires at last_used_at + DefaultTagExpiration; 0 = permanent
 }
 
 // proto/sparkdream/rep/v1/reserved_tag.proto

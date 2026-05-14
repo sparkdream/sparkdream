@@ -192,10 +192,13 @@ TX_OUT=$(send_tx collect create-collection \
 assert_tx_failure "Reject create-collection with too many tags" "$TX_OUT"
 
 # =========================================================================
-# Test 11: UpdateCollection diffs the tag set — only added tags bump usage
+# Test 11: UpdateCollection diffs the tag set — added tags bump usage,
+# dropped tags decrement usage, kept tags stay flat. The decrement half
+# is the half that used to leak: without DecrementTagUsage on update,
+# UsageCount drifted monotonically upward and ExpireTags steered wrong.
 # =========================================================================
 echo ""
-echo "--- Test 11: UpdateCollection diffs tags — only added bumps usage ---"
+echo "--- Test 11: UpdateCollection diffs tags — added bumps, dropped decrements ---"
 
 # Re-read current usage counts post-create as the new baseline.
 U_A_PRE=$(tag_usage_count "$TAG_A")
@@ -214,9 +217,11 @@ U_B_POST=$(tag_usage_count "$TAG_B")
 U_C_POST=$(tag_usage_count "$TAG_C")
 echo "  Post-update: $TAG_A=$U_A_POST $TAG_B=$U_B_POST $TAG_C=$U_C_POST"
 
-# Expect: TAG_A unchanged (kept), TAG_B unchanged (removed), TAG_C +1 (added).
-assert_equal "usage_count for kept tag unchanged"   "$U_A_PRE" "$U_A_POST"
-assert_equal "usage_count for removed tag unchanged" "$U_B_PRE" "$U_B_POST"
+# Expect: TAG_A unchanged (kept), TAG_B -1 (removed), TAG_C +1 (added).
+assert_equal "usage_count for kept tag unchanged"     "$U_A_PRE" "$U_A_POST"
+EXPECTED_B=$((U_B_PRE - 1))
+[ "$EXPECTED_B" -lt 0 ] && EXPECTED_B=0  # DecrementTagUsage clamps at 0
+assert_equal "usage_count for removed tag decremented" "$EXPECTED_B" "$U_B_POST"
 DIFF_C=$((U_C_POST - U_C_PRE))
 assert_gt "usage_count for added tag bumped" "0" "$DIFF_C"
 
@@ -238,6 +243,58 @@ else
 fi
 
 # =========================================================================
+# Test 11b: UpdateCollection that swaps the entire tag set (no overlap with
+# the prior set) decrements every dropped tag and increments every new tag.
+# Cousin of Test 11 but with zero overlap, so all old tags must decrement.
+# This is the multi-drop variant of the BLOG-S2-4 / COLLECT-S2-7 regression:
+# pre-fix, dropped tags silently kept their usage_count.
+# =========================================================================
+echo ""
+echo "--- Test 11b: UpdateCollection multi-drop — every removed tag decrements ---"
+
+# Entering this test the collection carries [TAG_A, TAG_C] from Test 11.
+TAG_D="advanced-physics"   # genesis-seeded, not used by earlier collect tests
+U_A_PRE=$(tag_usage_count "$TAG_A")
+U_C_PRE=$(tag_usage_count "$TAG_C")
+U_D_PRE=$(tag_usage_count "$TAG_D")
+echo "  Pre-swap: $TAG_A=$U_A_PRE $TAG_C=$U_C_PRE $TAG_D=$U_D_PRE"
+
+# Replace [TAG_A, TAG_C] with [TAG_D]: both A and C are dropped, D is added.
+TX_OUT=$(send_tx collect update-collection \
+    "$TAGGED_COLL_ID" mixed 0 "TaggedColl" "Full tag swap" "" "$TAG_D" \
+    --from "$TAG_CREATOR")
+assert_tx_success "Update collection swapping all tags" "$TX_OUT"
+
+U_A_POST=$(tag_usage_count "$TAG_A")
+U_C_POST=$(tag_usage_count "$TAG_C")
+U_D_POST=$(tag_usage_count "$TAG_D")
+echo "  Post-swap: $TAG_A=$U_A_POST $TAG_C=$U_C_POST $TAG_D=$U_D_POST"
+
+EXPECTED_A=$((U_A_PRE - 1)); [ "$EXPECTED_A" -lt 0 ] && EXPECTED_A=0
+EXPECTED_C=$((U_C_PRE - 1)); [ "$EXPECTED_C" -lt 0 ] && EXPECTED_C=0
+EXPECTED_D=$((U_D_PRE + 1))
+assert_equal "dropped tag A decremented"  "$EXPECTED_A" "$U_A_POST"
+assert_equal "dropped tag C decremented"  "$EXPECTED_C" "$U_C_POST"
+assert_equal "added tag D incremented"    "$EXPECTED_D" "$U_D_POST"
+
+# Secondary index reflects the swap.
+A_IDS=$(list_by_tag_ids "$TAG_A")
+C_IDS=$(list_by_tag_ids "$TAG_C")
+D_IDS=$(list_by_tag_ids "$TAG_D")
+if ! echo "$A_IDS" | grep -qx "$TAGGED_COLL_ID" \
+    && ! echo "$C_IDS" | grep -qx "$TAGGED_COLL_ID" \
+    && echo "$D_IDS" | grep -qx "$TAGGED_COLL_ID"; then
+    echo "PASS: Tag index reflects full swap"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo "FAIL: Tag index did not reflect full swap"
+    echo "  $TAG_A (expected no $TAGGED_COLL_ID): $A_IDS"
+    echo "  $TAG_C (expected no $TAGGED_COLL_ID): $C_IDS"
+    echo "  $TAG_D (expected $TAGGED_COLL_ID): $D_IDS"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+# =========================================================================
 # Test 12: Reject update-collection with unknown tag
 # =========================================================================
 echo ""
@@ -248,25 +305,34 @@ TX_OUT=$(send_tx collect update-collection \
 assert_tx_failure "Reject update-collection with unknown tag" "$TX_OUT"
 
 # =========================================================================
-# Test 13: Delete collection clears tag index entries
+# Test 13: Delete collection clears the tag secondary index AND decrements
+# usage_count for every tag the collection still carried at delete time.
+# After Test 11b the collection carries only TAG_D, so that's the entry we
+# expect to see disappear and the count to drop on.
 # =========================================================================
 echo ""
-echo "--- Test 13: Delete collection clears tag index entries ---"
+echo "--- Test 13: Delete collection clears index AND decrements usage_count ---"
+
+U_D_PRE=$(tag_usage_count "$TAG_D")
+echo "  Pre-delete: $TAG_D=$U_D_PRE"
+
 TX_OUT=$(send_tx collect delete-collection "$TAGGED_COLL_ID" --from "$TAG_CREATOR")
 assert_tx_success "Delete tagged collection" "$TX_OUT"
 
-A_IDS_AFTER=$(list_by_tag_ids "$TAG_A")
-C_IDS_AFTER=$(list_by_tag_ids "$TAG_C")
-if ! echo "$A_IDS_AFTER" | grep -qx "$TAGGED_COLL_ID" \
-    && ! echo "$C_IDS_AFTER" | grep -qx "$TAGGED_COLL_ID"; then
-    echo "PASS: Tag index entries cleared on delete"
+D_IDS_AFTER=$(list_by_tag_ids "$TAG_D")
+if ! echo "$D_IDS_AFTER" | grep -qx "$TAGGED_COLL_ID"; then
+    echo "PASS: Tag index entry cleared on delete"
     TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "FAIL: Stale tag index entry after delete"
-    echo "  $TAG_A: $A_IDS_AFTER"
-    echo "  $TAG_C: $C_IDS_AFTER"
+    echo "  $TAG_D: $D_IDS_AFTER"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
+
+U_D_POST=$(tag_usage_count "$TAG_D")
+EXPECTED_D=$((U_D_PRE - 1)); [ "$EXPECTED_D" -lt 0 ] && EXPECTED_D=0
+echo "  Post-delete: $TAG_D=$U_D_POST"
+assert_equal "Tag usage_count decremented on delete" "$EXPECTED_D" "$U_D_POST"
 
 # =========================================================================
 # Test 14: Reserve a tag via x/rep report+resolve flow, then reject on create

@@ -260,6 +260,67 @@ func TestMsgServerEditPostTags(t *testing.T) {
 	})
 }
 
+// Regression: EditPost must decrement UsageCount on tags it drops, not just
+// increment for the ones it adds. Before the fix, the diff was gated on
+// `len(msg.Tags) > 0` and only handled the add side, so repeated edits or
+// outright clears silently leaked usage_count in the rep registry.
+func TestEditPostTagsDiff_DecrementsDroppedTags(t *testing.T) {
+	t.Run("partial drop", func(t *testing.T) {
+		f := initFixture(t)
+		f.createTestTag(t, "golang")
+		f.createTestTag(t, "cosmos-sdk")
+		f.createTestTag(t, "testing")
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		// First edit: attach golang + cosmos-sdk.
+		_, err := f.msgServer.EditPost(f.ctx, &types.MsgEditPost{
+			Creator: testCreator, PostId: post.PostId,
+			NewContent: "v1",
+			Tags:       []string{"golang", "cosmos-sdk"},
+		})
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), f.repKeeper.tags["golang"].UsageCount)
+		require.Equal(t, uint64(1), f.repKeeper.tags["cosmos-sdk"].UsageCount)
+
+		// Second edit: keep golang, drop cosmos-sdk, add testing.
+		_, err = f.msgServer.EditPost(f.ctx, &types.MsgEditPost{
+			Creator: testCreator, PostId: post.PostId,
+			NewContent: "v2",
+			Tags:       []string{"golang", "testing"},
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, uint64(1), f.repKeeper.tags["golang"].UsageCount, "kept tag should not double-increment")
+		require.Equal(t, uint64(0), f.repKeeper.tags["cosmos-sdk"].UsageCount, "dropped tag must be decremented")
+		require.Equal(t, uint64(1), f.repKeeper.tags["testing"].UsageCount, "newly added tag should be incremented")
+	})
+
+	t.Run("clear all", func(t *testing.T) {
+		f := initFixture(t)
+		f.createTestTag(t, "golang")
+		f.createTestTag(t, "cosmos-sdk")
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		_, err := f.msgServer.EditPost(f.ctx, &types.MsgEditPost{
+			Creator: testCreator, PostId: post.PostId,
+			NewContent: "v1",
+			Tags:       []string{"golang", "cosmos-sdk"},
+		})
+		require.NoError(t, err)
+
+		// Clear all tags. The pre-fix code skipped the diff entirely here.
+		_, err = f.msgServer.EditPost(f.ctx, &types.MsgEditPost{
+			Creator: testCreator, PostId: post.PostId,
+			NewContent: "v2",
+			// Tags: nil
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, uint64(0), f.repKeeper.tags["golang"].UsageCount)
+		require.Equal(t, uint64(0), f.repKeeper.tags["cosmos-sdk"].UsageCount)
+	})
+}
+
 func TestEditPostStorageDeltaFee(t *testing.T) {
 	t.Run("edit size increase charges delta", func(t *testing.T) {
 		f := initFixture(t)

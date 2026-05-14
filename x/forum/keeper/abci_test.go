@@ -8,6 +8,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	reptypes "sparkdream/x/rep/types"
+
 	"sparkdream/x/forum/types"
 )
 
@@ -346,4 +348,98 @@ func TestPruneExpiredPosts(t *testing.T) {
 		err := f.keeper.EndBlocker(f.ctx)
 		require.NoError(t, err)
 	})
+
+	// Regression: TTL prune of an ephemeral post must decrement UsageCount
+	// for every tag the post carried. Cousin of TestDeletePostDecrementsTagUsage
+	// for the EndBlocker path — without this, ephemeral-post churn inflates
+	// UsageCount monotonically and ExpireTags loses its grip on idle tags.
+	t.Run("decrements tag usage on tombstone", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+
+		now := int64(1000000)
+		f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+
+		// Seed two tags with UsageCount=1 to model the post being a live reference.
+		f.repKeeper.tags = map[string]reptypes.Tag{
+			"alpha": {Name: "alpha", UsageCount: 1},
+			"beta":  {Name: "beta", UsageCount: 1},
+		}
+
+		postID, err := f.keeper.PostSeq.Next(f.ctx)
+		require.NoError(t, err)
+
+		expirationTime := now - 100
+		post := types.Post{
+			PostId:         postID,
+			CategoryId:     cat.CategoryId,
+			Author:         testCreator,
+			Content:        "Tagged ephemeral",
+			CreatedAt:      now - 200,
+			ExpirationTime: expirationTime,
+			Status:         types.PostStatus_POST_STATUS_ACTIVE,
+			Tags:           []string{"alpha", "beta"},
+		}
+		require.NoError(t, f.keeper.Post.Set(f.ctx, postID, post))
+		require.NoError(t, f.keeper.ExpirationQueue.Set(f.ctx, collections.Join(expirationTime, postID)))
+
+		require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+		// Post hard-deleted.
+		_, err = f.keeper.Post.Get(f.ctx, postID)
+		require.Error(t, err)
+
+		// Each tag decremented exactly once (1 -> 0).
+		require.Equal(t, uint64(0), f.repKeeper.tags["alpha"].UsageCount,
+			"tag alpha usage must drop on TTL prune")
+		require.Equal(t, uint64(0), f.repKeeper.tags["beta"].UsageCount,
+			"tag beta usage must drop on TTL prune")
+	})
+}
+
+// ExpireHiddenPosts is the second forum tombstone path that must decrement
+// tag usage. A post hidden by a sentinel that goes unappealed for
+// DefaultHiddenExpiration (7d) gets soft-deleted by the EndBlocker; without
+// the decrement its tags' UsageCount would stay inflated forever.
+func TestExpireHiddenPosts_DecrementsTagUsage(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+
+	hiddenAt := int64(1_000_000)
+	now := hiddenAt + types.DefaultHiddenExpiration + 1 // past expiry
+	f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+
+	// Seed one tag with UsageCount=1.
+	f.repKeeper.tags = map[string]reptypes.Tag{
+		"gamma": {Name: "gamma", UsageCount: 1},
+	}
+
+	postID, err := f.keeper.PostSeq.Next(f.ctx)
+	require.NoError(t, err)
+
+	post := types.Post{
+		PostId:     postID,
+		CategoryId: cat.CategoryId,
+		Author:     testCreator,
+		Content:    "Hidden post",
+		CreatedAt:  hiddenAt - 100,
+		Status:     types.PostStatus_POST_STATUS_HIDDEN,
+		HiddenAt:   hiddenAt,
+		Tags:       []string{"gamma"},
+	}
+	require.NoError(t, f.keeper.Post.Set(f.ctx, postID, post))
+	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{
+		PostId:   postID,
+		HiddenAt: hiddenAt,
+	}))
+
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+
+	// Post soft-deleted; tag list severed; HideRecord gone.
+	got, err := f.keeper.Post.Get(f.ctx, postID)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_DELETED, got.Status)
+	require.Nil(t, got.Tags, "hidden-expire path must clear post.Tags")
+	require.Equal(t, uint64(0), f.repKeeper.tags["gamma"].UsageCount,
+		"hidden-post expiry must decrement tag usage")
 }

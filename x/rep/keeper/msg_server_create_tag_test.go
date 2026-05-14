@@ -43,7 +43,10 @@ func TestCreateTag_HappyPath(t *testing.T) {
 
 	tag, err := f.keeper.GetTag(f.ctx, "newtag")
 	require.NoError(t, err)
-	require.Greater(t, tag.ExpirationIndex, tag.CreatedAt, "new tags must carry an expiration in the future")
+	// GC is driven by LastUsedAt + DefaultTagExpiration; CreateTag must stamp
+	// LastUsedAt so the new tag carries a finite (non-permanent) deadline.
+	require.Greater(t, tag.LastUsedAt, int64(0), "new tags must stamp last_used_at so they carry a finite GC deadline")
+	require.Equal(t, tag.CreatedAt, tag.LastUsedAt, "new tags start with last_used_at == created_at")
 }
 
 func TestCreateTag_RejectsInvalidFormat(t *testing.T) {

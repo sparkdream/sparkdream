@@ -555,10 +555,14 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)) //nolint:errcheck
 	}
 	k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
-	// Remove tag secondary index entries for this collection.
+	// Remove tag secondary index entries for this collection AND drop the
+	// rep-registry UsageCount for each tag — the collection is going away so
+	// it no longer "uses" them. Used by both MsgDeleteCollection and the
+	// EndBlocker TTL/endorsement-expiry prunes (both reach this helper).
 	for _, tag := range coll.Tags {
 		k.CollectionsByTag.Remove(ctx, collections.Join(tag, coll.Id)) //nolint:errcheck
 	}
+	k.decrementTagUsages(ctx, coll.Tags)
 
 	// Delete collection
 	k.Collection.Remove(ctx, coll.Id) //nolint:errcheck

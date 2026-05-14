@@ -5,10 +5,14 @@ option go_package = "sparkdream/x/rep/types";
 
 // Tag defines a content-tagging label. Owned by x/rep.
 // Consumed by x/forum, x/collect, and x/rep's own initiative/reputation systems.
+//
+// GC is driven by `last_used_at + DefaultTagExpiration` (see x/rep ExpireTags
+// in abci.go). IncrementTagUsage refreshes last_used_at on every reference,
+// so actively used tags roll their deadline forward; stale tags hit their
+// deadline and get reclaimed. Tags with last_used_at == 0 are permanent.
 message Tag {
   string name = 1;
   uint64 usage_count = 2;
   int64 created_at = 3;
   int64 last_used_at = 4;
-  int64 expiration_index = 5;
 }

@@ -217,6 +217,21 @@ func (m *mockRepKeeper) IncrementTagUsage(_ context.Context, name string, ts int
 	return nil
 }
 
+func (m *mockRepKeeper) DecrementTagUsage(_ context.Context, name string) error {
+	t, ok := m.tags[name]
+	if !ok {
+		return reptypes.ErrTagNotRegistered
+	}
+	if t.UsageCount > 0 {
+		t.UsageCount--
+	}
+	if m.tags == nil {
+		m.tags = make(map[string]reptypes.Tag)
+	}
+	m.tags[name] = t
+	return nil
+}
+
 func (m *mockRepKeeper) SetReservedTag(_ context.Context, rt reptypes.ReservedTag) error {
 	if m.reservedTags == nil {
 		m.reservedTags = make(map[string]reptypes.ReservedTag)

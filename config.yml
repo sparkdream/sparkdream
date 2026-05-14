@@ -315,149 +315,120 @@ genesis:
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "technical-council"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "ecosystem-council"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       # Six committees (ops + gov per council)
       - name: "commons-ops-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "commons-gov-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "technical-ops-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "technical-gov-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "ecosystem-ops-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "ecosystem-gov-committee"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       # Test tags for x/rep integration tests
       - name: "advanced-physics"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "budget"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "challenge"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "challenges"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "competition"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "concurrent"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "cross-project"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "cryptography"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "deadline"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "documentation"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "jury"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "nullifier"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "quantum-computing"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "referral-test"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "security"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "staking"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "test"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "testing"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "trust-builder"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
       - name: "zero-knowledge"
         usage_count: 0
         created_at: 0
         last_used_at: 0
-        expiration_index: 0
     forum:
       params:
         # Archive timing - FAST for testing

@@ -93,6 +93,7 @@ type mockRepKeeper struct {
 	// Track calls
 	CreateAuthorBondCalls  []createAuthorBondCall
 	IncrementTagUsageCalls []incrementTagUsageCall
+	DecrementTagUsageCalls []string // ordered list of tag names passed to DecrementTagUsage
 }
 
 type incrementTagUsageCall struct {
@@ -204,6 +205,11 @@ func (m *mockRepKeeper) IsReservedTag(_ context.Context, name string) (bool, err
 
 func (m *mockRepKeeper) IncrementTagUsage(_ context.Context, name string, timestamp int64) error {
 	m.IncrementTagUsageCalls = append(m.IncrementTagUsageCalls, incrementTagUsageCall{Name: name, Timestamp: timestamp})
+	return nil
+}
+
+func (m *mockRepKeeper) DecrementTagUsage(_ context.Context, name string) error {
+	m.DecrementTagUsageCalls = append(m.DecrementTagUsageCalls, name)
 	return nil
 }
 

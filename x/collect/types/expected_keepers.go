@@ -51,10 +51,13 @@ type RepKeeper interface {
 
 	// Tag registry (owned by x/rep). Tags referenced on collections and
 	// reviews must already exist and must not be reserved. IncrementTagUsage
-	// bumps usage_count and last_used_at when the module references a tag.
+	// bumps usage_count and last_used_at when the module references a tag;
+	// DecrementTagUsage decrements usage_count (floor 0) when the reference is
+	// released (collection-update drop, etc.).
 	TagExists(ctx context.Context, name string) (bool, error)
 	IsReservedTag(ctx context.Context, name string) (bool, error)
 	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
+	DecrementTagUsage(ctx context.Context, name string) error
 
 	// Bonded-role accountability (owned by x/rep). Curators are keyed as
 	// ROLE_TYPE_COLLECT_CURATOR; the moderation sentinel role for hide-content

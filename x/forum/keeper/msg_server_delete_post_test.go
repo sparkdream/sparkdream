@@ -108,3 +108,59 @@ func TestMsgServerDeletePost(t *testing.T) {
 		require.Equal(t, "[deleted]", updatedPost.Content)
 	})
 }
+
+// Regression: DeletePost must call DecrementTagUsage for every tag the post
+// carried — without this, repeated create/delete cycles inflate UsageCount
+// in the rep registry and ExpireTags loses its grip on idle tags. Cousin of
+// the edit-side TestEditPostTagsDiff_DecrementsDroppedTags fix.
+func TestDeletePostDecrementsTagUsage(t *testing.T) {
+	t.Run("multi-tag delete decrements every tag exactly once", func(t *testing.T) {
+		f := initFixture(t)
+		f.createTestTag(t, "golang")
+		f.createTestTag(t, "cosmos-sdk")
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		// Attach two tags via EditPost so the rep mock's tag UsageCount goes
+		// to 1 for each — this is the state we're asserting against.
+		_, err := f.msgServer.EditPost(f.ctx, &types.MsgEditPost{
+			Creator: testCreator, PostId: post.PostId,
+			NewContent: "with tags",
+			Tags:       []string{"golang", "cosmos-sdk"},
+		})
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), f.repKeeper.tags["golang"].UsageCount)
+		require.Equal(t, uint64(1), f.repKeeper.tags["cosmos-sdk"].UsageCount)
+
+		_, err = f.msgServer.DeletePost(f.ctx, &types.MsgDeletePost{
+			Creator: testCreator, PostId: post.PostId,
+		})
+		require.NoError(t, err)
+
+		// Both tags decremented exactly once — net usage back to baseline.
+		require.Equal(t, uint64(0), f.repKeeper.tags["golang"].UsageCount,
+			"delete must decrement every tag the post carried")
+		require.Equal(t, uint64(0), f.repKeeper.tags["cosmos-sdk"].UsageCount,
+			"delete must decrement every tag the post carried")
+
+		// Post's own Tags must also be cleared on tombstone, otherwise a
+		// subsequent gov-reverse-style path could try to re-diff a deleted
+		// post and double-count.
+		updated, err := f.keeper.Post.Get(f.ctx, post.PostId)
+		require.NoError(t, err)
+		require.Nil(t, updated.Tags, "deleted post must drop its Tags reference")
+	})
+
+	t.Run("untagged delete does not call DecrementTagUsage", func(t *testing.T) {
+		f := initFixture(t)
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		_, err := f.msgServer.DeletePost(f.ctx, &types.MsgDeletePost{
+			Creator: testCreator, PostId: post.PostId,
+		})
+		require.NoError(t, err)
+
+		// No tag rows touched.
+		require.Empty(t, f.repKeeper.tags,
+			"untagged post delete must not synthesize any tag activity")
+	})
+}
