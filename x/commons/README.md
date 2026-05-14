@@ -6,7 +6,7 @@ The `x/commons` module is the orchestrator of Spark Dream's "Three Pillars" gove
 
 This module provides:
 
-- **Native governance** — proposal submission, weighted voting, threshold-based acceptance, and execution (replaces `x/group`)
+- **Native governance** — proposal submission, weighted voting, threshold-based acceptance, and execution
 - **Hierarchical governance** — parent-child group relationships with permission inheritance
 - **Three Pillars structure** — Commons, Technical, and Ecosystem councils with operational and governance committees
 - **Anonymous governance** — anonymous proposals and votes via `x/shield` ZK proofs
@@ -57,7 +57,7 @@ Each group (council or committee) carries metadata beyond basic membership:
 
 ### Native Proposal System
 
-The module implements its own proposal lifecycle without depending on `x/group`:
+The module owns its proposal lifecycle end-to-end:
 
 1. **Submit** — a council member submits a proposal containing one or more messages
 2. **Vote** — council members cast weighted votes (YES, NO, ABSTAIN, NO_WITH_VETO)

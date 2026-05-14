@@ -63,5 +63,12 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 		&MsgDeleteCategory{},
 	)
 
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgScheduleRecurringSpend{},
+		&MsgCancelRecurringSpend{},
+		&MsgClaimRecurringSpend{},
+		&MsgDeclineRecurringSpend{},
+	)
+
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

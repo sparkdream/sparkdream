@@ -376,6 +376,9 @@ if [ "$RUN_LIFECYCLE" = true ]; then
     run_test "Group Lifecycle"            "group_lifecycle_test.sh"
     run_test "Group Member Update"        "group_member_update_test.sh"
     run_test "Treasury Spend"             "treasury_spend.sh"
+    run_test "Recurring Spend Lifecycle"  "recurring_spend_test.sh"
+    run_test "Recurring Spend Validation" "recurring_spend_validation_test.sh"
+    run_test "Recurring Spend Security"   "recurring_spend_security_test.sh"
     run_test "Fee Update"                 "fee_update_test.sh"
 else
     echo "Skipping lifecycle phase (--no-lifecycle)"

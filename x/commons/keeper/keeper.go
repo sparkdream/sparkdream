@@ -50,7 +50,7 @@ type Keeper struct {
 	MarketToGroup      collections.Map[uint64, string]
 	MarketTriggerQueue collections.KeySet[collections.Pair[int64, string]]
 
-	// --- New native governance collections (replacing x/group) ---
+	// --- Native governance collections ---
 
 	// Members stores council/committee members: (council_name, member_address) -> Member
 	Members collections.Map[collections.Pair[string, string], types.Member]
@@ -78,6 +78,21 @@ type Keeper struct {
 
 	Category    collections.Map[uint64, types.Category]
 	CategorySeq collections.Sequence
+
+	// --- Recurring Spend collections ---
+	// RecurringSpends maps a schedule ID to its RecurringSpend record.
+	RecurringSpends collections.Map[uint64, types.RecurringSpend]
+	// RecurringSpendSeq is the auto-incrementing schedule ID sequence.
+	RecurringSpendSeq collections.Sequence
+	// RecurringSpendsByAuthority indexes schedules by authority for cheap
+	// per-council listing and cancel-on-deletion sweeps.
+	RecurringSpendsByAuthority collections.KeySet[collections.Pair[string, uint64]]
+	// RecurringSpendsByRecipient indexes schedules by recipient so a wallet
+	// can list everything it can currently claim.
+	RecurringSpendsByRecipient collections.KeySet[collections.Pair[string, uint64]]
+	// ActiveRecurringSpendCount caches the active-schedule count per
+	// authority to keep the per-creation cap check O(1).
+	ActiveRecurringSpendCount collections.Map[string, uint32]
 }
 
 func NewKeeper(
@@ -178,6 +193,27 @@ func NewKeeper(
 			codec.CollValue[types.Category](cdc),
 		),
 		CategorySeq: collections.NewSequence(sb, types.CategorySeqKey, "categorySequence"),
+
+		// Recurring Spends
+		RecurringSpends: collections.NewMap(
+			sb, types.RecurringSpendsKey, "recurringSpends",
+			collections.Uint64Key,
+			codec.CollValue[types.RecurringSpend](cdc),
+		),
+		RecurringSpendSeq: collections.NewSequence(sb, types.RecurringSpendSeqKey, "recurring_spend_seq"),
+		RecurringSpendsByAuthority: collections.NewKeySet(
+			sb, types.RecurringSpendsByAuthorityKey, "recurringSpendsByAuthority",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
+		RecurringSpendsByRecipient: collections.NewKeySet(
+			sb, types.RecurringSpendsByRecipientKey, "recurringSpendsByRecipient",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
+		ActiveRecurringSpendCount: collections.NewMap(
+			sb, types.ActiveRecurringSpendCountKey, "activeRecurringSpendCount",
+			collections.StringKey,
+			collections.Uint32Value,
+		),
 	}
 
 	schema, err := sb.Build()
@@ -220,7 +256,10 @@ func (k Keeper) SetForumKeeper(fk types.ForumKeeper) {
 }
 
 // DeriveCouncilAddress generates a deterministic address for a council based on its ID.
-// This replaces x/group's policy address generation.
+// Each (councilID, policyType) pair maps to a unique module-derived account
+// (e.g. "council/standard/<id>" and "council/veto/<id>") so the policy
+// address can be regenerated from genesis without persisting a separate
+// allocator.
 func DeriveCouncilAddress(councilID uint64, policyType string) sdk.AccAddress {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, councilID)

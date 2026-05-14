@@ -41,6 +41,10 @@ func TestAminoNamesPresent(t *testing.T) {
 		{"sparkdream.commons.v1.MsgUpdatePolicyPermissions", "sparkdream/x/commons/MsgUpdatePolicyPermissions"},
 		{"sparkdream.commons.v1.MsgDeletePolicyPermissions", "sparkdream/x/commons/MsgDeletePolicyPermissions"},
 		{"sparkdream.commons.v1.MsgCreateCategory", "sparkdream/x/commons/MsgCreateCategory"},
+		{"sparkdream.commons.v1.MsgScheduleRecurringSpend", "sparkdream/x/commons/MsgScheduleRecurringSpend"},
+		{"sparkdream.commons.v1.MsgCancelRecurringSpend", "sparkdream/x/commons/MsgCancelRecurringSpend"},
+		{"sparkdream.commons.v1.MsgClaimRecurringSpend", "sparkdream/x/commons/MsgClaimRecurringSpend"},
+		{"sparkdream.commons.v1.MsgDeclineRecurringSpend", "sparkdream/x/commons/MsgDeclineRecurringSpend"},
 	}
 
 	resolver := registry.MergedProtoRegistry()

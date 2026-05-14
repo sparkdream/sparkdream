@@ -88,6 +88,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Alias:          []string{"show-category"},
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}},
 				},
+				{
+					RpcMethod:      "GetRecurringSpend",
+					Use:            "get-recurring-spend [id]",
+					Short:          "Get a recurring spend schedule by id",
+					Alias:          []string{"show-recurring-spend"},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod: "ListRecurringSpends",
+					Use:       "list-recurring-spends",
+					Short:     "List recurring spend schedules (filter with --authority or --recipient)",
+				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -206,6 +218,26 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "delete-category [category-id]",
 					Short:          "Delete a shared content category (gov/council/operations only; rejected if forum posts still reference it)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}},
+				},
+				{
+					RpcMethod: "ScheduleRecurringSpend",
+					Skip:      true, // signer is the council policy; submit via JSON inside MsgSubmitProposal
+				},
+				{
+					RpcMethod: "CancelRecurringSpend",
+					Skip:      true, // signer is the council policy; submit via JSON inside MsgSubmitProposal
+				},
+				{
+					RpcMethod:      "ClaimRecurringSpend",
+					Use:            "claim-recurring-spend [id]",
+					Short:          "Claim one period of a recurring spend (signer = recipient)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod:      "DeclineRecurringSpend",
+					Use:            "decline-recurring-spend [id]",
+					Short:          "Permanently decline a recurring spend (signer = recipient)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

@@ -121,17 +121,9 @@ func (k msgServer) UpdateGroupMembers(goCtx context.Context, msg *types.MsgUpdat
 	return &types.MsgUpdateGroupMembersResponse{}, nil
 }
 
-// getGroupByPolicy finds a group by its Policy Address using O(1) PolicyToName index
+// getGroupByPolicy finds a group by its Policy Address using O(1) PolicyToName index.
+// Thin shim over Keeper.GetGroupByPolicy, retained so other msgServer methods don't
+// need to be re-pointed.
 func (k msgServer) getGroupByPolicy(ctx context.Context, policyAddr string) (string, types.Group, bool) {
-	name, err := k.PolicyToName.Get(ctx, policyAddr)
-	if err != nil {
-		return "", types.Group{}, false
-	}
-
-	group, err := k.Groups.Get(ctx, name)
-	if err != nil {
-		return "", types.Group{}, false
-	}
-
-	return name, group, true
+	return k.GetGroupByPolicy(ctx, policyAddr)
 }

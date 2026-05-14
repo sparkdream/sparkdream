@@ -312,12 +312,22 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 			return nil, errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "no handler for %s", sdk.MsgTypeURL(sdkMsg))
 		}
 
-		_, err = handler(ctx, sdkMsg)
+		// baseapp's MsgServiceRouter wraps the context with a fresh
+		// EventManager before calling the handler, so events emitted by the
+		// inner message are isolated to res.GetEvents() and don't propagate
+		// to the tx event stream automatically. Re-emit them on the parent
+		// context here, otherwise downstream observers (e.g. e2e tests
+		// scraping a tx for `recurring_spend_scheduled`) never see the
+		// event.
+		res, err := handler(ctx, sdkMsg)
 		if err != nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
 			proposal.FailedReason = fmt.Sprintf("message %d execution failed: %v", i, err)
 			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
 			return nil, errorsmod.Wrapf(err, "message %d execution failed", i)
+		}
+		if res != nil {
+			ctx.EventManager().EmitEvents(res.GetEvents())
 		}
 	}
 

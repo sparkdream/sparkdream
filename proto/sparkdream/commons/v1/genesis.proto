@@ -8,6 +8,7 @@ import "sparkdream/commons/v1/category.proto";
 import "sparkdream/commons/v1/group.proto";
 import "sparkdream/commons/v1/params.proto";
 import "sparkdream/commons/v1/policy_permissions.proto";
+import "sparkdream/commons/v1/recurring_spend.proto";
 
 option go_package = "sparkdream/x/commons/types";
 
@@ -39,6 +40,10 @@ message GenesisState {
   repeated Category category_map = 11 [(gogoproto.nullable) = false];
   // next_category_id is the next auto-increment category ID
   uint64 next_category_id = 12;
+  // recurring_spends stores all schedules for export.
+  repeated RecurringSpend recurring_spends = 13 [(gogoproto.nullable) = false];
+  // next_recurring_spend_id is the next auto-increment recurring spend ID.
+  uint64 next_recurring_spend_id = 14;
 }
 
 // CouncilMembers groups members by council name for genesis export.

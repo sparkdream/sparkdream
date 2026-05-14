@@ -149,6 +149,21 @@ func (k Keeper) SetGroup(ctx context.Context, name string, group types.Group) er
 	return k.Groups.Set(ctx, name, group)
 }
 
+// GetGroupByPolicy resolves a group from its policy address using the O(1)
+// PolicyToName index. Returns (name, group, true) on success; (\"\", zero,
+// false) if the policy address is not registered or the group lookup fails.
+func (k Keeper) GetGroupByPolicy(ctx context.Context, policyAddr string) (string, types.Group, bool) {
+	name, err := k.PolicyToName.Get(ctx, policyAddr)
+	if err != nil {
+		return "", types.Group{}, false
+	}
+	group, err := k.Groups.Get(ctx, name)
+	if err != nil {
+		return "", types.Group{}, false
+	}
+	return name, group, true
+}
+
 // --- Policy Permissions Helpers ---
 
 func (k Keeper) GetPolicyPermissions(ctx context.Context, policyAddress string) (types.PolicyPermissions, error) {
@@ -195,7 +210,7 @@ func (k Keeper) DetectCycle(ctx sdk.Context, childPolicy string, parentPolicy st
 	return true, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "ancestry depth limit exceeded")
 }
 
-// --- Member Management Helpers (replacing x/group) ---
+// --- Member Management Helpers ---
 
 // AddMember adds a member to a council in the native Members collection.
 func (k Keeper) AddMember(ctx context.Context, councilName string, member types.Member) error {
@@ -256,7 +271,7 @@ func (k Keeper) ClearCouncilMembers(ctx context.Context, councilName string) err
 // --- Committee Helpers ---
 
 // IsCommitteeMember checks if an address is a member of a specific committee in a council.
-// Now uses native Members collection instead of x/group.
+// Reads from the native Members collection.
 func (k Keeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
 	groupName := ""
 	normalizedCouncil := normalizeCouncilName(council)
@@ -371,8 +386,9 @@ func (k Keeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
 	return err == nil
 }
 
-// IsSiblingPolicy checks if two policy addresses belong to the same council (are siblings).
-// This replaces the x/group GroupPolicyInfo check for shared GroupId.
+// IsSiblingPolicy checks if two policy addresses belong to the same council
+// (its standard and veto policies, or two policies mapping to the same
+// council name in PolicyToName).
 func (k Keeper) IsSiblingPolicy(ctx context.Context, policyA string, policyB string) bool {
 	nameA, errA := k.PolicyToName.Get(ctx, policyA)
 	nameB, errB := k.PolicyToName.Get(ctx, policyB)

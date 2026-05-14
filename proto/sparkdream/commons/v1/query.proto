@@ -10,6 +10,7 @@ import "sparkdream/commons/v1/category.proto";
 import "sparkdream/commons/v1/group.proto";
 import "sparkdream/commons/v1/params.proto";
 import "sparkdream/commons/v1/policy_permissions.proto";
+import "sparkdream/commons/v1/recurring_spend.proto";
 
 option go_package = "sparkdream/x/commons/types";
 
@@ -81,6 +82,17 @@ service Query {
   // ListCategory queries all shared content categories.
   rpc ListCategory(QueryAllCategoryRequest) returns (QueryAllCategoryResponse) {
     option (google.api.http).get = "/sparkdream/commons/v1/category";
+  }
+
+  // GetRecurringSpend queries a single recurring spend schedule by id.
+  rpc GetRecurringSpend(QueryGetRecurringSpendRequest) returns (QueryGetRecurringSpendResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/recurring_spend/{id}";
+  }
+
+  // ListRecurringSpends queries recurring spend schedules, optionally
+  // filtered by authority (council policy address) or recipient.
+  rpc ListRecurringSpends(QueryListRecurringSpendsRequest) returns (QueryListRecurringSpendsResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/recurring_spends";
   }
 }
 
@@ -235,5 +247,29 @@ message QueryAllCategoryRequest {
 // QueryAllCategoryResponse returns all categories.
 message QueryAllCategoryResponse {
   repeated Category category = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetRecurringSpendRequest fetches a single schedule by id.
+message QueryGetRecurringSpendRequest {
+  uint64 id = 1;
+}
+
+// QueryGetRecurringSpendResponse returns the schedule.
+message QueryGetRecurringSpendResponse {
+  RecurringSpend recurring_spend = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryListRecurringSpendsRequest lists schedules. authority and recipient
+// are optional filters; if both are empty, every schedule is returned.
+message QueryListRecurringSpendsRequest {
+  string authority = 1;
+  string recipient = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryListRecurringSpendsResponse returns the matching schedules.
+message QueryListRecurringSpendsResponse {
+  repeated RecurringSpend recurring_spends = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

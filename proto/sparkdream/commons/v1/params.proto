@@ -12,4 +12,21 @@ message Params {
   option (amino.name) = "sparkdream/x/commons/Params";
   option (gogoproto.equal) = true;
   string proposal_fee = 1;
+
+  // min_recurring_period_seconds is the minimum cadence a recurring spend
+  // schedule may declare. Defaults to 86400 (1 day). Prevents pathologically
+  // tight cadences that would trivially churn EpochSpending.
+  int64 min_recurring_period_seconds = 2;
+
+  // max_recurring_duration_seconds caps how far in the future end_time may
+  // sit relative to start_time. Defaults to 31_536_000 (~1 year), aligning
+  // with the typical council term so commitments must be re-approved by
+  // the next council.
+  int64 max_recurring_duration_seconds = 3;
+
+  // max_active_recurring_spends_per_group bounds how many concurrently
+  // active schedules a single authority may carry. Defaults to 50.
+  // Prevents a captured council from exhausting state with a fan-out of
+  // dust schedules.
+  uint32 max_active_recurring_spends_per_group = 4;
 }

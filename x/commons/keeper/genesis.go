@@ -92,6 +92,35 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// 11. Restore recurring spends. Sets the schedule, both secondary
+	// indexes, and recomputes the per-authority active counter so cap
+	// enforcement survives a chain restart.
+	activeCounts := make(map[string]uint32)
+	for _, rs := range genState.RecurringSpends {
+		if err := k.RecurringSpends.Set(ctx, rs.Id, rs); err != nil {
+			return err
+		}
+		if err := k.RecurringSpendsByAuthority.Set(ctx, collections.Join(rs.Authority, rs.Id)); err != nil {
+			return err
+		}
+		if err := k.RecurringSpendsByRecipient.Set(ctx, collections.Join(rs.Recipient, rs.Id)); err != nil {
+			return err
+		}
+		if rs.Status == types.RecurringSpendStatus_RECURRING_SPEND_STATUS_ACTIVE {
+			activeCounts[rs.Authority]++
+		}
+	}
+	for authority, count := range activeCounts {
+		if err := k.ActiveRecurringSpendCount.Set(ctx, authority, count); err != nil {
+			return err
+		}
+	}
+	if genState.NextRecurringSpendId > 0 {
+		if err := k.RecurringSpendSeq.Set(ctx, genState.NextRecurringSpendId); err != nil {
+			return err
+		}
+	}
+
 	// Prime the sequence so the first runtime category starts at 1; ID 0 is
 	// reserved as "no category".
 	catSeqVal, err := k.CategorySeq.Peek(ctx)
@@ -223,6 +252,16 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 	genesis.NextCategoryId, _ = k.CategorySeq.Peek(ctx)
+
+	// Export recurring spends. Active-count is recomputed at import time
+	// so it does not need to round-trip.
+	if err := k.RecurringSpends.Walk(ctx, nil, func(_ uint64, rs types.RecurringSpend) (bool, error) {
+		genesis.RecurringSpends = append(genesis.RecurringSpends, rs)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	genesis.NextRecurringSpendId, _ = k.RecurringSpendSeq.Peek(ctx)
 
 	return genesis, nil
 }

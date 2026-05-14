@@ -114,7 +114,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 **Purpose:** Central engine for the "Three Pillars" governance, native proposal system, and anonymous governance. Full specification at [`docs/x-commons-spec.md`](x-commons-spec.md).
 
-**Mechanism:** Native `Group` structure with built-in proposal lifecycle (submit → vote → execute). Replaced x/group dependency.
+**Mechanism:** Native `Group` structure with built-in proposal lifecycle (submit → vote → execute) — this module owns council identity, voting rules, and proposal state with no external proposal-module dependency.
 
 **Key Logic (MsgRegisterGroup):**
 - **Hierarchy:** Enforces parent-child trust chains (Gov → Council → Committee) and prevents cyclic dependencies.

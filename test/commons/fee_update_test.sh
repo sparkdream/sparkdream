@@ -17,8 +17,17 @@ GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account
 echo "Gov Address: $GOV_ADDR"
 
 # --- 1. SNAPSHOT CURRENT STATE ---
+# Capture the whole params blob so we can round-trip every field on every
+# MsgUpdateParams below. The proto requires the full Params message — if we
+# only set proposal_fee, the unspecified fields default to zero and
+# Params.Validate() rejects the update with "min_recurring_period_seconds
+# must be > 0". The recurring-spend params were added after this test was
+# first written, which is why this used to "work".
 PARAMS_JSON=$($BINARY query commons params --output json)
 CURRENT_FEE=$(echo $PARAMS_JSON | jq -r '.params.proposal_fee')
+CURRENT_MIN_PERIOD=$(echo $PARAMS_JSON | jq -r '.params.min_recurring_period_seconds')
+CURRENT_MAX_DURATION=$(echo $PARAMS_JSON | jq -r '.params.max_recurring_duration_seconds')
+CURRENT_MAX_ACTIVE=$(echo $PARAMS_JSON | jq -r '.params.max_active_recurring_spends_per_group')
 
 # DISCOVERY: Find a valid Council Policy Address from the Registry
 COUNCIL_ADDR=$($BINARY query commons get-group "Commons Council" --output json | jq -r '.group.policy_address')
@@ -64,14 +73,18 @@ get_proposal_id() {
 # --- 2. STEP 1: UPDATE FEE VIA GOVERNANCE ---
 echo "--- STEP 1: PROPOSING FEE INCREASE TO $NEW_FEE_STR ---"
 
-# Note: We only update the FEE param. The Address param is deprecated/removed from this message.
+# Note: MsgUpdateParams expects the entire Params blob. Carry the recurring
+# spend params through unchanged so Params.Validate() passes.
 echo '{
   "messages": [
     {
       "@type": "/sparkdream.commons.v1.MsgUpdateParams",
       "authority": "'$GOV_ADDR'",
       "params": {
-        "proposal_fee": "'$NEW_FEE_STR'"
+        "proposal_fee": "'$NEW_FEE_STR'",
+        "min_recurring_period_seconds": "'$CURRENT_MIN_PERIOD'",
+        "max_recurring_duration_seconds": "'$CURRENT_MAX_DURATION'",
+        "max_active_recurring_spends_per_group": '$CURRENT_MAX_ACTIVE'
       }
     }
   ],
@@ -171,7 +184,10 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgUpdateParams",
       "authority": "'$GOV_ADDR'",
       "params": {
-        "proposal_fee": "'$CURRENT_FEE'"
+        "proposal_fee": "'$CURRENT_FEE'",
+        "min_recurring_period_seconds": "'$CURRENT_MIN_PERIOD'",
+        "max_recurring_duration_seconds": "'$CURRENT_MAX_DURATION'",
+        "max_active_recurring_spends_per_group": '$CURRENT_MAX_ACTIVE'
       }
     }
   ],

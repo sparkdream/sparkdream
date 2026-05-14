@@ -138,8 +138,8 @@ EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 4
 
 # Verify Veto Success — x/commons records execution success via the
-# proposal's status field (no PROPOSAL_EXECUTOR_RESULT_SUCCESS event like
-# x/group used to emit).
+# proposal's status field (PROPOSAL_STATUS_EXECUTED) rather than a separate
+# event, so the status query is the source of truth.
 VETO_PROP_STATUS=$($BINARY query commons get-proposal $VETO_ID --output json | jq -r '.proposal.status')
 if [ "$VETO_PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
     echo "[ OK ] Parent Veto Executed Successfully (status=$VETO_PROP_STATUS)."

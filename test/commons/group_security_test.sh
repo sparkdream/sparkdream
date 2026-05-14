@@ -91,8 +91,8 @@ EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --gas 2000000 --from
 EXEC_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 3
 
-# Verify Execution via proposal status (x/commons replaces x/group's
-# PROPOSAL_EXECUTOR_RESULT_SUCCESS with PROPOSAL_STATUS_EXECUTED).
+# Verify Execution via proposal status — PROPOSAL_STATUS_EXECUTED is the
+# canonical success marker.
 PROP_STATUS=$($BINARY query commons get-proposal $PROPOSAL_ID --output json | jq -r '.proposal.status')
 if [ "$PROP_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
     echo "[FAIL] Error: Failed to create Fort Knox (status=$PROP_STATUS)."
@@ -263,10 +263,11 @@ else
 fi
 
 echo "--- STEP 5: FORBIDDEN MESSAGE (RECURSION ATTACK) ---"
-# Try to submit a MsgExecuteProposal inside a proposal — the x/commons
-# analog of x/group's MsgExec. ExecuteProposal is intentionally NOT in any
-# council's allowed_messages allowlist, so the submit handler must reject
-# this proposal at the AnteHandler / SubmitProposal stage.
+# Try to submit a MsgExecuteProposal inside a proposal — a recursion attack
+# where executing one proposal would dispatch another. ExecuteProposal is
+# intentionally NOT in any council's allowed_messages allowlist, so the
+# submit handler must reject this proposal at the AnteHandler /
+# SubmitProposal stage.
 echo '{
   "policy_address": "'$KNOX_POLICY'",
   "messages": [

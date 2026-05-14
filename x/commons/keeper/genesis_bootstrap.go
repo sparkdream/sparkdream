@@ -166,6 +166,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgRegisterGroup",
 			"/sparkdream.commons.v1.MsgRenewGroup",
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
+			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
@@ -226,6 +228,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgRegisterGroup",
 			"/sparkdream.commons.v1.MsgRenewGroup",
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
+			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
@@ -259,7 +263,13 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardValue:        "1",
 		StandardWindow:       WindowCommittee,
 		StandardMinExecution: TechOpsMinExecution,
-		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgSpendFromCommons", "/sparkdream.commons.v1.MsgVoteProposal", "/sparkdream.commons.v1.MsgUpdateGroupMembers"},
+		StandardPermissions: []string{
+			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
+			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
+			"/sparkdream.commons.v1.MsgVoteProposal",
+			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
+		},
 		MaxSpendPerEpoch:     math.NewInt(10000000000),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
@@ -318,6 +328,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgRegisterGroup",
 			"/sparkdream.commons.v1.MsgRenewGroup",
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
+			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
@@ -347,7 +359,13 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		StandardValue:        "1",
 		StandardWindow:       WindowCommittee,
 		StandardMinExecution: EcoOpsMinExecution,
-		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgSpendFromCommons", "/sparkdream.commons.v1.MsgUpdateGroupConfig", "/sparkdream.commons.v1.MsgUpdateGroupMembers"},
+		StandardPermissions: []string{
+			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
+			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
+			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
+			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
+		},
 		MaxSpendPerEpoch:     math.NewInt(10000000000),
 		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
 		FutarchyEnabled:      false,
@@ -432,6 +450,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
+			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgCreateCategory",
 			"/sparkdream.commons.v1.MsgDeleteCategory",
@@ -535,7 +555,11 @@ type GroupConfig struct {
 	TermDuration     int64
 }
 
-// createGroup creates a council/committee with native state (no x/group).
+// createGroup creates a council/committee, allocates its standard and (if
+// configured) veto policy addresses, seeds members, decision policies, and
+// per-policy permissions, and indexes the resulting Group entry by name.
+// Returns the standard policy address so callers can wire it as a parent
+// for downstream committees.
 func (k Keeper) createGroup(ctx context.Context, cfg GroupConfig, members []MemberRequest) string {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 

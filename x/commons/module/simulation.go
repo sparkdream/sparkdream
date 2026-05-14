@@ -244,6 +244,58 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		commonssimulation.SimulateMsgDeleteCategory(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
+	const (
+		opWeightMsgScheduleRecurringSpend          = "op_weight_msg_commons"
+		defaultWeightMsgScheduleRecurringSpend int = 50
+	)
+	var weightMsgScheduleRecurringSpend int
+	simState.AppParams.GetOrGenerate(opWeightMsgScheduleRecurringSpend, &weightMsgScheduleRecurringSpend, nil,
+		func(_ *rand.Rand) { weightMsgScheduleRecurringSpend = defaultWeightMsgScheduleRecurringSpend },
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgScheduleRecurringSpend,
+		commonssimulation.SimulateMsgScheduleRecurringSpend(am.authKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgClaimRecurringSpend          = "op_weight_msg_commons"
+		defaultWeightMsgClaimRecurringSpend int = 100
+	)
+	var weightMsgClaimRecurringSpend int
+	simState.AppParams.GetOrGenerate(opWeightMsgClaimRecurringSpend, &weightMsgClaimRecurringSpend, nil,
+		func(_ *rand.Rand) { weightMsgClaimRecurringSpend = defaultWeightMsgClaimRecurringSpend },
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgClaimRecurringSpend,
+		commonssimulation.SimulateMsgClaimRecurringSpend(am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgCancelRecurringSpend          = "op_weight_msg_commons"
+		defaultWeightMsgCancelRecurringSpend int = 25
+	)
+	var weightMsgCancelRecurringSpend int
+	simState.AppParams.GetOrGenerate(opWeightMsgCancelRecurringSpend, &weightMsgCancelRecurringSpend, nil,
+		func(_ *rand.Rand) { weightMsgCancelRecurringSpend = defaultWeightMsgCancelRecurringSpend },
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCancelRecurringSpend,
+		commonssimulation.SimulateMsgCancelRecurringSpend(am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgDeclineRecurringSpend          = "op_weight_msg_commons"
+		defaultWeightMsgDeclineRecurringSpend int = 25
+	)
+	var weightMsgDeclineRecurringSpend int
+	simState.AppParams.GetOrGenerate(opWeightMsgDeclineRecurringSpend, &weightMsgDeclineRecurringSpend, nil,
+		func(_ *rand.Rand) { weightMsgDeclineRecurringSpend = defaultWeightMsgDeclineRecurringSpend },
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgDeclineRecurringSpend,
+		commonssimulation.SimulateMsgDeclineRecurringSpend(am.keeper, simState.TxConfig),
+	))
+
 	return operations
 }
 

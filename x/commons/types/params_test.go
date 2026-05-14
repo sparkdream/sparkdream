@@ -36,8 +36,31 @@ func TestParams_Validate_MultipleCoins(t *testing.T) {
 func TestParams_ParamSetPairs(t *testing.T) {
 	p := types.DefaultParams()
 	pairs := p.ParamSetPairs()
-	require.Len(t, pairs, 1)
+	// proposal_fee + 3 recurring-spend params.
+	require.Len(t, pairs, 4)
 	require.Equal(t, types.KeyProposalFee, pairs[0].Key)
+	require.Equal(t, types.KeyMinRecurringPeriodSeconds, pairs[1].Key)
+	require.Equal(t, types.KeyMaxRecurringDurationSeconds, pairs[2].Key)
+	require.Equal(t, types.KeyMaxActiveRecurringSpendsPerGroup, pairs[3].Key)
+}
+
+func TestParams_RecurringSpendDefaults(t *testing.T) {
+	p := types.DefaultParams()
+	require.Equal(t, types.DefaultMinRecurringPeriodSeconds, p.MinRecurringPeriodSeconds)
+	require.Equal(t, types.DefaultMaxRecurringDurationSeconds, p.MaxRecurringDurationSeconds)
+	require.Equal(t, types.DefaultMaxActiveRecurringSpendsPerGroup, p.MaxActiveRecurringSpendsPerGroup)
+}
+
+func TestParams_Validate_RejectsZeroRecurringPeriod(t *testing.T) {
+	p := types.DefaultParams()
+	p.MinRecurringPeriodSeconds = 0
+	require.Error(t, p.Validate())
+}
+
+func TestParams_Validate_RejectsTooShortDurationCap(t *testing.T) {
+	p := types.DefaultParams()
+	p.MaxRecurringDurationSeconds = p.MinRecurringPeriodSeconds - 1
+	require.Error(t, p.Validate())
 }
 
 func TestForbiddenMessages_RecursionGuards(t *testing.T) {

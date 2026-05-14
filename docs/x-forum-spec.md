@@ -44,7 +44,7 @@ The module outsources dispute resolution to `x/rep` and membership status to `x/
 | `x/shield` | **Indirect** — Anonymous operations (posting, replying, reacting) are routed through `x/shield`'s unified `MsgShieldedExec` entry point. Forum implements the `ShieldAware` interface so x/shield can dispatch shielded operations to it. Forum does NOT depend on x/shield directly; x/shield calls into forum. See [Section 16](#16-anonymous-features-via-xshield). |
 | `x/season` | **Optional** — `SeasonKeeper.GetEpochDuration()` for epoch-based scoping. Falls back to `DefaultEpochDuration` (7 days) if nil |
 
-> **Note:** Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) have been **removed**. All anonymous operations are now routed through `x/shield`'s unified `MsgShieldedExec`. The forum keeper implements the `ShieldAware` interface (`x/forum/keeper/shield_aware.go`) to declare which messages are shield-compatible. ZK proof verification, nullifier management, and TLE infrastructure are all owned by x/shield. The `x/commons` module (not `x/group`) provides council authorization and proposal execution.
+> **Note:** Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) have been **removed**. All anonymous operations are now routed through `x/shield`'s unified `MsgShieldedExec`. The forum keeper implements the `ShieldAware` interface (`x/forum/keeper/shield_aware.go`) to declare which messages are shield-compatible. ZK proof verification, nullifier management, and TLE infrastructure are all owned by x/shield. `x/commons` provides council authorization and proposal execution.
 
 ---
 

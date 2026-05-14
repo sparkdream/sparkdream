@@ -7,7 +7,7 @@ The `x/session` module provides **session key management with integrated fee del
 **Design philosophy:** Build exactly what session keys need, nothing more. Unlike `x/authz` (which provides general-purpose authorization with recursive execution, typed authorizations, and complex grant hierarchies), x/session is purpose-built for the session key pattern described in `docs/session-keys.md`.
 
 **Why not x/authz + x/feegrant?**
-- **Licensing risk**: Both are extracted Go modules (`cosmossdk.io/x/authz`, `cosmossdk.io/x/feegrant`) that can be independently relicensed, as happened with `x/group`.
+- **Licensing risk**: Both are extracted Go modules (`cosmossdk.io/x/authz`, `cosmossdk.io/x/feegrant`) that can be independently relicensed, as has already happened with at least one other extracted SDK module.
 - **Overengineered**: Session keys use ~10% of authz's surface area. No need for `GenericAuthorization`, `TypedAuthorization`, `SendAuthorization`, `StakeAuthorization`, recursive `MsgExec`, or the full grant interface hierarchy.
 - **Separate fee module**: x/feegrant is a separate module with its own state, params, and pruning — unnecessary complexity when fee delegation is a single field on the session.
 - **Security surface**: x/authz's recursive `MsgExec` is explicitly blocked in `x/commons` `ForbiddenMessages` because it bypasses council permission filters. x/session's `MsgExecSession` is non-recursive by design and uses an allowlist-only model with no blocklist to maintain.

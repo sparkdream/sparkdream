@@ -14,10 +14,10 @@ sibling modules: `x/futarchy` (elastic tenure via prediction markets),
 
 Key principles:
 
-- **Native proposal system**: replaced the `cosmos-sdk/x/group` dependency
-  with a purpose-built `Group` + `DecisionPolicy` + `Proposal` model. The
-  chain no longer imports `x/group`; `x/commons` is the single source of
-  truth for council identity, voting rules, and proposal state.
+- **Native proposal system**: purpose-built `Group` + `DecisionPolicy` +
+  `Proposal` model owned end-to-end by this module. `x/commons` is the
+  single source of truth for council identity, voting rules, and proposal
+  state — no external proposal module is involved.
 - **Three Pillars hierarchy**: at genesis, three top-level councils (Commons,
   Technical, Ecosystem) plus a Supervisory Board are wired together with a
   parent-child trust chain (`Gov → Council → Committee`). Cycles are
@@ -45,7 +45,17 @@ Key principles:
   cannot live more than two full terms past `now`.
 - **Cumulative spending limit**: each policy's `MaxSpendPerEpoch` is enforced
   cumulatively per UTC day, not per transaction — multiple `MsgSpendFromCommons`
-  in the same epoch sum together.
+  in the same epoch sum together. Recurring-spend claims share the same
+  gating helper (`CheckSpendPreconditions`) and therefore cannot side-step
+  the per-epoch ceiling.
+- **Recurring spends (pull model)**: councils can pre-approve a schedule
+  via `MsgScheduleRecurringSpend` (wrapped in a proposal). Each elapsed
+  period the **recipient** submits `MsgClaimRecurringSpend` to pull one
+  disbursement. Term-expired councils auto-pause (claims reject with
+  `ErrGroupExpired`); term renewal auto-resumes. Schedules can be
+  cancelled via a follow-up council proposal
+  (`MsgCancelRecurringSpend`) or declined unilaterally by the recipient
+  (`MsgDeclineRecurringSpend`) — e.g. when leaving a role.
 - **Anonymous governance**: `MsgSubmitAnonymousProposal` and
   `MsgAnonymousVoteProposal` are accepted only from the `x/shield` module
   account. The shield module's ZK proof attests to voter registration; the
@@ -64,7 +74,7 @@ Key principles:
 | Module | Purpose |
 |---|---|
 | `x/auth` | Address codec, module account resolution, account iteration during genesis to seed founding-member lookups |
-| `x/bank` | Council treasury sends (`SpendFromCommons`), proposal-fee transfers from the proposer |
+| `x/bank` | Council treasury sends (`SpendFromCommons`, `ClaimRecurringSpend`), proposal-fee transfers from the proposer |
 | `x/gov` | Source of the immutable `authority` (gov module account) used as the chain's `--authority` for `MsgUpdateParams`, `MsgEmergencyCancelGovProposal`, etc.; concrete keeper accessed via the narrow `GovKeeper` interface for the emergency-cancel path |
 | `x/upgrade` | `MsgForceUpgrade` calls `UpgradeKeeper.ScheduleUpgrade` |
 | `x/futarchy` | `CreateMarketInternal` (initiated by commons for confidence-vote markets); commons registers as a `FutarchyHooks` consumer for elastic tenure on resolution. Injected directly via depinject |
@@ -239,7 +249,57 @@ Created via `MsgCreateCategory` by gov, the Commons Council, or the Commons
 Operations Committee. Per-module restrictions (e.g. "blog category 1 is
 read-only") layer on top.
 
-### 3.7. Indexes and counters
+### 3.7. RecurringSpend
+
+A council-approved disbursement schedule. The record is created when a
+proposal carrying `MsgScheduleRecurringSpend` executes; each elapsed
+period the recipient submits `MsgClaimRecurringSpend` to pull one
+`amount_per_period` from the council's policy account.
+
+```protobuf
+message RecurringSpend {
+  uint64 id = 1;
+  string authority = 2;                    // council policy address
+  string recipient = 3;
+  repeated cosmos.base.v1beta1.Coin amount_per_period = 4;
+  int64 period_seconds = 5;                // >= Params.min_recurring_period_seconds
+  int64 start_time = 6;                    // unix seconds
+  int64 end_time = 7;                      // <= start_time + Params.max_recurring_duration_seconds
+  int64 last_claim_advance = 8;            // schedule's logical clock
+  uint64 claims_made = 9;
+  RecurringSpendStatus status = 10;        // ACTIVE | RECIPIENT_DECLINED | CANCELED | COMPLETED
+  uint64 created_via_proposal_id = 11;
+  string note = 12;                        // capped at 256 chars
+}
+```
+
+Lifecycle:
+
+| Transition | Trigger |
+|---|---|
+| `→ ACTIVE` | `MsgScheduleRecurringSpend` executes (wrapped in a council proposal) |
+| `ACTIVE → CANCELED` | `MsgCancelRecurringSpend` executes (same authority, another council proposal) |
+| `ACTIVE → RECIPIENT_DECLINED` | `MsgDeclineRecurringSpend` (signer = recipient, direct tx) |
+| `ACTIVE → COMPLETED` | `MsgClaimRecurringSpend` advances `last_claim_advance` past `end_time - period_seconds` (final claim was disbursed) |
+
+Notable design choices:
+
+- **No `PAUSED` state**. Term-pause is *derived* at claim time by routing
+  through `CheckSpendPreconditions`. If the council's term has expired
+  the claim rejects with `ErrGroupExpired`; on renewal the same code path
+  passes again. Storing a paused flag would risk drifting out of sync
+  with the group's actual expiration.
+- **Logical clock**: `last_claim_advance` advances by exactly
+  `period_seconds` per claim, anchored to the schedule, not block time. A
+  recipient who skips can catch up by submitting multiple claim txs,
+  each rate-limited independently against `MaxSpendPerEpoch`.
+- **First claim opens at `start_time + period_seconds`** — the council
+  vote authorises payment after one period of work, not immediately.
+- **Created-via-proposal-id** is currently informational (the value is
+  reserved on the proto for traceability but not populated by the
+  handler; future work).
+
+### 3.8. Indexes and counters
 
 | Collection | Key → Value | Purpose |
 |---|---|---|
@@ -249,14 +309,21 @@ read-only") layer on top.
 | `ProposalsByCouncil` | `(council_name, proposal_id)` | Pagination index for `ListProposals` |
 | `VetoPolicies` | `council_name → veto_policy_address` | Cross-council veto resolution |
 | `PolicyVersion` | `policy_address → uint64` | Veto-by-bump invalidation token |
-| `EpochSpending` | `(policy_address, epoch_day) → string(uspark)` | Cumulative `MsgSpendFromCommons` total per UTC day |
-| `ProposalSeq`, `CouncilSeq`, `CategorySeq` | sequences | Auto-increment ID generators |
+| `EpochSpending` | `(policy_address, epoch_day) → string(uspark)` | Cumulative `MsgSpendFromCommons` **and** `MsgClaimRecurringSpend` total per UTC day |
+| `RecurringSpends` | `id → RecurringSpend` | The schedule record |
+| `RecurringSpendsByAuthority` | `(authority, id) → ∅` | Per-council schedule listing |
+| `RecurringSpendsByRecipient` | `(recipient, id) → ∅` | Per-wallet "what can I claim?" listing |
+| `ActiveRecurringSpendCount` | `authority → uint32` | O(1) cap check on `MsgScheduleRecurringSpend` (decremented on Cancel/Decline/Completed; recomputed at genesis import) |
+| `ProposalSeq`, `CouncilSeq`, `CategorySeq`, `RecurringSpendSeq` | sequences | Auto-increment ID generators |
 
-### 3.8. Params
+### 3.9. Params
 
 ```protobuf
 message Params {
-  string proposal_fee = 1;                // e.g. "5000000uspark" — charged on every MsgSubmitProposal
+  string proposal_fee = 1;                            // e.g. "5000000uspark" — charged on every MsgSubmitProposal
+  int64  min_recurring_period_seconds = 2;            // default 86_400  (1 day)
+  int64  max_recurring_duration_seconds = 3;          // default 31_536_000 (365 days)
+  uint32 max_active_recurring_spends_per_group = 4;   // default 50
 }
 ```
 
@@ -264,6 +331,11 @@ A `MsgSubmitProposal` deducts `proposal_fee` from the proposer's balance and
 sends it to the policy address being proposed against. (This is the fee that
 genesis-bootstrapped councils fall short on — many tests pre-fund the
 council policy from `alice` before submitting a register-group proposal.)
+
+The recurring-spend params bound the attack surface a captured council
+can carve out with `MsgScheduleRecurringSpend`. `Validate()` cross-checks
+that `max_recurring_duration_seconds >= min_recurring_period_seconds` so
+the configured window can always fit at least one period.
 
 ---
 
@@ -540,10 +612,56 @@ proposals accumulate.
 | `MsgSubmitAnonymousProposal` | x/shield module account only | Same as `MsgSubmitProposal` but skips the membership check (ZK proof attests registration); identical fee, allowlist, and term gates |
 | `MsgAnonymousVoteProposal` | x/shield module account only | Increments `AnonVoteTally` for the proposal; weight=1, tallied separately from member votes |
 | `MsgCreateCategory` | gov OR Commons Council OR Commons Operations Committee | Register a new shared content category |
+| `MsgScheduleRecurringSpend` | a registered group policy | Create a recurring-disbursement schedule from the council's treasury. Wrapped in a `MsgSubmitProposal`; counts against `Params.max_active_recurring_spends_per_group` |
+| `MsgCancelRecurringSpend` | the schedule's authority (same group policy) | Terminate an active schedule. Wrapped in a `MsgSubmitProposal`; rejects with `ErrRecurringSpendUnauthorized` if the caller is a different council |
+| `MsgClaimRecurringSpend` | the schedule's recipient | Pull one period of an active schedule. Routes through `CheckSpendPreconditions` so the per-epoch rate-limit, term expiration, and activation gate all apply identically to one-off spends |
+| `MsgDeclineRecurringSpend` | the schedule's recipient | Permanently opt out of future claims (graceful exit when leaving a role). No proposal required |
 
 The amino type names follow the pattern `sparkdream/x/commons/Msg<Name>`,
 declared on every signer message via `option (amino.name)` so Keplr+Ledger
 amino-JSON signing works (see `docs/HANDOFF_LEDGER_AMINO_NAMES.md`).
+
+#### 7.1. Recurring-spend flow
+
+```
+Council                   Recipient                  Chain
+   │                          │                          │
+   │ MsgSubmitProposal(       │                          │
+   │   MsgScheduleRecurringSpend)                        │
+   │─────────────────────────────────────────────────────▶│
+   │                          │                  Validates period/window/cap
+   │ … votes, executes …      │                          │
+   │                          │                  Allocates id, status=ACTIVE
+   │                          │                  emits recurring_spend_scheduled
+   │                          │                          │
+   │                          │ MsgClaimRecurringSpend(id)│
+   │                          │─────────────────────────▶│
+   │                          │                  CheckSpendPreconditions
+   │                          │                  bankKeeper.SendCoins
+   │                          │                  last_claim_advance += period
+   │                          │                  emits recurring_spend_claimed
+   │                          │                          │
+   │ MsgSubmitProposal(       │                          │
+   │   MsgCancelRecurringSpend)                          │
+   │─────────────────────────────────────────────────────▶│
+   │ … votes, executes …      │                  status=CANCELED
+   │                          │                  emits recurring_spend_canceled
+```
+
+Failure modes worth calling out:
+
+- **Period not elapsed** (`ErrRecurringSpendNotDue`) — the recipient is
+  claiming faster than `period_seconds`. Each claim advances by exactly
+  one period from `last_claim_advance`, anchored to the schedule.
+- **Council term expired** (`ErrGroupExpired`) — the auto-pause
+  semantic. The schedule remains `ACTIVE`; the next claim after the
+  parent calls `MsgRenewGroup` succeeds.
+- **Per-epoch rate limit** (`ErrRateLimitExceeded`) — catch-up claims
+  hit the same `MaxSpendPerEpoch` ceiling as one-off `SpendFromCommons`.
+- **Window closed without a final claim** — when the recipient never
+  claims and the schedule's logical clock can no longer advance another
+  period before `end_time`, the next claim attempt (or none, until
+  someone reads it) flips status to `COMPLETED` and rejects.
 
 ---
 
@@ -564,6 +682,8 @@ amino-JSON signing works (see `docs/HANDOFF_LEDGER_AMINO_NAMES.md`).
 | `GetProposalVotes` | `q commons get-proposal-votes [id]` | All votes cast on a proposal |
 | `GetCategory` | `q commons get-category [id]` | Single shared content category |
 | `ListCategory` | `q commons list-category` | Paginated categories |
+| `GetRecurringSpend` | `q commons get-recurring-spend [id]` | Single recurring spend schedule |
+| `ListRecurringSpends` | `q commons list-recurring-spends` | Paginated schedules; mutually-exclusive `--authority` or `--recipient` filters use the matching secondary index |
 
 The `Get`/`List` distinction is mechanical: `Get` returns one record by key,
 `List` paginates the whole map. `NotFound` is a clean gRPC code, so HTTP and
@@ -678,9 +798,17 @@ outcomes without leaking individual identities.
 | 1100 | `ErrInvalidSigner` | Expected gov account as the sole signer for a proposal-bound message |
 | 1600 | `ErrGroupNotFound` | Council/committee name not in the registry |
 | 1601 | `ErrInvalidGroupSize` | Member count outside `[min_members, max_members]` |
-| 1602 | `ErrRateLimitExceeded` | `MsgSpendFromCommons` exceeds `MaxSpendPerEpoch` cumulatively, or `MsgUpdateGroupConfig` violates `update_cooldown` |
+| 1602 | `ErrRateLimitExceeded` | `MsgSpendFromCommons` or `MsgClaimRecurringSpend` exceeds `MaxSpendPerEpoch` cumulatively, or `MsgUpdateGroupConfig` violates `update_cooldown` |
 | 1603 | `ErrGroupNotActive` | Group is in pre-launch (shell) phase; `activation_time > now` |
-| 1604 | `ErrGroupExpired` | `current_term_expiration < now` for non-renewal operations |
+| 1604 | `ErrGroupExpired` | `current_term_expiration < now` for non-renewal operations (also fires for `MsgClaimRecurringSpend` — the auto-pause path) |
+| 1700 | `ErrRecurringSpendNotFound` | No schedule with the given id |
+| 1701 | `ErrRecurringSpendInactive` | Schedule is not `ACTIVE` (cancelled/declined/completed/zero) — covers claim/cancel/decline after a terminal flip |
+| 1702 | `ErrRecurringSpendNotDue` | `now < last_claim_advance + period_seconds` |
+| 1703 | `ErrRecurringSpendWindowClosed` | `last_claim_advance + period_seconds > end_time` — last claim window passed |
+| 1704 | `ErrRecurringSpendInvalidPeriod` | `period_seconds < Params.min_recurring_period_seconds` |
+| 1705 | `ErrRecurringSpendInvalidWindow` | `start_time`/`end_time` malformed (past, out-of-order, exceeds duration cap, shorter than one period) |
+| 1706 | `ErrRecurringSpendCapReached` | Authority already has `Params.max_active_recurring_spends_per_group` active schedules |
+| 1707 | `ErrRecurringSpendUnauthorized` | Caller is not the schedule's authority (cancel) or recipient (claim/decline) |
 
 Other errors raised inline with `cosmossdk.io/errors`'s sentinel set:
 
@@ -714,6 +842,10 @@ attribute is enumerated here; consult the keeper for the source of truth):
 | `category_created` | `category_id`, `name` | `MsgCreateCategory` |
 | `elastic_tenure` | `group`, `action` (`extended` \| `shortened`), `seconds` | `AfterMarketResolved` |
 | `market_invalid_no_quorum` | `group`, `action` (`no quorum`) | `AfterMarketResolved` |
+| `recurring_spend_scheduled` | `id`, `authority`, `recipient`, `period_seconds`, `start_time`, `end_time` | `MsgScheduleRecurringSpend` |
+| `recurring_spend_claimed` | `id`, `authority`, `recipient`, `amount`, `claim_number`, `last_claim_advance` | `MsgClaimRecurringSpend` |
+| `recurring_spend_canceled` | `id`, `authority`, `recipient` | `MsgCancelRecurringSpend` |
+| `recurring_spend_declined` | `id`, `authority`, `recipient` | `MsgDeclineRecurringSpend` |
 
 ---
 
@@ -735,13 +867,20 @@ message GenesisState {
   repeated ProposalVotes proposal_votes = 10;           // grouped by proposal_id
   repeated Category category_map = 11;
   uint64 next_category_id = 12;
+  repeated RecurringSpend recurring_spends = 13;
+  uint64 next_recurring_spend_id = 14;
 }
 ```
 
 `InitGenesis` runs in three stages:
 
 1. **Restore** — every state object above is written back into its
-   collection. Sequences are reset to `next_*_id`.
+   collection. Sequences are reset to `next_*_id`. For
+   `recurring_spends`, both secondary indexes
+   (`RecurringSpendsByAuthority`, `RecurringSpendsByRecipient`) are
+   re-populated, and `ActiveRecurringSpendCount` is **recomputed** from
+   the imported status fields rather than trusted from the export — this
+   keeps the cap-check counter self-consistent across upgrades.
 2. **Bootstrap** — `BootstrapGovernance` runs only if the council registry
    is empty (i.e. fresh chain start), wiring the Three Pillars graph from
    the build-tag-selected constants. On an exported-then-imported chain
@@ -753,11 +892,11 @@ message GenesisState {
 
 ## 15. Security Considerations
 
-- **No x/group dependency**: the chain does not import
-  `cosmos-sdk/x/group`. All proposal/voting/policy state lives in
-  `x/commons`. Anyone using a stale `tx group ...` CLI path will get a
-  clean "command not found" rather than silently hitting a parallel
-  message router.
+- **Single proposal pipeline**: all proposal/voting/policy state lives in
+  `x/commons`, with no parallel proposal module routing transactions.
+  Submit/Vote/Execute always go through this module's keeper and ante
+  decorator, so authority and permission checks can't be sidestepped via a
+  separate path.
 - **Per-message signer cross-check**: `validateMsgAuthority` runs on every
   inner message in `ExecuteProposal`. A malicious proposer cannot embed a
   `MsgUpdateParams{authority: gov}` inside a Commons Council proposal to
@@ -791,6 +930,37 @@ message GenesisState {
   cannot itself bump or reuse its veto policy. The veto policy is
   separately governed — its `DecisionPolicy` can require the founder's
   golden share and a different threshold.
+- **Recurring spends cannot bypass per-epoch rate limit**:
+  `MsgClaimRecurringSpend` shares the `CheckSpendPreconditions` helper
+  with `MsgSpendFromCommons`, so every claim increments the same
+  `EpochSpending[(policy_address, epoch_day)]` total. A 100-year
+  schedule cannot drain treasury faster than `MaxSpendPerEpoch` per
+  UTC day, and catch-up claims (multi-period in one block) self-throttle
+  against the same ceiling.
+- **Recurring spends auto-pause on term expiration**: a council whose
+  term has expired can no longer fund claims (`ErrGroupExpired`). The
+  schedule remains `ACTIVE` in storage; renewal via `MsgRenewGroup`
+  re-opens the gate. This matches the spend-power semantics of the
+  expired-zombie state — recurring authority is not a way to spend past
+  a confidence-vote slashing.
+- **Recurring spend duration cap**: `Params.max_recurring_duration_seconds`
+  defaults to 1 year, aligning with the typical council term. A captured
+  council cannot plant 99-year commitments; the next council either
+  inherits the schedule (and can cancel it via proposal) or, more
+  commonly, has to re-approve a fresh schedule.
+- **Per-authority schedule cap**: `Params.max_active_recurring_spends_per_group`
+  bounds state-bloat from a fan-out of dust schedules. Cap is enforced
+  by an O(1) counter (`ActiveRecurringSpendCount`) that decrements on
+  Cancel / Decline / Completed.
+- **Recipient escape hatch**: `MsgDeclineRecurringSpend` lets a
+  recipient permanently opt out without involving the council — useful
+  when someone leaves a role. The council can re-schedule (under a new
+  id) to designate a successor.
+- **Cancel requires same-council proposal**: `MsgCancelRecurringSpend`
+  rejects with `ErrRecurringSpendUnauthorized` if the signer is not the
+  schedule's authority. This means a captured *peer* council cannot
+  unilaterally kill another council's commitments — only the same body
+  that voted for the schedule (or its parent via group-config) can.
 
 ---
 
@@ -823,6 +993,23 @@ E2E coverage lives in `test/commons/`:
 - `anon_test.sh` — anonymous proposal/vote round-trip via shield.
 - `treasury_spend.sh` — `MsgSpendFromCommons` with cumulative cap
   enforcement.
+- `recurring_spend_test.sh` — full lifecycle: gov-lowers the period min,
+  schedules via Commons Operations Committee proposal, waits one period,
+  recipient claims, verifies cadence enforcement (claim-too-soon), exercises
+  the `--authority`/`--recipient` query filters, cancels via follow-up
+  proposal, and confirms post-cancel claim is rejected.
+- `recurring_spend_validation_test.sh` — schedule-time validation
+  matrix: period below `min_recurring_period_seconds`, end_time before
+  start_time, duration over `max_recurring_duration_seconds`, window
+  shorter than one period, note over the 256-char cap. Each failure is
+  verified by submitting the malformed proposal and inspecting the
+  execution failure.
+- `recurring_spend_security_test.sh` — authority/recipient invariants:
+  wrong-recipient `MsgClaimRecurringSpend` rejects with
+  `ErrRecurringSpendUnauthorized`, a peer council's
+  `MsgCancelRecurringSpend` against another council's schedule rejects,
+  and `MsgDeclineRecurringSpend` from a non-recipient rejects. Also
+  exercises the recipient-decline graceful-exit path.
 - `category_test.sh` — `MsgCreateCategory` permission matrix.
 - `fee_update_test.sh` — `MsgUpdateParams` round-trip.
 
@@ -834,3 +1021,15 @@ detect test-vs-production builds before any suite runs (see
 Unit tests cover keeper logic at `x/commons/keeper/*_test.go`, including
 `end_block_proposals_test.go` for both percentage and threshold policy
 types and `msg_server_proposals_test.go` for the early-acceptance path.
+Recurring-spend coverage lives in
+`msg_server_recurring_spend_test.go` (validation matrix, happy path,
+catch-up + rate-limit interaction, term-expiry auto-pause/auto-resume,
+cancel/decline, cap enforcement, completion flip),
+`spend_preconditions_test.go` (the shared gating helper in isolation),
+`query_recurring_spend_test.go` (filter mutually-exclusive enforcement
+and index-backed pagination), and `genesis_test.go` (round-trip of
+schedules + recomputation of `ActiveRecurringSpendCount`).
+
+Simulation operations are registered in
+`x/commons/simulation/recurring_spend.go` for fuzz-style coverage in
+sim test runs (`make test-sim-nondeterminism`).

@@ -33,9 +33,7 @@ func TestGenesisState_Validate(t *testing.T) {
 		{
 			desc: "valid genesis state",
 			genState: &types.GenesisState{
-				Params: types.Params{
-					ProposalFee: "1000stake",
-				},
+				Params: types.NewParams("1000stake"),
 				PolicyPermissionsMap: []types.PolicyPermissions{
 					{PolicyAddress: sampleAddr},
 					{PolicyAddress: sampleAddr2},
@@ -46,9 +44,7 @@ func TestGenesisState_Validate(t *testing.T) {
 		{
 			desc: "duplicated policyPermissions",
 			genState: &types.GenesisState{
-				Params: types.Params{
-					ProposalFee: "1000stake",
-				},
+				Params: types.NewParams("1000stake"),
 				PolicyPermissionsMap: []types.PolicyPermissions{
 					{
 						PolicyAddress: sampleAddr,

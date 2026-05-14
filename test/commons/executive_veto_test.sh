@@ -124,7 +124,7 @@ echo "Waiting for execution block (5s)..."
 sleep 5
 
 # x/commons records execution success via the proposal's status field
-# (no PROPOSAL_EXECUTOR_RESULT_SUCCESS event like x/group used to emit).
+# (PROPOSAL_STATUS_EXECUTED), so the status query is the source of truth.
 PROP_STATUS=$($BINARY query commons get-proposal $PROPOSAL_ID --output json | jq -r '.proposal.status')
 if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
     echo "[ OK ] Group Execution Successful (status=$PROP_STATUS)."

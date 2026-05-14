@@ -21,10 +21,11 @@ func SimulateMsgApproveProjectBudget(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		// NOTE: This operation cannot succeed in simulation because the approver
-		// must be a member of the Operations Committee, which requires external
-		// x/group governance setup that cannot be done within simulation.
+		// must be a member of the Operations Committee, which requires the
+		// x/commons council/committee bootstrap that simulation doesn't run.
 		// Rather than failing the simulation, we return a NoOp and skip this message.
-		// In a real chain environment, committee membership would be established via x/group.
+		// In a real chain environment, committee membership is set up via the
+		// x/commons genesis bootstrap and updated via MsgUpdateGroupMembers.
 		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveProjectBudget{}), "skipped: requires committee membership"), nil, nil
 	}
 }

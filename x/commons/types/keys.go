@@ -28,7 +28,7 @@ var (
 	KeyProposalFee = []byte("ProposalFee")
 )
 
-// New native governance collection keys (replacing x/group)
+// Native governance collection keys.
 var (
 	// Members: (council_name, member_address) -> Member
 	MembersKey = collections.NewPrefix("members/value/")
@@ -52,4 +52,16 @@ var (
 	AnonVoteTalliesKey = collections.NewPrefix("anonVoteTallies/value/")
 	// EpochSpending: (policy_address, epoch_day) -> cumulative uspark spent (string-encoded math.Int)
 	EpochSpendingKey = collections.NewPrefix("epochSpending/value/")
+
+	// --- Recurring Spend collections ---
+	// RecurringSpends: id -> RecurringSpend
+	RecurringSpendsKey = collections.NewPrefix("recurringSpends/value/")
+	// RecurringSpendSeq: auto-increment sequence for recurring spend IDs
+	RecurringSpendSeqKey = collections.NewPrefix("recurringSpends/seq/")
+	// RecurringSpendsByAuthority: (authority, id) -> empty
+	RecurringSpendsByAuthorityKey = collections.NewPrefix("recurringSpends/byAuthority/")
+	// RecurringSpendsByRecipient: (recipient, id) -> empty
+	RecurringSpendsByRecipientKey = collections.NewPrefix("recurringSpends/byRecipient/")
+	// ActiveRecurringSpendCount: authority -> uint32 (active count, for cheap cap check)
+	ActiveRecurringSpendCountKey = collections.NewPrefix("recurringSpends/activeCount/")
 )

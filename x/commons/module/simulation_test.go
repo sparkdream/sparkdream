@@ -47,10 +47,11 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	// 14 operations: SpendFromCommons, EmergencyCancel, Create/Update/DeletePolicyPermissions,
+	// 18 operations: SpendFromCommons, EmergencyCancel, Create/Update/DeletePolicyPermissions,
 	// RegisterGroup, RenewGroup, UpdateGroupMembers, UpdateGroupConfig, ForceUpgrade,
-	// DeleteGroup, VetoGroupProposals, CreateCategory, DeleteCategory
-	require.Len(t, ops, 14)
+	// DeleteGroup, VetoGroupProposals, CreateCategory, DeleteCategory,
+	// ScheduleRecurringSpend, ClaimRecurringSpend, CancelRecurringSpend, DeclineRecurringSpend
+	require.Len(t, ops, 18)
 }
 
 func TestProposalMsgs(t *testing.T) {

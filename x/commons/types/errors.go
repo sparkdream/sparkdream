@@ -16,4 +16,14 @@ var (
 	ErrRateLimitExceeded = errors.Register(ModuleName, 1602, "spending limit or update rate limit exceeded")
 	ErrGroupNotActive    = errors.Register(ModuleName, 1603, "group is not yet active (shell group)")
 	ErrGroupExpired      = errors.Register(ModuleName, 1604, "group term has expired")
+
+	// Recurring Spend Errors
+	ErrRecurringSpendNotFound      = errors.Register(ModuleName, 1700, "recurring spend schedule not found")
+	ErrRecurringSpendInactive      = errors.Register(ModuleName, 1701, "recurring spend schedule is not active")
+	ErrRecurringSpendNotDue        = errors.Register(ModuleName, 1702, "recurring spend period has not elapsed")
+	ErrRecurringSpendWindowClosed  = errors.Register(ModuleName, 1703, "recurring spend window has closed (past end_time)")
+	ErrRecurringSpendInvalidPeriod = errors.Register(ModuleName, 1704, "recurring spend period is invalid")
+	ErrRecurringSpendInvalidWindow = errors.Register(ModuleName, 1705, "recurring spend start/end window is invalid")
+	ErrRecurringSpendCapReached    = errors.Register(ModuleName, 1706, "authority has reached max active recurring spends")
+	ErrRecurringSpendUnauthorized  = errors.Register(ModuleName, 1707, "caller is not authorized for this recurring spend")
 )

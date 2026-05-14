@@ -36,7 +36,7 @@ Key principles:
 | `x/gov` | Authority for full parameter updates |
 | `x/auth` | Address codec for bech32 conversion |
 | `x/bank` | Storage deposit collection, per-item fees, endorsement fee escrow, per-item spam tax burns, deposit refunds, downvote cost burns |
-| `x/commons` | Council/committee authorization for operational parameter updates; anonymous proposal/voting (replaces x/group) |
+| `x/commons` | Council/committee authorization for operational parameter updates; native proposal/voting pipeline |
 | `x/name` | Optional: resolve owner names for display |
 | `x/rep` | Membership verification, trust level checks, per-item spam tax exemption, curator bonding, jury resolution, endorser DREAM staking, content conviction staking, author bonds, trust tree Merkle roots for ZK proof validation |
 | `x/forum` | Sentinel bond system: sentinel status checks, bond commitment/release/slash for content moderation |

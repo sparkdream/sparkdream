@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package sparkdream.commons.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/commons/types";
+
+// RecurringSpend represents a pre-approved schedule by which a council
+// (identified by its policy address) commits to disbursing
+// `amount_per_period` to `recipient` once per `period_seconds`, between
+// `start_time` and `end_time`.
+//
+// Schedules are created via MsgScheduleRecurringSpend (wrapped in a council
+// proposal) and cancelled via MsgCancelRecurringSpend (also via proposal)
+// or MsgDeclineRecurringSpend (by the recipient).
+//
+// Each disbursement is *pull-based*: the recipient submits
+// MsgClaimRecurringSpend once per elapsed period. Claims are gated by the
+// same activation/expiration/rate-limit checks as MsgSpendFromCommons —
+// meaning if the council's term expires the schedule auto-pauses, and
+// every claim still counts against `max_spend_per_epoch`.
+message RecurringSpend {
+  option (amino.name) = "sparkdream/x/commons/RecurringSpend";
+
+  // id is the auto-incrementing schedule identifier.
+  uint64 id = 1;
+
+  // authority is the council policy address that owns this schedule.
+  string authority = 2;
+
+  // recipient is the address to be paid each period.
+  string recipient = 3;
+
+  // amount_per_period is the disbursement each claim transfers.
+  repeated cosmos.base.v1beta1.Coin amount_per_period = 4 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+  ];
+
+  // period_seconds is the minimum interval between two successive claims.
+  // Must be >= Params.min_recurring_period_seconds.
+  int64 period_seconds = 5;
+
+  // start_time is the unix timestamp at which the first claim becomes
+  // valid.
+  int64 start_time = 6;
+
+  // end_time is the unix timestamp after which no further claims are
+  // allowed. Must satisfy end_time <= start_time +
+  // Params.max_recurring_duration_seconds.
+  int64 end_time = 7;
+
+  // last_claim_advance tracks the schedule's logical clock. Each claim
+  // advances it by exactly `period_seconds` (anchored to the schedule, not
+  // to block time), so a recipient who skips a period can catch up by
+  // submitting multiple claim transactions but each one is still
+  // independently rate-limited.
+  int64 last_claim_advance = 8;
+
+  // claims_made is the number of times this schedule has been claimed.
+  uint64 claims_made = 9;
+
+  // status is the current lifecycle state.
+  RecurringSpendStatus status = 10;
+
+  // created_via_proposal_id is the commons proposal that scheduled this
+  // recurring spend. 0 if created outside the proposal flow (governance
+  // bypass).
+  uint64 created_via_proposal_id = 11;
+
+  // note is a short human-readable purpose, capped in length by the
+  // handler.
+  string note = 12;
+}
+
+// RecurringSpendStatus enumerates the lifecycle of a schedule.
+enum RecurringSpendStatus {
+  // RECURRING_SPEND_STATUS_UNSPECIFIED is the zero value; reject on read.
+  RECURRING_SPEND_STATUS_UNSPECIFIED = 0;
+  // RECURRING_SPEND_STATUS_ACTIVE means the schedule is eligible to be
+  // claimed when the window opens.
+  RECURRING_SPEND_STATUS_ACTIVE = 1;
+  // RECURRING_SPEND_STATUS_RECIPIENT_DECLINED means the recipient
+  // explicitly opted out via MsgDeclineRecurringSpend.
+  RECURRING_SPEND_STATUS_RECIPIENT_DECLINED = 2;
+  // RECURRING_SPEND_STATUS_CANCELED means the council canceled the
+  // schedule via MsgCancelRecurringSpend.
+  RECURRING_SPEND_STATUS_CANCELED = 3;
+  // RECURRING_SPEND_STATUS_COMPLETED means the schedule has exhausted its
+  // window — last_claim_advance + period_seconds > end_time, or the final
+  // claim has been made.
+  RECURRING_SPEND_STATUS_COMPLETED = 4;
+}
