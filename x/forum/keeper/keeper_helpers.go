@@ -22,7 +22,7 @@ func (k Keeper) SyncSentinelBondedRoleConfig(ctx context.Context, p types.Params
 	if k.repKeeper == nil {
 		return nil
 	}
-	minBond, trustLevel, demotionThreshold, repTier, ageBlocks, demotionCooldown := p.SentinelBondedRoleConfigFields()
+	minBond, trustLevel, demotionThreshold, repTier, ageBlocks, demotionCooldown, unbondCooldown := p.SentinelBondedRoleConfigFields()
 	return k.repKeeper.SetBondedRoleConfig(ctx, reptypes.BondedRoleConfig{
 		RoleType:          reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL,
 		MinBond:           minBond,
@@ -31,6 +31,7 @@ func (k Keeper) SyncSentinelBondedRoleConfig(ctx context.Context, p types.Params
 		MinAgeBlocks:      ageBlocks,
 		DemotionCooldown:  demotionCooldown,
 		DemotionThreshold: demotionThreshold,
+		UnbondCooldown:    unbondCooldown,
 	})
 }
 

@@ -1354,6 +1354,29 @@ message MsgUnbondRole {
 message MsgUnbondRoleResponse {}
 ```
 
+#### Queued unbond + cooldown
+
+When the role's `BondedRoleConfig.UnbondCooldown` is positive (the default for all three current roles), `MsgUnbondRole` does **not** release DREAM immediately. Instead it:
+
+1. Sets `BondedRole.PendingUnbondAmount` to the requested amount and `BondedRole.UnbondCompletionTime = block_time + UnbondCooldown`.
+2. Flips `BondedRole.BondStatus` to `BONDED_ROLE_STATUS_UNBONDING`.
+3. Leaves `BondedRole.CurrentBond` unchanged — DREAM stays locked on the member and remains slashable through the cooldown window.
+
+While `UNBONDING`:
+
+- Owning modules must refuse role authority — `MsgRateCollection` in x/collect, `MsgHidePost` / `MsgLockThread` / `MsgMoveThread` / `MsgPinReply` / `MsgDismissFlags` in x/forum, and federation verifier actions all reject on this status. This contains new liability: the draining bond cannot back fresh moderation/curation/verification work.
+- A second `MsgUnbondRole` is rejected (`ErrInvalidRequest: already UNBONDING`) — one in-flight unbond per role at a time.
+- `MsgBondRole` is rejected (`ErrInvalidRequest: cannot bond while UNBONDING is in flight`) — top-ups and re-bonds wait for the cooldown to mature.
+- `SlashBond` continues to operate on `CurrentBond` and caps `PendingUnbondAmount` at the new `CurrentBond`. Status stays `UNBONDING` through slashes — only `MatureUnbonds` flips it.
+
+The EndBlocker calls `MatureUnbonds` every block. For any record whose `UnbondCompletionTime <= block_time`:
+
+1. Unlock the remaining `PendingUnbondAmount` of DREAM on the member (whatever survived mid-cooldown slashes).
+2. Reduce `CurrentBond` by the same amount, zero `PendingUnbondAmount` and `UnbondCompletionTime`.
+3. Recompute status from the new `CurrentBond` against the role's thresholds (the same mapping as `BondRole` / immediate-unlock): `NORMAL` if `≥ MinBond`, `RECOVERY` if in `[DemotionThreshold, MinBond)`, `DEMOTED` if below. Only when the matured unbond actually drops the holder into `DEMOTED` do we set `DemotionCooldownUntil = block_time + DemotionCooldown`. **Partial unbonds that keep the bond at or above `MinBond` stay `NORMAL`** — the holder reduced their stake but did not exit the role.
+
+When `UnbondCooldown == 0` the handler falls back to the legacy immediate-unlock path: DREAM is released in the same transaction and status is recomputed from the new bond. Tests opt into this for the rare cases that want to exercise the synchronous flow.
+
 See the "BondedRole (generic accountability primitive)" state section above for the keeper API used by content-module handlers.
 
 ### Member Accountability Messages

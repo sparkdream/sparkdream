@@ -3734,25 +3734,29 @@ Sentinel withdraws bonded DREAM (exits the sentinel role or reduces bond at loss
 **Logic** (implemented in rep, with forum-side active-appeal checks enforced via the `total_committed_bond` reservation model):
 1. Load `BondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)`.
 2. Fail with `ErrBondedRoleNotFound` if not a sentinel.
-3. **Extended Appeal Window Check (prevents bounty sniping):**
+3. Fail with `ErrInvalidRequest` if `bond_status == BONDED_ROLE_STATUS_UNBONDING` (one in-flight unbond per role).
+4. **Extended Appeal Window Check (prevents bounty sniping):**
    - rep blocks unbond amounts that exceed `current_bond - total_committed_bond` (i.e. any bond currently reserved against a pending hide/lock/move or an active appeal window).
    - forum's `MsgHideContent` / `MsgLockThread` / `MsgMoveThread` call `ReserveBond`; the reservation is only released when the action ages out unchallenged or the appeal resolves. Sentinel cannot escape accountability mid-appeal because the committed portion of the bond is non-withdrawable.
    - *Without this: hide post → unbond immediately → appeal filed later → sentinel escapes with bounty damage done.*
-4. `UnlockDREAM` the amount back to the sentinel's available balance.
-5. Update `current_bond` and `bond_status`:
-   - If remaining bond < `demotion_threshold`:
-     - Set `BONDED_ROLE_STATUS_DEMOTED`.
-     - **Set demotion cooldown:** `demotion_cooldown_until = now + demotion_cooldown`.
-     - *This prevents immediate re-bonding to reset accuracy stats.*
-   - If remaining bond < `min_bond`: set `BONDED_ROLE_STATUS_RECOVERY`.
-   - If remaining bond == 0: the `BondedRole` record persists (it's how we track `demotion_cooldown_until` for cooldown enforcement).
-6. Emit `bonded_role_unbonded` event.
+5. **Queued path (`sentinel_unbond_cooldown > 0`, default 14 days):**
+   - Set `pending_unbond_amount = amount` and `unbond_completion_time = now + sentinel_unbond_cooldown`.
+   - Flip `bond_status` to `BONDED_ROLE_STATUS_UNBONDING`. DREAM stays locked and slashable.
+   - Forum action handlers (`MsgHidePost`, `MsgLockThread`, `MsgMoveThread`, `MsgPinReply`, `MsgDismissFlags`) reject on `UNBONDING` — sentinel is deauthorized from new moderation while the bond drains.
+   - The rep EndBlocker's `MatureUnbonds` finalizes when `unbond_completion_time` elapses: unlocks remaining `pending_unbond_amount`, reduces `current_bond` by the unlocked amount, and recomputes status from the final bond against `min_sentinel_bond` / `sentinel_demotion_threshold` (partial unbond staying ≥ `min_bond` returns to `NORMAL`; drops below `demotion_threshold` land at `DEMOTED` with `demotion_cooldown` gating re-bonding).
+6. **Legacy path (`sentinel_unbond_cooldown == 0`):**
+   - `UnlockDREAM` the amount back to the sentinel's available balance.
+   - Recompute `bond_status` from new `current_bond`:
+     - If < `demotion_threshold`: `DEMOTED` + `demotion_cooldown_until = now + demotion_cooldown`.
+     - If < `min_bond` but ≥ `demotion_threshold`: `RECOVERY`.
+     - Else: `NORMAL`.
+7. Emit `bonded_role_unbond_initiated` (queued path) or `bonded_role_unbonded` (legacy path); EndBlocker emits `bonded_role_unbond_matured` on maturity.
 
 **Note:** Unbonding while in RECOVERY mode means voluntarily taking a loss. This is allowed but the sentinel loses privileges until they re-bond to minimum.
 
-**Security Note:** When a sentinel is demoted (whether via slashing or voluntary unbonding below threshold), a cooldown period is enforced before re-bonding. This prevents the "accuracy reset attack" where a bad actor: builds accuracy → gets slashed → unbonds → re-bonds with clean accuracy.
+**Security Note:** When a sentinel is demoted (whether via slashing or maturity of a queued unbond), a cooldown period is enforced before re-bonding. This prevents the "accuracy reset attack" where a bad actor: builds accuracy → gets slashed → unbonds → re-bonds with clean accuracy.
 
-**Security Note:** The extended appeal window check ensures sentinels cannot escape accountability by unbonding before appeals are filed. The `appeal_window` (default: appeal_deadline - hide_appeal_cooldown) represents the maximum time an appellant has to file.
+**Security Note:** The extended appeal window check (committed-bond reservation) plus the queued-unbond cooldown together ensure sentinels cannot escape accountability via flash unbond. Bonds reserved against pending actions cannot be unbonded at all, and bonds *not* yet reserved still face a 14-day slashable cooldown after `MsgUnbondRole` before DREAM is released.
 
 ---
 

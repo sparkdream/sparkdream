@@ -409,6 +409,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 
+	// Reset the default-seeded list before walking — DefaultGenesis()
+	// pre-populates BondedRoleConfigList with seed entries so a freshly-init'd
+	// chain boots coherently, but ExportGenesis is the source of truth for the
+	// current live state. Appending without resetting would duplicate every
+	// seeded role on every export/import roundtrip.
+	genesis.BondedRoleConfigList = nil
 	if err := k.BondedRoleConfigs.Walk(ctx, nil, func(_ int32, val types.BondedRoleConfig) (stop bool, err error) {
 		genesis.BondedRoleConfigList = append(genesis.BondedRoleConfigList, val)
 		return false, nil

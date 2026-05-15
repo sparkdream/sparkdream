@@ -32,10 +32,14 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrNotCurator, msg.Creator)
 	}
-	// NORMAL and RECOVERY can both rate; DEMOTED cannot.
+	// NORMAL and RECOVERY can both rate; DEMOTED and UNBONDING cannot. The
+	// UNBONDING gate is the liability-containment side of the unbond-cooldown
+	// design: once unbond is initiated, the bond drains over the cooldown
+	// window but the holder is deauthorized from creating fresh ratings the
+	// drained bond would have backed.
 	if role.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
 		role.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-		return nil, errorsmod.Wrap(types.ErrNotCurator, "curator is demoted")
+		return nil, errorsmod.Wrapf(types.ErrNotCurator, "curator status %s", role.BondStatus.String())
 	}
 
 	// Creator must meet min_curator_trust_level (re-check on every rating).

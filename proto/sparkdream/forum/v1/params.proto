@@ -137,6 +137,13 @@ message Params {
   // hide; after it expires, only the Commons Operations Committee or
   // governance can unhide. Analogous to edit_max_window for authors.
   int64 sentinel_unhide_window = 46;
+
+  // sentinel_unbond_cooldown is the number of seconds a sentinel's bond stays
+  // locked and slashable after MsgUnbondRole. During the cooldown, the
+  // BondedRole status is UNBONDING and forum action gates refuse authority.
+  // Propagated to x/rep BondedRoleConfig via SyncSentinelBondedRoleConfig.
+  // Zero = immediate withdrawal (legacy behavior).
+  int64 sentinel_unbond_cooldown = 47;
 }
 
 // ForumOperationalParams defines the operational parameters that can be updated
@@ -231,4 +238,10 @@ message ForumOperationalParams {
   // hide; after it expires, only the Commons Operations Committee or
   // governance can unhide.
   int64 sentinel_unhide_window = 46;
+
+  // sentinel_unbond_cooldown is the number of seconds a sentinel's bond stays
+  // locked and slashable after MsgUnbondRole. During the cooldown the
+  // BondedRole is in UNBONDING status and forum action gates refuse
+  // authority. Zero = immediate withdrawal.
+  int64 sentinel_unbond_cooldown = 47;
 }

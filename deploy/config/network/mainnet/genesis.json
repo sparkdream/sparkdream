@@ -300,6 +300,7 @@
         "curator_demotion_cooldown": "604800",
         "curator_demotion_threshold": "250000000",
         "curator_overturn_demotion_streak": "3",
+        "curator_unbond_cooldown": "604800",
         "curator_slash_fraction": "0.100000000000000000",
         "downvote_cost": "25000000",
         "endorsement_creation_fee": "10000000",
@@ -339,7 +340,7 @@
         "max_title_length": 128,
         "max_ttl_blocks": "0",
         "max_upvotes_per_day": 100,
-        "min_curator_age_blocks": "14400",
+        "min_curator_age_blocks": "0",
         "min_curator_bond": "500000000",
         "min_curator_trust_level": "TRUST_LEVEL_PROVISIONAL",
         "min_sponsor_trust_level": "TRUST_LEVEL_ESTABLISHED",
@@ -513,7 +514,8 @@
         "verifier_dream_reward": "5000000",
         "verifier_overturn_base_cooldown": "86400s",
         "verifier_recovery_threshold": "250000000",
-        "verifier_slash_amount": "50000000"
+        "verifier_slash_amount": "50000000",
+        "verifier_unbond_cooldown": "1209600s"
       },
       "peer_policies": [],
       "peers": [],
@@ -588,6 +590,7 @@
         "reactions_enabled": true,
         "sentinel_demotion_cooldown": "604800",
         "sentinel_demotion_threshold": "250",
+        "sentinel_unbond_cooldown": "1209600",
         "sentinel_unhide_window": "86400",
         "spam_tax": {
           "amount": "1000000",
@@ -837,16 +840,18 @@
           "min_bond": "1000",
           "min_rep_tier": "3",
           "min_trust_level": "",
-          "role_type": "ROLE_TYPE_FORUM_SENTINEL"
+          "role_type": "ROLE_TYPE_FORUM_SENTINEL",
+          "unbond_cooldown": "1209600"
         },
         {
           "demotion_cooldown": "604800",
           "demotion_threshold": "250",
-          "min_age_blocks": "14400",
+          "min_age_blocks": "0",
           "min_bond": "500",
           "min_rep_tier": "0",
           "min_trust_level": "TRUST_LEVEL_PROVISIONAL",
-          "role_type": "ROLE_TYPE_COLLECT_CURATOR"
+          "role_type": "ROLE_TYPE_COLLECT_CURATOR",
+          "unbond_cooldown": "604800"
         },
         {
           "demotion_cooldown": "604800",
@@ -855,7 +860,8 @@
           "min_bond": "500",
           "min_rep_tier": "0",
           "min_trust_level": "TRUST_LEVEL_ESTABLISHED",
-          "role_type": "ROLE_TYPE_FEDERATION_VERIFIER"
+          "role_type": "ROLE_TYPE_FEDERATION_VERIFIER",
+          "unbond_cooldown": "1209600"
         }
       ],
       "bonded_role_list": [],

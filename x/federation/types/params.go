@@ -28,6 +28,7 @@ type federationGenesisParams struct {
 	ChallengeFee                 sdk.Coin
 	ChallengeJuryDeadline        time.Duration
 	VerifierDemotionCooldown     time.Duration
+	VerifierUnbondCooldown       time.Duration
 	VerifierOverturnBaseCooldown time.Duration
 	ChallengeCooldown            time.Duration
 
@@ -119,6 +120,7 @@ func DefaultParams() Params {
 		ChallengeFee:                 gp.ChallengeFee,
 		ChallengeJuryDeadline:        gp.ChallengeJuryDeadline,
 		VerifierDemotionCooldown:     gp.VerifierDemotionCooldown,
+		VerifierUnbondCooldown:       gp.VerifierUnbondCooldown,
 		VerifierOverturnBaseCooldown: gp.VerifierOverturnBaseCooldown,
 		UpheldToResetOverturns:       DefaultUpheldToResetOverturns,
 		MinEpochVerifications:        DefaultMinEpochVerifications,

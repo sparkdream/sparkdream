@@ -158,6 +158,17 @@ message Params {
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
+
+  // verifier_unbond_cooldown is the period a verifier's bond stays locked
+  // and slashable after MsgUnbondRole. During the cooldown the BondedRole's
+  // status is UNBONDING and federation action handlers refuse authority.
+  // Propagated to x/rep BondedRoleConfig via SyncVerifierBondedRoleConfig.
+  // Mirrors bridge_unbonding_period — verifier and bridge operator both
+  // face a 14-day slashable window after exit-of-role intent.
+  google.protobuf.Duration verifier_unbond_cooldown = 45 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 }
 
 // FederationOperationalParams is the subset of Params updateable by Operations Committee.

@@ -29,6 +29,7 @@ func getFederationGenesisParams() federationGenesisParams {
 		ChallengeFee:                 sdk.NewCoin("uspark", math.NewInt(250_000_000)), // 250 SPARK
 		ChallengeJuryDeadline:        14 * 24 * time.Hour,                             // 14 days
 		VerifierDemotionCooldown:     7 * 24 * time.Hour,                              // 7 days
+		VerifierUnbondCooldown:       14 * 24 * time.Hour,                             // 14 days — mirrors BridgeUnbondingPeriod
 		VerifierOverturnBaseCooldown: 24 * time.Hour,
 		ChallengeCooldown:            7 * 24 * time.Hour, // 7 days
 

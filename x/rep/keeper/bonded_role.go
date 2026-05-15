@@ -185,8 +185,21 @@ func (k Keeper) SlashBond(ctx context.Context, roleType types.RoleType, addr str
 	}
 	br.TotalCommittedBond = releasedCommit.String()
 
-	// Re-evaluate bond_status against the role's config thresholds.
-	br.BondStatus = k.computeBondStatus(ctx, roleType, newCurrent)
+	// If an unbond is in flight, cap pending_unbond_amount at the new
+	// current_bond. The pending withdrawal cannot exceed what's still locked;
+	// slashes during the cooldown reduce the eventual payout.
+	if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING {
+		pending, perr := parseIntOrZero(br.PendingUnbondAmount)
+		if perr == nil && pending.GT(newCurrent) {
+			br.PendingUnbondAmount = newCurrent.String()
+		}
+		// Status stays UNBONDING — only MatureUnbonds flips it. A mid-flight
+		// slash that drains current_bond to zero still waits for completion
+		// time so the holder can observe the outcome before re-bonding.
+	} else {
+		// Re-evaluate bond_status against the role's config thresholds.
+		br.BondStatus = k.computeBondStatus(ctx, roleType, newCurrent)
+	}
 
 	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
 		return err
@@ -296,6 +309,125 @@ func (k Keeper) SetBondedRoleConfig(ctx context.Context, cfg types.BondedRoleCon
 		return errorsmod.Wrapf(types.ErrInvalidAmount, "demotion_threshold %q", cfg.DemotionThreshold)
 	}
 	return k.BondedRoleConfigs.Set(ctx, int32(cfg.RoleType), cfg)
+}
+
+// MatureUnbonds walks BondedRole records and finalizes any whose
+// UnbondCompletionTime has elapsed: unlocks the pending DREAM, clears the
+// pending fields, transitions bond_status to DEMOTED, and starts the role's
+// demotion_cooldown gating re-bonding. Called from the rep EndBlocker.
+//
+// A mid-flight slash that emptied current_bond to zero still reaches maturity
+// here — the holder gets back whatever's left of the pending amount (capped
+// by current_bond invariant maintained in SlashBond).
+func (k Keeper) MatureUnbonds(ctx context.Context) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	now := sdkCtx.BlockTime().Unix()
+
+	// Collect maturity candidates first; mutate after the iterator closes.
+	type matureCandidate struct {
+		roleType types.RoleType
+		addr     string
+	}
+	var due []matureCandidate
+
+	if err := k.BondedRoles.Walk(ctx, nil, func(key collections.Pair[int32, string], br types.BondedRole) (bool, error) {
+		if br.BondStatus != types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING {
+			return false, nil
+		}
+		if br.UnbondCompletionTime == 0 || br.UnbondCompletionTime > now {
+			return false, nil
+		}
+		due = append(due, matureCandidate{
+			roleType: types.RoleType(key.K1()),
+			addr:     key.K2(),
+		})
+		return false, nil
+	}); err != nil {
+		return err
+	}
+
+	for _, c := range due {
+		if err := k.matureSingleUnbond(ctx, c.roleType, c.addr, now); err != nil {
+			sdkCtx.Logger().Error("failed to mature unbond",
+				"role_type", c.roleType.String(),
+				"address", c.addr,
+				"error", err)
+		}
+	}
+	return nil
+}
+
+func (k Keeper) matureSingleUnbond(ctx context.Context, roleType types.RoleType, addr string, now int64) error {
+	key := bondedRoleKey(roleType, addr)
+	br, err := k.BondedRoles.Get(ctx, key)
+	if err != nil {
+		return err
+	}
+
+	pending, err := parseIntOrZero(br.PendingUnbondAmount)
+	if err != nil {
+		return err
+	}
+	current, err := parseIntOrZero(br.CurrentBond)
+	if err != nil {
+		return err
+	}
+
+	// Cap pending at current_bond — invariant maintained by SlashBond, but
+	// double-check here so a corrupt record can't unlock more DREAM than
+	// is actually locked.
+	if pending.GT(current) {
+		pending = current
+	}
+
+	if pending.IsPositive() {
+		roleAddr, addrErr := sdk.AccAddressFromBech32(addr)
+		if addrErr != nil {
+			return fmt.Errorf("invalid role-holder address: %w", addrErr)
+		}
+		if err := k.UnlockDREAM(ctx, roleAddr, pending); err != nil {
+			return fmt.Errorf("failed to unlock pending DREAM: %w", err)
+		}
+	}
+
+	newCurrent := current.Sub(pending)
+	br.CurrentBond = newCurrent.String()
+	br.PendingUnbondAmount = "0"
+	br.UnbondCompletionTime = 0
+	// Recompute status from the final bond against the role's thresholds.
+	// A partial unbond that leaves the bond ≥ min_bond stays NORMAL; a drop
+	// into the recovery band lands at RECOVERY; only crossing below
+	// demotion_threshold lands at DEMOTED. This matches the legacy
+	// immediate-unlock path so partial-unbond intent is preserved through
+	// the cooldown.
+	br.BondStatus = k.computeBondStatus(ctx, roleType, newCurrent)
+
+	// Start demotion_cooldown only when the matured unbond actually drops
+	// the holder into DEMOTED — partial unbonds that keep the role active
+	// don't need a re-bond gate.
+	if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
+		cfg, cfgErr := k.GetBondedRoleConfig(ctx, roleType)
+		if cfgErr == nil {
+			br.DemotionCooldownUntil = now + cfg.DemotionCooldown
+		}
+	}
+
+	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+		return err
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"bonded_role_unbond_matured",
+			sdk.NewAttribute("role_type", roleType.String()),
+			sdk.NewAttribute("address", addr),
+			sdk.NewAttribute("unlocked_amount", pending.String()),
+			sdk.NewAttribute("remaining_bond", br.CurrentBond),
+			sdk.NewAttribute("demotion_cooldown_until", fmt.Sprintf("%d", br.DemotionCooldownUntil)),
+		),
+	)
+	return nil
 }
 
 // computeBondStatus maps a role's current_bond against its config thresholds

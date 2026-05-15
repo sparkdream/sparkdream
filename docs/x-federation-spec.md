@@ -1391,11 +1391,16 @@ Invoked as:
 
 **Unbond logic:**
 
-1. Verify `amount ≤ current_bond - total_committed_bond` — reject with `ErrInsufficientBond` if insufficient available bond (in-flight `MsgVerifyContent` reservations and unresolved challenges lock committed portions).
-2. `UnlockDREAM` the amount back to the verifier's available balance.
-3. Recompute `bond_status`. If transitioning to `DEMOTED`, set `demotion_cooldown_until = block_time + demotion_cooldown`.
-4. The `BondedRole` record persists even at `current_bond == 0` to preserve the demotion cooldown; rep never deletes role records.
-5. Emit `bonded_role_unbonded` event.
+1. Reject if `bond_status == BONDED_ROLE_STATUS_UNBONDING` — one in-flight unbond per role.
+2. Verify `amount ≤ current_bond - total_committed_bond` — reject with `ErrInsufficientBond` if insufficient available bond (in-flight `MsgVerifyContent` reservations and unresolved challenges lock committed portions).
+3. **Queued path (`verifier_unbond_cooldown > 0`, default 14 days — mirrors the bridge-operator `bridge_unbonding_period`):**
+   - Set `pending_unbond_amount = amount` and `unbond_completion_time = block_time + verifier_unbond_cooldown`.
+   - Flip `bond_status` to `BONDED_ROLE_STATUS_UNBONDING`. DREAM stays locked and slashable through the cooldown — `MsgChallengeVerifier` and slashing on overturned verifications can still hit `current_bond`, capping `pending_unbond_amount` at the new floor.
+   - `MsgVerifyContent` and other verifier actions reject on `UNBONDING` — bond pledged to leave can't back fresh verifications.
+   - The rep EndBlocker's `MatureUnbonds` finalizes when `unbond_completion_time` elapses: unlocks remaining DREAM, drops `current_bond`, and recomputes status from the final bond against the role's thresholds (partial unbonds staying ≥ `min_verifier_bond` return to `NORMAL`; drops below `verifier_recovery_threshold` land at `DEMOTED` with `verifier_demotion_cooldown` gating re-bonding).
+4. **Legacy path (`verifier_unbond_cooldown == 0`):** `UnlockDREAM` immediately, recompute `bond_status`, set `demotion_cooldown_until` if transitioning to `DEMOTED`.
+5. The `BondedRole` record persists even at `current_bond == 0` to preserve the demotion cooldown; rep never deletes role records.
+6. Emit `bonded_role_unbond_initiated` (queued) or `bonded_role_unbonded` (legacy); EndBlocker emits `bonded_role_unbond_matured` on maturity.
 
 ### 6.22. VerifyContent (Verifier)
 

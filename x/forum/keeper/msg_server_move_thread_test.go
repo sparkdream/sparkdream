@@ -253,3 +253,27 @@ func TestMoveThreadWithReservedTag(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "reserved tag")
 }
+
+// TestMoveThread_UnbondingSentinelRejected: UNBONDING sentinel deauthorized.
+func TestMoveThread_UnbondingSentinelRejected(t *testing.T) {
+	f := initFixture(t)
+
+	cat1 := f.createTestCategory(t, "Source")
+	cat2 := f.createTestCategory(t, "Destination")
+	thread := f.createTestPost(t, testCreator, 0, cat1.CategoryId)
+
+	f.createTestSentinel(t, testSentinel, "3000000000")
+	br := f.repKeeper.sentinels[testSentinel]
+	br.PendingUnbondAmount = "3000000000"
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.sentinels[testSentinel] = br
+
+	_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{
+		Creator:       testSentinel,
+		RootId:        thread.PostId,
+		NewCategoryId: cat2.CategoryId,
+		Reason:        "Test",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrSentinelDemoted)
+}

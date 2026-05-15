@@ -25,11 +25,16 @@ enum RoleType {
 //   reduced privileges depending on role, rewards may auto-bond.
 // DEMOTED: bond below demotion_threshold; privileges revoked; cooldown
 //   enforced before re-bonding.
+// UNBONDING: role-holder called MsgUnbondRole. DREAM remains locked and the
+//   bond remains slashable until unbond_completion_time. Action-time gates in
+//   owning modules must refuse on this status to contain new liability while
+//   the bond drains.
 enum BondedRoleStatus {
   BONDED_ROLE_STATUS_UNSPECIFIED = 0;
   BONDED_ROLE_STATUS_NORMAL = 1;
   BONDED_ROLE_STATUS_RECOVERY = 2;
   BONDED_ROLE_STATUS_DEMOTED = 3;
+  BONDED_ROLE_STATUS_UNBONDING = 4;
 }
 
 // BondedRole is the generic accountability record for a role-playing member:
@@ -77,6 +82,19 @@ message BondedRole {
   // last_reward_epoch is the most recent epoch in which rewards were paid for
   // this role.
   int64 last_reward_epoch = 11;
+
+  // pending_unbond_amount is DREAM queued for withdrawal via MsgUnbondRole and
+  // not yet released to the holder's available balance (math.Int string).
+  // Counts toward current_bond — i.e., slashes consume current_bond as a
+  // whole and the pending amount is reduced symmetrically on slash. Zero when
+  // no unbond is in flight.
+  string pending_unbond_amount = 12;
+
+  // unbond_completion_time is the unix timestamp at which an in-flight unbond
+  // matures: the EndBlocker unlocks pending_unbond_amount, resets the field,
+  // and flips bond_status (typically to DEMOTED, starting demotion_cooldown).
+  // Zero when no unbond is in flight.
+  int64 unbond_completion_time = 13;
 }
 
 // BondedRoleConfig holds the per-role policy knobs enforced by x/rep at
@@ -117,4 +135,11 @@ message BondedRoleConfig {
   // demotion_threshold is the bond floor below which the role transitions
   // from RECOVERY to DEMOTED (math.Int string).
   string demotion_threshold = 7;
+
+  // unbond_cooldown is the number of seconds DREAM stays locked and slashable
+  // after MsgUnbondRole is called. While the cooldown is pending, the role's
+  // bond_status is UNBONDING and the owning module refuses authority. Zero =
+  // no cooldown (immediate withdrawal, legacy behavior). Source of truth is
+  // the owning module's operational params.
+  int64 unbond_cooldown = 8;
 }

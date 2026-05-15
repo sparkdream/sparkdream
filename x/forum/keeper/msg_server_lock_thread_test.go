@@ -226,3 +226,26 @@ func TestLockThreadByGovAuthority(t *testing.T) {
 	_, err = f.keeper.ThreadLockRecord.Get(f.ctx, thread.PostId)
 	require.Error(t, err) // Should not find lock record
 }
+
+// TestLockThread_UnbondingSentinelRejected: sentinel in UNBONDING state has
+// drained authority while bond drains over the cooldown.
+func TestLockThread_UnbondingSentinelRejected(t *testing.T) {
+	f := initFixture(t)
+
+	cat := f.createTestCategory(t, "General")
+	thread := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+
+	f.createTestSentinel(t, testSentinel, "3000000000")
+	br := f.repKeeper.sentinels[testSentinel]
+	br.PendingUnbondAmount = "3000000000"
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.sentinels[testSentinel] = br
+
+	_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+		Creator: testSentinel,
+		RootId:  thread.PostId,
+		Reason:  "Test",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrSentinelDemoted)
+}

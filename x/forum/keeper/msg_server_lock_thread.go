@@ -68,7 +68,8 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 		}
 		bondSnapshot = br.CurrentBond
 
-		if br.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
+		if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
+			br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
 			return nil, types.ErrSentinelDemoted
 		}
 

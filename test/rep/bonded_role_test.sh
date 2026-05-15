@@ -101,6 +101,14 @@ bonded_status() {
         jq -r '.bonded_role.bond_status // "MISSING"'
 }
 
+# Read BondedRole.pending_unbond_amount (string math.Int). Returns "0" on missing.
+bonded_pending_unbond() {
+    local role=$1
+    local addr=$2
+    $BINARY q rep bonded-role "$role" "$addr" --output json 2>/dev/null | \
+        jq -r '.bonded_role.pending_unbond_amount // "0"'
+}
+
 # --- Result tracking ---
 T1_BOND_HAPPY="FAIL"
 T2_UNBOND_PARTIAL="FAIL"
@@ -139,20 +147,30 @@ fi
 echo ""
 
 # ========================================================================
-# Part 2: UNBOND PARTIAL — take back half of what we just added.
+# Part 2: UNBOND PARTIAL (queued) — initiate withdrawal of half of what we
+# just added. With UnbondCooldown>0 (default 14 days for FORUM_SENTINEL),
+# the unbond is QUEUED: current_bond stays the same, status flips to
+# UNBONDING, and pending_unbond_amount reflects the queued amount. DREAM
+# stays locked and slashable through the cooldown window.
 # ========================================================================
-echo "--- PART 2: UNBOND PARTIAL (happy path) ---"
+echo "--- PART 2: UNBOND PARTIAL (queued) ---"
 BEFORE=$(bonded_current_bond forum-sentinel $SENTINEL1_ADDR)
 UNBOND_AMOUNT="25000000"  # half of the 50 DREAM we just added
 RES=$(send_tx $BINARY tx rep unbond-role forum-sentinel $UNBOND_AMOUNT --from sentinel1)
 if [ "$RES" == "ok" ]; then
     AFTER=$(bonded_current_bond forum-sentinel $SENTINEL1_ADDR)
-    EXPECTED=$((${BEFORE:-0} - UNBOND_AMOUNT))
-    if [ "$AFTER" == "$EXPECTED" ]; then
+    STATUS=$(bonded_status forum-sentinel $SENTINEL1_ADDR)
+    PENDING=$(bonded_pending_unbond forum-sentinel $SENTINEL1_ADDR)
+    # Three queued-path invariants: current_bond unchanged, status UNBONDING,
+    # pending equals the requested amount.
+    if [ "$AFTER" == "$BEFORE" ] && \
+       [ "$STATUS" == "BONDED_ROLE_STATUS_UNBONDING" ] && \
+       [ "$PENDING" == "$UNBOND_AMOUNT" ]; then
         T2_UNBOND_PARTIAL="PASS"
-        echo "  $BEFORE → $AFTER (delta -$UNBOND_AMOUNT) [ OK ]"
+        echo "  queued: current_bond=$AFTER (unchanged), status=$STATUS, pending=$PENDING [ OK ]"
     else
-        echo "  expected $EXPECTED, got $AFTER"
+        echo "  expected current_bond=$BEFORE, status=UNBONDING, pending=$UNBOND_AMOUNT"
+        echo "  got      current_bond=$AFTER, status=$STATUS, pending=$PENDING"
     fi
 else
     echo "  unbond failed: $RES"
@@ -207,17 +225,19 @@ fi
 echo ""
 
 # ========================================================================
-# Part 5: UNBOND OVER AVAILABLE — try to withdraw more than current_bond.
+# Part 5: REJECT FURTHER UNBOND — after Part 2 queued an unbond, the role is
+# in UNBONDING status and a second MsgUnbondRole is rejected. Keeps the
+# state machine linear (one in-flight unbond per role).
 # ========================================================================
-echo "--- PART 5: REJECT UNBOND OVER AVAILABLE ---"
+echo "--- PART 5: REJECT UNBOND WHILE UNBONDING ---"
 CUR=$(bonded_current_bond forum-sentinel $SENTINEL1_ADDR)
-OVER=$((${CUR:-0} + 1000000000))  # current + 1000 DREAM = guaranteed too much
+OVER=$((${CUR:-0} + 1000000000))  # any amount triggers the status gate first
 RES=$(send_tx $BINARY tx rep unbond-role forum-sentinel $OVER --from sentinel1)
-if [[ "$RES" == err:* ]] && echo "$RES" | grep -qE "insufficient bond|cannot unbond"; then
+if [[ "$RES" == err:* ]] && echo "$RES" | grep -qE "already UNBONDING|insufficient bond|cannot unbond"; then
     T5_UNBOND_OVER_AVAILABLE="PASS"
     echo "  rejected as expected: $(echo "$RES" | head -c 120)"
 else
-    echo "  expected insufficient-bond rejection, got: $RES"
+    echo "  expected UNBONDING-state or insufficient-bond rejection, got: $RES"
 fi
 echo ""
 
@@ -318,7 +338,7 @@ printf "  %-48s %s\n" "Part 1: bond happy path"                "$T1_BOND_HAPPY"
 printf "  %-48s %s\n" "Part 2: unbond partial happy path"      "$T2_UNBOND_PARTIAL"
 printf "  %-48s %s\n" "Part 3: reject below-min first bond"    "$T3_BOND_BELOW_MIN"
 printf "  %-48s %s\n" "Part 4: reject unspecified"   "$T4_BOND_INVALID_ROLE"
-printf "  %-48s %s\n" "Part 5: reject unbond over available"   "$T5_UNBOND_OVER_AVAILABLE"
+printf "  %-48s %s\n" "Part 5: reject unbond while UNBONDING"  "$T5_UNBOND_OVER_AVAILABLE"
 printf "  %-48s %s\n" "Part 6: config query for all roles"     "$T6_QUERY_CONFIG_ALL_ROLES"
 printf "  %-48s %s\n" "Part 7: list-by-type includes bonded"   "$T7_QUERY_LIST_BY_TYPE"
 printf "  %-48s %s\n" "Part 8: reject unbond when not bonded"  "$T8_UNBOND_NOT_BONDED"

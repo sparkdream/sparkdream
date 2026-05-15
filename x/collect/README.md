@@ -136,10 +136,10 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgRegisterCurator` | Register as curator, lock DREAM bond | Active member meeting trust level |
-| `MsgUnregisterCurator` | Unregister, release bond (if no pending challenges) | Curator only |
 | `MsgRateCollection` | Submit review with verdict, tags, comment | Active curator (one per collection) |
 | `MsgChallengeReview` | Challenge curator review within window | Jury members via `x/rep` |
+
+> Curator bonding flows through x/rep's generic `MsgBondRole` / `MsgUnbondRole` with `role_type = ROLE_TYPE_COLLECT_CURATOR`. Unbond is **queued** for `curator_unbond_cooldown` (default 7 days): DREAM stays locked and slashable, `bond_status` flips to `UNBONDING`, and `MsgRateCollection` rejects on this status to contain new liability while the bond drains. The rep EndBlocker matures pending unbonds via `MatureUnbonds`. See the [x/rep spec](../../docs/x-rep-spec.md).
 
 ### Sponsorship
 
@@ -259,7 +259,7 @@ These can be updated by the Commons Council Operations Committee via `MsgUpdateO
 | `sponsorship_request_ttl_blocks` | int64 | 100,800 | Sponsorship request expiry (~7 days) |
 | `min_curator_bond` | Int | 500 | Min DREAM bond for curator registration |
 | `min_curator_trust_level` | string | PROVISIONAL | Min trust to register as curator |
-| `min_curator_age_blocks` | int64 | 14,400 | Min curator registration age (~1 day) |
+| `min_curator_age_blocks` | int64 | 0 | Min curator registration age before rating (0 = none) |
 | `max_tags_per_review` | uint32 | 5 | Tags per curation review |
 | `max_review_comment_length` | uint32 | 512 | Review comment max length |
 | `max_reviews_per_collection` | uint32 | 20 | Reviews per collection ceiling |

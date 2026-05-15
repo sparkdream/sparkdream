@@ -322,11 +322,14 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     -y \
     --output json 2>&1)
 
-# Accept cooldown as a valid rejection — if sentinel2 was demoted by an
-# earlier test (sentinel_test.sh PART 13 unbond + any follow-up slashes), the
-# cooldown check fires first, before the below-min check. Either is a correct
-# rejection of a 1-udream bond attempt.
-expect_tx_failure "$TX_RES" "bond amount too small\|too small\|below minimum\|insufficient\|demotion cooldown\|cannot bond until" "ErrBondAmountTooSmall: bond below minimum"
+# Accept several valid rejection paths — sentinel2's state at this point
+# depends on what earlier tests did:
+#   - DEMOTED + cooldown if a slash drained their bond → "demotion cooldown"
+#   - UNBONDING if sentinel_test.sh PART 13 queued an unbond and the
+#     cooldown hasn't matured → "cannot bond while UNBONDING"
+#   - NORMAL/RECOVERY → the below-min check fires → "bond amount too small"
+# All three are correct rejections of a 1-udream bond attempt.
+expect_tx_failure "$TX_RES" "bond amount too small\|too small\|below minimum\|insufficient\|demotion cooldown\|cannot bond until\|UNBONDING is in flight\|cannot bond while UNBONDING" "ErrBondAmountTooSmall: bond below minimum"
 
 # ========================================================================
 # TEST 6: ErrPostAlreadyHidden - Hide an already-hidden post

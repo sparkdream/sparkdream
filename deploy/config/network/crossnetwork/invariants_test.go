@@ -254,6 +254,7 @@ var allowedVariations = map[string]string{
 	"federation.params.unverified_link_ttl":             "build-tag conditional",
 	"federation.params.verification_window":             "build-tag conditional",
 	"federation.params.verifier_demotion_cooldown":      "build-tag conditional",
+	"federation.params.verifier_unbond_cooldown":        "build-tag conditional",
 	"federation.params.verifier_overturn_base_cooldown": "build-tag conditional",
 
 	// === shield: TLE/DKG cadence + capacity hardening ===

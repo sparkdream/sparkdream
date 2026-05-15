@@ -146,43 +146,19 @@ CURATOR_REVIEW_COUNT=$(echo "$CURATOR_REVIEWS" | jq -r '.curation_reviews | leng
 assert_equal "No reviews by curator" "0" "$CURATOR_REVIEW_COUNT"
 
 # =========================================================================
-# Test 12: Partial unbond updates current_bond.
-# Phase 3: unbonding no longer "unregisters" — the BondedRole record persists
-# with a recomputed bond_status. Alice has 1000 bonded after Test 4's top-up;
-# we unbond 600 so she lands at 400, which is below MinBond=500 (RECOVERY)
-# but above DemotionThreshold=250 (no cooldown). tag_test.sh runs after this
-# suite and tops her bond back up — a cooldown-triggering drop would block
-# that top-up. Demotion-cooldown behavior itself is covered in
-# test/rep/bonded_role_test.sh.
+# Test 12: Cannot unbond when no BondedRole record exists.
+#
+# Note: the partial-unbond happy path and the queued-unbond cooldown flow
+# (status=UNBONDING, pending_unbond_amount tracking, MatureUnbonds, slash
+# during cooldown) all live in test/rep/bonded_role_test.sh — a dedicated
+# suite for the bonded-role primitive. Exercising unbond on alice here
+# would leave her in UNBONDING and block tag_test.sh's downstream re-bond,
+# so curation_test stays focused on curation flows.
 # =========================================================================
 echo ""
-echo "--- Test 12: Partial unbond updates current_bond ---"
-TX_OUT=$(send_tx rep unbond-role collect-curator 600000000 --from alice)
-assert_tx_success "Partial unbond curator" "$TX_OUT"
-
-CURATOR_QUERY=$(query rep bonded-role collect-curator "$ALICE_ADDR")
-PARTIAL_BOND=$(echo "$CURATOR_QUERY" | jq -r '.bonded_role.current_bond // "0"')
-PARTIAL_STATUS=$(echo "$CURATOR_QUERY" | jq -r '.bonded_role.bond_status // "MISSING"')
-assert_equal "current_bond reduced to 400000000" "400000000" "$PARTIAL_BOND"
-# 400M < MinBond(500M) but 400M >= DemotionThreshold(250M) → RECOVERY (no cooldown).
-assert_equal "bond_status is RECOVERY below min_bond" "BONDED_ROLE_STATUS_RECOVERY" "$PARTIAL_STATUS"
-
-# =========================================================================
-# Test 13: Cannot unbond when no BondedRole record exists
-# =========================================================================
-echo ""
-echo "--- Test 13: Cannot unbond when no BondedRole record ---"
+echo "--- Test 12: Cannot unbond when no BondedRole record ---"
 TX_OUT=$(send_tx rep unbond-role collect-curator 1000000 --from collector2)
 assert_tx_failure "Cannot unbond when record missing" "$TX_OUT"
-
-# =========================================================================
-# Test 14: Cannot unbond more than current_bond
-# =========================================================================
-echo ""
-echo "--- Test 14: Cannot unbond more than current_bond ---"
-# Alice has 400M bonded after Test 12. Try to drain 500M — rejected as insufficient.
-TX_OUT=$(send_tx rep unbond-role collect-curator 500000000 --from alice)
-assert_tx_failure "Cannot unbond past current_bond" "$TX_OUT"
 
 echo ""
 print_summary

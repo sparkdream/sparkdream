@@ -38,7 +38,7 @@ var (
 
 	DefaultMinCuratorBond                  = math.NewInt(500_000_000) // 500 DREAM (in udream)
 	DefaultMinCuratorTrustLevel            = "TRUST_LEVEL_PROVISIONAL"
-	DefaultMinCuratorAgeBlocks      int64  = 14400 // ~1 day
+	DefaultMinCuratorAgeBlocks      int64  = 0 // No registration-age cooldown; bond + per-call slashing are the deterrents
 	DefaultMaxTagsPerReview         uint32 = 5
 	DefaultMaxReviewCommentLength   uint32 = 512
 	DefaultMaxReviewsPerCollection  uint32 = 20
@@ -52,6 +52,11 @@ var (
 	DefaultCuratorDemotionCooldown       int64  = 604800           // 7 days
 	DefaultCuratorDemotionThreshold             = math.NewInt(250_000_000) // 250 DREAM (in udream)
 	DefaultCuratorOverturnDemotionStreak uint64 = 3
+	// DefaultCuratorUnbondCooldown is the period during which a curator's bond
+	// stays locked and slashable after MsgUnbondRole. Mirrors the demotion
+	// cooldown at 7 days — gives ratings a slashing window before the bond
+	// becomes available again.
+	DefaultCuratorUnbondCooldown int64 = 604800 // 7 days
 
 	// Reaction defaults
 	DefaultDownvoteCost              = math.NewInt(25000000) // 25 SPARK
@@ -153,6 +158,7 @@ func DefaultParams() Params {
 		CuratorDemotionCooldown:         DefaultCuratorDemotionCooldown,
 		CuratorDemotionThreshold:        DefaultCuratorDemotionThreshold,
 		CuratorOverturnDemotionStreak:   DefaultCuratorOverturnDemotionStreak,
+		CuratorUnbondCooldown:           DefaultCuratorUnbondCooldown,
 	}
 }
 
@@ -527,5 +533,10 @@ func (p Params) ApplyOperationalParams(op CollectOperationalParams) Params {
 	if op.CuratorOverturnDemotionStreak > 0 {
 		p.CuratorOverturnDemotionStreak = op.CuratorOverturnDemotionStreak
 	}
+	// Zero is a meaningful value for curator_unbond_cooldown (immediate
+	// withdrawal), so we always copy the field — the operational-params flow
+	// is the source of truth for it, including the ability to flip it back
+	// to zero.
+	p.CuratorUnbondCooldown = op.CuratorUnbondCooldown
 	return p
 }

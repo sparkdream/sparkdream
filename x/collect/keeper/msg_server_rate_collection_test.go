@@ -154,6 +154,11 @@ func TestRateCollection(t *testing.T) {
 			name: "error: curator too new",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
+				// Default min_curator_age_blocks is 0; opt-in to a non-zero gate
+				// to exercise the action-time age check.
+				params, _ := f.keeper.Params.Get(f.ctx)
+				params.MinCuratorAgeBlocks = 14400
+				f.keeper.Params.Set(f.ctx, params)
 				f.registerCurator(t, f.member, 500_000_000)
 				// Do NOT advance block height past min_curator_age_blocks
 				return collID
@@ -192,7 +197,32 @@ func TestRateCollection(t *testing.T) {
 				}
 			},
 			expErr:         true,
-			expErrContains: "demoted",
+			expErrContains: "DEMOTED",
+		},
+		{
+			// Liability-containment gate: curator that initiated unbond
+			// cannot rate fresh collections while the bond drains.
+			name: "error: curator unbonding",
+			setup: func(f *testFixture) uint64 {
+				collID := f.createCollection(t, f.owner)
+				f.registerCurator(t, f.member, 500_000_000)
+				_ = f.repKeeper.SetBondStatus(f.ctx,
+					reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+					f.member,
+					reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,
+					0)
+				f.advanceBlockHeight(14401)
+				return collID
+			},
+			msg: func(f *testFixture, collID uint64) *types.MsgRateCollection {
+				return &types.MsgRateCollection{
+					Creator:      f.member,
+					CollectionId: collID,
+					Verdict:      types.CurationVerdict_CURATION_VERDICT_UP,
+				}
+			},
+			expErr:         true,
+			expErrContains: "UNBONDING",
 		},
 	}
 

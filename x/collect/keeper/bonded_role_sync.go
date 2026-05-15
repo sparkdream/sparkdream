@@ -32,5 +32,6 @@ func (k Keeper) SyncCuratorBondedRoleConfig(ctx context.Context, p types.Params)
 		MinAgeBlocks:      p.MinCuratorAgeBlocks,
 		DemotionCooldown:  p.CuratorDemotionCooldown,
 		DemotionThreshold: demotionThreshold,
+		UnbondCooldown:    p.CuratorUnbondCooldown,
 	})
 }

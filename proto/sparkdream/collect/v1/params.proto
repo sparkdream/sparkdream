@@ -166,4 +166,11 @@ message Params {
   // challenge outcomes against a curator before they are demoted. Zero = no
   // streak-based demotion.
   uint64 curator_overturn_demotion_streak = 65;
+
+  // curator_unbond_cooldown is the number of seconds a curator's bond stays
+  // locked and slashable after MsgUnbondRole. During the cooldown the
+  // BondedRole status is UNBONDING and MsgRateCollection refuses authority.
+  // Propagated to x/rep BondedRoleConfig via SyncCuratorBondedRoleConfig.
+  // Zero = immediate withdrawal (legacy behavior).
+  int64 curator_unbond_cooldown = 66;
 }

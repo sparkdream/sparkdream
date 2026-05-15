@@ -62,7 +62,11 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		repSentinel = br
 		bondSnapshot = br.CurrentBond
 
-		if br.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
+		// Only NORMAL and RECOVERY can moderate. DEMOTED and UNBONDING are
+		// deauthorized — UNBONDING because the bond is draining and we won't
+		// back fresh moderation with bond that's already pledged to leave.
+		if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
+			br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
 			return nil, types.ErrSentinelDemoted
 		}
 

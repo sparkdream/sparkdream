@@ -1107,8 +1107,15 @@ Invoked as `tx rep bond-role ROLE_TYPE_COLLECT_CURATOR <amount>` / `tx rep unbon
 
 **Unbond validation (enforced in rep):**
 - Record must exist.
+- `bond_status` must not already be `UNBONDING` — one in-flight unbond per role at a time.
 - Available bond (`current_bond - total_committed_bond`) must cover the unbond amount. Slash budgets reserved by in-flight `MsgChallengeReview` lock the corresponding chunk until the challenge resolves.
-- Remaining bond refunded
+
+**Unbond mechanics (queued path, `curator_unbond_cooldown > 0`, default 7 days):**
+- DREAM stays locked and slashable. `BondedRole.pending_unbond_amount` is set; `unbond_completion_time = now + curator_unbond_cooldown`.
+- `bond_status` flips to `BONDED_ROLE_STATUS_UNBONDING`. `MsgRateCollection` rejects on this status (liability containment — the draining bond can't back fresh ratings).
+- The rep EndBlocker's `MatureUnbonds` finalizes when `unbond_completion_time` elapses: unlocks the remaining `pending_unbond_amount` (after any mid-cooldown slashes), reduces `current_bond` by the unlocked amount, and recomputes status from the final bond against `min_curator_bond` / `curator_demotion_threshold` (partial unbonds that stay ≥ `min_bond` return to `NORMAL`; drops below `demotion_threshold` land at `DEMOTED` with `curator_demotion_cooldown` gating re-bonding).
+
+When `curator_unbond_cooldown == 0` the legacy immediate-unlock path applies: DREAM is released in the same transaction and `bond_status` is recomputed from the new `current_bond` (NORMAL / RECOVERY / DEMOTED).
 
 ### 5.15. MsgRateCollection
 

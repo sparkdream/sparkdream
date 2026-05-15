@@ -5,6 +5,7 @@ import (
 
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"github.com/stretchr/testify/require"
 )
@@ -220,4 +221,31 @@ func TestHidePostSentinelBondCommitment(t *testing.T) {
 	repSentinel, ok := f.repKeeper.sentinels[testSentinel]
 	require.True(t, ok)
 	require.NotEqual(t, "0", repSentinel.TotalCommittedBond)
+}
+
+// TestHidePost_UnbondingSentinelRejected exercises the UNBONDING liability gate:
+// once unbond is initiated, the bond drains over the cooldown but the holder
+// must not back fresh hides with bond that's already pledged to leave.
+func TestHidePost_UnbondingSentinelRejected(t *testing.T) {
+	f := initFixture(t)
+
+	cat := f.createTestCategory(t, "General")
+	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+
+	f.createTestSentinel(t, testSentinel, "2000000000")
+	// Flip the sentinel into UNBONDING state directly on the mock rep keeper.
+	br := f.repKeeper.sentinels[testSentinel]
+	br.PendingUnbondAmount = "2000000000"
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.sentinels[testSentinel] = br
+
+	msg := &types.MsgHidePost{
+		Creator:    testSentinel,
+		PostId:     post.PostId,
+		ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+		ReasonText: "Test",
+	}
+	_, err := f.msgServer.HidePost(f.ctx, msg)
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrSentinelDemoted)
 }

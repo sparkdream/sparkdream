@@ -175,6 +175,15 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("error timing out expired gov action appeals", "error", err)
 	}
 
+	// 17. Mature any in-flight bonded-role unbonds whose cooldown has elapsed:
+	// unlocks the pending DREAM, flips status to DEMOTED, and starts
+	// demotion_cooldown gating re-bonding. Slashes during the cooldown have
+	// already reduced pending_unbond_amount in SlashBond, so the holder gets
+	// back whatever's left.
+	if err := k.MatureUnbonds(ctx); err != nil {
+		sdkCtx.Logger().Error("error maturing bonded-role unbonds", "error", err)
+	}
+
 	return nil
 }
 

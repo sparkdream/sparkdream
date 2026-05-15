@@ -90,6 +90,14 @@ func (k msgServer) BondRole(ctx context.Context, msg *types.MsgBondRole) (*types
 		}
 	}
 
+	// Reject top-ups while an unbond is in flight — caller must wait for
+	// MatureUnbonds to drain the pending amount and flip status to DEMOTED
+	// (then the demotion_cooldown applies). Keeps the state machine linear.
+	if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING {
+		return nil, errorsmod.Wrap(types.ErrInvalidRequest,
+			"cannot bond while UNBONDING is in flight; wait for completion")
+	}
+
 	// Enforce demotion cooldown for re-bonding DEMOTED roles.
 	if br.DemotionCooldownUntil > now {
 		return nil, errorsmod.Wrapf(types.ErrDemotionCooldown,

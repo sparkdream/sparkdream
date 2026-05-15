@@ -67,6 +67,11 @@ const (
 	DefaultSentinelDemotionCooldown = int64(604800) // 7 days
 	DefaultMinSentinelBondAmount    = int64(500_000_000) // 500 DREAM (in udream)
 	DefaultSentinelSlashAmount      = int64(100_000_000) // 100 DREAM per overturned appeal (in udream)
+	// DefaultSentinelUnbondCooldown keeps a sentinel's bond locked and
+	// slashable for 14 days after MsgUnbondRole — longer than the 7-day
+	// demotion cooldown to ensure overturns flagged during the unbond window
+	// can still slash before exit. Mirrors federation's bridge_unbonding_period.
+	DefaultSentinelUnbondCooldown = int64(1209600) // 14 days
 
 	// Archive limits
 	DefaultMaxArchiveCycles  = uint64(5)
@@ -153,6 +158,7 @@ func NewParams() Params {
 		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
 		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
 		SentinelUnhideWindow:         DefaultSentinelUnhideWindow,
+		SentinelUnbondCooldown:       DefaultSentinelUnbondCooldown,
 	}
 }
 
@@ -250,6 +256,7 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
 		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
 		SentinelUnhideWindow:         DefaultSentinelUnhideWindow,
+		SentinelUnbondCooldown:       DefaultSentinelUnbondCooldown,
 	}
 }
 
@@ -317,6 +324,8 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.SentinelDemotionCooldown = op.SentinelDemotionCooldown
 	p.SentinelDemotionThreshold = op.SentinelDemotionThreshold
 	p.SentinelUnhideWindow = op.SentinelUnhideWindow
+	// Zero is a meaningful value (immediate withdrawal), so always copy.
+	p.SentinelUnbondCooldown = op.SentinelUnbondCooldown
 	return p
 }
 
@@ -359,13 +368,14 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		SentinelDemotionCooldown:     p.SentinelDemotionCooldown,
 		SentinelDemotionThreshold:    p.SentinelDemotionThreshold,
 		SentinelUnhideWindow:         p.SentinelUnhideWindow,
+		SentinelUnbondCooldown:       p.SentinelUnbondCooldown,
 	}
 }
 
 // SentinelBondedRoleConfig assembles a reptypes-agnostic BondedRoleConfig from
 // forum's operational params. Kept in params.go so the type is accessible from
 // both the keeper (which write-throughs on update) and InitGenesis.
-func (p Params) SentinelBondedRoleConfigFields() (minBond, trust, demotionThreshold string, repTier uint64, ageBlocks, demotionCooldown int64) {
+func (p Params) SentinelBondedRoleConfigFields() (minBond, trust, demotionThreshold string, repTier uint64, ageBlocks, demotionCooldown, unbondCooldown int64) {
 	return p.MinSentinelBond, p.MinSentinelTrustLevel, p.SentinelDemotionThreshold,
-		p.MinSentinelRepTier, p.MinSentinelAgeBlocks, p.SentinelDemotionCooldown
+		p.MinSentinelRepTier, p.MinSentinelAgeBlocks, p.SentinelDemotionCooldown, p.SentinelUnbondCooldown
 }

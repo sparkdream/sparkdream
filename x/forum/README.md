@@ -175,7 +175,7 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 |---------|-------------|--------|
 | `MsgHidePost` | Hide post (requires reason) | Active sentinel (bond auth via x/rep) |
 
-> Sentinel bond/unbond messages (`MsgBondSentinel`, `MsgUnbondSentinel`) live in x/rep now. See the [x/rep spec](../../docs/x-rep-spec.md).
+> Sentinel bond/unbond flows through x/rep's generic `MsgBondRole` / `MsgUnbondRole` with `role_type = ROLE_TYPE_FORUM_SENTINEL`. Unbond is **queued** for `sentinel_unbond_cooldown` (default 14 days): DREAM stays locked and slashable, `bond_status` flips to `UNBONDING`, and all sentinel actions (`MsgHidePost`, `MsgLockThread`, `MsgMoveThread`, `MsgPinReply`, `MsgDismissFlags`) reject on this status to contain new liability. The rep EndBlocker matures pending unbonds via `MatureUnbonds` — DREAM unlocks then, and status is recomputed from the final bond against `min_sentinel_bond` / `sentinel_demotion_threshold` (partial unbond staying ≥ `min_bond` returns to `NORMAL`; only drops below `demotion_threshold` land at `DEMOTED` with `sentinel_demotion_cooldown` gating re-bonding). See the [x/rep spec](../../docs/x-rep-spec.md).
 
 ### Thread Control
 

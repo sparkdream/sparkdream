@@ -345,6 +345,7 @@ message CollectOperationalParams {
     (gogoproto.nullable) = false
   ];
   uint64 curator_overturn_demotion_streak = 47;
+  int64 curator_unbond_cooldown = 48;
 }
 
 // CollectionFlag aggregates all flags on a single piece of content.

@@ -18,6 +18,7 @@ import (
 //   - MinVerifierTrustLevel    → BondedRoleConfig.MinTrustLevel (trust-level name)
 //   - VerifierRecoveryThreshold→ BondedRoleConfig.DemotionThreshold
 //   - VerifierDemotionCooldown → BondedRoleConfig.DemotionCooldown (seconds)
+//   - VerifierUnbondCooldown   → BondedRoleConfig.UnbondCooldown (seconds)
 //
 // Federation's verifier is trust-level-gated, not rep-tier-gated, so
 // MinRepTier is left at zero. Age-of-bond is not enforced, so MinAgeBlocks
@@ -52,5 +53,6 @@ func (k Keeper) SyncVerifierBondedRoleConfig(ctx context.Context, p types.Params
 		MinAgeBlocks:      0,
 		DemotionCooldown:  int64(p.VerifierDemotionCooldown.Seconds()),
 		DemotionThreshold: demotionThreshold,
+		UnbondCooldown:    int64(p.VerifierUnbondCooldown.Seconds()),
 	})
 }

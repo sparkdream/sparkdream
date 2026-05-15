@@ -383,9 +383,11 @@ assert_tx_failure "Reject create-collection with reserved tag" "$TX_OUT"
 echo ""
 echo "--- Test 15: rate-collection with tags populates review + bumps usage ---"
 
-# curation_test.sh unregistered alice (test 12), so re-register her as curator.
+# Ensure alice is bonded as a curator. curation_test.sh leaves her bonded;
+# this top-up is a defensive no-op (a top-up that lands at or above min_bond
+# is accepted and recomputes bond_status to NORMAL).
 TX_OUT=$(send_tx rep bond-role collect-curator 500000000 --from alice)
-assert_tx_success "Re-register alice as curator" "$TX_OUT"
+assert_tx_success "Top-up alice as curator (idempotent)" "$TX_OUT"
 
 # Create a fresh collection owned by bob (alice is neither owner nor
 # collaborator — rate-collection requires both).

@@ -184,21 +184,24 @@ Award validation delegates to x/forum via `ForumKeeper.GetPostAuthor` / `GetPost
 
 - `sparkdream.rep.v1.SentinelActivity` holds the 8 accountability fields: `address`, `bond_status`, `current_bond`, `total_committed_bond`, `last_active_epoch`, `consecutive_inactive_epochs`, `demotion_cooldown_until`, `cumulative_rewards`.
 - `sparkdream.forum.v1.SentinelActivity` holds 29 forum-specific counters (hides/locks/moves/pins/proposals, per-epoch and cumulative tallies, local cooldowns).
-- `MsgBondSentinel` / `MsgUnbondSentinel` live in x/rep and operate on the rep record only.
-- `SentinelBondStatus` enum lives in x/rep.
+- Generic `MsgBondRole` / `MsgUnbondRole` live in x/rep and operate on the rep record only, keyed by `(role_type, address)`.
+- `BondedRoleStatus` enum lives in x/rep: `NORMAL` / `RECOVERY` / `DEMOTED` / `UNBONDING`.
+
+**Queued unbond.** `MsgUnbondRole` does not release DREAM immediately when the role's `BondedRoleConfig.UnbondCooldown` is positive (the default for every current role: 14 days for FORUM_SENTINEL and FEDERATION_VERIFIER, 7 days for COLLECT_CURATOR). Instead it sets `pending_unbond_amount`, `unbond_completion_time = block_time + UnbondCooldown`, and flips status to `UNBONDING`. DREAM stays locked and slashable through the cooldown; the holder is deauthorized from role actions (gated by owning modules). One in-flight unbond per role — second `MsgUnbondRole` and any `MsgBondRole` top-up are rejected with `ErrInvalidRequest`. The rep EndBlocker's `MatureUnbonds` finalizes at maturity: unlocks remaining DREAM and recomputes status from the final `current_bond` against the role's thresholds (NORMAL if ≥ `min_bond`, RECOVERY between thresholds, DEMOTED with `demotion_cooldown` gating re-bonding if below `demotion_threshold`). Partial unbonds that keep the role active stay NORMAL. Setting `UnbondCooldown == 0` reverts to legacy immediate-unlock for that role.
 
 Keeper methods exposed to consumers (content modules call these):
 
 | Method | Purpose |
 |--------|---------|
-| `IsSentinel(ctx, addr)` | Boolean existence check |
-| `GetSentinel(ctx, addr)` | Fetch the rep-side record |
-| `GetAvailableBond(ctx, addr)` | Returns `current_bond - total_committed_bond` |
-| `ReserveBond(ctx, addr, amt)` | Increment committed bond; errors if available < amt |
-| `ReleaseBond(ctx, addr, amt)` | Decrement committed bond (saturating) |
-| `SlashBond(ctx, addr, amt, reason)` | Unlock + burn DREAM, decrement both current and committed |
-| `RecordActivity(ctx, addr)` | Stamp last-active-epoch, reset consecutive-inactive counter |
-| `SetBondStatus(ctx, addr, status, cooldown)` | Update bond-status and demotion cooldown |
+| `IsBondedRole(ctx, roleType, addr)` | Boolean existence check |
+| `GetBondedRole(ctx, roleType, addr)` | Fetch the rep-side record |
+| `GetAvailableBond(ctx, roleType, addr)` | Returns `current_bond - total_committed_bond` |
+| `ReserveBond(ctx, roleType, addr, amt)` | Increment committed bond; errors if available < amt |
+| `ReleaseBond(ctx, roleType, addr, amt)` | Decrement committed bond (saturating) |
+| `SlashBond(ctx, roleType, addr, amt, reason)` | Unlock + burn DREAM, decrement current + committed; caps `pending_unbond_amount` at new `current_bond` during UNBONDING (status stays UNBONDING) |
+| `RecordActivity(ctx, roleType, addr)` | Stamp last-active-epoch, reset consecutive-inactive counter |
+| `SetBondStatus(ctx, roleType, addr, status, cooldown)` | Update bond-status and demotion cooldown |
+| `MatureUnbonds(ctx)` | EndBlocker: finalize matured pending unbonds (unlock DREAM, flip to DEMOTED, start demotion cooldown) |
 
 Forum content-action handlers (hide / lock / move / dismiss-flags) authenticate via `GetSentinel` and manage commitment via `ReserveBond` / `ReleaseBond` / `SlashBond`; they still update their own forum-side counters locally.
 

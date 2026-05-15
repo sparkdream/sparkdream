@@ -150,4 +150,35 @@ func TestMsgServerDismissFlags(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, types.ErrUnauthorized)
 	})
+
+	t.Run("unbonding sentinel cannot dismiss flags", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		// Sentinel that initiated unbond — bond still locked + slashable,
+		// but no new moderation authority while it drains.
+		if f.repKeeper.sentinels == nil {
+			f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
+		}
+		f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
+			Address:             testSentinel,
+			CurrentBond:         "2000",
+			PendingUnbondAmount: "2000",
+			BondStatus:          reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,
+		}
+
+		flag := types.PostFlag{
+			PostId:        post.PostId,
+			TotalWeight:   "100",
+			InReviewQueue: true,
+		}
+		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+
+		msg := &types.MsgDismissFlags{
+			Creator: testSentinel,
+			PostId:  post.PostId,
+		}
+		_, err := f.msgServer.DismissFlags(f.ctx, msg)
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrUnauthorized)
+	})
 }
