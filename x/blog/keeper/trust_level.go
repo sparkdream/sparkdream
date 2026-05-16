@@ -3,6 +3,9 @@ package keeper
 import (
 	"context"
 
+	"sparkdream/x/blog/types"
+
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
@@ -58,6 +61,21 @@ func (k Keeper) meetsReplyTrustLevel(ctx context.Context, addr sdk.AccAddress, m
 		return false
 	}
 	return int32(trustLevel) >= minLevel
+}
+
+// trustLevelError returns the appropriate error for an addr that failed
+// meetsReplyTrustLevel against minLevel. When the bar only requires
+// membership (minLevel <= 0), or the caller isn't a member at all, "not a
+// member" is the actionable signal; only an active member whose trust is
+// below a raised bar gets ErrInsufficientTrustLevel. Callers pass a subject
+// phrase (e.g. "replies on this post", "pinning posts") that completes
+// "does not meet minimum trust level for {subject}".
+func (k Keeper) trustLevelError(ctx context.Context, addr sdk.AccAddress, minLevel int32, subject string) error {
+	if minLevel <= 0 || !k.isActiveMember(ctx, addr) {
+		return errorsmod.Wrap(types.ErrNotMember, addr.String())
+	}
+	return errorsmod.Wrapf(types.ErrInsufficientTrustLevel,
+		"does not meet minimum trust level for %s", subject)
 }
 
 // isActiveMember checks if addr is an active member via RepKeeper.

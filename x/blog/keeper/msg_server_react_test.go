@@ -16,6 +16,7 @@ import (
 	"sparkdream/x/blog/keeper"
 	module "sparkdream/x/blog/module"
 	"sparkdream/x/blog/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestReact(t *testing.T) {
@@ -90,8 +91,10 @@ func TestReact(t *testing.T) {
 		msgServer := keeper.NewMsgServerImpl(k)
 
 		// Manually store a post so the post-not-found check is not reached first.
-		// The isActiveMember check happens before the post lookup, so the post
-		// does not strictly need to exist, but we include it for completeness.
+		// Reactor eligibility is checked AFTER post lookup (the post's
+		// MinReplyTrustLevel determines who can react). Default 0 means
+		// "any active member", so a non-member here is rejected with
+		// ErrNotMember.
 		k.SetPost(ctx, types.Post{
 			Id:      0,
 			Creator: creator,
@@ -109,6 +112,151 @@ func TestReact(t *testing.T) {
 		})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not an active member")
+	})
+
+	t.Run("non-member can react when post opens to all (min_reply_trust_level = -1)", func(t *testing.T) {
+		// Mirrors the reply policy: post authors who set MinReplyTrustLevel
+		// to -1 explicitly open the post to non-member participation, which
+		// covers both replies AND reactions.
+		encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+		ac := addresscodec.NewBech32Codec("sprkdrm")
+		storeKey := storetypes.NewKVStoreKey(types.StoreKey)
+		storeService := runtime.NewKVStoreService(storeKey)
+		ctx := testutil.DefaultContextWithDB(t, storeKey, storetypes.NewTransientStoreKey("transient_test")).Ctx
+		authority := authtypes.NewModuleAddress(types.GovModuleName)
+
+		repKeeper := &mockRepKeeper{
+			IsActiveMemberFn: func(ctx context.Context, addr sdk.AccAddress) bool {
+				return false
+			},
+		}
+		k := keeper.NewKeeper(storeService, encCfg.Codec, ac, authority, &mockBankKeeper{}, nil, repKeeper)
+		params := types.DefaultParams()
+		params.MaxReactionsPerDay = 100
+		params.ReactionFeeExempt = true
+		require.NoError(t, k.Params.Set(ctx, params))
+		msgServer := keeper.NewMsgServerImpl(k)
+
+		k.SetPost(ctx, types.Post{
+			Id:                 0,
+			Creator:            creator,
+			Title:              "Open Post",
+			Body:               "Anyone can react",
+			Status:             types.PostStatus_POST_STATUS_ACTIVE,
+			MinReplyTrustLevel: -1,
+		})
+		k.SetPostCount(ctx, 1)
+
+		_, err := msgServer.React(ctx, &types.MsgReact{
+			Creator:      creator2,
+			PostId:       0,
+			ReplyId:      0,
+			ReactionType: types.ReactionType_REACTION_TYPE_LIKE,
+		})
+		require.NoError(t, err)
+
+		counts := k.GetReactionCounts(ctx, 0, 0)
+		require.Equal(t, uint64(1), counts.LikeCount)
+	})
+
+	t.Run("reaction on reply uses parent post's min_reply_trust_level", func(t *testing.T) {
+		// The post author controls the audience for the whole conversation,
+		// so a non-member can react to a reply on a post whose author opted
+		// in to open participation (MinReplyTrustLevel = -1).
+		encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+		ac := addresscodec.NewBech32Codec("sprkdrm")
+		storeKey := storetypes.NewKVStoreKey(types.StoreKey)
+		storeService := runtime.NewKVStoreService(storeKey)
+		ctx := testutil.DefaultContextWithDB(t, storeKey, storetypes.NewTransientStoreKey("transient_test")).Ctx
+		authority := authtypes.NewModuleAddress(types.GovModuleName)
+
+		repKeeper := &mockRepKeeper{
+			IsActiveMemberFn: func(ctx context.Context, addr sdk.AccAddress) bool {
+				return false
+			},
+		}
+		k := keeper.NewKeeper(storeService, encCfg.Codec, ac, authority, &mockBankKeeper{}, nil, repKeeper)
+		params := types.DefaultParams()
+		params.MaxReactionsPerDay = 100
+		params.ReactionFeeExempt = true
+		require.NoError(t, k.Params.Set(ctx, params))
+		msgServer := keeper.NewMsgServerImpl(k)
+
+		k.SetPost(ctx, types.Post{
+			Id:                 0,
+			Creator:            creator,
+			Title:              "Open Post",
+			Body:               "Anyone can react",
+			Status:             types.PostStatus_POST_STATUS_ACTIVE,
+			MinReplyTrustLevel: -1,
+		})
+		k.SetPostCount(ctx, 1)
+		k.SetReply(ctx, types.Reply{
+			Id:      1,
+			PostId:  0,
+			Creator: creator,
+			Body:    "A reply on an open post",
+			Status:  types.ReplyStatus_REPLY_STATUS_ACTIVE,
+		})
+		k.SetReplyCount(ctx, 2)
+
+		_, err := msgServer.React(ctx, &types.MsgReact{
+			Creator:      creator2,
+			PostId:       0,
+			ReplyId:      1,
+			ReactionType: types.ReactionType_REACTION_TYPE_LIKE,
+		})
+		require.NoError(t, err)
+
+		counts := k.GetReactionCounts(ctx, 0, 1)
+		require.Equal(t, uint64(1), counts.LikeCount)
+	})
+
+	t.Run("insufficient trust level when post raises bar", func(t *testing.T) {
+		// MinReplyTrustLevel > 0 requires active membership AND that
+		// GetTrustLevel(addr) >= MinReplyTrustLevel. An active member with
+		// a lower trust level should fail with ErrInsufficientTrustLevel,
+		// not ErrNotMember.
+		encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+		ac := addresscodec.NewBech32Codec("sprkdrm")
+		storeKey := storetypes.NewKVStoreKey(types.StoreKey)
+		storeService := runtime.NewKVStoreService(storeKey)
+		ctx := testutil.DefaultContextWithDB(t, storeKey, storetypes.NewTransientStoreKey("transient_test")).Ctx
+		authority := authtypes.NewModuleAddress(types.GovModuleName)
+
+		repKeeper := &mockRepKeeper{
+			IsActiveMemberFn: func(ctx context.Context, addr sdk.AccAddress) bool {
+				return true
+			},
+			GetTrustLevelFn: func(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
+				return reptypes.TrustLevel_TRUST_LEVEL_PROVISIONAL, nil
+			},
+		}
+		k := keeper.NewKeeper(storeService, encCfg.Codec, ac, authority, &mockBankKeeper{}, nil, repKeeper)
+		params := types.DefaultParams()
+		params.MaxReactionsPerDay = 100
+		params.ReactionFeeExempt = true
+		require.NoError(t, k.Params.Set(ctx, params))
+		msgServer := keeper.NewMsgServerImpl(k)
+
+		k.SetPost(ctx, types.Post{
+			Id:                 0,
+			Creator:            creator,
+			Title:              "Trusted-only Post",
+			Body:               "Reactions require ESTABLISHED",
+			Status:             types.PostStatus_POST_STATUS_ACTIVE,
+			MinReplyTrustLevel: int32(reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED),
+		})
+		k.SetPostCount(ctx, 1)
+
+		_, err := msgServer.React(ctx, &types.MsgReact{
+			Creator:      creator2,
+			PostId:       0,
+			ReplyId:      0,
+			ReactionType: types.ReactionType_REACTION_TYPE_LIKE,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "insufficient trust level")
 	})
 
 	t.Run("unspecified reaction type", func(t *testing.T) {

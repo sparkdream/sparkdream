@@ -65,10 +65,10 @@ The `initiative_id` field links a blog post to an x/rep initiative for convictio
 
 The `content_type` field is an enum from `sparkdream.common.v1` indicating how to interpret the post content (e.g., `CONTENT_TYPE_TEXT`, `CONTENT_TYPE_MARKDOWN`, `CONTENT_TYPE_GZIP`, `CONTENT_TYPE_IPFS`).
 
-**`min_reply_trust_level`** controls who can reply to this post. The post author sets this value when creating or updating the post. Values map to `sparkdream.rep.v1.TrustLevel` with one additional sentinel:
+**`min_reply_trust_level`** controls who can reply to **and react to** this post. The post author sets this value when creating or updating the post. Values map to `sparkdream.rep.v1.TrustLevel` with one additional sentinel:
 
-| Value | Meaning | Who can reply |
-|-------|---------|---------------|
+| Value | Meaning | Who can reply / react |
+|-------|---------|-----------------------|
 | `-1` | Open | Any valid address (no membership required) |
 | `0` | `TRUST_LEVEL_NEW` | Any active member (default) |
 | `1` | `TRUST_LEVEL_PROVISIONAL` | Provisional members and above |
@@ -76,7 +76,7 @@ The `content_type` field is an enum from `sparkdream.common.v1` indicating how t
 | `3` | `TRUST_LEVEL_TRUSTED` | Trusted members and above |
 | `4` | `TRUST_LEVEL_CORE` | Core members only |
 
-Default is `0` (any active member), consistent with replies being a membership perk. Authors who want fully open discussion can set `-1`.
+Default is `0` (any active member), consistent with participation being a membership perk. Authors who want fully open discussion can set `-1` — that opens the post to non-member replies AND non-member reactions, since the same audience-control knob governs both. Reactions on a reply use the parent post's setting (the post author chooses the audience).
 
 ### 3.2. PostStatus
 
@@ -672,11 +672,11 @@ message MsgUnhideReplyResponse {}
 
 ### 5.13. React
 
-Add or change a reaction on a post or reply. Requires active membership via x/rep. One reaction per user per target — calling again with a different type replaces the previous reaction.
+Add or change a reaction on a post or reply. Eligibility is governed by the post's `min_reply_trust_level` — the same knob that controls replies (see §3.1). One reaction per user per target — calling again with a different type replaces the previous reaction.
 
 ```protobuf
 message MsgReact {
-  string creator = 1;              // Reactor (must be active member)
+  string creator = 1;              // Reactor (subject to post.min_reply_trust_level)
   uint64 post_id = 2;             // Target post
   uint64 reply_id = 3;            // Target reply (0 = reacting to the post)
   ReactionType reaction_type = 4;  // Selected reaction
@@ -686,11 +686,19 @@ message MsgReactResponse {}
 ```
 
 **Validation:**
-- Creator must be valid bech32 and active member
+- Creator must be valid bech32
 - Post must exist and have `status = POST_STATUS_ACTIVE` (`ErrPostDeleted` if tombstoned, `ErrPostHidden` if hidden)
 - If `reply_id > 0`: reply must exist, belong to the post, and have `status = REPLY_STATUS_ACTIVE` (`ErrReplyDeleted` or `ErrReplyHidden` otherwise)
 - `reaction_type` must not be `UNSPECIFIED`
+- Creator must meet the post's `min_reply_trust_level` requirement (see §3.1 for the value table):
+  - If `-1`: no membership required (open to all)
+  - If `0`: creator must be an active member (`RepKeeper.IsActiveMember(ctx, creator)`)
+  - If `1-4`: creator must be an active member with `RepKeeper.GetTrustLevel(ctx, creator) >= min_reply_trust_level`
+  - For reactions on a reply (`reply_id > 0`), the parent post's setting applies
+  - Returns `ErrNotMember` when the post requires membership and the creator isn't an active member; `ErrInsufficientTrustLevel` when the creator is a member but doesn't meet a higher trust-level bar
 - Creator must not exceed `params.max_reactions_per_day` (only counted for new reactions, not changes)
+
+> **Note on validation order.** Post/reply existence and active-status checks run *before* the eligibility check (eligibility needs `post.min_reply_trust_level`). As a result, an ineligible reactor on a missing or hidden post will see `ErrPostNotFound` / `ErrPostHidden` / `ErrPostDeleted` rather than the eligibility error. Post visibility on a public blog is already public, so this is acceptable; documented here to make the ordering explicit.
 
 **Reaction Fee:**
 - A flat `params.reaction_fee` is charged when adding a **new** reaction (sent to blog module, then burned)
@@ -699,12 +707,13 @@ message MsgReactResponse {}
 - Skipped if `reaction_fee_exempt` is true or `reaction_fee` is zero/nil
 
 **Logic:**
-1. Validate creator, membership, and target existence
-2. Check for existing reaction by this user on this target
-3. If exists with same type: no-op
-4. If exists with different type: decrement old type count, increment new type count, update record (no fee)
-5. If new: check rate limit, charge and burn reaction fee, create reaction record, add to `ReactorIndex`, increment type count in `ReactionCounts`, increment rate limit counter
-6. Emit `blog.reaction.added` or `blog.reaction.changed` event
+1. Validate creator address and reaction type, look up the post (and reply if `reply_id > 0`), check post/reply are active
+2. Check creator meets the post's `min_reply_trust_level`
+3. Check for existing reaction by this user on this target
+4. If exists with same type: no-op
+5. If exists with different type: decrement old type count, increment new type count, update record (no fee)
+6. If new: check rate limit, charge and burn reaction fee, create reaction record, add to `ReactorIndex`, increment type count in `ReactionCounts`, increment rate limit counter
+7. Emit `blog.reaction.added` or `blog.reaction.changed` event
 
 ### 5.14. RemoveReaction
 
@@ -749,6 +758,7 @@ message MsgPinPostResponse {}
 - Post must not already be pinned (`ErrAlreadyPinned`)
 - Post must not be expired (`ErrPostExpired` if `block_time >= expires_at`)
 - Creator must be an active member with `RepKeeper.GetTrustLevel(ctx, addr) >= params.pin_min_trust_level`
+  - Returns `ErrNotMember` when the caller isn't an active member (regardless of `pin_min_trust_level`); `ErrInsufficientTrustLevel` when the caller is a member but the trust level is below the bar — same dual-error semantics used for `MsgReact` and `MsgCreateReply` (see §5.13)
 - Creator must not exceed `params.max_pins_per_day`
 
 **Logic:**
@@ -781,6 +791,7 @@ message MsgPinReplyResponse {}
 - Reply must not already be pinned (`ErrAlreadyPinned`)
 - Reply must not be expired (`ErrReplyExpired` if `block_time >= expires_at`)
 - Creator must be an active member with `RepKeeper.GetTrustLevel(ctx, addr) >= params.pin_min_trust_level`
+  - Returns `ErrNotMember` when the caller isn't an active member; `ErrInsufficientTrustLevel` when the caller is a member but trust is below the bar — same dual-error semantics as `MsgPinPost` (see §5.15)
 - Creator must not exceed `params.max_pins_per_day` (shared counter with PinPost)
 
 **Logic:**

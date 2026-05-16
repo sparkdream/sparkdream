@@ -15,7 +15,7 @@ message Post {
   sparkdream.common.v1.ContentType content_type = 5; // Content encoding hint
   bool replies_enabled = 6; // Whether replies are accepted (default: true)
   uint64 reply_count = 7; // Denormalized reply count (active replies only)
-  int32 min_reply_trust_level = 8; // Minimum trust level to reply (default: 0)
+  int32 min_reply_trust_level = 8; // Minimum trust level to reply AND react (-1 open, 0 default = active members)
   int64 created_at = 9; // Unix timestamp of creation
   int64 updated_at = 10; // Unix timestamp of last update (0 if never)
   PostStatus status = 11; // ACTIVE, HIDDEN, or DELETED

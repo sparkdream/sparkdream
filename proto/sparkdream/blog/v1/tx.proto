@@ -119,7 +119,7 @@ message MsgCreatePost {
   string title = 2;
   string body = 3;
   sparkdream.common.v1.ContentType content_type = 4;
-  int32 min_reply_trust_level = 5; // Minimum trust level to reply (-1 to 4, default: 0)
+  int32 min_reply_trust_level = 5; // Minimum trust level to reply AND react (-1 open, 0-4, default: 0)
   string author_bond = 6 [ // Optional DREAM amount to lock as author bond
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
@@ -144,7 +144,7 @@ message MsgUpdatePost {
   uint64 id = 4;
   sparkdream.common.v1.ContentType content_type = 5;
   bool replies_enabled = 6;
-  int32 min_reply_trust_level = 7; // Minimum trust level to reply (-1 to 4)
+  int32 min_reply_trust_level = 7; // Minimum trust level to reply AND react (-1 open, 0-4)
   repeated string tags = 8; // Tags referenced against the shared x/rep tag registry (replaces existing tags)
 }
 

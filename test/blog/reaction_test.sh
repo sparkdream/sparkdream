@@ -471,6 +471,190 @@ else
 fi
 
 # ========================================================================
+# PART 2: Setup for trust-level gating tests (non-member account)
+# ========================================================================
+# Reactions are gated by the post's min_reply_trust_level (shared with
+# replies). Default 0 requires active membership; -1 opens the post to
+# anyone. The following tests exercise both paths through the CLI.
+
+echo "--- PART 2 SETUP: Create a non-member account ---"
+
+REACT_NONMEMBER_ACCOUNT="reacttest_nonmember"
+if ! $BINARY keys show $REACT_NONMEMBER_ACCOUNT --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add $REACT_NONMEMBER_ACCOUNT --keyring-backend test --output json > /dev/null 2>&1
+    echo "  Created non-member key: $REACT_NONMEMBER_ACCOUNT"
+fi
+REACT_NONMEMBER_ADDR=$($BINARY keys show $REACT_NONMEMBER_ACCOUNT -a --keyring-backend test)
+echo "  Non-member account: $REACT_NONMEMBER_ADDR"
+
+# Fund with SPARK for gas
+echo "  Funding non-member account..."
+TX_RES=$($BINARY tx bank send \
+    alice $REACT_NONMEMBER_ADDR \
+    10000000uspark \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000uspark \
+    -y \
+    --output json 2>&1)
+sleep 6
+
+# Create an open post (min_reply_trust_level=-1) authored by blogger1.
+# Authored by blogger1 (not blogger2) so the suite-wide blogger2 post
+# count stays under max_posts_per_day; PART 0 already used blogger2.
+echo "  Creating an open post (min_reply_trust_level=-1)..."
+TX_RES=$($BINARY tx blog create-post \
+    "Open Reaction Post" \
+    "Anyone can react to this post." \
+    --min-reply-trust-level=-1 \
+    --from blogger1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    -y \
+    --output json 2>&1)
+
+OPEN_POST_ID=""
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    OPEN_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
+    echo "  Open post created: ID=$OPEN_POST_ID"
+else
+    echo "  Failed to create open post"
+fi
+
+# Create a reply on the open post (so we can test reaction-on-reply
+# inheriting the parent post's setting)
+OPEN_REPLY_ID=""
+if [ -n "$OPEN_POST_ID" ]; then
+    TX_RES=$($BINARY tx blog create-reply \
+        $OPEN_POST_ID \
+        "Reply on the open post." \
+        --from blogger1 \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000uspark \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        OPEN_REPLY_ID=$(extract_event_value "$TX_RESULT" "blog.reply.created" "reply_id")
+        echo "  Reply on open post created: ID=$OPEN_REPLY_ID"
+    fi
+fi
+
+echo ""
+
+# ========================================================================
+# TEST 15: Non-member reacts on open post (min_reply_trust_level=-1)
+# ========================================================================
+echo "--- TEST 15: Non-member reacts on open post (min_reply_trust_level=-1) ---"
+
+if [ -z "$OPEN_POST_ID" ]; then
+    echo "  Skipped (open post setup failed)"
+    record_result "Non-member reacts on open post" "FAIL"
+else
+    TX_RES=$($BINARY tx blog react \
+        $OPEN_POST_ID \
+        like \
+        --from $REACT_NONMEMBER_ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000uspark \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        # Verify the like count incremented
+        COUNTS=$($BINARY query blog reaction-counts $OPEN_POST_ID --output json 2>&1)
+        LIKE_COUNT=$(echo "$COUNTS" | jq -r '.counts.like_count // "0"')
+        if [ "$LIKE_COUNT" -ge 1 ]; then
+            echo "  Non-member reaction accepted (like_count=$LIKE_COUNT)"
+            record_result "Non-member reacts on open post" "PASS"
+        else
+            echo "  Tx succeeded but like_count not incremented: $LIKE_COUNT"
+            record_result "Non-member reacts on open post" "FAIL"
+        fi
+    else
+        echo "  Non-member reaction was rejected (expected to succeed)"
+        echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+        record_result "Non-member reacts on open post" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 16: Non-member rejected on default-gated post (ErrNotMember)
+# ========================================================================
+# REACT_POST_ID was created with the default min_reply_trust_level=0, which
+# requires active membership. A non-member must be rejected.
+echo "--- TEST 16: Non-member rejected on default-gated post ---"
+
+TX_RES=$($BINARY tx blog react \
+    $REACT_POST_ID \
+    like \
+    --from $REACT_NONMEMBER_ACCOUNT \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    -y \
+    --output json 2>&1)
+
+if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)
+    # Expect ErrNotMember (registered text: "address is not an active member")
+    if echo "$RAW_LOG" | grep -qi "not an active member"; then
+        echo "  Correctly rejected with ErrNotMember"
+        record_result "Non-member rejected on default post" "PASS"
+    else
+        echo "  Rejected, but error didn't match ErrNotMember"
+        echo "  Raw log: $RAW_LOG"
+        record_result "Non-member rejected on default post" "FAIL"
+    fi
+else
+    echo "  Should have been rejected"
+    record_result "Non-member rejected on default post" "FAIL"
+fi
+
+# ========================================================================
+# TEST 17: Reaction on a reply inherits parent post's min_reply_trust_level
+# ========================================================================
+# Parent post is open (-1), so a non-member should be able to react to a
+# reply on it. This locks in the rule that reply-reactions consult the
+# parent post's setting, not the reply's.
+echo "--- TEST 17: Non-member reacts on reply of open post ---"
+
+if [ -z "$OPEN_POST_ID" ] || [ -z "$OPEN_REPLY_ID" ]; then
+    echo "  Skipped (open post/reply setup failed)"
+    record_result "Non-member reacts on reply of open post" "FAIL"
+else
+    TX_RES=$($BINARY tx blog react \
+        $OPEN_POST_ID \
+        insightful \
+        --reply-id $OPEN_REPLY_ID \
+        --from $REACT_NONMEMBER_ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000uspark \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        COUNTS=$($BINARY query blog reaction-counts $OPEN_POST_ID --reply-id $OPEN_REPLY_ID --output json 2>&1)
+        INSIGHTFUL_COUNT=$(echo "$COUNTS" | jq -r '.counts.insightful_count // "0"')
+        if [ "$INSIGHTFUL_COUNT" -ge 1 ]; then
+            echo "  Non-member reply-reaction accepted (insightful_count=$INSIGHTFUL_COUNT)"
+            record_result "Non-member reacts on reply of open post" "PASS"
+        else
+            echo "  Tx succeeded but insightful_count not incremented: $INSIGHTFUL_COUNT"
+            record_result "Non-member reacts on reply of open post" "FAIL"
+        fi
+    else
+        echo "  Non-member reply-reaction was rejected (expected to succeed)"
+        echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+        record_result "Non-member reacts on reply of open post" "FAIL"
+    fi
+fi
+
+# ========================================================================
 # SUMMARY
 # ========================================================================
 echo "============================================"

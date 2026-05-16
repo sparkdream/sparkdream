@@ -50,9 +50,11 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 		return nil, err
 	}
 
-	// Creator must meet pin trust level
+	// Creator must meet pin trust level (helper distinguishes ErrNotMember
+	// from ErrInsufficientTrustLevel so the caller knows whether the fix is
+	// to join or to earn trust)
 	if !k.meetsReplyTrustLevel(ctx, creatorAddr, int32(params.PinMinTrustLevel)) {
-		return nil, errorsmod.Wrap(types.ErrInsufficientTrustLevel, "does not meet pin trust level requirement")
+		return nil, k.trustLevelError(ctx, creatorAddr, int32(params.PinMinTrustLevel), "pinning replies")
 	}
 
 	// Rate limit check (shared "pin" counter)

@@ -7,8 +7,7 @@ The `x/blog` module is an on-chain content management system for blog posts with
 This module provides:
 
 - **On-chain publishing** — any address can create blog posts
-- **Member-gated discussions** — replies and reactions require `x/rep` membership
-- **Trust-level gating** — post authors control minimum trust level required to reply
+- **Author-controlled audience** — post authors set `min_reply_trust_level` to govern who can reply AND react: `-1` opens to anyone, `0` (default) requires active `x/rep` membership, `1-4` require a minimum trust level
 - **Anonymous posting** — ZK proof-based anonymous posts, replies, and reactions
 - **Author moderation** — hide/unhide controls for posts and replies
 - **Reactions** — fixed-set reaction system (Like, Insightful, Disagree, Funny)
@@ -116,7 +115,7 @@ Each user can have at most one reaction per target. Reacting again changes the r
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgReact` | Add or change reaction on a post or reply | Active members |
+| `MsgReact` | Add or change reaction on a post or reply | Subject to post `min_reply_trust_level` |
 | `MsgRemoveReaction` | Remove your reaction | Reaction creator only |
 
 ### Anonymous Operations (via x/shield)

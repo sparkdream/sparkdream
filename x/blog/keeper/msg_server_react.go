@@ -80,11 +80,6 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 
-	// Must be active member
-	if !k.isActiveMember(ctx, creatorAddr) {
-		return nil, errorsmod.Wrap(types.ErrNotMember, msg.Creator)
-	}
-
 	// Validate reaction type
 	if msg.ReactionType == types.ReactionType_REACTION_TYPE_UNSPECIFIED {
 		return nil, errorsmod.Wrap(types.ErrInvalidReactionType, "reaction type must be specified")
@@ -117,6 +112,14 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 		if reply.Status == types.ReplyStatus_REPLY_STATUS_HIDDEN {
 			return nil, errorsmod.Wrap(types.ErrReplyHidden, fmt.Sprintf("reply %d is hidden", msg.ReplyId))
 		}
+	}
+
+	// Reactions share the post's min_reply_trust_level with replies — one
+	// knob, one audience. For reply reactions the parent post's setting
+	// applies (post.MinReplyTrustLevel, post fetched above), since the
+	// post author owns the conversation's audience.
+	if !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
+		return nil, k.trustLevelError(ctx, creatorAddr, post.MinReplyTrustLevel, "reactions on this post")
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

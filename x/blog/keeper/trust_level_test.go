@@ -10,19 +10,27 @@ import (
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestMeetsReplyTrustLevel(t *testing.T) {
 	// meetsReplyTrustLevel is unexported, so we test it indirectly through
 	// CreateReply. A post's MinReplyTrustLevel gates who can reply:
 	//   -1  => open to all (no membership check)
-	//    0+ => requires isActiveMember to return true
+	//    0  => requires isActiveMember to return true
+	//   1-4 => requires active member with GetTrustLevel >= minLevel
+	//
+	// The error returned distinguishes the failure mode:
+	//   ErrNotMember              => caller isn't an active member at all
+	//   ErrInsufficientTrustLevel => caller is a member but trust too low
 
 	tests := []struct {
 		name               string
 		minReplyTrustLevel int32
 		isActiveMember     bool
+		callerTrustLevel   reptypes.TrustLevel // only consulted when isActiveMember = true
 		expectReplyAllowed bool
+		expectedErr        error
 	}{
 		{
 			name:               "minLevel=-1 allows anyone regardless of membership",
@@ -34,43 +42,58 @@ func TestMeetsReplyTrustLevel(t *testing.T) {
 			name:               "minLevel=-1 with active member also succeeds",
 			minReplyTrustLevel: -1,
 			isActiveMember:     true,
+			callerTrustLevel:   reptypes.TrustLevel_TRUST_LEVEL_CORE,
 			expectReplyAllowed: true,
 		},
 		{
 			name:               "minLevel=0 with active member succeeds",
 			minReplyTrustLevel: 0,
 			isActiveMember:     true,
+			callerTrustLevel:   reptypes.TrustLevel_TRUST_LEVEL_CORE,
 			expectReplyAllowed: true,
 		},
 		{
-			name:               "minLevel=0 with non-active member fails",
+			name:               "minLevel=0 with non-active member yields ErrNotMember",
 			minReplyTrustLevel: 0,
 			isActiveMember:     false,
 			expectReplyAllowed: false,
+			expectedErr:        types.ErrNotMember,
 		},
 		{
 			name:               "minLevel=1 with active member succeeds",
 			minReplyTrustLevel: 1,
 			isActiveMember:     true,
+			callerTrustLevel:   reptypes.TrustLevel_TRUST_LEVEL_CORE,
 			expectReplyAllowed: true,
 		},
 		{
-			name:               "minLevel=1 with non-active member fails",
+			name:               "minLevel=1 with non-active member yields ErrNotMember (not insufficient trust — the actionable barrier is membership)",
 			minReplyTrustLevel: 1,
 			isActiveMember:     false,
 			expectReplyAllowed: false,
+			expectedErr:        types.ErrNotMember,
+		},
+		{
+			name:               "minLevel=2 with active member but trust below bar yields ErrInsufficientTrustLevel",
+			minReplyTrustLevel: 2,
+			isActiveMember:     true,
+			callerTrustLevel:   reptypes.TrustLevel_TRUST_LEVEL_PROVISIONAL,
+			expectReplyAllowed: false,
+			expectedErr:        types.ErrInsufficientTrustLevel,
 		},
 		{
 			name:               "minLevel=4 with active member succeeds",
 			minReplyTrustLevel: 4,
 			isActiveMember:     true,
+			callerTrustLevel:   reptypes.TrustLevel_TRUST_LEVEL_CORE,
 			expectReplyAllowed: true,
 		},
 		{
-			name:               "minLevel=4 with non-active member fails",
+			name:               "minLevel=4 with non-active member yields ErrNotMember",
 			minReplyTrustLevel: 4,
 			isActiveMember:     false,
 			expectReplyAllowed: false,
+			expectedErr:        types.ErrNotMember,
 		},
 	}
 
@@ -107,6 +130,9 @@ func TestMeetsReplyTrustLevel(t *testing.T) {
 			f.repKeeper.IsActiveMemberFn = func(_ context.Context, _ sdk.AccAddress) bool {
 				return tt.isActiveMember
 			}
+			f.repKeeper.GetTrustLevelFn = func(_ context.Context, _ sdk.AccAddress) (reptypes.TrustLevel, error) {
+				return tt.callerTrustLevel, nil
+			}
 
 			_, err = msgServer.CreateReply(f.ctx, &types.MsgCreateReply{
 				Creator: creator,
@@ -118,7 +144,7 @@ func TestMeetsReplyTrustLevel(t *testing.T) {
 				require.NoError(t, err)
 			} else {
 				require.Error(t, err)
-				require.ErrorIs(t, err, types.ErrInsufficientTrustLevel)
+				require.ErrorIs(t, err, tt.expectedErr)
 			}
 		})
 	}

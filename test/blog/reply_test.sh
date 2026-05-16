@@ -589,6 +589,154 @@ else
 fi
 
 # ========================================================================
+# PART 2: Trust-level gating (min_reply_trust_level)
+# ========================================================================
+# CreateReply shares the post's min_reply_trust_level with reactions.
+# Default 0 requires active membership; -1 opens the post to anyone. The
+# error returned distinguishes ErrNotMember (caller isn't a member at all)
+# from ErrInsufficientTrustLevel (caller is a member but trust too low).
+# The latter requires manipulating a low-trust member, which is awkward in
+# e2e — covered by the unit test in trust_level_test.go. Here we cover the
+# two paths exercisable through the CLI: open post accepts a non-member,
+# default-gated post rejects a non-member with ErrNotMember.
+
+echo "--- PART 2 SETUP: Create a non-member account ---"
+
+REPLY_NONMEMBER_ACCOUNT="replytest_nonmember"
+if ! $BINARY keys show $REPLY_NONMEMBER_ACCOUNT --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add $REPLY_NONMEMBER_ACCOUNT --keyring-backend test --output json > /dev/null 2>&1
+    echo "  Created non-member key: $REPLY_NONMEMBER_ACCOUNT"
+fi
+REPLY_NONMEMBER_ADDR=$($BINARY keys show $REPLY_NONMEMBER_ACCOUNT -a --keyring-backend test)
+echo "  Non-member account: $REPLY_NONMEMBER_ADDR"
+
+echo "  Funding non-member account..."
+TX_RES=$($BINARY tx bank send \
+    alice $REPLY_NONMEMBER_ADDR \
+    10000000uspark \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000uspark \
+    -y \
+    --output json 2>&1)
+sleep 6
+
+# Open post (min_reply_trust_level=-1) and default-gated post for the two
+# paths. Authored by blogger1 (not blogger2) so the suite-wide blogger2
+# post count stays under max_posts_per_day; PART 1 already used blogger2
+# heavily for its post fixtures.
+echo "  Creating an open post (min_reply_trust_level=-1)..."
+TX_RES=$($BINARY tx blog create-post \
+    "Open Reply Post" \
+    "Anyone can reply to this post." \
+    --min-reply-trust-level=-1 \
+    --from blogger1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    -y \
+    --output json 2>&1)
+
+OPEN_REPLY_POST_ID=""
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    OPEN_REPLY_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
+    echo "  Open post created: ID=$OPEN_REPLY_POST_ID"
+else
+    echo "  Failed to create open post"
+fi
+
+echo "  Creating a default-gated post (min_reply_trust_level=0)..."
+TX_RES=$($BINARY tx blog create-post \
+    "Default-Gated Reply Post" \
+    "Only members can reply to this post." \
+    --from blogger1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000uspark \
+    -y \
+    --output json 2>&1)
+
+GATED_REPLY_POST_ID=""
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    GATED_REPLY_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
+    echo "  Default-gated post created: ID=$GATED_REPLY_POST_ID"
+else
+    echo "  Failed to create default-gated post"
+fi
+
+echo ""
+
+# ========================================================================
+# TEST 15: Non-member replies on open post (min_reply_trust_level=-1)
+# ========================================================================
+echo "--- TEST 15: Non-member replies on open post ---"
+
+if [ -z "$OPEN_REPLY_POST_ID" ]; then
+    echo "  Skipped (open post setup failed)"
+    record_result "Non-member replies on open post" "FAIL"
+else
+    TX_RES=$($BINARY tx blog create-reply \
+        $OPEN_REPLY_POST_ID \
+        "A reply from a non-member." \
+        --from $REPLY_NONMEMBER_ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000uspark \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        REPLY_ID=$(extract_event_value "$TX_RESULT" "blog.reply.created" "reply_id")
+        echo "  Non-member reply accepted: ID=$REPLY_ID"
+        record_result "Non-member replies on open post" "PASS"
+    else
+        echo "  Non-member reply rejected (expected to succeed)"
+        echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+        record_result "Non-member replies on open post" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 16: Non-member rejected on default-gated post (ErrNotMember)
+# ========================================================================
+# Verifies the new error-semantics: a non-member trying to reply on a
+# default-gated post should now get ErrNotMember (was always
+# ErrInsufficientTrustLevel before the trust-level refactor). The
+# distinction matters for UX — "join" vs. "earn more trust" are different
+# remediations.
+echo "--- TEST 16: Non-member rejected on default-gated post (ErrNotMember) ---"
+
+if [ -z "$GATED_REPLY_POST_ID" ]; then
+    echo "  Skipped (default-gated post setup failed)"
+    record_result "Non-member rejected on default-gated reply" "FAIL"
+else
+    TX_RES=$($BINARY tx blog create-reply \
+        $GATED_REPLY_POST_ID \
+        "A reply from a non-member that should be rejected." \
+        --from $REPLY_NONMEMBER_ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000uspark \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
+        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)
+        if echo "$RAW_LOG" | grep -qi "not an active member"; then
+            echo "  Correctly rejected with ErrNotMember"
+            record_result "Non-member rejected on default-gated reply" "PASS"
+        else
+            echo "  Rejected, but error didn't match ErrNotMember"
+            echo "  Raw log: $RAW_LOG"
+            record_result "Non-member rejected on default-gated reply" "FAIL"
+        fi
+    else
+        echo "  Should have been rejected"
+        record_result "Non-member rejected on default-gated reply" "FAIL"
+    fi
+fi
+
+# ========================================================================
 # SUMMARY
 # ========================================================================
 echo "============================================"

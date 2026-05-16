@@ -52,9 +52,11 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 			"body exceeds maximum length of %d characters", params.MaxReplyLength)
 	}
 
-	// Trust level gate
+	// Trust level gate (shares min_reply_trust_level with reactions; the
+	// helper distinguishes ErrNotMember from ErrInsufficientTrustLevel so
+	// the caller knows whether the fix is to join or to earn trust)
 	if !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
-		return nil, errorsmod.Wrap(types.ErrInsufficientTrustLevel, "does not meet minimum trust level for replies on this post")
+		return nil, k.trustLevelError(ctx, creatorAddr, post.MinReplyTrustLevel, "replies on this post")
 	}
 
 	// Handle parent reply (nested replies)
