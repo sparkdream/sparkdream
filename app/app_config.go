@@ -23,6 +23,8 @@ import (
 	revealmoduletypes "sparkdream/x/reveal/types"
 	_ "sparkdream/x/season/module"
 	seasonmoduletypes "sparkdream/x/season/types"
+	_ "sparkdream/x/service/module"
+	servicemoduletypes "sparkdream/x/service/types"
 	_ "sparkdream/x/session/module"
 	sessionmoduletypes "sparkdream/x/session/types"
 	_ "sparkdream/x/shield/module"
@@ -107,7 +109,7 @@ var (
 		{Account: sessionmoduletypes.ModuleName},
 		{Account: federationmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
-	}
+		{Account: servicemoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}}
 
 	// blocked account addresses
 	blockAccAddrs = []string{
@@ -163,7 +165,7 @@ var (
 						sessionmoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
-					},
+						servicemoduletypes.ModuleName},
 					EndBlockers: []string{
 						govtypes.ModuleName,
 						stakingtypes.ModuleName,
@@ -185,7 +187,7 @@ var (
 						sessionmoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
-					},
+						servicemoduletypes.ModuleName},
 					// The following is mostly only needed when ModuleName != StoreKey name.
 					OverrideStoreKeys: []*runtimev1alpha1.StoreKeyConfig{
 						{
@@ -231,7 +233,7 @@ var (
 						sessionmoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
-					},
+						servicemoduletypes.ModuleName},
 				}),
 			},
 			{
@@ -369,6 +371,9 @@ var (
 				Config: appconfig.WrapAny(&federationmoduletypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
-		},
+			{
+				Name:   servicemoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&servicemoduletypes.Module{}),
+			}},
 	})
 )

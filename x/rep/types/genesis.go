@@ -54,7 +54,7 @@ func DefaultBondedRoleConfigs() []BondedRoleConfig {
 			MinRepTier:        3,
 			MinTrustLevel:     "",
 			MinAgeBlocks:      0,
-			DemotionCooldown:  604800,  // 7 days
+			DemotionCooldown:  604800, // 7 days
 			DemotionThreshold: "500",
 			UnbondCooldown:    1209600, // 14 days (overwritten by SyncSentinelBondedRoleConfig)
 		},
@@ -63,7 +63,7 @@ func DefaultBondedRoleConfigs() []BondedRoleConfig {
 			MinBond:           "500",
 			MinRepTier:        0,
 			MinTrustLevel:     "TRUST_LEVEL_PROVISIONAL",
-			MinAgeBlocks:      0,      // No cooldown; collect overwrites this via SyncCuratorBondedRoleConfig on InitGenesis
+			MinAgeBlocks:      0, // No cooldown; collect overwrites this via SyncCuratorBondedRoleConfig on InitGenesis
 			DemotionCooldown:  604800,
 			DemotionThreshold: "250",
 			UnbondCooldown:    604800, // 7 days (overwritten by SyncCuratorBondedRoleConfig)
@@ -76,7 +76,7 @@ func DefaultBondedRoleConfigs() []BondedRoleConfig {
 			MinRepTier:        0,
 			MinTrustLevel:     "TRUST_LEVEL_ESTABLISHED",
 			MinAgeBlocks:      0,
-			DemotionCooldown:  604800,  // 7 days
+			DemotionCooldown:  604800, // 7 days
 			DemotionThreshold: "250",
 			UnbondCooldown:    1209600, // 14 days (overwritten by federation sync if present)
 		},

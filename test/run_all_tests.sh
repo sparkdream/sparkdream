@@ -71,17 +71,18 @@ ONLY_MODULE=""
 #
 # Empirical durations (May 2026, snapshot-restored chains, 12-suite run):
 #   forum 39m  rep 25m  federation 24m  season 20m  commons 18m  collect 15m
-#   blog 12m   shield 10m  futarchy 9m  name 6m  reveal 5m  gnovm 1m
+#   blog 12m   shield 10m  futarchy 9m  name 6m  service ~5m  reveal 5m
+#   gnovm 1m
 #
 # With concurrency=6 and this order, batch 1 = forum/rep/federation/season/
 # commons/collect (bottleneck forum 39m), batch 2 = blog/shield/futarchy/
-# name/reveal/gnovm (bottleneck blog 12m) → projected wall time ~51m vs
-# the 88m alphabetical/concurrency-4 baseline.
+# name/service/reveal (bottleneck blog 12m), batch 3 = gnovm only → projected
+# wall time ~51m vs the 88m alphabetical/concurrency-4 baseline.
 #
 # Re-measure and reorder when adding a new module or after major changes
 # to a slow suite. The simplest measurement source is the per-module log
 # mtimes in e2e/latest/ after a full parallel run.
-MODULE_ORDER="forum rep federation season commons collect blog shield futarchy name reveal gnovm"
+MODULE_ORDER="forum rep federation season commons collect blog shield futarchy name service reveal gnovm"
 
 # Track results
 PASSED_TESTS=()

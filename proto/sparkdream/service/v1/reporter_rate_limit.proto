@@ -1,0 +1,38 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// ReporterRateLimit tracks recent filing heights for a given
+// (reporter, operator_address, service_type) tuple, implementing the
+// sliding-window per-reporter cap from §3.4.6.
+//
+// The keeper admits a new filing iff fewer than
+// `max_reports_per_reporter_per_operator_per_window` entries in
+// `recent_filing_heights` fall within
+// `[current_height - reporter_rate_limit_window_blocks, current_height]`.
+//
+// Ring-buffer semantics: when at capacity, the oldest entry is
+// overwritten on each new filing.
+message ReporterRateLimit {
+  option (amino.name) = "sparkdream/x/service/ReporterRateLimit";
+  option (gogoproto.equal) = true;
+
+  // reporter is the bech32 address whose rate is being tracked.
+  string reporter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // operator_address is the target operator.
+  string operator_address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // service_type is the target operator record.
+  string service_type = 3;
+
+  // recent_filing_heights is the ring buffer of recent filing heights
+  // (most-recent-first or in insertion order; the keeper documents
+  // which). Length capped at max_reports + 1.
+  repeated int64 recent_filing_heights = 4;
+}

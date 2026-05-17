@@ -135,4 +135,3 @@ func TestCheckSpendPreconditions_EpochRollover(t *testing.T) {
 	ctx = ctx.WithBlockTime(time.Unix(day0+86_400+10, 0))
 	require.NoError(t, k.CheckSpendPreconditions(ctx, council.String(), amt))
 }
-

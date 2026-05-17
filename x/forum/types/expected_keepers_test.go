@@ -110,7 +110,7 @@ func (stubRepKeeper) GetTag(context.Context, string) (reptypes.Tag, error) {
 	return reptypes.Tag{}, nil
 }
 func (stubRepKeeper) IncrementTagUsage(context.Context, string, int64) error { return nil }
-func (stubRepKeeper) DecrementTagUsage(context.Context, string) error         { return nil }
+func (stubRepKeeper) DecrementTagUsage(context.Context, string) error        { return nil }
 func (stubRepKeeper) SetReservedTag(context.Context, reptypes.ReservedTag) error {
 	return nil
 }

@@ -1,0 +1,44 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// ControllerTransferCase records an open jury case to transfer an
+// operator's controller (see x-service-spec.md §5.4). Created by
+// MsgOpenControllerTransferCase, deleted by MsgFinalizeControllerTransfer.
+//
+// At most one open case per (operator_address, service_type), enforced
+// via OpenControllerTransferByOperator secondary index.
+message ControllerTransferCase {
+  option (amino.name) = "sparkdream/x/service/ControllerTransferCase";
+  option (gogoproto.equal) = true;
+
+  // jury_case_id is the x/rep case id (the primary key for this store).
+  uint64 jury_case_id = 1;
+
+  // operator_address is the operator whose controller is being transferred.
+  string operator_address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // service_type identifies which operator record.
+  string service_type = 3;
+
+  // opener is the address that filed MsgOpenControllerTransferCase
+  // (operator themselves OR an ESTABLISHED+ member).
+  string opener = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // proposed_new_controller is the x/commons Group address the case
+  // proposes to transfer to. Re-checked at apply time (§5.4).
+  string proposed_new_controller = 5 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // deposit is the SPARK the opener escrowed; refunded on ACCEPT,
+  // forfeited on REJECT.
+  cosmos.base.v1beta1.Coin deposit = 6 [(gogoproto.nullable) = false];
+
+  // opened_at is the height the case was opened.
+  int64 opened_at = 7;
+}

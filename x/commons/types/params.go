@@ -29,8 +29,8 @@ const DefaultProposalFee string = "5000000uspark"
 // boundary; 50 active schedules per council bounds state-bloat surface for
 // a captured authority.
 const (
-	DefaultMinRecurringPeriodSeconds        int64  = 86_400      // 1 day
-	DefaultMaxRecurringDurationSeconds      int64  = 31_536_000  // 365 days
+	DefaultMinRecurringPeriodSeconds        int64  = 86_400     // 1 day
+	DefaultMaxRecurringDurationSeconds      int64  = 31_536_000 // 365 days
 	DefaultMaxActiveRecurringSpendsPerGroup uint32 = 50
 )
 
@@ -48,10 +48,10 @@ var _ paramtypes.ParamSet = (*Params)(nil)
 // NewParams creates a new Params instance.
 func NewParams(proposalFee string) Params {
 	return Params{
-		ProposalFee:                          proposalFee,
-		MinRecurringPeriodSeconds:            DefaultMinRecurringPeriodSeconds,
-		MaxRecurringDurationSeconds:          DefaultMaxRecurringDurationSeconds,
-		MaxActiveRecurringSpendsPerGroup:     DefaultMaxActiveRecurringSpendsPerGroup,
+		ProposalFee:                      proposalFee,
+		MinRecurringPeriodSeconds:        DefaultMinRecurringPeriodSeconds,
+		MaxRecurringDurationSeconds:      DefaultMaxRecurringDurationSeconds,
+		MaxActiveRecurringSpendsPerGroup: DefaultMaxActiveRecurringSpendsPerGroup,
 	}
 }
 

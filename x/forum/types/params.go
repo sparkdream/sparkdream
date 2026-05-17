@@ -63,8 +63,8 @@ const (
 	DefaultMaxHidesPerEpoch         = uint64(50)
 	DefaultMaxSentinelLocksPerEpoch = uint64(5)
 	DefaultMaxSentinelMovesPerEpoch = uint64(10)
-	DefaultSentinelOverturnCooldown = int64(86400)  // 24 hours
-	DefaultSentinelDemotionCooldown = int64(604800) // 7 days
+	DefaultSentinelOverturnCooldown = int64(86400)       // 24 hours
+	DefaultSentinelDemotionCooldown = int64(604800)      // 7 days
 	DefaultMinSentinelBondAmount    = int64(500_000_000) // 500 DREAM (in udream)
 	DefaultSentinelSlashAmount      = int64(100_000_000) // 100 DREAM per overturned appeal (in udream)
 	// DefaultSentinelUnbondCooldown keeps a sentinel's bond locked and
@@ -103,16 +103,16 @@ const (
 
 // Default fee amounts
 var (
-	DefaultSpamTaxAmount              = math.NewInt(1000000) // 1 SPARK
-	DefaultReactionSpamTaxAmount      = math.NewInt(100000)  // 0.1 SPARK
-	DefaultFlagSpamTaxAmount          = math.NewInt(100000)  // 0.1 SPARK
-	DefaultDownvoteDepositAmount      = math.NewInt(50000)   // 0.05 SPARK
-	DefaultAppealFeeAmount            = math.NewInt(5000000) // 5 SPARK
-	DefaultLockAppealFeeAmount        = math.NewInt(5000000) // 5 SPARK
-	DefaultMoveAppealFeeAmount        = math.NewInt(5000000) // 5 SPARK
-	DefaultEditFeeAmount              = math.NewInt(10000)   // 0.01 SPARK
+	DefaultSpamTaxAmount              = math.NewInt(1000000)    // 1 SPARK
+	DefaultReactionSpamTaxAmount      = math.NewInt(100000)     // 0.1 SPARK
+	DefaultFlagSpamTaxAmount          = math.NewInt(100000)     // 0.1 SPARK
+	DefaultDownvoteDepositAmount      = math.NewInt(50000)      // 0.05 SPARK
+	DefaultAppealFeeAmount            = math.NewInt(5000000)    // 5 SPARK
+	DefaultLockAppealFeeAmount        = math.NewInt(5000000)    // 5 SPARK
+	DefaultMoveAppealFeeAmount        = math.NewInt(5000000)    // 5 SPARK
+	DefaultEditFeeAmount              = math.NewInt(10000)      // 0.01 SPARK
 	DefaultTagReportBond              = math.NewInt(10_000_000) // 10 DREAM (in udream)
-	DefaultCostPerByteAmount          = math.NewInt(100)     // 100 uspark/byte (~1 SPARK for 10KB)
+	DefaultCostPerByteAmount          = math.NewInt(100)        // 100 uspark/byte (~1 SPARK for 10KB)
 	DefaultConvictionRenewalThreshold = math.LegacyNewDec(100)
 )
 

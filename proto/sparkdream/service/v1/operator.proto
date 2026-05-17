@@ -1,0 +1,93 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/service/v1/types.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// Operator is the canonical record for a SPARK-bonded external-service
+// operator (see x-service-spec.md §3.1). Live records (status ∈
+// {ACTIVE, UNDERFUNDED, UNBONDING}) live in the Operators store keyed by
+// (address, service_type); terminal records (SLASHED, RETIRED) are moved
+// to ArchivedOperators at the terminal transition.
+message Operator {
+  option (amino.name) = "sparkdream/x/service/Operator";
+  option (gogoproto.equal) = true;
+
+  // address is the bech32 address of the operator (the wallet doing the
+  // work and signing on-chain ops).
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // service_type is the service-type-registry key this operator serves
+  // (e.g. "akash-funding", "federation-bridge").
+  string service_type = 2;
+
+  // controller is the bech32 address of the x/commons Group that hired
+  // this operator. MUST not equal `address` (§3.3).
+  string controller = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // bond is the SPARK currently locked in the module account's bond pool
+  // (excludes any amount sitting in Tier1Escrow).
+  cosmos.base.v1beta1.Coin bond = 4 [(gogoproto.nullable) = false];
+
+  // metadata is service-specific opaque config (e.g. JSON with akash_dseq);
+  // capped by `max_metadata_bytes` param.
+  bytes metadata = 5;
+
+  // status is the operator's lifecycle status (§3.1).
+  OperatorStatus status = 6;
+
+  // underfunded_since is the height at which `bond` first fell below the
+  // current `min_bond`; 0 if never. Used by the underfunded EndBlocker
+  // sweep with `underfunded_grace_blocks` (§3.6 queue 1).
+  int64 underfunded_since = 7;
+
+  // unbond_complete_at is the height at which UNBONDING completes (subject
+  // to clock pausing, §3.5); 0 if not unbonding.
+  int64 unbond_complete_at = 8;
+
+  // tier1_slashed_in_window is the cumulative SPARK amount slashed via
+  // tier-1 within the current rolling window (§3.4.3). Stored as
+  // math.Int string to avoid coin-shape duplication.
+  string tier1_slashed_in_window = 9 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // tier1_window_start is the height the current tier-1 rolling window
+  // opened.
+  int64 tier1_window_start = 10;
+
+  // tier1_window_start_bond is the bond at the moment the current window
+  // opened — the denominator for the aggregate-cap check (§3.4.3).
+  string tier1_window_start_bond = 11 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // registered_at is the height the live record was created.
+  int64 registered_at = 12;
+
+  // retired_at is the height the record transitioned to a terminal status
+  // (SLASHED or RETIRED); 0 if live.
+  int64 retired_at = 13;
+
+  // total_lifetime_bond_blocks is the running sum of (current_bond *
+  // elapsed_active_blocks) for reputation accrual (§6.6). Updated lazily
+  // via settleBondBlocks at any event that changes bond or status.
+  string total_lifetime_bond_blocks = 14 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // last_bond_block_update_at is the height of the last settleBondBlocks
+  // call for this operator; used by lazy accrual (§6.6).
+  int64 last_bond_block_update_at = 15;
+}

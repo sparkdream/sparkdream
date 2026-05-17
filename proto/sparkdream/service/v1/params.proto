@@ -1,0 +1,138 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// Params defines the module-wide parameters for x/service. See
+// x-service-spec.md §4.2 for full semantics and validation rules. All
+// fields are x/gov-mutable via MsgUpdateParams unless hardened later
+// via the x/mint immutable-parameter pattern (§4.2 high-impact
+// hardening candidates).
+//
+// Per-service-type overrides for `default_*` fields live on
+// ServiceTypeConfig (§3.2). The values here are the defaults that
+// apply when a service type's override is zero.
+message Params {
+  option (amino.name) = "sparkdream/x/service/Params";
+  option (gogoproto.equal) = true;
+
+  // ------------------------------------------------------------------
+  // Per-type defaults (overridable on ServiceTypeConfig).
+  // ------------------------------------------------------------------
+
+  // default_unbonding_period_blocks is the default unbonding window
+  // (~14 days at default block time).
+  int64 default_unbonding_period_blocks = 1;
+
+  // default_unilateral_slash_cap_bps is the default per-slash cap
+  // (500 = 5%).
+  uint32 default_unilateral_slash_cap_bps = 2;
+
+  // default_tier1_window_blocks is the default rolling-window length
+  // for aggregate tier-1 cap accounting (~90 days).
+  int64 default_tier1_window_blocks = 3;
+
+  // default_tier1_aggregate_cap_bps is the default cumulative-slash
+  // cap within the window (1500 = 15%).
+  uint32 default_tier1_aggregate_cap_bps = 4;
+
+  // default_tier1_cooldown_blocks is the default minimum interval
+  // between tier-1 slashes against the same operator (~7 days).
+  int64 default_tier1_cooldown_blocks = 5;
+
+  // default_underfunded_grace_blocks is the default time an
+  // UNDERFUNDED operator has to top up before being force-unbonded
+  // (~7 days).
+  int64 default_underfunded_grace_blocks = 6;
+
+  // ------------------------------------------------------------------
+  // Global timing & deposit knobs.
+  // ------------------------------------------------------------------
+
+  // report_contest_window_blocks is the window an operator has to
+  // contest a tier-1 slash (~24 hours). Also the tier-1 escrow
+  // release delay.
+  int64 report_contest_window_blocks = 7;
+
+  // max_pending_blocks is the auto-dismiss horizon for PENDING
+  // reports (~30 days).
+  int64 max_pending_blocks = 8;
+
+  // max_escalated_blocks is the auto-timeout horizon for ESCALATED
+  // reports awaiting jury verdict (~60 days). MUST be greater than
+  // max_pending_blocks.
+  int64 max_escalated_blocks = 9;
+
+  // report_refile_cooldown_blocks is the per-controller cooldown for
+  // re-filing a previously-dismissed allegation (~30 days). MUST be
+  // ≥ max_pending_blocks.
+  int64 report_refile_cooldown_blocks = 10;
+
+  // report_deposit is the SPARK escrow required to file
+  // MsgReportOperator (default 10 SPARK).
+  cosmos.base.v1beta1.Coin report_deposit = 11 [(gogoproto.nullable) = false];
+
+  // ------------------------------------------------------------------
+  // Reporter eligibility & rate-limit.
+  // ------------------------------------------------------------------
+
+  // min_reporter_trust_level gates who can file reports, as an enum
+  // name (e.g. "TRUST_LEVEL_ESTABLISHED"). Empty = no gate.
+  string min_reporter_trust_level = 12;
+
+  // max_reports_per_reporter_per_operator_per_window is the
+  // sliding-window cap on filings by a single reporter against a
+  // single (operator, service_type) (default 3).
+  uint32 max_reports_per_reporter_per_operator_per_window = 13;
+
+  // reporter_rate_limit_window_blocks is the window over which the
+  // above cap applies (~30 days).
+  int64 reporter_rate_limit_window_blocks = 14;
+
+  // ------------------------------------------------------------------
+  // EndBlocker & size caps.
+  // ------------------------------------------------------------------
+
+  // endblocker_sweep_limit is the per-queue per-block cap on records
+  // processed by EndBlocker sweeps (default 100). Prevents unbounded
+  // per-block work.
+  uint32 endblocker_sweep_limit = 15;
+
+  // max_metadata_bytes caps Operator.metadata size (default 4096;
+  // hard cap 65536).
+  uint32 max_metadata_bytes = 16;
+
+  // max_reason_bytes caps Report.reason and similar free-form text
+  // (default 512; hard cap 4096).
+  uint32 max_reason_bytes = 17;
+
+  // max_active_operators_per_address caps the number of live
+  // operator records a single address may hold across service types
+  // (default 16). Prevents reputation gaming via mass
+  // micro-registration (§6.6).
+  uint32 max_active_operators_per_address = 18;
+
+  // ------------------------------------------------------------------
+  // Reputation & query knobs.
+  // ------------------------------------------------------------------
+
+  // reputation_grant_per_bond_block is the reputation accrued per
+  // SPARK-block of ACTIVE bond, applied at successful unbond claim
+  // and capped by the §6.6 anti-gaming rule.
+  string reputation_grant_per_bond_block = 19 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // default_pagination_limit is the default page size when a client
+  // omits pagination.limit on a paginated query (default 100).
+  uint32 default_pagination_limit = 20;
+
+  // max_pagination_limit hard-caps pagination.limit to bound query
+  // gas (default 1000; absolute cap 10000).
+  uint32 max_pagination_limit = 21;
+}

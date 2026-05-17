@@ -257,6 +257,22 @@ func (k Keeper) CountCouncilMembers(ctx context.Context, councilName string) (ui
 	return count, err
 }
 
+// GroupPolicyMemberCount returns the number of members in the group
+// whose policy address is `policyAddr`. Returns 0 (no error) if the
+// policy address is unknown.
+//
+// Consumed by x/service's apply-time controller-eligibility re-check
+// (see x-service-spec.md §5.4 — a Group dissolved or emptied during
+// the jury case must not become a valid controller). Thin wrapper
+// over GetGroupByPolicy → CountCouncilMembers.
+func (k Keeper) GroupPolicyMemberCount(ctx context.Context, policyAddr string) (uint64, error) {
+	councilName, _, ok := k.GetGroupByPolicy(ctx, policyAddr)
+	if !ok {
+		return 0, nil
+	}
+	return k.CountCouncilMembers(ctx, councilName)
+}
+
 // ClearCouncilMembers removes all members from a council.
 func (k Keeper) ClearCouncilMembers(ctx context.Context, councilName string) error {
 	rng := collections.NewPrefixedPairRange[string, string](councilName)

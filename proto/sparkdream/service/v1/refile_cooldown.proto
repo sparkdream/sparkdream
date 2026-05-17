@@ -1,0 +1,36 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// RefileCooldown bars a controller from re-filing the same allegation
+// against the same (operator, service_type) within
+// `report_refile_cooldown_blocks` after a PENDING report was
+// AUTO_DISMISSED (controller stall). See x-service-spec.md §3.4.5.
+//
+// Keyed by (controller, operator_address, service_type, dismissed_at)
+// in the RefileCooldowns store; lazy expiry — entries are checked at
+// MsgReportOperator time and pruned when expired.
+message RefileCooldown {
+  option (amino.name) = "sparkdream/x/service/RefileCooldown";
+  option (gogoproto.equal) = true;
+
+  // controller is the bech32 address of the controller against whom the
+  // cooldown applies.
+  string controller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // operator_address is the operator the prior dismissed report targeted.
+  string operator_address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // service_type identifies the operator record.
+  string service_type = 3;
+
+  // dismissed_at is the height the prior PENDING report was
+  // AUTO_DISMISSED. Cooldown expires at
+  // `dismissed_at + report_refile_cooldown_blocks`.
+  int64 dismissed_at = 4;
+}

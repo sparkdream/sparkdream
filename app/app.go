@@ -60,6 +60,8 @@ import (
 	repmodulekeeper "sparkdream/x/rep/keeper"
 	revealmodulekeeper "sparkdream/x/reveal/keeper"
 	seasonmodulekeeper "sparkdream/x/season/keeper"
+	servicemodulekeeper "sparkdream/x/service/keeper"
+	servicetypes "sparkdream/x/service/types"
 	sessionante "sparkdream/x/session/ante"
 	sessionmodulekeeper "sparkdream/x/session/keeper"
 	shieldabci "sparkdream/x/shield/abci"
@@ -140,6 +142,7 @@ type App struct {
 	GnoVMKeeper      gnovmmodulekeeper.Keeper
 	SessionKeeper    sessionmodulekeeper.Keeper
 	FederationKeeper federationmodulekeeper.Keeper
+	ServiceKeeper    servicemodulekeeper.Keeper
 }
 
 func init() {
@@ -228,6 +231,7 @@ func New(
 		&app.ShieldKeeper, &app.GnoVMKeeper,
 		&app.SessionKeeper,
 		&app.FederationKeeper,
+		&app.ServiceKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -291,6 +295,22 @@ func New(
 	app.FederationKeeper.SetCommonsKeeper(app.CommonsKeeper)
 	app.FederationKeeper.SetRepKeeper(app.RepKeeper)
 	app.FederationKeeper.SetNameKeeper(app.NameKeeper)
+
+	// Wire cross-module keepers into Service after depinject (leaf module).
+	// Adapters in app/service_adapters.go bridge concrete keepers to the
+	// trimmed interfaces x/service expects. The only remaining stubs are
+	// OpenJuryCase/CancelCase (pending x/rep's jury subsystem).
+	app.ServiceKeeper.SetCrossModuleKeepers(
+		NewServiceCommonsAdapter(app.CommonsKeeper),
+		NewServiceRepAdapter(app.RepKeeper),
+		NewServiceDistributionAdapter(app.DistrKeeper),
+	)
+	// Register the x/commons hook impl so AfterOperatorDissolved cancels
+	// matching RecurringSpend schedules (§6.1). AfterOperatorRetired is
+	// a no-op for x/commons (operator may be rotating keys).
+	app.ServiceKeeper.SetHooks(servicetypes.NewMultiServiceHooks(
+		NewCommonsServiceHooks(app.CommonsKeeper),
+	))
 
 	// We explicitly tell Futarchy to call Commons when markets resolve.
 	app.FutarchyKeeper.SetHooks(

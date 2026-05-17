@@ -26,7 +26,7 @@ var (
 	DefaultMaxGuildMembers              uint32 = 100
 	DefaultMaxGuildOfficers             uint32 = 5
 	DefaultGuildCreationCost                   = math.NewInt(100_000_000) // 100 DREAM (in udream)
-	DefaultGuildHopCooldownEpochs       uint64 = 30               // ~1 month
+	DefaultGuildHopCooldownEpochs       uint64 = 30                       // ~1 month
 	DefaultMaxGuildsPerSeason           uint32 = 3
 	DefaultMinGuildAgeEpochs            uint64 = 7 // ~1 week
 	DefaultMaxPendingInvites            uint32 = 20
@@ -35,7 +35,7 @@ var (
 	DefaultDisplayNameChangeCooldown    uint64 = 1 // 1 epoch
 	DefaultUsernameMinLength            uint32 = 3
 	DefaultUsernameMaxLength            uint32 = 20
-	DefaultUsernameChangeCooldown       uint64 = 30              // 30 epochs
+	DefaultUsernameChangeCooldown       uint64 = 30                      // 30 epochs
 	DefaultUsernameCostDream                   = math.NewInt(10_000_000) // 10 DREAM (in udream)
 	DefaultMaxTransitionEpochs          uint64 = 7
 	DefaultTransitionBatchSize          uint32 = 100
@@ -58,7 +58,7 @@ var (
 	DefaultTransitionMaxRetries         uint32 = 3
 	DefaultDisplayNameReportStake              = math.NewInt(50_000_000)  // 50 DREAM (in udream)
 	DefaultDisplayNameAppealStake              = math.NewInt(100_000_000) // 100 DREAM (in udream)
-	DefaultDisplayNameAppealPeriod      uint64 = 100800           // ~7 days in blocks
+	DefaultDisplayNameAppealPeriod      uint64 = 100800                   // ~7 days in blocks
 	DefaultMaxDisplayableTitles         uint32 = 50
 	DefaultMaxArchivedTitles            uint32 = 200
 	DefaultInviteCleanupInterval        uint32 = 100

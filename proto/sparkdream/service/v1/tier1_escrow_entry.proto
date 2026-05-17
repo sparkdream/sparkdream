@@ -1,0 +1,43 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// Tier1EscrowEntry holds a tier-1 slash that has been moved out of the
+// operator's bond but not yet released to the community pool — pending
+// either the contest window expiring (release to pool) or the operator
+// contesting (return to bond). See x-service-spec.md §3.4.7.
+//
+// Keyed by `escrow_id` (auto-incrementing uint64) in the Tier1Escrow
+// store; secondary index by operator (Tier1EscrowByOperator) and by
+// release height (Tier1EscrowReleaseQueue for the EndBlocker sweep).
+message Tier1EscrowEntry {
+  option (amino.name) = "sparkdream/x/service/Tier1EscrowEntry";
+  option (gogoproto.equal) = true;
+
+  // escrow_id is the auto-incrementing primary key (NextEscrowID counter).
+  uint64 escrow_id = 1;
+
+  // report_id is the report this escrow corresponds to (the tier-1
+  // resolution that produced the slash).
+  uint64 report_id = 2;
+
+  // operator_address is the operator whose bond was reduced.
+  string operator_address = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // service_type identifies which operator record this affects.
+  string service_type = 4;
+
+  // amount is the SPARK held in escrow.
+  cosmos.base.v1beta1.Coin amount = 5 [(gogoproto.nullable) = false];
+
+  // release_at is the height at which the escrow becomes eligible for
+  // release to the community pool (set to current_height +
+  // report_contest_window_blocks at lock time).
+  int64 release_at = 6;
+}

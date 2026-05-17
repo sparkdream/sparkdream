@@ -120,4 +120,3 @@ func TestGenesis_RecurringSpendRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, recipIDs, 4)
 }
-

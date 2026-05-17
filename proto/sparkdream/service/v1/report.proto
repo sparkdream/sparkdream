@@ -1,0 +1,63 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/service/v1/types.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// Report is a single report filed against an operator (see x-service-spec.md
+// §3.4 and §4.1). Keyed by `report_id` (auto-incrementing uint64); secondary
+// indexes by operator (ReportsByOperator) and by status for the PENDING /
+// ESCALATED EndBlocker sweeps.
+message Report {
+  option (amino.name) = "sparkdream/x/service/Report";
+  option (gogoproto.equal) = true;
+
+  // report_id is the auto-incrementing primary key (NextReportID counter).
+  uint64 report_id = 1;
+
+  // operator_address is the target operator's bech32 address.
+  string operator_address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // service_type identifies which operator record this report targets
+  // (an address may have multiple operators across service types).
+  string service_type = 3;
+
+  // reporter is the bech32 address of the member who filed the report.
+  string reporter = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // reason is free-form human-readable text, capped by `max_reason_bytes`.
+  string reason = 5;
+
+  // filed_at is the height the report was filed.
+  int64 filed_at = 6;
+
+  // escalated_at is the height the report transitioned to ESCALATED; 0
+  // otherwise. Feeds the auto-timeout sweep (§3.6 queue 3).
+  int64 escalated_at = 7;
+
+  // status is the lifecycle status (§3.4.5).
+  ReportStatus status = 8;
+
+  // proposed_slash_bps is set when the controller escalates with a
+  // specific proposal (or carried forward on operator contest); the jury
+  // verdict is bounded by this value (§5.2).
+  uint32 proposed_slash_bps = 9;
+
+  // slash_amount is the SPARK amount actually slashed once the report
+  // resolves. Zero for PENDING / RESOLVED_T1-with-dismiss / AUTO_*.
+  cosmos.base.v1beta1.Coin slash_amount = 10 [(gogoproto.nullable) = false];
+
+  // deposit is the SPARK the reporter escrowed at filing time
+  // (`report_deposit` param). Held in the report deposit pool until
+  // resolution.
+  cosmos.base.v1beta1.Coin deposit = 11 [(gogoproto.nullable) = false];
+
+  // jury_case_id is the x/rep case id opened on escalation; 0 if never
+  // escalated.
+  uint64 jury_case_id = 12;
+}

@@ -3,9 +3,11 @@ package keeper
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/commons/types"
 )
@@ -103,4 +105,46 @@ func (k Keeper) ListRecurringSpendsByRecipient(ctx context.Context, recipient st
 		return false, nil
 	})
 	return out, err
+}
+
+// CancelActiveSchedulesForRecipient marks every ACTIVE schedule whose
+// `recipient == addr` as CANCELED. Returns the list of canceled
+// schedule IDs (for caller-side logging). The authority field is NOT
+// checked — this is the system-driven counterpart to
+// MsgCancelRecurringSpend, intended for callers like x/service's
+// operator-dissolved hook (§6.1) where the controller authority would
+// normally have to authorize each cancel but dissolution
+// short-circuits that requirement.
+//
+// Emits the same `recurring_spend_canceled` event as the user-driven
+// path so downstream indexers see consistent state transitions.
+func (k Keeper) CancelActiveSchedulesForRecipient(ctx context.Context, recipient string, reason string) ([]uint64, error) {
+	schedules, err := k.ListRecurringSpendsByRecipient(ctx, recipient)
+	if err != nil {
+		return nil, err
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	var canceled []uint64
+	for _, rs := range schedules {
+		if rs.Status != types.RecurringSpendStatus_RECURRING_SPEND_STATUS_ACTIVE {
+			continue
+		}
+		rs.Status = types.RecurringSpendStatus_RECURRING_SPEND_STATUS_CANCELED
+		if err := k.RecurringSpends.Set(ctx, rs.Id, rs); err != nil {
+			return canceled, err
+		}
+		if err := k.decActiveCount(ctx, rs.Authority); err != nil {
+			return canceled, err
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"recurring_spend_canceled",
+			sdk.NewAttribute("id", fmt.Sprintf("%d", rs.Id)),
+			sdk.NewAttribute("authority", rs.Authority),
+			sdk.NewAttribute("recipient", rs.Recipient),
+			sdk.NewAttribute("reason", reason),
+		))
+		canceled = append(canceled, rs.Id)
+	}
+	return canceled, nil
 }

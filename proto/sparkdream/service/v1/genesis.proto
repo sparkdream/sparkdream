@@ -1,0 +1,69 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/service/v1/controller_transfer_case.proto";
+import "sparkdream/service/v1/operator.proto";
+import "sparkdream/service/v1/params.proto";
+import "sparkdream/service/v1/refile_cooldown.proto";
+import "sparkdream/service/v1/report.proto";
+import "sparkdream/service/v1/reporter_rate_limit.proto";
+import "sparkdream/service/v1/service_type_config.proto";
+import "sparkdream/service/v1/tier1_escrow_entry.proto";
+import "sparkdream/service/v1/tier1_last_slash.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// GenesisState defines the service module's genesis state. See
+// x-service-spec.md §7 for full validation rules.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+
+  // service_types is the initial governance-managed allowlist (§3.2).
+  // Default genesis is empty — governance must enable types post-launch.
+  repeated ServiceTypeConfig service_types = 2 [(gogoproto.nullable) = false];
+
+  // operators is the set of live records (status ∈ {ACTIVE, UNDERFUNDED,
+  // UNBONDING}) at genesis time. Each (address, service_type) MUST be
+  // unique (§3.1).
+  repeated Operator operators = 3 [(gogoproto.nullable) = false];
+
+  // archived_operators is the set of terminal records (status ∈ {SLASHED,
+  // RETIRED}) — retained for audit. MUST not collide with live operators
+  // on (address, service_type).
+  repeated Operator archived_operators = 4 [(gogoproto.nullable) = false];
+
+  // reports is the set of open and recently-resolved reports.
+  repeated Report reports = 5 [(gogoproto.nullable) = false];
+
+  // tier1_escrow is the set of in-flight tier-1 slashes awaiting either
+  // contest or release to community pool (§3.4.7).
+  repeated Tier1EscrowEntry tier1_escrow = 6 [(gogoproto.nullable) = false];
+
+  // controller_transfer_cases is the set of open controller-transfer
+  // jury cases (§5.4), each holding an escrowed opener deposit.
+  repeated ControllerTransferCase controller_transfer_cases = 7 [(gogoproto.nullable) = false];
+
+  // reporter_rate_limits is the per-(reporter, operator, service_type)
+  // sliding-window ring buffer (§3.4.6).
+  repeated ReporterRateLimit reporter_rate_limits = 8 [(gogoproto.nullable) = false];
+
+  // refile_cooldowns blocks the same controller from re-filing a
+  // dismissed allegation within `report_refile_cooldown_blocks` (§3.4.5).
+  repeated RefileCooldown refile_cooldowns = 9 [(gogoproto.nullable) = false];
+
+  // tier1_last_slash records per-(controller, operator, service_type) the
+  // height of the last tier-1 slash for cooldown enforcement (§3.4.4).
+  repeated Tier1LastSlash tier1_last_slash = 10 [(gogoproto.nullable) = false];
+
+  // next_report_id restores the Reports auto-incrementing counter.
+  uint64 next_report_id = 11;
+
+  // next_escrow_id restores the Tier1Escrow auto-incrementing counter.
+  uint64 next_escrow_id = 12;
+}

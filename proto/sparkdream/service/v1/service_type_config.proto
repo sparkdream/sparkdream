@@ -1,0 +1,56 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// ServiceTypeConfig is the governance-managed allowlist entry that defines
+// a permitted service type and its per-type knobs (see x-service-spec.md
+// §3.2). Mutated only via MsgUpdateServiceTypeConfig (gov authority).
+message ServiceTypeConfig {
+  option (amino.name) = "sparkdream/x/service/ServiceTypeConfig";
+  option (gogoproto.equal) = true;
+
+  // service_type is the string key matching ^[a-z0-9-]{1,64}$. Immutable
+  // once created.
+  string service_type = 1;
+
+  // description is human-readable purpose; <= 512 chars.
+  string description = 2;
+
+  // min_bond is the minimum SPARK required to register or remain ACTIVE
+  // under this service type.
+  cosmos.base.v1beta1.Coin min_bond = 3 [(gogoproto.nullable) = false];
+
+  // unbonding_period_blocks overrides the default unbonding window for
+  // this type. ~14 days at default block time.
+  int64 unbonding_period_blocks = 4;
+
+  // unilateral_slash_cap_bps is the per-slash cap (default 500 = 5%).
+  // basis points, in (0, 10000].
+  uint32 unilateral_slash_cap_bps = 5;
+
+  // tier1_window_blocks is the rolling window for the aggregate tier-1
+  // cap (default ~90 days).
+  int64 tier1_window_blocks = 6;
+
+  // tier1_aggregate_cap_bps is the cumulative-slash cap within the
+  // window (default 1500 = 15%). MUST be ≥ unilateral_slash_cap_bps.
+  uint32 tier1_aggregate_cap_bps = 7;
+
+  // tier1_cooldown_blocks is the minimum interval between tier-1 slashes
+  // against the same operator (default ~7 days). MUST be > 0.
+  int64 tier1_cooldown_blocks = 8;
+
+  // underfunded_grace_blocks is the time an UNDERFUNDED operator has to
+  // top up before being force-unbonded by the EndBlocker (default ~7
+  // days).
+  int64 underfunded_grace_blocks = 9;
+
+  // enabled gates new registrations. Disabling does not affect existing
+  // operators (§3.2 disabled-type semantics).
+  bool enabled = 10;
+}

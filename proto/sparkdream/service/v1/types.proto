@@ -1,0 +1,69 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+option go_package = "sparkdream/x/service/types";
+
+// OperatorStatus is the lifecycle status of a service-operator record.
+// ACTIVE | UNDERFUNDED | UNBONDING are live; SLASHED | RETIRED are terminal
+// and held in ArchivedOperators (see x-service-spec.md §3.1).
+enum OperatorStatus {
+  OPERATOR_STATUS_UNSPECIFIED = 0;
+  OPERATOR_STATUS_ACTIVE = 1;
+  OPERATOR_STATUS_UNDERFUNDED = 2;
+  OPERATOR_STATUS_UNBONDING = 3;
+  OPERATOR_STATUS_SLASHED = 4;
+  OPERATOR_STATUS_RETIRED = 5;
+}
+
+// ReportStatus is the lifecycle status of a Report (see §3.4.5).
+enum ReportStatus {
+  REPORT_STATUS_UNSPECIFIED = 0;
+  REPORT_STATUS_PENDING = 1;
+  REPORT_STATUS_RESOLVED_T1 = 2;
+  REPORT_STATUS_ESCALATED = 3;
+  REPORT_STATUS_RESOLVED_T2 = 4;
+  REPORT_STATUS_AUTO_DISMISSED = 5;
+  REPORT_STATUS_AUTO_TIMEOUT = 6;
+  REPORT_STATUS_CLOSED_OPERATOR_DISSOLVED = 7;
+}
+
+// ResolveVerdict is the controller's verdict on a PENDING report (§5.2).
+enum ResolveVerdict {
+  RESOLVE_VERDICT_UNSPECIFIED = 0;
+  RESOLVE_VERDICT_T1_SLASH = 1;
+  RESOLVE_VERDICT_T1_DISMISS = 2;
+  RESOLVE_VERDICT_ESCALATE_TO_JURY = 3;
+}
+
+// JuryVerdict is the jury's verdict on a service.slash case (§5.2).
+enum JuryVerdict {
+  JURY_VERDICT_UNSPECIFIED = 0;
+  JURY_VERDICT_ACCEPT = 1;
+  JURY_VERDICT_REDUCE = 2;
+  JURY_VERDICT_REJECT = 3;
+}
+
+// TransferVerdict is the jury's verdict on a service.controller_transfer
+// case (§5.4). Binary — no REDUCE.
+enum TransferVerdict {
+  TRANSFER_VERDICT_UNSPECIFIED = 0;
+  TRANSFER_VERDICT_ACCEPT = 1;
+  TRANSFER_VERDICT_REJECT = 2;
+}
+
+// SlashSource identifies the origin of a slash for keeper-level invariant
+// dispatch (§6.7). Internal to the keeper; not serialized in events.
+enum SlashSource {
+  SLASH_SOURCE_UNSPECIFIED = 0;
+  SLASH_SOURCE_TIER1 = 1;
+  SLASH_SOURCE_TIER2_JURY = 2;
+  SLASH_SOURCE_MIGRATION = 3;
+}
+
+// UnbondSource distinguishes voluntary vs forced unbonding for telemetry
+// and event emission (§12 events).
+enum UnbondSource {
+  UNBOND_SOURCE_UNSPECIFIED = 0;
+  UNBOND_SOURCE_VOLUNTARY = 1;
+  UNBOND_SOURCE_FORCED_UNDERFUNDED = 2;
+}

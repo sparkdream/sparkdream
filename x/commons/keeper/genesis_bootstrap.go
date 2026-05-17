@@ -143,8 +143,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	// =========================================================================
 
 	commonsConfig := GroupConfig{
-		Name:          "Commons Council",
-		Description:   "Culture, Arts, and Events (Top Level)",
+		Name:        "Commons Council",
+		Description: "Culture, Arts, and Events (Top Level)",
 		// Pillar share: 50% of community-pool inflow (475/1000). Of that,
 		// 25/1000 (5% of the pillar) is diverted to the Commons Operations
 		// Committee below so day-to-day spending has its own continuous
@@ -207,8 +207,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	}
 
 	techConfig := GroupConfig{
-		Name:          "Technical Council",
-		Description:   "Chain Upgrades & Security (Top Level)",
+		Name:        "Technical Council",
+		Description: "Chain Upgrades & Security (Top Level)",
 		// Pillar share: 30% of community-pool inflow (285/1000). Of that,
 		// 15/1000 (5% of the pillar) goes to Technical Operations below.
 		FundingWeight: 285,
@@ -252,8 +252,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 
 	// Tech Committees
 	k.createGroup(ctx, GroupConfig{
-		Name:                 "Technical Operations Committee",
-		Description:          "Operational arm for Tech",
+		Name:        "Technical Operations Committee",
+		Description: "Operational arm for Tech",
 		// 5% of the Technical pillar (15/1000 of community pool). Governance
 		// committees keep FundingWeight=0 because their MaxSpendPerEpoch is
 		// also 0 — only the operations arm needs a treasury.
@@ -270,12 +270,12 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgVoteProposal",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 		},
-		MaxSpendPerEpoch:     math.NewInt(10000000000),
-		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
-		FutarchyEnabled:      false,
-		MinMembers:           2,
-		MaxMembers:           5,
-		TermDuration:         TermDuration5Months,
+		MaxSpendPerEpoch: math.NewInt(10000000000),
+		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),
+		FutarchyEnabled:  false,
+		MinMembers:       2,
+		MaxMembers:       5,
+		TermDuration:     TermDuration5Months,
 	}, founderMembers)
 
 	techGovPolicy := k.createGroup(ctx, GroupConfig{
@@ -307,8 +307,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	}
 
 	ecoConfig := GroupConfig{
-		Name:          "Ecosystem Council",
-		Description:   "Treasury & Growth (Top Level)",
+		Name:        "Ecosystem Council",
+		Description: "Treasury & Growth (Top Level)",
 		// Pillar share: 20% of community-pool inflow (190/1000). Of that,
 		// 10/1000 (5% of the pillar) goes to Ecosystem Operations below.
 		FundingWeight: 190,
@@ -350,8 +350,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 
 	// Eco Committees
 	k.createGroup(ctx, GroupConfig{
-		Name:                 "Ecosystem Operations Committee",
-		Description:          "Operational arm for Ecosystem",
+		Name:        "Ecosystem Operations Committee",
+		Description: "Operational arm for Ecosystem",
 		// 5% of the Ecosystem pillar (10/1000 of community pool).
 		FundingWeight:        10,
 		ParentPolicy:         ecoPolicy,
@@ -366,12 +366,12 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 		},
-		MaxSpendPerEpoch:     math.NewInt(10000000000),
-		UpdateCooldown:       int64(CommitteeUpdateCooldown.Seconds()),
-		FutarchyEnabled:      false,
-		MinMembers:           2,
-		MaxMembers:           5,
-		TermDuration:         TermDuration5Months,
+		MaxSpendPerEpoch: math.NewInt(10000000000),
+		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),
+		FutarchyEnabled:  false,
+		MinMembers:       2,
+		MaxMembers:       5,
+		TermDuration:     TermDuration5Months,
 	}, founderMembers)
 
 	ecoGovPolicy := k.createGroup(ctx, GroupConfig{
@@ -434,8 +434,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	// =========================================================================
 
 	commOpsPolicy := k.createGroup(ctx, GroupConfig{
-		Name:          "Commons Operations Committee",
-		Description:   "Day-to-day spending for Commons",
+		Name:        "Commons Operations Committee",
+		Description: "Day-to-day spending for Commons",
 		// 5% of the Commons pillar (25/1000 of community pool). Largest of
 		// the three Ops budgets because Commons holds the biggest pillar
 		// share and has the most operational mandates (categories, tag

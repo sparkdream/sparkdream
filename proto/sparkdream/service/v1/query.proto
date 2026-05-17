@@ -1,0 +1,209 @@
+syntax = "proto3";
+
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/service/v1/operator.proto";
+import "sparkdream/service/v1/params.proto";
+import "sparkdream/service/v1/report.proto";
+import "sparkdream/service/v1/service_type_config.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// Query defines the gRPC querier service for x/service.
+// See x-service-spec.md §8.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/params";
+  }
+
+  // Operator returns the live operator record for (address, service_type).
+  rpc Operator(QueryOperatorRequest) returns (QueryOperatorResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/operator/{address}/{service_type}";
+  }
+
+  // ServiceType returns one service-type registry entry.
+  rpc ServiceType(QueryServiceTypeRequest) returns (QueryServiceTypeResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/service_type/{service_type}";
+  }
+
+  // ServiceTypes returns all service-type registry entries (paginated).
+  rpc ServiceTypes(QueryServiceTypesRequest) returns (QueryServiceTypesResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/service_types";
+  }
+
+  // Operators returns all live operator records (paginated, optionally
+  // filtered by status).
+  rpc Operators(QueryOperatorsRequest) returns (QueryOperatorsResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/operators";
+  }
+
+  // OperatorsByController returns live operators whose controller is the
+  // given address.
+  rpc OperatorsByController(QueryOperatorsByControllerRequest) returns (QueryOperatorsByControllerResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/operators_by_controller/{controller}";
+  }
+
+  // OperatorsByServiceType returns live operators of the given service type.
+  rpc OperatorsByServiceType(QueryOperatorsByServiceTypeRequest) returns (QueryOperatorsByServiceTypeResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/operators_by_service_type/{service_type}";
+  }
+
+  // Report returns a single report by id.
+  rpc Report(QueryReportRequest) returns (QueryReportResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/report/{report_id}";
+  }
+
+  // ReportsByOperator returns reports against (operator_address, service_type).
+  rpc ReportsByOperator(QueryReportsByOperatorRequest) returns (QueryReportsByOperatorResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/reports_by_operator/{operator_address}/{service_type}";
+  }
+
+  // OperatorReputationSnapshot returns bond-block totals for an address
+  // (§6.6 lazy accrual visibility). Settles in-memory at query time; no
+  // state write.
+  rpc OperatorReputationSnapshot(QueryOperatorReputationSnapshotRequest) returns (QueryOperatorReputationSnapshotResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/operator_reputation_snapshot/{address}";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryOperatorRequest defines the QueryOperatorRequest message.
+message QueryOperatorRequest {
+  string address = 1;
+  string service_type = 2;
+}
+
+// QueryOperatorResponse defines the QueryOperatorResponse message.
+message QueryOperatorResponse {
+  Operator operator = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryServiceTypeRequest defines the QueryServiceTypeRequest message.
+message QueryServiceTypeRequest {
+  string service_type = 1;
+}
+
+// QueryServiceTypeResponse defines the QueryServiceTypeResponse message.
+message QueryServiceTypeResponse {
+  ServiceTypeConfig config = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryServiceTypesRequest defines the QueryServiceTypesRequest message.
+message QueryServiceTypesRequest {
+  // If true, only enabled service types are returned.
+  bool enabled_only = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryServiceTypesResponse defines the QueryServiceTypesResponse message.
+message QueryServiceTypesResponse {
+  repeated ServiceTypeConfig configs = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryOperatorsRequest defines the QueryOperatorsRequest message.
+message QueryOperatorsRequest {
+  // status_filter, if non-empty, restricts results to operators with
+  // that status. Valid values match the OperatorStatus enum names
+  // (case-insensitive match against enum string).
+  string status_filter = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryOperatorsResponse defines the QueryOperatorsResponse message.
+message QueryOperatorsResponse {
+  repeated Operator operators = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryOperatorsByControllerRequest defines the QueryOperatorsByControllerRequest message.
+message QueryOperatorsByControllerRequest {
+  string controller = 1;
+  string status_filter = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryOperatorsByControllerResponse defines the QueryOperatorsByControllerResponse message.
+message QueryOperatorsByControllerResponse {
+  repeated Operator operators = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryOperatorsByServiceTypeRequest defines the QueryOperatorsByServiceTypeRequest message.
+message QueryOperatorsByServiceTypeRequest {
+  string service_type = 1;
+  string status_filter = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryOperatorsByServiceTypeResponse defines the QueryOperatorsByServiceTypeResponse message.
+message QueryOperatorsByServiceTypeResponse {
+  repeated Operator operators = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryReportRequest defines the QueryReportRequest message.
+message QueryReportRequest {
+  uint64 report_id = 1;
+}
+
+// QueryReportResponse defines the QueryReportResponse message.
+message QueryReportResponse {
+  Report report = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryReportsByOperatorRequest defines the QueryReportsByOperatorRequest message.
+message QueryReportsByOperatorRequest {
+  string operator_address = 1;
+  string service_type = 2;
+  // status_filter, if non-empty, restricts to reports with that status
+  // (matched against the ReportStatus enum string, case-insensitive).
+  string status_filter = 3;
+  cosmos.base.query.v1beta1.PageRequest pagination = 4;
+}
+
+// QueryReportsByOperatorResponse defines the QueryReportsByOperatorResponse message.
+message QueryReportsByOperatorResponse {
+  repeated Report reports = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryOperatorReputationSnapshotRequest defines the QueryOperatorReputationSnapshotRequest message.
+message QueryOperatorReputationSnapshotRequest {
+  string address = 1;
+}
+
+// QueryOperatorReputationSnapshotResponse returns aggregate bond-block
+// accrual for an address, settled at query time per §6.6.
+message QueryOperatorReputationSnapshotResponse {
+  // total_bond_blocks summed across all live operator records for the
+  // address (not capped by the anti-gaming rule — this is the raw
+  // accrual).
+  string total_bond_blocks = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // effective_bond_blocks is the max single-operator bond-blocks for
+  // this address — the value that would actually be granted at unbond
+  // claim per the §6.6 anti-gaming cap.
+  string effective_bond_blocks = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

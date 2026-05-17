@@ -1,0 +1,287 @@
+syntax = "proto3";
+
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/service/v1/params.proto";
+import "sparkdream/service/v1/service_type_config.proto";
+import "sparkdream/service/v1/types.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// Msg defines the Msg service for x/service. See x-service-spec.md §5.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams updates module-wide params (§4.2). Authority = x/gov.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // UpdateServiceTypeConfig adds, updates, or disables a service-type
+  // registry entry (§3.2). Authority = x/gov.
+  rpc UpdateServiceTypeConfig(MsgUpdateServiceTypeConfig) returns (MsgUpdateServiceTypeConfigResponse);
+
+  // --- Operator lifecycle (signed by operator) ---
+
+  // RegisterOperator creates a new live operator record (§5.1). MUST be
+  // signed by `creator` directly — not delegable via x/session or x/authz.
+  rpc RegisterOperator(MsgRegisterOperator) returns (MsgRegisterOperatorResponse);
+
+  // UpdateMetadata updates the opaque service-specific metadata blob.
+  rpc UpdateMetadata(MsgUpdateMetadata) returns (MsgUpdateMetadataResponse);
+
+  // UnbondOperator starts wind-down (§3.5). MUST be signed directly.
+  rpc UnbondOperator(MsgUnbondOperator) returns (MsgUnbondOperatorResponse);
+
+  // ClaimUnbondedBond returns bond and archives the record as RETIRED
+  // once the unbonding period has elapsed with no open reports/escrow.
+  rpc ClaimUnbondedBond(MsgClaimUnbondedBond) returns (MsgClaimUnbondedBondResponse);
+
+  // TopUpBond adds SPARK to an operator's bond; clears UNDERFUNDED if
+  // applicable.
+  rpc TopUpBond(MsgTopUpBond) returns (MsgTopUpBondResponse);
+
+  // --- Reports & slashing ---
+
+  // ReportOperator files a new report; reporter posts `report_deposit`
+  // escrow (§3.4.6).
+  rpc ReportOperator(MsgReportOperator) returns (MsgReportOperatorResponse);
+
+  // ResolveReport is the controller's verdict on a PENDING report:
+  // T1_SLASH, T1_DISMISS, or ESCALATE_TO_JURY (§5.2).
+  rpc ResolveReport(MsgResolveReport) returns (MsgResolveReportResponse);
+
+  // ContestSlash escalates a tier-1 slash to the jury within
+  // `report_contest_window_blocks` (§5.2). Escrow returns to bond.
+  rpc ContestSlash(MsgContestSlash) returns (MsgContestSlashResponse);
+
+  // ResolveReportByJury is the jury verdict path; signer is the x/rep
+  // module account (§5.2 + §6.2).
+  rpc ResolveReportByJury(MsgResolveReportByJury) returns (MsgResolveReportByJuryResponse);
+
+  // --- Controller transfer (jury-mediated) ---
+
+  // OpenControllerTransferCase opens a jury case proposing to transfer
+  // an operator's controller to a new x/commons Group (§5.4). Opener
+  // posts `report_deposit` escrow.
+  rpc OpenControllerTransferCase(MsgOpenControllerTransferCase) returns (MsgOpenControllerTransferCaseResponse);
+
+  // FinalizeControllerTransfer is the jury verdict path for controller-
+  // transfer cases; signer is the x/rep module account (§5.4 + §6.2).
+  rpc FinalizeControllerTransfer(MsgFinalizeControllerTransfer) returns (MsgFinalizeControllerTransferResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Authority msgs
+// ---------------------------------------------------------------------------
+
+// MsgUpdateParams updates module-wide params. Authority = x/gov.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/service/MsgUpdateParams";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // params defines the module parameters to update. All fields must be supplied.
+  Params params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+message MsgUpdateParamsResponse {}
+
+// MsgUpdateServiceTypeConfig creates, updates, or disables a
+// ServiceTypeConfig entry. Authority = x/gov. See §3.2 for validation.
+message MsgUpdateServiceTypeConfig {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/service/MsgUpdateServiceTypeConfig";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // config is the full ServiceTypeConfig to set. The service_type field
+  // identifies which entry; an entry is created if missing or updated
+  // in place if present. service_type itself is immutable post-creation.
+  ServiceTypeConfig config = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+message MsgUpdateServiceTypeConfigResponse {}
+
+// ---------------------------------------------------------------------------
+// Operator lifecycle msgs (signed by operator key directly — see §5.1)
+// ---------------------------------------------------------------------------
+
+// MsgRegisterOperator creates a new operator record. MUST be signed by
+// `creator` directly (msg-server checks `creator == tx_signer[0]`); not
+// delegable via x/session or x/authz (§5.1).
+message MsgRegisterOperator {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/service/MsgRegisterOperator";
+
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+  string controller = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  cosmos.base.v1beta1.Coin bond = 4 [(gogoproto.nullable) = false];
+  bytes metadata = 5;
+}
+
+message MsgRegisterOperatorResponse {}
+
+// MsgUpdateMetadata updates the operator's opaque metadata blob.
+message MsgUpdateMetadata {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/service/MsgUpdateMetadata";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+  bytes new_metadata = 3;
+}
+
+message MsgUpdateMetadataResponse {}
+
+// MsgUnbondOperator transitions ACTIVE | UNDERFUNDED → UNBONDING and
+// starts the unbonding clock (§3.5). MUST be signed by `operator`
+// directly (not delegable).
+message MsgUnbondOperator {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/service/MsgUnbondOperator";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+}
+
+message MsgUnbondOperatorResponse {}
+
+// MsgClaimUnbondedBond completes unbonding, returns bond, and archives
+// the record as RETIRED (§3.5).
+message MsgClaimUnbondedBond {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/service/MsgClaimUnbondedBond";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+}
+
+message MsgClaimUnbondedBondResponse {}
+
+// MsgTopUpBond adds SPARK to an operator's bond. Clears UNDERFUNDED if
+// the new bond ≥ min_bond.
+message MsgTopUpBond {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/service/MsgTopUpBond";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+  cosmos.base.v1beta1.Coin additional_bond = 3 [(gogoproto.nullable) = false];
+}
+
+message MsgTopUpBondResponse {}
+
+// ---------------------------------------------------------------------------
+// Reports & slashing msgs
+// ---------------------------------------------------------------------------
+
+// MsgReportOperator files a new report. Reporter posts `report_deposit`
+// escrow at filing (§3.4.6). Rate-limited per
+// (reporter, operator, service_type).
+message MsgReportOperator {
+  option (cosmos.msg.v1.signer) = "reporter";
+  option (amino.name) = "sparkdream/x/service/MsgReportOperator";
+
+  string reporter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 3;
+  string reason = 4;
+}
+
+message MsgReportOperatorResponse {
+  uint64 report_id = 1;
+}
+
+// MsgResolveReport is the controller's verdict on a PENDING report
+// (§5.2). For ESCALATE_TO_JURY, the controller's `slash_bps` is stored
+// as the report's `proposed_slash_bps` upper bound.
+message MsgResolveReport {
+  option (cosmos.msg.v1.signer) = "controller";
+  option (amino.name) = "sparkdream/x/service/MsgResolveReport";
+
+  string controller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 report_id = 2;
+  ResolveVerdict verdict = 3;
+  uint32 slash_bps = 4;
+}
+
+message MsgResolveReportResponse {}
+
+// MsgContestSlash escalates a RESOLVED_T1 report to the jury within
+// the contest window (§5.2). Escrow returns to bond eagerly.
+message MsgContestSlash {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/service/MsgContestSlash";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+  uint64 report_id = 3;
+}
+
+message MsgContestSlashResponse {}
+
+// MsgResolveReportByJury is the only path to apply a tier-2 slash.
+// Signer is the x/rep module account (§5.2 + §6.2); rejected from any
+// other signer with ErrUnauthorizedJuryAuthority.
+message MsgResolveReportByJury {
+  option (cosmos.msg.v1.signer) = "jury_authority";
+  option (amino.name) = "sparkdream/x/service/MsgResolveReportByJury";
+
+  string jury_authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 report_id = 2;
+  JuryVerdict verdict = 3;
+  uint32 slash_bps = 4;
+  bool dissolve = 5;
+}
+
+message MsgResolveReportByJuryResponse {}
+
+// ---------------------------------------------------------------------------
+// Controller transfer msgs (jury-mediated)
+// ---------------------------------------------------------------------------
+
+// MsgOpenControllerTransferCase opens a jury case to transfer the
+// operator's controller to a new x/commons Group (§5.4). At most one
+// open case per (operator, service_type).
+message MsgOpenControllerTransferCase {
+  option (cosmos.msg.v1.signer) = "opener";
+  option (amino.name) = "sparkdream/x/service/MsgOpenControllerTransferCase";
+
+  string opener = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 3;
+  string proposed_new_controller = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string reason = 5;
+}
+
+message MsgOpenControllerTransferCaseResponse {
+  uint64 jury_case_id = 1;
+}
+
+// MsgFinalizeControllerTransfer applies the jury verdict (ACCEPT or
+// REJECT) on a controller-transfer case. Signer is the x/rep module
+// account (§5.4 + §6.2). Re-checks Group eligibility at apply time.
+message MsgFinalizeControllerTransfer {
+  option (cosmos.msg.v1.signer) = "jury_authority";
+  option (amino.name) = "sparkdream/x/service/MsgFinalizeControllerTransfer";
+
+  string jury_authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_case_id = 2;
+  TransferVerdict verdict = 3;
+  // new_controller is set on ACCEPT, ignored on REJECT.
+  string new_controller = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+message MsgFinalizeControllerTransferResponse {}

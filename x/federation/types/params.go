@@ -59,10 +59,10 @@ var (
 	DefaultMaxPrunePerBlock          = uint64(100)
 
 	// Verification — network-independent (DREAM amounts in udream: 1 DREAM = 1e6 udream)
-	DefaultMinVerifierTrustLevel        = uint32(2)                       // ESTABLISHED
-	DefaultMinVerifierBond              = math.NewInt(500_000_000)        // 500 DREAM
-	DefaultVerifierRecoveryThreshold    = math.NewInt(250_000_000)        // 250 DREAM
-	DefaultVerifierSlashAmount          = math.NewInt(50_000_000)         // 50 DREAM
+	DefaultMinVerifierTrustLevel        = uint32(2)                // ESTABLISHED
+	DefaultMinVerifierBond              = math.NewInt(500_000_000) // 500 DREAM
+	DefaultVerifierRecoveryThreshold    = math.NewInt(250_000_000) // 250 DREAM
+	DefaultVerifierSlashAmount          = math.NewInt(50_000_000)  // 50 DREAM
 	DefaultUpheldToResetOverturns       = uint32(3)
 	DefaultMinEpochVerifications        = uint32(3)
 	DefaultMinVerifierAccuracy          = math.LegacyNewDecWithPrec(8, 1) // 0.8
