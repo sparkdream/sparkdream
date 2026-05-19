@@ -257,6 +257,99 @@ done
 echo ""
 
 # ========================================================================
+# 4b. Tune x/service for E2E. The federation→service migration left the
+# two federation-bridge ServiceTypeConfigs with production defaults
+# (241920-block unbonding ≈ 14 days, ESTABLISHED reporter trust gate).
+# Both make the federation E2E suites untenably slow. Submit a single
+# expedited gov proposal that:
+#   - Sets federation-bridge-activitypub.unbonding_period_blocks to 10
+#     blocks (~50s) so service_hooks_test's unbond→claim cycle fits in
+#     wall-clock.
+#   - Lowers x/service Params min_reporter_trust_level to TRUST_LEVEL_NEW
+#     so freshly-invited verifiers can file MsgReportOperator without
+#     a full reputation ladder.
+# Skipped on re-runs (chain state already tuned).
+# ========================================================================
+GOV_ADDR_SVC=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
+CURRENT_UNBOND=$($BINARY query service service-type federation-bridge-activitypub --output json 2>/dev/null | jq -r '.config.unbonding_period_blocks // "0"')
+CURRENT_TRUST=$($BINARY query service params --output json 2>/dev/null | jq -r '.params.min_reporter_trust_level // "TRUST_LEVEL_ESTABLISHED"')
+
+if [ "$CURRENT_UNBOND" != "10" ] || [ "$CURRENT_TRUST" != "TRUST_LEVEL_NEW" ]; then
+    echo "Step 4b: Tuning x/service params + federation-bridge ServiceTypeConfigs for E2E..."
+
+    # Read existing ServiceTypeConfigs so the round-trip preserves
+    # every other field (description, slash caps, t1 cooldown, etc.).
+    AP_CFG=$($BINARY query service service-type federation-bridge-activitypub --output json 2>/dev/null | jq '.config')
+    AT_CFG=$($BINARY query service service-type federation-bridge-atproto --output json 2>/dev/null | jq '.config')
+
+    # Read current x/service Params, fix the LegacyDec field, and lower the trust gate.
+    SVC_PARAMS=$($BINARY query service params --output json 2>/dev/null | jq '.params' | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+# LegacyDec field on x/service Params.
+DEC_FIELDS = ['reputation_grant_per_bond_block']
+for f in DEC_FIELDS:
+    if f in d and d[f] is not None:
+        s = str(d[f]).replace('.', '')
+        if len(s) <= 18:
+            s = s.zfill(19)
+        d[f] = (s[:-18].lstrip('0') or '0') + '.' + s[-18:]
+d['min_reporter_trust_level'] = 'TRUST_LEVEL_NEW'
+json.dump(d, sys.stdout)
+")
+
+    # unbonding_period_blocks=10 (~50s) keeps service_hooks_test's
+    # unbond→claim cycle inside test wall-clock. underfunded_grace_blocks=
+    # 200 (~17min) is long enough that the OpsComm slash→top-up flow
+    # leaves the operator in UNDERFUNDED long enough for the test to
+    # observe it before EndBlocker force-unbonds. tier1_cooldown_blocks=
+    # 5 keeps multi-slash tests fast.
+    AP_NEW=$(echo "$AP_CFG" | jq --arg ub "10" --arg grace "200" '.unbonding_period_blocks = $ub | .underfunded_grace_blocks = $grace | .tier1_cooldown_blocks = "5"')
+    AT_NEW=$(echo "$AT_CFG" | jq --arg ub "10" --arg grace "200" '.unbonding_period_blocks = $ub | .underfunded_grace_blocks = $grace | .tier1_cooldown_blocks = "5"')
+
+    mkdir -p "$SCRIPT_DIR/proposals"
+    jq -n \
+        --arg auth "$GOV_ADDR_SVC" \
+        --argjson p "$SVC_PARAMS" \
+        --argjson ap "$AP_NEW" \
+        --argjson at "$AT_NEW" '
+{
+  "messages": [
+    {"@type": "/sparkdream.service.v1.MsgUpdateParams", "authority": $auth, "params": $p},
+    {"@type": "/sparkdream.service.v1.MsgUpdateServiceTypeConfig", "authority": $auth, "config": $ap},
+    {"@type": "/sparkdream.service.v1.MsgUpdateServiceTypeConfig", "authority": $auth, "config": $at}
+  ],
+  "deposit": "100000000uspark",
+  "title": "Tune x/service for federation E2E",
+  "summary": "Shorten federation-bridge unbond/grace/cooldown windows and lower min_reporter_trust_level to NEW for tests.",
+  "expedited": true
+}
+' > "$SCRIPT_DIR/proposals/tune_service_for_e2e.json"
+
+    TX_RES=$($BINARY tx gov submit-proposal "$SCRIPT_DIR/proposals/tune_service_for_e2e.json" \
+        --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
+    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        sleep 6
+        TX_RESULT=$(wait_for_tx "$TXHASH")
+        PROP_ID=$(extract_event_value "$TX_RESULT" "submit_proposal" "proposal_id")
+        if [ -n "$PROP_ID" ]; then
+            echo "  Submitted tuning proposal $PROP_ID; voting..."
+            for VOTER in alice bob; do
+                $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+                sleep 3
+            done
+            echo "  Waiting 45s for expedited voting period..."
+            sleep 45
+            FINAL_UNBOND=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.unbonding_period_blocks')
+            FINAL_TRUST=$($BINARY query service params --output json | jq -r '.params.min_reporter_trust_level')
+            echo "  Done: unbonding_period_blocks=$FINAL_UNBOND min_reporter_trust_level=$FINAL_TRUST"
+        fi
+    fi
+    echo ""
+fi
+
+# ========================================================================
 # 5. Get Council/Committee Policy Addresses
 # ========================================================================
 echo "Step 5: Looking up council and committee policy addresses..."

@@ -11,13 +11,13 @@ import (
 
 // Testing values — short TTLs and low thresholds for integration tests.
 // This is the default when no build tag is specified.
+//
+// Bridge-operator economic values now live on x/service ServiceTypeConfig.
+// Testparams seeds:
+//   - min_bond:                10_000_000 uspark (10 SPARK)
+//   - unbonding_period_blocks: ~15 seconds
 func getFederationGenesisParams() federationGenesisParams {
 	return federationGenesisParams{
-		// Bridge — low stake and short cooldowns for fast test cycles
-		MinBridgeStake:           sdk.NewCoin("uspark", math.NewInt(10_000_000)), // 10 SPARK (prod: 1000)
-		BridgeRevocationCooldown: 10 * time.Second,                               // 10s (prod: 7 days)
-		BridgeUnbondingPeriod:    15 * time.Second,                               // 15s (prod: 14 days)
-
 		// Content — short but long enough for E2E test suites (~10 min)
 		ContentTTL:     10 * time.Minute, // 10m (prod: 90 days)
 		AttestationTTL: 10 * time.Minute, // 10m (prod: 30 days)

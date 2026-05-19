@@ -218,3 +218,32 @@ func TestPublicAPI_SetServiceTypeConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "set-via-keeper", got.Description)
 }
+
+// ---------------------------------------------------------------------------
+// SlashOperator: AfterOperatorUnderfunded hook fires when a tier-1 slash
+// drops bond below min_bond (federation→service migration Phase 0).
+// ---------------------------------------------------------------------------
+
+func TestSlashOperator_FiresAfterOperatorUnderfundedOnTransition(t *testing.T) {
+	f := initFixture(t)
+	hooks := f.hooks
+
+	cfg := f.seedServiceType(t)
+	// Make the threshold "easy to drop below" — set min_bond high relative
+	// to seeded bond so a small slash flips status.
+	cfg.MinBond = sdk.NewCoin(types.BondDenom, math.NewInt(900_000))
+	cfg.UnilateralSlashCapBps = 5000 // permit a big tier-1 slash for the test
+	cfg.Tier1AggregateCapBps = 5000
+	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
+
+	f.seedActiveOperator(t, testOperator1, testController, math.NewInt(1_000_000))
+
+	// 50% tier-1 slash on a 1_000_000 bond drops to 500_000 < min_bond
+	// (900_000) → ACTIVE → UNDERFUNDED transition.
+	_, err := f.keeper.SlashOperator(f.ctx, testOperator1Addr, testServiceType, 5000, 0, keeper.SlashSourceTier1)
+	require.NoError(t, err)
+
+	require.Len(t, hooks.Underfunded, 1, "underfunded hook must fire")
+	require.True(t, hooks.Underfunded[0].Operator.Equals(testOperator1Addr))
+	require.Equal(t, testServiceType, hooks.Underfunded[0].ServiceType)
+}

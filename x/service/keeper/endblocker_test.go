@@ -1,11 +1,13 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/service/types"
@@ -235,4 +237,97 @@ func TestEndBlocker_SweepLimitCaps(t *testing.T) {
 	}
 	require.Equal(t, 1, unbondingCount)
 	require.Equal(t, 1, underfundedCount)
+}
+
+// ---------------------------------------------------------------------------
+// ReportTimeoutAction (Phase 0 federation→service migration):
+// PENDING reports past max_pending_blocks either auto-DISMISS (default)
+// or auto-ESCALATE to a jury case, depending on the per-service-type
+// config knob.
+// ---------------------------------------------------------------------------
+
+func TestEndBlocker_ReportTimeoutActionEscalate(t *testing.T) {
+	f := initFixture(t)
+
+	cfg := f.seedServiceType(t)
+	cfg.ReportTimeoutAction = types.ReportTimeoutAction_REPORT_TIMEOUT_ACTION_ESCALATE
+	cfg.ChallengeDefaultSlashBps = 200
+	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(10))
+
+	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
+	reportID, _, err := f.keeper.OpenSystemReport(
+		f.ctx, fedAddr, testOperator1Addr,
+		testServiceType, 0, "ipfs://Qm-evidence", []byte("escalate-me"),
+	)
+	require.NoError(t, err)
+
+	// Advance past max_pending_blocks.
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	report, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	f.withBlockHeight(report.FiledAt + params.MaxPendingBlocks + 1)
+
+	// EndBlocker. The PENDING report should now be ESCALATED with a
+	// jury case opened.
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+	post, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_ESCALATED, post.Status)
+	require.NotZero(t, post.JuryCaseId, "jury case should be opened")
+	require.EqualValues(t, cfg.ChallengeDefaultSlashBps, post.ProposedSlashBps)
+	require.Equal(t, f.sdkCtx().BlockHeight(), post.EscalatedAt)
+}
+
+func TestEndBlocker_ReportTimeoutActionDismissDefault(t *testing.T) {
+	// Sanity: with the default DISMISS action, timed-out reports
+	// auto-dismiss as before. Regression guard against Phase 0
+	// accidentally changing the default behavior.
+	f := initFixture(t)
+
+	cfg := f.seedServiceType(t)
+	cfg.ReportTimeoutAction = types.ReportTimeoutAction_REPORT_TIMEOUT_ACTION_DISMISS
+	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(10))
+
+	// Use MsgReportOperator path (not OpenSystemReport) so the report
+	// has a real reporter and deposit.
+	reportID := f.fileMemberReport(t)
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	report, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	f.withBlockHeight(report.FiledAt + params.MaxPendingBlocks + 1)
+
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+	post, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED, post.Status)
+}
+
+// fileMemberReport seeds a MsgReportOperator-style report against
+// testOperator1 from testReporter (helper used by DISMISS regression test).
+func (f *fixture) fileMemberReport(t *testing.T) uint64 {
+	t.Helper()
+	// Ensure repKeeper doesn't gate on trust level.
+	f.repKeeper.MeetsTrustLevelFn = func(_ context.Context, _ sdk.AccAddress, _ string) (bool, error) {
+		return true, nil
+	}
+	// Reporter must NOT be a controller member.
+	f.commonsKeeper.IsGroupPolicyMemberFn = func(_ context.Context, _ string, _ string) (bool, error) {
+		return false, nil
+	}
+	resp, err := f.msgServer.ReportOperator(f.ctx, &types.MsgReportOperator{
+		Reporter:    testReporter,
+		Operator:    testOperator1,
+		ServiceType: testServiceType,
+		Reason:      "test-evidence",
+	})
+	require.NoError(t, err)
+	require.NotZero(t, resp.ReportId)
+	return resp.ReportId
 }

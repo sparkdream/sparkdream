@@ -11,12 +11,13 @@ import (
 
 // Devnet values — accelerated timers for development (5-15 minute ranges).
 // Build with: go build -tags devnet
+//
+// Bridge-operator economic values now live on x/service ServiceTypeConfig.
+// Devnet seeds:
+//   - min_bond:                100_000_000 uspark (100 SPARK)
+//   - unbonding_period_blocks: ~30 minutes
 func getFederationGenesisParams() federationGenesisParams {
 	return federationGenesisParams{
-		MinBridgeStake:           sdk.NewCoin("uspark", math.NewInt(100_000_000)), // 100 SPARK
-		BridgeRevocationCooldown: 15 * time.Minute,
-		BridgeUnbondingPeriod:    30 * time.Minute,
-
 		ContentTTL:     24 * time.Hour,
 		AttestationTTL: 12 * time.Hour,
 

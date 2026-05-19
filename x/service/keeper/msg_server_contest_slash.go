@@ -105,6 +105,7 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 
 	// If the contested slash had pushed the operator UNDERFUNDED and
 	// the restored bond clears min_bond, revert to ACTIVE.
+	refundedTransition := false
 	if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED &&
 		op.Bond.Amount.GTE(cfg.MinBond.Amount) {
 		oldUnderfundedSince := op.UnderfundedSince
@@ -115,6 +116,7 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 				return nil, err
 			}
 		}
+		refundedTransition = true
 	}
 
 	if err := k.PutOperator(ctx, op); err != nil {
@@ -164,6 +166,10 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 		types.NewTier1EscrowReleasedEvent(escrowID, report.ReportId, op.Address, op.ServiceType, escrow.Amount, types.EscrowDestBondRestored),
 		types.NewReportEscalatedEvent(report.ReportId, report.JuryCaseId, report.ProposedSlashBps),
 	})
+
+	if refundedTransition && k.hooks() != nil {
+		k.hooks().AfterOperatorReFunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
+	}
 
 	return &types.MsgContestSlashResponse{}, nil
 }

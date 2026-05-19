@@ -295,6 +295,12 @@ func New(
 	app.FederationKeeper.SetCommonsKeeper(app.CommonsKeeper)
 	app.FederationKeeper.SetRepKeeper(app.RepKeeper)
 	app.FederationKeeper.SetNameKeeper(app.NameKeeper)
+	// Phase 2 of the federation→service migration: wire ServiceKeeper
+	// through the FederationServiceAdapter (translates federation's
+	// int-source RegisterOperator signature to the concrete servicekeeper.
+	// SlashSource enum). Order matters: this must run AFTER ServiceKeeper
+	// is constructed (it is — depinject built ServiceKeeper above).
+	app.FederationKeeper.SetServiceKeeper(NewFederationServiceAdapter(app.ServiceKeeper))
 
 	// Wire cross-module keepers into Service after depinject (leaf module).
 	// Adapters in app/service_adapters.go bridge concrete keepers to the
@@ -305,10 +311,15 @@ func New(
 		NewServiceRepAdapter(app.RepKeeper),
 		NewServiceDistributionAdapter(app.DistrKeeper),
 	)
-	// Register the x/commons hook impl so AfterOperatorDissolved cancels
-	// matching RecurringSpend schedules (§6.1). AfterOperatorRetired is
-	// a no-op for x/commons (operator may be rotating keys).
+	// Register hook implementations on the service keeper. ORDER MATTERS:
+	// per Phase 5 of the federation→service migration plan, federation
+	// hooks fire BEFORE commons hooks so federation cleans/marks its
+	// bindings first (using the BindingsByOperator reverse index) and
+	// commons handles its own concerns (RecurringSpend cancellation)
+	// independently. Both implementations use the fail-soft defer-recover
+	// pattern internally so a panic in one doesn't roll back the slash.
 	app.ServiceKeeper.SetHooks(servicetypes.NewMultiServiceHooks(
+		federationmodulekeeper.NewFederationServiceHooks(app.FederationKeeper),
 		NewCommonsServiceHooks(app.CommonsKeeper),
 	))
 

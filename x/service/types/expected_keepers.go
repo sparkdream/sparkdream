@@ -12,6 +12,15 @@ import (
 type AuthKeeper interface {
 	AddressCodec() address.Codec
 	GetAccount(context.Context, sdk.AccAddress) sdk.AccountI // only used for simulation
+
+	// GetModuleAddress returns the bech-decoded address bytes of the named
+	// module account. Used by OpenSystemReport to forward-derive the
+	// expected address for each entry in the system-caller allowlist and
+	// compare to the caller's submitted module account address. The SDK's
+	// auth keeper does not expose a reverse address→name lookup, so
+	// forward derivation is the canonical pattern (see x/commons,
+	// x/federation, x/shield, x/futarchy for the same shape).
+	GetModuleAddress(name string) sdk.AccAddress
 }
 
 // BankKeeper defines the expected interface for the Bank module. x/service
@@ -131,8 +140,13 @@ type DistributionKeeper interface {
 }
 
 // ServiceHooks is the hook interface external modules (notably
-// x/commons) implement to react to operator-terminal transitions
-// (see §6.1). Registered with the service Keeper via SetHooks.
+// x/commons, x/federation) implement to react to operator status
+// transitions (see §6.1 + Phase 0 of the federation→service migration
+// plan). Registered with the service Keeper via SetHooks.
+//
+// Implementations MUST be fail-soft (defer recover, log + emit event)
+// so a panicking hook does not roll back the slash/topup transaction
+// that triggered it.
 type ServiceHooks interface {
 	// AfterOperatorDissolved fires when an operator transitions to
 	// SLASHED. The x/commons implementation cancels any active
@@ -146,11 +160,33 @@ type ServiceHooks interface {
 	// auto-cancel recurring spends on RETIRED (operator may simply be
 	// rotating keys; controller decides whether to keep paying).
 	AfterOperatorRetired(ctx context.Context, operator sdk.AccAddress, serviceType string)
+
+	// AfterOperatorUnderfunded fires when an operator's bond drops below
+	// min_bond after a slash and the status flips to UNDERFUNDED.
+	// Consumers gate operator-active checks (e.g. federation refuses
+	// new content submissions from suspended bridges) so they don't have
+	// to query operator status on every operation. Does NOT fire if the
+	// operator is already in UNBONDING (they're exiting anyway).
+	AfterOperatorUnderfunded(ctx context.Context, operator sdk.AccAddress, serviceType string)
+
+	// AfterOperatorReFunded fires when an UNDERFUNDED operator's bond
+	// crosses back above min_bond and the status returns to ACTIVE
+	// (via MsgTopUpBond or via contested-T1 escrow returning to bond).
+	// Does NOT fire for top-ups while UNBONDING — top-ups during the
+	// unbonding period do not reactivate the operator.
+	AfterOperatorReFunded(ctx context.Context, operator sdk.AccAddress, serviceType string)
 }
 
 // MultiServiceHooks aggregates multiple ServiceHooks implementations
 // behind the single setter expected by the keeper. Modelled on the
 // SDK's pattern (e.g. staking's MultiStakingHooks).
+//
+// Hook ordering: implementations are invoked in slice order on every
+// callback. The composite handler in app/service_adapters.go MUST place
+// consumer-cleanup hooks (federation) before housekeeping hooks
+// (commons RecurringSpend cancellation) so cleanup sees pre-cancellation
+// state if needed. See Phase 5 of the federation→service migration
+// plan for the rationale.
 type MultiServiceHooks []ServiceHooks
 
 // NewMultiServiceHooks returns a MultiServiceHooks wrapping the given
@@ -170,6 +206,18 @@ func (h MultiServiceHooks) AfterOperatorDissolved(ctx context.Context, operator 
 func (h MultiServiceHooks) AfterOperatorRetired(ctx context.Context, operator sdk.AccAddress, serviceType string) {
 	for _, hook := range h {
 		hook.AfterOperatorRetired(ctx, operator, serviceType)
+	}
+}
+
+func (h MultiServiceHooks) AfterOperatorUnderfunded(ctx context.Context, operator sdk.AccAddress, serviceType string) {
+	for _, hook := range h {
+		hook.AfterOperatorUnderfunded(ctx, operator, serviceType)
+	}
+}
+
+func (h MultiServiceHooks) AfterOperatorReFunded(ctx context.Context, operator sdk.AccAddress, serviceType string) {
+	for _, hook := range h {
+		hook.AfterOperatorReFunded(ctx, operator, serviceType)
 	}
 }
 

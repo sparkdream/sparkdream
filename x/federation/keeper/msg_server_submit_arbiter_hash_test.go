@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"testing"
 
@@ -104,7 +105,7 @@ func TestSubmitArbiterHashAnonymousUniqueKeys(t *testing.T) {
 
 	// Sanity: shield module address is not in BridgeOperators (so the
 	// identified path's BridgeNotFound error is not what's letting it through).
-	_, err = f.keeper.BridgeOperators.Get(f.ctx, collections.Join(shieldStr, "anon-arb-peer"))
+	_, err = f.keeper.BridgeBindings.Get(f.ctx, collections.Join(shieldStr, "anon-arb-peer"))
 	require.Error(t, err)
 }
 
@@ -134,4 +135,72 @@ func TestSubmitArbiterHashSelfArbiter(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot arbitrate")
+}
+
+// ---------------------------------------------------------------------------
+// fileChallengeReport — the federation→service migration helper this
+// file's MsgSubmitArbiterHash handler calls when an arbiter quorum
+// resolves a challenge against an operator's content. Exercised via the
+// FileChallengeReportForTest shim in export_test.go.
+// ---------------------------------------------------------------------------
+
+// expectedChallengeDedupeKey reproduces the federation→service dedupe-key
+// derivation from fileChallengeReport in this file. Tests assert against
+// this so future changes to the derivation are visible.
+func expectedChallengeDedupeKey(contentID uint64) []byte {
+	idBuf := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBuf, contentID)
+	sum := sha256.Sum256(append(idBuf, []byte(":federation:challenge")...))
+	return sum[:]
+}
+
+func TestFileChallengeReport_OpensReportWithChallengeDerivedDedupeKey(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	sk := wireServiceKeeper(t, f)
+
+	// Set up a peer + content record federation can report against.
+	registerTestPeer(t, f, ms, "mastodon.social")
+	const peer = "mastodon.social"
+	op := registerTestBridge(t, f, ms, peer, "submitter")
+
+	const contentID = uint64(42)
+	require.NoError(t, f.keeper.Content.Set(f.ctx, contentID, types.FederatedContent{
+		Id:          contentID,
+		PeerId:      peer,
+		SubmittedBy: op,
+		ContentHash: []byte("original-hash"),
+		Status:      types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED,
+	}))
+
+	// Call fileChallengeReport via the public-method shim (we go
+	// through the keeper to exercise the exact production code path).
+	content, _ := f.keeper.Content.Get(f.ctx, contentID)
+	err := f.keeper.FileChallengeReportForTest(f.ctx, content, "test-evidence")
+	require.NoError(t, err)
+
+	require.Len(t, sk.ReportCalls, 1, "exactly one OpenSystemReport call")
+	rc := sk.ReportCalls[0]
+	require.Equal(t, types.ServiceTypeFederationBridgeActivityPub, rc.ServiceType)
+	require.EqualValues(t, 0, rc.SlashBps, "passing slashBps=0 lets service fall back to challenge_default_slash_bps")
+	require.Equal(t, expectedChallengeDedupeKey(contentID), rc.DedupeKey, "dedupe key must include content.Id")
+	require.Contains(t, rc.EvidenceURI, "test-evidence")
+}
+
+func TestFileChallengeReport_NoOpWhenServiceKeeperNotWired(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "mastodon.social")
+	op := registerTestBridge(t, f, ms, "mastodon.social", "submitter2")
+	const contentID = uint64(99)
+	require.NoError(t, f.keeper.Content.Set(f.ctx, contentID, types.FederatedContent{
+		Id:          contentID,
+		PeerId:      "mastodon.social",
+		SubmittedBy: op,
+		ContentHash: []byte("h"),
+		Status:      types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED,
+	}))
+	content, _ := f.keeper.Content.Get(f.ctx, contentID)
+	err := f.keeper.FileChallengeReportForTest(f.ctx, content, "irrelevant")
+	require.NoError(t, err, "standalone-mode federation must be a no-op (no service keeper wired)")
 }

@@ -266,74 +266,46 @@ set_peer_inbound_policy() {
     set_peer_policy "$1" "$2" ""
 }
 
-# register_test_bridge <operator_addr> <peer_id> <protocol> <endpoint>
-# Registers a bridge operator via Operations Committee proposal so submit-content
-# tests have an ACTIVE bridge to use.
+# register_test_bridge <operator_key> <operator_addr> <peer_id> <protocol> <endpoint>
+# Post-Phase-4: bridges are operator-signed directly into x/federation,
+# which calls into x/service to escrow the bond. Stake amount is taken
+# from the federation-bridge-<protocol> ServiceTypeConfig's min_bond.
+# The fixture is idempotent: if the binding already exists AND the
+# matching service.Operator is ACTIVE, it's a no-op.
 register_test_bridge() {
-    local OPERATOR=$1
-    local PEER_ID=$2
-    local PROTOCOL=$3
-    local ENDPOINT=$4
+    local OPERATOR_KEY=$1
+    local OPERATOR=$2
+    local PEER_ID=$3
+    local PROTOCOL=$4
+    local ENDPOINT=$5
 
-    local STATUS=$($BINARY query federation get-bridge-operator "$OPERATOR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_operator.status // empty' 2>/dev/null)
-    if [ "$STATUS" == "BRIDGE_STATUS_ACTIVE" ]; then
-        echo "  Fixture bridge $OPERATOR → $PEER_ID already ACTIVE"
+    local BINDING_ADDR=$($BINARY query federation get-bridge-binding "$OPERATOR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_binding.address // empty' 2>/dev/null)
+    local SVC_STATUS=$($BINARY query service operator "$OPERATOR" "federation-bridge-${PROTOCOL}" --output json 2>&1 | jq -r '.operator.status // empty' 2>/dev/null)
+    if [ -n "$BINDING_ADDR" ] && [ "$SVC_STATUS" == "OPERATOR_STATUS_ACTIVE" ]; then
+        echo "  Fixture bridge $OPERATOR_KEY → $PEER_ID already present (service status=ACTIVE)"
         return 0
     fi
 
-    local PROP_FILE="$PROPOSAL_DIR/fixture_bridge_${PEER_ID//./_}_${OPERATOR:0:12}.json"
-    cat > "$PROP_FILE" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR",
-      "peer_id": "$PEER_ID",
-      "protocol": "$PROTOCOL",
-      "endpoint": "$ENDPOINT"
-    }
-  ],
-  "metadata": "Fixture: register bridge for $OPERATOR on $PEER_ID"
-}
-EOF
+    local MIN_BOND_AMT=$($BINARY query service service-type "federation-bridge-${PROTOCOL}" --output json 2>/dev/null | jq -r '.config.min_bond.amount // "1000000000"')
 
-    local TX_RES=$($BINARY tx commons submit-proposal "$PROP_FILE" \
-        --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json 2>&1)
+    local TX_RES=$($BINARY tx federation register-bridge \
+        "$PEER_ID" "$PROTOCOL" "$ENDPOINT" "${MIN_BOND_AMT}uspark" \
+        --from "$OPERATOR_KEY" -y --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000uspark --output json 2>&1)
     local TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  Fixture bridge — submission failed"
+        echo "  Fixture bridge — submission failed: $(echo "$TX_RES" | head -c 200)"
         return 1
     fi
     sleep 6
 
-    local PROP_ID=$($BINARY query tx "$TXHASH" --output json 2>/dev/null | \
-        jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"')
-    if [ -z "$PROP_ID" ] || [ "$PROP_ID" == "null" ]; then
-        echo "  Fixture bridge — could not extract proposal id"
-        return 1
-    fi
-
-    for VOTER in alice bob; do
-        $BINARY tx commons vote-proposal "$PROP_ID" yes \
-            --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000000uspark --output json > /dev/null 2>&1
-        sleep 2
-    done
-
-    $BINARY tx commons execute-proposal "$PROP_ID" \
-        --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --gas 2000000 --output json > /dev/null 2>&1
-    sleep 6
-
-    STATUS=$($BINARY query federation get-bridge-operator "$OPERATOR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_operator.status // empty' 2>/dev/null)
-    if [ "$STATUS" == "BRIDGE_STATUS_ACTIVE" ]; then
-        echo "  Fixture bridge $OPERATOR → $PEER_ID ACTIVE"
+    BINDING_ADDR=$($BINARY query federation get-bridge-binding "$OPERATOR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_binding.address // empty' 2>/dev/null)
+    SVC_STATUS=$($BINARY query service operator "$OPERATOR" "federation-bridge-${PROTOCOL}" --output json 2>&1 | jq -r '.operator.status // empty' 2>/dev/null)
+    if [ -n "$BINDING_ADDR" ] && [ "$SVC_STATUS" == "OPERATOR_STATUS_ACTIVE" ]; then
+        echo "  Fixture bridge $OPERATOR_KEY → $PEER_ID ACTIVE"
         return 0
     else
-        echo "  Fixture bridge — registered but status=$STATUS"
+        echo "  Fixture bridge — registered but binding=${BINDING_ADDR:-missing} service_status=${SVC_STATUS:-missing}"
         return 1
     fi
 }

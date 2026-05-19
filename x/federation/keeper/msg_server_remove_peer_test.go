@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -53,4 +54,39 @@ func TestRemovePeerNotFound(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not found")
+}
+
+// federation→service migration: peer removal is blocked while live
+// bridge bindings exist for the peer. Operators must unbond via x/service
+// first (or the gov proposal must bundle dissolves).
+func TestRemovePeer_BlockedWhenActiveBridgesExist(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "mastodon.social")
+
+	// Register a bridge for the peer (standalone mode — no service
+	// keeper wired, so the binding is written directly).
+	registerTestBridge(t, f, ms, "mastodon.social", "op1")
+
+	_, err := ms.RemovePeer(f.ctx, &types.MsgRemovePeer{
+		Authority: f.authority,
+		PeerId:    "mastodon.social",
+		Reason:    "test",
+	})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, types.ErrPeerHasActiveBridges) ||
+		errorContainsAny(err, "still has", "active bridges"))
+}
+
+func TestRemovePeer_AllowedWhenNoBridges(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "mastodon.social")
+
+	_, err := ms.RemovePeer(f.ctx, &types.MsgRemovePeer{
+		Authority: f.authority,
+		PeerId:    "mastodon.social",
+		Reason:    "test",
+	})
+	require.NoError(t, err)
 }

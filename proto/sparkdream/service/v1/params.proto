@@ -135,4 +135,22 @@ message Params {
   // max_pagination_limit hard-caps pagination.limit to bound query
   // gas (default 1000; absolute cap 10000).
   uint32 max_pagination_limit = 21;
+
+  // ------------------------------------------------------------------
+  // System-report (OpenSystemReport) rate limiting.
+  // ------------------------------------------------------------------
+
+  // max_system_reports_per_caller_per_window caps how many distinct
+  // system reports a single allowlisted caller module (e.g.
+  // "federation") may open via OpenSystemReport within a rolling
+  // window of rate_limit_window_blocks. Idempotent re-calls (same
+  // dedupe_key) don't count against the cap. Default 50 — tunable
+  // from observed federation challenge volume post-launch.
+  uint32 max_system_reports_per_caller_per_window = 22;
+
+  // rate_limit_window_blocks is the rolling window over which the
+  // above per-caller cap applies (~1 day at default block time).
+  // x/service has no native epoch concept, so this is an explicit
+  // block-count param rather than reusing season/shield epochs.
+  int64 rate_limit_window_blocks = 23;
 }

@@ -11,7 +11,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 │                           SPARK DREAM                                   │
 │                        Cosmos SDK Appchain                              │
 │                                                                         │
-│  15 custom modules · Dual tokens (SPARK/DREAM) · Shielded execution     │
+│  16 custom modules · Dual tokens (SPARK/DREAM) · Shielded execution     │
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -76,15 +76,33 @@ This system moves beyond simple token-voting by delegating authority to speciali
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
+│                      ACCOUNTABILITY LAYER                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│  x/service                                                              │
+│    │                                                                    │
+│  SPARK-Bonded Off-Chain Operators (federation bridges, future:          │
+│    Akash funders, storage pinning, external RPC, ...)                   │
+│  Per-Service-Type Configs        Two-Tier Slashing (controller / jury)  │
+│  Underfunded → UNBONDING grace   Per-Peer Controllers (Decision 2)      │
+│  Tier-1 Escrow + Contest         OpenSystemReport (privileged callers)  │
+│  ServiceHooks: Dissolved /       ReportTimeoutAction: DISMISS / ESCALATE│
+│    Retired / Underfunded /       Recurring-spend cancel on dissolve     │
+│    ReFunded                        (via x/commons hook)                 │
+└─────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
 │                         FEDERATION LAYER                                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  x/federation                                                           │
 │    │                                                                    │
 │  Cross-Chain Content Exchange    Identity Linking (IBC + bridges)        │
 │  Content Verification (verifiers)Reputation Bridging (IBC)               │
-│  ActivityPub / AT Protocol       Bridge + Verifier Accountability        │
-│    Bridges (off-chain relayers)  Sovereignty-First (bilateral only)      │
-│  x/split Compensation (SPARK)    No cross-chain tokens (SPARK/DREAM)     │
+│  ActivityPub / AT Protocol       BridgeBindings (endpoint + stats);      │
+│    Bridges (off-chain relayers)    bond/status/slash owned by x/service  │
+│  x/split Compensation (SPARK)    Sovereignty-First (bilateral only)      │
+│  Anonymous arbiter quorum        No cross-chain tokens (SPARK/DREAM)     │
+│    (x/shield)                    Verifiers: DREAM-bond via x/rep         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -105,7 +123,8 @@ This system moves beyond simple token-voting by delegating authority to speciali
 | x/name | 8 | 6 | — | Yes | Human-readable identity registry |
 | x/shield | 5 | 17 | Yes | Yes | Shielded execution, ZK proofs, TLE, DKG |
 | x/session | 4 | 4 | 1 phase | — | Session keys, scoped delegation, fee delegation |
-| x/federation | 27 | 18 | 13 phases | — | Cross-chain content, reputation bridging, identity linking, verification |
+| x/service | 13 | 10 | 4 sweeps | — | SPARK-bonded off-chain operators (federation bridges, future external services); two-tier slashing, per-peer controllers, system reports |
+| x/federation | 24 | 17 | 12 phases | — | Cross-chain content, reputation bridging, identity linking, verification (bridge bond/slash delegated to x/service) |
 | x/common | — | — | — | — | Shared types (tags, flags, moderation) |
 
 ## Core Module Architecture
@@ -421,6 +440,36 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 **EndBlocker (1 phase):**
 1. Prune expired sessions (walk `SessionsByExpiration` index)
 
+## Accountability Layer
+
+### x/service (SPARK-Bonded Off-Chain Operators)
+
+**Purpose:** Generic SPARK-staked accountability primitive for off-chain agents performing work the chain cannot natively verify — federation bridges today; in the future, Akash funders, storage-pinning agents, external RPC providers, etc. Full specification at [`docs/x-service-spec.md`](x-service-spec.md).
+
+**Key Features:**
+- **Operator = `(address, service_type, controller)` + SPARK bond.** `service_type` is a free-form `[a-z0-9-]{1,64}` string gated by a gov-managed `ServiceTypeConfig` allowlist (per-type `min_bond`, slash caps, windows, cooldowns), so any future module can propose a new type without a proto bump.
+- **Status state machine:** `ACTIVE → UNDERFUNDED → UNBONDING → RETIRED` (voluntary) or `SLASHED` (terminal). UNDERFUNDED operators get a grace window to top up; failure auto-force-unbonds via the EndBlocker.
+- **Two-tier slashing:** controller (typically a council or per-peer Group) can resolve `MsgReportOperator` with a unilateral slash up to `unilateral_slash_cap_bps` (default 5%) of *current* bond, subject to `tier1_aggregate_cap_bps` (default 15% over ~90 days, snapshotted at window open to prevent gaming) and `tier1_cooldown_blocks` (default ~7 days). Larger slashes or operator-contested T1 escalate to an x/rep jury.
+- **Reversibility:** tier-1 slashes are *escrowed* in a tagged sub-pool for `report_contest_window_blocks`, then released to the community pool by the EndBlocker (or eagerly inline at `MsgClaimUnbondedBond`). Tier-2 verdicts skip escrow and go straight to `FundCommunityPool`.
+- **Reporter anti-griefing:** `report_deposit` SPARK refunded on T1_SLASH / ACCEPT / REDUCE, forfeited on REJECT. Per-(reporter, operator) sliding-ring-buffer rate limit. Reporters who are members of the operator's controller Group are blocked (closes the self-route drainage attack). No bounty by design.
+- **System reports** (privileged caller API, §3.7 of the spec): allowlisted modules (`federation` today) file `OpenSystemReport` with a `dedupeKey` for idempotency and a per-caller sliding-window rate limit. Forward-derive auth via `authKeeper.GetModuleAddress`. Used for federation challenge-quorum-upheld slashes; the federation module account is the recorded reporter.
+- **ReportTimeoutAction:** per-`ServiceTypeConfig` choice between `DISMISS` (default, silent controller drops the report) and `ESCALATE` (used by both `federation-bridge-*` types so a captured controller can stall a slash by exactly one timeout window before it goes to jury automatically).
+- **Operator-lifecycle hooks** (`ServiceHooks` interface, 4 callbacks): `AfterOperatorDissolved`, `AfterOperatorRetired`, `AfterOperatorUnderfunded`, `AfterOperatorReFunded`. x/commons subscribes to Dissolved to auto-cancel matching `RecurringSpend` schedules (slashed operators stop being paid). x/federation subscribes to all four (prune bindings on dissolve/retire, suspend on underfunded, resume on refunded).
+- **Hook ordering:** federation hooks fire **before** commons hooks (federation cleans bindings first; commons then cancels recurring spends). Both wrap their bodies in `defer recover` (fail-soft) — a bug in either consumer must never roll back an x/service slash.
+- **Controller transfer:** stranded operators (controller Group dissolved or empty) recover via `MsgOpenControllerTransferCase` → x/rep jury → `MsgFinalizeControllerTransfer`. Opener escrows `report_deposit`, refunded on ACCEPT, forfeited on REJECT.
+- **Reputation accrual:** lazy O(1) bond-block tracking on the `service-operator` tag (x/rep), with an anti-gaming cap (max bond-blocks per address, not summed across operators).
+- **Genesis-seeded service types:** `federation-bridge-activitypub` and `federation-bridge-atproto` are populated by x/service's own `DefaultGenesis` (NOT by federation's) so federation's `BridgeBinding` records can reference live `service.Operator`s at boot. Init order: x/commons → x/service → x/federation.
+
+**Messages (13):** `update_params`, `update_service_type_config` (gov), `register_operator`, `update_metadata`, `unbond_operator`, `claim_unbonded_bond`, `top_up_bond`, `report_operator`, `resolve_report`, `contest_slash`, `resolve_report_by_jury` (Operations Committee resolver), `open_controller_transfer_case`, `finalize_controller_transfer` (Operations Committee resolver). `OpenSystemReport` and `TopUpBond` are also exposed as keeper-level public APIs for consumer modules (no `Msg` required).
+
+**Queries (10):** `params`, `operator`, `service_type`, `service_types`, `operators`, `operators_by_controller`, `operators_by_service_type`, `report`, `reports_by_operator`, `operator_reputation_snapshot`
+
+**EndBlocker (4 sweeps, gas-bounded by `endblocker_sweep_limit`):**
+1. Underfunded sweep — force-unbond operators whose grace expired
+2. Pending report auto-action — DISMISS or ESCALATE based on per-type `report_timeout_action`
+3. Escalated report auto-timeout — REJECT-equivalent if no jury verdict within `max_escalated_blocks`; release contested-T1 escrow back to bond
+4. Tier-1 escrow release — move uncontested escrowed slashes to community pool after `report_contest_window_blocks`
+
 ## Federation Layer
 
 ### x/federation (Cross-Chain Exchange)
@@ -430,33 +479,34 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 **Key Features:**
 - **Three layers:** On-chain primitives (peer registry, policies) → IBC protocol (chain-to-chain, trustless) → off-chain bridges (ActivityPub/AT Protocol, staked operators)
 - **Sovereignty first:** Bilateral relationships only, no supergovernment, no cross-chain tokens, no binding reputation, unilateral suspend/remove
-- **Peer management:** Commons Council registers/removes peers; Operations Committee manages policies and bridge operators
+- **Peer management:** Commons Council registers/removes peers; Operations Committee manages policies. Each peer carries an optional `controller_group` (Decision 2 of the federation→service migration) — the x/commons Group that resolves tier-1 reports against that peer's bridge operators. Empty → defaults to Operations Committee at `MsgRegisterBridge` time and the resolved address is captured on the resulting `service.Operator`.
 - **Content federation:** Inbound content stored in x/federation (leaf module — content modules unaware); per-peer content type allowlists, inbound + outbound rate limits, moderation
-- **Content verification:** Bridge content enters as PENDING_VERIFICATION; independent community verifiers (DREAM-bonded, ESTABLISHED+ trust) fetch source content and confirm hash match. Challenges use two-phase resolution: anonymous community members submit hashes via x/shield (ZK-proven membership, scoped nullifiers) for fast quorum-based auto-resolution; human jury via x/rep as fallback. IBC content verified by light client (no verifier needed).
+- **Content verification:** Bridge content enters as PENDING_VERIFICATION; independent community verifiers (DREAM-bonded via `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER)` in x/rep, ESTABLISHED+ trust) fetch source content and confirm hash match. Challenges use two-phase resolution: anonymous community members submit hashes via x/shield (ZK-proven membership, scoped nullifiers) for fast quorum-based auto-resolution; human jury via x/rep as fallback. IBC content verified by light client (no verifier needed). On CHALLENGE_UPHELD, federation files a system report against the bridge operator via `serviceKeeper.OpenSystemReport`; the controller resolves via the standard `service.MsgResolveReport` pipeline.
 - **Reputation bridging:** IBC attestation model with heavy discounting (default: 50% discount, capped at PROVISIONAL equivalent, 30-day TTL)
 - **Identity linking:** Two-phase IBC challenge-response proving key ownership; bridge-verified links for external protocols
-- **Bridge accountability:** SPARK-staked operators, 14-day unbonding period, slashable (burned, not redistributed), self-unbonding, stake top-up, session key support via x/session
+- **Bridge bindings (federation-owned) vs operator economics (x/service-owned):** Federation's `BridgeBinding` record holds the per-peer endpoint, content statistics, and `suspended` flag. The SPARK bond, status, unbonding queue, and slashing history live on the `service.Operator` keyed by `(address, service_type)` where `service_type` is `federation-bridge-activitypub` or `federation-bridge-atproto`. Per Decision 1a of the federation→service migration, one operator address holds one bond per protocol and shares it across multiple peer bindings under that protocol. Operators top up via `service.MsgTopUpBond`, unbond via `service.MsgUnbondOperator`; slashing flows through `service.MsgReportOperator`. The `suspended` flag is toggled by `AfterOperatorUnderfunded`/`AfterOperatorReFunded` hooks (federation refuses content submissions from suspended bindings).
 - **Creator-signed outbound:** `MsgFederateContent` requires the content creator's signature (or x/session delegation), preventing relayers from fabricating content
 - **Compensation:** Bridge operators and verifiers compensated via x/split (SPARK from Community Pool), weighted by verified submissions and verification accuracy respectively
-- **Token separation:** Bridge operators stake SPARK only; verifiers bond DREAM only. DREAM is never transferred cross-chain.
+- **Token separation:** Bridge operators stake SPARK only (via x/service); verifiers bond DREAM only (via x/rep `BondedRole`). DREAM is never transferred cross-chain.
+- **Invariants + recovery:** `orphan-bindings` (every BridgeBinding references a live `service.Operator`) and `bindings-by-operator-index` (reverse index agrees with primary) crisis invariants catch state drift from fail-soft hook panics. `MsgPruneOrphanBindings` and `MsgResyncBridgeCount` are dual-authority (Operations Committee OR gov) recovery messages — pure cleanup, no value mutation.
 
-**Messages (27):** `register_peer`, `remove_peer`, `suspend_peer`, `resume_peer`, `update_peer_policy`, `register_bridge`, `revoke_bridge`, `slash_bridge`, `update_bridge`, `unbond_bridge`, `top_up_bridge_stake`, `link_identity`, `unlink_identity`, `confirm_identity_link`, `submit_federated_content`, `federate_content`, `attest_outbound`, `moderate_content`, `request_reputation_attestation`, `bond_verifier`, `unbond_verifier`, `verify_content`, `challenge_verification`, `submit_arbiter_hash`, `escalate_challenge`, `update_params`, `update_operational_params` (arbiter hash also submittable anonymously via x/shield)
+**Messages (24):** `register_peer` (incl. optional `controller_group`), `remove_peer`, `suspend_peer`, `resume_peer`, `update_peer_policy`, `update_peer_controller` (gov), `register_bridge` (operator-signed), `update_bridge`, `resync_bridge_count` (dual-authority recovery), `prune_orphan_bindings` (dual-authority recovery), `link_identity`, `unlink_identity`, `confirm_identity_link`, `submit_federated_content`, `federate_content`, `attest_outbound`, `moderate_content`, `request_reputation_attestation`, `verify_content`, `challenge_verification`, `submit_arbiter_hash`, `escalate_challenge`, `update_params`, `update_operational_params` (arbiter hash also submittable anonymously via x/shield). Bridge operator unbond/top-up/slash are NOT federation messages — operators call `tx service unbond-operator`, `tx service top-up-bond`, and anyone files `tx service report-operator` directly against the x/service surface.
 
-**Queries (18):** `params`, `get_peer`, `list_peers`, `get_peer_policy`, `get_bridge_operator`, `list_bridge_operators`, `get_federated_content`, `list_federated_content`, `get_identity_link`, `list_identity_links`, `resolve_remote_identity`, `get_pending_identity_challenge`, `list_pending_identity_challenges`, `get_reputation_attestation`, `list_outbound_attestations`, `get_verifier`, `list_verifiers`, `get_verification_record`
+**Queries (17):** `params`, `get_peer`, `list_peers`, `get_peer_policy`, `get_bridge_binding`, `list_bridge_bindings`, `get_federated_content`, `list_federated_content`, `get_identity_link`, `list_identity_links`, `resolve_remote_identity`, `get_pending_identity_challenge`, `list_pending_identity_challenges`, `get_reputation_attestation`, `list_outbound_attestations`, `verifier_activity` (federation-local counters; bond/status queried via `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`), `get_verification_record`. Live bridge operator economic state is queried via `query service get-operator <addr> federation-bridge-<protocol>`.
 
-**EndBlocker (13 phases):**
+**EndBlocker (12 phases):**
 1. Prune expired federated content
 2. Prune expired reputation attestations
 3. Prune expired unverified identity links
 4. Prune expired identity challenges
-5. Release unbonded bridge stakes
+5. *(removed — x/service owns operator unbonding; federation reacts via `AfterOperatorRetired` hook)*
 6. Expire unverified content (PENDING_VERIFICATION → HIDDEN after verification_window)
 7. Release verifier bond commitments (challenge_window expired without challenge)
 8. Expire arbiter resolution windows (no quorum → escalate to jury)
 9. Finalize auto-resolutions (escalation window expired → verdict final)
 10. Process peer removal queue (cursor-based)
 11. Verifier epoch rewards (DREAM minting, auto-bonding, counter reset)
-12. Bridge operator monitoring (inactivity + stake warnings)
+12. Bridge binding monitoring (inactivity warnings only — bond/underfunded signals come from x/service hooks)
 13. Clean stale rate limit counters (inbound + outbound)
 
 **IBC Application:**
@@ -645,6 +695,35 @@ x/shield eliminates the need for relay addresses and per-module subsidy budgets.
           msgServiceRouter
 
           ┌──────────────────────┐
+          │     x/service        │
+          │                      │
+          │ SPARK-Bonded Off-    │
+          │ Chain Operators      │
+          │ Per-Service-Type     │
+          │ Configs              │
+          │ Two-Tier Slashing    │
+          │ Tier-1 Escrow        │
+          │ System Reports (priv)│
+          │ ServiceHooks (4)     │
+          └──────────────────────┘
+          Depends on: x/auth (forward-derive
+          for OpenSystemReport), x/bank
+          (bond escrow), x/commons
+          (IsGroupAddress, controller),
+          x/rep (jury via
+          CreateAppealInitiative,
+          service-operator reputation
+          tag), x/distribution
+          (community pool deposit),
+          x/session (operator key
+          delegation)
+          Depended on by: x/federation
+          (bridge operator economics),
+          x/commons (subscribes to
+          AfterOperatorDissolved hook
+          to cancel RecurringSpend)
+
+          ┌──────────────────────┐
           │    x/federation      │
           │  (Leaf Dependency)   │
           │                      │
@@ -652,13 +731,24 @@ x/shield eliminates the need for relay addresses and per-module subsidy budgets.
           │ Content Verification │
           │ Reputation Bridging  │
           │ Identity Linking     │
-          │ Bridge Operators     │
+          │ BridgeBindings       │
+          │   (endpoint + stats; │
+          │    bond owned by     │
+          │    x/service)        │
           │ IBC Application      │
           └──────────────────────┘
-          Depends on: x/commons (auth),
+          Depends on: x/commons (auth,
+          IsGroupPolicyAddress for
+          controller validation,
+          OpsComm policy address),
+          x/service (bridge operator
+          economics — RegisterOperator,
+          TopUpBond, OpenSystemReport;
+          subscribes to all 4 hooks),
           x/rep (reputation, verifier
-          DREAM bonds, jury), x/name,
-          x/bank (bridge stakes),
+          DREAM bonds via BondedRole,
+          jury), x/name, x/bank
+          (challenge/escalation fees),
           x/shield (anonymous arbiter
           resolution via ZK proofs),
           ibc-go
@@ -698,11 +788,26 @@ x/shield     ← SetRepKeeper(rep), SetDistrKeeper(distr)
 
 x/session    ← (no late wiring needed — leaf module, all deps via depinject)
 
+x/service    ← SetCrossModuleKeepers(commons, rep, distr) [trimmed adapter
+                                                            interfaces]
+             ← SetHooks(NewMultiServiceHooks(
+                   federation hooks,  // federation FIRST — cleans bindings
+                   commons hooks))    // commons SECOND — cancels RecurringSpend
+
 x/federation ← SetCommonsKeeper(commons), SetRepKeeper(rep)
              ← SetNameKeeper(name), SetShieldKeeper(shield)
+             ← SetServiceKeeper(NewFederationServiceAdapter(service))
+                                       [Phase 2 of the federation→service
+                                        migration; trimmed adapter so
+                                        federation doesn't import servicetypes
+                                        internals]
 ```
 
 The `lateKeepers` pattern in x/rep and x/commons uses a shared pointer struct so that `Set*Keeper()` mutations are visible to all keeper value copies (including the one inside AppModule's msgServer). x/shield, x/session, and x/federation are **leaf dependencies** — nothing depends on them, so they have no cycle risk and all keepers are wired via `Set*Keeper()` after depinject.
+
+**ServiceHooks ordering note.** The `MultiServiceHooks` slice order in [`app/service_adapters.go`](app/service_adapters.go) is load-bearing: federation hooks run **before** commons hooks on `AfterOperatorDissolved` / `AfterOperatorRetired` so federation cleans bindings first; commons then cancels matching `RecurringSpend` schedules independently. Each hook handler is wrapped in `defer recover` (fail-soft) — a bug in either consumer must never roll back an x/service slash, which would brick all bridge accountability chain-wide. The federation-side `federation_hook_failure` event surfaces swallowed panics for off-chain monitors; the `MsgPruneOrphanBindings` and `MsgResyncBridgeCount` dual-authority messages are the recovery path.
+
+**EndBlocker ordering** (enforced in `app/app.go`): x/service runs **before** x/federation so hook-fired binding state mutations (suspend/resume, prune) settle before federation's own per-block work runs. Otherwise federation's peer-pruning iteration could miss bindings that were about to be suspended in the same block.
 
 ## Fund Flows
 

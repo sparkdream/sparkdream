@@ -30,6 +30,11 @@ type Keeper struct {
 	// safe to keep as a value field.
 	bankKeeper types.BankKeeper
 
+	// authKeeper provides GetModuleAddress used by OpenSystemReport's
+	// forward-derive caller authorization (Phase 0 of the federation→
+	// service migration). Wired at construction time, no cycle risk.
+	authKeeper types.AuthKeeper
+
 	// External-module dependencies wired AFTER NewAppModule via
 	// SetCrossModuleKeepers / SetHooks. They live behind a shared
 	// pointer so post-construction wiring is visible to every copy of
@@ -112,6 +117,20 @@ type Keeper struct {
 	// queue 4.
 	Tier1EscrowReleaseQueue collections.KeySet[collections.Pair[int64, uint64]]
 
+	// SystemReportDedup: (caller_module, dedupe_key) → report_id. Enables
+	// idempotent OpenSystemReport calls; a re-call with the same key
+	// resolves to the existing report instead of opening a new one.
+	// Pruned when the existing report transitions to a terminal state
+	// (auto-dismiss / resolved / timeout) and the TTL elapses; kept
+	// minimal because dedupe is meaningful only within the report's
+	// lifetime window.
+	SystemReportDedup collections.Map[collections.Pair[string, []byte], uint64]
+
+	// SystemReportRateLimit: sliding-window ring buffer keyed by
+	// caller_module. Tracks recent OpenSystemReport call heights so the
+	// keeper can enforce max_system_reports_per_caller_per_window.
+	SystemReportRateLimit collections.Map[string, types.SystemReportRateLimit]
+
 	// ----- Counters -----
 
 	NextReportID collections.Sequence
@@ -133,6 +152,12 @@ type lateKeepers struct {
 // NewKeeper constructs the service Keeper. Cross-module keepers
 // (commons, rep, distribution) are wired in app.go after construction
 // via SetCrossModuleKeepers to avoid depinject cycles.
+//
+// authKeeper is taken at construction time so OpenSystemReport's
+// forward-derive caller authorization can resolve allowlisted module
+// names to their canonical module-account addresses. authKeeper may be
+// nil in early-development standalone configurations; OpenSystemReport
+// will reject all calls if so.
 func NewKeeper(
 	storeService corestore.KVStoreService,
 	cdc codec.Codec,
@@ -140,6 +165,7 @@ func NewKeeper(
 	authority []byte,
 
 	bankKeeper types.BankKeeper,
+	authKeeper types.AuthKeeper,
 ) Keeper {
 	if _, err := addressCodec.BytesToString(authority); err != nil {
 		panic(fmt.Sprintf("invalid authority address %s: %s", authority, err))
@@ -154,6 +180,7 @@ func NewKeeper(
 		authority:    authority,
 
 		bankKeeper: bankKeeper,
+		authKeeper: authKeeper,
 		late:       &lateKeepers{},
 
 		Params: collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
@@ -278,6 +305,20 @@ func NewKeeper(
 			types.Tier1EscrowReleaseQueueKey,
 			"tier1_escrow_release_queue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		SystemReportDedup: collections.NewMap(
+			sb,
+			types.SystemReportDedupKey,
+			"system_report_dedup",
+			collections.PairKeyCodec(collections.StringKey, collections.BytesKey),
+			collections.Uint64Value,
+		),
+		SystemReportRateLimit: collections.NewMap(
+			sb,
+			types.SystemReportRateLimitKey,
+			"system_report_rate_limit",
+			collections.StringKey,
+			codec.CollValue[types.SystemReportRateLimit](cdc),
 		),
 
 		// Counters.

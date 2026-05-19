@@ -7,7 +7,6 @@ import (
 	"math/rand"
 
 	"cosmossdk.io/collections"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
@@ -32,12 +31,15 @@ func findPeerByStatus(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status typ
 	return &peers[r.Intn(len(peers))], nil
 }
 
-// findActiveBridge returns a random active bridge operator, or nil.
-func findActiveBridge(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.BridgeOperator, error) {
-	var bridges []types.BridgeOperator
-	err := k.BridgeOperators.Walk(ctx, nil, func(_ collections.Pair[string, string], bridge types.BridgeOperator) (bool, error) {
-		if bridge.Status == types.BridgeStatus_BRIDGE_STATUS_ACTIVE {
-			bridges = append(bridges, bridge)
+// findActiveBridge returns a random non-suspended bridge binding, or nil.
+// Status filtering simplified post-migration: bindings only exist for
+// non-terminal operators, and the suspended flag mirrors x/service's
+// UNDERFUNDED state.
+func findActiveBridge(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.BridgeBinding, error) {
+	var bridges []types.BridgeBinding
+	err := k.BridgeBindings.Walk(ctx, nil, func(_ collections.Pair[string, string], binding types.BridgeBinding) (bool, error) {
+		if !binding.Suspended {
+			bridges = append(bridges, binding)
 		}
 		return false, nil
 	})
@@ -47,19 +49,12 @@ func findActiveBridge(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Br
 	return &bridges[r.Intn(len(bridges))], nil
 }
 
-// findRevokedBridge returns a random revoked bridge operator, or nil.
-func findRevokedBridge(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.BridgeOperator, error) {
-	var bridges []types.BridgeOperator
-	err := k.BridgeOperators.Walk(ctx, nil, func(_ collections.Pair[string, string], bridge types.BridgeOperator) (bool, error) {
-		if bridge.Status == types.BridgeStatus_BRIDGE_STATUS_REVOKED {
-			bridges = append(bridges, bridge)
-		}
-		return false, nil
-	})
-	if err != nil || len(bridges) == 0 {
-		return nil, err
-	}
-	return &bridges[r.Intn(len(bridges))], nil
+// findRevokedBridge: the REVOKED status no longer exists in the
+// federation-side BridgeBinding (terminal status is owned by x/service
+// and bindings are pruned by the AfterOperatorDissolved/Retired hooks).
+// Kept as a stub for callers that haven't been migrated; returns nil.
+func findRevokedBridge(_ *rand.Rand, _ sdk.Context, _ keeper.Keeper) (*types.BridgeBinding, error) {
+	return nil, nil
 }
 
 // findContentByStatus returns a random content item with the given status, or nil.
@@ -195,7 +190,7 @@ func getOrCreateSuspendedPeer(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, re
 }
 
 // getOrCreateActiveBridge returns an existing active bridge or creates one.
-func getOrCreateActiveBridge(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, operator string) (types.BridgeOperator, error) {
+func getOrCreateActiveBridge(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, operator string) (types.BridgeBinding, error) {
 	b, err := findActiveBridge(r, ctx, k)
 	if err == nil && b != nil {
 		return *b, nil
@@ -204,24 +199,22 @@ func getOrCreateActiveBridge(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, ope
 	// Need an active peer first
 	peer, err := getOrCreateActivePeer(r, ctx, k, operator)
 	if err != nil {
-		return types.BridgeOperator{}, err
+		return types.BridgeBinding{}, err
 	}
 
-	bridge := types.BridgeOperator{
+	bridge := types.BridgeBinding{
 		Address:      operator,
 		PeerId:       peer.Id,
 		Protocol:     randomProtocol(r),
 		Endpoint:     randomEndpoint(r),
-		Stake:        sdk.NewCoin("uspark", math.NewInt(int64(r.Intn(9000)+1000)*1_000_000)),
 		RegisteredAt: ctx.BlockTime().Unix(),
-		Status:       types.BridgeStatus_BRIDGE_STATUS_ACTIVE,
 	}
 
-	if err := k.BridgeOperators.Set(ctx, collections.Join(operator, peer.Id), bridge); err != nil {
-		return types.BridgeOperator{}, err
+	if err := k.BridgeBindings.Set(ctx, collections.Join(operator, peer.Id), bridge); err != nil {
+		return types.BridgeBinding{}, err
 	}
 	if err := k.BridgesByPeer.Set(ctx, collections.Join(peer.Id, operator)); err != nil {
-		return types.BridgeOperator{}, err
+		return types.BridgeBinding{}, err
 	}
 
 	return bridge, nil

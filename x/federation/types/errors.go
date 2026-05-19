@@ -30,6 +30,14 @@ var (
 	ErrInvalidStakeDenom      = errors.Register(ModuleName, 2334, "stake denomination must be uspark")
 	ErrSlashExceedsStake      = errors.Register(ModuleName, 2320, "slash amount exceeds operator's remaining stake")
 
+	// Federation→service migration (Phase 3): controller mismatch on
+	// re-registration. An operator address holding a service.Operator
+	// under one controller cannot register a binding for a peer that
+	// resolves to a different controller (Decision 1a — shared bond
+	// across same-protocol bridges per operator address).
+	ErrControllerMismatch = errors.Register(ModuleName, 2370, "operator's existing service.Operator controller doesn't match the peer's resolved controller")
+	ErrPeerHasActiveBridges = errors.Register(ModuleName, 2371, "peer has active bridges; operators must unbond first (or the gov proposal must bundle dissolutions for abandoned peers)")
+
 	// Content errors
 	ErrContentTypeNotAllowed = errors.Register(ModuleName, 2310, "content type not in peer policy")
 	ErrRateLimitExceeded     = errors.Register(ModuleName, 2311, "rate limit exceeded")

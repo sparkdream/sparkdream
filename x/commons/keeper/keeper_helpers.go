@@ -376,6 +376,27 @@ func (k Keeper) GetCommitteeGroupInfo(ctx context.Context, council string, commi
 	return group, nil
 }
 
+// GetCouncilPolicyAddress resolves a (council, committee) tuple to the
+// x/commons Group's policy address. Cross-module helper used by
+// federation (Phase 3 of the federation→service migration) to look up
+// the Operations Committee default controller for peers registered
+// without an explicit controller_group. Returns ok=false if the council
+// or committee is unknown, or if the group hasn't been seeded yet.
+func (k Keeper) GetCouncilPolicyAddress(ctx context.Context, council string, committee string) (string, bool) {
+	info, err := k.GetCommitteeGroupInfo(ctx, council, committee)
+	if err != nil {
+		return "", false
+	}
+	group, ok := info.(types.Group)
+	if !ok {
+		return "", false
+	}
+	if group.PolicyAddress == "" {
+		return "", false
+	}
+	return group.PolicyAddress, true
+}
+
 // --- Group Policy Helpers (for cross-module integration) ---
 
 // IsGroupPolicyMember checks if a member address is part of the group associated with

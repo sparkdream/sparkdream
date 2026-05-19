@@ -8,8 +8,10 @@ import (
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 
 	commonskeeper "sparkdream/x/commons/keeper"
+	federationtypes "sparkdream/x/federation/types"
 	repkeeper "sparkdream/x/rep/keeper"
 	reptypes "sparkdream/x/rep/types"
+	servicekeeper "sparkdream/x/service/keeper"
 	servicetypes "sparkdream/x/service/types"
 )
 
@@ -176,6 +178,19 @@ func (h *CommonsServiceHooks) AfterOperatorDissolved(ctx context.Context, operat
 // so the controller decides whether to keep paying (§6.1).
 func (h *CommonsServiceHooks) AfterOperatorRetired(_ context.Context, _ sdk.AccAddress, _ string) {}
 
+// AfterOperatorUnderfunded is a no-op for x/commons: an underfunded
+// operator is in temporary distress and may recover via top-up; the
+// controller decides whether to keep paying. Consumer modules that need
+// to suspend operator activity on underfunding (e.g. x/federation) hook
+// this on their own side.
+func (h *CommonsServiceHooks) AfterOperatorUnderfunded(_ context.Context, _ sdk.AccAddress, _ string) {
+}
+
+// AfterOperatorReFunded is a no-op for x/commons: symmetric counterpart
+// to AfterOperatorUnderfunded; commons doesn't track operator activity
+// state.
+func (h *CommonsServiceHooks) AfterOperatorReFunded(_ context.Context, _ sdk.AccAddress, _ string) {}
+
 // ---------------------------------------------------------------------------
 // Distribution → service.DistributionKeeper adapter
 // ---------------------------------------------------------------------------
@@ -195,4 +210,49 @@ var _ servicetypes.DistributionKeeper = (*ServiceDistributionAdapter)(nil)
 
 func (a *ServiceDistributionAdapter) FundCommunityPool(ctx context.Context, amount sdk.Coins, sender sdk.AccAddress) error {
 	return a.keeper.FundCommunityPool(ctx, amount, sender)
+}
+
+// ---------------------------------------------------------------------------
+// Service → federation.ServiceKeeper adapter
+// ---------------------------------------------------------------------------
+
+// FederationServiceAdapter wraps the concrete x/service Keeper to
+// satisfy x/federation's slimmer ServiceKeeper interface (Phase 2 of
+// the federation→service migration). Federation's interface keeps the
+// `source` parameter of RegisterOperator as a plain `int` so federation
+// doesn't have to import servicekeeper for the SlashSource enum; the
+// adapter does the type conversion here.
+type FederationServiceAdapter struct {
+	keeper servicekeeper.Keeper
+}
+
+// NewFederationServiceAdapter wraps the concrete service keeper.
+func NewFederationServiceAdapter(k servicekeeper.Keeper) *FederationServiceAdapter {
+	return &FederationServiceAdapter{keeper: k}
+}
+
+var _ federationtypes.ServiceKeeper = (*FederationServiceAdapter)(nil)
+
+func (a *FederationServiceAdapter) RegisterOperator(ctx context.Context, creator, serviceType, controller string, bond sdk.Coin, metadata []byte, source int) (servicetypes.Operator, error) {
+	return a.keeper.RegisterOperator(ctx, creator, serviceType, controller, bond, metadata, servicekeeper.SlashSource(source))
+}
+
+func (a *FederationServiceAdapter) TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBond sdk.Coin) error {
+	return a.keeper.TopUpBond(ctx, opBytes, serviceType, additionalBond)
+}
+
+func (a *FederationServiceAdapter) OpenSystemReport(ctx context.Context, callerModuleAddr sdk.AccAddress, operatorAddr sdk.AccAddress, serviceType string, slashBps uint32, evidenceURI string, dedupeKey []byte) (uint64, bool, error) {
+	return a.keeper.OpenSystemReport(ctx, callerModuleAddr, operatorAddr, serviceType, slashBps, evidenceURI, dedupeKey)
+}
+
+func (a *FederationServiceAdapter) GetOperator(ctx context.Context, addrBytes []byte, serviceType string) (servicetypes.Operator, bool) {
+	return a.keeper.GetOperator(ctx, addrBytes, serviceType)
+}
+
+func (a *FederationServiceAdapter) HasSlashedRecord(ctx context.Context, addrBytes []byte, serviceType string) (bool, error) {
+	return a.keeper.HasSlashedRecord(ctx, addrBytes, serviceType)
+}
+
+func (a *FederationServiceAdapter) GetServiceTypeConfig(ctx context.Context, serviceType string) (servicetypes.ServiceTypeConfig, bool) {
+	return a.keeper.GetServiceTypeConfig(ctx, serviceType)
 }

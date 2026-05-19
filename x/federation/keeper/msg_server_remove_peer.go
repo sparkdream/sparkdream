@@ -32,6 +32,26 @@ func (k msgServer) RemovePeer(ctx context.Context, msg *types.MsgRemovePeer) (*t
 		return nil, errorsmod.Wrapf(types.ErrPeerNotActive, "peer %q is already removed", msg.PeerId)
 	}
 
+	// 2a. Block removal if there are still bindings (Phase 5 of the
+	// federation→service migration plan, peer-removal block decision).
+	// Operators must unbond via service.MsgUnbondOperator first; the
+	// AfterOperatorRetired hook will then prune the bindings, after
+	// which this message can run. For abandoned peers (operators never
+	// respond), the abandoned-peer escape hatch is to bundle
+	// MsgReportOperator(T1_SLASH, dissolve=true) for each bridge into
+	// the same gov proposal as MsgRemovePeer — those reports dissolve
+	// the operators atomically, fire AfterOperatorDissolved → prune
+	// bindings → and then RemovePeer succeeds.
+	bridgeCount, err := k.countBridgesForPeer(ctx, msg.PeerId)
+	if err != nil {
+		return nil, err
+	}
+	if bridgeCount > 0 {
+		return nil, errorsmod.Wrapf(types.ErrPeerHasActiveBridges,
+			"peer %q still has %d active bridges; operators must unbond via service.MsgUnbondOperator first (or bundle MsgReportOperator dissolutions into the same proposal for abandoned peers — see migration plan)",
+			msg.PeerId, bridgeCount)
+	}
+
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 

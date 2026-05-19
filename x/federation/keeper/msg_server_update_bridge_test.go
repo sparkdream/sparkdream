@@ -22,6 +22,6 @@ func TestUpdateBridge(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	bridge, _ := f.keeper.BridgeOperators.Get(f.ctx, collections.Join(opStr, "update-peer"))
+	bridge, _ := f.keeper.BridgeBindings.Get(f.ctx, collections.Join(opStr, "update-peer"))
 	require.Equal(t, "https://new-endpoint.example.com", bridge.Endpoint)
 }

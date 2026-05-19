@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 
@@ -60,7 +62,7 @@ func (k msgServer) SubmitArbiterHash(ctx context.Context, msg *types.MsgSubmitAr
 		// Identified path — must be active bridge for same peer
 		submitterKey = msg.Creator
 		bridgeKey := collections.Join(msg.Creator, content.PeerId)
-		_, err := k.BridgeOperators.Get(ctx, bridgeKey)
+		_, err := k.BridgeBindings.Get(ctx, bridgeKey)
 		if err != nil {
 			return nil, errorsmod.Wrapf(types.ErrBridgeNotFound, "operator %s not registered for peer %s", msg.Creator, content.PeerId)
 		}
@@ -113,8 +115,17 @@ func (k msgServer) SubmitArbiterHash(ctx context.Context, msg *types.MsgSubmitAr
 				sdk.NewAttribute("matching_count", fmt.Sprintf("%d", newCount))),
 		)
 
-		// Auto-resolve (TODO: implement full auto-resolution logic with slashing/refunds)
-		// For now, emit the auto-resolved event and add to escalation queue
+		// Auto-resolve: schedule the resolution window (existing
+		// behavior) and, if the arbiter quorum hash differs from the
+		// originally-submitted content hash, file a system report
+		// against the submitting bridge operator via x/service.
+		//
+		// Phase 6 of the federation→service migration: federation
+		// files the report rather than directly slashing. The
+		// controller resolves it through the standard tier-1 path
+		// (with ReportTimeoutAction=ESCALATE on bridge service types,
+		// a silent controller can't park the slash forever — the
+		// EndBlocker auto-escalates to jury).
 		escalationDeadline := blockTime + int64(params.ArbiterEscalationWindow.Seconds())
 		if err := k.ArbiterEscalationQueue.Set(ctx, collections.Join(escalationDeadline, msg.ContentId)); err != nil {
 			return nil, err
@@ -125,7 +136,85 @@ func (k msgServer) SubmitArbiterHash(ctx context.Context, msg *types.MsgSubmitAr
 				sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", msg.ContentId)),
 				sdk.NewAttribute("quorum_hash", hashHex)),
 		)
+
+		// Compare the arbiter-quorum hash to the originally-submitted
+		// content hash. If they match, the original submission was
+		// honest and no slash is warranted. If they differ, the
+		// originating bridge operator gets reported.
+		if !bytesEqual(msg.ContentHash, content.ContentHash) {
+			evidenceURI := fmt.Sprintf("content_id=%d quorum_hash=%s", content.Id, hashHex)
+			if err := k.Keeper.fileChallengeReport(ctx, content, evidenceURI); err != nil {
+				// Log via event so a service-side failure doesn't
+				// roll back the auto-resolve — federation can recover
+				// orphans manually via MsgPruneOrphanBindings if a
+				// service-side report write fails here.
+				sdkCtx.EventManager().EmitEvent(
+					sdk.NewEvent(types.EventTypeFederationHookFailure,
+						sdk.NewAttribute("hook", "fileChallengeReport"),
+						sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", msg.ContentId)),
+						sdk.NewAttribute("error", err.Error()),
+					),
+				)
+			}
+		}
 	}
 
 	return &types.MsgSubmitArbiterHashResponse{}, nil
+}
+
+// fileChallengeReport opens a system report against the bridge
+// operator who submitted the now-rejected/escalated content. Phase 6
+// of the federation→service migration: federation calls
+// serviceKeeper.OpenSystemReport with a dedupe key derived from the
+// content_id, so repeat calls during EndBlocker retries / re-orgs
+// don't open duplicate reports. Used by both MsgSubmitArbiterHash
+// (quorum-reached path) and MsgEscalateChallenge (party-initiated).
+//
+// No-op when serviceKeeper isn't wired (standalone-mode tests).
+func (k Keeper) fileChallengeReport(ctx context.Context, content types.FederatedContent, evidenceURI string) error {
+	sk := k.serviceKeeper()
+	if sk == nil {
+		return nil
+	}
+
+	peer, err := k.Peers.Get(ctx, content.PeerId)
+	if err != nil {
+		return errorsmod.Wrapf(types.ErrPeerNotFound, "peer %q not found", content.PeerId)
+	}
+	serviceType, err := serviceTypeForPeer(peer.Type)
+	if err != nil {
+		// SPARK_DREAM peer; no service-backed bridge to slash.
+		return nil
+	}
+
+	operatorAddr, err := k.addressCodec.StringToBytes(content.SubmittedBy)
+	if err != nil {
+		return errorsmod.Wrap(err, "invalid submitted_by address")
+	}
+	callerAddr := k.authKeeper.GetModuleAddress(types.ModuleName)
+
+	// dedupeKey = sha256(content_id || ":federation:challenge"). Per
+	// migration plan: include the challenge ID so a re-orged re-fire
+	// of the same content's challenge resolves to the same report.
+	idBuf := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBuf, content.Id)
+	keyHash := sha256.Sum256(append(idBuf, []byte(":federation:challenge")...))
+
+	// slashBps=0 → service falls back to ServiceTypeConfig.challenge_default_slash_bps.
+	_, _, err = sk.OpenSystemReport(ctx, callerAddr, operatorAddr, serviceType, 0, evidenceURI, keyHash[:])
+	return err
+}
+
+// bytesEqual is a thin wrapper around bytes.Equal kept here to avoid a
+// fresh bytes import on a file that's otherwise import-clean.
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

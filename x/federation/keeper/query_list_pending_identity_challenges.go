@@ -6,6 +6,7 @@ import (
 	"sparkdream/x/federation/types"
 
 	"cosmossdk.io/collections"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -15,18 +16,19 @@ func (q queryServer) ListPendingIdentityChallenges(ctx context.Context, req *typ
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Filter by claimed_address using prefix range
-	rng := collections.NewPrefixedPairRange[string, string](req.ClaimedAddress)
-	var challenges []types.PendingIdentityChallenge
-	err := q.k.PendingIdChallenges.Walk(ctx, rng, func(key collections.Pair[string, string], value types.PendingIdentityChallenge) (bool, error) {
-		challenges = append(challenges, value)
-		return false, nil
-	})
+	challenges, pageRes, err := query.CollectionPaginate(
+		ctx, q.k.PendingIdChallenges, req.Pagination,
+		func(_ collections.Pair[string, string], value types.PendingIdentityChallenge) (types.PendingIdentityChallenge, error) {
+			return value, nil
+		},
+		query.WithCollectionPaginationPairPrefix[string, string](req.ClaimedAddress),
+	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	return &types.QueryListPendingIdentityChallengesResponse{
 		Challenges: challenges,
+		Pagination: pageRes,
 	}, nil
 }

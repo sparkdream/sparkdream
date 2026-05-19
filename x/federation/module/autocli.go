@@ -36,15 +36,15 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}},
 				},
 				{
-					RpcMethod:      "GetBridgeOperator",
-					Use:            "get-bridge-operator [address] [peer-id]",
-					Short:          "Query GetBridgeOperator",
+					RpcMethod:      "GetBridgeBinding",
+					Use:            "get-bridge-binding [address] [peer-id]",
+					Short:          "Query GetBridgeBinding (federation-side binding; for live operator status query x/service)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}, {ProtoField: "peer_id"}},
 				},
 				{
-					RpcMethod:      "ListBridgeOperators",
-					Use:            "list-bridge-operators ",
-					Short:          "Query ListBridgeOperators",
+					RpcMethod:      "ListBridgeBindings",
+					Use:            "list-bridge-bindings ",
+					Short:          "Query ListBridgeBindings (federation-side bindings)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 				{
@@ -155,40 +155,23 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "RegisterBridge",
-					Use:            "register-bridge [operator] [peer-id] [protocol] [endpoint]",
-					Short:          "Send a RegisterBridge tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "operator"}, {ProtoField: "peer_id"}, {ProtoField: "protocol"}, {ProtoField: "endpoint"}},
-				},
-				{
-					RpcMethod:      "RevokeBridge",
-					Use:            "revoke-bridge [operator] [peer-id] [reason]",
-					Short:          "Send a RevokeBridge tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "operator"}, {ProtoField: "peer_id"}, {ProtoField: "reason"}},
-				},
-				{
-					RpcMethod:      "SlashBridge",
-					Use:            "slash-bridge [operator] [peer-id] [amount] [reason]",
-					Short:          "Send a SlashBridge tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "operator"}, {ProtoField: "peer_id"}, {ProtoField: "amount"}, {ProtoField: "reason"}},
+					Use:            "register-bridge [peer-id] [protocol] [endpoint] [stake]",
+					Short:          "Operator-signed bridge registration (federation→service migration: operator pays own bond)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "protocol"}, {ProtoField: "endpoint"}, {ProtoField: "stake"}},
 				},
 				{
 					RpcMethod:      "UpdateBridge",
 					Use:            "update-bridge [operator] [peer-id] [endpoint]",
-					Short:          "Send a UpdateBridge tx",
+					Short:          "Update bridge endpoint (federation-side only — economic state owned by x/service)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "operator"}, {ProtoField: "peer_id"}, {ProtoField: "endpoint"}},
 				},
-				{
-					RpcMethod:      "UnbondBridge",
-					Use:            "unbond-bridge [peer-id]",
-					Short:          "Send a UnbondBridge tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}},
-				},
-				{
-					RpcMethod:      "TopUpBridgeStake",
-					Use:            "top-up-bridge-stake [peer-id]",
-					Short:          "Send a TopUpBridgeStake tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}},
-				},
+				// RevokeBridge, SlashBridge, UnbondBridge, TopUpBridgeStake
+				// were removed in Phase 4 of the federation→service migration.
+				// Operators call the equivalent x/service messages directly:
+				//   - tx service unbond-operator [service-type]   (replaces unbond-bridge)
+				//   - tx service top-up-bond [service-type] [amount]   (replaces top-up-bridge-stake)
+				//   - tx service report-operator [operator] [service-type] [reason]   (replaces slash-bridge for members)
+				// Service types are: federation-bridge-activitypub, federation-bridge-atproto.
 				{
 					RpcMethod:      "SubmitFederatedContent",
 					Use:            "submit-federated-content [peer-id] [remote-content-id] [content-type] [creator-identity] [creator-name] [title] [body] [content-uri] [remote-created-at]",
@@ -266,6 +249,25 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "update-operational-params ",
 					Short:          "Send a UpdateOperationalParams tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
+				},
+				// Phase 1 federation→service migration messages.
+				{
+					RpcMethod:      "UpdatePeerController",
+					Use:            "update-peer-controller [peer-id] [controller-group]",
+					Short:          "Update a peer's controller_group (gov-only; affects only new bridges)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "controller_group"}},
+				},
+				{
+					RpcMethod:      "ResyncBridgeCount",
+					Use:            "resync-bridge-count [peer-id]",
+					Short:          "Re-count BridgesByPeer (OpsComm or gov; pure cleanup)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}},
+				},
+				{
+					RpcMethod:      "PruneOrphanBindings",
+					Use:            "prune-orphan-bindings [peer-id]",
+					Short:          "Prune orphan BridgeBindings (OpsComm or gov; recovery for fail-soft hook drops)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}},
 				},
 			},
 		},

@@ -51,6 +51,9 @@ var (
 	ErrControllerNoLongerEligible      = errors.Register(ModuleName, 39, "proposed controller is no longer eligible (group dissolved or empty)")
 	ErrControllerTransferCaseNotFound  = errors.Register(ModuleName, 40, "controller transfer case not found")
 	ErrJuryVerdictMismatch             = errors.Register(ModuleName, 41, "resolver's submitted verdict does not match the underlying JuryReview")
+	ErrUnauthorizedSystemCaller        = errors.Register(ModuleName, 42, "caller is not in the system-report allowlist")
+	ErrSystemReportRateLimited         = errors.Register(ModuleName, 43, "system report rate limit exceeded for caller")
+	ErrInvalidDedupeKey                = errors.Register(ModuleName, 44, "dedupe key must be non-empty")
 
 	// ErrInvalidSigner is the ignite-scaffolded generic invalid-signer
 	// error retained from the module skeleton; retained as 1100 for

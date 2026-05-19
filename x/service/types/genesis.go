@@ -2,12 +2,62 @@ package types
 
 import (
 	"fmt"
+
+	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // DefaultGenesis returns the default genesis state.
+//
+// Seeds two ServiceTypeConfig entries for the federation→service
+// migration (Phase 8 of the migration plan):
+//   - federation-bridge-activitypub
+//   - federation-bridge-atproto
+//
+// Both use the same default knobs initially (matching x/service module
+// params); per Decision 1 of the migration plan they may diverge via
+// gov MsgUpdateServiceTypeConfig if the risk model dictates. Both opt
+// into report_timeout_action=ESCALATE so a silent controller can't
+// park a slash forever (Decision 3).
 func DefaultGenesis() *GenesisState {
+	params := DefaultParams()
 	return &GenesisState{
-		Params: DefaultParams(),
+		Params:       params,
+		ServiceTypes: defaultFederationBridgeServiceTypes(params),
+	}
+}
+
+// defaultFederationBridgeServiceTypes returns the genesis seed for the
+// two federation-bridge service_types. Public so app/genesis_*.go can
+// override values per build tag (mainnet/testnet/devnet/testparams)
+// without having to re-derive the structure.
+func defaultFederationBridgeServiceTypes(params Params) []ServiceTypeConfig {
+	// 1000 SPARK default (mainnet target). Build-tagged genesis_vals
+	// can override per environment if/when needed.
+	const defaultMinBondUspark = int64(1_000_000_000)
+	// 1% — conservative starting slash. Controllers may adjust upward
+	// up to unilateral_slash_cap_bps at resolve time.
+	const defaultChallengeDefaultSlashBps uint32 = 100
+
+	mkCfg := func(serviceType, description string) ServiceTypeConfig {
+		return ServiceTypeConfig{
+			ServiceType:              serviceType,
+			Description:              description,
+			MinBond:                  sdk.NewCoin("uspark", math.NewInt(defaultMinBondUspark)),
+			UnbondingPeriodBlocks:    params.DefaultUnbondingPeriodBlocks,
+			UnilateralSlashCapBps:    params.DefaultUnilateralSlashCapBps,
+			Tier1WindowBlocks:        params.DefaultTier1WindowBlocks,
+			Tier1AggregateCapBps:     params.DefaultTier1AggregateCapBps,
+			Tier1CooldownBlocks:      params.DefaultTier1CooldownBlocks,
+			UnderfundedGraceBlocks:   params.DefaultUnderfundedGraceBlocks,
+			Enabled:                  true,
+			ReportTimeoutAction:      ReportTimeoutAction_REPORT_TIMEOUT_ACTION_ESCALATE,
+			ChallengeDefaultSlashBps: defaultChallengeDefaultSlashBps,
+		}
+	}
+	return []ServiceTypeConfig{
+		mkCfg("federation-bridge-activitypub", "Off-chain bridge operator for ActivityPub federation"),
+		mkCfg("federation-bridge-atproto", "Off-chain bridge operator for AT Protocol federation"),
 	}
 }
 

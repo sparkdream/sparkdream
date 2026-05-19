@@ -12,9 +12,12 @@ import (
 // that vary across testparams/devnet/testnet/mainnet builds.
 // Provided by genesis_vals_*.go files via build tags.
 type federationGenesisParams struct {
-	MinBridgeStake           sdk.Coin
-	BridgeRevocationCooldown time.Duration
-	BridgeUnbondingPeriod    time.Duration
+	// MinBridgeStake, BridgeRevocationCooldown, BridgeUnbondingPeriod
+	// were dropped in the federation→service migration (Phase 1). Their
+	// values now live on x/service ServiceTypeConfig per service_type.
+	// Existing build-tagged values are retained here as comments for
+	// reference when seeding the corresponding ServiceTypeConfigs at
+	// genesis.
 
 	ContentTTL     time.Duration
 	AttestationTTL time.Duration
@@ -44,7 +47,13 @@ type federationGenesisParams struct {
 // Network-specific values (TTLs, fees, cooldowns) come from
 // getFederationGenesisParams() in genesis_vals_*.go files.
 var (
-	DefaultMaxBridgesPerPeer         = uint64(5)
+	// DefaultMaxBridgesPerPeer is a *kill-switch* default per Decision 6
+	// of the federation→service migration plan: set high enough (1000)
+	// that the cap never bites legit use. Bridge participation is gated
+	// by service.MinBond + content-hash dedup + per-peer rate limits.
+	// Gov may dial this down without a chain upgrade if an unknown-
+	// unknown materializes; it is NOT a normal policy lever.
+	DefaultMaxBridgesPerPeer         = uint64(1000)
 	DefaultKnownContentTypes         = []string{"blog_post", "blog_reply", "forum_thread", "forum_reply", "collection"}
 	DefaultMaxInboundPerBlock        = uint64(50)
 	DefaultMaxOutboundPerBlock       = uint64(50)
@@ -86,10 +95,10 @@ func DefaultParams() Params {
 	gp := getFederationGenesisParams()
 
 	return Params{
-		MinBridgeStake:            gp.MinBridgeStake,
+		// MinBridgeStake / BridgeRevocationCooldown / BridgeUnbondingPeriod
+		// were dropped in the federation→service migration (Phase 1).
+		// Equivalent knobs now live on x/service ServiceTypeConfig.
 		MaxBridgesPerPeer:         DefaultMaxBridgesPerPeer,
-		BridgeRevocationCooldown:  gp.BridgeRevocationCooldown,
-		BridgeUnbondingPeriod:     gp.BridgeUnbondingPeriod,
 		KnownContentTypes:         DefaultKnownContentTypes,
 		MaxInboundPerBlock:        DefaultMaxInboundPerBlock,
 		MaxOutboundPerBlock:       DefaultMaxOutboundPerBlock,

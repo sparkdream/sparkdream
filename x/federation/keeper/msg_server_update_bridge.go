@@ -18,12 +18,12 @@ func (k msgServer) UpdateBridge(ctx context.Context, msg *types.MsgUpdateBridge)
 
 	// 2. Verify bridge exists and is ACTIVE
 	bridgeKey := collections.Join(msg.Operator, msg.PeerId)
-	bridge, err := k.BridgeOperators.Get(ctx, bridgeKey)
+	bridge, err := k.BridgeBindings.Get(ctx, bridgeKey)
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrBridgeNotFound, "operator %s not found for peer %s", msg.Operator, msg.PeerId)
 	}
-	if bridge.Status != types.BridgeStatus_BRIDGE_STATUS_ACTIVE {
-		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge status is %s", bridge.Status)
+	if bridge.Suspended {
+		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge is suspended")
 	}
 
 	// 3. Update non-empty fields
@@ -31,7 +31,7 @@ func (k msgServer) UpdateBridge(ctx context.Context, msg *types.MsgUpdateBridge)
 		bridge.Endpoint = msg.Endpoint
 	}
 
-	if err := k.BridgeOperators.Set(ctx, bridgeKey, bridge); err != nil {
+	if err := k.BridgeBindings.Set(ctx, bridgeKey, bridge); err != nil {
 		return nil, err
 	}
 

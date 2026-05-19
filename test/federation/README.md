@@ -12,14 +12,19 @@ If you only want the multichain quick-start, jump to [multichain/README.md](mult
 
 | Suite | File | Coverage |
 |-------|------|----------|
-| Single-chain | [params_test.sh](params_test.sh) | Module params via Commons Operations Committee proposals |
+| Single-chain | [params_test.sh](params_test.sh) | Module params shape + `MsgUpdateOperationalParams` (OpsComm subset) |
 | Single-chain | [peer_lifecycle_test.sh](peer_lifecycle_test.sh) | `RegisterPeer`, `ResumePeer`, `SuspendPeer`, `RemovePeer` state machine |
 | Single-chain | [peer_policy_test.sh](peer_policy_test.sh) | `UpdatePeerPolicy` content-type allowlists, attestation flag, blocked identities |
-| Single-chain | [bridge_operator_test.sh](bridge_operator_test.sh) | Off-chain bridge: register/top-up/unbond, `SubmitFederatedContent`, slashing |
+| Single-chain | [bridge_operator_test.sh](bridge_operator_test.sh) | `MsgRegisterBridge` (operator-signed), `MsgUpdateBridge`, plus the x/service top-up/unbond/double-unbond flows that replace the deleted federation messages |
 | Single-chain | [content_federation_test.sh](content_federation_test.sh) | `FederateContent` (IBC outbound — sender-side validation) and inbound moderation |
 | Single-chain | [identity_link_test.sh](identity_link_test.sh) | `LinkIdentity` (Phase 1 outbound), `UnlinkIdentity`, claimed-address rejections |
-| Single-chain | [verifier_test.sh](verifier_test.sh) | Cross-chain verifier role: `AttestOutbound`, `SubmitArbiterHash`, challenges, `ConfirmIdentityLink` validation |
-| Single-chain | [query_test.sh](query_test.sh) | All read-side queries (peers, policies, content, links, attestations, bridges) |
+| Single-chain | [verifier_test.sh](verifier_test.sh) | Cross-chain verifier role: `VerifyContent`, `ChallengeVerification`, `SubmitArbiterHash`, `EscalateChallenge` (verifier bonding flows through `tx rep bond-role federation-verifier`) |
+| Single-chain | [query_test.sh](query_test.sh) | All read-side queries (peers, policies, content, links, attestations, bindings, verifier activity) |
+| Single-chain | [query_pagination_test.sh](query_pagination_test.sh) | `--limit` / `--page-key` / `--reverse` / `--count-total` against every `List*` query + the per-claimed-address filter on `ListPendingIdentityChallenges` |
+| Single-chain | [service_hooks_test.sh](service_hooks_test.sh) | All four x/service hooks end-to-end: `AfterOperatorUnderfunded` → `BridgeBinding.suspended=true` (Group A via T1_SLASH that drops bond below `min_bond`); `AfterOperatorReFunded` → suspended cleared (Group A via `tx service top-up-bond`); `AfterOperatorRetired` → binding pruned (Group B via voluntary unbond + wait + claim); `AfterOperatorDissolved` → binding pruned (Group C via gov-tightened cap + 100% T1_SLASH that drives bond to zero per spec §3.4.9); plus Decision 1a shared-bond binding and SLASHED re-registration block |
+| Single-chain | [recovery_test.sh](recovery_test.sh) | `MsgUpdatePeerController` (gov-only happy + rejected paths), `MsgResyncBridgeCount` and `MsgPruneOrphanBindings` (dual-authority: OpsComm OR gov), no-op idempotency |
+| Single-chain | [endblocker_test.sh](endblocker_test.sh) | Content TTL prune (Phase 1) with accelerated `content_ttl` via OpsComm, bridge inactivity threshold application (Phase 12); restores params after each test |
+| Single-chain | [governance_params_test.sh](governance_params_test.sh) | `MsgUpdateParams` (gov, expedited) full-blob round-trip with LegacyDec fixup; rejects OpsComm-signed attempt |
 | Multi-chain | [multichain/test_crosschain_content.sh](multichain/test_crosschain_content.sh) | A↔B content round-trips, dedup, disallowed-type, **silent-SendPacket regression** |
 | Multi-chain | [multichain/test_crosschain_identity.sh](multichain/test_crosschain_identity.sh) | Full Phase 1 + Phase 2 link verification IBC round-trip |
 | Multi-chain | [multichain/test_crosschain_reputation.sh](multichain/test_crosschain_reputation.sh) | Reputation attestation round-trip with PROVISIONAL discount |
@@ -86,6 +91,11 @@ The snapshot under [snapshots/post-setup/](snapshots/post-setup/) contains a ful
 | `--no-identity` | Identity link tests |
 | `--no-verifier` | Verifier tests |
 | `--no-query` | Query tests |
+| `--no-pagination` | Query pagination tests |
+| `--no-hooks` | x/service ServiceHooks integration tests |
+| `--no-recovery` | Recovery message tests (UpdatePeerController / Resync / Prune) |
+| `--no-endblocker` | EndBlocker sweep tests (uses accelerated TTLs via OpsComm) |
+| `--no-gov-params` | `MsgUpdateParams` gov-authority tests |
 | `--no-tests` | All tests (use with `--restore-setup` for a clean shell) |
 | `--multichain` | (Adds, doesn't skip) Run the multichain suite after single-chain tests |
 
@@ -120,6 +130,7 @@ test/federation/
 ├── README.md                           # this file
 ├── run_all_tests.sh                    # orchestrator (single-chain + optional --multichain)
 ├── setup_test_accounts.sh              # creates linker1/linker2/operator1/operator2/verifier1/verifier2/challenger1
+├── peer_fixtures.sh                    # shared helpers: register_test_peer, set_peer_policy, register_test_bridge
 ├── params_test.sh                      # see table above
 ├── peer_lifecycle_test.sh
 ├── peer_policy_test.sh
@@ -128,6 +139,11 @@ test/federation/
 ├── identity_link_test.sh
 ├── verifier_test.sh
 ├── query_test.sh
+├── query_pagination_test.sh            # --limit / --page-key / --reverse / filter args
+├── service_hooks_test.sh               # x/service ServiceHooks integration
+├── recovery_test.sh                    # UpdatePeerController / Resync / Prune
+├── endblocker_test.sh                  # accelerated-TTL sweep coverage
+├── governance_params_test.sh           # MsgUpdateParams (gov, expedited)
 ├── proposals/                          # generated council proposal JSON (gitignored)
 ├── snapshots/
 │   └── post-setup/                     # saved chain state, used by --restore-setup and multichain

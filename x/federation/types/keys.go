@@ -3,6 +3,13 @@ package types
 import "cosmossdk.io/collections"
 
 const (
+	// Service-type strings seeded at x/service genesis. Federation
+	// derives the service_type for each bridge from the peer's
+	// PeerType. Sync with the genesis seed in x/service genesis_vals
+	// (or wherever the ServiceTypeConfig entries are bootstrapped).
+	ServiceTypeFederationBridgeActivityPub = "federation-bridge-activitypub"
+	ServiceTypeFederationBridgeATProto     = "federation-bridge-atproto"
+
 	// ModuleName defines the module name
 	ModuleName = "federation"
 
@@ -30,7 +37,10 @@ var (
 
 	PeersKey           = collections.NewPrefix("fed/peers/")
 	PeerPoliciesKey    = collections.NewPrefix("fed/policies/")
-	BridgeOperatorsKey = collections.NewPrefix("fed/bridges/")
+	// BridgeBindingsKey: (operator_address, peer_id) → BridgeBinding.
+	// Renamed from BridgeOperatorsKey in the federation→service
+	// migration; storage prefix string kept stable.
+	BridgeBindingsKey = collections.NewPrefix("fed/bridges/")
 	// VerifierActivityKey: address -> VerifierActivity (federation-specific
 	// per-verifier counters). Generic bond state lives in x/rep as
 	// BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr).
@@ -62,6 +72,11 @@ var (
 	// Bridge indexes
 	BridgesByPeerKey = collections.NewPrefix("fed/idx/bridges_peer/")
 
+	// BindingsByOperatorKey: (service_type, address, peer_id) reverse
+	// index for hook-handler lookups. Multi-valued (Phase 1 of the
+	// federation→service migration).
+	BindingsByOperatorKey = collections.NewPrefix("fed/idx/bindings_operator/")
+
 	// Identity indexes
 	IdentityLinksByRemoteKey = collections.NewPrefix("fed/idx/idlinks_remote/")
 	IdentityLinkCountKey     = collections.NewPrefix("fed/idx/idlink_count/")
@@ -79,8 +94,9 @@ var (
 	ArbiterResolutionQueueKey = collections.NewPrefix("fed/idx/arbiter_res/")
 	ArbiterEscalationQueueKey = collections.NewPrefix("fed/idx/arbiter_esc/")
 
-	// Bridge unbonding
-	BridgeUnbondingQueueKey = collections.NewPrefix("fed/idx/bridge_unbond/")
+	// Bridge unbonding queue removed in Phase 4 of the federation→
+	// service migration. x/service owns operator unbonding now via
+	// UnderfundedQueue + per-type unbonding_period_blocks.
 
 	// Rate limiting
 	InboundRateLimitKey  = collections.NewPrefix("fed/rate/inbound/")

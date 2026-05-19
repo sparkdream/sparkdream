@@ -11,12 +11,16 @@ import (
 
 // Mainnet values — production parameters from spec Section 13.
 // Build with: go build -tags mainnet
+//
+// MinBridgeStake / BridgeRevocationCooldown / BridgeUnbondingPeriod
+// were dropped in the federation→service migration. The corresponding
+// ServiceTypeConfig values seeded at x/service genesis are:
+//   - min_bond:                 1_000_000_000 uspark (1000 SPARK)
+//   - unbonding_period_blocks:  ~14 days
+//   - (revocation cooldown is no longer a separate concept; service
+//     enforces re-registration via HasSlashedRecord on the prior pair)
 func getFederationGenesisParams() federationGenesisParams {
 	return federationGenesisParams{
-		MinBridgeStake:           sdk.NewCoin("uspark", math.NewInt(1_000_000_000)), // 1000 SPARK
-		BridgeRevocationCooldown: 7 * 24 * time.Hour,                                // 7 days
-		BridgeUnbondingPeriod:    14 * 24 * time.Hour,                               // 14 days
-
 		ContentTTL:     90 * 24 * time.Hour, // 90 days
 		AttestationTTL: 30 * 24 * time.Hour, // 30 days
 

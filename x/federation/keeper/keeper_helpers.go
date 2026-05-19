@@ -29,21 +29,27 @@ func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council, c
 	return k.late.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
-// countBridgesForPeer counts the number of active/unbonding bridge operators for a peer.
+// IsGovAuthority reports whether the bech32 address string matches the
+// configured x/gov authority bytes. Used by Phase 1 federation→service
+// migration messages (UpdatePeerController, ResyncBridgeCount,
+// PruneOrphanBindings) that accept gov authority.
+func (k Keeper) IsGovAuthority(addr string) bool {
+	authorityBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(k.authority, authorityBytes)
+}
+
+// countBridgesForPeer counts the number of bindings registered for a
+// peer. Status filtering is no longer needed: bindings only exist for
+// non-terminal operators (the AfterOperatorDissolved/Retired hooks
+// prune them on terminal transitions).
 func (k Keeper) countBridgesForPeer(ctx context.Context, peerID string) (uint64, error) {
 	var count uint64
 	rng := collections.NewPrefixedPairRange[string, string](peerID)
-	err := k.BridgesByPeer.Walk(ctx, rng, func(key collections.Pair[string, string]) (bool, error) {
-		// Check if bridge is active or unbonding (not revoked)
-		bridge, err := k.BridgeOperators.Get(ctx, collections.Join(key.K2(), key.K1()))
-		if err != nil {
-			return false, nil // skip if not found
-		}
-		if bridge.Status == types.BridgeStatus_BRIDGE_STATUS_ACTIVE ||
-			bridge.Status == types.BridgeStatus_BRIDGE_STATUS_SUSPENDED ||
-			bridge.Status == types.BridgeStatus_BRIDGE_STATUS_UNBONDING {
-			count++
-		}
+	err := k.BridgesByPeer.Walk(ctx, rng, func(_ collections.Pair[string, string]) (bool, error) {
+		count++
 		return false, nil
 	})
 	return count, err

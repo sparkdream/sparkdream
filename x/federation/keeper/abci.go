@@ -52,11 +52,10 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		logger.Error("EndBlocker phase 4 (prune expired identity challenges) failed", "error", phaseErr)
 	}
 
-	// Phase 5: Release Unbonded Bridge Stakes
-	pruned, phaseErr = k.releaseUnbondedBridgeStakes(ctx, sdkCtx, now, maxPrune, pruned)
-	if phaseErr != nil {
-		logger.Error("EndBlocker phase 5 (release unbonded bridge stakes) failed", "error", phaseErr)
-	}
+	// Phase 5 (Release Unbonded Bridge Stakes) was removed in the
+	// federation→service migration. x/service owns operator unbonding
+	// now via UnderfundedQueue + per-type unbonding_period_blocks; the
+	// AfterOperatorRetired hook fires federation cleanup.
 
 	// Phase 6: Expire Unverified Content
 	pruned, phaseErr = k.expireUnverifiedContent(ctx, sdkCtx, now, maxPrune, pruned)
@@ -217,40 +216,8 @@ func (k Keeper) pruneExpiredIdentityChallenges(ctx context.Context, sdkCtx sdk.C
 
 // --- Phase 5 ---
 
-func (k Keeper) releaseUnbondedBridgeStakes(ctx context.Context, sdkCtx sdk.Context, now int64, maxPrune, pruned uint64) (uint64, error) {
-	if pruned >= maxPrune {
-		return pruned, nil
-	}
-	rng := new(collections.Range[collections.Triple[int64, string, string]]).
-		EndExclusive(collections.Join3(now+1, "", ""))
-
-	err := k.BridgeUnbondingQueue.Walk(ctx, rng, func(key collections.Triple[int64, string, string]) (bool, error) {
-		if pruned >= maxPrune {
-			return true, nil
-		}
-		operatorAddr := key.K2()
-		peerID := key.K3()
-		bridgeKey := collections.Join(operatorAddr, peerID)
-
-		bridge, err := k.BridgeOperators.Get(ctx, bridgeKey)
-		if err == nil && bridge.Status == types.BridgeStatus_BRIDGE_STATUS_UNBONDING {
-			if bridge.Stake.Amount.IsPositive() {
-				opBytes, _ := k.addressCodec.StringToBytes(operatorAddr)
-				_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, opBytes, sdk.NewCoins(bridge.Stake))
-			}
-			bridge.Status = types.BridgeStatus_BRIDGE_STATUS_REVOKED
-			_ = k.BridgeOperators.Set(ctx, bridgeKey, bridge)
-
-			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeBridgeUnbondingComplete,
-				sdk.NewAttribute(types.AttributeKeyOperator, operatorAddr),
-				sdk.NewAttribute(types.AttributeKeyPeerID, peerID)))
-		}
-		_ = k.BridgeUnbondingQueue.Remove(ctx, key)
-		pruned++
-		return false, nil
-	})
-	return pruned, err
-}
+// (releaseUnbondedBridgeStakes removed in Phase 4 of the federation→
+// service migration; x/service owns operator unbonding now.)
 
 // --- Phase 6 ---
 
@@ -272,10 +239,10 @@ func (k Keeper) expireUnverifiedContent(ctx context.Context, sdkCtx sdk.Context,
 			_ = k.Content.Set(ctx, contentID, content)
 
 			bridgeKey := collections.Join(content.SubmittedBy, content.PeerId)
-			bridge, berr := k.BridgeOperators.Get(ctx, bridgeKey)
+			binding, berr := k.BridgeBindings.Get(ctx, bridgeKey)
 			if berr == nil {
-				bridge.ContentUnverified++
-				_ = k.BridgeOperators.Set(ctx, bridgeKey, bridge)
+				binding.ContentUnverified++
+				_ = k.BridgeBindings.Set(ctx, bridgeKey, binding)
 			}
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeContentVerificationExpired,
 				sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID)),
@@ -407,16 +374,21 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 			}
 		}
 		if state.ContentDone && !state.BridgesDone && pruned < maxPrune {
+			// Peer removal during the federation→service migration:
+			// bond return is owned by x/service (operator must unbond via
+			// service.MsgUnbondOperator first). Per the abandoned-peer
+			// escape hatch in Phase 5 of the migration plan, a peer-
+			// removal gov proposal may bundle MsgReportOperator
+			// (T1_SLASH, dissolve=true) for each active bridge so any
+			// stranded operators get dissolved atomically. By the time
+			// we reach the cleanup walk, all bindings should reference
+			// SLASHED/RETIRED operators whose hooks already cleared
+			// federation state — we just prune any orphaned bindings.
 			rng := collections.NewPrefixedPairRange[string, string](peerID)
 			_ = k.BridgesByPeer.Walk(ctx, rng, func(key collections.Pair[string, string]) (bool, error) {
 				opAddr := key.K2()
-				bridgeKey := collections.Join(opAddr, peerID)
-				bridge, err := k.BridgeOperators.Get(ctx, bridgeKey)
-				if err == nil && bridge.Stake.Amount.IsPositive() {
-					opBytes, _ := k.addressCodec.StringToBytes(opAddr)
-					_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, opBytes, sdk.NewCoins(bridge.Stake))
-				}
-				_ = k.BridgeOperators.Remove(ctx, bridgeKey)
+				bindingKey := collections.Join(opAddr, peerID)
+				_ = k.BridgeBindings.Remove(ctx, bindingKey)
 				_ = k.BridgesByPeer.Remove(ctx, key)
 				return false, nil
 			})
@@ -445,28 +417,30 @@ func (k Keeper) monitorBridgeOperators(ctx context.Context, sdkCtx sdk.Context, 
 	// Bound the walk to maxPrunePerBlock to prevent unbounded iteration every block.
 	var checked uint64
 	maxCheck := params.MaxPrunePerBlock
-	return k.BridgeOperators.Walk(ctx, nil, func(_ collections.Pair[string, string], bridge types.BridgeOperator) (bool, error) {
+	return k.BridgeBindings.Walk(ctx, nil, func(_ collections.Pair[string, string], binding types.BridgeBinding) (bool, error) {
 		if checked >= maxCheck {
 			return true, nil
 		}
 		checked++
-		if bridge.Status != types.BridgeStatus_BRIDGE_STATUS_ACTIVE {
+		// Suspended bindings don't get inactivity warnings (the operator
+		// is in UNDERFUNDED state on x/service; warning is redundant).
+		if binding.Suspended {
 			return false, nil
 		}
 		epochSec := int64(params.RateLimitWindow.Seconds())
-		if epochSec > 0 && bridge.LastSubmissionAt > 0 {
-			epochsSince := (now - bridge.LastSubmissionAt) / epochSec
+		if epochSec > 0 && binding.LastSubmissionAt > 0 {
+			epochsSince := (now - binding.LastSubmissionAt) / epochSec
 			if uint64(epochsSince) > params.BridgeInactivityThreshold {
 				sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeBridgeInactiveWarning,
-					sdk.NewAttribute(types.AttributeKeyOperator, bridge.Address),
-					sdk.NewAttribute(types.AttributeKeyPeerID, bridge.PeerId)))
+					sdk.NewAttribute(types.AttributeKeyOperator, binding.Address),
+					sdk.NewAttribute(types.AttributeKeyPeerID, binding.PeerId)))
 			}
 		}
-		if bridge.Stake.Amount.LT(params.MinBridgeStake.Amount) {
-			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeBridgeStakeInsufficient,
-				sdk.NewAttribute(types.AttributeKeyOperator, bridge.Address),
-				sdk.NewAttribute(types.AttributeKeyPeerID, bridge.PeerId)))
-		}
+		// Stake-insufficient monitoring removed: x/service emits
+		// service.operator_underfunded directly on the transition, and
+		// federation's AfterOperatorUnderfunded hook flips the binding's
+		// suspended flag. Off-chain monitors should watch
+		// service.operator_underfunded for this signal.
 		return false, nil
 	})
 }

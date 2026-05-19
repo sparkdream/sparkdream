@@ -60,5 +60,39 @@ func (c ServiceTypeConfig) Validate() error {
 		}
 	}
 
+	// challenge_default_slash_bps cross-field invariant: must be <=
+	// unilateral_slash_cap_bps. Validated in both directions at update
+	// time (Phase 0 federation→service migration) so:
+	//   - a proposal raising challenge_default_slash_bps above the cap
+	//     fails up-front rather than landing an invalid state;
+	//   - a proposal lowering the cap below the existing default also
+	//     fails — gov UX guidance is to either bundle both fields in
+	//     one update or split into two ordered proposals (default first,
+	//     cap second).
+	// Zero is allowed: callers of OpenSystemReport that explicitly pass
+	// slashBps don't need a configured default, and ServiceTypes never
+	// touched by OpenSystemReport (e.g. non-federation operators) can
+	// leave it at zero.
+	if c.ChallengeDefaultSlashBps > 10000 {
+		return ErrInvalidServiceTypeConfig.Wrapf(
+			"challenge_default_slash_bps must be in [0, 10000], got %d",
+			c.ChallengeDefaultSlashBps,
+		)
+	}
+	if c.ChallengeDefaultSlashBps > c.UnilateralSlashCapBps {
+		return ErrInvalidServiceTypeConfig.Wrapf(
+			"challenge_default_slash_bps (%d) must be <= unilateral_slash_cap_bps (%d) — see the migration spec for the gov-UX rationale",
+			c.ChallengeDefaultSlashBps, c.UnilateralSlashCapBps,
+		)
+	}
+
+	// ReportTimeoutAction: anything outside the enum range is rejected.
+	if _, ok := ReportTimeoutAction_name[int32(c.ReportTimeoutAction)]; !ok {
+		return ErrInvalidServiceTypeConfig.Wrapf(
+			"report_timeout_action %d is not a valid enum value",
+			c.ReportTimeoutAction,
+		)
+	}
+
 	return nil
 }

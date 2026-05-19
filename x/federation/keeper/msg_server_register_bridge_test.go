@@ -17,27 +17,28 @@ func TestRegisterBridge(t *testing.T) {
 
 	opStr := testAddr(t, f, "operator1")
 
-	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{
-		Authority: f.authority, Operator: opStr, PeerId: "mastodon.social",
+	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator: opStr, PeerId: "mastodon.social",
 		Protocol: "activitypub", Endpoint: "https://bridge.example.com",
 	})
 	require.NoError(t, err)
 
-	bridge, err := f.keeper.BridgeOperators.Get(f.ctx, collections.Join(opStr, "mastodon.social"))
+	binding, err := f.keeper.BridgeBindings.Get(f.ctx, collections.Join(opStr, "mastodon.social"))
 	require.NoError(t, err)
-	require.Equal(t, types.BridgeStatus_BRIDGE_STATUS_ACTIVE, bridge.Status)
+	require.False(t, binding.Suspended, "fresh binding should not be suspended")
+	require.Equal(t, "activitypub", binding.Protocol)
+	require.Equal(t, "https://bridge.example.com", binding.Endpoint)
 
 	// Peer should be ACTIVE now
 	peer, _ := f.keeper.Peers.Get(f.ctx, "mastodon.social")
 	require.Equal(t, types.PeerStatus_PEER_STATUS_ACTIVE, peer.Status)
 
-	// Duplicate fails
-	_, err = ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{
-		Authority: f.authority, Operator: opStr, PeerId: "mastodon.social",
+	// Duplicate fails — the second register call sees an existing
+	// binding and rejects.
+	_, err = ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator: opStr, PeerId: "mastodon.social",
 		Protocol: "activitypub",
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "already registered")
+	require.Contains(t, err.Error(), "already exists")
 }
 
 func TestRegisterBridgeWrongPeerType(t *testing.T) {
@@ -46,8 +47,7 @@ func TestRegisterBridgeWrongPeerType(t *testing.T) {
 	registerTestIBCPeer(t, f, ms, "sparkdream-2")
 
 	opStr := testAddr(t, f, "operator2")
-	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{
-		Authority: f.authority, Operator: opStr, PeerId: "sparkdream-2", Protocol: "activitypub",
+	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator: opStr, PeerId: "sparkdream-2", Protocol: "activitypub",
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ActivityPub/AT Protocol")

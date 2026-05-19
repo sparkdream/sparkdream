@@ -20,12 +20,12 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 
 	// 1. Verify operator is a registered, ACTIVE bridge for this peer
 	bridgeKey := collections.Join(msg.Operator, msg.PeerId)
-	bridge, err := k.BridgeOperators.Get(ctx, bridgeKey)
+	bridge, err := k.BridgeBindings.Get(ctx, bridgeKey)
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrBridgeNotFound, "operator %s not registered for peer %s", msg.Operator, msg.PeerId)
 	}
-	if bridge.Status != types.BridgeStatus_BRIDGE_STATUS_ACTIVE {
-		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge status is %s", bridge.Status)
+	if bridge.Suspended {
+		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge is suspended")
 	}
 
 	// 2. Verify peer is ACTIVE
@@ -146,7 +146,7 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 	// 13. Update bridge stats
 	bridge.ContentSubmitted++
 	bridge.LastSubmissionAt = blockTime
-	if err := k.BridgeOperators.Set(ctx, bridgeKey, bridge); err != nil {
+	if err := k.BridgeBindings.Set(ctx, bridgeKey, bridge); err != nil {
 		return nil, err
 	}
 

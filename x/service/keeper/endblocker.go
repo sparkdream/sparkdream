@@ -198,38 +198,94 @@ func (k Keeper) sweepPendingReports(ctx context.Context, params types.Params, cu
 			continue
 		}
 
-		// Refund deposit to reporter.
-		reporterBytes, err := k.addrBytes(report.Reporter)
-		if err == nil && !report.Deposit.Amount.IsNil() && !report.Deposit.Amount.IsZero() {
-			if err := k.bankKeeper.SendCoinsFromModuleToAccount(
-				ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(report.Deposit),
-			); err != nil {
+		// Look up the report's ServiceTypeConfig to decide whether this
+		// timeout dismisses or escalates (Phase 0 of the federation→
+		// service migration plan).
+		cfg, cfgErr := k.resolveServiceTypeConfig(ctx, report.ServiceType)
+		shouldEscalate := cfgErr == nil &&
+			cfg.ReportTimeoutAction == types.ReportTimeoutAction_REPORT_TIMEOUT_ACTION_ESCALATE
+
+		if shouldEscalate {
+			// Fall back to the configured default slash if the report
+			// has no proposal yet (member-filed reports start with 0).
+			// System reports filed via OpenSystemReport already carry
+			// the appropriate ProposedSlashBps.
+			proposedBps := report.ProposedSlashBps
+			if proposedBps == 0 {
+				proposedBps = cfg.ChallengeDefaultSlashBps
+			}
+			if proposedBps == 0 {
+				// No usable slash proposal — fall back to dismissal so we
+				// don't open a jury case the jurors can't meaningfully
+				// vote on.
+				if err := k.timeoutDismissReport(ctx, params, &report, currentHeight); err != nil {
+					return processed, err
+				}
+				_ = k.PendingReportsQueue.Remove(ctx, p.queueKey)
+				processed++
+				continue
+			}
+			if proposedBps > cfg.UnilateralSlashCapBps {
+				proposedBps = cfg.UnilateralSlashCapBps
+			}
+			if err := k.escalateReportToJury(ctx, &report, proposedBps, currentHeight); err != nil {
 				return processed, err
 			}
+			// escalateReportToJury already removed the PendingReportsQueue
+			// entry — no further work here.
+			processed++
+			continue
 		}
 
-		// Record refile cooldown against the operator's current controller.
-		op, exists := k.GetOperator(ctx, mustAddrBytesK(k, report.OperatorAddress), report.ServiceType)
-		if exists {
-			if err := k.recordRefileCooldown(ctx, op.Controller, report.OperatorAddress, report.ServiceType, currentHeight); err != nil {
-				return processed, err
-			}
-		}
-
-		// Update report status, drop queue entry.
-		report.Status = types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED
-		if err := k.Reports.Set(ctx, report.ReportId, report); err != nil {
+		// Default path: auto-dismiss.
+		if err := k.timeoutDismissReport(ctx, params, &report, currentHeight); err != nil {
 			return processed, err
 		}
 		_ = k.PendingReportsQueue.Remove(ctx, p.queueKey)
-
-		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
-			types.NewReportAutoDismissedEvent(report.ReportId, report.Deposit),
-		)
 		processed++
 	}
 
 	return processed, nil
+}
+
+// timeoutDismissReport executes the AUTO_DISMISSED path: refund deposit,
+// record refile cooldown, flip status, emit event. Caller is
+// responsible for removing the PendingReportsQueue entry.
+func (k Keeper) timeoutDismissReport(
+	ctx context.Context,
+	params types.Params,
+	report *types.Report,
+	currentHeight int64,
+) error {
+	// Refund deposit to reporter (zero for system reports, positive
+	// for member-filed reports).
+	reporterBytes, err := k.addrBytes(report.Reporter)
+	if err == nil && !report.Deposit.Amount.IsNil() && !report.Deposit.Amount.IsZero() {
+		if err := k.bankKeeper.SendCoinsFromModuleToAccount(
+			ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(report.Deposit),
+		); err != nil {
+			return err
+		}
+	}
+
+	// Record refile cooldown against the operator's current controller.
+	op, exists := k.GetOperator(ctx, mustAddrBytesK(k, report.OperatorAddress), report.ServiceType)
+	if exists {
+		if err := k.recordRefileCooldown(ctx, op.Controller, report.OperatorAddress, report.ServiceType, currentHeight); err != nil {
+			return err
+		}
+	}
+
+	report.Status = types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED
+	if err := k.Reports.Set(ctx, report.ReportId, *report); err != nil {
+		return err
+	}
+
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
+		types.NewReportAutoDismissedEvent(report.ReportId, report.Deposit),
+	)
+	_ = params
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +353,7 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 				}
 				// Status may revert UNDERFUNDED → ACTIVE if bond clears
 				// min_bond again.
+				refundedTransition := false
 				if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED {
 					if cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType); err == nil {
 						if op.Bond.Amount.GTE(cfg.MinBond.Amount) {
@@ -306,11 +363,15 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 							if oldUF > 0 {
 								_ = k.removeUnderfundedQueueEntry(ctx, oldUF, opBytes, op.ServiceType)
 							}
+							refundedTransition = true
 						}
 					}
 				}
 				if err := k.PutOperator(ctx, op); err != nil {
 					return processed, err
+				}
+				if refundedTransition && k.hooks() != nil {
+					k.hooks().AfterOperatorReFunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
 				}
 				_ = k.Tier1Escrow.Remove(ctx, escrowID)
 				_ = k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, op.ServiceType, escrowID))

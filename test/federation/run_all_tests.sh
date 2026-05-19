@@ -6,17 +6,22 @@
 # This script runs all federation module e2e tests in sequence.
 #
 # Usage:
-#   ./run_all_tests.sh              # Run all tests
-#   ./run_all_tests.sh --no-setup   # Skip account setup
-#   ./run_all_tests.sh --no-params  # Skip params tests
-#   ./run_all_tests.sh --no-peer    # Skip peer lifecycle tests
-#   ./run_all_tests.sh --no-policy  # Skip peer policy tests
-#   ./run_all_tests.sh --no-bridge  # Skip bridge operator tests
-#   ./run_all_tests.sh --no-content # Skip content federation tests
-#   ./run_all_tests.sh --no-identity # Skip identity link tests
-#   ./run_all_tests.sh --no-verifier # Skip verifier tests
-#   ./run_all_tests.sh --no-query   # Skip query tests
-#   ./run_all_tests.sh --multichain # Also run multi-chain IBC tests (test/federation/multichain/)
+#   ./run_all_tests.sh                  # Run all tests
+#   ./run_all_tests.sh --no-setup       # Skip account setup
+#   ./run_all_tests.sh --no-params      # Skip params tests
+#   ./run_all_tests.sh --no-peer        # Skip peer lifecycle tests
+#   ./run_all_tests.sh --no-policy      # Skip peer policy tests
+#   ./run_all_tests.sh --no-bridge      # Skip bridge operator tests
+#   ./run_all_tests.sh --no-content     # Skip content federation tests
+#   ./run_all_tests.sh --no-identity    # Skip identity link tests
+#   ./run_all_tests.sh --no-verifier    # Skip verifier tests
+#   ./run_all_tests.sh --no-query       # Skip query tests
+#   ./run_all_tests.sh --no-pagination  # Skip query pagination tests
+#   ./run_all_tests.sh --no-hooks       # Skip x/service hook integration tests
+#   ./run_all_tests.sh --no-recovery    # Skip recovery (UpdatePeerController/Resync/Prune) tests
+#   ./run_all_tests.sh --no-endblocker  # Skip EndBlocker sweep tests
+#   ./run_all_tests.sh --no-gov-params  # Skip MsgUpdateParams gov tests
+#   ./run_all_tests.sh --multichain     # Also run multi-chain IBC tests (test/federation/multichain/)
 #
 # Prerequisites:
 #   - sparkdreamd chain running locally
@@ -49,6 +54,11 @@ RUN_CONTENT=true
 RUN_IDENTITY=true
 RUN_VERIFIER=true
 RUN_QUERY=true
+RUN_PAGINATION=true
+RUN_HOOKS=true
+RUN_RECOVERY=true
+RUN_ENDBLOCKER=true
+RUN_GOV_PARAMS=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 RUN_MULTICHAIN=false
@@ -83,6 +93,21 @@ for arg in "$@"; do
         --no-query)
             RUN_QUERY=false
             ;;
+        --no-pagination)
+            RUN_PAGINATION=false
+            ;;
+        --no-hooks)
+            RUN_HOOKS=false
+            ;;
+        --no-recovery)
+            RUN_RECOVERY=false
+            ;;
+        --no-endblocker)
+            RUN_ENDBLOCKER=false
+            ;;
+        --no-gov-params)
+            RUN_GOV_PARAMS=false
+            ;;
         --only-setup)
             RUN_PARAMS=false
             RUN_PEER=false
@@ -92,6 +117,11 @@ for arg in "$@"; do
             RUN_IDENTITY=false
             RUN_VERIFIER=false
             RUN_QUERY=false
+            RUN_PAGINATION=false
+            RUN_HOOKS=false
+            RUN_RECOVERY=false
+            RUN_ENDBLOCKER=false
+            RUN_GOV_PARAMS=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -104,6 +134,11 @@ for arg in "$@"; do
             RUN_IDENTITY=false
             RUN_VERIFIER=false
             RUN_QUERY=false
+            RUN_PAGINATION=false
+            RUN_HOOKS=false
+            RUN_RECOVERY=false
+            RUN_ENDBLOCKER=false
+            RUN_GOV_PARAMS=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -121,6 +156,11 @@ for arg in "$@"; do
             RUN_IDENTITY=false
             RUN_VERIFIER=false
             RUN_QUERY=false
+            RUN_PAGINATION=false
+            RUN_HOOKS=false
+            RUN_RECOVERY=false
+            RUN_ENDBLOCKER=false
+            RUN_GOV_PARAMS=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -135,6 +175,11 @@ for arg in "$@"; do
             echo "  --no-identity    Skip identity link tests"
             echo "  --no-verifier    Skip verifier tests"
             echo "  --no-query       Skip query tests"
+            echo "  --no-pagination  Skip query pagination tests"
+            echo "  --no-hooks       Skip x/service ServiceHooks integration tests"
+            echo "  --no-recovery    Skip recovery message tests (UpdatePeerController/Resync/Prune)"
+            echo "  --no-endblocker  Skip EndBlocker sweep tests (uses accelerated TTL params)"
+            echo "  --no-gov-params  Skip MsgUpdateParams gov-authority tests"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -504,6 +549,53 @@ if [ "$RUN_QUERY" = true ]; then
     run_test "Query Tests" "query_test.sh"
 else
     echo "Skipping query tests (--no-query)"
+    echo ""
+fi
+
+# Query pagination tests (pagination + filter args on List* queries)
+if [ "$RUN_PAGINATION" = true ]; then
+    run_test "Query Pagination Tests" "query_pagination_test.sh"
+else
+    echo "Skipping query pagination tests (--no-pagination)"
+    echo ""
+fi
+
+# x/service ServiceHooks integration (suspended/refunded/retired)
+# Drives federation bindings through real x/service slash + top-up +
+# unbond flows to verify the hook-driven state transitions.
+if [ "$RUN_HOOKS" = true ]; then
+    run_test "Service Hooks Tests" "service_hooks_test.sh"
+else
+    echo "Skipping service hook tests (--no-hooks)"
+    echo ""
+fi
+
+# Recovery / admin messages: UpdatePeerController, ResyncBridgeCount,
+# PruneOrphanBindings. Mostly exercises the authority gates + the
+# happy-path no-op of cleanup messages.
+if [ "$RUN_RECOVERY" = true ]; then
+    run_test "Recovery Tests" "recovery_test.sh"
+else
+    echo "Skipping recovery tests (--no-recovery)"
+    echo ""
+fi
+
+# EndBlocker sweep tests — tightens operational TTLs via OpsComm to
+# drive the prune phases in test wall-time.
+if [ "$RUN_ENDBLOCKER" = true ]; then
+    run_test "EndBlocker Tests" "endblocker_test.sh"
+else
+    echo "Skipping EndBlocker tests (--no-endblocker)"
+    echo ""
+fi
+
+# Governance MsgUpdateParams (the full Params blob; OpsComm covers the
+# operational subset elsewhere). Two expedited gov proposals + voting
+# period, ~95s of wall-time.
+if [ "$RUN_GOV_PARAMS" = true ]; then
+    run_test "Gov Params Tests" "governance_params_test.sh"
+else
+    echo "Skipping gov params tests (--no-gov-params)"
     echo ""
 fi
 

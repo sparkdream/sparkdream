@@ -318,11 +318,14 @@ func (k Keeper) SlashOperator(
 		}
 	}
 
+	preStatus := op.Status
 	k.settleBondBlocks(&op, currentHeight)
 	k.applySlashToBond(&op, cfg, slashAmount, currentHeight)
 	if source == SlashSourceTier1 {
 		op.Tier1SlashedInWindow = op.Tier1SlashedInWindow.Add(slashAmount)
 	}
+	underfundedTransition := preStatus == types.OperatorStatus_OPERATOR_STATUS_ACTIVE &&
+		op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED
 
 	slashCoin := sdk.NewCoin(types.BondDenom, slashAmount)
 
@@ -388,6 +391,13 @@ func (k Keeper) SlashOperator(
 	if err := k.PutOperator(ctx, op); err != nil {
 		return sdk.Coin{}, err
 	}
+
+	// Fire underfunded hook after state writes. Phase 0 federation→
+	// service migration.
+	if underfundedTransition && k.hooks() != nil {
+		k.hooks().AfterOperatorUnderfunded(ctx, addr, op.ServiceType)
+	}
+
 	return slashCoin, nil
 }
 

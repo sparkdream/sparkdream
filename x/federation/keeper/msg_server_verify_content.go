@@ -113,10 +113,10 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 
 		// Update operator's content_verified count
 		bridgeKey := collections.Join(content.SubmittedBy, content.PeerId)
-		bridge, err := k.BridgeOperators.Get(ctx, bridgeKey)
+		bridge, err := k.BridgeBindings.Get(ctx, bridgeKey)
 		if err == nil {
 			bridge.ContentVerified++
-			_ = k.BridgeOperators.Set(ctx, bridgeKey, bridge)
+			_ = k.BridgeBindings.Set(ctx, bridgeKey, bridge)
 		}
 
 		sdkCtx.EventManager().EmitEvent(

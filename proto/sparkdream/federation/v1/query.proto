@@ -26,11 +26,11 @@ service Query {
   rpc GetPeerPolicy(QueryGetPeerPolicyRequest) returns (QueryGetPeerPolicyResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/get_peer_policy/{peer_id}";
   }
-  rpc GetBridgeOperator(QueryGetBridgeOperatorRequest) returns (QueryGetBridgeOperatorResponse) {
-    option (google.api.http).get = "/sparkdream/federation/v1/get_bridge_operator/{address}/{peer_id}";
+  rpc GetBridgeBinding(QueryGetBridgeBindingRequest) returns (QueryGetBridgeBindingResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_bridge_binding/{address}/{peer_id}";
   }
-  rpc ListBridgeOperators(QueryListBridgeOperatorsRequest) returns (QueryListBridgeOperatorsResponse) {
-    option (google.api.http).get = "/sparkdream/federation/v1/list_bridge_operators";
+  rpc ListBridgeBindings(QueryListBridgeBindingsRequest) returns (QueryListBridgeBindingsResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/list_bridge_bindings";
   }
   rpc GetFederatedContent(QueryGetFederatedContentRequest) returns (QueryGetFederatedContentResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/get_federated_content/{id}";
@@ -104,20 +104,25 @@ message QueryGetPeerPolicyResponse {
   PeerPolicy policy = 1 [(gogoproto.nullable) = false];
 }
 
-// --- BridgeOperator ---
-message QueryGetBridgeOperatorRequest {
+// --- BridgeBinding ---
+// Note: Phase 7 of the federation→service migration will enrich these
+// responses with joined service.Operator status (bond, status,
+// unbond_complete_at). For now the response carries only the federation-
+// side binding; callers wanting live economic state can query x/service
+// separately by (address, federation-bridge-<protocol>).
+message QueryGetBridgeBindingRequest {
   string address = 1;
   string peer_id = 2;
 }
-message QueryGetBridgeOperatorResponse {
-  BridgeOperator bridge_operator = 1 [(gogoproto.nullable) = false];
+message QueryGetBridgeBindingResponse {
+  BridgeBinding bridge_binding = 1 [(gogoproto.nullable) = false];
 }
 
-message QueryListBridgeOperatorsRequest {
+message QueryListBridgeBindingsRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
 }
-message QueryListBridgeOperatorsResponse {
-  repeated BridgeOperator bridge_operators = 1 [(gogoproto.nullable) = false];
+message QueryListBridgeBindingsResponse {
+  repeated BridgeBinding bridge_bindings = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 

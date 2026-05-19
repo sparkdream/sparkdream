@@ -115,6 +115,12 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	// settled BEFORE the bond change (§6.6).
 	k.settleBondBlocks(&op, currentHeight)
 
+	// Capture pre-mutation status so we can detect ACTIVE → UNDERFUNDED
+	// or UNDERFUNDED → ACTIVE transitions for hook firing after the
+	// state writes complete (Phase 0 federation→service migration).
+	preStatus := op.Status
+	underfundedTransition := false
+
 	var slashAmount sdkmath.Int
 	if msg.Verdict == types.JuryVerdict_JURY_VERDICT_REJECT {
 		slashAmount = sdkmath.ZeroInt()
@@ -176,6 +182,7 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 				op.Bond.Amount.LT(cfg.MinBond.Amount) {
 				op.Status = types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED
 				op.UnderfundedSince = currentHeight
+				underfundedTransition = true
 			}
 		}
 	}
@@ -238,6 +245,15 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	emitReportResolved(report.ServiceType, types.TierTier2, verdictStr)
 	if !slashAmount.IsZero() {
 		emitSlashAmount(op.ServiceType, types.TierTier2, float32(slashAmount.Int64()))
+	}
+
+	// AfterOperatorUnderfunded fires after state writes complete so
+	// consumer hooks see the post-transition state. Suppressed when the
+	// operator dissolved this block (AfterOperatorDissolved already
+	// covers that). Phase 0 federation→service migration.
+	if underfundedTransition && !dissolveNow && k.hooks() != nil {
+		_ = preStatus // captured at top for symmetry; not currently used post-dissolve gate
+		k.hooks().AfterOperatorUnderfunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
 	}
 
 	return &types.MsgResolveReportByJuryResponse{}, nil

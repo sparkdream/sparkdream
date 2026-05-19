@@ -73,6 +73,15 @@ message Peer {
   string registered_by = 8 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string metadata = 9;
   int64 removed_at = 10;
+
+  // controller_group is the x/commons Group policy address that resolves
+  // tier-1 reports against this peer's bridge operators (federation→
+  // service migration, Decision 2). If empty, federation resolves it to
+  // the Operations Committee policy address at MsgRegisterBridge time.
+  // The resolved address is captured on the resulting service.Operator;
+  // changing it later (MsgUpdatePeerController) affects only new
+  // registrations, not existing bridges.
+  string controller_group = 11 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 }
 
 // PeerPolicy defines per-peer federation policies.
@@ -96,23 +105,33 @@ message PeerPolicy {
   repeated string blocked_identities = 10;
 }
 
-// BridgeOperator represents an off-chain bridge operator.
-message BridgeOperator {
+// BridgeBinding represents the federation-owned binding between a bridge
+// operator and a peer. Economic state (bond, status, unbonding, slashing
+// history) lives on the corresponding x/service Operator record keyed
+// by (address, service_type). This binding holds only federation-
+// specific data: which peer + protocol + endpoint URL + content stats
+// + suspended flag (toggled by underfunded/refunded hooks).
+//
+// Per Decision 1a of the federation→service migration, one operator
+// address may hold multiple bindings under the same protocol (one per
+// peer) backed by a single shared service.Operator and a single shared
+// bond. Suspending a binding refuses new content submissions but does
+// not delete it.
+message BridgeBinding {
   string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string peer_id = 2;
   string protocol = 3;
   string endpoint = 4;
-  cosmos.base.v1beta1.Coin stake = 5 [(gogoproto.nullable) = false];
-  int64 registered_at = 6;
-  BridgeStatus status = 7;
-  uint64 content_submitted = 8;
-  uint64 content_rejected = 9;
-  uint64 slash_count = 10;
-  int64 revoked_at = 11;
-  int64 last_submission_at = 12;
-  int64 unbonding_end_time = 13;
-  uint64 content_verified = 14;
-  uint64 content_unverified = 15;
+  int64 registered_at = 5;
+  uint64 content_submitted = 6;
+  uint64 content_verified = 7;
+  uint64 content_rejected = 8;
+  uint64 content_unverified = 9;
+  int64 last_submission_at = 10;
+  // suspended is set to true by AfterOperatorUnderfunded and cleared
+  // by AfterOperatorReFunded. Federation rejects new content
+  // submissions from suspended bindings.
+  bool suspended = 11;
 }
 
 // NOTE: Phase 4 of the bonded-role generalization removed FederationVerifier.

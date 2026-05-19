@@ -29,7 +29,7 @@ func SimulateMsgUpdateBridge(
 		}
 
 		bridge.Endpoint = randomEndpoint(r)
-		if err := k.BridgeOperators.Set(ctx, collections.Join(bridge.Address, bridge.PeerId), bridge); err != nil {
+		if err := k.BridgeBindings.Set(ctx, collections.Join(bridge.Address, bridge.PeerId), bridge); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateBridge{}), "failed to update bridge"), nil, nil
 		}
 

@@ -466,13 +466,19 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			"/sparkdream.name.v1.MsgUpdateOperationalParams",
 			"/sparkdream.rep.v1.MsgUpdateOperationalParams",
 			"/sparkdream.season.v1.MsgUpdateOperationalParams",
-			"/sparkdream.federation.v1.MsgRegisterBridge",
 			"/sparkdream.federation.v1.MsgUpdateBridge",
-			"/sparkdream.federation.v1.MsgSlashBridge",
-			"/sparkdream.federation.v1.MsgRevokeBridge",
 			"/sparkdream.federation.v1.MsgUpdatePeerPolicy",
 			"/sparkdream.federation.v1.MsgModerateContent",
 			"/sparkdream.federation.v1.MsgUpdateOperationalParams",
+			// Phase 5 federation→service migration: recovery / admin
+			// messages owned by OpsComm. Slash + revoke went away (now
+			// routed through x/service MsgReportOperator → MsgResolveReport),
+			// and RegisterBridge moved to operator-signed in Phase 4.
+			"/sparkdream.federation.v1.MsgResyncBridgeCount",
+			"/sparkdream.federation.v1.MsgPruneOrphanBindings",
+			// Resolve service-side reports against bridge operators
+			// (controllers are x/commons Group policy addresses).
+			"/sparkdream.service.v1.MsgResolveReport",
 		},
 		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),

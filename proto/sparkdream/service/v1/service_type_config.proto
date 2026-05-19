@@ -7,6 +7,26 @@ import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/service/types";
 
+// ReportTimeoutAction controls what the EndBlocker does when a PENDING
+// report ages past max_pending_blocks without a controller verdict.
+// Per-service-type knob so consumer modules can pick the failure-mode
+// best suited to their accountability model (see Phase 0 of the
+// federation→service migration plan).
+enum ReportTimeoutAction {
+  // REPORT_TIMEOUT_ACTION_DISMISS is the default: aged reports auto-
+  // dismiss, deposit refunded to reporter, controller barred from
+  // re-filing the same allegation for report_refile_cooldown_blocks.
+  // Suits service types where "no decision" should default to the
+  // operator's benefit.
+  REPORT_TIMEOUT_ACTION_DISMISS = 0;
+
+  // REPORT_TIMEOUT_ACTION_ESCALATE auto-opens an x/rep jury case via
+  // CreateAppealInitiative when the controller stalls. Suits service
+  // types where a silent/captured controller must not be able to park
+  // a slash indefinitely (e.g. federation bridges).
+  REPORT_TIMEOUT_ACTION_ESCALATE = 1;
+}
+
 // ServiceTypeConfig is the governance-managed allowlist entry that defines
 // a permitted service type and its per-type knobs (see x-service-spec.md
 // §3.2). Mutated only via MsgUpdateServiceTypeConfig (gov authority).
@@ -53,4 +73,22 @@ message ServiceTypeConfig {
   // enabled gates new registrations. Disabling does not affect existing
   // operators (§3.2 disabled-type semantics).
   bool enabled = 10;
+
+  // report_timeout_action controls what the EndBlocker does when a
+  // PENDING report against an operator of this service type ages past
+  // max_pending_blocks. Default DISMISS preserves prior behavior;
+  // ESCALATE auto-opens a jury case via CreateAppealInitiative so a
+  // silent controller can't park a slash forever. Per-type knob so
+  // each consumer chooses the right failure-mode.
+  ReportTimeoutAction report_timeout_action = 11;
+
+  // challenge_default_slash_bps is the *proposed* slash amount when a
+  // system report is filed via OpenSystemReport without an explicit
+  // override (e.g. federation files a report on challenge-quorum
+  // resolution). MUST be ≤ unilateral_slash_cap_bps. Cross-field
+  // validation is enforced in both directions at MsgUpdateServiceType-
+  // Config time. The controller can still adjust the actual slash up
+  // or down within unilateral_slash_cap_bps at MsgResolveReport time;
+  // this field is just the starting proposal.
+  uint32 challenge_default_slash_bps = 12;
 }

@@ -18,12 +18,12 @@ func (k msgServer) AttestOutbound(ctx context.Context, msg *types.MsgAttestOutbo
 
 	// 1. Verify operator is a registered, ACTIVE bridge for this peer
 	bridgeKey := collections.Join(msg.Operator, msg.PeerId)
-	bridge, err := k.BridgeOperators.Get(ctx, bridgeKey)
+	bridge, err := k.BridgeBindings.Get(ctx, bridgeKey)
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrBridgeNotFound, "operator %s not registered for peer %s", msg.Operator, msg.PeerId)
 	}
-	if bridge.Status != types.BridgeStatus_BRIDGE_STATUS_ACTIVE {
-		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge status is %s", bridge.Status)
+	if bridge.Suspended {
+		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge is suspended")
 	}
 
 	// 2. Verify peer is ACTIVE

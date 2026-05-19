@@ -76,6 +76,24 @@ var (
 		"/sparkdream.season.v1.MsgStartQuest",
 		"/sparkdream.season.v1.MsgAbandonQuest",
 		"/sparkdream.season.v1.MsgClaimQuestReward",
+		// x/service — bridge-operator daemon ergonomics (federation→
+		// service migration, Phase 8). Three of these (UnbondOperator,
+		// UpdateMetadata, ClaimUnbondedBond) are purely
+		// state-machine/metadata changes with no SPARK transfer, so
+		// they fit the "ephemeral key UX" criterion cleanly.
+		// MsgTopUpBond IS a SPARK transfer and breaks the strict no-
+		// transfer rule above; we admit it anyway because the SpendLimit
+		// on the session bounds the maximum a compromised daemon can
+		// move (a granter setting up a session for a bridge daemon
+		// must size SpendLimit to their intended top-up budget; the
+		// daemon cannot exceed that). Without this entry, daemons that
+		// need to top up to recover from underfunded state would
+		// require an out-of-band human-signed tx, which defeats the
+		// session UX goal.
+		"/sparkdream.service.v1.MsgUnbondOperator",
+		"/sparkdream.service.v1.MsgTopUpBond",
+		"/sparkdream.service.v1.MsgUpdateMetadata",
+		"/sparkdream.service.v1.MsgClaimUnbondedBond",
 	}
 )
 

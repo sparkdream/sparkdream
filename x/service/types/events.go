@@ -34,6 +34,8 @@ const (
 	EventTypeMetadataUpdated                = "service.metadata_updated"
 	EventTypeControllerTransferred          = "service.controller_transferred"
 	EventTypeServiceTypeUpdated             = "service.service_type_updated"
+	EventTypeSystemReportOpened             = "service.system_report_opened"
+	EventTypeSystemReportRateLimited        = "service.system_report_rate_limited"
 )
 
 // Attribute keys. Stable identifiers — downstream indexers depend on
@@ -77,6 +79,10 @@ const (
 	AttrEnabled               = "enabled"
 	AttrChangedFields         = "changed_fields"
 	AttrSource                = "source"
+	AttrCallerModule          = "caller_module"
+	AttrDedupeKey             = "dedupe_key"
+	AttrEvidenceURI           = "evidence_uri"
+	AttrIdempotent            = "idempotent"
 )
 
 // Event destination constants for tier-1 escrow release.
@@ -305,5 +311,33 @@ func NewServiceTypeUpdatedEvent(serviceType string, enabled bool, changedFields 
 		sdk.NewAttribute(AttrServiceType, serviceType),
 		sdk.NewAttribute(AttrEnabled, strconv.FormatBool(enabled)),
 		sdk.NewAttribute(AttrChangedFields, changedFields),
+	)
+}
+
+// NewSystemReportOpenedEvent fires when a system report is opened via
+// OpenSystemReport (Phase 0 federation→service migration). `idempotent`
+// is "true" if the call resolved to an existing report via dedupe_key
+// rather than allocating a new report_id — observers use this to
+// distinguish first-fire from retry traffic.
+func NewSystemReportOpenedEvent(reportID uint64, callerModule, operator, serviceType, evidenceURI string, dedupeKey []byte, idempotent bool) sdk.Event {
+	return sdk.NewEvent(EventTypeSystemReportOpened,
+		sdk.NewAttribute(AttrReportID, fmt.Sprintf("%d", reportID)),
+		sdk.NewAttribute(AttrCallerModule, callerModule),
+		sdk.NewAttribute(AttrOperator, operator),
+		sdk.NewAttribute(AttrServiceType, serviceType),
+		sdk.NewAttribute(AttrEvidenceURI, evidenceURI),
+		sdk.NewAttribute(AttrDedupeKey, fmt.Sprintf("%x", dedupeKey)),
+		sdk.NewAttribute(AttrIdempotent, strconv.FormatBool(idempotent)),
+	)
+}
+
+// NewSystemReportRateLimitedEvent fires when an OpenSystemReport call
+// from an allowlisted caller is rejected because the per-caller sliding-
+// window cap has been exhausted. Idempotent re-calls don't trigger this.
+func NewSystemReportRateLimitedEvent(callerModule, operator, serviceType string) sdk.Event {
+	return sdk.NewEvent(EventTypeSystemReportRateLimited,
+		sdk.NewAttribute(AttrCallerModule, callerModule),
+		sdk.NewAttribute(AttrOperator, operator),
+		sdk.NewAttribute(AttrServiceType, serviceType),
 	)
 }

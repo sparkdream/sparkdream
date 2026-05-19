@@ -17,13 +17,13 @@ func TestQueryGetBridgeOperator(t *testing.T) {
 	registerTestPeer(t, f, ms, "bridge-q-peer")
 	opStr := registerTestBridge(t, f, ms, "bridge-q-peer", "bridge-q-op")
 
-	resp, err := qs.GetBridgeOperator(f.ctx, &types.QueryGetBridgeOperatorRequest{
+	resp, err := qs.GetBridgeBinding(f.ctx, &types.QueryGetBridgeBindingRequest{
 		Address: opStr, PeerId: "bridge-q-peer",
 	})
 	require.NoError(t, err)
-	require.Equal(t, opStr, resp.BridgeOperator.Address)
+	require.Equal(t, opStr, resp.BridgeBinding.Address)
 
-	_, err = qs.GetBridgeOperator(f.ctx, &types.QueryGetBridgeOperatorRequest{
+	_, err = qs.GetBridgeBinding(f.ctx, &types.QueryGetBridgeBindingRequest{
 		Address: "nonexistent", PeerId: "bridge-q-peer",
 	})
 	require.Error(t, err)

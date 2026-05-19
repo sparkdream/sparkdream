@@ -1,6 +1,18 @@
 #!/bin/bash
 
-echo "--- TESTING: FEDERATION BRIDGE OPERATORS ---"
+echo "--- TESTING: FEDERATION BRIDGE OPERATORS (post-Phase-4 federation→service migration) ---"
+
+# Post-migration semantics:
+#   - MsgRegisterBridge is now operator-signed (no OpsComm proposal).
+#     The operator pays their own bond into x/service.
+#   - Removed messages: SlashBridge, RevokeBridge, UnbondBridge, TopUpBridgeStake.
+#     Operators call x/service equivalents directly:
+#       tx service unbond-operator      federation-bridge-<protocol>
+#       tx service top-up-bond          federation-bridge-<protocol> <amount>
+#   - BridgeBinding holds only federation-side fields; bond/status live on
+#     x/service.Operator keyed by (address, federation-bridge-<protocol>).
+#   - Per Decision 1a, one (address, protocol) shares a single service.Operator
+#     across multiple peer bindings.
 
 # ========================================================================
 # Setup
@@ -22,6 +34,10 @@ PASS_COUNT=0
 FAIL_COUNT=0
 RESULTS=()
 TEST_NAMES=()
+
+# Service types — one per supported peer protocol (genesis-seeded).
+SVC_AP="federation-bridge-activitypub"
+SVC_AT="federation-bridge-atproto"
 
 record_result() {
     local NAME=$1
@@ -47,7 +63,7 @@ wait_for_tx() {
 submit_and_wait() {
     local TX_RES=$1; local LABEL=${2:-"transaction"}; TX_OK=false
     local TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
-    if [ -z "$TXHASH" ]; then echo "  FAIL: $LABEL - no txhash"; return 1; fi
+    if [ -z "$TXHASH" ]; then echo "  FAIL: $LABEL - no txhash"; TX_RESULT="$TX_RES"; return 1; fi
     local BCODE=$(echo "$TX_RES" | jq -r '.code // "0"')
     if [ "$BCODE" != "0" ] && [ "$BCODE" != "null" ]; then
         echo "  FAIL: $LABEL - broadcast rejected (code=$BCODE)"; TX_RESULT="$TX_RES"; return 1
@@ -98,38 +114,37 @@ echo "Operator1: $OPERATOR1_ADDR"
 echo "Operator2: $OPERATOR2_ADDR"
 echo ""
 
+# Read the canonical bond floor from the seeded ServiceTypeConfig. With
+# testparams genesis_vals.go, min_bond is kept at 1000 SPARK but the
+# unbonding period is shortened so the unbond/claim cycle fits in test
+# wall-clock. Falls back to 1000 SPARK if the query fails (the genesis
+# default).
+MIN_BOND_AMT=$($BINARY query service service-type $SVC_AP --output json 2>/dev/null | jq -r '.config.min_bond.amount // "1000000000"')
+BOND_COIN="${MIN_BOND_AMT}uspark"
+echo "Min bond (federation-bridge-activitypub): $BOND_COIN"
+echo ""
+
 # ========================================================================
-# TEST 1: Register bridge operator for ActivityPub peer
+# TEST 1: Register bridge operator for ActivityPub peer (operator-signed,
+# escrows bond into x/service)
 # ========================================================================
-echo "--- TEST 1: Register bridge operator ---"
+echo "--- TEST 1: Register bridge operator (operator-signed) ---"
 
-cat > "$PROPOSAL_DIR/register_bridge1.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "mastodon.example",
-      "protocol": "activitypub",
-      "endpoint": "https://bridge.example.com/ap"
-    }
-  ],
-  "metadata": "Register bridge operator1 for mastodon.example"
-}
-EOF
+TX_RES=$($BINARY tx federation register-bridge \
+    mastodon.example activitypub https://bridge.example.com/ap "$BOND_COIN" \
+    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
-if submit_ops_proposal "$PROPOSAL_DIR/register_bridge1.json" "register bridge"; then
-    BRIDGE_DATA=$($BINARY query federation get-bridge-operator $OPERATOR1_ADDR mastodon.example --output json 2>&1)
-    BRIDGE_STATUS=$(echo "$BRIDGE_DATA" | jq -r '.bridge_operator.status // empty')
-    BRIDGE_STAKE=$(echo "$BRIDGE_DATA" | jq -r '.bridge_operator.stake.amount // "0"')
+if submit_and_wait "$TX_RES" "register bridge"; then
+    BINDING=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json 2>&1)
+    BINDING_ADDR=$(echo "$BINDING" | jq -r '.bridge_binding.address // empty')
+    SVC_STATUS=$($BINARY query service operator $OPERATOR1_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
+    SVC_BOND=$($BINARY query service operator $OPERATOR1_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
 
-    if [ "$BRIDGE_STATUS" == "BRIDGE_STATUS_ACTIVE" ]; then
-        echo "  Bridge registered: status=$BRIDGE_STATUS, stake=$BRIDGE_STAKE"
+    if [ "$BINDING_ADDR" == "$OPERATOR1_ADDR" ] && [ "$SVC_STATUS" == "OPERATOR_STATUS_ACTIVE" ] && [ "$SVC_BOND" == "$MIN_BOND_AMT" ]; then
+        echo "  Bridge binding present; service.Operator ACTIVE; bond=$SVC_BOND"
         record_result "Register bridge operator" "PASS"
     else
-        echo "  Unexpected status: $BRIDGE_STATUS"
+        echo "  binding=$BINDING_ADDR service_status=$SVC_STATUS bond=$SVC_BOND"
         record_result "Register bridge operator" "FAIL"
     fi
 else
@@ -141,33 +156,19 @@ PEER_STATUS=$($BINARY query federation get-peer mastodon.example --output json 2
 echo "  Peer status after bridge registration: $PEER_STATUS"
 
 # ========================================================================
-# TEST 2: Register second bridge operator for same peer
+# TEST 2: Register second bridge operator (different address) for same peer
+# Different operator address → independent service.Operator + bond.
 # ========================================================================
 echo ""
 echo "--- TEST 2: Register second bridge for same peer ---"
 
-cat > "$PROPOSAL_DIR/register_bridge2.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR2_ADDR",
-      "peer_id": "mastodon.example",
-      "protocol": "activitypub",
-      "endpoint": "https://bridge2.example.com/ap"
-    }
-  ],
-  "metadata": "Register bridge operator2 for mastodon.example"
-}
-EOF
+TX_RES=$($BINARY tx federation register-bridge \
+    mastodon.example activitypub https://bridge2.example.com/ap "$BOND_COIN" \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
-if submit_ops_proposal "$PROPOSAL_DIR/register_bridge2.json" "register bridge2"; then
-    BRIDGE_DATA=$($BINARY query federation get-bridge-operator $OPERATOR2_ADDR mastodon.example --output json 2>&1)
-    BRIDGE_STATUS=$(echo "$BRIDGE_DATA" | jq -r '.bridge_operator.status // empty')
-
-    if [ "$BRIDGE_STATUS" == "BRIDGE_STATUS_ACTIVE" ]; then
+if submit_and_wait "$TX_RES" "register bridge2"; then
+    SVC_STATUS=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
+    if [ "$SVC_STATUS" == "OPERATOR_STATUS_ACTIVE" ]; then
         record_result "Register second bridge" "PASS"
     else
         record_result "Register second bridge" "FAIL"
@@ -177,10 +178,10 @@ else
 fi
 
 # ========================================================================
-# TEST 3: Update bridge endpoint
+# TEST 3: Update bridge endpoint (still authority-gated to OpsComm)
 # ========================================================================
 echo ""
-echo "--- TEST 3: Update bridge endpoint ---"
+echo "--- TEST 3: Update bridge endpoint (OpsComm) ---"
 
 cat > "$PROPOSAL_DIR/update_bridge.json" <<EOF
 {
@@ -199,9 +200,7 @@ cat > "$PROPOSAL_DIR/update_bridge.json" <<EOF
 EOF
 
 if submit_ops_proposal "$PROPOSAL_DIR/update_bridge.json" "update bridge"; then
-    BRIDGE_DATA=$($BINARY query federation get-bridge-operator $OPERATOR1_ADDR mastodon.example --output json 2>&1)
-    ENDPOINT=$(echo "$BRIDGE_DATA" | jq -r '.bridge_operator.endpoint // empty')
-
+    ENDPOINT=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_binding.endpoint // empty')
     if [ "$ENDPOINT" == "https://updated-bridge.example.com/ap" ]; then
         echo "  Endpoint updated"
         record_result "Update bridge endpoint" "PASS"
@@ -214,558 +213,257 @@ else
 fi
 
 # ========================================================================
-# TEST 4: Self-service top-up bridge stake (do this BEFORE slash to keep stake above min)
+# TEST 4: Top up bond via x/service (replaces MsgTopUpBridgeStake)
+# Operator calls x/service directly — federation has no top-up entry point.
 # ========================================================================
 echo ""
-echo "--- TEST 4: Top up bridge stake (self-service) ---"
+echo "--- TEST 4: Top up bond via x/service ---"
 
-PRE_STAKE=$($BINARY query federation get-bridge-operator $OPERATOR2_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_operator.stake.amount // "0"')
+PRE_BOND=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
 
-TX_RES=$($BINARY tx federation top-up-bridge-stake mastodon.example \
-    --amount 200000000uspark \
-    --from operator2 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
+TX_RES=$($BINARY tx service top-up-bond $SVC_AP 200000000uspark \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
-if submit_and_wait "$TX_RES" "top-up stake"; then
-    POST_STAKE=$($BINARY query federation get-bridge-operator $OPERATOR2_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_operator.stake.amount // "0"')
-    echo "  Pre: $PRE_STAKE, Post: $POST_STAKE"
-    if [ "$POST_STAKE" -gt "$PRE_STAKE" ] 2>/dev/null; then
-        record_result "Top up bridge stake" "PASS"
+if submit_and_wait "$TX_RES" "top-up bond"; then
+    POST_BOND=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+    echo "  Pre: $PRE_BOND, Post: $POST_BOND"
+    if [ "$POST_BOND" -gt "$PRE_BOND" ] 2>/dev/null; then
+        record_result "Top up bond via x/service" "PASS"
     else
-        record_result "Top up bridge stake" "FAIL"
+        record_result "Top up bond via x/service" "FAIL"
     fi
 else
-    record_result "Top up bridge stake" "FAIL"
+    record_result "Top up bond via x/service" "FAIL"
 fi
 
 # ========================================================================
-# TEST 5: Slash bridge operator (after top-up so stake stays above min_bridge_stake)
+# TEST 5: Wrong-denom top-up rejected
 # ========================================================================
 echo ""
-echo "--- TEST 5: Slash bridge operator ---"
+echo "--- TEST 5: Wrong-denom top-up rejected ---"
 
-# Get current stake (should be 1200000000 after top-up)
-PRE_STAKE=$($BINARY query federation get-bridge-operator $OPERATOR2_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_operator.stake.amount // "0"')
-echo "  Pre-slash stake: $PRE_STAKE"
+TX_RES=$($BINARY tx service top-up-bond $SVC_AP 100udream \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
-cat > "$PROPOSAL_DIR/slash_bridge.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgSlashBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR2_ADDR",
-      "peer_id": "mastodon.example",
-      "amount": "100000000",
-      "reason": "submitted false content"
-    }
-  ],
-  "metadata": "Slash operator2 bridge"
-}
-EOF
+if submit_and_wait "$TX_RES" "wrong denom"; then
+    echo "  Should have failed"
+    record_result "Wrong denom top-up rejected" "FAIL"
+else
+    RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
+    echo "  Correctly rejected: $(echo "$RAW" | head -c 120)"
+    record_result "Wrong denom top-up rejected" "PASS"
+fi
 
-if submit_ops_proposal "$PROPOSAL_DIR/slash_bridge.json" "slash bridge"; then
-    POST_STAKE=$($BINARY query federation get-bridge-operator $OPERATOR2_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_operator.stake.amount // "0"')
-    SLASH_COUNT=$($BINARY query federation get-bridge-operator $OPERATOR2_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_operator.slash_count // "0"')
+# ========================================================================
+# TEST 6: Self-service unbond via x/service (replaces MsgUnbondBridge)
+# ========================================================================
+echo ""
+echo "--- TEST 6: Self-service unbond via x/service ---"
 
-    echo "  Post-slash stake: $POST_STAKE, slash_count: $SLASH_COUNT"
-    if [ "$POST_STAKE" -lt "$PRE_STAKE" ] 2>/dev/null; then
-        record_result "Slash bridge operator" "PASS"
+TX_RES=$($BINARY tx service unbond-operator $SVC_AP \
+    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+
+if submit_and_wait "$TX_RES" "unbond"; then
+    SVC_STATUS=$($BINARY query service operator $OPERATOR1_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
+    if [ "$SVC_STATUS" == "OPERATOR_STATUS_UNBONDING" ]; then
+        echo "  service.Operator now UNBONDING"
+        record_result "Self-service unbond" "PASS"
     else
-        record_result "Slash bridge operator" "FAIL"
+        echo "  Unexpected status: $SVC_STATUS"
+        record_result "Self-service unbond" "FAIL"
     fi
 else
-    record_result "Slash bridge operator" "FAIL"
+    record_result "Self-service unbond" "FAIL"
 fi
 
 # ========================================================================
-# TEST 6: Self-service unbond bridge
+# TEST 7: Cannot double-unbond
 # ========================================================================
 echo ""
-echo "--- TEST 6: Self-service unbond bridge ---"
+echo "--- TEST 7: Cannot double-unbond ---"
 
-TX_RES=$($BINARY tx federation unbond-bridge mastodon.example \
-    --from operator1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
-
-if submit_and_wait "$TX_RES" "unbond bridge"; then
-    BRIDGE_STATUS=$($BINARY query federation get-bridge-operator $OPERATOR1_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_operator.status // empty')
-    if [ "$BRIDGE_STATUS" == "BRIDGE_STATUS_UNBONDING" ]; then
-        echo "  Bridge now UNBONDING"
-        record_result "Self-service unbond bridge" "PASS"
-    else
-        echo "  Unexpected status: $BRIDGE_STATUS"
-        record_result "Self-service unbond bridge" "FAIL"
-    fi
-else
-    record_result "Self-service unbond bridge" "FAIL"
-fi
-
-# ========================================================================
-# TEST 7: Cannot revoke already-UNBONDING bridge (operator1 self-unbonded in test 6)
-# ========================================================================
-echo ""
-echo "--- TEST 7: Cannot revoke already-unbonding bridge ---"
-
-cat > "$PROPOSAL_DIR/revoke_bridge.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRevokeBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "mastodon.example",
-      "reason": "testing revocation of unbonding bridge"
-    }
-  ],
-  "metadata": "Revoke operator1 bridge (should fail - already UNBONDING)"
-}
-EOF
-
-if submit_ops_proposal "$PROPOSAL_DIR/revoke_bridge.json" "revoke bridge"; then
-    echo "  Should have been rejected (operator1 is UNBONDING)"
-    record_result "Cannot revoke unbonding bridge" "FAIL"
-else
-    echo "  Correctly rejected (operator1 is UNBONDING, not ACTIVE/SUSPENDED)"
-    record_result "Cannot revoke unbonding bridge" "PASS"
-fi
-
-# ========================================================================
-# TEST 8: Cannot unbond an already unbonding bridge
-# ========================================================================
-echo ""
-echo "--- TEST 8: Cannot unbond already-unbonding bridge ---"
-
-TX_RES=$($BINARY tx federation unbond-bridge mastodon.example \
-    --from operator1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
+TX_RES=$($BINARY tx service unbond-operator $SVC_AP \
+    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
 if submit_and_wait "$TX_RES" "double unbond"; then
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    if [ "$CODE" != "0" ]; then
-        echo "  Correctly rejected (code=$CODE)"
-        record_result "Double unbond rejected" "PASS"
-    else
-        echo "  Should have failed"
-        record_result "Double unbond rejected" "FAIL"
-    fi
+    echo "  Should have been rejected"
+    record_result "Double unbond rejected" "FAIL"
 else
     echo "  Correctly rejected"
     record_result "Double unbond rejected" "PASS"
 fi
 
 # ========================================================================
-# TEST 9: List bridge operators
+# TEST 8: List bridge bindings
 # ========================================================================
 echo ""
-echo "--- TEST 9: List bridge operators ---"
+echo "--- TEST 8: List bridge bindings ---"
 
-BRIDGES=$($BINARY query federation list-bridge-operators --output json 2>&1)
-BRIDGE_COUNT=$(echo "$BRIDGES" | jq '.bridge_operators | length' 2>/dev/null)
+BRIDGES=$($BINARY query federation list-bridge-bindings --output json 2>&1)
+BRIDGE_COUNT=$(echo "$BRIDGES" | jq '.bridge_bindings | length' 2>/dev/null)
 
-echo "  Bridge operator count: $BRIDGE_COUNT"
-
+echo "  Bridge binding count: $BRIDGE_COUNT"
 if [ "$BRIDGE_COUNT" -ge 2 ] 2>/dev/null; then
-    record_result "List bridge operators" "PASS"
+    record_result "List bridge bindings" "PASS"
 else
-    record_result "List bridge operators" "FAIL"
+    record_result "List bridge bindings" "FAIL"
 fi
 
 # ========================================================================
-# TEST 10: IBC peer bridge registration correctly rejected
-# Bridge operators are only for ActivityPub/AT Protocol peers.
-# IBC peers communicate via IBC channels directly.
+# TEST 9: IBC peer bridge registration rejected
+# Bridges only valid for ActivityPub/AT Protocol peer types.
 # ========================================================================
 echo ""
-echo "--- TEST 10: IBC peer bridge registration rejected ---"
+echo "--- TEST 9: IBC peer bridge registration rejected ---"
 
-cat > "$PROPOSAL_DIR/register_ibc_bridge.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "spark.testnet",
-      "protocol": "ibc",
-      "endpoint": ""
-    }
-  ],
-  "metadata": "Register bridge for IBC peer (should fail)"
-}
-EOF
+TX_RES=$($BINARY tx federation register-bridge \
+    spark.testnet ibc "" "$BOND_COIN" \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
-if submit_ops_proposal "$PROPOSAL_DIR/register_ibc_bridge.json" "register ibc bridge"; then
-    echo "  Should have been rejected but succeeded"
+if submit_and_wait "$TX_RES" "register ibc bridge"; then
+    echo "  Should have been rejected"
     record_result "IBC bridge rejected" "FAIL"
 else
-    echo "  Correctly rejected (IBC peers use channels, not bridge operators)"
+    echo "  Correctly rejected"
     record_result "IBC bridge rejected" "PASS"
 fi
 
 # ========================================================================
-# TEST 11: Duplicate bridge registration fails
+# TEST 10: Duplicate bridge registration on (operator, peer) rejected
+# operator2 already bound to mastodon.example in TEST 2.
 # ========================================================================
 echo ""
-echo "--- TEST 11: Duplicate bridge registration ---"
+echo "--- TEST 10: Duplicate bridge registration rejected ---"
 
-cat > "$PROPOSAL_DIR/register_dup_bridge.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "mastodon.example",
-      "protocol": "activitypub",
-      "endpoint": "https://bridge.example.com/ap"
-    }
-  ],
-  "metadata": "Duplicate bridge (should fail)"
-}
-EOF
+TX_RES=$($BINARY tx federation register-bridge \
+    mastodon.example activitypub https://bridge2.example.com/ap "$BOND_COIN" \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
-TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_dup_bridge.json" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
-
-if submit_and_wait "$TX_RES" "dup bridge proposal"; then
-    PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
-    if [ -n "$PROP_ID" ]; then
-        vote_and_execute_ops $PROP_ID
-        # The inner message should have failed
-        echo "  Duplicate bridge correctly handled"
-        record_result "Duplicate bridge rejected" "PASS"
-    else
-        record_result "Duplicate bridge rejected" "PASS"
-    fi
+if submit_and_wait "$TX_RES" "dup bridge"; then
+    echo "  Should have been rejected"
+    record_result "Duplicate bridge rejected" "FAIL"
 else
+    echo "  Correctly rejected"
     record_result "Duplicate bridge rejected" "PASS"
 fi
 
 # ========================================================================
-# TEST 12: Slash exceeding stake fails
+# TEST 11: Bridge for non-existent peer rejected
 # ========================================================================
 echo ""
-echo "--- TEST 12: Slash exceeding stake fails ---"
+echo "--- TEST 11: Bridge for non-existent peer rejected ---"
 
-cat > "$PROPOSAL_DIR/slash_too_much.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgSlashBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "mastodon.example",
-      "amount": "99999999999999",
-      "reason": "excessive slash test"
-    }
-  ],
-  "metadata": "Slash exceeding stake (should fail)"
-}
-EOF
+TX_RES=$($BINARY tx federation register-bridge \
+    nonexistent.peer activitypub https://bridge.nonexistent.com "$BOND_COIN" \
+    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
-TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/slash_too_much.json" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
-
-if submit_and_wait "$TX_RES" "excess slash proposal"; then
-    PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
-    if [ -n "$PROP_ID" ]; then
-        vote_and_execute_ops $PROP_ID
-        # Verify bridge is still present (slash should have failed)
-        BRIDGE_RAW=$($BINARY query federation get-bridge-operator $OPERATOR1_ADDR mastodon.example --output json 2>&1)
-        if echo "$BRIDGE_RAW" | jq -e '.bridge_operator' > /dev/null 2>&1; then
-            BRIDGE_STATUS=$(echo "$BRIDGE_RAW" | jq -r '.bridge_operator.status // "BRIDGE_STATUS_UNSPECIFIED"')
-        else
-            BRIDGE_STATUS="query failed"
-        fi
-        echo "  Bridge status after excess slash: $BRIDGE_STATUS"
-        record_result "Excessive slash handled" "PASS"
-    else
-        record_result "Excessive slash handled" "PASS"
-    fi
-else
-    record_result "Excessive slash handled" "PASS"
-fi
-
-# ========================================================================
-# TEST 13: Bridge for non-existent peer fails
-# ========================================================================
-echo ""
-echo "--- TEST 13: Bridge for non-existent peer fails ---"
-
-cat > "$PROPOSAL_DIR/register_bridge_missing_peer.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "nonexistent.peer",
-      "protocol": "activitypub",
-      "endpoint": "https://bridge.nonexistent.com"
-    }
-  ],
-  "metadata": "Bridge for non-existent peer (should fail)"
-}
-EOF
-
-if submit_ops_proposal "$PROPOSAL_DIR/register_bridge_missing_peer.json" "bridge missing peer"; then
-    echo "  Should have failed"
-    record_result "Bridge for non-existent peer" "FAIL"
+if submit_and_wait "$TX_RES" "bridge missing peer"; then
+    echo "  Should have been rejected"
+    record_result "Bridge for non-existent peer rejected" "FAIL"
 else
     RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-    if echo "$RAW" | grep -qi "not found"; then
-        echo "  Correctly rejected (peer not found)"
-    else
-        echo "  Rejected: $(echo "$RAW" | head -c 120)"
-    fi
-    record_result "Bridge for non-existent peer" "PASS"
+    echo "  Correctly rejected: $(echo "$RAW" | head -c 120)"
+    record_result "Bridge for non-existent peer rejected" "PASS"
 fi
 
 # ========================================================================
-# TEST 14: Top-up bridge with wrong denomination fails
+# TEST 12: Insufficient stake (below min_bond) rejected
 # ========================================================================
 echo ""
-echo "--- TEST 14: Top-up with wrong denomination fails ---"
+echo "--- TEST 12: Insufficient stake rejected ---"
 
-TX_RES=$($BINARY tx federation top-up-bridge-stake \
-    mastodon.example \
-    --amount 100udream \
-    --from operator2 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000uspark \
-    -y \
-    --output json 2>&1)
+LOW_STAKE=$((MIN_BOND_AMT - 1))
 
-if submit_and_wait "$TX_RES" "wrong denom top-up"; then
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    if [ "$CODE" != "0" ]; then
-        echo "  Wrong denomination correctly rejected (code=$CODE)"
-        record_result "Wrong denom top-up rejected" "PASS"
-    else
-        echo "  Should have been rejected"
-        record_result "Wrong denom top-up rejected" "FAIL"
-    fi
+# Use linker1 as a fresh operator that has no existing service.Operator
+# (operator1 / operator2 already have a record; topping up from a low
+# stake would succeed as a no-op TopUpBond).
+TX_RES=$($BINARY tx federation register-bridge \
+    mastodon.example activitypub https://bridge.lowstake.example "${LOW_STAKE}uspark" \
+    --from linker1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+
+if submit_and_wait "$TX_RES" "low stake"; then
+    echo "  Should have been rejected"
+    record_result "Insufficient stake rejected" "FAIL"
 else
     RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-    if echo "$RAW" | grep -qi "denom\|invalid\|mismatch"; then
-        echo "  Correctly rejected (denomination mismatch)"
-    else
-        echo "  Rejected: $(echo "$RAW" | head -c 120)"
-    fi
-    record_result "Wrong denom top-up rejected" "PASS"
+    echo "  Correctly rejected: $(echo "$RAW" | head -c 120)"
+    record_result "Insufficient stake rejected" "PASS"
 fi
 
 # ========================================================================
-# TEST 15: Slash bridge to zero triggers auto-revocation
-# Use operator1 whose bridge is already UNBONDING — register a fresh
-# temporary bridge on bsky.example (re-registered in peer_lifecycle),
-# then slash it below minimum to test auto-revocation.
+# TEST 13: Same address, second peer on same protocol shares one
+# service.Operator (Decision 1a — one bond, multiple bindings)
 # ========================================================================
 echo ""
-echo "--- TEST 15: Slash below minimum triggers auto-revocation ---"
+echo "--- TEST 13: Second peer on same protocol shares service.Operator ---"
 
-# Check if bsky.example was re-registered (by peer_lifecycle_test.sh test 12)
-BSKY_STATUS=$($BINARY query federation get-peer bsky.example --output json 2>&1)
-BSKY_OK=false
-if echo "$BSKY_STATUS" | jq -e '.peer' > /dev/null 2>&1; then
-    # Proto3 omits zero-value enums; PEER_STATUS_PENDING = 0 → absent
-    BSKY_PEER_STATUS=$(echo "$BSKY_STATUS" | jq -r '.peer.status // "PEER_STATUS_PENDING"')
-    # Activate it if PENDING
-    if [ "$BSKY_PEER_STATUS" == "PEER_STATUS_PENDING" ]; then
-        cat > "$PROPOSAL_DIR/activate_bsky.json" <<PREEOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgResumePeer",
-      "authority": "$OPS_POLICY",
-      "peer_id": "bsky.example"
-    }
-  ],
-  "metadata": "Activate bsky for slash test"
-}
-PREEOF
-        # ResumePeer requires Commons Council, not Ops Committee
-        cat > "$PROPOSAL_DIR/activate_bsky.json" <<PREEOF
+# Need an additional ActivityPub peer to bind to. Re-register if absent.
+LEMMY_STATUS=$($BINARY query federation get-peer lemmy.example --output json 2>&1 | jq -r '.peer.status // empty')
+if [ -z "$LEMMY_STATUS" ]; then
+    echo "  Registering lemmy.example for shared-bond test..."
+    cat > "$PROPOSAL_DIR/register_lemmy.json" <<EOF
 {
   "policy_address": "$COMMONS_POLICY",
   "messages": [
     {
-      "@type": "/sparkdream.federation.v1.MsgResumePeer",
+      "@type": "/sparkdream.federation.v1.MsgRegisterPeer",
       "authority": "$COMMONS_POLICY",
-      "peer_id": "bsky.example"
+      "peer_id": "lemmy.example",
+      "display_name": "Lemmy test peer",
+      "type": "PEER_TYPE_ACTIVITYPUB"
     }
   ],
-  "metadata": "Activate bsky for slash test"
+  "metadata": "Register lemmy.example for bridge tests"
 }
-PREEOF
-        TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/activate_bsky.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
-        if submit_and_wait "$TX_RES" "activate bsky"; then
-            PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
-            if [ -n "$PROP_ID" ]; then
-                vote_and_execute_ops $PROP_ID
-            fi
-        fi
-        BSKY_PEER_STATUS=$($BINARY query federation get-peer bsky.example --output json 2>&1 | jq -r '.peer.status // empty')
-    fi
-    if [ "$BSKY_PEER_STATUS" == "PEER_STATUS_ACTIVE" ]; then
-        BSKY_OK=true
+EOF
+    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_lemmy.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+    if submit_and_wait "$TX_RES" "register lemmy"; then
+        PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
+        [ -n "$PROP_ID" ] && vote_and_execute_ops "$PROP_ID"
     fi
 fi
 
-if [ "$BSKY_OK" == "true" ]; then
-    # Register a bridge on bsky.example for operator1
-    cat > "$PROPOSAL_DIR/register_slash_test_bridge.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "bsky.example",
-      "protocol": "atproto",
-      "endpoint": "https://bridge.bsky.example"
-    }
-  ],
-  "metadata": "Register bridge for slash auto-revoke test"
-}
-EOF
+# Capture operator2's current bond — should be unchanged after the new
+# binding because the (address, service_type) already exists.
+PRE_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
 
-    if submit_ops_proposal "$PROPOSAL_DIR/register_slash_test_bridge.json" "register slash-test bridge"; then
-        # Query actual bridge stake and slash most of it (leaving 1 uspark, below min_bridge_stake)
-        SLASH_BRIDGE_RAW=$($BINARY query federation get-bridge-operator $OPERATOR1_ADDR bsky.example --output json 2>&1)
-        SLASH_BRIDGE_STAKE=$(echo "$SLASH_BRIDGE_RAW" | jq -r '.bridge_operator.stake.amount // "0"')
-        SLASH_AMOUNT=$((SLASH_BRIDGE_STAKE - 1))
-        echo "  Bridge stake: $SLASH_BRIDGE_STAKE, slashing: $SLASH_AMOUNT"
-        cat > "$PROPOSAL_DIR/slash_auto_revoke.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgSlashBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "bsky.example",
-      "amount": "$SLASH_AMOUNT",
-      "reason": "auto-revocation test"
-    }
-  ],
-  "metadata": "Slash below minimum to trigger auto-revocation"
-}
-EOF
+# Register operator2 for the new peer with stake=0 (no top-up). Per
+# the migration plan, when (operator, service_type) already has an
+# Operator, MsgRegisterBridge just writes a new BridgeBinding and only
+# calls TopUpBond if stake > 0.
+TX_RES=$($BINARY tx federation register-bridge \
+    lemmy.example activitypub https://bridge.lemmy.example "0uspark" \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 
-        if submit_ops_proposal "$PROPOSAL_DIR/slash_auto_revoke.json" "slash auto-revoke"; then
-            BRIDGE_RAW=$($BINARY query federation get-bridge-operator $OPERATOR1_ADDR bsky.example --output json 2>&1)
-            if echo "$BRIDGE_RAW" | jq -e '.bridge_operator' > /dev/null 2>&1; then
-                AUTO_STATUS=$(echo "$BRIDGE_RAW" | jq -r '.bridge_operator.status // empty')
-                AUTO_STAKE=$(echo "$BRIDGE_RAW" | jq -r '.bridge_operator.stake.amount // "0"')
-                echo "  After slash: status=$AUTO_STATUS, remaining_stake=$AUTO_STAKE"
-                if [ "$AUTO_STATUS" == "BRIDGE_STATUS_UNBONDING" ]; then
-                    echo "  Auto-revocation triggered (stake below minimum)"
-                    record_result "Slash auto-revocation" "PASS"
-                else
-                    echo "  Expected UNBONDING, got $AUTO_STATUS"
-                    record_result "Slash auto-revocation" "FAIL"
-                fi
-            else
-                echo "  Bridge not found after slash"
-                record_result "Slash auto-revocation" "FAIL"
-            fi
-        else
-            echo "  Slash proposal failed"
-            record_result "Slash auto-revocation" "FAIL"
-        fi
+if submit_and_wait "$TX_RES" "register second peer same protocol"; then
+    POST_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+    LEMMY_BINDING=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR lemmy.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
+    if [ "$LEMMY_BINDING" == "$OPERATOR2_ADDR" ] && [ "$POST_BOND_OP2" == "$PRE_BOND_OP2" ]; then
+        echo "  Second binding written; bond unchanged ($POST_BOND_OP2)"
+        record_result "Shared service.Operator across peers" "PASS"
     else
-        echo "  Could not register bridge for slash test"
-        record_result "Slash auto-revocation" "FAIL"
+        echo "  binding=$LEMMY_BINDING pre=$PRE_BOND_OP2 post=$POST_BOND_OP2"
+        record_result "Shared service.Operator across peers" "FAIL"
     fi
 else
-    echo "  bsky.example not available for slash test (peer status: ${BSKY_PEER_STATUS:-not found})"
-    record_result "Slash auto-revocation" "FAIL"
+    record_result "Shared service.Operator across peers" "FAIL"
 fi
 
 # ========================================================================
-# TEST 16: Bridge revocation cooldown blocks re-registration
-# operator1/mastodon.example started UNBONDING in test 6. With testparams
-# BridgeUnbondingPeriod=15s, it should be REVOKED by now (tests 7-15 take
-# 30+ seconds). Then re-registering immediately should fail with
-# ErrCooldownNotElapsed (BridgeRevocationCooldown=10s in testparams).
+# TEST 14: Service-type queries return seeded configs
 # ========================================================================
 echo ""
-echo "--- TEST 16: Bridge revocation cooldown ---"
+echo "--- TEST 14: Federation-bridge service types seeded at genesis ---"
 
-# Check if operator1/mastodon.example has completed unbonding → REVOKED
-BRIDGE_RAW=$($BINARY query federation get-bridge-operator $OPERATOR1_ADDR mastodon.example --output json 2>&1)
-if echo "$BRIDGE_RAW" | jq -e '.bridge_operator' > /dev/null 2>&1; then
-    BRIDGE_STATUS=$(echo "$BRIDGE_RAW" | jq -r '.bridge_operator.status // empty')
+AP_CFG=$($BINARY query service service-type $SVC_AP --output json 2>&1 | jq -r '.config.service_type // empty')
+AT_CFG=$($BINARY query service service-type $SVC_AT --output json 2>&1 | jq -r '.config.service_type // empty')
+
+if [ "$AP_CFG" == "$SVC_AP" ] && [ "$AT_CFG" == "$SVC_AT" ]; then
+    echo "  Both federation-bridge ServiceTypeConfigs present"
+    record_result "Service types seeded" "PASS"
 else
-    BRIDGE_STATUS="not found"
-fi
-
-echo "  operator1/mastodon.example status: $BRIDGE_STATUS"
-
-if [ "$BRIDGE_STATUS" == "BRIDGE_STATUS_REVOKED" ]; then
-    # Bridge is REVOKED — try to re-register immediately (should fail with cooldown)
-    cat > "$PROPOSAL_DIR/reregister_cooldown_bridge.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$OPERATOR1_ADDR",
-      "peer_id": "mastodon.example",
-      "protocol": "activitypub",
-      "endpoint": "https://bridge.example.com/ap-v2"
-    }
-  ],
-  "metadata": "Re-register during cooldown (should fail)"
-}
-EOF
-
-    if submit_ops_proposal "$PROPOSAL_DIR/reregister_cooldown_bridge.json" "re-register during cooldown"; then
-        echo "  Re-registration succeeded (cooldown may have already elapsed)"
-        record_result "Bridge revocation cooldown" "PASS"
-    else
-        CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
-        RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-        if [ "$CODE" == "2324" ] || echo "$RAW" | grep -qi "cooldown"; then
-            echo "  Re-registration correctly blocked (code=$CODE ErrCooldownNotElapsed)"
-            record_result "Bridge revocation cooldown" "PASS"
-        else
-            # Cooldown may have elapsed by now (10s in testparams)
-            echo "  Re-registration rejected (code=$CODE): $(echo "$RAW" | head -c 120)"
-            record_result "Bridge revocation cooldown" "PASS"
-        fi
-    fi
-elif [ "$BRIDGE_STATUS" == "BRIDGE_STATUS_UNBONDING" ]; then
-    echo "  Bridge still UNBONDING (unbonding period not elapsed yet)"
-    echo "  With testparams (15s unbonding), this may need more blocks"
-    record_result "Bridge revocation cooldown" "PASS"
-else
-    echo "  Bridge status is $BRIDGE_STATUS (expected REVOKED or UNBONDING)"
-    record_result "Bridge revocation cooldown" "PASS"
+    echo "  AP=$AP_CFG AT=$AT_CFG"
+    record_result "Service types seeded" "FAIL"
 fi
 
 # ========================================================================

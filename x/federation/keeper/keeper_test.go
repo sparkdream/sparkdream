@@ -124,11 +124,45 @@ func (m *mockBankKeeper) BurnCoins(_ context.Context, _ string, _ sdk.Coins) err
 	return nil
 }
 
-type mockCommonsKeeper struct{}
+type mockCommonsKeeper struct {
+	// IsGroupPolicyAddressFn lets specific tests override the default.
+	// Default: every address is treated as a registered group policy
+	// address, which lets tests exercise the happy path of any code
+	// that takes a `controller_group` input without explicit setup.
+	IsGroupPolicyAddressFn func(ctx context.Context, addr string) bool
+
+	// GetCouncilPolicyAddressFn lets tests inject a specific policy
+	// address. Default: returns a synthetic address so federation's
+	// MsgRegisterBridge controller-resolution fall-back path works in
+	// unit tests without standing up the full commons bootstrap.
+	GetCouncilPolicyAddressFn func(ctx context.Context, council string, committee string) (string, bool)
+}
 
 func (m *mockCommonsKeeper) IsCouncilAuthorized(_ context.Context, addr string, _, _ string) bool {
 	// In tests, authority is always authorized
 	return true
+}
+
+func (m *mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
+	if m.IsGroupPolicyAddressFn != nil {
+		return m.IsGroupPolicyAddressFn(ctx, addr)
+	}
+	return true
+}
+
+// testOpsCommPolicyAddress is the synthetic Operations Committee policy
+// address returned by the default mockCommonsKeeper. Stable across the
+// suite so tests can assert against the resolved controller.
+const testOpsCommPolicyAddress = "cosmos1opcommopcommopcommopcommopcommop6vnq06"
+
+func (m *mockCommonsKeeper) GetCouncilPolicyAddress(ctx context.Context, council string, committee string) (string, bool) {
+	if m.GetCouncilPolicyAddressFn != nil {
+		return m.GetCouncilPolicyAddressFn(ctx, council, committee)
+	}
+	if council == "commons" && committee == "operations" {
+		return testOpsCommPolicyAddress, true
+	}
+	return "", false
 }
 
 type mockRepKeeper struct {
@@ -346,9 +380,7 @@ func testAddr(t *testing.T, f *fixture, seed string) string {
 func registerTestBridge(t *testing.T, f *fixture, ms types.MsgServer, peerID, operatorSeed string) string {
 	t.Helper()
 	operatorStr := testAddr(t, f, operatorSeed)
-	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{
-		Authority: f.authority,
-		Operator:  operatorStr,
+	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator:  operatorStr,
 		PeerId:    peerID,
 		Protocol:  "activitypub",
 		Endpoint:  "https://" + operatorSeed + ".example.com",

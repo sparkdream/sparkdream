@@ -239,10 +239,38 @@ func (m *mockDistributionKeeper) FundCommunityPool(ctx context.Context, amount s
 	return nil
 }
 
-// mockServiceHooks captures terminal-transition fires.
+// mockAuthKeeper implements types.AuthKeeper for testing. Provides
+// deterministic ModuleName → AccAddress resolution for OpenSystemReport
+// caller authorization tests.
+type mockAuthKeeper struct {
+	GetModuleAddressFn func(name string) sdk.AccAddress
+	addressCodec       address.Codec
+}
+
+func (m *mockAuthKeeper) AddressCodec() address.Codec {
+	return m.addressCodec
+}
+
+func (m *mockAuthKeeper) GetAccount(_ context.Context, _ sdk.AccAddress) sdk.AccountI {
+	return nil
+}
+
+func (m *mockAuthKeeper) GetModuleAddress(name string) sdk.AccAddress {
+	if m.GetModuleAddressFn != nil {
+		return m.GetModuleAddressFn(name)
+	}
+	// Default deterministic addresses for known modules. Matches what
+	// authtypes.NewModuleAddress would produce in real wiring, but the
+	// concrete bytes only need to be stable within a test run.
+	return authtypes.NewModuleAddress(name).Bytes()
+}
+
+// mockServiceHooks captures hook fires for assertions in tests.
 type mockServiceHooks struct {
-	Dissolved []dissolveCall
-	Retired   []dissolveCall
+	Dissolved   []dissolveCall
+	Retired     []dissolveCall
+	Underfunded []dissolveCall
+	ReFunded    []dissolveCall
 }
 
 type dissolveCall struct {
@@ -256,6 +284,14 @@ func (m *mockServiceHooks) AfterOperatorDissolved(_ context.Context, operator sd
 
 func (m *mockServiceHooks) AfterOperatorRetired(_ context.Context, operator sdk.AccAddress, serviceType string) {
 	m.Retired = append(m.Retired, dissolveCall{Operator: operator, ServiceType: serviceType})
+}
+
+func (m *mockServiceHooks) AfterOperatorUnderfunded(_ context.Context, operator sdk.AccAddress, serviceType string) {
+	m.Underfunded = append(m.Underfunded, dissolveCall{Operator: operator, ServiceType: serviceType})
+}
+
+func (m *mockServiceHooks) AfterOperatorReFunded(_ context.Context, operator sdk.AccAddress, serviceType string) {
+	m.ReFunded = append(m.ReFunded, dissolveCall{Operator: operator, ServiceType: serviceType})
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +308,7 @@ type fixture struct {
 	commonsKeeper      *mockCommonsKeeper
 	repKeeper          *mockRepKeeper
 	distributionKeeper *mockDistributionKeeper
+	authKeeper         *mockAuthKeeper
 	hooks              *mockServiceHooks
 	authorityStr       string
 }
@@ -297,6 +334,7 @@ func initFixture(t *testing.T) *fixture {
 	}
 
 	bankKeeper := &mockBankKeeper{}
+	authKeeper := &mockAuthKeeper{addressCodec: addressCodec}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -304,6 +342,7 @@ func initFixture(t *testing.T) *fixture {
 		addressCodec,
 		authority.Bytes(),
 		bankKeeper,
+		authKeeper,
 	)
 
 	// Cross-module mocks. Permissive defaults: controller is a group,
@@ -347,6 +386,7 @@ func initFixture(t *testing.T) *fixture {
 		commonsKeeper:      commonsKeeper,
 		repKeeper:          repKeeper,
 		distributionKeeper: distributionKeeper,
+		authKeeper:         authKeeper,
 		hooks:              hooks,
 		authorityStr:       authorityStr,
 	}

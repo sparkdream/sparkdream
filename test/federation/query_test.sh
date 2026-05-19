@@ -107,46 +107,50 @@ else
 fi
 
 # ========================================================================
-# TEST 5: Get bridge operator
+# TEST 5: Get bridge binding (Phase 4: BridgeBinding replaced BridgeOperator
+# after the federation→service migration. Economic state — bond, status,
+# unbonding — lives on x/service.Operator under service_type=
+# federation-bridge-<protocol>; the binding carries only the federation-
+# specific peer/endpoint/content fields and the suspended flag.)
 # ========================================================================
 echo ""
-echo "--- TEST 5: Get bridge operator ---"
+echo "--- TEST 5: Get bridge binding ---"
 
-BRIDGE=$($BINARY query federation get-bridge-operator $OPERATOR1_ADDR mastodon.example --output json 2>&1)
-BRIDGE_ADDR=$(echo "$BRIDGE" | jq -r '.bridge_operator.address // empty' 2>/dev/null)
+BRIDGE=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json 2>&1)
+BRIDGE_ADDR=$(echo "$BRIDGE" | jq -r '.bridge_binding.address // empty' 2>/dev/null)
 
 if [ "$BRIDGE_ADDR" == "$OPERATOR1_ADDR" ]; then
-    BRIDGE_STATUS=$(echo "$BRIDGE" | jq -r '.bridge_operator.status // "BRIDGE_STATUS_UNSPECIFIED"')
-    BRIDGE_STAKE=$(echo "$BRIDGE" | jq -r '.bridge_operator.stake.amount // "0"')
-    SUBMITTED=$(echo "$BRIDGE" | jq -r '.bridge_operator.content_submitted // "0"')
-    echo "  Bridge: status=$BRIDGE_STATUS, stake=$BRIDGE_STAKE, submitted=$SUBMITTED"
-    record_result "Get bridge operator" "PASS"
+    BRIDGE_SUSPENDED=$(echo "$BRIDGE" | jq -r '.bridge_binding.suspended // false')
+    BRIDGE_PROTOCOL=$(echo "$BRIDGE" | jq -r '.bridge_binding.protocol // empty')
+    SUBMITTED=$(echo "$BRIDGE" | jq -r '.bridge_binding.content_submitted // "0"')
+    echo "  Binding: protocol=$BRIDGE_PROTOCOL, suspended=$BRIDGE_SUSPENDED, submitted=$SUBMITTED"
+    record_result "Get bridge binding" "PASS"
 elif echo "$BRIDGE" | grep -qi "not found\|no bridge"; then
     echo "  No bridge (bridge_operator_test data not present in this snapshot)"
-    record_result "Get bridge operator" "PASS"
+    record_result "Get bridge binding" "PASS"
 else
     echo "  Bridge query returned unexpected data"
-    record_result "Get bridge operator" "FAIL"
+    record_result "Get bridge binding" "FAIL"
 fi
 
 # ========================================================================
-# TEST 6: List bridge operators
+# TEST 6: List bridge bindings
 # ========================================================================
 echo ""
-echo "--- TEST 6: List bridge operators ---"
+echo "--- TEST 6: List bridge bindings ---"
 
-BRIDGES=$($BINARY query federation list-bridge-operators --output json 2>&1)
-BRIDGE_COUNT=$(echo "$BRIDGES" | jq '.bridge_operators | length' 2>/dev/null)
+BRIDGES=$($BINARY query federation list-bridge-bindings --output json 2>&1)
+BRIDGE_COUNT=$(echo "$BRIDGES" | jq '.bridge_bindings | length' 2>/dev/null)
 
-echo "  Total bridge operators: $BRIDGE_COUNT"
+echo "  Total bridge bindings: $BRIDGE_COUNT"
 if [ "$BRIDGE_COUNT" -ge 1 ] 2>/dev/null; then
-    echo "$BRIDGES" | jq -r '.bridge_operators[] | "    \(.address[:20])... → \(.peer_id) [\(.status // "BRIDGE_STATUS_UNSPECIFIED")]"' 2>/dev/null
-    record_result "List bridge operators" "PASS"
+    echo "$BRIDGES" | jq -r '.bridge_bindings[] | "    \(.address[:20])... → \(.peer_id) [\(.protocol // "?"), suspended=\(.suspended // false)]"' 2>/dev/null
+    record_result "List bridge bindings" "PASS"
 elif [ "$BRIDGE_COUNT" = "0" ]; then
-    echo "  No bridge operators (expected when run in isolation)"
-    record_result "List bridge operators" "PASS"
+    echo "  No bridge bindings (expected when run in isolation)"
+    record_result "List bridge bindings" "PASS"
 else
-    record_result "List bridge operators" "FAIL"
+    record_result "List bridge bindings" "FAIL"
 fi
 
 # ========================================================================
@@ -351,7 +355,7 @@ fi
 echo ""
 echo "--- TEST 17: Get non-existent bridge ---"
 
-MISSING=$($BINARY query federation get-bridge-operator $LINKER1_ADDR nonexistent.peer --output json 2>&1)
+MISSING=$($BINARY query federation get-bridge-binding $LINKER1_ADDR nonexistent.peer --output json 2>&1)
 if echo "$MISSING" | grep -qi "not found\|error"; then
     echo "  Non-existent bridge correctly returns error"
     record_result "Non-existent bridge error" "PASS"

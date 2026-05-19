@@ -26,6 +26,15 @@ type lateKeepers struct {
 	repKeeper     types.RepKeeper
 	nameKeeper    types.NameKeeper
 	ibcKeeperFn   func() *ibckeeper.Keeper
+
+	// serviceKeeper is the slice of x/service that federation consumes
+	// for the bridge-operator lifecycle (Phase 2 of the federation→
+	// service migration). Set after construction via SetServiceKeeper
+	// in app.go to avoid a depinject cycle. nil during early-dev /
+	// standalone test runs; production paths that depend on it must
+	// nil-check via the accessor and either fail loudly or fall back
+	// to legacy behavior.
+	serviceKeeper types.ServiceKeeper
 }
 
 type Keeper struct {
@@ -44,9 +53,16 @@ type Keeper struct {
 
 	// --- Primary Collections ---
 
-	Peers           collections.Map[string, types.Peer]
-	PeerPolicies    collections.Map[string, types.PeerPolicy]
-	BridgeOperators collections.Map[collections.Pair[string, string], types.BridgeOperator]
+	Peers        collections.Map[string, types.Peer]
+	PeerPolicies collections.Map[string, types.PeerPolicy]
+
+	// BridgeBindings holds the federation-side per-(operator, peer)
+	// record. Economic state (bond, status, unbonding) lives on the
+	// service.Operator keyed by (address, service_type). Per Decision 1a
+	// of the federation→service migration, one operator address can
+	// hold multiple bindings under the same protocol — one per peer —
+	// backed by a single shared service.Operator and bond.
+	BridgeBindings collections.Map[collections.Pair[string, string], types.BridgeBinding]
 	// VerifierActivity holds federation-specific per-verifier counters. The
 	// generic bond/status record lives in x/rep as BondedRole
 	// (ROLE_TYPE_FEDERATION_VERIFIER).
@@ -79,7 +95,16 @@ type Keeper struct {
 	ContentByHash     collections.Map[string, uint64]
 	ContentExpiration collections.KeySet[collections.Pair[int64, uint64]]
 
+	// BridgesByPeer indexes bindings by peer for peer-removal sweeps and
+	// max_bridges_per_peer enforcement.
 	BridgesByPeer collections.KeySet[collections.Pair[string, string]]
+
+	// BindingsByOperator is the reverse index for hook handlers. Keyed
+	// on (service_type, address, peer_id) — multi-valued by design so
+	// AfterOperatorDissolved / Underfunded etc. can iterate all bindings
+	// an operator holds under one service_type in O(N) without scanning
+	// BridgesByPeer (federation→service migration, Phase 1).
+	BindingsByOperator collections.KeySet[collections.Triple[string, string, string]]
 
 	IdentityLinksByRemote collections.Map[collections.Pair[string, string], string]
 	IdentityLinkCount     collections.Map[string, uint32]
@@ -94,7 +119,10 @@ type Keeper struct {
 	ArbiterResolutionQueue collections.KeySet[collections.Pair[int64, uint64]]
 	ArbiterEscalationQueue collections.KeySet[collections.Pair[int64, uint64]]
 
-	BridgeUnbondingQueue collections.KeySet[collections.Triple[int64, string, string]]
+	// BridgeUnbondingQueue removed in Phase 4 of the federation→service
+	// migration: x/service owns operator unbonding now (the EndBlocker
+	// sweepUnderfunded + per-type unbonding_period_blocks). Federation
+	// reacts to AfterOperatorDissolved/Retired hooks instead.
 
 	InboundRateLimits  collections.Map[collections.Pair[string, int64], uint64]
 	OutboundRateLimits collections.Map[collections.Pair[string, int64], uint64]
@@ -136,9 +164,9 @@ func NewKeeper(
 			collections.StringKey, codec.CollValue[types.Peer](cdc)),
 		PeerPolicies: collections.NewMap(sb, types.PeerPoliciesKey, "peerPolicies",
 			collections.StringKey, codec.CollValue[types.PeerPolicy](cdc)),
-		BridgeOperators: collections.NewMap(sb, types.BridgeOperatorsKey, "bridgeOperators",
+		BridgeBindings: collections.NewMap(sb, types.BridgeBindingsKey, "bridgeBindings",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
-			codec.CollValue[types.BridgeOperator](cdc)),
+			codec.CollValue[types.BridgeBinding](cdc)),
 		VerifierActivity: collections.NewMap(sb, types.VerifierActivityKey, "verifierActivity",
 			collections.StringKey, codec.CollValue[types.VerifierActivity](cdc)),
 		VerificationRecords: collections.NewMap(sb, types.VerificationRecsKey, "verificationRecords",
@@ -182,6 +210,8 @@ func NewKeeper(
 		// Bridge indexes
 		BridgesByPeer: collections.NewKeySet(sb, types.BridgesByPeerKey, "bridgesByPeer",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
+		BindingsByOperator: collections.NewKeySet(sb, types.BindingsByOperatorKey, "bindingsByOperator",
+			collections.TripleKeyCodec(collections.StringKey, collections.StringKey, collections.StringKey)),
 
 		// Identity indexes
 		IdentityLinksByRemote: collections.NewMap(sb, types.IdentityLinksByRemoteKey, "identityLinksByRemote",
@@ -211,9 +241,8 @@ func NewKeeper(
 		ArbiterEscalationQueue: collections.NewKeySet(sb, types.ArbiterEscalationQueueKey, "arbiterEscalationQueue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 
-		// Bridge unbonding
-		BridgeUnbondingQueue: collections.NewKeySet(sb, types.BridgeUnbondingQueueKey, "bridgeUnbondingQueue",
-			collections.TripleKeyCodec(collections.Int64Key, collections.StringKey, collections.StringKey)),
+		// (BridgeUnbondingQueue removed in Phase 4 of the federation→
+		// service migration; x/service owns operator unbonding now.)
 
 		// Rate limiting
 		InboundRateLimits: collections.NewMap(sb, types.InboundRateLimitKey, "inboundRateLimits",
@@ -250,6 +279,32 @@ func (k Keeper) SetRepKeeper(rk types.RepKeeper) {
 
 func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
 	k.late.nameKeeper = nk
+}
+
+// SetServiceKeeper wires the x/service keeper after construction. Used
+// by Phase 2 of the federation→service migration. The concrete
+// service.Keeper doesn't satisfy our local `int`-source interface
+// directly (its RegisterOperator takes servicekeeper.SlashSource); an
+// adapter in app/service_adapters.go bridges that gap.
+//
+// **App init order constraint**: x/commons must be constructed before
+// x/federation in app.go so the Operations Committee policy address
+// exists at MsgRegisterBridge time. x/service must be constructed
+// before x/federation so this Set* call has something to bind to. The
+// EndBlocker order must also place x/service BEFORE x/federation so
+// hook-fired binding state mutations settle before federation's own
+// per-block work runs.
+func (k Keeper) SetServiceKeeper(sk types.ServiceKeeper) {
+	k.late.serviceKeeper = sk
+}
+
+// serviceKeeper returns the wired ServiceKeeper, or nil if running in
+// standalone mode (no service wired). Callers MUST nil-check.
+func (k Keeper) serviceKeeper() types.ServiceKeeper {
+	if k.late == nil {
+		return nil
+	}
+	return k.late.serviceKeeper
 }
 
 // SetIBCKeeperFn wires the IBC keeper accessor late, after the IBC keeper is

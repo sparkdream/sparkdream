@@ -147,3 +147,59 @@ func TestMsgTopUpBond_Rejections(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TopUpBond keeper-level public API: AfterOperatorReFunded hook fires
+// on UNDERFUNDED → ACTIVE transition. Exercised against the Keeper.TopUpBond
+// path (federation→service migration Phase 0).
+// ---------------------------------------------------------------------------
+
+func TestTopUpBond_FiresAfterOperatorReFundedOnTransition(t *testing.T) {
+	f := initFixture(t)
+	hooks := f.hooks
+
+	cfg := f.seedServiceType(t)
+
+	// Seed UNDERFUNDED at half the min_bond.
+	height := f.sdkCtx().BlockHeight()
+	startBond := cfg.MinBond.Amount.QuoRaw(2)
+	op := types.Operator{
+		Address:                 testOperator1,
+		ServiceType:             testServiceType,
+		Controller:              testController,
+		Bond:                    sdk.NewCoin(types.BondDenom, startBond),
+		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
+		UnderfundedSince:        height,
+		Tier1SlashedInWindow:    math.ZeroInt(),
+		Tier1WindowStart:        height,
+		Tier1WindowStartBond:    startBond,
+		RegisteredAt:            height,
+		TotalLifetimeBondBlocks: math.ZeroInt(),
+		LastBondBlockUpdateAt:   height,
+	}
+	require.NoError(t, f.keeper.PutOperator(f.ctx, op))
+
+	// Top up enough to clear min_bond — should trigger ACTIVE transition
+	// AND fire the AfterOperatorReFunded hook.
+	require.NoError(t, f.keeper.TopUpBond(f.ctx, testOperator1Addr.Bytes(), testServiceType,
+		sdk.NewCoin(types.BondDenom, cfg.MinBond.Amount)))
+
+	require.Len(t, hooks.ReFunded, 1)
+	require.True(t, hooks.ReFunded[0].Operator.Equals(testOperator1Addr))
+	require.Equal(t, testServiceType, hooks.ReFunded[0].ServiceType)
+	require.Empty(t, hooks.Underfunded, "TopUpBond must not fire AfterOperatorUnderfunded")
+}
+
+func TestTopUpBond_NoHookWhenAlreadyActive(t *testing.T) {
+	f := initFixture(t)
+	hooks := f.hooks
+
+	cfg := f.seedServiceType(t)
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(2))
+
+	require.NoError(t, f.keeper.TopUpBond(f.ctx, testOperator1Addr.Bytes(), testServiceType,
+		sdk.NewCoin(types.BondDenom, math.NewInt(100))))
+
+	require.Empty(t, hooks.ReFunded, "no transition, no hook fire")
+}
+

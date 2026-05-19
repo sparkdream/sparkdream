@@ -17,9 +17,10 @@ Key principles:
 
 | Module | Purpose |
 |--------|---------|
-| `x/commons` | Council/committee authorization for peer registration, bridge management |
-| `x/bank` | Bridge operator staking, slash burning (SPARK only) |
-| `x/rep` | Reputation data, trust level checks, DREAM bonding for verifiers, jury system for verification disputes |
+| `x/commons` | Council/committee authorization for peer registration; resolves Operations Committee policy address as the default per-peer controller; validates `Peer.controller_group` against `IsGroupPolicyAddress` |
+| `x/service` | Bridge-operator economics: SPARK bond escrow, ACTIVE/UNDERFUNDED/UNBONDING/SLASHED/RETIRED state machine, tier-1 controller verdicts, tier-2 jury escalation, unbonding queue. Federation owns the per-binding endpoint/content-stats record only; bond, status, slashing history, and unbonding period live on the `service.Operator` keyed by `(address, service_type)` per protocol. See [docs/x-service-spec.md](x-service-spec.md) for the surface |
+| `x/bank` | SPARK movement for challenge fees, escalation fees, verifier reward payouts (operator-bond movement is owned by x/service) |
+| `x/rep` | Reputation data, trust level checks, DREAM bonding for verifiers via the generic `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER)` primitive, jury system for verification disputes |
 | `x/name` | Name resolution for identity linking |
 | `x/shield` | Anonymous challenge resolution via `MsgShieldedExec` (ZK proofs, scoped nullifiers, module-paid gas) |
 | `ibc-go` | IBC core for Spark Dream ↔ Spark Dream federation channels |
@@ -115,15 +116,28 @@ Cross-chain reputation uses the **attestation model**: Chain B queries Chain A v
 
 ### 3.6. Bridge Operators
 
-Bridge operators are off-chain service providers that translate between the chain and external protocols. They:
-- Register on-chain with a SPARK stake (escrowed in the federation module account)
+Bridge operators are off-chain service providers that translate between the chain and external protocols. Economic primitives (bond escrow, status state machine, slashing, unbonding) live on x/service; federation owns only the per-binding endpoint, content statistics, and the per-protocol routing into x/service.
+
+**Economic state lives on `service.Operator`** keyed by `(address, service_type)` where `service_type` is one of two genesis-seeded types — `federation-bridge-activitypub` or `federation-bridge-atproto`. Per Decision 1a of the federation→service migration, one operator address holds **one** `service.Operator` per protocol and **shares its bond across multiple peer bindings** under that protocol. A slash for one peer's misbehavior affects all of that operator's bindings for the same protocol.
+
+**Federation state per binding** is the `BridgeBinding` record (Section 4.3): peer_id, protocol, endpoint URL, submission counters, suspended flag. No bond, no status, no unbonding fields.
+
+Operators:
+- Register a binding via `MsgRegisterBridge` (operator-signed). Bond is escrowed atomically into x/service. First registration under a `(address, service_type)` creates the `service.Operator`; subsequent registrations for additional peers under the same protocol reuse the existing operator and bond (top-up optional).
 - Submit inbound federated content via `MsgSubmitFederatedContent`
 - Submit outbound attestations via `MsgAttestOutbound`
-- Are accountable: tracked submissions, rejection rate, slash history
-- Can be slashed by Operations Committee for misbehavior (spam, fabricated content, protocol violations)
-- Multiple operators can serve the same peer (redundancy, competition)
-- Are auto-revoked if slashing drops their stake below `min_bridge_stake`
-- Must wait `bridge_revocation_cooldown` (default: 7 days) after revocation before re-registering for the same peer
+- Are accountable: tracked submissions, rejection rate; misbehavior is reported via `service.MsgReportOperator` and resolved by the peer's controller (per-peer Group if set, Operations Committee by default)
+- Voluntarily exit via `service.MsgUnbondOperator` (operator-signed, sets the operator to UNBONDING; bond stays slashable through the configured unbonding period)
+- Restore bond via `service.MsgTopUpBond` after partial slashing; this fires `AfterOperatorReFunded` and federation clears the `suspended` flag on all affected bindings
+- Are NOT slashable by direct federation message — `MsgSlashBridge` and `MsgRevokeBridge` were deleted in Phase 4 of the migration. The only path is `service.MsgReportOperator` → controller `MsgResolveReport(T1_SLASH)` (with `dissolve=true` for hard revoke) → federation's `AfterOperatorDissolved` hook prunes bindings and decrements peer state
+
+**Per-peer controller** (Decision 2): each `Peer` carries an optional `controller_group` (x/commons Group policy address) that resolves tier-1 reports against that peer's bridge operators. If unset, federation resolves it to the Operations Committee at `MsgRegisterBridge` time and captures the resolved address on the resulting `service.Operator`. Updating the controller (`MsgUpdatePeerController`, gov-authority) affects only **new** registrations; existing bridges keep their original controller. Transferring an existing bridge requires `service.MsgOpenControllerTransferCase`.
+
+**Visibility note**: when `controller_group` is a partner-org Group, the Group's membership is publicly queryable. Reporters know exactly which humans decide the dispute. This is a social-dynamics shift, not a privacy bug.
+
+**Suspended bindings**: when an operator drops below `service.ServiceTypeConfig.min_bond` (after a slash), x/service fires `AfterOperatorUnderfunded`. Federation marks all of that operator's bindings under that `service_type` as `suspended=true`. Suspended bindings refuse new content submissions; they are not deleted. When the operator tops up, `AfterOperatorReFunded` clears the flag.
+
+**`max_bridges_per_peer`** is a federation-level kill switch (Decision 6, default 1000). It exists so governance can dial back runaway registration without a chain upgrade. The real participation gate is `service.ServiceTypeConfig.min_bond`; runaway registration is also bounded by content-hash deduplication and per-peer rate limits.
 
 Bridge operators can use x/session to create a scoped session key for their daemon, avoiding exposure of the operator's main private key.
 
@@ -145,7 +159,9 @@ MsgCreateSession {
 }
 ```
 
-**Rationale:** The session key limits the daemon to only submitting content and attesting outbound — it cannot register/revoke bridges, update policies, or perform any other operation. If the daemon key is compromised, the attacker can only submit content (which is rate-limited and auditable) and cannot steal the operator's stake. Operators should rotate session keys every 30 days.
+**Rationale:** The session key limits the daemon to only submitting content and attesting outbound — it cannot register bridges, update policies, top up bond, or initiate unbonding. If the daemon key is compromised, the attacker can only submit content (rate-limited and auditable) and cannot touch the operator's `service.Operator` bond. Operators should rotate session keys every 30 days.
+
+**Service-side actions stay on the main wallet.** `service.MsgTopUpBond`, `service.MsgUnbondOperator`, `service.MsgUpdateMetadata`, and `service.MsgClaimUnbondedBond` are NOT included in the recommended daemon allowlist — these are operator economic decisions that should require the main key. If automation is needed (e.g., autonomous top-up after slash), the operator can grant a separate session key for those specific message types with a tight `spend_limit`.
 
 ### 3.8. Federated Content Moderation
 
@@ -163,7 +179,7 @@ Federation verifiers are community members who independently verify that bridged
 
 **Why a separate role from bridge operators?** Bridge operators have infrastructure at stake (SPARK bond) but also have incentive to inflate their submission volume. Verifiers are independent community members with reputation and DREAM at stake — they have no incentive to rubber-stamp operator submissions, and collusion between operator and verifier is punishable by both SPARK slashing (operator) and DREAM slashing (verifier).
 
-**Why separate primitives?** Bridge operators stake SPARK with a 14-day unbonding period and are slashed by the Operations Committee; verifiers stake DREAM via x/rep's reputation-gated BondedRole primitive. The two use cases have incompatible mechanics, so x/rep's BondedRole is DREAM-only and federation keeps its own `BridgeOperator` proto for the SPARK-staked role.
+**Why separate primitives?** Bridge operators stake SPARK on `x/service` with a ~14-day unbonding period and a controller-resolved slashing path (Operations Committee by default, per-peer Group if `peer.controller_group` is set); verifiers stake DREAM via `x/rep`'s reputation-gated `BondedRole` primitive. The two use cases have incompatible mechanics — different token, different unbonding model, different slashing authority — so x/rep's `BondedRole` stays DREAM-only and federation delegates SPARK-staked operator economics to `x/service`.
 
 #### 3.9.1. Verifier Registration
 
@@ -342,7 +358,7 @@ message MsgSubmitArbiterHash {
 ```
 
 **Constraints for identified submissions:**
-- Must be a registered, ACTIVE bridge operator for the same peer as the challenged content
+- Must hold a non-suspended `BridgeBinding` for the same peer as the challenged content
 - Cannot be the bridge operator who submitted the challenged content (reject with `ErrSelfArbiter`)
 - One submission per operator per content_id
 
@@ -371,7 +387,7 @@ Both identified and anonymous submissions count toward the same quorum. When `ar
 2. If the quorum hash matches the **challenger's** hash: auto-resolve as CHALLENGE_UPHELD (verifier was wrong)
 3. If the quorum hash matches the **verifier's** hash: auto-resolve as CHALLENGE_REJECTED (challenger was wrong)
 4. If the quorum hash matches **neither**: auto-resolve as CHALLENGE_UPHELD (both operator and verifier had wrong hashes — content was fabricated or corrupted)
-5. Apply the standard slashing, refund, and reward logic (Section 6.25 verdict definitions)
+5. Apply the standard slashing, refund, and reward logic (Section 6.25 verdict definitions). **Bridge-operator-side slashing on CHALLENGE_UPHELD** flows through `serviceKeeper.OpenSystemReport(callerModuleAddr=federationModuleAccount, operator=bridge.address, service_type, slash_bps=ChallengeDefaultSlashBps, evidence_uri=challenge.evidence, dedupe_key=MimcHash(challenge.id, challenge.evidence_hash))`. The report enters PENDING; the peer's controller (per Decision 2) resolves it via `service.MsgResolveReport` and may adjust the final slash within `unilateral_slash_cap_bps`. `ReportTimeoutAction=ESCALATE` on both bridge `ServiceTypeConfigs` ensures a silent controller cannot park the slash forever — it auto-escalates to jury. The federation challenge stores the returned `service_report_id` for cross-reference; `dedupe_key` guarantees idempotency on replay.
 6. Start `arbiter_escalation_window` (default: 48 hours) — either party can escalate to human jury during this period
 
 **Escalation to Phase 2:**
@@ -402,7 +418,7 @@ Non-matching arbiters (submitted a hash that didn't match quorum) receive nothin
 - **Operator collusion:** The submitting operator is excluded from arbitrating their own content. Even if they submit anonymously as a member, they're at most 1 of `arbiter_quorum` needed. For accessible content, honest hashes are deterministic — one dishonest hash can't swing the result.
 - **Verifier collusion:** Same logic. The verifier is one participant. Even if operator and verifier collude and both submit, they're 2 of 3 needed — one honest arbiter (likely a competing bridge operator) breaks the collusion.
 - **Sybil (anonymous path):** ZK proofs are tied to unique member identities via the trust tree. Creating multiple members requires multiple invitations at ESTABLISHED+ trust level — x/rep's invitation and trust system is the Sybil barrier.
-- **Sybil (identified path):** Bridge operators are registered with SPARK stake. Creating multiple fake operators requires multiple `min_bridge_stake` deposits and Operations Committee approval.
+- **Sybil (identified path):** Bridge operators are registered with SPARK stake on `x/service`. Creating multiple fake operators requires multiple `ServiceTypeConfig.min_bond` deposits — there is no Operations Committee gate on `MsgRegisterBridge` (operator-signed), so the bond size is the entire participation cost. Tuning `min_bond` per service_type is the lever for raising the Sybil floor.
 - **Mixed quorum strength:** A quorum containing both identified operators and anonymous members is harder to corrupt than either type alone — the attacker would need to compromise entities in both categories simultaneously.
 - **No penalty for abstaining:** Members and operators who can't fetch the content simply don't submit. Natural self-selection ensures only participants who can actually verify participate.
 
@@ -461,6 +477,12 @@ message Peer {
   string registered_by = 8;           // Council member who proposed registration
   string metadata = 9;                // Optional JSON metadata (chain-id, version, etc.)
   int64 removed_at = 10;              // Block time when removed (0 if not removed)
+  string controller_group = 11;       // Optional x/commons Group policy address that resolves
+                                      // tier-1 reports against this peer's bridge operators.
+                                      // Empty → defaults to Operations Committee at
+                                      // MsgRegisterBridge time. Resolved value is captured on
+                                      // each new service.Operator; existing operators keep
+                                      // their original controller.
 }
 
 enum PeerType {
@@ -504,35 +526,30 @@ message PeerPolicy {
 }
 ```
 
-### 4.3. BridgeOperator
+### 4.3. BridgeBinding
+
+> **Phase 1–5 federation→service migration.** The former `BridgeOperator` proto is gone. Economic state (bond, status, unbonding, slashing history) lives on the `service.Operator` keyed by `(address, service_type)`. Federation owns only the per-binding endpoint, content stats, and suspended flag. Per Decision 1a, one operator address may hold multiple `BridgeBinding`s under the same `service_type` (one per peer), all backed by a single shared `service.Operator` and a single shared bond.
 
 ```protobuf
-message BridgeOperator {
+message BridgeBinding {
   string address = 1;                              // Operator's bech32 address
-  string peer_id = 2;                              // Which peer this bridge serves
+  string peer_id = 2;                              // Which peer this binding serves
   string protocol = 3;                             // "activitypub" or "atproto"
   string endpoint = 4;                             // Bridge endpoint URL (for monitoring/health checks)
-  cosmos.base.v1beta1.Coin stake = 5;              // SPARK staked (current balance after any slashing)
-  int64 registered_at = 6;
-  BridgeStatus status = 7;
-  uint64 content_submitted = 8;                    // Total inbound items submitted
-  uint64 content_verified = 14;                    // Items that reached VERIFIED status
-  uint64 content_unverified = 15;                  // Items that expired without verification
-  uint64 content_rejected = 9;                     // Items rejected by policy
-  uint64 slash_count = 10;
-  int64 revoked_at = 11;                           // Block time when revoked (0 if never revoked)
-  int64 last_submission_at = 12;                   // Block time of last content submission (for inactivity checks)
-  int64 unbonding_end_time = 13;                   // Block time when stake can be released (0 if not unbonding)
-}
-
-enum BridgeStatus {
-  BRIDGE_STATUS_UNSPECIFIED = 0;
-  BRIDGE_STATUS_ACTIVE = 1;
-  BRIDGE_STATUS_SUSPENDED = 2;
-  BRIDGE_STATUS_UNBONDING = 3;                     // Revoked, stake locked during unbonding period
-  BRIDGE_STATUS_REVOKED = 4;                       // Fully revoked, stake returned
+  int64 registered_at = 5;
+  uint64 content_submitted = 6;                    // Total inbound items submitted via this binding
+  uint64 content_verified = 7;                     // Items that reached VERIFIED status
+  uint64 content_rejected = 8;                     // Items rejected by policy
+  uint64 content_unverified = 9;                   // Items that expired without verification
+  int64 last_submission_at = 10;                   // Block time of last content submission (for inactivity checks)
+  bool suspended = 11;                             // Set true by AfterOperatorUnderfunded;
+                                                   // cleared by AfterOperatorReFunded. Federation
+                                                   // refuses new content submissions and outbound
+                                                   // attestations from suspended bindings.
 }
 ```
+
+The legacy `BridgeStatus` enum (`ACTIVE`/`SUSPENDED`/`UNBONDING`/`REVOKED`) is retained in the proto file for backwards compatibility with old test fixtures but is no longer attached to bindings. Authoritative status lives on the `service.Operator` (`ACTIVE`/`UNDERFUNDED`/`UNBONDING`/`SLASHED`/`RETIRED`). Queries that previously returned `BridgeOperator` now return `BridgeBinding`; callers that need live economic state issue a parallel query to `x/service` keyed on `(address, service_type=federation-bridge-<protocol>)`.
 
 ### 4.4. Verifier state (split across x/rep and x/federation)
 
@@ -749,11 +766,20 @@ message OutboundAttestation {
 
 ```protobuf
 message Params {
-  // Bridge operator requirements
-  cosmos.base.v1beta1.Coin min_bridge_stake = 1;
+  // Bridge operator economics moved to x/service (Phase 1 migration). Fields
+  // 1 (min_bridge_stake), 3 (bridge_revocation_cooldown), and 4
+  // (bridge_unbonding_period) are reserved in the proto. Bond minimums,
+  // revocation lifecycle, and unbonding period are now configured per
+  // service_type on the x/service ServiceTypeConfig — federation seeds
+  // configs for "federation-bridge-activitypub" and "federation-bridge-atproto".
+  reserved 1, 3, 4;
+  reserved "min_bridge_stake", "bridge_revocation_cooldown", "bridge_unbonding_period";
+
+  // max_bridges_per_peer is a kill-switch (Decision 6). Default 1000 leaves it
+  // effectively no-op. Gov can dial it down without a chain upgrade if abuse
+  // emerges. NOT a normal policy lever — real participation gating is
+  // service.MinBond + content-hash dedup + per-peer rate limits.
   uint64 max_bridges_per_peer = 2;
-  google.protobuf.Duration bridge_revocation_cooldown = 3;  // Min time before re-registration after revocation
-  google.protobuf.Duration bridge_unbonding_period = 4;     // Time stake remains locked after revocation (slash window)
 
   // Content types
   repeated string known_content_types = 5;         // Registry of valid content type strings (governance-managed)
@@ -813,6 +839,12 @@ message Params {
   cosmos.base.v1beta1.Coin escalation_fee = 43;      // SPARK fee to escalate auto-resolution to jury
   google.protobuf.Duration challenge_cooldown = 44;  // Min time between challenges on the same content after a rejected challenge
 
+  // Verifier unbond cooldown — period the verifier bond stays locked and
+  // slashable after MsgUnbondRole. Propagated to x/rep BondedRoleConfig via
+  // SyncVerifierBondedRoleConfig. Mirrors the bridge-operator unbonding
+  // period now hosted on x/service. Default 14 days.
+  google.protobuf.Duration verifier_unbond_cooldown = 45;
+
   // Pruning
   uint64 max_prune_per_block = 21;                 // Max items pruned per EndBlocker invocation
 }
@@ -838,7 +870,9 @@ message FederationOperationalParams {
 }
 ```
 
-Governance-only fields: `min_bridge_stake`, `max_bridges_per_peer`, `bridge_revocation_cooldown`, `bridge_unbonding_period`, `known_content_types`, `max_identity_links_per_user`, `unverified_link_ttl`, `challenge_ttl`, `rate_limit_window`, `min_verifier_trust_level`, `min_verifier_bond`, `verifier_recovery_threshold`, `verifier_slash_amount`, `verification_window`, `challenge_window`, `challenge_fee`, `challenge_jury_deadline`, `verifier_demotion_cooldown`, `verifier_overturn_base_cooldown`, `upheld_to_reset_overturns`, `operator_reward_share`, `verifier_dream_reward`, `max_verifier_dream_mint_per_epoch`, `arbiter_quorum`, `arbiter_resolution_window`, `arbiter_escalation_window`, `escalation_fee`, `challenge_cooldown`, `ibc_port`, `ibc_channel_version`, `ibc_packet_timeout`.
+Governance-only fields: `max_bridges_per_peer`, `known_content_types`, `max_identity_links_per_user`, `unverified_link_ttl`, `challenge_ttl`, `rate_limit_window`, `min_verifier_trust_level`, `min_verifier_bond`, `verifier_recovery_threshold`, `verifier_slash_amount`, `verification_window`, `challenge_window`, `challenge_fee`, `challenge_jury_deadline`, `verifier_demotion_cooldown`, `verifier_overturn_base_cooldown`, `verifier_unbond_cooldown`, `upheld_to_reset_overturns`, `operator_reward_share`, `verifier_dream_reward`, `max_verifier_dream_mint_per_epoch`, `arbiter_quorum`, `arbiter_resolution_window`, `arbiter_escalation_window`, `escalation_fee`, `challenge_cooldown`, `ibc_port`, `ibc_channel_version`, `ibc_packet_timeout`.
+
+> Bridge bond minimums, revocation cooldown, and unbonding period are no longer federation params — they live on `service.ServiceTypeConfig` and are tunable per protocol via gov on `x/service`, not on `x/federation`.
 
 **Validation ranges** (enforced on both `MsgUpdateParams` and `MsgUpdateOperationalParams`):
 
@@ -849,7 +883,6 @@ Governance-only fields: `min_bridge_stake`, `max_bridges_per_peer`, `bridge_revo
 | `max_content_body_size` | 256 | 65536 | Meaningful preview without state bloat |
 | `max_content_uri_size` | 64 | 2048 | Standard URL length bounds |
 | `max_protocol_metadata_size` | 0 | 8192 | Allow disabling (0) up to reasonable JSON |
-| `bridge_unbonding_period` | 7 days | 90 days | Must be long enough for investigation |
 | `challenge_ttl` | 1 day | 30 days | Window for remote user to confirm identity |
 | `content_ttl` | 1 day | 365 days | Prevent indefinite retention or instant pruning |
 | `attestation_ttl` | 1 day | 365 days | Same rationale |
@@ -867,6 +900,7 @@ Governance-only fields: `min_bridge_stake`, `max_bridges_per_peer`, `bridge_revo
 | `challenge_fee` | 50 SPARK | 5000 SPARK | Must deter frivolous challenges |
 | `challenge_jury_deadline` | 3 days | 30 days | Jury must have reasonable time |
 | `verifier_demotion_cooldown` | 1 day | 30 days | Prevents accuracy-reset attacks |
+| `verifier_unbond_cooldown` | 0 | 90 days | Period verifier bond stays locked and slashable after MsgUnbondRole; 0 = legacy instant-unbond path |
 | `verifier_overturn_base_cooldown` | 1 hour | 7 days | Base cooldown, escalates 2x per consecutive overturn |
 | `min_verifier_accuracy` | 0.5 | 0.95 | Cannot be impossible to achieve |
 | `operator_reward_share` | 0.1 | 0.9 | Neither operators nor verifiers should get zero |
@@ -883,37 +917,40 @@ Governance-only fields: `min_bridge_stake`, `max_bridges_per_peer`, `bridge_revo
 ```protobuf
 message GenesisState {
   Params params = 1 [(gogoproto.nullable) = false];
-  repeated Peer peers = 2 [(gogoproto.nullable) = false];
-  repeated PeerPolicy peer_policies = 3 [(gogoproto.nullable) = false];
-  repeated BridgeOperator bridge_operators = 4 [(gogoproto.nullable) = false];
-  repeated FederatedContent federated_content = 5 [(gogoproto.nullable) = false];
-  repeated IdentityLink identity_links = 6 [(gogoproto.nullable) = false];
-  repeated ReputationAttestation reputation_attestations = 7 [(gogoproto.nullable) = false];
-  repeated OutboundAttestation outbound_attestations = 8 [(gogoproto.nullable) = false];
-  // Field 11 previously held FederationVerifier records; replaced by x/rep
+  string port_id = 2;
+  repeated Peer peers = 3 [(gogoproto.nullable) = false];
+  repeated PeerPolicy peer_policies = 4 [(gogoproto.nullable) = false];
+  repeated BridgeBinding bridge_bindings = 5 [(gogoproto.nullable) = false];
+  repeated FederatedContent federated_content = 6 [(gogoproto.nullable) = false];
+  repeated IdentityLink identity_links = 7 [(gogoproto.nullable) = false];
+  repeated ReputationAttestation reputation_attestations = 8 [(gogoproto.nullable) = false];
+  repeated OutboundAttestation outbound_attestations = 9 [(gogoproto.nullable) = false];
+  // Field 10 previously held FederationVerifier records; replaced by x/rep
   // BondedRole(ROLE_TYPE_FEDERATION_VERIFIER). Per-module counters live in
   // verifier_activities.
-  reserved 11;
+  reserved 10;
   reserved "verifiers";
   repeated VerifierActivity verifier_activities = 14 [(gogoproto.nullable) = false];
-  repeated VerificationRecord verification_records = 12 [(gogoproto.nullable) = false];
-  uint64 next_content_id = 9;
-  uint64 next_outbound_attestation_id = 10;
+  repeated VerificationRecord verification_records = 11 [(gogoproto.nullable) = false];
+  uint64 next_content_id = 12;
+  uint64 next_outbound_attestation_id = 13;
 }
 ```
 
-**Default genesis**: Empty peer list, no bridges, no content. Only `params` is populated with defaults from Section 13.
+**Default genesis**: Empty peer list, no bridge bindings, no content. Only `params` and `port_id` are populated with defaults from Section 13.
+
+**Genesis init order dependency**: `x/service` must run InitGenesis **before** `x/federation`. Bridge bindings reference `service.Operator` records keyed by `(address, service_type)` that must already exist in service state. The ServiceTypeConfigs for `federation-bridge-activitypub` and `federation-bridge-atproto` are seeded in x/service's genesis (NOT federation's), even though they conceptually belong to the federation use case — federation does not own ServiceTypeConfigs.
 
 **Genesis validation**:
-- All `peer_id` references in policies, bridges, content, links, and attestations must reference an existing peer in the `peers` list
+- All `peer_id` references in policies, bindings, content, links, and attestations must reference an existing peer in the `peers` list
 - `next_content_id` must be greater than the highest `id` in `federated_content`
 - `next_outbound_attestation_id` must be greater than the highest `id` in `outbound_attestations`
-- All bridge operators must have `stake >= min_bridge_stake`
+- For each `BridgeBinding`, the corresponding `service.Operator` at `(address, federation-bridge-<protocol>)` must exist in x/service state and be in a live status (`ACTIVE`, `UNDERFUNDED`, or `UNBONDING`); orphan bindings referencing a missing or terminal operator violate the `orphan-bindings` invariant (Section 9 / Section 14)
 - No duplicate `(peer_id, remote_identity)` pairs in `identity_links`
-- All verifiers must have `bond_status` consistent with their `current_bond` relative to `min_verifier_bond` and `verifier_recovery_threshold`
-- For each verifier, `total_committed_bond` must equal the sum of `committed_amount` across all `verification_records` where `verifier == address` and `outcome` is PENDING or CHALLENGED. This ensures committed bond accounting is consistent after genesis import.
-- `total_committed_bond ≤ current_bond` for all verifiers
+- For each `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, address)` in x/rep, `total_committed_bond` must equal the sum of `committed_amount` across all `verification_records` where `verifier == address` and `outcome` is PENDING or CHALLENGED, and `total_committed_bond ≤ current_bond`. Federation does not store these fields directly; the check runs against x/rep's exported bond state at boot.
 - All verification records must reference existing content in `federated_content`
+
+**Reverse-index rebuild**: federation's InitGenesis rebuilds `BridgesByPeer` and `BindingsByOperator` from the loaded `BridgeBinding` list — these are not exported as genesis fields and are derived deterministically from the primary records.
 
 **Excluded from genesis** (runtime-ephemeral state, managed by EndBlocker):
 - `PendingIdentityChallenge`: Short-lived IBC challenges with `challenge_ttl` (default 7 days). Pruned by EndBlocker Phase 4. On genesis restart, any pending challenges expire naturally — the remote user can re-initiate identity linking.
@@ -925,10 +962,11 @@ message GenesisState {
 
 | Collection | Key | Value | Purpose |
 |------------|-----|-------|---------|
-| `Peers` | `peer_id` | `Peer` | Peer registry |
+| `Peers` | `peer_id` | `Peer` | Peer registry (includes optional `controller_group`) |
 | `PeerPolicies` | `peer_id` | `PeerPolicy` | Per-peer policies |
-| `BridgeOperators` | `(address, peer_id)` | `BridgeOperator` | Bridge operator registry |
-| `BridgesByPeer` | `(peer_id, address)` | — | Index: bridges serving a peer |
+| `BridgeBindings` | `(address, peer_id)` | `BridgeBinding` | Federation-side binding (endpoint, content stats, suspended flag); economic state lives on `service.Operator` |
+| `BridgesByPeer` | `(peer_id, address)` | — | Index: bindings serving a peer |
+| `BindingsByOperator` | `(service_type, address, peer_id)` | — | Reverse index used by hook handlers to enumerate all bindings an operator holds under a service_type in O(N) without scanning `BridgesByPeer`. Multi-valued by design (Decision 1a: one operator may hold multiple peer bindings under one service_type sharing one bond) |
 | `FederatedContent` | `id` (auto-increment) | `FederatedContent` | Inbound content |
 | `ContentByPeer` | `(peer_id, id)` | — | Index: content from a peer |
 | `ContentByType` | `(content_type, id)` | — | Index: content by type |
@@ -951,13 +989,16 @@ message GenesisState {
 | `ArbiterHashCounts` | `(content_id, content_hash)` | `uint32` (count) | Count of matching hashes per content_id (for quorum detection) |
 | `ArbiterResolutionQueue` | `(arbiter_resolution_deadline, content_id)` | — | Sorted index for arbiter window expiry |
 | `ArbiterEscalationQueue` | `(arbiter_escalation_deadline, content_id)` | — | Sorted index for escalation window expiry |
-| `BridgeUnbondingQueue` | `(unbonding_end_time, address, peer_id)` | — | Sorted index for bridge stake release |
 | `PeerRemovalQueue` | `peer_id` | `PeerRemovalState` | Peers pending data cleanup (with cursor) |
-| `RateLimitCounters` | `(peer_id, window_start)` | `uint64` (count) | Sliding window inbound rate limit tracking |
-| `OutboundRateLimitCounters` | `(peer_id, window_start)` | `uint64` (count) | Sliding window outbound rate limit tracking |
+| `InboundRateLimits` | `(peer_id, window_start)` | `uint64` (count) | Sliding window inbound rate limit tracking |
+| `OutboundRateLimits` | `(peer_id, window_start)` | `uint64` (count) | Sliding window outbound rate limit tracking |
 | `Params` | — | `Params` | Module parameters |
-| `NextContentID` | — | `uint64` | Auto-increment counter |
-| `NextOutboundAttestationID` | — | `uint64` | Auto-increment counter |
+| `Port` | — | `string` | IBC port ID |
+| `ContentSeq` | — | `uint64` | Auto-increment counter for FederatedContent |
+| `OutboundAttestSeq` | — | `uint64` | Auto-increment counter for OutboundAttestations |
+| `ArbiterAnonSubSeq` | — | `uint64` | Auto-increment counter for anonymous arbiter submissions (shield-dispatched path) |
+
+`BridgeUnbondingQueue` was removed in Phase 4 of the migration — x/service owns the unbonding queue via `UnderfundedQueue` and per-`ServiceTypeConfig.unbonding_period_blocks`. Federation reacts via `AfterOperatorRetired`/`AfterOperatorDissolved` hooks.
 
 ---
 
@@ -975,6 +1016,10 @@ message MsgRegisterPeer {
   PeerType type = 4;
   string ibc_channel_id = 5;      // Required for Spark Dream peers
   string metadata = 6;
+  string controller_group = 7;    // Optional x/commons Group policy address that resolves
+                                  // tier-1 reports against this peer's bridge operators.
+                                  // Empty → defaults to Operations Committee at
+                                  // MsgRegisterBridge time.
 }
 ```
 
@@ -983,9 +1028,10 @@ message MsgRegisterPeer {
 2. Validate peer ID format (lowercase alphanumeric + hyphens + dots, 3-64 chars)
 3. Check peer doesn't already exist (or is REMOVED — allow re-registration)
 4. If peer is REMOVED, verify it is NOT in `PeerRemovalQueue` — reject with `ErrPeerCleanupInProgress` if cleanup is still running. Re-registration is only allowed after all associated data has been fully cleaned up.
-5. Set status to PENDING (activated when IBC channel confirms or first bridge registers)
-6. Create default PeerPolicy (empty content types, conservative defaults)
-7. Emit `peer_registered` event
+5. If `controller_group` is non-empty, validate it via `commonsKeeper.IsGroupPolicyAddress(controller_group)` — reject garbage addresses up-front rather than silently falling back to OpsComm at bridge-registration time
+6. Set status to PENDING (activated when IBC channel confirms or first bridge registers)
+7. Create default PeerPolicy (empty content types, conservative defaults)
+8. Emit `peer_registered` event
 
 ### 6.2. RemovePeer (Commons Council)
 
@@ -1002,19 +1048,22 @@ message MsgRemovePeer {
 **Logic:**
 1. Verify authority is governance or Commons Council policy address
 2. Verify peer exists and is not already REMOVED
-3. Set peer status to REMOVED, set `removed_at` to current block time
-4. Add peer to `PeerRemovalQueue` for EndBlocker cleanup
-5. Immediately reject all pending inbound content from this peer (any `MsgSubmitFederatedContent` in the same block after removal will fail with `ErrPeerNotActive`)
-6. Emit `peer_removed` event
+3. **Reject if the peer has live bridge bindings.** Walk `BridgesByPeer` for this peer; if any binding exists whose corresponding `service.Operator` is in `ACTIVE`, `UNDERFUNDED`, or `UNBONDING`, reject with `ErrPeerHasActiveBridges`. Operators must call `service.MsgUnbondOperator` first; only then can the peer be removed. This couples peer-removal latency to the longest bridge unbonding period (~14 days at default), which is intentional — peer removal is rare and gov-authority anyway.
+4. Set peer status to REMOVED, set `removed_at` to current block time
+5. Add peer to `PeerRemovalQueue` for EndBlocker cleanup
+6. Immediately reject all pending inbound content from this peer (any `MsgSubmitFederatedContent` in the same block after removal will fail with `ErrPeerNotActive`)
+7. Emit `peer_removed` event
 
 **Cleanup lifecycle** (handled by EndBlocker, see Section 9):
 - All FederatedContent for this peer: deleted (pruned from storage and all indexes)
 - All IdentityLinks for this peer: verified links marked REVOKED (preserved 90 days for audit), unverified links deleted immediately. Emit `identity_link_revoked` event for each verified link.
 - All ReputationAttestations for this peer: deleted
 - All OutboundAttestations for this peer: deleted
-- All BridgeOperators for this peer: status set to REVOKED, remaining stake returned to operator via x/bank. Emit `bridge_revoked` event for each.
+- BridgeBindings for this peer: by step 3 above, the only bindings still present at this point are those whose `service.Operator` reached `RETIRED` or `SLASHED` during the gap between `MsgRemovePeer` queueing and EndBlocker execution. Federation deletes those orphan bindings and their reverse-index entries; bond accounting is owned by x/service.
 - PeerPolicy for this peer: deleted
 - Peer record itself: deleted only after all associated data is cleaned up
+
+**Stranded-peer escape hatch.** If a peer's operators stop responding (network partition, abandonment) and step 3 keeps blocking removal indefinitely, a single gov proposal can bundle force-dissolves with the removal: include one `service.MsgReportOperator(operator, T1_SLASH, dissolve=true)` per active bridge, followed by `MsgResolveReport(T1_SLASH)` signed by the peer's controller (OpsComm by default), followed by `MsgRemovePeer`. The hook-driven cleanup dissolves the operators (firing `AfterOperatorDissolved` → federation prunes bindings) and the same proposal then passes the now-clean peer-removal check. One atomic vote, no new authority surface.
 
 ### 6.3. SuspendPeer (Commons Council)
 
@@ -1058,80 +1107,45 @@ message MsgUpdatePeerPolicy {
 2. Reject policies that include `"reveal_proposal"` or `"reveal_tranche"` in either content type list (see Section 15.7)
 3. If peer type is ACTIVITYPUB or ATPROTO, reject if `allow_reputation_queries` or `accept_reputation_attestations` is true — reputation bridging is only supported for Spark Dream peers (reject with `ErrPeerTypeMismatch`)
 
-### 6.6. RegisterBridge (Operations Committee)
+### 6.6. RegisterBridge (Bridge Operator — Self)
 
-Register a bridge operator for a bridge-type peer.
+Register a `BridgeBinding` between an operator and a peer, and (on first registration for the operator under this protocol) escrow the operator's SPARK bond into x/service. Operator-signed.
 
 ```protobuf
 message MsgRegisterBridge {
-  string authority = 1;            // Operations Committee member
-  string operator = 2;             // Bridge operator address
-  string peer_id = 3;
-  string protocol = 4;             // "activitypub" or "atproto"
-  string endpoint = 5;
+  string operator = 1;             // Operator address (signer)
+  string peer_id = 2;
+  string protocol = 3;             // "activitypub" or "atproto"
+  string endpoint = 4;
+  cosmos.base.v1beta1.Coin stake = 5; // SPARK to escrow into x/service. Must be ≥
+                                      // ServiceTypeConfig.min_bond on first registration;
+                                      // added as a top-up on re-registration under an
+                                      // existing operator.
 }
 ```
 
-**Logic:**
-1. Verify authority is Operations Committee
-2. Verify peer exists and is type ACTIVITYPUB or ATPROTO
-3. Check `max_bridges_per_peer` not exceeded
-4. If operator was previously revoked for this peer, verify `bridge_revocation_cooldown` has elapsed since `revoked_at`. Reject with `ErrCooldownNotElapsed` if too soon.
-5. Verify operator has at least `min_bridge_stake` available. Escrow from operator's account to federation module account.
-6. Create BridgeOperator record (reset `content_submitted`, `content_rejected`, `slash_count` for fresh registration; `revoked_at` preserved for history)
-7. If peer was PENDING, transition to ACTIVE
-8. Emit `bridge_registered` event
+**Logic.** Step ordering is load-bearing: any call into x/service that can fire a hook back into federation must happen **after** the new `BridgeBinding` and its reverse-index entry are written, otherwise the hook handler iterates `BindingsByOperator` and silently misses the in-flight binding.
 
-### 6.7. RevokeBridge (Operations Committee)
+1. Load peer; verify type is ACTIVITYPUB or ATPROTO (SPARK_DREAM peers federate via IBC, not bridges).
+2. Check `bridges_count_for_peer < max_bridges_per_peer` (kill-switch).
+3. Reject if a `BridgeBinding` already exists for `(operator, peer_id)`.
+4. Map `peer.type` → `service_type`: `PROTO_ACTIVITYPUB` → `federation-bridge-activitypub`, `PROTO_ATPROTO` → `federation-bridge-atproto`.
+5. Resolve controller: `peer.controller_group` if non-empty (re-validated via `commonsKeeper.IsGroupPolicyAddress`), else Operations Committee policy address via `commonsKeeper.GetCouncilPolicyAddress("commons", "operations")`. The resolved address is captured on the resulting `service.Operator`.
+6. Look up `service.Operator` for `(msg.operator, service_type)`:
+   - **Exists** (Decision 1a re-registration for another peer): verify `existing.controller == resolved_controller`. Mismatch is `ErrControllerMismatch` with the message "use a different address for the new peer, or transfer the existing Operator's controller via `service.MsgOpenControllerTransferCase`." Defer top-up to step 8.
+   - **New**: call `serviceKeeper.RegisterOperator(ctx, operator, service_type, controller, stake, metadata, ServiceSourceNormal)`. x/service validates `stake >= min_bond` from the ServiceTypeConfig, escrows the bond, creates the `service.Operator`, and does **not** fire hooks. Skip step 8.
+7. Write `BridgeBinding`, `BridgesByPeer`, and `BindingsByOperator(service_type, operator, peer_id)`. After this point, any hook firing on the operator sees the new binding.
+8. **Exists branch only, when `stake.Amount > 0`**: call `serviceKeeper.TopUpBond(ctx, operator, service_type, stake)`. If the operator was UNDERFUNDED, this fires `AfterOperatorReFunded` synchronously; the hook iterates `BindingsByOperator` and correctly includes the binding written in step 7.
+9. Transition peer PENDING → ACTIVE on first binding for the peer.
+10. Emit `bridge_registered` event.
 
-Revoke a bridge operator. Returns remaining stake minus any slashing.
+If any service call fails (`min_bond` violation, controller mismatch, service_type disabled), federation aborts the whole tx cleanly. The atomic-tx guarantee rolls back any partial writes from earlier steps.
 
-```protobuf
-message MsgRevokeBridge {
-  string authority = 1;
-  string operator = 2;
-  string peer_id = 3;
-  string reason = 4;
-}
-```
+**Standalone mode**: in unit-test environments where the service keeper is not wired, federation falls back to writing the `BridgeBinding` without a bond. This path is for testing only and is not reachable in a production binary.
 
-**Logic:**
-1. Verify authority is Operations Committee
-2. Set bridge status to UNBONDING, set `revoked_at` to current block time
-3. Set `unbonding_end_time` = block_time + `bridge_unbonding_period`
-4. Add to `BridgeUnbondingQueue` for EndBlocker processing
-5. All subsequent `MsgSubmitFederatedContent` from this operator for this peer are rejected immediately (UNBONDING bridges are not ACTIVE)
-6. Emit `bridge_revoked` event
+### 6.7. UpdateBridge (Operations Committee)
 
-**Note:** Stake is NOT returned immediately. It remains locked during the unbonding period so the Operations Committee can still slash for misbehavior discovered after revocation. Stake is released automatically by EndBlocker when `unbonding_end_time` is reached (see Section 9, Phase 5).
-
-### 6.8. SlashBridge (Operations Committee)
-
-Slash a misbehaving bridge operator's stake.
-
-```protobuf
-message MsgSlashBridge {
-  string authority = 1;
-  string operator = 2;
-  string peer_id = 3;
-  string amount = 4;              // SPARK amount to slash [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  string reason = 5;
-}
-```
-
-**Logic:**
-1. Verify authority is Operations Committee
-2. Verify slash amount does not exceed operator's remaining stake
-3. Deduct from operator's escrowed stake, **burn** the slashed amount via `x/bank.BurnCoins` from the federation module account
-4. Increment `slash_count`
-5. **Auto-revocation check**: If remaining stake after slash is below `min_bridge_stake`, automatically set bridge status to UNBONDING, set `revoked_at` and `unbonding_end_time`, add to `BridgeUnbondingQueue`. Emit `bridge_auto_revoked` event with reason "stake below minimum after slash".
-6. Emit `bridge_slashed` event
-
-**Note:** Slashing works on both ACTIVE and UNBONDING bridges. An operator who is already in the unbonding period can still be slashed for misbehavior discovered during unbonding.
-
-### 6.9. UpdateBridge (Operations Committee)
-
-Update a bridge operator's endpoint or protocol metadata. Avoids the need to revoke and re-register for routine infrastructure changes.
+Update a bridge binding's endpoint. Avoids the need to unbond and re-register for routine infrastructure changes.
 
 ```protobuf
 message MsgUpdateBridge {
@@ -1143,51 +1157,22 @@ message MsgUpdateBridge {
 ```
 
 **Logic:**
-1. Verify authority is Operations Committee
-2. Verify bridge exists and is ACTIVE
-3. Update non-empty fields on the BridgeOperator record
-4. Emit `bridge_updated` event
+1. Verify authority is Operations Committee.
+2. Verify binding exists for `(operator, peer_id)`.
+3. Query `serviceKeeper.GetOperator(operator, service_type)`. Reject if status is `SLASHED` or the operator is gone (`RETIRED`/archived) — bindings are being cleaned up by hooks anyway. Allow `ACTIVE`, `UNDERFUNDED`, and `UNBONDING` (UNBONDING operators may need to redirect traffic to a successor during wind-down).
+4. Update non-empty fields on the `BridgeBinding` record.
+5. Emit `bridge_updated` event.
 
-### 6.10. UnbondBridge (Bridge Operator — Self)
+### 6.8. Bridge lifecycle — removed messages
 
-Voluntarily exit as a bridge operator. Initiates the standard unbonding period. The operator can still be slashed during unbonding for misbehavior discovered after exit.
-
-```protobuf
-message MsgUnbondBridge {
-  string operator = 1;             // Bridge operator address (signer)
-  string peer_id = 2;
-}
-```
-
-**Logic:**
-1. Verify signer is the bridge operator
-2. Verify bridge exists and is ACTIVE (cannot unbond if already UNBONDING/REVOKED)
-3. Set bridge status to UNBONDING, set `revoked_at` to current block time
-4. Set `unbonding_end_time` = block_time + `bridge_unbonding_period`
-5. Add to `BridgeUnbondingQueue` for EndBlocker processing
-6. Emit `bridge_self_unbonded` event
-
-**Note:** This mirrors the Operations Committee `MsgRevokeBridge` flow, but is initiated by the operator themselves. The unbonding period still applies (stake remains locked and slashable) — there is no instant exit. This prevents an operator from unbonding to escape a pending investigation. After unbonding completes, the operator must wait `bridge_revocation_cooldown` before re-registering for the same peer.
-
-### 6.11. TopUpBridgeStake (Bridge Operator — Self)
-
-Add additional SPARK to an existing bridge operator's escrowed stake. Allows operators to restore stake after partial slashing without needing to revoke and re-register (which would cause service disruption and require cooldown).
-
-```protobuf
-message MsgTopUpBridgeStake {
-  string operator = 1;             // Bridge operator address (signer)
-  string peer_id = 2;
-  cosmos.base.v1beta1.Coin amount = 3;  // Additional SPARK to escrow
-}
-```
-
-**Logic:**
-1. Verify signer is the bridge operator
-2. Verify bridge exists and is ACTIVE or UNBONDING (allow top-up during unbonding to potentially prevent auto-revocation on future slash checks)
-3. Verify `amount.denom` is `uspark`
-4. Transfer `amount` from operator's account to federation module account via x/bank
-5. Add `amount` to operator's `stake` field
-6. Emit `bridge_stake_topped_up` event
+> **Phase 4 federation→service migration.** The following messages were deleted from federation. The replacement path is in x/service:
+>
+> - `MsgUnbondBridge` → `service.MsgUnbondOperator` (operator-signed). Sets the operator to UNBONDING for the per-`ServiceTypeConfig.unbonding_period_blocks` window; bond stays slashable; federation reacts via `AfterOperatorRetired` at unbond completion (binding is pruned).
+> - `MsgTopUpBridgeStake` → `service.MsgTopUpBond` (operator-signed). If the operator was UNDERFUNDED, fires `AfterOperatorReFunded` and federation clears the `suspended` flag on all of that operator's bindings under the service_type.
+> - `MsgSlashBridge` → `service.MsgReportOperator` filed by any qualifying reporter (or by federation itself via `OpenSystemReport` on challenge-upheld quorum, see §6.13 / Section 10.4) → controller `MsgResolveReport` resolves with the chosen tier-1 slash within `unilateral_slash_cap_bps`. Larger slashes escalate to a jury via `MsgResolveReportByJury`.
+> - `MsgRevokeBridge` → covered by `AfterOperatorDissolved` when a controller or jury verdict resolves with `dissolve=true`. Federation prunes the binding, decrements the peer's bridge count, and clears in-flight content state.
+>
+> Operator-facing CLI now mixes `tx federation register-bridge` and `tx federation update-bridge` with `tx service unbond-operator`, `tx service top-up-bond`, `tx service report-operator`, etc. The asymmetry is intentional: economic actions (bond changes, exit, slashing) are owned by x/service; only register and endpoint-update need federation orchestration.
 
 ### 6.12. LinkIdentity (User)
 
@@ -1270,7 +1255,7 @@ message MsgSubmitFederatedContent {
 ```
 
 **Validation:**
-1. Verify operator is a registered, ACTIVE bridge for this peer (status check rejects revoked bridges atomically)
+1. Verify a `BridgeBinding` exists for `(operator, peer_id)` and is not `suspended`. Federation does not re-query the `service.Operator` status on every content submission — the `suspended` flag is the authoritative gate, and it is kept in sync via `AfterOperatorUnderfunded`/`AfterOperatorReFunded` hooks. Dissolved/retired bindings are removed by `AfterOperatorDissolved`/`AfterOperatorRetired` so they cannot be found here.
 2. Verify peer is ACTIVE
 3. Verify `content_type` is in peer policy's `inbound_content_types`
 4. Verify `creator_identity` is not in `blocked_identities`
@@ -1333,7 +1318,7 @@ message MsgAttestOutbound {
 ```
 
 **Logic:**
-1. Verify operator is a registered, ACTIVE bridge for this peer
+1. Verify a non-suspended `BridgeBinding` exists for `(operator, peer_id)` (same `suspended` gate as `MsgSubmitFederatedContent`)
 2. Verify peer is ACTIVE
 3. Verify `content_type` is in peer policy's `outbound_content_types`
 4. Store OutboundAttestation
@@ -1393,7 +1378,7 @@ Invoked as:
 
 1. Reject if `bond_status == BONDED_ROLE_STATUS_UNBONDING` — one in-flight unbond per role.
 2. Verify `amount ≤ current_bond - total_committed_bond` — reject with `ErrInsufficientBond` if insufficient available bond (in-flight `MsgVerifyContent` reservations and unresolved challenges lock committed portions).
-3. **Queued path (`verifier_unbond_cooldown > 0`, default 14 days — mirrors the bridge-operator `bridge_unbonding_period`):**
+3. **Queued path (`verifier_unbond_cooldown > 0`, default 14 days — mirrors the bridge-operator unbonding period now hosted on `service.ServiceTypeConfig.unbonding_period_blocks`):**
    - Set `pending_unbond_amount = amount` and `unbond_completion_time = block_time + verifier_unbond_cooldown`.
    - Flip `bond_status` to `BONDED_ROLE_STATUS_UNBONDING`. DREAM stays locked and slashable through the cooldown — `MsgChallengeVerifier` and slashing on overturned verifications can still hit `current_bond`, capping `pending_unbond_amount` at the new floor.
    - `MsgVerifyContent` and other verifier actions reject on `UNBONDING` — bond pledged to leave can't back fresh verifications.
@@ -1465,7 +1450,7 @@ message MsgSubmitArbiterHash {
 ```
 
 **Logic (identified path):**
-1. Verify creator is a registered, ACTIVE bridge operator for the same peer as the challenged content
+1. Verify creator holds a non-suspended `BridgeBinding` for the same peer as the challenged content (i.e., is a live operator for that peer)
 2. Verify creator is not the bridge operator who submitted the challenged content (reject with `ErrSelfArbiter`)
 3. Verify content is in CHALLENGED status and within `arbiter_resolution_window`
 4. Verify no existing submission from this operator for this content_id
@@ -1562,17 +1547,72 @@ message MsgUpdateOperationalParams {
 3. Merge into current Params (only overwrite the operational subset)
 4. Emit `operational_params_updated` event with old and new values for each changed field
 
+### 6.28. UpdatePeerController (Governance)
+
+Change a peer's `controller_group` (the x/commons Group that resolves tier-1 reports against this peer's bridges). Gov-authority only.
+
+```protobuf
+message MsgUpdatePeerController {
+  string authority = 1;            // x/gov module account
+  string peer_id = 2;
+  string controller_group = 3;     // New controller group policy address; empty resets to OpsComm default
+}
+```
+
+**Logic:**
+1. Verify authority is governance module account.
+2. Verify peer exists and is not REMOVED.
+3. If `controller_group` is non-empty, validate via `commonsKeeper.IsGroupPolicyAddress`.
+4. Set `peer.controller_group`.
+5. Emit a peer-policy/controller-updated event.
+
+**Semantics**: the update applies only to **new** bridge registrations under this peer. Existing bridges keep the controller captured on their `service.Operator` at registration time. Transferring an existing operator's controller requires `service.MsgOpenControllerTransferCase` (separate jury-resolved flow). This split is documented as a feature, not a bug — it prevents gov from mass-rebinding existing operators away from a Group they originally consented to.
+
+### 6.29. ResyncBridgeCount (Dual-Authority: Operations Committee OR Governance)
+
+Re-count the per-peer bridge count by walking `BridgesByPeer`. Pure cleanup; no economic state mutation.
+
+```protobuf
+message MsgResyncBridgeCount {
+  string authority = 1;            // gov module account OR Operations Committee policy address
+  string peer_id = 2;
+}
+message MsgResyncBridgeCountResponse {
+  uint64 new_count = 1;
+}
+```
+
+**Authorization rationale**: dual-authority because this is recovery cleanup. Gov-only would mean drift sits for weeks during incidents; OpsComm parallel authority lets the operational response happen in hours. Since the message cannot mutate value (only resync the counter), no privilege escalation risk.
+
+### 6.30. PruneOrphanBindings (Dual-Authority: Operations Committee OR Governance)
+
+Re-run the `AfterOperatorDissolved`/`Retired` cleanup logic on any `BridgeBinding` whose referenced `service.Operator` is in a terminal state (`SLASHED`, `RETIRED`, or missing entirely). Recovery path when the fail-soft hook pattern swallowed a panic and left an orphan.
+
+```protobuf
+message MsgPruneOrphanBindings {
+  string authority = 1;            // gov module account OR Operations Committee policy address
+  string peer_id = 2;
+}
+message MsgPruneOrphanBindingsResponse {
+  uint64 pruned = 1;
+}
+```
+
+**Authorization rationale**: same as ResyncBridgeCount — pure cleanup, no value mutation, dual-authority to enable timely recovery.
+
+**Observability**: orphans are detected by the `orphan-bindings` invariant (Section 14) and signalled to operators via the `federation_hook_failure` event emitted by the fail-soft `defer recover` in every hook handler. Off-chain monitors watch this event and the invariant query, then trigger this recovery message.
+
 ---
 
 ## 7. Queries
 
 | Query | Input | Output | Description |
 |-------|-------|--------|-------------|
-| `GetPeer` | peer_id | Peer | Peer details |
+| `GetPeer` | peer_id | Peer | Peer details (includes `controller_group` if set) |
 | `ListPeers` | status filter, pagination | []Peer | List peers |
 | `GetPeerPolicy` | peer_id | PeerPolicy | Policy for a peer |
-| `GetBridgeOperator` | address, peer_id | BridgeOperator | Bridge operator details |
-| `ListBridgeOperators` | peer_id filter, pagination | []BridgeOperator | List bridge operators |
+| `GetBridgeBinding` | address, peer_id | BridgeBinding | Federation-side binding (endpoint, content counters, `suspended` flag). For live economic state, query `x/service` separately at `(address, service_type=federation-bridge-<protocol>)`. |
+| `ListBridgeBindings` | peer_id filter, pagination | []BridgeBinding | List bindings (Phase 7 of the migration enriches with joined `service.Operator` status; current responses carry only the federation-side binding) |
 | `GetFederatedContent` | id | FederatedContent | Single content item |
 | `ListFederatedContent` | peer_id, content_type, creator_identity, status filters, pagination | []FederatedContent | List federated content |
 | `GetIdentityLink` | local_address, peer_id | IdentityLink | Identity link details |
@@ -1582,10 +1622,12 @@ message MsgUpdateOperationalParams {
 | `ListPendingIdentityChallenges` | claimed_address filter, pagination | []PendingIdentityChallenge | List pending challenges for an address |
 | `GetReputationAttestation` | local_address, peer_id | ReputationAttestation | Cached reputation |
 | `ListOutboundAttestations` | peer_id filter, pagination | []OutboundAttestation | Outbound audit trail |
-| `VerifierActivity` | address | VerifierActivity | Federation-specific counters. Generic bond state is at `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`. |
+| `VerifierActivity` | address | VerifierActivity | Federation-specific verifier counters. Generic bond state is at `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`. |
 | (use `query rep bonded-roles-by-type ROLE_TYPE_FEDERATION_VERIFIER`) | role_type filter, pagination | []BondedRole | List bonded verifiers (lives in x/rep) |
 | `GetVerificationRecord` | content_id | VerificationRecord | Verification record for content |
 | `Params` | — | Params | Module parameters |
+
+> `GetBridgeOperator` and `ListBridgeOperators` were removed in Phase 7 of the migration. Their replacements are `GetBridgeBinding` and `ListBridgeBindings` above.
 
 ---
 
@@ -1820,15 +1862,9 @@ Walk `UnverifiedLinkExpirationQueue` from earliest entry. For each entry where t
 
 Walk `PendingIdentityChallenges` and delete entries where `expires_at <= block_time`. Increment `pruned` counter. Emit `identity_challenge_expired` event for each.
 
-### Phase 5: Release Unbonded Bridge Stakes
+### Phase 5: Bridge unbonding — owned by x/service
 
-Walk `BridgeUnbondingQueue` from earliest entry. For each entry where `unbonding_end_time <= block_time`:
-1. Look up the BridgeOperator
-2. Return remaining stake to operator via x/bank
-3. Set status to REVOKED (unbonding complete)
-4. Remove from `BridgeUnbondingQueue`
-5. Emit `bridge_unbonding_complete` event
-6. Increment `pruned` counter
+> **Phase 4 federation→service migration.** Federation no longer runs an unbond queue. x/service's EndBlocker handles operator-bond release via its own `UnderfundedQueue`/unbonding-period accounting. When an operator's unbond completes, x/service fires `AfterOperatorRetired` and federation prunes the affected bindings (Section 7 of this spec, hook section). The phase number is preserved here for legacy cross-references; no work is done at this position in federation's EndBlocker.
 
 ### Phase 6: Expire Unverified Content
 
@@ -1897,7 +1933,7 @@ For each peer in `PeerRemovalQueue` (bounded by remaining prune budget):
 2. **Identity links** (if `content_done` and budget remains): Mark verified links as REVOKED with `verified_at` preserved (kept 90 days for audit trail), delete unverified links immediately. Emit events. Set `links_done = true`.
 3. **Reputation attestations** (if `links_done`): Delete all for this peer. Set `attestations_done = true`.
 4. **Outbound attestations** (if `attestations_done`): Delete all for this peer. Set `outbound_done = true`.
-5. **Bridge operators** (if `outbound_done`): Revoke all for this peer — set status UNBONDING, add to `BridgeUnbondingQueue` for stake return after unbonding period. Emit events. Set `bridges_done = true`.
+5. **Bridge bindings** (if `outbound_done`): by `MsgRemovePeer`'s step-3 precondition, peers reach this phase only after their bindings have been unbound via x/service (or force-dissolved by gov bundle). Any remaining bindings here are orphans whose `service.Operator` already moved to `RETIRED`/`SLASHED` — federation simply deletes them and their reverse-index entries; x/service owns bond accounting. Emit `bridge_unbound` events. Set `bridges_done = true`.
 6. **Peer policy** (if `bridges_done`): Delete. Set `policy_done = true`.
 7. If ALL flags are true, delete the Peer record itself and remove from `PeerRemovalQueue`. Emit `peer_cleanup_complete` event.
 8. If budget exhausted at any step, save cursor state — remaining work resumes from exactly where it left off next block.
@@ -1920,17 +1956,18 @@ Triggered once per epoch (determined by `IsRewardEpoch(ctx)` from x/season, fall
 - `epoch_challenges_resolved = 0`
 - Update `last_active_epoch` and `consecutive_inactive_epochs` for accuracy decay tracking (mirrors forum sentinel model)
 
-### Phase 12: Bridge Operator Monitoring
+### Phase 12: Bridge Binding Monitoring
 
-This phase checks bridge operator health. To bound gas cost, it processes at most `max_bridges_per_peer × number_of_active_peers` operators (which is bounded by `max_bridges_per_peer` × peer count — a small number). Operators that were checked recently (within the last `bridge_inactivity_threshold / 2` epochs) are skipped, since their status cannot have changed meaningfully. This ensures O(stale_bridges) work per block, not O(total_bridges).
+This phase checks binding-level activity. To bound gas cost, it processes at most `max_bridges_per_peer × number_of_active_peers` bindings (still a small number under any realistic deployment). Bindings that were checked recently (within the last `bridge_inactivity_threshold / 2` epochs) are skipped, ensuring O(stale_bindings) work per block, not O(total_bindings).
 
-For each active bridge operator checked:
-1. If `last_submission_at` is set and `(block_time - last_submission_at) / epoch_duration > bridge_inactivity_threshold`, emit `bridge_inactive_warning` event
-2. **Stake monitoring**: If bridge's `stake < min_bridge_stake` (can happen if `min_bridge_stake` was raised by governance), emit `bridge_stake_insufficient` event. This does NOT auto-revoke — the Operations Committee investigates and decides. This preserves the principle that governance param changes don't cause automatic disruptions.
+For each non-suspended binding checked:
+1. If `last_submission_at` is set and `(block_time - last_submission_at) / epoch_duration > bridge_inactivity_threshold`, emit `bridge_inactive_warning` event.
+
+Stake/bond monitoring is owned by `x/service` — it tracks `min_bond` violations against `ServiceTypeConfig` and fires `AfterOperatorUnderfunded` directly. Federation's `suspended` flag on the binding reflects that signal, so a stale binding under an underfunded operator is naturally inactive (`MsgSubmitFederatedContent` rejects on the suspended check).
 
 ### Phase 13: Clean Stale Rate Limit Counters
 
-Delete `RateLimitCounters` and `OutboundRateLimitCounters` entries where `window_start + 2 * rate_limit_window < block_time`. This is bounded by the number of active peers (small).
+Delete `InboundRateLimits` and `OutboundRateLimits` entries where `window_start + 2 * rate_limit_window < block_time`. This is bounded by the number of active peers (small).
 
 ---
 
@@ -1983,19 +2020,19 @@ Rate limits are enforced at two levels using a **sliding window** model:
 - If the counter reaches `max_inbound_per_block`, subsequent content submissions in the same block are rejected with `ErrRateLimitExceeded`
 
 **Per-peer sliding window** (`inbound_rate_limit_per_epoch`):
-- Tracked in persistent `RateLimitCounters` store, keyed by `(peer_id, window_start)`
+- Tracked in persistent `InboundRateLimits` store, keyed by `(peer_id, window_start)`
 - `window_start` is computed as `block_time - (block_time % rate_limit_window)` where `rate_limit_window` is a governance parameter (default: 86400 seconds / 24 hours)
 - On each inbound content item, the counter for the current window AND the previous window are consulted:
   ```
-  current_count = RateLimitCounters[(peer_id, current_window_start)]
-  prev_count = RateLimitCounters[(peer_id, prev_window_start)]
+  current_count = InboundRateLimits[(peer_id, current_window_start)]
+  prev_count = InboundRateLimits[(peer_id, prev_window_start)]
   elapsed_fraction = (block_time - current_window_start) / rate_limit_window
   effective_count = current_count + prev_count * (1 - elapsed_fraction)
   ```
 - If `effective_count >= inbound_rate_limit_per_epoch`, reject with `ErrRateLimitExceeded`
 - This sliding window prevents the epoch boundary burst attack: submitting N items at 23:59:59 and N more at 00:00:00 is caught because the previous window's count is still weighted.
 
-**Implementation note (consensus determinism):** The `effective_count` computation involves fractional arithmetic, but `RateLimitCounters` stores `uint64`. To avoid precision loss and ensure all nodes compute identical results, use integer-only arithmetic: `effective_count = current_count + (prev_count * remaining_seconds) / window_seconds` where `remaining_seconds = rate_limit_window - (block_time - current_window_start)`. This avoids floating-point entirely. All division is integer floor division (truncating). This matches the `cosmossdk.io/math.LegacyDec` pattern used elsewhere in the codebase for deterministic fixed-point arithmetic.
+**Implementation note (consensus determinism):** The `effective_count` computation involves fractional arithmetic, but the rate-limit collections store `uint64`. To avoid precision loss and ensure all nodes compute identical results, use integer-only arithmetic: `effective_count = current_count + (prev_count * remaining_seconds) / window_seconds` where `remaining_seconds = rate_limit_window - (block_time - current_window_start)`. This avoids floating-point entirely. All division is integer floor division (truncating). This matches the `cosmossdk.io/math.LegacyDec` pattern used elsewhere in the codebase for deterministic fixed-point arithmetic.
 
 **Stale counter cleanup**: EndBlocker Phase 13 removes counters older than 2 windows.
 
@@ -2010,7 +2047,7 @@ Outbound rate limits prevent a single chain from flooding IBC channels or being 
 
 **Per-peer sliding window** (`outbound_rate_limit_per_epoch`):
 - Uses the same sliding window model as inbound rate limiting (Section 10.2)
-- Tracked in persistent `OutboundRateLimitCounters` store, keyed by `(peer_id, window_start)`
+- Tracked in persistent `OutboundRateLimits` store, keyed by `(peer_id, window_start)`
 - Prevents a burst of federation requests to a single peer at epoch boundaries
 
 Outbound rate limits do NOT apply to `MsgAttestOutbound` — that message records content already published by a bridge and does not generate IBC packets.
@@ -2023,9 +2060,15 @@ Bridge operators can be slashed for:
 - Protocol violations (malformed data, incorrect translations)
 - Relaying content from blocked identities
 
-Slashing is a manual Operations Committee action (not automated). The committee investigates reports and decides severity. Slash amount is capped at the operator's remaining stake.
+**All slashing flows through `x/service`.** Federation has no direct slash message; `MsgSlashBridge` and `MsgRevokeBridge` were deleted in Phase 4 of the migration. The paths are:
 
-**Auto-revocation**: If slashing drops the operator's stake below `min_bridge_stake`, the bridge enters UNBONDING status (see Section 6.8). The remaining stake stays locked for `bridge_unbonding_period` so it can still be slashed for additional misbehavior discovered during the unbonding window. After unbonding completes, the operator must wait `bridge_revocation_cooldown` before re-registering.
+1. **Community-reported misbehavior**: any qualifying reporter calls `service.MsgReportOperator(operator, service_type, slash_bps, evidence_uri)` (posts `report_deposit` SPARK as an anti-griefing bond). Federation does not see the report directly; the peer's controller — `peer.controller_group` if set, Operations Committee by default (Decision 2) — resolves it via `service.MsgResolveReport(T1_SLASH)` within the per-service-type `unilateral_slash_cap_bps` (default 5% of current bond, bounded by `tier1_aggregate_cap_bps` over ~90d). Slashes larger than the unilateral cap, or contested by the operator, escalate to an x/rep jury via `MsgResolveReportByJury`.
+2. **Challenge-derived slashes** (Section 3.9.7): when an arbiter quorum or jury upholds a challenge against an operator's content, federation files a system report on the operator's behalf via `serviceKeeper.OpenSystemReport(callerModuleAddr=federationModuleAccount, operator, service_type, slash_bps=ChallengeDefaultSlashBps, dedupeKey)`. The same controller-resolves / cap-bounded / jury-escalation pipeline applies. `ReportTimeoutAction=ESCALATE` on both federation-bridge `ServiceTypeConfigs` ensures a silent controller cannot stall a slash for more than one timeout window.
+3. **Dissolution** (hard revoke): when a controller or jury verdict resolves `T1_SLASH` with `dissolve=true`, x/service fires `AfterOperatorDissolved`. Federation's hook prunes the binding, decrements the peer's bridge count, and clears in-flight content state. There is no separate revoke path — dissolution is always slash-driven.
+
+**Underfunding (auto-suspension)**: when a slash drops the operator's bond below `service.ServiceTypeConfig.min_bond`, x/service fires `AfterOperatorUnderfunded`. Federation marks all of that operator's bindings under that `service_type` as `suspended=true`. Suspended bindings refuse new content submissions; the binding is not deleted, and a subsequent `service.MsgTopUpBond` fires `AfterOperatorReFunded` which clears the flag.
+
+**Tier-1 escrow**: tier-1 slashes are escrowed in a tagged sub-pool of the x/service module account for `report_contest_window_blocks`, so an operator-contested slash that succeeds at jury can be reversed. Slashed SPARK that survives the contest window is released to the community pool. Federation never sees the slashed SPARK directly — it stays on x/service's books throughout.
 
 ---
 
@@ -2087,6 +2130,10 @@ Slashing is a manual Operations Committee action (not automated). The committee 
 | `ErrContentHashRequired` | 2351 | Content hash is required (must be SHA-256 of full source content) |
 | `ErrSelfVerification` | 2352 | Verifier cannot verify content submitted by their own bridge operator address |
 | `ErrChallengeCooldownActive` | 2353 | Challenge cooldown has not elapsed since last rejected challenge on this content |
+| `ErrControllerMismatch` | 2370 | Operator already has a `service.Operator` under this `service_type` with a different controller; use a different address for the new peer, or transfer the existing operator's controller via `service.MsgOpenControllerTransferCase` |
+| `ErrPeerHasActiveBridges` | 2371 | Peer cannot be removed while it has live bridge bindings — operators must unbond via `service.MsgUnbondOperator` first, or the gov proposal must bundle force-dissolves for abandoned operators |
+
+> `ErrInsufficientStake`, `ErrSlashExceedsStake`, `ErrCooldownNotElapsed`, and `ErrInvalidStakeDenom` are retained in `errors.go` for legacy test fixtures but are no longer produced by federation handlers — bond enforcement runs on `x/service` and surfaces the corresponding service-side errors instead.
 
 ---
 
@@ -2101,16 +2148,17 @@ Slashing is a manual Operations Committee action (not automated). The committee 
 | `peer_removed` | peer_id, reason | Peer removed |
 | `peer_cleanup_complete` | peer_id | All data for removed peer cleaned up |
 | `peer_policy_updated` | peer_id, updated_by | Peer policy changed |
-| `bridge_registered` | operator, peer_id, protocol | Bridge operator registered |
-| `bridge_revoked` | operator, peer_id, reason | Bridge operator revoked |
-| `bridge_auto_revoked` | operator, peer_id, reason | Bridge auto-revoked (stake below minimum) |
-| `bridge_slashed` | operator, peer_id, amount, reason | Bridge operator slashed |
-| `bridge_updated` | operator, peer_id, updated_fields | Bridge operator metadata updated |
-| `bridge_self_unbonded` | operator, peer_id | Bridge operator voluntarily initiated unbonding |
-| `bridge_stake_topped_up` | operator, peer_id, amount, new_total | Bridge operator added stake |
-| `bridge_unbonding_complete` | operator, peer_id, stake_returned | Bridge unbonding finished, stake returned |
-| `bridge_inactive_warning` | operator, peer_id, last_submission_at | Bridge operator inactive |
-| `bridge_stake_insufficient` | operator, peer_id, stake, min_required | Bridge stake below current minimum |
+| `bridge_registered` | operator, peer_id, protocol | Binding registered (and `service.Operator` created on first registration under this `(address, service_type)`) |
+| `bridge_updated` | operator, peer_id, updated_fields | Binding endpoint updated |
+| `bridge_unbound` | operator, peer_id, service_type, reason | Binding pruned by `AfterOperatorDissolved` / `AfterOperatorRetired` hook (or by `MsgPruneOrphanBindings` recovery) |
+| `bridge_suspended` | operator, peer_id, service_type | Binding suspended by `AfterOperatorUnderfunded` hook |
+| `bridge_resumed` | operator, peer_id, service_type | Binding resumed by `AfterOperatorReFunded` hook |
+| `federation_hook_failure` | hook, operator, service_type, error | Fail-soft `defer recover` caught a panic in a federation hook handler — off-chain monitors trigger `MsgPruneOrphanBindings` recovery |
+| `bridge_inactive_warning` | operator, peer_id, last_submission_at | Binding has not submitted content within `bridge_inactivity_threshold` epochs |
+
+> The legacy `bridge_revoked`, `bridge_auto_revoked`, `bridge_slashed`, `bridge_self_unbonded`, `bridge_stake_topped_up`, `bridge_unbonding_complete`, and `bridge_stake_insufficient` event constants remain in `events.go` for backward-compat with archived indexers but are no longer emitted by federation handlers. The equivalent signals now flow from x/service (`operator_slashed`, `operator_dissolved`, `operator_underfunded`, `operator_refunded`, `operator_unbonding_started`, `operator_unbond_completed`) — observers should subscribe there.
+>
+> **Re-registration event asymmetry**: first `MsgRegisterBridge` for a given `(address, service_type)` emits `service.operator_registered` (from x/service) AND `bridge_registered` (from federation). Subsequent registrations for additional peers under the same operator (Decision 1a) emit only `bridge_registered`. Indexers expecting paired events must handle this.
 | `federated_content_received` | id, peer_id, content_type, creator_identity | Inbound content stored |
 | `federated_content_moderated` | id, new_status, reason, moderated_by | Content moderation action |
 | `content_federated` | peer_id, content_type, local_content_id, creator | Outbound IBC content sent |
@@ -2160,11 +2208,11 @@ Slashing is a manual Operations Committee action (not automated). The committee 
 
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
-| `min_bridge_stake` | 1000 SPARK | Meaningful stake for accountability without being prohibitive |
-| `max_bridges_per_peer` | 5 | Redundancy without fragmentation |
-| `bridge_revocation_cooldown` | 7 days | Prevent slash-then-re-register cycling |
-| `bridge_unbonding_period` | 14 days | Slash window after revocation — longer than cooldown to ensure misbehavior can be investigated |
+| `max_bridges_per_peer` | 1000 | Kill-switch only (Decision 6). Real participation gate is `service.ServiceTypeConfig.min_bond`; this is a no-op against any realistic legit use, but kept so gov can dial it down without a chain upgrade if abuse emerges |
 | `known_content_types` | `["blog_post", "blog_reply", "forum_thread", "forum_reply", "collection"]` | Exhaustive registry of valid content types; prevents typo-based silent failures |
+
+> **Bridge bond defaults now live on `x/service`**, seeded for both federation `service_type`s (`federation-bridge-activitypub`, `federation-bridge-atproto`) at genesis. Initial values: `min_bond` = 1000 SPARK; `unbonding_period_blocks` ≈ 14 days; `unilateral_slash_cap_bps` = 500 (5%); `tier1_aggregate_cap_bps` = 1500 (15%); `tier1_cooldown_blocks` ≈ 7 days; `challenge_default_slash_bps` = 100 (1%); `report_timeout_blocks` ≈ 14 days; `report_timeout_action` = `ESCALATE`; `report_deposit` = 10 SPARK; `min_reporter_trust_level` = `TRUST_LEVEL_ESTABLISHED`. Tune these via gov on `x/service`, not `x/federation`.
+
 | `max_inbound_per_block` | 50 | Prevent state bloat from high-volume peers |
 | `max_outbound_per_block` | 50 | Prevent outbound IBC channel flooding |
 | `max_content_body_size` | 4096 bytes | Enough for a meaningful preview; full content via `content_uri` |
@@ -2192,6 +2240,7 @@ Slashing is a manual Operations Committee action (not automated). The committee 
 | `challenge_fee` | 250 SPARK | Deters frivolous challenges without being prohibitive |
 | `challenge_jury_deadline` | 14 days | Matches forum appeal deadline |
 | `verifier_demotion_cooldown` | 7 days | Matches forum sentinel demotion cooldown |
+| `verifier_unbond_cooldown` | 14 days | Period verifier bond stays locked and slashable after `MsgUnbondRole`; mirrors the bridge-operator unbonding period now hosted on x/service |
 | `verifier_overturn_base_cooldown` | 24 hours | Escalates 2x per consecutive overturn, capped at 7 days |
 | `upheld_to_reset_overturns` | 3 | Consecutive correct verifications to reset overturn counter |
 | `min_epoch_verifications` | 3 | Must do real work to earn rewards |
@@ -2221,18 +2270,22 @@ The module is designed with hard guarantees against governance capture from exte
 
 ### 14.2. Bridge Trust Model
 
-Bridges introduce a trust assumption (operator honesty) that IBC avoids. Mitigations:
+Bridges introduce a trust assumption (operator honesty) that IBC avoids. Mitigations (all economic primitives owned by `x/service`; federation owns the orchestration and per-binding endpoint state only):
 
-- **Staking**: Operators stake SPARK, creating economic accountability
-- **Slashing**: Operations Committee can slash for misbehavior after investigation. Slashed SPARK is burned (not sent to community pool or validators), eliminating perverse incentives for the committee that decides to slash.
-- **Auto-revocation**: Slashing below `min_bridge_stake` immediately revokes the bridge, preventing undercapitalized operators from continuing
-- **Unbonding period**: After revocation, stake remains locked for `bridge_unbonding_period` (14 days). The Operations Committee can still slash during this window if misbehavior is discovered post-revocation. This prevents the escape-before-slash attack where an operator revokes their own bridge to retrieve their stake before a pending investigation concludes.
-- **Cooldown**: `bridge_revocation_cooldown` prevents revoked operators from immediately re-registering (stops slash-and-re-register cycling)
-- **Competition**: Multiple bridges per peer means no single operator is a bottleneck
-- **Auditability**: All bridge submissions are on-chain with full provenance. OutboundAttestations create a verifiable record of what was published.
-- **Separation**: Bridge operators cannot modify policies, register peers, or perform governance actions
-- **Session keys**: Operators can use x/session to limit daemon key exposure (see Section 3.7)
-- **Stake monitoring**: EndBlocker emits warning events if governance raises `min_bridge_stake` above an existing operator's stake, giving the Operations Committee visibility without causing automatic disruption
+- **Bonded operators**: each operator escrows SPARK via `x/service` keyed on `(address, service_type)`, where `service_type` is `federation-bridge-activitypub` or `federation-bridge-atproto`. Per Decision 1a, one operator address holds one bond per protocol and shares it across all of its bindings under that protocol.
+- **Per-peer controller** (Decision 2): each peer carries an optional `controller_group`. Reports against that peer's bridges are resolved by that Group; if unset, the Operations Committee resolves them. Partner-run peers can nominate a joint-stewardship Group; most local peers use the OpsComm default. Controller is captured on the `service.Operator` at registration time so a later `MsgUpdatePeerController` (gov-authority) doesn't silently re-bind existing operators.
+- **Tier-1 controller slashes** are bounded by per-`ServiceTypeConfig` `unilateral_slash_cap_bps` (default 5% per slash) and `tier1_aggregate_cap_bps` (default 15% over ~90d). Larger slashes or operator-contested tier-1 verdicts escalate to an x/rep jury via `MsgResolveReportByJury`.
+- **Escrowed tier-1 slashes**: slashed SPARK sits in a tagged sub-pool of the x/service module account for `report_contest_window_blocks`. Operators can contest within the window; jury-overturned slashes are reversed in full. Surviving slashes go to the community pool.
+- **Auto-escalation on report timeout**: federation's two `ServiceTypeConfigs` set `ReportTimeoutAction=ESCALATE` so a silent or captured controller cannot stall a slash beyond one timeout window — the report goes to jury automatically.
+- **Unbonding period**: `service.MsgUnbondOperator` puts the operator in `UNBONDING` for `ServiceTypeConfig.unbonding_period_blocks` (~14 days). Bond stays slashable through the window. Operators cannot run out the clock during an open report — x/service pauses the unbonding clock while reports are PENDING or ESCALATED.
+- **Dissolution** clears bindings: `T1_SLASH(dissolve=true)` or a jury verdict fires `AfterOperatorDissolved`; federation prunes the bindings and decrements peer state. There is no separate revoke path.
+- **Underfunded suspension** (auto): slashing below `min_bond` fires `AfterOperatorUnderfunded`. Federation suspends all of that operator's bindings under the service_type; new content is rejected until a top-up clears the suspension.
+- **Anti-griefing on reports**: `service.MsgReportOperator` requires a `report_deposit` (default 10 SPARK), refunded on T1_SLASH and burned on T1_DISMISS. Per-(reporter, operator) sliding-ring-buffer rate limit prevents flood-reporting. Reporters who are members of the operator's controller Group are blocked (closes the self-route drainage attack).
+- **Competition**: Multiple bindings per peer (capped at the `max_bridges_per_peer` kill-switch) means no single operator is a bottleneck.
+- **Auditability**: all bridge submissions are on-chain with full provenance. OutboundAttestations create a verifiable record of what was published.
+- **Separation**: bridge operators cannot modify policies, register peers, or perform governance actions.
+- **Session keys**: operators can use x/session to limit daemon key exposure (see Section 3.7).
+- **Two-way recovery**: the `orphan-bindings` and `bindings-by-operator-index` invariants (Section 14.X) catch state drift from fail-soft hook panics; `MsgPruneOrphanBindings` and `MsgResyncBridgeCount` are dual-authority cleanup messages (OpsComm OR gov) so operational response happens in hours, not weeks.
 
 ### 14.3. Reputation Gaming
 
@@ -2290,7 +2343,7 @@ The verification system is a multi-layered accountability stack. Potential attac
 
 **Arbiter quorum manipulation:**
 - Anonymous path: ZK proof ties to unique member identity via trust tree; scoped nullifier prevents double-submission; Sybil requires multiple ESTABLISHED+ invitations
-- Identified path: bridge operators registered with SPARK stake and Operations Committee approval; creating fake operators requires multiple `min_bridge_stake` deposits
+- Identified path: bridge operators are registered with a `service.Operator` bond per protocol; `MsgRegisterBridge` is operator-signed (no OpsComm gate), so the Sybil cost is multiple `service.ServiceTypeConfig.min_bond` deposits
 - Mixed quorums (identified + anonymous) require compromising both categories simultaneously
 - Deterministic hash comparison means all honest arbiters produce the same result — dishonest submissions are mathematically outvoted
 
@@ -2312,25 +2365,40 @@ An Operations Committee member could attempt to weaken security by adjusting ope
 Mitigations:
 - **Validation ranges**: All operational params are validated against strict bounds (see Section 4.13 table). Values outside the allowed range are rejected.
 - **Audit events**: Every `MsgUpdateOperationalParams` emits an event listing old and new values for each changed field, creating a transparent audit trail.
-- **Governance-only fields**: Critical security parameters (`min_bridge_stake`, `bridge_revocation_cooldown`, `max_identity_links_per_user`) can only be changed via governance proposal, not by the Operations Committee.
+- **Governance-only fields**: Critical security parameters can only be changed via governance proposal, not by the Operations Committee. This includes `max_bridges_per_peer`, `max_identity_links_per_user`, `min_verifier_bond`, `challenge_fee`, and the verifier slashing / unbond parameters. Bond minimums and unbonding periods for bridge operators live on `x/service` and are gov-tuned there.
 
 ### 14.8. Outbound Attestation Integrity
 
 `MsgAttestOutbound` (Section 6.17) creates an audit trail of content published to bridge peers, but attestations are **self-reported by the bridge operator**. The module cannot verify that the operator actually published the content, or that the published content matches what was attested. Mitigations:
 
 - **Audit, not proof**: Outbound attestations serve as a verifiable claim, not a proof. The Operations Committee can compare attestations against the actual state of the external platform (e.g., checking if a claimed ActivityPub post exists at the expected URI).
-- **Reputation consequence**: An operator caught making false attestations (claiming publications that don't exist) can be slashed via `MsgSlashBridge`.
+- **Reputation consequence**: An operator caught making false attestations (claiming publications that don't exist) is reported via `service.MsgReportOperator` and slashed by the peer's controller (Section 10.4).
 - **No content guarantee**: Bridge peers should independently verify content they receive via their own protocol mechanisms (e.g., ActivityPub HTTP signatures). The attestation is for the *sending chain's* audit trail, not the receiving peer's trust model.
 
 ### 14.9. Bridge Stake Economics
 
-Bridge operator stakes are escrowed in the federation module account, **not delegated via x/staking**. This means:
+Bridge operator bonds are escrowed in the **`x/service` module account**, not the federation module account, and **not delegated via x/staking**. This means:
 
-- **No staking rewards**: Escrowed SPARK does not earn inflation rewards or fee distributions. This is an intentional design trade-off — staking rewards would complicate slashing mechanics and create misaligned incentives (operators would be rewarded simply for holding a bridge position, regardless of service quality).
-- **Opportunity cost**: Operators forgo staking yield on their escrowed SPARK. The `min_bridge_stake` should be set considering this cost — too high and no one operates bridges, too low and there's insufficient accountability.
-- **Operator compensation**: Bridge operators receive automatic SPARK compensation via x/split, proportional to their **verified** submissions per epoch (see Section 3.9). Only content independently confirmed by a federation verifier counts. This covers infrastructure costs and offsets staking opportunity cost. The compensation rate is governance-controlled via the x/split Federation Operations allocation.
+- **No staking rewards**: bonded SPARK does not earn inflation rewards or fee distributions. This is an intentional design trade-off — staking rewards would complicate slashing mechanics and create misaligned incentives (operators rewarded for holding a bridge position regardless of service quality).
+- **Opportunity cost**: operators forgo staking yield on their bonded SPARK. `service.ServiceTypeConfig.min_bond` should be set considering this cost — too high and no one operates bridges, too low and there's insufficient accountability. The two federation `ServiceTypeConfigs` (activitypub / atproto) can be tuned independently per protocol via gov on `x/service`.
+- **Operator compensation**: bridge operators receive automatic SPARK compensation via x/split, proportional to their **verified** submissions per epoch (see Section 3.9). Only content independently confirmed by a federation verifier counts. This covers infrastructure costs and offsets bond opportunity cost. The compensation rate is governance-controlled via the x/split Federation Operations allocation.
+- **Tier-1 escrow**: tier-1 slashes are held in a tagged sub-pool of the x/service module account for `report_contest_window_blocks` before being released to the community pool. Slashed SPARK never returns to the operator, never goes to the controller, and never flows through federation.
 
-### 14.10. IBC Gas Cost Model
+### 14.10. State Invariants and Recovery
+
+Federation registers two invariants with `x/crisis` to catch state drift from fail-soft hook panics (`x/federation/keeper/invariants.go`):
+
+- **`orphan-bindings`**: every `BridgeBinding` must reference a live `service.Operator` (status `ACTIVE`, `UNDERFUNDED`, or `UNBONDING`) at the binding's derived `service_type`. Bindings pointing at a `SLASHED`/`RETIRED` or missing operator are orphans — they accumulate when a hook handler panics and the fail-soft `defer recover` swallows the cleanup. In standalone test mode (service keeper not wired), this invariant is a no-op.
+- **`bindings-by-operator-index`**: the `BindingsByOperator` reverse index `(service_type, address, peer_id)` must agree with the primary `BridgeBindings` map in both directions. The check is a two-way walk: every primary binding must have a reverse-index entry; every reverse-index entry must resolve to a primary binding. Catches index corruption from hook bugs.
+
+**Recovery messages** (both dual-authority: Operations Committee OR governance):
+
+- `MsgPruneOrphanBindings(peer_id)` re-runs the dissolve/retire cleanup for every binding whose operator is in a terminal state. Pure deletion; no value mutation.
+- `MsgResyncBridgeCount(peer_id)` re-counts `BridgesByPeer` by walking the primary index. Pure counter recovery.
+
+**Observability**: the fail-soft `defer recover` in every hook handler emits `federation_hook_failure` on a swallowed panic. Off-chain monitors subscribe to that event (and to `simd q crisis invariant federation/orphan-bindings` polling) so a stuck orphan triggers a human-initiated `MsgPruneOrphanBindings` within hours, not weeks.
+
+### 14.11. IBC Gas Cost Model
 
 IBC packet processing (both sending and receiving) follows the standard Cosmos IBC gas model:
 
@@ -2382,18 +2450,59 @@ name, _ := k.nameKeeper.ReverseResolve(ctx, creatorAddress)
 
 ### 15.4. x/bank
 
+x/bank usage by federation is now limited to challenge-fee escrow, escalation-fee escrow, and challenger/verifier reward payouts. Bridge-operator bond movement is owned by `x/service` and never flows through federation's module account.
+
 ```go
-// Escrow bridge operator stake
-k.bankKeeper.SendCoinsFromAccountToModule(ctx, operator, "federation", stake)
+// Escrow challenge fee from challenger (Section 6.23)
+k.bankKeeper.SendCoinsFromAccountToModule(ctx, challenger, "federation", challengeFee)
 
-// Return stake on revocation
-k.bankKeeper.SendCoinsFromModuleToAccount(ctx, "federation", operator, stake)
+// Pay challenger bounty on CHALLENGE_UPHELD or refund on CHALLENGE_TIMEOUT
+k.bankKeeper.SendCoinsFromModuleToAccount(ctx, "federation", recipient, amount)
 
-// Slash: burn the slashed amount (reduces SPARK supply, benefits all holders equally)
-k.bankKeeper.BurnCoins(ctx, "federation", slashAmount)
+// Burn the burned half of a challenge fee on resolution
+k.bankKeeper.BurnCoins(ctx, "federation", burnedHalf)
 ```
 
-### 15.5. x/split (reverse dependency — x/split depends on x/federation, not vice versa)
+### 15.5. x/service
+
+Federation's primary new dependency. The federation keeper holds a `ServiceKeeper` interface wired in `app.go` after depinject via `SetServiceKeeper()`; the interface is a slim subset of x/service's concrete keeper, adapted in `app/service_adapters.go` so federation does not import service-internal types.
+
+```go
+// Bridge registration (Section 6.6, step 6 "new" branch). Escrows the bond and creates the
+// service.Operator atomically; does NOT fire hooks, so safe to call before writing the binding.
+k.serviceKeeper.RegisterOperator(ctx, operator, serviceType, controller, stake, metadata, ServiceSourceNormal)
+
+// Top-up on re-registration (Section 6.6, step 8). May fire AfterOperatorReFunded
+// synchronously; the binding must already be written.
+k.serviceKeeper.TopUpBond(ctx, operatorBytes, serviceType, stake)
+
+// Challenge-derived slashing (Section 3.9.7, Section 10.4). Bypasses min_reporter_trust_level
+// and report_deposit; gated by an allowlist + auth-keeper module-name lookup on
+// callerModuleAddr. dedupeKey is MimcHash(challenge.id, challenge.evidence_hash) for
+// idempotency.
+k.serviceKeeper.OpenSystemReport(ctx, k.federationModuleAddr, operator, serviceType,
+                                  cfg.ChallengeDefaultSlashBps, evidenceURI, dedupeKey)
+
+// Queries used by federation's own validation paths
+k.serviceKeeper.GetOperator(ctx, operatorBytes, serviceType)
+k.serviceKeeper.HasSlashedRecord(ctx, operatorBytes, serviceType)
+k.serviceKeeper.GetServiceTypeConfig(ctx, serviceType)
+```
+
+**Hooks**: federation implements `servicetypes.ServiceHooks` in `x/federation/keeper/hooks.go`:
+
+- `AfterOperatorDissolved(operator, service_type)` → walk `BindingsByOperator` for the `(service_type, operator)` prefix, delete each `BridgeBinding`, decrement peer's bridge count, clear in-flight content claims. Emit `bridge_unbound`.
+- `AfterOperatorRetired(operator, service_type)` → same cleanup; no punitive side effects.
+- `AfterOperatorUnderfunded(operator, service_type)` → set `suspended=true` on all of that operator's bindings under the service_type. Emit `bridge_suspended`.
+- `AfterOperatorReFunded(operator, service_type)` → clear `suspended`. Emit `bridge_resumed`. Defensive no-op if status is `UNBONDING`.
+
+Every hook body is wrapped in `defer recoverHookPanic` (fail-soft pattern). A bug in federation must never roll back an x/service slash, which would brick all bridge accountability chain-wide. The cost is potential orphan bindings, caught by the `orphan-bindings` invariant and recoverable via `MsgPruneOrphanBindings`.
+
+**Hook ordering** (`app/service_adapters.go`): federation hooks fire **before** commons hooks on Dissolved/Retired so federation cleans bindings first, then commons cancels recurring spends. Both follow the fail-soft pattern.
+
+**App init order**: x/commons must construct before x/federation (OpsComm policy address must exist for `MsgRegisterBridge`); x/service must construct before x/federation (federation depends on service keeper). **EndBlocker order**: x/service before x/federation, so hook-fired binding state mutations settle before federation's own per-block work runs.
+
+### 15.6. x/split (reverse dependency — x/split depends on x/federation, not vice versa)
 
 ```go
 // x/split imports x/federation's keeper interface (read-only) to compute distribution weights.
@@ -2404,7 +2513,7 @@ k.federationKeeper.GetActiveVerifierWeights(ctx)   // Returns []VerifierWeight{a
 
 x/split calls these each epoch from its own BeginBlocker to distribute the Federation Operations allocation. Operators receive `operator_reward_share` (default 60%) based on verified submissions. Verifiers receive the remainder (40%) based on verification count and accuracy (see Section 3.9). x/split handles the actual SPARK transfer from Community Pool. This is a **read-only, one-directional** call — no circular dependency.
 
-### 15.6. Content Modules (Blog, Forum, Collect)
+### 15.7. Content Modules (Blog, Forum, Collect)
 
 No direct keeper dependency. Federation consumes events emitted by content modules:
 - `EventCreatePost` (blog)
@@ -2413,11 +2522,11 @@ No direct keeper dependency. Federation consumes events emitted by content modul
 
 Bridges watch these events and decide what to federate based on peer policies.
 
-### 15.7. x/reveal (NOT Federated)
+### 15.8. x/reveal (NOT Federated)
 
 Reveal contributions are explicitly excluded from federation. Reveal content involves contributor bonds, holdback mechanics, tranche-based payouts, and IP licensing (the `initial_license`/`final_license` fields) that are inherently local to the chain. The PeerPolicy `outbound_content_types` allowlist should never include reveal-related types. This is enforced by validation: `MsgUpdatePeerPolicy` rejects policies that include `"reveal_proposal"` or `"reveal_tranche"` in `outbound_content_types` or `inbound_content_types`.
 
-### 15.8. x/shield
+### 15.9. x/shield
 
 ```go
 // Anonymous challenge resolution: x/federation registers as a ShieldAware module
@@ -2441,42 +2550,50 @@ The module uses **autocli** for all transaction and query commands. No custom CL
 
 **Transaction commands** (generated from `Msg` service):
 ```
-sparkdreamd tx federation register-peer --authority ... --peer-id ... --display-name ... --type ...
+sparkdreamd tx federation register-peer --authority ... --peer-id ... --display-name ... --type ... [--controller-group ...]
 sparkdreamd tx federation remove-peer --authority ... --peer-id ... --reason ...
 sparkdreamd tx federation suspend-peer --authority ... --peer-id ... --reason ...
 sparkdreamd tx federation resume-peer --authority ... --peer-id ...
 sparkdreamd tx federation update-peer-policy --authority ... --peer-id ... --policy ...
-sparkdreamd tx federation register-bridge --authority ... --operator ... --peer-id ... --protocol ...
-sparkdreamd tx federation revoke-bridge --authority ... --operator ... --peer-id ... --reason ...
-sparkdreamd tx federation slash-bridge --authority ... --operator ... --peer-id ... --amount ... --reason ...
+sparkdreamd tx federation update-peer-controller --authority ... --peer-id ... --controller-group ...
+sparkdreamd tx federation register-bridge --peer-id ... --protocol ... --endpoint ... --stake ...
 sparkdreamd tx federation update-bridge --authority ... --operator ... --peer-id ... --endpoint ...
-sparkdreamd tx federation unbond-bridge --peer-id ...
-sparkdreamd tx federation top-up-bridge-stake --peer-id ... --amount ...
-sparkdreamd tx federation link-identity --peer-id ... --remote-identity ...
-sparkdreamd tx federation confirm-identity-link --claimant-chain-peer-id ...
-sparkdreamd tx federation unlink-identity --peer-id ...
+sparkdreamd tx federation resync-bridge-count --authority ... --peer-id ...
+sparkdreamd tx federation prune-orphan-bindings --authority ... --peer-id ...
 sparkdreamd tx federation submit-federated-content --peer-id ... --content-type ... --body ...
 sparkdreamd tx federation federate-content --peer-id ... --content-type ... --local-content-id ... --title ... --body ...
 sparkdreamd tx federation attest-outbound --peer-id ... --content-type ... --local-content-id ...
 sparkdreamd tx federation moderate-content --authority ... --content-id ... --new-status ... --reason ...
+sparkdreamd tx federation link-identity --peer-id ... --remote-identity ...
+sparkdreamd tx federation confirm-identity-link --claimant-chain-peer-id ...
+sparkdreamd tx federation unlink-identity --peer-id ...
 sparkdreamd tx federation request-reputation-attestation --peer-id ... --remote-address ...
-sparkdreamd tx federation update-params --authority ... --params ...
-sparkdreamd tx federation bond-verifier --amount ...
-sparkdreamd tx federation unbond-verifier --amount ...
 sparkdreamd tx federation verify-content --content-id ... --content-hash ...
 sparkdreamd tx federation challenge-verification --content-id ... --content-hash ... --evidence ...
 sparkdreamd tx federation submit-arbiter-hash --content-id ... --content-hash ...
 sparkdreamd tx federation escalate-challenge --content-id ...
+sparkdreamd tx federation update-params --authority ... --params ...
 sparkdreamd tx federation update-operational-params --authority ... --operational-params ...
 ```
+
+**Migration guide for operator-facing CLI** (Phase 4 of the federation→service migration deleted these):
+
+| Old | New |
+|-----|-----|
+| `tx federation revoke-bridge ...` | Community calls `tx service report-operator ...`; the peer's controller resolves with `tx service resolve-report ... --decision T1_SLASH --dissolve true` |
+| `tx federation slash-bridge ...` | Same as revoke — `tx service report-operator ...` → `tx service resolve-report ...` |
+| `tx federation unbond-bridge ...` | `tx service unbond-operator --service-type federation-bridge-<protocol>` (operator-signed) |
+| `tx federation top-up-bridge-stake ...` | `tx service top-up-bond --service-type federation-bridge-<protocol> --amount ...` (operator-signed) |
+| `tx federation bond-verifier ...` | `tx rep bond-role ROLE_TYPE_FEDERATION_VERIFIER <amount>` |
+| `tx federation unbond-verifier ...` | `tx rep unbond-role ROLE_TYPE_FEDERATION_VERIFIER <amount>` |
 
 **Query commands** (generated from `Query` service):
 ```
 sparkdreamd query federation get-peer [peer-id]
 sparkdreamd query federation list-peers
 sparkdreamd query federation get-peer-policy [peer-id]
-sparkdreamd query federation get-bridge-operator [address] [peer-id]
-sparkdreamd query federation list-bridge-operators
+sparkdreamd query federation get-bridge-binding [address] [peer-id]
+sparkdreamd query federation list-bridge-bindings
 sparkdreamd query federation get-federated-content [id]
 sparkdreamd query federation list-federated-content
 sparkdreamd query federation get-identity-link [local-address] [peer-id]
@@ -2486,10 +2603,16 @@ sparkdreamd query federation get-pending-identity-challenge [claimed-address] [p
 sparkdreamd query federation list-pending-identity-challenges [claimed-address]
 sparkdreamd query federation get-reputation-attestation [local-address] [peer-id]
 sparkdreamd query federation list-outbound-attestations
-sparkdreamd query federation get-verifier [address]
-sparkdreamd query federation list-verifiers
+sparkdreamd query federation verifier-activity [address]
 sparkdreamd query federation get-verification-record [content-id]
 sparkdreamd query federation params
+
+# For verifier bond/status (lives in x/rep):
+sparkdreamd query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER [address]
+sparkdreamd query rep bonded-roles-by-type ROLE_TYPE_FEDERATION_VERIFIER
+# For bridge operator bond/status (lives in x/service):
+sparkdreamd query service get-operator [address] federation-bridge-<protocol>
+sparkdreamd query service get-service-type-config federation-bridge-<protocol>
 ```
 
 ---
@@ -2510,11 +2633,17 @@ sparkdreamd query federation params
 
 ## 18. File References
 
-- Proto definitions: `proto/sparkdream/federation/v1/types.proto`, `tx.proto`, `query.proto`, `genesis.proto`
+- Proto definitions: `proto/sparkdream/federation/v1/types.proto`, `tx.proto`, `query.proto`, `params.proto`, `genesis.proto`, `events.proto`, `verifier_activity.proto`
 - Module config: `proto/sparkdream/federation/module/v1/module.proto`
 - Keeper logic: `x/federation/keeper/`
+  - Bridge registration orchestrator: `x/federation/keeper/msg_server_register_bridge.go`
+  - x/service hook implementation (fail-soft `defer recover`): `x/federation/keeper/hooks.go`
+  - Invariants (`orphan-bindings`, `bindings-by-operator-index`): `x/federation/keeper/invariants.go`
+  - Dual-authority recovery messages: `x/federation/keeper/msg_server_prune_orphan_bindings.go`, `msg_server_resync_bridge_count.go`
+  - Gov-authority controller update: `x/federation/keeper/msg_server_update_peer_controller.go`
+  - EndBlocker: `x/federation/keeper/abci.go`
+  - IBC handler: `x/federation/keeper/ibc.go`
 - Types and errors: `x/federation/types/`
 - Module setup: `x/federation/module/`
-- IBC handler: `x/federation/keeper/ibc.go`
-- EndBlocker: `x/federation/keeper/endblock.go`
+- App wiring: `app/app.go` (federation keeper + composite hooks); `app/service_adapters.go` (`FederationServiceAdapter`, hook ordering)
 - Integration tests: `test/federation/`

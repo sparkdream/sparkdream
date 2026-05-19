@@ -33,9 +33,9 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 
 	// BridgeOperators
-	for _, bridge := range genState.BridgeOperators {
+	for _, bridge := range genState.BridgeBindings {
 		key := collections.Join(bridge.Address, bridge.PeerId)
-		if err := k.BridgeOperators.Set(ctx, key, bridge); err != nil {
+		if err := k.BridgeBindings.Set(ctx, key, bridge); err != nil {
 			return err
 		}
 		// Rebuild BridgesByPeer index
@@ -173,8 +173,8 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 
 	// Export bridge operators
-	err = k.BridgeOperators.Walk(ctx, nil, func(key collections.Pair[string, string], value types.BridgeOperator) (bool, error) {
-		genesis.BridgeOperators = append(genesis.BridgeOperators, value)
+	err = k.BridgeBindings.Walk(ctx, nil, func(key collections.Pair[string, string], value types.BridgeBinding) (bool, error) {
+		genesis.BridgeBindings = append(genesis.BridgeBindings, value)
 		return false, nil
 	})
 	if err != nil {

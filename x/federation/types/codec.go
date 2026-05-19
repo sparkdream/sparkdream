@@ -60,27 +60,23 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgTopUpBridgeStake{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgUnbondBridge{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgUpdateBridge{},
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgSlashBridge{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgRevokeBridge{},
-	)
-
-	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgRegisterBridge{},
+	)
+
+	// MsgUpdatePeerController / MsgResyncBridgeCount / MsgPruneOrphanBindings
+	// added in Phase 1 of the federation→service migration.
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUpdatePeerController{},
+	)
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgResyncBridgeCount{},
+	)
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgPruneOrphanBindings{},
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),

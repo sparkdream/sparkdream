@@ -10,7 +10,7 @@ Key principles:
 - **SPARK-bonded, not DREAM-bonded.** External-service operators bond SPARK because they are paid in SPARK (via `MsgScheduleRecurringSpend`) and because the work they perform incurs SPARK-denominated costs to the chain when it fails (a missed Akash top-up costs SPARK to recover, not DREAM). DREAM-bonded roles ([x/rep `BondedRole`](x/rep/types/bonded_role.proto)) remain the right primitive for in-system moderation/curation; `x/service` complements rather than replaces it.
 - **Two-tier slashing.** The hiring council can slash up to a small cap unilaterally (routine SLA enforcement). Larger slashes require an x/rep jury (significant accusations, prevents controller capture).
 - **No payment primitive.** Operators are paid via the existing `MsgScheduleRecurringSpend` in `x/commons` targeted at the operator's address. `x/service` owns *accountability*, not compensation.
-- **Reusable by federation.** `x/federation`'s bridge-operator concept is implemented on top of this primitive (service_type `federation-bridge`) rather than duplicating it.
+- **Reusable by federation.** `x/federation`'s bridge-operator concept is implemented on top of this primitive (one service_type per bridge protocol: `federation-bridge-activitypub`, `federation-bridge-atproto`) rather than duplicating it. Federation no longer hosts its own bond/slash/unbond state.
 
 ---
 
@@ -82,16 +82,18 @@ A governance-managed allowlist of permitted service types:
 
 ```
 ServiceTypeConfig {
-  service_type             // string key, e.g. "akash-funding"; [a-z0-9-]{1,64}
-  description              // human-readable purpose; <= 512 chars
-  min_bond                 // minimum SPARK to register or remain ACTIVE
-  unbonding_period_blocks  // duration in blocks; defaults to ~14 days
-  unilateral_slash_cap_bps // per-slash cap; default 500 = 5%
-  tier1_window_blocks      // rolling window for aggregate tier-1 cap; default ~90 days
-  tier1_aggregate_cap_bps  // max cumulative tier-1 slash within window; default 1500 = 15%
-  tier1_cooldown_blocks    // min interval between tier-1 slashes against same operator; default ~7 days
-  underfunded_grace_blocks // time to top up after dropping below min_bond; default ~7 days
-  enabled                  // governance can disable without disturbing existing operators
+  service_type                // string key, e.g. "akash-funding"; [a-z0-9-]{1,64}
+  description                 // human-readable purpose; <= 512 chars
+  min_bond                    // minimum SPARK to register or remain ACTIVE
+  unbonding_period_blocks     // duration in blocks; defaults to ~14 days
+  unilateral_slash_cap_bps    // per-slash cap; default 500 = 5%
+  tier1_window_blocks         // rolling window for aggregate tier-1 cap; default ~90 days
+  tier1_aggregate_cap_bps     // max cumulative tier-1 slash within window; default 1500 = 15%
+  tier1_cooldown_blocks       // min interval between tier-1 slashes against same operator; default ~7 days
+  underfunded_grace_blocks    // time to top up after dropping below min_bond; default ~7 days
+  enabled                     // governance can disable without disturbing existing operators
+  report_timeout_action       // ReportTimeoutAction enum: DISMISS (default) | ESCALATE — drives EndBlocker auto-action when a PENDING report ages past max_pending_blocks (§3.4.5)
+  challenge_default_slash_bps // proposed slash (basis points) attached to system reports opened via OpenSystemReport when the caller passes slash_bps=0; capped at unilateral_slash_cap_bps via cross-field validation. Controllers can still adjust within the cap at MsgResolveReport time.
 }
 ```
 
@@ -99,12 +101,14 @@ Adding, modifying, or disabling a service type is done via `MsgUpdateServiceType
 
 **Validation rules** (enforced in `ValidateBasic` and in the keeper before write):
 
-- `service_type` matches `^[a-z0-9-]{1,64}$`; cannot be modified once created (only `description` / numeric fields / `enabled` can change).
+- `service_type` matches `^[a-z0-9-]{1,64}$`; cannot be modified once created (only `description` / numeric fields / `enabled` / `report_timeout_action` / `challenge_default_slash_bps` can change).
 - `min_bond > 0` in `uspark`.
 - `unilateral_slash_cap_bps`, `tier1_aggregate_cap_bps` each in `(0, 10000]`.
 - `tier1_aggregate_cap_bps ≥ unilateral_slash_cap_bps` (otherwise one tier-1 slash could exceed the aggregate cap).
 - `unbonding_period_blocks ≥ report_contest_window_blocks` (otherwise an operator could unbond before they could contest).
 - `tier1_cooldown_blocks > 0` (a value of zero would re-enable the drainage attack the cap is designed to prevent).
+- `report_timeout_action ∈ {REPORT_TIMEOUT_ACTION_DISMISS, REPORT_TIMEOUT_ACTION_ESCALATE}`.
+- `challenge_default_slash_bps ≤ unilateral_slash_cap_bps`, enforced **both directions** on every `MsgUpdateServiceTypeConfig`: raising the default above the cap is rejected, and lowering the cap below the existing default is also rejected. Governance must therefore split a cap-lowering update into two proposals (lower the default first, then the cap), or set both fields in a single update. Prevents the "lower the cap, default silently exceeds it" state.
 
 **Grandfathering & raised minimums.** When governance raises `min_bond` for an existing service type via `MsgUpdateServiceTypeConfig`:
 
@@ -203,7 +207,8 @@ A controller cannot apply a tier-1 slash to the same operator more than once per
 ```
 PENDING --(controller resolves T1, no contest within window)--> RESOLVED_T1
 PENDING --(controller proposes T2)--> ESCALATED
-PENDING --(no resolution within max_pending_blocks)--> AUTO_DISMISSED
+PENDING --(no resolution within max_pending_blocks, config.report_timeout_action=DISMISS)--> AUTO_DISMISSED
+PENDING --(no resolution within max_pending_blocks, config.report_timeout_action=ESCALATE)--> ESCALATED (auto-jury opened)
 PENDING --(operator dissolved)--> CLOSED_OPERATOR_DISSOLVED
 RESOLVED_T1 --(operator contests within report_contest_window)--> ESCALATED
 ESCALATED --(jury verdict)--> RESOLVED_T2
@@ -211,7 +216,9 @@ ESCALATED --(no jury verdict within max_escalated_blocks)--> AUTO_TIMEOUT
 ESCALATED --(operator dissolved)--> CLOSED_OPERATOR_DISSOLVED
 ```
 
-- `max_pending_blocks` (default ~30 days) bounds how long a report can sit unresolved. After expiry, the EndBlocker auto-dismisses with reporter's deposit **refunded** (not the reporter's fault the controller didn't engage). A controller cannot re-file the same allegation against the same operator within `report_refile_cooldown_blocks` (default ~30 days) — prevents the "withhold then re-file forever" attack on bond return.
+- `max_pending_blocks` (default ~30 days) bounds how long a report can sit unresolved. After expiry, the EndBlocker consults the operator's `ServiceTypeConfig.report_timeout_action`:
+  - **`DISMISS`** (default): the report auto-dismisses with reporter's deposit **refunded** (not the reporter's fault the controller didn't engage). A `report_auto_dismissed` event is emitted, and a `RefileCooldowns` entry blocks the same controller from re-filing the same allegation within `report_refile_cooldown_blocks` (default ~30 days) — prevents the "withhold then re-file forever" attack on bond return.
+  - **`ESCALATE`**: the report transitions to `ESCALATED` and an x/rep jury case is opened automatically (the proposed slash is `report.proposed_slash_bps` if set, otherwise falls back to `config.challenge_default_slash_bps`). Used by `federation-bridge-*` service types so a silent or captured controller cannot stall a slash past one timeout window. The threat of auto-escalation also disciplines controllers — they have a strict deadline to either resolve or relay the dispute to jury themselves. If neither a usable `proposed_slash_bps` nor `challenge_default_slash_bps` is available, the EndBlocker falls back to `DISMISS` behavior for that report (no slash can be proposed in good faith without one).
 - `max_escalated_blocks` (default ~60 days) bounds how long an ESCALATED report can wait for a jury verdict. If exceeded, the EndBlocker auto-resolves as if the jury had returned REJECT: any contested-T1 escrow returns to operator's bond, reporter/opener deposit is refunded, status becomes `AUTO_TIMEOUT` (distinct from `RESOLVED_T2` so audit can distinguish jury-decided rejections from inability-to-decide). Treats jury inaction as inability-to-convict — consistent with the no-bounty design (reporters shouldn't be punished for x/rep being unable to produce a verdict). The window is intentionally longer than `max_pending_blocks` (juries take time to deliberate).
 - A contested tier-1 slash is **fully reverted** by returning the escrowed slash amount (§3.4.7) to the operator's `bond`; `tier1_slashed_in_window` is decremented. The jury verdict re-applies whatever slash it concludes (from the same escrow if still within window, otherwise from `bond` directly).
 - A report against an `UNBONDING` operator is allowed and **pauses the unbonding clock** until resolved (see §3.5).
@@ -353,6 +360,69 @@ Each block, the EndBlocker processes up to `endblocker_sweep_limit` records (def
 
 ---
 
+### 3.7. System Reports (module-filed)
+
+Allowlisted consumer modules can file reports on behalf of the chain via the keeper-level `OpenSystemReport` API (no signed `Msg`, no SPARK deposit, no user-level rate limit). This is how `x/federation` files a slash report against a bridge operator when an arbiter quorum upholds a content challenge (`docs/x-federation-spec.md` §3.9.7 / §10.4) — the federation module account is the recorded reporter, but the controller resolution path is identical to a community-filed report.
+
+```go
+// keeper public API
+func (k Keeper) OpenSystemReport(
+    ctx context.Context,
+    callerModuleAddr sdk.AccAddress,
+    operator sdk.AccAddress,
+    serviceType string,
+    slashBps uint32,                // 0 = use ServiceTypeConfig.challenge_default_slash_bps
+    evidenceURI string,
+    dedupeKey []byte,
+) (reportID uint64, err error)
+```
+
+#### 3.7.1. Caller authorization
+
+The OpenSystemReport surface is privilege-gated by a **sorted slice allowlist** (`allowedSystemCallers = []string{"federation"}` at launch) plus a forward-derive auth check against the x/auth keeper:
+
+1. Iterate the allowlist in deterministic order.
+2. For each name, look up the module's account address via `authKeeper.GetModuleAddress(name)`.
+3. First match where `derivedAddr.Equals(callerModuleAddr)` wins; the matched module name is recorded for events, rate-limit keying, and dedupe scoping.
+4. If no match: return `ErrUnauthorizedSystemCaller`.
+
+**Why forward-derive instead of reverse lookup?** Cosmos SDK's auth keeper does not expose `address → module name`. The forward derivation is the SDK-native pattern. The allowlist is tiny so the O(allowlist_size) per call is irrelevant.
+
+**Why a sorted slice instead of a map?** Go map iteration is non-deterministic. With "first match wins," map iteration could produce different `matchedModule` values across nodes once the list grows beyond one entry — a consensus break. Slice iteration is deterministic. Adding new callers requires a source patch (intentional privilege-escalation friction).
+
+**Authorization model.** The allowlist + auth-keeper lookup is **defense-in-depth + auditability**, not the primary authorization barrier. Real authorization is keeper-wiring discipline: only the modules listed in `allowedSystemCallers` receive a `ServiceKeeper` reference at app wiring. The address-then-name lookup additionally prevents accidental misuse and forces any spoofer to explicitly impersonate a named module account, which shows up in the `caller_module` attribute on the emitted event and is detectable.
+
+#### 3.7.2. Idempotency
+
+The `dedupeKey` (caller-supplied, typically a deterministic hash of a unique upstream identifier like `MimcHash(challenge.id, challenge.evidence_hash)`) keys a per-`(matchedModule, dedupeKey)` entry in the `SystemReportDedup` store mapped to the originating `report_id`.
+
+- A second call with the same key returns the **existing** `report_id` without opening a new report. Used to make federation's challenge-resolution path safe against re-org replays or in-flight retries.
+- Once the underlying report reaches a terminal status (`AUTO_DISMISSED`, `RESOLVED_T1` finalized, `RESOLVED_T2`, `AUTO_TIMEOUT`, `CLOSED_OPERATOR_DISSOLVED`), the dedupe entry remains, but the caller must use a **fresh `dedupeKey`** to open a follow-up report — the TTL of the dedupe entry IS the lifecycle of the report it points at.
+- Idempotent re-calls do **not** count against the per-caller rate limit.
+- `dedupeKey` MUST be non-empty (`ErrInvalidDedupeKey` otherwise).
+
+#### 3.7.3. Rate limiting
+
+Per `(matchedModule, sliding window)`, OpenSystemReport admits at most `max_system_reports_per_caller_per_window` (default 50) **new** reports within `rate_limit_window_blocks` (default ~1 day). The window is sliding (ring buffer of recent filing heights, capped at `cap+1` for brief overshoot absorption); admission is based on counting heights within `[current_height - window, current_height]`.
+
+If the cap is exceeded the call returns `ErrSystemReportRateLimited`, emits a `system_report_rate_limited` event for off-chain alerting, and does **not** mutate state. Idempotent re-calls (same dedupe key) bypass the cap entirely.
+
+Tunable post-launch: the default 50/day is a starting guess. Calibrate from observed federation challenge volume — most days should be well under the cap, and a sustained spike indicates either real abuse upstream or a bug in the consumer module (both should page an operator).
+
+#### 3.7.4. Slash amount + report shape
+
+- If `slashBps == 0`, the keeper substitutes `ServiceTypeConfig.challenge_default_slash_bps` for the proposed slash. The cross-field validation at config-write time guarantees this value is ≤ `unilateral_slash_cap_bps`, so the controller can always resolve via T1_SLASH (or downgrade) without escalation. An explicit non-zero `slashBps` is also capped at `unilateral_slash_cap_bps`.
+- The proposed slash is stored on `Report.proposed_slash_bps`. The controller adjusts the actual slash at `MsgResolveReport` time (downgrade for borderline evidence, upgrade up to the cap for egregious cases).
+- `Report.reporter` is set to `callerModuleAddr` (no member required, no deposit escrowed).
+- `Report.reason` is `system:<caller_module>:<evidenceURI>` (truncated to `max_reason_bytes`).
+- The standard report state machine applies from there: PENDING → T1 / ESCALATED. The operator's `ServiceTypeConfig.report_timeout_action` controls what happens at `max_pending_blocks` expiry.
+
+#### 3.7.5. Accountability asymmetry vs. member-filed reports
+
+Module accounts cannot be slashed for false reports and have no reputation. The controller's tier-1 review is the only immediate check on a system report. `ReportTimeoutAction=ESCALATE` (paired with system-reporting consumers) ensures the jury is the effective failsafe.
+
+---
+
 ## 4. State
 
 ### 4.1. KV Stores
@@ -393,6 +463,11 @@ Each block, the EndBlocker processes up to `endblocker_sweep_limit` records (def
 - `Tier1EscrowReleaseQueue` — index keyed by `(release_at, escrow_id)` for EndBlocker release sweep.
 - `Tier1LastSlash` — keyed by `(controller, operator_address, service_type)` → last tier-1 slash height; consulted for cooldown enforcement. Pruned when the operator record archives (BOTH `SLASHED` and `RETIRED` transitions), so a re-registered operator never inherits cooldown state from a prior incarnation.
 
+**System-report stores** (consumed by `OpenSystemReport`, §3.7):
+
+- `SystemReportDedup` — keyed by `(caller_module, dedupe_key)` → `report_id`. Implements the idempotency guarantee: re-calls with the same dedupe key return the existing report_id instead of opening a duplicate. Lifetime = lifetime of the report it points at.
+- `SystemReportRateLimit` — keyed by `caller_module` → `SystemReportRateLimit { recent_filing_heights []int64 }`. Ring buffer of the most recent filing heights, capped at `max_system_reports_per_caller_per_window + 1`; older entries are overwritten on each new filing past the cap.
+
 **Counters:**
 
 - `NextReportID` — singleton uint64.
@@ -423,6 +498,8 @@ Each block, the EndBlocker processes up to `endblocker_sweep_limit` records (def
 | `reputation_grant_per_bond_block`  | tiny `math.LegacyDec` | Global; reputation accrued per SPARK-block of active bond (capped by §6.6 rule); `sdk.Dec` alias is deprecated in current SDK |
 | `default_pagination_limit`         | 100                | Global; default page size for queries when client omits `pagination.limit` |
 | `max_pagination_limit`             | 1000               | Global; hard cap on `pagination.limit` to bound query gas |
+| `max_system_reports_per_caller_per_window` | 50         | Global; per-`caller_module` sliding-window cap on `OpenSystemReport` filings (§3.7.3); idempotent re-calls do not count |
+| `rate_limit_window_blocks`         | ~1 day in blocks   | Global; window size for the system-report rate limit. x/service has no native epoch concept, so this is an explicit block-count param rather than reusing season/shield epochs |
 
 **Param validation rules** (`Params.Validate`):
 
@@ -436,6 +513,7 @@ Each block, the EndBlocker processes up to `endblocker_sweep_limit` records (def
 - `report_refile_cooldown_blocks >= max_pending_blocks` — otherwise a hostile controller can stall a report to auto-dismiss, then re-file before the refile-cooldown bites; bounding cooldown >= pending window ensures the refile protection is the active limiter.
 - `max_escalated_blocks > max_pending_blocks` — juries take longer than controllers (deliberation overhead), so the escalated-timeout window must be the looser of the two.
 - `default_pagination_limit > 0`, `max_pagination_limit >= default_pagination_limit`, `max_pagination_limit <= 10000`.
+- `max_system_reports_per_caller_per_window >= 0`; when the cap is non-zero, `rate_limit_window_blocks > 0` (a zero window with a non-zero cap is meaningless). A zero cap effectively disables system reports.
 
 All params are x/gov-mutable. None are hardened at module level. **High-impact params worth hardening if governance integrity becomes a concern:**
 
@@ -444,6 +522,7 @@ All params are x/gov-mutable. None are hardened at module level. **High-impact p
 - `tier1_aggregate_cap_bps` and `tier1_cooldown_blocks` — if raised/lowered respectively, the drainage protection in §3.4.3/§3.4.4 collapses; captured controllers can drain operator bonds with no jury check.
 - `max_reports_per_reporter_per_operator_per_window` — if raised, single-reporter spam against one operator becomes viable.
 - `report_contest_window_blocks` — if lowered to zero, tier-1 slashes are immediately final, eliminating the contest path entirely.
+- `max_system_reports_per_caller_per_window` — if raised, a buggy or compromised allowlisted consumer module can DoS controllers by flooding system reports. If lowered to zero, federation can no longer file challenge-derived slashes (effectively breaks federation's accountability layer until the cap is restored).
 
 To harden, follow the existing immutable-parameter pattern from x/mint: authority = burn address (`sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe`); `MsgUpdateParams` then becomes unreachable via gov and only chain upgrades can modify. Defer hardening until launch experience shows whether governance can be trusted with these levers.
 
@@ -563,28 +642,40 @@ The "jury resolver" is a **Commons Council Operations Committee member**, not th
 
 **Payments path (no new code).** Existing `MsgScheduleRecurringSpend` already accepts an arbitrary recipient address; the council schedules a periodic SPARK payment to the operator's address.
 
-**Dissolution hook (new — v1, not deferred).** x/service exposes a `ServiceHooks` interface; x/commons registers an implementation that cancels matching `RecurringSpend` schedules when an operator is dissolved:
+**Operator-lifecycle hooks.** x/service exposes a `ServiceHooks` interface with four callbacks. x/commons subscribes to the dissolution hook; x/federation (added in Phase 0 of the federation→service migration) subscribes to all four:
 
 ```go
 type ServiceHooks interface {
     AfterOperatorDissolved(ctx sdk.Context, operator sdk.AccAddress, serviceType string)
     AfterOperatorRetired(ctx sdk.Context, operator sdk.AccAddress, serviceType string)
+    AfterOperatorUnderfunded(ctx sdk.Context, operator sdk.AccAddress, serviceType string)
+    AfterOperatorReFunded(ctx sdk.Context, operator sdk.AccAddress, serviceType string)
 }
 ```
 
-`AfterOperatorDissolved` fires when status transitions to `SLASHED`. The x/commons implementation iterates all `RecurringSpend` schedules whose `recipient == operator` and cancels them in-place, emitting the standard `recurring_spend_canceled` event with `reason = "operator_dissolved"`. Without this, slashed operators would continue receiving scheduled payments until a human notices — a real silent leak to known bad actors.
+**Firing semantics:**
 
-`AfterOperatorRetired` fires on voluntary unbond completion; x/commons does NOT auto-cancel on RETIRED (the operator may simply be rotating bonds or paying out from accumulated balance — controller decides whether to keep paying). Hook is present for future use and for parity.
+| Hook | Fires from | Semantics |
+|------|-----------|-----------|
+| `AfterOperatorDissolved` | `MsgResolveReportByJury` with `dissolve=true`, OR any slash that drops bond to zero | Status transitioned to terminal `SLASHED`. x/commons cancels matching `RecurringSpend` schedules so slashed operators stop being paid (this auto-cancellation is IN v1 — leaving slashed operators on the payroll silently leaks SPARK to known bad actors). x/federation prunes all `BridgeBinding` records for this `(operator, service_type)` and decrements peer state. |
+| `AfterOperatorRetired` | `MsgClaimUnbondedBond` success path | Voluntary unbond completed; bond was returned to operator. x/commons is a no-op (controller decides whether to keep paying a rotating/sabbatical operator). x/federation prunes bindings (same as Dissolved, no punitive side effects). |
+| `AfterOperatorUnderfunded` | `MsgResolveReport(T1_SLASH)` or `MsgResolveReportByJury` (ACCEPT/REDUCE) when post-slash bond falls below `min_bond` | Does **not** fire if the operator is already in `UNBONDING` (they're exiting anyway). Lets consumers gate operator-active checks without polling status. x/federation marks all of that operator's bindings under the service_type as `suspended=true`. |
+| `AfterOperatorReFunded` | `MsgTopUpBond` (or contested-T1 escrow returning to bond, or AUTO_TIMEOUT escrow return) when an UNDERFUNDED operator crosses back above `min_bond` | No-op for `UNBONDING` operators (top-ups during unbonding don't reactivate). x/federation clears `suspended` on all bindings under the service_type. |
 
-Hook registration happens in `app.go` after both keepers are constructed:
+All four hooks fire **after** x/service has written the state mutation, so subscribers iterating live indexes see the post-transition state.
+
+**MultiServiceHooks and ordering.** Multiple subscribers are aggregated via `NewMultiServiceHooks(...)`; the slice order determines invocation order. In `app.go`:
 
 ```go
 app.ServiceKeeper.SetHooks(
     servicetypes.NewMultiServiceHooks(
-        app.CommonsKeeper.ServiceHooks(),
+        NewFederationServiceHooks(app.FederationKeeper),  // federation FIRST
+        NewCommonsServiceHooks(app.CommonsKeeper),        // commons SECOND
     ),
 )
 ```
+
+**Why federation before commons on `AfterOperatorDissolved`/`Retired`:** federation cleans bindings first, then commons cancels recurring spends. Federation's cleanup is cheaper, deterministic, and shouldn't depend on commons state; commons' recurring-spend cancellation is unrelated to binding state. Both follow the fail-soft `defer recover` pattern (a bug in federation's hook must never roll back a slash chain-wide, since rolling back the slash would brick all bridge accountability). The `federation_hook_failure` event (federation-side) signals swallowed panics to off-chain monitors.
 
 ### 6.2. x/rep (jury)
 
@@ -666,15 +757,19 @@ need to actively cancel it. The `report_contest_window_blocks` /
 typical jury cycle so the JuryReview should always reach a state
 before x/service times out.
 
-### 6.3. x/federation (migration)
+### 6.3. x/federation (migration complete)
 
-`x/federation` currently specs SPARK-staked bridge operators as a federation-internal type. Migration plan:
+`x/federation` previously embedded its own bridge-operator economic primitive (bond escrow, status state machine, unbonding queue, slashing). That has been migrated onto x/service. Current state:
 
-1. Implement `x/service` first with `service_type=federation-bridge` enabled in the genesis service type registry.
-2. Refactor `x/federation` bridge-operator messages to call `x/service` keeper methods rather than duplicate bond/slash/unbond state. The federation-specific data (peer ID, protocol, endpoint URL) lives in the `metadata` field as JSON.
-3. Federation-specific slash conditions (e.g., proven message tampering, missed liveness windows) become reports filed by anyone, resolved tier-1 by the operations council or tier-2 by jury — same flow as any other service.
+1. **Two service types are seeded at x/service genesis**: `federation-bridge-activitypub` and `federation-bridge-atproto` (see §7 — these come from x/service's own `DefaultGenesis`, NOT from federation's genesis). Each is configured with `report_timeout_action = ESCALATE` so a silent or captured peer controller cannot stall a slash past one timeout window.
+2. **Federation's `MsgRegisterBridge` is operator-signed** and orchestrates: (a) federation peer/policy checks, (b) `serviceKeeper.RegisterOperator` (first registration under `(address, service_type)`) or (c) `serviceKeeper.TopUpBond` (re-registration under an existing operator for a different peer — one operator address shares one bond across multiple peer bindings within the same protocol).
+3. **Federation has no slash messages.** Misbehavior reports go through `MsgReportOperator` (community-filed) or `OpenSystemReport` (federation-filed on challenge-quorum-upheld, §3.7). The peer's controller (`peer.controller_group` if set, Operations Committee by default) resolves via `MsgResolveReport` within the per-`ServiceTypeConfig` cap; larger slashes escalate to jury via `MsgResolveReportByJury`.
+4. **Federation subscribes to all four hooks** (§6.1). Hooks are wrapped in `defer recoverHookPanic` (fail-soft pattern) — a bug in federation must never roll back an x/service slash.
+5. **Federation owns** the per-binding endpoint, content statistics, and `suspended` flag. **x/service owns** bond, status, unbonding, slashing history, controller, reputation accrual.
 
-The migration is not blocking — `x/federation` may ship its own primitive first and migrate later if `x/service` is built after federation. Either order works.
+See `docs/x-federation-spec.md` §3.6 / §10.4 / §14.2 for the federation-side details.
+
+**Adding a new federation protocol** (e.g., Nostr): governance enables a new `federation-bridge-<protocol>` service type via `MsgUpdateServiceTypeConfig`; federation's peer-type-to-service-type mapping is the only federation-side change. No x/service code change required (free-form `service_type` strings, §3.2).
 
 ### 6.4. x/bank, x/distribution
 
@@ -762,7 +857,7 @@ The following methods are exposed on `service.Keeper` for consumption by other m
 // Read API
 GetOperator(ctx, addr sdk.AccAddress, serviceType string) (Operator, bool)              // live store only
 GetArchivedOperators(ctx, addr sdk.AccAddress, serviceType string) []Operator           // SLASHED + RETIRED history; returned records share the live Operator proto type with bond=0 and retired_at != 0
-HasSlashedRecord(ctx, addr sdk.AccAddress, serviceType string) bool                     // for re-registration gate
+HasSlashedRecord(ctx, addr sdk.AccAddress, serviceType string) (bool, error)            // for re-registration gate
 GetServiceTypeConfig(ctx, serviceType string) (ServiceTypeConfig, bool)
 IsActiveOperator(ctx, addr sdk.AccAddress, serviceType string) bool                     // status == ACTIVE
 GetAvailableBond(ctx, addr sdk.AccAddress, serviceType string) sdk.Coin                 // current bond, excludes Tier1Escrow
@@ -771,17 +866,21 @@ ListOperatorsByServiceType(ctx, serviceType string, pagination *Pagination) []Op
 ListPendingReportsAgainst(ctx, addr sdk.AccAddress, serviceType string) []Report
 
 // Mutating API (intended for inter-module use; signed-msg paths in §5 wrap these)
-RegisterOperator(ctx, msg MsgRegisterOperator) (Operator, error)
+RegisterOperator(ctx, creator, serviceType, controller string, bond sdk.Coin, metadata []byte, source SlashSource) (Operator, error)
+TopUpBond(ctx, operator sdk.AccAddress, serviceType string, additionalBond sdk.Coin) error    // keeper-level top-up; fires AfterOperatorReFunded if it crosses min_bond; allowed for ACTIVE/UNDERFUNDED, rejected for UNBONDING/terminal
 SlashOperator(ctx, addr sdk.AccAddress, serviceType string, slashBps uint32, reason string, source SlashSource) (slashed sdk.Coin, err error)
+OpenSystemReport(ctx, callerModuleAddr sdk.AccAddress, operator sdk.AccAddress, serviceType string, slashBps uint32, evidenceURI string, dedupeKey []byte) (reportID uint64, err error)  // §3.7
 TerminateOperator(ctx, addr sdk.AccAddress, serviceType string, reason string) error  // direct SLASHED transition; jury-only via MsgResolveReportByJury
 
 // Hook setter (called once during app wiring)
 SetHooks(hooks ServiceHooks) *Keeper                                                    // see §6.1 for ServiceHooks
 ```
 
-`SlashSource` is an enum (`TIER1`, `TIER2_JURY`, `MIGRATION`) so the keeper can apply the right invariants (tier-1 cap/cooldown/escrow for `TIER1`, deposit refund logic for `TIER2_JURY`, no checks for `MIGRATION` which is reserved for chain-upgrade reconciliation only — see §15).
+`SlashSource` is an enum (`TIER1`, `TIER2_JURY`, `MIGRATION`) so the keeper can apply the right invariants (tier-1 cap/cooldown/escrow for `TIER1`, deposit refund logic for `TIER2_JURY`, no checks for `MIGRATION` which is reserved for chain-upgrade reconciliation only — see §15). `RegisterOperator` also takes a `source` so consumer modules registering an operator on the user's behalf (federation's `MsgRegisterBridge`) use `ServiceSourceNormal` while chain-upgrade handlers pass `MIGRATION` to bypass `IsGroupAddress` checks on legacy state.
 
-The `RegisterOperator` and `SlashOperator` keeper methods are how x/federation's bridge-operator code consumes this primitive — federation defines its own messages (`MsgRegisterBridgeOperator`, `MsgReportBridgeMisbehavior`) which then call these methods. Federation never touches x/service state directly.
+**Consumer module pattern (federation example):** x/federation receives a `ServiceKeeper` reference via depinject and an adapter (`app/service_adapters.go`). Federation's `MsgRegisterBridge` orchestrates `serviceKeeper.RegisterOperator` (first registration) OR `serviceKeeper.TopUpBond` (re-registration for an additional peer under an existing operator, Decision 1a of the migration plan). Federation's challenge-resolution code calls `serviceKeeper.OpenSystemReport` to file slash reports under module privilege. Federation never touches x/service state directly; the keeper API is the only consumer surface.
+
+**Caller allowlist** (§3.7.1): `OpenSystemReport` and `RegisterOperator(source=...)` are gated by a sorted-slice allowlist of allowed module names. At launch the allowlist is `[]string{"federation"}`. Adding a new caller requires editing this constant in source — intentional privilege-gate friction.
 
 ---
 
@@ -804,12 +903,18 @@ GenesisState {
 }
 ```
 
-**Default genesis** registers no service types — operators can only be created after governance enables at least one type. This forces explicit, deliberate enablement and prevents "any service type works from chain start" footgun.
+**Default genesis seeds the two federation-bridge service types.** `DefaultGenesis()` in `x/service/types/genesis.go` populates `service_types` with:
 
-**Pre-enabled types via genesis import** are supported and expected for two cases:
+- `federation-bridge-activitypub` — `enabled = true`, `min_bond = 1000 SPARK`, `report_timeout_action = ESCALATE`, `challenge_default_slash_bps = 100` (1%), all other knobs at module-defaults.
+- `federation-bridge-atproto` — same settings.
 
-1. **Federation bootstrap.** If x/federation needs `federation-bridge` operators at genesis (e.g., a chain launched with pre-bonded bridge operators), the genesis file MUST include the `federation-bridge` `ServiceTypeConfig` in `service_types` AND the corresponding `Operator` records under `operators`. The init order is: x/gov → x/bank → x/commons (so Group addresses exist for controller validation) → x/service (registers types and operators atomically) → x/federation (consumes via keeper API).
-2. **Chain upgrade.** Handled in §15 Upgrade Migration.
+Both are seeded by **x/service**, NOT by x/federation. The rationale (Decision 1 / Phase 2 init-order constraint of the migration plan): federation's genesis loads `BridgeBinding` records that reference `service.Operator`s, so the operator's `ServiceTypeConfig` must already exist when x/federation's `InitGenesis` runs. Init order: x/gov → x/bank → x/commons → **x/service** (seeds these configs + any genesis operators) → x/federation (consumes via keeper API).
+
+**Other service types still require governance enablement.** Adding `akash-funding`, `storage-pinning`, etc., requires a `MsgUpdateServiceTypeConfig` proposal post-launch.
+
+**Pre-enabled operators via genesis import** (e.g., a chain launched with pre-bonded bridge operators) are supported: include `Operator` records under `operators` with `service_type` referencing one of the seeded configs. `IsGroupAddress(controller)` is deferred to first-message processing because x/commons may not be fully initialized at the moment `service.InitGenesis` runs (depends on init order).
+
+**Chain upgrade migration** is handled in §15.
 
 **Genesis validation** (`GenesisState.Validate`):
 
@@ -901,6 +1006,9 @@ Standard SDK `Errors` registered under codespace `service`:
 | 39    | `ErrControllerNoLongerEligible`   | `MsgFinalizeControllerTransfer` apply-time re-check failed (Group dissolved or empty) |
 | 40    | `ErrControllerTransferCaseNotFound` | `MsgFinalizeControllerTransfer` references unknown `jury_case_id`      |
 | 41    | `ErrJuryVerdictMismatch`            | Resolver's submitted verdict doesn't match the x/rep `JuryReview` (cross-check fails; §6.2) |
+| 42    | `ErrUnauthorizedSystemCaller`       | `OpenSystemReport` caller is not in the allowlist or the supplied `callerModuleAddr` does not match any allowlisted module account (§3.7.1) |
+| 43    | `ErrSystemReportRateLimited`        | `OpenSystemReport` per-caller sliding-window cap exceeded; emit `system_report_rate_limited` event and reject without state change (§3.7.3) |
+| 44    | `ErrInvalidDedupeKey`               | `OpenSystemReport` called with empty `dedupe_key`; idempotency requires a non-empty key (§3.7.2) |
 
 ---
 
@@ -977,6 +1085,10 @@ Jury-authority msgs are not exposed as user-facing CLI — they are emitted by x
 - `service.metadata_updated { address, service_type }`
 - `service.controller_transferred { address, service_type, new_controller, jury_case_id }` (emitted only on ACCEPT finalize)
 - `service.service_type_updated { service_type, enabled, changed_fields }`
+- `service.system_report_opened { report_id, caller_module, operator, service_type, evidence_uri, dedupe_key, idempotent }` (§3.7) — `idempotent=true` indicates the call returned an existing `report_id` for a repeated `dedupe_key`; `idempotent=false` indicates a new report was allocated.
+- `service.system_report_rate_limited { caller_module, operator, service_type }` (§3.7) — emitted on rejection when the per-caller sliding-window cap is exceeded; no state change accompanies this event.
+
+The `operator_underfunded` and an `operator_refunded` companion (emitted from the `TopUpBond` recovery path) carry `{ address, service_type, current_bond, min_bond }` so off-chain consumers can react to the hooks without polling status.
 
 ---
 
@@ -1024,19 +1136,17 @@ EndBlocker durations should be tracked per-queue so operators can detect when a 
 
 ## 15. Upgrade Migration
 
-If `x/service` is added in a chain upgrade rather than at genesis, the upgrade handler MUST execute the following steps **atomically within the upgrade block**:
+**Pre-mainnet posture.** The federation→service migration landed pre-mainnet, so no live state migration was required: federation's previous `BridgeOperator` proto, federation-local slash/unbond messages, and federation-local bond escrow were simply deleted in source and replaced by the x/service surface described in this spec. New federation `BridgeBinding` records reference `service.Operator` records via `(address, service_type)`; chain restart from genesis (or testparams reset) is the deployment path. No upgrade-handler reconciliation logic exists in `x/service` today because none was needed.
+
+**If x/service is added to an already-deployed chain via an upgrade** (hypothetical future scenario, NOT the path that produced the current implementation), the upgrade handler would need to:
 
 1. **Register the module account** with the auth keeper (`authtypes.NewModuleAccount(...)`). No special permissions (`Minter`, `Burner`, `Staking`) are required — slashes and forfeitures move SPARK to the community pool via `distribution.FundCommunityPool`, which is a `SendCoinsFromModuleToModule` to the distribution module's pool account, not a burn.
 2. **Set initial `Params`** via `Keeper.SetParams` with the validated default block.
-3. **Register service types needed by other modules.** At minimum, register `federation-bridge` if x/federation is enabled and has live bridge-operator state.
-4. **Migrate existing bridge-operator state from x/federation** (if applicable):
-   - For each `BridgeOperator` record in x/federation's pre-migration state:
-     - Compute the operator's bond amount from federation's bond escrow.
-     - Move bond SPARK from the federation module account to the service module account via `bank.SendCoinsFromModuleToModule`.
-     - Construct a `MsgRegisterOperator`-equivalent payload with `service_type = "federation-bridge"`, `controller = <federation operations council>`, `metadata = <federation-specific JSON>`.
-     - Call `Keeper.RegisterOperator(ctx, payload, source = MIGRATION)` — the `MIGRATION` source bypasses the standard `IsGroupAddress` check on `controller` (since the operator already exists and we're recording state, not vetting registration), bypasses `min_bond` check (federation may have had different minimums), and bypasses `max_active_operators_per_address` (existing state takes precedence over per-address limits).
-   - Delete the federation-side bridge-operator records and zero the federation module account balance for bridge bonds.
-5. **Initialize `NextReportID = 1` and `NextEscrowID = 1`** (no historic reports exist; x/federation's slash records are not migrated as reports — they're left as federation-side events).
+3. **Seed `ServiceTypeConfig`s** for any consumer module that already has live bonded operators. For federation, this means `federation-bridge-activitypub` and `federation-bridge-atproto` (matching `DefaultGenesis` — §7).
+4. **Migrate existing bonded-operator state from the consumer module** (if applicable):
+   - For each pre-migration record: compute the bond amount, move SPARK from the source module account to the service module account via `bank.SendCoinsFromModuleToModule`, then call `Keeper.RegisterOperator(ctx, ..., source = MIGRATION)`. The `MIGRATION` source bypasses `IsGroupAddress(controller)`, `min_bond`, and `max_active_operators_per_address` because we're recording existing state, not vetting a fresh registration.
+   - Delete the consumer-side bonded-operator records and zero the consumer module account's bond balance.
+5. **Initialize `NextReportID = 1` and `NextEscrowID = 1`** (no historic reports are migrated; pre-existing slash records are left as consumer-side events).
 6. **Verify the module account balance invariant** (§13 `bond-pool-accounting`) before completing the upgrade.
 
 A v1 → v2 schema migration of x/service itself (after launch) follows the standard SDK consensus-version migration pattern: bump `ConsensusVersion()`, register a handler in `RegisterMigrations`, transform existing state in-place. No special considerations beyond standard SDK upgrade hygiene.

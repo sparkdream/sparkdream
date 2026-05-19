@@ -24,6 +24,12 @@ const (
 	EventTypeBridgeInactiveWarning   = "bridge_inactive_warning"
 	EventTypeBridgeStakeInsufficient = "bridge_stake_insufficient"
 
+	// Federation→service migration events (Phase 5).
+	EventTypeBridgeUnbound          = "bridge_unbound"
+	EventTypeBridgeSuspended        = "bridge_suspended"
+	EventTypeBridgeResumed          = "bridge_resumed"
+	EventTypeFederationHookFailure  = "federation_hook_failure"
+
 	// Content federation
 	EventTypeFederatedContentReceived  = "federated_content_received"
 	EventTypeFederatedContentModerated = "federated_content_moderated"
@@ -107,4 +113,5 @@ const (
 	AttributeKeyCreator         = "creator"
 	AttributeKeyError           = "error"
 	AttributeKeyPacketKind      = "packet_kind"
+	AttributeKeyServiceType     = "service_type"
 )

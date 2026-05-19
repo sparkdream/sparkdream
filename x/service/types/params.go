@@ -28,6 +28,9 @@ const (
 	DefaultTier1WindowBlocks int64 = 1_555_200
 	// ~30 days at 5s blocks.
 	DefaultReporterRateLimitWindowBlocks int64 = 518_400
+	// ~1 day at 5s blocks (24 * 60 * 60 / 5 = 17,280). Window over
+	// which OpenSystemReport's per-caller cap accumulates.
+	DefaultRateLimitWindowBlocks int64 = 17_280
 
 	DefaultUnilateralSlashCapBps                 uint32 = 500  // 5%
 	DefaultTier1AggregateCapBps                  uint32 = 1500 // 15%
@@ -38,6 +41,11 @@ const (
 	DefaultMaxReportsPerReporterPerOperatorPerWindow uint32 = 3
 	DefaultPaginationLimit                       uint32 = 100
 	DefaultMaxPaginationLimit                    uint32 = 1000
+	// Phase 0 federation→service migration: per-caller cap on
+	// OpenSystemReport filings within RateLimitWindowBlocks. 50 is a
+	// starting guess; tune from observed federation challenge volume
+	// post-launch.
+	DefaultMaxSystemReportsPerCallerPerWindow    uint32 = 50
 
 	// Default trust-level gate for filing reports. See §16 launch note —
 	// genesis params SHOULD lower to PROVISIONAL for the first season.
@@ -86,6 +94,8 @@ func DefaultParams() Params {
 		ReputationGrantPerBondBlock:                 DefaultReputationGrantPerBondBlock,
 		DefaultPaginationLimit:                      DefaultPaginationLimit,
 		MaxPaginationLimit:                          DefaultMaxPaginationLimit,
+		MaxSystemReportsPerCallerPerWindow:          DefaultMaxSystemReportsPerCallerPerWindow,
+		RateLimitWindowBlocks:                       DefaultRateLimitWindowBlocks,
 	}
 }
 
@@ -200,6 +210,15 @@ func (p Params) Validate() error {
 	}
 	if p.MaxPaginationLimit > 10000 {
 		return ErrInvalidParams.Wrapf("max_pagination_limit must be <= 10000, got %d", p.MaxPaginationLimit)
+	}
+
+	// System-report rate-limit window must be positive when the cap is
+	// nonzero (zero cap means "unlimited" and the window is irrelevant).
+	if p.MaxSystemReportsPerCallerPerWindow > 0 && p.RateLimitWindowBlocks <= 0 {
+		return ErrInvalidParams.Wrapf(
+			"rate_limit_window_blocks must be > 0 when max_system_reports_per_caller_per_window (%d) is positive",
+			p.MaxSystemReportsPerCallerPerWindow,
+		)
 	}
 
 	return nil

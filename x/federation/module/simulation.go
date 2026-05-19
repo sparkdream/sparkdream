@@ -120,36 +120,9 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgRegisterBridge,
 		federationsimulation.SimulateMsgRegisterBridge(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
-	const (
-		opWeightMsgRevokeBridge          = "op_weight_msg_federation"
-		defaultWeightMsgRevokeBridge int = 100
-	)
-
-	var weightMsgRevokeBridge int
-	simState.AppParams.GetOrGenerate(opWeightMsgRevokeBridge, &weightMsgRevokeBridge, nil,
-		func(_ *rand.Rand) {
-			weightMsgRevokeBridge = defaultWeightMsgRevokeBridge
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgRevokeBridge,
-		federationsimulation.SimulateMsgRevokeBridge(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgSlashBridge          = "op_weight_msg_federation"
-		defaultWeightMsgSlashBridge int = 100
-	)
-
-	var weightMsgSlashBridge int
-	simState.AppParams.GetOrGenerate(opWeightMsgSlashBridge, &weightMsgSlashBridge, nil,
-		func(_ *rand.Rand) {
-			weightMsgSlashBridge = defaultWeightMsgSlashBridge
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgSlashBridge,
-		federationsimulation.SimulateMsgSlashBridge(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
+	// MsgRevokeBridge and MsgSlashBridge simulators were removed in
+	// Phase 4 of the federation→service migration (slashing now flows
+	// through x/service MsgReportOperator).
 	const (
 		opWeightMsgUpdateBridge          = "op_weight_msg_federation"
 		defaultWeightMsgUpdateBridge int = 100
@@ -165,36 +138,9 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgUpdateBridge,
 		federationsimulation.SimulateMsgUpdateBridge(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
-	const (
-		opWeightMsgUnbondBridge          = "op_weight_msg_federation"
-		defaultWeightMsgUnbondBridge int = 100
-	)
-
-	var weightMsgUnbondBridge int
-	simState.AppParams.GetOrGenerate(opWeightMsgUnbondBridge, &weightMsgUnbondBridge, nil,
-		func(_ *rand.Rand) {
-			weightMsgUnbondBridge = defaultWeightMsgUnbondBridge
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgUnbondBridge,
-		federationsimulation.SimulateMsgUnbondBridge(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgTopUpBridgeStake          = "op_weight_msg_federation"
-		defaultWeightMsgTopUpBridgeStake int = 100
-	)
-
-	var weightMsgTopUpBridgeStake int
-	simState.AppParams.GetOrGenerate(opWeightMsgTopUpBridgeStake, &weightMsgTopUpBridgeStake, nil,
-		func(_ *rand.Rand) {
-			weightMsgTopUpBridgeStake = defaultWeightMsgTopUpBridgeStake
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgTopUpBridgeStake,
-		federationsimulation.SimulateMsgTopUpBridgeStake(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
+	// MsgUnbondBridge and MsgTopUpBridgeStake simulators were removed
+	// in Phase 4 of the federation→service migration (operators call
+	// x/service MsgUnbondOperator and MsgTopUpBond directly).
 	const (
 		opWeightMsgSubmitFederatedContent          = "op_weight_msg_federation"
 		defaultWeightMsgSubmitFederatedContent int = 100

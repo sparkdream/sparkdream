@@ -18,6 +18,11 @@ const (
 	// x/rep/types/keys.go.
 	RepModuleName = "rep"
 
+	// FederationModuleName is the x/federation module's account name.
+	// Used by the OpenSystemReport caller allowlist (Phase 0). Sync
+	// with x/federation/types/keys.go.
+	FederationModuleName = "federation"
+
 	// BondDenom is the canonical SPARK micro-denom. x/service is SPARK-only
 	// (see x-service-spec.md §1 SPARK-bonded principle).
 	BondDenom = "uspark"
@@ -69,6 +74,16 @@ var (
 	// Tier1LastSlashKey: last tier-1 slash height keyed by
 	// (controller, operator, service_type). Pruned at archive.
 	Tier1LastSlashKey = collections.NewPrefix("tier1_last_slash/value/")
+
+	// SystemReportDedupKey: (caller_module, dedupe_key) → report_id.
+	// Powers idempotent OpenSystemReport (Phase 0 of the federation→
+	// service migration).
+	SystemReportDedupKey = collections.NewPrefix("system_report_dedup/value/")
+
+	// SystemReportRateLimitKey: sliding-window ring buffer keyed by
+	// caller_module. Powers the per-caller cap on OpenSystemReport
+	// filings.
+	SystemReportRateLimitKey = collections.NewPrefix("system_report_rate_limit/value/")
 )
 
 // ---------------------------------------------------------------------------

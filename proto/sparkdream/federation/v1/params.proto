@@ -14,17 +14,23 @@ message Params {
   option (amino.name) = "sparkdream/x/federation/Params";
   option (gogoproto.equal) = true;
 
-  // Bridge operator requirements
-  cosmos.base.v1beta1.Coin min_bridge_stake = 1 [(gogoproto.nullable) = false];
+  // Bridge operator requirements.
+  //
+  // Field 1 (min_bridge_stake), 3 (bridge_revocation_cooldown), and 4
+  // (bridge_unbonding_period) were dropped in the federation→service
+  // migration (Phase 1). Bond minimums, revocation lifecycle, and
+  // unbonding period now live on x/service ServiceTypeConfig per
+  // service_type (federation-bridge-activitypub / federation-bridge-atproto).
+  //
+  // max_bridges_per_peer is intentionally KEPT as a kill-switch (Decision 6):
+  // default 1000 leaves it effectively no-op against any realistic legit
+  // use. The real defenses against runaway registration are the
+  // service.MinBond economic gate, content-hash deduplication, and per-
+  // peer rate limits. Gov may dial it down without a chain upgrade if
+  // some unknown-unknown materializes. It is NOT a normal policy lever.
   uint64 max_bridges_per_peer = 2;
-  google.protobuf.Duration bridge_revocation_cooldown = 3 [
-    (gogoproto.nullable) = false,
-    (gogoproto.stdduration) = true
-  ];
-  google.protobuf.Duration bridge_unbonding_period = 4 [
-    (gogoproto.nullable) = false,
-    (gogoproto.stdduration) = true
-  ];
+  reserved 1, 3, 4;
+  reserved "min_bridge_stake", "bridge_revocation_cooldown", "bridge_unbonding_period";
 
   // Content types
   repeated string known_content_types = 5;

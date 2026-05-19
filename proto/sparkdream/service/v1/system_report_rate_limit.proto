@@ -1,0 +1,35 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// SystemReportRateLimit tracks recent OpenSystemReport call heights for
+// a given allowlisted caller module (e.g. "federation"), implementing
+// the sliding-window per-caller cap from Phase 0 of the federation→
+// service migration plan.
+//
+// The keeper admits a new system-report filing iff fewer than
+// `max_system_reports_per_caller_per_window` entries in
+// `recent_filing_heights` fall within
+// `[current_height - rate_limit_window_blocks, current_height]`.
+//
+// Ring-buffer semantics: when at capacity, the oldest entry is
+// overwritten on each new filing. Idempotent re-calls (same dedupe_key
+// resolving to an existing report) do NOT update the ring buffer.
+message SystemReportRateLimit {
+  option (amino.name) = "sparkdream/x/service/SystemReportRateLimit";
+  option (gogoproto.equal) = true;
+
+  // caller_module is the allowlisted caller name whose rate is being
+  // tracked (e.g. "federation"). Resolved by forward-derive from the
+  // address passed to OpenSystemReport.
+  string caller_module = 1;
+
+  // recent_filing_heights is the ring buffer of recent filing heights
+  // in insertion order. Length capped at
+  // max_system_reports_per_caller_per_window + 1.
+  repeated int64 recent_filing_heights = 2;
+}

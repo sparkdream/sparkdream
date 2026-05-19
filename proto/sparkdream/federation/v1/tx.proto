@@ -23,11 +23,14 @@ service Msg {
   rpc ResumePeer(MsgResumePeer) returns (MsgResumePeerResponse);
   rpc UpdatePeerPolicy(MsgUpdatePeerPolicy) returns (MsgUpdatePeerPolicyResponse);
   rpc RegisterBridge(MsgRegisterBridge) returns (MsgRegisterBridgeResponse);
-  rpc RevokeBridge(MsgRevokeBridge) returns (MsgRevokeBridgeResponse);
-  rpc SlashBridge(MsgSlashBridge) returns (MsgSlashBridgeResponse);
   rpc UpdateBridge(MsgUpdateBridge) returns (MsgUpdateBridgeResponse);
-  rpc UnbondBridge(MsgUnbondBridge) returns (MsgUnbondBridgeResponse);
-  rpc TopUpBridgeStake(MsgTopUpBridgeStake) returns (MsgTopUpBridgeStakeResponse);
+  // RevokeBridge, SlashBridge, UnbondBridge, TopUpBridgeStake were removed
+  // in Phase 4 of the federation→service migration:
+  //   - slashing  → x/service MsgReportOperator → MsgResolveReport
+  //   - unbond    → x/service MsgUnbondOperator (operator-signed directly)
+  //   - top-up    → x/service MsgTopUpBond (operator-signed directly)
+  //   - revoke    → covered by AfterOperatorDissolved hook via T1_SLASH
+  //                 with dissolve=true
   rpc SubmitFederatedContent(MsgSubmitFederatedContent) returns (MsgSubmitFederatedContentResponse);
   rpc FederateContent(MsgFederateContent) returns (MsgFederateContentResponse);
   rpc AttestOutbound(MsgAttestOutbound) returns (MsgAttestOutboundResponse);
@@ -44,6 +47,9 @@ service Msg {
   rpc SubmitArbiterHash(MsgSubmitArbiterHash) returns (MsgSubmitArbiterHashResponse);
   rpc EscalateChallenge(MsgEscalateChallenge) returns (MsgEscalateChallengeResponse);
   rpc UpdateOperationalParams(MsgUpdateOperationalParams) returns (MsgUpdateOperationalParamsResponse);
+  rpc UpdatePeerController(MsgUpdatePeerController) returns (MsgUpdatePeerControllerResponse);
+  rpc ResyncBridgeCount(MsgResyncBridgeCount) returns (MsgResyncBridgeCountResponse);
+  rpc PruneOrphanBindings(MsgPruneOrphanBindings) returns (MsgPruneOrphanBindingsResponse);
 }
 
 // --- Governance ---
@@ -70,6 +76,13 @@ message MsgRegisterPeer {
   PeerType type = 4;
   string ibc_channel_id = 5;
   string metadata = 6;
+  // controller_group is the x/commons Group policy address that will
+  // resolve tier-1 reports against this peer's bridge operators
+  // (federation→service migration, Decision 2). Optional — if empty,
+  // federation defaults to the Operations Committee at bridge-
+  // registration time. If non-empty, the address MUST be a valid
+  // registered group policy (validated via commonsKeeper.IsGroupPolicyAddress).
+  string controller_group = 7 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 }
 message MsgRegisterPeerResponse {}
 
@@ -112,41 +125,26 @@ message MsgUpdatePeerPolicyResponse {}
 
 // --- Bridge Operators (Operations Committee) ---
 
+// MsgRegisterBridge registers a bridge operator for a peer. Operator-
+// signed (federation→service migration): the operator pays their own
+// bond into x/service, so they must sign the tx. Peer existence and
+// per-peer cap are federation-side gates; bond amount, slash caps,
+// unbonding period live on x/service ServiceTypeConfig per service_type.
 message MsgRegisterBridge {
-  option (cosmos.msg.v1.signer) = "authority";
+  option (cosmos.msg.v1.signer) = "operator";
   option (amino.name) = "sparkdream/x/federation/MsgRegisterBridge";
-  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string peer_id = 3;
-  string protocol = 4;
-  string endpoint = 5;
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string protocol = 3;
+  string endpoint = 4;
+  // stake is the SPARK the operator escrows as their service.Operator
+  // bond. Must be ≥ ServiceTypeConfig.min_bond for the protocol's
+  // service_type. If the operator already has a live service.Operator
+  // under the same service_type (re-registering for a different peer
+  // per Decision 1a), this amount is added on top via TopUpBond.
+  cosmos.base.v1beta1.Coin stake = 5 [(gogoproto.nullable) = false];
 }
 message MsgRegisterBridgeResponse {}
-
-message MsgRevokeBridge {
-  option (cosmos.msg.v1.signer) = "authority";
-  option (amino.name) = "sparkdream/x/federation/MsgRevokeBridge";
-  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string peer_id = 3;
-  string reason = 4;
-}
-message MsgRevokeBridgeResponse {}
-
-message MsgSlashBridge {
-  option (cosmos.msg.v1.signer) = "authority";
-  option (amino.name) = "sparkdream/x/federation/MsgSlashBridge";
-  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string peer_id = 3;
-  string amount = 4 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  string reason = 5;
-}
-message MsgSlashBridgeResponse {}
 
 message MsgUpdateBridge {
   option (cosmos.msg.v1.signer) = "authority";
@@ -158,24 +156,9 @@ message MsgUpdateBridge {
 }
 message MsgUpdateBridgeResponse {}
 
-// --- Bridge Self-Service ---
-
-message MsgUnbondBridge {
-  option (cosmos.msg.v1.signer) = "operator";
-  option (amino.name) = "sparkdream/x/federation/MsgUnbondBridge";
-  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string peer_id = 2;
-}
-message MsgUnbondBridgeResponse {}
-
-message MsgTopUpBridgeStake {
-  option (cosmos.msg.v1.signer) = "operator";
-  option (amino.name) = "sparkdream/x/federation/MsgTopUpBridgeStake";
-  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string peer_id = 2;
-  cosmos.base.v1beta1.Coin amount = 3 [(gogoproto.nullable) = false];
-}
-message MsgTopUpBridgeStakeResponse {}
+// (Bridge self-service messages — UnbondBridge, TopUpBridgeStake —
+// were removed in Phase 4. Operators call x/service MsgUnbondOperator
+// and MsgTopUpBond directly. See migration plan.)
 
 // --- Content Federation ---
 
@@ -320,3 +303,52 @@ message MsgUpdateOperationalParams {
   FederationOperationalParams operational_params = 2 [(gogoproto.nullable) = false];
 }
 message MsgUpdateOperationalParamsResponse {}
+
+// --- Peer Controller (federation→service migration, Phase 1) ---
+
+// MsgUpdatePeerController is a gov-authority message that changes the
+// controller_group on an existing peer. Affects only new bridge
+// registrations under that peer — existing bridges keep the controller
+// captured on their service.Operator at registration time. Transferring
+// existing bridges requires service.MsgOpenControllerTransferCase.
+message MsgUpdatePeerController {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/federation/MsgUpdatePeerController";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string controller_group = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+message MsgUpdatePeerControllerResponse {}
+
+// --- Invariant recovery (federation→service migration, Phase 1) ---
+
+// MsgResyncBridgeCount is a dual-authority message (Operations Committee
+// OR gov) that re-counts BridgesByPeer for the given peer and overwrites
+// the peer's bridges_count counter. Recovery path when the count
+// invariant triggers without needing a chain upgrade — pure cleanup,
+// can't be abused to mutate operator state.
+message MsgResyncBridgeCount {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/federation/MsgResyncBridgeCount";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+}
+message MsgResyncBridgeCountResponse {
+  uint64 new_count = 1;
+}
+
+// MsgPruneOrphanBindings is a dual-authority message (Operations
+// Committee OR gov) that runs the AfterOperatorDissolved/Retired
+// cleanup logic for any BridgeBinding whose referenced service.Operator
+// is in a terminal state (SLASHED/RETIRED/missing). Recovery path when
+// the fail-soft hook pattern swallowed a panic and left an orphan.
+// Pure cleanup, no value mutation.
+message MsgPruneOrphanBindings {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/federation/MsgPruneOrphanBindings";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+}
+message MsgPruneOrphanBindingsResponse {
+  uint64 pruned = 1;
+}

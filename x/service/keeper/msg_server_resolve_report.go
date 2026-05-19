@@ -259,30 +259,57 @@ func (k msgServer) handleT1Slash(
 	emitReportResolved(report.ServiceType, types.TierTier1, "SLASH")
 	emitSlashAmount(op.ServiceType, types.TierTier1, float32(slashAmount.Int64()))
 
+	// AfterOperatorUnderfunded fires AFTER state writes so consumer
+	// hooks iterating live indexes see the post-transition state. Skip
+	// if already in UNBONDING (operator is exiting anyway).
+	if emitOperatorUnderfunded && k.hooks() != nil {
+		k.hooks().AfterOperatorUnderfunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
+	}
+
 	return &types.MsgResolveReportResponse{}, nil
 }
 
 // handleEscalateToJury transitions PENDING → ESCALATED with the
-// controller's proposed_slash_bps recorded. Opens an x/rep jury case
-// via CreateAppealInitiative (the same generic-jury entry point used
-// by forum's moderation appeals and rep's gov_action_appeal — §6.2).
+// controller's proposed_slash_bps recorded. Thin msg-server wrapper
+// around the keeper-level escalateReportToJury so EndBlocker (Phase 0
+// auto-escalate-on-timeout) can share the logic.
 func (k msgServer) handleEscalateToJury(
 	ctx context.Context,
 	report *types.Report,
 	proposedSlashBps uint32,
 	currentHeight int64,
 ) (*types.MsgResolveReportResponse, error) {
+	if err := k.Keeper.escalateReportToJury(ctx, report, proposedSlashBps, currentHeight); err != nil {
+		return nil, err
+	}
+	return &types.MsgResolveReportResponse{}, nil
+}
+
+// escalateReportToJury is the keeper-level escalation primitive. Used
+// both by MsgResolveReport(ESCALATE_TO_JURY) and by the EndBlocker
+// timeout sweep when the report's ServiceTypeConfig has
+// ReportTimeoutAction=ESCALATE.
+//
+// Performs:
+//   - PENDING → ESCALATED state transition;
+//   - Opens an x/rep jury case via CreateAppealInitiative (skipped if
+//     repKeeper is nil, e.g. in standalone-mode tests);
+//   - Moves the report from PendingReportsQueue to EscalatedReportsQueue;
+//   - Emits service.report_escalated.
+func (k Keeper) escalateReportToJury(
+	ctx context.Context,
+	report *types.Report,
+	proposedSlashBps uint32,
+	currentHeight int64,
+) error {
 	report.Status = types.ReportStatus_REPORT_STATUS_ESCALATED
 	report.ProposedSlashBps = proposedSlashBps
 	report.EscalatedAt = currentHeight
 
-	// Open the jury case if x/rep is wired (standalone-mode tests run
-	// without it). Payload is a minimal JSON record so the jurors can
-	// see what they're voting on; deadline = current + max_escalated_blocks.
 	if k.repKeeper() != nil {
 		params, err := k.Params.Get(ctx)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		payload := []byte(fmt.Sprintf(
 			`{"report_id":%d,"operator":%q,"service_type":%q,"reporter":%q,"reason":%q,"proposed_slash_bps":%d}`,
@@ -292,27 +319,25 @@ func (k msgServer) handleEscalateToJury(
 		deadline := currentHeight + params.MaxEscalatedBlocks
 		caseID, err := k.repKeeper().CreateAppealInitiative(ctx, "service.slash", payload, deadline)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		report.JuryCaseId = caseID
 	}
 
-	// Remove from PendingReportsQueue and add to EscalatedReportsQueue.
 	if err := k.PendingReportsQueue.Remove(ctx, collections.Join(report.FiledAt, report.ReportId)); err != nil {
-		return nil, err
+		return err
 	}
 	if err := k.EscalatedReportsQueue.Set(ctx, collections.Join(currentHeight, report.ReportId)); err != nil {
-		return nil, err
+		return err
 	}
 	if err := k.Reports.Set(ctx, report.ReportId, *report); err != nil {
-		return nil, err
+		return err
 	}
 
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
 		types.NewReportEscalatedEvent(report.ReportId, report.JuryCaseId, proposedSlashBps),
 	)
-
-	return &types.MsgResolveReportResponse{}, nil
+	return nil
 }
 
 // ---------------------------------------------------------------------------

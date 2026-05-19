@@ -275,15 +275,18 @@ echo "--- TEST 6: Verify content ---"
 VERIFY_BODY="Content to be verified by the verification pipeline"
 VERIFY_HASH=$(sha256_base64 "$VERIFY_BODY")
 
-# Check operator2's bridge status on mastodon.example
-BRIDGE_CHECK_RAW=$($BINARY query federation get-bridge-operator $OPERATOR2_ADDR mastodon.example --output json 2>&1)
-if echo "$BRIDGE_CHECK_RAW" | jq -e '.bridge_operator' > /dev/null 2>&1; then
-    BRIDGE_CHECK=$(echo "$BRIDGE_CHECK_RAW" | jq -r '.bridge_operator.status // "BRIDGE_STATUS_UNSPECIFIED"')
+# Check operator2's bridge binding + service.Operator status.
+# Post-Phase-4: the BridgeBinding has no status field; live operator state
+# (ACTIVE/UNBONDING/SLASHED) lives on x/service.Operator keyed by
+# (address, service_type=federation-bridge-activitypub).
+BRIDGE_CHECK_RAW=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR mastodon.example --output json 2>&1)
+if echo "$BRIDGE_CHECK_RAW" | jq -e '.bridge_binding.address' > /dev/null 2>&1; then
+    BRIDGE_CHECK=$($BINARY query service operator $OPERATOR2_ADDR federation-bridge-activitypub --output json 2>&1 | jq -r '.operator.status // "OPERATOR_STATUS_UNSPECIFIED"')
 else
     BRIDGE_CHECK="not found"
 fi
 
-if [ "$BRIDGE_CHECK" == "BRIDGE_STATUS_ACTIVE" ]; then
+if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
     # Submit fresh content via operator2
     TX_RES=$($BINARY tx federation submit-federated-content \
         mastodon.example \
@@ -487,7 +490,7 @@ SELF_CHAL_BODY="Content for self-challenge test"
 SELF_CHAL_HASH=$(sha256_base64 "$SELF_CHAL_BODY")
 SELF_CHAL_CONTENT_ID=""
 
-if [ "$BRIDGE_CHECK" == "BRIDGE_STATUS_ACTIVE" ]; then
+if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
     TX_RES=$($BINARY tx federation submit-federated-content \
         mastodon.example "self-chal-001" "blog_post" \
         "@selfchal@mastodon.example" "Self-Chal Test" "Self Challenge Test" \
@@ -648,7 +651,7 @@ fi
 echo ""
 echo "--- TEST 13: Hash mismatch verification → DISPUTED ---"
 
-if [ "$BRIDGE_CHECK" == "BRIDGE_STATUS_ACTIVE" ]; then
+if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
     MISMATCH_BODY="Content with a hash that the verifier will disagree with"
     MISMATCH_HASH=$(sha256_base64 "$MISMATCH_BODY")
     WRONG_VERIFY_HASH=$(sha256_base64 "This is NOT the same content at all")
@@ -1081,48 +1084,31 @@ if [ -n "$MISMATCH_CONTENT_ID" ]; then
     MISMATCH_STATUS=$($BINARY query federation get-federated-content $MISMATCH_CONTENT_ID --output json 2>&1 | jq -r '.content.status // empty')
 
     if [ "$MISMATCH_STATUS" == "FEDERATED_CONTENT_STATUS_DISPUTED" ] || [ "$MISMATCH_STATUS" == "FEDERATED_CONTENT_STATUS_CHALLENGED" ]; then
-        # Register alice as bridge operator on mastodon.example via Ops Committee
-        cat > "$SCRIPT_DIR/proposals/register_alice_bridge.json" <<EOF
-{
-  "policy_address": "$OPS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterBridge",
-      "authority": "$OPS_POLICY",
-      "operator": "$VERIFIER_A_ADDR",
-      "peer_id": "mastodon.example",
-      "protocol": "activitypub",
-      "endpoint": "https://arbiter-bridge.example.com"
-    }
-  ],
-  "metadata": "Register alice as bridge for arbiter test"
-}
-EOF
-
+        # Post-Phase-4: bridge registration is operator-signed (no OpsComm
+        # proposal). VERIFIER_A signs MsgRegisterBridge directly with a stake
+        # >= min_bond pulled from the federation-bridge-activitypub config.
+        # Idempotent: if alice already has a binding for mastodon.example,
+        # skip the registration.
         echo "  Registering alice as bridge operator..."
-        TX_RES=$($BINARY tx commons submit-proposal "$SCRIPT_DIR/proposals/register_alice_bridge.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
         ALICE_BRIDGE_OK=false
-        if submit_and_wait "$TX_RES" "register alice bridge proposal"; then
-            PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
-            if [ -n "$PROP_ID" ]; then
-                # Vote and execute via ops committee (alice+bob)
-                for VOTER in "alice" "bob"; do
-                    S=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
-                    [ "$S" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$S" == "PROPOSAL_STATUS_EXECUTED" ] && continue
-                    VR=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
-                    submit_and_wait "$VR" "$VOTER vote" || true
-                done
-                TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json 2>&1)
-                if submit_and_wait "$TX_RES" "execute alice bridge"; then
-                    ALICE_BRIDGE_OK=true
-                    echo "  Alice registered as bridge operator"
-                else
-                    CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
-                    RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-                    echo "  Bridge registration failed (code=$CODE): $(echo "$RAW" | head -c 100)"
-                fi
-                sleep 5
+        EXISTING=$($BINARY query federation get-bridge-binding $VERIFIER_A_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
+        if [ -n "$EXISTING" ]; then
+            echo "  Alice already has a binding for mastodon.example"
+            ALICE_BRIDGE_OK=true
+        else
+            MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.min_bond.amount')
+            TX_RES=$($BINARY tx federation register-bridge \
+                mastodon.example activitypub https://arbiter-bridge.example.com "${MIN_BOND_AMT}uspark" \
+                --from $VERIFIER_A -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+            if submit_and_wait "$TX_RES" "register alice bridge"; then
+                ALICE_BRIDGE_OK=true
+                echo "  Alice registered as bridge operator"
+            else
+                CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
+                RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
+                echo "  Bridge registration failed (code=$CODE): $(echo "$RAW" | head -c 120)"
             fi
+            sleep 5
         fi
 
         if [ "$ALICE_BRIDGE_OK" == "true" ]; then
