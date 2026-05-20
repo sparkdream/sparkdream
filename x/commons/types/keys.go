@@ -53,15 +53,10 @@ var (
 	// EpochSpending: (policy_address, epoch_day) -> cumulative uspark spent (string-encoded math.Int)
 	EpochSpendingKey = collections.NewPrefix("epochSpending/value/")
 
-	// --- Recurring Spend collections ---
-	// RecurringSpends: id -> RecurringSpend
-	RecurringSpendsKey = collections.NewPrefix("recurringSpends/value/")
-	// RecurringSpendSeq: auto-increment sequence for recurring spend IDs
-	RecurringSpendSeqKey = collections.NewPrefix("recurringSpends/seq/")
-	// RecurringSpendsByAuthority: (authority, id) -> empty
-	RecurringSpendsByAuthorityKey = collections.NewPrefix("recurringSpends/byAuthority/")
-	// RecurringSpendsByRecipient: (recipient, id) -> empty
-	RecurringSpendsByRecipientKey = collections.NewPrefix("recurringSpends/byRecipient/")
-	// ActiveRecurringSpendCount: authority -> uint32 (active count, for cheap cap check)
-	ActiveRecurringSpendCountKey = collections.NewPrefix("recurringSpends/activeCount/")
+	// --- Recurring Spend collections (M10 removed) ---
+	// The parallel commons.RecurringSpends storage was deleted by the
+	// RecurringSpend migration. Schedules now live in session.Grants.
+	// Key-prefix constants are kept reserved (not redefined) so a
+	// future use of the `recurringSpends/` prefix is a conscious
+	// decision rather than an accidental collision.
 )

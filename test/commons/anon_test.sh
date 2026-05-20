@@ -190,7 +190,10 @@ echo ""
 # =========================================================================
 echo "--- TEST 1: Anonymous proposal submission ---"
 
-NULLIFIER_PROP="ca01000000000000000000000000000000000000000000000000000000000001"
+# Generate a per-run nullifier so a stale chain state (snapshot reuse
+# or hung suite reusing parallel-N data) from a previous run can't
+# trip the "nullifier already used" replay guard.
+NULLIFIER_PROP=$(openssl rand -hex 32)
 RATE_NULL_PROP=$(openssl rand -hex 32)
 
 # The inner message is MsgSubmitAnonymousProposal with shield module as proposer
@@ -254,7 +257,9 @@ if [ -z "$VOTE_PROPOSAL_ID" ]; then
     echo "  SKIP: No proposal available to vote on"
     record_result "Anonymous vote on proposal" "FAIL"
 else
-    NULLIFIER_VOTE="ca02000000000000000000000000000000000000000000000000000000000002"
+    # Per-run nullifier; TEST 3 reuses this exact value to verify the
+    # replay-prevention guard, so it's defined here once.
+    NULLIFIER_VOTE=$(openssl rand -hex 32)
     RATE_NULL_VOTE=$(openssl rand -hex 32)
     # option 1 = VOTE_OPTION_YES
     INNER_MSG="{\"@type\":\"/sparkdream.commons.v1.MsgAnonymousVoteProposal\",\"voter\":\"$SHIELD_MODULE_ADDR\",\"proposal_id\":\"$VOTE_PROPOSAL_ID\",\"option\":1,\"metadata\":\"Anonymous yes vote\"}"

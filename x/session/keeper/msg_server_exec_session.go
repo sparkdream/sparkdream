@@ -25,21 +25,31 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 		return nil, types.ErrTooManyMsgs
 	}
 
-	// 1. Session exists
-	key := collections.Join(msg.Granter, msg.Grantee)
-	session, err := k.Sessions.Get(ctx, key)
+	// 1. Look up the SESSION_KEY grant for this (granter, grantee) pair.
+	id, err := k.SessionKeyByPair.Get(ctx, collections.Join(msg.Granter, msg.Grantee))
 	if err != nil {
+		return nil, types.ErrSessionNotFound
+	}
+	grant, err := k.Grants.Get(ctx, id)
+	if err != nil {
+		return nil, types.ErrSessionNotFound
+	}
+	sk := grant.GetSessionKey()
+	if sk == nil {
+		return nil, types.ErrSessionNotFound
+	}
+	if grant.Status != types.GrantStatus_GRANT_STATUS_ACTIVE {
 		return nil, types.ErrSessionNotFound
 	}
 
 	// 2. Not expired
 	blockTime := sdkCtx.BlockTime()
-	if !session.Expiration.After(blockTime) {
+	if !grant.ExpiresAt.After(blockTime) {
 		return nil, types.ErrSessionExpired
 	}
 
 	// 3. Exec count check
-	if session.MaxExecCount > 0 && session.ExecCount >= session.MaxExecCount {
+	if sk.MaxExecCount > 0 && sk.ExecCount >= sk.MaxExecCount {
 		return nil, types.ErrExecCountExceeded
 	}
 
@@ -50,8 +60,8 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 	}
 
 	// Build lookup sets
-	sessionAllowed := make(map[string]bool, len(session.AllowedMsgTypes))
-	for _, t := range session.AllowedMsgTypes {
+	sessionAllowed := make(map[string]bool, len(sk.AllowedMsgTypes))
+	for _, t := range sk.AllowedMsgTypes {
 		sessionAllowed[t] = true
 	}
 	globalAllowed := make(map[string]bool, len(params.AllowedMsgTypes))
@@ -128,15 +138,15 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 		executedTypeURLs = append(executedTypeURLs, typeURL)
 	}
 
-	// Update session state: increment by number of inner messages executed.
+	// Update grant state: increment by number of inner messages executed.
 	// SESSION-S2-1 fix: Spend-limit accounting moved to the ante handler, which
 	// debits Spent in fee units (uspark) atomically with the actual fee
 	// deduction. This avoids the gas-vs-fee unit mismatch and ensures failed
 	// inner messages still consume budget (SESSION-S2-2).
-	session.ExecCount += uint64(len(msg.Msgs))
-	session.LastUsedAt = blockTime
-
-	if err := k.Sessions.Set(ctx, key, session); err != nil {
+	sk.ExecCount += uint64(len(msg.Msgs))
+	sk.LastUsedAt = blockTime
+	grant.Payload = &types.Grant_SessionKey{SessionKey: sk}
+	if err := k.Grants.Set(ctx, id, grant); err != nil {
 		return nil, err
 	}
 
@@ -145,7 +155,8 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 		sdk.NewAttribute("granter", msg.Granter),
 		sdk.NewAttribute("grantee", msg.Grantee),
 		sdk.NewAttribute("msg_type_urls", strings.Join(executedTypeURLs, ",")),
-		sdk.NewAttribute("exec_count", fmt.Sprintf("%d", session.ExecCount)),
+		sdk.NewAttribute("exec_count", fmt.Sprintf("%d", sk.ExecCount)),
+		sdk.NewAttribute("grant_id", fmt.Sprintf("%d", id)),
 	))
 
 	return &types.MsgExecSessionResponse{}, nil

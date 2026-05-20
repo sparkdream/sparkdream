@@ -17,16 +17,23 @@ func (q queryServer) SessionsByGrantee(ctx context.Context, req *types.QuerySess
 
 	var sessions []types.Session
 
-	// Index key is (grantee, granter); session primary key is (granter, grantee)
-	rng := collections.NewPrefixedPairRange[string, string](req.Grantee)
-	err := q.k.SessionsByGrantee.Walk(ctx, rng, func(key collections.Pair[string, string]) (bool, error) {
-		granter := key.K2() // K1 = grantee (prefix), K2 = granter
-		session, err := q.k.Sessions.Get(ctx, collections.Join(granter, req.Grantee))
+	// GrantsByGrantee is keyed by (grantee, id); iterate prefix=grantee and
+	// filter for SESSION_KEY grants.
+	rng := collections.NewPrefixedPairRange[string, uint64](req.Grantee)
+	err := q.k.GrantsByGrantee.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+		id := key.K2()
+		grant, err := q.k.Grants.Get(ctx, id)
+		if err != nil {
+			return true, err
+		}
+		if grant.Type != types.GrantType_GRANT_TYPE_SESSION_KEY {
+			return false, nil
+		}
+		session, err := projectSession(grant)
 		if err != nil {
 			return true, err
 		}
 		sessions = append(sessions, session)
-		// SESSION-6 fix: hard cap to prevent unbounded iteration
 		if len(sessions) >= maxQueryResults {
 			return true, nil
 		}

@@ -10,6 +10,12 @@ import "google/protobuf/timestamp.proto";
 option go_package = "sparkdream/x/session/types";
 
 // Session represents an active session key delegation from granter to grantee.
+//
+// DEPRECATED: kept as the response shape for the legacy Session / SessionsByGranter
+// / SessionsByGrantee queries while the registry transitions to the unified Grant
+// model in grant.proto. Internally the keeper now persists every session as a
+// SESSION_KEY-type Grant; the query handlers project Session views back from those
+// grants. New grant types must use Grant directly.
 message Session {
   // Main wallet address (pays fees, "owns" the session).
   string granter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];

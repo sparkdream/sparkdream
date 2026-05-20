@@ -1,15 +1,18 @@
 #!/bin/bash
 
 # Recurring spend authority / recipient invariants. Exercises:
-#   1. Wrong-recipient claim is rejected (ErrRecurringSpendUnauthorized).
+#   1. Wrong-recipient claim is rejected (ErrRecurringPullUnauthorized).
 #   2. Wrong-recipient decline is rejected.
 #   3. Recipient unilateral decline succeeds and prevents future claims.
 #   4. A peer council's MsgCancelRecurringSpend against another council's
 #      schedule is rejected (ErrRecurringSpendUnauthorized at execute).
 #
-# This test requires the period-min to be small so claims can be exercised
-# in a single test run; if `recurring_spend_test.sh` already lowered the
-# param it's reused, otherwise we lower it here.
+# Post-M11 (RecurringSpend migration): the period-min is set by the
+# session-side testparams build override (x/session/types/defaults_testparams.go);
+# no per-test gov dance is needed. Schedule ids come from the
+# `grant_created` event (M5 dropped the legacy `recurring_spend_scheduled`).
+# After decline the grant is DELETED from session — we assert via the
+# `grant_declined` event and the NotFound query response (M9).
 
 set -u
 
@@ -26,7 +29,6 @@ CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
-GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
 
 COMMITTEE_NAME="Commons Operations Committee"
 PEER_NAME="Ecosystem Operations Committee"
@@ -43,70 +45,27 @@ fi
 echo "Owning committee:  $OWN_POLICY ($COMMITTEE_NAME)"
 echo "Peer committee:    $PEER_POLICY ($PEER_NAME)"
 
-# Helper: pluck the submit_proposal.proposal_id from a tx hash.
-get_gov_proposal_id() {
-    local tx_hash=$1; local retries=0; local prop_id=""
-    while [ $retries -lt 10 ]; do
-        sleep 1
-        local tx_res
-        tx_res=$($BINARY query tx "$tx_hash" --output json 2>/dev/null)
-        if [ $? -eq 0 ]; then
-            prop_id=$(echo "$tx_res" | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-            if [ -n "$prop_id" ] && [ "$prop_id" != "null" ]; then echo "$prop_id"; return 0; fi
-        fi
-        retries=$((retries + 1))
-    done
-    return 1
-}
-
-# Ensure min_recurring_period_seconds is small enough to claim.
-CURRENT_MIN=$($BINARY query commons params --output json | jq -r '.params.min_recurring_period_seconds')
-if [ "$CURRENT_MIN" -gt "10" ]; then
-    echo "STEP 0: Lowering min_recurring_period_seconds via gov (current=$CURRENT_MIN)..."
-    cat > "$PROPOSAL_DIR/gov_lower_min_period_sec.json" <<EOF
-{
-  "messages": [
-    {
-      "@type": "/sparkdream.commons.v1.MsgUpdateParams",
-      "authority": "$GOV_ADDR",
-      "params": {
-        "proposal_fee": "$PROPOSAL_FEE",
-        "min_recurring_period_seconds": "5",
-        "max_recurring_duration_seconds": "300",
-        "max_active_recurring_spends_per_group": 50
-      }
-    }
-  ],
-  "deposit": "100000000uspark",
-  "title": "Lower recurring spend min period (security test)",
-  "summary": "5s cadence floor for E2E security test."
-}
-EOF
-    GOV_SUBMIT=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_lower_min_period_sec.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
-    GOV_TX_HASH=$(echo "$GOV_SUBMIT" | jq -r '.txhash')
-    GOV_PROP_ID=$(get_gov_proposal_id "$GOV_TX_HASH")
-    [ -z "$GOV_PROP_ID" ] && { echo "[FAIL] Failed to find gov proposal ID."; exit 1; }
-    $BINARY tx gov vote "$GOV_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test > /dev/null
-    echo "Waiting 70s for gov voting period..."
-    sleep 70
+# Confirm testparams build (period floor lowered to 5s); otherwise the
+# claim subtest can't complete in a reasonable wall-clock budget.
+SESSION_MIN_PERIOD=$($BINARY query session params --output json | jq -r '.params.min_recurring_period_seconds')
+if [ -z "$SESSION_MIN_PERIOD" ] || [ "$SESSION_MIN_PERIOD" -gt 60 ]; then
+    echo "[FAIL] session min_recurring_period_seconds=$SESSION_MIN_PERIOD — testparams override missing."
+    exit 1
 fi
 
 PERIOD=5
 $BINARY tx bank send "$ALICE_ADDR" "$OWN_POLICY" 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
 sleep 3
 
-# --- 1. SCHEDULE TWO SPENDS (one for the wrong-recipient subtests, one for the decline subtest) ---
+# --- 1. SCHEDULE TWO SPENDS (one for wrong-recipient subtests, one for decline) ---
 schedule_for_recipient() {
     local recipient=$1
     local note=$2
     local now; now=$(date +%s)
-    # Submit + vote + execute takes ~15s end-to-end (3-4 sleeps of 3s plus
-    # per-tx wait). A small start-time buffer (e.g. now+8) leaves the inner
-    # MsgScheduleRecurringSpend running after start_time has already passed,
-    # which trips the keeper's "start_time is in the past" guard and the
-    # proposal aborts with no recurring_spend_scheduled event — the
-    # downstream sched_id extraction then sees empty. Push the buffer far
-    # enough out that block_time at execute is still behind start_time.
+    # Submit + vote + execute takes ~15s end-to-end. Push start far
+    # enough that block_time at execute is still behind start_time
+    # (otherwise the schedule's "start_time in the past" guard fires
+    # and the proposal aborts).
     local start=$((now + 30))
     local end=$((start + 120))
 
@@ -140,8 +99,16 @@ EOF
     exec_res=$($BINARY tx commons execute-proposal "$prop_id" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
     sleep 3
     local exec_hash; exec_hash=$(echo "$exec_res" | jq -r '.txhash')
+    # Post-migration the schedule id is reported via the session
+    # `grant_created` event (with source=module_bypass) rather than the
+    # legacy `recurring_spend_scheduled` event.
     local sched_id
-    sched_id=$($BINARY query tx "$exec_hash" --output json | jq -r '.events[] | select(.type=="recurring_spend_scheduled") | .attributes[] | select(.key=="id") | .value' | tr -d '"')
+    sched_id=$($BINARY query tx "$exec_hash" --output json | jq -r '
+        .events[] |
+        select(.type=="grant_created") |
+        select(.attributes[]? | select(.key=="source" and .value=="module_bypass")) |
+        .attributes[] | select(.key=="id") | .value
+    ' | tr -d '"' | head -n1)
     if [ -z "$sched_id" ] || [ "$sched_id" == "null" ]; then
         echo "[FAIL] Could not capture scheduled id for '$note'." >&2
         return 1
@@ -163,7 +130,6 @@ BAD_HASH=$(echo "$BAD_CLAIM" | jq -r '.txhash')
 if [ "$BAD_CODE" == "0" ]; then
     sleep 3
     BAD_CODE=$($BINARY query tx "$BAD_HASH" --output json | jq -r '.code')
-    BAD_LOG=$($BINARY query tx "$BAD_HASH" --output json | jq -r '.raw_log')
 fi
 if [ "$BAD_CODE" == "0" ]; then
     echo "[FAIL] bob's wrong-recipient claim succeeded!"
@@ -180,7 +146,6 @@ BAD_DECL_CODE=$(echo "$BAD_DECL" | jq -r '.code')
 if [ "$BAD_DECL_CODE" == "0" ]; then
     sleep 3
     BAD_DECL_CODE=$($BINARY query tx "$BAD_DECL_HASH" --output json | jq -r '.code')
-    BAD_DECL_LOG=$($BINARY query tx "$BAD_DECL_HASH" --output json | jq -r '.raw_log')
 fi
 if [ "$BAD_DECL_CODE" == "0" ]; then
     echo "[FAIL] bob's wrong-recipient decline succeeded!"
@@ -194,9 +159,9 @@ echo "STEP 4: Carol unilaterally declines decline-target=$DECLINE_ID..."
 DEC_RES=$($BINARY tx commons decline-recurring-spend "$DECLINE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json)
 sleep 3
 DEC_CODE=$(echo "$DEC_RES" | jq -r '.code')
+DEC_HASH=$(echo "$DEC_RES" | jq -r '.txhash')
 if [ "$DEC_CODE" != "0" ]; then
     sleep 3
-    DEC_HASH=$(echo "$DEC_RES" | jq -r '.txhash')
     DEC_CODE=$($BINARY query tx "$DEC_HASH" --output json | jq -r '.code')
 fi
 if [ "$DEC_CODE" != "0" ]; then
@@ -204,12 +169,26 @@ if [ "$DEC_CODE" != "0" ]; then
     exit 1
 fi
 
-DEC_STATUS=$($BINARY query commons get-recurring-spend "$DECLINE_ID" --output json | jq -r '.recurring_spend.status')
-if [ "$DEC_STATUS" != "RECURRING_SPEND_STATUS_RECIPIENT_DECLINED" ]; then
-    echo "[FAIL] Expected status RECIPIENT_DECLINED, got $DEC_STATUS"
+# Post-migration the grant is DELETED from session on decline (M9
+# semantic break). Audit is the `grant_declined` event from the
+# decline tx; the get-recurring-spend query returns NotFound.
+DECL_EVENT=$($BINARY query tx "$DEC_HASH" --output json | jq -r '
+    .events[] |
+    select(.type=="grant_declined") |
+    .attributes[] | select(.key=="id") | .value
+' | tr -d '"' | head -n1)
+if [ "$DECL_EVENT" != "$DECLINE_ID" ]; then
+    echo "[FAIL] Expected grant_declined event for id=$DECLINE_ID, got '$DECL_EVENT'."
     exit 1
 fi
-echo "[ OK ] Recipient decline succeeded; status=$DEC_STATUS"
+echo "[ OK ] grant_declined event fired for id=$DECLINE_ID."
+
+GET_AFTER=$($BINARY query commons get-recurring-spend "$DECLINE_ID" --output json 2>&1 || true)
+if ! echo "$GET_AFTER" | grep -qi "not found"; then
+    echo "[FAIL] Expected NotFound from get-recurring-spend post-decline; got: $GET_AFTER"
+    exit 1
+fi
+echo "[ OK ] Post-decline query returns NotFound (M9 deliberate semantic break)."
 
 # Post-decline claim should fail.
 sleep "$PERIOD"
@@ -253,8 +232,6 @@ PEER_SUBMIT_CODE=$(echo "$PEER_TX" | jq -r '.code')
 PEER_PROP_ID=$(echo "$PEER_TX" | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
 if [ "$PEER_SUBMIT_CODE" != "0" ] || [ -z "$PEER_PROP_ID" ] || [ "$PEER_PROP_ID" == "null" ]; then
-    # Submit-time rejection (likely: peer committee's StandardPermissions don't include MsgCancelRecurringSpend, or
-    # the policy refuses the authority mismatch). Either way the test goal is met.
     echo "[ OK ] Cross-council cancel rejected at submit (code=$PEER_SUBMIT_CODE)."
 else
     $BINARY tx commons vote-proposal "$PEER_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
@@ -269,10 +246,11 @@ else
     echo "[ OK ] Cross-council cancel rejected at execute (proposal status=$PEER_STATUS)."
 fi
 
-# Make sure claim-target schedule is still ACTIVE.
-TARGET_STATUS=$($BINARY query commons get-recurring-spend "$CLAIM_ID" --output json | jq -r '.recurring_spend.status')
+# Make sure claim-target schedule is still queryable and ACTIVE.
+TARGET_STATE=$($BINARY query commons get-recurring-spend "$CLAIM_ID" --output json 2>&1)
+TARGET_STATUS=$(echo "$TARGET_STATE" | jq -r '.recurring_spend.status // empty')
 if [ "$TARGET_STATUS" != "RECURRING_SPEND_STATUS_ACTIVE" ]; then
-    echo "[FAIL] Original schedule no longer ACTIVE after hostile cancel attempt (got $TARGET_STATUS)."
+    echo "[FAIL] Original schedule no longer ACTIVE after hostile cancel attempt (got '$TARGET_STATUS', raw: $TARGET_STATE)."
     exit 1
 fi
 echo "[ OK ] Target schedule still ACTIVE."

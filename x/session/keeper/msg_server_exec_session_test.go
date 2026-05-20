@@ -24,33 +24,17 @@ func TestExecSessionValidation(t *testing.T) {
 	blogType := types.DefaultAllowedMsgTypes[0] // "/sparkdream.blog.v1.MsgCreatePost"
 	futureExp := sdkCtx.BlockTime().Add(24 * time.Hour)
 
-	// Helper to create a test session with specific params
+	// Helper to create a test session as a SESSION_KEY grant.
 	setupSession := func(allowedTypes []string, exp time.Time, maxExec uint64) {
-		session := types.Session{
-			Granter:         granter,
-			Grantee:         grantee,
-			AllowedMsgTypes: allowedTypes,
-			SpendLimit:      sdk.NewInt64Coin("uspark", 10_000_000),
-			Spent:           sdk.NewInt64Coin("uspark", 0),
-			Expiration:      exp,
-			CreatedAt:       sdkCtx.BlockTime(),
-			LastUsedAt:      sdkCtx.BlockTime(),
-			ExecCount:       0,
-			MaxExecCount:    maxExec,
-		}
-		key := collections.Join(granter, grantee)
-		require.NoError(t, f.keeper.Sessions.Set(f.ctx, key, session))
-		require.NoError(t, f.keeper.SessionsByGranter.Set(f.ctx, collections.Join(granter, grantee)))
-		require.NoError(t, f.keeper.SessionsByGrantee.Set(f.ctx, collections.Join(grantee, granter)))
-		require.NoError(t, f.keeper.SessionsByExpiration.Set(f.ctx, collections.Join3(exp.Unix(), granter, grantee)))
+		// Wipe any prior pair so the create-path's one-active-per-pair
+		// invariant holds across test runs.
+		cleanupSessionPair(t, f, granter, grantee)
+		_ = createTestSessionWithExec(t, f, granter, grantee, allowedTypes, exp, maxExec)
 	}
 
 	// Cleanup session between tests
 	cleanupSession := func() {
-		key := collections.Join(granter, grantee)
-		_ = f.keeper.Sessions.Remove(f.ctx, key)
-		_ = f.keeper.SessionsByGranter.Remove(f.ctx, collections.Join(granter, grantee))
-		_ = f.keeper.SessionsByGrantee.Remove(f.ctx, collections.Join(grantee, granter))
+		cleanupSessionPair(t, f, granter, grantee)
 	}
 
 	tests := []struct {
@@ -122,10 +106,12 @@ func TestExecSessionValidation(t *testing.T) {
 			setup: func() {
 				setupSession([]string{blogType}, futureExp, 5)
 				// Set exec count to max
-				key := collections.Join(granter, grantee)
-				session, _ := f.keeper.Sessions.Get(f.ctx, key)
-				session.ExecCount = 5
-				_ = f.keeper.Sessions.Set(f.ctx, key, session)
+				id, _ := f.keeper.SessionKeyByPair.Get(f.ctx, collections.Join(granter, grantee))
+				g, _ := f.keeper.Grants.Get(f.ctx, id)
+				sk := g.GetSessionKey()
+				sk.ExecCount = 5
+				g.Payload = &types.Grant_SessionKey{SessionKey: sk}
+				_ = f.keeper.Grants.Set(f.ctx, id, g)
 			},
 			cleanup:     func() { cleanupSession() },
 			expectError: true,
@@ -246,27 +232,19 @@ func TestExecSessionExecCountUnlimited(t *testing.T) {
 	blogType := types.DefaultAllowedMsgTypes[0]
 	futureExp := sdkCtx.BlockTime().Add(24 * time.Hour)
 
-	// Create session with MaxExecCount = 0 (unlimited) and high ExecCount
-	session := types.Session{
-		Granter:         granter,
-		Grantee:         grantee,
-		AllowedMsgTypes: []string{blogType},
-		SpendLimit:      sdk.NewInt64Coin("uspark", 10_000_000),
-		Spent:           sdk.NewInt64Coin("uspark", 0),
-		Expiration:      futureExp,
-		CreatedAt:       sdkCtx.BlockTime(),
-		LastUsedAt:      sdkCtx.BlockTime(),
-		ExecCount:       99999,
-		MaxExecCount:    0, // unlimited
-	}
-	key := collections.Join(granter, grantee)
-	require.NoError(t, f.keeper.Sessions.Set(f.ctx, key, session))
-	require.NoError(t, f.keeper.SessionsByGranter.Set(f.ctx, collections.Join(granter, grantee)))
-	require.NoError(t, f.keeper.SessionsByGrantee.Set(f.ctx, collections.Join(grantee, granter)))
-	require.NoError(t, f.keeper.SessionsByExpiration.Set(f.ctx, collections.Join3(futureExp.Unix(), granter, grantee)))
+	// Create grant with MaxExecCount = 0 (unlimited) and high ExecCount.
+	_ = createTestSessionWithExec(t, f, granter, grantee, []string{blogType}, futureExp, 0)
+	id, err := f.keeper.SessionKeyByPair.Get(f.ctx, collections.Join(granter, grantee))
+	require.NoError(t, err)
+	g, err := f.keeper.Grants.Get(f.ctx, id)
+	require.NoError(t, err)
+	sk := g.GetSessionKey()
+	sk.ExecCount = 99999
+	g.Payload = &types.Grant_SessionKey{SessionKey: sk}
+	require.NoError(t, f.keeper.Grants.Set(f.ctx, id, g))
 
 	// Should pass exec count check (unlimited) but fail at unpack/router
-	_, err := ms.ExecSession(f.ctx, &types.MsgExecSession{
+	_, err = ms.ExecSession(f.ctx, &types.MsgExecSession{
 		Granter: granter,
 		Grantee: grantee,
 		Msgs:    []*gogoany.Any{{TypeUrl: blogType}},

@@ -47,11 +47,11 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	// 18 operations: SpendFromCommons, EmergencyCancel, Create/Update/DeletePolicyPermissions,
-	// RegisterGroup, RenewGroup, UpdateGroupMembers, UpdateGroupConfig, ForceUpgrade,
-	// DeleteGroup, VetoGroupProposals, CreateCategory, DeleteCategory,
-	// ScheduleRecurringSpend, ClaimRecurringSpend, CancelRecurringSpend, DeclineRecurringSpend
-	require.Len(t, ops, 18)
+	// 14 operations after M10 (RecurringSpend migration). The 4
+	// recurring-spend simulations were removed because they reached
+	// into the deleted parallel storage; coverage moves to M11 e2e
+	// scripts.
+	require.Len(t, ops, 14)
 }
 
 func TestProposalMsgs(t *testing.T) {

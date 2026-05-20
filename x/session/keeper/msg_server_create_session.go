@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -9,6 +10,11 @@ import (
 	"sparkdream/x/session/types"
 )
 
+// CreateSession is the legacy session-key creator. Internally writes a
+// SESSION_KEY-type Grant; the wire-level message shape and external
+// behavior (per-(granter, grantee) uniqueness, max_sessions_per_granter,
+// allowlist subset rules, expiration cap, spend-limit denom/positivity
+// checks, exec-count cap) are preserved.
 func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSession) (*types.MsgCreateSessionResponse, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	params, err := k.Params.Get(ctx)
@@ -21,9 +27,8 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		return nil, types.ErrSelfDelegation
 	}
 
-	// 2. No existing session for this pair
-	key := collections.Join(msg.Granter, msg.Grantee)
-	has, err := k.Sessions.Has(ctx, key)
+	// 2. No existing active SESSION_KEY grant for this pair.
+	has, err := k.SessionKeyByPair.Has(ctx, collections.Join(msg.Granter, msg.Grantee))
 	if err != nil {
 		return nil, err
 	}
@@ -31,20 +36,12 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		return nil, types.ErrSessionExists
 	}
 
-	// 3. Count granter's sessions against limit
-	count := uint64(0)
-	rng := collections.NewPrefixedPairRange[string, string](msg.Granter)
-	err = k.SessionsByGranter.Walk(ctx, rng, func(_ collections.Pair[string, string]) (bool, error) {
-		count++
-		if count >= params.MaxSessionsPerGranter {
-			return true, nil // stop walking
-		}
-		return false, nil
-	})
+	// 3. Per-granter session cap (counts only SESSION_KEY grants).
+	count, err := k.CountActiveGrants(ctx, msg.Granter, types.GrantType_GRANT_TYPE_SESSION_KEY)
 	if err != nil {
 		return nil, err
 	}
-	if count >= params.MaxSessionsPerGranter {
+	if uint64(count) >= params.MaxSessionsPerGranter {
 		return nil, types.ErrMaxSessionsExceeded
 	}
 
@@ -108,32 +105,34 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		return nil, types.ErrMaxExecCountTooHigh
 	}
 
-	// Create the session
-	zeroCoin := sdk.NewInt64Coin("uspark", 0)
-	session := types.Session{
-		Granter:         msg.Granter,
-		Grantee:         msg.Grantee,
-		AllowedMsgTypes: msg.AllowedMsgTypes,
-		SpendLimit:      msg.SpendLimit,
-		Spent:           zeroCoin,
-		Expiration:      msg.Expiration,
-		CreatedAt:       blockTime,
-		LastUsedAt:      blockTime,
-		ExecCount:       0,
-		MaxExecCount:    msg.MaxExecCount,
+	// Allocate the grant ID and write the SESSION_KEY grant.
+	id, err := k.nextGrantID(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	// Store session and indexes
-	if err := k.Sessions.Set(ctx, key, session); err != nil {
-		return nil, err
+	zeroCoin := sdk.NewInt64Coin("uspark", 0)
+	grant := types.Grant{
+		Id:        id,
+		Granter:   msg.Granter,
+		Grantee:   msg.Grantee,
+		Type:      types.GrantType_GRANT_TYPE_SESSION_KEY,
+		Status:    types.GrantStatus_GRANT_STATUS_ACTIVE,
+		CreatedAt: blockTime,
+		ExpiresAt: msg.Expiration,
+		Payload: &types.Grant_SessionKey{
+			SessionKey: &types.SessionKeyPayload{
+				AllowedMsgTypes: msg.AllowedMsgTypes,
+				SpendLimit:      msg.SpendLimit,
+				Spent:           zeroCoin,
+				MaxExecCount:    msg.MaxExecCount,
+				ExecCount:       0,
+				LastUsedAt:      blockTime,
+			},
+		},
 	}
-	if err := k.SessionsByGranter.Set(ctx, collections.Join(msg.Granter, msg.Grantee)); err != nil {
-		return nil, err
-	}
-	if err := k.SessionsByGrantee.Set(ctx, collections.Join(msg.Grantee, msg.Granter)); err != nil {
-		return nil, err
-	}
-	if err := k.SessionsByExpiration.Set(ctx, collections.Join3(msg.Expiration.Unix(), msg.Granter, msg.Grantee)); err != nil {
+
+	if err := k.writeGrant(ctx, grant); err != nil {
 		return nil, err
 	}
 
@@ -142,6 +141,7 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		sdk.NewAttribute("granter", msg.Granter),
 		sdk.NewAttribute("grantee", msg.Grantee),
 		sdk.NewAttribute("expiration", msg.Expiration.String()),
+		sdk.NewAttribute("grant_id", fmt.Sprintf("%d", id)),
 	))
 
 	return &types.MsgCreateSessionResponse{}, nil

@@ -350,6 +350,22 @@ func New(
 	// operational params alongside governance authority.
 	app.SessionKeeper.SetCommonsKeeper(app.CommonsKeeper)
 
+	// Wire SessionKeeper into Commons (M4 of the RecurringSpend migration).
+	// Reverse direction of SetCommonsKeeper above: commons consumes session
+	// to host council recurring spends in the unified grant registry. Wired
+	// post-depinject because the dependency is one-way (commons → session)
+	// and live-binding sidesteps the cycle that depinject would otherwise
+	// flag.
+	app.CommonsKeeper.SetSessionKeeper(app.SessionKeeper)
+
+	// Register x/commons's SessionClaimHook into x/session. The hook runs
+	// activation + term + per-epoch rate-limit gates against any grant
+	// whose granter is a registered council policy address — applying the
+	// same `CheckSpendPreconditions` logic that `MsgSpendFromCommons` uses,
+	// split into PreCheck (gates) + PostCommit (per-epoch debit) so a
+	// bank-send failure cannot leave a desynced budget.
+	app.SessionKeeper.SetClaimHooks(commonsmodulekeeper.NewSessionClaimHook(app.CommonsKeeper))
+
 	// Register ShieldAware modules for the double-gate security model.
 	// Each module that accepts shielded operations must explicitly opt in.
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.blog.v1.", app.BlogKeeper)

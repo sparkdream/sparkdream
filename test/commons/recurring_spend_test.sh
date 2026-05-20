@@ -1,13 +1,27 @@
 #!/bin/bash
 
 # Exercises the full council recurring-spend lifecycle:
-#   1. Gov-lower min_recurring_period_seconds so the test can claim in
-#      seconds rather than days.
-#   2. Schedule a recurring spend via Commons Operations Committee.
-#   3. Wait one period and have the recipient claim.
-#   4. Verify the claim moved coins and advanced the schedule's logical clock.
-#   5. Cancel the schedule via a follow-up council proposal.
-#   6. Verify a post-cancel claim is rejected.
+#   1. Schedule a recurring spend via Commons Operations Committee.
+#   2. Wait one period and have the recipient claim.
+#   3. Verify the claim moved coins and advanced the schedule's logical clock.
+#   4. Cancel the schedule via a follow-up council proposal.
+#   5. Verify a post-cancel claim is rejected and the schedule is no longer
+#      queryable (M9 semantic break — terminal grants are deleted from
+#      session storage; audit trail is in events).
+#
+# Post-M11 (RecurringSpend migration): schedules are stored as
+# RECURRING_PULL grants in x/session. The four MsgScheduleRecurringSpend /
+# Claim / Cancel / Decline wire types are preserved as wrappers, so the
+# proposal flow below is unchanged. Differences:
+#   - The min_recurring_period_seconds gov-lowering step is gone — the
+#     session-side testparams build seeds it at 5s for integration tests
+#     (x/session/types/defaults_testparams.go).
+#   - The legacy `recurring_spend_scheduled` event is no longer emitted;
+#     we extract the schedule id from the session-emitted `grant_created`
+#     event instead.
+#   - Post-cancel `get-recurring-spend` returns NotFound (the grant is
+#     deleted, not tombstoned); we assert via the `grant_revoked` event
+#     and the NotFound response.
 
 set -u
 
@@ -25,8 +39,6 @@ ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
 
-GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
-
 GROUP_NAME="Commons Operations Committee"
 GROUP_INFO=$($BINARY query commons get-group "$GROUP_NAME" --output json)
 POLICY_ADDR=$(echo "$GROUP_INFO" | jq -r '.group.policy_address')
@@ -38,100 +50,36 @@ fi
 PROPOSAL_FEE=$($BINARY query commons params --output json | jq -r '.params.proposal_fee')
 
 echo "Committee Policy: $POLICY_ADDR"
-echo "Gov Address:      $GOV_ADDR"
 echo "Recipient (Carol):$CAROL_ADDR"
 
-# Helper: pluck submit_proposal.proposal_id from a tx hash with retries.
-get_gov_proposal_id() {
-    local tx_hash=$1
-    local retries=0
-    local prop_id=""
-    while [ $retries -lt 10 ]; do
-        sleep 1
-        local tx_res
-        tx_res=$($BINARY query tx "$tx_hash" --output json 2>/dev/null)
-        if [ $? -eq 0 ]; then
-            prop_id=$(echo "$tx_res" | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-            if [ -n "$prop_id" ] && [ "$prop_id" != "null" ]; then
-                echo "$prop_id"; return 0
-            fi
-        fi
-        retries=$((retries + 1))
-    done
-    return 1
-}
-
-# --- 1. LOWER min_recurring_period_seconds VIA GOV --------------------------
-echo ""
-echo "STEP 1: Lowering min_recurring_period_seconds to 5 via x/gov..."
-
-TEST_MIN_PERIOD=5
-TEST_MAX_DURATION=300
-
-cat > "$PROPOSAL_DIR/gov_lower_min_period.json" <<EOF
-{
-  "messages": [
-    {
-      "@type": "/sparkdream.commons.v1.MsgUpdateParams",
-      "authority": "$GOV_ADDR",
-      "params": {
-        "proposal_fee": "$PROPOSAL_FEE",
-        "min_recurring_period_seconds": "$TEST_MIN_PERIOD",
-        "max_recurring_duration_seconds": "$TEST_MAX_DURATION",
-        "max_active_recurring_spends_per_group": 50
-      }
-    }
-  ],
-  "deposit": "100000000uspark",
-  "title": "Lower recurring spend min period for E2E",
-  "summary": "Drops the cadence floor to 5s so the recurring-spend test can claim within a single test run."
-}
-EOF
-
-GOV_SUBMIT=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_lower_min_period.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
-GOV_TX_HASH=$(echo "$GOV_SUBMIT" | jq -r '.txhash')
-
-GOV_PROP_ID=$(get_gov_proposal_id "$GOV_TX_HASH")
-if [ -z "$GOV_PROP_ID" ]; then
-    echo "[FAIL] Failed to find gov proposal ID."
+# Confirm the testparams build is in effect (min cadence floor lowered
+# to 5s so the test can actually claim within a single test run). If
+# this assertion fails the binary was built with a production tag and
+# this test can't complete in any reasonable wall-clock budget.
+SESSION_MIN_PERIOD=$($BINARY query session params --output json | jq -r '.params.min_recurring_period_seconds')
+if [ -z "$SESSION_MIN_PERIOD" ] || [ "$SESSION_MIN_PERIOD" -gt 60 ]; then
+    echo "[FAIL] session min_recurring_period_seconds=$SESSION_MIN_PERIOD — testparams build override missing."
+    echo "       Rebuild with default (testparams) tag and re-run."
     exit 1
 fi
-echo "Gov proposal ID: $GOV_PROP_ID"
+echo "session.min_recurring_period_seconds = $SESSION_MIN_PERIOD"
 
-$BINARY tx gov vote "$GOV_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test > /dev/null
-echo "Waiting 70s for gov voting period..."
-sleep 70
-
-CONFIRM_MIN=$($BINARY query commons params --output json | jq -r '.params.min_recurring_period_seconds')
-if [ "$CONFIRM_MIN" != "$TEST_MIN_PERIOD" ]; then
-    echo "[FAIL] min_recurring_period_seconds did not update (got $CONFIRM_MIN)."
-    exit 1
-fi
-echo "[ OK ] min_recurring_period_seconds = $CONFIRM_MIN"
-
-# --- 2. FUND THE COMMITTEE --------------------------------------------------
+# --- 1. FUND THE COMMITTEE --------------------------------------------------
 echo ""
-echo "STEP 2: Funding committee treasury..."
+echo "STEP 1: Funding committee treasury..."
 $BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
 sleep 3
 
-# --- 3. SCHEDULE A RECURRING SPEND ------------------------------------------
+# --- 2. SCHEDULE A RECURRING SPEND ------------------------------------------
 echo ""
-echo "STEP 3: Submitting recurring-spend schedule via Commons Operations Committee proposal..."
+echo "STEP 2: Submitting recurring-spend schedule via Commons Operations Committee proposal..."
 
-# Window/timing tuned so the cadence subtest (4a below) is robust against
-# realistic bash overhead. The "back-to-back claim is rejected" check
-# distinguishes the correct logical-clock advancement from the buggy
-# block-time advancement only if PERIOD_SECONDS is comfortably larger than
-# the wall-clock delay between the first and second claim. With period=5s
-# (the chain minimum) shell + tx-delivery overhead reliably exceeds the
-# period, so the second claim ends up legitimately past the cadence
-# boundary and the subtest can't catch the bug. Bumping to 20s gives ~10s
-# of headroom over the bash gap; START_TIME is pushed further into the
-# future for the same reason — by the time the proposal is voted on and
-# executed (~15s after we capture NOW), block time has caught up to
-# START_TIME and the schedule's own "start_time in the past" check would
-# fire otherwise.
+# Window/timing tuned for realistic bash overhead. PERIOD_SECONDS=20 gives
+# enough headroom over the wall-clock delay between back-to-back claims
+# that the cadence subtest (3a below) can tell a buggy block-time advance
+# apart from the correct logical-clock advance. START_TIME is pushed far
+# enough into the future that the schedule isn't already past start when
+# the proposal executes.
 NOW=$(date +%s)
 START_TIME=$((NOW + 30))
 PERIOD_SECONDS=20
@@ -189,21 +137,30 @@ if [ "$PROP_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
 fi
 echo "[ OK ] Schedule proposal executed."
 
-# Pull the schedule ID from the recurring_spend_scheduled event.
+# Pull the schedule ID from the session-emitted `grant_created` event.
+# Post-migration the legacy `recurring_spend_scheduled` event is no
+# longer fired; `grant_created` carries the same id under attribute
+# key "id" and includes `source=module_bypass` + `caller_module` =
+# the commons module address.
 EXEC_TX=$($BINARY query tx "$EXEC_TX_HASH" --output json)
-SCHEDULE_ID=$(echo "$EXEC_TX" | jq -r '.events[] | select(.type=="recurring_spend_scheduled") | .attributes[] | select(.key=="id") | .value' | tr -d '"')
+SCHEDULE_ID=$(echo "$EXEC_TX" | jq -r '
+    .events[] |
+    select(.type=="grant_created") |
+    select(.attributes[]? | select(.key=="source" and .value=="module_bypass")) |
+    .attributes[] | select(.key=="id") | .value
+' | tr -d '"' | head -n1)
 if [ -z "$SCHEDULE_ID" ] || [ "$SCHEDULE_ID" == "null" ]; then
-    echo "[FAIL] recurring_spend_scheduled event missing — schedule id not found."
+    echo "[FAIL] grant_created event (source=module_bypass) missing — schedule id not found."
     exit 1
 fi
 echo "[ OK ] Schedule ID: $SCHEDULE_ID"
 
-# --- 4. WAIT ONE PERIOD AND CLAIM -------------------------------------------
+# --- 3. WAIT ONE PERIOD AND CLAIM -------------------------------------------
 # Need to be past start_time + period_seconds before the first claim is admissible.
 echo ""
 WAIT_FOR=$((START_TIME + PERIOD_SECONDS + 3 - $(date +%s)))
 if [ "$WAIT_FOR" -lt 0 ]; then WAIT_FOR=0; fi
-echo "STEP 4: Waiting ${WAIT_FOR}s for the first claim window..."
+echo "STEP 3: Waiting ${WAIT_FOR}s for the first claim window..."
 sleep "$WAIT_FOR"
 
 INITIAL_BAL=$($BINARY query bank balances "$CAROL_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
@@ -230,7 +187,8 @@ if [ "$DELTA" -lt 90000 ] || [ "$DELTA" -gt 100000 ]; then
 fi
 echo "[ OK ] Claim disbursed expected amount."
 
-# Confirm schedule state advanced.
+# Confirm schedule state advanced. M9 query projects from session.Grants;
+# the response shape is unchanged.
 SCHED_STATE=$($BINARY query commons get-recurring-spend "$SCHEDULE_ID" --output json)
 CLAIMS_MADE=$(echo "$SCHED_STATE" | jq -r '.recurring_spend.claims_made')
 if [ "$CLAIMS_MADE" != "1" ]; then
@@ -239,18 +197,18 @@ if [ "$CLAIMS_MADE" != "1" ]; then
 fi
 echo "[ OK ] Schedule claims_made=$CLAIMS_MADE"
 
-# --- 4a. CADENCE ENFORCEMENT — IMMEDIATE SECOND CLAIM REJECTED -------------
-# Submitting another claim before period_seconds has elapsed must fail with
-# ErrRecurringSpendNotDue. Catches a bug where last_claim_advance is
-# anchored to block time (allowing back-to-back claims) instead of the
-# schedule's logical clock.
+# --- 3a. CADENCE ENFORCEMENT — IMMEDIATE SECOND CLAIM REJECTED -------------
+# Submitting another claim before period_seconds has elapsed must fail.
+# Post-migration the underlying error is session's ErrRecurringPullNotDue
+# rather than commons's old ErrRecurringSpendNotDue, but the wrapper
+# bubbles the error through so the tx fails — we just assert non-zero
+# code rather than match a specific message string.
 echo ""
-echo "STEP 4a: Confirming back-to-back claim is rejected (cadence enforcement)..."
+echo "STEP 3a: Confirming back-to-back claim is rejected (cadence enforcement)..."
 EARLY_CLAIM=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 EARLY_CODE=$(echo "$EARLY_CLAIM" | jq -r '.code')
 EARLY_LOG=$(echo "$EARLY_CLAIM" | jq -r '.raw_log')
 if [ "$EARLY_CODE" == "0" ]; then
-    # Tx may have been accepted into the mempool but failed during deliver — poll the result.
     EARLY_HASH=$(echo "$EARLY_CLAIM" | jq -r '.txhash')
     sleep 3
     EARLY_TX=$($BINARY query tx "$EARLY_HASH" --output json 2>/dev/null)
@@ -261,15 +219,15 @@ if [ "$EARLY_CODE" == "0" ]; then
     echo "[FAIL] Back-to-back claim was accepted (no cadence enforcement)."
     exit 1
 fi
-if echo "$EARLY_LOG" | grep -q "period has not elapsed"; then
-    echo "[ OK ] Back-to-back claim rejected with ErrRecurringSpendNotDue."
-else
-    echo "[ OK ] Back-to-back claim rejected (code=$EARLY_CODE, log=$EARLY_LOG)"
-fi
+echo "[ OK ] Back-to-back claim rejected (code=$EARLY_CODE)."
 
-# --- 4b. QUERY FILTERS -----------------------------------------------------
+# --- 3b. QUERY FILTERS -----------------------------------------------------
+# M9 reshaped the query layer: cross-granter pagination is no longer
+# supported (must filter by authority OR recipient). Both filters at
+# once is still rejected. Single-filter queries work and project from
+# session.Grants.
 echo ""
-echo "STEP 4b: Exercising list-recurring-spends filters..."
+echo "STEP 3b: Exercising list-recurring-spends filters..."
 
 LIST_BY_AUTH=$($BINARY query commons list-recurring-spends --authority "$POLICY_ADDR" --output json)
 COUNT_BY_AUTH=$(echo "$LIST_BY_AUTH" | jq '.recurring_spends | length')
@@ -293,14 +251,12 @@ BOTH_FILTERS=$($BINARY query commons list-recurring-spends --authority "$POLICY_
 if echo "$BOTH_FILTERS" | grep -q "at most one"; then
     echo "[ OK ] Mutually-exclusive authority/recipient filter correctly rejected."
 else
-    # Some autocli builds bind --authority to .Authority but treat --recipient as a separate Flag;
-    # if the binary doesn't enforce the rejection at CLI level we're fine because the gRPC handler does.
     echo "[ OK ] Mutually-exclusive filter handling acceptable (got: $BOTH_FILTERS)"
 fi
 
-# --- 5. CANCEL VIA PROPOSAL -------------------------------------------------
+# --- 4. CANCEL VIA PROPOSAL -------------------------------------------------
 echo ""
-echo "STEP 5: Cancelling the schedule via a follow-up council proposal..."
+echo "STEP 4: Cancelling the schedule via a follow-up council proposal..."
 
 cat > "$PROPOSAL_DIR/cancel_recurring.json" <<EOF
 {
@@ -326,8 +282,9 @@ sleep 3
 $BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
 sleep 3
 
-$BINARY tx commons execute-proposal "$CANCEL_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark > /dev/null
+CANCEL_EXEC=$($BINARY tx commons execute-proposal "$CANCEL_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
 sleep 3
+CANCEL_EXEC_HASH=$(echo "$CANCEL_EXEC" | jq -r '.txhash')
 
 CANCEL_STATUS=$($BINARY query commons get-proposal "$CANCEL_PROP_ID" --output json | jq -r '.proposal.status')
 if [ "$CANCEL_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
@@ -335,25 +292,40 @@ if [ "$CANCEL_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
     exit 1
 fi
 
-SCHED_AFTER=$($BINARY query commons get-recurring-spend "$SCHEDULE_ID" --output json | jq -r '.recurring_spend.status')
-if [ "$SCHED_AFTER" != "RECURRING_SPEND_STATUS_CANCELED" ]; then
-    echo "[FAIL] Expected schedule canceled, got status=$SCHED_AFTER"
+# Post-cancel: the grant is DELETED from session storage (M9 semantic
+# break). Audit trail is the `grant_revoked` event fired during the
+# execute-proposal tx; the get-recurring-spend query now returns
+# NotFound.
+CANCEL_EVENT=$($BINARY query tx "$CANCEL_EXEC_HASH" --output json | jq -r '
+    .events[] |
+    select(.type=="grant_revoked") |
+    .attributes[] | select(.key=="id") | .value
+' | tr -d '"' | head -n1)
+if [ "$CANCEL_EVENT" != "$SCHEDULE_ID" ]; then
+    echo "[FAIL] Expected grant_revoked event for id=$SCHEDULE_ID, got '$CANCEL_EVENT'."
     exit 1
 fi
-echo "[ OK ] Schedule canceled."
+echo "[ OK ] grant_revoked event fired for id=$SCHEDULE_ID."
 
-# --- 6. POST-CANCEL CLAIM SHOULD FAIL ---------------------------------------
+# Query must now return NotFound (the grant is gone from session storage).
+GET_AFTER=$($BINARY query commons get-recurring-spend "$SCHEDULE_ID" --output json 2>&1 || true)
+if ! echo "$GET_AFTER" | grep -qi "not found"; then
+    echo "[FAIL] Expected NotFound from get-recurring-spend post-cancel; got: $GET_AFTER"
+    exit 1
+fi
+echo "[ OK ] Post-cancel query returns NotFound (M9 deliberate semantic break)."
+
+# --- 5. POST-CANCEL CLAIM SHOULD FAIL ---------------------------------------
 echo ""
-echo "STEP 6: Confirming a post-cancel claim is rejected..."
+echo "STEP 5: Confirming a post-cancel claim is rejected..."
 
 # Wait long enough that a fresh period would otherwise have elapsed.
 sleep "$PERIOD_SECONDS"
 POST_CANCEL=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
 POST_CODE=$(echo "$POST_CANCEL" | jq -r '.code')
 POST_LOG=$(echo "$POST_CANCEL" | jq -r '.raw_log')
-# The broadcast may return code=0 (mempool accept) even when the deliver
-# fails — same pattern as STEP 4a above. Poll the tx hash to see the
-# delivered code/log before declaring failure.
+# The broadcast may return code=0 (mempool accept) even when deliver
+# fails — poll the tx hash for the delivered code.
 if [ "$POST_CODE" == "0" ]; then
     POST_HASH=$(echo "$POST_CANCEL" | jq -r '.txhash')
     sleep 3
@@ -365,11 +337,7 @@ if [ "$POST_CODE" == "0" ]; then
     echo "[FAIL] Cancelled schedule still allowed a claim."
     exit 1
 fi
-if echo "$POST_LOG" | grep -q "not active"; then
-    echo "[ OK ] Cancelled schedule correctly rejected post-cancel claim."
-else
-    echo "[ OK ] Claim rejected (code=$POST_CODE, log=$POST_LOG)"
-fi
+echo "[ OK ] Post-cancel claim rejected (code=$POST_CODE)."
 
 echo ""
 echo "[ OK ] Recurring spend lifecycle test PASSED."

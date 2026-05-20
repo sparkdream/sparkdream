@@ -77,21 +77,25 @@ func TestRevokeSessionCleansIndexes(t *testing.T) {
 
 	createTestSession(t, f, granter, grantee, types.DefaultAllowedMsgTypes[:1], exp)
 
-	// Verify session exists in all indexes before revoke
+	// Verify session exists before revoke
 	_, err := f.keeper.GetSession(f.ctx, granter, grantee)
 	require.NoError(t, err)
+	require.True(t, hasSessionGrantPair(t, f, granter, grantee))
 
-	has, err := f.keeper.SessionsByGranter.Has(f.ctx, makeGranterKey(granter, grantee))
+	id, err := f.keeper.SessionKeyByPair.Get(f.ctx, collections.Join(granter, grantee))
 	require.NoError(t, err)
-	require.True(t, has)
 
-	has, err = f.keeper.SessionsByGrantee.Has(f.ctx, makeGranteeKey(grantee, granter))
+	hasGranter, err := f.keeper.GrantsByGranter.Has(f.ctx, collections.Join(granter, id))
 	require.NoError(t, err)
-	require.True(t, has)
+	require.True(t, hasGranter)
 
-	has, err = f.keeper.SessionsByExpiration.Has(f.ctx, makeExpKey(exp.Unix(), granter, grantee))
+	hasGrantee, err := f.keeper.GrantsByGrantee.Has(f.ctx, collections.Join(grantee, id))
 	require.NoError(t, err)
-	require.True(t, has)
+	require.True(t, hasGrantee)
+
+	hasExp, err := f.keeper.GrantsByExpiration.Has(f.ctx, collections.Join(exp.Unix(), id))
+	require.NoError(t, err)
+	require.True(t, hasExp)
 
 	// Revoke
 	_, err = ms.RevokeSession(f.ctx, &types.MsgRevokeSession{
@@ -103,18 +107,19 @@ func TestRevokeSessionCleansIndexes(t *testing.T) {
 	// Verify all indexes cleaned
 	_, err = f.keeper.GetSession(f.ctx, granter, grantee)
 	require.Error(t, err)
+	require.False(t, hasSessionGrantPair(t, f, granter, grantee))
 
-	has, err = f.keeper.SessionsByGranter.Has(f.ctx, makeGranterKey(granter, grantee))
+	hasGranter, err = f.keeper.GrantsByGranter.Has(f.ctx, collections.Join(granter, id))
 	require.NoError(t, err)
-	require.False(t, has)
+	require.False(t, hasGranter)
 
-	has, err = f.keeper.SessionsByGrantee.Has(f.ctx, makeGranteeKey(grantee, granter))
+	hasGrantee, err = f.keeper.GrantsByGrantee.Has(f.ctx, collections.Join(grantee, id))
 	require.NoError(t, err)
-	require.False(t, has)
+	require.False(t, hasGrantee)
 
-	has, err = f.keeper.SessionsByExpiration.Has(f.ctx, makeExpKey(exp.Unix(), granter, grantee))
+	hasExp, err = f.keeper.GrantsByExpiration.Has(f.ctx, collections.Join(exp.Unix(), id))
 	require.NoError(t, err)
-	require.False(t, has)
+	require.False(t, hasExp)
 }
 
 func TestRevokeSessionEmitsEvent(t *testing.T) {
@@ -145,15 +150,15 @@ func TestRevokeSessionEmitsEvent(t *testing.T) {
 	require.True(t, found, "expected session_revoked event")
 }
 
-// helper to create collections key pairs
-func makeGranterKey(granter, grantee string) collections.Pair[string, string] {
-	return collections.Join(granter, grantee)
-}
-
-func makeGranteeKey(grantee, granter string) collections.Pair[string, string] {
-	return collections.Join(grantee, granter)
-}
-
-func makeExpKey(expUnix int64, granter, grantee string) collections.Triple[int64, string, string] {
-	return collections.Join3(expUnix, granter, grantee)
+// hasSessionGrantPair reports whether there's a SESSION_KEY grant
+// registered under the (granter, grantee) lookup. Stand-in for the legacy
+// `SessionsByGranter.Has(...) && SessionsByGrantee.Has(...) &&
+// SessionsByExpiration.Has(...)` triple — if the lookup is present, the
+// grant is in the primary store and (because writeGrant fans out
+// atomically) every secondary index too.
+func hasSessionGrantPair(t *testing.T, f *fixture, granter, grantee string) bool {
+	t.Helper()
+	has, err := f.keeper.SessionKeyByPair.Has(f.ctx, collections.Join(granter, grantee))
+	require.NoError(t, err)
+	return has
 }

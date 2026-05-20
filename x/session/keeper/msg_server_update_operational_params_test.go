@@ -57,14 +57,9 @@ func TestUpdateOperationalParams(t *testing.T) {
 			name: "success - reduce active allowlist",
 			msg: &types.MsgUpdateOperationalParams{
 				Authority: authorityStr,
-				OperationalParams: types.SessionOperationalParams{
-					AllowedMsgTypes:       types.DefaultAllowedMsgTypes[:3],
-					MaxSessionsPerGranter: 10,
-					MaxMsgTypesPerSession: 20,
-					MaxExpiration:         7 * 24 * time.Hour,
-					MaxSpendLimit:         sdk.NewInt64Coin("uspark", 100_000_000),
-					MaxExecCount:          10_000,
-				},
+				OperationalParams: opParamsWith(t, defaultOp, func(p *types.SessionOperationalParams) {
+					p.AllowedMsgTypes = types.DefaultAllowedMsgTypes[:3]
+				}),
 			},
 			expectError: false,
 		},
@@ -72,14 +67,9 @@ func TestUpdateOperationalParams(t *testing.T) {
 			name: "exceeds ceiling - type not in max_allowed_msg_types",
 			msg: &types.MsgUpdateOperationalParams{
 				Authority: authorityStr,
-				OperationalParams: types.SessionOperationalParams{
-					AllowedMsgTypes:       []string{"/sparkdream.unknown.v1.MsgFoo"},
-					MaxSessionsPerGranter: 10,
-					MaxMsgTypesPerSession: 20,
-					MaxExpiration:         7 * 24 * time.Hour,
-					MaxSpendLimit:         sdk.NewInt64Coin("uspark", 100_000_000),
-					MaxExecCount:          10_000,
-				},
+				OperationalParams: opParamsWith(t, defaultOp, func(p *types.SessionOperationalParams) {
+					p.AllowedMsgTypes = []string{"/sparkdream.unknown.v1.MsgFoo"}
+				}),
 			},
 			expectError: true,
 			errContains: "not in ceiling",
@@ -88,14 +78,9 @@ func TestUpdateOperationalParams(t *testing.T) {
 			name: "non-delegable msg type",
 			msg: &types.MsgUpdateOperationalParams{
 				Authority: authorityStr,
-				OperationalParams: types.SessionOperationalParams{
-					AllowedMsgTypes:       []string{"/sparkdream.session.v1.MsgExecSession"},
-					MaxSessionsPerGranter: 10,
-					MaxMsgTypesPerSession: 20,
-					MaxExpiration:         7 * 24 * time.Hour,
-					MaxSpendLimit:         sdk.NewInt64Coin("uspark", 100_000_000),
-					MaxExecCount:          10_000,
-				},
+				OperationalParams: opParamsWith(t, defaultOp, func(p *types.SessionOperationalParams) {
+					p.AllowedMsgTypes = []string{"/sparkdream.session.v1.MsgExecSession"}
+				}),
 			},
 			setup: func() {
 				// Add to ceiling first to bypass ceiling check
@@ -110,14 +95,13 @@ func TestUpdateOperationalParams(t *testing.T) {
 			name: "preserves ceiling",
 			msg: &types.MsgUpdateOperationalParams{
 				Authority: authorityStr,
-				OperationalParams: types.SessionOperationalParams{
-					AllowedMsgTypes:       types.DefaultAllowedMsgTypes[:5],
-					MaxSessionsPerGranter: 5,
-					MaxMsgTypesPerSession: 10,
-					MaxExpiration:         3 * 24 * time.Hour,
-					MaxSpendLimit:         sdk.NewInt64Coin("uspark", 50_000_000),
-					MaxExecCount:          10_000,
-				},
+				OperationalParams: opParamsWith(t, defaultOp, func(p *types.SessionOperationalParams) {
+					p.AllowedMsgTypes = types.DefaultAllowedMsgTypes[:5]
+					p.MaxSessionsPerGranter = 5
+					p.MaxMsgTypesPerSession = 10
+					p.MaxExpiration = 3 * 24 * time.Hour
+					p.MaxSpendLimit = sdk.NewInt64Coin("uspark", 50_000_000)
+				}),
 			},
 			setup: func() {
 				_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
@@ -157,16 +141,16 @@ func TestUpdateOperationalParamsPreservesCeiling(t *testing.T) {
 	originalCeiling := types.DefaultParams().MaxAllowedMsgTypes
 
 	// Update operational params
+	op := types.DefaultSessionOperationalParams()
+	op.AllowedMsgTypes = types.DefaultAllowedMsgTypes[:3]
+	op.MaxSessionsPerGranter = 5
+	op.MaxMsgTypesPerSession = 10
+	op.MaxExpiration = 3 * 24 * time.Hour
+	op.MaxSpendLimit = sdk.NewInt64Coin("uspark", 50_000_000)
+	op.MaxExecCount = 10_000
 	_, err = ms.UpdateOperationalParams(f.ctx, &types.MsgUpdateOperationalParams{
-		Authority: authorityStr,
-		OperationalParams: types.SessionOperationalParams{
-			AllowedMsgTypes:       types.DefaultAllowedMsgTypes[:3],
-			MaxSessionsPerGranter: 5,
-			MaxMsgTypesPerSession: 10,
-			MaxExpiration:         3 * 24 * time.Hour,
-			MaxSpendLimit:         sdk.NewInt64Coin("uspark", 50_000_000),
-			MaxExecCount:          10_000,
-		},
+		Authority:         authorityStr,
+		OperationalParams: op,
 	})
 	require.NoError(t, err)
 
@@ -179,4 +163,14 @@ func TestUpdateOperationalParamsPreservesCeiling(t *testing.T) {
 	require.Equal(t, types.DefaultAllowedMsgTypes[:3], params.AllowedMsgTypes)
 	require.Equal(t, uint64(5), params.MaxSessionsPerGranter)
 	require.Equal(t, uint64(10), params.MaxMsgTypesPerSession)
+}
+
+// opParamsWith returns a copy of `base` with `mutate` applied. Used to
+// keep test cases tight when only a handful of fields differ from the
+// default operational params; saves repeating the full struct.
+func opParamsWith(t *testing.T, base types.SessionOperationalParams, mutate func(*types.SessionOperationalParams)) types.SessionOperationalParams {
+	t.Helper()
+	out := base
+	mutate(&out)
+	return out
 }

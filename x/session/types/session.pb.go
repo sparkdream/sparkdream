@@ -31,6 +31,12 @@ var _ = time.Kitchen
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // Session represents an active session key delegation from granter to grantee.
+//
+// DEPRECATED: kept as the response shape for the legacy Session / SessionsByGranter
+// / SessionsByGrantee queries while the registry transitions to the unified Grant
+// model in grant.proto. Internally the keeper now persists every session as a
+// SESSION_KEY-type Grant; the query handlers project Session views back from those
+// grants. New grant types must use Grant directly.
 type Session struct {
 	// Main wallet address (pays fees, "owns" the session).
 	Granter string `protobuf:"bytes,1,opt,name=granter,proto3" json:"granter,omitempty"`

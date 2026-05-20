@@ -50,18 +50,16 @@ func TestEndBlockerPrunesExpiredSession(t *testing.T) {
 	_, err = f.keeper.GetSession(f.ctx, granter, grantee)
 	require.Error(t, err)
 
-	// All indexes should be cleaned
-	has, err := f.keeper.SessionsByGranter.Has(f.ctx, makeGranterKey(granter, grantee))
-	require.NoError(t, err)
-	require.False(t, has)
+	// SessionKey lookup should be gone (which implies every secondary
+	// index was cleaned, since writeGrant / deleteGrant fan out
+	// atomically).
+	require.False(t, hasSessionGrantPair(t, f, granter, grantee))
 
-	has, err = f.keeper.SessionsByGrantee.Has(f.ctx, makeGranteeKey(grantee, granter))
+	// Defense-in-depth: also verify the primary Grants store is empty
+	// for any expiration <= pastExp.
+	hasExp, err := f.keeper.GrantsByExpiration.Has(f.ctx, collections.Join(pastExp.Unix(), uint64(1)))
 	require.NoError(t, err)
-	require.False(t, has)
-
-	has, err = f.keeper.SessionsByExpiration.Has(f.ctx, makeExpKey(pastExp.Unix(), granter, grantee))
-	require.NoError(t, err)
-	require.False(t, has)
+	require.False(t, hasExp)
 }
 
 func TestEndBlockerPrunesMultipleExpiredSessions(t *testing.T) {
@@ -157,14 +155,14 @@ func TestEndBlockerMaxPrunePerBlock(t *testing.T) {
 	err := f.keeper.EndBlocker(sdkCtx)
 	require.NoError(t, err)
 
-	// Count remaining sessions
+	// Count remaining grants
 	remaining := 0
-	err = f.keeper.Sessions.Walk(f.ctx, nil, func(_ collections.Pair[string, string], _ types.Session) (bool, error) {
+	err = f.keeper.Grants.Walk(f.ctx, nil, func(_ uint64, _ types.Grant) (bool, error) {
 		remaining++
 		return false, nil
 	})
 	require.NoError(t, err)
 
 	// Should have exactly 5 remaining (105 - 100 = 5)
-	require.Equal(t, 5, remaining, "should have 5 sessions remaining after pruning 100")
+	require.Equal(t, 5, remaining, "should have 5 grants remaining after pruning 100")
 }

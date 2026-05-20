@@ -19,10 +19,11 @@ import (
 // Stored as a shared pointer so value-copies of Keeper (e.g. in AppModule, msgServer)
 // see updates made after NewAppModule().
 type lateKeepers struct {
-	govKeeper   types.GovKeeper
-	router      baseapp.MessageRouter
-	nameKeeper  types.NameKeeper
-	forumKeeper types.ForumKeeper
+	govKeeper     types.GovKeeper
+	router        baseapp.MessageRouter
+	nameKeeper    types.NameKeeper
+	forumKeeper   types.ForumKeeper
+	sessionKeeper types.SessionKeeper
 }
 
 type Keeper struct {
@@ -79,20 +80,8 @@ type Keeper struct {
 	Category    collections.Map[uint64, types.Category]
 	CategorySeq collections.Sequence
 
-	// --- Recurring Spend collections ---
-	// RecurringSpends maps a schedule ID to its RecurringSpend record.
-	RecurringSpends collections.Map[uint64, types.RecurringSpend]
-	// RecurringSpendSeq is the auto-incrementing schedule ID sequence.
-	RecurringSpendSeq collections.Sequence
-	// RecurringSpendsByAuthority indexes schedules by authority for cheap
-	// per-council listing and cancel-on-deletion sweeps.
-	RecurringSpendsByAuthority collections.KeySet[collections.Pair[string, uint64]]
-	// RecurringSpendsByRecipient indexes schedules by recipient so a wallet
-	// can list everything it can currently claim.
-	RecurringSpendsByRecipient collections.KeySet[collections.Pair[string, uint64]]
-	// ActiveRecurringSpendCount caches the active-schedule count per
-	// authority to keep the per-creation cap check O(1).
-	ActiveRecurringSpendCount collections.Map[string, uint32]
+	// Recurring-spend storage moved to session.Grants as RECURRING_PULL
+	// variants; queries project on-the-fly. See query_recurring_spend.go.
 }
 
 func NewKeeper(
@@ -194,26 +183,8 @@ func NewKeeper(
 		),
 		CategorySeq: collections.NewSequence(sb, types.CategorySeqKey, "categorySequence"),
 
-		// Recurring Spends
-		RecurringSpends: collections.NewMap(
-			sb, types.RecurringSpendsKey, "recurringSpends",
-			collections.Uint64Key,
-			codec.CollValue[types.RecurringSpend](cdc),
-		),
-		RecurringSpendSeq: collections.NewSequence(sb, types.RecurringSpendSeqKey, "recurring_spend_seq"),
-		RecurringSpendsByAuthority: collections.NewKeySet(
-			sb, types.RecurringSpendsByAuthorityKey, "recurringSpendsByAuthority",
-			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
-		),
-		RecurringSpendsByRecipient: collections.NewKeySet(
-			sb, types.RecurringSpendsByRecipientKey, "recurringSpendsByRecipient",
-			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
-		),
-		ActiveRecurringSpendCount: collections.NewMap(
-			sb, types.ActiveRecurringSpendCountKey, "activeRecurringSpendCount",
-			collections.StringKey,
-			collections.Uint32Value,
-		),
+		// Recurring Spend collections were removed by the M10 migration.
+		// Schedules live in session.Grants as RECURRING_PULL variants.
 	}
 
 	schema, err := sb.Build()
@@ -253,6 +224,28 @@ func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
 // on x/commons via commonsKeeper.GetCategory).
 func (k Keeper) SetForumKeeper(fk types.ForumKeeper) {
 	k.late.forumKeeper = fk
+}
+
+// SetSessionKeeper wires the SessionKeeper after depinject. Used by
+// the RecurringSpend migration to (a) host council schedules in the
+// unified grant registry via `CreateGrantOnBehalfOf` /
+// `RevokeGrantInternal` / `DeclineGrantInternal` /
+// `ClaimRecurringPullForGrantee`, and (b) register the
+// `SessionClaimHook` via `SessionKeeper.SetClaimHooks`. Late-wired
+// because x/session does not appear in x/commons's depinject inputs
+// (the dependency is one-way: x/commons consumes session, never the
+// reverse).
+func (k Keeper) SetSessionKeeper(sk types.SessionKeeper) {
+	k.late.sessionKeeper = sk
+}
+
+// SessionKeeper returns the late-wired SessionKeeper. Returns nil if
+// not yet wired (which is the case during depinject; the wiring happens
+// in app.go post-depinject). Callers that need it during normal tx
+// handling can assume non-nil — app.go panics if SetSessionKeeper has
+// not been called by the time the chain serves blocks.
+func (k Keeper) SessionKeeper() types.SessionKeeper {
+	return k.late.sessionKeeper
 }
 
 // DeriveCouncilAddress generates a deterministic address for a council based on its ID.

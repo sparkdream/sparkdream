@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/session/v1/grant.proto";
 import "sparkdream/session/v1/params.proto";
 import "sparkdream/session/v1/session.proto";
 
@@ -19,18 +20,38 @@ service Query {
   }
 
   // Session queries a single session by (granter, grantee).
+  //
+  // Legacy compat: projects the underlying SESSION_KEY-type Grant back to
+  // the Session shape. New consumers should use the Grant queries below.
   rpc Session(QuerySessionRequest) returns (QuerySessionResponse) {
     option (google.api.http).get = "/sparkdream/session/v1/session/{granter}/{grantee}";
   }
 
-  // SessionsByGranter queries all active sessions for a granter.
+  // SessionsByGranter queries all active sessions for a granter (legacy
+  // compat — projects SESSION_KEY grants only).
   rpc SessionsByGranter(QuerySessionsByGranterRequest) returns (QuerySessionsByGranterResponse) {
     option (google.api.http).get = "/sparkdream/session/v1/sessions_by_granter/{granter}";
   }
 
-  // SessionsByGrantee queries all active sessions for a grantee.
+  // SessionsByGrantee queries all active sessions for a grantee (legacy
+  // compat — projects SESSION_KEY grants only).
   rpc SessionsByGrantee(QuerySessionsByGranteeRequest) returns (QuerySessionsByGranteeResponse) {
     option (google.api.http).get = "/sparkdream/session/v1/sessions_by_grantee/{grantee}";
+  }
+
+  // Grant queries a single grant by id.
+  rpc Grant(QueryGrantRequest) returns (QueryGrantResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/grants/{id}";
+  }
+
+  // GrantsByGranter queries all active grants for a granter (any type).
+  rpc GrantsByGranter(QueryGrantsByGranterRequest) returns (QueryGrantsByGranterResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/grants/by_granter/{granter}";
+  }
+
+  // GrantsByGrantee queries all active grants for a grantee (any type).
+  rpc GrantsByGrantee(QueryGrantsByGranteeRequest) returns (QueryGrantsByGranteeResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/grants/by_grantee/{grantee}";
   }
 
   // AllowedMsgTypes queries the ceiling and currently active message types.
@@ -74,6 +95,37 @@ message QuerySessionsByGranteeRequest {
 
 message QuerySessionsByGranteeResponse {
   repeated Session sessions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryGrantRequest {
+  uint64 id = 1;
+}
+
+message QueryGrantResponse {
+  Grant grant = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryGrantsByGranterRequest {
+  string granter = 1;
+  // Optional type filter. UNSPECIFIED returns all types.
+  GrantType type = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+message QueryGrantsByGranterResponse {
+  repeated Grant grants = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryGrantsByGranteeRequest {
+  string grantee = 1;
+  GrantType type = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+message QueryGrantsByGranteeResponse {
+  repeated Grant grants = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 

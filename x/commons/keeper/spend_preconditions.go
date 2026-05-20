@@ -25,14 +25,29 @@ import (
 //
 // On success the EpochSpending entry for (authority, epochDay) is updated to
 // include this disbursement, so subsequent calls within the same epoch see
-// the cumulative total. Callers are still responsible for the actual
-// bankKeeper.SendCoins.
+// the cumulative total.
 //
-// This is the single source of truth for spend gating. Both
-// MsgSpendFromCommons and MsgClaimRecurringSpend route through here so that
-// a recurring schedule cannot be used to side-step the same constraints a
-// one-off proposal must satisfy.
+// **Layering (M4):** the body is now factored into `checkSpendGates`
+// (the four checks, no writes) + `recordEpochSpend` (the per-epoch
+// debit). MsgSpendFromCommons keeps calling the combined wrapper.
+// SessionClaimHook uses the split: PreCheck → checkSpendGates,
+// PostCommit → recordEpochSpend. The split is what prevents the
+// double-debit bug documented in the migration plan §3.2.
+//
+// Callers are still responsible for the actual `bankKeeper.SendCoins`.
 func (k Keeper) CheckSpendPreconditions(ctx context.Context, authority string, amount sdk.Coins) error {
+	if err := k.checkSpendGates(ctx, authority, amount); err != nil {
+		return err
+	}
+	return k.recordEpochSpend(ctx, authority, amount)
+}
+
+// checkSpendGates runs steps 1–4a of the precondition check (group
+// lookup, activation, term-expiry, per-epoch CHECK with no write). A
+// non-nil return indicates the disbursement is not currently allowed.
+//
+// Used as the PreCheck body of the SessionClaimHook (M4).
+func (k Keeper) checkSpendGates(ctx context.Context, authority string, amount sdk.Coins) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// 1. Lookup the group via its policy address.
@@ -58,7 +73,8 @@ func (k Keeper) CheckSpendPreconditions(ctx context.Context, authority string, a
 			"group term ended on %s; parent must renew membership", expirationTime.String())
 	}
 
-	// 4. Per-epoch rate limit (1 epoch = 1 day = 86400 seconds).
+	// 4a. Per-epoch rate limit CHECK only (no write to EpochSpending).
+	// recordEpochSpend below performs the corresponding write.
 	if extGroup.MaxSpendPerEpoch != nil && extGroup.MaxSpendPerEpoch.GT(math.NewInt(0)) {
 		limit := *extGroup.MaxSpendPerEpoch
 		epochDay := sdkCtx.BlockTime().Unix() / 86400
@@ -88,11 +104,56 @@ func (k Keeper) CheckSpendPreconditions(ctx context.Context, authority string, a
 				"cumulative spend this epoch %s + request %s = %s exceeds limit %s uspark",
 				cumulativeSpent, requestedUspark, newTotal, limit)
 		}
+	}
 
-		if err := k.EpochSpending.Set(ctx, key, newTotal.String()); err != nil {
-			return errorsmod.Wrap(err, "failed to update epoch spending tracker")
+	return nil
+}
+
+// recordEpochSpend commits the per-epoch bucket write that step 4b
+// of CheckSpendPreconditions used to perform inline. Idempotent in
+// the sense that the caller is responsible for not calling it twice
+// for the same disbursement; the SessionClaimHook contract pairs it
+// with checkSpendGates on the same (authority, amount).
+//
+// Used as the PostCommit body of the SessionClaimHook (M4). PostCommit
+// errors are tx-halting per the session hook contract; a write
+// failure here will roll back the entire claim tx so a debited budget
+// always corresponds to a successful disbursement.
+//
+// No-op if the council has no max_spend_per_epoch configured.
+func (k Keeper) recordEpochSpend(ctx context.Context, authority string, amount sdk.Coins) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	// Re-fetch group; checkSpendGates already validated it exists.
+	_, extGroup, found := k.GetGroupByPolicy(sdkCtx, authority)
+	if !found {
+		// Should be unreachable when called paired with checkSpendGates,
+		// but be defensive.
+		return errorsmod.Wrapf(types.ErrGroupNotFound,
+			"signer %s is not a registered group policy", authority)
+	}
+
+	if extGroup.MaxSpendPerEpoch == nil || !extGroup.MaxSpendPerEpoch.GT(math.NewInt(0)) {
+		// No per-epoch cap configured: nothing to debit.
+		return nil
+	}
+
+	epochDay := sdkCtx.BlockTime().Unix() / 86400
+	requestedUspark := amount.AmountOf("uspark")
+
+	key := collections.Join(authority, epochDay)
+	cumulativeSpent := math.ZeroInt()
+	if prev, err := k.EpochSpending.Get(ctx, key); err == nil {
+		var ok bool
+		cumulativeSpent, ok = math.NewIntFromString(prev)
+		if !ok {
+			cumulativeSpent = math.ZeroInt()
 		}
 	}
 
+	newTotal := cumulativeSpent.Add(requestedUspark)
+	if err := k.EpochSpending.Set(ctx, key, newTotal.String()); err != nil {
+		return errorsmod.Wrap(err, "failed to update epoch spending tracker")
+	}
 	return nil
 }

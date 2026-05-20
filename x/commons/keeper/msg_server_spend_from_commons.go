@@ -26,8 +26,10 @@ func (k msgServer) SpendFromCommons(goCtx context.Context, msg *types.MsgSpendFr
 
 	// 2. Activation / expiration / rate-limit gate. Atomically updates the
 	// per-epoch counter so a follow-up call in the same epoch sees the new
-	// total. Shared with MsgClaimRecurringSpend so a recurring schedule
-	// cannot bypass the same constraints a one-off proposal must satisfy.
+	// total. The same EpochSpending bucket is debited by `SessionClaimHook`
+	// (PreCheck + PostCommit) on every RECURRING_PULL claim whose granter
+	// is a council policy, so a recurring schedule cannot bypass the same
+	// constraints a one-off proposal must satisfy.
 	if err := k.CheckSpendPreconditions(ctx, msg.Authority, msg.Amount); err != nil {
 		return nil, err
 	}

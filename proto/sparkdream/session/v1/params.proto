@@ -42,6 +42,94 @@ message Params {
   // Maximum exec_count per session. Must be > 0; sessions must declare
   // a finite cap (1 <= session.max_exec_count <= params.max_exec_count).
   uint64 max_exec_count = 7;
+
+  // --- RecurringPull (P3) ---
+  // Minimum period_seconds on a RECURRING_PULL grant. Default 86_400 (1 day);
+  // prevents abusive sub-second polling.
+  int64 min_recurring_period_seconds = 10;
+  // Maximum (expires_at - start_time) on a RECURRING_PULL grant. Default
+  // 31_536_000 (1 year); long-lived recurring authorizations need explicit
+  // re-issuance.
+  int64 max_recurring_duration_seconds = 11;
+  // Maximum number of active RECURRING_PULL grants per granter. Default 50.
+  uint32 max_recurring_pulls_per_granter = 12;
+
+  // --- SpendingAllowance (P4) ---
+  // Minimum period_seconds on a SPENDING_ALLOWANCE grant. Default 3_600
+  // (1 hour); finer-grained than RecurringPull to support rolling burst
+  // budgets.
+  int64 min_allowance_period_seconds = 20;
+  // Maximum number of active SPENDING_ALLOWANCE grants per granter.
+  // Default 20.
+  uint32 max_allowances_per_granter = 21;
+  // Maximum size of an allowed_recipients whitelist. Default 50. Prevents
+  // state-bloat attacks by capping the per-grant list length.
+  uint32 max_allowance_recipient_list = 22;
+  // Minimum amount per MsgPullAllowance call, as sdk.Int (string). Default
+  // "1000" (1000 uspark / 0.001 SPARK). Closes the "1 utoken at a time to
+  // bloat events / drain state" griefing pattern.
+  string min_pull_amount = 23;
+
+  // --- ScheduledOneshot (P5) ---
+  // Minimum (fire_at - block_time) at creation. Default 60s; closes
+  // front-running edge cases.
+  int64 min_schedule_delay_seconds = 30;
+  // Maximum (fire_at - block_time) at creation. Default 31_536_000 (1 year).
+  // Applies to fire_at only; max_grant_lifetime_seconds applies to expires_at.
+  int64 max_schedule_horizon_seconds = 31;
+  // Required buffer between fire_at and expires_at. Default 3600 (1h);
+  // makes the EndBlocker fire-vs-expire race impossible.
+  int64 fire_to_expiry_buffer_seconds = 32;
+  // Maximum active (non-paused) ScheduledOneshot grants per granter. Default 100.
+  uint32 max_pending_oneshots_per_granter = 33;
+  // Maximum paused (PAUSED_INSUFFICIENT_FUNDS) ScheduledOneshot grants per
+  // granter. Default 20. Separate from active cap so paused grants don't
+  // pin slots indefinitely.
+  uint32 max_paused_oneshots_per_granter = 34;
+  // Auto-revoke a paused oneshot after this many seconds. Default 604_800
+  // (7 days). Deposit refunded on auto-revoke.
+  int64 paused_oneshot_ttl_seconds = 35;
+  // Minimum gas_limit allowed on OneshotExec. Default 30_000.
+  uint64 min_oneshot_exec_gas = 36;
+  // Maximum gas_limit allowed on OneshotExec. Default 200_000.
+  uint64 max_oneshot_exec_gas = 37;
+  // Price per gas unit for OneshotExec deposit calculation, as sdk.Dec
+  // string. Default "0.0025" (100x typical min_gas_price). Floor must be
+  // >= chain's effective min_gas_price.
+  string oneshot_gas_price_uspark = 38;
+  // Flat per-slot fee on every Oneshot grant creation (both Transfer and
+  // Exec variants). Default 1000 uspark (0.001 SPARK). Closes the
+  // "free state slot" hole.
+  uint64 oneshot_creation_fee_uspark = 39;
+  // Hard floor on total deposit. Default 1000 uspark. Defeats `gas_limit=1`
+  // zero-deposit slot griefing.
+  uint64 min_oneshot_deposit_uspark = 40;
+  // Per-EndBlocker pass cap on dispatches (fire, auto-revoke, expire each
+  // get their own cap). Default 100.
+  uint32 max_endblocker_dispatches_per_pass = 41;
+
+  // --- Cross-type (P3) ---
+  // Coins permitted as denom in RecurringPull / SpendingAllowance / Oneshot
+  // grants. Default ["uspark"]. DREAM is permanently excluded at the handler
+  // level regardless of contents.
+  repeated string allowed_denoms = 50;
+  // General cap on `expires_at - created_at` across all grant types. Default
+  // 31_536_000 (1 year).
+  int64 max_grant_lifetime_seconds = 51;
+
+  // --- Module-bypass (P8) ---
+  // Bech32 addresses of module accounts authorized to call
+  // `CreateGrantOnBehalfOf` (the signature-bypass keeper entrypoint).
+  // Default empty — no module may bypass signatures unless explicitly
+  // gov-allowlisted.
+  //
+  // The bypass exists to let trusted modules (e.g. x/commons for council
+  // recurring spends) create grants for module-account granters that
+  // can't sign a real tx. Each address listed here is a strict trust
+  // grant; the bypass skips signature + sequence verification, so a
+  // compromised or buggy allowlisted module could synthesize arbitrary
+  // grants. Add only after a security review.
+  repeated string authorized_grant_creators = 60;
 }
 
 // SessionOperationalParams defines the operational parameters updateable by
@@ -69,4 +157,32 @@ message SessionOperationalParams {
   ];
 
   uint64 max_exec_count = 6;
+
+  // --- RecurringPull + cross-type (P3) ---
+  int64 min_recurring_period_seconds = 10;
+  int64 max_recurring_duration_seconds = 11;
+  uint32 max_recurring_pulls_per_granter = 12;
+  // --- SpendingAllowance (P4) ---
+  int64 min_allowance_period_seconds = 20;
+  uint32 max_allowances_per_granter = 21;
+  uint32 max_allowance_recipient_list = 22;
+  string min_pull_amount = 23;
+  // --- ScheduledOneshot (P5) ---
+  int64 min_schedule_delay_seconds = 30;
+  int64 max_schedule_horizon_seconds = 31;
+  int64 fire_to_expiry_buffer_seconds = 32;
+  uint32 max_pending_oneshots_per_granter = 33;
+  uint32 max_paused_oneshots_per_granter = 34;
+  int64 paused_oneshot_ttl_seconds = 35;
+  uint64 min_oneshot_exec_gas = 36;
+  uint64 max_oneshot_exec_gas = 37;
+  string oneshot_gas_price_uspark = 38;
+  uint64 oneshot_creation_fee_uspark = 39;
+  uint64 min_oneshot_deposit_uspark = 40;
+  uint32 max_endblocker_dispatches_per_pass = 41;
+  // Note: allowed_denoms is add-only by ops (removing a denom strands existing
+  // grants and is gov-only via MsgUpdateParams). Including it here so ops can
+  // widen the set.
+  repeated string allowed_denoms = 50;
+  int64 max_grant_lifetime_seconds = 51;
 }

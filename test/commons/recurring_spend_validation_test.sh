@@ -8,7 +8,14 @@
 # but the inner message must FAIL at execute time. We assert:
 #   - the execute_proposal tx code is non-zero, OR
 #   - the proposal flips to PROPOSAL_STATUS_FAILED
-# and that the schedule store contains no new RecurringSpend record.
+# and that no new schedule appears in session.Grants for this council.
+#
+# Post-M11 (RecurringSpend migration): cadence + duration bounds and
+# the per-granter active-grant cap are now enforced by x/session, not
+# by x/commons. We read those bounds from `session params`; the
+# `granter == grantee` rejection is a new check the migration added
+# (§4 / §8 behavioral tightening). The store-mutation post-check
+# filters by authority since M9 dropped cross-granter pagination.
 
 set -u
 
@@ -25,7 +32,6 @@ CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
-GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
 
 GROUP_NAME="Commons Operations Committee"
 POLICY_ADDR=$($BINARY query commons get-group "$GROUP_NAME" --output json | jq -r '.group.policy_address')
@@ -38,18 +44,20 @@ PROPOSAL_FEE=$($BINARY query commons params --output json | jq -r '.params.propo
 echo "Committee policy: $POLICY_ADDR"
 echo "Proposal fee:     $PROPOSAL_FEE"
 
-# Pull current recurring-spend params so we know what is in/out of bounds.
-PARAMS_JSON=$($BINARY query commons params --output json)
-MIN_PERIOD=$(echo "$PARAMS_JSON" | jq -r '.params.min_recurring_period_seconds')
-MAX_DURATION=$(echo "$PARAMS_JSON" | jq -r '.params.max_recurring_duration_seconds')
+# Read recurring-spend bounds from session (M10 dropped them from
+# commons.Params; session is now authoritative).
+SESSION_PARAMS=$($BINARY query session params --output json)
+MIN_PERIOD=$(echo "$SESSION_PARAMS" | jq -r '.params.min_recurring_period_seconds')
+MAX_DURATION=$(echo "$SESSION_PARAMS" | jq -r '.params.max_recurring_duration_seconds')
 if [ -z "$MIN_PERIOD" ] || [ "$MIN_PERIOD" == "null" ]; then
-    echo "[FAIL] Could not read params.min_recurring_period_seconds (got '$MIN_PERIOD')."
+    echo "[FAIL] Could not read session params.min_recurring_period_seconds."
     exit 1
 fi
-echo "min_recurring_period_seconds:   $MIN_PERIOD"
-echo "max_recurring_duration_seconds: $MAX_DURATION"
+echo "session.min_recurring_period_seconds:   $MIN_PERIOD"
+echo "session.max_recurring_duration_seconds: $MAX_DURATION"
 
-# Fund the committee so SendCoins doesn't reject for insufficient funds (would mask validation errors).
+# Fund the committee so SendCoins doesn't reject for insufficient funds
+# (would mask validation errors).
 $BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
 sleep 3
 
@@ -76,7 +84,6 @@ EOF
     local prop_id
     prop_id=$($BINARY query tx "$tx_hash" --output json 2>/dev/null | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
     if [ -z "$prop_id" ] || [ "$prop_id" == "null" ]; then
-        # Submit-time rejection counts as a pass for "must reject" subtests.
         local submit_log
         submit_log=$($BINARY query tx "$tx_hash" --output json 2>/dev/null | jq -r '.raw_log')
         echo "[ OK ] $label — proposal rejected at submit (log: $submit_log)"
@@ -104,9 +111,11 @@ EOF
     echo "[ OK ] $label — proposal $prop_id terminal status: $prop_status"
 }
 
-# Pre-record total schedule count so we can confirm the store wasn't mutated.
-INITIAL_COUNT=$($BINARY query commons list-recurring-spends --output json | jq '.recurring_spends | length')
-echo "Schedules in store before validation subtests: $INITIAL_COUNT"
+# Pre-record schedule count by this authority. M9 dropped no-filter
+# pagination; we filter by authority instead (the cross-granter
+# variant is not supported post-migration).
+INITIAL_COUNT=$($BINARY query commons list-recurring-spends --authority "$POLICY_ADDR" --output json | jq '.recurring_spends | length')
+echo "Schedules under $POLICY_ADDR before validation subtests: $INITIAL_COUNT"
 
 NOW=$(date +%s)
 
@@ -191,13 +200,50 @@ assert_schedule_rejects "start in the past" "[
   }
 ]"
 
-# --- POST-CHECK: store unchanged -----------------------------------------
-FINAL_COUNT=$($BINARY query commons list-recurring-spends --output json | jq '.recurring_spends | length')
+# --- SUBTEST 6: granter == grantee (self-payment) — NEW POST-MIGRATION ----
+# Session's validateGrantCommon hard-rejects granter == grantee. Today's
+# commons handler did NOT check this; the migration tightens behavior to
+# match session's invariant (§8 / migration plan).
+assert_schedule_rejects "granter == grantee (self-payment)" "[
+  {
+    \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
+    \"authority\": \"$POLICY_ADDR\",
+    \"recipient\": \"$POLICY_ADDR\",
+    \"amount_per_period\": [{\"denom\":\"uspark\",\"amount\":\"100\"}],
+    \"period_seconds\": \"$MIN_PERIOD\",
+    \"start_time\": \"$START\",
+    \"end_time\": \"$END\",
+    \"note\": \"self-payment\"
+  }
+]"
+
+# --- SUBTEST 7: multi-coin amount (D1.a restriction) — NEW POST-MIGRATION -
+# Only one coin per schedule. Today's parallel storage accepted sdk.Coins
+# but the rate-limit only counted uspark; the migration tightens to a
+# single coin so the per-grant max_per_epoch_uspark cap is meaningful.
+assert_schedule_rejects "multi-coin amount rejected (D1.a)" "[
+  {
+    \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
+    \"authority\": \"$POLICY_ADDR\",
+    \"recipient\": \"$CAROL_ADDR\",
+    \"amount_per_period\": [
+      {\"denom\":\"uspark\",\"amount\":\"100\"},
+      {\"denom\":\"uatom\",\"amount\":\"50\"}
+    ],
+    \"period_seconds\": \"$MIN_PERIOD\",
+    \"start_time\": \"$START\",
+    \"end_time\": \"$END\",
+    \"note\": \"multi-coin\"
+  }
+]"
+
+# --- POST-CHECK: schedule store unchanged for this authority -------------
+FINAL_COUNT=$($BINARY query commons list-recurring-spends --authority "$POLICY_ADDR" --output json | jq '.recurring_spends | length')
 if [ "$FINAL_COUNT" -gt "$INITIAL_COUNT" ]; then
-    echo "[FAIL] Validation subtests leaked $((FINAL_COUNT - INITIAL_COUNT)) schedules into the store."
+    echo "[FAIL] Validation subtests leaked $((FINAL_COUNT - INITIAL_COUNT)) schedules into the store for $POLICY_ADDR."
     exit 1
 fi
-echo "[ OK ] Validation subtests left the schedule store at $FINAL_COUNT entries (unchanged)."
+echo "[ OK ] Validation subtests left the schedule store at $FINAL_COUNT entries for $POLICY_ADDR (unchanged)."
 
 echo ""
 echo "[ OK ] Recurring spend validation matrix PASSED."

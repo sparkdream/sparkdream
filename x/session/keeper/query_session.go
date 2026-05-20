@@ -3,7 +3,6 @@ package keeper
 import (
 	"context"
 
-	"cosmossdk.io/collections"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -15,8 +14,7 @@ func (q queryServer) Session(ctx context.Context, req *types.QuerySessionRequest
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	key := collections.Join(req.Granter, req.Grantee)
-	session, err := q.k.Sessions.Get(ctx, key)
+	session, err := q.k.GetSession(ctx, req.Granter, req.Grantee)
 	if err != nil {
 		return nil, types.ErrSessionNotFound
 	}

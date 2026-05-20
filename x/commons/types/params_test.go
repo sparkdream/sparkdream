@@ -36,32 +36,16 @@ func TestParams_Validate_MultipleCoins(t *testing.T) {
 func TestParams_ParamSetPairs(t *testing.T) {
 	p := types.DefaultParams()
 	pairs := p.ParamSetPairs()
-	// proposal_fee + 3 recurring-spend params.
-	require.Len(t, pairs, 4)
+	// M10 removed the 3 recurring-spend params; only proposal_fee remains
+	// on the commons-side ParamSet.
+	require.Len(t, pairs, 1)
 	require.Equal(t, types.KeyProposalFee, pairs[0].Key)
-	require.Equal(t, types.KeyMinRecurringPeriodSeconds, pairs[1].Key)
-	require.Equal(t, types.KeyMaxRecurringDurationSeconds, pairs[2].Key)
-	require.Equal(t, types.KeyMaxActiveRecurringSpendsPerGroup, pairs[3].Key)
 }
 
-func TestParams_RecurringSpendDefaults(t *testing.T) {
-	p := types.DefaultParams()
-	require.Equal(t, types.DefaultMinRecurringPeriodSeconds, p.MinRecurringPeriodSeconds)
-	require.Equal(t, types.DefaultMaxRecurringDurationSeconds, p.MaxRecurringDurationSeconds)
-	require.Equal(t, types.DefaultMaxActiveRecurringSpendsPerGroup, p.MaxActiveRecurringSpendsPerGroup)
-}
-
-func TestParams_Validate_RejectsZeroRecurringPeriod(t *testing.T) {
-	p := types.DefaultParams()
-	p.MinRecurringPeriodSeconds = 0
-	require.Error(t, p.Validate())
-}
-
-func TestParams_Validate_RejectsTooShortDurationCap(t *testing.T) {
-	p := types.DefaultParams()
-	p.MaxRecurringDurationSeconds = p.MinRecurringPeriodSeconds - 1
-	require.Error(t, p.Validate())
-}
+// The 3 recurring-spend params (MinRecurringPeriodSeconds,
+// MaxRecurringDurationSeconds, MaxActiveRecurringSpendsPerGroup) and
+// their validators live on x/session; the legacy tests for those
+// validators are gone along with the params themselves.
 
 func TestForbiddenMessages_RecursionGuards(t *testing.T) {
 	require.True(t, types.ForbiddenMessages["/cosmos.authz.v1beta1.MsgExec"])

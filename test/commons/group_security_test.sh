@@ -32,6 +32,14 @@ echo "--- STEP 1: SETUP TARGET COMMITTEE 'FORT KNOX' ---"
 #                + per-tx block time; 3x headroom for further slowdowns)
 # - Spend Limit: 100uspark   (intentionally tiny so STEP 4's 200uspark trips it)
 # - Cooldown: 3600s (1 hour)
+#
+# Per-run uniqueness: a previous failed run of this test (or a snapshot
+# carrying its post-state) can leave a "Fort Knox" group in the chain,
+# which makes MsgRegisterGroup reject with "group with name X already
+# exists". Append a per-second-precision suffix so each run owns a
+# fresh group while every reference below still resolves.
+FORT_KNOX_NAME="Fort Knox $(date +%s)"
+echo "Fort Knox name for this run: $FORT_KNOX_NAME"
 echo '{
   "policy_address": "'$COMMONS_POLICY'",
   "proposers": ["'$ALICE_ADDR'"],
@@ -41,7 +49,7 @@ echo '{
     {
       "@type": "/sparkdream.commons.v1.MsgRegisterGroup",
       "authority": "'$COMMONS_POLICY'",
-      "name": "Fort Knox",
+      "name": "'$FORT_KNOX_NAME'",
       "description": "High security vault",
       "policy_type": "threshold",
       "members": ["'$ALICE_ADDR'"],
@@ -103,7 +111,7 @@ fi
 echo "[ OK ] 'Fort Knox' created."
 
 # Get Fort Knox Policy Address for checks
-KNOX_INFO=$($BINARY query commons get-group "Fort Knox" --output json)
+KNOX_INFO=$($BINARY query commons get-group "$FORT_KNOX_NAME" --output json)
 KNOX_POLICY=$(echo $KNOX_INFO | jq -r '.group.policy_address')
 if [ -z "$KNOX_POLICY" ]; then
     echo "[FAIL] ERROR: Failed to get Fort Knox Policy Address."
@@ -122,7 +130,7 @@ echo '{
     {
       "@type": "/sparkdream.commons.v1.MsgRenewGroup",
       "authority": "'$COMMONS_POLICY'",
-      "group_name": "Fort Knox",
+      "group_name": "'$FORT_KNOX_NAME'",
       "new_members": ["'$DAVE_ADDR'"],
       "new_member_weights": ["1"]
     }
@@ -178,7 +186,7 @@ echo '{
     {
       "@type": "/sparkdream.commons.v1.MsgUpdateGroupConfig",
       "authority": "'$COMMONS_POLICY'",
-      "group_name": "Fort Knox",
+      "group_name": "'$FORT_KNOX_NAME'",
       "max_spend_per_epoch": "9999999"
     }
   ]

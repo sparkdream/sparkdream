@@ -92,34 +92,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// 11. Restore recurring spends. Sets the schedule, both secondary
-	// indexes, and recomputes the per-authority active counter so cap
-	// enforcement survives a chain restart.
-	activeCounts := make(map[string]uint32)
-	for _, rs := range genState.RecurringSpends {
-		if err := k.RecurringSpends.Set(ctx, rs.Id, rs); err != nil {
-			return err
-		}
-		if err := k.RecurringSpendsByAuthority.Set(ctx, collections.Join(rs.Authority, rs.Id)); err != nil {
-			return err
-		}
-		if err := k.RecurringSpendsByRecipient.Set(ctx, collections.Join(rs.Recipient, rs.Id)); err != nil {
-			return err
-		}
-		if rs.Status == types.RecurringSpendStatus_RECURRING_SPEND_STATUS_ACTIVE {
-			activeCounts[rs.Authority]++
-		}
-	}
-	for authority, count := range activeCounts {
-		if err := k.ActiveRecurringSpendCount.Set(ctx, authority, count); err != nil {
-			return err
-		}
-	}
-	if genState.NextRecurringSpendId > 0 {
-		if err := k.RecurringSpendSeq.Set(ctx, genState.NextRecurringSpendId); err != nil {
-			return err
-		}
-	}
+	// 11. Recurring spends — M10 removed the parallel commons storage.
+	// Schedules now live in session.Grants and are imported via
+	// x/session genesis. `genState.RecurringSpends` is retained on the
+	// GenesisState proto as a dead field (pre-launch, always empty);
+	// keeping the field avoids a wire-incompatible proto change.
 
 	// Prime the sequence so the first runtime category starts at 1; ID 0 is
 	// reserved as "no category".
@@ -253,15 +230,10 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	genesis.NextCategoryId, _ = k.CategorySeq.Peek(ctx)
 
-	// Export recurring spends. Active-count is recomputed at import time
-	// so it does not need to round-trip.
-	if err := k.RecurringSpends.Walk(ctx, nil, func(_ uint64, rs types.RecurringSpend) (bool, error) {
-		genesis.RecurringSpends = append(genesis.RecurringSpends, rs)
-		return false, nil
-	}); err != nil {
-		return nil, err
-	}
-	genesis.NextRecurringSpendId, _ = k.RecurringSpendSeq.Peek(ctx)
+	// M10 removed the parallel commons RecurringSpend storage; the
+	// genState.RecurringSpends and genState.NextRecurringSpendId fields
+	// remain on the proto for wire-compat but are now always empty/zero
+	// on export. Schedules are exported via x/session genesis.
 
 	return genesis, nil
 }

@@ -33,6 +33,7 @@ RUN_FEE=true
 RUN_EXPIRATION=true
 RUN_BATCH=true
 RUN_OPPARAMS=true
+RUN_BYPASS=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -66,6 +67,9 @@ for arg in "$@"; do
         --no-opparams)
             RUN_OPPARAMS=false
             ;;
+        --no-bypass)
+            RUN_BYPASS=false
+            ;;
         --only-setup)
             RUN_CREATE=false
             RUN_QUERY=false
@@ -75,6 +79,7 @@ for arg in "$@"; do
             RUN_EXPIRATION=false
             RUN_BATCH=false
             RUN_OPPARAMS=false
+            RUN_BYPASS=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -87,6 +92,7 @@ for arg in "$@"; do
             RUN_EXPIRATION=false
             RUN_BATCH=false
             RUN_OPPARAMS=false
+            RUN_BYPASS=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -101,6 +107,7 @@ for arg in "$@"; do
             RUN_EXPIRATION=false
             RUN_BATCH=false
             RUN_OPPARAMS=false
+            RUN_BYPASS=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -115,6 +122,7 @@ for arg in "$@"; do
             echo "  --no-expiration  Skip expiration/pruning tests"
             echo "  --no-batch       Skip batch execution tests"
             echo "  --no-opparams    Skip operational params tests"
+            echo "  --no-bypass      Skip module-bypass allowlist tests"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -417,6 +425,14 @@ if [ "$RUN_OPPARAMS" = true ]; then
     run_test "Operational Params Tests" "operational_params_test.sh"
 else
     echo "Skipping operational params tests (--no-opparams)"
+    echo ""
+fi
+
+# Module-bypass allowlist tests (M3 of the RecurringSpend migration)
+if [ "$RUN_BYPASS" = true ]; then
+    run_test "Bypass Allowlist Tests" "bypass_allowlist_test.sh"
+else
+    echo "Skipping bypass allowlist tests (--no-bypass)"
     echo ""
 fi
 

@@ -3,18 +3,38 @@ package sparkdream.session.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/session/v1/grant.proto";
 import "sparkdream/session/v1/params.proto";
-import "sparkdream/session/v1/session.proto";
 
 option go_package = "sparkdream/x/session/types";
 
 // GenesisState defines the session module's genesis state.
+//
+// Active grants (typically empty at genesis). The secondary indexes
+// (GrantsByGranter, GrantsByGrantee, GrantsByExpiration, etc.) are
+// reconstructed from the grants list on InitGenesis and not exported, so
+// the round-trip stays small and cannot double-count.
 message GenesisState {
-  // params defines all the parameters of the module.
   Params params = 1 [
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
-  // Active sessions (typically empty at genesis).
-  repeated Session sessions = 2 [(gogoproto.nullable) = false];
+  // Active grants. Typically empty at genesis.
+  repeated Grant grants = 2 [(gogoproto.nullable) = false];
+  // Next grant ID to allocate. Allows export/re-import round-trips to
+  // preserve the sequence without colliding with already-exported IDs.
+  uint64 grant_seq = 3;
+  // Per-(granter, type) active grant counts. Exported so a round-trip
+  // does not have to recompute them by walking the grants list a second
+  // time, and so InitGenesis can validate the counter matches the actual
+  // active grants.
+  repeated ActiveGrantCount active_grant_counts = 4 [(gogoproto.nullable) = false];
+}
+
+// ActiveGrantCount carries one (granter, type) -> active count entry for
+// the genesis export round-trip.
+message ActiveGrantCount {
+  string granter = 1;
+  GrantType type = 2;
+  uint32 count = 3;
 }

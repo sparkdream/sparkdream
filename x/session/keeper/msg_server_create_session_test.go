@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -282,18 +283,20 @@ func TestCreateSessionIndexes(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify granter index
-	has, err := f.keeper.SessionsByGranter.Has(f.ctx, makeGranterKey(granter, grantee))
+	// Verify SessionKey lookup is populated.
+	id, err := f.keeper.SessionKeyByPair.Get(f.ctx, collections.Join(granter, grantee))
 	require.NoError(t, err)
-	require.True(t, has)
 
-	// Verify grantee index
-	has, err = f.keeper.SessionsByGrantee.Has(f.ctx, makeGranteeKey(grantee, granter))
+	// Verify all secondary indexes are populated.
+	hasGranter, err := f.keeper.GrantsByGranter.Has(f.ctx, collections.Join(granter, id))
 	require.NoError(t, err)
-	require.True(t, has)
+	require.True(t, hasGranter)
 
-	// Verify expiration index
-	has, err = f.keeper.SessionsByExpiration.Has(f.ctx, makeExpKey(futureExp.Unix(), granter, grantee))
+	hasGrantee, err := f.keeper.GrantsByGrantee.Has(f.ctx, collections.Join(grantee, id))
 	require.NoError(t, err)
-	require.True(t, has)
+	require.True(t, hasGrantee)
+
+	hasExp, err := f.keeper.GrantsByExpiration.Has(f.ctx, collections.Join(futureExp.Unix(), id))
+	require.NoError(t, err)
+	require.True(t, hasExp)
 }

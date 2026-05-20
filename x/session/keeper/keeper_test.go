@@ -27,6 +27,8 @@ type mockBankKeeper struct {
 	SpendableCoinsFn               func(ctx context.Context, addr sdk.AccAddress) sdk.Coins
 	SendCoinsFn                    func(ctx context.Context, fromAddr, toAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromAccountToModuleFn func(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
+	SendCoinsFromModuleToAccountFn func(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+	SendCoinsFromModuleToModuleFn  func(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error
 }
 
 func (m *mockBankKeeper) SpendableCoins(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
@@ -46,6 +48,20 @@ func (m *mockBankKeeper) SendCoins(ctx context.Context, fromAddr, toAddr sdk.Acc
 func (m *mockBankKeeper) SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
 	if m.SendCoinsFromAccountToModuleFn != nil {
 		return m.SendCoinsFromAccountToModuleFn(ctx, senderAddr, recipientModule, amt)
+	}
+	return nil
+}
+
+func (m *mockBankKeeper) SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
+	if m.SendCoinsFromModuleToAccountFn != nil {
+		return m.SendCoinsFromModuleToAccountFn(ctx, senderModule, recipientAddr, amt)
+	}
+	return nil
+}
+
+func (m *mockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error {
+	if m.SendCoinsFromModuleToModuleFn != nil {
+		return m.SendCoinsFromModuleToModuleFn(ctx, senderModule, recipientModule, amt)
 	}
 	return nil
 }
@@ -130,30 +146,103 @@ func testAddr(seed string, codec address.Codec) string {
 	return s
 }
 
-// createTestSession is a helper that stores a session with all indexes.
+// createTestSession is a helper that stores a session as a SESSION_KEY-type
+// Grant with MaxExecCount = 0 (unlimited). For tests that need a specific
+// cap, use createTestSessionWithExec.
 func createTestSession(t *testing.T, f *fixture, granter, grantee string, allowedTypes []string, expiration time.Time) types.Session {
 	t.Helper()
+	return createTestSessionWithExec(t, f, granter, grantee, allowedTypes, expiration, 0)
+}
 
-	session := types.Session{
+// createTestSessionWithExec is like createTestSession but takes a maxExec
+// override.
+func createTestSessionWithExec(t *testing.T, f *fixture, granter, grantee string, allowedTypes []string, expiration time.Time, maxExec uint64) types.Session {
+	t.Helper()
+
+	now := time.Now().UTC()
+	id, err := f.keeper.GrantSeq.Next(f.ctx)
+	require.NoError(t, err)
+	id++ // match nextGrantID's 1-indexed convention
+
+	g := types.Grant{
+		Id:        id,
+		Granter:   granter,
+		Grantee:   grantee,
+		Type:      types.GrantType_GRANT_TYPE_SESSION_KEY,
+		Status:    types.GrantStatus_GRANT_STATUS_ACTIVE,
+		CreatedAt: now,
+		ExpiresAt: expiration,
+		Payload: &types.Grant_SessionKey{
+			SessionKey: &types.SessionKeyPayload{
+				AllowedMsgTypes: allowedTypes,
+				SpendLimit:      sdk.NewInt64Coin("uspark", 10_000_000),
+				Spent:           sdk.NewInt64Coin("uspark", 0),
+				LastUsedAt:      now,
+				ExecCount:       0,
+				MaxExecCount:    maxExec,
+			},
+		},
+	}
+
+	require.NoError(t, f.keeper.Grants.Set(f.ctx, id, g))
+	require.NoError(t, f.keeper.GrantsByGranter.Set(f.ctx, collections.Join(granter, id)))
+	require.NoError(t, f.keeper.GrantsByGrantee.Set(f.ctx, collections.Join(grantee, id)))
+	require.NoError(t, f.keeper.GrantsByExpiration.Set(f.ctx, collections.Join(expiration.Unix(), id)))
+	require.NoError(t, f.keeper.GrantsByTypeAndGranter.Set(f.ctx,
+		collections.Join3(int32(types.GrantType_GRANT_TYPE_SESSION_KEY), granter, id)))
+	require.NoError(t, f.keeper.SessionKeyByPair.Set(f.ctx, collections.Join(granter, grantee), id))
+
+	// Bump active-grant count to match the active-status invariant.
+	ckey := collections.Join(granter, int32(types.GrantType_GRANT_TYPE_SESSION_KEY))
+	cur, _ := f.keeper.ActiveGrantCountByType.Get(f.ctx, ckey)
+	require.NoError(t, f.keeper.ActiveGrantCountByType.Set(f.ctx, ckey, cur+1))
+
+	return types.Session{
 		Granter:         granter,
 		Grantee:         grantee,
 		AllowedMsgTypes: allowedTypes,
 		SpendLimit:      sdk.NewInt64Coin("uspark", 10_000_000),
 		Spent:           sdk.NewInt64Coin("uspark", 0),
 		Expiration:      expiration,
-		CreatedAt:       time.Now().UTC(),
-		LastUsedAt:      time.Now().UTC(),
+		CreatedAt:       now,
+		LastUsedAt:      now,
 		ExecCount:       0,
-		MaxExecCount:    0,
+		MaxExecCount:    maxExec,
 	}
+}
 
-	key := collections.Join(granter, grantee)
-	require.NoError(t, f.keeper.Sessions.Set(f.ctx, key, session))
-	require.NoError(t, f.keeper.SessionsByGranter.Set(f.ctx, collections.Join(granter, grantee)))
-	require.NoError(t, f.keeper.SessionsByGrantee.Set(f.ctx, collections.Join(grantee, granter)))
-	require.NoError(t, f.keeper.SessionsByExpiration.Set(f.ctx, collections.Join3(expiration.Unix(), granter, grantee)))
+// cleanupSessionPair removes any SESSION_KEY grant for the (granter,
+// grantee) pair and clears every secondary index entry. Intended for
+// table-driven tests that need to set up and tear down a session across
+// sub-tests without re-initializing the keeper.
+func cleanupSessionPair(t *testing.T, f *fixture, granter, grantee string) {
+	t.Helper()
+	id, err := f.keeper.SessionKeyByPair.Get(f.ctx, collections.Join(granter, grantee))
+	if err != nil {
+		return
+	}
+	g, err := f.keeper.Grants.Get(f.ctx, id)
+	if err != nil {
+		_ = f.keeper.SessionKeyByPair.Remove(f.ctx, collections.Join(granter, grantee))
+		return
+	}
+	_ = f.keeper.Grants.Remove(f.ctx, id)
+	_ = f.keeper.GrantsByGranter.Remove(f.ctx, collections.Join(granter, id))
+	_ = f.keeper.GrantsByGrantee.Remove(f.ctx, collections.Join(grantee, id))
+	_ = f.keeper.GrantsByExpiration.Remove(f.ctx, collections.Join(g.ExpiresAt.Unix(), id))
+	_ = f.keeper.GrantsByTypeAndGranter.Remove(f.ctx,
+		collections.Join3(int32(types.GrantType_GRANT_TYPE_SESSION_KEY), granter, id))
+	_ = f.keeper.SessionKeyByPair.Remove(f.ctx, collections.Join(granter, grantee))
 
-	return session
+	ckey := collections.Join(granter, int32(types.GrantType_GRANT_TYPE_SESSION_KEY))
+	cur, err := f.keeper.ActiveGrantCountByType.Get(f.ctx, ckey)
+	if err == nil && cur > 0 {
+		if cur == 1 {
+			_ = f.keeper.ActiveGrantCountByType.Remove(f.ctx, ckey)
+		} else {
+			_ = f.keeper.ActiveGrantCountByType.Set(f.ctx, ckey, cur-1)
+		}
+	}
 }
 
 // --- Keeper method tests ---

@@ -35,14 +35,26 @@ func SimulateMsgExecSession(
 			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get or create session: "+err.Error()), nil, nil
 		}
 
-		// Simulate the execution directly via keeper: increment exec_count
-		// and update last_used_at, same as the ExecSession handler does.
-		session.ExecCount++
-		session.LastUsedAt = ctx.BlockTime()
-
-		key := collections.Join(session.Granter, session.Grantee)
-		if err := k.Sessions.Set(ctx, key, session); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, fmt.Sprintf("failed to update session: %v", err)), nil, nil
+		// Simulate the execution directly via keeper on the backing
+		// SESSION_KEY grant: increment exec_count and update last_used_at,
+		// same as the ExecSession handler does.
+		id, err := k.SessionKeyByPair.Get(ctx, collections.Join(session.Granter, session.Grantee))
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, msgType, fmt.Sprintf("session lookup failed: %v", err)), nil, nil
+		}
+		grant, err := k.Grants.Get(ctx, id)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, msgType, fmt.Sprintf("grant lookup failed: %v", err)), nil, nil
+		}
+		sk := grant.GetSessionKey()
+		if sk == nil {
+			return simtypes.NoOpMsg(types.ModuleName, msgType, "grant is not a session key"), nil, nil
+		}
+		sk.ExecCount++
+		sk.LastUsedAt = ctx.BlockTime()
+		grant.Payload = &types.Grant_SessionKey{SessionKey: sk}
+		if err := k.Grants.Set(ctx, id, grant); err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, msgType, fmt.Sprintf("failed to update grant: %v", err)), nil, nil
 		}
 
 		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil

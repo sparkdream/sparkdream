@@ -9,6 +9,8 @@ import (
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	v1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
+
+	sessiontypes "sparkdream/x/session/types"
 )
 
 // AuthKeeper defines the expected interface for the Auth module.
@@ -82,6 +84,37 @@ type NameKeeper interface {
 // depends on x/commons via its commonsKeeper.GetCategory call).
 type ForumKeeper interface {
 	HasPostInCategory(ctx context.Context, categoryID uint64) (bool, error)
+}
+
+// SessionKeeper is the narrow surface from x/session that x/commons
+// consumes to host council recurring spends in the unified grant
+// registry.
+//
+// All methods are gated on the session side by
+// `params.authorized_grant_creators`; x/commons obtains the bypass by
+// being seeded into that allowlist at genesis.
+//
+// Wired via Keeper.SetSessionKeeper post-depinject, mirroring the
+// late-binding pattern used for GovKeeper / ForumKeeper.
+type SessionKeeper interface {
+	// P8-foundation surface (already shipped).
+	CreateGrantOnBehalfOf(ctx context.Context, callerModuleAddr string, msg *sessiontypes.MsgCreateGrant) (uint64, error)
+	RevokeGrantInternal(ctx context.Context, callerModuleAddr string, grantID uint64) (sdk.Coin, error)
+
+	// Read-side helpers (M2 additions).
+	GetGrant(ctx context.Context, id uint64) (sessiontypes.Grant, error)
+	ListGrantsByGranter(ctx context.Context, granter string, filterType sessiontypes.GrantType) ([]sessiontypes.Grant, error)
+	ListGrantsByGrantee(ctx context.Context, grantee string, filterType sessiontypes.GrantType) ([]sessiontypes.Grant, error)
+
+	// Privileged decline + claim helpers (M2 additions). Required by
+	// the D3.a wrappers in M7 and M8.
+	DeclineGrantInternal(ctx context.Context, callerModuleAddr string, grantID uint64, grantee string) (sdk.Coin, error)
+	ClaimRecurringPullForGrantee(ctx context.Context, callerModuleAddr string, grantID uint64, grantee string) (*sessiontypes.MsgClaimRecurringPullResponse, error)
+
+	// SetClaimHooks registers x/commons's SessionClaimHook into the
+	// session keeper. Called from app.go post-depinject (the late-
+	// binding pattern).
+	SetClaimHooks(hooks ...sessiontypes.GrantClaimHook)
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

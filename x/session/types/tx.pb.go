@@ -530,6 +530,737 @@ func (m *MsgExecSessionResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgExecSessionResponse proto.InternalMessageInfo
 
+// MsgCreateGrant is the unified entrypoint for creating any of the four
+// typed grants. The grant type is inferred from the payload oneof; the
+// handler dispatches to type-specific validation. Signed by the granter.
+type MsgCreateGrant struct {
+	Granter   string    `protobuf:"bytes,1,opt,name=granter,proto3" json:"granter,omitempty"`
+	Grantee   string    `protobuf:"bytes,2,opt,name=grantee,proto3" json:"grantee,omitempty"`
+	ExpiresAt time.Time `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3,stdtime" json:"expires_at"`
+	// Optional human-readable purpose (256-char cap).
+	Note string `protobuf:"bytes,4,opt,name=note,proto3" json:"note,omitempty"`
+	// Types that are valid to be assigned to Payload:
+	//	*MsgCreateGrant_SessionKey
+	//	*MsgCreateGrant_RecurringPull
+	//	*MsgCreateGrant_SpendingAllowance
+	//	*MsgCreateGrant_ScheduledOneshot
+	Payload isMsgCreateGrant_Payload `protobuf_oneof:"payload"`
+}
+
+func (m *MsgCreateGrant) Reset()         { *m = MsgCreateGrant{} }
+func (m *MsgCreateGrant) String() string { return proto.CompactTextString(m) }
+func (*MsgCreateGrant) ProtoMessage()    {}
+func (*MsgCreateGrant) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{10}
+}
+func (m *MsgCreateGrant) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgCreateGrant) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgCreateGrant.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgCreateGrant) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgCreateGrant.Merge(m, src)
+}
+func (m *MsgCreateGrant) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgCreateGrant) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgCreateGrant.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgCreateGrant proto.InternalMessageInfo
+
+type isMsgCreateGrant_Payload interface {
+	isMsgCreateGrant_Payload()
+	MarshalTo([]byte) (int, error)
+	Size() int
+}
+
+type MsgCreateGrant_SessionKey struct {
+	SessionKey *SessionKeyPayload `protobuf:"bytes,10,opt,name=session_key,json=sessionKey,proto3,oneof" json:"session_key,omitempty"`
+}
+type MsgCreateGrant_RecurringPull struct {
+	RecurringPull *RecurringPullPayload `protobuf:"bytes,11,opt,name=recurring_pull,json=recurringPull,proto3,oneof" json:"recurring_pull,omitempty"`
+}
+type MsgCreateGrant_SpendingAllowance struct {
+	SpendingAllowance *SpendingAllowancePayload `protobuf:"bytes,12,opt,name=spending_allowance,json=spendingAllowance,proto3,oneof" json:"spending_allowance,omitempty"`
+}
+type MsgCreateGrant_ScheduledOneshot struct {
+	ScheduledOneshot *ScheduledOneshotPayload `protobuf:"bytes,13,opt,name=scheduled_oneshot,json=scheduledOneshot,proto3,oneof" json:"scheduled_oneshot,omitempty"`
+}
+
+func (*MsgCreateGrant_SessionKey) isMsgCreateGrant_Payload()        {}
+func (*MsgCreateGrant_RecurringPull) isMsgCreateGrant_Payload()     {}
+func (*MsgCreateGrant_SpendingAllowance) isMsgCreateGrant_Payload() {}
+func (*MsgCreateGrant_ScheduledOneshot) isMsgCreateGrant_Payload()  {}
+
+func (m *MsgCreateGrant) GetPayload() isMsgCreateGrant_Payload {
+	if m != nil {
+		return m.Payload
+	}
+	return nil
+}
+
+func (m *MsgCreateGrant) GetGranter() string {
+	if m != nil {
+		return m.Granter
+	}
+	return ""
+}
+
+func (m *MsgCreateGrant) GetGrantee() string {
+	if m != nil {
+		return m.Grantee
+	}
+	return ""
+}
+
+func (m *MsgCreateGrant) GetExpiresAt() time.Time {
+	if m != nil {
+		return m.ExpiresAt
+	}
+	return time.Time{}
+}
+
+func (m *MsgCreateGrant) GetNote() string {
+	if m != nil {
+		return m.Note
+	}
+	return ""
+}
+
+func (m *MsgCreateGrant) GetSessionKey() *SessionKeyPayload {
+	if x, ok := m.GetPayload().(*MsgCreateGrant_SessionKey); ok {
+		return x.SessionKey
+	}
+	return nil
+}
+
+func (m *MsgCreateGrant) GetRecurringPull() *RecurringPullPayload {
+	if x, ok := m.GetPayload().(*MsgCreateGrant_RecurringPull); ok {
+		return x.RecurringPull
+	}
+	return nil
+}
+
+func (m *MsgCreateGrant) GetSpendingAllowance() *SpendingAllowancePayload {
+	if x, ok := m.GetPayload().(*MsgCreateGrant_SpendingAllowance); ok {
+		return x.SpendingAllowance
+	}
+	return nil
+}
+
+func (m *MsgCreateGrant) GetScheduledOneshot() *ScheduledOneshotPayload {
+	if x, ok := m.GetPayload().(*MsgCreateGrant_ScheduledOneshot); ok {
+		return x.ScheduledOneshot
+	}
+	return nil
+}
+
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*MsgCreateGrant) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
+		(*MsgCreateGrant_SessionKey)(nil),
+		(*MsgCreateGrant_RecurringPull)(nil),
+		(*MsgCreateGrant_SpendingAllowance)(nil),
+		(*MsgCreateGrant_ScheduledOneshot)(nil),
+	}
+}
+
+type MsgCreateGrantResponse struct {
+	// Allocated grant id.
+	GrantId uint64 `protobuf:"varint,1,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+}
+
+func (m *MsgCreateGrantResponse) Reset()         { *m = MsgCreateGrantResponse{} }
+func (m *MsgCreateGrantResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgCreateGrantResponse) ProtoMessage()    {}
+func (*MsgCreateGrantResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{11}
+}
+func (m *MsgCreateGrantResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgCreateGrantResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgCreateGrantResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgCreateGrantResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgCreateGrantResponse.Merge(m, src)
+}
+func (m *MsgCreateGrantResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgCreateGrantResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgCreateGrantResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgCreateGrantResponse proto.InternalMessageInfo
+
+func (m *MsgCreateGrantResponse) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+// MsgClaimRecurringPull disburses one period of a RECURRING_PULL grant.
+// Signed by the grantee on file.
+type MsgClaimRecurringPull struct {
+	Grantee string `protobuf:"bytes,1,opt,name=grantee,proto3" json:"grantee,omitempty"`
+	GrantId uint64 `protobuf:"varint,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+}
+
+func (m *MsgClaimRecurringPull) Reset()         { *m = MsgClaimRecurringPull{} }
+func (m *MsgClaimRecurringPull) String() string { return proto.CompactTextString(m) }
+func (*MsgClaimRecurringPull) ProtoMessage()    {}
+func (*MsgClaimRecurringPull) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{12}
+}
+func (m *MsgClaimRecurringPull) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgClaimRecurringPull) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgClaimRecurringPull.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgClaimRecurringPull) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgClaimRecurringPull.Merge(m, src)
+}
+func (m *MsgClaimRecurringPull) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgClaimRecurringPull) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgClaimRecurringPull.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgClaimRecurringPull proto.InternalMessageInfo
+
+func (m *MsgClaimRecurringPull) GetGrantee() string {
+	if m != nil {
+		return m.Grantee
+	}
+	return ""
+}
+
+func (m *MsgClaimRecurringPull) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+type MsgClaimRecurringPullResponse struct {
+	// Sequence number of this claim (1-indexed).
+	ClaimNumber uint64 `protobuf:"varint,1,opt,name=claim_number,json=claimNumber,proto3" json:"claim_number,omitempty"`
+	// Unix timestamp at which the next claim becomes eligible.
+	NextClaimTime int64 `protobuf:"varint,2,opt,name=next_claim_time,json=nextClaimTime,proto3" json:"next_claim_time,omitempty"`
+}
+
+func (m *MsgClaimRecurringPullResponse) Reset()         { *m = MsgClaimRecurringPullResponse{} }
+func (m *MsgClaimRecurringPullResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgClaimRecurringPullResponse) ProtoMessage()    {}
+func (*MsgClaimRecurringPullResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{13}
+}
+func (m *MsgClaimRecurringPullResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgClaimRecurringPullResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgClaimRecurringPullResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgClaimRecurringPullResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgClaimRecurringPullResponse.Merge(m, src)
+}
+func (m *MsgClaimRecurringPullResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgClaimRecurringPullResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgClaimRecurringPullResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgClaimRecurringPullResponse proto.InternalMessageInfo
+
+func (m *MsgClaimRecurringPullResponse) GetClaimNumber() uint64 {
+	if m != nil {
+		return m.ClaimNumber
+	}
+	return 0
+}
+
+func (m *MsgClaimRecurringPullResponse) GetNextClaimTime() int64 {
+	if m != nil {
+		return m.NextClaimTime
+	}
+	return 0
+}
+
+// MsgPullAllowance withdraws `amount` from a SPENDING_ALLOWANCE grant
+// budget to `recipient`. Signed by the grantee on file.
+type MsgPullAllowance struct {
+	Grantee   string     `protobuf:"bytes,1,opt,name=grantee,proto3" json:"grantee,omitempty"`
+	GrantId   uint64     `protobuf:"varint,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	Recipient string     `protobuf:"bytes,3,opt,name=recipient,proto3" json:"recipient,omitempty"`
+	Amount    types.Coin `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount"`
+}
+
+func (m *MsgPullAllowance) Reset()         { *m = MsgPullAllowance{} }
+func (m *MsgPullAllowance) String() string { return proto.CompactTextString(m) }
+func (*MsgPullAllowance) ProtoMessage()    {}
+func (*MsgPullAllowance) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{14}
+}
+func (m *MsgPullAllowance) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgPullAllowance) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgPullAllowance.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgPullAllowance) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgPullAllowance.Merge(m, src)
+}
+func (m *MsgPullAllowance) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgPullAllowance) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgPullAllowance.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgPullAllowance proto.InternalMessageInfo
+
+func (m *MsgPullAllowance) GetGrantee() string {
+	if m != nil {
+		return m.Grantee
+	}
+	return ""
+}
+
+func (m *MsgPullAllowance) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+func (m *MsgPullAllowance) GetRecipient() string {
+	if m != nil {
+		return m.Recipient
+	}
+	return ""
+}
+
+func (m *MsgPullAllowance) GetAmount() types.Coin {
+	if m != nil {
+		return m.Amount
+	}
+	return types.Coin{}
+}
+
+type MsgPullAllowanceResponse struct {
+	// Amount actually transferred (= request amount, for now). Exposed
+	// separately so future variants (e.g., partial fills) keep the wire
+	// shape stable.
+	Transferred types.Coin `protobuf:"bytes,1,opt,name=transferred,proto3" json:"transferred"`
+	// Total spent in the current rolling-window period after this pull.
+	SpentInPeriod types.Coin `protobuf:"bytes,2,opt,name=spent_in_period,json=spentInPeriod,proto3" json:"spent_in_period"`
+}
+
+func (m *MsgPullAllowanceResponse) Reset()         { *m = MsgPullAllowanceResponse{} }
+func (m *MsgPullAllowanceResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgPullAllowanceResponse) ProtoMessage()    {}
+func (*MsgPullAllowanceResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{15}
+}
+func (m *MsgPullAllowanceResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgPullAllowanceResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgPullAllowanceResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgPullAllowanceResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgPullAllowanceResponse.Merge(m, src)
+}
+func (m *MsgPullAllowanceResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgPullAllowanceResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgPullAllowanceResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgPullAllowanceResponse proto.InternalMessageInfo
+
+func (m *MsgPullAllowanceResponse) GetTransferred() types.Coin {
+	if m != nil {
+		return m.Transferred
+	}
+	return types.Coin{}
+}
+
+func (m *MsgPullAllowanceResponse) GetSpentInPeriod() types.Coin {
+	if m != nil {
+		return m.SpentInPeriod
+	}
+	return types.Coin{}
+}
+
+// MsgRetryScheduledOneshot flips a PAUSED_INSUFFICIENT_FUNDS oneshot
+// back to ACTIVE with fire_at = block_time. Caller must be either the
+// granter or the grantee on file.
+type MsgRetryScheduledOneshot struct {
+	// caller is the address re-enqueueing the oneshot. Must match either
+	// the grant's granter or its grantee.
+	Caller  string `protobuf:"bytes,1,opt,name=caller,proto3" json:"caller,omitempty"`
+	GrantId uint64 `protobuf:"varint,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+}
+
+func (m *MsgRetryScheduledOneshot) Reset()         { *m = MsgRetryScheduledOneshot{} }
+func (m *MsgRetryScheduledOneshot) String() string { return proto.CompactTextString(m) }
+func (*MsgRetryScheduledOneshot) ProtoMessage()    {}
+func (*MsgRetryScheduledOneshot) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{16}
+}
+func (m *MsgRetryScheduledOneshot) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgRetryScheduledOneshot) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgRetryScheduledOneshot.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgRetryScheduledOneshot) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgRetryScheduledOneshot.Merge(m, src)
+}
+func (m *MsgRetryScheduledOneshot) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgRetryScheduledOneshot) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgRetryScheduledOneshot.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgRetryScheduledOneshot proto.InternalMessageInfo
+
+func (m *MsgRetryScheduledOneshot) GetCaller() string {
+	if m != nil {
+		return m.Caller
+	}
+	return ""
+}
+
+func (m *MsgRetryScheduledOneshot) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+type MsgRetryScheduledOneshotResponse struct {
+	// New fire_at unix timestamp (= block_time).
+	NewFireAt int64 `protobuf:"varint,1,opt,name=new_fire_at,json=newFireAt,proto3" json:"new_fire_at,omitempty"`
+}
+
+func (m *MsgRetryScheduledOneshotResponse) Reset()         { *m = MsgRetryScheduledOneshotResponse{} }
+func (m *MsgRetryScheduledOneshotResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgRetryScheduledOneshotResponse) ProtoMessage()    {}
+func (*MsgRetryScheduledOneshotResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{17}
+}
+func (m *MsgRetryScheduledOneshotResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgRetryScheduledOneshotResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgRetryScheduledOneshotResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgRetryScheduledOneshotResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgRetryScheduledOneshotResponse.Merge(m, src)
+}
+func (m *MsgRetryScheduledOneshotResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgRetryScheduledOneshotResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgRetryScheduledOneshotResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgRetryScheduledOneshotResponse proto.InternalMessageInfo
+
+func (m *MsgRetryScheduledOneshotResponse) GetNewFireAt() int64 {
+	if m != nil {
+		return m.NewFireAt
+	}
+	return 0
+}
+
+// MsgRevokeGrant cancels any active grant by id. Signed by the granter
+// (or a session key with allow_self_revoke = true and same-granter
+// scope).
+type MsgRevokeGrant struct {
+	// granter is the address invoking the revocation. Must match the
+	// grant's granter field (no cross-granter revocation).
+	Granter string `protobuf:"bytes,1,opt,name=granter,proto3" json:"granter,omitempty"`
+	GrantId uint64 `protobuf:"varint,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+}
+
+func (m *MsgRevokeGrant) Reset()         { *m = MsgRevokeGrant{} }
+func (m *MsgRevokeGrant) String() string { return proto.CompactTextString(m) }
+func (*MsgRevokeGrant) ProtoMessage()    {}
+func (*MsgRevokeGrant) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{18}
+}
+func (m *MsgRevokeGrant) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgRevokeGrant) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgRevokeGrant.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgRevokeGrant) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgRevokeGrant.Merge(m, src)
+}
+func (m *MsgRevokeGrant) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgRevokeGrant) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgRevokeGrant.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgRevokeGrant proto.InternalMessageInfo
+
+func (m *MsgRevokeGrant) GetGranter() string {
+	if m != nil {
+		return m.Granter
+	}
+	return ""
+}
+
+func (m *MsgRevokeGrant) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+type MsgRevokeGrantResponse struct {
+	// refund_amount is the OneshotGasDeposit returned to the granter
+	// (empty/zero for non-oneshot grants).
+	RefundAmount types.Coin `protobuf:"bytes,1,opt,name=refund_amount,json=refundAmount,proto3" json:"refund_amount"`
+}
+
+func (m *MsgRevokeGrantResponse) Reset()         { *m = MsgRevokeGrantResponse{} }
+func (m *MsgRevokeGrantResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgRevokeGrantResponse) ProtoMessage()    {}
+func (*MsgRevokeGrantResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{19}
+}
+func (m *MsgRevokeGrantResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgRevokeGrantResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgRevokeGrantResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgRevokeGrantResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgRevokeGrantResponse.Merge(m, src)
+}
+func (m *MsgRevokeGrantResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgRevokeGrantResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgRevokeGrantResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgRevokeGrantResponse proto.InternalMessageInfo
+
+func (m *MsgRevokeGrantResponse) GetRefundAmount() types.Coin {
+	if m != nil {
+		return m.RefundAmount
+	}
+	return types.Coin{}
+}
+
+// MsgDeclineGrant lets the grantee opt out of an active grant by id.
+// One-way; the granter must Revoke + CreateGrant to retry.
+type MsgDeclineGrant struct {
+	Grantee string `protobuf:"bytes,1,opt,name=grantee,proto3" json:"grantee,omitempty"`
+	GrantId uint64 `protobuf:"varint,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+}
+
+func (m *MsgDeclineGrant) Reset()         { *m = MsgDeclineGrant{} }
+func (m *MsgDeclineGrant) String() string { return proto.CompactTextString(m) }
+func (*MsgDeclineGrant) ProtoMessage()    {}
+func (*MsgDeclineGrant) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{20}
+}
+func (m *MsgDeclineGrant) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgDeclineGrant) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgDeclineGrant.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgDeclineGrant) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgDeclineGrant.Merge(m, src)
+}
+func (m *MsgDeclineGrant) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgDeclineGrant) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgDeclineGrant.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgDeclineGrant proto.InternalMessageInfo
+
+func (m *MsgDeclineGrant) GetGrantee() string {
+	if m != nil {
+		return m.Grantee
+	}
+	return ""
+}
+
+func (m *MsgDeclineGrant) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+type MsgDeclineGrantResponse struct {
+	// refund_amount is the OneshotGasDeposit returned to the granter
+	// (empty/zero for non-oneshot grants).
+	RefundAmount types.Coin `protobuf:"bytes,1,opt,name=refund_amount,json=refundAmount,proto3" json:"refund_amount"`
+}
+
+func (m *MsgDeclineGrantResponse) Reset()         { *m = MsgDeclineGrantResponse{} }
+func (m *MsgDeclineGrantResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgDeclineGrantResponse) ProtoMessage()    {}
+func (*MsgDeclineGrantResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f4215b9597b52b21, []int{21}
+}
+func (m *MsgDeclineGrantResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgDeclineGrantResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgDeclineGrantResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgDeclineGrantResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgDeclineGrantResponse.Merge(m, src)
+}
+func (m *MsgDeclineGrantResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgDeclineGrantResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgDeclineGrantResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgDeclineGrantResponse proto.InternalMessageInfo
+
+func (m *MsgDeclineGrantResponse) GetRefundAmount() types.Coin {
+	if m != nil {
+		return m.RefundAmount
+	}
+	return types.Coin{}
+}
+
 func init() {
 	proto.RegisterType((*MsgUpdateParams)(nil), "sparkdream.session.v1.MsgUpdateParams")
 	proto.RegisterType((*MsgUpdateParamsResponse)(nil), "sparkdream.session.v1.MsgUpdateParamsResponse")
@@ -541,62 +1272,115 @@ func init() {
 	proto.RegisterType((*MsgRevokeSessionResponse)(nil), "sparkdream.session.v1.MsgRevokeSessionResponse")
 	proto.RegisterType((*MsgExecSession)(nil), "sparkdream.session.v1.MsgExecSession")
 	proto.RegisterType((*MsgExecSessionResponse)(nil), "sparkdream.session.v1.MsgExecSessionResponse")
+	proto.RegisterType((*MsgCreateGrant)(nil), "sparkdream.session.v1.MsgCreateGrant")
+	proto.RegisterType((*MsgCreateGrantResponse)(nil), "sparkdream.session.v1.MsgCreateGrantResponse")
+	proto.RegisterType((*MsgClaimRecurringPull)(nil), "sparkdream.session.v1.MsgClaimRecurringPull")
+	proto.RegisterType((*MsgClaimRecurringPullResponse)(nil), "sparkdream.session.v1.MsgClaimRecurringPullResponse")
+	proto.RegisterType((*MsgPullAllowance)(nil), "sparkdream.session.v1.MsgPullAllowance")
+	proto.RegisterType((*MsgPullAllowanceResponse)(nil), "sparkdream.session.v1.MsgPullAllowanceResponse")
+	proto.RegisterType((*MsgRetryScheduledOneshot)(nil), "sparkdream.session.v1.MsgRetryScheduledOneshot")
+	proto.RegisterType((*MsgRetryScheduledOneshotResponse)(nil), "sparkdream.session.v1.MsgRetryScheduledOneshotResponse")
+	proto.RegisterType((*MsgRevokeGrant)(nil), "sparkdream.session.v1.MsgRevokeGrant")
+	proto.RegisterType((*MsgRevokeGrantResponse)(nil), "sparkdream.session.v1.MsgRevokeGrantResponse")
+	proto.RegisterType((*MsgDeclineGrant)(nil), "sparkdream.session.v1.MsgDeclineGrant")
+	proto.RegisterType((*MsgDeclineGrantResponse)(nil), "sparkdream.session.v1.MsgDeclineGrantResponse")
 }
 
 func init() { proto.RegisterFile("sparkdream/session/v1/tx.proto", fileDescriptor_f4215b9597b52b21) }
 
 var fileDescriptor_f4215b9597b52b21 = []byte{
-	// 786 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x55, 0xbf, 0x6f, 0xd3, 0x4c,
-	0x18, 0x8e, 0x9b, 0xb4, 0xdf, 0x97, 0x4b, 0xbf, 0xf6, 0xab, 0x55, 0xa8, 0x6b, 0x09, 0x37, 0x32,
-	0x2d, 0x44, 0x91, 0x6a, 0x2b, 0xa1, 0x2a, 0x22, 0x53, 0x9b, 0xc2, 0x46, 0x04, 0x72, 0xcb, 0xc2,
-	0x12, 0x5d, 0x92, 0xeb, 0x61, 0x35, 0xf6, 0x59, 0xbe, 0x6b, 0x48, 0x36, 0x04, 0x03, 0x12, 0x62,
-	0xe8, 0x9f, 0xc1, 0x58, 0x21, 0x16, 0x76, 0x86, 0x8e, 0x15, 0x53, 0x27, 0x40, 0xed, 0xd0, 0x7f,
-	0x03, 0xd9, 0x3e, 0x27, 0x76, 0x12, 0xb7, 0xa9, 0x90, 0x58, 0x22, 0xdf, 0xfb, 0xbc, 0x3f, 0xee,
-	0x79, 0xee, 0x7d, 0xdf, 0x00, 0x85, 0x3a, 0xd0, 0x3d, 0x68, 0xb9, 0x08, 0x5a, 0x3a, 0x45, 0x94,
-	0x9a, 0xc4, 0xd6, 0x3b, 0x25, 0x9d, 0x75, 0x35, 0xc7, 0x25, 0x8c, 0x88, 0xb7, 0x06, 0xb8, 0xc6,
-	0x71, 0xad, 0x53, 0x92, 0x17, 0xa0, 0x65, 0xda, 0x44, 0xf7, 0x7f, 0x03, 0x4f, 0x59, 0x69, 0x12,
-	0x6a, 0x11, 0xaa, 0x37, 0x20, 0x45, 0x7a, 0xa7, 0xd4, 0x40, 0x0c, 0x96, 0xf4, 0x26, 0x31, 0x6d,
-	0x8e, 0x2f, 0x71, 0xdc, 0xa2, 0xd8, 0xab, 0x60, 0x51, 0xcc, 0x81, 0xe5, 0x00, 0xa8, 0xfb, 0x27,
-	0x3d, 0x38, 0x70, 0x68, 0x11, 0x13, 0x4c, 0x02, 0xbb, 0xf7, 0x15, 0x06, 0x60, 0x42, 0x70, 0x1b,
-	0xe9, 0xfe, 0xa9, 0x71, 0xb8, 0xaf, 0x43, 0xbb, 0xc7, 0xa1, 0x95, 0x61, 0x88, 0x99, 0x16, 0xa2,
-	0x0c, 0x5a, 0x0e, 0x77, 0x50, 0xc7, 0xf3, 0x75, 0xa0, 0x0b, 0x2d, 0x5e, 0x55, 0xfd, 0x26, 0x80,
-	0xf9, 0x1a, 0xc5, 0x2f, 0x9c, 0x16, 0x64, 0xe8, 0xb9, 0x8f, 0x88, 0x9b, 0x20, 0x0b, 0x0f, 0xd9,
-	0x2b, 0xe2, 0x9a, 0xac, 0x27, 0x09, 0x79, 0xa1, 0x90, 0xad, 0x4a, 0xdf, 0xbf, 0xac, 0x2f, 0xf2,
-	0xeb, 0x6e, 0xb7, 0x5a, 0x2e, 0xa2, 0x74, 0x97, 0xb9, 0xa6, 0x8d, 0x8d, 0x81, 0xab, 0xb8, 0x05,
-	0x66, 0x82, 0xdc, 0xd2, 0x54, 0x5e, 0x28, 0xe4, 0xca, 0x77, 0xb4, 0xb1, 0x82, 0x6a, 0x41, 0x99,
-	0x6a, 0xf6, 0xe4, 0xc7, 0x4a, 0xea, 0xd3, 0xe5, 0x71, 0x51, 0x30, 0x78, 0x5c, 0xe5, 0xe1, 0xdb,
-	0xcb, 0xe3, 0xe2, 0x20, 0xe3, 0x87, 0xcb, 0xe3, 0xe2, 0x6a, 0x84, 0x44, 0xb7, 0x4f, 0x63, 0xe8,
-	0xca, 0xea, 0x32, 0x58, 0x1a, 0x32, 0x19, 0x88, 0x3a, 0xc4, 0xa6, 0x48, 0x7d, 0x37, 0x05, 0xe4,
-	0x3e, 0xf6, 0xcc, 0x41, 0x2e, 0x64, 0x26, 0xb1, 0x61, 0xfb, 0x0f, 0xc9, 0x9a, 0x40, 0x24, 0x83,
-	0x64, 0xf5, 0x18, 0x71, 0x3d, 0x81, 0xf8, 0x6e, 0xf0, 0x39, 0x72, 0x89, 0xa8, 0x14, 0x0b, 0x64,
-	0x18, 0xad, 0x54, 0x47, 0x55, 0xd1, 0xaf, 0x56, 0x65, 0xa4, 0x82, 0xba, 0x0a, 0xd4, 0x64, 0xb4,
-	0xaf, 0xd5, 0xc7, 0x34, 0xf8, 0xbf, 0x46, 0xf1, 0x8e, 0x8b, 0x20, 0x43, 0xfc, 0xb6, 0x62, 0x19,
-	0xfc, 0x83, 0x5d, 0x68, 0x33, 0xe4, 0x5e, 0xab, 0x4f, 0xe8, 0x38, 0x88, 0x41, 0xbe, 0x24, 0x13,
-	0xc4, 0x20, 0xb1, 0x08, 0x16, 0x60, 0xbb, 0x4d, 0x5e, 0xa3, 0x56, 0xdd, 0xa2, 0xb8, 0xce, 0x7a,
-	0x0e, 0xa2, 0x52, 0x3a, 0x9f, 0x2e, 0x64, 0x8d, 0x79, 0x0e, 0xd4, 0x28, 0xde, 0xf3, 0xcc, 0xe2,
-	0x16, 0xc8, 0x51, 0x07, 0xd9, 0xad, 0x7a, 0xdb, 0xb4, 0x4c, 0x26, 0x65, 0x7c, 0xd9, 0x97, 0x35,
-	0x5e, 0xc0, 0x1b, 0x4b, 0x8d, 0x8f, 0xa5, 0xb6, 0x43, 0x4c, 0xbb, 0x9a, 0xf1, 0x04, 0x36, 0x80,
-	0x1f, 0xf3, 0xd4, 0x0b, 0x11, 0x1f, 0x03, 0x80, 0xba, 0x8e, 0x19, 0x08, 0x21, 0x4d, 0xfb, 0x09,
-	0x64, 0x2d, 0x18, 0x29, 0x2d, 0x1c, 0x29, 0x6d, 0x2f, 0x1c, 0xa9, 0xea, 0xbf, 0x5e, 0x86, 0xa3,
-	0x9f, 0x2b, 0x82, 0x11, 0x89, 0x13, 0x57, 0xc1, 0x9c, 0x05, 0xbb, 0x75, 0xd4, 0x45, 0xcd, 0x7a,
-	0x93, 0x1c, 0xda, 0x4c, 0x9a, 0xc9, 0x0b, 0x85, 0x8c, 0x31, 0x6b, 0xc1, 0xee, 0x93, 0x2e, 0x6a,
-	0xee, 0x78, 0xb6, 0xca, 0xa6, 0xf7, 0x80, 0xa1, 0x36, 0xde, 0xf3, 0xad, 0x25, 0x3d, 0x5f, 0x4c,
-	0x79, 0x55, 0x06, 0xd2, 0xb0, 0xad, 0xff, 0x54, 0x9f, 0x05, 0xff, 0xa9, 0x0c, 0xd4, 0x21, 0x07,
-	0x7f, 0xfb, 0xa9, 0x6e, 0x40, 0x28, 0x76, 0x3f, 0x4e, 0x28, 0x66, 0xeb, 0x13, 0x3a, 0x13, 0xc0,
-	0x5c, 0x8d, 0x62, 0x4f, 0xb5, 0x11, 0x3a, 0x68, 0x52, 0x3a, 0x28, 0x2a, 0xc1, 0xd4, 0xa4, 0x12,
-	0x14, 0x40, 0xc6, 0xa2, 0x38, 0x68, 0xb6, 0x5c, 0x79, 0x71, 0xa4, 0x0b, 0xb6, 0xed, 0x9e, 0xe1,
-	0x7b, 0x54, 0x36, 0x22, 0xc4, 0x91, 0x47, 0xfc, 0x6e, 0x12, 0xf1, 0x08, 0x0f, 0x55, 0x02, 0xb7,
-	0xe3, 0x96, 0x90, 0x74, 0xf9, 0x6b, 0x06, 0xa4, 0x6b, 0x14, 0x8b, 0xfb, 0x60, 0x36, 0xb6, 0x82,
-	0xef, 0x25, 0x6c, 0x90, 0xa1, 0x25, 0x27, 0x6b, 0x93, 0xf9, 0x85, 0xf5, 0xc4, 0xf7, 0x02, 0x58,
-	0x4a, 0xda, 0x84, 0xa5, 0xeb, 0x72, 0x8d, 0x84, 0xc8, 0x8f, 0x6e, 0x1c, 0xd2, 0xbf, 0x89, 0x09,
-	0xfe, 0x8b, 0xaf, 0x99, 0xfb, 0xc9, 0xb9, 0x62, 0x8e, 0xb2, 0x3e, 0xa1, 0x63, 0xb4, 0x54, 0x7c,
-	0x4c, 0xae, 0x28, 0x15, 0x73, 0xbc, 0xaa, 0xd4, 0xd8, 0x26, 0x16, 0x9b, 0x20, 0x17, 0x6d, 0xe0,
-	0xb5, 0xe4, 0xf8, 0x88, 0x9b, 0xbc, 0x3e, 0x91, 0x5b, 0x58, 0x44, 0x9e, 0x7e, 0xe3, 0xfd, 0x53,
-	0x54, 0x37, 0x4e, 0xce, 0x15, 0xe1, 0xf4, 0x5c, 0x11, 0x7e, 0x9d, 0x2b, 0xc2, 0xd1, 0x85, 0x92,
-	0x3a, 0xbd, 0x50, 0x52, 0x67, 0x17, 0x4a, 0xea, 0xa5, 0x3c, 0xb6, 0x29, 0xfd, 0x85, 0xda, 0x98,
-	0xf1, 0xbb, 0xfa, 0xc1, 0xef, 0x00, 0x00, 0x00, 0xff, 0xff, 0xbe, 0x84, 0x8e, 0x6e, 0x0d, 0x09,
-	0x00, 0x00,
+	// 1456 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x58, 0x4f, 0x6f, 0xd4, 0x46,
+	0x14, 0x5f, 0x27, 0x4b, 0x60, 0x67, 0x13, 0x42, 0x2c, 0x28, 0x8e, 0x25, 0x96, 0xe0, 0x12, 0x48,
+	0x17, 0xb0, 0x49, 0xa0, 0xa0, 0xa6, 0xaa, 0xc4, 0x6e, 0x68, 0x09, 0x6a, 0x53, 0x22, 0x43, 0x2f,
+	0x3d, 0xd4, 0x9a, 0xd8, 0x13, 0xe3, 0xe2, 0x7f, 0xf2, 0x78, 0xc3, 0xee, 0xad, 0xa5, 0x87, 0x4a,
+	0xa8, 0xaa, 0x50, 0xa5, 0xaa, 0x1f, 0xa0, 0x52, 0xd5, 0x63, 0x84, 0xda, 0x6f, 0xd0, 0x03, 0x47,
+	0x54, 0xf5, 0xc0, 0xa9, 0xad, 0xe0, 0x90, 0xaf, 0x51, 0xcd, 0x78, 0xec, 0xd8, 0x5e, 0xdb, 0xd9,
+	0xd0, 0x88, 0x4b, 0xb4, 0x7e, 0xef, 0xf7, 0xfe, 0xcf, 0x7b, 0x6f, 0x26, 0xa0, 0x85, 0x7d, 0x18,
+	0x3c, 0x30, 0x02, 0x04, 0x1d, 0x05, 0x23, 0x8c, 0x2d, 0xcf, 0x55, 0xb6, 0x16, 0x95, 0xb0, 0x2f,
+	0xfb, 0x81, 0x17, 0x7a, 0xfc, 0x89, 0x5d, 0xbe, 0xcc, 0xf8, 0xf2, 0xd6, 0xa2, 0x38, 0x03, 0x1d,
+	0xcb, 0xf5, 0x14, 0xfa, 0x37, 0x42, 0x8a, 0x2d, 0xdd, 0xc3, 0x8e, 0x87, 0x95, 0x0d, 0x88, 0x91,
+	0xb2, 0xb5, 0xb8, 0x81, 0x42, 0xb8, 0xa8, 0xe8, 0x9e, 0xe5, 0x32, 0xfe, 0x49, 0xc6, 0x77, 0xb0,
+	0x49, 0x2c, 0x38, 0xd8, 0x64, 0x8c, 0xd9, 0x88, 0xa1, 0xd1, 0x2f, 0x25, 0xfa, 0x60, 0xac, 0xe3,
+	0xa6, 0x67, 0x7a, 0x11, 0x9d, 0xfc, 0x8a, 0x05, 0x4c, 0xcf, 0x33, 0x6d, 0xa4, 0xd0, 0xaf, 0x8d,
+	0xde, 0xa6, 0x02, 0xdd, 0x01, 0x63, 0x9d, 0xce, 0xb3, 0x42, 0xcb, 0x41, 0x38, 0x84, 0x8e, 0xcf,
+	0x00, 0x67, 0x8a, 0xe3, 0x35, 0x03, 0xe8, 0x86, 0x0c, 0x22, 0x15, 0x43, 0x7c, 0x18, 0x40, 0x87,
+	0x39, 0x26, 0xfd, 0xc1, 0x81, 0xe9, 0x35, 0x6c, 0x7e, 0xe6, 0x1b, 0x30, 0x44, 0xeb, 0x94, 0xc3,
+	0x5f, 0x03, 0x0d, 0xd8, 0x0b, 0xef, 0x7b, 0x81, 0x15, 0x0e, 0x04, 0x6e, 0x8e, 0x5b, 0x68, 0x74,
+	0x85, 0x3f, 0x7f, 0xbb, 0x74, 0x9c, 0x45, 0xd4, 0x31, 0x8c, 0x00, 0x61, 0x7c, 0x37, 0x0c, 0x2c,
+	0xd7, 0x54, 0x77, 0xa1, 0xfc, 0x0d, 0x30, 0x11, 0xe9, 0x16, 0xc6, 0xe6, 0xb8, 0x85, 0xe6, 0xd2,
+	0x29, 0xb9, 0x30, 0xe7, 0x72, 0x64, 0xa6, 0xdb, 0x78, 0xf6, 0xf7, 0xe9, 0xda, 0xaf, 0x3b, 0xdb,
+	0x6d, 0x4e, 0x65, 0x72, 0xcb, 0xd7, 0x1f, 0xed, 0x6c, 0xb7, 0x77, 0x35, 0x3e, 0xde, 0xd9, 0x6e,
+	0x9f, 0x4d, 0x05, 0xd1, 0x4f, 0xc2, 0xc8, 0xb9, 0x2c, 0xcd, 0x82, 0x93, 0x39, 0x92, 0x8a, 0xb0,
+	0xef, 0xb9, 0x18, 0x49, 0xdf, 0x8c, 0x01, 0x31, 0xe1, 0xdd, 0xf1, 0x51, 0x00, 0x43, 0xcb, 0x73,
+	0xa1, 0xfd, 0x3f, 0x83, 0xb5, 0x00, 0xef, 0xed, 0x2a, 0xd3, 0x32, 0x81, 0x2b, 0x25, 0x81, 0xdf,
+	0x8d, 0x7e, 0x0e, 0x39, 0x91, 0x4e, 0xc5, 0x8c, 0x97, 0xe7, 0x2e, 0x77, 0x87, 0xb3, 0xa2, 0x54,
+	0x67, 0x65, 0xc8, 0x82, 0x74, 0x16, 0x48, 0xe5, 0xdc, 0x24, 0x57, 0xdf, 0x8d, 0x83, 0x63, 0x6b,
+	0xd8, 0x5c, 0x09, 0x10, 0x0c, 0x11, 0xf3, 0x96, 0x5f, 0x02, 0x87, 0xe9, 0xa9, 0x42, 0xc1, 0x9e,
+	0xf9, 0x89, 0x81, 0xbb, 0x32, 0x88, 0xa6, 0x64, 0x04, 0x19, 0xc4, 0xb7, 0xc1, 0x0c, 0xb4, 0x6d,
+	0xef, 0x21, 0x32, 0x34, 0x07, 0x9b, 0x5a, 0x38, 0xf0, 0x11, 0x16, 0xc6, 0xe7, 0xc6, 0x17, 0x1a,
+	0xea, 0x34, 0x63, 0xac, 0x61, 0xf3, 0x1e, 0x21, 0xf3, 0x37, 0x40, 0x13, 0xfb, 0xc8, 0x35, 0x34,
+	0xdb, 0x72, 0xac, 0x50, 0xa8, 0xd3, 0xb4, 0xcf, 0xca, 0xcc, 0x00, 0xe9, 0x5c, 0x99, 0x75, 0xae,
+	0xbc, 0xe2, 0x59, 0x6e, 0xb7, 0x4e, 0x12, 0xac, 0x02, 0x2a, 0xf3, 0x09, 0x11, 0xe1, 0x6f, 0x02,
+	0x80, 0xfa, 0xbe, 0x15, 0x25, 0x42, 0x38, 0x44, 0x15, 0x88, 0x72, 0xd4, 0x75, 0x72, 0xdc, 0x75,
+	0xf2, 0xbd, 0xb8, 0xeb, 0xba, 0x47, 0x88, 0x86, 0x27, 0xff, 0x9c, 0xe6, 0xd4, 0x94, 0x1c, 0x7f,
+	0x16, 0x1c, 0x75, 0x60, 0x5f, 0x43, 0x7d, 0xa4, 0x6b, 0xba, 0xd7, 0x73, 0x43, 0x61, 0x62, 0x8e,
+	0x5b, 0xa8, 0xab, 0x93, 0x0e, 0xec, 0x7f, 0xd8, 0x47, 0xfa, 0x0a, 0xa1, 0x2d, 0x5f, 0x23, 0x05,
+	0x8c, 0x73, 0x43, 0xca, 0x37, 0x5f, 0x56, 0xbe, 0x4c, 0xe6, 0x25, 0x11, 0x08, 0x79, 0x5a, 0x52,
+	0xaa, 0xa7, 0x1c, 0x2d, 0x95, 0x8a, 0xb6, 0xbc, 0x07, 0x6f, 0xba, 0x54, 0xfb, 0x08, 0x28, 0xe3,
+	0x1f, 0x0b, 0x28, 0x43, 0x4b, 0x02, 0x7a, 0xc1, 0x81, 0xa3, 0x6b, 0xd8, 0x24, 0x59, 0x1b, 0x0a,
+	0x07, 0x8d, 0x1a, 0x0e, 0x4a, 0xa7, 0x60, 0x6c, 0xd4, 0x14, 0x2c, 0x80, 0xba, 0x83, 0xcd, 0xe8,
+	0xb0, 0x35, 0x97, 0x8e, 0x0f, 0x9d, 0x82, 0x8e, 0x3b, 0x50, 0x29, 0x62, 0xf9, 0x6a, 0x2a, 0x70,
+	0x44, 0x02, 0x7f, 0xbb, 0x2c, 0xf0, 0x54, 0x1c, 0x92, 0x00, 0xde, 0xca, 0x52, 0x92, 0xa0, 0x7f,
+	0x9f, 0xa0, 0x41, 0x47, 0x25, 0xbe, 0x45, 0xd4, 0xbe, 0xb1, 0x76, 0x5b, 0x61, 0x0d, 0x80, 0xb0,
+	0x06, 0x43, 0x61, 0x7c, 0x1f, 0x0d, 0xd0, 0x60, 0x72, 0x9d, 0x90, 0xe7, 0x41, 0xdd, 0xf5, 0x42,
+	0x44, 0x1b, 0xb0, 0xa1, 0xd2, 0xdf, 0xfc, 0x16, 0x68, 0xb2, 0x3c, 0x68, 0x0f, 0xd0, 0x40, 0x00,
+	0x54, 0xf3, 0x42, 0xf5, 0x48, 0xfc, 0x18, 0x0d, 0xd6, 0xe1, 0xc0, 0xf6, 0xa0, 0xd1, 0x7d, 0xe7,
+	0x69, 0x6e, 0xea, 0xc7, 0x49, 0x1d, 0x82, 0xae, 0x92, 0x8e, 0x4e, 0x88, 0xfc, 0x23, 0x0e, 0x1c,
+	0x0d, 0x90, 0xde, 0x0b, 0x48, 0x9c, 0x9a, 0xdf, 0xb3, 0x6d, 0xa1, 0x49, 0x6d, 0x5f, 0x28, 0xb1,
+	0xad, 0xc6, 0xe0, 0xf5, 0x9e, 0x6d, 0xc7, 0xe6, 0x2f, 0x12, 0xf3, 0xe7, 0x0b, 0xcc, 0x17, 0xa1,
+	0x57, 0x6b, 0xea, 0x54, 0x90, 0xa6, 0xf3, 0x3f, 0x70, 0x80, 0xa7, 0x53, 0x86, 0xf8, 0x40, 0xa7,
+	0x16, 0x74, 0x75, 0x24, 0x4c, 0x56, 0xef, 0x05, 0x26, 0xd0, 0x89, 0xf1, 0xb1, 0x33, 0x97, 0x89,
+	0x33, 0x17, 0x8a, 0x72, 0x51, 0x22, 0xb1, 0x5a, 0x53, 0x67, 0x70, 0x9e, 0xc7, 0x7f, 0xcf, 0x81,
+	0x19, 0xac, 0xdf, 0x47, 0x46, 0xcf, 0x46, 0x86, 0xe6, 0xb9, 0x08, 0xdf, 0xf7, 0x42, 0x61, 0x8a,
+	0xfa, 0x24, 0x97, 0xf9, 0x14, 0xe3, 0xef, 0x44, 0xf0, 0xd8, 0x25, 0x85, 0xb8, 0xd4, 0x2e, 0x72,
+	0xa9, 0x58, 0x60, 0xb5, 0xa6, 0x1e, 0xc3, 0x39, 0x56, 0xa6, 0x8d, 0x82, 0xca, 0x36, 0x4a, 0x75,
+	0x46, 0xb7, 0x01, 0x0e, 0xfb, 0x91, 0x52, 0xe9, 0x0a, 0xed, 0xa8, 0x14, 0x33, 0xee, 0x28, 0x7e,
+	0x16, 0x1c, 0xa1, 0x7a, 0x35, 0xcb, 0xa0, 0xfd, 0x53, 0x67, 0x27, 0xfe, 0xb6, 0x21, 0xfd, 0xcc,
+	0x81, 0x13, 0x44, 0xca, 0x86, 0x96, 0x93, 0xa9, 0xe6, 0x6b, 0x0d, 0x9a, 0xb4, 0xa1, 0xb1, 0x8c,
+	0xa1, 0xe5, 0xf7, 0xf3, 0x53, 0xa2, 0x5d, 0x1a, 0xde, 0x90, 0x2f, 0xd2, 0x97, 0xe0, 0x54, 0x21,
+	0x23, 0x89, 0xf0, 0x0c, 0x98, 0xd4, 0x09, 0x57, 0x73, 0x7b, 0xce, 0x06, 0x9b, 0x12, 0x75, 0xb5,
+	0x49, 0x69, 0x9f, 0x52, 0x12, 0x7f, 0x0e, 0x4c, 0xbb, 0xa8, 0x1f, 0x6a, 0x11, 0x8e, 0x5c, 0x1d,
+	0xa9, 0x8b, 0xe3, 0xea, 0x14, 0x21, 0x53, 0xdd, 0xa4, 0xb1, 0xa5, 0xc7, 0x63, 0x74, 0x89, 0x10,
+	0xf5, 0xbb, 0xa7, 0xe5, 0x60, 0x93, 0x41, 0x2e, 0x58, 0x01, 0xd2, 0x2d, 0xdf, 0x42, 0x6e, 0x34,
+	0x66, 0x2a, 0x2f, 0x58, 0x09, 0x94, 0xbf, 0x0e, 0x26, 0xa0, 0x43, 0x57, 0xea, 0x88, 0xdb, 0x9d,
+	0xc1, 0x33, 0xcb, 0x09, 0x55, 0x2e, 0xa7, 0x4c, 0xdc, 0xd2, 0x2f, 0x1c, 0xdd, 0x4e, 0x19, 0x62,
+	0x92, 0xf4, 0x0e, 0x68, 0x86, 0x01, 0x74, 0xf1, 0x26, 0x0a, 0x02, 0x14, 0x9d, 0xac, 0x11, 0x5c,
+	0x4a, 0xcb, 0xf0, 0xb7, 0xc0, 0x34, 0x69, 0xcd, 0x50, 0xb3, 0x5c, 0xcd, 0x47, 0x81, 0xe5, 0x19,
+	0xec, 0xba, 0xb8, 0xa7, 0x9a, 0x29, 0x2a, 0x77, 0xdb, 0x5d, 0xa7, 0x52, 0xb1, 0xa3, 0x2a, 0x0a,
+	0x83, 0x41, 0xbe, 0xeb, 0xf8, 0xcb, 0x60, 0x42, 0x87, 0xb6, 0x3d, 0xc2, 0xf6, 0x60, 0xb8, 0xaa,
+	0x83, 0xfc, 0x01, 0x49, 0x25, 0xc3, 0x91, 0x4c, 0x5e, 0x2a, 0x5f, 0xf3, 0x05, 0xbe, 0x48, 0x5d,
+	0x30, 0x57, 0xc6, 0x4b, 0x12, 0xdb, 0x02, 0x4d, 0x17, 0x3d, 0xd4, 0x36, 0xad, 0x00, 0x91, 0x3d,
+	0xc4, 0xd1, 0x63, 0xda, 0x70, 0xd1, 0xc3, 0x8f, 0xac, 0x00, 0x75, 0x42, 0xe9, 0xc7, 0xe8, 0x5a,
+	0x10, 0xdd, 0x19, 0x5e, 0x7f, 0x43, 0x56, 0x04, 0x39, 0xfa, 0x30, 0x4a, 0x39, 0x21, 0x7d, 0x41,
+	0x27, 0x50, 0x8a, 0x92, 0x44, 0x74, 0x13, 0x4c, 0x05, 0x68, 0xb3, 0xe7, 0x1a, 0x1a, 0x3b, 0xbf,
+	0x23, 0x1e, 0x96, 0xc9, 0x48, 0xaa, 0x43, 0x85, 0xa4, 0x9f, 0xa2, 0x87, 0xd9, 0x4d, 0xa4, 0xdb,
+	0x96, 0x9b, 0x0f, 0xfc, 0x60, 0xc6, 0xd4, 0xbb, 0xf9, 0x46, 0x29, 0x7d, 0x6b, 0xa5, 0xbd, 0x90,
+	0x34, 0xfa, 0xd6, 0x4a, 0x93, 0x0e, 0x36, 0xf4, 0xa5, 0xbf, 0x1a, 0x60, 0x7c, 0x0d, 0x9b, 0xfc,
+	0x26, 0x98, 0xcc, 0xbc, 0x4b, 0xcf, 0x95, 0xac, 0xaa, 0xdc, 0xcb, 0x4f, 0x94, 0x47, 0xc3, 0x25,
+	0x5e, 0x7f, 0xcb, 0x81, 0x93, 0x65, 0xcf, 0xc3, 0xc5, 0xbd, 0x74, 0x0d, 0x89, 0x88, 0xef, 0xed,
+	0x5b, 0x24, 0xf1, 0xc4, 0x02, 0x53, 0xd9, 0xb7, 0xd7, 0xf9, 0x72, 0x5d, 0x19, 0xa0, 0xa8, 0x8c,
+	0x08, 0x4c, 0x9b, 0xca, 0xbe, 0x1d, 0x2a, 0x4c, 0x65, 0x80, 0x55, 0xa6, 0x0a, 0x6f, 0xf6, 0xbc,
+	0x0e, 0x9a, 0xe9, 0x5b, 0xfd, 0x7c, 0xb9, 0x7c, 0x0a, 0x26, 0x5e, 0x1a, 0x09, 0x96, 0x36, 0x92,
+	0xbe, 0x45, 0xcf, 0xef, 0x95, 0x0f, 0x0a, 0xab, 0x32, 0x52, 0x74, 0xb9, 0xe8, 0x03, 0xbe, 0xe0,
+	0xf6, 0x70, 0xb1, 0x42, 0xc9, 0x10, 0x5a, 0xbc, 0xba, 0x1f, 0x74, 0xba, 0x5c, 0xd9, 0x2d, 0x5d,
+	0x51, 0xae, 0x0c, 0xb0, 0xaa, 0x5c, 0xc5, 0xab, 0xee, 0x6b, 0x0e, 0x9c, 0x28, 0xde, 0x2d, 0x95,
+	0x95, 0x2f, 0x10, 0x10, 0xaf, 0xef, 0x53, 0x20, 0x5d, 0xcd, 0xf4, 0xc4, 0x9f, 0xdf, 0xeb, 0xc8,
+	0xed, 0x59, 0xcd, 0xa2, 0x41, 0xbd, 0x09, 0x26, 0x33, 0xe3, 0xb5, 0x62, 0xbe, 0xa4, 0x71, 0x55,
+	0xf3, 0xa5, 0x68, 0x2a, 0x8a, 0x87, 0xbe, 0xda, 0xd9, 0x6e, 0x73, 0xdd, 0xab, 0xcf, 0x5e, 0xb6,
+	0xb8, 0xe7, 0x2f, 0x5b, 0xdc, 0xbf, 0x2f, 0x5b, 0xdc, 0x93, 0x57, 0xad, 0xda, 0xf3, 0x57, 0xad,
+	0xda, 0x8b, 0x57, 0xad, 0xda, 0xe7, 0x62, 0xe1, 0xdc, 0xa5, 0xff, 0x00, 0xd9, 0x98, 0xa0, 0x4f,
+	0xb1, 0x2b, 0xff, 0x05, 0x00, 0x00, 0xff, 0xff, 0x4b, 0xe0, 0x9b, 0x1e, 0xe0, 0x14, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -618,11 +1402,49 @@ type MsgClient interface {
 	// operational parameters. Authorized for Commons Council Operations Committee.
 	UpdateOperationalParams(ctx context.Context, in *MsgUpdateOperationalParams, opts ...grpc.CallOption) (*MsgUpdateOperationalParamsResponse, error)
 	// CreateSession creates a new session key delegation.
+	//
+	// DEPRECATED in favor of `CreateGrant` with a SessionKeyPayload; kept for
+	// pre-launch backward compatibility and removed at P6.
 	CreateSession(ctx context.Context, in *MsgCreateSession, opts ...grpc.CallOption) (*MsgCreateSessionResponse, error)
 	// RevokeSession revokes an active session.
+	//
+	// DEPRECATED in favor of `RevokeGrant` (P6); kept for pre-launch backward
+	// compatibility.
 	RevokeSession(ctx context.Context, in *MsgRevokeSession, opts ...grpc.CallOption) (*MsgRevokeSessionResponse, error)
 	// ExecSession executes messages using a session key.
 	ExecSession(ctx context.Context, in *MsgExecSession, opts ...grpc.CallOption) (*MsgExecSessionResponse, error)
+	// CreateGrant is the unified entrypoint that creates any of the four typed
+	// grants. Type is inferred from the payload oneof.
+	CreateGrant(ctx context.Context, in *MsgCreateGrant, opts ...grpc.CallOption) (*MsgCreateGrantResponse, error)
+	// ClaimRecurringPull disburses one period of a RECURRING_PULL grant from
+	// the granter to the grantee. Logical-clock advances; catch-up requires
+	// multiple txs.
+	ClaimRecurringPull(ctx context.Context, in *MsgClaimRecurringPull, opts ...grpc.CallOption) (*MsgClaimRecurringPullResponse, error)
+	// PullAllowance withdraws an amount from a SPENDING_ALLOWANCE grant
+	// budget to a chosen recipient (constrained by the optional whitelist
+	// and the per-period cap). The grantee picks the recipient and amount
+	// per call within the rolling-window budget.
+	PullAllowance(ctx context.Context, in *MsgPullAllowance, opts ...grpc.CallOption) (*MsgPullAllowanceResponse, error)
+	// RetryScheduledOneshot re-enqueues a PAUSED_INSUFFICIENT_FUNDS
+	// ScheduledOneshot for firing. Either the granter or the grantee may
+	// call (no additional authorization needed — the granter already
+	// authorized the underlying action at creation time). Sets
+	// fire_at = block_time on success.
+	RetryScheduledOneshot(ctx context.Context, in *MsgRetryScheduledOneshot, opts ...grpc.CallOption) (*MsgRetryScheduledOneshotResponse, error)
+	// RevokeGrant cancels any active grant by id. Signed by the granter
+	// on file. Refunds any held OneshotGasDeposit for SCHEDULED_ONESHOT
+	// grants. A session-key holder may invoke this only when the session
+	// key's SessionKeyPayload.allow_self_revoke = true AND the targeted
+	// grant's granter matches the session-key granter (anti
+	// cross-granter-revoke).
+	RevokeGrant(ctx context.Context, in *MsgRevokeGrant, opts ...grpc.CallOption) (*MsgRevokeGrantResponse, error)
+	// DeclineGrant lets the grantee opt out of any active grant by id.
+	// Applies uniformly across all four grant types. For ScheduledOneshot
+	// this is a pre-fire veto: the grant transitions to DECLINED, the
+	// EndBlocker skips it, and the held deposit is refunded to the
+	// granter. Decline is one-way — the granter must Revoke + CreateGrant
+	// to retry.
+	DeclineGrant(ctx context.Context, in *MsgDeclineGrant, opts ...grpc.CallOption) (*MsgDeclineGrantResponse, error)
 }
 
 type msgClient struct {
@@ -678,6 +1500,60 @@ func (c *msgClient) ExecSession(ctx context.Context, in *MsgExecSession, opts ..
 	return out, nil
 }
 
+func (c *msgClient) CreateGrant(ctx context.Context, in *MsgCreateGrant, opts ...grpc.CallOption) (*MsgCreateGrantResponse, error) {
+	out := new(MsgCreateGrantResponse)
+	err := c.cc.Invoke(ctx, "/sparkdream.session.v1.Msg/CreateGrant", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *msgClient) ClaimRecurringPull(ctx context.Context, in *MsgClaimRecurringPull, opts ...grpc.CallOption) (*MsgClaimRecurringPullResponse, error) {
+	out := new(MsgClaimRecurringPullResponse)
+	err := c.cc.Invoke(ctx, "/sparkdream.session.v1.Msg/ClaimRecurringPull", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *msgClient) PullAllowance(ctx context.Context, in *MsgPullAllowance, opts ...grpc.CallOption) (*MsgPullAllowanceResponse, error) {
+	out := new(MsgPullAllowanceResponse)
+	err := c.cc.Invoke(ctx, "/sparkdream.session.v1.Msg/PullAllowance", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *msgClient) RetryScheduledOneshot(ctx context.Context, in *MsgRetryScheduledOneshot, opts ...grpc.CallOption) (*MsgRetryScheduledOneshotResponse, error) {
+	out := new(MsgRetryScheduledOneshotResponse)
+	err := c.cc.Invoke(ctx, "/sparkdream.session.v1.Msg/RetryScheduledOneshot", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *msgClient) RevokeGrant(ctx context.Context, in *MsgRevokeGrant, opts ...grpc.CallOption) (*MsgRevokeGrantResponse, error) {
+	out := new(MsgRevokeGrantResponse)
+	err := c.cc.Invoke(ctx, "/sparkdream.session.v1.Msg/RevokeGrant", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *msgClient) DeclineGrant(ctx context.Context, in *MsgDeclineGrant, opts ...grpc.CallOption) (*MsgDeclineGrantResponse, error) {
+	out := new(MsgDeclineGrantResponse)
+	err := c.cc.Invoke(ctx, "/sparkdream.session.v1.Msg/DeclineGrant", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MsgServer is the server API for Msg service.
 type MsgServer interface {
 	// UpdateParams defines a (governance) operation for updating the module
@@ -687,11 +1563,49 @@ type MsgServer interface {
 	// operational parameters. Authorized for Commons Council Operations Committee.
 	UpdateOperationalParams(context.Context, *MsgUpdateOperationalParams) (*MsgUpdateOperationalParamsResponse, error)
 	// CreateSession creates a new session key delegation.
+	//
+	// DEPRECATED in favor of `CreateGrant` with a SessionKeyPayload; kept for
+	// pre-launch backward compatibility and removed at P6.
 	CreateSession(context.Context, *MsgCreateSession) (*MsgCreateSessionResponse, error)
 	// RevokeSession revokes an active session.
+	//
+	// DEPRECATED in favor of `RevokeGrant` (P6); kept for pre-launch backward
+	// compatibility.
 	RevokeSession(context.Context, *MsgRevokeSession) (*MsgRevokeSessionResponse, error)
 	// ExecSession executes messages using a session key.
 	ExecSession(context.Context, *MsgExecSession) (*MsgExecSessionResponse, error)
+	// CreateGrant is the unified entrypoint that creates any of the four typed
+	// grants. Type is inferred from the payload oneof.
+	CreateGrant(context.Context, *MsgCreateGrant) (*MsgCreateGrantResponse, error)
+	// ClaimRecurringPull disburses one period of a RECURRING_PULL grant from
+	// the granter to the grantee. Logical-clock advances; catch-up requires
+	// multiple txs.
+	ClaimRecurringPull(context.Context, *MsgClaimRecurringPull) (*MsgClaimRecurringPullResponse, error)
+	// PullAllowance withdraws an amount from a SPENDING_ALLOWANCE grant
+	// budget to a chosen recipient (constrained by the optional whitelist
+	// and the per-period cap). The grantee picks the recipient and amount
+	// per call within the rolling-window budget.
+	PullAllowance(context.Context, *MsgPullAllowance) (*MsgPullAllowanceResponse, error)
+	// RetryScheduledOneshot re-enqueues a PAUSED_INSUFFICIENT_FUNDS
+	// ScheduledOneshot for firing. Either the granter or the grantee may
+	// call (no additional authorization needed — the granter already
+	// authorized the underlying action at creation time). Sets
+	// fire_at = block_time on success.
+	RetryScheduledOneshot(context.Context, *MsgRetryScheduledOneshot) (*MsgRetryScheduledOneshotResponse, error)
+	// RevokeGrant cancels any active grant by id. Signed by the granter
+	// on file. Refunds any held OneshotGasDeposit for SCHEDULED_ONESHOT
+	// grants. A session-key holder may invoke this only when the session
+	// key's SessionKeyPayload.allow_self_revoke = true AND the targeted
+	// grant's granter matches the session-key granter (anti
+	// cross-granter-revoke).
+	RevokeGrant(context.Context, *MsgRevokeGrant) (*MsgRevokeGrantResponse, error)
+	// DeclineGrant lets the grantee opt out of any active grant by id.
+	// Applies uniformly across all four grant types. For ScheduledOneshot
+	// this is a pre-fire veto: the grant transitions to DECLINED, the
+	// EndBlocker skips it, and the held deposit is refunded to the
+	// granter. Decline is one-way — the granter must Revoke + CreateGrant
+	// to retry.
+	DeclineGrant(context.Context, *MsgDeclineGrant) (*MsgDeclineGrantResponse, error)
 }
 
 // UnimplementedMsgServer can be embedded to have forward compatible implementations.
@@ -712,6 +1626,24 @@ func (*UnimplementedMsgServer) RevokeSession(ctx context.Context, req *MsgRevoke
 }
 func (*UnimplementedMsgServer) ExecSession(ctx context.Context, req *MsgExecSession) (*MsgExecSessionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecSession not implemented")
+}
+func (*UnimplementedMsgServer) CreateGrant(ctx context.Context, req *MsgCreateGrant) (*MsgCreateGrantResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateGrant not implemented")
+}
+func (*UnimplementedMsgServer) ClaimRecurringPull(ctx context.Context, req *MsgClaimRecurringPull) (*MsgClaimRecurringPullResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimRecurringPull not implemented")
+}
+func (*UnimplementedMsgServer) PullAllowance(ctx context.Context, req *MsgPullAllowance) (*MsgPullAllowanceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PullAllowance not implemented")
+}
+func (*UnimplementedMsgServer) RetryScheduledOneshot(ctx context.Context, req *MsgRetryScheduledOneshot) (*MsgRetryScheduledOneshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RetryScheduledOneshot not implemented")
+}
+func (*UnimplementedMsgServer) RevokeGrant(ctx context.Context, req *MsgRevokeGrant) (*MsgRevokeGrantResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevokeGrant not implemented")
+}
+func (*UnimplementedMsgServer) DeclineGrant(ctx context.Context, req *MsgDeclineGrant) (*MsgDeclineGrantResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeclineGrant not implemented")
 }
 
 func RegisterMsgServer(s grpc1.Server, srv MsgServer) {
@@ -808,6 +1740,114 @@ func _Msg_ExecSession_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Msg_CreateGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgCreateGrant)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).CreateGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/sparkdream.session.v1.Msg/CreateGrant",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).CreateGrant(ctx, req.(*MsgCreateGrant))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_ClaimRecurringPull_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgClaimRecurringPull)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).ClaimRecurringPull(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/sparkdream.session.v1.Msg/ClaimRecurringPull",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).ClaimRecurringPull(ctx, req.(*MsgClaimRecurringPull))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_PullAllowance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgPullAllowance)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).PullAllowance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/sparkdream.session.v1.Msg/PullAllowance",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).PullAllowance(ctx, req.(*MsgPullAllowance))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_RetryScheduledOneshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgRetryScheduledOneshot)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).RetryScheduledOneshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/sparkdream.session.v1.Msg/RetryScheduledOneshot",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).RetryScheduledOneshot(ctx, req.(*MsgRetryScheduledOneshot))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_RevokeGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgRevokeGrant)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).RevokeGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/sparkdream.session.v1.Msg/RevokeGrant",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).RevokeGrant(ctx, req.(*MsgRevokeGrant))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_DeclineGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgDeclineGrant)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).DeclineGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/sparkdream.session.v1.Msg/DeclineGrant",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).DeclineGrant(ctx, req.(*MsgDeclineGrant))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var Msg_serviceDesc = _Msg_serviceDesc
 var _Msg_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "sparkdream.session.v1.Msg",
@@ -832,6 +1872,30 @@ var _Msg_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExecSession",
 			Handler:    _Msg_ExecSession_Handler,
+		},
+		{
+			MethodName: "CreateGrant",
+			Handler:    _Msg_CreateGrant_Handler,
+		},
+		{
+			MethodName: "ClaimRecurringPull",
+			Handler:    _Msg_ClaimRecurringPull_Handler,
+		},
+		{
+			MethodName: "PullAllowance",
+			Handler:    _Msg_PullAllowance_Handler,
+		},
+		{
+			MethodName: "RetryScheduledOneshot",
+			Handler:    _Msg_RetryScheduledOneshot_Handler,
+		},
+		{
+			MethodName: "RevokeGrant",
+			Handler:    _Msg_RevokeGrant_Handler,
+		},
+		{
+			MethodName: "DeclineGrant",
+			Handler:    _Msg_DeclineGrant_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -1190,6 +2254,541 @@ func (m *MsgExecSessionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 	return len(dAtA) - i, nil
 }
 
+func (m *MsgCreateGrant) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgCreateGrant) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgCreateGrant) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Payload != nil {
+		{
+			size := m.Payload.Size()
+			i -= size
+			if _, err := m.Payload.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if len(m.Note) > 0 {
+		i -= len(m.Note)
+		copy(dAtA[i:], m.Note)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Note)))
+		i--
+		dAtA[i] = 0x22
+	}
+	n5, err5 := github_com_cosmos_gogoproto_types.StdTimeMarshalTo(m.ExpiresAt, dAtA[i-github_com_cosmos_gogoproto_types.SizeOfStdTime(m.ExpiresAt):])
+	if err5 != nil {
+		return 0, err5
+	}
+	i -= n5
+	i = encodeVarintTx(dAtA, i, uint64(n5))
+	i--
+	dAtA[i] = 0x1a
+	if len(m.Grantee) > 0 {
+		i -= len(m.Grantee)
+		copy(dAtA[i:], m.Grantee)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Grantee)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Granter) > 0 {
+		i -= len(m.Granter)
+		copy(dAtA[i:], m.Granter)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Granter)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgCreateGrant_SessionKey) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgCreateGrant_SessionKey) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.SessionKey != nil {
+		{
+			size, err := m.SessionKey.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintTx(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x52
+	}
+	return len(dAtA) - i, nil
+}
+func (m *MsgCreateGrant_RecurringPull) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgCreateGrant_RecurringPull) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.RecurringPull != nil {
+		{
+			size, err := m.RecurringPull.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintTx(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x5a
+	}
+	return len(dAtA) - i, nil
+}
+func (m *MsgCreateGrant_SpendingAllowance) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgCreateGrant_SpendingAllowance) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.SpendingAllowance != nil {
+		{
+			size, err := m.SpendingAllowance.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintTx(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x62
+	}
+	return len(dAtA) - i, nil
+}
+func (m *MsgCreateGrant_ScheduledOneshot) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgCreateGrant_ScheduledOneshot) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.ScheduledOneshot != nil {
+		{
+			size, err := m.ScheduledOneshot.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintTx(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x6a
+	}
+	return len(dAtA) - i, nil
+}
+func (m *MsgCreateGrantResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgCreateGrantResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgCreateGrantResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgClaimRecurringPull) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgClaimRecurringPull) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgClaimRecurringPull) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Grantee) > 0 {
+		i -= len(m.Grantee)
+		copy(dAtA[i:], m.Grantee)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Grantee)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgClaimRecurringPullResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgClaimRecurringPullResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgClaimRecurringPullResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.NextClaimTime != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.NextClaimTime))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.ClaimNumber != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.ClaimNumber))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgPullAllowance) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgPullAllowance) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgPullAllowance) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.Amount.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintTx(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	if len(m.Recipient) > 0 {
+		i -= len(m.Recipient)
+		copy(dAtA[i:], m.Recipient)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Recipient)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.GrantId != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Grantee) > 0 {
+		i -= len(m.Grantee)
+		copy(dAtA[i:], m.Grantee)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Grantee)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgPullAllowanceResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgPullAllowanceResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgPullAllowanceResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.SpentInPeriod.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintTx(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	{
+		size, err := m.Transferred.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintTx(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgRetryScheduledOneshot) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgRetryScheduledOneshot) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgRetryScheduledOneshot) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Caller) > 0 {
+		i -= len(m.Caller)
+		copy(dAtA[i:], m.Caller)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Caller)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgRetryScheduledOneshotResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgRetryScheduledOneshotResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgRetryScheduledOneshotResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.NewFireAt != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.NewFireAt))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgRevokeGrant) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgRevokeGrant) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgRevokeGrant) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Granter) > 0 {
+		i -= len(m.Granter)
+		copy(dAtA[i:], m.Granter)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Granter)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgRevokeGrantResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgRevokeGrantResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgRevokeGrantResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.RefundAmount.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintTx(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgDeclineGrant) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgDeclineGrant) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgDeclineGrant) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Grantee) > 0 {
+		i -= len(m.Grantee)
+		copy(dAtA[i:], m.Grantee)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Grantee)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgDeclineGrantResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgDeclineGrantResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgDeclineGrantResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.RefundAmount.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintTx(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintTx(dAtA []byte, offset int, v uint64) int {
 	offset -= sovTx(v)
 	base := offset
@@ -1343,6 +2942,240 @@ func (m *MsgExecSessionResponse) Size() (n int) {
 	}
 	var l int
 	_ = l
+	return n
+}
+
+func (m *MsgCreateGrant) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Granter)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	l = len(m.Grantee)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	l = github_com_cosmos_gogoproto_types.SizeOfStdTime(m.ExpiresAt)
+	n += 1 + l + sovTx(uint64(l))
+	l = len(m.Note)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.Payload != nil {
+		n += m.Payload.Size()
+	}
+	return n
+}
+
+func (m *MsgCreateGrant_SessionKey) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.SessionKey != nil {
+		l = m.SessionKey.Size()
+		n += 1 + l + sovTx(uint64(l))
+	}
+	return n
+}
+func (m *MsgCreateGrant_RecurringPull) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.RecurringPull != nil {
+		l = m.RecurringPull.Size()
+		n += 1 + l + sovTx(uint64(l))
+	}
+	return n
+}
+func (m *MsgCreateGrant_SpendingAllowance) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.SpendingAllowance != nil {
+		l = m.SpendingAllowance.Size()
+		n += 1 + l + sovTx(uint64(l))
+	}
+	return n
+}
+func (m *MsgCreateGrant_ScheduledOneshot) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ScheduledOneshot != nil {
+		l = m.ScheduledOneshot.Size()
+		n += 1 + l + sovTx(uint64(l))
+	}
+	return n
+}
+func (m *MsgCreateGrantResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		n += 1 + sovTx(uint64(m.GrantId))
+	}
+	return n
+}
+
+func (m *MsgClaimRecurringPull) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Grantee)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.GrantId != 0 {
+		n += 1 + sovTx(uint64(m.GrantId))
+	}
+	return n
+}
+
+func (m *MsgClaimRecurringPullResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ClaimNumber != 0 {
+		n += 1 + sovTx(uint64(m.ClaimNumber))
+	}
+	if m.NextClaimTime != 0 {
+		n += 1 + sovTx(uint64(m.NextClaimTime))
+	}
+	return n
+}
+
+func (m *MsgPullAllowance) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Grantee)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.GrantId != 0 {
+		n += 1 + sovTx(uint64(m.GrantId))
+	}
+	l = len(m.Recipient)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	l = m.Amount.Size()
+	n += 1 + l + sovTx(uint64(l))
+	return n
+}
+
+func (m *MsgPullAllowanceResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.Transferred.Size()
+	n += 1 + l + sovTx(uint64(l))
+	l = m.SpentInPeriod.Size()
+	n += 1 + l + sovTx(uint64(l))
+	return n
+}
+
+func (m *MsgRetryScheduledOneshot) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Caller)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.GrantId != 0 {
+		n += 1 + sovTx(uint64(m.GrantId))
+	}
+	return n
+}
+
+func (m *MsgRetryScheduledOneshotResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.NewFireAt != 0 {
+		n += 1 + sovTx(uint64(m.NewFireAt))
+	}
+	return n
+}
+
+func (m *MsgRevokeGrant) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Granter)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.GrantId != 0 {
+		n += 1 + sovTx(uint64(m.GrantId))
+	}
+	return n
+}
+
+func (m *MsgRevokeGrantResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.RefundAmount.Size()
+	n += 1 + l + sovTx(uint64(l))
+	return n
+}
+
+func (m *MsgDeclineGrant) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Grantee)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.GrantId != 0 {
+		n += 1 + sovTx(uint64(m.GrantId))
+	}
+	return n
+}
+
+func (m *MsgDeclineGrantResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.RefundAmount.Size()
+	n += 1 + l + sovTx(uint64(l))
 	return n
 }
 
@@ -2304,6 +4137,1403 @@ func (m *MsgExecSessionResponse) Unmarshal(dAtA []byte) error {
 			return fmt.Errorf("proto: MsgExecSessionResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgCreateGrant) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgCreateGrant: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgCreateGrant: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Granter", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Granter = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Grantee", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Grantee = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ExpiresAt", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := github_com_cosmos_gogoproto_types.StdTimeUnmarshal(&m.ExpiresAt, dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Note", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Note = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SessionKey", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &SessionKeyPayload{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Payload = &MsgCreateGrant_SessionKey{v}
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RecurringPull", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &RecurringPullPayload{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Payload = &MsgCreateGrant_RecurringPull{v}
+			iNdEx = postIndex
+		case 12:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SpendingAllowance", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &SpendingAllowancePayload{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Payload = &MsgCreateGrant_SpendingAllowance{v}
+			iNdEx = postIndex
+		case 13:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ScheduledOneshot", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &ScheduledOneshotPayload{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Payload = &MsgCreateGrant_ScheduledOneshot{v}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgCreateGrantResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgCreateGrantResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgCreateGrantResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgClaimRecurringPull) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgClaimRecurringPull: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgClaimRecurringPull: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Grantee", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Grantee = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgClaimRecurringPullResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgClaimRecurringPullResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgClaimRecurringPullResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClaimNumber", wireType)
+			}
+			m.ClaimNumber = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ClaimNumber |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NextClaimTime", wireType)
+			}
+			m.NextClaimTime = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.NextClaimTime |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgPullAllowance) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgPullAllowance: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgPullAllowance: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Grantee", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Grantee = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Recipient", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Recipient = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Amount", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Amount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgPullAllowanceResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgPullAllowanceResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgPullAllowanceResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Transferred", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Transferred.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SpentInPeriod", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.SpentInPeriod.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgRetryScheduledOneshot) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgRetryScheduledOneshot: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgRetryScheduledOneshot: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Caller", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Caller = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgRetryScheduledOneshotResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgRetryScheduledOneshotResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgRetryScheduledOneshotResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NewFireAt", wireType)
+			}
+			m.NewFireAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.NewFireAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgRevokeGrant) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgRevokeGrant: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgRevokeGrant: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Granter", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Granter = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgRevokeGrantResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgRevokeGrantResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgRevokeGrantResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RefundAmount", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.RefundAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgDeclineGrant) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgDeclineGrant: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgDeclineGrant: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Grantee", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Grantee = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgDeclineGrantResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgDeclineGrantResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgDeclineGrantResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RefundAmount", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.RefundAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipTx(dAtA[iNdEx:])

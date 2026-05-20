@@ -2,22 +2,33 @@ package keeper
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/commons/types"
+	sessiontypes "sparkdream/x/session/types"
 )
 
-// CancelRecurringSpend marks an active schedule as CANCELED. The signer
-// must be the same authority that created it — when wrapped in a
+// CancelRecurringSpend terminates an active schedule. The signer must
+// be the same authority that created it — when wrapped in a
 // MsgSubmitProposal this means the same council must vote to cancel.
 //
-// A canceled schedule rejects further claims but its row is retained for
-// audit. Re-issuing a recurring spend requires a fresh Schedule call so
-// each schedule has a distinct id and history.
+// **M6 (RecurringSpend migration):** the handler is a thin wrapper
+// that looks up the grant in session.Grants, verifies the caller's
+// authority matches the grant's granter, and calls
+// `sessionKeeper.RevokeGrantInternal`. The grant is then DELETED
+// (session does not keep tombstones on revoke); the audit trail
+// lives in the `grant_revoked` event emitted by session.
+//
+// Error contract: session returns `ErrGrantNotFound` for an already-
+// cancelled / non-existent grant and `ErrGrantTerminal` for COMPLETED
+// grants. Both are translated to `ErrRecurringSpendInactive` so the
+// wrapper preserves today's public error contract for double-cancel
+// callers (see migration plan §8 / L7).
 func (k msgServer) CancelRecurringSpend(goCtx context.Context, msg *types.MsgCancelRecurringSpend) (*types.MsgCancelRecurringSpendResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -25,41 +36,42 @@ func (k msgServer) CancelRecurringSpend(goCtx context.Context, msg *types.MsgCan
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, "invalid authority address")
 	}
 
-	rs, err := k.GetRecurringSpend(ctx, msg.Id)
+	if k.late.sessionKeeper == nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic,
+			"session keeper not wired (set via app.CommonsKeeper.SetSessionKeeper)")
+	}
+
+	// Look up the grant to enforce the "only the original authority can
+	// cancel" rule. Session's RevokeGrantInternal does NOT check this
+	// (the bypass surface trusts the caller module to authorize).
+	grant, err := k.late.sessionKeeper.GetGrant(ctx, msg.Id)
 	if err != nil {
+		if errors.Is(err, sessiontypes.ErrGrantNotFound) {
+			return nil, errorsmod.Wrapf(types.ErrRecurringSpendInactive,
+				"schedule %d not found (already terminal or never existed)", msg.Id)
+		}
+		return nil, err
+	}
+	if grant.Granter != msg.Authority {
+		return nil, errorsmod.Wrapf(types.ErrRecurringSpendUnauthorized,
+			"caller %s is not the schedule's authority %s", msg.Authority, grant.Granter)
+	}
+
+	commonsModuleAddr := authtypes.NewModuleAddress(types.ModuleName).String()
+	if _, err := k.late.sessionKeeper.RevokeGrantInternal(ctx, commonsModuleAddr, msg.Id); err != nil {
+		// COMPLETED grants return ErrGrantTerminal — translate so the
+		// wrapper preserves the legacy public error.
+		if errors.Is(err, sessiontypes.ErrGrantTerminal) {
+			return nil, errorsmod.Wrapf(types.ErrRecurringSpendInactive,
+				"schedule %d is in a terminal status", msg.Id)
+		}
 		return nil, err
 	}
 
-	// Only the original authority can cancel — symmetric with creation.
-	if rs.Authority != msg.Authority {
-		return nil, errorsmod.Wrapf(types.ErrRecurringSpendUnauthorized,
-			"caller %s is not the schedule's authority %s", msg.Authority, rs.Authority)
-	}
-
-	// Cancelling a non-ACTIVE schedule is a no-op error: it gives the
-	// caller a clear signal that nothing changed and the proposal that
-	// wrapped it shouldn't have been needed.
-	if rs.Status != types.RecurringSpendStatus_RECURRING_SPEND_STATUS_ACTIVE {
-		return nil, errorsmod.Wrapf(types.ErrRecurringSpendInactive,
-			"schedule %d is in status %s", rs.Id, rs.Status)
-	}
-
-	rs.Status = types.RecurringSpendStatus_RECURRING_SPEND_STATUS_CANCELED
-	if err := k.RecurringSpends.Set(ctx, rs.Id, rs); err != nil {
-		return nil, errorsmod.Wrap(err, "persist cancel")
-	}
-	if err := k.decActiveCount(ctx, rs.Authority); err != nil {
-		return nil, errorsmod.Wrap(err, "drop active count")
-	}
-
-	ctx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			"recurring_spend_canceled",
-			sdk.NewAttribute("id", fmt.Sprintf("%d", rs.Id)),
-			sdk.NewAttribute("authority", rs.Authority),
-			sdk.NewAttribute("recipient", rs.Recipient),
-		),
-	)
+	// No legacy commons-side state to touch (no parallel storage,
+	// no decActiveCount — session handles its own active-grant
+	// counter). No legacy `recurring_spend_canceled` event —
+	// session emits `grant_revoked` with `source=module_bypass`.
 
 	return &types.MsgCancelRecurringSpendResponse{}, nil
 }

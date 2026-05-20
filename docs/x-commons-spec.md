@@ -46,16 +46,27 @@ Key principles:
 - **Cumulative spending limit**: each policy's `MaxSpendPerEpoch` is enforced
   cumulatively per UTC day, not per transaction — multiple `MsgSpendFromCommons`
   in the same epoch sum together. Recurring-spend claims share the same
-  gating helper (`CheckSpendPreconditions`) and therefore cannot side-step
-  the per-epoch ceiling.
-- **Recurring spends (pull model)**: councils can pre-approve a schedule
-  via `MsgScheduleRecurringSpend` (wrapped in a proposal). Each elapsed
-  period the **recipient** submits `MsgClaimRecurringSpend` to pull one
-  disbursement. Term-expired councils auto-pause (claims reject with
-  `ErrGroupExpired`); term renewal auto-resumes. Schedules can be
-  cancelled via a follow-up council proposal
-  (`MsgCancelRecurringSpend`) or declined unilaterally by the recipient
-  (`MsgDeclineRecurringSpend`) — e.g. when leaving a role.
+  `EpochSpending` bucket via the `SessionClaimHook` (PreCheck reads the
+  same gates as `CheckSpendPreconditions`; PostCommit performs the bucket
+  debit atomically with the bank send), so they cannot side-step the
+  per-epoch ceiling.
+- **Recurring spends (pull model, hosted in [x/session](x-session-spec.md))**:
+  councils pre-approve a schedule via `MsgScheduleRecurringSpend` (wrapped
+  in a proposal). Each elapsed period the **recipient** submits
+  `MsgClaimRecurringSpend` to pull one disbursement. The four commons
+  msg types (`Schedule` / `Claim` / `Cancel` / `Decline`) are thin
+  wrappers over the unified [x/session](x-session-spec.md) grant
+  registry — the schedule lives as a `RECURRING_PULL` grant whose
+  granter is the council policy and whose grantee is the recipient.
+  Term-expired councils auto-pause (claims reject with
+  `ErrGroupExpired` via the `SessionClaimHook.PreCheck`); term
+  renewal auto-resumes. Schedules can be cancelled via a follow-up
+  council proposal (`MsgCancelRecurringSpend`) or declined
+  unilaterally by the recipient (`MsgDeclineRecurringSpend`).
+  Cancelled / declined schedules return `NotFound` from
+  `QueryGetRecurringSpend` post-migration (the grant is deleted from
+  session; audit trail is in the `grant_revoked` / `grant_declined`
+  events).
 - **Anonymous governance**: `MsgSubmitAnonymousProposal` and
   `MsgAnonymousVoteProposal` are accepted only from the `x/shield` module
   account. The shield module's ZK proof attests to voter registration; the
@@ -249,55 +260,89 @@ Created via `MsgCreateCategory` by gov, the Commons Council, or the Commons
 Operations Committee. Per-module restrictions (e.g. "blog category 1 is
 read-only") layer on top.
 
-### 3.7. RecurringSpend
+### 3.7. RecurringSpend (migrated to x/session)
 
 A council-approved disbursement schedule. The record is created when a
 proposal carrying `MsgScheduleRecurringSpend` executes; each elapsed
 period the recipient submits `MsgClaimRecurringSpend` to pull one
 `amount_per_period` from the council's policy account.
 
+**Storage migration (M5–M10):** schedules no longer live in a
+commons-local `RecurringSpends` collection. They live in
+[x/session](x-session-spec.md) as `RECURRING_PULL` grants, with the
+council policy as the grant's `granter` and the recipient as the
+`grantee`. The four `Msg*RecurringSpend` types stay as thin wrappers
+so existing council `StandardPermissions` configs, the recipient CLI
+(`tx commons claim-recurring-spend [id]`), and the
+`MsgScheduleRecurringSpendResponse` shape are unchanged.
+
+The migration deliberately introduces one semantic break: cancelled
+and declined schedules return `NotFound` on
+`QueryGetRecurringSpend(id)` because x/session deletes a grant on
+Revoke / Decline rather than tombstoning it. The audit trail for
+those terminal transitions lives in the `grant_revoked` /
+`grant_declined` events (see §3.9 below). COMPLETED schedules ARE
+retained and remain queryable.
+
+The wire shape of the `RecurringSpend` proto is unchanged for
+`MsgScheduleRecurringSpendResponse` and `QueryGetRecurringSpendResponse`;
+field `created_via_proposal_id` is permanently zero post-migration
+(the proto field is dead — see migration plan §6).
+
 ```protobuf
 message RecurringSpend {
-  uint64 id = 1;
-  string authority = 2;                    // council policy address
-  string recipient = 3;
-  repeated cosmos.base.v1beta1.Coin amount_per_period = 4;
-  int64 period_seconds = 5;                // >= Params.min_recurring_period_seconds
+  uint64 id = 1;                           // session grant_id
+  string authority = 2;                    // session grant.granter (council policy address)
+  string recipient = 3;                    // session grant.grantee
+  repeated cosmos.base.v1beta1.Coin amount_per_period = 4;  // exactly 1 coin post-M11 (D1.a)
+  int64 period_seconds = 5;                // >= session.params.min_recurring_period_seconds
   int64 start_time = 6;                    // unix seconds
-  int64 end_time = 7;                      // <= start_time + Params.max_recurring_duration_seconds
+  int64 end_time = 7;                      // <= start_time + session.params.max_recurring_duration_seconds
   int64 last_claim_advance = 8;            // schedule's logical clock
   uint64 claims_made = 9;
-  RecurringSpendStatus status = 10;        // ACTIVE | RECIPIENT_DECLINED | CANCELED | COMPLETED
-  uint64 created_via_proposal_id = 11;
+  RecurringSpendStatus status = 10;        // ACTIVE | COMPLETED (CANCELED/DECLINED return NotFound)
+  uint64 created_via_proposal_id = 11;     // dead field — always 0 post-migration
   string note = 12;                        // capped at 256 chars
 }
 ```
 
 Lifecycle:
 
-| Transition | Trigger |
-|---|---|
-| `→ ACTIVE` | `MsgScheduleRecurringSpend` executes (wrapped in a council proposal) |
-| `ACTIVE → CANCELED` | `MsgCancelRecurringSpend` executes (same authority, another council proposal) |
-| `ACTIVE → RECIPIENT_DECLINED` | `MsgDeclineRecurringSpend` (signer = recipient, direct tx) |
-| `ACTIVE → COMPLETED` | `MsgClaimRecurringSpend` advances `last_claim_advance` past `end_time - period_seconds` (final claim was disbursed) |
+| Transition | Trigger | Visibility |
+|---|---|---|
+| `→ ACTIVE` | `MsgScheduleRecurringSpend` executes (council proposal) | Session emits `grant_created` with `source=module_bypass`, `caller_module=<commons module address>` |
+| `ACTIVE → (deleted)` | `MsgCancelRecurringSpend` executes (same authority, another council proposal) | Session emits `grant_revoked`; subsequent `Query` returns NotFound |
+| `ACTIVE → (deleted)` | `MsgDeclineRecurringSpend` (signer = recipient, direct tx) | Session emits `grant_declined`; subsequent `Query` returns NotFound |
+| `ACTIVE → COMPLETED` | `MsgClaimRecurringSpend` advances `last_claim_advance` past `end_time - period_seconds` (final claim was disbursed) | Row retained; status flips to COMPLETED |
 
-Notable design choices:
+Notable design choices (post-migration):
 
-- **No `PAUSED` state**. Term-pause is *derived* at claim time by routing
-  through `CheckSpendPreconditions`. If the council's term has expired
-  the claim rejects with `ErrGroupExpired`; on renewal the same code path
-  passes again. Storing a paused flag would risk drifting out of sync
-  with the group's actual expiration.
+- **Council policy gates apply via `SessionClaimHook`** (registered by
+  `app.go` post-depinject). When session fires a claim/pull/oneshot
+  whose granter is a registered council policy, `SessionClaimHook.PreCheck`
+  runs `CheckSpendPreconditions` (activation + term + per-epoch CHECK)
+  and `SessionClaimHook.PostCommit` runs the per-epoch DEBIT. The
+  PreCheck/PostCommit split closes a double-debit window the legacy
+  single-method check + debit would have left open on bank-send retry
+  after `PAUSED_INSUFFICIENT_FUNDS`. See migration plan §3.2.
+- **Term-pause** is still derived at claim time. The `SessionClaimHook`
+  reuses the existing `CheckSpendPreconditions` semantics; a claim
+  against a term-expired council rejects with `ErrGroupExpired`. On
+  renewal the same code path passes again. No new persistent paused
+  flag.
 - **Logical clock**: `last_claim_advance` advances by exactly
-  `period_seconds` per claim, anchored to the schedule, not block time. A
-  recipient who skips can catch up by submitting multiple claim txs,
-  each rate-limited independently against `MaxSpendPerEpoch`.
+  `period_seconds` per claim, anchored to the schedule, not block time.
+  A recipient who skips can catch up by submitting multiple claim txs,
+  each rate-limited independently against the council's
+  `MaxSpendPerEpoch`.
 - **First claim opens at `start_time + period_seconds`** — the council
   vote authorises payment after one period of work, not immediately.
-- **Created-via-proposal-id** is currently informational (the value is
-  reserved on the proto for traceability but not populated by the
-  handler; future work).
+- **Single-coin amounts** (D1.a). The wrapper rejects multi-coin
+  `amount_per_period`; council pay channels needing multiple denoms
+  must use multiple schedules.
+- **Self-payment rejected**: `authority == recipient` is now refused
+  with `ErrSelfDelegation` — a behavioral tightening from the
+  pre-migration handler (§4 / §8 of migration plan).
 
 ### 3.8. Indexes and counters
 
@@ -309,21 +354,27 @@ Notable design choices:
 | `ProposalsByCouncil` | `(council_name, proposal_id)` | Pagination index for `ListProposals` |
 | `VetoPolicies` | `council_name → veto_policy_address` | Cross-council veto resolution |
 | `PolicyVersion` | `policy_address → uint64` | Veto-by-bump invalidation token |
-| `EpochSpending` | `(policy_address, epoch_day) → string(uspark)` | Cumulative `MsgSpendFromCommons` **and** `MsgClaimRecurringSpend` total per UTC day |
-| `RecurringSpends` | `id → RecurringSpend` | The schedule record |
-| `RecurringSpendsByAuthority` | `(authority, id) → ∅` | Per-council schedule listing |
-| `RecurringSpendsByRecipient` | `(recipient, id) → ∅` | Per-wallet "what can I claim?" listing |
-| `ActiveRecurringSpendCount` | `authority → uint32` | O(1) cap check on `MsgScheduleRecurringSpend` (decremented on Cancel/Decline/Completed; recomputed at genesis import) |
-| `ProposalSeq`, `CouncilSeq`, `CategorySeq`, `RecurringSpendSeq` | sequences | Auto-increment ID generators |
+| `EpochSpending` | `(policy_address, epoch_day) → string(uspark)` | Cumulative `MsgSpendFromCommons` **and** council-policy RECURRING_PULL claims per UTC day, debited by `SessionClaimHook.PostCommit` |
+| `ProposalSeq`, `CouncilSeq`, `CategorySeq` | sequences | Auto-increment ID generators |
+
+The pre-migration `RecurringSpends*` collections (`RecurringSpends`,
+`RecurringSpendsByAuthority`, `RecurringSpendsByRecipient`,
+`ActiveRecurringSpendCount`, `RecurringSpendSeq`) were deleted by
+M10. Their equivalents live in
+[x/session](x-session-spec.md): `Grants`, `GrantsByGranter`,
+`GrantsByGrantee`, `ActiveGrantCountByType`, `GrantSeq`.
 
 ### 3.9. Params
 
 ```protobuf
 message Params {
-  string proposal_fee = 1;                            // e.g. "5000000uspark" — charged on every MsgSubmitProposal
-  int64  min_recurring_period_seconds = 2;            // default 86_400  (1 day)
-  int64  max_recurring_duration_seconds = 3;          // default 31_536_000 (365 days)
-  uint32 max_active_recurring_spends_per_group = 4;   // default 50
+  string proposal_fee = 1;  // e.g. "5000000uspark" — charged on every MsgSubmitProposal
+  // Fields 2-4 (min_recurring_period_seconds /
+  // max_recurring_duration_seconds /
+  // max_active_recurring_spends_per_group) were removed by M10. Their
+  // equivalents live on session.Params and apply uniformly to council
+  // and user-account grants.
+  reserved 2, 3, 4;
 }
 ```
 
@@ -612,56 +663,88 @@ proposals accumulate.
 | `MsgSubmitAnonymousProposal` | x/shield module account only | Same as `MsgSubmitProposal` but skips the membership check (ZK proof attests registration); identical fee, allowlist, and term gates |
 | `MsgAnonymousVoteProposal` | x/shield module account only | Increments `AnonVoteTally` for the proposal; weight=1, tallied separately from member votes |
 | `MsgCreateCategory` | gov OR Commons Council OR Commons Operations Committee | Register a new shared content category |
-| `MsgScheduleRecurringSpend` | a registered group policy | Create a recurring-disbursement schedule from the council's treasury. Wrapped in a `MsgSubmitProposal`; counts against `Params.max_active_recurring_spends_per_group` |
-| `MsgCancelRecurringSpend` | the schedule's authority (same group policy) | Terminate an active schedule. Wrapped in a `MsgSubmitProposal`; rejects with `ErrRecurringSpendUnauthorized` if the caller is a different council |
-| `MsgClaimRecurringSpend` | the schedule's recipient | Pull one period of an active schedule. Routes through `CheckSpendPreconditions` so the per-epoch rate-limit, term expiration, and activation gate all apply identically to one-off spends |
-| `MsgDeclineRecurringSpend` | the schedule's recipient | Permanently opt out of future claims (graceful exit when leaving a role). No proposal required |
+| `MsgScheduleRecurringSpend` | a registered group policy | Create a recurring-disbursement schedule from the council's treasury. Wrapped in a `MsgSubmitProposal`. **Wrapper over [x/session](x-session-spec.md)** — constructs a session `MsgCreateGrant` carrying a `RecurringPullPayload` and calls `sessionKeeper.CreateGrantOnBehalfOf`. Per-granter active-grant cap is `session.params.max_recurring_pulls_per_granter` |
+| `MsgCancelRecurringSpend` | the schedule's authority (same group policy) | Terminate an active schedule. Wrapped in a `MsgSubmitProposal`; rejects with `ErrRecurringSpendUnauthorized` if the caller is a different council. **Wrapper over [x/session](x-session-spec.md)** — calls `sessionKeeper.RevokeGrantInternal` which DELETES the underlying grant (no tombstone). `ErrGrantNotFound`/`ErrGrantTerminal` are translated to `ErrRecurringSpendInactive` |
+| `MsgClaimRecurringSpend` | the schedule's recipient | Pull one period of an active schedule. **Wrapper over [x/session](x-session-spec.md)** — calls `sessionKeeper.ClaimRecurringPullForGrantee`. The `SessionClaimHook` (registered by `app.go`) re-applies `CheckSpendPreconditions` as `PreCheck` (activation + term + per-epoch CHECK) and `PostCommit` (per-epoch DEBIT) for council-policy grants, so per-epoch rate-limit, term expiration, and activation gate apply identically to one-off `MsgSpendFromCommons` |
+| `MsgDeclineRecurringSpend` | the schedule's recipient | Permanently opt out of future claims (graceful exit when leaving a role). **Wrapper over [x/session](x-session-spec.md)** — calls `sessionKeeper.DeclineGrantInternal` which DELETES the underlying grant. No proposal required. `ErrGrantNotFound`/`ErrGrantTerminal` are translated to `ErrRecurringSpendInactive` |
 
 The amino type names follow the pattern `sparkdream/x/commons/Msg<Name>`,
 declared on every signer message via `option (amino.name)` so Keplr+Ledger
 amino-JSON signing works (see `docs/HANDOFF_LEDGER_AMINO_NAMES.md`).
 
-#### 7.1. Recurring-spend flow
+#### 7.1. Recurring-spend flow (post-migration)
+
+The wrappers dispatch into x/session; only the council-side state
+(group, EpochSpending) lives in x/commons. Schedule rows live in
+session.Grants.
 
 ```
-Council                   Recipient                  Chain
+Council                   Recipient                  Chain (x/commons → x/session)
    │                          │                          │
    │ MsgSubmitProposal(       │                          │
    │   MsgScheduleRecurringSpend)                        │
    │─────────────────────────────────────────────────────▶│
-   │                          │                  Validates period/window/cap
-   │ … votes, executes …      │                          │
-   │                          │                  Allocates id, status=ACTIVE
-   │                          │                  emits recurring_spend_scheduled
+   │                          │   commons: validate authority/single-coin/window
+   │ … votes, executes …      │   commons: → CreateGrantOnBehalfOf(commonsModule, msg)
+   │                          │   session: validateRecurringPullPayload (period, denom, cap)
+   │                          │   session: writeGrant; status=ACTIVE
+   │                          │   session emits grant_created
+   │                          │              (source=module_bypass, caller_module=<commons>)
    │                          │                          │
    │                          │ MsgClaimRecurringSpend(id)│
    │                          │─────────────────────────▶│
-   │                          │                  CheckSpendPreconditions
-   │                          │                  bankKeeper.SendCoins
-   │                          │                  last_claim_advance += period
-   │                          │                  emits recurring_spend_claimed
+   │                          │   commons: → ClaimRecurringPullForGrantee
+   │                          │   session: SessionClaimHook.PreCheck
+   │                          │            (commons checkSpendGates: activation/term/rate)
+   │                          │   session: bankKeeper.SendCoins
+   │                          │   session: SessionClaimHook.PostCommit
+   │                          │            (commons recordEpochSpend: bucket DEBIT)
+   │                          │   session: last_claim_advance += period
+   │                          │   session emits recurring_pull_claimed
    │                          │                          │
    │ MsgSubmitProposal(       │                          │
    │   MsgCancelRecurringSpend)                          │
    │─────────────────────────────────────────────────────▶│
-   │ … votes, executes …      │                  status=CANCELED
-   │                          │                  emits recurring_spend_canceled
+   │ … votes, executes …      │   commons: → RevokeGrantInternal
+   │                          │   session: DELETE the grant (no tombstone)
+   │                          │   session emits grant_revoked
 ```
 
-Failure modes worth calling out:
+`MsgDeclineRecurringSpend` is the recipient-signed twin of cancel
+(`DeclineGrantInternal` → `grant_declined`); same lifecycle, no
+proposal flow.
 
-- **Period not elapsed** (`ErrRecurringSpendNotDue`) — the recipient is
-  claiming faster than `period_seconds`. Each claim advances by exactly
-  one period from `last_claim_advance`, anchored to the schedule.
-- **Council term expired** (`ErrGroupExpired`) — the auto-pause
-  semantic. The schedule remains `ACTIVE`; the next claim after the
-  parent calls `MsgRenewGroup` succeeds.
-- **Per-epoch rate limit** (`ErrRateLimitExceeded`) — catch-up claims
-  hit the same `MaxSpendPerEpoch` ceiling as one-off `SpendFromCommons`.
-- **Window closed without a final claim** — when the recipient never
-  claims and the schedule's logical clock can no longer advance another
-  period before `end_time`, the next claim attempt (or none, until
-  someone reads it) flips status to `COMPLETED` and rejects.
+Failure modes worth calling out (errors flow back through the wrapper
+mostly unchanged; commons-specific translations are noted):
+
+- **Period not elapsed** (`session.ErrRecurringPullNotDue`) — the
+  recipient is claiming faster than `period_seconds`. Each claim
+  advances by exactly one period from `last_claim_advance`, anchored
+  to the schedule. Bubbles up from session unchanged.
+- **Council term expired** (`commons.ErrGroupExpired`, vetoed by
+  `SessionClaimHook.PreCheck`) — the auto-pause semantic. The grant
+  remains `GRANT_STATUS_ACTIVE` in session (the hook veto does not
+  auto-pause); the next claim after the parent calls `MsgRenewGroup`
+  succeeds.
+- **Per-epoch rate limit** (`commons.ErrRateLimitExceeded`, vetoed by
+  `SessionClaimHook.PreCheck`) — claims hit the same
+  `MaxSpendPerEpoch` ceiling as one-off `SpendFromCommons` because
+  both paths read/write the same `EpochSpending` bucket (PostCommit
+  debits the bucket atomically with the bank send).
+- **Window closed without a final claim** (`session.ErrRecurringPullWindowClosed`)
+  — when the recipient never claims and the schedule's logical clock
+  can no longer advance another period before `expires_at`, the next
+  claim attempt flips the grant to `COMPLETED` and rejects.
+- **Double-cancel / double-decline** (`commons.ErrRecurringSpendInactive`)
+  — the wrapper translates session's `ErrGrantNotFound` and
+  `ErrGrantTerminal` to `ErrRecurringSpendInactive` so the public
+  error contract is preserved.
+- **Self-payment** (`session.ErrSelfDelegation`) — `authority == recipient`
+  is rejected at schedule time. New behavior post-migration (§4 / §8
+  of the migration plan).
+- **Multi-coin amount** (`sdkerrors.ErrInvalidRequest`) — schedules
+  must specify exactly one coin (D1.a restriction). The wrapper
+  rejects multi-coin `amount_per_period` before calling session.
 
 ---
 
@@ -682,8 +765,8 @@ Failure modes worth calling out:
 | `GetProposalVotes` | `q commons get-proposal-votes [id]` | All votes cast on a proposal |
 | `GetCategory` | `q commons get-category [id]` | Single shared content category |
 | `ListCategory` | `q commons list-category` | Paginated categories |
-| `GetRecurringSpend` | `q commons get-recurring-spend [id]` | Single recurring spend schedule |
-| `ListRecurringSpends` | `q commons list-recurring-spends` | Paginated schedules; mutually-exclusive `--authority` or `--recipient` filters use the matching secondary index |
+| `GetRecurringSpend` | `q commons get-recurring-spend [id]` | Single recurring spend schedule, projected from `session.Grants`. Returns `NotFound` for cancelled/declined schedules (the grant is deleted on terminal transitions — audit trail in events). COMPLETED schedules are retained and queryable |
+| `ListRecurringSpends` | `q commons list-recurring-spends --authority [addr] \| --recipient [addr]` | Paginated schedules, projected from `session.ListGrantsBy{Granter,Grantee}(*, RECURRING_PULL)`. **At least one filter is required** (M9 deliberate semantic break: cross-granter pagination is not supported because session has no efficient iterator across all RECURRING_PULL grants). Both filters at once is also rejected. Pagination is in-memory offset+limit over the filtered slice |
 
 The `Get`/`List` distinction is mechanical: `Get` returns one record by key,
 `List` paginates the whole map. `NotFound` is a clean gRPC code, so HTTP and
@@ -798,17 +881,21 @@ outcomes without leaking individual identities.
 | 1100 | `ErrInvalidSigner` | Expected gov account as the sole signer for a proposal-bound message |
 | 1600 | `ErrGroupNotFound` | Council/committee name not in the registry |
 | 1601 | `ErrInvalidGroupSize` | Member count outside `[min_members, max_members]` |
-| 1602 | `ErrRateLimitExceeded` | `MsgSpendFromCommons` or `MsgClaimRecurringSpend` exceeds `MaxSpendPerEpoch` cumulatively, or `MsgUpdateGroupConfig` violates `update_cooldown` |
-| 1603 | `ErrGroupNotActive` | Group is in pre-launch (shell) phase; `activation_time > now` |
-| 1604 | `ErrGroupExpired` | `current_term_expiration < now` for non-renewal operations (also fires for `MsgClaimRecurringSpend` — the auto-pause path) |
-| 1700 | `ErrRecurringSpendNotFound` | No schedule with the given id |
-| 1701 | `ErrRecurringSpendInactive` | Schedule is not `ACTIVE` (cancelled/declined/completed/zero) — covers claim/cancel/decline after a terminal flip |
-| 1702 | `ErrRecurringSpendNotDue` | `now < last_claim_advance + period_seconds` |
-| 1703 | `ErrRecurringSpendWindowClosed` | `last_claim_advance + period_seconds > end_time` — last claim window passed |
-| 1704 | `ErrRecurringSpendInvalidPeriod` | `period_seconds < Params.min_recurring_period_seconds` |
-| 1705 | `ErrRecurringSpendInvalidWindow` | `start_time`/`end_time` malformed (past, out-of-order, exceeds duration cap, shorter than one period) |
-| 1706 | `ErrRecurringSpendCapReached` | Authority already has `Params.max_active_recurring_spends_per_group` active schedules |
-| 1707 | `ErrRecurringSpendUnauthorized` | Caller is not the schedule's authority (cancel) or recipient (claim/decline) |
+| 1602 | `ErrRateLimitExceeded` | Vetoed by `SessionClaimHook.PreCheck` (council-policy claim) OR raised inline by `MsgSpendFromCommons` — both paths share the same `MaxSpendPerEpoch` ceiling via the EpochSpending bucket. Also raised by `MsgUpdateGroupConfig` on `update_cooldown` violations |
+| 1603 | `ErrGroupNotActive` | Group is in pre-launch (shell) phase; `activation_time > now`. Vetoed by `SessionClaimHook.PreCheck` for recurring claims |
+| 1604 | `ErrGroupExpired` | `current_term_expiration < now`. Vetoed by `SessionClaimHook.PreCheck` for recurring claims (the auto-pause path — schedule stays ACTIVE in session; on renewal the next claim passes) |
+| 1700 | `ErrRecurringSpendNotFound` | Used internally; the wrapper layer now surfaces `codes.NotFound` for cancelled/declined schedules via projection (M9). Reserved for legacy use sites |
+| 1701 | `ErrRecurringSpendInactive` | Schedule is in a terminal state. Post-migration this is the translated error for session's `ErrGrantNotFound` and `ErrGrantTerminal` returned from cancel/decline on a grant that's been deleted or already COMPLETED |
+| 1705 | `ErrRecurringSpendInvalidWindow` | `start_time`/`end_time` malformed (past, out-of-order, shorter than one period). Other window errors (period below min, duration over max) bubble up as session errors — the wrapper does NOT translate them |
+| 1707 | `ErrRecurringSpendUnauthorized` | Caller is not the schedule's authority (cancel) or recipient (decline). For claim mismatches the session-side `ErrRecurringPullUnauthorized` bubbles up unchanged |
+
+Errors **removed by M10** (proto-reserved field numbers retained for
+wire-compat, but no longer raised by any handler):
+
+- `ErrRecurringSpendNotDue` (1702) — superseded by `session.ErrRecurringPullNotDue`
+- `ErrRecurringSpendWindowClosed` (1703) — superseded by `session.ErrRecurringPullWindowClosed`
+- `ErrRecurringSpendInvalidPeriod` (1704) — superseded by `session.ErrPeriodTooShort` / `ErrDurationTooLong`
+- `ErrRecurringSpendCapReached` (1706) — superseded by `session.ErrMaxRecurringPullsExceeded`
 
 Other errors raised inline with `cosmossdk.io/errors`'s sentinel set:
 

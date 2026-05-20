@@ -317,8 +317,8 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		// inner message are isolated to res.GetEvents() and don't propagate
 		// to the tx event stream automatically. Re-emit them on the parent
 		// context here, otherwise downstream observers (e.g. e2e tests
-		// scraping a tx for `recurring_spend_scheduled`) never see the
-		// event.
+		// scraping a tx for `grant_created` from a proposal-executed
+		// MsgScheduleRecurringSpend) never see the event.
 		res, err := handler(ctx, sdkMsg)
 		if err != nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED

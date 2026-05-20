@@ -2,24 +2,39 @@ package keeper
 
 import (
 	"context"
-	"fmt"
+	"time"
 
+	"cosmossdk.io/math"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/commons/types"
+	sessiontypes "sparkdream/x/session/types"
 )
 
-// ScheduleRecurringSpend records a council-approved recurring disbursement.
-// The signer (authority) must be a registered council policy address;
-// callers are expected to wrap this in a MsgSubmitProposal so it executes
-// only after a council vote.
+// ScheduleRecurringSpend records a council-approved recurring
+// disbursement. The signer (authority) must be a registered council
+// policy address; callers are expected to wrap this in a
+// MsgSubmitProposal so it executes only after a council vote.
 //
-// Schedule creation does NOT itself spend SPARK or touch EpochSpending —
-// only claims do. This keeps the cost of "set up monthly payment for the
-// next year" identical to the cost of a single SpendFromCommons, while the
-// resulting commitment is auditable and cancelable.
+// **M5 (RecurringSpend migration):** the handler is now a thin
+// wrapper that constructs a session `MsgCreateGrant` carrying a
+// `RecurringPullPayload` and calls
+// `sessionKeeper.CreateGrantOnBehalfOf`. The schedule now lives in
+// the unified session.Grants store; no row is written to the legacy
+// commons.RecurringSpends collection. The single-coin restriction
+// (D1.a) is enforced here; session does the rest of the validation
+// (period bounds, denom allowlist, active-grant cap, etc.).
+//
+// `max_per_epoch_uspark` on the underlying grant is computed
+// nil-safely from the council's own `MaxSpendPerEpoch`:
+//   - if the council has no per-epoch cap set, default to
+//     10 × amount_per_period (session's documented default),
+//   - otherwise use `max(*MaxSpendPerEpoch, 10 × amount_per_period)`
+//     so the per-grant cap never binds before the council-wide cap
+//     (which is the actual policy gate via SessionClaimHook.PreCheck).
 func (k msgServer) ScheduleRecurringSpend(goCtx context.Context, msg *types.MsgScheduleRecurringSpend) (*types.MsgScheduleRecurringSpendResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -31,28 +46,42 @@ func (k msgServer) ScheduleRecurringSpend(goCtx context.Context, msg *types.MsgS
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, "invalid recipient address")
 	}
 
-	// 2. Authority must be a registered group policy. Use the same lookup
-	// as MsgSpendFromCommons so the two paths share gating semantics.
-	if _, _, found := k.GetGroupByPolicy(ctx, msg.Authority); !found {
+	// 2. Authority must be a registered group policy. Same lookup as
+	// MsgSpendFromCommons so the two paths share gating semantics. We
+	// keep this commons-side because session can't tell a council
+	// policy apart from a regular user account.
+	_, extGroup, found := k.GetGroupByPolicy(ctx, msg.Authority)
+	if !found {
 		return nil, errorsmod.Wrapf(types.ErrGroupNotFound,
 			"signer %s is not a registered group policy", msg.Authority)
 	}
 
-	// 3. Amount sanity.
+	// 3. Amount sanity + D1.a single-coin restriction. Council schedules
+	// are 1 coin per schedule; multi-coin payments require multiple
+	// schedules. Documented behavior, not a regression for any current
+	// caller (all existing schedules use a single uspark coin).
 	if !msg.AmountPerPeriod.IsValid() || msg.AmountPerPeriod.IsZero() {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "amount_per_period must be valid non-zero coins")
 	}
-
-	// 4. Period / window sanity, gated by params.
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "load params")
+	if len(msg.AmountPerPeriod) != 1 {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest,
+			"amount_per_period must contain exactly one coin (got %d); multi-coin schedules are not supported (D1.a)",
+			len(msg.AmountPerPeriod))
 	}
-	if msg.PeriodSeconds < params.MinRecurringPeriodSeconds {
-		return nil, errorsmod.Wrapf(types.ErrRecurringSpendInvalidPeriod,
-			"period_seconds %d < min %d", msg.PeriodSeconds, params.MinRecurringPeriodSeconds)
+	amount := msg.AmountPerPeriod[0]
+
+	// 4. Note bound. Session also enforces 256 chars; we check here
+	// too so the error attribution is clearly commons-side.
+	if len(msg.Note) > MaxRecurringSpendNoteLen {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest,
+			"note exceeds %d chars (got %d)", MaxRecurringSpendNoteLen, len(msg.Note))
 	}
 
+	// 5. Window sanity. Session validates period >= min and
+	// (expires_at - start_time) <= max_recurring_duration, but does
+	// NOT enforce "window must contain at least one period". Keep
+	// the latter commons-side so a council can't authorize a
+	// never-claimable schedule.
 	now := ctx.BlockTime().Unix()
 	start := msg.StartTime
 	if start == 0 {
@@ -66,72 +95,62 @@ func (k msgServer) ScheduleRecurringSpend(goCtx context.Context, msg *types.MsgS
 		return nil, errorsmod.Wrapf(types.ErrRecurringSpendInvalidWindow,
 			"end_time %d must be > start_time %d", msg.EndTime, start)
 	}
-	if msg.EndTime-start > params.MaxRecurringDurationSeconds {
-		return nil, errorsmod.Wrapf(types.ErrRecurringSpendInvalidWindow,
-			"duration %d exceeds cap %d", msg.EndTime-start, params.MaxRecurringDurationSeconds)
-	}
 	if msg.EndTime-start < msg.PeriodSeconds {
 		return nil, errorsmod.Wrapf(types.ErrRecurringSpendInvalidWindow,
 			"window (%d s) shorter than one period (%d s) — no claim could ever succeed",
 			msg.EndTime-start, msg.PeriodSeconds)
 	}
 
-	// 5. Note bound.
-	if len(msg.Note) > MaxRecurringSpendNoteLen {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest,
-			"note exceeds %d chars (got %d)", MaxRecurringSpendNoteLen, len(msg.Note))
+	// 6. Compute max_per_epoch_uspark per the nil-safe formula
+	// documented in §4 of the migration plan. The council-wide cap is
+	// the real policy gate (enforced by SessionClaimHook.PreCheck);
+	// the per-grant value just has to be ≥ that cap so it never binds
+	// first.
+	defaultPerGrant := amount.Amount.MulRaw(10) // 10× amount_per_period
+	var maxPerEpoch math.Int
+	if extGroup.MaxSpendPerEpoch == nil || extGroup.MaxSpendPerEpoch.IsZero() {
+		maxPerEpoch = defaultPerGrant
+	} else {
+		councilCap := *extGroup.MaxSpendPerEpoch
+		if councilCap.GT(defaultPerGrant) {
+			maxPerEpoch = councilCap
+		} else {
+			maxPerEpoch = defaultPerGrant
+		}
 	}
 
-	// 6. Per-authority active-schedule cap. Bumped before write so a
-	// concurrent Schedule that would breach the ceiling is rejected.
-	newCount, err := k.incActiveCount(ctx, msg.Authority)
+	// 7. Construct the session MsgCreateGrant and call the bypass.
+	sessionMsg := &sessiontypes.MsgCreateGrant{
+		Granter:   msg.Authority,
+		Grantee:   msg.Recipient,
+		ExpiresAt: time.Unix(msg.EndTime, 0).UTC(),
+		Note:      msg.Note,
+		Payload: &sessiontypes.MsgCreateGrant_RecurringPull{
+			RecurringPull: &sessiontypes.RecurringPullPayload{
+				AmountPerPeriod:   amount,
+				PeriodSeconds:     msg.PeriodSeconds,
+				StartTime:         start,
+				MaxPerEpochUspark: maxPerEpoch.String(),
+			},
+		},
+	}
+
+	if k.late.sessionKeeper == nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic,
+			"session keeper not wired (set via app.CommonsKeeper.SetSessionKeeper)")
+	}
+	commonsModuleAddr := authtypes.NewModuleAddress(types.ModuleName).String()
+	grantID, err := k.late.sessionKeeper.CreateGrantOnBehalfOf(ctx, commonsModuleAddr, sessionMsg)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "bump active count")
-	}
-	if newCount > params.MaxActiveRecurringSpendsPerGroup {
-		// Roll back the optimistic bump.
-		_ = k.decActiveCount(ctx, msg.Authority)
-		return nil, errorsmod.Wrapf(types.ErrRecurringSpendCapReached,
-			"authority %s already has %d active schedules (max %d)",
-			msg.Authority, newCount-1, params.MaxActiveRecurringSpendsPerGroup)
+		return nil, err
 	}
 
-	// 7. Allocate ID and persist.
-	id, err := k.RecurringSpendSeq.Next(ctx)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "allocate id")
-	}
-	id++ // 1-indexed for human-friendly references in proposals/events.
+	// 8. No legacy commons-side write. The grant is the canonical
+	// record; queries (M9) project from session.Grants.
+	//
+	// No legacy `recurring_spend_scheduled` event — session emits
+	// `grant_created` with `source=module_bypass` and `caller_module`
+	// attributes (see x/session/keeper/public_api.go).
 
-	rs := types.RecurringSpend{
-		Id:               id,
-		Authority:        msg.Authority,
-		Recipient:        msg.Recipient,
-		AmountPerPeriod:  msg.AmountPerPeriod,
-		PeriodSeconds:    msg.PeriodSeconds,
-		StartTime:        start,
-		EndTime:          msg.EndTime,
-		LastClaimAdvance: start, // first claim is allowed at start + period.
-		ClaimsMade:       0,
-		Status:           types.RecurringSpendStatus_RECURRING_SPEND_STATUS_ACTIVE,
-		Note:             msg.Note,
-	}
-	if err := k.setRecurringSpend(ctx, rs); err != nil {
-		_ = k.decActiveCount(ctx, msg.Authority)
-		return nil, errorsmod.Wrap(err, "persist schedule")
-	}
-
-	ctx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			"recurring_spend_scheduled",
-			sdk.NewAttribute("id", fmt.Sprintf("%d", rs.Id)),
-			sdk.NewAttribute("authority", rs.Authority),
-			sdk.NewAttribute("recipient", rs.Recipient),
-			sdk.NewAttribute("period_seconds", fmt.Sprintf("%d", rs.PeriodSeconds)),
-			sdk.NewAttribute("start_time", fmt.Sprintf("%d", rs.StartTime)),
-			sdk.NewAttribute("end_time", fmt.Sprintf("%d", rs.EndTime)),
-		),
-	)
-
-	return &types.MsgScheduleRecurringSpendResponse{Id: id}, nil
+	return &types.MsgScheduleRecurringSpendResponse{Id: grantID}, nil
 }

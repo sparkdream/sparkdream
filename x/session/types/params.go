@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 // Default parameter values
@@ -14,6 +16,52 @@ var (
 	DefaultMaxExpiration                = 7 * 24 * time.Hour                      // 7 days
 	DefaultMaxSpendLimit                = sdk.NewInt64Coin("uspark", 100_000_000) // 100 SPARK
 	DefaultMaxExecCount          uint64 = 10_000                                  // per-session execution ceiling
+
+	// --- RecurringPull defaults (P3) ---
+	DefaultMinRecurringPeriodSeconds   int64  = 86_400      // 1 day
+	DefaultMaxRecurringDurationSeconds int64  = 31_536_000  // 1 year
+	DefaultMaxRecurringPullsPerGranter uint32 = 50
+
+	// --- SpendingAllowance defaults (P4) ---
+	DefaultMinAllowancePeriodSeconds int64  = 3_600 // 1 hour
+	DefaultMaxAllowancesPerGranter   uint32 = 20
+	DefaultMaxAllowanceRecipientList uint32 = 50
+	DefaultMinPullAmount                    = "1000" // 1000 uspark / 0.001 SPARK
+
+	// --- ScheduledOneshot defaults (P5) ---
+	DefaultMinScheduleDelaySeconds        int64  = 60
+	DefaultMaxScheduleHorizonSeconds      int64  = 31_536_000 // 1 year
+	DefaultFireToExpiryBufferSeconds      int64  = 3_600      // 1 hour
+	DefaultMaxPendingOneshotsPerGranter   uint32 = 100
+	DefaultMaxPausedOneshotsPerGranter    uint32 = 20
+	DefaultPausedOneshotTtlSeconds        int64  = 604_800 // 7 days
+	DefaultMinOneshotExecGas              uint64 = 30_000
+	DefaultMaxOneshotExecGas              uint64 = 200_000
+	DefaultOneshotGasPriceUspark                 = "0.0025" // 100x typical min_gas_price
+	DefaultOneshotCreationFeeUspark       uint64 = 1_000
+	DefaultMinOneshotDepositUspark        uint64 = 1_000
+	DefaultMaxEndblockerDispatchesPerPass uint32 = 100
+
+	// --- Cross-type defaults (P3) ---
+	DefaultAllowedDenoms            = []string{"uspark"}
+	DefaultMaxGrantLifetimeSeconds int64 = 31_536_000 // 1 year
+
+	// DefaultAuthorizedGrantCreators is the genesis-default allowlist
+	// for the module-bypass entrypoints (CreateGrantOnBehalfOf,
+	// RevokeGrantInternal, DeclineGrantInternal,
+	// ClaimRecurringPullForGrantee). The x/commons RecurringSpend
+	// migration relies on this being seeded at block 0 so council
+	// recurring-spend handlers can immediately route through the
+	// unified registry. A post-launch gov proposal would race against
+	// any in-flight schedules.
+	//
+	// `authtypes.NewModuleAddress("commons").String()` is
+	// deterministic, so this default is reproducible across genesis
+	// imports. Returns a fresh slice each call to avoid alias-mutation
+	// across DefaultParams() invocations.
+	DefaultAuthorizedGrantCreators = func() []string {
+		return []string{authtypes.NewModuleAddress("commons").String()}
+	}
 
 	// DefaultAllowedMsgTypes is the genesis ceiling and initial active allowlist.
 	// Each message was reviewed as a low-risk, UX-frequent content/identity/social
@@ -115,6 +163,27 @@ func NewParams(
 		MaxExpiration:         maxExpiration,
 		MaxSpendLimit:         maxSpendLimit,
 		MaxExecCount:          maxExecCount,
+		MinRecurringPeriodSeconds:   DefaultMinRecurringPeriodSeconds,
+		MaxRecurringDurationSeconds: DefaultMaxRecurringDurationSeconds,
+		MaxRecurringPullsPerGranter: DefaultMaxRecurringPullsPerGranter,
+		MinAllowancePeriodSeconds:   DefaultMinAllowancePeriodSeconds,
+		MaxAllowancesPerGranter:     DefaultMaxAllowancesPerGranter,
+		MaxAllowanceRecipientList:   DefaultMaxAllowanceRecipientList,
+		MinPullAmount:               DefaultMinPullAmount,
+		MinScheduleDelaySeconds:        DefaultMinScheduleDelaySeconds,
+		MaxScheduleHorizonSeconds:      DefaultMaxScheduleHorizonSeconds,
+		FireToExpiryBufferSeconds:      DefaultFireToExpiryBufferSeconds,
+		MaxPendingOneshotsPerGranter:   DefaultMaxPendingOneshotsPerGranter,
+		MaxPausedOneshotsPerGranter:    DefaultMaxPausedOneshotsPerGranter,
+		PausedOneshotTtlSeconds:        DefaultPausedOneshotTtlSeconds,
+		MinOneshotExecGas:              DefaultMinOneshotExecGas,
+		MaxOneshotExecGas:              DefaultMaxOneshotExecGas,
+		OneshotGasPriceUspark:          DefaultOneshotGasPriceUspark,
+		OneshotCreationFeeUspark:       DefaultOneshotCreationFeeUspark,
+		MinOneshotDepositUspark:        DefaultMinOneshotDepositUspark,
+		MaxEndblockerDispatchesPerPass: DefaultMaxEndblockerDispatchesPerPass,
+		AllowedDenoms:                  append([]string(nil), DefaultAllowedDenoms...),
+		MaxGrantLifetimeSeconds:        DefaultMaxGrantLifetimeSeconds,
 	}
 }
 
@@ -126,7 +195,7 @@ func DefaultParams() Params {
 	active := make([]string, len(DefaultAllowedMsgTypes))
 	copy(active, DefaultAllowedMsgTypes)
 
-	return NewParams(
+	p := NewParams(
 		ceiling,
 		active,
 		DefaultMaxSessionsPerGranter,
@@ -135,6 +204,12 @@ func DefaultParams() Params {
 		DefaultMaxSpendLimit,
 		DefaultMaxExecCount,
 	)
+	// Seed the bypass allowlist with the commons module address so the
+	// x/commons RecurringSpend wrapper routes through the unified
+	// registry from block 0. See DefaultAuthorizedGrantCreators
+	// docstring for rationale.
+	p.AuthorizedGrantCreators = DefaultAuthorizedGrantCreators()
+	return p
 }
 
 // Validate validates the set of params.
@@ -159,6 +234,119 @@ func (p Params) Validate() error {
 	}
 	if len(p.AllowedMsgTypes) == 0 {
 		return fmt.Errorf("allowed_msg_types must not be empty")
+	}
+
+	// --- RecurringPull / cross-type ---
+	if p.MinRecurringPeriodSeconds <= 0 {
+		return fmt.Errorf("min_recurring_period_seconds must be > 0")
+	}
+	if p.MaxRecurringDurationSeconds <= 0 {
+		return fmt.Errorf("max_recurring_duration_seconds must be > 0")
+	}
+	if p.MaxRecurringPullsPerGranter == 0 {
+		return fmt.Errorf("max_recurring_pulls_per_granter must be > 0")
+	}
+	if p.MinAllowancePeriodSeconds <= 0 {
+		return fmt.Errorf("min_allowance_period_seconds must be > 0")
+	}
+	if p.MaxAllowancesPerGranter == 0 {
+		return fmt.Errorf("max_allowances_per_granter must be > 0")
+	}
+	if p.MaxAllowanceRecipientList == 0 {
+		return fmt.Errorf("max_allowance_recipient_list must be > 0")
+	}
+	if p.MinPullAmount == "" {
+		return fmt.Errorf("min_pull_amount must be set")
+	}
+	if minPull, ok := sdkmath.NewIntFromString(p.MinPullAmount); !ok || minPull.IsNegative() {
+		return fmt.Errorf("min_pull_amount must parse as a non-negative sdk.Int: %q", p.MinPullAmount)
+	}
+
+	// --- ScheduledOneshot ---
+	if p.MinScheduleDelaySeconds <= 0 {
+		return fmt.Errorf("min_schedule_delay_seconds must be > 0")
+	}
+	if p.MaxScheduleHorizonSeconds <= 0 {
+		return fmt.Errorf("max_schedule_horizon_seconds must be > 0")
+	}
+	if p.FireToExpiryBufferSeconds <= 0 {
+		return fmt.Errorf("fire_to_expiry_buffer_seconds must be > 0")
+	}
+	if p.MinScheduleDelaySeconds >= p.FireToExpiryBufferSeconds {
+		return fmt.Errorf("min_schedule_delay_seconds (%d) must be < fire_to_expiry_buffer_seconds (%d)",
+			p.MinScheduleDelaySeconds, p.FireToExpiryBufferSeconds)
+	}
+	if p.FireToExpiryBufferSeconds >= p.MaxScheduleHorizonSeconds {
+		return fmt.Errorf("fire_to_expiry_buffer_seconds (%d) must be < max_schedule_horizon_seconds (%d)",
+			p.FireToExpiryBufferSeconds, p.MaxScheduleHorizonSeconds)
+	}
+	if p.MaxPendingOneshotsPerGranter == 0 {
+		return fmt.Errorf("max_pending_oneshots_per_granter must be > 0")
+	}
+	if p.MaxPausedOneshotsPerGranter == 0 {
+		return fmt.Errorf("max_paused_oneshots_per_granter must be > 0")
+	}
+	if p.PausedOneshotTtlSeconds < 3_600 {
+		return fmt.Errorf("paused_oneshot_ttl_seconds must be >= 3600 (1h floor); got %d", p.PausedOneshotTtlSeconds)
+	}
+	if p.MinOneshotExecGas == 0 {
+		return fmt.Errorf("min_oneshot_exec_gas must be > 0")
+	}
+	if p.MaxOneshotExecGas < p.MinOneshotExecGas {
+		return fmt.Errorf("max_oneshot_exec_gas (%d) must be >= min_oneshot_exec_gas (%d)",
+			p.MaxOneshotExecGas, p.MinOneshotExecGas)
+	}
+	if p.OneshotGasPriceUspark == "" {
+		return fmt.Errorf("oneshot_gas_price_uspark must be set")
+	}
+	if dec, err := sdkmath.LegacyNewDecFromStr(p.OneshotGasPriceUspark); err != nil || dec.IsNegative() {
+		return fmt.Errorf("oneshot_gas_price_uspark must parse as a non-negative sdk.Dec: %q", p.OneshotGasPriceUspark)
+	}
+	if p.MinOneshotDepositUspark < p.OneshotCreationFeeUspark {
+		return fmt.Errorf("min_oneshot_deposit_uspark (%d) must be >= oneshot_creation_fee_uspark (%d)",
+			p.MinOneshotDepositUspark, p.OneshotCreationFeeUspark)
+	}
+	if p.MaxEndblockerDispatchesPerPass == 0 {
+		return fmt.Errorf("max_endblocker_dispatches_per_pass must be > 0")
+	}
+
+	if p.MaxGrantLifetimeSeconds <= 0 {
+		return fmt.Errorf("max_grant_lifetime_seconds must be > 0")
+	}
+
+	// --- Module-bypass allowlist ---
+	// Each entry must be a syntactically valid bech32 address; the
+	// security guarantee is that whoever can edit Params has reviewed
+	// these. Duplicates are rejected to keep the list canonical.
+	seenAuth := make(map[string]bool, len(p.AuthorizedGrantCreators))
+	for _, addr := range p.AuthorizedGrantCreators {
+		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
+			return fmt.Errorf("authorized_grant_creators contains invalid address %q: %w", addr, err)
+		}
+		if seenAuth[addr] {
+			return fmt.Errorf("duplicate authorized_grant_creators entry: %s", addr)
+		}
+		seenAuth[addr] = true
+	}
+	if p.MaxGrantLifetimeSeconds < p.MaxRecurringDurationSeconds {
+		return fmt.Errorf("max_grant_lifetime_seconds (%d) must be >= max_recurring_duration_seconds (%d)",
+			p.MaxGrantLifetimeSeconds, p.MaxRecurringDurationSeconds)
+	}
+	if len(p.AllowedDenoms) == 0 {
+		return fmt.Errorf("allowed_denoms must not be empty")
+	}
+	seenDenom := make(map[string]bool, len(p.AllowedDenoms))
+	for _, d := range p.AllowedDenoms {
+		if err := sdk.ValidateDenom(d); err != nil {
+			return fmt.Errorf("allowed_denoms contains invalid denom %q: %w", d, err)
+		}
+		if d == "dream" {
+			return fmt.Errorf("allowed_denoms must not include 'dream' (forbidden for grant payloads)")
+		}
+		if seenDenom[d] {
+			return fmt.Errorf("duplicate denom in allowed_denoms: %s", d)
+		}
+		seenDenom[d] = true
 	}
 
 	// Check for NonDelegableSessionMsgs in ceiling
@@ -213,12 +401,33 @@ func DefaultSessionOperationalParams() SessionOperationalParams {
 	copy(active, DefaultAllowedMsgTypes)
 
 	return SessionOperationalParams{
-		AllowedMsgTypes:       active,
-		MaxSessionsPerGranter: DefaultMaxSessionsPerGranter,
-		MaxMsgTypesPerSession: DefaultMaxMsgTypesPerSession,
-		MaxExpiration:         DefaultMaxExpiration,
-		MaxSpendLimit:         DefaultMaxSpendLimit,
-		MaxExecCount:          DefaultMaxExecCount,
+		AllowedMsgTypes:             active,
+		MaxSessionsPerGranter:       DefaultMaxSessionsPerGranter,
+		MaxMsgTypesPerSession:       DefaultMaxMsgTypesPerSession,
+		MaxExpiration:               DefaultMaxExpiration,
+		MaxSpendLimit:               DefaultMaxSpendLimit,
+		MaxExecCount:                DefaultMaxExecCount,
+		MinRecurringPeriodSeconds:   DefaultMinRecurringPeriodSeconds,
+		MaxRecurringDurationSeconds: DefaultMaxRecurringDurationSeconds,
+		MaxRecurringPullsPerGranter: DefaultMaxRecurringPullsPerGranter,
+		MinAllowancePeriodSeconds:   DefaultMinAllowancePeriodSeconds,
+		MaxAllowancesPerGranter:     DefaultMaxAllowancesPerGranter,
+		MaxAllowanceRecipientList:   DefaultMaxAllowanceRecipientList,
+		MinPullAmount:               DefaultMinPullAmount,
+		MinScheduleDelaySeconds:        DefaultMinScheduleDelaySeconds,
+		MaxScheduleHorizonSeconds:      DefaultMaxScheduleHorizonSeconds,
+		FireToExpiryBufferSeconds:      DefaultFireToExpiryBufferSeconds,
+		MaxPendingOneshotsPerGranter:   DefaultMaxPendingOneshotsPerGranter,
+		MaxPausedOneshotsPerGranter:    DefaultMaxPausedOneshotsPerGranter,
+		PausedOneshotTtlSeconds:        DefaultPausedOneshotTtlSeconds,
+		MinOneshotExecGas:              DefaultMinOneshotExecGas,
+		MaxOneshotExecGas:              DefaultMaxOneshotExecGas,
+		OneshotGasPriceUspark:          DefaultOneshotGasPriceUspark,
+		OneshotCreationFeeUspark:       DefaultOneshotCreationFeeUspark,
+		MinOneshotDepositUspark:        DefaultMinOneshotDepositUspark,
+		MaxEndblockerDispatchesPerPass: DefaultMaxEndblockerDispatchesPerPass,
+		AllowedDenoms:                  append([]string(nil), DefaultAllowedDenoms...),
+		MaxGrantLifetimeSeconds:        DefaultMaxGrantLifetimeSeconds,
 	}
 }
 
@@ -231,17 +440,59 @@ func (p Params) ApplyOperationalParams(op SessionOperationalParams) Params {
 	p.MaxExpiration = op.MaxExpiration
 	p.MaxSpendLimit = op.MaxSpendLimit
 	p.MaxExecCount = op.MaxExecCount
+	p.MinRecurringPeriodSeconds = op.MinRecurringPeriodSeconds
+	p.MaxRecurringDurationSeconds = op.MaxRecurringDurationSeconds
+	p.MaxRecurringPullsPerGranter = op.MaxRecurringPullsPerGranter
+	p.MinAllowancePeriodSeconds = op.MinAllowancePeriodSeconds
+	p.MaxAllowancesPerGranter = op.MaxAllowancesPerGranter
+	p.MaxAllowanceRecipientList = op.MaxAllowanceRecipientList
+	p.MinPullAmount = op.MinPullAmount
+	p.MinScheduleDelaySeconds = op.MinScheduleDelaySeconds
+	p.MaxScheduleHorizonSeconds = op.MaxScheduleHorizonSeconds
+	p.FireToExpiryBufferSeconds = op.FireToExpiryBufferSeconds
+	p.MaxPendingOneshotsPerGranter = op.MaxPendingOneshotsPerGranter
+	p.MaxPausedOneshotsPerGranter = op.MaxPausedOneshotsPerGranter
+	p.PausedOneshotTtlSeconds = op.PausedOneshotTtlSeconds
+	p.MinOneshotExecGas = op.MinOneshotExecGas
+	p.MaxOneshotExecGas = op.MaxOneshotExecGas
+	p.OneshotGasPriceUspark = op.OneshotGasPriceUspark
+	p.OneshotCreationFeeUspark = op.OneshotCreationFeeUspark
+	p.MinOneshotDepositUspark = op.MinOneshotDepositUspark
+	p.MaxEndblockerDispatchesPerPass = op.MaxEndblockerDispatchesPerPass
+	p.AllowedDenoms = op.AllowedDenoms
+	p.MaxGrantLifetimeSeconds = op.MaxGrantLifetimeSeconds
 	return p
 }
 
 // ExtractOperationalParams extracts the operational params subset from full params.
 func (p Params) ExtractOperationalParams() SessionOperationalParams {
 	return SessionOperationalParams{
-		AllowedMsgTypes:       p.AllowedMsgTypes,
-		MaxSessionsPerGranter: p.MaxSessionsPerGranter,
-		MaxMsgTypesPerSession: p.MaxMsgTypesPerSession,
-		MaxExpiration:         p.MaxExpiration,
-		MaxSpendLimit:         p.MaxSpendLimit,
-		MaxExecCount:          p.MaxExecCount,
+		AllowedMsgTypes:             p.AllowedMsgTypes,
+		MaxSessionsPerGranter:       p.MaxSessionsPerGranter,
+		MaxMsgTypesPerSession:       p.MaxMsgTypesPerSession,
+		MaxExpiration:               p.MaxExpiration,
+		MaxSpendLimit:               p.MaxSpendLimit,
+		MaxExecCount:                p.MaxExecCount,
+		MinRecurringPeriodSeconds:   p.MinRecurringPeriodSeconds,
+		MaxRecurringDurationSeconds: p.MaxRecurringDurationSeconds,
+		MaxRecurringPullsPerGranter: p.MaxRecurringPullsPerGranter,
+		MinAllowancePeriodSeconds:   p.MinAllowancePeriodSeconds,
+		MaxAllowancesPerGranter:     p.MaxAllowancesPerGranter,
+		MaxAllowanceRecipientList:   p.MaxAllowanceRecipientList,
+		MinPullAmount:               p.MinPullAmount,
+		MinScheduleDelaySeconds:        p.MinScheduleDelaySeconds,
+		MaxScheduleHorizonSeconds:      p.MaxScheduleHorizonSeconds,
+		FireToExpiryBufferSeconds:      p.FireToExpiryBufferSeconds,
+		MaxPendingOneshotsPerGranter:   p.MaxPendingOneshotsPerGranter,
+		MaxPausedOneshotsPerGranter:    p.MaxPausedOneshotsPerGranter,
+		PausedOneshotTtlSeconds:        p.PausedOneshotTtlSeconds,
+		MinOneshotExecGas:              p.MinOneshotExecGas,
+		MaxOneshotExecGas:              p.MaxOneshotExecGas,
+		OneshotGasPriceUspark:          p.OneshotGasPriceUspark,
+		OneshotCreationFeeUspark:       p.OneshotCreationFeeUspark,
+		MinOneshotDepositUspark:        p.MinOneshotDepositUspark,
+		MaxEndblockerDispatchesPerPass: p.MaxEndblockerDispatchesPerPass,
+		AllowedDenoms:                  p.AllowedDenoms,
+		MaxGrantLifetimeSeconds:        p.MaxGrantLifetimeSeconds,
 	}
 }

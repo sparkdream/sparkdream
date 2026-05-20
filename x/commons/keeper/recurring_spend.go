@@ -5,146 +5,84 @@ import (
 	"errors"
 	"fmt"
 
-	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/commons/types"
+	sessiontypes "sparkdream/x/session/types"
 )
 
-// MaxRecurringSpendNoteLen caps the human-readable purpose attached to a
-// schedule. Kept tight to bound on-chain string bloat — UIs that need more
-// can store off-chain and reference by id.
+// MaxRecurringSpendNoteLen caps the human-readable purpose attached to
+// a schedule. Kept tight to bound on-chain string bloat — UIs that
+// need more can store off-chain and reference by id. Mirrors session's
+// `maxNoteLen` so the wrapper layer's error attribution is clearly
+// commons-side.
 const MaxRecurringSpendNoteLen = 256
 
-// GetRecurringSpend returns the schedule with the given id.
-func (k Keeper) GetRecurringSpend(ctx context.Context, id uint64) (types.RecurringSpend, error) {
-	rs, err := k.RecurringSpends.Get(ctx, id)
-	if err != nil {
-		if errors.Is(err, collections.ErrNotFound) {
-			return types.RecurringSpend{}, errorsmod.Wrapf(types.ErrRecurringSpendNotFound, "id=%d", id)
-		}
-		return types.RecurringSpend{}, err
-	}
-	return rs, nil
-}
-
-// setRecurringSpend writes a schedule and keeps the secondary indexes in
-// sync. The caller is responsible for incrementing/decrementing
-// ActiveRecurringSpendCount when status crosses the ACTIVE boundary.
-func (k Keeper) setRecurringSpend(ctx context.Context, rs types.RecurringSpend) error {
-	if err := k.RecurringSpends.Set(ctx, rs.Id, rs); err != nil {
-		return err
-	}
-	if err := k.RecurringSpendsByAuthority.Set(ctx, collections.Join(rs.Authority, rs.Id)); err != nil {
-		return err
-	}
-	if err := k.RecurringSpendsByRecipient.Set(ctx, collections.Join(rs.Recipient, rs.Id)); err != nil {
-		return err
-	}
-	return nil
-}
-
-// incActiveCount bumps the per-authority active counter and returns the new
-// value. Used by Schedule to enforce max_active_recurring_spends_per_group.
-func (k Keeper) incActiveCount(ctx context.Context, authority string) (uint32, error) {
-	cur, err := k.ActiveRecurringSpendCount.Get(ctx, authority)
-	if err != nil && !errors.Is(err, collections.ErrNotFound) {
-		return 0, err
-	}
-	cur++
-	return cur, k.ActiveRecurringSpendCount.Set(ctx, authority, cur)
-}
-
-// decActiveCount drops the per-authority active counter. Saturates at 0 so
-// a double-cancel (or genesis import of a terminal schedule) cannot drive
-// the counter negative.
-func (k Keeper) decActiveCount(ctx context.Context, authority string) error {
-	cur, err := k.ActiveRecurringSpendCount.Get(ctx, authority)
-	if err != nil {
-		if errors.Is(err, collections.ErrNotFound) {
-			return nil
-		}
-		return err
-	}
-	if cur == 0 {
-		return nil
-	}
-	cur--
-	if cur == 0 {
-		return k.ActiveRecurringSpendCount.Remove(ctx, authority)
-	}
-	return k.ActiveRecurringSpendCount.Set(ctx, authority, cur)
-}
-
-// ListRecurringSpendsByAuthority walks every schedule owned by `authority`.
-func (k Keeper) ListRecurringSpendsByAuthority(ctx context.Context, authority string) ([]types.RecurringSpend, error) {
-	var out []types.RecurringSpend
-	rng := collections.NewPrefixedPairRange[string, uint64](authority)
-	err := k.RecurringSpendsByAuthority.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
-		rs, err := k.RecurringSpends.Get(ctx, key.K2())
-		if err != nil {
-			return true, err
-		}
-		out = append(out, rs)
-		return false, nil
-	})
-	return out, err
-}
-
-// ListRecurringSpendsByRecipient walks every schedule payable to `recipient`.
-func (k Keeper) ListRecurringSpendsByRecipient(ctx context.Context, recipient string) ([]types.RecurringSpend, error) {
-	var out []types.RecurringSpend
-	rng := collections.NewPrefixedPairRange[string, uint64](recipient)
-	err := k.RecurringSpendsByRecipient.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
-		rs, err := k.RecurringSpends.Get(ctx, key.K2())
-		if err != nil {
-			return true, err
-		}
-		out = append(out, rs)
-		return false, nil
-	})
-	return out, err
-}
-
-// CancelActiveSchedulesForRecipient marks every ACTIVE schedule whose
-// `recipient == addr` as CANCELED. Returns the list of canceled
-// schedule IDs (for caller-side logging). The authority field is NOT
-// checked — this is the system-driven counterpart to
-// MsgCancelRecurringSpend, intended for callers like x/service's
-// operator-dissolved hook (§6.1) where the controller authority would
-// normally have to authorize each cancel but dissolution
-// short-circuits that requirement.
+// CancelActiveSchedulesForRecipient revokes every RECURRING_PULL
+// grant whose grantee equals `recipient` AND whose granter is a
+// registered council policy address. Returns the list of revoked
+// grant IDs (for caller-side logging).
 //
-// Emits the same `recurring_spend_canceled` event as the user-driven
-// path so downstream indexers see consistent state transitions.
+// Used by the x/service `AfterOperatorDissolved` hook
+// ([app/service_adapters.go](../../app/service_adapters.go)): when an
+// operator is slashed-dissolved, every council-policy recurring
+// payment to that operator must stop immediately so the slashed
+// operator doesn't keep getting paid until a human notices.
+//
+// **M-svc (RecurringSpend migration):** the helper walks the session
+// registry instead of the (deleted) parallel commons storage. The
+// granter-is-group-policy filter is required because session holds
+// *all* RECURRING_PULL grants — including user-to-user pulls, which
+// the service hook should not touch.
+//
+// Continues to emit the legacy `recurring_spend_canceled` event with
+// the `reason` attribute (federation-bridge slash recovery flow keys
+// off it) alongside the session-emitted `grant_revoked` events.
+// Keeping the dual emission scoped to this helper is cheaper than
+// threading a `reason` field through the session bypass surface.
 func (k Keeper) CancelActiveSchedulesForRecipient(ctx context.Context, recipient string, reason string) ([]uint64, error) {
-	schedules, err := k.ListRecurringSpendsByRecipient(ctx, recipient)
+	if k.late.sessionKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrGroupNotFound,
+			"session keeper not wired; CancelActiveSchedulesForRecipient cannot run")
+	}
+
+	grants, err := k.late.sessionKeeper.ListGrantsByGrantee(
+		ctx, recipient, sessiontypes.GrantType_GRANT_TYPE_RECURRING_PULL,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	commonsModuleAddr := authtypes.NewModuleAddress(types.ModuleName).String()
 	var canceled []uint64
-	for _, rs := range schedules {
-		if rs.Status != types.RecurringSpendStatus_RECURRING_SPEND_STATUS_ACTIVE {
+	for _, g := range grants {
+		// Filter: only council-policy granters. Skips user-to-user
+		// pulls a future use case might add.
+		if !k.IsGroupPolicyAddress(ctx, g.Granter) {
 			continue
 		}
-		rs.Status = types.RecurringSpendStatus_RECURRING_SPEND_STATUS_CANCELED
-		if err := k.RecurringSpends.Set(ctx, rs.Id, rs); err != nil {
-			return canceled, err
-		}
-		if err := k.decActiveCount(ctx, rs.Authority); err != nil {
+		if _, err := k.late.sessionKeeper.RevokeGrantInternal(ctx, commonsModuleAddr, g.Id); err != nil {
+			// Already terminal (e.g. concurrent cancel from the council)
+			// or not found — skip silently and continue. Other errors
+			// surface to the caller so dissolution-time KV failures are
+			// observable.
+			if errors.Is(err, sessiontypes.ErrGrantTerminal) ||
+				errors.Is(err, sessiontypes.ErrGrantNotFound) {
+				continue
+			}
 			return canceled, err
 		}
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"recurring_spend_canceled",
-			sdk.NewAttribute("id", fmt.Sprintf("%d", rs.Id)),
-			sdk.NewAttribute("authority", rs.Authority),
-			sdk.NewAttribute("recipient", rs.Recipient),
+			sdk.NewAttribute("id", fmt.Sprintf("%d", g.Id)),
+			sdk.NewAttribute("authority", g.Granter),
+			sdk.NewAttribute("recipient", g.Grantee),
 			sdk.NewAttribute("reason", reason),
 		))
-		canceled = append(canceled, rs.Id)
+		canceled = append(canceled, g.Id)
 	}
 	return canceled, nil
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -25,7 +26,30 @@ func TestGenesis(t *testing.T) {
 	require.EqualExportedValues(t, genesisState.Params, got.Params)
 }
 
-func TestGenesisWithSessions(t *testing.T) {
+// sessionKeyGrant builds a SESSION_KEY-type Grant for genesis-roundtrip tests.
+func sessionKeyGrant(id uint64, granter, grantee string, allowed []string, spendLimit, spent sdk.Coin, expiration, now time.Time, execCount, maxExec uint64) types.Grant {
+	return types.Grant{
+		Id:        id,
+		Granter:   granter,
+		Grantee:   grantee,
+		Type:      types.GrantType_GRANT_TYPE_SESSION_KEY,
+		Status:    types.GrantStatus_GRANT_STATUS_ACTIVE,
+		CreatedAt: now,
+		ExpiresAt: expiration,
+		Payload: &types.Grant_SessionKey{
+			SessionKey: &types.SessionKeyPayload{
+				AllowedMsgTypes: allowed,
+				SpendLimit:      spendLimit,
+				Spent:           spent,
+				LastUsedAt:      now,
+				ExecCount:       execCount,
+				MaxExecCount:    maxExec,
+			},
+		},
+	}
+}
+
+func TestGenesisWithGrants(t *testing.T) {
 	f := initFixture(t)
 
 	granter := testAddr("granter", f.addressCodec)
@@ -35,42 +59,25 @@ func TestGenesisWithSessions(t *testing.T) {
 	now := time.Now().UTC()
 	exp := now.Add(24 * time.Hour)
 
-	sessions := []types.Session{
-		{
-			Granter:         granter,
-			Grantee:         grantee1,
-			AllowedMsgTypes: types.DefaultAllowedMsgTypes[:2],
-			SpendLimit:      sdk.NewInt64Coin("uspark", 10_000_000),
-			Spent:           sdk.NewInt64Coin("uspark", 500_000),
-			Expiration:      exp,
-			CreatedAt:       now,
-			LastUsedAt:      now,
-			ExecCount:       3,
-			MaxExecCount:    100,
-		},
-		{
-			Granter:         granter,
-			Grantee:         grantee2,
-			AllowedMsgTypes: types.DefaultAllowedMsgTypes[:1],
-			SpendLimit:      sdk.NewInt64Coin("uspark", 5_000_000),
-			Spent:           sdk.NewInt64Coin("uspark", 0),
-			Expiration:      exp,
-			CreatedAt:       now,
-			LastUsedAt:      now,
-			ExecCount:       0,
-			MaxExecCount:    0,
-		},
+	grants := []types.Grant{
+		sessionKeyGrant(1, granter, grantee1, types.DefaultAllowedMsgTypes[:2],
+			sdk.NewInt64Coin("uspark", 10_000_000), sdk.NewInt64Coin("uspark", 500_000),
+			exp, now, 3, 100),
+		sessionKeyGrant(2, granter, grantee2, types.DefaultAllowedMsgTypes[:1],
+			sdk.NewInt64Coin("uspark", 5_000_000), sdk.NewInt64Coin("uspark", 0),
+			exp, now, 0, 50),
 	}
 
 	genesisState := types.GenesisState{
 		Params:   types.DefaultParams(),
-		Sessions: sessions,
+		Grants:   grants,
+		GrantSeq: 3,
 	}
 
 	err := f.keeper.InitGenesis(f.ctx, genesisState)
 	require.NoError(t, err)
 
-	// Verify sessions were loaded
+	// Verify sessions are visible via the back-compat GetSession path.
 	s1, err := f.keeper.GetSession(f.ctx, granter, grantee1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), s1.ExecCount)
@@ -80,19 +87,27 @@ func TestGenesisWithSessions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), s2.ExecCount)
 
-	// Verify indexes were populated
-	has, err := f.keeper.SessionsByGranter.Has(f.ctx, makeGranterKey(granter, grantee1))
+	// Verify indexes were populated for grant id 1.
+	hasGranter, err := f.keeper.GrantsByGranter.Has(f.ctx, collections.Join(granter, uint64(1)))
 	require.NoError(t, err)
-	require.True(t, has)
+	require.True(t, hasGranter)
 
-	has, err = f.keeper.SessionsByGrantee.Has(f.ctx, makeGranteeKey(grantee1, granter))
+	hasGrantee, err := f.keeper.GrantsByGrantee.Has(f.ctx, collections.Join(grantee1, uint64(1)))
 	require.NoError(t, err)
-	require.True(t, has)
+	require.True(t, hasGrantee)
+
+	// Active-grant counter for (granter, SESSION_KEY) should be 2.
+	count, err := f.keeper.CountActiveGrants(f.ctx, granter, types.GrantType_GRANT_TYPE_SESSION_KEY)
+	require.NoError(t, err)
+	require.Equal(t, uint32(2), count)
 
 	// Export and verify round-trip
 	got, err := f.keeper.ExportGenesis(f.ctx)
 	require.NoError(t, err)
-	require.Len(t, got.Sessions, 2)
+	require.Len(t, got.Grants, 2)
+	require.Equal(t, uint64(3), got.GrantSeq)
+	require.Len(t, got.ActiveGrantCounts, 1)
+	require.Equal(t, uint32(2), got.ActiveGrantCounts[0].Count)
 }
 
 func TestGenesisExportRoundTrip(t *testing.T) {
@@ -105,20 +120,12 @@ func TestGenesisExportRoundTrip(t *testing.T) {
 
 	genesisState := types.GenesisState{
 		Params: types.DefaultParams(),
-		Sessions: []types.Session{
-			{
-				Granter:         granter,
-				Grantee:         grantee,
-				AllowedMsgTypes: types.DefaultAllowedMsgTypes[:3],
-				SpendLimit:      sdk.NewInt64Coin("uspark", 50_000_000),
-				Spent:           sdk.NewInt64Coin("uspark", 1_000_000),
-				Expiration:      exp,
-				CreatedAt:       now,
-				LastUsedAt:      now,
-				ExecCount:       7,
-				MaxExecCount:    50,
-			},
+		Grants: []types.Grant{
+			sessionKeyGrant(1, granter, grantee, types.DefaultAllowedMsgTypes[:3],
+				sdk.NewInt64Coin("uspark", 50_000_000), sdk.NewInt64Coin("uspark", 1_000_000),
+				exp, now, 7, 50),
 		},
+		GrantSeq: 2,
 	}
 
 	// Init
@@ -137,7 +144,8 @@ func TestGenesisExportRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	require.EqualExportedValues(t, got.Params, got2.Params)
-	require.Len(t, got2.Sessions, 1)
-	require.Equal(t, got.Sessions[0].Granter, got2.Sessions[0].Granter)
-	require.Equal(t, got.Sessions[0].ExecCount, got2.Sessions[0].ExecCount)
+	require.Len(t, got2.Grants, 1)
+	require.Equal(t, got.Grants[0].Granter, got2.Grants[0].Granter)
+	require.Equal(t, got.Grants[0].GetSessionKey().ExecCount, got2.Grants[0].GetSessionKey().ExecCount)
+	require.Equal(t, got.GrantSeq, got2.GrantSeq)
 }

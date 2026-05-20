@@ -219,38 +219,34 @@ else
     NARROWED_COUNT=$(echo "$NARROWED_TYPES" | jq 'length')
     echo "  Narrowing allowed_msg_types from $INITIAL_ACTIVE_COUNT to $NARROWED_COUNT types"
 
-    # Extract current params for the operational params message
-    # max_expiration and max_spend_limit need careful handling
-    MAX_EXP_SECONDS=$(echo "$PARAMS" | jq -r '.params.max_expiration // "604800s"' | sed 's/s$//')
-    MAX_SPEND_AMT=$(echo "$PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
-    MAX_SPEND_DENOM=$(echo "$PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
-    MAX_EXEC_COUNT=$(echo "$PARAMS" | jq -r '.params.max_exec_count // "10000"')
+    # The operational subset is Params minus max_allowed_msg_types
+    # (the ceiling, gov-only) and authorized_grant_creators (the
+    # module-bypass allowlist, gov-only). Strip those then override
+    # allowed_msg_types with the narrowed list so unspecified fields
+    # don't default to zero and break Validate.
+    OP_PARAMS=$(echo "$PARAMS" | jq --argjson narrow "$NARROWED_TYPES" '
+        .params
+        | del(.max_allowed_msg_types, .authorized_grant_creators)
+        | .allowed_msg_types = $narrow
+    ')
 
-    cat > "$PROPOSAL_DIR/narrow_allowlist.json" <<PROPEOF
-{
-  "messages": [
+    jq -n \
+        --arg auth "$GOV_AUTHORITY" \
+        --argjson op "$OP_PARAMS" '
     {
-      "@type": "/sparkdream.session.v1.MsgUpdateOperationalParams",
-      "authority": "$GOV_AUTHORITY",
-      "operational_params": {
-        "allowed_msg_types": $NARROWED_TYPES,
-        "max_sessions_per_granter": "$INITIAL_MAX_SESSIONS",
-        "max_msg_types_per_session": "$INITIAL_MAX_MSG_TYPES",
-        "max_expiration": "${MAX_EXP_SECONDS}s",
-        "max_spend_limit": {
-          "denom": "$MAX_SPEND_DENOM",
-          "amount": "$MAX_SPEND_AMT"
-        },
-        "max_exec_count": "$MAX_EXEC_COUNT"
-      }
+      "messages": [
+        {
+          "@type": "/sparkdream.session.v1.MsgUpdateOperationalParams",
+          "authority": $auth,
+          "operational_params": $op
+        }
+      ],
+      "deposit": "100000000uspark",
+      "title": "Narrow Session Allowlist",
+      "summary": "Remove x/name and x/collect message types from the active session allowlist",
+      "expedited": true
     }
-  ],
-  "deposit": "100000000uspark",
-  "title": "Narrow Session Allowlist",
-  "summary": "Remove x/name and x/collect message types from the active session allowlist",
-  "expedited": true
-}
-PROPEOF
+    ' > "$PROPOSAL_DIR/narrow_allowlist.json"
 
     submit_and_pass_gov_proposal "$PROPOSAL_DIR/narrow_allowlist.json"
 
@@ -342,37 +338,33 @@ else
     # Get the current ceiling (should be unchanged)
     CURRENT_PARAMS=$($BINARY query session params --output json 2>&1)
     FULL_CEILING=$(echo "$CURRENT_PARAMS" | jq '.params.max_allowed_msg_types')
-    MAX_EXP_SECONDS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_expiration // "604800s"' | sed 's/s$//')
-    MAX_SPEND_AMT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
-    MAX_SPEND_DENOM=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
-    MAX_EXEC_COUNT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_exec_count // "10000"')
 
-    # Restore active list to full ceiling
-    cat > "$PROPOSAL_DIR/restore_allowlist.json" <<PROPEOF
-{
-  "messages": [
+    # Round-trip the full operational params blob to preserve every
+    # field (recurring-pull, oneshot, allowance, etc.) so Validate
+    # doesn't reject on zero-valued unspecified fields.
+    OP_PARAMS=$(echo "$CURRENT_PARAMS" | jq --argjson full "$FULL_CEILING" '
+        .params
+        | del(.max_allowed_msg_types, .authorized_grant_creators)
+        | .allowed_msg_types = $full
+    ')
+
+    jq -n \
+        --arg auth "$GOV_AUTHORITY" \
+        --argjson op "$OP_PARAMS" '
     {
-      "@type": "/sparkdream.session.v1.MsgUpdateOperationalParams",
-      "authority": "$GOV_AUTHORITY",
-      "operational_params": {
-        "allowed_msg_types": $FULL_CEILING,
-        "max_sessions_per_granter": "$INITIAL_MAX_SESSIONS",
-        "max_msg_types_per_session": "$INITIAL_MAX_MSG_TYPES",
-        "max_expiration": "${MAX_EXP_SECONDS}s",
-        "max_spend_limit": {
-          "denom": "$MAX_SPEND_DENOM",
-          "amount": "$MAX_SPEND_AMT"
-        },
-        "max_exec_count": "$MAX_EXEC_COUNT"
-      }
+      "messages": [
+        {
+          "@type": "/sparkdream.session.v1.MsgUpdateOperationalParams",
+          "authority": $auth,
+          "operational_params": $op
+        }
+      ],
+      "deposit": "100000000uspark",
+      "title": "Restore Session Allowlist",
+      "summary": "Re-add all ceiling types to the active session allowlist",
+      "expedited": true
     }
-  ],
-  "deposit": "100000000uspark",
-  "title": "Restore Session Allowlist",
-  "summary": "Re-add all ceiling types to the active session allowlist",
-  "expedited": true
-}
-PROPEOF
+    ' > "$PROPOSAL_DIR/restore_allowlist.json"
 
     submit_and_pass_gov_proposal "$PROPOSAL_DIR/restore_allowlist.json"
 
@@ -405,39 +397,33 @@ if [ -z "$GOV_AUTHORITY" ]; then
 else
     CURRENT_PARAMS=$($BINARY query session params --output json 2>&1)
     CURRENT_ACTIVE=$(echo "$CURRENT_PARAMS" | jq '.params.allowed_msg_types')
-    MAX_EXP_SECONDS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_expiration // "604800s"' | sed 's/s$//')
-    MAX_SPEND_AMT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
-    MAX_SPEND_DENOM=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
-    MAX_EXEC_COUNT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_exec_count // "10000"')
 
-    # Add a type that's NOT in the ceiling
+    # Add a type that's NOT in the ceiling.
     INVALID_ACTIVE=$(echo "$CURRENT_ACTIVE" | jq '. + ["/sparkdream.rep.v1.MsgInviteMember"]')
 
-    cat > "$PROPOSAL_DIR/exceeds_ceiling.json" <<PROPEOF
-{
-  "messages": [
+    OP_PARAMS=$(echo "$CURRENT_PARAMS" | jq --argjson bad "$INVALID_ACTIVE" '
+        .params
+        | del(.max_allowed_msg_types, .authorized_grant_creators)
+        | .allowed_msg_types = $bad
+    ')
+
+    jq -n \
+        --arg auth "$GOV_AUTHORITY" \
+        --argjson op "$OP_PARAMS" '
     {
-      "@type": "/sparkdream.session.v1.MsgUpdateOperationalParams",
-      "authority": "$GOV_AUTHORITY",
-      "operational_params": {
-        "allowed_msg_types": $INVALID_ACTIVE,
-        "max_sessions_per_granter": "$INITIAL_MAX_SESSIONS",
-        "max_msg_types_per_session": "$INITIAL_MAX_MSG_TYPES",
-        "max_expiration": "${MAX_EXP_SECONDS}s",
-        "max_spend_limit": {
-          "denom": "$MAX_SPEND_DENOM",
-          "amount": "$MAX_SPEND_AMT"
-        },
-        "max_exec_count": "$MAX_EXEC_COUNT"
-      }
+      "messages": [
+        {
+          "@type": "/sparkdream.session.v1.MsgUpdateOperationalParams",
+          "authority": $auth,
+          "operational_params": $op
+        }
+      ],
+      "deposit": "100000000uspark",
+      "title": "Invalid Ceiling Expansion",
+      "summary": "This should fail: trying to add a type not in the ceiling",
+      "expedited": true
     }
-  ],
-  "deposit": "100000000uspark",
-  "title": "Invalid Ceiling Expansion",
-  "summary": "This should fail: trying to add a type not in the ceiling",
-  "expedited": true
-}
-PROPEOF
+    ' > "$PROPOSAL_DIR/exceeds_ceiling.json"
 
     submit_and_pass_gov_proposal "$PROPOSAL_DIR/exceeds_ceiling.json"
 
@@ -461,32 +447,30 @@ echo "--- TEST 6: Error - non-authority cannot update params ---"
 
 CURRENT_PARAMS=$($BINARY query session params --output json 2>&1)
 CURRENT_ACTIVE=$(echo "$CURRENT_PARAMS" | jq '.params.allowed_msg_types')
-MAX_EXP_SECONDS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_expiration // "604800s"' | sed 's/s$//')
-MAX_SPEND_AMT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.amount // "100000000"')
-MAX_SPEND_DENOM=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_spend_limit.denom // "uspark"')
-MAX_EXEC_COUNT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_exec_count // "10000"')
+# Round-trip the full operational params shape so the proto unmarshaler
+# accepts it (post-M10 the shape now includes ~20 fields covering
+# recurring-pull, oneshot, allowance, etc.). We only need a syntactically
+# valid msg for the auth gate to reject before validation runs.
+OP_PARAMS_TX=$(echo "$CURRENT_PARAMS" | jq '
+    .params
+    | del(.max_allowed_msg_types, .authorized_grant_creators)
+    | .max_sessions_per_granter = "5"
+    | .max_msg_types_per_session = "10"
+')
 
 # Use session_granter: a rep member but NOT on the Commons Operations
 # Committee, so isCouncilAuthorized should reject it. (Alice is a founder
 # seated on the Commons Operations Committee and would pass the check.)
-cat > /tmp/session_nonauth_unsigned.json <<TXEOF
+jq -n \
+    --arg auth "$GRANTER_ADDR" \
+    --argjson op "$OP_PARAMS_TX" '
 {
   "body": {
     "messages": [
       {
         "@type": "/sparkdream.session.v1.MsgUpdateOperationalParams",
-        "authority": "$GRANTER_ADDR",
-        "operational_params": {
-          "allowed_msg_types": $CURRENT_ACTIVE,
-          "max_sessions_per_granter": "5",
-          "max_msg_types_per_session": "10",
-          "max_expiration": "${MAX_EXP_SECONDS}s",
-          "max_spend_limit": {
-            "denom": "$MAX_SPEND_DENOM",
-            "amount": "$MAX_SPEND_AMT"
-          },
-          "max_exec_count": "$MAX_EXEC_COUNT"
-        }
+        "authority": $auth,
+        "operational_params": $op
       }
     ],
     "memo": "",
@@ -504,8 +488,7 @@ cat > /tmp/session_nonauth_unsigned.json <<TXEOF
     }
   },
   "signatures": []
-}
-TXEOF
+}' > /tmp/session_nonauth_unsigned.json
 
 ACCT_INFO=$($BINARY query auth account "$GRANTER_ADDR" --output json 2>&1)
 ACCT_NUM=$(echo "$ACCT_INFO" | jq -r '.account.account_number // .account.base_account.account_number // "0"')
