@@ -238,6 +238,10 @@ NETWORKS = {
         "init_home": "/tmp/devnet-init",
         "config": os.path.join(REPO_ROOT, "deploy/config/network/devnet/config.yml"),
         "out": os.path.join(REPO_ROOT, "deploy/config/network/devnet/genesis.json"),
+        # bond_denom is per-chain since the x/identity migration; the binary's
+        # build-tagged DefaultChainIdentity sets it per network. Mirrored here
+        # so the config.yml consistency check accepts the matching coin strings.
+        "bond_denom": "uspark.sparkdreamdev",
     },
     "testnet": {
         "chain_id": "sparkdream-test-1",
@@ -245,6 +249,7 @@ NETWORKS = {
         "init_home": "/tmp/testnet-init",
         "config": os.path.join(REPO_ROOT, "deploy/config/network/testnet/config.yml"),
         "out": os.path.join(REPO_ROOT, "deploy/config/network/testnet/genesis.json"),
+        "bond_denom": "uspark.sparkdreamtest",
     },
     "mainnet": {
         "chain_id": "sparkdream-1",
@@ -252,6 +257,7 @@ NETWORKS = {
         "init_home": "/tmp/mainnet-init",
         "config": os.path.join(REPO_ROOT, "deploy/config/network/mainnet/config.yml"),
         "out": os.path.join(REPO_ROOT, "deploy/config/network/mainnet/genesis.json"),
+        "bond_denom": "uspark.sparkdream",
     },
 }
 
@@ -324,14 +330,19 @@ def apply_config_overrides(genesis, config_path):
 # -------------------------- consistency check --------------------------
 
 
-def _parse_coin_amount(coin_str, denom="uspark"):
-    """Parse a coins string like '20000000000000uspark' → '20000000000000'."""
+def _parse_coin_amount(coin_str, denom):
+    """Parse a coins string like '20000000000000uspark.sparkdream' → '20000000000000'.
+
+    `denom` is the per-network bond denom (e.g. 'uspark.sparkdream',
+    'uspark.sparkdreamtest', 'uspark.sparkdreamdev') — passed in from the
+    NETWORKS table rather than hardcoded since the x/identity migration
+    made bond denoms per-chain."""
     if not isinstance(coin_str, str) or not coin_str.endswith(denom):
         return None
     return coin_str[: -len(denom)]
 
 
-def _check_founders(cfg, errors):
+def _check_founders(cfg, errors, bond_denom):
     """Validate config.yml founder data against the FOUNDERS constant."""
     by_name = {f["name"]: f for f in FOUNDERS}
     by_addr = {f["address"]: f for f in FOUNDERS}
@@ -349,9 +360,9 @@ def _check_founders(cfg, errors):
         if acct.get("address") != f["address"]:
             errors.append(f"accounts.{name}.address: config={acct.get('address')!r} script={f['address']!r}")
         coins = acct.get("coins") or []
-        amt = _parse_coin_amount(coins[0]) if coins else None
+        amt = _parse_coin_amount(coins[0], bond_denom) if coins else None
         if amt != f["spark"]:
-            errors.append(f"accounts.{name}.coins[0]: config={(coins[0] if coins else None)!r} expected {f['spark']}uspark")
+            errors.append(f"accounts.{name}.coins[0]: config={(coins[0] if coins else None)!r} expected {f['spark']}{bond_denom}")
     for f in FOUNDERS:
         if f["name"] not in cfg_names:
             errors.append(f"accounts: founder {f['name']!r} present in script but missing from config.yml")
@@ -400,7 +411,7 @@ def _check_founders(cfg, errors):
             errors.append(f"season.member_profile_map: founder {f['name']!r} present in script but missing from config.yml")
 
 
-def _check_devnet(cfg, errors):
+def _check_devnet(cfg, errors, bond_denom):
     """Validate devnet config.yml against TEST_ACCOUNTS, DEVNET_MEMBER_MAP,
     DEVNET_MEMBER_PROFILES. Test accounts use mnemonic-derived addresses, so
     the accounts: block is matched by name+amount only (we trust the
@@ -418,9 +429,9 @@ def _check_devnet(cfg, errors):
             continue
         _, expected_amt = by_name[name]
         coins = acct.get("coins") or []
-        amt = _parse_coin_amount(coins[0]) if coins else None
+        amt = _parse_coin_amount(coins[0], bond_denom) if coins else None
         if amt != expected_amt:
-            errors.append(f"accounts.{name}.coins[0]: config={(coins[0] if coins else None)!r} expected {expected_amt}uspark")
+            errors.append(f"accounts.{name}.coins[0]: config={(coins[0] if coins else None)!r} expected {expected_amt}{bond_denom}")
     for _, _, name in TEST_ACCOUNTS:
         if name not in cfg_names:
             errors.append(f"accounts: test account {name!r} present in script but missing from config.yml")
@@ -464,7 +475,7 @@ def _check_devnet(cfg, errors):
             errors.append(f"season.member_profile_map: address {ours_p['address']} present in script but missing from config.yml")
 
 
-def _check_community_pool(cfg, errors):
+def _check_community_pool(cfg, errors, bond_denom):
     """Validate config.yml's community_pool seed matches COMMUNITY_POOL_AMOUNT."""
     app_state = (cfg.get("genesis") or {}).get("app_state") or {}
     pool = ((app_state.get("distribution") or {}).get("fee_pool") or {}).get("community_pool") or []
@@ -472,8 +483,8 @@ def _check_community_pool(cfg, errors):
         errors.append("distribution.fee_pool.community_pool: missing or empty")
         return
     coin = pool[0]
-    if coin.get("denom") != "uspark":
-        errors.append(f"distribution.fee_pool.community_pool[0].denom: config={coin.get('denom')!r} expected 'uspark'")
+    if coin.get("denom") != bond_denom:
+        errors.append(f"distribution.fee_pool.community_pool[0].denom: config={coin.get('denom')!r} expected {bond_denom!r}")
     if coin.get("amount") != COMMUNITY_POOL_AMOUNT:
         errors.append(f"distribution.fee_pool.community_pool[0].amount: config={coin.get('amount')!r} script={COMMUNITY_POOL_AMOUNT!r}")
 
@@ -486,12 +497,13 @@ def validate_config_consistency(network):
     keeping them in sync."""
     with open(NETWORKS[network]["config"]) as f:
         cfg = yaml.safe_load(f) or {}
+    bond_denom = NETWORKS[network]["bond_denom"]
     errors = []
     if network == "devnet":
-        _check_devnet(cfg, errors)
+        _check_devnet(cfg, errors, bond_denom)
     else:
-        _check_founders(cfg, errors)
-    _check_community_pool(cfg, errors)
+        _check_founders(cfg, errors, bond_denom)
+    _check_community_pool(cfg, errors, bond_denom)
     return errors
 
 
@@ -685,13 +697,17 @@ def _founder_profile(f):
     }
 
 
-def _set_user_state(g, principal_accounts, members, profiles):
+def _set_user_state(g, principal_accounts, members, profiles, bond_denom):
     """Set auth.accounts, bank.balances, bank.supply, rep.member_map and
     season.member_profile_map from a flat list of (address, spark_amount)
     plus the rep + season member entries.
 
     Adds the distribution ModuleAccount and the 95M SPARK community pool
-    seed at the end (same on every network so x/split has uniform state)."""
+    seed at the end (same on every network so x/split has uniform state).
+
+    `bond_denom` is the per-network native denom (uspark.sparkdream,
+    uspark.sparkdreamtest, uspark.sparkdreamdev) — passed in from the
+    NETWORKS table since the x/identity migration made it per-chain."""
     accounts = [
         {
             "@type": "/cosmos.auth.v1beta1.BaseAccount",
@@ -712,14 +728,14 @@ def _set_user_state(g, principal_accounts, members, profiles):
     g["app_state"]["auth"]["accounts"] = accounts
 
     g["app_state"]["bank"]["balances"] = [
-        {"address": addr, "coins": [{"denom": "uspark", "amount": amt}]}
+        {"address": addr, "coins": [{"denom": bond_denom, "amount": amt}]}
         for addr, amt in principal_accounts
     ] + [{
         "address": COMMUNITY_POOL_ADDR,
-        "coins": [{"denom": "uspark", "amount": COMMUNITY_POOL_AMOUNT}],
+        "coins": [{"denom": bond_denom, "amount": COMMUNITY_POOL_AMOUNT}],
     }]
     total = sum(int(amt) for _, amt in principal_accounts) + int(COMMUNITY_POOL_AMOUNT)
-    g["app_state"]["bank"]["supply"] = [{"denom": "uspark", "amount": str(total)}]
+    g["app_state"]["bank"]["supply"] = [{"denom": bond_denom, "amount": str(total)}]
 
     g["app_state"]["rep"]["member_map"] = members
     g["app_state"]["season"]["member_profile_map"] = profiles
@@ -780,6 +796,7 @@ def _build_with_founders(network, fresh):
         [(f["address"], f["spark"]) for f in FOUNDERS],
         [_founder_member(f) for f in FOUNDERS],
         [_founder_profile(f) for f in FOUNDERS],
+        NETWORKS[network]["bond_denom"],
     )
     if network == "testnet":
         _apply_testnet_welcome_blog_post(g)
@@ -800,6 +817,7 @@ def build_devnet(fresh):
         [(addr, amt) for addr, amt, _ in TEST_ACCOUNTS],
         copy.deepcopy(DEVNET_MEMBER_MAP),
         copy.deepcopy(DEVNET_MEMBER_PROFILES),
+        NETWORKS["devnet"]["bond_denom"],
     )
     return g
 

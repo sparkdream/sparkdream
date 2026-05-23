@@ -360,14 +360,14 @@
         {
           "admin_only_write": true,
           "category_id": 3,
-          "description": "Official chain announcements \u2014 upgrades, season transitions, council notices, security advisories",
+          "description": "Official chain announcements — upgrades, season transitions, council notices, security advisories",
           "members_only_write": false,
           "title": "Announcements"
         },
         {
           "admin_only_write": false,
           "category_id": 4,
-          "description": "Onboarding questions and general support \u2014 open to non-members",
+          "description": "Onboarding questions and general support — open to non-members",
           "members_only_write": false,
           "title": "Help & Support"
         },
@@ -392,13 +392,15 @@
       "next_category_id": 7,
       "next_council_id": "0",
       "next_proposal_id": "0",
+      "next_recurring_spend_id": "0",
       "params": {
         "proposal_fee": "5000000uspark.sparkdream"
       },
       "policy_permissions_map": [],
       "policy_versions": [],
       "proposal_votes": [],
-      "proposals": []
+      "proposals": [],
+      "recurring_spends": []
     },
     "consensus": null,
     "crisis": {
@@ -437,7 +439,7 @@
       "evidence": []
     },
     "federation": {
-      "bridge_operators": [],
+      "bridge_bindings": [],
       "federated_content": [],
       "identity_links": [],
       "next_content_id": "0",
@@ -467,7 +469,7 @@
           "forum_reply",
           "collection"
         ],
-        "max_bridges_per_peer": "5",
+        "max_bridges_per_peer": "1000",
         "max_content_body_size": "4096",
         "max_content_uri_size": "2048",
         "max_identity_links_per_user": 10,
@@ -621,6 +623,7 @@
       "votes": [],
       "voting_params": null
     },
+    "guardian": {},
     "ibc": {
       "channel_genesis": {
         "ack_sequences": [],
@@ -1205,91 +1208,78 @@
       "tag_map": [
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "commons-council",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "technical-council",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "ecosystem-council",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "commons-ops-committee",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "commons-gov-committee",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "technical-ops-committee",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "technical-gov-committee",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "ecosystem-ops-committee",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "ecosystem-gov-committee",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "security",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "documentation",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "budget",
           "usage_count": 0
         },
         {
           "created_at": 0,
-          "expiration_index": 0,
           "last_used_at": 0,
           "name": "staking",
           "usage_count": 0
@@ -1605,7 +1595,77 @@
       "transition_recovery_state": null,
       "vote_xp_record_map": []
     },
+    "service": {
+      "archived_operators": [],
+      "controller_transfer_cases": [],
+      "next_escrow_id": "0",
+      "next_report_id": "0",
+      "operators": [],
+      "params": {
+        "default_pagination_limit": 100,
+        "default_tier1_aggregate_cap_bps": 1500,
+        "default_tier1_cooldown_blocks": "120960",
+        "default_tier1_window_blocks": "1555200",
+        "default_unbonding_period_blocks": "241920",
+        "default_underfunded_grace_blocks": "120960",
+        "default_unilateral_slash_cap_bps": 500,
+        "endblocker_sweep_limit": 100,
+        "max_active_operators_per_address": 16,
+        "max_escalated_blocks": "1036800",
+        "max_metadata_bytes": 4096,
+        "max_pagination_limit": 1000,
+        "max_pending_blocks": "518400",
+        "max_reason_bytes": 512,
+        "max_reports_per_reporter_per_operator_per_window": 3,
+        "max_system_reports_per_caller_per_window": 50,
+        "min_reporter_trust_level": "TRUST_LEVEL_ESTABLISHED",
+        "rate_limit_window_blocks": "17280",
+        "report_contest_window_blocks": "17280",
+        "report_deposit_amount": "10000000",
+        "report_refile_cooldown_blocks": "518400",
+        "reporter_rate_limit_window_blocks": "518400",
+        "reputation_grant_per_bond_block": "0.000000000001000000"
+      },
+      "refile_cooldowns": [],
+      "reporter_rate_limits": [],
+      "reports": [],
+      "service_types": [
+        {
+          "challenge_default_slash_bps": 100,
+          "description": "Off-chain bridge operator for ActivityPub federation",
+          "enabled": true,
+          "min_bond_amount": "1000000000",
+          "report_timeout_action": "REPORT_TIMEOUT_ACTION_ESCALATE",
+          "service_type": "federation-bridge-activitypub",
+          "tier1_aggregate_cap_bps": 1500,
+          "tier1_cooldown_blocks": "120960",
+          "tier1_window_blocks": "1555200",
+          "unbonding_period_blocks": "241920",
+          "underfunded_grace_blocks": "120960",
+          "unilateral_slash_cap_bps": 500
+        },
+        {
+          "challenge_default_slash_bps": 100,
+          "description": "Off-chain bridge operator for AT Protocol federation",
+          "enabled": true,
+          "min_bond_amount": "1000000000",
+          "report_timeout_action": "REPORT_TIMEOUT_ACTION_ESCALATE",
+          "service_type": "federation-bridge-atproto",
+          "tier1_aggregate_cap_bps": 1500,
+          "tier1_cooldown_blocks": "120960",
+          "tier1_window_blocks": "1555200",
+          "unbonding_period_blocks": "241920",
+          "underfunded_grace_blocks": "120960",
+          "unilateral_slash_cap_bps": 500
+        }
+      ],
+      "tier1_escrow": [],
+      "tier1_last_slash": []
+    },
     "session": {
+      "active_grant_counts": [],
+      "grant_seq": "0",
+      "grants": [],
       "params": {
         "allowed_denoms": [],
         "allowed_msg_types": [
@@ -1649,10 +1709,14 @@
           "/sparkdream.season.v1.MsgSetDisplayTitle",
           "/sparkdream.season.v1.MsgStartQuest",
           "/sparkdream.season.v1.MsgAbandonQuest",
-          "/sparkdream.season.v1.MsgClaimQuestReward"
+          "/sparkdream.season.v1.MsgClaimQuestReward",
+          "/sparkdream.service.v1.MsgUnbondOperator",
+          "/sparkdream.service.v1.MsgTopUpBond",
+          "/sparkdream.service.v1.MsgUpdateMetadata",
+          "/sparkdream.service.v1.MsgClaimUnbondedBond"
         ],
         "authorized_grant_creators": [
-          "cosmos1m0a2t448gsfxq5nr6el96jmm6svj43syxh2uda"
+          "sprkdrm1m0a2t448gsfxq5nr6el96jmm6svj43sym0derq"
         ],
         "fire_to_expiry_buffer_seconds": "3600",
         "max_allowance_recipient_list": 50,
@@ -1698,7 +1762,11 @@
           "/sparkdream.season.v1.MsgSetDisplayTitle",
           "/sparkdream.season.v1.MsgStartQuest",
           "/sparkdream.season.v1.MsgAbandonQuest",
-          "/sparkdream.season.v1.MsgClaimQuestReward"
+          "/sparkdream.season.v1.MsgClaimQuestReward",
+          "/sparkdream.service.v1.MsgUnbondOperator",
+          "/sparkdream.service.v1.MsgTopUpBond",
+          "/sparkdream.service.v1.MsgUpdateMetadata",
+          "/sparkdream.service.v1.MsgClaimUnbondedBond"
         ],
         "max_endblocker_dispatches_per_pass": 100,
         "max_exec_count": "10000",
@@ -1717,13 +1785,12 @@
         "min_oneshot_deposit": "1000",
         "min_oneshot_exec_gas": "30000",
         "min_pull_amount": "1000",
-        "min_recurring_period_seconds": "5",
+        "min_recurring_period_seconds": "86400",
         "min_schedule_delay_seconds": "60",
         "oneshot_creation_fee": "1000",
         "oneshot_gas_price": "0.0025",
         "paused_oneshot_ttl_seconds": "604800"
-      },
-      "sessions": []
+      }
     },
     "shield": {
       "day_fundings": [],
