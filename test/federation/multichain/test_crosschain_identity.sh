@@ -72,8 +72,8 @@ TX_RES=$(cli_a tx federation link-identity \
     "$OWNER_B_ADDR" \
     --from mc-linker-a \
     -y \
-    --fees 5000uspark \
-    --output json 2>&1)
+    --fees 5000${BOND_DENOM} \
+    --output json)
 
 LINK_CREATED=false
 if submit_and_wait_a "$TX_RES" "link identity"; then
@@ -124,8 +124,8 @@ if [ "$LINK_CREATED" = true ]; then
             fedtest-a \
             --from mc-owner-b \
             -y \
-            --fees 5000uspark \
-            --output json 2>&1)
+            --fees 5000${BOND_DENOM} \
+            --output json)
 
         if submit_and_wait_b "$TX_RES" "confirm identity"; then
             echo "  ConfirmIdentityLink tx confirmed on chain-b"
@@ -177,8 +177,8 @@ TX_RES=$(cli_a tx federation link-identity \
     "$OWNER_B_ADDR" \
     --from mc-linker-a2 \
     -y \
-    --fees 5000uspark \
-    --output json 2>&1)
+    --fees 5000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait_a "$TX_RES" "already-claimed link"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code // "0"')
@@ -227,8 +227,8 @@ TX_RES=$(cli_b tx federation confirm-identity-link \
     fedtest-a \
     --from alice \
     -y \
-    --fees 5000uspark \
-    --output json 2>&1)
+    --fees 5000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait_b "$TX_RES" "confirm-no-challenge"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code // "0"')

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/collections"
+	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/service/types"
@@ -18,7 +19,7 @@ func (k msgServer) TopUpBond(ctx context.Context, msg *types.MsgTopUpBond) (*typ
 	if err != nil {
 		return nil, types.ErrInvalidSigner.Wrap("invalid operator address")
 	}
-	if err := k.Keeper.TopUpBond(ctx, opBytes, msg.ServiceType, msg.AdditionalBond); err != nil {
+	if err := k.Keeper.TopUpBond(ctx, opBytes, msg.ServiceType, msg.AdditionalBondAmount); err != nil {
 		return nil, err
 	}
 	return &types.MsgTopUpBondResponse{}, nil
@@ -39,7 +40,7 @@ func (k msgServer) TopUpBond(ctx context.Context, msg *types.MsgTopUpBond) (*typ
 // MsgRegisterBridge when the registrant already has an Operator under
 // the same service_type and supplies additional stake (Phase 0 of the
 // federation→service migration plan).
-func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBond sdk.Coin) error {
+func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBondAmount sdkmath.Int) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	op, exists := k.GetOperator(ctx, opBytes, serviceType)
@@ -51,9 +52,11 @@ func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType strin
 		return types.ErrOperatorUnbonding
 	}
 
-	if additionalBond.Denom != types.BondDenom {
-		return types.ErrBondDenomMismatch.Wrapf("expected %s, got %s", types.BondDenom, additionalBond.Denom)
+	if additionalBondAmount.IsNil() || !additionalBondAmount.IsPositive() {
+		return types.ErrInsufficientBond.Wrap("additional_bond_amount must be a positive Int")
 	}
+	bondDenom := k.BondDenom(ctx)
+	additionalBond := sdk.NewCoin(bondDenom, additionalBondAmount)
 
 	// Settle BEFORE the bond change so the ACTIVE-period accrual to date
 	// captures the old bond × elapsed-blocks contribution (§6.6).
@@ -64,7 +67,7 @@ func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType strin
 		return err
 	}
 
-	op.Bond = op.Bond.Add(additionalBond)
+	op.BondAmount = op.BondAmount.Add(additionalBondAmount)
 
 	// If UNDERFUNDED and the new bond clears min_bond, return to ACTIVE
 	// and fire the AfterOperatorReFunded hook. The hook fires AFTER
@@ -76,7 +79,7 @@ func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType strin
 		if err != nil {
 			return err
 		}
-		if op.Bond.Amount.GTE(cfg.MinBond.Amount) {
+		if op.BondAmount.GTE(cfg.MinBondAmount) {
 			op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
 			// Clear underfunded_since BEFORE PutOperator so the
 			// UnderfundedQueue removal in PutOperator's index logic
@@ -102,7 +105,7 @@ func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType strin
 
 	opStr, _ := k.addressCodec.BytesToString(opBytes)
 	sdkCtx.EventManager().EmitEvent(types.NewOperatorToppedUpEvent(
-		opStr, op.ServiceType, additionalBond, op.Bond,
+		opStr, op.ServiceType, additionalBond, sdk.NewCoin(bondDenom, op.BondAmount),
 	))
 
 	// Hook fire AFTER state writes so consumers iterating live indexes

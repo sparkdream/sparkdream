@@ -65,7 +65,7 @@ wait_for_tx() {
     local MAX_ATTEMPTS=20
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx "$TXHASH" --output json 2>&1)
+        RESULT=$($BINARY q tx "$TXHASH" --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
         ATTEMPT=$((ATTEMPT + 1)); sleep 1
     done
@@ -109,10 +109,10 @@ vote_and_execute_ops() {
         local STATUS
         STATUS=$($BINARY query commons get-proposal "$PROP_ID" --output json 2>/dev/null | jq -r '.proposal.status')
         if [ "$STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
-        TX_RES=$($BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+        TX_RES=$($BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
         submit_and_wait "$TX_RES" "$VOTER vote" || true
     done
-    TX_RES=$($BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json 2>&1)
+    TX_RES=$($BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
     submit_and_wait "$TX_RES" "exec"
     local RC=$?
     sleep 5
@@ -123,7 +123,7 @@ submit_ops_proposal() {
     local FILE=$1
     local LABEL=${2:-"proposal"}
     echo "  Submitting $LABEL..."
-    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "$LABEL submission"; then return 1; fi
     PROPOSAL_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -z "$PROPOSAL_ID" ]; then echo "  No proposal ID"; return 1; fi
@@ -206,7 +206,7 @@ register_test_peer "$PEER_ID" "PEER_TYPE_ACTIVITYPUB" "EndBlocker test peer" ""
 set_peer_policy "$PEER_ID" "blog_post" "" "" "false" "false" || true
 
 # Register a bridge so we have something to submit content from.
-MIN_BOND_AMT=$($BINARY query service service-type $SVC_AP --output json 2>/dev/null | jq -r '.config.min_bond.amount // "1000000000"')
+MIN_BOND_AMT=$($BINARY query service service-type $SVC_AP --output json 2>/dev/null | jq -r '.config.min_bond_amount // "1000000000"')
 HOOK_OP=operator2
 
 # Ensure operator2 has an ACTIVE service.Operator under SVC_AP — it
@@ -218,13 +218,13 @@ BINDING_ADDR=$($BINARY query federation get-bridge-binding "$OPERATOR2_ADDR" "$P
 if [ -z "$BINDING_ADDR" ]; then
     if [ "$OP_STATUS" == "OPERATOR_STATUS_ACTIVE" ]; then
         # Reuse operator2's existing bond — register binding with stake=0
-        STAKE_FOR_REG="0uspark"
+        STAKE_FOR_REG="0"
     else
-        STAKE_FOR_REG="${MIN_BOND_AMT}uspark"
+        STAKE_FOR_REG="${MIN_BOND_AMT}"
     fi
     TX_RES=$($BINARY tx federation register-bridge \
         "$PEER_ID" activitypub "https://endblock.example/ap" "$STAKE_FOR_REG" \
-        --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+        --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     submit_and_wait "$TX_RES" "register endblock bridge" || true
 fi
 
@@ -260,7 +260,7 @@ HASH=$(sha256_base64 "$BODY")
 TX_RES=$($BINARY tx federation submit-federated-content \
     "$PEER_ID" "ttl-target-1" "blog_post" "@user@endblock.example" "User" "TTL target" "$BODY" "https://endblock.example/p/1" 1715000000 \
     --content-hash "$HASH" \
-    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if ! submit_and_wait "$TX_RES" "submit content for prune"; then
     record_result "Content TTL prune" "FAIL (submit content)"
@@ -275,9 +275,11 @@ else
     echo "  Sleeping 75s for content_ttl (30s) + prune slack..."
     sleep 75
 
-    # Step 4: confirm the content is gone.
+    # Step 4: confirm the content is gone. 2>&1 captures the rpc "not found"
+    # so the empty-id check below works whether the content is gone via
+    # pruning (NotFound) or returns an empty record.
     POST=$($BINARY query federation get-federated-content "$CONTENT_ID" --output json 2>&1)
-    POST_ID=$(echo "$POST" | jq -r '.content.id // empty')
+    POST_ID=$(echo "$POST" | jq -r '.content.id // empty' 2>/dev/null)
     if [ -z "$POST_ID" ]; then
         echo "  Content $CONTENT_ID pruned from store"
         record_result "Content TTL prune (Phase 1)" "PASS"
@@ -346,7 +348,7 @@ if submit_ops_proposal "$PROPOSAL_DIR/endblock_tighten_inact.json" "tighten inac
         # warning. If we find it, great; otherwise we still pass on the
         # param-applied path because warnings are emitted in BeginBlock
         # events that aren't returned from `q block`.
-        RECENT=$($BINARY query block-results "$BLOCK_HT" --output json 2>&1)
+        RECENT=$($BINARY query block-results "$BLOCK_HT" --output json)
         if echo "$RECENT" | grep -q "bridge_inactive_warning"; then
             echo "  Found bridge_inactive_warning event in block $BLOCK_HT"
         else

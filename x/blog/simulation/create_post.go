@@ -30,14 +30,14 @@ func SimulateMsgCreatePost(
 		body := simtypes.RandStringOfLength(r, 200)
 
 		// Estimate storage fee: CostPerByte * (title + body length)
-		// Default CostPerByte is 100uspark, 220 chars -> ~22000uspark
 		contentLen := int64(len(title) + len(body))
-		storageFee := sdk.NewCoin("uspark", math.NewInt(100).MulRaw(contentLen))
+		bondDenom := sdk.DefaultBondDenom
+		storageFee := sdk.NewCoin(bondDenom, math.NewInt(100).MulRaw(contentLen))
 
 		// Check solvency: need storage fee + some gas
 		balance := bk.SpendableCoins(ctx, simAccount.Address)
 		totalRequired := storageFee.Amount.Add(math.NewInt(10000))
-		if balance.AmountOf("uspark").LT(totalRequired) {
+		if balance.AmountOf(bondDenom).LT(totalRequired) {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreatePost{}), "insufficient funds for storage fee"), nil, nil
 		}
 

@@ -172,8 +172,8 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		// account (no refund fired).
 		expectedHalf := math.NewInt(types.DefaultAppealBondAmount).QuoRaw(2)
 		require.True(t,
-			rf.burnedCoins.AmountOf(types.RewardDenom).Equal(expectedHalf),
-			"expected %s burned, got %s", expectedHalf, rf.burnedCoins.AmountOf(types.RewardDenom))
+			rf.burnedCoins.AmountOf("uspark").Equal(expectedHalf),
+			"expected %s burned, got %s", expectedHalf, rf.burnedCoins.AmountOf("uspark"))
 		require.True(t, rf.refundedCoins.IsZero(), "no refund should occur on UPHELD")
 
 		// Upheld forum hook invoked exactly once.
@@ -211,9 +211,9 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		// Full bond refunded to appellant; no burn.
 		expectedBond := math.NewInt(types.DefaultAppealBondAmount)
 		require.True(t,
-			rf.refundedCoins.AmountOf(types.RewardDenom).Equal(expectedBond),
-			"expected %s refunded, got %s", expectedBond, rf.refundedCoins.AmountOf(types.RewardDenom))
-		require.True(t, rf.burnedCoins.AmountOf(types.RewardDenom).IsZero())
+			rf.refundedCoins.AmountOf("uspark").Equal(expectedBond),
+			"expected %s refunded, got %s", expectedBond, rf.refundedCoins.AmountOf("uspark"))
+		require.True(t, rf.burnedCoins.AmountOf("uspark").IsZero())
 
 		// Sentinel's bond was reduced by DefaultSentinelOverturnSlash.
 		br, err := rf.f.keeper.BondedRoles.Get(rf.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), rf.sentinel))
@@ -376,8 +376,8 @@ func TestTimeoutExpiredAppeals(t *testing.T) {
 	bond := math.NewInt(types.DefaultAppealBondAmount)
 	half := bond.QuoRaw(2)
 	refund := bond.Sub(half)
-	require.Equal(t, refund.String(), refunded.AmountOf(types.RewardDenom).String())
-	require.Equal(t, half.String(), burned.AmountOf(types.RewardDenom).String())
+	require.Equal(t, refund.String(), refunded.AmountOf("uspark").String())
+	require.Equal(t, half.String(), burned.AmountOf("uspark").String())
 
 	// Running again is a no-op — no more pending appeals.
 	refunded = sdk.NewCoins()

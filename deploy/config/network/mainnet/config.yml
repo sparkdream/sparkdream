@@ -12,34 +12,34 @@ accounts:
 # Tier 1 (Lead Vocal)
 - name: valya
   address: sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu
-  coins: [1250000000000uspark]  # 1,250,000 SPARK
+  coins: [1250000000000uspark.sparkdream]  # 1,250,000 SPARK
 # Tier 2 (Vocal)
 - name: cozmonika
   address: sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p
-  coins: [750000000000uspark]   # 750,000 SPARK
+  coins: [750000000000uspark.sparkdream]   # 750,000 SPARK
 # Tier 3 (Public)
 - name: kingofbitchain
   address: sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd
-  coins: [450000000000uspark]   # 450,000 SPARK
+  coins: [450000000000uspark.sparkdream]   # 450,000 SPARK
 - name: viorika
   address: sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8
-  coins: [450000000000uspark]   # 450,000 SPARK
+  coins: [450000000000uspark.sparkdream]   # 450,000 SPARK
 - name: uyen
   address: sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge
-  coins: [450000000000uspark]   # 450,000 SPARK
+  coins: [450000000000uspark.sparkdream]   # 450,000 SPARK
 - name: houri
   address: sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak
-  coins: [450000000000uspark]   # 450,000 SPARK
+  coins: [450000000000uspark.sparkdream]   # 450,000 SPARK
 - name: gilda
   address: sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu
-  coins: [450000000000uspark]   # 450,000 SPARK
+  coins: [450000000000uspark.sparkdream]   # 450,000 SPARK
 # Tier 4 (Anon)
 - name: anon1
   address: sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9
-  coins: [375000000000uspark]   # 375,000 SPARK
+  coins: [375000000000uspark.sparkdream]   # 375,000 SPARK
 - name: anon2
   address: sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs
-  coins: [375000000000uspark]   # 375,000 SPARK
+  coins: [375000000000uspark.sparkdream]   # 375,000 SPARK
 genesis:
   consensus:
     params:
@@ -48,9 +48,9 @@ genesis:
   app_state:
     bank:
       denom_metadata:
-      - base: uspark
+      - base: uspark.sparkdream
         denom_units:
-        - denom: uspark
+        - denom: uspark.sparkdream
           exponent: 0
         - denom: spark
           exponent: 6
@@ -58,9 +58,9 @@ genesis:
         display: spark
         name: spark
         symbol: spark
-      - base: udream
+      - base: udream.sparkdream
         denom_units:
-        - denom: udream
+        - denom: udream.sparkdream
           exponent: 0
         - denom: dream
           exponent: 6
@@ -70,7 +70,7 @@ genesis:
         symbol: dream
     commons:
       params:
-        proposal_fee: "5000000uspark"
+        proposal_fee: "5000000uspark.sparkdream"
       category_map:
       - category_id: 1
         title: "General"
@@ -107,15 +107,15 @@ genesis:
       params:
         sysnames_pkgpath: ""
         chain_domain: "gno.land"
-        default_deposit: "100000uspark"
-        storage_price: "1uspark"
+        default_deposit: "100000uspark.sparkdream"
+        storage_price: "1uspark.sparkdream"
     crisis:
       constant_fee:
-        denom: uspark
+        denom: uspark.sparkdream
     distribution:
       fee_pool:
         community_pool:
-        - denom: uspark
+        - denom: uspark.sparkdream
           amount: "95000000000000"  # 95,000,000 SPARK (95%) — x/split routes to councils on first block
       params:
         community_tax: "0.15"
@@ -124,22 +124,22 @@ genesis:
         max_deposit_period: "172800s"      # 48 hours (MAINNET production value)
         min_deposit:
           - amount: "50000000"
-            denom: "uspark"
+            denom: uspark.sparkdream
         voting_period: "432000s"           # 5 days (MAINNET production value)
         expedited_min_deposit:
           - amount: "100000000"
-            denom: "uspark"
+            denom: uspark.sparkdream
         expedited_voting_period: "86400s"  # 1 day (MAINNET production value)
     mint:
       params:
-        mint_denom: "uspark"
+        mint_denom: uspark.sparkdream
         goal_bonded: "0.67"
         inflation_max: "0.05"
         inflation_min: "0.02"
         inflation_rate_change: "0.13"
     staking:
       params:
-        bond_denom: uspark
+        bond_denom: uspark.sparkdream
     season:
       season:
         number: 1
@@ -603,4 +603,4 @@ genesis:
 # their gentxs in app_state.genutil.gen_txs.
 validators:
 - name: kingofbitchain
-  bonded: 400000000000uspark
+  bonded: 400000000000uspark.sparkdream

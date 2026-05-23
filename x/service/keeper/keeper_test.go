@@ -34,11 +34,11 @@ var (
 	testControllerAddr sdk.AccAddress
 	testController     string
 	testReporterAddr   sdk.AccAddress
-	testReporter      string
+	testReporter       string
 	testCouncilAddr    sdk.AccAddress
-	testCouncil       string
+	testCouncil        string
 	testRandomAddr     sdk.AccAddress
-	testRandom        string
+	testRandom         string
 )
 
 func init() {
@@ -93,7 +93,7 @@ func (m *mockBankKeeper) SpendableCoins(ctx context.Context, addr sdk.AccAddress
 	if m.SpendableCoinsFn != nil {
 		return m.SpendableCoinsFn(ctx, addr)
 	}
-	return sdk.NewCoins(sdk.NewCoin(types.BondDenom, math.NewInt(1_000_000_000_000)))
+	return sdk.NewCoins(sdk.NewCoin(testBondDenom, math.NewInt(1_000_000_000_000)))
 }
 
 func (m *mockBankKeeper) SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
@@ -265,6 +265,21 @@ func (m *mockAuthKeeper) GetModuleAddress(name string) sdk.AccAddress {
 	return authtypes.NewModuleAddress(name).Bytes()
 }
 
+// testBondDenom is the bond denom every keeper-unit test uses. The
+// mockIdentityKeeper below returns this value from BondDenom(ctx).
+const testBondDenom = "uspark.sparkdream"
+
+// mockIdentityKeeperService implements types.IdentityKeeper for service
+// keeper tests. Mirrors the blog-test pattern (IsIdentityKeeper marker
+// + BondDenom + DreamDenom).
+type mockIdentityKeeperService struct{}
+
+func (mockIdentityKeeperService) IsIdentityKeeper()                  {}
+func (mockIdentityKeeperService) BondDenom(_ context.Context) string { return testBondDenom }
+func (mockIdentityKeeperService) DreamDenom(_ context.Context) string {
+	return "udream.sparkdream"
+}
+
 // mockServiceHooks captures hook fires for assertions in tests.
 type mockServiceHooks struct {
 	Dissolved   []dissolveCall
@@ -371,6 +386,7 @@ func initFixture(t *testing.T) *fixture {
 
 	k.SetCrossModuleKeepers(commonsKeeper, repKeeper, distributionKeeper)
 	k.SetHooks(hooks)
+	k.SetIdentityKeeper(mockIdentityKeeperService{})
 
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
 		t.Fatalf("failed to set params: %v", err)
@@ -413,7 +429,7 @@ func (f *fixture) seedServiceType(t *testing.T) types.ServiceTypeConfig {
 	cfg := types.ServiceTypeConfig{
 		ServiceType:            testServiceType,
 		Description:            "unit-test service type",
-		MinBond:                sdk.NewCoin(types.BondDenom, math.NewInt(1_000_000)),
+		MinBondAmount:          math.NewInt(1_000_000),
 		UnbondingPeriodBlocks:  20,
 		UnilateralSlashCapBps:  500,
 		Tier1WindowBlocks:      1000,
@@ -437,7 +453,7 @@ func (f *fixture) seedActiveOperator(t *testing.T, addr string, controller strin
 		Address:                 addr,
 		ServiceType:             testServiceType,
 		Controller:              controller,
-		Bond:                    sdk.NewCoin(types.BondDenom, bond),
+		BondAmount:              bond,
 		Metadata:                []byte("seed-metadata"),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_ACTIVE,
 		Tier1SlashedInWindow:    math.ZeroInt(),

@@ -83,9 +83,9 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 	} else {
 		weight = types.DefaultNonmemberFlagWeight
 		// Charge flag_spam_tax to non-members; split 50/50 burn / sentinel reward pool
-		if params.FlagSpamTax.IsPositive() {
+		if params.FlagSpamTaxAmount.IsPositive() {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-			flagSpamTaxCoins := sdk.NewCoins(params.FlagSpamTax)
+			flagSpamTaxCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), params.FlagSpamTaxAmount))
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, flagSpamTaxCoins); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to charge flag spam tax")
 			}

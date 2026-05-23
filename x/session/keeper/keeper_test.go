@@ -66,6 +66,13 @@ func (m *mockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, sender
 	return nil
 }
 
+// mockIdentityKeeperSession returns legacy denoms for unit tests.
+type mockIdentityKeeperSession struct{}
+
+func (mockIdentityKeeperSession) IsIdentityKeeper() {}
+func (m *mockIdentityKeeperSession) BondDenom(_ context.Context) string  { return "uspark" }
+func (m *mockIdentityKeeperSession) DreamDenom(_ context.Context) string { return "udream" }
+
 type mockAuthKeeper struct {
 	addressCodec       address.Codec
 	GetAccountFn       func(context.Context, sdk.AccAddress) sdk.AccountI
@@ -123,6 +130,7 @@ func initFixture(t *testing.T) *fixture {
 		bk,
 		ak,
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeperSession{})
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {

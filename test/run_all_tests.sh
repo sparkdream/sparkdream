@@ -40,7 +40,7 @@ LOG_FILE="/tmp/sparkdreamd-e2e.log"
 
 # Shared timing helpers (timing_now_epoch, timing_format_duration, ...).
 source "$SCRIPT_DIR/_timing.sh"
-# Shared safe-rmtree helper (CLAUDE.md forbids `rm -rf`).
+# Shared safe-rmtree helper (see docs/development-conventions.md — `rm -rf` is forbidden project-wide).
 source "$SCRIPT_DIR/_safe_rm.sh"
 
 # Colors
@@ -82,7 +82,7 @@ ONLY_MODULE=""
 # Re-measure and reorder when adding a new module or after major changes
 # to a slow suite. The simplest measurement source is the per-module log
 # mtimes in e2e/latest/ after a full parallel run.
-MODULE_ORDER="forum rep federation season commons collect blog shield futarchy name service reveal gnovm"
+MODULE_ORDER="forum rep federation season commons collect blog shield futarchy name service reveal gnovm identity guardian"
 
 # Track results
 PASSED_TESTS=()
@@ -545,8 +545,11 @@ verify_test_params || {
 
 # --- Step 6: Legacy tests ---
 # commons, name, and futarchy used to live here. They now have their own
-# per-module run_all_tests.sh (see Step 7). Only ecosystem, split, and gov
-# remain as direct legacy invocations.
+# per-module run_all_tests.sh (see Step 7). gov/inflation_immutable was
+# absorbed into test/guardian/mint_filter_test.sh (which exercises the
+# same immutability guarantee via the new guardian-routed code path) and
+# is no longer in this section. Only ecosystem and split remain as direct
+# legacy invocations.
 if [ "$RUN_LEGACY" = true ]; then
     echo -e "\n${BLUE}=== LEGACY: ECOSYSTEM ===${NC}"
     run_test "ecosystem/ecosystem_spend.sh"
@@ -557,7 +560,6 @@ if [ "$RUN_LEGACY" = true ]; then
 
     echo -e "\n${BLUE}=== LEGACY: SECURITY ===${NC}"
     run_test "ecosystem/ecosystem_security_test.sh"
-    run_test "gov/inflation_immutable_test.sh"
 fi
 
 # --- Step 7: Newer module tests ---

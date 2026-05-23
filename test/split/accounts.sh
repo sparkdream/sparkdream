@@ -3,7 +3,7 @@
 # --- 0. SETUP & ADDRESS DISCOVERY ---
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
-DENOM="uspark"
+DENOM="$BOND_DENOM"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then
@@ -39,7 +39,7 @@ print_balance() {
     if [ -z "$addr" ] || [ "$addr" == "null" ]; then
         echo "Example: $name -> [NOT FOUND / NOT CREATED]"
     else
-        # Fetch balance line (e.g., "1000000uspark")
+        # Fetch balance line (e.g., "1000000${BOND_DENOM}")
         BAL=$($BINARY query bank balances $addr --output json | jq -r --arg DENOM "$DENOM" '.balances[] | select(.denom==$DENOM) | .amount + .denom' 2>/dev/null)
         if [ -z "$BAL" ]; then BAL="0$DENOM"; fi
         

@@ -25,11 +25,11 @@ func TestRandomFees_NonEmpty(t *testing.T) {
 	r := rand.New(rand.NewSource(42))
 	ctx := sdk.Context{}
 
-	spendable := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000000)))
+	spendable := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(1000000)))
 	fees, err := randomFees(r, ctx, spendable)
 	require.NoError(t, err)
-	require.True(t, fees.AmountOf("uspark").IsPositive())
-	require.True(t, fees.AmountOf("uspark").LTE(math.NewInt(1000000)))
+	require.True(t, fees.AmountOf(sdk.DefaultBondDenom).IsPositive())
+	require.True(t, fees.AmountOf(sdk.DefaultBondDenom).LTE(math.NewInt(1000000)))
 }
 
 func TestRandomFees_MultiDenom(t *testing.T) {
@@ -37,7 +37,7 @@ func TestRandomFees_MultiDenom(t *testing.T) {
 	ctx := sdk.Context{}
 
 	spendable := sdk.NewCoins(
-		sdk.NewCoin("uspark", math.NewInt(500)),
+		sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(500)),
 		sdk.NewCoin("udream", math.NewInt(300)),
 	)
 	fees, err := randomFees(r, ctx, spendable)
@@ -47,7 +47,7 @@ func TestRandomFees_MultiDenom(t *testing.T) {
 
 func TestRandomFees_IsDeterministic(t *testing.T) {
 	ctx := sdk.Context{}
-	spendable := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000000)))
+	spendable := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(1000000)))
 
 	r1 := rand.New(rand.NewSource(77))
 	r2 := rand.New(rand.NewSource(77))
@@ -63,7 +63,7 @@ func TestRandomFees_ZeroAmountCoin(t *testing.T) {
 	r := rand.New(rand.NewSource(5))
 	ctx := sdk.Context{}
 
-	spendable := sdk.Coins{sdk.NewCoin("uspark", math.NewInt(0))}
+	spendable := sdk.Coins{sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(0))}
 	fees, err := randomFees(r, ctx, spendable)
 	require.NoError(t, err)
 	// Zero-amount coin is skipped

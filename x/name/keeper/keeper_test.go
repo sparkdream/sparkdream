@@ -76,6 +76,7 @@ func initFixture(t *testing.T) *fixture {
 		mockCK, // CommonsKeeper
 		mockRK, // RepKeeper
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeper{})
 
 	// Initialize Params
 	err := k.Params.Set(ctx, types.DefaultParams())
@@ -95,6 +96,12 @@ func initFixture(t *testing.T) *fixture {
 // --- Shared Mocks ---
 
 // MockCommonsKeeper (Used in dispute tests)
+// mockIdentityKeeper returns legacy denoms for unit tests.
+type mockIdentityKeeper struct{}
+
+func (mockIdentityKeeper) IsIdentityKeeper() {}
+func (m *mockIdentityKeeper) BondDenom(_ context.Context) string { return "uspark" }
+
 type MockCommonsKeeper struct {
 	Groups      map[string]commonstypes.Group
 	PolicyPerms map[string]commonstypes.PolicyPermissions

@@ -41,7 +41,7 @@ CREATE_RES=$($BINARY tx futarchy create-market \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -109,7 +109,7 @@ TRADE_RES=$($BINARY tx futarchy trade \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -147,7 +147,7 @@ TRADE_NO_RES=$($BINARY tx futarchy trade \
   --from carol \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -236,7 +236,7 @@ if [[ "$FINAL_STATUS" == "RESOLVED_YES" ]]; then
       --from bob \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json)
 
@@ -251,7 +251,7 @@ elif [[ "$FINAL_STATUS" == "RESOLVED_NO" ]]; then
       --from carol \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json)
 

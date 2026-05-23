@@ -42,7 +42,7 @@ cd test/federation
 
 The snapshot lives at [test/federation/snapshots/post-setup/sparkdream_data/](../snapshots/post-setup/sparkdream_data/) and is a copy of `~/.sparkdream/data` taken right after [setup_test_accounts.sh](../setup_test_accounts.sh) completes. Both chains in the multichain suite are clones of it.
 
-Regenerate after proto/keeper changes invalidate the saved app state. (CLAUDE.md forbids `rm -rf`; use `find -delete`.)
+Regenerate after proto/keeper changes invalidate the saved app state. (`rm -rf` is forbidden project-wide — see [docs/development-conventions.md](../../../docs/development-conventions.md) — use `find -delete`.)
 ```bash
 find test/federation/snapshots/post-setup -depth -delete
 ./run_all_tests.sh --save-setup

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/service/keeper"
@@ -35,7 +34,7 @@ func TestGetAvailableBond(t *testing.T) {
 
 	// Missing operator: zero coin.
 	c := f.keeper.GetAvailableBond(f.ctx, testOperator1Addr, testServiceType)
-	require.Equal(t, types.BondDenom, c.Denom)
+	require.Equal(t, testBondDenom, c.Denom)
 	require.True(t, c.Amount.IsZero())
 
 	// Live operator: bond is returned verbatim.
@@ -73,7 +72,7 @@ func TestGetArchivedOperators(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    sdk.NewCoin(types.BondDenom, math.ZeroInt()),
+		BondAmount:                    math.ZeroInt(),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_SLASHED,
 		RetiredAt:               f.sdkCtx().BlockHeight(),
 		Tier1SlashedInWindow:    math.ZeroInt(),
@@ -115,7 +114,7 @@ func TestPublicAPI_RegisterOperator(t *testing.T) {
 		testOperator1,
 		testServiceType,
 		testController,
-		sdk.NewCoin(types.BondDenom, math.NewInt(2_000_000)),
+		math.NewInt(2_000_000),
 		[]byte("via-api"),
 		keeper.SlashSource(0), // normal mode (any non-Migration)
 	)
@@ -135,7 +134,7 @@ func TestPublicAPI_RegisterOperator_MigrationBypassesGates(t *testing.T) {
 		testOperator1,
 		testServiceType,
 		testRandom,
-		sdk.NewCoin(types.BondDenom, math.NewInt(1)), // below min, but bypass
+		math.NewInt(1), // below min, but bypass
 		[]byte("migrate"),
 		keeper.SlashSourceMigration,
 	)
@@ -170,7 +169,7 @@ func TestPublicAPI_SlashOperator_Tier2RoutesToCommunityPool(t *testing.T) {
 	// Bond decreased.
 	op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
 	require.True(t, ok)
-	require.True(t, op.Bond.Amount.LT(preBond))
+	require.True(t, op.BondAmount.LT(preBond))
 
 	// Distribution keeper was called.
 	require.NotEmpty(t, f.distributionKeeper.Calls)
@@ -231,7 +230,7 @@ func TestSlashOperator_FiresAfterOperatorUnderfundedOnTransition(t *testing.T) {
 	cfg := f.seedServiceType(t)
 	// Make the threshold "easy to drop below" — set min_bond high relative
 	// to seeded bond so a small slash flips status.
-	cfg.MinBond = sdk.NewCoin(types.BondDenom, math.NewInt(900_000))
+	cfg.MinBondAmount = math.NewInt(900_000)
 	cfg.UnilateralSlashCapBps = 5000 // permit a big tier-1 slash for the test
 	cfg.Tier1AggregateCapBps = 5000
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))

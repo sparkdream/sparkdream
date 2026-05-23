@@ -129,7 +129,7 @@ ignite chain init
 sparkdreamd start --home ~/.sparkdream
 ```
 
-> Prefer this `build` + `init` + `start` flow over `ignite chain serve`. Serve uses an internal build pipeline that has produced depinject cycle panics on this codebase even when `chain build` succeeds; the rationale is captured in [CLAUDE.md](CLAUDE.md).
+> Prefer this `build` + `init` + `start` flow over `ignite chain serve`. Serve uses an internal build pipeline that has produced depinject cycle panics on this codebase even when `chain build` succeeds; the rationale is captured in [docs/development-conventions.md](docs/development-conventions.md).
 
 The default `config.yml` provisions four test accounts (`alice`, `bob`, `carol`, `dave`) with mnemonics committed intentionally — they derive the addresses hard-coded in `x/commons/keeper/genesis_vals.go` for governance bootstrap. **They hold no real funds and are never used in production.**
 

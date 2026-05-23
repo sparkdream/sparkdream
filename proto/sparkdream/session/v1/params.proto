@@ -2,7 +2,6 @@ syntax = "proto3";
 package sparkdream.session.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
 
@@ -33,10 +32,11 @@ message Params {
     (gogoproto.stdduration) = true
   ];
 
-  // Maximum gas budget per session.
-  cosmos.base.v1beta1.Coin max_spend_limit = 6 [
-    (gogoproto.nullable) = false,
-    (amino.dont_omitempty) = true
+  // Maximum gas budget per session, in bond-denom micro-units (the chain's
+  // bond denom is resolved at runtime via x/identity).
+  string max_spend_limit_amount = 6 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
   ];
 
   // Maximum exec_count per session. Must be > 0; sessions must declare
@@ -95,23 +95,26 @@ message Params {
   uint64 max_oneshot_exec_gas = 37;
   // Price per gas unit for OneshotExec deposit calculation, as sdk.Dec
   // string. Default "0.0025" (100x typical min_gas_price). Floor must be
-  // >= chain's effective min_gas_price.
-  string oneshot_gas_price_uspark = 38;
+  // >= chain's effective min_gas_price. Denominated in the chain's bond
+  // denom (resolved at runtime via x/identity).
+  string oneshot_gas_price = 38;
   // Flat per-slot fee on every Oneshot grant creation (both Transfer and
-  // Exec variants). Default 1000 uspark (0.001 SPARK). Closes the
-  // "free state slot" hole.
-  uint64 oneshot_creation_fee_uspark = 39;
-  // Hard floor on total deposit. Default 1000 uspark. Defeats `gas_limit=1`
-  // zero-deposit slot griefing.
-  uint64 min_oneshot_deposit_uspark = 40;
+  // Exec variants), in bond-denom micro-units. Default 1000 (0.001 SPARK).
+  // Closes the "free state slot" hole.
+  uint64 oneshot_creation_fee = 39;
+  // Hard floor on total deposit, in bond-denom micro-units. Default 1000.
+  // Defeats `gas_limit=1` zero-deposit slot griefing.
+  uint64 min_oneshot_deposit = 40;
   // Per-EndBlocker pass cap on dispatches (fire, auto-revoke, expire each
   // get their own cap). Default 100.
   uint32 max_endblocker_dispatches_per_pass = 41;
 
   // --- Cross-type (P3) ---
-  // Coins permitted as denom in RecurringPull / SpendingAllowance / Oneshot
-  // grants. Default ["uspark"]. DREAM is permanently excluded at the handler
-  // level regardless of contents.
+  // Additional coins permitted as denom in RecurringPull / SpendingAllowance
+  // / Oneshot grants. Default empty — the chain's bond denom is ALWAYS
+  // allowed; this list adds additional permitted denoms (e.g. IBC vouchers).
+  // DREAM is permanently excluded at the handler level regardless of
+  // contents.
   repeated string allowed_denoms = 50;
   // General cap on `expires_at - created_at` across all grant types. Default
   // 31_536_000 (1 year).
@@ -151,9 +154,9 @@ message SessionOperationalParams {
     (gogoproto.stdduration) = true
   ];
 
-  cosmos.base.v1beta1.Coin max_spend_limit = 5 [
-    (gogoproto.nullable) = false,
-    (amino.dont_omitempty) = true
+  string max_spend_limit_amount = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
   ];
 
   uint64 max_exec_count = 6;
@@ -176,9 +179,9 @@ message SessionOperationalParams {
   int64 paused_oneshot_ttl_seconds = 35;
   uint64 min_oneshot_exec_gas = 36;
   uint64 max_oneshot_exec_gas = 37;
-  string oneshot_gas_price_uspark = 38;
-  uint64 oneshot_creation_fee_uspark = 39;
-  uint64 min_oneshot_deposit_uspark = 40;
+  string oneshot_gas_price = 38;
+  uint64 oneshot_creation_fee = 39;
+  uint64 min_oneshot_deposit = 40;
   uint32 max_endblocker_dispatches_per_pass = 41;
   // Note: allowed_denoms is add-only by ops (removing a denom strands existing
   // grants and is gov-only via MsgUpdateParams). Including it here so ops can

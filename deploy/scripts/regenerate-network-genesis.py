@@ -54,7 +54,7 @@ COMMUNITY_POOL_AMOUNT = "95000000000000"
 
 # Founder accounts shared by testnet and mainnet. Addresses match
 # x/commons/keeper/genesis_vals.go. SPARK and DREAM allocations follow the
-# 4-tier structure documented in CLAUDE.md tokenomics.
+# 4-tier structure documented in docs/tokenomics.md.
 FOUNDERS = [
     # Tier 1 (Lead Vocal)
     {"address": "sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu", "name": "valya",

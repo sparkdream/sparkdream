@@ -25,6 +25,15 @@ type BankKeeper interface {
 	BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error
 }
 
+// IdentityKeeper is the subset of x/identity that collect reads to
+// resolve the chain's bond denom at runtime. Late-bound via
+// SetIdentityKeeper from app.go. Required: collect panics on first denom
+// lookup if identity isn't wired.
+type IdentityKeeper interface {
+	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+}
+
 // RepKeeper defines the expected interface for the x/rep module.
 // Used for membership checks, trust level verification, curator bonding, and jury resolution.
 type RepKeeper interface {

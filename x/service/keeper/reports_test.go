@@ -5,7 +5,6 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/service/keeper"
@@ -30,7 +29,7 @@ func TestApplySlashToBond_FlipsToUnderfunded(t *testing.T) {
 	// Trigger an internal slash via the public SlashOperator API which
 	// wraps applySlashToBond. Use Tier2Jury source so cooldown/aggregate
 	// gates are bypassed and the test focuses on the bond/status math.
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount)
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount)
 
 	// Slash 5000 bps (50%) — half of min_bond → falls below min_bond.
 	_, err := f.keeper.SlashOperator(f.ctx, testOperator1Addr, testServiceType, 5000, 0, keeper.SlashSourceTier2Jury)
@@ -104,8 +103,8 @@ func TestHasOpenReports(t *testing.T) {
 		ServiceType:     testServiceType,
 		Reporter:        testReporter,
 		Status:          types.ReportStatus_REPORT_STATUS_PENDING,
-		SlashAmount:     sdk.NewCoin(types.BondDenom, math.ZeroInt()),
-		Deposit:         sdk.NewCoin(types.BondDenom, math.NewInt(10_000_000)),
+		SlashAmount:     math.ZeroInt(),
+		Deposit:         math.NewInt(10_000_000),
 	}
 	require.NoError(t, f.keeper.Reports.Set(f.ctx, reportID, r))
 	require.NoError(t, f.keeper.ReportsByOperator.Set(f.ctx, collections.Join3(testOperator1Addr.Bytes(), testServiceType, reportID)))
@@ -140,7 +139,7 @@ func TestHasActiveTier1Escrow(t *testing.T) {
 		ReleaseAt:       releaseAt,
 		OperatorAddress: testOperator1,
 		ServiceType:     testServiceType,
-		Amount:          sdk.NewCoin(types.BondDenom, math.NewInt(1)),
+		Amount:          math.NewInt(1),
 	}))
 	require.NoError(t, f.keeper.Tier1EscrowByOperator.Set(f.ctx,
 		collections.Join3(testOperator1Addr.Bytes(), testServiceType, escrowID)))

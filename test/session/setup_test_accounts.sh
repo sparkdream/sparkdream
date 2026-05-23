@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get alice address (genesis member)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -104,10 +105,10 @@ echo "Step 2: Funding test accounts with SPARK..."
 echo "  Sending 100 SPARK to session_granter..."
 TX_RES=$($BINARY tx bank send \
     alice $GRANTER_ADDR \
-    100000000uspark \
+    100000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 sleep 6
@@ -117,10 +118,10 @@ for ADDR in $GRANTEE1_ADDR $GRANTEE2_ADDR; do
     echo "  Sending 10 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
-        10000000uspark \
+        10000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     sleep 6
@@ -146,7 +147,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -171,7 +172,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
                 --from session_granter \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -214,7 +215,7 @@ fi
 # Check all accounts have balance
 for ACCOUNT in "session_granter" "session_grantee1" "session_grantee2"; do
     ADDR=$($BINARY keys show $ACCOUNT -a --keyring-backend test)
-    BALANCE=$($BINARY query bank balances $ADDR --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount // "0"' || echo "0")
+    BALANCE=$($BINARY query bank balances $ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount // "0"' || echo "0")
     echo "  $ACCOUNT: $BALANCE uspark"
     if [ "$BALANCE" = "0" ] || [ -z "$BALANCE" ]; then
         ALL_SUCCESS=false
@@ -232,6 +233,8 @@ export GRANTER_ADDR=$GRANTER_ADDR
 export GRANTEE1_ADDR=$GRANTEE1_ADDR
 export GRANTEE2_ADDR=$GRANTEE2_ADDR
 export ALICE_ADDR=$ALICE_ADDR
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

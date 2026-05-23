@@ -60,9 +60,10 @@ func (k msgServer) AppealThreadMove(ctx context.Context, msg *types.MsgAppealThr
 	}
 
 	// Charge move_appeal_fee to appellant and escrow it
-	if params.MoveAppealFee.IsPositive() {
+	if params.MoveAppealFeeAmount.IsPositive() {
 		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.MoveAppealFee)); err != nil {
+		moveAppealFee := sdk.NewCoin(k.BondDenom(ctx), params.MoveAppealFeeAmount)
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(moveAppealFee)); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to charge move appeal fee")
 		}
 	}

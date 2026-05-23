@@ -23,12 +23,12 @@ const maxPrunePerBlock = 100
 
 // EndBlocker runs three ordered, independently-capped passes per Rev 2 §6:
 //
-//   1. Fire scheduled oneshots whose `fire_at <= block_time`. Strict
-//      `(fire_at ASC, grant_id ASC)` ordering for deterministic replay.
-//   2. Auto-revoke paused oneshots older than params.paused_oneshot_ttl_seconds;
-//      refund the held deposit to the granter.
-//   3. Expire grants whose `expires_at <= block_time`. Status -> COMPLETED
-//      (or REVOKED for oneshots that have a deposit refund implied).
+//  1. Fire scheduled oneshots whose `fire_at <= block_time`. Strict
+//     `(fire_at ASC, grant_id ASC)` ordering for deterministic replay.
+//  2. Auto-revoke paused oneshots older than params.paused_oneshot_ttl_seconds;
+//     refund the held deposit to the granter.
+//  3. Expire grants whose `expires_at <= block_time`. Status -> COMPLETED
+//     (or REVOKED for oneshots that have a deposit refund implied).
 //
 // Each pass caps at params.max_endblocker_dispatches_per_pass. If pass 1
 // fills its cap, passes 2 and 3 still run with their own caps.

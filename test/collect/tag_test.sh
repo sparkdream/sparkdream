@@ -349,7 +349,7 @@ RESERVED_TAG="cryptography"
 TX_OUT=$($BINARY tx rep report-tag \
     "$RESERVED_TAG" "Reserve for collect e2e test" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 50000uspark -y --output json 2>&1)
+    --fees 50000${BOND_DENOM} -y --output json 2>&1)
 assert_tx_success "Report tag for reserve test" "$TX_OUT"
 
 # Step 2: alice resolves with action=2 (reserve). Alice is on the Commons
@@ -358,7 +358,7 @@ assert_tx_success "Report tag for reserve test" "$TX_OUT"
 TX_OUT=$($BINARY tx rep resolve-tag-report \
     "$RESERVED_TAG" "2" "$ALICE_ADDR" "false" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 50000uspark -y --output json 2>&1)
+    --fees 50000${BOND_DENOM} -y --output json 2>&1)
 assert_tx_success "Resolve tag report as reserve (action=2)" "$TX_OUT"
 
 # Verify the reserved-tag entry exists.

@@ -151,7 +151,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from "$CREATOR" \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -200,7 +200,7 @@ if [ -n "$TAGGED_POST_ID" ]; then
         --from "$CREATOR" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -266,7 +266,7 @@ if [ -n "$TAGGED_POST_ID" ]; then
         --from "$CREATOR" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -308,7 +308,7 @@ if [ -n "$TAGGED_POST_ID" ]; then
         --from "$CREATOR" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -358,7 +358,7 @@ if [ -n "$TAGGED_POST_ID" ]; then
         --from "$CREATOR" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

@@ -44,6 +44,7 @@ func setupMsgServerForUpdate(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.
 		nil, // commonsKeeper (optional)
 		repKeeper,
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeper{})
 
 	// Initialize params with high rate limits for testing
 	params := types.DefaultParams()

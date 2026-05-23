@@ -203,8 +203,8 @@ func (k Keeper) OpenSystemReport(
 		EscalatedAt:      0,
 		Status:           types.ReportStatus_REPORT_STATUS_PENDING,
 		ProposedSlashBps: effectiveSlashBps,
-		SlashAmount:      sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt()),
-		Deposit:          sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt()),
+		SlashAmount:      sdkmath.ZeroInt(),
+		Deposit:          sdkmath.ZeroInt(),
 		JuryCaseId:       0,
 	}
 	if err := k.Reports.Set(ctx, reportID, report); err != nil {

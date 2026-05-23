@@ -45,7 +45,7 @@ else
 
     if [ "$BIN_PATH" != "$GOPATH_BIN" ] && [ -x "$GOPATH_BIN" ]; then
         yellow "  [WARN] PATH binary differs from GOPATH binary ($GOPATH_BIN)"
-        yellow "         CLAUDE.md guidance: only one sparkdreamd binary should exist."
+        yellow "         Project convention: only one sparkdreamd binary should exist (see docs/development-conventions.md)."
     fi
 
     # Quick check that this is a testparams build (testparams reduces voting periods etc.)

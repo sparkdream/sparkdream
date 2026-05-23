@@ -209,7 +209,7 @@ else
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
       "authority": "$COMMONS_POLICY",
       "recipient": "$ALICE_ADDR",
-      "amount": [{"denom": "uspark", "amount": "1000"}]
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "1000"}]
     }
   ],
   "metadata": "Test proposal for anonymous voting E2E test"
@@ -220,7 +220,7 @@ EOF
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000000uspark \
+        --fees 5000000${BOND_DENOM} \
         --gas 500000 \
         -y \
         --output json 2>&1)
@@ -446,7 +446,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         --gas 500000 \
         -y \
         --output json 2>&1)

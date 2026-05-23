@@ -45,8 +45,8 @@ address_type = { derivation = 'cosmos' }
 store_prefix = 'ibc'
 default_gas = 200000
 max_gas = 4000000
-# gas_price.price MUST be >= chain min-gas-prices (init_chains.sh sets 0.001uspark)
-gas_price = { price = 0.0025, denom = 'uspark' }
+# gas_price.price MUST be >= chain min-gas-prices (init_chains.sh sets 0.0025uspark.sparkdream)
+gas_price = { price = 0.0025, denom = 'uspark.sparkdream' }
 gas_multiplier = 3.0
 max_msg_num = 30
 max_tx_size = 180000
@@ -74,7 +74,7 @@ address_type = { derivation = 'cosmos' }
 store_prefix = 'ibc'
 default_gas = 200000
 max_gas = 4000000
-gas_price = { price = 0.0025, denom = 'uspark' }
+gas_price = { price = 0.0025, denom = 'uspark.sparkdream' }
 gas_multiplier = 3.0
 max_msg_num = 30
 max_tx_size = 180000

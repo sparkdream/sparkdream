@@ -10,6 +10,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 source "$SCRIPT_DIR/../_timing.sh"
 
 # Wall-clock timing for the suite (Started/Ended/Duration in summary).

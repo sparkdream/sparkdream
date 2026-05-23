@@ -130,7 +130,7 @@ create_post_with_tags() {
         --from "$FROM"
         --chain-id "$CHAIN_ID"
         --keyring-backend test
-        --fees 50000uspark
+        --fees 50000${BOND_DENOM}
         -y
         --output json)
 
@@ -354,7 +354,7 @@ if [ -n "$TAGGED_POST_ID" ]; then
         --from "$CREATOR" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -429,7 +429,7 @@ if [ -n "$TAGGED_POST_ID" ]; then
         --from "$CREATOR" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -495,7 +495,7 @@ TX_RES=$($BINARY tx rep report-tag \
     --from "$CREATOR" \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -514,7 +514,7 @@ else
         --from "$CREATOR" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

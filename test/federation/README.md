@@ -167,14 +167,14 @@ sparkdreamd start --home ~/.sparkdream
 Or use `--restore-setup` which boots the snapshot for you.
 
 ### Stale snapshots after proto changes
-Proto schema changes invalidate the snapshot's app state. Regenerate after any proto/keeper schema change. (CLAUDE.md forbids `rm -rf`; use `find -delete` instead.)
+Proto schema changes invalidate the snapshot's app state. Regenerate after any proto/keeper schema change. (`rm -rf` is forbidden project-wide — see [docs/development-conventions.md](../../docs/development-conventions.md) — use `find -delete` instead.)
 ```bash
 find snapshots/post-setup -depth -delete
 ./run_all_tests.sh --save-setup
 ```
 
 ### Stale binaries
-CLAUDE.md guidance: only one `sparkdreamd` should exist, at `$(go env GOPATH)/bin/sparkdreamd`. Check for stragglers:
+Project convention (see [docs/development-conventions.md](../../docs/development-conventions.md)): only one `sparkdreamd` should exist, at `$(go env GOPATH)/bin/sparkdreamd`. Check for stragglers:
 ```bash
 ls /tmp/sparkdreamd ./sparkdreamd build/sparkdreamd 2>/dev/null  # all should be missing
 ```

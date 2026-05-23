@@ -64,6 +64,7 @@ func setupMsgServerWithCommons(t testing.TB, commonsKeeper types.CommonsKeeper) 
 		commonsKeeper,
 		repKeeper,
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeper{})
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
@@ -92,7 +93,7 @@ func TestMsgUpdateOperationalParams(t *testing.T) {
 		// Verify the params were stored with correct operational values
 		storedParams, err := f.keeper.Params.Get(f.ctx)
 		require.NoError(t, err)
-		require.Equal(t, types.DefaultBlogOperationalParams().CostPerByte, storedParams.CostPerByte)
+		require.Equal(t, types.DefaultBlogOperationalParams().CostPerByteAmount, storedParams.CostPerByteAmount)
 		require.Equal(t, types.DefaultBlogOperationalParams().CostPerByteExempt, storedParams.CostPerByteExempt)
 	})
 
@@ -120,7 +121,7 @@ func TestMsgUpdateOperationalParams(t *testing.T) {
 		// Verify params were stored
 		storedParams, err := k.Params.Get(ctx)
 		require.NoError(t, err)
-		require.Equal(t, types.DefaultBlogOperationalParams().CostPerByte, storedParams.CostPerByte)
+		require.Equal(t, types.DefaultBlogOperationalParams().CostPerByteAmount, storedParams.CostPerByteAmount)
 	})
 
 	t.Run("unauthorized fails", func(t *testing.T) {

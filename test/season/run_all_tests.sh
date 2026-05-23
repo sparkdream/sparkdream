@@ -9,6 +9,7 @@ echo ""
 # Configuration
 # ========================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 source "$SCRIPT_DIR/../check_testparams.sh"
 source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
@@ -242,7 +243,7 @@ else
     echo "Alice account found: $ALICE_ADDR"
 
     # Check Alice's balance
-    ALICE_SPARK=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r '[.balances[] | select(.denom=="uspark") | .amount] | if length > 0 then .[0] else "0" end')
+    ALICE_SPARK=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '[.balances[] | select(.denom==$denom) | .amount] | if length > 0 then .[0] else "0" end')
     echo "Alice SPARK balance: $ALICE_SPARK uspark"
 
     # Check if Alice is a member in x/rep

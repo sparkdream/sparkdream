@@ -14,6 +14,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
@@ -65,6 +66,7 @@ func initFixture(t *testing.T) *fixture {
 	k.SetCommonsKeeper(&mockCommonsKeeper{})
 	repKeeper := &mockRepKeeper{}
 	k.SetRepKeeper(repKeeper)
+	k.SetIdentityKeeper(&mockIdentityKeeper{})
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
@@ -123,6 +125,21 @@ func (m *mockBankKeeper) SendCoinsFromModuleToAccount(_ context.Context, _ strin
 func (m *mockBankKeeper) BurnCoins(_ context.Context, _ string, _ sdk.Coins) error {
 	return nil
 }
+
+func (m *mockBankKeeper) SetDenomMetaData(_ context.Context, _ banktypes.Metadata) {}
+
+func (m *mockBankKeeper) GetDenomMetaData(_ context.Context, _ string) (banktypes.Metadata, bool) {
+	return banktypes.Metadata{}, false
+}
+
+// mockIdentityKeeper implements types.IdentityKeeper for testing.
+// Always returns "uspark"/"udream" — the legacy denoms unit tests assume.
+// E2E tests run against a real chain with the real identity keeper.
+type mockIdentityKeeper struct{}
+
+func (mockIdentityKeeper) IsIdentityKeeper()                       {}
+func (m *mockIdentityKeeper) BondDenom(_ context.Context) string  { return "uspark" }
+func (m *mockIdentityKeeper) DreamDenom(_ context.Context) string { return "udream" }
 
 type mockCommonsKeeper struct {
 	// IsGroupPolicyAddressFn lets specific tests override the default.
@@ -380,10 +397,10 @@ func testAddr(t *testing.T, f *fixture, seed string) string {
 func registerTestBridge(t *testing.T, f *fixture, ms types.MsgServer, peerID, operatorSeed string) string {
 	t.Helper()
 	operatorStr := testAddr(t, f, operatorSeed)
-	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator:  operatorStr,
-		PeerId:    peerID,
-		Protocol:  "activitypub",
-		Endpoint:  "https://" + operatorSeed + ".example.com",
+	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator: operatorStr,
+		PeerId:   peerID,
+		Protocol: "activitypub",
+		Endpoint: "https://" + operatorSeed + ".example.com",
 	})
 	require.NoError(t, err)
 	return operatorStr

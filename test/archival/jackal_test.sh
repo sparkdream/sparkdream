@@ -65,7 +65,8 @@ echo ""
 
 TEST_DIR=$(mktemp -d)
 echo "$TEST_DIR"
-# Cleanup trap restored. CLAUDE.md forbids `rm -rf`, so we use `find -delete`.
+# Cleanup trap restored. `rm -rf` is forbidden project-wide (see
+# docs/development-conventions.md), so we use `find -delete`.
 # Guard the path so an empty TEST_DIR can't reach `/`.
 trap '[ -n "$TEST_DIR" ] && [ "$TEST_DIR" != "/" ] && [ -d "$TEST_DIR" ] && cleanup_test_dir "$TEST_DIR" 2>/dev/null; [ -n "$TEST_DIR" ] && [ "$TEST_DIR" != "/" ] && [ -d "$TEST_DIR" ] && find "$TEST_DIR" -depth -delete 2>/dev/null' EXIT
 

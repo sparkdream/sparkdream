@@ -111,19 +111,19 @@ vote_and_execute() {
     echo "  Alice voting YES..."
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 3
 
     echo "  Bob voting YES..."
     $BINARY tx commons vote-proposal $prop_id yes \
         --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 3
 
     echo "  Executing proposal..."
     EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
@@ -159,7 +159,7 @@ TX_RES=$($BINARY tx reveal propose \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -201,7 +201,7 @@ if [ "$PROPOSE_FOR_CANCEL_RESULT" == "PASS" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -267,7 +267,7 @@ TX_RES=$($BINARY tx reveal propose \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -312,7 +312,7 @@ TX_RES=$($BINARY tx reveal propose \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -367,7 +367,7 @@ if [ "$PROPOSE_FOR_REJECT_RESULT" == "PASS" ] && [ -n "$COUNCIL_POLICY" ]; then
     echo "  Submitting council rejection proposal..."
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/reject_contribution.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
     PROPOSAL_ID=$(get_group_proposal_id $TX_HASH)
@@ -446,7 +446,7 @@ if [ -n "$NEG_CONTRIB_ID" ] && [ -n "$COUNCIL_POLICY" ]; then
 
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/approve_neg_test.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
     PROPOSAL_ID=$(get_group_proposal_id $TX_HASH)
 
@@ -460,7 +460,7 @@ if [ -n "$NEG_CONTRIB_ID" ] && [ -n "$COUNCIL_POLICY" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -507,7 +507,7 @@ do_stake_and_check() {
         --from "$STAKER_NAME" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     STAKE_TXHASH=$(echo "$STAKE_TX_RES" | jq -r '.txhash' 2>/dev/null)
@@ -556,7 +556,7 @@ if [ -n "$NEG_CONTRIB_ID" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 

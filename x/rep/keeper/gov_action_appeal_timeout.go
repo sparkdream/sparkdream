@@ -70,7 +70,7 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 			half := bond.QuoRaw(2)
 			refund := bond.Sub(half)
 			if refund.IsPositive() {
-				refundCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, refund))
+				refundCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), refund))
 				appellantAddr, addrErr := sdk.AccAddressFromBech32(p.appeal.Appellant)
 				if addrErr != nil {
 					sdkCtx.Logger().Error("invalid appellant on appeal",
@@ -85,7 +85,7 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 			if half.IsPositive() {
 				// Round-trip through the rep module account so BurnCoins has a
 				// module-account identity with Burner permission.
-				burnCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, half))
+				burnCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), half))
 				if err := k.bankKeeper.SendCoins(
 					ctx, AppealBondEscrowAddress(), authtypes.NewModuleAddress(types.ModuleName), burnCoins,
 				); err != nil {

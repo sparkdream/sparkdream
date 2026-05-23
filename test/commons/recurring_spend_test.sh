@@ -67,7 +67,7 @@ echo "session.min_recurring_period_seconds = $SESSION_MIN_PERIOD"
 # --- 1. FUND THE COMMITTEE --------------------------------------------------
 echo ""
 echo "STEP 1: Funding committee treasury..."
-$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000${BOND_DENOM} --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
 # --- 2. SCHEDULE A RECURRING SPEND ------------------------------------------
@@ -95,7 +95,7 @@ cat > "$PROPOSAL_DIR/schedule_recurring.json" <<EOF
       "authority": "$POLICY_ADDR",
       "recipient": "$CAROL_ADDR",
       "amount_per_period": [
-        { "denom": "uspark", "amount": "$AMOUNT_PER_PERIOD" }
+        { "denom": "${BOND_DENOM}", "amount": "$AMOUNT_PER_PERIOD" }
       ],
       "period_seconds": "$PERIOD_SECONDS",
       "start_time": "$START_TIME",
@@ -119,12 +119,12 @@ if [ -z "$SCHED_PROP_ID" ] || [ "$SCHED_PROP_ID" == "null" ]; then
 fi
 echo "Commons proposal ID: $SCHED_PROP_ID"
 
-$BINARY tx commons vote-proposal "$SCHED_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+$BINARY tx commons vote-proposal "$SCHED_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
-$BINARY tx commons vote-proposal "$SCHED_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+$BINARY tx commons vote-proposal "$SCHED_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
-EXEC_RES=$($BINARY tx commons execute-proposal "$SCHED_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
+EXEC_RES=$($BINARY tx commons execute-proposal "$SCHED_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
 sleep 3
 EXEC_TX_HASH=$(echo "$EXEC_RES" | jq -r '.txhash')
 
@@ -163,11 +163,11 @@ if [ "$WAIT_FOR" -lt 0 ]; then WAIT_FOR=0; fi
 echo "STEP 3: Waiting ${WAIT_FOR}s for the first claim window..."
 sleep "$WAIT_FOR"
 
-INITIAL_BAL=$($BINARY query bank balances "$CAROL_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+INITIAL_BAL=$($BINARY query bank balances "$CAROL_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 if [ -z "$INITIAL_BAL" ]; then INITIAL_BAL=0; fi
 echo "Carol's pre-claim balance: $INITIAL_BAL"
 
-CLAIM_RES=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json)
+CLAIM_RES=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 sleep 3
 CLAIM_CODE=$(echo "$CLAIM_RES" | jq -r '.code')
 if [ "$CLAIM_CODE" != "0" ]; then
@@ -176,7 +176,7 @@ if [ "$CLAIM_CODE" != "0" ]; then
     exit 1
 fi
 
-FINAL_BAL=$($BINARY query bank balances "$CAROL_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+FINAL_BAL=$($BINARY query bank balances "$CAROL_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 DELTA=$((FINAL_BAL - INITIAL_BAL))
 echo "Carol's post-claim balance: $FINAL_BAL (delta=$DELTA)"
 
@@ -205,7 +205,7 @@ echo "[ OK ] Schedule claims_made=$CLAIMS_MADE"
 # code rather than match a specific message string.
 echo ""
 echo "STEP 3a: Confirming back-to-back claim is rejected (cadence enforcement)..."
-EARLY_CLAIM=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+EARLY_CLAIM=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>&1)
 EARLY_CODE=$(echo "$EARLY_CLAIM" | jq -r '.code')
 EARLY_LOG=$(echo "$EARLY_CLAIM" | jq -r '.raw_log')
 if [ "$EARLY_CODE" == "0" ]; then
@@ -277,12 +277,12 @@ CANCEL_TX_HASH=$(echo "$CANCEL_SUBMIT" | jq -r '.txhash')
 sleep 3
 CANCEL_PROP_ID=$($BINARY query tx "$CANCEL_TX_HASH" --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
-$BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+$BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
-$BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+$BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
-CANCEL_EXEC=$($BINARY tx commons execute-proposal "$CANCEL_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
+CANCEL_EXEC=$($BINARY tx commons execute-proposal "$CANCEL_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
 sleep 3
 CANCEL_EXEC_HASH=$(echo "$CANCEL_EXEC" | jq -r '.txhash')
 
@@ -321,7 +321,7 @@ echo "STEP 5: Confirming a post-cancel claim is rejected..."
 
 # Wait long enough that a fresh period would otherwise have elapsed.
 sleep "$PERIOD_SECONDS"
-POST_CANCEL=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+POST_CANCEL=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>&1)
 POST_CODE=$(echo "$POST_CANCEL" | jq -r '.code')
 POST_LOG=$(echo "$POST_CANCEL" | jq -r '.raw_log')
 # The broadcast may return code=0 (mempool accept) even when deliver

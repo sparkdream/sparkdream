@@ -111,14 +111,14 @@ echo ""
 # The shield module auto-funds from community pool via BeginBlocker, but on a
 # fresh chain the community pool is empty. Send tokens directly so shielded
 # execution has gas to work with.
-SHIELD_BAL=$($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount // "0"' 2>/dev/null)
+SHIELD_BAL=$($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount // "0"' 2>/dev/null)
 if [ -z "$SHIELD_BAL" ] || [ "$SHIELD_BAL" -lt 10000000 ] 2>/dev/null; then
     echo "Funding shield module (current balance: ${SHIELD_BAL:-0} uspark)..."
-    $BINARY tx bank send alice "$SHIELD_MODULE_ADDR" 50000000uspark \
+    $BINARY tx bank send alice "$SHIELD_MODULE_ADDR" 50000000${BOND_DENOM} \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 500000uspark -y --output json > /dev/null 2>&1
+        --fees 500000${BOND_DENOM} -y --output json > /dev/null 2>&1
     sleep 6
-    NEW_BAL=$($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount // "0"' 2>/dev/null)
+    NEW_BAL=$($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount // "0"' 2>/dev/null)
     echo "Shield module funded: $NEW_BAL uspark"
 fi
 echo ""
@@ -147,9 +147,9 @@ echo ""
 echo "--- PREREQUISITE: Create a regular proposal for anonymous voting ---"
 
 # Fund the council so the spend proposal has a valid target
-$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 5000000uspark \
+$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 5000000${BOND_DENOM} \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 500000uspark -y --output json > /dev/null 2>&1
+    --fees 500000${BOND_DENOM} -y --output json > /dev/null 2>&1
 sleep 6
 
 # Create a regular proposal (alice is a council member)
@@ -161,7 +161,7 @@ cat > "$PROPOSAL_DIR/anon_vote_target.json" <<EOF
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
       "authority": "$POLICY_ADDR",
       "recipient": "$BOB_ADDR",
-      "amount": [{"denom": "uspark", "amount": "1000"}]
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "1000"}]
     }
   ],
   "metadata": "Proposal for anonymous vote testing"
@@ -170,7 +170,7 @@ EOF
 
 TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/anon_vote_target.json" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000000uspark --gas 500000 -y --output json 2>&1)
+    --fees 5000000${BOND_DENOM} --gas 500000 -y --output json 2>&1)
 
 submit_tx_and_wait "$TX_RES"
 
@@ -198,7 +198,7 @@ RATE_NULL_PROP=$(openssl rand -hex 32)
 
 # The inner message is MsgSubmitAnonymousProposal with shield module as proposer
 # The messages inside it must be in the council's AllowedMessages list
-INNER_MSG="{\"@type\":\"/sparkdream.commons.v1.MsgSubmitAnonymousProposal\",\"proposer\":\"$SHIELD_MODULE_ADDR\",\"policy_address\":\"$POLICY_ADDR\",\"messages\":[{\"@type\":\"/sparkdream.commons.v1.MsgSpendFromCommons\",\"authority\":\"$POLICY_ADDR\",\"recipient\":\"$BOB_ADDR\",\"amount\":[{\"denom\":\"uspark\",\"amount\":\"500\"}]}],\"metadata\":\"Anonymous test proposal\"}"
+INNER_MSG="{\"@type\":\"/sparkdream.commons.v1.MsgSubmitAnonymousProposal\",\"proposer\":\"$SHIELD_MODULE_ADDR\",\"policy_address\":\"$POLICY_ADDR\",\"messages\":[{\"@type\":\"/sparkdream.commons.v1.MsgSpendFromCommons\",\"authority\":\"$POLICY_ADDR\",\"recipient\":\"$BOB_ADDR\",\"amount\":[{\"denom\":\"${BOND_DENOM}\",\"amount\":\"500\"}]}],\"metadata\":\"Anonymous test proposal\"}"
 
 TX_RES=$($BINARY tx shield shielded-exec \
     --inner-message "$INNER_MSG" \
@@ -212,7 +212,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000uspark \
+    --fees 500000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -276,7 +276,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 500000uspark \
+        --fees 500000${BOND_DENOM} \
         --gas 500000 \
         -y \
         --output json 2>&1)
@@ -318,7 +318,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 500000uspark \
+        --fees 500000${BOND_DENOM} \
         --gas 500000 \
         -y \
         --output json 2>&1)

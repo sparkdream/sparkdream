@@ -57,7 +57,7 @@ func TestSentinelRewardPool_GetReadsBankBalance(t *testing.T) {
 	poolAddr := keeper.SentinelRewardPoolAddress()
 	fixture.bankKeeper.GetBalanceFn = func(_ context.Context, addr sdk.AccAddress, denom string) sdk.Coin {
 		require.True(t, addr.Equals(poolAddr), "pool read must target sentinel sub-address")
-		require.Equal(t, types.RewardDenom, denom, "pool should read uspark")
+		require.Equal(t, "uspark", denom, "pool should read uspark")
 		return sdk.NewCoin(denom, math.NewInt(12345))
 	}
 
@@ -89,7 +89,7 @@ func TestSentinelRewardPool_AddTransfersToSubAddress(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, called)
 	require.True(t, gotTo.Equals(keeper.SentinelRewardPoolAddress()))
-	require.Equal(t, sdk.NewCoins(sdk.NewCoin(types.RewardDenom, math.NewInt(1_000))), gotCoins)
+	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1_000))), gotCoins)
 }
 
 // TestSentinelRewardPool_AddRejectsNonPositive checks the amount guard.
@@ -169,10 +169,10 @@ func TestBurnSentinelRewardPoolOverflow_AboveCapBurnsRatio(t *testing.T) {
 	require.NoError(t, k.BurnSentinelRewardPoolOverflow(ctx))
 	require.Equal(t, 1, moveCount, "expected exactly one move out of sentinel sub-address")
 	require.True(t, movedFrom.Equals(keeper.SentinelRewardPoolAddress()))
-	require.Equal(t, sdk.NewCoins(sdk.NewCoin(types.RewardDenom, math.NewInt(500))), movedCoins)
+	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(500))), movedCoins)
 	require.Equal(t, 1, burnCount, "expected exactly one burn call")
 	require.Equal(t, types.ModuleName, burnedModule)
-	require.Equal(t, sdk.NewCoins(sdk.NewCoin(types.RewardDenom, math.NewInt(500))), burnedCoins)
+	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(500))), burnedCoins)
 }
 
 // TestBurnSentinelRewardPoolOverflow_TinyOverflowNoBurn verifies a tiny overflow

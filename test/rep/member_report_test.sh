@@ -81,7 +81,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -109,7 +109,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -152,7 +152,7 @@ bond_sentinel() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -207,7 +207,7 @@ if [ "$BOND2_RC" -ne 0 ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -239,7 +239,7 @@ TX_RES=$($BINARY tx rep transfer-dream \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -257,7 +257,7 @@ TX_RES=$($BINARY tx rep report-member \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -317,7 +317,7 @@ if [ -n "$REPORTED_MEMBER" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -331,7 +331,7 @@ if [ -n "$REPORTED_MEMBER" ]; then
         --from $SECOND_SENTINEL_ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -368,7 +368,7 @@ if [ -n "$REPORTED_MEMBER" ]; then
         --from poster2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -426,7 +426,7 @@ TX_RES=$($BINARY tx rep transfer-dream \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -448,7 +448,7 @@ TX_RES=$($BINARY tx rep report-member \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -468,7 +468,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -522,7 +522,7 @@ TX_RES=$($BINARY tx rep report-member \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -562,7 +562,7 @@ TX_RES=$($BINARY tx rep resolve-member-report \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 

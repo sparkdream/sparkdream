@@ -63,7 +63,7 @@ restore_council_perms() {
     }
   ],
   "metadata": "Restore Commons Council permissions to baseline",
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "title": "Restore Council Permissions",
   "summary": "Restore baseline permissions",
   "expedited": true
@@ -124,7 +124,7 @@ echo '{
 
 # Submit, Vote, Exec
 echo "Submitting Ratchet Down Proposal..."
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_ratchet_down.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_ratchet_down.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
@@ -171,7 +171,7 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
       "authority": "'$COUNCIL_ADDR'",
       "recipient": "'$ALICE_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "1"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "1"}]
     }
   ],
   "metadata": "Illegal spend attempt after removing permission"
@@ -181,7 +181,7 @@ echo '{
 # the rejection appears as a non-zero tx code with "not allowed for policy"
 # in the on-chain raw_log (not in the broadcast output, which just shows
 # the txhash).
-ILLEGAL_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_illegal_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+ILLEGAL_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_illegal_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json 2>&1)
 ILLEGAL_HASH=$(echo "$ILLEGAL_RES" | jq -r '.txhash // empty' 2>/dev/null)
 sleep 3
 ILLEGAL_LOG=""
@@ -226,7 +226,7 @@ echo '{
 }' > "$PROPOSAL_DIR/msg_sneaky_expansion.json"
 
 # 1. Submission: WILL SUCCEED (because UpdatePolicyPermissions is allowed)
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_sneaky_expansion.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_sneaky_expansion.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
@@ -289,7 +289,7 @@ echo '{
     }
   ],
   "metadata": "Restore spend powers via gov",
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Restore Spend Powers",
   "summary": "Community restores spending power to the council.",
   "expedited": true

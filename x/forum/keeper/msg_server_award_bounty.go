@@ -69,7 +69,7 @@ func (k msgServer) AwardBounty(ctx context.Context, msg *types.MsgAwardBounty) (
 		if err != nil {
 			return nil, errorsmod.Wrapf(err, "invalid recipient address for award to post %d", award.PostId)
 		}
-		awardCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, awardAmount))
+		awardCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), awardAmount))
 		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipientAddr, awardCoins); err != nil {
 			return nil, errorsmod.Wrapf(err, "failed to transfer bounty award to %s", award.Recipient)
 		}

@@ -13,7 +13,7 @@ echo ""
 # concurrent suites against different home dirs don't disturb each other.
 CHAIN_HOME_DIR="${CHAIN_HOME:-$HOME/.sparkdream}"
 
-# Shared safe-rmtree helper (CLAUDE.md forbids `rm -rf`).
+# Shared safe-rmtree helper (see docs/development-conventions.md — `rm -rf` is forbidden project-wide).
 SCRIPT_DIR_FOR_HELPERS="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # shellcheck source=./_safe_rm.sh
 source "$SCRIPT_DIR_FOR_HELPERS/_safe_rm.sh"

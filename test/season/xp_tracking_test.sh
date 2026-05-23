@@ -344,7 +344,7 @@ else
         --from quest_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -401,7 +401,7 @@ TX_RES=$($BINARY tx season create-quest \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -436,7 +436,7 @@ TX_RES=$($BINARY tx season start-quest \
     --from quest_user \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -467,7 +467,7 @@ if [ "$QUEST_STARTED" = true ]; then
         --from quest_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -612,7 +612,7 @@ TX_RES=$($BINARY tx season create-quest \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -640,7 +640,7 @@ if [ "$QUEST2_CREATED" = true ]; then
         --from quest_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -655,7 +655,7 @@ if [ "$QUEST2_CREATED" = true ]; then
                 --from quest_user \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 

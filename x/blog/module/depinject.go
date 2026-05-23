@@ -43,6 +43,13 @@ type ModuleInputs struct {
 	//
 	// RepKeeper: blog → rep (no cycle; rep → season → blog is post-depinject only)
 	RepKeeper types.RepKeeper `optional:"true"`
+
+	// IdentityKeeper supplies the chain's bond/dream denoms at runtime. Optional
+	// so depinject can wire in the order it likes; the keeper is set on the
+	// blog keeper before NewAppModule snapshots the value, otherwise the
+	// msg_server's embedded copy would never see it (see
+	// docs/development-conventions.md "AppModule Value-Copy Bug").
+	IdentityKeeper types.IdentityKeeper `optional:"true"`
 }
 
 type ModuleOutputs struct {
@@ -67,6 +74,9 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		nil, // CommonsKeeper wired in app.go
 		in.RepKeeper,
 	)
+	if in.IdentityKeeper != nil {
+		k.SetIdentityKeeper(in.IdentityKeeper)
+	}
 	// CommonsKeeper wired in app.go (no cycle, but wired there for consistency)
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 

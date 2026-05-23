@@ -54,7 +54,7 @@ func (q queryServer) ModuleBalance(ctx context.Context, req *types.QueryModuleBa
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 	moduleAddr := q.k.accountKeeper.GetModuleAddress(types.ModuleName)
-	balance := q.k.bankKeeper.GetBalance(ctx, moduleAddr, "uspark")
+	balance := q.k.bankKeeper.GetBalance(ctx, moduleAddr, q.k.BondDenom(ctx))
 	return &types.QueryModuleBalanceResponse{
 		Balance: balance,
 	}, nil

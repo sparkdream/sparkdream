@@ -2,7 +2,7 @@ syntax = "proto3";
 package sparkdream.service.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/service/types";
@@ -41,9 +41,14 @@ message ServiceTypeConfig {
   // description is human-readable purpose; <= 512 chars.
   string description = 2;
 
-  // min_bond is the minimum SPARK required to register or remain ACTIVE
-  // under this service type.
-  cosmos.base.v1beta1.Coin min_bond = 3 [(gogoproto.nullable) = false];
+  // min_bond_amount is the minimum SPARK required to register or remain
+  // ACTIVE under this service type, in bond-denom micro-units. Wrapped
+  // into sdk.Coin with the chain's bond denom at the point of use.
+  string min_bond_amount = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // unbonding_period_blocks overrides the default unbonding window for
   // this type. ~14 days at default block time.

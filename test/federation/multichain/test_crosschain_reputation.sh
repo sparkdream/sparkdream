@@ -71,8 +71,8 @@ TX_RES=$(cli_a tx federation request-reputation-attestation \
     "$TARGET_B" \
     --from alice \
     -y \
-    --fees 5000uspark \
-    --output json 2>&1)
+    --fees 5000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait_a "$TX_RES" "request rep attestation"; then
     echo "  RequestReputationAttestation tx confirmed on chain-a"
@@ -206,8 +206,8 @@ else
         "$TARGET_B" \
         --from alice \
         -y \
-        --fees 5000uspark \
-        --output json 2>&1)
+        --fees 5000${BOND_DENOM} \
+        --output json)
 
     if submit_and_wait_a "$TX_RES" "rep non-IBC"; then
         CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -240,8 +240,8 @@ TX_RES=$(cli_a tx federation request-reputation-attestation \
     "$TARGET_B" \
     --from alice \
     -y \
-    --fees 5000uspark \
-    --output json 2>&1)
+    --fees 5000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait_a "$TX_RES" "rep missing peer"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')

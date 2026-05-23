@@ -2,7 +2,7 @@ syntax = "proto3";
 package sparkdream.service.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/service/types";
@@ -16,6 +16,10 @@ option go_package = "sparkdream/x/service/types";
 // Per-service-type overrides for `default_*` fields live on
 // ServiceTypeConfig (§3.2). The values here are the defaults that
 // apply when a service type's override is zero.
+//
+// Bond-denom-valued amounts are stored as bare math.Int values; the
+// keeper wraps them into sdk.Coin at the point of use via the identity
+// keeper's BondDenom(ctx).
 message Params {
   option (amino.name) = "sparkdream/x/service/Params";
   option (gogoproto.equal) = true;
@@ -72,9 +76,15 @@ message Params {
   // ≥ max_pending_blocks.
   int64 report_refile_cooldown_blocks = 10;
 
-  // report_deposit is the SPARK escrow required to file
-  // MsgReportOperator (default 10 SPARK).
-  cosmos.base.v1beta1.Coin report_deposit = 11 [(gogoproto.nullable) = false];
+  // report_deposit_amount is the SPARK escrow required to file
+  // MsgReportOperator, in bond-denom micro-units (default 10 SPARK =
+  // 10_000_000). Wrapped into sdk.Coin with the chain's bond denom
+  // at the point of use.
+  string report_deposit_amount = 11 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // ------------------------------------------------------------------
   // Reporter eligibility & rate-limit.

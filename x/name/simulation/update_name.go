@@ -28,7 +28,7 @@ func SimulateMsgUpdateName(
 		simAccount, _ := simtypes.RandomAcc(r, accs)
 
 		// We define the high fee required by our application logic
-		requiredFee := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(5000000)))
+		requiredFee := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(5000000)))
 
 		// Check if the simulation account actually has these funds
 		spendable := bk.SpendableCoins(ctx, simAccount.Address)
@@ -90,7 +90,7 @@ func SimulateMsgUpdateName(
 
 		// Define explicit high fees to satisfy the AnteHandler check (5M uspark)
 		// Random fees are usually too low for the x/commons spam protection.
-		fees := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(5000000)))
+		fees := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(5000000)))
 
 		// Use GenAndDeliverTx (explicit fees) instead of GenAndDeliverTxWithRandFees
 		return simulation.GenAndDeliverTx(opMsg, fees)

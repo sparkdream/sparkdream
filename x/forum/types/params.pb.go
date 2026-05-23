@@ -6,7 +6,6 @@ package types
 import (
 	cosmossdk_io_math "cosmossdk.io/math"
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/types"
 	_ "github.com/cosmos/cosmos-sdk/types/tx/amino"
 	_ "github.com/cosmos/gogoproto/gogoproto"
 	proto "github.com/cosmos/gogoproto/proto"
@@ -26,7 +25,9 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// Params defines the parameters for the module.
+// Params defines the parameters for the module. Fee/cost fields are stored
+// as bare amounts in the chain's bond denom (resolved at runtime from
+// x/identity); the keeper wraps them into sdk.Coin at the point of use.
 type Params struct {
 	// forum_paused stops all new posts when true
 	ForumPaused bool `protobuf:"varint,1,opt,name=forum_paused,json=forumPaused,proto3" json:"forum_paused,omitempty"`
@@ -40,22 +41,22 @@ type Params struct {
 	AppealsPaused bool `protobuf:"varint,5,opt,name=appeals_paused,json=appealsPaused,proto3" json:"appeals_paused,omitempty"`
 	// editing_enabled allows post editing when true
 	EditingEnabled bool `protobuf:"varint,6,opt,name=editing_enabled,json=editingEnabled,proto3" json:"editing_enabled,omitempty"`
-	// spam_tax charged to non-members for posting
-	SpamTax types.Coin `protobuf:"bytes,7,opt,name=spam_tax,json=spamTax,proto3" json:"spam_tax"`
-	// reaction_spam_tax charged to non-members for reactions
-	ReactionSpamTax types.Coin `protobuf:"bytes,8,opt,name=reaction_spam_tax,json=reactionSpamTax,proto3" json:"reaction_spam_tax"`
-	// flag_spam_tax charged to non-members for flagging
-	FlagSpamTax types.Coin `protobuf:"bytes,9,opt,name=flag_spam_tax,json=flagSpamTax,proto3" json:"flag_spam_tax"`
-	// downvote_deposit burned when downvoting
-	DownvoteDeposit types.Coin `protobuf:"bytes,10,opt,name=downvote_deposit,json=downvoteDeposit,proto3" json:"downvote_deposit"`
-	// appeal_fee charged for appeals
-	AppealFee types.Coin `protobuf:"bytes,11,opt,name=appeal_fee,json=appealFee,proto3" json:"appeal_fee"`
-	// lock_appeal_fee charged for thread lock appeals
-	LockAppealFee types.Coin `protobuf:"bytes,12,opt,name=lock_appeal_fee,json=lockAppealFee,proto3" json:"lock_appeal_fee"`
-	// move_appeal_fee charged for thread move appeals
-	MoveAppealFee types.Coin `protobuf:"bytes,13,opt,name=move_appeal_fee,json=moveAppealFee,proto3" json:"move_appeal_fee"`
-	// edit_fee charged for edits past grace period
-	EditFee types.Coin `protobuf:"bytes,14,opt,name=edit_fee,json=editFee,proto3" json:"edit_fee"`
+	// spam_tax_amount charged to non-members for posting, in bond-denom micro-units.
+	SpamTaxAmount cosmossdk_io_math.Int `protobuf:"bytes,7,opt,name=spam_tax_amount,json=spamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"spam_tax_amount"`
+	// reaction_spam_tax_amount charged to non-members for reactions, in bond-denom micro-units.
+	ReactionSpamTaxAmount cosmossdk_io_math.Int `protobuf:"bytes,8,opt,name=reaction_spam_tax_amount,json=reactionSpamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"reaction_spam_tax_amount"`
+	// flag_spam_tax_amount charged to non-members for flagging, in bond-denom micro-units.
+	FlagSpamTaxAmount cosmossdk_io_math.Int `protobuf:"bytes,9,opt,name=flag_spam_tax_amount,json=flagSpamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"flag_spam_tax_amount"`
+	// downvote_deposit_amount burned when downvoting, in bond-denom micro-units.
+	DownvoteDepositAmount cosmossdk_io_math.Int `protobuf:"bytes,10,opt,name=downvote_deposit_amount,json=downvoteDepositAmount,proto3,customtype=cosmossdk.io/math.Int" json:"downvote_deposit_amount"`
+	// appeal_fee_amount charged for appeals, in bond-denom micro-units.
+	AppealFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,11,opt,name=appeal_fee_amount,json=appealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"appeal_fee_amount"`
+	// lock_appeal_fee_amount charged for thread lock appeals, in bond-denom micro-units.
+	LockAppealFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,12,opt,name=lock_appeal_fee_amount,json=lockAppealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"lock_appeal_fee_amount"`
+	// move_appeal_fee_amount charged for thread move appeals, in bond-denom micro-units.
+	MoveAppealFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,13,opt,name=move_appeal_fee_amount,json=moveAppealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"move_appeal_fee_amount"`
+	// edit_fee_amount charged for edits past grace period, in bond-denom micro-units.
+	EditFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,14,opt,name=edit_fee_amount,json=editFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"edit_fee_amount"`
 	// bounty_cancellation_fee_percent percentage of bounty taken on cancellation (0-100)
 	BountyCancellationFeePercent uint64 `protobuf:"varint,15,opt,name=bounty_cancellation_fee_percent,json=bountyCancellationFeePercent,proto3" json:"bounty_cancellation_fee_percent,omitempty"`
 	// max_content_size in bytes
@@ -82,8 +83,9 @@ type Params struct {
 	LockAppealCooldown int64 `protobuf:"varint,26,opt,name=lock_appeal_cooldown,json=lockAppealCooldown,proto3" json:"lock_appeal_cooldown,omitempty"`
 	// move_appeal_cooldown in seconds (must wait this long after move before appeal)
 	MoveAppealCooldown int64 `protobuf:"varint,27,opt,name=move_appeal_cooldown,json=moveAppealCooldown,proto3" json:"move_appeal_cooldown,omitempty"`
-	// cost_per_byte charged for on-chain content storage (applies to all posts, burned)
-	CostPerByte types.Coin `protobuf:"bytes,28,opt,name=cost_per_byte,json=costPerByte,proto3" json:"cost_per_byte"`
+	// cost_per_byte_amount charged for on-chain content storage (applies to all
+	// posts, burned), in bond-denom micro-units.
+	CostPerByteAmount cosmossdk_io_math.Int `protobuf:"bytes,28,opt,name=cost_per_byte_amount,json=costPerByteAmount,proto3,customtype=cosmossdk.io/math.Int" json:"cost_per_byte_amount"`
 	// cost_per_byte_exempt when true, disables cost_per_byte fee collection
 	CostPerByteExempt bool `protobuf:"varint,29,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
 	// ephemeral_ttl in seconds (TTL for non-member posts, default 86400 = 24h)
@@ -192,62 +194,6 @@ func (m *Params) GetEditingEnabled() bool {
 	return false
 }
 
-func (m *Params) GetSpamTax() types.Coin {
-	if m != nil {
-		return m.SpamTax
-	}
-	return types.Coin{}
-}
-
-func (m *Params) GetReactionSpamTax() types.Coin {
-	if m != nil {
-		return m.ReactionSpamTax
-	}
-	return types.Coin{}
-}
-
-func (m *Params) GetFlagSpamTax() types.Coin {
-	if m != nil {
-		return m.FlagSpamTax
-	}
-	return types.Coin{}
-}
-
-func (m *Params) GetDownvoteDeposit() types.Coin {
-	if m != nil {
-		return m.DownvoteDeposit
-	}
-	return types.Coin{}
-}
-
-func (m *Params) GetAppealFee() types.Coin {
-	if m != nil {
-		return m.AppealFee
-	}
-	return types.Coin{}
-}
-
-func (m *Params) GetLockAppealFee() types.Coin {
-	if m != nil {
-		return m.LockAppealFee
-	}
-	return types.Coin{}
-}
-
-func (m *Params) GetMoveAppealFee() types.Coin {
-	if m != nil {
-		return m.MoveAppealFee
-	}
-	return types.Coin{}
-}
-
-func (m *Params) GetEditFee() types.Coin {
-	if m != nil {
-		return m.EditFee
-	}
-	return types.Coin{}
-}
-
 func (m *Params) GetBountyCancellationFeePercent() uint64 {
 	if m != nil {
 		return m.BountyCancellationFeePercent
@@ -339,13 +285,6 @@ func (m *Params) GetMoveAppealCooldown() int64 {
 	return 0
 }
 
-func (m *Params) GetCostPerByte() types.Coin {
-	if m != nil {
-		return m.CostPerByte
-	}
-	return types.Coin{}
-}
-
 func (m *Params) GetCostPerByteExempt() bool {
 	if m != nil {
 		return m.CostPerByteExempt
@@ -432,17 +371,17 @@ type ForumOperationalParams struct {
 	BountiesEnabled  bool `protobuf:"varint,1,opt,name=bounties_enabled,json=bountiesEnabled,proto3" json:"bounties_enabled,omitempty"`
 	ReactionsEnabled bool `protobuf:"varint,2,opt,name=reactions_enabled,json=reactionsEnabled,proto3" json:"reactions_enabled,omitempty"`
 	EditingEnabled   bool `protobuf:"varint,3,opt,name=editing_enabled,json=editingEnabled,proto3" json:"editing_enabled,omitempty"`
-	// Fees
-	SpamTax           types.Coin `protobuf:"bytes,4,opt,name=spam_tax,json=spamTax,proto3" json:"spam_tax"`
-	ReactionSpamTax   types.Coin `protobuf:"bytes,5,opt,name=reaction_spam_tax,json=reactionSpamTax,proto3" json:"reaction_spam_tax"`
-	FlagSpamTax       types.Coin `protobuf:"bytes,6,opt,name=flag_spam_tax,json=flagSpamTax,proto3" json:"flag_spam_tax"`
-	DownvoteDeposit   types.Coin `protobuf:"bytes,7,opt,name=downvote_deposit,json=downvoteDeposit,proto3" json:"downvote_deposit"`
-	AppealFee         types.Coin `protobuf:"bytes,8,opt,name=appeal_fee,json=appealFee,proto3" json:"appeal_fee"`
-	LockAppealFee     types.Coin `protobuf:"bytes,9,opt,name=lock_appeal_fee,json=lockAppealFee,proto3" json:"lock_appeal_fee"`
-	MoveAppealFee     types.Coin `protobuf:"bytes,10,opt,name=move_appeal_fee,json=moveAppealFee,proto3" json:"move_appeal_fee"`
-	EditFee           types.Coin `protobuf:"bytes,11,opt,name=edit_fee,json=editFee,proto3" json:"edit_fee"`
-	CostPerByte       types.Coin `protobuf:"bytes,12,opt,name=cost_per_byte,json=costPerByte,proto3" json:"cost_per_byte"`
-	CostPerByteExempt bool       `protobuf:"varint,13,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
+	// Fees, all in bond-denom micro-units.
+	SpamTaxAmount         cosmossdk_io_math.Int `protobuf:"bytes,4,opt,name=spam_tax_amount,json=spamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"spam_tax_amount"`
+	ReactionSpamTaxAmount cosmossdk_io_math.Int `protobuf:"bytes,5,opt,name=reaction_spam_tax_amount,json=reactionSpamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"reaction_spam_tax_amount"`
+	FlagSpamTaxAmount     cosmossdk_io_math.Int `protobuf:"bytes,6,opt,name=flag_spam_tax_amount,json=flagSpamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"flag_spam_tax_amount"`
+	DownvoteDepositAmount cosmossdk_io_math.Int `protobuf:"bytes,7,opt,name=downvote_deposit_amount,json=downvoteDepositAmount,proto3,customtype=cosmossdk.io/math.Int" json:"downvote_deposit_amount"`
+	AppealFeeAmount       cosmossdk_io_math.Int `protobuf:"bytes,8,opt,name=appeal_fee_amount,json=appealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"appeal_fee_amount"`
+	LockAppealFeeAmount   cosmossdk_io_math.Int `protobuf:"bytes,9,opt,name=lock_appeal_fee_amount,json=lockAppealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"lock_appeal_fee_amount"`
+	MoveAppealFeeAmount   cosmossdk_io_math.Int `protobuf:"bytes,10,opt,name=move_appeal_fee_amount,json=moveAppealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"move_appeal_fee_amount"`
+	EditFeeAmount         cosmossdk_io_math.Int `protobuf:"bytes,11,opt,name=edit_fee_amount,json=editFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"edit_fee_amount"`
+	CostPerByteAmount     cosmossdk_io_math.Int `protobuf:"bytes,12,opt,name=cost_per_byte_amount,json=costPerByteAmount,proto3,customtype=cosmossdk.io/math.Int" json:"cost_per_byte_amount"`
+	CostPerByteExempt     bool                  `protobuf:"varint,13,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
 	// Limits
 	MaxContentSize               uint64 `protobuf:"varint,14,opt,name=max_content_size,json=maxContentSize,proto3" json:"max_content_size,omitempty"`
 	DailyPostLimit               uint64 `protobuf:"varint,15,opt,name=daily_post_limit,json=dailyPostLimit,proto3" json:"daily_post_limit,omitempty"`
@@ -547,69 +486,6 @@ func (m *ForumOperationalParams) GetEditingEnabled() bool {
 		return m.EditingEnabled
 	}
 	return false
-}
-
-func (m *ForumOperationalParams) GetSpamTax() types.Coin {
-	if m != nil {
-		return m.SpamTax
-	}
-	return types.Coin{}
-}
-
-func (m *ForumOperationalParams) GetReactionSpamTax() types.Coin {
-	if m != nil {
-		return m.ReactionSpamTax
-	}
-	return types.Coin{}
-}
-
-func (m *ForumOperationalParams) GetFlagSpamTax() types.Coin {
-	if m != nil {
-		return m.FlagSpamTax
-	}
-	return types.Coin{}
-}
-
-func (m *ForumOperationalParams) GetDownvoteDeposit() types.Coin {
-	if m != nil {
-		return m.DownvoteDeposit
-	}
-	return types.Coin{}
-}
-
-func (m *ForumOperationalParams) GetAppealFee() types.Coin {
-	if m != nil {
-		return m.AppealFee
-	}
-	return types.Coin{}
-}
-
-func (m *ForumOperationalParams) GetLockAppealFee() types.Coin {
-	if m != nil {
-		return m.LockAppealFee
-	}
-	return types.Coin{}
-}
-
-func (m *ForumOperationalParams) GetMoveAppealFee() types.Coin {
-	if m != nil {
-		return m.MoveAppealFee
-	}
-	return types.Coin{}
-}
-
-func (m *ForumOperationalParams) GetEditFee() types.Coin {
-	if m != nil {
-		return m.EditFee
-	}
-	return types.Coin{}
-}
-
-func (m *ForumOperationalParams) GetCostPerByte() types.Coin {
-	if m != nil {
-		return m.CostPerByte
-	}
-	return types.Coin{}
 }
 
 func (m *ForumOperationalParams) GetCostPerByteExempt() bool {
@@ -788,86 +664,85 @@ func init() {
 func init() { proto.RegisterFile("sparkdream/forum/v1/params.proto", fileDescriptor_b3a4b297b70e2838) }
 
 var fileDescriptor_b3a4b297b70e2838 = []byte{
-	// 1255 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x58, 0xcd, 0x6e, 0x23, 0x45,
-	0x17, 0x4d, 0xcf, 0x64, 0x32, 0x49, 0x25, 0x8e, 0xed, 0xce, 0x5f, 0xd9, 0xc9, 0xe7, 0xf8, 0xcb,
-	0x68, 0x06, 0x27, 0x43, 0x6c, 0x12, 0x40, 0xa0, 0x08, 0x8d, 0x34, 0x76, 0x92, 0x91, 0x20, 0x08,
-	0xcb, 0x09, 0x42, 0x62, 0xd3, 0x2a, 0x77, 0xdf, 0xd8, 0xa5, 0x74, 0x77, 0xb5, 0xba, 0xcb, 0x8e,
-	0x3d, 0x8f, 0xc0, 0x8a, 0x47, 0x60, 0xcd, 0x8a, 0xc7, 0x98, 0xe5, 0x48, 0x6c, 0x10, 0x8b, 0x11,
-	0x4a, 0x16, 0xf0, 0x18, 0xa8, 0xaa, 0x7f, 0x33, 0x71, 0x44, 0x1b, 0x0c, 0x0b, 0xc4, 0x26, 0xb2,
-	0xce, 0x3d, 0xe7, 0xf4, 0xed, 0xaa, 0xdb, 0x57, 0x47, 0x41, 0x65, 0xcf, 0x21, 0xee, 0x85, 0xe1,
-	0x02, 0xb1, 0x6a, 0xe7, 0xcc, 0xed, 0x59, 0xb5, 0xfe, 0x5e, 0xcd, 0x21, 0x2e, 0xb1, 0xbc, 0xaa,
-	0xe3, 0x32, 0xce, 0xd4, 0xa5, 0x98, 0x51, 0x95, 0x8c, 0x6a, 0x7f, 0xaf, 0x98, 0x27, 0x16, 0xb5,
-	0x59, 0x4d, 0xfe, 0xf5, 0x79, 0xc5, 0x92, 0xce, 0x3c, 0x8b, 0x79, 0xb5, 0x36, 0xf1, 0xa0, 0xd6,
-	0xdf, 0x6b, 0x03, 0x27, 0x7b, 0x35, 0x9d, 0x51, 0x3b, 0xa8, 0x2f, 0x77, 0x58, 0x87, 0xc9, 0x9f,
-	0x35, 0xf1, 0xcb, 0x47, 0xb7, 0xbe, 0xcf, 0xa3, 0x99, 0xa6, 0x7c, 0x9c, 0xfa, 0x7f, 0xb4, 0x20,
-	0xfd, 0x35, 0x87, 0xf4, 0x3c, 0x30, 0xb0, 0x52, 0x56, 0x2a, 0xb3, 0xad, 0x79, 0x89, 0x35, 0x25,
-	0xa4, 0x3e, 0x45, 0x79, 0x8b, 0x19, 0xe0, 0x12, 0x4e, 0x99, 0x1d, 0xf2, 0xee, 0x49, 0x5e, 0x2e,
-	0x2e, 0x04, 0xe4, 0x6d, 0x94, 0x6b, 0xb3, 0x9e, 0xcd, 0x29, 0x78, 0x1a, 0xd8, 0xa4, 0x6d, 0x82,
-	0x81, 0xef, 0x4b, 0x6e, 0x36, 0xc4, 0x8f, 0x7c, 0x58, 0xf8, 0xba, 0x40, 0x74, 0x21, 0x8e, 0xb9,
-	0xd3, 0xbe, 0x6f, 0x54, 0x08, 0xc9, 0x8f, 0xd1, 0x22, 0x71, 0x1c, 0x20, 0xa6, 0x17, 0x76, 0xf0,
-	0x40, 0x32, 0x33, 0x01, 0x1a, 0x3c, 0xfe, 0x1d, 0x94, 0x05, 0x83, 0x72, 0x6a, 0x77, 0x22, 0xc7,
-	0x19, 0xc9, 0x5b, 0x0c, 0xe0, 0xd0, 0xef, 0x00, 0xcd, 0x7a, 0x0e, 0xb1, 0x34, 0x4e, 0x06, 0xf8,
-	0x61, 0x59, 0xa9, 0xcc, 0xef, 0x17, 0xaa, 0xfe, 0x59, 0x56, 0xc5, 0x59, 0x56, 0x83, 0xb3, 0xac,
-	0x36, 0x18, 0xb5, 0xeb, 0xd3, 0xaf, 0xde, 0x6c, 0x4e, 0xb5, 0x1e, 0x0a, 0xc1, 0x19, 0x19, 0xa8,
-	0x9f, 0xc5, 0x8d, 0x6b, 0x91, 0xc9, 0x6c, 0x3a, 0x93, 0x6c, 0xa8, 0x3c, 0x0d, 0xcc, 0x1a, 0x28,
-	0x73, 0x6e, 0x92, 0x4e, 0x6c, 0x34, 0x97, 0xce, 0x68, 0x5e, 0xa8, 0x42, 0x93, 0x4f, 0x51, 0xce,
-	0x60, 0x97, 0x76, 0x9f, 0x71, 0xd0, 0x0c, 0x70, 0x98, 0x47, 0x39, 0x46, 0x29, 0x1b, 0x0a, 0x85,
-	0x87, 0xbe, 0x4e, 0x7d, 0x86, 0x90, 0x7f, 0xa6, 0xda, 0x39, 0x00, 0x9e, 0x4f, 0xe7, 0x32, 0xe7,
-	0x4b, 0x8e, 0x01, 0xd4, 0x17, 0x28, 0x6b, 0x32, 0xfd, 0x42, 0x4b, 0x98, 0x2c, 0xa4, 0x33, 0xc9,
-	0x08, 0xdd, 0xf3, 0xa4, 0x91, 0xc5, 0xfa, 0x90, 0x34, 0xca, 0xa4, 0x34, 0x12, 0xba, 0xd8, 0xe8,
-	0x00, 0xcd, 0x8a, 0xdb, 0x97, 0x0e, 0x8b, 0x29, 0xef, 0x5a, 0x08, 0x84, 0xf6, 0x08, 0x6d, 0xca,
-	0xb9, 0x1d, 0x6a, 0x3a, 0xb1, 0x75, 0x30, 0x4d, 0xff, 0x2b, 0x38, 0x07, 0xd0, 0x1c, 0x70, 0x75,
-	0xb0, 0x39, 0xce, 0x96, 0x95, 0xca, 0x74, 0x6b, 0xc3, 0xa7, 0x35, 0x12, 0xac, 0x63, 0x80, 0xa6,
-	0xcf, 0x51, 0x2b, 0x28, 0x67, 0x91, 0x81, 0xa6, 0x33, 0x9b, 0x83, 0xcd, 0x35, 0x8f, 0xbe, 0x04,
-	0x9c, 0x93, 0xba, 0x45, 0x8b, 0x0c, 0x1a, 0x3e, 0x7c, 0x4a, 0x5f, 0x82, 0x60, 0x1a, 0x84, 0x9a,
-	0x43, 0xcd, 0x61, 0x1e, 0xd7, 0x4c, 0x6a, 0x51, 0x8e, 0xf3, 0x3e, 0x53, 0xe2, 0x4d, 0xe6, 0xf1,
-	0x13, 0x81, 0xaa, 0x4f, 0x50, 0x56, 0x78, 0xba, 0xe0, 0x98, 0x43, 0x71, 0xeb, 0xbc, 0x8b, 0xd5,
-	0xb2, 0x52, 0xc9, 0xb4, 0x32, 0x16, 0x19, 0xb4, 0x04, 0x7a, 0x28, 0x40, 0x75, 0x07, 0xe5, 0xe5,
-	0xeb, 0x77, 0x5c, 0xa2, 0xcb, 0xae, 0x29, 0x33, 0xf0, 0x52, 0x59, 0xa9, 0xdc, 0x6f, 0xc9, 0x8f,
-	0xe5, 0x85, 0xc0, 0x9b, 0x12, 0x16, 0x9e, 0x92, 0x2b, 0x8c, 0x2f, 0xa9, 0x6d, 0xb0, 0x4b, 0xbc,
-	0x2c, 0x99, 0x19, 0x01, 0x7f, 0x4e, 0x06, 0x5f, 0x49, 0x50, 0xdd, 0x45, 0x4b, 0x82, 0x72, 0xce,
-	0x4c, 0x93, 0x5d, 0x7a, 0xc2, 0x54, 0x33, 0xc8, 0x10, 0xaf, 0xc8, 0x46, 0xc5, 0xab, 0x1e, 0xfb,
-	0x95, 0x26, 0xb8, 0x87, 0x64, 0x28, 0x3e, 0x75, 0xe2, 0xea, 0x5d, 0xda, 0x07, 0x8d, 0x77, 0x5d,
-	0xf0, 0xba, 0xcc, 0x34, 0xf0, 0xaa, 0x34, 0xce, 0x05, 0x85, 0xb3, 0x10, 0x57, 0x77, 0x91, 0xda,
-	0xb3, 0x43, 0xba, 0xce, 0x98, 0x29, 0x26, 0x14, 0xaf, 0x49, 0x76, 0x3e, 0xaa, 0x34, 0x82, 0x82,
-	0xd8, 0x38, 0xb7, 0xc8, 0xd8, 0x7f, 0xbb, 0xb7, 0xa9, 0xef, 0xa1, 0xe5, 0x2e, 0x35, 0xa2, 0x89,
-	0x8a, 0xe8, 0x05, 0x49, 0x57, 0x45, 0xcd, 0x9f, 0x9a, 0xa4, 0x22, 0x39, 0xcc, 0x91, 0xa2, 0xe8,
-	0x2b, 0xe2, 0x81, 0x4d, 0x2a, 0x92, 0x53, 0x1b, 0x29, 0xd6, 0x7d, 0x45, 0x3c, 0x99, 0x91, 0xa2,
-	0x81, 0x32, 0xba, 0xb8, 0x6b, 0x71, 0x88, 0xed, 0x21, 0x07, 0xbc, 0x91, 0x72, 0x03, 0x08, 0x55,
-	0x13, 0xdc, 0xfa, 0x90, 0x83, 0x5a, 0x43, 0xcb, 0x37, 0x4c, 0x34, 0x18, 0x80, 0xe5, 0x70, 0xfc,
-	0x3f, 0xb9, 0xfd, 0xf2, 0x09, 0xea, 0x91, 0x2c, 0xa8, 0x8f, 0x50, 0x06, 0x9c, 0x2e, 0x58, 0xe0,
-	0x12, 0x53, 0xe3, 0xdc, 0xc4, 0x25, 0xd9, 0xe0, 0x42, 0x04, 0x9e, 0x71, 0x53, 0x05, 0xb4, 0xa1,
-	0x33, 0xbb, 0x4f, 0xfd, 0x5d, 0xe7, 0x82, 0x0d, 0x97, 0x82, 0x1d, 0x5d, 0xe1, 0xe3, 0xb2, 0x52,
-	0x99, 0xab, 0x3f, 0x12, 0xed, 0xfc, 0xfc, 0x66, 0x73, 0xdd, 0x6f, 0xd8, 0x33, 0x2e, 0xaa, 0x94,
-	0xd5, 0x2c, 0xc2, 0xbb, 0xd5, 0x13, 0xe8, 0x10, 0x7d, 0x78, 0x08, 0x7a, 0xab, 0x18, 0x1b, 0xb5,
-	0x7c, 0x9f, 0xf8, 0xc6, 0x0f, 0x50, 0x61, 0xc4, 0x63, 0x82, 0x49, 0x7d, 0x22, 0xfb, 0x5a, 0xbb,
-	0x25, 0x0f, 0x26, 0x76, 0x07, 0xe5, 0x2d, 0x6a, 0x6b, 0x1e, 0xd8, 0x9c, 0xda, 0x60, 0x6a, 0x6d,
-	0x66, 0x1b, 0xb8, 0x22, 0xfa, 0x6a, 0x65, 0x2d, 0x6a, 0x9f, 0x06, 0x78, 0x9d, 0xd9, 0x86, 0xba,
-	0x87, 0x56, 0x6e, 0x70, 0x5d, 0x70, 0x34, 0x4e, 0xc1, 0xc5, 0xdb, 0x72, 0x6e, 0xd5, 0x04, 0xbf,
-	0x05, 0xce, 0x19, 0x05, 0x57, 0xfd, 0x08, 0xe1, 0x1b, 0x12, 0xee, 0xf6, 0xc4, 0x67, 0x09, 0x7d,
-	0x30, 0xf1, 0x8e, 0x7c, 0xca, 0x4a, 0x42, 0x75, 0x26, 0xaa, 0x27, 0xa2, 0xa8, 0x7e, 0x88, 0xd6,
-	0x6e, 0x08, 0x49, 0x07, 0xb4, 0xb6, 0x98, 0x17, 0x0f, 0x3f, 0x95, 0x6f, 0xb4, 0x9c, 0xd0, 0x3d,
-	0xef, 0x40, 0x5d, 0xd6, 0xd4, 0x4f, 0x50, 0x31, 0x92, 0x18, 0x60, 0x31, 0x79, 0x22, 0xd1, 0x10,
-	0xbd, 0x2b, 0x95, 0x38, 0x64, 0x1c, 0x06, 0x84, 0x68, 0x94, 0x9e, 0xa1, 0xf5, 0xdb, 0xea, 0xf8,
-	0xba, 0x76, 0x65, 0xc3, 0x85, 0xb7, 0xe5, 0xf1, 0x45, 0x7c, 0x80, 0x56, 0x23, 0x7d, 0xcf, 0x96,
-	0xdf, 0x4a, 0xb0, 0x05, 0xaa, 0x7e, 0xcf, 0x61, 0xf5, 0x4b, 0x59, 0x0c, 0x96, 0xc1, 0xc7, 0x08,
-	0x27, 0x54, 0xe2, 0x02, 0xe2, 0x8e, 0x6b, 0x52, 0xb7, 0x1a, 0xeb, 0x44, 0x39, 0xec, 0xf7, 0x60,
-	0xeb, 0xb7, 0xef, 0x36, 0x95, 0x6f, 0x7e, 0xfd, 0x61, 0xa7, 0x90, 0x48, 0x44, 0x83, 0x20, 0x13,
-	0xf9, 0x09, 0x65, 0xeb, 0xc7, 0x1c, 0x5a, 0x3d, 0x16, 0xc0, 0x17, 0x4e, 0x10, 0x35, 0x88, 0x19,
-	0x84, 0x97, 0x51, 0x61, 0x43, 0x19, 0x23, 0x6c, 0xdc, 0xbb, 0x23, 0x6c, 0x8c, 0x48, 0x11, 0xf7,
-	0xff, 0x30, 0x45, 0x4c, 0x4f, 0x22, 0x45, 0x3c, 0x98, 0x54, 0x8a, 0x98, 0x99, 0x50, 0x8a, 0x78,
-	0x38, 0x91, 0x14, 0x31, 0x3b, 0x89, 0x14, 0x31, 0x37, 0xa9, 0x14, 0x81, 0xfe, 0x72, 0x8a, 0x98,
-	0x1f, 0x33, 0x45, 0xdc, 0x5a, 0xf1, 0x0b, 0x13, 0x5c, 0xf1, 0x99, 0xbb, 0x56, 0xfc, 0xa8, 0xd0,
-	0xb1, 0x98, 0x3a, 0x74, 0x64, 0xd3, 0x86, 0x8e, 0xdc, 0xa8, 0xd0, 0x71, 0x47, 0x40, 0xc8, 0xdf,
-	0x11, 0x10, 0x52, 0xc4, 0x2c, 0x35, 0x45, 0xcc, 0xfa, 0x3b, 0xa2, 0xce, 0xc8, 0xec, 0xb2, 0x32,
-	0x56, 0x76, 0x59, 0x1d, 0x27, 0xbb, 0xac, 0x8d, 0x97, 0x5d, 0xf0, 0xd8, 0xd9, 0xa5, 0x30, 0x76,
-	0x76, 0x29, 0xde, 0x99, 0x5d, 0x6e, 0xa5, 0x88, 0xf5, 0x3f, 0x91, 0x22, 0x36, 0xff, 0x81, 0x14,
-	0x51, 0xfe, 0x2f, 0x45, 0xfc, 0x6b, 0x53, 0xc4, 0x7e, 0x98, 0x22, 0xb6, 0x47, 0xa4, 0x88, 0xd1,
-	0xd1, 0xa1, 0xbe, 0xff, 0xea, 0xaa, 0xa4, 0xbc, 0xbe, 0x2a, 0x29, 0xbf, 0x5c, 0x95, 0x94, 0x6f,
-	0xaf, 0x4b, 0x53, 0xaf, 0xaf, 0x4b, 0x53, 0x3f, 0x5d, 0x97, 0xa6, 0xbe, 0xc6, 0x23, 0x4c, 0xf8,
-	0xd0, 0x01, 0xaf, 0x3d, 0x23, 0xff, 0x7b, 0xf2, 0xfe, 0xef, 0x01, 0x00, 0x00, 0xff, 0xff, 0xf2,
-	0xea, 0x12, 0x3a, 0xbf, 0x11, 0x00, 0x00,
+	// 1236 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x98, 0xdf, 0x4e, 0xe3, 0x46,
+	0x14, 0xc6, 0xc9, 0xc2, 0xb2, 0x30, 0x10, 0x92, 0x98, 0x24, 0x0c, 0x81, 0x0d, 0x29, 0xab, 0xdd,
+	0x06, 0xb6, 0x24, 0x65, 0xdb, 0xaa, 0xd5, 0xaa, 0xaa, 0xc4, 0xdf, 0x6a, 0x25, 0xba, 0x8d, 0x02,
+	0xdb, 0x4a, 0xbd, 0xb1, 0x26, 0xf6, 0x21, 0xb1, 0xb0, 0x3d, 0x96, 0x3d, 0x09, 0xc9, 0x3e, 0x42,
+	0xa5, 0x4a, 0x7d, 0x84, 0x3e, 0x42, 0xaf, 0xfa, 0x0c, 0x7b, 0xb9, 0x97, 0x55, 0x2f, 0x56, 0x15,
+	0x5c, 0xb4, 0x8f, 0x51, 0xcd, 0x8c, 0xed, 0x18, 0x92, 0x48, 0xce, 0x2a, 0xf4, 0xa2, 0xea, 0x0d,
+	0x8a, 0xce, 0xf9, 0xbe, 0x2f, 0x27, 0xf6, 0xf1, 0xf8, 0x27, 0x50, 0xc9, 0x73, 0x88, 0x7b, 0xa1,
+	0xbb, 0x40, 0xac, 0xea, 0x39, 0x75, 0xdb, 0x56, 0xb5, 0xb3, 0x5b, 0x75, 0x88, 0x4b, 0x2c, 0xaf,
+	0xe2, 0xb8, 0x94, 0x51, 0x65, 0xb9, 0xaf, 0xa8, 0x08, 0x45, 0xa5, 0xb3, 0x5b, 0xc8, 0x10, 0xcb,
+	0xb0, 0x69, 0x55, 0xfc, 0x95, 0xba, 0x42, 0xb6, 0x49, 0x9b, 0x54, 0x7c, 0xac, 0xf2, 0x4f, 0xb2,
+	0xba, 0xf9, 0x93, 0x82, 0x66, 0x6b, 0x22, 0x4e, 0xf9, 0x00, 0x2d, 0x0a, 0xbf, 0xea, 0x90, 0xb6,
+	0x07, 0x3a, 0x4e, 0x94, 0x12, 0xe5, 0xb9, 0xfa, 0x82, 0xa8, 0xd5, 0x44, 0x49, 0x79, 0x8a, 0x32,
+	0x16, 0xd5, 0xc1, 0x25, 0xcc, 0xa0, 0x76, 0xa0, 0xbb, 0x27, 0x74, 0xe9, 0x7e, 0xc3, 0x17, 0x6f,
+	0xa1, 0x74, 0x83, 0xb6, 0x6d, 0x66, 0x80, 0xa7, 0x82, 0x4d, 0x1a, 0x26, 0xe8, 0x78, 0x5a, 0x68,
+	0x53, 0x41, 0xfd, 0x48, 0x96, 0x79, 0xae, 0x0b, 0x44, 0xe3, 0xe6, 0xbe, 0x76, 0x46, 0xe6, 0x86,
+	0x8d, 0x40, 0xfc, 0x18, 0x2d, 0x11, 0xc7, 0x01, 0x62, 0x7a, 0xc1, 0x04, 0xf7, 0x85, 0x32, 0xe9,
+	0x57, 0xfd, 0xaf, 0xff, 0x10, 0xa5, 0x40, 0x37, 0x98, 0x61, 0x37, 0xc3, 0xc4, 0x59, 0xa1, 0x5b,
+	0xf2, 0xcb, 0x41, 0xde, 0x11, 0x4a, 0x79, 0x0e, 0xb1, 0x54, 0x46, 0xba, 0x2a, 0xb1, 0xf8, 0x64,
+	0xf8, 0x41, 0x29, 0x51, 0x9e, 0xdf, 0x7f, 0xf8, 0xe6, 0xdd, 0xc6, 0xd4, 0x1f, 0xef, 0x36, 0x72,
+	0x1a, 0xf5, 0x2c, 0xea, 0x79, 0xfa, 0x45, 0xc5, 0xa0, 0x55, 0x8b, 0xb0, 0x56, 0xe5, 0x85, 0xcd,
+	0xea, 0x49, 0xee, 0x3a, 0x23, 0xdd, 0x3d, 0xe1, 0x51, 0xbe, 0x43, 0x38, 0x18, 0x55, 0xbd, 0x9d,
+	0x37, 0x17, 0x27, 0x2f, 0x17, 0xd8, 0x4f, 0x6f, 0xe4, 0xbe, 0x44, 0xd9, 0x73, 0x93, 0x34, 0x07,
+	0x32, 0xe7, 0xe3, 0x64, 0x66, 0xb8, 0xf5, 0x66, 0xde, 0x2b, 0xb4, 0xa2, 0xd3, 0x4b, 0xbb, 0x43,
+	0x19, 0xa8, 0x3a, 0x38, 0xd4, 0x33, 0x58, 0x10, 0x89, 0x62, 0x8d, 0x19, 0xb8, 0x0f, 0xa5, 0xd9,
+	0x8f, 0x7d, 0x81, 0x32, 0xf2, 0xfa, 0xab, 0xe7, 0x00, 0x41, 0xe0, 0x42, 0x9c, 0xc0, 0x94, 0xf4,
+	0x1d, 0x03, 0xf8, 0x51, 0x75, 0x94, 0x37, 0xa9, 0x76, 0xa1, 0x0e, 0xe6, 0x2d, 0xc6, 0xc9, 0x5b,
+	0xe6, 0xe6, 0xbd, 0xc1, 0x4c, 0x8b, 0x76, 0x60, 0x48, 0x66, 0x32, 0x56, 0x26, 0x37, 0xdf, 0xce,
+	0x3c, 0x92, 0x1b, 0x16, 0x0d, 0x5b, 0x8a, 0xb5, 0x38, 0xdc, 0x15, 0x8d, 0xd9, 0x10, 0xcf, 0x43,
+	0x4f, 0xd5, 0x88, 0xad, 0x81, 0x69, 0xca, 0xa7, 0x8b, 0xa7, 0x3a, 0xe0, 0x6a, 0x60, 0x33, 0x9c,
+	0x2a, 0x25, 0xca, 0x33, 0xf5, 0x75, 0x29, 0x3b, 0x88, 0xa8, 0x8e, 0x01, 0x6a, 0x52, 0xa3, 0x94,
+	0x51, 0xda, 0x22, 0x5d, 0x55, 0xa3, 0x36, 0x03, 0x9b, 0xa9, 0x9e, 0xf1, 0x1a, 0x70, 0x5a, 0xf8,
+	0x96, 0x2c, 0xd2, 0x3d, 0x90, 0xe5, 0x53, 0xe3, 0x35, 0x70, 0xa5, 0x4e, 0x0c, 0xb3, 0xa7, 0x3a,
+	0xd4, 0x63, 0xaa, 0x69, 0x58, 0x06, 0xc3, 0x19, 0xa9, 0x14, 0xf5, 0x1a, 0xf5, 0xd8, 0x09, 0xaf,
+	0x2a, 0x4f, 0x50, 0x8a, 0x67, 0xba, 0xe0, 0x98, 0x3d, 0xbe, 0x2c, 0xac, 0x85, 0x95, 0x52, 0xa2,
+	0x9c, 0xac, 0x27, 0x2d, 0xd2, 0xad, 0xf3, 0xea, 0x21, 0x2f, 0x2a, 0xdb, 0x28, 0x23, 0xae, 0x44,
+	0xd3, 0x25, 0x9a, 0x98, 0xda, 0xa0, 0x3a, 0x5e, 0x2e, 0x25, 0xca, 0xd3, 0x75, 0x71, 0x89, 0xbe,
+	0xe6, 0xf5, 0x9a, 0x28, 0xf3, 0x4c, 0xa1, 0xe5, 0xc1, 0x97, 0x86, 0xad, 0xd3, 0x4b, 0x9c, 0x15,
+	0x4a, 0x71, 0x59, 0xbe, 0x21, 0xdd, 0xef, 0x45, 0x51, 0xd9, 0x41, 0xcb, 0x5c, 0x72, 0x4e, 0x4d,
+	0x93, 0x5e, 0x7a, 0x3c, 0x54, 0xd5, 0x49, 0x0f, 0xe7, 0xc4, 0xa0, 0xfc, 0xa7, 0x1e, 0xcb, 0x4e,
+	0x0d, 0xdc, 0x43, 0xd2, 0xe3, 0x47, 0x08, 0x71, 0xb5, 0x96, 0xd1, 0x01, 0x95, 0xb5, 0x5c, 0xf0,
+	0x5a, 0xd4, 0xd4, 0x71, 0x5e, 0x04, 0xa7, 0xfd, 0xc6, 0x59, 0x50, 0x57, 0x76, 0x90, 0xd2, 0xb6,
+	0x03, 0xb9, 0x46, 0xa9, 0xc9, 0x77, 0x1a, 0xaf, 0x08, 0x75, 0x26, 0xec, 0x1c, 0xf8, 0x0d, 0x7e,
+	0x92, 0x0d, 0x88, 0xb1, 0xfc, 0x75, 0xb7, 0xa5, 0x1f, 0xa3, 0x6c, 0xcb, 0xd0, 0xc3, 0x3d, 0x0b,
+	0xe5, 0xab, 0x42, 0xae, 0xf0, 0x9e, 0x5c, 0xa3, 0xa8, 0x23, 0xba, 0xed, 0xa1, 0xa3, 0x20, 0x1d,
+	0xfd, 0x65, 0x8e, 0x3a, 0xa2, 0xbb, 0x1c, 0x3a, 0xd6, 0xa4, 0xa3, 0xbf, 0xaa, 0xa1, 0xe3, 0x25,
+	0xca, 0x6a, 0xfc, 0x5e, 0xf3, 0x8b, 0xd8, 0xe8, 0xb1, 0x70, 0x5d, 0xd7, 0x63, 0x9d, 0x21, 0xdc,
+	0x5a, 0x03, 0x77, 0xbf, 0xc7, 0x82, 0x95, 0xad, 0xde, 0xce, 0x83, 0x2e, 0x58, 0x0e, 0xc3, 0x0f,
+	0xc5, 0x01, 0x1b, 0x35, 0x1c, 0x89, 0x86, 0xf2, 0x08, 0x25, 0xc1, 0x69, 0x81, 0x05, 0x2e, 0x31,
+	0x55, 0xc6, 0x4c, 0x5c, 0x14, 0xb3, 0x2e, 0x86, 0xc5, 0x33, 0x66, 0x2a, 0x80, 0xd6, 0x35, 0x6a,
+	0x77, 0x0c, 0x79, 0x86, 0xba, 0x60, 0xc3, 0x25, 0x57, 0x87, 0x77, 0xf3, 0xb1, 0x98, 0xf6, 0x91,
+	0x3f, 0xed, 0xda, 0xe0, 0xb4, 0x27, 0xd0, 0x24, 0x5a, 0xef, 0x10, 0xb4, 0x7a, 0xa1, 0x1f, 0x54,
+	0x97, 0x39, 0xfd, 0x9b, 0xff, 0x1c, 0xad, 0x0e, 0xf9, 0x1a, 0x7f, 0x69, 0x9f, 0x88, 0xb9, 0x56,
+	0x06, 0xec, 0xfe, 0xf2, 0x6e, 0xa3, 0x8c, 0x65, 0xd8, 0xaa, 0x07, 0x36, 0x33, 0x6c, 0x30, 0xd5,
+	0x06, 0xb5, 0x75, 0x5c, 0xe6, 0x73, 0xd5, 0x53, 0x96, 0x61, 0x9f, 0xfa, 0xf5, 0x7d, 0x6a, 0xeb,
+	0xca, 0x2e, 0xca, 0xdd, 0xd0, 0xba, 0xe0, 0xa8, 0xcc, 0x00, 0x17, 0x6f, 0x89, 0x15, 0x56, 0x22,
+	0xfa, 0x3a, 0x38, 0x67, 0x06, 0xb8, 0xca, 0xe7, 0x08, 0xdf, 0xb0, 0x30, 0xb7, 0xcd, 0x9f, 0x50,
+	0xe8, 0x80, 0x89, 0xb7, 0xc5, 0xb7, 0xe4, 0x22, 0xae, 0x33, 0xde, 0x3d, 0xe1, 0x4d, 0xe5, 0x33,
+	0xb4, 0x72, 0xc3, 0x48, 0x9a, 0xa0, 0x36, 0xf8, 0xea, 0x78, 0xf8, 0xa9, 0xf8, 0x45, 0xd9, 0x88,
+	0x6f, 0xaf, 0x09, 0xfb, 0xa2, 0xa7, 0x7c, 0x89, 0x0a, 0xa1, 0x45, 0x07, 0x8b, 0x8a, 0x2b, 0x12,
+	0xee, 0xd3, 0x47, 0xc2, 0x89, 0x03, 0xc5, 0xa1, 0x2f, 0x08, 0xb7, 0xea, 0x2b, 0xb4, 0x36, 0xe8,
+	0xee, 0xdf, 0xae, 0x1d, 0x31, 0xf0, 0xea, 0x6d, 0x7b, 0xff, 0x46, 0x7c, 0x8a, 0xf2, 0xa1, 0xbf,
+	0x6d, 0x8b, 0xc7, 0xc6, 0x3f, 0x10, 0x2a, 0x72, 0xe6, 0xa0, 0xfb, 0x4a, 0x34, 0xfd, 0x73, 0xe1,
+	0x0b, 0x84, 0x23, 0x2e, 0x7e, 0x03, 0xfa, 0x13, 0x57, 0x85, 0x2f, 0xdf, 0xf7, 0xf1, 0x76, 0x30,
+	0xef, 0xf3, 0xcd, 0xbf, 0x7f, 0xd9, 0x48, 0xfc, 0xf8, 0xd7, 0xaf, 0xdb, 0xab, 0x11, 0xa8, 0xea,
+	0xfa, 0x58, 0x25, 0x21, 0x68, 0xf3, 0xb7, 0x0c, 0xca, 0x1f, 0xf3, 0xc2, 0xb7, 0x8e, 0x4f, 0x33,
+	0xc4, 0xf4, 0xf9, 0x68, 0x18, 0xcf, 0x24, 0xc6, 0xe0, 0x99, 0x7b, 0x23, 0x78, 0x66, 0x08, 0xa8,
+	0x4c, 0xc7, 0x05, 0x95, 0x99, 0x09, 0x83, 0xca, 0xfd, 0x3b, 0x00, 0x95, 0xd9, 0xc9, 0x83, 0xca,
+	0x83, 0x49, 0x83, 0xca, 0xdc, 0x84, 0x41, 0x65, 0xfe, 0x0e, 0x40, 0x05, 0x4d, 0x12, 0x54, 0x16,
+	0xde, 0x03, 0x54, 0x46, 0xbd, 0x45, 0x16, 0x27, 0xfc, 0x16, 0x49, 0x8e, 0x7a, 0x8b, 0x0c, 0x43,
+	0x9c, 0xa5, 0xd8, 0x88, 0x93, 0x8a, 0x8b, 0x38, 0xe9, 0x61, 0x88, 0x33, 0x02, 0x47, 0x32, 0x23,
+	0x70, 0x24, 0x06, 0xd4, 0x29, 0x31, 0xa0, 0xee, 0x2e, 0xc0, 0x6a, 0x28, 0x29, 0xe5, 0xc6, 0x22,
+	0xa5, 0xfc, 0x38, 0xa4, 0xb4, 0x32, 0x1e, 0x29, 0xe1, 0xb1, 0x49, 0x69, 0x75, 0x6c, 0x52, 0x2a,
+	0x8c, 0x24, 0xa5, 0x01, 0x50, 0x59, 0x7b, 0x0f, 0x50, 0xd9, 0xf8, 0x17, 0x40, 0xa5, 0xf4, 0x3f,
+	0xa8, 0xfc, 0x67, 0x41, 0xe5, 0x59, 0x00, 0x2a, 0x5b, 0x43, 0x40, 0x65, 0x38, 0x9d, 0xec, 0x3f,
+	0x7b, 0x73, 0x55, 0x4c, 0xbc, 0xbd, 0x2a, 0x26, 0xfe, 0xbc, 0x2a, 0x26, 0x7e, 0xbe, 0x2e, 0x4e,
+	0xbd, 0xbd, 0x2e, 0x4e, 0xfd, 0x7e, 0x5d, 0x9c, 0xfa, 0x01, 0x0f, 0x09, 0x61, 0x3d, 0x07, 0xbc,
+	0xc6, 0xac, 0xf8, 0x1f, 0xd0, 0x27, 0xff, 0x04, 0x00, 0x00, 0xff, 0xff, 0xfd, 0xf1, 0x5e, 0x07,
+	0x65, 0x12, 0x00, 0x00,
 }
 
 func (this *Params) Equal(that interface{}) bool {
@@ -907,28 +782,28 @@ func (this *Params) Equal(that interface{}) bool {
 	if this.EditingEnabled != that1.EditingEnabled {
 		return false
 	}
-	if !this.SpamTax.Equal(&that1.SpamTax) {
+	if !this.SpamTaxAmount.Equal(that1.SpamTaxAmount) {
 		return false
 	}
-	if !this.ReactionSpamTax.Equal(&that1.ReactionSpamTax) {
+	if !this.ReactionSpamTaxAmount.Equal(that1.ReactionSpamTaxAmount) {
 		return false
 	}
-	if !this.FlagSpamTax.Equal(&that1.FlagSpamTax) {
+	if !this.FlagSpamTaxAmount.Equal(that1.FlagSpamTaxAmount) {
 		return false
 	}
-	if !this.DownvoteDeposit.Equal(&that1.DownvoteDeposit) {
+	if !this.DownvoteDepositAmount.Equal(that1.DownvoteDepositAmount) {
 		return false
 	}
-	if !this.AppealFee.Equal(&that1.AppealFee) {
+	if !this.AppealFeeAmount.Equal(that1.AppealFeeAmount) {
 		return false
 	}
-	if !this.LockAppealFee.Equal(&that1.LockAppealFee) {
+	if !this.LockAppealFeeAmount.Equal(that1.LockAppealFeeAmount) {
 		return false
 	}
-	if !this.MoveAppealFee.Equal(&that1.MoveAppealFee) {
+	if !this.MoveAppealFeeAmount.Equal(that1.MoveAppealFeeAmount) {
 		return false
 	}
-	if !this.EditFee.Equal(&that1.EditFee) {
+	if !this.EditFeeAmount.Equal(that1.EditFeeAmount) {
 		return false
 	}
 	if this.BountyCancellationFeePercent != that1.BountyCancellationFeePercent {
@@ -970,7 +845,7 @@ func (this *Params) Equal(that interface{}) bool {
 	if this.MoveAppealCooldown != that1.MoveAppealCooldown {
 		return false
 	}
-	if !this.CostPerByte.Equal(&that1.CostPerByte) {
+	if !this.CostPerByteAmount.Equal(that1.CostPerByteAmount) {
 		return false
 	}
 	if this.CostPerByteExempt != that1.CostPerByteExempt {
@@ -1039,31 +914,31 @@ func (this *ForumOperationalParams) Equal(that interface{}) bool {
 	if this.EditingEnabled != that1.EditingEnabled {
 		return false
 	}
-	if !this.SpamTax.Equal(&that1.SpamTax) {
+	if !this.SpamTaxAmount.Equal(that1.SpamTaxAmount) {
 		return false
 	}
-	if !this.ReactionSpamTax.Equal(&that1.ReactionSpamTax) {
+	if !this.ReactionSpamTaxAmount.Equal(that1.ReactionSpamTaxAmount) {
 		return false
 	}
-	if !this.FlagSpamTax.Equal(&that1.FlagSpamTax) {
+	if !this.FlagSpamTaxAmount.Equal(that1.FlagSpamTaxAmount) {
 		return false
 	}
-	if !this.DownvoteDeposit.Equal(&that1.DownvoteDeposit) {
+	if !this.DownvoteDepositAmount.Equal(that1.DownvoteDepositAmount) {
 		return false
 	}
-	if !this.AppealFee.Equal(&that1.AppealFee) {
+	if !this.AppealFeeAmount.Equal(that1.AppealFeeAmount) {
 		return false
 	}
-	if !this.LockAppealFee.Equal(&that1.LockAppealFee) {
+	if !this.LockAppealFeeAmount.Equal(that1.LockAppealFeeAmount) {
 		return false
 	}
-	if !this.MoveAppealFee.Equal(&that1.MoveAppealFee) {
+	if !this.MoveAppealFeeAmount.Equal(that1.MoveAppealFeeAmount) {
 		return false
 	}
-	if !this.EditFee.Equal(&that1.EditFee) {
+	if !this.EditFeeAmount.Equal(that1.EditFeeAmount) {
 		return false
 	}
-	if !this.CostPerByte.Equal(&that1.CostPerByte) {
+	if !this.CostPerByteAmount.Equal(that1.CostPerByteAmount) {
 		return false
 	}
 	if this.CostPerByteExempt != that1.CostPerByteExempt {
@@ -1264,11 +1139,11 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		dAtA[i] = 0xe8
 	}
 	{
-		size, err := m.CostPerByte.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.CostPerByteAmount.Size()
+		i -= size
+		if _, err := m.CostPerByteAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
@@ -1365,81 +1240,81 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		dAtA[i] = 0x78
 	}
 	{
-		size, err := m.EditFee.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.EditFeeAmount.Size()
+		i -= size
+		if _, err := m.EditFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x72
 	{
-		size, err := m.MoveAppealFee.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.MoveAppealFeeAmount.Size()
+		i -= size
+		if _, err := m.MoveAppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x6a
 	{
-		size, err := m.LockAppealFee.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.LockAppealFeeAmount.Size()
+		i -= size
+		if _, err := m.LockAppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x62
 	{
-		size, err := m.AppealFee.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.AppealFeeAmount.Size()
+		i -= size
+		if _, err := m.AppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x5a
 	{
-		size, err := m.DownvoteDeposit.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.DownvoteDepositAmount.Size()
+		i -= size
+		if _, err := m.DownvoteDepositAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x52
 	{
-		size, err := m.FlagSpamTax.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.FlagSpamTaxAmount.Size()
+		i -= size
+		if _, err := m.FlagSpamTaxAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x4a
 	{
-		size, err := m.ReactionSpamTax.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.ReactionSpamTaxAmount.Size()
+		i -= size
+		if _, err := m.ReactionSpamTaxAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x42
 	{
-		size, err := m.SpamTax.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.SpamTaxAmount.Size()
+		i -= size
+		if _, err := m.SpamTaxAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
@@ -1713,91 +1588,91 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		dAtA[i] = 0x68
 	}
 	{
-		size, err := m.CostPerByte.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.CostPerByteAmount.Size()
+		i -= size
+		if _, err := m.CostPerByteAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x62
 	{
-		size, err := m.EditFee.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.EditFeeAmount.Size()
+		i -= size
+		if _, err := m.EditFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x5a
 	{
-		size, err := m.MoveAppealFee.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.MoveAppealFeeAmount.Size()
+		i -= size
+		if _, err := m.MoveAppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x52
 	{
-		size, err := m.LockAppealFee.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.LockAppealFeeAmount.Size()
+		i -= size
+		if _, err := m.LockAppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x4a
 	{
-		size, err := m.AppealFee.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.AppealFeeAmount.Size()
+		i -= size
+		if _, err := m.AppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x42
 	{
-		size, err := m.DownvoteDeposit.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.DownvoteDepositAmount.Size()
+		i -= size
+		if _, err := m.DownvoteDepositAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x3a
 	{
-		size, err := m.FlagSpamTax.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.FlagSpamTaxAmount.Size()
+		i -= size
+		if _, err := m.FlagSpamTaxAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x32
 	{
-		size, err := m.ReactionSpamTax.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.ReactionSpamTaxAmount.Size()
+		i -= size
+		if _, err := m.ReactionSpamTaxAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
 	dAtA[i] = 0x2a
 	{
-		size, err := m.SpamTax.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
+		size := m.SpamTaxAmount.Size()
+		i -= size
+		if _, err := m.SpamTaxAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
-		i -= size
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
@@ -1870,21 +1745,21 @@ func (m *Params) Size() (n int) {
 	if m.EditingEnabled {
 		n += 2
 	}
-	l = m.SpamTax.Size()
+	l = m.SpamTaxAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.ReactionSpamTax.Size()
+	l = m.ReactionSpamTaxAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.FlagSpamTax.Size()
+	l = m.FlagSpamTaxAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.DownvoteDeposit.Size()
+	l = m.DownvoteDepositAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.AppealFee.Size()
+	l = m.AppealFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.LockAppealFee.Size()
+	l = m.LockAppealFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.MoveAppealFee.Size()
+	l = m.MoveAppealFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.EditFee.Size()
+	l = m.EditFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
 	if m.BountyCancellationFeePercent != 0 {
 		n += 1 + sovParams(uint64(m.BountyCancellationFeePercent))
@@ -1925,7 +1800,7 @@ func (m *Params) Size() (n int) {
 	if m.MoveAppealCooldown != 0 {
 		n += 2 + sovParams(uint64(m.MoveAppealCooldown))
 	}
-	l = m.CostPerByte.Size()
+	l = m.CostPerByteAmount.Size()
 	n += 2 + l + sovParams(uint64(l))
 	if m.CostPerByteExempt {
 		n += 3
@@ -1983,23 +1858,23 @@ func (m *ForumOperationalParams) Size() (n int) {
 	if m.EditingEnabled {
 		n += 2
 	}
-	l = m.SpamTax.Size()
+	l = m.SpamTaxAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.ReactionSpamTax.Size()
+	l = m.ReactionSpamTaxAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.FlagSpamTax.Size()
+	l = m.FlagSpamTaxAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.DownvoteDeposit.Size()
+	l = m.DownvoteDepositAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.AppealFee.Size()
+	l = m.AppealFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.LockAppealFee.Size()
+	l = m.LockAppealFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.MoveAppealFee.Size()
+	l = m.MoveAppealFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.EditFee.Size()
+	l = m.EditFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.CostPerByte.Size()
+	l = m.CostPerByteAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
 	if m.CostPerByteExempt {
 		n += 2
@@ -2238,9 +2113,9 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			m.EditingEnabled = bool(v != 0)
 		case 7:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SpamTax", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field SpamTaxAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2250,30 +2125,31 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.SpamTax.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.SpamTaxAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 8:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ReactionSpamTax", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ReactionSpamTaxAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2283,30 +2159,31 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.ReactionSpamTax.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.ReactionSpamTaxAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 9:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FlagSpamTax", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field FlagSpamTaxAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2316,30 +2193,31 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.FlagSpamTax.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.FlagSpamTaxAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 10:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DownvoteDeposit", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field DownvoteDepositAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2349,30 +2227,31 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.DownvoteDeposit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.DownvoteDepositAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 11:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AppealFee", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field AppealFeeAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2382,30 +2261,31 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.AppealFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.AppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 12:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LockAppealFee", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field LockAppealFeeAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2415,30 +2295,31 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.LockAppealFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.LockAppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 13:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MoveAppealFee", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field MoveAppealFeeAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2448,30 +2329,31 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.MoveAppealFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.MoveAppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 14:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EditFee", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field EditFeeAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2481,22 +2363,23 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.EditFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.EditFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -2749,9 +2632,9 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 		case 28:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CostPerByte", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field CostPerByteAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -2761,22 +2644,23 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.CostPerByte.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.CostPerByteAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -3175,9 +3059,9 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 			m.EditingEnabled = bool(v != 0)
 		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SpamTax", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field SpamTaxAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3187,30 +3071,31 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.SpamTax.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.SpamTaxAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ReactionSpamTax", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ReactionSpamTaxAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3220,30 +3105,31 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.ReactionSpamTax.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.ReactionSpamTaxAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 6:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FlagSpamTax", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field FlagSpamTaxAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3253,30 +3139,31 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.FlagSpamTax.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.FlagSpamTaxAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 7:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DownvoteDeposit", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field DownvoteDepositAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3286,30 +3173,31 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.DownvoteDeposit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.DownvoteDepositAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 8:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AppealFee", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field AppealFeeAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3319,30 +3207,31 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.AppealFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.AppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 9:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LockAppealFee", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field LockAppealFeeAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3352,30 +3241,31 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.LockAppealFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.LockAppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 10:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MoveAppealFee", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field MoveAppealFeeAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3385,30 +3275,31 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.MoveAppealFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.MoveAppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 11:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EditFee", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field EditFeeAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3418,30 +3309,31 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.EditFee.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.EditFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 12:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CostPerByte", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field CostPerByteAmount", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowParams
@@ -3451,22 +3343,23 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthParams
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthParams
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.CostPerByte.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.CostPerByteAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

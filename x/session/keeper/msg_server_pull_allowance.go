@@ -77,10 +77,10 @@ func (k msgServer) PullAllowance(ctx context.Context, msg *types.MsgPullAllowanc
 	if !msg.Amount.IsValid() || !msg.Amount.IsPositive() {
 		return nil, types.ErrAmountNotPositive
 	}
-	if msg.Amount.Denom == "dream" {
+	if msg.Amount.Denom == k.DreamDenom(ctx) {
 		return nil, types.ErrDreamDenomForbidden
 	}
-	if !denomAllowed(params.AllowedDenoms, msg.Amount.Denom) {
+	if !k.denomAllowed(ctx, params.AllowedDenoms, msg.Amount.Denom) {
 		return nil, types.ErrDenomNotAllowed.Wrapf("denom: %s", msg.Amount.Denom)
 	}
 	if msg.Amount.Denom != sa.Denom {
@@ -207,7 +207,7 @@ func (k msgServer) PullAllowance(ctx context.Context, msg *types.MsgPullAllowanc
 	))
 
 	return &types.MsgPullAllowanceResponse{
-		Transferred:    msg.Amount,
-		SpentInPeriod:  sa.SpentInCurrentPeriod,
+		Transferred:   msg.Amount,
+		SpentInPeriod: sa.SpentInCurrentPeriod,
 	}, nil
 }

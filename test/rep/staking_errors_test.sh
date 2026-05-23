@@ -142,7 +142,7 @@ TX_RES=$($BINARY tx rep stake \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -161,7 +161,7 @@ TX_RES=$($BINARY tx rep stake \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -193,7 +193,7 @@ if [ "$ALICE_BOB_STAKED" = true ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -210,7 +210,7 @@ if [ -n "$ALICE_BOB_STAKE_ID" ] && [ "$ALICE_BOB_STAKE_ID" != "null" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     submit_tx_and_wait "$TX_RES"
@@ -233,7 +233,7 @@ if [ -n "$DAVE_ADDR" ]; then
         --from dave \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -253,7 +253,7 @@ TX_RES=$($BINARY tx rep unstake \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -269,7 +269,7 @@ TX_RES=$($BINARY tx rep stake \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -291,7 +291,7 @@ TX_RES=$($BINARY tx rep transfer-dream \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -307,7 +307,7 @@ TX_RES=$($BINARY tx rep transfer-dream \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 

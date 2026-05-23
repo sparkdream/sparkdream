@@ -108,17 +108,17 @@ vote_and_execute() {
 
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 3
 
     $BINARY tx commons vote-proposal $prop_id yes \
         --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 3
 
     EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
@@ -149,7 +149,7 @@ TX_RES=$($BINARY tx reveal propose \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -194,7 +194,7 @@ jq -n \
 
 SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/approve_stake_test.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000000uspark --output json)
+    --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 PROPOSAL_ID=$(get_group_proposal_id $TX_HASH)
 
@@ -223,7 +223,7 @@ TX_RES=$($BINARY tx reveal stake \
     --from staker3 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -308,7 +308,7 @@ if [ -n "$STAKE_ID" ]; then
         --from staker3 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -370,7 +370,7 @@ echo "--- TEST 6: NEGATIVE - WITHDRAW BY NON-OWNER ---"
 # balance guard (code 1103).
 echo "  Topping up staker1 with 250 DREAM (gift from alice)..."
 TX_RES=$($BINARY tx rep transfer-dream "$STAKER1_ADDR" "250000000" "gift" "stake_withdraw test top-up" \
-    --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     sleep 6
@@ -384,7 +384,7 @@ TX_RES=$($BINARY tx reveal stake \
     --from staker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -406,7 +406,7 @@ if [ -n "$NON_OWNER_STAKE_ID" ]; then
         --from staker2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -433,7 +433,7 @@ if [ -n "$NON_OWNER_STAKE_ID" ]; then
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -458,7 +458,7 @@ TX_RES=$($BINARY tx reveal stake \
     --from staker3 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -492,7 +492,7 @@ if [ -n "$STAKE_ID" ] && [ "$WITHDRAW_RESULT" == "PASS" ]; then
         --from staker3 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -530,7 +530,7 @@ TX_RES=$($BINARY tx reveal stake \
     --from staker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -548,7 +548,7 @@ TX_RES=$($BINARY tx reveal stake \
     --from staker2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -576,7 +576,7 @@ if [ -n "$HELPER_STAKE_ID" ]; then
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -606,7 +606,7 @@ TX_RES=$($BINARY tx reveal propose \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -628,7 +628,7 @@ if [ -n "$ORBIT_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -644,7 +644,7 @@ if [ -n "$ORBIT_ID" ]; then
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

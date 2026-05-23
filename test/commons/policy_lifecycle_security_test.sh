@@ -51,7 +51,7 @@ echo '{
     }
   ],
   "metadata": "Temporary group for permission-revocation test",
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Create Sunset DAO",
   "summary": "A temporary group to test permission revocation.",
   "expedited": true
@@ -86,7 +86,7 @@ fi
 echo "[ OK ] Target Policy Address: $COUNCIL_ADDR"
 
 # Fund it (so we can test spending later)
-$BINARY tx bank send $ALICE_ADDR $COUNCIL_ADDR 1000uspark --chain-id $CHAIN_ID -y > /dev/null
+$BINARY tx bank send $ALICE_ADDR $COUNCIL_ADDR 1000${BOND_DENOM} --chain-id $CHAIN_ID -y > /dev/null
 sleep 3
 
 # --- 2. ATTACK SIMULATION (SECURITY) ---
@@ -139,7 +139,7 @@ echo '{
       "policy_address": "'$COUNCIL_ADDR'"
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Sunset DAO",
   "summary": "Dissolving the DAO by revoking all policy permissions.",
   "expedited": true
@@ -185,14 +185,14 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
       "authority": "'$COUNCIL_ADDR'",
       "recipient": "'$ALICE_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "1"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "1"}]
     }
   ],
   "metadata": "Zombie action: trying to act after sunset"
 }' > "$PROPOSAL_DIR/msg_zombie.json"
 
 # Attempt Submission via tx, then check the on-chain tx code/log.
-OUTPUT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_zombie.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+OUTPUT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_zombie.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json 2>&1)
 ZOMBIE_HASH=$(echo "$OUTPUT" | jq -r '.txhash // empty' 2>/dev/null)
 sleep 3
 ZOMBIE_LOG=""

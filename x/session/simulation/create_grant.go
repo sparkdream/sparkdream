@@ -152,16 +152,16 @@ func SimulateMsgCreateGrant(
 
 		// Granter must cover gas + (oneshots only) the deposit escrow.
 		// The deposit is ceil(gas_limit * gas_price) + creation_fee, but
-		// for sim we approximate generously: a few million uspark
+		// for sim we approximate generously: a few million bond-denom
 		// minimum.
 		balance := bk.SpendableCoins(ctx, granterAcc.Address)
 		minBalance := math.NewInt(10_000) // gas headroom
 		if variant == 2 {
 			// Add deposit headroom (gas_limit * gas_price + fee).
 			minBalance = minBalance.Add(math.NewIntFromUint64(params.MaxOneshotExecGas)).
-				Add(math.NewIntFromUint64(params.MinOneshotDepositUspark))
+				Add(math.NewIntFromUint64(params.MinOneshotDeposit))
 		}
-		if balance.AmountOf("uspark").LT(minBalance) {
+		if balance.AmountOf(sdk.DefaultBondDenom).LT(minBalance) {
 			return simtypes.NoOpMsg(types.ModuleName, msgType, "granter has insufficient funds"), nil, nil
 		}
 
@@ -184,7 +184,7 @@ func SimulateMsgCreateGrant(
 }
 
 // buildRecurringPullPayload constructs a valid RecurringPullPayload.
-// Amount per period is small (1k-100k uspark) so the per-grant
+// Amount per period is small (1k-100k bond-denom) so the per-grant
 // max_per_epoch default (10x amount) easily covers normal cadence and
 // the granter's balance survives many sim ticks.
 func buildRecurringPullPayload(
@@ -197,7 +197,7 @@ func buildRecurringPullPayload(
 	// Period: at least min, at most 2x min (keeps the simulation lively).
 	period := params.MinRecurringPeriodSeconds + r.Int63n(params.MinRecurringPeriodSeconds+1)
 	return &types.RecurringPullPayload{
-		AmountPerPeriod: sdk.NewCoin("uspark", amount),
+		AmountPerPeriod: sdk.NewCoin(sdk.DefaultBondDenom, amount),
 		PeriodSeconds:   period,
 		StartTime:       0, // defaults to block time
 	}, true
@@ -215,8 +215,8 @@ func buildSpendingAllowancePayload(
 	maxPerPeriod := math.NewInt(int64(r.Intn(900_000) + 100_000))
 	period := params.MinAllowancePeriodSeconds + r.Int63n(params.MinAllowancePeriodSeconds*2+1)
 	return &types.SpendingAllowancePayload{
-		Denom:        "uspark",
-		MaxPerPeriod: sdk.NewCoin("uspark", maxPerPeriod),
+		Denom:         sdk.DefaultBondDenom,
+		MaxPerPeriod:  sdk.NewCoin(sdk.DefaultBondDenom, maxPerPeriod),
 		PeriodSeconds: period,
 	}, true
 }
@@ -239,11 +239,11 @@ func buildOneshotTransferPayload(
 		// Transfer variant has no gas_limit — the OneshotTransfer
 		// action just runs a bank.SendCoins at fire time. The deposit
 		// formula in computeOneshotDeposit returns the
-		// min_oneshot_deposit_uspark floor for Transfer.
+		// min_oneshot_deposit floor for Transfer.
 		Action: &types.ScheduledOneshotPayload_Transfer{
 			Transfer: &types.OneshotTransfer{
 				Recipient: recipient,
-				Amount:    sdk.NewCoin("uspark", amount),
+				Amount:    sdk.NewCoin(sdk.DefaultBondDenom, amount),
 			},
 		},
 	}, true

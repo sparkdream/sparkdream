@@ -49,7 +49,7 @@ EOF
 
     local TX_RES=$($BINARY tx commons submit-proposal "$PROP_FILE" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json 2>&1)
+        --fees 5000000${BOND_DENOM} --output json)
     local TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
         echo "  Fixture peer $PEER_ID submission failed (likely already exists)"
@@ -68,14 +68,14 @@ EOF
     for VOTER in alice bob carol; do
         $BINARY tx commons vote-proposal "$PROP_ID" yes \
             --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000000uspark --output json > /dev/null 2>&1
+            --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
         sleep 2
     done
 
     # Execute
     $BINARY tx commons execute-proposal "$PROP_ID" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --gas 2000000 --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --gas 2000000 --output json > /dev/null 2>&1
     sleep 6
 
     # Verify
@@ -118,7 +118,7 @@ EOF
 
     local TX_RES=$($BINARY tx commons submit-proposal "$PROP_FILE" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json 2>&1)
+        --fees 5000000${BOND_DENOM} --output json)
     local TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
         echo "  Fixture activate $PEER_ID — submission failed"
@@ -136,13 +136,13 @@ EOF
     for VOTER in alice bob carol; do
         $BINARY tx commons vote-proposal "$PROP_ID" yes \
             --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000000uspark --output json > /dev/null 2>&1
+            --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
         sleep 2
     done
 
     $BINARY tx commons execute-proposal "$PROP_ID" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --gas 2000000 --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --gas 2000000 --output json > /dev/null 2>&1
     sleep 6
 
     STATUS=$($BINARY query federation get-peer "$PEER_ID" --output json 2>&1 | jq -r '.peer.status // "PEER_STATUS_PENDING"' 2>/dev/null)
@@ -209,7 +209,7 @@ EOF
 
     local TX_RES=$($BINARY tx commons submit-proposal "$PROP_FILE" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json 2>&1)
+        --fees 5000000${BOND_DENOM} --output json)
     local TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
         echo "  Fixture policy $PEER_ID — submission failed"
@@ -228,17 +228,17 @@ EOF
     for VOTER in alice bob; do
         $BINARY tx commons vote-proposal "$PROP_ID" yes \
             --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000000uspark --output json > /dev/null 2>&1
+            --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
         sleep 2
     done
 
     EXEC_RES=$($BINARY tx commons execute-proposal "$PROP_ID" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --gas 2000000 --output json 2>&1)
+        --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
     sleep 6
 
     # Verify policy was actually applied
-    local POLICY_QUERY=$($BINARY query federation get-peer-policy "$PEER_ID" --output json 2>&1)
+    local POLICY_QUERY=$($BINARY query federation get-peer-policy "$PEER_ID" --output json)
     local IN_TYPES=$(echo "$POLICY_QUERY" | jq -r '(.policy.inbound_content_types // []) | join(",")' 2>/dev/null)
     local OUT_TYPES=$(echo "$POLICY_QUERY" | jq -r '(.policy.outbound_content_types // []) | join(",")' 2>/dev/null)
     local APPLIED_OK=false
@@ -286,12 +286,12 @@ register_test_bridge() {
         return 0
     fi
 
-    local MIN_BOND_AMT=$($BINARY query service service-type "federation-bridge-${PROTOCOL}" --output json 2>/dev/null | jq -r '.config.min_bond.amount // "1000000000"')
+    local MIN_BOND_AMT=$($BINARY query service service-type "federation-bridge-${PROTOCOL}" --output json 2>/dev/null | jq -r '.config.min_bond_amount // "1000000000"')
 
     local TX_RES=$($BINARY tx federation register-bridge \
-        "$PEER_ID" "$PROTOCOL" "$ENDPOINT" "${MIN_BOND_AMT}uspark" \
+        "$PEER_ID" "$PROTOCOL" "$ENDPOINT" "${MIN_BOND_AMT}" \
         --from "$OPERATOR_KEY" -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --output json 2>&1)
+        --fees 5000${BOND_DENOM} --output json)
     local TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
         echo "  Fixture bridge — submission failed: $(echo "$TX_RES" | head -c 200)"

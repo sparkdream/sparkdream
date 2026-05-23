@@ -5,7 +5,6 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/service/types"
@@ -41,7 +40,7 @@ func TestPutOperator_UnderfundedQueueLifecycle(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    sdk.NewCoin(types.BondDenom, math.NewInt(100_000)),
+		BondAmount:                    math.NewInt(100_000),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 		UnderfundedSince:        height,
 		Tier1SlashedInWindow:    math.ZeroInt(),
@@ -75,7 +74,7 @@ func TestArchiveOperator_DropsLiveAndKeepsArchive(t *testing.T) {
 	op := f.seedActiveOperator(t, testOperator1, testController, math.NewInt(2_000_000))
 
 	// Move to archive shape: bond zero, status RETIRED, retired_at set.
-	op.Bond = sdk.NewCoin(types.BondDenom, math.ZeroInt())
+	op.BondAmount = math.ZeroInt()
 	op.Status = types.OperatorStatus_OPERATOR_STATUS_RETIRED
 	op.RetiredAt = f.sdkCtx().BlockHeight()
 	require.NoError(t, f.keeper.ArchiveOperator(f.ctx, op))
@@ -103,7 +102,7 @@ func TestArchiveOperator_RejectsNonTerminalStatus(t *testing.T) {
 
 	// Mutate to satisfy bond-zero + retired_at preconditions but keep
 	// status ACTIVE — ArchiveOperator must reject.
-	op.Bond = sdk.NewCoin(types.BondDenom, math.ZeroInt())
+	op.BondAmount = math.ZeroInt()
 	op.RetiredAt = f.sdkCtx().BlockHeight()
 	err := f.keeper.ArchiveOperator(f.ctx, op)
 	require.Error(t, err)
@@ -127,7 +126,7 @@ func TestArchiveOperator_RejectsZeroRetiredAt(t *testing.T) {
 	f.seedServiceType(t)
 	op := f.seedActiveOperator(t, testOperator1, testController, math.NewInt(2_000_000))
 
-	op.Bond = sdk.NewCoin(types.BondDenom, math.ZeroInt())
+	op.BondAmount = math.ZeroInt()
 	op.Status = types.OperatorStatus_OPERATOR_STATUS_RETIRED
 	op.RetiredAt = 0
 	err := f.keeper.ArchiveOperator(f.ctx, op)
@@ -144,7 +143,7 @@ func TestHasSlashedRecord(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    sdk.NewCoin(types.BondDenom, math.ZeroInt()),
+		BondAmount:                    math.ZeroInt(),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_SLASHED,
 		RetiredAt:               f.sdkCtx().BlockHeight(),
 		Tier1SlashedInWindow:    math.ZeroInt(),

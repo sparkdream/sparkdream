@@ -167,7 +167,7 @@ TRANSFER_RES=$($BINARY tx rep transfer-dream \
   --from challenger \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 

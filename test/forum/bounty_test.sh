@@ -107,10 +107,10 @@ echo "--- PART 0: FUND BOUNTY CREATOR WITH SPARK ---"
 # Send 200 SPARK from alice to bounty_creator
 TX_RES=$($BINARY tx bank send \
     alice $BOUNTY_CREATOR_ADDR \
-    200000000uspark \
+    200000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -119,7 +119,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
     if check_tx_success "$TX_RESULT"; then
-        BALANCE=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+        BALANCE=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
         echo "  Funded bounty_creator. Balance: $BALANCE uspark"
         FUND_CREATOR_RESULT="PASS"
     else
@@ -170,7 +170,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from bounty_creator \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -214,7 +214,7 @@ if [ -n "$BOUNTY_THREAD_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -326,7 +326,7 @@ if [ -n "$BOUNTY_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -375,7 +375,7 @@ if [ -n "$BOUNTY_THREAD_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -420,7 +420,7 @@ if [ -n "$BOUNTY_THREAD_ID" ] && [ -n "$BOUNTY_REPLY_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -470,7 +470,7 @@ if [ -n "$BOUNTY_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -539,7 +539,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from bounty_creator \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -564,7 +564,7 @@ if [ -n "$EXPIRY_THREAD_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -612,7 +612,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from bounty_creator \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -634,7 +634,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                 --from bounty_creator \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -654,7 +654,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                         --from bounty_creator \
                         --chain-id $CHAIN_ID \
                         --keyring-backend test \
-                        --fees 5000uspark \
+                        --fees 5000${BOND_DENOM} \
                         -y \
                         --output json 2>&1)
 
@@ -734,7 +734,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from bounty_creator \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -759,7 +759,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Create bounty by non-author" "thread author" "$TX_RES"; then
@@ -776,7 +776,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Create bounty with amount too small" "minimum" "$TX_RES"; then
@@ -793,7 +793,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Create bounty with invalid duration" "duration" "$TX_RES"; then
@@ -810,7 +810,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -839,7 +839,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
             --from bounty_creator \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         if expect_tx_failure "Create duplicate bounty on same thread" "already exists" "$TX_RES"; then
@@ -873,7 +873,7 @@ if [ -n "$ERROR_BOUNTY_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Increase bounty by non-creator" "bounty creator" "$TX_RES"; then
@@ -893,7 +893,7 @@ if [ -n "$BOUNTY_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Increase non-active bounty (AWARDED)" "not active" "$TX_RES"; then
@@ -923,7 +923,7 @@ if [ -n "$ERROR_BOUNTY_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Award bounty with no assignments" "no awards assigned" "$TX_RES"; then
@@ -938,7 +938,7 @@ if [ -n "$ERROR_BOUNTY_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Award bounty by non-creator" "bounty creator" "$TX_RES"; then
@@ -958,7 +958,7 @@ if [ -n "$BOUNTY_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Award non-active bounty (already AWARDED)" "not active" "$TX_RES"; then
@@ -990,7 +990,7 @@ if [ -n "$ERROR_THREAD_ID" ] && [ -n "$ERROR_BOUNTY_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1015,7 +1015,7 @@ if [ -n "$ERROR_THREAD_ID" ] && [ -n "$ERROR_BOUNTY_ID" ]; then
             --from poster1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         if expect_tx_failure "Assign bounty by non-creator" "bounty creator" "$TX_RES"; then
@@ -1035,7 +1035,7 @@ if [ -n "$ERROR_THREAD_ID" ] && [ -n "$ERROR_BOUNTY_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Assign bounty to root post" "root post" "$TX_RES"; then
@@ -1053,7 +1053,7 @@ if [ -n "$ERROR_THREAD_ID" ] && [ -n "$ERROR_BOUNTY_ID" ]; then
             --from bounty_creator \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         if expect_tx_failure "Assign reply from different thread" "not a reply" "$TX_RES"; then
@@ -1085,7 +1085,7 @@ if [ -n "$ERROR_BOUNTY_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Cancel bounty by non-creator" "bounty creator" "$TX_RES"; then
@@ -1103,7 +1103,7 @@ if [ -n "$ERROR_BOUNTY_ID" ]; then
             --from bounty_creator \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -1121,7 +1121,7 @@ if [ -n "$ERROR_BOUNTY_ID" ]; then
                     --from bounty_creator \
                     --chain-id $CHAIN_ID \
                     --keyring-backend test \
-                    --fees 5000uspark \
+                    --fees 5000${BOND_DENOM} \
                     -y \
                     --output json 2>&1)
                 if expect_tx_failure "Cancel bounty with existing awards" "existing awards" "$TX_RES"; then
@@ -1150,7 +1150,7 @@ if [ -n "$BOUNTY_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if expect_tx_failure "Cancel non-active bounty (AWARDED)" "not active" "$TX_RES"; then
@@ -1184,7 +1184,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from bounty_creator \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1204,7 +1204,7 @@ if [ -n "$BAL_THREAD_ID" ]; then
     BAL_BOUNTY_AMOUNT="100000"  # 100000 uspark (large enough to see fee vs gas)
 
     # Record balance before creating bounty
-    BALANCE_PRE=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+    BALANCE_PRE=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
     echo "  Balance before create-bounty: $BALANCE_PRE uspark"
 
     # Create bounty (escrows BAL_BOUNTY_AMOUNT uspark)
@@ -1215,7 +1215,7 @@ if [ -n "$BAL_THREAD_ID" ]; then
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1232,7 +1232,7 @@ if [ -n "$BAL_THREAD_ID" ]; then
                 BAL_BOUNTY_ID=$(echo "$BOUNTIES" | jq -r '.bounty[-1].id // empty')
             fi
 
-            BALANCE_POST_ESCROW=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+            BALANCE_POST_ESCROW=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
             echo "  Balance after create-bounty:  $BALANCE_POST_ESCROW uspark"
 
             # Verify escrow: balance decreased by at least the bounty amount
@@ -1251,7 +1251,7 @@ if [ -n "$BAL_THREAD_ID" ]; then
                 --from bounty_creator \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -1262,7 +1262,7 @@ if [ -n "$BAL_THREAD_ID" ]; then
                 TX_RESULT=$(wait_for_tx $TXHASH)
 
                 if check_tx_success "$TX_RESULT"; then
-                    BALANCE_POST_CANCEL=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+                    BALANCE_POST_CANCEL=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
                     echo "  Balance after cancel-bounty: $BALANCE_POST_CANCEL uspark"
 
                     # Refund = bounty_amount * (100 - fee_percent) / 100

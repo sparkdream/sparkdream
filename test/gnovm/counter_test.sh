@@ -86,8 +86,8 @@ echo "TEST 1: Deploy counter realm"
 echo "  Deploying $CONTRACTS_DIR/counter to gno.land/r/demo/counter..."
 
 TX_RES=$($BINARY tx gnovm add-package "$CONTRACTS_DIR/counter" \
-    --send 1000uspark --max-deposit 10000uspark \
-    --from alice --gas 5000000 --fees 50000uspark -y \
+    --send 1000${BOND_DENOM} --max-deposit 10000${BOND_DENOM} \
+    --from alice --gas 5000000 --fees 50000${BOND_DENOM} -y \
     --keyring-backend test --chain-id $CHAIN_ID --output json 2>&1)
 
 submit_tx_and_wait "$TX_RES"
@@ -127,7 +127,7 @@ echo ""
 echo "TEST 3: Call Increment"
 
 TX_RES=$($BINARY tx gnovm call gno.land/r/demo/counter Increment \
-    --from alice --gas 5000000 --fees 50000uspark -y \
+    --from alice --gas 5000000 --fees 50000${BOND_DENOM} -y \
     --keyring-backend test --chain-id $CHAIN_ID --output json 2>&1)
 
 submit_tx_and_wait "$TX_RES"
@@ -163,7 +163,7 @@ echo ""
 echo "TEST 5: Call Increment again"
 
 TX_RES=$($BINARY tx gnovm call gno.land/r/demo/counter Increment \
-    --from alice --gas 5000000 --fees 50000uspark -y \
+    --from alice --gas 5000000 --fees 50000${BOND_DENOM} -y \
     --keyring-backend test --chain-id $CHAIN_ID --output json 2>&1)
 
 submit_tx_and_wait "$TX_RES"
@@ -199,7 +199,7 @@ echo ""
 echo "TEST 7: Call Decrement"
 
 TX_RES=$($BINARY tx gnovm call gno.land/r/demo/counter Decrement \
-    --from alice --gas 5000000 --fees 50000uspark -y \
+    --from alice --gas 5000000 --fees 50000${BOND_DENOM} -y \
     --keyring-backend test --chain-id $CHAIN_ID --output json 2>&1)
 
 submit_tx_and_wait "$TX_RES"
@@ -235,7 +235,7 @@ echo ""
 echo "TEST 9: Call Reset"
 
 TX_RES=$($BINARY tx gnovm call gno.land/r/demo/counter Reset \
-    --from alice --gas 5000000 --fees 50000uspark -y \
+    --from alice --gas 5000000 --fees 50000${BOND_DENOM} -y \
     --keyring-backend test --chain-id $CHAIN_ID --output json 2>&1)
 
 submit_tx_and_wait "$TX_RES"
@@ -286,8 +286,8 @@ echo ""
 echo "TEST 12: Deploy duplicate package should fail"
 
 TX_RES=$($BINARY tx gnovm add-package "$CONTRACTS_DIR/counter" \
-    --send 1000uspark --max-deposit 10000uspark \
-    --from alice --gas 5000000 --fees 50000uspark -y \
+    --send 1000${BOND_DENOM} --max-deposit 10000${BOND_DENOM} \
+    --from alice --gas 5000000 --fees 50000${BOND_DENOM} -y \
     --keyring-backend test --chain-id $CHAIN_ID --output json 2>&1)
 
 submit_tx_and_wait "$TX_RES"

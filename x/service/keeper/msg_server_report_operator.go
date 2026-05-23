@@ -102,10 +102,11 @@ func (k msgServer) ReportOperator(ctx context.Context, msg *types.MsgReportOpera
 	}
 
 	// Escrow the report deposit.
-	if !params.ReportDeposit.Amount.IsPositive() {
-		return nil, types.ErrInvalidParams.Wrap("report_deposit must be positive")
+	if !params.ReportDepositAmount.IsPositive() {
+		return nil, types.ErrInvalidParams.Wrap("report_deposit_amount must be positive")
 	}
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, sdk.AccAddress(reporterBytes), types.ModuleName, sdk.NewCoins(params.ReportDeposit)); err != nil {
+	depositCoin := sdk.NewCoin(k.BondDenom(ctx), params.ReportDepositAmount)
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, sdk.AccAddress(reporterBytes), types.ModuleName, sdk.NewCoins(depositCoin)); err != nil {
 		return nil, types.ErrInsufficientReportDeposit.Wrap(err.Error())
 	}
 
@@ -133,8 +134,8 @@ func (k msgServer) ReportOperator(ctx context.Context, msg *types.MsgReportOpera
 		EscalatedAt:      0,
 		Status:           types.ReportStatus_REPORT_STATUS_PENDING,
 		ProposedSlashBps: 0,
-		SlashAmount:      sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt()),
-		Deposit:          params.ReportDeposit,
+		SlashAmount:      sdkmath.ZeroInt(),
+		Deposit:          params.ReportDepositAmount,
 		JuryCaseId:       0,
 	}
 	if err := k.Reports.Set(ctx, reportID, report); err != nil {
@@ -153,7 +154,7 @@ func (k msgServer) ReportOperator(ctx context.Context, msg *types.MsgReportOpera
 	}
 
 	sdkCtx.EventManager().EmitEvent(types.NewReportFiledEvent(
-		reportID, msg.Reporter, msg.Operator, msg.ServiceType, params.ReportDeposit,
+		reportID, msg.Reporter, msg.Operator, msg.ServiceType, depositCoin,
 	))
 	emitReportFiled(msg.ServiceType)
 

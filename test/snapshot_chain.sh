@@ -85,7 +85,8 @@ if [ -d ~/.sparkdream ]; then
     mv ~/.sparkdream ~/.sparkdream_$BACKUP_NAME
 fi
 
-# Remove any leftover state. CLAUDE.md forbids `rm -rf`; use `find -delete`
+# Remove any leftover state. `rm -rf` is forbidden project-wide (see
+# docs/development-conventions.md); use `find -delete`
 # with explicit guards so a misconfigured $HOME can't escalate. The mv above
 # will normally have moved ~/.sparkdream out of the way, so this only
 # matters if the mv was skipped (no -d) and a stray file/symlink remains.

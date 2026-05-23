@@ -144,8 +144,8 @@ if ! $BINARY keys show batch_grantee --keyring-backend test > /dev/null 2>&1; th
 fi
 BATCH_GRANTEE_ADDR=$($BINARY keys show batch_grantee -a --keyring-backend test)
 
-TX_RES=$($BINARY tx bank send alice "$BATCH_GRANTEE_ADDR" 20000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+TX_RES=$($BINARY tx bank send alice "$BATCH_GRANTEE_ADDR" 20000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 sleep 6
 
 # Create session with MsgCreatePost and MsgReact allowed
@@ -153,13 +153,13 @@ EXPIRATION=$(get_future_expiration 2)
 TX_RES=$($BINARY tx session create-session \
     "$BATCH_GRANTEE_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost,/sparkdream.blog.v1.MsgReact" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -197,7 +197,7 @@ cat > /tmp/batch_empty_unsigned.json <<TXEOF
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "50000"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "50000"}],
       "gas_limit": "300000",
       "payer": "",
       "granter": ""
@@ -256,7 +256,7 @@ cat > /tmp/batch_toomany_unsigned.json <<TXEOF
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "100000"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "100000"}],
       "gas_limit": "1000000",
       "payer": "",
       "granter": ""
@@ -320,7 +320,7 @@ cat > /tmp/batch_multi_unsigned.json <<TXEOF
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "100000"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "100000"}],
       "gas_limit": "500000",
       "payer": "",
       "granter": ""
@@ -381,7 +381,7 @@ cat > /tmp/batch_nested_unsigned.json <<TXEOF
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "50000"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "50000"}],
       "gas_limit": "300000",
       "payer": "",
       "granter": ""
@@ -450,7 +450,7 @@ cat > /tmp/batch_rollback_unsigned.json <<TXEOF
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "100000"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "100000"}],
       "gas_limit": "500000",
       "payer": "",
       "granter": ""
@@ -510,7 +510,7 @@ cat > /tmp/batch_mixed_unsigned.json <<TXEOF
         "@type": "/cosmos.bank.v1beta1.MsgSend",
         "from_address": "$BATCH_GRANTEE_ADDR",
         "to_address": "$GRANTER_ADDR",
-        "amount": [{"denom": "uspark", "amount": "1000"}]
+        "amount": [{"denom": "${BOND_DENOM}", "amount": "1000"}]
       }
     ],
     "memo": "",
@@ -521,7 +521,7 @@ cat > /tmp/batch_mixed_unsigned.json <<TXEOF
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "50000"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "50000"}],
       "gas_limit": "300000",
       "payer": "",
       "granter": ""
@@ -584,7 +584,7 @@ cat > /tmp/batch_limit_unsigned.json <<TXEOF
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "200000"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "200000"}],
       "gas_limit": "2000000",
       "payer": "",
       "granter": ""

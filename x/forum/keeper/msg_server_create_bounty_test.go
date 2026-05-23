@@ -156,5 +156,5 @@ func TestCreateBountyEscrow(t *testing.T) {
 
 	// Verify funds were escrowed
 	require.NotEmpty(t, escrowedAmount)
-	require.Equal(t, "100000000", escrowedAmount.AmountOf(types.DefaultFeeDenom).String())
+	require.Equal(t, "100000000", escrowedAmount.AmountOf("uspark").String())
 }

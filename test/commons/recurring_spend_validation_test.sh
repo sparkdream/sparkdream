@@ -58,7 +58,7 @@ echo "session.max_recurring_duration_seconds: $MAX_DURATION"
 
 # Fund the committee so SendCoins doesn't reject for insufficient funds
 # (would mask validation errors).
-$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000${BOND_DENOM} --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
 # Helper: build a schedule proposal with the provided body, submit, vote yes by alice/bob, execute, and assert it FAILED.
@@ -90,13 +90,13 @@ EOF
         return 0
     fi
 
-    $BINARY tx commons vote-proposal "$prop_id" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+    $BINARY tx commons vote-proposal "$prop_id" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
     sleep 3
-    $BINARY tx commons vote-proposal "$prop_id" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+    $BINARY tx commons vote-proposal "$prop_id" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
     sleep 3
 
     local exec_res
-    exec_res=$($BINARY tx commons execute-proposal "$prop_id" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
+    exec_res=$($BINARY tx commons execute-proposal "$prop_id" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
     local exec_hash
     exec_hash=$(echo "$exec_res" | jq -r '.txhash')
     sleep 3
@@ -132,7 +132,7 @@ assert_schedule_rejects "period below min ($TOO_SHORT_PERIOD < $MIN_PERIOD)" "[
     \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
     \"authority\": \"$POLICY_ADDR\",
     \"recipient\": \"$CAROL_ADDR\",
-    \"amount_per_period\": [{\"denom\":\"uspark\",\"amount\":\"100\"}],
+    \"amount_per_period\": [{\"denom\":\"${BOND_DENOM}\",\"amount\":\"100\"}],
     \"period_seconds\": \"$TOO_SHORT_PERIOD\",
     \"start_time\": \"$START\",
     \"end_time\": \"$END\",
@@ -146,7 +146,7 @@ assert_schedule_rejects "end before start" "[
     \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
     \"authority\": \"$POLICY_ADDR\",
     \"recipient\": \"$CAROL_ADDR\",
-    \"amount_per_period\": [{\"denom\":\"uspark\",\"amount\":\"100\"}],
+    \"amount_per_period\": [{\"denom\":\"${BOND_DENOM}\",\"amount\":\"100\"}],
     \"period_seconds\": \"$MIN_PERIOD\",
     \"start_time\": \"$END\",
     \"end_time\": \"$START\",
@@ -161,7 +161,7 @@ assert_schedule_rejects "duration over cap" "[
     \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
     \"authority\": \"$POLICY_ADDR\",
     \"recipient\": \"$CAROL_ADDR\",
-    \"amount_per_period\": [{\"denom\":\"uspark\",\"amount\":\"100\"}],
+    \"amount_per_period\": [{\"denom\":\"${BOND_DENOM}\",\"amount\":\"100\"}],
     \"period_seconds\": \"$MIN_PERIOD\",
     \"start_time\": \"$START\",
     \"end_time\": \"$WAY_END\",
@@ -176,7 +176,7 @@ assert_schedule_rejects "window shorter than one period" "[
     \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
     \"authority\": \"$POLICY_ADDR\",
     \"recipient\": \"$CAROL_ADDR\",
-    \"amount_per_period\": [{\"denom\":\"uspark\",\"amount\":\"100\"}],
+    \"amount_per_period\": [{\"denom\":\"${BOND_DENOM}\",\"amount\":\"100\"}],
     \"period_seconds\": \"$MIN_PERIOD\",
     \"start_time\": \"$START\",
     \"end_time\": \"$SHORT_END\",
@@ -192,7 +192,7 @@ assert_schedule_rejects "start in the past" "[
     \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
     \"authority\": \"$POLICY_ADDR\",
     \"recipient\": \"$CAROL_ADDR\",
-    \"amount_per_period\": [{\"denom\":\"uspark\",\"amount\":\"100\"}],
+    \"amount_per_period\": [{\"denom\":\"${BOND_DENOM}\",\"amount\":\"100\"}],
     \"period_seconds\": \"$MIN_PERIOD\",
     \"start_time\": \"$PAST_START\",
     \"end_time\": \"$PAST_END\",
@@ -209,7 +209,7 @@ assert_schedule_rejects "granter == grantee (self-payment)" "[
     \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
     \"authority\": \"$POLICY_ADDR\",
     \"recipient\": \"$POLICY_ADDR\",
-    \"amount_per_period\": [{\"denom\":\"uspark\",\"amount\":\"100\"}],
+    \"amount_per_period\": [{\"denom\":\"${BOND_DENOM}\",\"amount\":\"100\"}],
     \"period_seconds\": \"$MIN_PERIOD\",
     \"start_time\": \"$START\",
     \"end_time\": \"$END\",
@@ -220,14 +220,14 @@ assert_schedule_rejects "granter == grantee (self-payment)" "[
 # --- SUBTEST 7: multi-coin amount (D1.a restriction) — NEW POST-MIGRATION -
 # Only one coin per schedule. Today's parallel storage accepted sdk.Coins
 # but the rate-limit only counted uspark; the migration tightens to a
-# single coin so the per-grant max_per_epoch_uspark cap is meaningful.
+# single coin so the per-grant max_per_epoch cap is meaningful.
 assert_schedule_rejects "multi-coin amount rejected (D1.a)" "[
   {
     \"@type\": \"/sparkdream.commons.v1.MsgScheduleRecurringSpend\",
     \"authority\": \"$POLICY_ADDR\",
     \"recipient\": \"$CAROL_ADDR\",
     \"amount_per_period\": [
-      {\"denom\":\"uspark\",\"amount\":\"100\"},
+      {\"denom\":\"${BOND_DENOM}\",\"amount\":\"100\"},
       {\"denom\":\"uatom\",\"amount\":\"50\"}
     ],
     \"period_seconds\": \"$MIN_PERIOD\",

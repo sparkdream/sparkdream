@@ -46,7 +46,7 @@ wait_for_tx() {
     local MAX_ATTEMPTS=20
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx "$TXHASH" --output json 2>&1)
+        RESULT=$($BINARY q tx "$TXHASH" --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
         ATTEMPT=$((ATTEMPT + 1)); sleep 1
     done
@@ -149,7 +149,7 @@ jq -n \
       "params": $p
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Update federation max_bridges_per_peer",
   "summary": "Test: gov MsgUpdateParams round-trip, bump max_bridges_per_peer by -1",
   "expedited": true
@@ -157,7 +157,7 @@ jq -n \
 ' > "$PROPOSAL_DIR/gov_update_params.json"
 
 TX_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_update_params.json" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if ! submit_and_wait "$TX_RES" "gov submit-proposal"; then
     record_result "Gov MsgUpdateParams" "FAIL (submit)"
@@ -168,7 +168,7 @@ else
     else
         echo "  Proposal: $PROP_ID"
         for VOTER in alice bob; do
-            $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+            $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
             sleep 3
         done
 
@@ -218,7 +218,7 @@ jq -n \
       "params": $p
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Restore federation max_bridges_per_peer",
   "summary": "Test cleanup: restore max_bridges_per_peer to original value",
   "expedited": true
@@ -226,12 +226,12 @@ jq -n \
 ' > "$PROPOSAL_DIR/gov_restore_params.json"
 
 TX_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_restore_params.json" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "gov restore"; then
     PROP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"' | head -n 1)
     for VOTER in alice bob; do
-        $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+        $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
         sleep 3
     done
     echo "  Waiting 45s for expedited voting period..."
@@ -283,7 +283,7 @@ jq -n \
 ' > "$PROPOSAL_DIR/ops_update_params.json"
 
 TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/ops_update_params.json" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 
 # Either of two failure paths is acceptable: x/commons rejects the
 # proposal at SUBMIT time via its AllowedMessages check (unauthorized,
@@ -298,10 +298,10 @@ if [ $SUBMIT_RC -eq 0 ]; then
     PROP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"')
     if [ -n "$PROP_ID" ]; then
         for VOTER in alice bob; do
-            $BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json > /dev/null 2>&1
+            $BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
             sleep 2
         done
-        $BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json > /dev/null 2>&1
+        $BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json > /dev/null 2>&1
         sleep 6
     fi
 else

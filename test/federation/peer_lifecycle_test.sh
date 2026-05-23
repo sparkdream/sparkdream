@@ -46,7 +46,7 @@ wait_for_tx() {
     local ATTEMPT=0
 
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
             echo "$RESULT"
             return 0
@@ -132,8 +132,8 @@ vote_and_execute_commons() {
             --from $VOTER -y \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000000uspark \
-            --output json 2>&1)
+            --fees 5000000${BOND_DENOM} \
+            --output json)
         submit_and_wait "$TX_RES" "$VOTER vote" || echo "  Warning: $VOTER vote may have failed"
     done
 
@@ -142,9 +142,9 @@ vote_and_execute_commons() {
         --from alice -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000000uspark \
+        --fees 5000000${BOND_DENOM} \
         --gas 2000000 \
-        --output json 2>&1)
+        --output json)
 
     if submit_and_wait "$TX_RES" "proposal exec"; then
         sleep 5
@@ -178,8 +178,8 @@ submit_federation_proposal() {
             --from alice -y \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000000uspark \
-            --output json 2>&1)
+            --fees 5000000${BOND_DENOM} \
+            --output json)
 
         submit_and_wait "$TX_RES" "$LABEL submission"
         local RC=$?
@@ -241,7 +241,7 @@ EOF
 
 if submit_federation_proposal "$PROPOSAL_DIR/register_activitypub_peer.json" "register activitypub peer"; then
     # Verify peer was created
-    PEER_DATA=$($BINARY query federation get-peer mastodon.example --output json 2>&1)
+    PEER_DATA=$($BINARY query federation get-peer mastodon.example --output json)
     # Proto3 omits zero-value enums; PEER_STATUS_PENDING = 0 → absent in JSON
     PEER_STATUS=$(echo "$PEER_DATA" | jq -r '.peer.status // "PEER_STATUS_PENDING"')
     PEER_TYPE=$(echo "$PEER_DATA" | jq -r '.peer.type // empty')
@@ -282,7 +282,7 @@ cat > "$PROPOSAL_DIR/register_atproto_peer.json" <<EOF
 EOF
 
 if submit_federation_proposal "$PROPOSAL_DIR/register_atproto_peer.json" "register atproto peer"; then
-    PEER_DATA=$($BINARY query federation get-peer bsky.example --output json 2>&1)
+    PEER_DATA=$($BINARY query federation get-peer bsky.example --output json)
     PEER_TYPE=$(echo "$PEER_DATA" | jq -r '.peer.type // empty')
 
     if [ "$PEER_TYPE" == "PEER_TYPE_ATPROTO" ]; then
@@ -319,7 +319,7 @@ cat > "$PROPOSAL_DIR/register_ibc_peer.json" <<EOF
 EOF
 
 if submit_federation_proposal "$PROPOSAL_DIR/register_ibc_peer.json" "register ibc peer"; then
-    PEER_DATA=$($BINARY query federation get-peer spark.testnet --output json 2>&1)
+    PEER_DATA=$($BINARY query federation get-peer spark.testnet --output json)
     PEER_TYPE=$(echo "$PEER_DATA" | jq -r '.peer.type // empty')
     IBC_CHAN=$(echo "$PEER_DATA" | jq -r '.peer.ibc_channel_id // empty')
 
@@ -361,8 +361,8 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_dup_peer.jso
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000000uspark \
-    --output json 2>&1)
+    --fees 5000000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait "$TX_RES" "dup proposal submission"; then
     DUP_PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
@@ -416,8 +416,8 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_invalid_peer
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000000uspark \
-    --output json 2>&1)
+    --fees 5000000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait "$TX_RES" "invalid peer proposal"; then
     INVALID_PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
@@ -452,9 +452,9 @@ TX_RES=$($BINARY tx federation register-peer \
     --from operator1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "unauthorized register"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -506,8 +506,8 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/suspend_pending_peer.
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000000uspark \
-    --output json 2>&1)
+    --fees 5000000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait "$TX_RES" "suspend pending peer proposal"; then
     SUSPEND_PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
@@ -537,7 +537,7 @@ fi
 echo ""
 echo "--- TEST 8: List all peers ---"
 
-PEERS_DATA=$($BINARY query federation list-peers --output json 2>&1)
+PEERS_DATA=$($BINARY query federation list-peers --output json)
 PEER_COUNT=$(echo "$PEERS_DATA" | jq '.peers | length' 2>/dev/null)
 
 echo "  Peer count: $PEER_COUNT"
@@ -574,6 +574,7 @@ EOF
 if submit_federation_proposal "$PROPOSAL_DIR/remove_atproto_peer.json" "remove peer"; then
     # EndBlocker's processPeerRemovalQueue deletes the peer record entirely,
     # so we accept either PEER_STATUS_REMOVED or "not found" as success.
+    # 2>&1 so the rpc "not found" error lands in PEER_DATA for the grep.
     PEER_DATA=$($BINARY query federation get-peer bsky.example --output json 2>&1)
     if echo "$PEER_DATA" | grep -q "not found"; then
         echo "  Peer removed and cleaned up by EndBlocker"
@@ -617,8 +618,8 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/suspend_removed_peer.
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000000uspark \
-    --output json 2>&1)
+    --fees 5000000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait "$TX_RES" "suspend removed peer proposal"; then
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
@@ -674,8 +675,8 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/activate_pending_peer
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000000uspark \
-    --output json 2>&1)
+    --fees 5000000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait "$TX_RES" "activate pending peer"; then
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
@@ -703,8 +704,8 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/resume_active_peer.js
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000000uspark \
-    --output json 2>&1)
+    --fees 5000000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait "$TX_RES" "resume active peer proposal"; then
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
@@ -752,7 +753,7 @@ cat > "$PROPOSAL_DIR/reregister_atproto_peer.json" <<EOF
 EOF
 
 if submit_federation_proposal "$PROPOSAL_DIR/reregister_atproto_peer.json" "re-register peer"; then
-    PEER_DATA=$($BINARY query federation get-peer bsky.example --output json 2>&1)
+    PEER_DATA=$($BINARY query federation get-peer bsky.example --output json)
     if echo "$PEER_DATA" | jq -e '.peer' > /dev/null 2>&1; then
         PEER_STATUS=$(echo "$PEER_DATA" | jq -r '.peer.status // "PEER_STATUS_PENDING"')
         PEER_NAME=$(echo "$PEER_DATA" | jq -r '.peer.display_name // empty')
@@ -873,14 +874,15 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_unspecified_
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000000uspark \
-    --output json 2>&1)
+    --fees 5000000${BOND_DENOM} \
+    --output json)
 
 if submit_and_wait "$TX_RES" "unspecified type proposal"; then
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -n "$PROP_ID" ]; then
         vote_and_execute_commons $PROP_ID
-        # Verify peer was NOT created
+        # Verify peer was NOT created. 2>&1 captures the rpc "not found"
+        # stderr so the grep can detect it.
         PEER_DATA=$($BINARY query federation get-peer unspec.example --output json 2>&1)
         if echo "$PEER_DATA" | grep -qi "not found\|error"; then
             echo "  Unspecified type correctly rejected"

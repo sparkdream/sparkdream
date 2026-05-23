@@ -55,6 +55,15 @@ func (m mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string
 	return true
 }
 
+// mockIdentityKeeper implements types.IdentityKeeper for unit tests.
+// Unit-test fixtures use the legacy denoms; e2e suites exercise the real
+// identity keeper.
+type mockIdentityKeeper struct{}
+
+func (mockIdentityKeeper) IsIdentityKeeper() {}
+func (mockIdentityKeeper) BondDenom(_ context.Context) string  { return "uspark" }
+func (mockIdentityKeeper) DreamDenom(_ context.Context) string { return "udream" }
+
 type mockSeasonKeeper struct {
 	GetCurrentSeasonFn func(ctx context.Context) (types.SeasonState, error)
 }
@@ -184,6 +193,7 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 		commonsKeeper,
 	)
 	k.SetSeasonKeeper(seasonKeeper)
+	k.SetIdentityKeeper(mockIdentityKeeper{})
 
 	// Initialize genesis with default values (including sequence counters starting at 1)
 	genState := types.DefaultGenesis()

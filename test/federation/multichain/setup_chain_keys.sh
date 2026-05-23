@@ -52,18 +52,18 @@ create_chain_b_only_key() {
 
 # Fund an address from alice on the given chain.
 fund_a() {
-    local ADDR=$1; local AMOUNT=${2:-100000000uspark}
+    local ADDR=$1; local AMOUNT=${2:-100000000${BOND_DENOM}}
     local TX
     TX=$(cli_a tx bank send alice "$ADDR" "$AMOUNT" \
-        --from alice -y --fees 5000uspark --output json 2>&1)
+        --from alice -y --fees 5000${BOND_DENOM} --output json)
     submit_and_wait_a "$TX" "fund $ADDR (chain-a)"
 }
 
 fund_b() {
-    local ADDR=$1; local AMOUNT=${2:-100000000uspark}
+    local ADDR=$1; local AMOUNT=${2:-100000000${BOND_DENOM}}
     local TX
     TX=$(cli_b tx bank send alice "$ADDR" "$AMOUNT" \
-        --from alice -y --fees 5000uspark --output json 2>&1)
+        --from alice -y --fees 5000${BOND_DENOM} --output json)
     submit_and_wait_b "$TX" "fund $ADDR (chain-b)"
 }
 
@@ -102,7 +102,7 @@ invite_and_accept() {
     echo "  Inviting $ADDR as rep member on chain-$CHAIN (stake=$DREAM micro-DREAM)..."
     local TX
     TX=$($cli_x tx rep invite-member "$ADDR" "$DREAM" \
-        --from "$INVITER" -y --fees 5000uspark --output json 2>&1)
+        --from "$INVITER" -y --fees 5000${BOND_DENOM} --output json)
     $submit_x "$TX" "invite $ADDR" || return 1
 
     # Pull the invitation_id from events
@@ -119,7 +119,7 @@ invite_and_accept() {
 
     echo "  Accepting invitation $INVITATION_ID..."
     TX=$($cli_x tx rep accept-invitation "$INVITATION_ID" \
-        --from "$KEY" -y --fees 5000uspark --output json 2>&1)
+        --from "$KEY" -y --fees 5000${BOND_DENOM} --output json)
     $submit_x "$TX" "accept $INVITATION_ID" || return 1
 }
 

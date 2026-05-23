@@ -67,7 +67,7 @@ wait_for_tx() {
     local MAX_ATTEMPTS=20
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx "$TXHASH" --output json 2>&1)
+        RESULT=$($BINARY q tx "$TXHASH" --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
         ATTEMPT=$((ATTEMPT + 1)); sleep 1
     done
@@ -112,10 +112,10 @@ vote_and_execute_ops() {
         local STATUS
         STATUS=$($BINARY query commons get-proposal "$PROP_ID" --output json 2>/dev/null | jq -r '.proposal.status')
         if [ "$STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
-        TX_RES=$($BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+        TX_RES=$($BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
         submit_and_wait "$TX_RES" "$VOTER vote" || true
     done
-    TX_RES=$($BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json 2>&1)
+    TX_RES=$($BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
     submit_and_wait "$TX_RES" "exec"
     local RC=$?
     sleep 5
@@ -126,7 +126,7 @@ submit_ops_proposal() {
     local FILE=$1
     local LABEL=${2:-"proposal"}
     echo "  Submitting $LABEL..."
-    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "$LABEL submission"; then return 1; fi
     PROPOSAL_ID=$(get_proposal_id "$TX_RESULT")
     if [ -z "$PROPOSAL_ID" ]; then echo "  No proposal ID"; return 1; fi
@@ -150,9 +150,9 @@ PEER_ID="hooks.example"
 register_test_peer "$PEER_ID" "PEER_TYPE_ACTIVITYPUB" "Hook test peer" ""
 
 # Read seeded min_bond and the federation policy address
-MIN_BOND_AMT=$($BINARY query service service-type $SVC_AP --output json 2>/dev/null | jq -r '.config.min_bond.amount // "1000000000"')
+MIN_BOND_AMT=$($BINARY query service service-type $SVC_AP --output json 2>/dev/null | jq -r '.config.min_bond_amount // "1000000000"')
 UNILATERAL_CAP_BPS=$($BINARY query service service-type $SVC_AP --output json 2>/dev/null | jq -r '.config.unilateral_slash_cap_bps // 500')
-echo "  min_bond: ${MIN_BOND_AMT}uspark   unilateral_slash_cap_bps: $UNILATERAL_CAP_BPS"
+echo "  min_bond: ${MIN_BOND_AMT}${BOND_DENOM}   unilateral_slash_cap_bps: $UNILATERAL_CAP_BPS"
 
 # Register a fresh bridge for the underfunded path. Use challenger1 as a
 # clean operator (no prior service.Operator record from other tests) and
@@ -164,8 +164,8 @@ HOOK_OP_ADDR=$CHALLENGER1_ADDR
 # register and top up afterwards. setup_test_accounts already gave them
 # 100 SPARK; we need ~3000 SPARK here.
 TOPUP_FROM_ALICE=$((MIN_BOND_AMT * 3))
-$BINARY tx bank send alice "$HOOK_OP_ADDR" "${TOPUP_FROM_ALICE}uspark" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+$BINARY tx bank send alice "$HOOK_OP_ADDR" "${TOPUP_FROM_ALICE}${BOND_DENOM}" \
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
 sleep 6
 
 echo ""
@@ -180,8 +180,8 @@ echo "============================================================"
 echo ""
 echo "--- TEST 1: Register at min_bond ---"
 TX_RES=$($BINARY tx federation register-bridge \
-    "$PEER_ID" activitypub "https://hooks.example/ap" "${MIN_BOND_AMT}uspark" \
-    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    "$PEER_ID" activitypub "https://hooks.example/ap" "${MIN_BOND_AMT}" \
+    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "register bridge"; then
     SUSPENDED=$($BINARY query federation get-bridge-binding "$HOOK_OP_ADDR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_binding.suspended // false')
@@ -207,13 +207,13 @@ echo "--- TEST 2: T1 slash → AfterOperatorUnderfunded → binding suspended --
 
 # Use verifier1 as reporter (member, not in OpsComm). They post
 # report_deposit (10 SPARK in testparams). Make sure they have funds.
-$BINARY tx bank send alice "$VERIFIER1_ADDR" "100000000uspark" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+$BINARY tx bank send alice "$VERIFIER1_ADDR" "100000000${BOND_DENOM}" \
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
 sleep 6
 
 TX_RES=$($BINARY tx service report-operator \
     "$HOOK_OP_ADDR" $SVC_AP "operator misbehaved on hook test" \
-    --from verifier1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from verifier1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 if ! submit_and_wait "$TX_RES" "file report"; then
     record_result "T1 slash → suspended" "FAIL (file report)"
 else
@@ -243,7 +243,7 @@ EOF
         if submit_ops_proposal "$PROPOSAL_DIR/hook_resolve_t1.json" "resolve T1_SLASH"; then
             SVC_STATUS=$($BINARY query service operator "$HOOK_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
             SUSPENDED=$($BINARY query federation get-bridge-binding "$HOOK_OP_ADDR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_binding.suspended // false')
-            BOND=$($BINARY query service operator "$HOOK_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+            BOND=$($BINARY query service operator "$HOOK_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
             echo "  Post-slash: status=$SVC_STATUS bond=$BOND suspended=$SUSPENDED"
             if [ "$SVC_STATUS" == "OPERATOR_STATUS_UNDERFUNDED" ] && [ "$SUSPENDED" == "true" ]; then
                 echo "  Hook fired correctly: operator UNDERFUNDED, binding suspended"
@@ -272,7 +272,7 @@ HASH_T3=$(sha256_base64 "Test body")
 TX_RES=$($BINARY tx federation submit-federated-content \
     "$PEER_ID" "remote-1" "blog_post" "@alice@hooks.example" "Alice" "Test title" "$BODY_T3" "https://hooks.example/p/1" 1715000000 \
     --content-hash "$HASH_T3" \
-    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "submit while suspended"; then
     echo "  ERROR: content accepted despite suspended binding"
@@ -292,13 +292,13 @@ echo "--- TEST 4: TopUpBond → AfterOperatorReFunded → binding resumed ---"
 # Top up enough to cross min_bond. After a 5% slash from min_bond we
 # need at least 5% of min_bond back; we top up 10% for headroom.
 TOPUP_AMT=$((MIN_BOND_AMT / 5))
-TX_RES=$($BINARY tx service top-up-bond $SVC_AP "${TOPUP_AMT}uspark" \
-    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+TX_RES=$($BINARY tx service top-up-bond $SVC_AP "${TOPUP_AMT}" \
+    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "top-up"; then
     SVC_STATUS=$($BINARY query service operator "$HOOK_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
     SUSPENDED=$($BINARY query federation get-bridge-binding "$HOOK_OP_ADDR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_binding.suspended // false')
-    BOND=$($BINARY query service operator "$HOOK_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+    BOND=$($BINARY query service operator "$HOOK_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
     echo "  Post-top-up: status=$SVC_STATUS bond=$BOND suspended=$SUSPENDED"
     if [ "$SVC_STATUS" == "OPERATOR_STATUS_ACTIVE" ] && [ "$SUSPENDED" == "false" ]; then
         echo "  Hook fired correctly: operator ACTIVE, binding unsuspended"
@@ -323,7 +323,7 @@ HASH_T5=$(sha256_base64 "$BODY_T5")
 TX_RES=$($BINARY tx federation submit-federated-content \
     "$PEER_ID" "remote-2" "blog_post" "@alice@hooks.example" "Alice" "After resume title" "$BODY_T5" "https://hooks.example/p/2" 1715000100 \
     --content-hash "$HASH_T5" \
-    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "submit after resume"; then
     record_result "Resumed binding accepts content" "PASS"
@@ -352,8 +352,8 @@ RETIRE_OP=linker2
 RETIRE_OP_ADDR=$LINKER2_ADDR
 
 # Fund linker2 enough to register with min_bond (~1000 SPARK + gas).
-$BINARY tx bank send alice "$RETIRE_OP_ADDR" "$((MIN_BOND_AMT + 100000000))uspark" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+$BINARY tx bank send alice "$RETIRE_OP_ADDR" "$((MIN_BOND_AMT + 100000000))${BOND_DENOM}" \
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
 sleep 6
 
 # Use a separate peer to keep the binding isolated. Register one.
@@ -361,15 +361,15 @@ RETIRE_PEER="retire.example"
 register_test_peer "$RETIRE_PEER" "PEER_TYPE_ACTIVITYPUB" "Retire test peer" ""
 
 TX_RES=$($BINARY tx federation register-bridge \
-    "$RETIRE_PEER" activitypub "https://retire.example/ap" "${MIN_BOND_AMT}uspark" \
-    --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    "$RETIRE_PEER" activitypub "https://retire.example/ap" "${MIN_BOND_AMT}" \
+    --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if ! submit_and_wait "$TX_RES" "register retire operator"; then
     record_result "Voluntary unbond + claim → retired" "FAIL (register)"
 else
     # Step 1: voluntary unbond
     TX_RES=$($BINARY tx service unbond-operator $SVC_AP \
-        --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+        --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "unbond"; then
         record_result "Voluntary unbond + claim → retired" "FAIL (unbond)"
     else
@@ -388,7 +388,7 @@ else
         # Step 3: claim. This fires AfterOperatorRetired → federation
         # prunes the BridgeBinding.
         TX_RES=$($BINARY tx service claim-unbonded-bond $SVC_AP \
-            --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+            --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
         if ! submit_and_wait "$TX_RES" "claim"; then
             record_result "Voluntary unbond + claim → retired" "FAIL (claim)"
         else
@@ -424,8 +424,8 @@ echo "--- TEST 7: RETIRED does not block re-registration ---"
 # Top up so RETIRE_OP can fund another bond (their initial bond came
 # back to them on claim — they have ≥ min_bond again).
 TX_RES=$($BINARY tx federation register-bridge \
-    "$RETIRE_PEER" activitypub "https://retire.example/ap-v2" "${MIN_BOND_AMT}uspark" \
-    --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    "$RETIRE_PEER" activitypub "https://retire.example/ap-v2" "${MIN_BOND_AMT}" \
+    --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "re-register after RETIRED"; then
     SVC_STATUS=$($BINARY query service operator "$RETIRE_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
@@ -455,8 +455,8 @@ register_test_peer "$EXTRA_PEER" "PEER_TYPE_ACTIVITYPUB" "Hook test secondary pe
 # RETIRE_OP already has an ACTIVE service.Operator from TEST 7. Add a
 # second binding with stake=0 (no top-up needed) per Decision 1a.
 TX_RES=$($BINARY tx federation register-bridge \
-    "$EXTRA_PEER" activitypub "https://hooks-secondary.example/ap" "0uspark" \
-    --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    "$EXTRA_PEER" activitypub "https://hooks-secondary.example/ap" "0" \
+    --from "$RETIRE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "second peer binding"; then
     B1=$($BINARY query federation get-bridge-binding "$RETIRE_OP_ADDR" "$RETIRE_PEER" --output json 2>&1 | jq -r '.bridge_binding.address // empty')
@@ -487,7 +487,7 @@ submit_gov_proposal_expedited_hooks() {
     local FILE=$1
     local LABEL=${2:-"gov proposal"}
     echo "  Submitting $LABEL via x/gov (expedited)..."
-    TX_RES=$($BINARY tx gov submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    TX_RES=$($BINARY tx gov submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "$LABEL gov submit"; then return 1; fi
     local PROP_ID
     PROP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"' | head -n 1)
@@ -498,7 +498,7 @@ submit_gov_proposal_expedited_hooks() {
     echo "  Gov proposal ID: $PROP_ID"
 
     for VOTER in alice bob; do
-        $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+        $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
         sleep 3
     done
 
@@ -529,8 +529,10 @@ ORIG_AGGREGATE=$(echo "$CFG" | jq -r '.config.tier1_aggregate_cap_bps')
 # Capture all the other fields so the gov proposal preserves them.
 # MsgUpdateServiceTypeConfig requires the full ServiceTypeConfig blob.
 ORIG_DESC=$(echo "$CFG" | jq -r '.config.description')
-ORIG_MIN_BOND_AMT=$(echo "$CFG" | jq -r '.config.min_bond.amount')
-ORIG_MIN_BOND_DENOM=$(echo "$CFG" | jq -r '.config.min_bond.denom')
+ORIG_MIN_BOND_AMT=$(echo "$CFG" | jq -r '.config.min_bond_amount')
+# min_bond is now a bare math.Int amount (no nested denom); denom is
+# resolved at runtime from x/identity. The legacy .config.min_bond.denom
+# path no longer exists.
 ORIG_UNBOND_PERIOD=$(echo "$CFG" | jq -r '.config.unbonding_period_blocks')
 ORIG_T1_WINDOW=$(echo "$CFG" | jq -r '.config.tier1_window_blocks')
 ORIG_T1_COOLDOWN=$(echo "$CFG" | jq -r '.config.tier1_cooldown_blocks')
@@ -549,7 +551,7 @@ cat > "$PROPOSAL_DIR/hooks_widen_cap.json" <<EOF
       "config": {
         "service_type": "$SVC_AP",
         "description": "$ORIG_DESC",
-        "min_bond": { "denom": "$ORIG_MIN_BOND_DENOM", "amount": "$ORIG_MIN_BOND_AMT" },
+        "min_bond_amount": "$ORIG_MIN_BOND_AMT",
         "unbonding_period_blocks": "$ORIG_UNBOND_PERIOD",
         "unilateral_slash_cap_bps": 10000,
         "tier1_window_blocks": "$ORIG_T1_WINDOW",
@@ -562,7 +564,7 @@ cat > "$PROPOSAL_DIR/hooks_widen_cap.json" <<EOF
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "title": "Widen federation-bridge-activitypub T1 cap to 100% for AfterOperatorDissolved test",
   "summary": "Test: enables a single T1_SLASH to drive bond to zero (auto-dissolve per spec §3.4.9). Restored at end of Group C.",
   "expedited": true
@@ -594,15 +596,15 @@ DISSOLVE_OP_ADDR=$VERIFIER2_ADDR
 DISSOLVE_PEER="dissolve.example"
 
 # Fund verifier2 enough for min_bond + gas.
-$BINARY tx bank send alice "$DISSOLVE_OP_ADDR" "$((MIN_BOND_AMT + 50000000))uspark" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+$BINARY tx bank send alice "$DISSOLVE_OP_ADDR" "$((MIN_BOND_AMT + 50000000))${BOND_DENOM}" \
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
 sleep 6
 
 register_test_peer "$DISSOLVE_PEER" "PEER_TYPE_ACTIVITYPUB" "Dissolve test peer" ""
 
 TX_RES=$($BINARY tx federation register-bridge \
-    "$DISSOLVE_PEER" activitypub "https://dissolve.example/ap" "${MIN_BOND_AMT}uspark" \
-    --from "$DISSOLVE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    "$DISSOLVE_PEER" activitypub "https://dissolve.example/ap" "${MIN_BOND_AMT}" \
+    --from "$DISSOLVE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "register dissolve operator"; then
     SVC_STATUS=$($BINARY query service operator "$DISSOLVE_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
@@ -665,13 +667,13 @@ echo "--- TEST 11: T1_SLASH @ 100% drains bond → UNDERFUNDED + suspended ---"
 # unit tests.
 
 # Refund verifier1 if depleted by earlier groups; reports cost report_deposit.
-$BINARY tx bank send alice "$VERIFIER1_ADDR" "100000000uspark" \
-    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+$BINARY tx bank send alice "$VERIFIER1_ADDR" "100000000${BOND_DENOM}" \
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
 sleep 6
 
 TX_RES=$($BINARY tx service report-operator \
     "$DISSOLVE_OP_ADDR" $SVC_AP "intentional misbehavior for 100% slash test" \
-    --from verifier1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from verifier1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 if ! submit_and_wait "$TX_RES" "file 100% slash report"; then
     record_result "T1 100% slash → UNDERFUNDED + suspended" "FAIL (file report)"
 else
@@ -700,7 +702,7 @@ EOF
 
         if submit_ops_proposal "$PROPOSAL_DIR/hooks_100pct_t1.json" "resolve 100% T1_SLASH"; then
             LIVE=$($BINARY query service operator "$DISSOLVE_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
-            BOND_AFTER=$($BINARY query service operator "$DISSOLVE_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "?"')
+            BOND_AFTER=$($BINARY query service operator "$DISSOLVE_OP_ADDR" $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "?"')
             BINDING_AFTER=$($BINARY query federation get-bridge-binding "$DISSOLVE_OP_ADDR" "$DISSOLVE_PEER" --output json 2>&1 | jq -r '.bridge_binding // empty')
             SUSPENDED_AFTER=$($BINARY query federation get-bridge-binding "$DISSOLVE_OP_ADDR" "$DISSOLVE_PEER" --output json 2>&1 | jq -r '.bridge_binding.suspended // false')
             echo "  Post-resolve: live_status='$LIVE' bond=$BOND_AFTER suspended=$SUSPENDED_AFTER"
@@ -733,7 +735,7 @@ HASH_T12=$(sha256_base64 "$BODY_T12")
 TX_RES=$($BINARY tx federation submit-federated-content \
     "$DISSOLVE_PEER" "remote-100pct-001" "blog_post" "@v2@dissolve.example" "V2" "Title" "$BODY_T12" "https://dissolve.example/p/1" 1715000200 \
     --content-hash "$HASH_T12" \
-    --from "$DISSOLVE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from "$DISSOLVE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 # Allow a content-type rejection too: the peer's policy may not allow blog_post.
 if submit_and_wait "$TX_RES" "submit on suspended binding"; then
@@ -766,7 +768,7 @@ cat > "$PROPOSAL_DIR/hooks_restore_cap.json" <<EOF
       "config": {
         "service_type": "$SVC_AP",
         "description": "$ORIG_DESC",
-        "min_bond": { "denom": "$ORIG_MIN_BOND_DENOM", "amount": "$ORIG_MIN_BOND_AMT" },
+        "min_bond_amount": "$ORIG_MIN_BOND_AMT",
         "unbonding_period_blocks": "$ORIG_UNBOND_PERIOD",
         "unilateral_slash_cap_bps": $ORIG_UNILATERAL,
         "tier1_window_blocks": "$ORIG_T1_WINDOW",
@@ -779,7 +781,7 @@ cat > "$PROPOSAL_DIR/hooks_restore_cap.json" <<EOF
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "title": "Restore federation-bridge-activitypub original caps",
   "summary": "Test cleanup: revert unilateral_slash_cap_bps and tier1_aggregate_cap_bps to original values.",
   "expedited": true

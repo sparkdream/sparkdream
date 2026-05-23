@@ -66,9 +66,9 @@ func (k msgServer) DownvotePost(ctx context.Context, msg *types.MsgDownvotePost)
 
 	// Burn downvote_deposit from creator
 	// Downvotes require a SPARK deposit that is burned immediately (no refund)
-	if params.DownvoteDeposit.IsPositive() {
+	if params.DownvoteDepositAmount.IsPositive() {
 		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-		burnCoins := sdk.NewCoins(params.DownvoteDeposit)
+		burnCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), params.DownvoteDepositAmount))
 		// First transfer to module, then burn
 		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, burnCoins); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to collect downvote deposit")

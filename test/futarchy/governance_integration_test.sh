@@ -58,7 +58,7 @@ CREATE_RES=$($BINARY tx futarchy create-market \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -90,7 +90,7 @@ $BINARY tx futarchy trade \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json > /dev/null
 
@@ -105,7 +105,7 @@ $BINARY tx futarchy trade \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json > /dev/null
 
@@ -120,7 +120,7 @@ $BINARY tx futarchy trade \
   --from carol \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json > /dev/null
 
@@ -190,10 +190,10 @@ echo '{
       "@type": "/cosmos.bank.v1beta1.MsgSend",
       "from_address": "'$GOV_ADDR'",
       "to_address": "'$ALICE_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "1000"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "1000"}]
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Test Proposal #42",
   "summary": "A test proposal to validate futarchy prediction market accuracy."
 }' > "$PROPOSAL_DIR/gov_prop_42.json"
@@ -286,7 +286,7 @@ if [[ "$MARKET_STATUS" == "RESOLVED_YES" ]]; then
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json > /dev/null
 
@@ -298,7 +298,7 @@ if [[ "$MARKET_STATUS" == "RESOLVED_YES" ]]; then
       --from bob \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json > /dev/null
 
@@ -313,7 +313,7 @@ elif [[ "$MARKET_STATUS" == "RESOLVED_NO" ]]; then
       --from carol \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json > /dev/null
 

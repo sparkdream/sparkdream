@@ -259,10 +259,11 @@ func (k Keeper) timeoutDismissReport(
 ) error {
 	// Refund deposit to reporter (zero for system reports, positive
 	// for member-filed reports).
+	depositCoin := sdk.NewCoin(k.BondDenom(ctx), report.Deposit)
 	reporterBytes, err := k.addrBytes(report.Reporter)
-	if err == nil && !report.Deposit.Amount.IsNil() && !report.Deposit.Amount.IsZero() {
+	if err == nil && !report.Deposit.IsNil() && !report.Deposit.IsZero() {
 		if err := k.bankKeeper.SendCoinsFromModuleToAccount(
-			ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(report.Deposit),
+			ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(depositCoin),
 		); err != nil {
 			return err
 		}
@@ -282,7 +283,7 @@ func (k Keeper) timeoutDismissReport(
 	}
 
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
-		types.NewReportAutoDismissedEvent(report.ReportId, report.Deposit),
+		types.NewReportAutoDismissedEvent(report.ReportId, depositCoin),
 	)
 	_ = params
 	return nil
@@ -344,9 +345,9 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 			escrow, escrowID, hasEscrow, err := k.findTier1EscrowForReportK(ctx, opBytes, report.ServiceType, report.ReportId)
 			if err == nil && hasEscrow {
 				k.settleBondBlocks(&op, currentHeight)
-				op.Bond = op.Bond.Add(escrow.Amount)
-				if !op.Tier1SlashedInWindow.IsNil() && !escrow.Amount.Amount.IsZero() {
-					op.Tier1SlashedInWindow = op.Tier1SlashedInWindow.Sub(escrow.Amount.Amount)
+				op.BondAmount = op.BondAmount.Add(escrow.Amount)
+				if !op.Tier1SlashedInWindow.IsNil() && !escrow.Amount.IsZero() {
+					op.Tier1SlashedInWindow = op.Tier1SlashedInWindow.Sub(escrow.Amount)
 					if op.Tier1SlashedInWindow.IsNegative() {
 						op.Tier1SlashedInWindow = sdkmath.ZeroInt()
 					}
@@ -356,7 +357,7 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 				refundedTransition := false
 				if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED {
 					if cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType); err == nil {
-						if op.Bond.Amount.GTE(cfg.MinBond.Amount) {
+						if op.BondAmount.GTE(cfg.MinBondAmount) {
 							oldUF := op.UnderfundedSince
 							op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
 							op.UnderfundedSince = 0
@@ -382,9 +383,11 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 		// Refund reporter deposit (AUTO_TIMEOUT is treated as REJECT-
 		// equivalent for the reporter — they're not at fault for the
 		// jury not deciding).
-		if reporterBytes, err := k.addrBytes(report.Reporter); err == nil && !report.Deposit.Amount.IsZero() {
+		bondDenom := k.BondDenom(ctx)
+		depositCoin := sdk.NewCoin(bondDenom, report.Deposit)
+		if reporterBytes, err := k.addrBytes(report.Reporter); err == nil && !report.Deposit.IsZero() {
 			if err := k.bankKeeper.SendCoinsFromModuleToAccount(
-				ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(report.Deposit),
+				ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(depositCoin),
 			); err != nil {
 				return processed, err
 			}
@@ -412,7 +415,7 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 		// already added to op.Bond inline; future versions could pass
 		// the captured escrow value here.
 		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
-			types.NewReportAutoTimeoutEvent(report.ReportId, report.Deposit, sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt())),
+			types.NewReportAutoTimeoutEvent(report.ReportId, depositCoin, sdk.NewCoin(bondDenom, sdkmath.ZeroInt())),
 		)
 		processed++
 	}
@@ -477,9 +480,10 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 		}
 
 		// Pay out to community pool.
-		if k.distributionKeeper() != nil && !escrow.Amount.Amount.IsZero() {
+		escrowCoin := sdk.NewCoin(k.BondDenom(ctx), escrow.Amount)
+		if k.distributionKeeper() != nil && !escrow.Amount.IsZero() {
 			if err := k.distributionKeeper().FundCommunityPool(
-				ctx, sdk.NewCoins(escrow.Amount), k.bankModuleAddress(),
+				ctx, sdk.NewCoins(escrowCoin), k.bankModuleAddress(),
 			); err != nil {
 				return processed, err
 			}
@@ -494,7 +498,7 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 
 		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(types.NewTier1EscrowReleasedEvent(
 			p.escrowID, escrow.ReportId, escrow.OperatorAddress, escrow.ServiceType,
-			escrow.Amount, types.EscrowDestCommunityPool,
+			escrowCoin, types.EscrowDestCommunityPool,
 		))
 		processed++
 	}

@@ -36,7 +36,7 @@ var (
 	SessionKeyByPairKey = collections.NewPrefix(7)
 
 	// EpochSpend: (grant_id, utc_day_index) -> sdk.Int (string-encoded
-	// spent_in_day). Backs the per-grant max_per_epoch_uspark self-throttle
+	// spent_in_day). Backs the per-grant max_per_epoch self-throttle
 	// on RECURRING_PULL grants. UTC-day buckets prune lazily; bounded to
 	// O(7) entries per active grant in steady state.
 	EpochSpendByGrantKey = collections.NewPrefix(8)

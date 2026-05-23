@@ -72,6 +72,15 @@ func (m *mockBankKeeper) BurnCoins(ctx context.Context, moduleName string, amt s
 	return nil
 }
 
+// mockIdentityKeeper implements types.IdentityKeeper for testing.
+// Always returns "uspark"/"udream" — the legacy denoms unit tests assume.
+// E2E tests run against a real chain with the real identity keeper.
+type mockIdentityKeeper struct{}
+
+func (mockIdentityKeeper) IsIdentityKeeper() {}
+func (m *mockIdentityKeeper) BondDenom(_ context.Context) string  { return "uspark" }
+func (m *mockIdentityKeeper) DreamDenom(_ context.Context) string { return "udream" }
+
 // mockRepKeeper implements types.RepKeeper for testing
 type mockRepKeeper struct {
 	IsActiveMemberFn                 func(ctx context.Context, addr sdk.AccAddress) bool
@@ -250,6 +259,7 @@ func initFixture(t *testing.T) *fixture {
 		nil, // commonsKeeper (optional)
 		repKeeper,
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeper{})
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {

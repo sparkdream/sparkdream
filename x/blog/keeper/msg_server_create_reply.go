@@ -87,10 +87,10 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 	}
 
 	// Charge cost_per_byte storage fee
-	if !params.CostPerByteExempt && params.CostPerByte.IsPositive() {
+	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() {
 		contentBytes := int64(len(msg.Body))
-		storageFee := sdk.NewCoin(params.CostPerByte.Denom,
-			params.CostPerByte.Amount.MulRaw(contentBytes))
+		storageFee := sdk.NewCoin(k.BondDenom(ctx),
+			params.CostPerByteAmount.MulRaw(contentBytes))
 		if storageFee.IsPositive() {
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(storageFee)); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to charge storage fee")

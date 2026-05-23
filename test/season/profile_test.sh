@@ -143,7 +143,7 @@ TX_RES=$($BINARY tx season set-display-name \
     --from display_user \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -187,7 +187,7 @@ TX_RES=$($BINARY tx season set-display-name \
     --from display_user \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -222,7 +222,7 @@ TX_RES=$($BINARY tx season set-username \
     --from display_user \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -438,7 +438,7 @@ if [ "$SECOND_TITLE" != "none" ] && [ "$SECOND_TITLE" != "null" ] && [ -n "$SECO
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

@@ -64,11 +64,12 @@ func (k Keeper) IsActiveOperator(ctx context.Context, addr sdk.AccAddress, servi
 // out of the bond pool). Returns zero coin if the operator doesn't
 // exist or is in a terminal state.
 func (k Keeper) GetAvailableBond(ctx context.Context, addr sdk.AccAddress, serviceType string) sdk.Coin {
+	bondDenom := k.BondDenom(ctx)
 	op, exists := k.GetOperator(ctx, addr.Bytes(), serviceType)
 	if !exists {
-		return sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt())
+		return sdk.NewCoin(bondDenom, sdkmath.ZeroInt())
 	}
-	return op.Bond
+	return sdk.NewCoin(bondDenom, op.BondAmount)
 }
 
 // GetServiceTypeConfig fetches the registry entry for the given
@@ -156,7 +157,7 @@ func (k Keeper) RegisterOperator(
 	creator string,
 	serviceType string,
 	controller string,
-	bond sdk.Coin,
+	bondAmount sdkmath.Int,
 	metadata []byte,
 	source SlashSource,
 ) (types.Operator, error) {
@@ -190,12 +191,14 @@ func (k Keeper) RegisterOperator(
 		return types.Operator{}, types.ErrServiceTypeDisabled.Wrap(serviceType)
 	}
 
-	if bond.Denom != types.BondDenom {
-		return types.Operator{}, types.ErrBondDenomMismatch.Wrapf("expected %s, got %s", types.BondDenom, bond.Denom)
+	bondDenom := k.BondDenom(ctx)
+	if bondAmount.IsNil() || bondAmount.IsNegative() {
+		return types.Operator{}, types.ErrInsufficientBond.Wrap("bond_amount must be a positive Int")
 	}
-	if !bypassChecks && bond.Amount.LT(cfg.MinBond.Amount) {
-		return types.Operator{}, types.ErrInsufficientBond.Wrapf("bond %s < min %s", bond, cfg.MinBond)
+	if !bypassChecks && bondAmount.LT(cfg.MinBondAmount) {
+		return types.Operator{}, types.ErrInsufficientBond.Wrapf("bond %s%s < min %s%s", bondAmount, bondDenom, cfg.MinBondAmount, bondDenom)
 	}
+	bond := sdk.NewCoin(bondDenom, bondAmount)
 
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -239,12 +242,12 @@ func (k Keeper) RegisterOperator(
 		Address:                 creator,
 		ServiceType:             serviceType,
 		Controller:              controller,
-		Bond:                    bond,
+		BondAmount:              bondAmount,
 		Metadata:                metadata,
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_ACTIVE,
 		Tier1SlashedInWindow:    sdkmath.ZeroInt(),
 		Tier1WindowStart:        currentHeight,
-		Tier1WindowStartBond:    bond.Amount,
+		Tier1WindowStartBond:    bondAmount,
 		RegisteredAt:            currentHeight,
 		TotalLifetimeBondBlocks: sdkmath.ZeroInt(),
 		LastBondBlockUpdateAt:   currentHeight,
@@ -299,9 +302,10 @@ func (k Keeper) SlashOperator(
 		return sdk.Coin{}, err
 	}
 
-	slashAmount := computeSlashAmount(op.Bond.Amount, slashBps)
+	bondDenom := k.BondDenom(ctx)
+	slashAmount := computeSlashAmount(op.BondAmount, slashBps)
 	if slashAmount.IsZero() {
-		return sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt()), nil
+		return sdk.NewCoin(bondDenom, sdkmath.ZeroInt()), nil
 	}
 
 	// Tier-1 only: cap + cooldown.
@@ -327,7 +331,7 @@ func (k Keeper) SlashOperator(
 	underfundedTransition := preStatus == types.OperatorStatus_OPERATOR_STATUS_ACTIVE &&
 		op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED
 
-	slashCoin := sdk.NewCoin(types.BondDenom, slashAmount)
+	slashCoin := sdk.NewCoin(bondDenom, slashAmount)
 
 	switch source {
 	case SlashSourceTier1:
@@ -350,7 +354,7 @@ func (k Keeper) SlashOperator(
 		escrow := types.Tier1EscrowEntry{
 			EscrowId: escrowID, ReportId: reportID,
 			OperatorAddress: op.Address, ServiceType: op.ServiceType,
-			Amount: slashCoin, ReleaseAt: releaseAt,
+			Amount: slashAmount, ReleaseAt: releaseAt,
 		}
 		if err := k.Tier1Escrow.Set(ctx, escrowID, escrow); err != nil {
 			return sdk.Coin{}, err
@@ -365,7 +369,7 @@ func (k Keeper) SlashOperator(
 			return sdk.Coin{}, err
 		}
 		sdkCtx.EventManager().EmitEvents(sdk.Events{
-			types.NewOperatorSlashedEvent(op.Address, op.ServiceType, slashCoin, op.Bond, types.TierTier1, reportID),
+			types.NewOperatorSlashedEvent(op.Address, op.ServiceType, slashCoin, sdk.NewCoin(bondDenom, op.BondAmount), types.TierTier1, reportID),
 			types.NewTier1EscrowLockedEvent(escrowID, reportID, op.Address, op.ServiceType, slashCoin, releaseAt),
 		})
 
@@ -381,7 +385,7 @@ func (k Keeper) SlashOperator(
 			tier = "MIGRATION"
 		}
 		sdkCtx.EventManager().EmitEvent(types.NewOperatorSlashedEvent(
-			op.Address, op.ServiceType, slashCoin, op.Bond, tier, reportID,
+			op.Address, op.ServiceType, slashCoin, sdk.NewCoin(bondDenom, op.BondAmount), tier, reportID,
 		))
 
 	default:

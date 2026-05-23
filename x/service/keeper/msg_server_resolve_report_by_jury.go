@@ -121,6 +121,8 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	preStatus := op.Status
 	underfundedTransition := false
 
+	bondDenom := k.BondDenom(ctx)
+
 	var slashAmount sdkmath.Int
 	if msg.Verdict == types.JuryVerdict_JURY_VERDICT_REJECT {
 		slashAmount = sdkmath.ZeroInt()
@@ -129,9 +131,9 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 		// drawn from. If we have a contested escrow, the slash is
 		// bounded by the escrow amount; the difference returns to bond.
 		// If no escrow, the slash debits the current bond directly.
-		basis := op.Bond.Amount
+		basis := op.BondAmount
 		if hasEscrow {
-			basis = escrow.Amount.Amount
+			basis = escrow.Amount
 		}
 		slashAmount = computeSlashAmount(basis, msg.SlashBps)
 	}
@@ -140,37 +142,37 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	case hasEscrow && slashAmount.IsZero():
 		// REJECT (or zero-bps REDUCE — caught above): return full escrow
 		// to operator's bond.
-		op.Bond = op.Bond.Add(escrow.Amount)
+		op.BondAmount = op.BondAmount.Add(escrow.Amount)
 	case hasEscrow:
 		// Slash is bounded by the escrow. Pay slashAmount from module
 		// account → community pool; return the rest (escrow.Amount - slash)
 		// to operator's bond.
-		if slashAmount.GT(escrow.Amount.Amount) {
+		if slashAmount.GT(escrow.Amount) {
 			// Defensive: REDUCE constraint should have prevented this.
-			slashAmount = escrow.Amount.Amount
+			slashAmount = escrow.Amount
 		}
 		if !slashAmount.IsZero() && k.distributionKeeper() != nil {
-			payout := sdk.NewCoin(types.BondDenom, slashAmount)
+			payout := sdk.NewCoin(bondDenom, slashAmount)
 			if err := k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(payout), k.bankModuleAddress()); err != nil {
 				return nil, err
 			}
 		}
-		refund := escrow.Amount.Amount.Sub(slashAmount)
+		refund := escrow.Amount.Sub(slashAmount)
 		if refund.IsPositive() {
-			op.Bond = op.Bond.Add(sdk.NewCoin(types.BondDenom, refund))
+			op.BondAmount = op.BondAmount.Add(refund)
 		}
 	default:
-		// Direct escalation (no prior T1). Debit op.Bond and pay slash
-		// to community pool.
+		// Direct escalation (no prior T1). Debit op.BondAmount and pay
+		// slash to community pool.
 		if !slashAmount.IsZero() {
-			if slashAmount.GT(op.Bond.Amount) {
-				slashAmount = op.Bond.Amount
+			if slashAmount.GT(op.BondAmount) {
+				slashAmount = op.BondAmount
 			}
-			op.Bond = sdk.NewCoin(types.BondDenom, op.Bond.Amount.Sub(slashAmount))
+			op.BondAmount = op.BondAmount.Sub(slashAmount)
 			if k.distributionKeeper() != nil {
 				if err := k.distributionKeeper().FundCommunityPool(
 					ctx,
-					sdk.NewCoins(sdk.NewCoin(types.BondDenom, slashAmount)),
+					sdk.NewCoins(sdk.NewCoin(bondDenom, slashAmount)),
 					k.bankModuleAddress(),
 				); err != nil {
 					return nil, err
@@ -179,7 +181,7 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 			// Status may flip ACTIVE → UNDERFUNDED — borrow applySlashToBond's
 			// rule rather than re-implementing.
 			if op.Status == types.OperatorStatus_OPERATOR_STATUS_ACTIVE &&
-				op.Bond.Amount.LT(cfg.MinBond.Amount) {
+				op.BondAmount.LT(cfg.MinBondAmount) {
 				op.Status = types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED
 				op.UnderfundedSince = currentHeight
 				underfundedTransition = true
@@ -199,11 +201,11 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 
 	// Dissolve check (§5.2): ACCEPT with dissolve=true OR bond → 0 ⇒
 	// SLASHED + archive + dissolution hook + close any open reports.
-	dissolveNow := msg.Dissolve || (msg.Verdict != types.JuryVerdict_JURY_VERDICT_REJECT && op.Bond.Amount.IsZero())
+	dissolveNow := msg.Dissolve || (msg.Verdict != types.JuryVerdict_JURY_VERDICT_REJECT && op.BondAmount.IsZero())
 
 	// Update report.
 	report.Status = types.ReportStatus_REPORT_STATUS_RESOLVED_T2
-	report.SlashAmount = sdk.NewCoin(types.BondDenom, slashAmount)
+	report.SlashAmount = slashAmount
 	if err := k.Reports.Set(ctx, report.ReportId, report); err != nil {
 		return nil, err
 	}
@@ -231,14 +233,15 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	}
 
 	verdictStr := msg.Verdict.String()
+	slashCoin := sdk.NewCoin(bondDenom, slashAmount)
 	events := sdk.Events{
-		types.NewReportResolvedT2Event(report.ReportId, verdictStr, report.SlashAmount, msg.Dissolve),
+		types.NewReportResolvedT2Event(report.ReportId, verdictStr, slashCoin, msg.Dissolve),
 	}
 	if !slashAmount.IsZero() {
 		events = append(events, types.NewOperatorSlashedEvent(
 			op.Address, op.ServiceType,
-			sdk.NewCoin(types.BondDenom, slashAmount),
-			op.Bond, types.TierTier2, report.ReportId,
+			slashCoin,
+			sdk.NewCoin(bondDenom, op.BondAmount), types.TierTier2, report.ReportId,
 		))
 	}
 	sdkCtx.EventManager().EmitEvents(events)
@@ -317,29 +320,31 @@ func (k Keeper) crossCheckSlashVerdict(ctx context.Context, juryCaseID uint64, s
 // refundDepositToReporter pays the report's deposit back to its
 // reporter from the module account. No-op on zero deposit.
 func (k Keeper) refundDepositToReporter(ctx context.Context, report types.Report) error {
-	if report.Deposit.Amount.IsNil() || report.Deposit.Amount.IsZero() {
+	if report.Deposit.IsNil() || report.Deposit.IsZero() {
 		return nil
 	}
 	reporterBytes, err := k.addrBytes(report.Reporter)
 	if err != nil {
 		return err
 	}
+	depositCoin := sdk.NewCoin(k.BondDenom(ctx), report.Deposit)
 	return k.bankKeeper.SendCoinsFromModuleToAccount(
-		ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(report.Deposit),
+		ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(depositCoin),
 	)
 }
 
-// forfeitDepositToCommunityPool routes the report's deposit to the
+// forfeitDepositToCommunityPool routes the deposit amount to the
 // community pool (REJECT verdict, §3.4.6). No-op on zero deposit or
 // when distributionKeeper is unwired (standalone dev mode).
-func (k Keeper) forfeitDepositToCommunityPool(ctx context.Context, deposit sdk.Coin) error {
-	if deposit.Amount.IsNil() || deposit.Amount.IsZero() {
+func (k Keeper) forfeitDepositToCommunityPool(ctx context.Context, depositAmount sdkmath.Int) error {
+	if depositAmount.IsNil() || depositAmount.IsZero() {
 		return nil
 	}
 	if k.distributionKeeper() == nil {
 		return nil
 	}
-	return k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(deposit), k.bankModuleAddress())
+	depositCoin := sdk.NewCoin(k.BondDenom(ctx), depositAmount)
+	return k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(depositCoin), k.bankModuleAddress())
 }
 
 // dissolveOperator transitions an operator to SLASHED and archives the
@@ -357,16 +362,17 @@ func (k Keeper) forfeitDepositToCommunityPool(ctx context.Context, deposit sdk.C
 //   - emits service.operator_dissolved + service.operator_archived events.
 func (k Keeper) dissolveOperator(ctx context.Context, op *types.Operator, currentHeight int64, causingReportID uint64) error {
 	// Capture confiscated amount BEFORE zeroing for the event.
-	confiscated := op.Bond
+	bondDenom := k.BondDenom(ctx)
+	confiscated := sdk.NewCoin(bondDenom, op.BondAmount)
 
 	// Transfer remaining bond to community pool.
-	if !op.Bond.Amount.IsZero() && k.distributionKeeper() != nil {
-		if err := k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(op.Bond), k.bankModuleAddress()); err != nil {
+	if !op.BondAmount.IsZero() && k.distributionKeeper() != nil {
+		if err := k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(confiscated), k.bankModuleAddress()); err != nil {
 			return err
 		}
 	}
 
-	op.Bond = sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt())
+	op.BondAmount = sdkmath.ZeroInt()
 	op.Status = types.OperatorStatus_OPERATOR_STATUS_SLASHED
 	op.RetiredAt = currentHeight
 

@@ -37,7 +37,7 @@ echo '{
       "@type": "/cosmos.bank.v1beta1.MsgSend",
       "from_address": "'$POLICY_ADDR'",
       "to_address": "'$ALICE_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "1"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "1"}]
     }
   ],
   "metadata": "Trying to bypass the wrapper whitelist"
@@ -48,7 +48,7 @@ echo "Submitting proposal (Expecting rejection)..."
 
 # The permission check now happens in the MsgServer's SubmitProposal handler.
 # The tx will be broadcast but the message execution will fail with a non-zero code.
-OUTPUT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_fail_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+OUTPUT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_fail_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json 2>&1)
 
 # --- 3. Verification ---
 # The MsgServer SubmitProposal handler checks permissions and returns:

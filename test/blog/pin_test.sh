@@ -130,10 +130,10 @@ echo "  Non-member account: $NONMEMBER_ADDR"
 echo "  Funding non-member account..."
 TX_RES=$($BINARY tx bank send \
     alice $NONMEMBER_ADDR \
-    10000000uspark \
+    10000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 sleep 6
@@ -148,7 +148,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from $NONMEMBER_ACCOUNT \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -174,7 +174,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from $NONMEMBER_ACCOUNT \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -195,7 +195,7 @@ if [ -n "$EPHEMERAL_POST_ID" ]; then
         --from $NONMEMBER_ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -218,7 +218,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -238,7 +238,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -253,7 +253,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -275,7 +275,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -289,7 +289,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -317,7 +317,7 @@ if [ -n "$EPHEMERAL_POST_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -371,7 +371,7 @@ if [ -n "$EPHEMERAL_REPLY_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -400,7 +400,7 @@ if [ -n "$PERMANENT_POST_ID" ]; then
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -426,7 +426,7 @@ TX_RES=$($BINARY tx blog pin-post \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -449,7 +449,7 @@ if [ -n "$DELETED_POST_ID" ]; then
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -478,7 +478,7 @@ if [ -n "$HIDDEN_POST_FOR_PIN_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -506,7 +506,7 @@ if [ -n "$EPHEMERAL_POST_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -532,7 +532,7 @@ TX_RES=$($BINARY tx blog pin-reply \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -556,7 +556,7 @@ if [ -n "$EPHEMERAL_REPLY_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

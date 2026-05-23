@@ -74,7 +74,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 			half := bond.QuoRaw(2)
 			remainder := bond.Sub(half)
 			if half.IsPositive() {
-				burnCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, half))
+				burnCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), half))
 				if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), authtypes.NewModuleAddress(types.ModuleName), burnCoins); err != nil {
 					return nil, errorsmod.Wrap(err, "failed to move appeal bond half to module account")
 				}
@@ -83,7 +83,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 				}
 			}
 			if remainder.IsPositive() {
-				poolCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, remainder))
+				poolCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), remainder))
 				if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), SentinelRewardPoolAddress(), poolCoins); err != nil {
 					return nil, errorsmod.Wrap(err, "failed to forward appeal bond remainder to sentinel pool")
 				}
@@ -123,7 +123,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 	case types.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED:
 		// Full bond refund to appellant.
 		if bond.IsPositive() {
-			refundCoins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, bond))
+			refundCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), bond))
 			if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), appellantAddr, refundCoins); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to refund appeal bond")
 			}

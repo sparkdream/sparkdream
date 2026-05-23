@@ -59,7 +59,7 @@ func SimulateMsgRegisterGroup(
 
 		// --- Fund Treasury for Subsidy ---
 		// The commons module pays 1000 SPARK subsidy. We must mint this.
-		subsidy := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000000000)))
+		subsidy := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(1000000000)))
 		if err := bk.MintCoins(ctx, types.ModuleName, subsidy); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to mint subsidy"), nil, err
 		}

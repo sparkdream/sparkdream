@@ -72,7 +72,7 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		if msg.MaxSpendPerEpoch.IsNegative() {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch cannot be negative")
 		}
-		coin := sdk.NewCoin("uspark", *msg.MaxSpendPerEpoch)
+		coin := sdk.NewCoin(k.BondDenom(ctx), *msg.MaxSpendPerEpoch)
 		if !coin.IsValid() {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch must be valid")
 		}

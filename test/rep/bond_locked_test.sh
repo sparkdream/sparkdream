@@ -136,7 +136,7 @@ if [ "$CHALLENGER_AVAILABLE" -lt "$NEEDED" ]; then
     $BINARY tx rep transfer-dream "$CHALLENGER_ADDR" 500000000 bounty \
         "bond_locked_test top-up" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json > /dev/null 2>&1
+        --fees 5000${BOND_DENOM} -y --output json > /dev/null 2>&1
     sleep 6
 fi
 
@@ -153,7 +153,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -214,7 +214,7 @@ if [ -n "$BOND_STAKE_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -247,7 +247,7 @@ if [ -n "$BONDED_POST_ID" ]; then
         --from challenger \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -277,7 +277,7 @@ if [ -n "$BOND_STAKE_ID" ] && [ -n "$CONTENT_CHALLENGE_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -322,7 +322,7 @@ if [ -n "$BOND_STAKE_ID" ] && [ -n "$CONTENT_CHALLENGE_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -356,7 +356,7 @@ if [ -n "$CONTENT_CHALLENGE_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

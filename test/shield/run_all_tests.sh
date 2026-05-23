@@ -27,6 +27,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 source "$SCRIPT_DIR/../check_testparams.sh"
 source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
@@ -252,7 +253,7 @@ else
     echo "  Alice: OK ($ALICE_ADDR)"
 
     # Check Alice balance
-    ALICE_BALANCE=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount' || echo "0")
+    ALICE_BALANCE=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount' || echo "0")
     if [ "$ALICE_BALANCE" -lt 1000000 ]; then
         echo "WARNING: Alice has low SPARK balance: $ALICE_BALANCE uspark"
     fi

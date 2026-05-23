@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -22,10 +23,11 @@ import (
 // struct, the AppModule's value-copy would never see the assignment and
 // SendFederationPacket would silently no-op forever.
 type lateKeepers struct {
-	commonsKeeper types.CommonsKeeper
-	repKeeper     types.RepKeeper
-	nameKeeper    types.NameKeeper
-	ibcKeeperFn   func() *ibckeeper.Keeper
+	commonsKeeper  types.CommonsKeeper
+	repKeeper      types.RepKeeper
+	nameKeeper     types.NameKeeper
+	identityKeeper types.IdentityKeeper
+	ibcKeeperFn    func() *ibckeeper.Keeper
 
 	// serviceKeeper is the slice of x/service that federation consumes
 	// for the bridge-operator lifecycle (Phase 2 of the federation→
@@ -279,6 +281,23 @@ func (k Keeper) SetRepKeeper(rk types.RepKeeper) {
 
 func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
 	k.late.nameKeeper = nk
+}
+
+// SetIdentityKeeper wires the x/identity keeper post-depinject so the keeper
+// can resolve the chain's bond denom at runtime.
+func (k Keeper) SetIdentityKeeper(ik types.IdentityKeeper) {
+	k.late.identityKeeper = ik
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity is not wired — every call site needs a real denom and
+// silently returning a hardcoded literal would re-introduce the legacy
+// mixed-state bug we just removed.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.late == nil || k.late.identityKeeper == nil {
+		panic("federation keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.BondDenom(ctx)
 }
 
 // SetServiceKeeper wires the x/service keeper after construction. Used

@@ -215,7 +215,7 @@ func getOrCreateSession(
 	}
 
 	expiration := ctx.BlockTime().Add(2 * time.Hour)
-	zeroCoin := sdk.NewInt64Coin("uspark", 0)
+	zeroCoin := sdk.NewInt64Coin(sdk.DefaultBondDenom, 0)
 	// Use zero spend limit so the SessionFeeDecorator skips fee delegation.
 	// With a positive spend limit, the ante handler would try to deduct fees
 	// from the granter which may not have sufficient balance in simulation.

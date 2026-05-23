@@ -216,7 +216,7 @@ func (k Keeper) checkAndAdvanceTier1Window(
 	if currentHeight >= op.Tier1WindowStart+windowBlocks {
 		// Window has slid; reset BEFORE applying the new slash.
 		op.Tier1WindowStart = currentHeight
-		op.Tier1WindowStartBond = op.Bond.Amount
+		op.Tier1WindowStartBond = op.BondAmount
 		op.Tier1SlashedInWindow = sdkmath.ZeroInt()
 	}
 
@@ -292,11 +292,11 @@ func (k Keeper) recordTier1Slash(
 // Bond mutation + status flip on slash
 // ---------------------------------------------------------------------------
 
-// applySlashToBond debits slashAmount from op.Bond and flips status to
-// UNDERFUNDED if the new bond falls below min_bond. Returns the new bond
-// (post-debit). Caller is responsible for moving SPARK out of the bond
-// pool (to Tier1Escrow for T1, or community pool for T2/dissolution)
-// and for persisting the operator.
+// applySlashToBond debits slashAmount from op.BondAmount and flips
+// status to UNDERFUNDED if the new bond falls below min_bond. Caller is
+// responsible for moving SPARK out of the bond pool (to Tier1Escrow for
+// T1, or community pool for T2/dissolution) and for persisting the
+// operator.
 //
 // Does NOT settle bond-blocks — caller MUST call settleBondBlocks before
 // invoking this (§6.6 "settle before any mutation to op.bond").
@@ -314,17 +314,17 @@ func (k Keeper) applySlashToBond(
 		return
 	}
 
-	newBondAmount := op.Bond.Amount.Sub(slashAmount)
+	newBondAmount := op.BondAmount.Sub(slashAmount)
 	if newBondAmount.IsNegative() {
 		// Shouldn't happen given computeSlashAmount is floor(bond * bps / 10000),
 		// but defensive.
 		newBondAmount = sdkmath.ZeroInt()
 	}
-	op.Bond = sdk.NewCoin(op.Bond.Denom, newBondAmount)
+	op.BondAmount = newBondAmount
 
 	// UNDERFUNDED transition: bond < min_bond AND status was ACTIVE.
 	if op.Status == types.OperatorStatus_OPERATOR_STATUS_ACTIVE &&
-		newBondAmount.LT(cfg.MinBond.Amount) {
+		newBondAmount.LT(cfg.MinBondAmount) {
 		op.Status = types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED
 		op.UnderfundedSince = currentHeight
 	}
@@ -425,9 +425,10 @@ func (k Keeper) eagerReleaseExpiredEscrowsForOperator(
 		// Pay out escrowed amount to community pool. If distribution
 		// keeper is wired; otherwise leave funds in module account
 		// (standalone dev mode).
-		if k.distributionKeeper() != nil && !p.escrow.Amount.Amount.IsZero() {
+		escrowCoin := sdk.NewCoin(k.BondDenom(ctx), p.escrow.Amount)
+		if k.distributionKeeper() != nil && !p.escrow.Amount.IsZero() {
 			moduleAddr := k.bankModuleAddress()
-			if err := k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(p.escrow.Amount), moduleAddr); err != nil {
+			if err := k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(escrowCoin), moduleAddr); err != nil {
 				return err
 			}
 		}
@@ -438,7 +439,7 @@ func (k Keeper) eagerReleaseExpiredEscrowsForOperator(
 		_ = k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(p.escrow.ReleaseAt, p.escrowID))
 		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(types.NewTier1EscrowReleasedEvent(
 			p.escrowID, p.escrow.ReportId, p.escrow.OperatorAddress, p.escrow.ServiceType,
-			p.escrow.Amount, types.EscrowDestCommunityPool,
+			escrowCoin, types.EscrowDestCommunityPool,
 		))
 	}
 	return nil
@@ -570,11 +571,12 @@ func (k Keeper) closeOpenReportsOnDissolve(
 		}
 
 		// Refund reporter deposit (reporters bore no fault — §3.4.9).
-		if !report.Deposit.Amount.IsNil() && !report.Deposit.Amount.IsZero() {
+		depositCoin := sdk.NewCoin(k.BondDenom(ctx), report.Deposit)
+		if !report.Deposit.IsNil() && !report.Deposit.IsZero() {
 			reporterBytes, err := k.addrBytes(report.Reporter)
 			if err == nil {
 				if err := k.bankKeeper.SendCoinsFromModuleToAccount(
-					ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(report.Deposit),
+					ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(depositCoin),
 				); err != nil {
 					return err
 				}
@@ -601,7 +603,7 @@ func (k Keeper) closeOpenReportsOnDissolve(
 			return err
 		}
 		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
-			types.NewReportClosedDissolvedEvent(report.ReportId, report.Deposit),
+			types.NewReportClosedDissolvedEvent(report.ReportId, depositCoin),
 		)
 	}
 

@@ -82,7 +82,7 @@ if [ "$MIN_LIQ" -lt "200000" ]; then
     MIN_LIQ="200000"
 fi
 
-ALICE_INITIAL_BALANCE=$($BINARY query bank balance $ALICE_ADDR uspark --output json | jq -r '.balance.amount')
+ALICE_INITIAL_BALANCE=$($BINARY query bank balance $ALICE_ADDR ${BOND_DENOM} --output json | jq -r '.balance.amount')
 echo "  Alice initial balance: $ALICE_INITIAL_BALANCE uspark"
 
 CREATE_RES=$($BINARY tx futarchy create-market \
@@ -93,7 +93,7 @@ CREATE_RES=$($BINARY tx futarchy create-market \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -123,7 +123,7 @@ TRADE_RES=$($BINARY tx futarchy trade \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -143,7 +143,7 @@ EARLY_WITHDRAW=$($BINARY tx futarchy withdraw-liquidity \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1) || true
 
@@ -195,7 +195,7 @@ BOB_WITHDRAW=$($BINARY tx futarchy withdraw-liquidity \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1) || true
 
@@ -205,7 +205,7 @@ expect_tx_failure "$BOB_WITHDRAW" "only market creator can withdraw" "Non-creato
 echo ""
 echo "--- PART 6: ALICE (CREATOR) WITHDRAWS LIQUIDITY ---"
 
-ALICE_BALANCE_BEFORE=$($BINARY query bank balance $ALICE_ADDR uspark --output json | jq -r '.balance.amount')
+ALICE_BALANCE_BEFORE=$($BINARY query bank balance $ALICE_ADDR ${BOND_DENOM} --output json | jq -r '.balance.amount')
 echo "  Alice balance before withdrawal: $ALICE_BALANCE_BEFORE uspark"
 
 WITHDRAW_RES=$($BINARY tx futarchy withdraw-liquidity \
@@ -213,7 +213,7 @@ WITHDRAW_RES=$($BINARY tx futarchy withdraw-liquidity \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -248,7 +248,7 @@ fi
 echo ""
 echo "--- PART 8: VERIFY ALICE BALANCE INCREASED ---"
 
-ALICE_BALANCE_AFTER=$($BINARY query bank balance $ALICE_ADDR uspark --output json | jq -r '.balance.amount')
+ALICE_BALANCE_AFTER=$($BINARY query bank balance $ALICE_ADDR ${BOND_DENOM} --output json | jq -r '.balance.amount')
 
 echo "  Alice balance before: $ALICE_BALANCE_BEFORE uspark"
 echo "  Alice balance after:  $ALICE_BALANCE_AFTER uspark"
@@ -269,7 +269,7 @@ SECOND_WITHDRAW=$($BINARY tx futarchy withdraw-liquidity \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1) || true
 

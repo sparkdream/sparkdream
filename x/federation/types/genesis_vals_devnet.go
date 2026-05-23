@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // Devnet values — accelerated timers for development (5-15 minute ranges).
@@ -27,7 +26,7 @@ func getFederationGenesisParams() federationGenesisParams {
 
 		VerificationWindow:           1 * time.Hour,
 		ChallengeWindow:              2 * time.Hour,
-		ChallengeFee:                 sdk.NewCoin("uspark", math.NewInt(50_000_000)), // 50 SPARK
+		ChallengeFeeAmount:           math.NewInt(50_000_000), // 50 SPARK in bond-denom micro-units
 		ChallengeJuryDeadline:        2 * time.Hour,
 		VerifierDemotionCooldown:     30 * time.Minute,
 		VerifierUnbondCooldown:       30 * time.Minute, // mirrors BridgeUnbondingPeriod (devnet)
@@ -36,7 +35,7 @@ func getFederationGenesisParams() federationGenesisParams {
 
 		ArbiterResolutionWindow: 1 * time.Hour,
 		ArbiterEscalationWindow: 2 * time.Hour,
-		EscalationFee:           sdk.NewCoin("uspark", math.NewInt(10_000_000)), // 10 SPARK
+		EscalationFeeAmount:     math.NewInt(10_000_000), // 10 SPARK in bond-denom micro-units
 
 		RateLimitWindow:  1 * time.Hour,
 		IBCPacketTimeout: 5 * time.Minute,

@@ -74,7 +74,7 @@ func SimulateMsgCreateSession(
 
 		// 4. Check granter has funds for gas
 		balance := bk.SpendableCoins(ctx, granterAcc.Address)
-		if balance.AmountOf("uspark").LT(math.NewInt(10000)) {
+		if balance.AmountOf(sdk.DefaultBondDenom).LT(math.NewInt(10000)) {
 			return simtypes.NoOpMsg(types.ModuleName, msgType, "granter has insufficient funds"), nil, nil
 		}
 
@@ -89,11 +89,11 @@ func SimulateMsgCreateSession(
 		allowedMsgTypes := randomSubset(r, params.AllowedMsgTypes, maxMsgTypes)
 
 		// 6. Random spend limit (must be positive — zero disables fee delegation)
-		maxAmount := params.MaxSpendLimit.Amount.Int64()
+		maxAmount := params.MaxSpendLimitAmount.Int64()
 		if maxAmount <= 0 {
 			maxAmount = 100_000_000
 		}
-		spendLimit := sdk.NewCoin("uspark", math.NewInt(r.Int63n(maxAmount)+1))
+		spendLimit := sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(r.Int63n(maxAmount)+1))
 
 		// 7. Random expiration
 		maxExpDuration := params.MaxExpiration

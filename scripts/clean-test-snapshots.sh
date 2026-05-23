@@ -31,7 +31,8 @@
 #   0 — success (including the no-snapshots-present case)
 #   1 — invalid arguments or safe_rmtree failure
 #
-# Honors CLAUDE.md "Never use rm -rf" via test/_safe_rm.sh's safe_rmtree.
+# Honors the project's "Never use rm -rf" convention (see
+# docs/development-conventions.md) via test/_safe_rm.sh's safe_rmtree.
 # ============================================================================
 
 set -euo pipefail

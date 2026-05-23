@@ -121,7 +121,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -178,7 +178,7 @@ else
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -256,7 +256,7 @@ if [ -n "$BLOGGER1_ADDR" ]; then
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -277,7 +277,7 @@ if [ -n "$PINNABLE_POST_ID" ] && [ "$PINNABLE_POST_ID" != "null" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -343,7 +343,7 @@ if [ -n "$PERMANENT_POST_ID" ] && [ "$PERMANENT_POST_ID" != "null" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

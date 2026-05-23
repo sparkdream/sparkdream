@@ -32,7 +32,7 @@ record_result() {
 wait_for_tx() {
     local TXHASH=$1; local MAX=20; local A=0
     while [ $A -lt $MAX ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
         A=$((A + 1)); sleep 1
     done
@@ -88,12 +88,12 @@ TX_RES=$($BINARY tx rep bond-role federation-verifier \
     --from $VERIFIER_A \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "bond verifier"; then
-    VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json 2>&1)
+    VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json)
     if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
         BOND_STATUS=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.bond_status // "BONDED_ROLE_STATUS_UNSPECIFIED"')
         CURRENT_BOND=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.current_bond // "0"')
@@ -125,12 +125,12 @@ TX_RES=$($BINARY tx rep bond-role federation-verifier \
     --from $VERIFIER_B \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "bond verifier2"; then
-    VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_B_ADDR --output json 2>&1)
+    VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_B_ADDR --output json)
     if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
         BOND_STATUS=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.bond_status // "BONDED_ROLE_STATUS_UNSPECIFIED"')
         echo "  Bond status: $BOND_STATUS"
@@ -154,7 +154,7 @@ fi
 echo ""
 echo "--- TEST 3: Additional bonding increases bond ---"
 
-PRE_BOND_RAW=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json 2>&1)
+PRE_BOND_RAW=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json)
 if echo "$PRE_BOND_RAW" | jq -e '.bonded_role' > /dev/null 2>&1; then
     PRE_BOND=$(echo "$PRE_BOND_RAW" | jq -r '.bonded_role.current_bond // "0"')
 else
@@ -166,12 +166,12 @@ TX_RES=$($BINARY tx rep bond-role federation-verifier \
     --from $VERIFIER_A \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "additional bond"; then
-    POST_BOND_RAW=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json 2>&1)
+    POST_BOND_RAW=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json)
     if echo "$POST_BOND_RAW" | jq -e '.bonded_role' > /dev/null 2>&1; then
         POST_BOND=$(echo "$POST_BOND_RAW" | jq -r '.bonded_role.current_bond // "0"')
     else
@@ -197,7 +197,7 @@ fi
 echo ""
 echo "--- TEST 4: Unbond partial amount ---"
 
-PRE_BOND_RAW=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json 2>&1)
+PRE_BOND_RAW=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json)
 if echo "$PRE_BOND_RAW" | jq -e '.bonded_role' > /dev/null 2>&1; then
     PRE_BOND=$(echo "$PRE_BOND_RAW" | jq -r '.bonded_role.current_bond // "0"')
 else
@@ -209,12 +209,12 @@ TX_RES=$($BINARY tx rep unbond-role federation-verifier \
     --from $VERIFIER_A \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "unbond partial"; then
-    POST_BOND_RAW=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json 2>&1)
+    POST_BOND_RAW=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json)
     POST_BOND=$(echo "$POST_BOND_RAW" | jq -r '.bonded_role.current_bond // "0"')
     POST_STATUS=$(echo "$POST_BOND_RAW" | jq -r '.bonded_role.bond_status // "MISSING"')
     POST_PENDING=$(echo "$POST_BOND_RAW" | jq -r '.bonded_role.pending_unbond_amount // "0"')
@@ -247,9 +247,9 @@ TX_RES=$($BINARY tx rep unbond-role federation-verifier \
     --from linker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "non-verifier unbond"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -279,7 +279,7 @@ VERIFY_HASH=$(sha256_base64 "$VERIFY_BODY")
 # Post-Phase-4: the BridgeBinding has no status field; live operator state
 # (ACTIVE/UNBONDING/SLASHED) lives on x/service.Operator keyed by
 # (address, service_type=federation-bridge-activitypub).
-BRIDGE_CHECK_RAW=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR mastodon.example --output json 2>&1)
+BRIDGE_CHECK_RAW=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR mastodon.example --output json)
 if echo "$BRIDGE_CHECK_RAW" | jq -e '.bridge_binding.address' > /dev/null 2>&1; then
     BRIDGE_CHECK=$($BINARY query service operator $OPERATOR2_ADDR federation-bridge-activitypub --output json 2>&1 | jq -r '.operator.status // "OPERATOR_STATUS_UNSPECIFIED"')
 else
@@ -302,9 +302,9 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
         --from operator2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     if submit_and_wait "$TX_RES" "submit for verify"; then
         VERIFY_CONTENT_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value' | tr -d '"')
@@ -319,9 +319,9 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
                 --from $VERIFIER_A \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
-                --output json 2>&1)
+                --output json)
 
             if submit_and_wait "$TX_RES" "verify content"; then
                 CONTENT_STATUS=$($BINARY query federation get-federated-content $VERIFY_CONTENT_ID --output json 2>&1 | jq -r '.content.status // "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION"')
@@ -378,9 +378,9 @@ if [ -n "$VERIFY_CONTENT_ID" ]; then
         --from operator2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     if submit_and_wait "$TX_RES" "submit for non-verifier test"; then
         NOVERIFY_CONTENT_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value' | tr -d '"')
@@ -393,9 +393,9 @@ if [ -n "$VERIFY_CONTENT_ID" ]; then
                 --from operator2 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
-                --output json 2>&1)
+                --output json)
 
             if submit_and_wait "$TX_RES" "non-verifier verify"; then
                 CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -450,9 +450,9 @@ if [ -n "$VERIFY_CONTENT_ID" ]; then
             --from $VERIFIER_B \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
-            --output json 2>&1)
+            --output json)
 
         if submit_and_wait "$TX_RES" "challenge verification"; then
             CONTENT_STATUS=$($BINARY query federation get-federated-content $VERIFY_CONTENT_ID --output json 2>&1 | jq -r '.content.status // "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION"')
@@ -496,7 +496,7 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
         "@selfchal@mastodon.example" "Self-Chal Test" "Self Challenge Test" \
         "$SELF_CHAL_BODY" "" "1700030000" \
         --content-hash "$SELF_CHAL_HASH" \
-        --from operator2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+        --from operator2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
     if submit_and_wait "$TX_RES" "submit self-chal content"; then
         SELF_CHAL_CONTENT_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value' | tr -d '"')
@@ -505,7 +505,7 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
             # alice verifies it
             TX_RES=$($BINARY tx federation verify-content \
                 $SELF_CHAL_CONTENT_ID --content-hash "$SELF_CHAL_HASH" \
-                --from $VERIFIER_A --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                --from $VERIFIER_A --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
             if submit_and_wait "$TX_RES" "verify for self-chal"; then
                 # alice (the verifier) tries to challenge her own verification
@@ -514,7 +514,7 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
                     "Self challenge attempt" \
                     --content-hash "$SELF_CHAL_HASH" \
                     --from $VERIFIER_A \
-                    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
                 if submit_and_wait "$TX_RES" "self-challenge"; then
                     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -568,9 +568,9 @@ if [ -n "$VERIFY_CONTENT_ID" ]; then
             --from $VERIFIER_A \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
-            --output json 2>&1)
+            --output json)
 
         if submit_and_wait "$TX_RES" "escalate challenge"; then
             echo "  Challenge escalated successfully"
@@ -595,7 +595,7 @@ fi
 echo ""
 echo "--- TEST 11: List verifiers ---"
 
-VERIFIERS=$($BINARY query rep bonded-roles-by-type federation-verifier --output json 2>&1)
+VERIFIERS=$($BINARY query rep bonded-roles-by-type federation-verifier --output json)
 if echo "$VERIFIERS" | jq -e '.bonded_roles' > /dev/null 2>&1; then
     VERIFIER_COUNT=$(echo "$VERIFIERS" | jq '.bonded_roles | length')
     echo "  Verifier count: $VERIFIER_COUNT"
@@ -619,7 +619,7 @@ echo ""
 echo "--- TEST 12: Get verification record ---"
 
 if [ -n "$VERIFY_CONTENT_ID" ]; then
-    RECORD=$($BINARY query federation get-verification-record $VERIFY_CONTENT_ID --output json 2>&1)
+    RECORD=$($BINARY query federation get-verification-record $VERIFY_CONTENT_ID --output json)
     if echo "$RECORD" | jq -e '.record' > /dev/null 2>&1; then
         RECORD_VERIFIER=$(echo "$RECORD" | jq -r '.record.verifier // empty')
         RECORD_OUTCOME=$(echo "$RECORD" | jq -r '.record.outcome // "VERIFICATION_OUTCOME_UNSPECIFIED"')
@@ -661,7 +661,7 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
         "@mismatch@mastodon.example" "Mismatch Test" "Hash Mismatch" \
         "$MISMATCH_BODY" "" "1700040000" \
         --content-hash "$MISMATCH_HASH" \
-        --from operator2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+        --from operator2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
     if submit_and_wait "$TX_RES" "submit for mismatch"; then
         MISMATCH_CONTENT_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value' | tr -d '"')
@@ -673,7 +673,7 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
             TX_RES=$($BINARY tx federation verify-content \
                 $MISMATCH_CONTENT_ID \
                 --content-hash "$WRONG_VERIFY_HASH" \
-                --from $VERIFIER_A --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                --from $VERIFIER_A --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
             if submit_and_wait "$TX_RES" "mismatch verify"; then
                 CONTENT_STATUS=$($BINARY query federation get-federated-content $MISMATCH_CONTENT_ID --output json 2>&1 | jq -r '.content.status // "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION"')
@@ -720,7 +720,7 @@ if [ -n "$SELF_CHAL_CONTENT_ID" ]; then
             $SELF_CHAL_CONTENT_ID \
             --content-hash "$SELF_CHAL_HASH" \
             --from $VERIFIER_B \
-            --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+            --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
         if submit_and_wait "$TX_RES" "second verify"; then
             CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -761,7 +761,7 @@ fi
 echo ""
 echo "--- TEST 15: Committed bond blocks full unbond ---"
 
-VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json 2>&1)
+VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_A_ADDR --output json)
 if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
     CURRENT_BOND=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.current_bond // "0"')
     COMMITTED=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.total_committed_bond // "0"')
@@ -772,7 +772,7 @@ if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
         TX_RES=$($BINARY tx rep unbond-role federation-verifier \
             $CURRENT_BOND \
             --from $VERIFIER_A \
-            --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+            --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
         if submit_and_wait "$TX_RES" "full unbond with committed"; then
             CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -821,9 +821,9 @@ TX_RES=$($BINARY tx rep bond-role federation-verifier \
     --from verifier1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "newcomer bond"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -870,9 +870,9 @@ if [ -n "$MISMATCH_CONTENT_ID" ]; then
             --from operator2 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
-            --output json 2>&1)
+            --output json)
 
         if submit_and_wait "$TX_RES" "self-arbiter"; then
             CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -927,9 +927,9 @@ if [ -n "$SELF_CHAL_CONTENT_ID" ]; then
             --from operator2 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
-            --output json 2>&1)
+            --output json)
 
         if submit_and_wait "$TX_RES" "arbiter wrong status"; then
             CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -957,7 +957,7 @@ if [ -n "$SELF_CHAL_CONTENT_ID" ]; then
             99999 \
             --content-hash "$(sha256_base64 test)" \
             --from operator2 \
-            --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+            --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
         if submit_and_wait "$TX_RES" "arbiter not found"; then
             CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -977,7 +977,7 @@ else
         99999 \
         --content-hash "$(sha256_base64 test)" \
         --from operator2 \
-        --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+        --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
     if submit_and_wait "$TX_RES" "arbiter not found"; then
         CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -1001,7 +1001,7 @@ fi
 echo ""
 echo "--- TEST 19: Post-unbond state blocks re-bonding ---"
 
-VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_B_ADDR --output json 2>&1)
+VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_B_ADDR --output json)
 if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
     BOB_BOND=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.current_bond // "0"')
     BOB_COMMITTED=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.total_committed_bond // "0"')
@@ -1015,10 +1015,10 @@ if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
         TX_RES=$($BINARY tx rep unbond-role federation-verifier \
             $UNBOND_AMT \
             --from $VERIFIER_B \
-            --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+            --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
         if submit_and_wait "$TX_RES" "unbond to demote"; then
-            VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_B_ADDR --output json 2>&1)
+            VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_B_ADDR --output json)
             BOB_STATUS=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.bond_status // empty')
             echo "  After unbond: status=$BOB_STATUS"
 
@@ -1027,7 +1027,7 @@ if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
                 TX_RES=$($BINARY tx rep bond-role federation-verifier \
                     500000000 \
                     --from $VERIFIER_B \
-                    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
                 if submit_and_wait "$TX_RES" "re-bond during cooldown"; then
                     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -1096,10 +1096,10 @@ if [ -n "$MISMATCH_CONTENT_ID" ]; then
             echo "  Alice already has a binding for mastodon.example"
             ALICE_BRIDGE_OK=true
         else
-            MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.min_bond.amount')
+            MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.min_bond_amount')
             TX_RES=$($BINARY tx federation register-bridge \
-                mastodon.example activitypub https://arbiter-bridge.example.com "${MIN_BOND_AMT}uspark" \
-                --from $VERIFIER_A -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+                mastodon.example activitypub https://arbiter-bridge.example.com "${MIN_BOND_AMT}" \
+                --from $VERIFIER_A -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
             if submit_and_wait "$TX_RES" "register alice bridge"; then
                 ALICE_BRIDGE_OK=true
                 echo "  Alice registered as bridge operator"
@@ -1120,9 +1120,9 @@ if [ -n "$MISMATCH_CONTENT_ID" ]; then
                 --from $VERIFIER_A \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
-                --output json 2>&1)
+                --output json)
 
             if submit_and_wait "$TX_RES" "arbiter happy path"; then
                 echo "  Arbiter hash submitted successfully"
@@ -1155,7 +1155,7 @@ fi
 # ========================================================================
 echo ""
 echo "--- TEST 21: verifier-activity query (counters populated) ---"
-ACTIVITY_RAW=$($BINARY query federation verifier-activity $VERIFIER_A_ADDR --output json 2>&1)
+ACTIVITY_RAW=$($BINARY query federation verifier-activity $VERIFIER_A_ADDR --output json)
 ACT_ADDR=$(echo "$ACTIVITY_RAW" | jq -r '.activity.address // ""')
 ACT_TOTAL=$(echo "$ACTIVITY_RAW" | jq -r '.activity.total_verifications // "0"')
 echo "  activity.address:            $ACT_ADDR"
@@ -1189,7 +1189,7 @@ if [ -z "$UNKNOWN_ADDR" ] || [ "$UNKNOWN_ADDR" == "$VERIFIER_A_ADDR" ]; then
     UNKNOWN_ADDR=$($BINARY keys show operator3 -a --keyring-backend test 2>/dev/null)
 fi
 if [ -n "$UNKNOWN_ADDR" ]; then
-    ACTIVITY_RAW=$($BINARY query federation verifier-activity $UNKNOWN_ADDR --output json 2>&1)
+    ACTIVITY_RAW=$($BINARY query federation verifier-activity $UNKNOWN_ADDR --output json)
     ACT_TOTAL=$(echo "$ACTIVITY_RAW" | jq -r '.activity.total_verifications // "0"')
     # Zeroed record: total_verifications should be 0 or missing (jq default).
     if [ "$ACT_TOTAL" == "0" ] || [ "$ACT_TOTAL" == "null" ] || [ -z "$ACT_TOTAL" ]; then

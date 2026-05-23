@@ -78,7 +78,7 @@ TX_RES=$($BINARY tx rep create-interim \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -126,7 +126,7 @@ TX_RES=$($BINARY tx rep complete-interim \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -292,7 +292,7 @@ TX_RES=$($BINARY tx rep create-initiative \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -302,10 +302,10 @@ INITIATIVE_ID=$($BINARY query rep list-initiative --output json 2>&1 | jq -r '.i
 echo "   [ OK ] Initiative #$INITIATIVE_ID created"
 
 # Assign and submit work
-$BINARY tx rep assign-initiative $INITIATIVE_ID $ASSIGNEE_ADDR --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep assign-initiative $INITIATIVE_ID $ASSIGNEE_ADDR --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 6
 
-$BINARY tx rep submit-initiative-work $INITIATIVE_ID "https://github.com/test" "Test work" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep submit-initiative-work $INITIATIVE_ID "https://github.com/test" "Test work" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 6
 
 # Create challenge
@@ -319,7 +319,7 @@ TX_RES=$($BINARY tx rep create-challenge \
     --from challenger \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -338,7 +338,7 @@ $BINARY tx rep respond-to-challenge \
     --from assignee \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y > /dev/null 2>&1
 
 sleep 6
@@ -361,7 +361,7 @@ if [ -n "$ADJUDICATION_ID" ] && [ "$ADJUDICATION_ID" != "null" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

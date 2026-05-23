@@ -140,11 +140,11 @@ vote_and_execute() {
     local prop_id=$1
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 6
     $BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --gas 2000000 --fees 5000000uspark --output json > /dev/null 2>&1
+        --gas 2000000 --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 6
     local status=$($BINARY query commons get-proposal $prop_id --output json 2>/dev/null | jq -r '.proposal.status // empty')
     [ "$status" == "PROPOSAL_STATUS_EXECUTED" ]
@@ -273,7 +273,7 @@ update_operational_param() {
 
     local submit_res=$($BINARY tx commons submit-proposal "$proposal_file" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     local tx_hash=$(echo "$submit_res" | jq -r '.txhash')
     local prop_id=$(get_group_proposal_id "$tx_hash")
     if [ -z "$prop_id" ] || [ "$prop_id" == "null" ]; then
@@ -300,7 +300,7 @@ TX_RES=$($BINARY tx rep propose-project \
     "lifecycle-over-budget" "Over the budget cap" "infrastructure" \
     "Technical Council" "$OVER_BUDGET" "0" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark --gas 400000 -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
 
 if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
     RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
@@ -326,7 +326,7 @@ TX_RES=$($BINARY tx rep propose-project \
     "lifecycle-over-spark" "Over the SPARK cap" "infrastructure" \
     "Technical Council" "0" "$OVER_SPARK" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark --gas 400000 -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
 
 if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
     RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
@@ -354,7 +354,7 @@ TX_RES=$($BINARY tx rep propose-project \
     "lifecycle-at-cap" "Budget exactly at cap" "infrastructure" \
     "Technical Council" "$BUDGET_CAP" "0" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark --gas 400000 -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
 
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     echo "  Accepted at budget=$BUDGET_CAP (cap)"
@@ -386,7 +386,7 @@ else
         "lifecycle-ttl-target" "Will be expired by EndBlocker" "infrastructure" \
         "Technical Council" "100000000" "0" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --gas 400000 -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
     if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
         echo "  Failed to propose TTL target project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
         record_result "TEST 4: TTL expiry" "FAIL"

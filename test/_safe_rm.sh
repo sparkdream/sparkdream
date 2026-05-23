@@ -1,7 +1,7 @@
 # ============================================================================
 # Safe directory-tree removal helper (sourced by other test scripts).
 #
-# Per CLAUDE.md "Core Instructions": `rm -rf` is forbidden project-wide.
+# Per docs/development-conventions.md: `rm -rf` is forbidden project-wide.
 # An unguarded `rm -rf "$X"` with an empty or unexpected `$X` can escalate
 # from a no-op to wiping the user's home directory. We use `find -delete`
 # instead, with explicit guards on the path so a misconfigured variable

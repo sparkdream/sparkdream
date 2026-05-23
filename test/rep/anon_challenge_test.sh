@@ -173,7 +173,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000uspark \
+    --fees 500000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)

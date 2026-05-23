@@ -81,7 +81,7 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 
 	// Transfer SPARK from creator to module (escrow)
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-	escrowCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, amount))
+	escrowCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), amount))
 	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, escrowCoins); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to escrow bounty funds")
 	}

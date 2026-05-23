@@ -22,6 +22,20 @@ HERMES="${HERMES:-hermes}"
 # Resolve script-relative paths regardless of caller's cwd
 LIB_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Resolve BOND_DENOM from the template chain's genesis. init_chains.sh
+# creates the template via `ignite chain init` and writes the chain
+# identity into genesis.json; we read it once here so every multichain
+# script that sources this lib gets the same value. Falls back to the
+# canonical default if the template hasn't been initialized yet.
+if [ -z "${BOND_DENOM:-}" ]; then
+    BOND_DENOM=$(jq -r '.app_state.identity.identity.bond_denom // "uspark.sparkdream"' \
+        "$LIB_DIR/data/template/config/genesis.json" 2>/dev/null || echo "uspark.sparkdream")
+    if [ -z "$BOND_DENOM" ] || [ "$BOND_DENOM" = "null" ]; then
+        BOND_DENOM="uspark.sparkdream"
+    fi
+    export BOND_DENOM
+fi
+
 CHAIN_A_HOME="$LIB_DIR/data/chain-a"
 CHAIN_B_HOME="$LIB_DIR/data/chain-b"
 
@@ -135,7 +149,7 @@ submit_and_wait() {
         # in caller scripts, an unguarded `Q=$(... )` capture would abort the
         # script and hide the FAIL message below. `|| true` keeps us alive so
         # we can poll until the tx lands or the timeout fires.
-        Q=$($BINARY q tx "$TXHASH" --node "$NODE" --output json 2>&1) || true
+        Q=$($BINARY q tx "$TXHASH" --node "$NODE" --output json) || true
         if echo "$Q" | jq -e '.code' >/dev/null 2>&1; then
             local CODE
             CODE=$(echo "$Q" | jq -r '.code')
@@ -239,7 +253,7 @@ _submit_ops_proposal() {
     # Commons Council enforces a flat 5,000,000 uspark minimum proposal fee
     # (anti-spam). Use 6M to give some headroom over any future bumps.
     TX_RES=$($cli_x tx commons submit-proposal "$FILE" \
-        --from alice -y --fees 6000000uspark --gas 500000 --output json 2>&1) || true
+        --from alice -y --fees 6000000${BOND_DENOM} --gas 500000 --output json) || true
     if ! echo "$TX_RES" | jq -e '.txhash' >/dev/null 2>&1; then
         echo "  ERROR: $LABEL submit-proposal CLI failed (no txhash)" >&2
         echo "  --- raw output (first 800 chars) ---" >&2
@@ -298,7 +312,7 @@ _submit_ops_proposal() {
         fi
         local V_RES
         V_RES=$($cli_x tx commons vote-proposal "$PROPOSAL_ID" yes \
-            --from "$VOTER" -y --fees 5000uspark --output json 2>&1) || true
+            --from "$VOTER" -y --fees 5000${BOND_DENOM} --output json) || true
         $submit_x "$V_RES" "$VOTER vote on $PROPOSAL_ID" || true
         sleep 2
     done
@@ -306,7 +320,7 @@ _submit_ops_proposal() {
     # Execute
     local E_RES
     E_RES=$($cli_x tx commons execute-proposal "$PROPOSAL_ID" \
-        --from alice -y --fees 5000uspark --gas 2000000 --output json 2>&1) || true
+        --from alice -y --fees 5000${BOND_DENOM} --gas 2000000 --output json) || true
     $submit_x "$E_RES" "execute $PROPOSAL_ID" || true
     sleep 2
 }

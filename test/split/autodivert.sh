@@ -5,7 +5,7 @@ echo "--- TESTING SPLIT MODULE: COMMUNITY POOL SWEEP ---"
 # --- 0. SETUP & CONFIG ---
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
-DENOM="uspark"
+DENOM="$BOND_DENOM"
 TEST_AMOUNT="1000000000${DENOM}" # 1000 SPARK
 
 # Ensure jq is installed
@@ -51,7 +51,7 @@ echo "--- STEP 2: RECORDING INITIAL BALANCES ---"
 get_balance() {
     local addr=$1
     if [ "$addr" == "null" ] || [ -z "$addr" ]; then echo "0"; return; fi
-    local bal=$($BINARY query bank balances $addr --output json | jq -r --arg DENOM "uspark" '.balances[] | select(.denom==$DENOM) | .amount')
+    local bal=$($BINARY query bank balances $addr --output json | jq -r --arg DENOM "$BOND_DENOM" '.balances[] | select(.denom==$DENOM) | .amount')
     if [ -z "$bal" ]; then echo "0"; else echo "$bal"; fi
 }
 
@@ -93,8 +93,8 @@ echo "--- STEP 4: VERIFYING AUTOMATIC SWEEP ---"
 #
 # What we actually want to verify: out of the 1 000 000 000 uspark
 # (1000 SPARK) we just deposited, the bulk has been distributed.
-START_DISTR_AT_SWEEP="$TEST_AMOUNT"   # "1000000000uspark"
-START_DISTR_AMOUNT="${START_DISTR_AT_SWEEP%uspark}"
+START_DISTR_AT_SWEEP="$TEST_AMOUNT"   # "1000000000${BOND_DENOM}"
+START_DISTR_AMOUNT="${START_DISTR_AT_SWEEP%${BOND_DENOM}}"
 END_DISTR=$(get_balance $DISTR_ADDR)
 DRAIN_THRESHOLD=$((START_DISTR_AMOUNT * 5 / 100))   # accept up to 5% residual
 if [ "$END_DISTR" -gt "$DRAIN_THRESHOLD" ]; then

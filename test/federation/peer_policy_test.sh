@@ -41,7 +41,7 @@ wait_for_tx() {
     local MAX_ATTEMPTS=20
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
             echo "$RESULT"
             return 0
@@ -100,13 +100,13 @@ vote_and_execute_ops() {
         fi
         TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes \
             --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000000uspark --output json 2>&1)
+            --fees 5000000${BOND_DENOM} --output json)
         submit_and_wait "$TX_RES" "$VOTER vote" || echo "  Warning: $VOTER vote may have failed"
     done
 
     TX_RES=$($BINARY tx commons execute-proposal $PROP_ID \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --gas 2000000 --output json 2>&1)
+        --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
     submit_and_wait "$TX_RES" "proposal exec"
     local EXEC_RC=$?
     sleep 5
@@ -120,7 +120,7 @@ submit_ops_proposal() {
     echo "  Submitting $LABEL..."
     TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_FILE" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json 2>&1)
+        --fees 5000000${BOND_DENOM} --output json)
 
     if ! submit_and_wait "$TX_RES" "$LABEL submission"; then return 1; fi
 
@@ -150,7 +150,7 @@ echo ""
 # ========================================================================
 echo "--- TEST 1: Query default peer policy ---"
 
-POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json 2>&1)
+POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json)
 POLICY_PEER=$(echo "$POLICY_DATA" | jq -r '.policy.peer_id // empty')
 
 if [ "$POLICY_PEER" == "mastodon.example" ]; then
@@ -198,7 +198,7 @@ cat > "$PROPOSAL_DIR/update_policy_content.json" <<EOF
 EOF
 
 if submit_ops_proposal "$PROPOSAL_DIR/update_policy_content.json" "update policy"; then
-    POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json 2>&1)
+    POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json)
     INBOUND=$(echo "$POLICY_DATA" | jq -r '.policy.inbound_content_types // []')
     INBOUND_COUNT=$(echo "$INBOUND" | jq 'length')
 
@@ -247,7 +247,7 @@ cat > "$PROPOSAL_DIR/update_ibc_policy.json" <<EOF
 EOF
 
 if submit_ops_proposal "$PROPOSAL_DIR/update_ibc_policy.json" "update ibc policy"; then
-    POLICY_DATA=$($BINARY query federation get-peer-policy spark.testnet --output json 2>&1)
+    POLICY_DATA=$($BINARY query federation get-peer-policy spark.testnet --output json)
     ALLOW_REP=$(echo "$POLICY_DATA" | jq -r 'if .policy.allow_reputation_queries then "true" else "false" end')
     MIN_TRUST=$(echo "$POLICY_DATA" | jq -r '.policy.min_outbound_trust_level // "0"')
 
@@ -297,14 +297,14 @@ EOF
 
 TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_policy_rep_fail.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000000uspark --output json 2>&1)
+    --fees 5000000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "rep on activitypub proposal"; then
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -n "$PROP_ID" ]; then
         vote_and_execute_ops $PROP_ID
         # Verify policy was NOT updated with reputation
-        POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json 2>&1)
+        POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json)
         ALLOW_REP=$(echo "$POLICY_DATA" | jq -r 'if .policy.allow_reputation_queries then "true" else "false" end')
         if [ "$ALLOW_REP" == "false" ]; then
             echo "  Correctly rejected reputation on non-IBC peer"
@@ -355,14 +355,14 @@ EOF
 
 TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_policy_bad_type.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000000uspark --output json 2>&1)
+    --fees 5000000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "unknown type proposal"; then
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -n "$PROP_ID" ]; then
         vote_and_execute_ops $PROP_ID
         # Verify policy still has original inbound types (not overwritten)
-        POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json 2>&1)
+        POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json)
         HAS_BAD=$(echo "$POLICY_DATA" | jq '.policy.inbound_content_types // [] | map(select(. == "nonexistent_type")) | length')
         if [ "$HAS_BAD" -eq 0 ] 2>/dev/null; then
             echo "  Unknown content type correctly rejected"
@@ -411,7 +411,7 @@ cat > "$PROPOSAL_DIR/update_policy_blocked.json" <<EOF
 EOF
 
 if submit_ops_proposal "$PROPOSAL_DIR/update_policy_blocked.json" "update blocked identities"; then
-    POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json 2>&1)
+    POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json)
     BLOCKED_COUNT=$(echo "$POLICY_DATA" | jq '.policy.blocked_identities | length')
     REQUIRE_REVIEW=$(echo "$POLICY_DATA" | jq -r 'if .policy.require_review then "true" else "false" end')
 
@@ -436,9 +436,9 @@ TX_RES=$($BINARY tx federation update-peer-policy mastodon.example \
     --from operator1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "unauthorized policy update"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -489,14 +489,14 @@ EOF
 
 TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_policy_reveal.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000000uspark --output json 2>&1)
+    --fees 5000000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "reveal type proposal"; then
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -n "$PROP_ID" ]; then
         vote_and_execute_ops $PROP_ID
         # Verify reveal_proposal was NOT added to policy
-        POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json 2>&1)
+        POLICY_DATA=$($BINARY query federation get-peer-policy mastodon.example --output json)
         HAS_REVEAL=$(echo "$POLICY_DATA" | jq '[.policy.inbound_content_types[] | select(. == "reveal_proposal")] | length')
         if [ "$HAS_REVEAL" == "0" ] 2>/dev/null; then
             echo "  Reveal content type correctly rejected"
@@ -548,9 +548,9 @@ cat > "$PROPOSAL_DIR/update_policy_outbound.json" <<EOF
 EOF
 
 if submit_ops_proposal "$PROPOSAL_DIR/update_policy_outbound.json" "outbound types"; then
-    POLICY_DATA=$($BINARY query federation get-peer-policy spark.testnet --output json 2>&1)
+    POLICY_DATA=$($BINARY query federation get-peer-policy spark.testnet --output json)
     OUTBOUND_COUNT=$(echo "$POLICY_DATA" | jq '.policy.outbound_content_types | length' 2>/dev/null)
-    MIN_TRUST=$(echo "$POLICY_DATA" | jq -r '.policy.min_outbound_trust_level // 0')
+    MIN_TRUST=$(echo "$POLICY_DATA" | jq -r '.policy.min_outbound_trust_level // 0' 2>/dev/null)
 
     if [ "$OUTBOUND_COUNT" -eq 2 ] 2>/dev/null; then
         echo "  Outbound types: $OUTBOUND_COUNT, min_outbound_trust_level: $MIN_TRUST"
@@ -598,14 +598,14 @@ EOF
 
 TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_policy_reveal_outbound.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000000uspark --output json 2>&1)
+    --fees 5000000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "reveal outbound proposal"; then
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -n "$PROP_ID" ]; then
         vote_and_execute_ops $PROP_ID
         # Verify reveal_tranche was NOT added
-        POLICY_DATA=$($BINARY query federation get-peer-policy spark.testnet --output json 2>&1)
+        POLICY_DATA=$($BINARY query federation get-peer-policy spark.testnet --output json)
         HAS_REVEAL=$(echo "$POLICY_DATA" | jq '[.policy.outbound_content_types[] | select(. == "reveal_tranche")] | length')
         if [ "$HAS_REVEAL" == "0" ] 2>/dev/null; then
             echo "  Reveal tranche correctly rejected"

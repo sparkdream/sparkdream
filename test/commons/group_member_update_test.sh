@@ -9,7 +9,7 @@ mkdir -p "$PROPOSAL_DIR"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
-FEES="5000000uspark"
+FEES="5000000${BOND_DENOM}"
 
 # Keys
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -93,10 +93,10 @@ broadcast_and_wait() {
     return 1
 }
 
-broadcast_and_wait tx bank send alice "$PARENT_POLICY_ADDR" 50000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json > /dev/null
-broadcast_and_wait tx bank send alice "$CHILD_POLICY_ADDR" 50000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json > /dev/null
+broadcast_and_wait tx bank send alice "$PARENT_POLICY_ADDR" 50000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json > /dev/null
+broadcast_and_wait tx bank send alice "$CHILD_POLICY_ADDR" 50000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json > /dev/null
 
 # autocli: tx commons update-group-members [policy-address] [members-to-add]
 # [weights-to-add] [members-to-remove]. authority is taken from --from

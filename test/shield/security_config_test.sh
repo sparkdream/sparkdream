@@ -91,7 +91,7 @@ submit_and_pass_proposal() {
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --gas 500000 \
-        --fees 10000uspark \
+        --fees 10000${BOND_DENOM} \
         -y \
         --output json 2>/dev/null)
 
@@ -126,7 +126,7 @@ submit_and_pass_proposal() {
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>/dev/null)
 
@@ -219,10 +219,10 @@ if [ "$BALANCE_AMT" -eq 0 ] 2>/dev/null || [ "$BALANCE_AMT" == "0" ]; then
     if [ -n "$SHIELD_MODULE_ADDR" ] && [ "$SHIELD_MODULE_ADDR" != "null" ]; then
         FUND_RES=$($BINARY tx bank send \
             alice "$SHIELD_MODULE_ADDR" \
-            "${MIN_RESERVE}uspark" \
+            "${MIN_RESERVE}${BOND_DENOM}" \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>/dev/null)
         FUND_TXHASH=$(echo "$FUND_RES" | jq -r '.txhash // ""')
@@ -368,7 +368,7 @@ EMPTY_RES=$($BINARY tx shield shielded-exec \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -471,7 +471,7 @@ else
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Disable shield module for security config test",
   "summary": "Temporarily disable shield to verify ErrShieldDisabled"
@@ -527,7 +527,7 @@ EOF
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Re-enable shield module after security config test",
   "summary": "Re-enable shield after disable test"

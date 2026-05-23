@@ -13,20 +13,22 @@ import (
 var (
 	DefaultMaxSessionsPerGranter uint64 = 10
 	DefaultMaxMsgTypesPerSession uint64 = 20
-	DefaultMaxExpiration                = 7 * 24 * time.Hour                      // 7 days
-	DefaultMaxSpendLimit                = sdk.NewInt64Coin("uspark", 100_000_000) // 100 SPARK
-	DefaultMaxExecCount          uint64 = 10_000                                  // per-session execution ceiling
+	DefaultMaxExpiration                = 7 * 24 * time.Hour // 7 days
+	// DefaultMaxSpendLimitAmount is the default per-session fee budget in
+	// bond-denom micro-units (100 SPARK).
+	DefaultMaxSpendLimitAmount        = sdkmath.NewInt(100_000_000)
+	DefaultMaxExecCount        uint64 = 10_000 // per-session execution ceiling
 
 	// --- RecurringPull defaults (P3) ---
-	DefaultMinRecurringPeriodSeconds   int64  = 86_400      // 1 day
-	DefaultMaxRecurringDurationSeconds int64  = 31_536_000  // 1 year
+	DefaultMinRecurringPeriodSeconds   int64  = 86_400     // 1 day
+	DefaultMaxRecurringDurationSeconds int64  = 31_536_000 // 1 year
 	DefaultMaxRecurringPullsPerGranter uint32 = 50
 
 	// --- SpendingAllowance defaults (P4) ---
 	DefaultMinAllowancePeriodSeconds int64  = 3_600 // 1 hour
 	DefaultMaxAllowancesPerGranter   uint32 = 20
 	DefaultMaxAllowanceRecipientList uint32 = 50
-	DefaultMinPullAmount                    = "1000" // 1000 uspark / 0.001 SPARK
+	DefaultMinPullAmount                    = "1000" // 1000 bond-denom micro-units (0.001 SPARK)
 
 	// --- ScheduledOneshot defaults (P5) ---
 	DefaultMinScheduleDelaySeconds        int64  = 60
@@ -37,13 +39,16 @@ var (
 	DefaultPausedOneshotTtlSeconds        int64  = 604_800 // 7 days
 	DefaultMinOneshotExecGas              uint64 = 30_000
 	DefaultMaxOneshotExecGas              uint64 = 200_000
-	DefaultOneshotGasPriceUspark                 = "0.0025" // 100x typical min_gas_price
-	DefaultOneshotCreationFeeUspark       uint64 = 1_000
-	DefaultMinOneshotDepositUspark        uint64 = 1_000
+	DefaultOneshotGasPrice                       = "0.0025" // 100x typical min_gas_price
+	DefaultOneshotCreationFee             uint64 = 1_000
+	DefaultMinOneshotDeposit              uint64 = 1_000
 	DefaultMaxEndblockerDispatchesPerPass uint32 = 100
 
 	// --- Cross-type defaults (P3) ---
-	DefaultAllowedDenoms            = []string{"uspark"}
+	// DefaultAllowedDenoms is empty: the chain's bond denom is always
+	// implicitly allowed; this list adds further permitted denoms (e.g.
+	// IBC vouchers) via gov / ops update.
+	DefaultAllowedDenoms                 = []string{}
 	DefaultMaxGrantLifetimeSeconds int64 = 31_536_000 // 1 year
 
 	// DefaultAuthorizedGrantCreators is the genesis-default allowlist
@@ -152,24 +157,24 @@ func NewParams(
 	maxSessionsPerGranter uint64,
 	maxMsgTypesPerSession uint64,
 	maxExpiration time.Duration,
-	maxSpendLimit sdk.Coin,
+	maxSpendLimitAmount sdkmath.Int,
 	maxExecCount uint64,
 ) Params {
 	return Params{
-		MaxAllowedMsgTypes:    maxAllowedMsgTypes,
-		AllowedMsgTypes:       allowedMsgTypes,
-		MaxSessionsPerGranter: maxSessionsPerGranter,
-		MaxMsgTypesPerSession: maxMsgTypesPerSession,
-		MaxExpiration:         maxExpiration,
-		MaxSpendLimit:         maxSpendLimit,
-		MaxExecCount:          maxExecCount,
-		MinRecurringPeriodSeconds:   DefaultMinRecurringPeriodSeconds,
-		MaxRecurringDurationSeconds: DefaultMaxRecurringDurationSeconds,
-		MaxRecurringPullsPerGranter: DefaultMaxRecurringPullsPerGranter,
-		MinAllowancePeriodSeconds:   DefaultMinAllowancePeriodSeconds,
-		MaxAllowancesPerGranter:     DefaultMaxAllowancesPerGranter,
-		MaxAllowanceRecipientList:   DefaultMaxAllowanceRecipientList,
-		MinPullAmount:               DefaultMinPullAmount,
+		MaxAllowedMsgTypes:             maxAllowedMsgTypes,
+		AllowedMsgTypes:                allowedMsgTypes,
+		MaxSessionsPerGranter:          maxSessionsPerGranter,
+		MaxMsgTypesPerSession:          maxMsgTypesPerSession,
+		MaxExpiration:                  maxExpiration,
+		MaxSpendLimitAmount:            maxSpendLimitAmount,
+		MaxExecCount:                   maxExecCount,
+		MinRecurringPeriodSeconds:      DefaultMinRecurringPeriodSeconds,
+		MaxRecurringDurationSeconds:    DefaultMaxRecurringDurationSeconds,
+		MaxRecurringPullsPerGranter:    DefaultMaxRecurringPullsPerGranter,
+		MinAllowancePeriodSeconds:      DefaultMinAllowancePeriodSeconds,
+		MaxAllowancesPerGranter:        DefaultMaxAllowancesPerGranter,
+		MaxAllowanceRecipientList:      DefaultMaxAllowanceRecipientList,
+		MinPullAmount:                  DefaultMinPullAmount,
 		MinScheduleDelaySeconds:        DefaultMinScheduleDelaySeconds,
 		MaxScheduleHorizonSeconds:      DefaultMaxScheduleHorizonSeconds,
 		FireToExpiryBufferSeconds:      DefaultFireToExpiryBufferSeconds,
@@ -178,9 +183,9 @@ func NewParams(
 		PausedOneshotTtlSeconds:        DefaultPausedOneshotTtlSeconds,
 		MinOneshotExecGas:              DefaultMinOneshotExecGas,
 		MaxOneshotExecGas:              DefaultMaxOneshotExecGas,
-		OneshotGasPriceUspark:          DefaultOneshotGasPriceUspark,
-		OneshotCreationFeeUspark:       DefaultOneshotCreationFeeUspark,
-		MinOneshotDepositUspark:        DefaultMinOneshotDepositUspark,
+		OneshotGasPrice:                DefaultOneshotGasPrice,
+		OneshotCreationFee:             DefaultOneshotCreationFee,
+		MinOneshotDeposit:              DefaultMinOneshotDeposit,
 		MaxEndblockerDispatchesPerPass: DefaultMaxEndblockerDispatchesPerPass,
 		AllowedDenoms:                  append([]string(nil), DefaultAllowedDenoms...),
 		MaxGrantLifetimeSeconds:        DefaultMaxGrantLifetimeSeconds,
@@ -201,7 +206,7 @@ func DefaultParams() Params {
 		DefaultMaxSessionsPerGranter,
 		DefaultMaxMsgTypesPerSession,
 		DefaultMaxExpiration,
-		DefaultMaxSpendLimit,
+		DefaultMaxSpendLimitAmount,
 		DefaultMaxExecCount,
 	)
 	// Seed the bypass allowlist with the commons module address so the
@@ -223,8 +228,8 @@ func (p Params) Validate() error {
 	if p.MaxExpiration <= 0 {
 		return fmt.Errorf("max_expiration must be > 0")
 	}
-	if !p.MaxSpendLimit.IsValid() || p.MaxSpendLimit.IsZero() {
-		return fmt.Errorf("max_spend_limit must be a valid positive coin")
+	if p.MaxSpendLimitAmount.IsNil() || !p.MaxSpendLimitAmount.IsPositive() {
+		return fmt.Errorf("max_spend_limit_amount must be positive, got %s", p.MaxSpendLimitAmount)
 	}
 	if p.MaxExecCount == 0 {
 		return fmt.Errorf("max_exec_count must be > 0")
@@ -296,15 +301,15 @@ func (p Params) Validate() error {
 		return fmt.Errorf("max_oneshot_exec_gas (%d) must be >= min_oneshot_exec_gas (%d)",
 			p.MaxOneshotExecGas, p.MinOneshotExecGas)
 	}
-	if p.OneshotGasPriceUspark == "" {
-		return fmt.Errorf("oneshot_gas_price_uspark must be set")
+	if p.OneshotGasPrice == "" {
+		return fmt.Errorf("oneshot_gas_price must be set")
 	}
-	if dec, err := sdkmath.LegacyNewDecFromStr(p.OneshotGasPriceUspark); err != nil || dec.IsNegative() {
-		return fmt.Errorf("oneshot_gas_price_uspark must parse as a non-negative sdk.Dec: %q", p.OneshotGasPriceUspark)
+	if dec, err := sdkmath.LegacyNewDecFromStr(p.OneshotGasPrice); err != nil || dec.IsNegative() {
+		return fmt.Errorf("oneshot_gas_price must parse as a non-negative sdk.Dec: %q", p.OneshotGasPrice)
 	}
-	if p.MinOneshotDepositUspark < p.OneshotCreationFeeUspark {
-		return fmt.Errorf("min_oneshot_deposit_uspark (%d) must be >= oneshot_creation_fee_uspark (%d)",
-			p.MinOneshotDepositUspark, p.OneshotCreationFeeUspark)
+	if p.MinOneshotDeposit < p.OneshotCreationFee {
+		return fmt.Errorf("min_oneshot_deposit (%d) must be >= oneshot_creation_fee (%d)",
+			p.MinOneshotDeposit, p.OneshotCreationFee)
 	}
 	if p.MaxEndblockerDispatchesPerPass == 0 {
 		return fmt.Errorf("max_endblocker_dispatches_per_pass must be > 0")
@@ -332,16 +337,15 @@ func (p Params) Validate() error {
 		return fmt.Errorf("max_grant_lifetime_seconds (%d) must be >= max_recurring_duration_seconds (%d)",
 			p.MaxGrantLifetimeSeconds, p.MaxRecurringDurationSeconds)
 	}
-	if len(p.AllowedDenoms) == 0 {
-		return fmt.Errorf("allowed_denoms must not be empty")
-	}
+	// allowed_denoms is the "additional permitted denoms" list — the chain's
+	// bond denom is implicitly allowed regardless. Empty (the default) means
+	// only the bond denom is allowed. The forbidden-DREAM check moves to
+	// per-grant validation in the keeper, where the chain's dream denom is
+	// resolved at runtime via x/identity.
 	seenDenom := make(map[string]bool, len(p.AllowedDenoms))
 	for _, d := range p.AllowedDenoms {
 		if err := sdk.ValidateDenom(d); err != nil {
 			return fmt.Errorf("allowed_denoms contains invalid denom %q: %w", d, err)
-		}
-		if d == "dream" {
-			return fmt.Errorf("allowed_denoms must not include 'dream' (forbidden for grant payloads)")
 		}
 		if seenDenom[d] {
 			return fmt.Errorf("duplicate denom in allowed_denoms: %s", d)
@@ -401,19 +405,19 @@ func DefaultSessionOperationalParams() SessionOperationalParams {
 	copy(active, DefaultAllowedMsgTypes)
 
 	return SessionOperationalParams{
-		AllowedMsgTypes:             active,
-		MaxSessionsPerGranter:       DefaultMaxSessionsPerGranter,
-		MaxMsgTypesPerSession:       DefaultMaxMsgTypesPerSession,
-		MaxExpiration:               DefaultMaxExpiration,
-		MaxSpendLimit:               DefaultMaxSpendLimit,
-		MaxExecCount:                DefaultMaxExecCount,
-		MinRecurringPeriodSeconds:   DefaultMinRecurringPeriodSeconds,
-		MaxRecurringDurationSeconds: DefaultMaxRecurringDurationSeconds,
-		MaxRecurringPullsPerGranter: DefaultMaxRecurringPullsPerGranter,
-		MinAllowancePeriodSeconds:   DefaultMinAllowancePeriodSeconds,
-		MaxAllowancesPerGranter:     DefaultMaxAllowancesPerGranter,
-		MaxAllowanceRecipientList:   DefaultMaxAllowanceRecipientList,
-		MinPullAmount:               DefaultMinPullAmount,
+		AllowedMsgTypes:                active,
+		MaxSessionsPerGranter:          DefaultMaxSessionsPerGranter,
+		MaxMsgTypesPerSession:          DefaultMaxMsgTypesPerSession,
+		MaxExpiration:                  DefaultMaxExpiration,
+		MaxSpendLimitAmount:            DefaultMaxSpendLimitAmount,
+		MaxExecCount:                   DefaultMaxExecCount,
+		MinRecurringPeriodSeconds:      DefaultMinRecurringPeriodSeconds,
+		MaxRecurringDurationSeconds:    DefaultMaxRecurringDurationSeconds,
+		MaxRecurringPullsPerGranter:    DefaultMaxRecurringPullsPerGranter,
+		MinAllowancePeriodSeconds:      DefaultMinAllowancePeriodSeconds,
+		MaxAllowancesPerGranter:        DefaultMaxAllowancesPerGranter,
+		MaxAllowanceRecipientList:      DefaultMaxAllowanceRecipientList,
+		MinPullAmount:                  DefaultMinPullAmount,
 		MinScheduleDelaySeconds:        DefaultMinScheduleDelaySeconds,
 		MaxScheduleHorizonSeconds:      DefaultMaxScheduleHorizonSeconds,
 		FireToExpiryBufferSeconds:      DefaultFireToExpiryBufferSeconds,
@@ -422,9 +426,9 @@ func DefaultSessionOperationalParams() SessionOperationalParams {
 		PausedOneshotTtlSeconds:        DefaultPausedOneshotTtlSeconds,
 		MinOneshotExecGas:              DefaultMinOneshotExecGas,
 		MaxOneshotExecGas:              DefaultMaxOneshotExecGas,
-		OneshotGasPriceUspark:          DefaultOneshotGasPriceUspark,
-		OneshotCreationFeeUspark:       DefaultOneshotCreationFeeUspark,
-		MinOneshotDepositUspark:        DefaultMinOneshotDepositUspark,
+		OneshotGasPrice:                DefaultOneshotGasPrice,
+		OneshotCreationFee:             DefaultOneshotCreationFee,
+		MinOneshotDeposit:              DefaultMinOneshotDeposit,
 		MaxEndblockerDispatchesPerPass: DefaultMaxEndblockerDispatchesPerPass,
 		AllowedDenoms:                  append([]string(nil), DefaultAllowedDenoms...),
 		MaxGrantLifetimeSeconds:        DefaultMaxGrantLifetimeSeconds,
@@ -438,7 +442,7 @@ func (p Params) ApplyOperationalParams(op SessionOperationalParams) Params {
 	p.MaxSessionsPerGranter = op.MaxSessionsPerGranter
 	p.MaxMsgTypesPerSession = op.MaxMsgTypesPerSession
 	p.MaxExpiration = op.MaxExpiration
-	p.MaxSpendLimit = op.MaxSpendLimit
+	p.MaxSpendLimitAmount = op.MaxSpendLimitAmount
 	p.MaxExecCount = op.MaxExecCount
 	p.MinRecurringPeriodSeconds = op.MinRecurringPeriodSeconds
 	p.MaxRecurringDurationSeconds = op.MaxRecurringDurationSeconds
@@ -455,9 +459,9 @@ func (p Params) ApplyOperationalParams(op SessionOperationalParams) Params {
 	p.PausedOneshotTtlSeconds = op.PausedOneshotTtlSeconds
 	p.MinOneshotExecGas = op.MinOneshotExecGas
 	p.MaxOneshotExecGas = op.MaxOneshotExecGas
-	p.OneshotGasPriceUspark = op.OneshotGasPriceUspark
-	p.OneshotCreationFeeUspark = op.OneshotCreationFeeUspark
-	p.MinOneshotDepositUspark = op.MinOneshotDepositUspark
+	p.OneshotGasPrice = op.OneshotGasPrice
+	p.OneshotCreationFee = op.OneshotCreationFee
+	p.MinOneshotDeposit = op.MinOneshotDeposit
 	p.MaxEndblockerDispatchesPerPass = op.MaxEndblockerDispatchesPerPass
 	p.AllowedDenoms = op.AllowedDenoms
 	p.MaxGrantLifetimeSeconds = op.MaxGrantLifetimeSeconds
@@ -467,19 +471,19 @@ func (p Params) ApplyOperationalParams(op SessionOperationalParams) Params {
 // ExtractOperationalParams extracts the operational params subset from full params.
 func (p Params) ExtractOperationalParams() SessionOperationalParams {
 	return SessionOperationalParams{
-		AllowedMsgTypes:             p.AllowedMsgTypes,
-		MaxSessionsPerGranter:       p.MaxSessionsPerGranter,
-		MaxMsgTypesPerSession:       p.MaxMsgTypesPerSession,
-		MaxExpiration:               p.MaxExpiration,
-		MaxSpendLimit:               p.MaxSpendLimit,
-		MaxExecCount:                p.MaxExecCount,
-		MinRecurringPeriodSeconds:   p.MinRecurringPeriodSeconds,
-		MaxRecurringDurationSeconds: p.MaxRecurringDurationSeconds,
-		MaxRecurringPullsPerGranter: p.MaxRecurringPullsPerGranter,
-		MinAllowancePeriodSeconds:   p.MinAllowancePeriodSeconds,
-		MaxAllowancesPerGranter:     p.MaxAllowancesPerGranter,
-		MaxAllowanceRecipientList:   p.MaxAllowanceRecipientList,
-		MinPullAmount:               p.MinPullAmount,
+		AllowedMsgTypes:                p.AllowedMsgTypes,
+		MaxSessionsPerGranter:          p.MaxSessionsPerGranter,
+		MaxMsgTypesPerSession:          p.MaxMsgTypesPerSession,
+		MaxExpiration:                  p.MaxExpiration,
+		MaxSpendLimitAmount:            p.MaxSpendLimitAmount,
+		MaxExecCount:                   p.MaxExecCount,
+		MinRecurringPeriodSeconds:      p.MinRecurringPeriodSeconds,
+		MaxRecurringDurationSeconds:    p.MaxRecurringDurationSeconds,
+		MaxRecurringPullsPerGranter:    p.MaxRecurringPullsPerGranter,
+		MinAllowancePeriodSeconds:      p.MinAllowancePeriodSeconds,
+		MaxAllowancesPerGranter:        p.MaxAllowancesPerGranter,
+		MaxAllowanceRecipientList:      p.MaxAllowanceRecipientList,
+		MinPullAmount:                  p.MinPullAmount,
 		MinScheduleDelaySeconds:        p.MinScheduleDelaySeconds,
 		MaxScheduleHorizonSeconds:      p.MaxScheduleHorizonSeconds,
 		FireToExpiryBufferSeconds:      p.FireToExpiryBufferSeconds,
@@ -488,9 +492,9 @@ func (p Params) ExtractOperationalParams() SessionOperationalParams {
 		PausedOneshotTtlSeconds:        p.PausedOneshotTtlSeconds,
 		MinOneshotExecGas:              p.MinOneshotExecGas,
 		MaxOneshotExecGas:              p.MaxOneshotExecGas,
-		OneshotGasPriceUspark:          p.OneshotGasPriceUspark,
-		OneshotCreationFeeUspark:       p.OneshotCreationFeeUspark,
-		MinOneshotDepositUspark:        p.MinOneshotDepositUspark,
+		OneshotGasPrice:                p.OneshotGasPrice,
+		OneshotCreationFee:             p.OneshotCreationFee,
+		MinOneshotDeposit:              p.MinOneshotDeposit,
 		MaxEndblockerDispatchesPerPass: p.MaxEndblockerDispatchesPerPass,
 		AllowedDenoms:                  p.AllowedDenoms,
 		MaxGrantLifetimeSeconds:        p.MaxGrantLifetimeSeconds,

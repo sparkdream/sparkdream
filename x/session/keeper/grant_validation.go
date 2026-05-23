@@ -63,13 +63,13 @@ func (k Keeper) validateRecurringPullPayload(
 		return nil, types.ErrAmountNotPositive
 	}
 
-	// Denom in allow-list. DREAM is permanently rejected at the handler
-	// level regardless of params contents (defense-in-depth against a gov
-	// misconfiguration that adds DREAM to the allowed list).
-	if p.AmountPerPeriod.Denom == "dream" {
+	// Denom must be the chain's bond denom or in the additional
+	// allowed_denoms list. DREAM is permanently rejected regardless of
+	// params contents (defense-in-depth at the handler level).
+	if p.AmountPerPeriod.Denom == k.DreamDenom(ctx) {
 		return nil, types.ErrDreamDenomForbidden
 	}
-	if !denomAllowed(params.AllowedDenoms, p.AmountPerPeriod.Denom) {
+	if !k.denomAllowed(ctx, params.AllowedDenoms, p.AmountPerPeriod.Denom) {
 		return nil, types.ErrDenomNotAllowed.Wrapf("denom: %s", p.AmountPerPeriod.Denom)
 	}
 
@@ -98,15 +98,15 @@ func (k Keeper) validateRecurringPullPayload(
 		return nil, types.ErrDurationTooLong
 	}
 
-	// max_per_epoch_uspark parses as a non-negative sdk.Int.
-	if p.MaxPerEpochUspark == "" {
+	// max_per_epoch parses as a non-negative sdk.Int.
+	if p.MaxPerEpoch == "" {
 		// Default: 10x amount_per_period if grantor didn't specify — a sane
 		// daily ceiling that allows catch-up on missed claims but bounds
 		// abuse.
 		def := p.AmountPerPeriod.Amount.MulRaw(10)
-		p.MaxPerEpochUspark = def.String()
+		p.MaxPerEpoch = def.String()
 	}
-	maxPerEpoch, ok := sdkmath.NewIntFromString(p.MaxPerEpochUspark)
+	maxPerEpoch, ok := sdkmath.NewIntFromString(p.MaxPerEpoch)
 	if !ok || maxPerEpoch.IsNegative() {
 		return nil, types.ErrInvalidMaxPerEpoch
 	}
@@ -152,11 +152,12 @@ func (k Keeper) validateSpendingAllowancePayload(
 	}
 
 	// Denom: hard reject DREAM regardless of params; otherwise must be
-	// in allowed_denoms; and must match grant.denom field.
-	if p.MaxPerPeriod.Denom == "dream" {
+	// the chain's bond denom or in allowed_denoms; and must match
+	// grant.denom field.
+	if p.MaxPerPeriod.Denom == k.DreamDenom(ctx) {
 		return nil, types.ErrDreamDenomForbidden
 	}
-	if !denomAllowed(params.AllowedDenoms, p.MaxPerPeriod.Denom) {
+	if !k.denomAllowed(ctx, params.AllowedDenoms, p.MaxPerPeriod.Denom) {
 		return nil, types.ErrDenomNotAllowed.Wrapf("denom: %s", p.MaxPerPeriod.Denom)
 	}
 	if p.Denom == "" {
@@ -196,8 +197,13 @@ func (k Keeper) validateSpendingAllowancePayload(
 	return &out, nil
 }
 
-// denomAllowed reports whether denom is in the allow-list.
-func denomAllowed(allowed []string, denom string) bool {
+// denomAllowed reports whether denom is permitted for grant payloads:
+// the chain's bond denom is always allowed; additional denoms (e.g. IBC
+// vouchers) are sourced from params.allowed_denoms.
+func (k Keeper) denomAllowed(ctx context.Context, allowed []string, denom string) bool {
+	if denom == k.BondDenom(ctx) {
+		return true
+	}
 	for _, d := range allowed {
 		if d == denom {
 			return true
@@ -207,7 +213,7 @@ func denomAllowed(allowed []string, denom string) bool {
 }
 
 // utcDayIndex returns the UTC-day bucket for a block time, used by the
-// per-grant max_per_epoch_uspark self-throttle. floor(block_time / 86400)
+// per-grant max_per_epoch self-throttle. floor(block_time / 86400)
 // is independent of any other module's epoch concept.
 func utcDayIndex(t time.Time) int64 {
 	return t.Unix() / 86_400
@@ -270,10 +276,10 @@ func (k Keeper) validateScheduledOneshotPayload(
 		if !a.Transfer.Amount.IsValid() || !a.Transfer.Amount.IsPositive() {
 			return nil, types.ErrAmountNotPositive.Wrap("transfer.amount must be positive")
 		}
-		if a.Transfer.Amount.Denom == "dream" {
+		if a.Transfer.Amount.Denom == k.DreamDenom(ctx) {
 			return nil, types.ErrDreamDenomForbidden
 		}
-		if !denomAllowed(params.AllowedDenoms, a.Transfer.Amount.Denom) {
+		if !k.denomAllowed(ctx, params.AllowedDenoms, a.Transfer.Amount.Denom) {
 			return nil, types.ErrDenomNotAllowed.Wrapf("denom: %s", a.Transfer.Amount.Denom)
 		}
 
@@ -332,8 +338,8 @@ func (k Keeper) validateScheduledOneshotPayload(
 // Always rounded up at each layer; flooring would create a sub-uspark
 // slot exploitable at gas_limit=1.
 func computeOneshotDeposit(p types.Params, action interface{}) (sdkmath.Int, error) {
-	creationFee := sdkmath.NewIntFromUint64(p.OneshotCreationFeeUspark)
-	minDeposit := sdkmath.NewIntFromUint64(p.MinOneshotDepositUspark)
+	creationFee := sdkmath.NewIntFromUint64(p.OneshotCreationFee)
+	minDeposit := sdkmath.NewIntFromUint64(p.MinOneshotDeposit)
 
 	switch a := action.(type) {
 	case *types.ScheduledOneshotPayload_Transfer:
@@ -347,7 +353,7 @@ func computeOneshotDeposit(p types.Params, action interface{}) (sdkmath.Int, err
 
 	case *types.ScheduledOneshotPayload_Exec:
 		// Exec variant: gas portion (ceiling-rounded) + creation fee, floor at min_deposit.
-		gasPrice, err := sdkmath.LegacyNewDecFromStr(p.OneshotGasPriceUspark)
+		gasPrice, err := sdkmath.LegacyNewDecFromStr(p.OneshotGasPrice)
 		if err != nil {
 			return sdkmath.ZeroInt(), types.ErrInvalidOneshotGasPrice
 		}
@@ -366,7 +372,7 @@ func computeOneshotDeposit(p types.Params, action interface{}) (sdkmath.Int, err
 
 // addEpochSpend records a successful claim against the current UTC-day
 // bucket. Returns the new bucket total, or an error if the result would
-// breach max_per_epoch_uspark.
+// breach max_per_epoch.
 func (k Keeper) addEpochSpend(
 	ctx context.Context,
 	grantID uint64,

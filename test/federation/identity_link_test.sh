@@ -29,7 +29,7 @@ record_result() {
 wait_for_tx() {
     local TXHASH=$1; local MAX=20; local A=0
     while [ $A -lt $MAX ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
         A=$((A + 1)); sleep 1
     done
@@ -64,13 +64,13 @@ TX_RES=$($BINARY tx federation link-identity \
     --from linker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "link identity"; then
     # Query the link
-    LINK_DATA=$($BINARY query federation get-identity-link $LINKER1_ADDR mastodon.example --output json 2>&1)
+    LINK_DATA=$($BINARY query federation get-identity-link $LINKER1_ADDR mastodon.example --output json)
     LINK_STATUS=$(echo "$LINK_DATA" | jq -r '.link.status // "IDENTITY_LINK_STATUS_UNVERIFIED"')
     REMOTE_ID=$(echo "$LINK_DATA" | jq -r '.link.remote_identity // empty')
 
@@ -105,12 +105,12 @@ TX_RES=$($BINARY tx federation link-identity \
     --from linker2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "link identity 2"; then
-    LINK_DATA=$($BINARY query federation get-identity-link $LINKER2_ADDR mastodon.example --output json 2>&1)
+    LINK_DATA=$($BINARY query federation get-identity-link $LINKER2_ADDR mastodon.example --output json)
     LINK_STATUS=$(echo "$LINK_DATA" | jq -r '.link.status // "IDENTITY_LINK_STATUS_UNVERIFIED"')
 
     if [ "$LINK_STATUS" == "IDENTITY_LINK_STATUS_UNVERIFIED" ]; then
@@ -139,9 +139,9 @@ TX_RES=$($BINARY tx federation link-identity \
     --from linker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "dup link"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -169,9 +169,9 @@ TX_RES=$($BINARY tx federation link-identity \
     --from linker2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "claimed identity"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -193,7 +193,7 @@ fi
 echo ""
 echo "--- TEST 5: Resolve remote identity ---"
 
-RESOLVE_DATA=$($BINARY query federation resolve-remote-identity mastodon.example "@alice@mastodon.example" --output json 2>&1)
+RESOLVE_DATA=$($BINARY query federation resolve-remote-identity mastodon.example "@alice@mastodon.example" --output json)
 RESOLVED_ADDR=$(echo "$RESOLVE_DATA" | jq -r '.local_address // empty')
 
 if [ "$RESOLVED_ADDR" == "$LINKER1_ADDR" ]; then
@@ -229,12 +229,12 @@ else
         --from linker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     if submit_and_wait "$TX_RES" "link to ibc peer"; then
-        LINK_DATA=$($BINARY query federation get-identity-link $LINKER1_ADDR spark.testnet --output json 2>&1)
+        LINK_DATA=$($BINARY query federation get-identity-link $LINKER1_ADDR spark.testnet --output json)
         LINK_STATUS=$(echo "$LINK_DATA" | jq -r '.link.status // "IDENTITY_LINK_STATUS_UNVERIFIED"')
 
         if [ "$LINK_STATUS" == "IDENTITY_LINK_STATUS_UNVERIFIED" ]; then
@@ -261,7 +261,7 @@ fi
 echo ""
 echo "--- TEST 7: List identity links ---"
 
-LINKS_DATA=$($BINARY query federation list-identity-links --output json 2>&1)
+LINKS_DATA=$($BINARY query federation list-identity-links --output json)
 LINK_COUNT=$(echo "$LINKS_DATA" | jq '.links | length' 2>/dev/null)
 
 echo "  Identity link count: $LINK_COUNT"
@@ -285,9 +285,9 @@ TX_RES=$($BINARY tx federation unlink-identity \
     --from linker2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "unlink identity"; then
     # Verify link is gone
@@ -320,9 +320,9 @@ TX_RES=$($BINARY tx federation unlink-identity \
     --from linker2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "unlink nonexistent"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -349,9 +349,9 @@ TX_RES=$($BINARY tx federation confirm-identity-link \
     --from linker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "confirm without challenge"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -379,9 +379,9 @@ TX_RES=$($BINARY tx federation link-identity \
     --from linker1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "link to missing peer"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -410,12 +410,12 @@ TX_RES=$($BINARY tx federation link-identity \
     --from linker2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "re-link identity"; then
-    LINK_DATA=$($BINARY query federation get-identity-link $LINKER2_ADDR mastodon.example --output json 2>&1)
+    LINK_DATA=$($BINARY query federation get-identity-link $LINKER2_ADDR mastodon.example --output json)
     LINK_STATUS=$(echo "$LINK_DATA" | jq -r '.link.status // "IDENTITY_LINK_STATUS_UNVERIFIED"')
     REMOTE_ID=$(echo "$LINK_DATA" | jq -r '.link.remote_identity // empty')
 
@@ -446,12 +446,12 @@ TX_RES=$($BINARY tx federation link-identity \
     --from challenger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "reclaim freed identity"; then
-    LINK_DATA=$($BINARY query federation get-identity-link $CHALLENGER1_ADDR mastodon.example --output json 2>&1)
+    LINK_DATA=$($BINARY query federation get-identity-link $CHALLENGER1_ADDR mastodon.example --output json)
     if echo "$LINK_DATA" | jq -e '.link' > /dev/null 2>&1; then
         REMOTE_ID=$(echo "$LINK_DATA" | jq -r '.link.remote_identity // empty')
         echo "  Reclaimed: remote=$REMOTE_ID by challenger1"
@@ -476,7 +476,7 @@ fi
 echo ""
 echo "--- TEST 14: Resolve reclaimed identity returns new owner ---"
 
-RESOLVE=$($BINARY query federation resolve-remote-identity mastodon.example "@bob@mastodon.example" --output json 2>&1)
+RESOLVE=$($BINARY query federation resolve-remote-identity mastodon.example "@bob@mastodon.example" --output json)
 RESOLVED_ADDR=$(echo "$RESOLVE" | jq -r '.local_address // empty')
 
 if [ "$RESOLVED_ADDR" == "$CHALLENGER1_ADDR" ]; then

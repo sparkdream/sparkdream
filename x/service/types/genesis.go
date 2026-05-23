@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // DefaultGenesis returns the default genesis state.
@@ -43,7 +42,7 @@ func defaultFederationBridgeServiceTypes(params Params) []ServiceTypeConfig {
 		return ServiceTypeConfig{
 			ServiceType:              serviceType,
 			Description:              description,
-			MinBond:                  sdk.NewCoin("uspark", math.NewInt(defaultMinBondUspark)),
+			MinBondAmount:            math.NewInt(defaultMinBondUspark),
 			UnbondingPeriodBlocks:    params.DefaultUnbondingPeriodBlocks,
 			UnilateralSlashCapBps:    params.DefaultUnilateralSlashCapBps,
 			Tier1WindowBlocks:        params.DefaultTier1WindowBlocks,
@@ -107,11 +106,7 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("genesis: live operator %s has invalid status %s",
 				op.Address, op.Status)
 		}
-		if op.Bond.Denom != "uspark" {
-			return fmt.Errorf("genesis: live operator %s bond denom must be uspark, got %s",
-				op.Address, op.Bond.Denom)
-		}
-		if op.Bond.Amount.IsNil() || !op.Bond.Amount.IsPositive() {
+		if op.BondAmount.IsNil() || !op.BondAmount.IsPositive() {
 			return fmt.Errorf("genesis: live operator %s bond must be positive", op.Address)
 		}
 	}
@@ -139,7 +134,7 @@ func (gs GenesisState) Validate() error {
 		if op.RetiredAt <= 0 {
 			return fmt.Errorf("genesis: archived operator %s retired_at must be > 0", op.Address)
 		}
-		if !op.Bond.Amount.IsNil() && !op.Bond.Amount.IsZero() {
+		if !op.BondAmount.IsNil() && !op.BondAmount.IsZero() {
 			return fmt.Errorf("genesis: archived operator %s bond must be zero", op.Address)
 		}
 	}

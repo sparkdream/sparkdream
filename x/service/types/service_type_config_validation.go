@@ -18,12 +18,10 @@ func (c ServiceTypeConfig) Validate() error {
 		return ErrInvalidServiceTypeConfig.Wrapf("description length %d > 512", len(c.Description))
 	}
 
-	// min_bond must be a positive uspark amount.
-	if c.MinBond.Denom != BondDenom {
-		return ErrInvalidServiceTypeConfig.Wrapf("min_bond.denom must be %s, got %s", BondDenom, c.MinBond.Denom)
-	}
-	if c.MinBond.Amount.IsNil() || !c.MinBond.Amount.IsPositive() {
-		return ErrInvalidServiceTypeConfig.Wrap("min_bond.amount must be > 0")
+	// min_bond_amount must be a positive bond-denom amount. The denom is
+	// stamped at the point of use by the keeper from x/identity.
+	if c.MinBondAmount.IsNil() || !c.MinBondAmount.IsPositive() {
+		return ErrInvalidServiceTypeConfig.Wrap("min_bond_amount must be > 0")
 	}
 
 	// Bps in (0, 10000].

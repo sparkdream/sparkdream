@@ -2,7 +2,6 @@ package types
 
 import (
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // Default param values. See docs/x-service-spec.md §4.2 for the full table
@@ -32,20 +31,20 @@ const (
 	// which OpenSystemReport's per-caller cap accumulates.
 	DefaultRateLimitWindowBlocks int64 = 17_280
 
-	DefaultUnilateralSlashCapBps                 uint32 = 500  // 5%
-	DefaultTier1AggregateCapBps                  uint32 = 1500 // 15%
-	DefaultEndBlockerSweepLimit                  uint32 = 100
-	DefaultMaxMetadataBytes                      uint32 = 4096
-	DefaultMaxReasonBytes                        uint32 = 512
-	DefaultMaxActiveOperatorsPerAddress          uint32 = 16
+	DefaultUnilateralSlashCapBps                     uint32 = 500  // 5%
+	DefaultTier1AggregateCapBps                      uint32 = 1500 // 15%
+	DefaultEndBlockerSweepLimit                      uint32 = 100
+	DefaultMaxMetadataBytes                          uint32 = 4096
+	DefaultMaxReasonBytes                            uint32 = 512
+	DefaultMaxActiveOperatorsPerAddress              uint32 = 16
 	DefaultMaxReportsPerReporterPerOperatorPerWindow uint32 = 3
-	DefaultPaginationLimit                       uint32 = 100
-	DefaultMaxPaginationLimit                    uint32 = 1000
+	DefaultPaginationLimit                           uint32 = 100
+	DefaultMaxPaginationLimit                        uint32 = 1000
 	// Phase 0 federation→service migration: per-caller cap on
 	// OpenSystemReport filings within RateLimitWindowBlocks. 50 is a
 	// starting guess; tune from observed federation challenge volume
 	// post-launch.
-	DefaultMaxSystemReportsPerCallerPerWindow    uint32 = 50
+	DefaultMaxSystemReportsPerCallerPerWindow uint32 = 50
 
 	// Default trust-level gate for filing reports. See §16 launch note —
 	// genesis params SHOULD lower to PROVISIONAL for the first season.
@@ -67,35 +66,36 @@ func NewParams() Params {
 }
 
 // DefaultParams returns a fully-populated default set of parameters. All
-// nullable=false fields (Coin, LegacyDec) MUST be initialized here to
-// avoid nil internals at marshal/unmarshal round-trips. Bond/deposit
-// denom is hardcoded to "uspark" per the SPARK-bonded principle
-// (x-service-spec.md §1).
+// nullable=false fields (math.Int, LegacyDec) MUST be initialized here
+// to avoid nil internals at marshal/unmarshal round-trips. Bond-denom-
+// valued amounts (ReportDepositAmount) are bare math.Int values; the
+// keeper wraps them into sdk.Coin via the identity keeper's
+// BondDenom(ctx) at the point of use.
 func DefaultParams() Params {
 	return Params{
-		DefaultUnbondingPeriodBlocks:                DefaultUnbondingPeriodBlocks,
-		DefaultUnilateralSlashCapBps:                DefaultUnilateralSlashCapBps,
-		DefaultTier1WindowBlocks:                    DefaultTier1WindowBlocks,
-		DefaultTier1AggregateCapBps:                 DefaultTier1AggregateCapBps,
-		DefaultTier1CooldownBlocks:                  DefaultTier1CooldownBlocks,
-		DefaultUnderfundedGraceBlocks:               DefaultUnderfundedGraceBlocks,
-		ReportContestWindowBlocks:                   DefaultReportContestWindowBlocks,
-		MaxPendingBlocks:                            DefaultMaxPendingBlocks,
-		MaxEscalatedBlocks:                          DefaultMaxEscalatedBlocks,
-		ReportRefileCooldownBlocks:                  DefaultReportRefileCooldownBlocks,
-		ReportDeposit:                               sdk.NewCoin("uspark", DefaultReportDepositAmount),
-		MinReporterTrustLevel:                       DefaultMinReporterTrustLevel,
-		MaxReportsPerReporterPerOperatorPerWindow:   DefaultMaxReportsPerReporterPerOperatorPerWindow,
-		ReporterRateLimitWindowBlocks:               DefaultReporterRateLimitWindowBlocks,
-		EndblockerSweepLimit:                        DefaultEndBlockerSweepLimit,
-		MaxMetadataBytes:                            DefaultMaxMetadataBytes,
-		MaxReasonBytes:                              DefaultMaxReasonBytes,
-		MaxActiveOperatorsPerAddress:                DefaultMaxActiveOperatorsPerAddress,
-		ReputationGrantPerBondBlock:                 DefaultReputationGrantPerBondBlock,
-		DefaultPaginationLimit:                      DefaultPaginationLimit,
-		MaxPaginationLimit:                          DefaultMaxPaginationLimit,
-		MaxSystemReportsPerCallerPerWindow:          DefaultMaxSystemReportsPerCallerPerWindow,
-		RateLimitWindowBlocks:                       DefaultRateLimitWindowBlocks,
+		DefaultUnbondingPeriodBlocks:              DefaultUnbondingPeriodBlocks,
+		DefaultUnilateralSlashCapBps:              DefaultUnilateralSlashCapBps,
+		DefaultTier1WindowBlocks:                  DefaultTier1WindowBlocks,
+		DefaultTier1AggregateCapBps:               DefaultTier1AggregateCapBps,
+		DefaultTier1CooldownBlocks:                DefaultTier1CooldownBlocks,
+		DefaultUnderfundedGraceBlocks:             DefaultUnderfundedGraceBlocks,
+		ReportContestWindowBlocks:                 DefaultReportContestWindowBlocks,
+		MaxPendingBlocks:                          DefaultMaxPendingBlocks,
+		MaxEscalatedBlocks:                        DefaultMaxEscalatedBlocks,
+		ReportRefileCooldownBlocks:                DefaultReportRefileCooldownBlocks,
+		ReportDepositAmount:                       DefaultReportDepositAmount,
+		MinReporterTrustLevel:                     DefaultMinReporterTrustLevel,
+		MaxReportsPerReporterPerOperatorPerWindow: DefaultMaxReportsPerReporterPerOperatorPerWindow,
+		ReporterRateLimitWindowBlocks:             DefaultReporterRateLimitWindowBlocks,
+		EndblockerSweepLimit:                      DefaultEndBlockerSweepLimit,
+		MaxMetadataBytes:                          DefaultMaxMetadataBytes,
+		MaxReasonBytes:                            DefaultMaxReasonBytes,
+		MaxActiveOperatorsPerAddress:              DefaultMaxActiveOperatorsPerAddress,
+		ReputationGrantPerBondBlock:               DefaultReputationGrantPerBondBlock,
+		DefaultPaginationLimit:                    DefaultPaginationLimit,
+		MaxPaginationLimit:                        DefaultMaxPaginationLimit,
+		MaxSystemReportsPerCallerPerWindow:        DefaultMaxSystemReportsPerCallerPerWindow,
+		RateLimitWindowBlocks:                     DefaultRateLimitWindowBlocks,
 	}
 }
 
@@ -167,12 +167,10 @@ func (p Params) Validate() error {
 		return ErrInvalidParams.Wrapf("max_reason_bytes must be in (0, 4096], got %d", p.MaxReasonBytes)
 	}
 
-	// Report deposit must be a positive uspark amount.
-	if p.ReportDeposit.Denom != "uspark" {
-		return ErrInvalidParams.Wrapf("report_deposit.denom must be uspark, got %s", p.ReportDeposit.Denom)
-	}
-	if p.ReportDeposit.Amount.IsNil() || !p.ReportDeposit.Amount.IsPositive() {
-		return ErrInvalidParams.Wrap("report_deposit.amount must be > 0")
+	// Report deposit must be a positive bond-denom amount. The denom
+	// is stamped at the point of use by the keeper from x/identity.
+	if p.ReportDepositAmount.IsNil() || !p.ReportDepositAmount.IsPositive() {
+		return ErrInvalidParams.Wrap("report_deposit_amount must be > 0")
 	}
 
 	// Reporter rate-limit cap >= 1.

@@ -64,7 +64,7 @@ CLAIMANT_ADDR=$($BINARY keys show name_claimant -a --keyring-backend test 2>/dev
 if [ -n "$CLAIMANT_ADDR" ]; then
     echo "--- Squat-protection check: name_claimant tries to register 'alice' ---"
     RES=$($BINARY tx name register-name "alice" "squat-attempt" --from name_claimant -y \
-        --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+        --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
     TX_HASH=$(echo "$RES" | jq -r '.txhash')
     sleep 4
     QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)

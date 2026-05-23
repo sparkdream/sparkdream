@@ -31,7 +31,7 @@ echo '{
       "new_member_weights": ["1"]
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Emergency Dictator Act",
   "summary": "Setting Bob as sole member of Commons Council.",
   "expedited": true
@@ -83,10 +83,10 @@ echo '{
       "@type": "/cosmos.bank.v1beta1.MsgSend",
       "from_address": "'$GOV_ADDR'",
       "to_address": "'$CAROL_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "1"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "1"}]
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Steal Funds",
   "summary": "Trying to steal while Bob is in charge."
 }' > "$PROPOSAL_DIR/bad_prop_bob.json"
@@ -168,7 +168,7 @@ echo '{
       "new_member_weights": ["1", "1", "1"]
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Restore Democracy",
   "summary": "Adding members back to the council.",
   "expedited": true

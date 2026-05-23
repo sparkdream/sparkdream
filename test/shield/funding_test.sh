@@ -207,7 +207,7 @@ elif echo "$POOL" | grep -qi "error"; then
     echo "  $POOL"
     record_result "Community pool query" "FAIL"
 else
-    POOL_AMOUNT=$(echo "$POOL" | jq -r '.pool[] | select(.denom=="uspark") | .amount // "0"' 2>/dev/null || echo "0")
+    POOL_AMOUNT=$(echo "$POOL" | jq -r --arg denom "$BOND_DENOM" '.pool[] | select(.denom==$denom) | .amount // "0"' 2>/dev/null || echo "0")
     echo "  Community pool uspark: $POOL_AMOUNT"
 
     if [ -z "$POOL_AMOUNT" ] || [ "$POOL_AMOUNT" == "0" ]; then

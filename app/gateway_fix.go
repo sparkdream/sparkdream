@@ -242,58 +242,5 @@ func preIntercept(cdc *codec.ProtoCodec, conn *grpc.ClientConn, path string) ([]
 		}
 	}
 
-	// Denom metadata — provide defaults when genesis has none
-	if path == "cosmos/bank/v1beta1/denoms_metadata" {
-		client := banktypes.NewQueryClient(conn)
-		resp, err := client.DenomsMetadata(ctx, &banktypes.QueryDenomsMetadataRequest{})
-		if err != nil {
-			return nil, false
-		}
-		if len(resp.Metadatas) == 0 {
-			for _, m := range defaultMetadatas {
-				resp.Metadatas = append(resp.Metadatas, m)
-			}
-		}
-		bz, err := cdc.MarshalJSON(resp)
-		if err != nil {
-			return nil, false
-		}
-		return bz, true
-	}
-
-	if strings.HasPrefix(path, "cosmos/bank/v1beta1/denoms_metadata/") {
-		denom := strings.TrimPrefix(path, "cosmos/bank/v1beta1/denoms_metadata/")
-		if i := strings.IndexAny(denom, "/?"); i >= 0 {
-			denom = denom[:i]
-		}
-		if meta, ok := defaultMetadatas[denom]; ok {
-			resp := &banktypes.QueryDenomMetadataResponse{Metadata: meta}
-			bz, err := cdc.MarshalJSON(resp)
-			if err != nil {
-				return nil, false
-			}
-			return bz, true
-		}
-	}
-
 	return nil, false
-}
-
-var defaultMetadatas = map[string]banktypes.Metadata{
-	"uspark": {
-		Base: "uspark", Display: "spark", Name: "Spark", Symbol: "SPARK",
-		Description: "The native staking token of Spark Dream.",
-		DenomUnits: []*banktypes.DenomUnit{
-			{Denom: "uspark", Exponent: 0, Aliases: []string{"microspark"}},
-			{Denom: "spark", Exponent: 6},
-		},
-	},
-	"udream": {
-		Base: "udream", Display: "dream", Name: "Dream", Symbol: "DREAM",
-		Description: "Internal coordination token.",
-		DenomUnits: []*banktypes.DenomUnit{
-			{Denom: "udream", Exponent: 0, Aliases: []string{"microdream"}},
-			{Denom: "dream", Exponent: 6},
-		},
-	},
 }

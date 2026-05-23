@@ -39,7 +39,7 @@ func (k Keeper) TriggerGovernanceMarket(ctx sdk.Context, groupName string) error
 	question := fmt.Sprintf("Confidence Vote: %s", groupName)
 	symbol := fmt.Sprintf("CONF-%s-%d", groupName, ctx.BlockHeight()) // Unique Symbol
 
-	subsidyCoin := sdk.NewCoin("uspark", math.NewIntFromUint64(1000000000)) // 1000 SPARK
+	subsidyCoin := sdk.NewCoin(k.BondDenom(ctx), math.NewIntFromUint64(1000000000)) // 1000 SPARK
 
 	// 3. Call Futarchy (Programmatic Creation)
 	// Creator is the x/commons Module Account

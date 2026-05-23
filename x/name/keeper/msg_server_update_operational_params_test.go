@@ -144,7 +144,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 	// Modified operational params to verify the update actually takes effect.
 	modifiedOp := types.NameOperationalParams{
 		ExpirationDuration:   time.Hour * 24 * 180, // 180 days
-		RegistrationFee:      sdk.NewCoin("uspark", math.NewInt(20000000)),
+		RegistrationFeeAmount: math.NewInt(20000000),
 		DisputeStakeDream:    math.NewInt(75),
 		DisputeTimeoutBlocks: 200000,
 		ContestStakeDream:    math.NewInt(150),
@@ -172,7 +172,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 				params, err := f.keeper.Params.Get(f.ctx)
 				require.NoError(t, err)
 				require.Equal(t, modifiedOp.ExpirationDuration, params.ExpirationDuration)
-				require.Equal(t, modifiedOp.RegistrationFee, params.RegistrationFee)
+				require.Equal(t, modifiedOp.RegistrationFeeAmount, params.RegistrationFeeAmount)
 				require.True(t, modifiedOp.DisputeStakeDream.Equal(params.DisputeStakeDream))
 				require.Equal(t, modifiedOp.DisputeTimeoutBlocks, params.DisputeTimeoutBlocks)
 				require.True(t, modifiedOp.ContestStakeDream.Equal(params.ContestStakeDream))
@@ -194,7 +194,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 				params, err := f.keeper.Params.Get(f.ctx)
 				require.NoError(t, err)
 				require.Equal(t, modifiedOp.ExpirationDuration, params.ExpirationDuration)
-				require.Equal(t, modifiedOp.RegistrationFee, params.RegistrationFee)
+				require.Equal(t, modifiedOp.RegistrationFeeAmount, params.RegistrationFeeAmount)
 				require.True(t, modifiedOp.DisputeStakeDream.Equal(params.DisputeStakeDream))
 				require.Equal(t, modifiedOp.DisputeTimeoutBlocks, params.DisputeTimeoutBlocks)
 				require.True(t, modifiedOp.ContestStakeDream.Equal(params.ContestStakeDream))
@@ -223,7 +223,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 			},
 			opParams: types.NameOperationalParams{
 				ExpirationDuration:   -time.Hour, // invalid
-				RegistrationFee:      sdk.NewCoin("uspark", math.NewInt(10000000)),
+				RegistrationFeeAmount: math.NewInt(10000000),
 				DisputeStakeDream:    math.NewInt(50),
 				DisputeTimeoutBlocks: 100800,
 				ContestStakeDream:    math.NewInt(100),
@@ -241,7 +241,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 			},
 			opParams: types.NameOperationalParams{
 				ExpirationDuration:   time.Hour * 24 * 365,
-				RegistrationFee:      sdk.NewCoin("uspark", math.NewInt(10000000)),
+				RegistrationFeeAmount: math.NewInt(10000000),
 				DisputeStakeDream:    math.NewInt(-1), // invalid
 				DisputeTimeoutBlocks: 100800,
 				ContestStakeDream:    math.NewInt(100),
@@ -281,7 +281,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 
 				// Operational fields must be updated.
 				require.Equal(t, modifiedOp.ExpirationDuration, params.ExpirationDuration)
-				require.Equal(t, modifiedOp.RegistrationFee, params.RegistrationFee)
+				require.Equal(t, modifiedOp.RegistrationFeeAmount, params.RegistrationFeeAmount)
 				require.True(t, modifiedOp.DisputeStakeDream.Equal(params.DisputeStakeDream))
 				require.Equal(t, modifiedOp.DisputeTimeoutBlocks, params.DisputeTimeoutBlocks)
 				require.True(t, modifiedOp.ContestStakeDream.Equal(params.ContestStakeDream))

@@ -21,6 +21,15 @@ type BankKeeper interface {
 	SendCoinsFromModuleToModule(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error
 }
 
+// IdentityKeeper is the subset of x/identity that shield reads to resolve
+// the chain's bond denom at runtime. Late-bound via SetIdentityKeeper from
+// app.go. Required: shield panics on first denom lookup if identity isn't
+// wired (no silent fallback to a hardcoded literal).
+type IdentityKeeper interface {
+	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+}
+
 // DistrKeeper defines the expected interface for the Distribution module.
 type DistrKeeper interface {
 	DistributeFromFeePool(ctx context.Context, amount sdk.Coins, receiveAddr sdk.AccAddress) error

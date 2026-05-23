@@ -88,20 +88,20 @@ ensure_member() {
         echo "[WARN]  $name is not a member - inviting..."
 
         # First, ensure the account has SPARK for gas fees
-        $BINARY tx bank send alice $addr 10000000uspark --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+        $BINARY tx bank send alice $addr 10000000${BOND_DENOM} --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
         sleep 2
 
         # Alice invites this member (query required stake — escalates per invitation)
         local req_stake=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
             | jq -r '.required_stake // "100000000"')
-        $BINARY tx rep invite-member $addr "$req_stake" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+        $BINARY tx rep invite-member $addr "$req_stake" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
         sleep 2
 
         # Accept invitation
         local invitations=$($BINARY query rep list-invitation -o json 2>/dev/null | jq -r ".invitation[] | select(.invitee_address==\"$addr\") | .id")
         if [ -n "$invitations" ]; then
             local inv_id=$(echo "$invitations" | head -1)
-            $BINARY tx rep accept-invitation $inv_id --from $name --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+            $BINARY tx rep accept-invitation $inv_id --from $name --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
             sleep 2
 
             # Verify member was created
@@ -180,7 +180,7 @@ TRANSFER_RES=$($BINARY tx rep transfer-dream \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -280,7 +280,7 @@ TIP_RES=$($BINARY tx rep transfer-dream \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -330,7 +330,7 @@ LARGE_TIP_RES=$($BINARY tx rep transfer-dream \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -404,7 +404,7 @@ GIFT_RES=$($BINARY tx rep transfer-dream \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -460,7 +460,7 @@ LARGE_GIFT_RES=$($BINARY tx rep transfer-dream \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 

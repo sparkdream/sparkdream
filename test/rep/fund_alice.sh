@@ -129,7 +129,7 @@ while [ $REMAINING -gt 0 ]; do
         --from $BEST_SOURCE \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

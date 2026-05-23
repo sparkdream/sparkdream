@@ -51,13 +51,16 @@ func (k msgServer) RegisterOperator(ctx context.Context, msg *types.MsgRegisterO
 		return nil, types.ErrServiceTypeDisabled.Wrap(msg.ServiceType)
 	}
 
-	// Bond shape: denom must be uspark, amount ≥ min_bond.
-	if msg.Bond.Denom != types.BondDenom {
-		return nil, types.ErrBondDenomMismatch.Wrapf("expected %s, got %s", types.BondDenom, msg.Bond.Denom)
+	// Bond amount: bond denom comes from x/identity at runtime; user only
+	// supplies the amount.
+	bondDenom := k.BondDenom(ctx)
+	if msg.BondAmount.IsNil() || msg.BondAmount.IsNegative() {
+		return nil, types.ErrInsufficientBond.Wrapf("bond_amount must be a positive Int")
 	}
-	if msg.Bond.Amount.LT(cfg.MinBond.Amount) {
-		return nil, types.ErrInsufficientBond.Wrapf("bond %s < min %s", msg.Bond, cfg.MinBond)
+	if msg.BondAmount.LT(cfg.MinBondAmount) {
+		return nil, types.ErrInsufficientBond.Wrapf("bond %s%s < min %s%s", msg.BondAmount, bondDenom, cfg.MinBondAmount, bondDenom)
 	}
+	bondCoin := sdk.NewCoin(bondDenom, msg.BondAmount)
 
 	// Metadata size cap.
 	params, err := k.Params.Get(ctx)
@@ -93,7 +96,7 @@ func (k msgServer) RegisterOperator(ctx context.Context, msg *types.MsgRegisterO
 	}
 
 	// Escrow bond to module's bond pool.
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, sdk.AccAddress(creatorBytes), types.ModuleName, sdk.NewCoins(msg.Bond)); err != nil {
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, sdk.AccAddress(creatorBytes), types.ModuleName, sdk.NewCoins(bondCoin)); err != nil {
 		return nil, err
 	}
 
@@ -103,14 +106,14 @@ func (k msgServer) RegisterOperator(ctx context.Context, msg *types.MsgRegisterO
 		Address:                 msg.Creator,
 		ServiceType:             msg.ServiceType,
 		Controller:              msg.Controller,
-		Bond:                    msg.Bond,
+		BondAmount:              msg.BondAmount,
 		Metadata:                msg.Metadata,
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_ACTIVE,
 		UnderfundedSince:        0,
 		UnbondCompleteAt:        0,
 		Tier1SlashedInWindow:    sdkmath.ZeroInt(),
 		Tier1WindowStart:        currentHeight,
-		Tier1WindowStartBond:    msg.Bond.Amount,
+		Tier1WindowStartBond:    msg.BondAmount,
 		RegisteredAt:            currentHeight,
 		RetiredAt:               0,
 		TotalLifetimeBondBlocks: sdkmath.ZeroInt(),
@@ -121,7 +124,7 @@ func (k msgServer) RegisterOperator(ctx context.Context, msg *types.MsgRegisterO
 	}
 
 	sdkCtx.EventManager().EmitEvent(types.NewOperatorRegisteredEvent(
-		msg.Creator, msg.ServiceType, msg.Controller, msg.Bond,
+		msg.Creator, msg.ServiceType, msg.Controller, bondCoin,
 	))
 	emitOperatorRegistered(msg.ServiceType)
 

@@ -61,7 +61,7 @@ TX_RES=$(cli_a tx federation federate-content \
     "$CONTENT_BODY" \
     "" \
     --content-hash "$CONTENT_HASH" \
-    --from alice -y --fees 5000uspark --output json 2>&1)
+    --from alice -y --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait_a "$TX_RES" "federate A->B"; then
     echo "  FederateContent confirmed on chain-a"
@@ -110,7 +110,7 @@ TX_RES=$(cli_b tx federation federate-content \
     "$CONTENT_BODY2" \
     "" \
     --content-hash "$CONTENT_HASH2" \
-    --from alice -y --fees 5000uspark --output json 2>&1)
+    --from alice -y --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait_b "$TX_RES" "federate B->A"; then
     echo "  FederateContent confirmed on chain-b"
@@ -162,7 +162,7 @@ TX_RES=$(cli_a tx federation federate-content \
     "$CONTENT_BODY" \
     "" \
     --content-hash "$CONTENT_HASH" \
-    --from alice -y --fees 5000uspark --output json 2>&1)
+    --from alice -y --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait_a "$TX_RES" "federate dup"; then
     # Check that the duplicate request actually emitted a send_packet event
@@ -230,7 +230,7 @@ TX_RES=$(cli_a tx federation federate-content \
     "Should be rejected" \
     "" \
     --content-hash "$FORUM_HASH" \
-    --from alice -y --fees 5000uspark --output json 2>&1)
+    --from alice -y --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait_a "$TX_RES" "disallowed type"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code // "0"')
@@ -280,7 +280,7 @@ TX_RES=$(cli_a tx federation federate-content \
     "$TEST5_BODY" \
     "" \
     --content-hash "$TEST5_HASH" \
-    --from alice -y --fees 5000uspark --output json 2>&1)
+    --from alice -y --fees 5000${BOND_DENOM} --output json)
 
 if ! submit_and_wait_a "$TX_RES" "federate-content for silent regression"; then
     echo "  Local tx failed — silent SendPacket regression cannot be evaluated"

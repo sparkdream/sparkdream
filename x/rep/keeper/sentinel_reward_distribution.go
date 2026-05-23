@@ -226,7 +226,7 @@ func (k Keeper) payoutSentinelReward(
 		return fmt.Errorf("invalid sentinel address %q: %w", c.addr, err)
 	}
 
-	coins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, amount))
+	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), amount))
 	if err := k.bankKeeper.SendCoins(ctx, SentinelRewardPoolAddress(), sentinelAddr, coins); err != nil {
 		return fmt.Errorf("send coins: %w", err)
 	}

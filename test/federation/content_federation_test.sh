@@ -32,7 +32,7 @@ record_result() {
 wait_for_tx() {
     local TXHASH=$1; local MAX=20; local A=0
     while [ $A -lt $MAX ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
         A=$((A + 1)); sleep 1
     done
@@ -61,10 +61,10 @@ vote_and_execute_ops() {
     for VOTER in "alice" "bob"; do
         local S=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
         if [ "$S" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$S" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
-        TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+        TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
         submit_and_wait "$TX_RES" "$VOTER vote" || true
     done
-    TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json 2>&1)
+    TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
     submit_and_wait "$TX_RES" "exec"
     local EXEC_RC=$?
     sleep 5
@@ -74,7 +74,7 @@ vote_and_execute_ops() {
 submit_ops_proposal() {
     local FILE=$1; local LABEL=${2:-"proposal"}
     echo "  Submitting $LABEL..."
-    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "$LABEL"; then return 1; fi
     PROPOSAL_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -z "$PROPOSAL_ID" ]; then echo "  No proposal ID"; return 1; fi
@@ -104,17 +104,17 @@ echo "=== Setting up prerequisites ==="
 # AND a live x/service.Operator (ACTIVE / UNDERFUNDED); if either is
 # missing, the operator signs MsgRegisterBridge directly with a stake ≥
 # min_bond.
-BRIDGE_DATA=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR mastodon.example --output json 2>&1)
+BRIDGE_DATA=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR mastodon.example --output json)
 BRIDGE_ADDR=$(echo "$BRIDGE_DATA" | jq -r '.bridge_binding.address // empty')
 SVC_STATUS=$($BINARY query service operator $OPERATOR2_ADDR federation-bridge-activitypub --output json 2>&1 | jq -r '.operator.status // empty')
 echo "  operator2 binding for mastodon.example: ${BRIDGE_ADDR:+present}${BRIDGE_ADDR:-not found} (service status=${SVC_STATUS:-not found})"
 
 if [ -z "$BRIDGE_ADDR" ] || [ "$SVC_STATUS" != "OPERATOR_STATUS_ACTIVE" ]; then
     echo "  Re-registering operator2 bridge for mastodon.example..."
-    MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.min_bond.amount')
+    MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.min_bond_amount')
     TX_RES=$($BINARY tx federation register-bridge \
-        mastodon.example activitypub https://bridge.example.com/ap "${MIN_BOND_AMT}uspark" \
-        --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+        mastodon.example activitypub https://bridge.example.com/ap "${MIN_BOND_AMT}" \
+        --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     submit_and_wait "$TX_RES" "prereq bridge registration" || true
     BRIDGE_ADDR=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
     SVC_STATUS=$($BINARY query service operator $OPERATOR2_ADDR federation-bridge-activitypub --output json 2>&1 | jq -r '.operator.status // empty')
@@ -146,17 +146,17 @@ if [ "$IBC_PEER_STATUS" != "PEER_STATUS_ACTIVE" ]; then
 PREEOF
 
     TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/prereq_activate_ibc_peer.json" \
-        --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+        --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
     if submit_and_wait "$TX_RES" "activate ibc peer proposal"; then
         PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
         if [ -n "$PROP_ID" ]; then
             for VOTER in "alice" "bob" "carol"; do
                 S=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
                 if [ "$S" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$S" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
-                TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+                TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
                 submit_and_wait "$TX_RES" "$VOTER vote" || true
             done
-            TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json 2>&1)
+            TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
             submit_and_wait "$TX_RES" "execute activate ibc" || true
             sleep 1
         fi
@@ -189,9 +189,9 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "submit content"; then
     CONTENT_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value' | tr -d '"')
@@ -202,7 +202,7 @@ if submit_and_wait "$TX_RES" "submit content"; then
     echo "  Content submitted, ID: $CONTENT_ID"
 
     # Query the content
-    CONTENT_DATA=$($BINARY query federation get-federated-content $CONTENT_ID --output json 2>&1)
+    CONTENT_DATA=$($BINARY query federation get-federated-content $CONTENT_ID --output json)
     # Proto3 omits zero-value enums; PENDING_VERIFICATION = 0 → absent
     CONTENT_STATUS=$(echo "$CONTENT_DATA" | jq -r '.content.status // "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION"')
     CONTENT_TITLE=$(echo "$CONTENT_DATA" | jq -r '.content.title // empty')
@@ -241,9 +241,9 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "submit second content"; then
     CONTENT2_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value' | tr -d '"')
@@ -274,9 +274,9 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "dup content"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -316,9 +316,9 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "blocked identity"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -357,9 +357,9 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "disallowed type"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -395,9 +395,9 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "no hash"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -436,9 +436,9 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     --from verifier1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "non-operator submit"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -473,9 +473,9 @@ TX_RES=$($BINARY tx federation federate-content \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "federate content"; then
     echo "  Content federated to IBC peer"
@@ -508,9 +508,9 @@ TX_RES=$($BINARY tx federation attest-outbound \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "attest outbound"; then
     echo "  Outbound attestation created"
@@ -555,7 +555,7 @@ cat > "$PROPOSAL_DIR/moderate_content.json" <<EOF
 EOF
 
 if submit_ops_proposal "$PROPOSAL_DIR/moderate_content.json" "moderate content"; then
-    CONTENT_DATA=$($BINARY query federation get-federated-content $MODERATE_ID --output json 2>&1)
+    CONTENT_DATA=$($BINARY query federation get-federated-content $MODERATE_ID --output json)
     CONTENT_STATUS=$(echo "$CONTENT_DATA" | jq -r '.content.status // empty')
 
     if [ "$CONTENT_STATUS" == "FEDERATED_CONTENT_STATUS_HIDDEN" ]; then
@@ -592,7 +592,7 @@ cat > "$PROPOSAL_DIR/restore_content.json" <<EOF
 EOF
 
 if submit_ops_proposal "$PROPOSAL_DIR/restore_content.json" "restore content"; then
-    CONTENT_DATA=$($BINARY query federation get-federated-content $MODERATE_ID --output json 2>&1)
+    CONTENT_DATA=$($BINARY query federation get-federated-content $MODERATE_ID --output json)
     CONTENT_STATUS=$(echo "$CONTENT_DATA" | jq -r '.content.status // empty')
 
     if [ "$CONTENT_STATUS" == "FEDERATED_CONTENT_STATUS_ACTIVE" ]; then
@@ -612,7 +612,7 @@ fi
 echo ""
 echo "--- TEST 12: List federated content ---"
 
-CONTENT_LIST=$($BINARY query federation list-federated-content --output json 2>&1)
+CONTENT_LIST=$($BINARY query federation list-federated-content --output json)
 CONTENT_COUNT=$(echo "$CONTENT_LIST" | jq '.content | length' 2>/dev/null)
 
 echo "  Federated content count: $CONTENT_COUNT"
@@ -638,7 +638,7 @@ fi
 echo ""
 echo "--- TEST 13: UNBONDING bridge can still submit (binding not yet pruned) ---"
 
-OP1_BRIDGE_DATA=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json 2>&1)
+OP1_BRIDGE_DATA=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json)
 OP1_HAS_BINDING=$(echo "$OP1_BRIDGE_DATA" | jq -r '.bridge_binding.address // empty')
 OP1_SUSPENDED=$(echo "$OP1_BRIDGE_DATA" | jq -r '.bridge_binding.suspended // false')
 OP1_SVC_STATUS=$($BINARY query service operator $OPERATOR1_ADDR federation-bridge-activitypub --output json 2>&1 | jq -r '.operator.status // "not found"')
@@ -668,9 +668,9 @@ else
         --from operator1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     if submit_and_wait "$TX_RES" "unbonding bridge submit"; then
         echo "  UNBONDING bridge submission accepted (binding still active)"
@@ -713,9 +713,9 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "nonexistent peer submit"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -757,9 +757,9 @@ TX_RES=$($BINARY tx federation federate-content \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "federate to non-IBC"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -830,9 +830,9 @@ TX_RES=$($BINARY tx federation request-reputation-attestation \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "request rep attestation"; then
     echo "  Reputation attestation requested successfully"
@@ -864,9 +864,9 @@ TX_RES=$($BINARY tx federation request-reputation-attestation \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "rep on non-IBC"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
@@ -901,9 +901,9 @@ TX_RES=$($BINARY tx federation request-reputation-attestation \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
-    --output json 2>&1)
+    --output json)
 
 if submit_and_wait "$TX_RES" "rep on missing peer"; then
     CODE=$(echo "$TX_RESULT" | jq -r '.code')

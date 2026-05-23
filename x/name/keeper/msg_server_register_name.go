@@ -62,9 +62,10 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only active x/rep members can register names")
 	}
 
-	// 4. Check Fees
-	if !params.RegistrationFee.IsZero() {
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.RegistrationFee)); err != nil {
+	// 4. Check Fees. The denom comes from the chain's identity at runtime.
+	if !params.RegistrationFeeAmount.IsZero() {
+		fee := sdk.NewCoin(k.BondDenom(ctx), params.RegistrationFeeAmount)
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(fee)); err != nil {
 			return nil, errorsmod.Wrapf(err, "insufficient funds for registration fee")
 		}
 	}

@@ -113,15 +113,15 @@ echo "Shield module: $SHIELD_MODULE_ADDR"
 echo ""
 
 # === FUND SHIELD MODULE (if needed) ===
-SHIELD_BAL=$($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount' 2>/dev/null || echo "0")
+SHIELD_BAL=$($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount' 2>/dev/null || echo "0")
 if [ -z "$SHIELD_BAL" ] || [ "$SHIELD_BAL" == "0" ] || [ "$SHIELD_BAL" == "null" ]; then
     echo "Shield module has no gas — funding from alice..."
     ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test 2>/dev/null)
-    $BINARY tx bank send "$ALICE_ADDR" "$SHIELD_MODULE_ADDR" 50000000uspark \
+    $BINARY tx bank send "$ALICE_ADDR" "$SHIELD_MODULE_ADDR" 50000000${BOND_DENOM} \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 500000uspark -y --output json > /dev/null 2>&1
+        --fees 500000${BOND_DENOM} -y --output json > /dev/null 2>&1
     sleep 6
-    echo "  Shield balance: $($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount' 2>/dev/null) uspark"
+    echo "  Shield balance: $($BINARY query bank balances "$SHIELD_MODULE_ADDR" --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount' 2>/dev/null) $BOND_DENOM"
     echo ""
 fi
 
@@ -151,7 +151,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000uspark \
+    --fees 500000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -196,7 +196,7 @@ if [ -z "$ANON_POST_ID" ]; then
     echo "  Creating a regular post to reply to..."
     TX_RES=$($BINARY tx blog create-post "Reply Target" "A post for anonymous replies" \
         --from blogger1 --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 500000uspark --gas 300000 -y --output json 2>&1)
+        --fees 500000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
     submit_tx_and_wait "$TX_RES"
     ANON_POST_ID=$(extract_event_value "$TX_RESULT" "create_post" "post_id")
     if [ -z "$ANON_POST_ID" ]; then
@@ -220,7 +220,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000uspark \
+    --fees 500000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -259,7 +259,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000uspark \
+    --fees 500000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -296,7 +296,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000uspark \
+    --fees 500000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)

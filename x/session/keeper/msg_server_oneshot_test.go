@@ -117,7 +117,7 @@ func TestCreateGrant_OneshotTransfer_Validation(t *testing.T) {
 			payload: &types.ScheduledOneshotPayload{
 				FireAt: sdkCtx.BlockTime().Add(2 * time.Hour).Unix(),
 				Action: &types.ScheduledOneshotPayload_Transfer{
-					Transfer: &types.OneshotTransfer{Recipient: recipient, Amount: sdk.NewInt64Coin("dream", 1_000_000)},
+					Transfer: &types.OneshotTransfer{Recipient: recipient, Amount: sdk.NewInt64Coin("udream", 1_000_000)},
 				},
 			},
 			expiresAt:   sdkCtx.BlockTime().Add(24 * time.Hour),
@@ -444,7 +444,7 @@ func TestRetryScheduledOneshot_Unauthorized(t *testing.T) {
 // validation-focused tests.
 type fakeRouter struct{}
 
-func (fakeRouter) Handler(sdk.Msg) baseAppMsgServiceHandler { return nil }
+func (fakeRouter) Handler(sdk.Msg) baseAppMsgServiceHandler         { return nil }
 func (fakeRouter) HandlerByTypeURL(string) baseAppMsgServiceHandler { return nil }
 
 // baseAppMsgServiceHandler shadows the cosmos-sdk baseapp.MsgServiceHandler

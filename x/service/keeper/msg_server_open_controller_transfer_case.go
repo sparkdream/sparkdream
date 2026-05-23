@@ -89,8 +89,9 @@ func (k msgServer) OpenControllerTransferCase(ctx context.Context, msg *types.Ms
 	}
 
 	// Escrow opener deposit (same param as report_deposit per §5.4).
+	depositCoin := sdk.NewCoin(k.BondDenom(ctx), params.ReportDepositAmount)
 	if err := k.bankKeeper.SendCoinsFromAccountToModule(
-		ctx, sdk.AccAddress(openerBytes), types.ModuleName, sdk.NewCoins(params.ReportDeposit),
+		ctx, sdk.AccAddress(openerBytes), types.ModuleName, sdk.NewCoins(depositCoin),
 	); err != nil {
 		return nil, types.ErrInsufficientReportDeposit.Wrap(err.Error())
 	}
@@ -123,7 +124,7 @@ func (k msgServer) OpenControllerTransferCase(ctx context.Context, msg *types.Ms
 		ServiceType:           msg.ServiceType,
 		Opener:                msg.Opener,
 		ProposedNewController: msg.ProposedNewController,
-		Deposit:               params.ReportDeposit,
+		Deposit:               params.ReportDepositAmount,
 		OpenedAt:              currentHeight,
 	}
 	if err := k.ControllerTransferCases.Set(ctx, juryCaseID, caseRow); err != nil {

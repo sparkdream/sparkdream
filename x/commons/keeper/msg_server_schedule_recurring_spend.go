@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"cosmossdk.io/math"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -28,7 +28,7 @@ import (
 // (D1.a) is enforced here; session does the rest of the validation
 // (period bounds, denom allowlist, active-grant cap, etc.).
 //
-// `max_per_epoch_uspark` on the underlying grant is computed
+// `max_per_epoch` on the underlying grant is computed
 // nil-safely from the council's own `MaxSpendPerEpoch`:
 //   - if the council has no per-epoch cap set, default to
 //     10 × amount_per_period (session's documented default),
@@ -101,7 +101,7 @@ func (k msgServer) ScheduleRecurringSpend(goCtx context.Context, msg *types.MsgS
 			msg.EndTime-start, msg.PeriodSeconds)
 	}
 
-	// 6. Compute max_per_epoch_uspark per the nil-safe formula
+	// 6. Compute max_per_epoch per the nil-safe formula
 	// documented in §4 of the migration plan. The council-wide cap is
 	// the real policy gate (enforced by SessionClaimHook.PreCheck);
 	// the per-grant value just has to be ≥ that cap so it never binds
@@ -127,10 +127,10 @@ func (k msgServer) ScheduleRecurringSpend(goCtx context.Context, msg *types.MsgS
 		Note:      msg.Note,
 		Payload: &sessiontypes.MsgCreateGrant_RecurringPull{
 			RecurringPull: &sessiontypes.RecurringPullPayload{
-				AmountPerPeriod:   amount,
-				PeriodSeconds:     msg.PeriodSeconds,
-				StartTime:         start,
-				MaxPerEpochUspark: maxPerEpoch.String(),
+				AmountPerPeriod: amount,
+				PeriodSeconds:   msg.PeriodSeconds,
+				StartTime:       start,
+				MaxPerEpoch:     maxPerEpoch.String(),
 			},
 		},
 	}

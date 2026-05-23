@@ -39,6 +39,13 @@ type ModuleInputs struct {
 	BankKeeper    types.BankKeeper
 	CommonsKeeper commonskeeper.Keeper
 	RepKeeper     repkeeper.Keeper
+
+	// IdentityKeeper supplies the chain's bond/dream denoms at runtime. Optional
+	// so depinject can wire in the order it likes; the keeper is set on the
+	// name keeper before NewAppModule snapshots the value, otherwise the
+	// msg_server's embedded copy would never see it (see
+	// docs/development-conventions.md "AppModule Value-Copy Bug").
+	IdentityKeeper types.IdentityKeeper `optional:"true"`
 }
 
 type ModuleOutputs struct {
@@ -63,6 +70,9 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.CommonsKeeper,
 		in.RepKeeper,
 	)
+	if in.IdentityKeeper != nil {
+		k.SetIdentityKeeper(in.IdentityKeeper)
+	}
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 
 	return ModuleOutputs{NameKeeper: k, Module: m}

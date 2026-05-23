@@ -34,7 +34,7 @@ func TestMsgContestSlash_HappyPath(t *testing.T) {
 
 	preBond := math.ZeroInt()
 	if op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType); ok {
-		preBond = op.Bond.Amount
+		preBond = op.BondAmount
 	}
 
 	_, err := f.msgServer.ContestSlash(f.ctx, &types.MsgContestSlash{
@@ -51,7 +51,7 @@ func TestMsgContestSlash_HappyPath(t *testing.T) {
 	// Bond is restored — must exceed pre-contest amount.
 	op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
 	require.True(t, ok)
-	require.True(t, op.Bond.Amount.GT(preBond))
+	require.True(t, op.BondAmount.GT(preBond))
 
 	// Escalated queue populated.
 	hasE, _ := f.keeper.EscalatedReportsQueue.Has(f.ctx, collections.Join(r.EscalatedAt, reportID))

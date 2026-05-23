@@ -66,10 +66,10 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 
 	// High-water mark fee: only charge for bytes above the previous high water mark
 	newBytes := uint64(len(msg.Title) + len(msg.Body))
-	if !params.CostPerByteExempt && params.CostPerByte.IsPositive() && newBytes > val.FeeBytesHighWater {
+	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && newBytes > val.FeeBytesHighWater {
 		delta := int64(newBytes - val.FeeBytesHighWater)
-		deltaFee := sdk.NewCoin(params.CostPerByte.Denom,
-			params.CostPerByte.Amount.MulRaw(delta))
+		deltaFee := sdk.NewCoin(k.BondDenom(ctx),
+			params.CostPerByteAmount.MulRaw(delta))
 		if deltaFee.IsPositive() {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(deltaFee)); err != nil {

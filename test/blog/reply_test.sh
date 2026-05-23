@@ -118,7 +118,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from blogger2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -144,7 +144,7 @@ TX_RES=$($BINARY tx blog create-reply \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -230,7 +230,7 @@ TX_RES=$($BINARY tx blog create-reply \
     --from blogger2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -253,7 +253,7 @@ TX_RES=$($BINARY tx blog create-reply \
     --from blogger2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -278,7 +278,7 @@ if [ -n "$REPLY1_ID" ]; then
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -316,7 +316,7 @@ if [ -n "$REPLY1_ID" ]; then
         --from blogger2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -344,7 +344,7 @@ if [ -n "$REPLY1_ID" ]; then
         --from blogger2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -381,7 +381,7 @@ TX_RES=$($BINARY tx blog create-reply \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -394,7 +394,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -422,7 +422,7 @@ if [ -n "$REPLY1_ID" ]; then
         --from blogger2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -458,7 +458,7 @@ TX_RES=$($BINARY tx blog create-reply \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -470,7 +470,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -506,7 +506,7 @@ TX_RES=$($BINARY tx blog create-reply \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -519,7 +519,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         --from blogger2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -548,7 +548,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from blogger2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -561,7 +561,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         --from blogger2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     submit_tx_and_wait "$TX_RES"
@@ -572,7 +572,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -613,10 +613,10 @@ echo "  Non-member account: $REPLY_NONMEMBER_ADDR"
 echo "  Funding non-member account..."
 TX_RES=$($BINARY tx bank send \
     alice $REPLY_NONMEMBER_ADDR \
-    10000000uspark \
+    10000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 sleep 6
@@ -633,7 +633,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -652,7 +652,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -681,7 +681,7 @@ else
         --from $REPLY_NONMEMBER_ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -716,7 +716,7 @@ else
         --from $REPLY_NONMEMBER_ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

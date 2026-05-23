@@ -1,0 +1,50 @@
+syntax = "proto3";
+package sparkdream.identity.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/identity/v1/chain_identity.proto";
+
+option go_package = "sparkdream/x/identity/types";
+
+// Query defines the gRPC querier service. Identity has no Msg service:
+// the ChainIdentity is genesis-only immutable and there is no on-chain
+// mutation path.
+service Query {
+  // ChainIdentity returns the chain's immutable identity record.
+  rpc ChainIdentity(QueryChainIdentityRequest) returns (QueryChainIdentityResponse) {
+    option (google.api.http).get = "/sparkdream/identity/v1/chain-identity";
+  }
+
+  // BondDenom is a convenience wrapper returning the native gas/staking denom.
+  rpc BondDenom(QueryBondDenomRequest) returns (QueryBondDenomResponse) {
+    option (google.api.http).get = "/sparkdream/identity/v1/bond-denom";
+  }
+
+  // DreamDenom is a convenience wrapper returning the native DREAM denom.
+  rpc DreamDenom(QueryDreamDenomRequest) returns (QueryDreamDenomResponse) {
+    option (google.api.http).get = "/sparkdream/identity/v1/dream-denom";
+  }
+}
+
+message QueryChainIdentityRequest {}
+
+message QueryChainIdentityResponse {
+  sparkdream.identity.v1.ChainIdentity identity = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+message QueryBondDenomRequest {}
+
+message QueryBondDenomResponse {
+  string denom = 1;
+}
+
+message QueryDreamDenomRequest {}
+
+message QueryDreamDenomResponse {
+  string denom = 1;
+}

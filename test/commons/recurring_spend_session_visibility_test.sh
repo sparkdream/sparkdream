@@ -50,7 +50,7 @@ echo "Committee policy: $POLICY_ADDR"
 echo "Recipient:        $CAROL_ADDR"
 
 # Fund the council so the schedule is fundable when claimed.
-$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000${BOND_DENOM} --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
 # --- 1. SCHEDULE VIA COMMONS WRAPPER ----------------------------------------
@@ -71,7 +71,7 @@ cat > "$PROPOSAL_DIR/sched_visibility.json" <<EOF
       "@type": "/sparkdream.commons.v1.MsgScheduleRecurringSpend",
       "authority": "$POLICY_ADDR",
       "recipient": "$CAROL_ADDR",
-      "amount_per_period": [{"denom":"uspark","amount":"$AMOUNT"}],
+      "amount_per_period": [{"denom": "${BOND_DENOM}","amount":"$AMOUNT"}],
       "period_seconds": "$PERIOD_SECONDS",
       "start_time": "$START_TIME",
       "end_time": "$END_TIME",
@@ -86,9 +86,9 @@ SUBMIT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/sched_visibility.json
 SUBMIT_HASH=$(echo "$SUBMIT" | jq -r '.txhash')
 sleep 3
 PROP_ID=$($BINARY query tx "$SUBMIT_HASH" --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-$BINARY tx commons vote-proposal "$PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-$BINARY tx commons vote-proposal "$PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-EXEC=$($BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
+$BINARY tx commons vote-proposal "$PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+$BINARY tx commons vote-proposal "$PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+EXEC=$($BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
 sleep 3
 EXEC_HASH=$(echo "$EXEC" | jq -r '.txhash')
 
@@ -159,8 +159,8 @@ if [ "$GRANT_STATUS" != "GRANT_STATUS_ACTIVE" ]; then
     echo "[FAIL] grant.status='$GRANT_STATUS' (expected GRANT_STATUS_ACTIVE)"
     exit 1
 fi
-if [ "$RP_AMT_DENOM" != "uspark" ] || [ "$RP_AMT" != "$AMOUNT" ]; then
-    echo "[FAIL] grant.recurring_pull.amount_per_period=${RP_AMT}${RP_AMT_DENOM} (expected ${AMOUNT}uspark)"
+if [ "$RP_AMT_DENOM" != "$BOND_DENOM" ] || [ "$RP_AMT" != "$AMOUNT" ]; then
+    echo "[FAIL] grant.recurring_pull.amount_per_period=${RP_AMT}${RP_AMT_DENOM} (expected ${AMOUNT}${BOND_DENOM})"
     exit 1
 fi
 if [ "$RP_PERIOD" != "$PERIOD_SECONDS" ]; then
@@ -213,9 +213,9 @@ CANCEL_SUBMIT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/cancel_visibil
 CANCEL_HASH=$(echo "$CANCEL_SUBMIT" | jq -r '.txhash')
 sleep 3
 CANCEL_PROP=$($BINARY query tx "$CANCEL_HASH" --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-$BINARY tx commons vote-proposal "$CANCEL_PROP" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-$BINARY tx commons vote-proposal "$CANCEL_PROP" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-$BINARY tx commons execute-proposal "$CANCEL_PROP" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark > /dev/null
+$BINARY tx commons vote-proposal "$CANCEL_PROP" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+$BINARY tx commons vote-proposal "$CANCEL_PROP" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+$BINARY tx commons execute-proposal "$CANCEL_PROP" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} > /dev/null
 sleep 3
 
 CANCEL_STATUS=$($BINARY query commons get-proposal "$CANCEL_PROP" --output json | jq -r '.proposal.status')

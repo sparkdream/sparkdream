@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get alice address (genesis member)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -103,10 +104,10 @@ for ADDR in $POSTER1_ADDR $POSTER2_ADDR $SENTINEL1_ADDR $SENTINEL2_ADDR $BOUNTY_
     echo "  Sending 10 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
-        10000000uspark \
+        10000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -163,7 +164,7 @@ for i in "${!ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -220,7 +221,7 @@ for i in "${!ACCOUNTS[@]}"; do
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -303,7 +304,7 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -422,7 +423,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -463,6 +464,8 @@ export BOUNTY_CREATOR_ADDR=$BOUNTY_CREATOR_ADDR
 export MODERATOR_ADDR=$MODERATOR_ADDR
 export ALICE_ADDR=$ALICE_ADDR
 export TEST_CATEGORY_ID=$FIRST_CATEGORY
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

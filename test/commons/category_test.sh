@@ -156,7 +156,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -260,7 +260,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -305,7 +305,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -380,7 +380,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -476,7 +476,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -506,7 +506,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -552,7 +552,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -568,7 +568,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -610,7 +610,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -641,7 +641,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -682,7 +682,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -705,7 +705,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -729,7 +729,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -753,7 +753,7 @@ TX_RES=$($BINARY tx commons create-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -797,7 +797,7 @@ if [ -n "$ADMIN_CATEGORY_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -827,10 +827,10 @@ if [ -n "$MEMBERS_CATEGORY_ID" ]; then
     # Fund the non-member so they can pay gas
     TX_RES=$($BINARY tx bank send \
         alice $NON_MEMBER_ADDR \
-        1000000uspark \
+        1000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -845,7 +845,7 @@ if [ -n "$MEMBERS_CATEGORY_ID" ]; then
         --from nonmember \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -872,7 +872,7 @@ if [ -n "$ADMIN_CATEGORY_ID" ]; then
         --from poster2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -899,7 +899,7 @@ if [ -n "$MEMBERS_CATEGORY_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -932,7 +932,7 @@ if [ -n "$ADMIN_CATEGORY_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

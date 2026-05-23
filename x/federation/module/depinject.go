@@ -38,6 +38,15 @@ type ModuleInputs struct {
 	BankKeeper types.BankKeeper
 
 	IBCKeeperFn func() *ibckeeper.Keeper `optional:"true"`
+
+	// IdentityKeeper supplies the chain's bond/dream denoms at runtime. Optional
+	// so depinject can wire in the order it likes; the keeper is set on the
+	// federation keeper before NewAppModule snapshots the value, otherwise the
+	// msg_server's embedded copy would never see it (see
+	// docs/development-conventions.md "AppModule Value-Copy Bug").
+	// Federation uses `late` (shared pointer) for its other
+	// post-depinject keepers so the pattern is identical here.
+	IdentityKeeper types.IdentityKeeper `optional:"true"`
 }
 
 type ModuleOutputs struct {
@@ -62,6 +71,9 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		in.BankKeeper,
 		in.IBCKeeperFn,
 	)
+	if in.IdentityKeeper != nil {
+		k.SetIdentityKeeper(in.IdentityKeeper)
+	}
 	m := NewAppModule(in.Cdc, k, in.AuthKeeper, in.BankKeeper)
 
 	return ModuleOutputs{FederationKeeper: k, Module: m}

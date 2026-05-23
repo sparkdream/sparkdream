@@ -45,7 +45,7 @@ CREATE_RES=$($BINARY tx futarchy create-market \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -75,7 +75,7 @@ TRADE_RES=$($BINARY tx futarchy trade \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -118,7 +118,7 @@ CANCEL_ATTEMPT=$($BINARY tx futarchy cancel-market \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1) || true
 
@@ -153,7 +153,7 @@ echo '{
       "reason": "Emergency cancellation: Market data compromised during testing"
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Emergency Cancel Market '$MARKET_ID'",
   "summary": "Cancel prediction market due to emergency situation."
 }' > "$PROPOSAL_DIR/cancel_market.json"
@@ -246,7 +246,7 @@ TRADE_ATTEMPT=$($BINARY tx futarchy trade \
   --from bob \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1) || true
 

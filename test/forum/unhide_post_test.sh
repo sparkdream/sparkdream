@@ -128,7 +128,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
@@ -141,7 +141,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
@@ -179,7 +179,7 @@ if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
@@ -202,7 +202,7 @@ create_post_as_poster1() {
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
@@ -229,7 +229,7 @@ hide_post() {
         --from "$SENTINEL_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"
@@ -264,7 +264,7 @@ else
             --from sentinel1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -314,7 +314,7 @@ else
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
@@ -359,7 +359,7 @@ else
         else
             # Unhide via sentinel.
             TX_RES=$($BINARY tx forum unhide-post "$POST_ID" \
-                --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
             if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
                 REC_AFTER=$($BINARY query forum get-hide-record "$POST_ID" --output json 2>&1)
                 if echo "$REC_AFTER" | grep -qiE "not found|does not exist"; then
@@ -391,7 +391,7 @@ if [ -z "$POST_ID" ]; then
 else
     if hide_post "$POST_ID" "sentinel1"; then
         TX_RES=$($BINARY tx forum unhide-post "$POST_ID" \
-            --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+            --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
         if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
             # Now re-hide; should succeed cleanly.
             if hide_post "$POST_ID" "sentinel1" "second hide"; then
@@ -402,7 +402,7 @@ else
 
                     # Cleanup: leave the post unhidden so the suite is idempotent.
                     TX_RES=$($BINARY tx forum unhide-post "$POST_ID" \
-                        --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                        --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
                     submit_tx_and_wait "$TX_RES" > /dev/null
                 else
                     echo "  ERROR: re-hide did not move post back to HIDDEN (status=$STATUS)"
@@ -460,7 +460,7 @@ TX_RES=$($BINARY tx forum unhide-post \
     --from sentinel2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 expect_tx_failure "$TX_RES" "NEG_WRONG_SENTINEL_RESULT" "non-hiding sentinel unhid a post!"
@@ -475,7 +475,7 @@ TX_RES=$($BINARY tx forum unhide-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 expect_tx_failure "$TX_RES" "NEG_AUTHOR_SELF_RESULT" "post author self-unhid their own post!"
@@ -490,7 +490,7 @@ TX_RES=$($BINARY tx forum unhide-post \
     --from poster2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 expect_tx_failure "$TX_RES" "NEG_RANDOM_RESULT" "random member unhid a sentinel hide!"
@@ -507,7 +507,7 @@ if [ -n "$POST_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     expect_tx_failure "$TX_RES" "NEG_NOT_HIDDEN_RESULT" "unhide of never-hidden post succeeded!"
@@ -525,7 +525,7 @@ TX_RES=$($BINARY tx forum unhide-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 expect_tx_failure "$TX_RES" "NEG_MISSING_RESULT" "unhide of non-existent post succeeded!"
@@ -546,7 +546,7 @@ fi
 
 # Cleanup — leave the suite idempotent across reruns.
 TX_RES=$($BINARY tx forum unhide-post "$NEG_TARGET" \
-    --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 submit_tx_and_wait "$TX_RES" > /dev/null
 
 echo ""

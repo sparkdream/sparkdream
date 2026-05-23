@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 
@@ -94,10 +95,10 @@ echo "Step 2: Funding $ACCOUNT with SPARK for gas fees..."
 # downstream tests issue from this account.
 TX_RES=$($BINARY tx bank send \
     alice $CLAIMANT_ADDR \
-    25000000uspark \
+    25000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -134,7 +135,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -173,7 +174,7 @@ if [ -n "$INVITATION_ID" ]; then
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -211,7 +212,7 @@ TX_RES=$($BINARY tx rep transfer-dream \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -260,6 +261,8 @@ export ALICE_ADDR=$ALICE_ADDR
 export BOB_ADDR=$BOB_ADDR
 export CAROL_ADDR=$CAROL_ADDR
 export NAME_CLAIMANT_ADDR=$CLAIMANT_ADDR
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

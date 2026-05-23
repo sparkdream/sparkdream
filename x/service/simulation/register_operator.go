@@ -26,11 +26,12 @@ func SimulateMsgRegisterOperator(
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
 		controller, _ := simtypes.RandomAcc(r, accs)
+		bondAmount := sdkmath.NewInt(1_000_000)
 		msg := &types.MsgRegisterOperator{
 			Creator:     simAccount.Address.String(),
 			ServiceType: simServiceType,
 			Controller:  controller.Address.String(),
-			Bond:        sdk.NewCoin(types.BondDenom, sdkmath.NewInt(1_000_000)),
+			BondAmount:  bondAmount,
 			Metadata:    []byte("sim-metadata"),
 		}
 		if simAccount.Address.Equals(controller.Address) {
@@ -52,12 +53,12 @@ func SimulateMsgRegisterOperator(
 			Address:                 msg.Creator,
 			ServiceType:             cfg.ServiceType,
 			Controller:              msg.Controller,
-			Bond:                    msg.Bond,
+			BondAmount:              msg.BondAmount,
 			Metadata:                msg.Metadata,
 			Status:                  types.OperatorStatus_OPERATOR_STATUS_ACTIVE,
 			Tier1SlashedInWindow:    sdkmath.ZeroInt(),
 			Tier1WindowStart:        height,
-			Tier1WindowStartBond:    msg.Bond.Amount,
+			Tier1WindowStartBond:    msg.BondAmount,
 			RegisteredAt:            height,
 			TotalLifetimeBondBlocks: sdkmath.ZeroInt(),
 			LastBondBlockUpdateAt:   height,

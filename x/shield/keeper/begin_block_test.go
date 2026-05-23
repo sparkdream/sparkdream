@@ -88,6 +88,7 @@ func initFixtureWithLowBalance(t *testing.T, balance math.Int) (*fixture, *mockD
 		},
 	}
 	k.SetStakingKeeper(mockSK)
+	k.SetIdentityKeeper(&mockIdentityKeeperShield{})
 
 	distrMock := &mockDistrKeeper{poolBalance: math.NewInt(1_000_000_000)} // 1000 SPARK
 	k.SetDistrKeeper(distrMock)

@@ -459,6 +459,13 @@ func (m *mockRepKeeper) UpdateSalvationCounters(_ context.Context, _ string, _ u
 }
 
 // mockCommonsKeeper implements types.CommonsKeeper for testing.
+// mockIdentityKeeperForum returns legacy denoms for unit tests.
+type mockIdentityKeeperForum struct{}
+
+func (mockIdentityKeeperForum) IsIdentityKeeper() {}
+func (m *mockIdentityKeeperForum) BondDenom(_ context.Context) string  { return "uspark" }
+func (m *mockIdentityKeeperForum) DreamDenom(_ context.Context) string { return "udream" }
+
 type mockCommonsKeeper struct {
 	IsGroupPolicyMemberFn  func(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
 	IsGroupPolicyAddressFn func(ctx context.Context, addr string) bool
@@ -530,6 +537,8 @@ func initFixtureWithCommons(t *testing.T, commonsKeeper types.CommonsKeeper) *fi
 		commonsKeeper,
 	)
 
+	k.SetIdentityKeeper(&mockIdentityKeeperForum{})
+
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
 		t.Fatalf("failed to set params: %v", err)
 	}
@@ -590,6 +599,7 @@ func initFixture(t *testing.T) *fixture {
 		repKeeper,
 		commonsKeeper,
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeperForum{})
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {

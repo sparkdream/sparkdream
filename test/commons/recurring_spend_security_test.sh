@@ -54,7 +54,7 @@ if [ -z "$SESSION_MIN_PERIOD" ] || [ "$SESSION_MIN_PERIOD" -gt 60 ]; then
 fi
 
 PERIOD=5
-$BINARY tx bank send "$ALICE_ADDR" "$OWN_POLICY" 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+$BINARY tx bank send "$ALICE_ADDR" "$OWN_POLICY" 50000000${BOND_DENOM} --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
 # --- 1. SCHEDULE TWO SPENDS (one for wrong-recipient subtests, one for decline) ---
@@ -77,7 +77,7 @@ schedule_for_recipient() {
       "@type": "/sparkdream.commons.v1.MsgScheduleRecurringSpend",
       "authority": "$OWN_POLICY",
       "recipient": "$recipient",
-      "amount_per_period": [{"denom":"uspark","amount":"50000"}],
+      "amount_per_period": [{"denom": "${BOND_DENOM}","amount":"50000"}],
       "period_seconds": "$PERIOD",
       "start_time": "$start",
       "end_time": "$end",
@@ -93,10 +93,10 @@ EOF
     sleep 3
     local prop_id
     prop_id=$($BINARY query tx "$hash" --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-    $BINARY tx commons vote-proposal "$prop_id" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-    $BINARY tx commons vote-proposal "$prop_id" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
+    $BINARY tx commons vote-proposal "$prop_id" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+    $BINARY tx commons vote-proposal "$prop_id" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
     local exec_res
-    exec_res=$($BINARY tx commons execute-proposal "$prop_id" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
+    exec_res=$($BINARY tx commons execute-proposal "$prop_id" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
     sleep 3
     local exec_hash; exec_hash=$(echo "$exec_res" | jq -r '.txhash')
     # Post-migration the schedule id is reported via the session
@@ -124,7 +124,7 @@ echo "Scheduled IDs: claim-target=$CLAIM_ID, decline-target=$DECLINE_ID"
 echo ""
 echo "STEP 2: bob attempts to claim Carol's schedule..."
 sleep "$PERIOD"
-BAD_CLAIM=$($BINARY tx commons claim-recurring-spend "$CLAIM_ID" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+BAD_CLAIM=$($BINARY tx commons claim-recurring-spend "$CLAIM_ID" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>&1)
 BAD_CODE=$(echo "$BAD_CLAIM" | jq -r '.code')
 BAD_HASH=$(echo "$BAD_CLAIM" | jq -r '.txhash')
 if [ "$BAD_CODE" == "0" ]; then
@@ -140,7 +140,7 @@ echo "[ OK ] Wrong-recipient claim rejected (code=$BAD_CODE)."
 # --- 3. WRONG-RECIPIENT DECLINE REJECTED ----------------------------------
 echo ""
 echo "STEP 3: bob attempts to decline Carol's schedule..."
-BAD_DECL=$($BINARY tx commons decline-recurring-spend "$DECLINE_ID" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+BAD_DECL=$($BINARY tx commons decline-recurring-spend "$DECLINE_ID" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>&1)
 BAD_DECL_HASH=$(echo "$BAD_DECL" | jq -r '.txhash')
 BAD_DECL_CODE=$(echo "$BAD_DECL" | jq -r '.code')
 if [ "$BAD_DECL_CODE" == "0" ]; then
@@ -156,7 +156,7 @@ echo "[ OK ] Wrong-recipient decline rejected (code=$BAD_DECL_CODE)."
 # --- 4. CAROL UNILATERALLY DECLINES THE DECLINE-TARGET --------------------
 echo ""
 echo "STEP 4: Carol unilaterally declines decline-target=$DECLINE_ID..."
-DEC_RES=$($BINARY tx commons decline-recurring-spend "$DECLINE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json)
+DEC_RES=$($BINARY tx commons decline-recurring-spend "$DECLINE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 sleep 3
 DEC_CODE=$(echo "$DEC_RES" | jq -r '.code')
 DEC_HASH=$(echo "$DEC_RES" | jq -r '.txhash')
@@ -192,7 +192,7 @@ echo "[ OK ] Post-decline query returns NotFound (M9 deliberate semantic break).
 
 # Post-decline claim should fail.
 sleep "$PERIOD"
-POST_CLAIM=$($BINARY tx commons claim-recurring-spend "$DECLINE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+POST_CLAIM=$($BINARY tx commons claim-recurring-spend "$DECLINE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>&1)
 POST_CODE=$(echo "$POST_CLAIM" | jq -r '.code')
 POST_HASH=$(echo "$POST_CLAIM" | jq -r '.txhash')
 if [ "$POST_CODE" == "0" ]; then
@@ -234,9 +234,9 @@ PEER_PROP_ID=$(echo "$PEER_TX" | jq -r '.events[] | select(.type=="submit_propos
 if [ "$PEER_SUBMIT_CODE" != "0" ] || [ -z "$PEER_PROP_ID" ] || [ "$PEER_PROP_ID" == "null" ]; then
     echo "[ OK ] Cross-council cancel rejected at submit (code=$PEER_SUBMIT_CODE)."
 else
-    $BINARY tx commons vote-proposal "$PEER_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-    $BINARY tx commons vote-proposal "$PEER_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-    $BINARY tx commons execute-proposal "$PEER_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark > /dev/null
+    $BINARY tx commons vote-proposal "$PEER_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+    $BINARY tx commons vote-proposal "$PEER_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+    $BINARY tx commons execute-proposal "$PEER_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} > /dev/null
     sleep 3
     PEER_STATUS=$($BINARY query commons get-proposal "$PEER_PROP_ID" --output json | jq -r '.proposal.status')
     if [ "$PEER_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then

@@ -35,7 +35,7 @@ func ensureServiceType(ctx sdk.Context, k keeper.Keeper) (types.ServiceTypeConfi
 	cfg = types.ServiceTypeConfig{
 		ServiceType:            simServiceType,
 		Description:            "sim",
-		MinBond:                sdk.NewCoin(types.BondDenom, math.NewInt(1_000_000)),
+		MinBondAmount:          math.NewInt(1_000_000),
 		UnbondingPeriodBlocks:  20,
 		UnilateralSlashCapBps:  500,
 		Tier1WindowBlocks:      1000,
@@ -105,7 +105,7 @@ func findReportWithStatus(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status
 // case, or (zero, 0, false) if none.
 func findControllerTransferCase(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (types.ControllerTransferCase, uint64, bool) {
 	type entry struct {
-		id   uint64
+		id    uint64
 		case_ types.ControllerTransferCase
 	}
 	var collected []entry

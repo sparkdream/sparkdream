@@ -205,4 +205,3 @@ func paginateRecurringSpendsSlice(in []types.RecurringSpend, pr *query.PageReque
 	}
 	return out, resp
 }
-

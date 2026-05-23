@@ -3,14 +3,15 @@ syntax = "proto3";
 package sparkdream.name.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
 
 option go_package = "sparkdream/x/name/types";
 
-// Params defines the parameters for the module.
+// Params defines the parameters for the module. Fee amounts are bare
+// math.Int values in the chain's bond/dream denom — wrapped into sdk.Coin
+// at the point of use via the identity keeper.
 message Params {
   option (amino.name) = "sparkdream/x/name/Params";
   option (gogoproto.equal) = true;
@@ -22,9 +23,11 @@ message Params {
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  cosmos.base.v1beta1.Coin registration_fee = 6 [
-    (gogoproto.nullable) = false,
-    (amino.dont_omitempty) = true
+  // Registration fee amount in bond-denom micro-units.
+  string registration_fee_amount = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
   ];
   // DREAM tokens staked by claimant when filing a dispute (default 50)
   string dispute_stake_dream = 7 [
@@ -54,9 +57,11 @@ message NameOperationalParams {
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  cosmos.base.v1beta1.Coin registration_fee = 2 [
-    (gogoproto.nullable) = false,
-    (amino.dont_omitempty) = true
+  // Registration fee amount in bond-denom micro-units.
+  string registration_fee_amount = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
   ];
   // DREAM tokens staked by claimant when filing a dispute (default 50)
   string dispute_stake_dream = 3 [

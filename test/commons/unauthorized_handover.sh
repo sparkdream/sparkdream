@@ -50,7 +50,7 @@ echo '{
       "new_member_weights": ["1"]
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Hostile Handover",
   "summary": "Malicious proposal to hijack the protocol."
 }' > "$PROPOSAL_DIR/gov_handover_hostile.json"

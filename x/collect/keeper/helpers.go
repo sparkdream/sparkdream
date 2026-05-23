@@ -27,9 +27,6 @@ import (
 var shieldModuleAddress = authtypes.NewModuleAddress("shield")
 
 const (
-	SparkDenom = "uspark"
-	DreamDenom = "udream"
-
 	// BlocksPerDay is approximate blocks per day (~6s block time).
 	BlocksPerDay int64 = 14400
 )
@@ -176,7 +173,7 @@ func (k Keeper) ValidatePublicActiveFeedbackTarget(ctx context.Context, targetTy
 
 // EscrowSPARK transfers SPARK from an account to the module account (hold).
 func (k Keeper) EscrowSPARK(ctx context.Context, from sdk.AccAddress, amount math.Int) error {
-	coins := sdk.NewCoins(sdk.NewCoin(SparkDenom, amount))
+	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), amount))
 	return k.bankKeeper.SendCoinsFromAccountToModule(ctx, from, types.ModuleName, coins)
 }
 
@@ -185,7 +182,7 @@ func (k Keeper) RefundSPARK(ctx context.Context, to sdk.AccAddress, amount math.
 	if amount.IsZero() {
 		return nil
 	}
-	coins := sdk.NewCoins(sdk.NewCoin(SparkDenom, amount))
+	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), amount))
 	return k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, to, coins)
 }
 
@@ -194,7 +191,7 @@ func (k Keeper) BurnSPARK(ctx context.Context, amount math.Int) error {
 	if amount.IsZero() {
 		return nil
 	}
-	coins := sdk.NewCoins(sdk.NewCoin(SparkDenom, amount))
+	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), amount))
 	return k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins)
 }
 

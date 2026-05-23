@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/service/types"
@@ -14,13 +13,13 @@ func TestMsgRegisterOperator_HappyPath(t *testing.T) {
 	f := initFixture(t)
 	cfg := f.seedServiceType(t)
 
-	bond := sdk.NewCoin(types.BondDenom, cfg.MinBond.Amount)
+	bond := cfg.MinBondAmount
 
 	_, err := f.msgServer.RegisterOperator(f.ctx, &types.MsgRegisterOperator{
 		Creator:     testOperator1,
 		ServiceType: testServiceType,
 		Controller:  testController,
-		Bond:        bond,
+		BondAmount:        bond,
 		Metadata:    []byte("operator1-metadata"),
 	})
 	require.NoError(t, err)
@@ -28,7 +27,7 @@ func TestMsgRegisterOperator_HappyPath(t *testing.T) {
 	op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
 	require.True(t, ok)
 	require.Equal(t, types.OperatorStatus_OPERATOR_STATUS_ACTIVE, op.Status)
-	require.Equal(t, bond, op.Bond)
+	require.Equal(t, bond, op.BondAmount)
 	require.Equal(t, testController, op.Controller)
 	require.Equal(t, []byte("operator1-metadata"), op.Metadata)
 	require.Equal(t, f.sdkCtx().BlockHeight(), op.RegisteredAt)
@@ -37,7 +36,7 @@ func TestMsgRegisterOperator_HappyPath(t *testing.T) {
 	require.Len(t, f.bankKeeper.AcctToModCalls, 1)
 	require.Equal(t, testOperator1Addr, f.bankKeeper.AcctToModCalls[0].Sender)
 	require.Equal(t, types.ModuleName, f.bankKeeper.AcctToModCalls[0].Module)
-	require.True(t, f.bankKeeper.AcctToModCalls[0].Amt.AmountOf(types.BondDenom).Equal(bond.Amount))
+	require.True(t, f.bankKeeper.AcctToModCalls[0].Amt.AmountOf(testBondDenom).Equal(bond))
 }
 
 func TestMsgRegisterOperator_Rejections(t *testing.T) {
@@ -96,16 +95,9 @@ func TestMsgRegisterOperator_Rejections(t *testing.T) {
 			expErr: matchKind(types.ErrServiceTypeDisabled),
 		},
 		{
-			name: "bond denom mismatch",
-			mutate: func(_ *fixture, msg *types.MsgRegisterOperator) {
-				msg.Bond = sdk.NewCoin("udream", cfgBond)
-			},
-			expErr: matchKind(types.ErrBondDenomMismatch),
-		},
-		{
 			name: "bond below min",
 			mutate: func(_ *fixture, msg *types.MsgRegisterOperator) {
-				msg.Bond = sdk.NewCoin(types.BondDenom, belowMin)
+				msg.BondAmount = belowMin
 			},
 			expErr: matchKind(types.ErrInsufficientBond),
 		},
@@ -126,7 +118,7 @@ func TestMsgRegisterOperator_Rejections(t *testing.T) {
 				Creator:     testOperator1,
 				ServiceType: testServiceType,
 				Controller:  testController,
-				Bond:        sdk.NewCoin(types.BondDenom, cfgBond),
+				BondAmount:        cfgBond,
 				Metadata:    []byte("ok"),
 			}
 			tc.mutate(f, msg)
@@ -145,7 +137,7 @@ func TestMsgRegisterOperator_DuplicateRejected(t *testing.T) {
 		Creator:     testOperator1,
 		ServiceType: testServiceType,
 		Controller:  testController,
-		Bond:        sdk.NewCoin(types.BondDenom, math.NewInt(1_000_000)),
+		BondAmount:        math.NewInt(1_000_000),
 		Metadata:    []byte("dup"),
 	})
 	require.Error(t, err)
@@ -161,7 +153,7 @@ func TestMsgRegisterOperator_PreviouslySlashedRejected(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    sdk.NewCoin(types.BondDenom, math.ZeroInt()),
+		BondAmount:                    math.ZeroInt(),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_SLASHED,
 		RetiredAt:               f.sdkCtx().BlockHeight(),
 		Tier1SlashedInWindow:    math.ZeroInt(),
@@ -174,7 +166,7 @@ func TestMsgRegisterOperator_PreviouslySlashedRejected(t *testing.T) {
 		Creator:     testOperator1,
 		ServiceType: testServiceType,
 		Controller:  testController,
-		Bond:        sdk.NewCoin(types.BondDenom, math.NewInt(1_000_000)),
+		BondAmount:        math.NewInt(1_000_000),
 		Metadata:    []byte("retry"),
 	})
 	require.Error(t, err)

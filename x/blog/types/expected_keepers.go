@@ -71,3 +71,13 @@ type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})
 	Set(context.Context, []byte, interface{})
 }
+
+// IdentityKeeper exposes the resolved chain denoms from x/identity. The blog
+// keeper consults this at every fee-charging / coin-constructing site so a
+// federated chain's denom (e.g. uspark.phoenix) flows through correctly
+// instead of a hardcoded "uspark" literal.
+type IdentityKeeper interface {
+	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+	DreamDenom(ctx context.Context) string
+}

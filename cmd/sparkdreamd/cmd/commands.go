@@ -25,6 +25,7 @@ import (
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 
 	"sparkdream/app"
+	identitycli "sparkdream/x/identity/client/cli"
 )
 
 func initRootCmd(
@@ -48,9 +49,11 @@ func initRootCmd(
 	})
 
 	// add keybase, auxiliary RPC, query, genesis, and tx child commands
+	genesisCmd := genutilcli.Commands(txConfig, basicManager, app.DefaultNodeHome)
+	genesisCmd.AddCommand(identitycli.GenesisIdentityCmd())
 	rootCmd.AddCommand(
 		server.StatusCommand(),
-		genutilcli.Commands(txConfig, basicManager, app.DefaultNodeHome),
+		genesisCmd,
 		queryCommand(),
 		txCommand(),
 		keys.Commands(),

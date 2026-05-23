@@ -7,16 +7,16 @@ validation: sovereign
 accounts:
 - name: alice
   address: sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs
-  coins: [20000000000000uspark]  # 20,000,000 SPARK
+  coins: [20000000000000uspark.sparkdreamdev]  # 20,000,000 SPARK
 - name: bob
   address: sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6
-  coins: [10000000000000uspark]  # 10,000,000 SPARK
+  coins: [10000000000000uspark.sparkdreamdev]  # 10,000,000 SPARK
 - name: carol
   address: sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw
-  coins: [5000000000000uspark]   # 5,000,000 SPARK
+  coins: [5000000000000uspark.sparkdreamdev]   # 5,000,000 SPARK
 - name: dave
   address: sprkdrm1v94rgfy8d3e345yva7p2p9uaaf6hle07lhkfs9
-  coins: [5000000uspark]         # 5 SPARK (intentionally tiny — non-member test account)
+  coins: [5000000uspark.sparkdreamdev]         # 5 SPARK (intentionally tiny — non-member test account)
 genesis:
   consensus:
     params:
@@ -25,9 +25,9 @@ genesis:
   app_state:
     bank:
       denom_metadata:
-      - base: uspark
+      - base: uspark.sparkdreamdev
         denom_units:
-        - denom: uspark
+        - denom: uspark.sparkdreamdev
           exponent: 0
         - denom: spark
           exponent: 6
@@ -35,9 +35,9 @@ genesis:
         display: spark
         name: spark
         symbol: spark
-      - base: udream
+      - base: udream.sparkdreamdev
         denom_units:
-        - denom: udream
+        - denom: udream.sparkdreamdev
           exponent: 0
         - denom: dream
           exponent: 6
@@ -47,7 +47,7 @@ genesis:
         symbol: dream
     commons:
       params:
-        proposal_fee: "5000000uspark"
+        proposal_fee: "5000000uspark.sparkdreamdev"
       category_map:
       - category_id: 1
         title: "General"
@@ -84,15 +84,15 @@ genesis:
       params:
         sysnames_pkgpath: ""
         chain_domain: "gno.land"
-        default_deposit: "100000uspark"
-        storage_price: "1uspark"
+        default_deposit: "100000uspark.sparkdreamdev"
+        storage_price: "1uspark.sparkdreamdev"
     crisis:
       constant_fee:
-        denom: uspark
+        denom: uspark.sparkdreamdev
     distribution:
       fee_pool:
         community_pool:
-        - denom: uspark
+        - denom: uspark.sparkdreamdev
           amount: "95000000000000"  # 95,000,000 SPARK (95%) — x/split routes to councils on first block
       params:
         community_tax: "0.15"
@@ -101,22 +101,22 @@ genesis:
         max_deposit_period: "1800s"       # 30 minutes (DEVNET; production: 172800s = 48h)
         min_deposit:
           - amount: "50000000"
-            denom: "uspark"
+            denom: uspark.sparkdreamdev
         voting_period: "3600s"            # 1 hour (DEVNET; production: 432000s = 5d)
         expedited_min_deposit:
           - amount: "100000000"
-            denom: "uspark"
+            denom: uspark.sparkdreamdev
         expedited_voting_period: "1800s"  # 30 minutes (DEVNET; production: 86400s = 1d)
     mint:
       params:
-        mint_denom: "uspark"
+        mint_denom: uspark.sparkdreamdev
         goal_bonded: "0.67"
         inflation_max: "0.05"
         inflation_min: "0.02"
         inflation_rate_change: "0.13"
     staking:
       params:
-        bond_denom: uspark
+        bond_denom: uspark.sparkdreamdev
     season:
       season:
         number: 1
@@ -378,6 +378,6 @@ genesis:
 # chain rely on alice + bob being staked at genesis.
 validators:
 - name: alice
-  bonded: 15000000000000uspark
+  bonded: 15000000000000uspark.sparkdreamdev
 - name: bob
-  bonded: 5000000000000uspark
+  bonded: 5000000000000uspark.sparkdreamdev

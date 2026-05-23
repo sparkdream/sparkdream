@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // federationGenesisParams holds the network-specific parameter values
@@ -28,7 +27,10 @@ type federationGenesisParams struct {
 
 	VerificationWindow           time.Duration
 	ChallengeWindow              time.Duration
-	ChallengeFee                 sdk.Coin
+	// ChallengeFeeAmount and EscalationFeeAmount are bare amounts in the
+	// chain's bond denom (resolved at runtime from x/identity); the keeper
+	// wraps them into sdk.Coin at the point of use.
+	ChallengeFeeAmount           math.Int
 	ChallengeJuryDeadline        time.Duration
 	VerifierDemotionCooldown     time.Duration
 	VerifierUnbondCooldown       time.Duration
@@ -37,7 +39,7 @@ type federationGenesisParams struct {
 
 	ArbiterResolutionWindow time.Duration
 	ArbiterEscalationWindow time.Duration
-	EscalationFee           sdk.Coin
+	EscalationFeeAmount     math.Int
 
 	RateLimitWindow  time.Duration
 	IBCPacketTimeout time.Duration
@@ -126,7 +128,7 @@ func DefaultParams() Params {
 		VerifierSlashAmount:          DefaultVerifierSlashAmount,
 		VerificationWindow:           gp.VerificationWindow,
 		ChallengeWindow:              gp.ChallengeWindow,
-		ChallengeFee:                 gp.ChallengeFee,
+		ChallengeFeeAmount:           gp.ChallengeFeeAmount,
 		ChallengeJuryDeadline:        gp.ChallengeJuryDeadline,
 		VerifierDemotionCooldown:     gp.VerifierDemotionCooldown,
 		VerifierUnbondCooldown:       gp.VerifierUnbondCooldown,
@@ -142,7 +144,7 @@ func DefaultParams() Params {
 		ArbiterQuorum:           DefaultArbiterQuorum,
 		ArbiterResolutionWindow: gp.ArbiterResolutionWindow,
 		ArbiterEscalationWindow: gp.ArbiterEscalationWindow,
-		EscalationFee:           gp.EscalationFee,
+		EscalationFeeAmount:     gp.EscalationFeeAmount,
 		ChallengeCooldown:       gp.ChallengeCooldown,
 	}
 }

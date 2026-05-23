@@ -7,6 +7,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 source "$SCRIPT_DIR/test_helpers.sh"
 
 echo "========================================================================="
@@ -53,7 +54,7 @@ echo "  nonmember1: $NONMEMBER1_ADDR"
 echo ""
 echo "--- Step 2: Funding accounts with SPARK ---"
 
-FUND_AMOUNT="200000000uspark"  # 200 SPARK each
+FUND_AMOUNT="200000000${BOND_DENOM}"  # 200 SPARK each
 
 for ACCT in collector1 collector2 nonmember1; do
     ADDR=$(get_address $ACCT)
@@ -212,6 +213,8 @@ ALICE_ADDR=$ALICE_ADDR
 COLLECTOR1_ADDR=$COLLECTOR1_ADDR
 COLLECTOR2_ADDR=$COLLECTOR2_ADDR
 NONMEMBER1_ADDR=$NONMEMBER1_ADDR
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "  Saved to $SCRIPT_DIR/.test_env"
@@ -223,7 +226,7 @@ echo ""
 echo "--- Final State ---"
 for ACCT in alice collector1 collector2 nonmember1; do
     ADDR=$(get_address $ACCT)
-    BAL=$($BINARY query bank balance "$ADDR" uspark --output json 2>/dev/null | jq -r '.balance.amount // "0"')
+    BAL=$($BINARY query bank balance "$ADDR" ${BOND_DENOM} --output json 2>/dev/null | jq -r '.balance.amount // "0"')
     BAL_DISPLAY=$(echo "scale=2; $BAL / 1000000" | bc 2>/dev/null || echo "?")
     DREAM_BAL=$($BINARY query rep get-member "$ADDR" -o json 2>/dev/null | jq -r '.member.dream_balance // "n/a"')
     echo "  $ACCT: $BAL_DISPLAY SPARK, $DREAM_BAL DREAM"

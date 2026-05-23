@@ -34,7 +34,7 @@ func SimulateMsgClaimUnbondedBond(
 		msg.Operator = op.Address
 		msg.ServiceType = op.ServiceType
 
-		op.Bond = sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt())
+		op.BondAmount = sdkmath.ZeroInt()
 		op.Status = types.OperatorStatus_OPERATOR_STATUS_RETIRED
 		op.RetiredAt = ctx.BlockHeight()
 		if err := k.ArchiveOperator(ctx, op); err != nil {

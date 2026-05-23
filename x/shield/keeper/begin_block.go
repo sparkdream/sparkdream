@@ -34,7 +34,7 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 // autoFundModule handles the shield module gas reserve funding from the community pool.
 func (k Keeper) autoFundModule(ctx context.Context, sdkCtx sdk.Context, params types.Params) {
 	moduleAddr := k.accountKeeper.GetModuleAddress(types.ModuleName)
-	balance := k.bankKeeper.GetBalance(ctx, moduleAddr, "uspark")
+	balance := k.bankKeeper.GetBalance(ctx, moduleAddr, k.BondDenom(ctx))
 
 	if balance.Amount.GTE(params.MinGasReserve) {
 		return
@@ -67,12 +67,12 @@ func (k Keeper) autoFundModule(ctx context.Context, sdkCtx sdk.Context, params t
 	if err != nil {
 		return
 	}
-	available := pool.AmountOf("uspark").TruncateInt()
+	available := pool.AmountOf(k.BondDenom(ctx)).TruncateInt()
 	if !available.IsPositive() || available.LT(fundAmount) {
 		return
 	}
 
-	coins := sdk.NewCoins(sdk.NewCoin("uspark", fundAmount))
+	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), fundAmount))
 	err = k.late.distrKeeper.DistributeFromFeePool(ctx, coins, moduleAddr)
 	if err != nil {
 		sdkCtx.Logger().With("module", "x/shield").Info(

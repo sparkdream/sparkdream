@@ -54,3 +54,18 @@ func (k *Keeper) SetHooks(hooks types.FutarchyHooks) {
 	}
 	k.Hooks = hooks
 }
+
+// SetIdentityKeeper late-binds the identity keeper for federated-denom
+// resolution. Called from app.go post-depinject.
+func (k Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
+	k.late.identityKeeper = idk
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity isn't wired: no silent fallback to a hardcoded literal.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.late.identityKeeper == nil {
+		panic("futarchy keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.BondDenom(ctx)
+}

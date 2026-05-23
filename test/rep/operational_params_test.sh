@@ -71,13 +71,13 @@ vote_and_execute() {
     echo "  Alice voting YES..."
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 6
 
     echo "  Executing proposal $prop_id..."
     EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --gas 2000000 --fees 5000000uspark --output json)
+        --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
@@ -297,7 +297,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
 
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_rep_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
     echo "  Submitted tx: $TX_HASH"
@@ -501,7 +501,7 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
 
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/reset_rep_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
     PROPOSAL_ID=$(get_group_proposal_id $TX_HASH)

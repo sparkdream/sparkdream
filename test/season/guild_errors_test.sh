@@ -133,7 +133,7 @@ TX_RES=$($BINARY tx season create-guild \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -149,7 +149,7 @@ TX_RES=$($BINARY tx season create-guild \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -167,7 +167,7 @@ TX_RES=$($BINARY tx season create-guild \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -183,7 +183,7 @@ TX_RES=$($BINARY tx season join-guild \
     --from bob \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -216,7 +216,7 @@ create_fixture_guild() {
         --from "$FROM_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -283,7 +283,7 @@ ensure_member_profile() {
         --from "$KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -403,7 +403,7 @@ if [ -n "$ERR_GUILD_ID" ]; then
         --from "$FOUNDER_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -430,7 +430,7 @@ if [ -n "$ERR_GUILD_ID" ]; then
             --from "$NON_FOUNDER_KEY" \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -462,7 +462,7 @@ if [ -n "$ERR_GUILD_ID" ]; then
         --from "$NON_FOUNDER_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -482,7 +482,7 @@ if [ -n "$ERR_GUILD_ID" ]; then
         --from "$FOUNDER_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -505,7 +505,7 @@ if [ -n "$ERR_GUILD_ID" ]; then
         --from "$FOUNDER_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -528,7 +528,7 @@ if [ -n "$ERR_GUILD_ID" ]; then
         --from "$FOUNDER_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -552,7 +552,7 @@ if [ -n "$ERR_GUILD_ID" ]; then
         --from "$FOUNDER_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -574,8 +574,8 @@ if [ -n "$ERR_GUILD_ID" ]; then
     FRESH_ADDR=$($BINARY keys show "$FRESH_KEY" -a --keyring-backend test 2>/dev/null)
 
     # Fund the fresh account (use alice who has genesis funds)
-    TX_RES=$($BINARY tx bank send alice "$FRESH_ADDR" 1000000uspark \
-        --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    TX_RES=$($BINARY tx bank send alice "$FRESH_ADDR" 1000000${BOND_DENOM} \
+        --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
         sleep 6
@@ -592,7 +592,7 @@ if [ -n "$ERR_GUILD_ID" ]; then
         --from "$FRESH_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -612,7 +612,7 @@ TX_RES=$($BINARY tx season accept-guild-invite \
     --from carol \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -630,7 +630,7 @@ if [ -n "$ERR_GUILD_ID" ] && [ -n "$FIXTURE_GUILD_NAME" ]; then
         --from "$OUTSIDER_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

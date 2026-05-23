@@ -59,8 +59,8 @@ COMMONS_POLICY=$(echo $COMMONS_INFO | jq -r '.group.policy_address')
 # from the authority (the Commons Council policy here). The genesis-bootstrapped
 # council balance is short of that, so top it up before any register-group
 # proposal in this test.
-$BINARY tx bank send alice "$COMMONS_POLICY" 50000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y \
+$BINARY tx bank send alice "$COMMONS_POLICY" 50000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y \
     --output json > /dev/null 2>&1
 sleep 5
 
@@ -93,7 +93,7 @@ echo '{
   "metadata": "Create Art DAO sub-committee with short term"
 }' > "$PROPOSAL_DIR/create_art_dao.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/create_art_dao.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/create_art_dao.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 PROPOSAL_ID=$(get_proposal_id $TX_HASH)
 
@@ -151,7 +151,7 @@ echo '{
   "metadata": "Raising budget limit for Digital Art DAO"
 }' > "$PROPOSAL_DIR/update_config.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_config.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_config.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 PROPOSAL_ID=$(get_proposal_id $TX_HASH)
 
@@ -216,7 +216,7 @@ echo '{
   "metadata": "Rotate members: Dave out, Carol in"
 }' > "$PROPOSAL_DIR/renew_members.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/renew_members.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/renew_members.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 PROPOSAL_ID=$(get_proposal_id $TX_HASH)
 
@@ -277,7 +277,7 @@ echo '{
   "metadata": "Sunsetting the Digital Art DAO sub-committee"
 }' > "$PROPOSAL_DIR/delete_group.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/delete_group.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/delete_group.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 PROPOSAL_ID=$(get_proposal_id $TX_HASH)
 

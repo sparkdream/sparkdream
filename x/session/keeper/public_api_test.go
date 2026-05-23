@@ -124,7 +124,7 @@ func TestCreateGrantOnBehalfOf_PayloadValidationStillApplies(t *testing.T) {
 		ExpiresAt: sdkCtx.BlockTime().Add(72 * time.Hour),
 		Payload: &types.MsgCreateGrant_RecurringPull{
 			RecurringPull: &types.RecurringPullPayload{
-				AmountPerPeriod: sdk.NewInt64Coin("dream", 1_000_000), // forbidden
+				AmountPerPeriod: sdk.NewInt64Coin("udream", 1_000_000), // forbidden
 				PeriodSeconds:   86_400,
 			},
 		},

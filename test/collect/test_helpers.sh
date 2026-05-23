@@ -4,7 +4,7 @@
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 KEYRING="test"
-FEES="500000uspark"
+FEES="500000${BOND_DENOM}"
 TX_WAIT=6
 
 # Counters

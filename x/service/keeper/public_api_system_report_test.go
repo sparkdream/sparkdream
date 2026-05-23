@@ -25,7 +25,7 @@ func TestOpenSystemReport_RejectsUnauthorizedCaller(t *testing.T) {
 	cfg := f.seedServiceType(t)
 	cfg.ChallengeDefaultSlashBps = 100
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(2))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(2))
 
 	// Use an arbitrary non-allowlisted address (testRandomAddr is a
 	// random EOA; testReporterAddr is also an EOA). Both fail the
@@ -62,7 +62,7 @@ func TestOpenSystemReport_RejectsCallerSpoofingFederationAddress(t *testing.T) {
 	cfg := f.seedServiceType(t)
 	cfg.ChallengeDefaultSlashBps = 100
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(2))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(2))
 
 	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
 
@@ -91,7 +91,7 @@ func TestOpenSystemReport_HappyPath_FiresReportWithDefaults(t *testing.T) {
 	cfg := f.seedServiceType(t)
 	cfg.ChallengeDefaultSlashBps = 250 // 2.5%
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(2))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(2))
 
 	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
 
@@ -108,7 +108,7 @@ func TestOpenSystemReport_HappyPath_FiresReportWithDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, report.Status)
 	require.EqualValues(t, 250, report.ProposedSlashBps, "0 input falls back to challenge_default")
-	require.True(t, report.Deposit.Amount.IsZero(), "system reports have zero deposit")
+	require.True(t, report.Deposit.IsZero(), "system reports have zero deposit")
 	require.Equal(t, testServiceType, report.ServiceType)
 	require.Equal(t, testOperator1, report.OperatorAddress)
 }
@@ -119,7 +119,7 @@ func TestOpenSystemReport_CapsSlashBpsToUnilateralCap(t *testing.T) {
 	cfg.UnilateralSlashCapBps = 500    // 5%
 	cfg.ChallengeDefaultSlashBps = 200 // 2% default
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(2))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(2))
 
 	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
 
@@ -141,7 +141,7 @@ func TestOpenSystemReport_IdempotencyReturnsExistingReportID(t *testing.T) {
 	cfg := f.seedServiceType(t)
 	cfg.ChallengeDefaultSlashBps = 100
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(2))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(2))
 
 	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
 	dedupe := []byte("the-same-challenge")
@@ -176,7 +176,7 @@ func TestOpenSystemReport_RejectsEmptyDedupeKey(t *testing.T) {
 	cfg := f.seedServiceType(t)
 	cfg.ChallengeDefaultSlashBps = 100
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(2))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(2))
 
 	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
 	_, _, err := f.keeper.OpenSystemReport(
@@ -203,7 +203,7 @@ func TestOpenSystemReport_RateLimitRejectsAtCapPlusOne(t *testing.T) {
 	cfg := f.seedServiceType(t)
 	cfg.ChallengeDefaultSlashBps = 100
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(10))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(10))
 
 	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
 
@@ -237,7 +237,7 @@ func TestOpenSystemReport_IdempotentCallsDontCountAgainstRateLimit(t *testing.T)
 	cfg := f.seedServiceType(t)
 	cfg.ChallengeDefaultSlashBps = 100
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(10))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(10))
 
 	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
 	dedupe := []byte("retry-target")

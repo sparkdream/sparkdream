@@ -140,7 +140,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -236,7 +236,7 @@ TX_RES=$($BINARY tx shield trigger-dkg \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 

@@ -6,6 +6,7 @@ import (
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	reptypes "sparkdream/x/rep/types"
 	servicetypes "sparkdream/x/service/types"
@@ -25,6 +26,11 @@ type BankKeeper interface {
 	SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error
+	// SetDenomMetaData / GetDenomMetaData are used by the peer-identity IBC
+	// voucher pre-registration (spec §9.2). Federation persists the metadata
+	// at peer activation so wallets render <SYMBOL>.ibc instead of ibc/<hash>.
+	SetDenomMetaData(ctx context.Context, denomMetaData banktypes.Metadata)
+	GetDenomMetaData(ctx context.Context, denom string) (banktypes.Metadata, bool)
 }
 
 // CommonsKeeper defines the expected interface for the Commons module.
@@ -60,15 +66,17 @@ type ServiceKeeper interface {
 	// atomically. Does NOT fire any hooks so it's safe to call before
 	// federation has written its BridgeBinding. Source must be 0 for
 	// normal registrations; non-zero values are reserved for chain
-	// upgrades.
-	RegisterOperator(ctx context.Context, creator, serviceType, controller string, bond sdk.Coin, metadata []byte, source int) (servicetypes.Operator, error)
+	// upgrades. The bond amount is in the chain's bond denom (resolved
+	// at runtime via x/identity); callers pass a bare math.Int.
+	RegisterOperator(ctx context.Context, creator, serviceType, controller string, bondAmount math.Int, metadata []byte, source int) (servicetypes.Operator, error)
 
 	// TopUpBond adds SPARK to an existing operator's bond. Fires
 	// AfterOperatorReFunded synchronously on UNDERFUNDED→ACTIVE, so
 	// callers MUST have written any state the hook may read (e.g.
 	// federation's BridgeBinding) BEFORE invoking this — see Phase 3
-	// of the migration plan for the re-entrance ordering rule.
-	TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBond sdk.Coin) error
+	// of the migration plan for the re-entrance ordering rule. The
+	// amount is in the chain's bond denom; callers pass a bare math.Int.
+	TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBondAmount math.Int) error
 
 	// OpenSystemReport files a PENDING report from an allowlisted
 	// caller module without trust-level/deposit checks. dedupeKey
@@ -130,6 +138,16 @@ type RepKeeper interface {
 type NameKeeper interface {
 	// GetNameOwner returns the owner of a name, if it exists.
 	GetNameOwner(ctx context.Context, name string) (sdk.AccAddress, bool)
+}
+
+// IdentityKeeper exposes the resolved chain denoms from x/identity. The
+// federation keeper consults this at every fee-charging / coin-constructing
+// site so a federated chain's denom (e.g. uspark.phoenix) flows through
+// correctly instead of a hardcoded "uspark" literal.
+type IdentityKeeper interface {
+	IsIdentityKeeper() // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+	DreamDenom(ctx context.Context) string
 }
 
 // Note: x/federation does not call x/shield directly. Instead, x/shield

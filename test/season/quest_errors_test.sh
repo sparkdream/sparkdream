@@ -123,7 +123,7 @@ TX_RES=$($BINARY tx season start-quest \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -146,7 +146,7 @@ if [ -n "$EXISTING_QUEST_ID" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -159,7 +159,7 @@ else
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -179,7 +179,7 @@ if [ -n "$EXISTING_QUEST_ID" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -192,7 +192,7 @@ else
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -230,7 +230,7 @@ TX_RES=$($BINARY tx season create-quest \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -271,7 +271,7 @@ if [ -n "$CLAIM_TEST_QUEST" ]; then
             --from bob \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -288,7 +288,7 @@ if [ -n "$CLAIM_TEST_QUEST" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -313,7 +313,7 @@ if [ -n "$CLAIM_TEST_QUEST" ]; then
             --from bob \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -367,7 +367,7 @@ if [ -n "$CLAIM_TEST_QUEST" ] && [ "$QUEST_STARTED" = true ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -387,7 +387,7 @@ TX_RES=$($BINARY tx season claim-quest-reward \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -403,7 +403,7 @@ TX_RES=$($BINARY tx season abandon-quest \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 

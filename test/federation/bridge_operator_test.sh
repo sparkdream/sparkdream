@@ -53,7 +53,7 @@ wait_for_tx() {
     local MAX_ATTEMPTS=20
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
         ATTEMPT=$((ATTEMPT + 1)); sleep 1
     done
@@ -84,10 +84,10 @@ vote_and_execute_ops() {
     for VOTER in "alice" "bob"; do
         local STATUS=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
         if [ "$STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
-        TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+        TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
         submit_and_wait "$TX_RES" "$VOTER vote" || true
     done
-    TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json 2>&1)
+    TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
     submit_and_wait "$TX_RES" "exec"
     local EXEC_RC=$?
     sleep 5
@@ -97,7 +97,7 @@ vote_and_execute_ops() {
 submit_ops_proposal() {
     local FILE=$1; local LABEL=${2:-"proposal"}
     echo "  Submitting $LABEL..."
-    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "$LABEL submission"; then return 1; fi
     PROPOSAL_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -z "$PROPOSAL_ID" ]; then echo "  No proposal ID"; return 1; fi
@@ -119,9 +119,10 @@ echo ""
 # unbonding period is shortened so the unbond/claim cycle fits in test
 # wall-clock. Falls back to 1000 SPARK if the query fails (the genesis
 # default).
-MIN_BOND_AMT=$($BINARY query service service-type $SVC_AP --output json 2>/dev/null | jq -r '.config.min_bond.amount // "1000000000"')
-BOND_COIN="${MIN_BOND_AMT}uspark"
-echo "Min bond (federation-bridge-activitypub): $BOND_COIN"
+MIN_BOND_AMT=$($BINARY query service service-type $SVC_AP --output json 2>/dev/null | jq -r '.config.min_bond_amount // "1000000000"')
+# stake_amount is now a bare bond-denom amount (denom resolved at runtime from x/identity).
+BOND_AMOUNT="${MIN_BOND_AMT}"
+echo "Min bond (federation-bridge-activitypub): ${BOND_AMOUNT}${BOND_DENOM}"
 echo ""
 
 # ========================================================================
@@ -131,14 +132,14 @@ echo ""
 echo "--- TEST 1: Register bridge operator (operator-signed) ---"
 
 TX_RES=$($BINARY tx federation register-bridge \
-    mastodon.example activitypub https://bridge.example.com/ap "$BOND_COIN" \
-    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    mastodon.example activitypub https://bridge.example.com/ap "$BOND_AMOUNT" \
+    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "register bridge"; then
-    BINDING=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json 2>&1)
+    BINDING=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json)
     BINDING_ADDR=$(echo "$BINDING" | jq -r '.bridge_binding.address // empty')
     SVC_STATUS=$($BINARY query service operator $OPERATOR1_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
-    SVC_BOND=$($BINARY query service operator $OPERATOR1_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+    SVC_BOND=$($BINARY query service operator $OPERATOR1_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
 
     if [ "$BINDING_ADDR" == "$OPERATOR1_ADDR" ] && [ "$SVC_STATUS" == "OPERATOR_STATUS_ACTIVE" ] && [ "$SVC_BOND" == "$MIN_BOND_AMT" ]; then
         echo "  Bridge binding present; service.Operator ACTIVE; bond=$SVC_BOND"
@@ -163,8 +164,8 @@ echo ""
 echo "--- TEST 2: Register second bridge for same peer ---"
 
 TX_RES=$($BINARY tx federation register-bridge \
-    mastodon.example activitypub https://bridge2.example.com/ap "$BOND_COIN" \
-    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    mastodon.example activitypub https://bridge2.example.com/ap "$BOND_AMOUNT" \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "register bridge2"; then
     SVC_STATUS=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
@@ -219,13 +220,13 @@ fi
 echo ""
 echo "--- TEST 4: Top up bond via x/service ---"
 
-PRE_BOND=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+PRE_BOND=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
 
-TX_RES=$($BINARY tx service top-up-bond $SVC_AP 200000000uspark \
-    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+TX_RES=$($BINARY tx service top-up-bond $SVC_AP 200000000 \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "top-up bond"; then
-    POST_BOND=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+    POST_BOND=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
     echo "  Pre: $PRE_BOND, Post: $POST_BOND"
     if [ "$POST_BOND" -gt "$PRE_BOND" ] 2>/dev/null; then
         record_result "Top up bond via x/service" "PASS"
@@ -242,8 +243,8 @@ fi
 echo ""
 echo "--- TEST 5: Wrong-denom top-up rejected ---"
 
-TX_RES=$($BINARY tx service top-up-bond $SVC_AP 100udream \
-    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+TX_RES=$($BINARY tx service top-up-bond $SVC_AP 100${DREAM_DENOM} \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "wrong denom"; then
     echo "  Should have failed"
@@ -261,7 +262,7 @@ echo ""
 echo "--- TEST 6: Self-service unbond via x/service ---"
 
 TX_RES=$($BINARY tx service unbond-operator $SVC_AP \
-    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "unbond"; then
     SVC_STATUS=$($BINARY query service operator $OPERATOR1_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.status // empty')
@@ -283,7 +284,7 @@ echo ""
 echo "--- TEST 7: Cannot double-unbond ---"
 
 TX_RES=$($BINARY tx service unbond-operator $SVC_AP \
-    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "double unbond"; then
     echo "  Should have been rejected"
@@ -299,7 +300,7 @@ fi
 echo ""
 echo "--- TEST 8: List bridge bindings ---"
 
-BRIDGES=$($BINARY query federation list-bridge-bindings --output json 2>&1)
+BRIDGES=$($BINARY query federation list-bridge-bindings --output json)
 BRIDGE_COUNT=$(echo "$BRIDGES" | jq '.bridge_bindings | length' 2>/dev/null)
 
 echo "  Bridge binding count: $BRIDGE_COUNT"
@@ -317,8 +318,8 @@ echo ""
 echo "--- TEST 9: IBC peer bridge registration rejected ---"
 
 TX_RES=$($BINARY tx federation register-bridge \
-    spark.testnet ibc "" "$BOND_COIN" \
-    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    spark.testnet ibc "" "$BOND_AMOUNT" \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "register ibc bridge"; then
     echo "  Should have been rejected"
@@ -336,8 +337,8 @@ echo ""
 echo "--- TEST 10: Duplicate bridge registration rejected ---"
 
 TX_RES=$($BINARY tx federation register-bridge \
-    mastodon.example activitypub https://bridge2.example.com/ap "$BOND_COIN" \
-    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    mastodon.example activitypub https://bridge2.example.com/ap "$BOND_AMOUNT" \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "dup bridge"; then
     echo "  Should have been rejected"
@@ -354,8 +355,8 @@ echo ""
 echo "--- TEST 11: Bridge for non-existent peer rejected ---"
 
 TX_RES=$($BINARY tx federation register-bridge \
-    nonexistent.peer activitypub https://bridge.nonexistent.com "$BOND_COIN" \
-    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    nonexistent.peer activitypub https://bridge.nonexistent.com "$BOND_AMOUNT" \
+    --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "bridge missing peer"; then
     echo "  Should have been rejected"
@@ -378,8 +379,8 @@ LOW_STAKE=$((MIN_BOND_AMT - 1))
 # (operator1 / operator2 already have a record; topping up from a low
 # stake would succeed as a no-op TopUpBond).
 TX_RES=$($BINARY tx federation register-bridge \
-    mastodon.example activitypub https://bridge.lowstake.example "${LOW_STAKE}uspark" \
-    --from linker1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    mastodon.example activitypub https://bridge.lowstake.example "${LOW_STAKE}${BOND_DENOM}" \
+    --from linker1 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "low stake"; then
     echo "  Should have been rejected"
@@ -416,7 +417,7 @@ if [ -z "$LEMMY_STATUS" ]; then
   "metadata": "Register lemmy.example for bridge tests"
 }
 EOF
-    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_lemmy.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_lemmy.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
     if submit_and_wait "$TX_RES" "register lemmy"; then
         PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
         [ -n "$PROP_ID" ] && vote_and_execute_ops "$PROP_ID"
@@ -425,18 +426,18 @@ fi
 
 # Capture operator2's current bond — should be unchanged after the new
 # binding because the (address, service_type) already exists.
-PRE_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+PRE_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
 
 # Register operator2 for the new peer with stake=0 (no top-up). Per
 # the migration plan, when (operator, service_type) already has an
 # Operator, MsgRegisterBridge just writes a new BridgeBinding and only
 # calls TopUpBond if stake > 0.
 TX_RES=$($BINARY tx federation register-bridge \
-    lemmy.example activitypub https://bridge.lemmy.example "0uspark" \
-    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    lemmy.example activitypub https://bridge.lemmy.example "0" \
+    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "register second peer same protocol"; then
-    POST_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond.amount // "0"')
+    POST_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
     LEMMY_BINDING=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR lemmy.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
     if [ "$LEMMY_BINDING" == "$OPERATOR2_ADDR" ] && [ "$POST_BOND_OP2" == "$PRE_BOND_OP2" ]; then
         echo "  Second binding written; bond unchanged ($POST_BOND_OP2)"

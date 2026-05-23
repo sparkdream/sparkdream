@@ -14,6 +14,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get alice address (genesis member)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -113,10 +114,10 @@ for ADDR in $CHALLENGER_ADDR $ANON_CHALLENGER_ADDR $ASSIGNEE_ADDR $JUROR1_ADDR $
     echo "  → Sending 10 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
-        10000000uspark \
+        10000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -182,7 +183,7 @@ for i in "${!ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -238,7 +239,7 @@ for i in "${!ACCOUNTS[@]}"; do
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -325,7 +326,7 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -407,7 +408,7 @@ TX_RES=$($BINARY tx rep propose-project \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -445,7 +446,7 @@ TX_RES=$($BINARY tx rep approve-project-budget \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -493,7 +494,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -602,7 +603,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -645,7 +646,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -665,7 +666,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         --from $JUROR \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -695,7 +696,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
             --chain-id $CHAIN_ID \
             --keyring-backend test \
             --gas 300000 \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y --output json 2>&1)
 
         if echo "$TX_RES" | jq -e '.' >/dev/null 2>&1; then
@@ -779,12 +780,12 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
             TX_RES=$($BINARY tx rep approve-initiative \
                 $INIT_ID "true" "Manual approval for reputation building" \
                 --from alice --chain-id $CHAIN_ID --keyring-backend test \
-                --fees 5000uspark -y --output json 2>&1)
+                --fees 5000${BOND_DENOM} -y --output json 2>&1)
             sleep 6
             TX_RES=$($BINARY tx rep complete-initiative \
                 $INIT_ID "Manual completion for reputation building" \
                 --from alice --chain-id $CHAIN_ID --keyring-backend test \
-                --fees 5000uspark -y --output json 2>&1)
+                --fees 5000${BOND_DENOM} -y --output json 2>&1)
             sleep 6
             # Verify
             VERIFY_INFO=$($BINARY query rep get-initiative $INIT_ID --output json 2>/dev/null)
@@ -809,7 +810,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y --output json 2>&1)
 
     sleep 6
@@ -823,7 +824,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -911,7 +912,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -932,7 +933,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -995,7 +996,7 @@ bond_sentinel_if_needed() {
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -1038,6 +1039,8 @@ export MODERATOR_ADDR=$MODERATOR_ADDR
 export BOUNTY_CREATOR_ADDR=$BOUNTY_CREATOR_ADDR
 export TEST_PROJECT_ID=$PROJECT_ID
 export TEST_CATEGORY_ID=$FIRST_CATEGORY
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

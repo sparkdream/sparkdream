@@ -40,10 +40,10 @@ echo '{
       "@type": "/cosmos.bank.v1beta1.MsgSend",
       "from_address": "'$GOV_ADDR'",
       "to_address": "'$ALICE_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "1"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "1"}]
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Malicious Treasury Drain",
   "summary": "This proposal attempts to steal funds."
 }' > "$PROPOSAL_DIR/bad_proposal.json"

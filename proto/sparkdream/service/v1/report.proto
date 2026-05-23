@@ -2,7 +2,6 @@ syntax = "proto3";
 package sparkdream.service.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/service/v1/types.proto";
@@ -49,13 +48,24 @@ message Report {
   uint32 proposed_slash_bps = 9;
 
   // slash_amount is the SPARK amount actually slashed once the report
-  // resolves. Zero for PENDING / RESOLVED_T1-with-dismiss / AUTO_*.
-  cosmos.base.v1beta1.Coin slash_amount = 10 [(gogoproto.nullable) = false];
+  // resolves, in bond-denom micro-units. Zero for PENDING /
+  // RESOLVED_T1-with-dismiss / AUTO_*. Wrapped into sdk.Coin with the
+  // chain's bond denom at the point of use.
+  string slash_amount = 10 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // deposit is the SPARK the reporter escrowed at filing time
-  // (`report_deposit` param). Held in the report deposit pool until
-  // resolution.
-  cosmos.base.v1beta1.Coin deposit = 11 [(gogoproto.nullable) = false];
+  // (`report_deposit_amount` param), in bond-denom micro-units. Held in
+  // the report deposit pool until resolution. Wrapped into sdk.Coin with
+  // the chain's bond denom at the point of use.
+  string deposit = 11 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // jury_case_id is the x/rep case id opened on escalation; 0 if never
   // escalated.

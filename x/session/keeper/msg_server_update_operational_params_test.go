@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/session/keeper"
@@ -100,7 +100,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 					p.MaxSessionsPerGranter = 5
 					p.MaxMsgTypesPerSession = 10
 					p.MaxExpiration = 3 * 24 * time.Hour
-					p.MaxSpendLimit = sdk.NewInt64Coin("uspark", 50_000_000)
+					p.MaxSpendLimitAmount = math.NewInt(50_000_000)
 				}),
 			},
 			setup: func() {
@@ -146,7 +146,7 @@ func TestUpdateOperationalParamsPreservesCeiling(t *testing.T) {
 	op.MaxSessionsPerGranter = 5
 	op.MaxMsgTypesPerSession = 10
 	op.MaxExpiration = 3 * 24 * time.Hour
-	op.MaxSpendLimit = sdk.NewInt64Coin("uspark", 50_000_000)
+	op.MaxSpendLimitAmount = math.NewInt(50_000_000)
 	op.MaxExecCount = 10_000
 	_, err = ms.UpdateOperationalParams(f.ctx, &types.MsgUpdateOperationalParams{
 		Authority:         authorityStr,

@@ -49,7 +49,7 @@ wait_block() { sleep 4; }
 # now claim a name without governance involvement.
 echo "--- STEP 1: Non-Council x/rep member registers 'agent-alpha' ---"
 RES=$($BINARY tx name register-name "agent-alpha" "agent-meta" --from name_claimant -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
 TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
@@ -66,11 +66,11 @@ fi
 echo ""
 echo "--- STEP 2: Alice registers 'kob', points target at agent ---"
 $BINARY tx name register-name "kob" "kob-meta" --from alice -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
 wait_block
 
 RES=$($BINARY tx name set-target "kob" "$CLAIMANT_ADDR" --from alice -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
 TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
@@ -99,7 +99,7 @@ fi
 echo ""
 echo "--- STEP 3: Agent cannot set 'kob' as primary before accepting ---"
 RES=$($BINARY tx name set-primary "kob" --from name_claimant -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
 TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
@@ -117,7 +117,7 @@ fi
 echo ""
 echo "--- STEP 4: Agent accepts target and sets primary ---"
 RES=$($BINARY tx name accept-target "kob" --from name_claimant -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
 TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
@@ -129,7 +129,7 @@ fi
 echo "[ OK ] Target accepted."
 
 RES=$($BINARY tx name set-primary "kob" --from name_claimant -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
 TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
@@ -152,7 +152,7 @@ fi
 echo ""
 echo "--- STEP 5: Re-pointing target revokes acceptance and clears primary ---"
 RES=$($BINARY tx name set-target "kob" "$ALICE_ADDR" --from alice -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
 TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
@@ -181,11 +181,11 @@ echo ""
 echo "--- STEP 6: Alice transfers 'kob' to the agent ---"
 # Clear target first so we have a clean transfer scenario.
 $BINARY tx name set-target "kob" "" --from alice -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
 wait_block
 
 RES=$($BINARY tx name transfer-name "kob" "$CLAIMANT_ADDR" --from alice -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
 TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)
@@ -207,7 +207,7 @@ echo ""
 echo "--- STEP 7: Transfer to non-member (Dave) is rejected ---"
 # name_claimant just received 'kob' in step 6; transfer to dave (no Member).
 RES=$($BINARY tx name transfer-name "kob" "$DAVE_ADDR" --from name_claimant -y \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>/dev/null)
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>/dev/null)
 TX_HASH=$(echo "$RES" | jq -r '.txhash')
 wait_block
 QRES=$($BINARY query tx "$TX_HASH" --output json 2>/dev/null)

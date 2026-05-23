@@ -8,16 +8,8 @@ import "gogoproto/gogo.proto";
 option go_package = "sparkdream/x/commons/types";
 
 // Params defines the parameters for the module.
-//
-// Fields 2-4 (min_recurring_period_seconds / max_recurring_duration_seconds /
-// max_active_recurring_spends_per_group) moved to x/session, which is
-// authoritative for council recurring spends. The proto field numbers
-// 2-4 are reserved to prevent accidental reuse with incompatible
-// semantics.
 message Params {
   option (amino.name) = "sparkdream/x/commons/Params";
   option (gogoproto.equal) = true;
   string proposal_fee = 1;
-  reserved 2, 3, 4;
-  reserved "min_recurring_period_seconds", "max_recurring_duration_seconds", "max_active_recurring_spends_per_group";
 }

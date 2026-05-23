@@ -85,12 +85,12 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 	}
 
 	// 10. Spend limit upper bound check
-	if msg.SpendLimit.Amount.GT(params.MaxSpendLimit.Amount) {
+	if msg.SpendLimit.Amount.GT(params.MaxSpendLimitAmount) {
 		return nil, types.ErrSpendLimitTooHigh
 	}
 
 	// 11. Denom check
-	if msg.SpendLimit.Denom != "uspark" {
+	if msg.SpendLimit.Denom != k.BondDenom(ctx) {
 		return nil, types.ErrInvalidDenom
 	}
 
@@ -111,7 +111,7 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		return nil, err
 	}
 
-	zeroCoin := sdk.NewInt64Coin("uspark", 0)
+	zeroCoin := sdk.NewInt64Coin(k.BondDenom(ctx), 0)
 	grant := types.Grant{
 		Id:        id,
 		Granter:   msg.Granter,

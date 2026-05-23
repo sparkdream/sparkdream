@@ -1,0 +1,49 @@
+syntax = "proto3";
+package sparkdream.guardian.v1;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+
+option go_package = "sparkdream/x/guardian/types";
+
+// Msg defines the guardian Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // Exec routes the inner msg to the appropriate target module, with the
+  // guardian's module address substituted as the inner msg's `Authority`
+  // field. Per-msg-type filters validate field constraints (e.g., reject
+  // inflation_min changes on mint.MsgUpdateParams) before routing.
+  //
+  // The outer `authority` field is the address authorized to call guardian
+  // (the gov module account in production wiring). Unknown inner msg types
+  // are rejected: guardian uses an allowlist, not a denylist.
+  rpc Exec(MsgExec) returns (MsgExecResponse);
+}
+
+// MsgExec is the universal guardian wrapper. Submitted by gov (or another
+// authorized account) to invoke a gated downstream msg through guardian's
+// filter chain.
+message MsgExec {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/guardian/MsgExec";
+
+  // authority must equal the address gov uses for proposal execution
+  // (or, more generally, the address configured as guardian's authority
+  // at genesis).
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // inner is the target msg to route. Must be one of the allowlisted
+  // msg types (see x/guardian/keeper for the registry). Inner's own
+  // Authority field is overwritten by guardian's module address before
+  // routing, so callers should leave it empty or it will be ignored.
+  google.protobuf.Any inner = 2 [(cosmos_proto.accepts_interface) = "cosmos.base.v1beta1.Msg"];
+}
+
+message MsgExecResponse {
+  // inner_response is the response from the routed inner msg, packed as Any.
+  google.protobuf.Any inner_response = 1;
+}

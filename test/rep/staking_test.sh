@@ -142,7 +142,7 @@ INITIATIVE_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -184,7 +184,7 @@ STAKE1_RES=$($BINARY tx rep stake \
   --keyring-backend test \
   --gas auto \
   --gas-adjustment 1.5 \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -226,7 +226,7 @@ if [ "$AVAILABLE_BALANCE" -lt "100000000" ]; then
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json 2>&1)
 
@@ -250,7 +250,7 @@ STAKE2_RES=$($BINARY tx rep stake \
   --keyring-backend test \
   --gas auto \
   --gas-adjustment 1.5 \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -281,7 +281,7 @@ if [ "$JUROR1_AVAILABLE" -lt "100000000" ]; then
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json 2>&1)
     FUND_TXHASH=$(echo "$FUND_RES" | grep -v "^gas estimate:" | grep -v "^Falling back" | jq -r '.txhash // ""')
@@ -302,7 +302,7 @@ STAKE3_RES=$($BINARY tx rep stake \
   --keyring-backend test \
   --gas auto \
   --gas-adjustment 1.5 \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -372,7 +372,7 @@ TAG1_STAKE_RES=$($BINARY tx rep stake \
   --keyring-backend test \
   --gas auto \
   --gas-adjustment 1.5 \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -396,7 +396,7 @@ TAG2_STAKE_RES=$($BINARY tx rep stake \
   --keyring-backend test \
   --gas auto \
   --gas-adjustment 1.5 \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -430,7 +430,7 @@ PROJECT_STAKE_RES=$($BINARY tx rep stake \
   --keyring-backend test \
   --gas auto \
   --gas-adjustment 1.5 \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -669,19 +669,19 @@ echo "Advancing blocks to allow some time-based reward accumulation..."
 # Advance blocks by submitting transactions
 for i in {1..20}; do
     # Submit multiple small transactions to advance blocks quickly
-    $BINARY tx bank send alice alice 1uspark \
+    $BINARY tx bank send alice alice 1${BOND_DENOM} \
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 1000uspark \
+      --fees 1000${BOND_DENOM} \
       -y \
       -o json > /dev/null 2>&1 &
 
-    $BINARY tx bank send bob bob 1uspark \
+    $BINARY tx bank send bob bob 1${BOND_DENOM} \
       --from bob \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 1000uspark \
+      --fees 1000${BOND_DENOM} \
       -y \
       -o json > /dev/null 2>&1 &
 done
@@ -706,7 +706,7 @@ if [ "$STAKE1_ID" != "unknown" ]; then
       --from challenger \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json 2>&1)
 
@@ -752,7 +752,7 @@ if [ "$STAKE2_ID" != "unknown" ]; then
       --from assignee \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json 2>&1)
 
@@ -806,7 +806,7 @@ if [ "$STAKE3_ID" != "unknown" ]; then
       --from juror1 \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json 2>&1)
 

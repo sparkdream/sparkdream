@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get alice and bob addresses (genesis members / council members)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -38,7 +39,7 @@ wait_for_tx() {
     local ATTEMPT=0
 
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
             echo "$RESULT"
             return 0
@@ -105,18 +106,18 @@ echo ""
 # ========================================================================
 echo "Step 2: Funding test accounts with SPARK..."
 
-# Operators need extra SPARK for bridge stakes (1000 SPARK = 1000000000uspark per stake)
+# Operators need extra SPARK for bridge stakes (1000 SPARK = 1000000000${BOND_DENOM} per stake)
 # Give operators 5000 SPARK, others 100 SPARK
 for ADDR in $OPERATOR1_ADDR $OPERATOR2_ADDR; do
     echo "  Sending 5000 SPARK to operator $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
-        5000000000uspark \
+        5000000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
@@ -130,12 +131,12 @@ for ADDR in $VERIFIER1_ADDR $VERIFIER2_ADDR $LINKER1_ADDR $LINKER2_ADDR $CHALLEN
     echo "  Sending 100 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
-        100000000uspark \
+        100000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
@@ -169,7 +170,8 @@ for i in "${!ACCOUNTS[@]}"; do
         *) echo "Unknown account: $ACCOUNT"; continue ;;
     esac
 
-    # Check if already a member
+    # Check if already a member. 2>&1 captures the "rpc error: not found"
+    # stderr message into MEMBER_INFO so the grep can detect non-members.
     MEMBER_INFO=$($BINARY query rep get-member $ADDR --output json 2>&1)
     if ! echo "$MEMBER_INFO" | grep -q "not found"; then
         echo "  $ACCOUNT is already a member, skipping invitation"
@@ -186,9 +188,9 @@ for i in "${!ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
@@ -235,9 +237,9 @@ for i in "${!ACCOUNTS[@]}"; do
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
@@ -310,6 +312,7 @@ json.dump(d, sys.stdout)
     mkdir -p "$SCRIPT_DIR/proposals"
     jq -n \
         --arg auth "$GOV_ADDR_SVC" \
+        --arg deposit "100000000${BOND_DENOM}" \
         --argjson p "$SVC_PARAMS" \
         --argjson ap "$AP_NEW" \
         --argjson at "$AT_NEW" '
@@ -319,7 +322,7 @@ json.dump(d, sys.stdout)
     {"@type": "/sparkdream.service.v1.MsgUpdateServiceTypeConfig", "authority": $auth, "config": $ap},
     {"@type": "/sparkdream.service.v1.MsgUpdateServiceTypeConfig", "authority": $auth, "config": $at}
   ],
-  "deposit": "100000000uspark",
+  "deposit": $deposit,
   "title": "Tune x/service for federation E2E",
   "summary": "Shorten federation-bridge unbond/grace/cooldown windows and lower min_reporter_trust_level to NEW for tests.",
   "expedited": true
@@ -327,7 +330,7 @@ json.dump(d, sys.stdout)
 ' > "$SCRIPT_DIR/proposals/tune_service_for_e2e.json"
 
     TX_RES=$($BINARY tx gov submit-proposal "$SCRIPT_DIR/proposals/tune_service_for_e2e.json" \
-        --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+        --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
         sleep 6
@@ -336,7 +339,7 @@ json.dump(d, sys.stdout)
         if [ -n "$PROP_ID" ]; then
             echo "  Submitted tuning proposal $PROP_ID; voting..."
             for VOTER in alice bob; do
-                $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+                $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
                 sleep 3
             done
             echo "  Waiting 45s for expedited voting period..."
@@ -355,7 +358,7 @@ fi
 echo "Step 5: Looking up council and committee policy addresses..."
 
 # Commons Council policy (for peer lifecycle)
-COMMONS_INFO=$($BINARY query commons get-group "Commons Council" --output json 2>&1)
+COMMONS_INFO=$($BINARY query commons get-group "Commons Council" --output json)
 COMMONS_POLICY=$(echo "$COMMONS_INFO" | jq -r '.group.policy_address')
 if [ -z "$COMMONS_POLICY" ] || [ "$COMMONS_POLICY" == "null" ]; then
     echo "  WARNING: Commons Council not found"
@@ -365,7 +368,7 @@ else
 fi
 
 # Operations Committee policy (for bridge/policy mgmt)
-OPS_INFO=$($BINARY query commons get-group "Commons Operations Committee" --output json 2>&1)
+OPS_INFO=$($BINARY query commons get-group "Commons Operations Committee" --output json)
 OPS_POLICY=$(echo "$OPS_INFO" | jq -r '.group.policy_address')
 if [ -z "$OPS_POLICY" ] || [ "$OPS_POLICY" == "null" ]; then
     echo "  WARNING: Operations Committee not found"
@@ -394,6 +397,8 @@ export LINKER2_ADDR=$LINKER2_ADDR
 export CHALLENGER1_ADDR=$CHALLENGER1_ADDR
 export COMMONS_POLICY=$COMMONS_POLICY
 export OPS_POLICY=$OPS_POLICY
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "  Wrote .test_env"

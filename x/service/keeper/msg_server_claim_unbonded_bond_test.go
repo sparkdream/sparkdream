@@ -47,7 +47,7 @@ func TestMsgClaimUnbondedBond_HappyPath(t *testing.T) {
 	call := f.bankKeeper.ModToAcctCalls[0]
 	require.Equal(t, testOperator1Addr, call.Recipient)
 	require.Equal(t, types.ModuleName, call.Module)
-	require.True(t, call.Amt.AmountOf(types.BondDenom).Equal(bondAmt))
+	require.True(t, call.Amt.AmountOf(testBondDenom).Equal(bondAmt))
 
 	// AfterOperatorRetired hook fired.
 	require.Len(t, f.hooks.Retired, 1)
@@ -97,8 +97,8 @@ func TestMsgClaimUnbondedBond_OpenReportBlocks(t *testing.T) {
 		ServiceType:     testServiceType,
 		Reporter:        testReporter,
 		Status:          types.ReportStatus_REPORT_STATUS_PENDING,
-		SlashAmount:     sdk.NewCoin(types.BondDenom, math.ZeroInt()),
-		Deposit:         sdk.NewCoin(types.BondDenom, math.NewInt(10_000_000)),
+		SlashAmount:     math.ZeroInt(),
+		Deposit:         math.NewInt(10_000_000),
 	}
 	require.NoError(t, f.keeper.Reports.Set(f.ctx, reportID, report))
 	require.NoError(t, f.keeper.ReportsByOperator.Set(f.ctx, collections.Join3(testOperator1Addr.Bytes(), testServiceType, reportID)))
@@ -124,7 +124,7 @@ func TestMsgClaimUnbondedBond_ActiveEscrowBlocks(t *testing.T) {
 		ReportId:        0,
 		OperatorAddress: testOperator1,
 		ServiceType:     testServiceType,
-		Amount:          sdk.NewCoin(types.BondDenom, math.NewInt(100_000)),
+		Amount:          math.NewInt(100_000),
 		ReleaseAt:       releaseAt,
 	}
 	require.NoError(t, f.keeper.Tier1Escrow.Set(f.ctx, escrowID, escrow))

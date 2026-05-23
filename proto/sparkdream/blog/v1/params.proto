@@ -2,12 +2,13 @@ syntax = "proto3";
 package sparkdream.blog.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/blog/types";
 
-// Params defines the parameters for the module.
+// Params defines the parameters for the module. Fee/cost fields are stored
+// as bare amounts in the chain's bond denom (resolved at runtime from
+// x/identity); the keeper wraps them into sdk.Coin at the point of use.
 message Params {
   option (amino.name) = "sparkdream/x/blog/Params";
   option (gogoproto.equal) = true;
@@ -18,8 +19,12 @@ message Params {
   // Maximum length for post bodies
   uint64 max_body_length = 2;
 
-  // cost_per_byte charged for on-chain content storage (applies to all posts, burned)
-  cosmos.base.v1beta1.Coin cost_per_byte = 3 [(gogoproto.nullable) = false];
+  // cost_per_byte_amount charged for on-chain content storage, in bond-denom
+  // micro-units. Applies to all posts; burned.
+  string cost_per_byte_amount = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // cost_per_byte_exempt when true, disables cost_per_byte fee collection
   bool cost_per_byte_exempt = 4;
@@ -30,8 +35,11 @@ message Params {
   // Maximum nesting depth for replies
   uint32 max_reply_depth = 6;
 
-  // Flat fee per reaction
-  cosmos.base.v1beta1.Coin reaction_fee = 7 [(gogoproto.nullable) = false];
+  // Flat fee per reaction, in bond-denom micro-units.
+  string reaction_fee_amount = 7 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // Disable reaction fees
   bool reaction_fee_exempt = 8;
@@ -57,11 +65,17 @@ message Params {
   // Governance-only floor for ephemeral_content_ttl (default: 86400 = 1 day)
   int64 min_ephemeral_content_ttl = 20;
 
-  // Governance-only ceiling for cost_per_byte
-  cosmos.base.v1beta1.Coin max_cost_per_byte = 21 [(gogoproto.nullable) = false];
+  // Governance-only ceiling for cost_per_byte_amount.
+  string max_cost_per_byte_amount = 21 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
-  // Governance-only ceiling for reaction_fee
-  cosmos.base.v1beta1.Coin max_reaction_fee = 22 [(gogoproto.nullable) = false];
+  // Governance-only ceiling for reaction_fee_amount.
+  string max_reaction_fee_amount = 22 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // Min conviction score to renew anonymous content at TTL expiry (default: 100.0; 0 = disabled)
   string conviction_renewal_threshold = 23 [
@@ -85,14 +99,21 @@ message BlogOperationalParams {
   option (amino.name) = "sparkdream/x/blog/BlogOperationalParams";
   option (gogoproto.equal) = true;
 
-  // cost_per_byte charged for on-chain content storage (applies to all posts, burned)
-  cosmos.base.v1beta1.Coin cost_per_byte = 1 [(gogoproto.nullable) = false];
+  // cost_per_byte_amount charged for on-chain content storage, in bond-denom
+  // micro-units. Applies to all posts; burned.
+  string cost_per_byte_amount = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // cost_per_byte_exempt when true, disables cost_per_byte fee collection
   bool cost_per_byte_exempt = 2;
 
-  // Flat fee per reaction
-  cosmos.base.v1beta1.Coin reaction_fee = 3 [(gogoproto.nullable) = false];
+  // Flat fee per reaction, in bond-denom micro-units.
+  string reaction_fee_amount = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // Disable reaction fees
   bool reaction_fee_exempt = 4;

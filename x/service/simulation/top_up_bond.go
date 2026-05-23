@@ -31,12 +31,12 @@ func SimulateMsgTopUpBond(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "operator is unbonding"), nil, nil
 		}
 
-		additional := sdk.NewCoin(types.BondDenom, sdkmath.NewInt(int64(1+r.Intn(1_000_000))))
+		additional := sdkmath.NewInt(int64(1 + r.Intn(1_000_000)))
 		msg.Operator = op.Address
 		msg.ServiceType = op.ServiceType
-		msg.AdditionalBond = additional
+		msg.AdditionalBondAmount = additional
 
-		op.Bond = op.Bond.Add(additional)
+		op.BondAmount = op.BondAmount.Add(additional)
 		if err := k.PutOperator(ctx, op); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update operator"), nil, nil
 		}

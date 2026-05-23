@@ -88,7 +88,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -117,7 +117,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -184,7 +184,7 @@ bond_sentinel() {
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -239,7 +239,7 @@ if [ "$BOND2_RC" -ne 0 ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -271,7 +271,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -310,7 +310,7 @@ if [ -n "$MOVE_THREAD_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -337,7 +337,7 @@ if [ -n "$MOVE_THREAD_ID" ]; then
             --from sentinel1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -413,7 +413,7 @@ if [ -n "$MOVE_THREAD_ID" ]; then
             --from poster1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -469,7 +469,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -492,7 +492,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                 --from alice \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -551,7 +551,7 @@ if [ -n "$PIN_POST_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -590,7 +590,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -612,7 +612,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                 --from sentinel1 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -655,7 +655,7 @@ if [ -n "$PIN_REPLY_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -779,7 +779,7 @@ TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -822,7 +822,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -847,7 +847,7 @@ if [ -n "$FLAG_POST_ID" ]; then
         --from poster2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -903,7 +903,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -928,7 +928,7 @@ if [ -n "$HIDE_POST_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -986,7 +986,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1012,7 +1012,7 @@ if [ -n "$DISMISS_POST_ID" ]; then
             --from $FLAGGER \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -1031,7 +1031,7 @@ if [ -n "$DISMISS_POST_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1068,7 +1068,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1093,7 +1093,7 @@ if [ -n "$LOCK_THREAD_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1118,7 +1118,7 @@ if [ -n "$LOCK_THREAD_ID" ]; then
                     --from $SECOND_SENTINEL_ACCOUNT \
                     --chain-id $CHAIN_ID \
                     --keyring-backend test \
-                    --fees 5000uspark \
+                    --fees 5000${BOND_DENOM} \
                     -y \
                     --output json 2>&1)
                 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -1169,7 +1169,7 @@ if [ -n "$LOCK_THREAD_ID" ] && [ "$PART25_RESULT" = "PASS" ]; then
         --from $LOCK_SENTINEL \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1205,7 +1205,7 @@ TX_RES=$($BINARY tx forum set-moderation-paused \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1226,7 +1226,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -1261,7 +1261,7 @@ TX_RES=$($BINARY tx forum set-forum-paused \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1282,7 +1282,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -1339,7 +1339,7 @@ if [ -n "$THREAD_FOR_PIN" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1362,7 +1362,7 @@ if [ -n "$THREAD_FOR_PIN" ]; then
             --from sentinel1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -1380,7 +1380,7 @@ if [ -n "$THREAD_FOR_PIN" ]; then
             --from sentinel1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -1423,7 +1423,7 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1461,7 +1461,7 @@ TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1506,7 +1506,7 @@ TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1546,7 +1546,7 @@ TX_RES=$($BINARY tx forum flag-post \
     --from poster2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1588,7 +1588,7 @@ if [ -n "$FLAG_POST_ID" ]; then
         --from poster2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1632,7 +1632,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1656,7 +1656,7 @@ if [ -n "$ERR_HIDE_POST_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1698,7 +1698,7 @@ if [ -n "$HIDE_POST_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1742,7 +1742,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1766,7 +1766,7 @@ if [ -n "$DISMISS_ERR_POST_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1806,7 +1806,7 @@ TX_RES=$($BINARY tx forum lock-thread \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1846,7 +1846,7 @@ if [ -n "$PIN_REPLY_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1889,7 +1889,7 @@ if [ -n "$LOCK_THREAD_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1932,7 +1932,7 @@ TX_RES=$($BINARY tx forum move-thread \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1973,7 +1973,7 @@ if [ -n "$MOVE_THREAD_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -2016,7 +2016,7 @@ if [ -n "$LOCK_THREAD_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -2058,7 +2058,7 @@ TX_RES=$($BINARY tx forum pin-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -2100,7 +2100,7 @@ if [ -n "$THREAD_FOR_PIN" ]; then
         --from poster2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -2120,7 +2120,7 @@ if [ -n "$THREAD_FOR_PIN" ]; then
                     --from poster1 \
                     --chain-id $CHAIN_ID \
                     --keyring-backend test \
-                    --fees 5000uspark \
+                    --fees 5000${BOND_DENOM} \
                     -y \
                     --output json 2>&1)
 
@@ -2164,7 +2164,7 @@ TX_RES=$($BINARY tx forum set-moderation-paused \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -2202,7 +2202,7 @@ TX_RES=$($BINARY tx forum set-forum-paused \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -2242,7 +2242,7 @@ TX_RES=$($BINARY tx forum hide-post \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -2283,7 +2283,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -2307,7 +2307,7 @@ if [ -n "$DOUBLE_LOCK_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -2324,7 +2324,7 @@ if [ -n "$DOUBLE_LOCK_ID" ]; then
             --from sentinel1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -2367,7 +2367,7 @@ if [ -n "$LOCK_THREAD_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

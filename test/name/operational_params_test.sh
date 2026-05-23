@@ -65,13 +65,13 @@ vote_and_execute() {
     echo "  Alice voting YES..."
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 6
 
     echo "  Executing proposal $prop_id..."
     EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --gas 2000000 --output json)
+        --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
@@ -95,7 +95,7 @@ PARAMS_JSON=$($BINARY query name params --output json)
 
 # Operational fields we'll test
 INITIAL_DISPUTE_TIMEOUT=$(echo $PARAMS_JSON | jq -r '.params.dispute_timeout_blocks')
-INITIAL_REG_FEE=$(echo $PARAMS_JSON | jq -r '.params.registration_fee.amount')
+INITIAL_REG_FEE=$(echo $PARAMS_JSON | jq -r '.params.registration_fee_amount')
 INITIAL_DISPUTE_STAKE=$(echo $PARAMS_JSON | jq -r '.params.dispute_stake_dream')
 
 # Governance-only fields (should NOT change)
@@ -127,7 +127,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     # Extract all operational fields from current params
     OP_PARAMS=$(echo "$PARAMS_JSON" | jq '.params | {
       expiration_duration,
-      registration_fee,
+      registration_fee_amount: (.registration_fee_amount // "0"),
       dispute_stake_dream,
       dispute_timeout_blocks,
       contest_stake_dream
@@ -153,7 +153,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
 
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_name_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
     echo "Submitted tx: $TX_HASH"
@@ -239,7 +239,7 @@ echo "--- TEST 5: RESET OPERATIONAL PARAMS TO ORIGINAL ---"
 if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     RESET_OP_PARAMS=$(echo "$PARAMS_JSON" | jq '.params | {
       expiration_duration,
-      registration_fee,
+      registration_fee_amount: (.registration_fee_amount // "0"),
       dispute_stake_dream,
       dispute_timeout_blocks,
       contest_stake_dream
@@ -260,7 +260,7 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
 
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/reset_name_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
     PROPOSAL_ID=$(get_commons_proposal_id $TX_HASH)

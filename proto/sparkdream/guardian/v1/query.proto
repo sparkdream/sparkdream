@@ -1,0 +1,24 @@
+syntax = "proto3";
+package sparkdream.guardian.v1;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+
+option go_package = "sparkdream/x/guardian/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // AllowedMsgs returns the list of inner msg type URLs that guardian
+  // will route through MsgExec. The list is built into the binary; this
+  // query exposes it for operator inspection.
+  rpc AllowedMsgs(QueryAllowedMsgsRequest) returns (QueryAllowedMsgsResponse) {
+    option (google.api.http).get = "/sparkdream/guardian/v1/allowed_msgs";
+  }
+}
+
+message QueryAllowedMsgsRequest {}
+
+message QueryAllowedMsgsResponse {
+  // type_urls is the sorted list of msg type URLs accepted by MsgExec.
+  repeated string type_urls = 1;
+}

@@ -26,7 +26,7 @@ wait_for_tx() {
     local MAX_ATTEMPTS=20
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
             echo "$RESULT"
             return 0
@@ -81,17 +81,17 @@ b64() {
 # ========================================================================
 echo "--- PRECONDITION: ensure operator2 is ACTIVE ---"
 
-OP2_INFO=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json 2>&1)
+OP2_INFO=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json)
 OP2_STATUS=$(echo "$OP2_INFO" | jq -r '.operator.status // empty')
-MIN_BOND_AMT=$($BINARY query service service-type "$TEST_SERVICE_TYPE" --output json | jq -r '.config.min_bond.amount')
+MIN_BOND_AMT=$($BINARY query service service-type "$TEST_SERVICE_TYPE" --output json | jq -r '.config.min_bond_amount')
 UNBONDING_BLOCKS=$($BINARY query service service-type "$TEST_SERVICE_TYPE" --output json | jq -r '.config.unbonding_period_blocks')
 
 if [ -z "$OP2_STATUS" ]; then
     echo "operator2 not registered yet; registering now..."
     TX_RES=$($BINARY tx service register-operator \
-        "$TEST_SERVICE_TYPE" "$COMMONS_POLICY" "${MIN_BOND_AMT}uspark" "$(b64 'operator2-lifecycle-init')" \
+        "$TEST_SERVICE_TYPE" "$COMMONS_POLICY" "${MIN_BOND_AMT}" "$(b64 'operator2-lifecycle-init')" \
         --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} -y --output json)
     submit_and_wait "$TX_RES"
     if ! check_tx_success "$TX_RESULT"; then
         echo "FAIL: precondition register-operator failed"
@@ -116,7 +116,7 @@ NEW_METADATA_PLAIN="operator2-metadata-updated-v2"
 NEW_METADATA_B64=$(b64 "$NEW_METADATA_PLAIN")
 TX_RES=$($BINARY tx service update-metadata "$TEST_SERVICE_TYPE" "$NEW_METADATA_B64" \
     --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_success "$TX_RESULT"; then
     echo "FAIL: update-metadata failed"
@@ -136,20 +136,20 @@ echo ""
 # ========================================================================
 echo "--- PART 2: TopUpBond ---"
 
-BOND_BEFORE=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json | jq -r '.operator.bond.amount')
+BOND_BEFORE=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json | jq -r '.operator.bond_amount')
 TOPUP_AMOUNT=500000000   # +500 SPARK
 echo "Bond before top-up: $BOND_BEFORE"
 
-TX_RES=$($BINARY tx service top-up-bond "$TEST_SERVICE_TYPE" "${TOPUP_AMOUNT}uspark" \
+TX_RES=$($BINARY tx service top-up-bond "$TEST_SERVICE_TYPE" "${TOPUP_AMOUNT}" \
     --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_success "$TX_RESULT"; then
     echo "FAIL: top-up-bond failed"
     exit 1
 fi
 
-BOND_AFTER=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json | jq -r '.operator.bond.amount')
+BOND_AFTER=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json | jq -r '.operator.bond_amount')
 EXPECTED_BOND=$((BOND_BEFORE + TOPUP_AMOUNT))
 if [ "$BOND_AFTER" != "$EXPECTED_BOND" ]; then
     echo "FAIL: bond mismatch: before=$BOND_BEFORE +topup=$TOPUP_AMOUNT, expected $EXPECTED_BOND, got $BOND_AFTER"
@@ -166,7 +166,7 @@ echo "--- PART 3: UnbondOperator ---"
 CURRENT_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
 TX_RES=$($BINARY tx service unbond-operator "$TEST_SERVICE_TYPE" \
     --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_success "$TX_RESULT"; then
     echo "FAIL: unbond-operator failed"
@@ -195,7 +195,7 @@ echo "--- PART 4: REJECTION — second unbond rejected ---"
 
 TX_RES=$($BINARY tx service unbond-operator "$TEST_SERVICE_TYPE" \
     --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_failure "$TX_RESULT"; then
     echo "FAIL: second unbond should be rejected"
@@ -213,7 +213,7 @@ CURRENT_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
 if [ "$CURRENT_HEIGHT" -lt "$UNBOND_COMPLETE_AT" ]; then
     TX_RES=$($BINARY tx service claim-unbonded-bond "$TEST_SERVICE_TYPE" \
         --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} -y --output json)
     submit_and_wait "$TX_RES"
     if ! check_tx_failure "$TX_RESULT"; then
         echo "FAIL: early claim should have been rejected"
@@ -250,7 +250,7 @@ sleep 6
 
 TX_RES=$($BINARY tx service claim-unbonded-bond "$TEST_SERVICE_TYPE" \
     --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_success "$TX_RESULT"; then
     echo "FAIL: claim-unbonded-bond failed"
@@ -259,7 +259,7 @@ fi
 echo "OK: claim-unbonded-bond accepted"
 
 # Confirm live record is gone.
-OP_AFTER=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json 2>&1)
+OP_AFTER=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json)
 if echo "$OP_AFTER" | jq -e '.operator.status' > /dev/null 2>&1; then
     LIVE_STATUS=$(echo "$OP_AFTER" | jq -r '.operator.status')
     # Some impls return the archived record under the same query — check
@@ -274,7 +274,7 @@ echo "OK: live operator record removed after claim"
 # Confirm operator2's wallet balance includes the returned bond (it
 # should have at minimum BOND_AFTER worth of uspark relative to the
 # pre-unbond balance plus gas spend — just check it's non-empty).
-BAL_AFTER=$($BINARY query bank balances "$OPERATOR2_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+BAL_AFTER=$($BINARY query bank balances "$OPERATOR2_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 echo "OK: operator2 post-claim balance: $BAL_AFTER uspark"
 echo ""
 

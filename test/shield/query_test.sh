@@ -226,7 +226,7 @@ elif echo "$DAY_FUND" | grep -qi "error"; then
 else
     check_query_success "$DAY_FUND" "day-funding"
     FUNDED=$(echo "$DAY_FUND" | jq -r '.day_funding.amount_funded // "0"')
-    echo "  Day $CURRENT_DAY funding: $FUNDED uspark"
+    echo "  Day $CURRENT_DAY funding: $FUNDED ${BOND_DENOM}"
 fi
 
 if [ "$PART5_OK" == "true" ]; then

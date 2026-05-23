@@ -530,7 +530,7 @@ To harden, follow the existing immutable-parameter pattern from x/mint: authorit
 
 ## 5. Messages
 
-All signer Msgs MUST carry `option (amino.name) = "sparkdream/x/service/Msg<Name>"` so Keplr+Ledger users can sign via `SIGN_MODE_LEGACY_AMINO_JSON` (see [CLAUDE.md](CLAUDE.md) and the regression guard at [x/commons/types/amino_name_test.go](x/commons/types/amino_name_test.go) — a sibling test SHOULD be added under `x/service/types`).
+All signer Msgs MUST carry `option (amino.name) = "sparkdream/x/service/Msg<Name>"` so Keplr+Ledger users can sign via `SIGN_MODE_LEGACY_AMINO_JSON` (see [development-conventions.md](development-conventions.md) and [HANDOFF_LEDGER_AMINO_NAMES.md](HANDOFF_LEDGER_AMINO_NAMES.md), and the regression guard at [x/commons/types/amino_name_test.go](../x/commons/types/amino_name_test.go) — a sibling test SHOULD be added under `x/service/types`).
 
 ### 5.1. Registration & lifecycle (signed by operator)
 
@@ -1172,5 +1172,6 @@ The following choices were resolved during the spec phase and are noted here in 
 - [docs/x-federation-spec.md](docs/x-federation-spec.md) — bridge-operator primitive that this generalizes
 - [docs/x-rep-spec.md](docs/x-rep-spec.md) — jury system used for tier-2 slashing; DREAM-bonded roles (`BondedRole`) that complement (don't compete with) `x/service`
 - [docs/x-commons-spec.md](docs/x-commons-spec.md) — `MsgScheduleRecurringSpend` for operator compensation; Group address registry for controller validation
-- [CLAUDE.md](CLAUDE.md) — amino-name requirement for signer Msgs; immutable-parameter pattern reference
+- [development-conventions.md](development-conventions.md) — amino-name requirement for signer Msgs and other engineering conventions
+- [security-hardening.md](security-hardening.md) — immutable-parameter pattern reference
 - [x/commons/types/amino_name_test.go](x/commons/types/amino_name_test.go) — pattern for the per-module amino-name regression guard called out in §5

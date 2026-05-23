@@ -52,7 +52,7 @@ func (k msgServer) CreateMarket(goCtx context.Context, msg *types.MsgCreateMarke
 	}
 
 	// Standard users get 0 delay (Liquid Markets)
-	liquidity := sdk.NewCoin("uspark", *msg.InitialLiquidity)
+	liquidity := sdk.NewCoin(k.BondDenom(ctx), *msg.InitialLiquidity)
 
 	// Validate the resulting coin object (checks for valid denom and non-negative amount)
 	if !liquidity.IsValid() {

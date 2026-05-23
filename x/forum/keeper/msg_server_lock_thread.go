@@ -85,7 +85,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 			return nil, types.ErrLockLimitExceeded
 		}
 
-		// Higher bond requirement for locking (2x normal bond, in udream).
+		// Higher bond requirement for locking (2x normal bond, in DREAM micro-units).
 		currentBond := parseIntOrZero(br.CurrentBond)
 		minLockBond := math.NewInt(2_000_000_000) // 2000 DREAM
 		if currentBond.LT(minLockBond) {

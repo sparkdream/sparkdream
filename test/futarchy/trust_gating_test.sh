@@ -37,12 +37,12 @@ if [ -z "$MIN_LIQ" ] || [ "$MIN_LIQ" == "null" ]; then
 fi
 FUND_AMOUNT=$((MIN_LIQ * 2 + 1000000))
 
-echo "Funding $OUTSIDER_KEY with ${FUND_AMOUNT}uspark from alice..."
-FUND_RES=$($BINARY tx bank send alice "$OUTSIDER_ADDR" "${FUND_AMOUNT}uspark" \
+echo "Funding $OUTSIDER_KEY with ${FUND_AMOUNT}${BOND_DENOM} from alice..."
+FUND_RES=$($BINARY tx bank send alice "$OUTSIDER_ADDR" "${FUND_AMOUNT}${BOND_DENOM}" \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend $KEYRING \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json)
 sleep 3
@@ -53,8 +53,8 @@ if [ "$FUND_CODE" != "0" ]; then
     exit 1
 fi
 
-OUTSIDER_BAL=$($BINARY query bank balance "$OUTSIDER_ADDR" uspark --output json | jq -r '.balance.amount // "0"')
-echo "[ OK ] Outsider funded. Balance: ${OUTSIDER_BAL}uspark"
+OUTSIDER_BAL=$($BINARY query bank balance "$OUTSIDER_ADDR" ${BOND_DENOM} --output json | jq -r '.balance.amount // "0"')
+echo "[ OK ] Outsider funded. Balance: ${OUTSIDER_BAL}${BOND_DENOM}"
 
 # --- 1. ATTEMPT MARKET CREATION AS NON-MEMBER ---
 echo ""
@@ -71,7 +71,7 @@ CREATE_RES=$($BINARY tx futarchy create-market \
     --from "$OUTSIDER_KEY" \
     --chain-id $CHAIN_ID \
     --keyring-backend $KEYRING \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -125,7 +125,7 @@ CONTROL_RES=$($BINARY tx futarchy create-market \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend $KEYRING \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json)
 

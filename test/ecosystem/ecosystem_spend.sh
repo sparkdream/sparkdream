@@ -9,7 +9,8 @@ mkdir -p "$PROPOSAL_DIR"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
-DENOM="uspark"
+source "$SCRIPT_DIR/../lib/denoms.sh"
+DENOM="$BOND_DENOM"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then

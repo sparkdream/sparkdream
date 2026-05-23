@@ -51,6 +51,7 @@ func setupMsgServerWithRep(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Co
 		nil, // commonsKeeper (optional)
 		repKeeper,
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeper{})
 
 	// Initialize params with high rate limits for testing
 	params := types.DefaultParams()
@@ -245,7 +246,7 @@ func TestCreatePostStorageFee(t *testing.T) {
 		k, msgServer, ctx, bk := setupMsgServer(t)
 
 		params, _ := k.Params.Get(ctx)
-		params.CostPerByte = sdk.NewCoin("uspark", math.NewInt(0))
+		params.CostPerByteAmount = math.NewInt(0)
 		k.Params.Set(ctx, params)
 
 		msg := &types.MsgCreatePost{

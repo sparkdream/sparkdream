@@ -59,7 +59,7 @@ func (k msgServer) DeclineGrant(ctx context.Context, msg *types.MsgDeclineGrant)
 
 	// Refund any held oneshot deposit (Rev 3 §M3 — easy to miss
 	// otherwise; mirrored from the revoke path).
-	refund := sdk.NewCoin("uspark", sdkmath.ZeroInt())
+	refund := sdk.NewCoin(k.BondDenom(ctx), sdkmath.ZeroInt())
 	if grant.Type == types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT {
 		dep, depErr := k.OneshotGasDeposit.Get(ctx, grant.Id)
 		if depErr == nil && !dep.IsZero() {

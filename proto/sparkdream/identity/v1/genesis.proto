@@ -1,0 +1,22 @@
+syntax = "proto3";
+package sparkdream.identity.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/identity/v1/chain_identity.proto";
+
+option go_package = "sparkdream/x/identity/types";
+
+// GenesisState defines the identity module's genesis state.
+message GenesisState {
+  // identity is the chain's immutable ChainIdentity, set at genesis.
+  ChainIdentity identity = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+
+  // allow_chain_id_mismatch bypasses the soft consistency check between
+  // identity.chain_human_name and the consensus chain_id. Init-time only;
+  // never persisted to state.
+  bool allow_chain_id_mismatch = 2;
+}

@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 PROPOSAL_DIR="$SCRIPT_DIR/proposals"
 
 # Service-type key used throughout the suite. Genesis-default has no
@@ -28,7 +29,7 @@ wait_for_tx() {
     local ATTEMPT=0
 
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
             echo "$RESULT"
             return 0
@@ -130,12 +131,12 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
     AMT="${FUND_AMOUNT[$ACCOUNT]}"
 
     echo "  Sending $AMT uspark to $ACCOUNT ($ADDR)..."
-    TX_RES=$($BINARY tx bank send alice $ADDR ${AMT}uspark \
+    TX_RES=$($BINARY tx bank send alice $ADDR ${AMT}${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
-        --output json 2>&1)
+        --output json)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
@@ -173,7 +174,7 @@ for i in "${!TO_INVITE[@]}"; do
         | jq -r '.required_stake // "100000000"')
     TX_RES=$($BINARY tx rep invite-member $ADDR "$REQUIRED_STAKE" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} -y --output json)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
@@ -208,7 +209,7 @@ for i in "${!TO_INVITE[@]}"; do
     echo "  $ACCOUNT accepting invitation #$INVITATION_ID..."
     TX_RES=$($BINARY tx rep accept-invitation $INVITATION_ID \
         --from $ACCOUNT --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} -y --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
         sleep 6
@@ -259,7 +260,7 @@ if [ "$SKIP_PROPOSAL" != "true" ]; then
       "config": {
         "service_type": "$TEST_SERVICE_TYPE",
         "description": "Synthetic service type for E2E tests of x/service. Mirrors the akash-funding shape: SPARK-bonded operators paid via recurring spend.",
-        "min_bond": {"denom": "uspark", "amount": "1000000000"},
+        "min_bond_amount": "1000000000",
         "unbonding_period_blocks": "20",
         "unilateral_slash_cap_bps": 500,
         "tier1_window_blocks": "1000",
@@ -283,7 +284,7 @@ if [ "$SKIP_PROPOSAL" != "true" ]; then
         "max_pending_blocks": "518400",
         "max_escalated_blocks": "1036800",
         "report_refile_cooldown_blocks": "518400",
-        "report_deposit": {"denom": "uspark", "amount": "10000000"},
+        "report_deposit_amount": "10000000",
         "min_reporter_trust_level": "TRUST_LEVEL_NEW",
         "max_reports_per_reporter_per_operator_per_window": 3,
         "reporter_rate_limit_window_blocks": "518400",
@@ -297,7 +298,7 @@ if [ "$SKIP_PROPOSAL" != "true" ]; then
       }
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000${BOND_DENOM}",
   "title": "Enable test-akash service type + lower reporter trust gate for E2E tests",
   "summary": "Enables the test-akash service type with 1000-SPARK min_bond and short timing knobs (20-block unbonding, 10-block tier-1 cooldown), and lowers min_reporter_trust_level to TRUST_LEVEL_NEW so freshly-invited test reporters can file reports without a full reputation ladder."
 }
@@ -305,7 +306,7 @@ EOF
 
     SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/enable_test_service_type.json" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} -y --output json)
     PROP_TX_HASH=$(echo "$SUBMIT_RES" | jq -r '.txhash')
     sleep 5
     PROP_TX_RESULT=$(wait_for_tx "$PROP_TX_HASH")
@@ -324,7 +325,7 @@ EOF
     echo "  Alice voting YES..."
     VOTE_RES=$($BINARY tx gov vote "$PROP_ID" yes \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} -y --output json)
     sleep 6
 
     # Wait for the voting period (config.yml: 60s).
@@ -341,13 +342,13 @@ EOF
 fi
 
 sleep 3
-SERVICE_CFG=$($BINARY query service service-type "$TEST_SERVICE_TYPE" --output json 2>&1)
+SERVICE_CFG=$($BINARY query service service-type "$TEST_SERVICE_TYPE" --output json)
 if ! echo "$SERVICE_CFG" | jq -e '.config.enabled == true' > /dev/null 2>&1; then
     echo "  ERROR: service type '$TEST_SERVICE_TYPE' is not enabled after proposal"
     echo "$SERVICE_CFG"
     exit 1
 fi
-echo "  Service type '$TEST_SERVICE_TYPE' enabled (min_bond: $(echo $SERVICE_CFG | jq -r '.config.min_bond.amount') uspark)"
+echo "  Service type '$TEST_SERVICE_TYPE' enabled (min_bond: $(echo $SERVICE_CFG | jq -r '.config.min_bond_amount') uspark)"
 echo ""
 
 # ============================================================================
@@ -360,7 +361,7 @@ echo ""
 # is safe.
 echo "Step 5: Resolving Commons Council group policy address..."
 
-COMMONS_GROUP_INFO=$($BINARY query commons get-group "Commons Council" --output json 2>&1)
+COMMONS_GROUP_INFO=$($BINARY query commons get-group "Commons Council" --output json)
 COMMONS_POLICY=$(echo "$COMMONS_GROUP_INFO" | jq -r '.group.policy_address // empty')
 if [ -z "$COMMONS_POLICY" ] || [ "$COMMONS_POLICY" == "null" ]; then
     echo "  ERROR: Could not resolve Commons Council policy address"
@@ -382,6 +383,8 @@ export REPORTER1_ADDR=$REPORTER1_ADDR
 export NON_MEMBER_ADDR=$NON_MEMBER_ADDR
 export TEST_SERVICE_TYPE=$TEST_SERVICE_TYPE
 export COMMONS_POLICY=$COMMONS_POLICY
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

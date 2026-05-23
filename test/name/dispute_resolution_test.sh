@@ -174,7 +174,7 @@ vote_and_execute_commons() {
             --from $VOTER -y \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000000uspark \
+            --fees 5000000${BOND_DENOM} \
             --output json 2>&1)
         submit_and_wait "$TX_RES" "$VOTER vote" || echo "  Warning: $VOTER vote may have failed"
     done
@@ -185,7 +185,7 @@ vote_and_execute_commons() {
         --from alice -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000000uspark \
+        --fees 5000000${BOND_DENOM} \
         --gas 2000000 \
         --output json 2>&1)
 
@@ -216,7 +216,7 @@ TX_RES=$($BINARY tx name register-name "$TARGET_NAME" "Original Owner Data" \
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     --output json 2>&1)
 
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -241,7 +241,7 @@ TX_RES=$($BINARY tx name register-name "$CONTEST_NAME" "Contest Test Data" \
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     --output json 2>&1)
 
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -283,7 +283,7 @@ else
         --from $CLAIMANT_KEY -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         --output json 2>&1)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -350,7 +350,7 @@ TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/resolve_dispute.json"
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000000uspark \
+    --fees 5000000${BOND_DENOM} \
     --output json 2>&1)
 
 if ! submit_and_wait "$TX_RES" "proposal submission"; then
@@ -422,7 +422,7 @@ if [ "$PART6_READY" == "true" ]; then
         --from $CLAIMANT_KEY -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         --output json 2>&1)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -455,7 +455,7 @@ if [ "$PART6_READY" == "true" ]; then
         --from alice -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         --output json 2>&1)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -516,7 +516,7 @@ EOF
         --from alice -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000000uspark \
+        --fees 5000000${BOND_DENOM} \
         --output json 2>&1)
 
     if submit_and_wait "$TX_RES" "contest proposal submission"; then
@@ -574,7 +574,7 @@ TX_RES=$($BINARY tx name register-name "$CHALLENGER_WINS_NAME" "Challenger Wins 
     --from alice -y \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     --output json 2>&1)
 
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -607,7 +607,7 @@ if [ "$PART9_READY" == "true" ]; then
         --from $CLAIMANT_KEY -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         --output json 2>&1)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -639,7 +639,7 @@ if [ "$PART9_READY" == "true" ]; then
         --from alice -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         --output json 2>&1)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -700,7 +700,7 @@ EOF
         --from alice -y \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000000uspark \
+        --fees 5000000${BOND_DENOM} \
         --output json 2>&1)
 
     if submit_and_wait "$TX_RES" "challenger-wins proposal submission"; then

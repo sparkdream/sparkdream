@@ -60,8 +60,8 @@ func SimulateMsgReportOperator(
 			Reason:          msg.Reason,
 			FiledAt:         height,
 			Status:          types.ReportStatus_REPORT_STATUS_PENDING,
-			SlashAmount:     sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt()),
-			Deposit:         params.ReportDeposit,
+			SlashAmount:     sdkmath.ZeroInt(),
+			Deposit:         params.ReportDepositAmount,
 		}
 		if err := k.Reports.Set(ctx, reportID, report); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to write report"), nil, nil

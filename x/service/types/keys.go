@@ -22,10 +22,6 @@ const (
 	// Used by the OpenSystemReport caller allowlist (Phase 0). Sync
 	// with x/federation/types/keys.go.
 	FederationModuleName = "federation"
-
-	// BondDenom is the canonical SPARK micro-denom. x/service is SPARK-only
-	// (see x-service-spec.md §1 SPARK-bonded principle).
-	BondDenom = "uspark"
 )
 
 // Service-operator "bonded" tag — written/deducted by x/service to grant

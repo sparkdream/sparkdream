@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get alice address (genesis account with funds)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -84,6 +85,8 @@ BINARY="$BINARY"
 CHAIN_ID="$CHAIN_ID"
 ALICE_ADDR="$ALICE_ADDR"
 CONTRACTS_DIR="$SCRIPT_DIR/contracts"
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "  Written to $SCRIPT_DIR/.test_env"

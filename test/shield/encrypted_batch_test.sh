@@ -278,7 +278,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -483,7 +483,7 @@ REPLAY_TX_RES=$($BINARY tx shield shielded-exec \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -531,7 +531,7 @@ WRONG_TX_RES=$($BINARY tx shield shielded-exec \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -576,7 +576,7 @@ EMPTY_TX_RES=$($BINARY tx shield shielded-exec \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)

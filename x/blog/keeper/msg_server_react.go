@@ -169,11 +169,12 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 	}
 
 	// Charge reaction fee
-	if !params.ReactionFeeExempt && params.ReactionFee.IsPositive() {
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.ReactionFee)); err != nil {
+	if !params.ReactionFeeExempt && params.ReactionFeeAmount.IsPositive() {
+		reactionFee := sdk.NewCoin(k.BondDenom(ctx), params.ReactionFeeAmount)
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(reactionFee)); err != nil {
 			return nil, err
 		}
-		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(params.ReactionFee)); err != nil {
+		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(reactionFee)); err != nil {
 			return nil, err
 		}
 	}

@@ -107,7 +107,7 @@ TX_RES=$($BINARY tx season set-display-name \
     --from display_user \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -162,7 +162,7 @@ TX_RES=$($BINARY tx season report-display-name \
     --from guild_member1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -238,7 +238,7 @@ else
         --from display_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -348,7 +348,7 @@ else
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -433,7 +433,7 @@ if [ "$PART9_READY" == "true" ]; then
         --from guild_member1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -470,7 +470,7 @@ if [ "$PART9_READY" == "true" ]; then
         --from display_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -521,7 +521,7 @@ if [ "$PART9_READY" == "true" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -591,12 +591,12 @@ if ! echo "$PRE_MOD" | grep -q "error\|not found"; then
             # Has an appeal — resolve it
             TX_RES=$($BINARY tx season resolve-display-name-appeal \
                 "$PART10_TARGET_ADDR" false \
-                --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
         else
             # No appeal — resolve as unappealed (may fail if appeal period not expired)
             TX_RES=$($BINARY tx season resolve-unappealed-moderation \
                 "$PART10_TARGET_ADDR" \
-                --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
         fi
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
         if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
@@ -616,7 +616,7 @@ TX_RES=$($BINARY tx season set-display-name \
     --from guild_member2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -651,7 +651,7 @@ if [ "$PART10_READY" == "true" ]; then
         --from guild_member1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -697,7 +697,7 @@ if [ "$PART10_READY" == "true" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -796,7 +796,7 @@ if [ "$PART10_READY" == "true" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 

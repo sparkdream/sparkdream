@@ -11,6 +11,14 @@ import (
 	reptypes "sparkdream/x/rep/types"
 )
 
+// IdentityKeeper is the subset of x/identity that forum reads to resolve
+// the chain's bond denom at runtime. Late-bound via SetIdentityKeeper
+// from app.go; keeper.BondDenom panics if unwired.
+type IdentityKeeper interface {
+	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+}
+
 // AuthKeeper defines the expected interface for the Auth module.
 type AuthKeeper interface {
 	AddressCodec() address.Codec

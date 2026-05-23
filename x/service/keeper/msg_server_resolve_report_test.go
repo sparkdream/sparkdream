@@ -5,7 +5,6 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/service/types"
@@ -30,8 +29,8 @@ func (f *fixture) seedPendingReport(t *testing.T) uint64 {
 		Reason:          "seed",
 		FiledAt:         height,
 		Status:          types.ReportStatus_REPORT_STATUS_PENDING,
-		SlashAmount:     sdk.NewCoin(types.BondDenom, math.ZeroInt()),
-		Deposit:         sdk.NewCoin(types.BondDenom, math.NewInt(10_000_000)),
+		SlashAmount:     math.ZeroInt(),
+		Deposit:         math.NewInt(10_000_000),
 	}
 	require.NoError(t, f.keeper.Reports.Set(f.ctx, reportID, r))
 	require.NoError(t, f.keeper.ReportsByOperator.Set(f.ctx, collections.Join3(testOperator1Addr.Bytes(), testServiceType, reportID)))
@@ -55,7 +54,7 @@ func TestMsgResolveReport_T1Dismiss(t *testing.T) {
 	r, err := f.keeper.Reports.Get(f.ctx, reportID)
 	require.NoError(t, err)
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_RESOLVED_T1, r.Status)
-	require.True(t, r.SlashAmount.Amount.IsZero())
+	require.True(t, r.SlashAmount.IsZero())
 
 	// Reporter deposit was refunded.
 	require.Len(t, f.bankKeeper.ModToAcctCalls, 1)
@@ -100,13 +99,13 @@ func TestMsgResolveReport_T1Slash(t *testing.T) {
 	r, err := f.keeper.Reports.Get(f.ctx, reportID)
 	require.NoError(t, err)
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_RESOLVED_T1, r.Status)
-	require.True(t, r.SlashAmount.Amount.IsPositive())
+	require.True(t, r.SlashAmount.IsPositive())
 	require.Equal(t, slashBps, r.ProposedSlashBps)
 
 	// Operator's bond decreased.
 	post, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
 	require.True(t, ok)
-	require.True(t, post.Bond.Amount.LT(op.Bond.Amount))
+	require.True(t, post.BondAmount.LT(op.BondAmount))
 
 	// Tier1Escrow row written for this report.
 	escrowID, found := findEscrowFor(t, f, reportID)

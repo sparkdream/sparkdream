@@ -109,7 +109,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -130,7 +130,7 @@ bootstrap_reputation() {
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -212,7 +212,7 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -315,7 +315,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -357,7 +357,7 @@ if [ -n "$MOD_POST_ID" ]; then
             --from $FLAGGER \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -421,7 +421,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -444,7 +444,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                 --from sentinel1 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -487,7 +487,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -509,7 +509,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                 --from sentinel1 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -571,7 +571,7 @@ if [ -n "$LOCK_THREAD_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -608,7 +608,7 @@ if [ -n "$MOD_POST_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -648,7 +648,7 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     --from sentinel2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -666,7 +666,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
             --from sentinel2 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -739,7 +739,7 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -790,7 +790,7 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     --from sentinel2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -847,7 +847,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -873,7 +873,7 @@ if [ -n "$NEG_POST_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -918,7 +918,7 @@ if [ -n "$NEG_POST_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -964,7 +964,7 @@ if [ -n "$HIDE_POST_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1008,7 +1008,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1033,7 +1033,7 @@ if [ -n "$DOUBLE_LOCK_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1052,7 +1052,7 @@ if [ -n "$DOUBLE_LOCK_ID" ]; then
                 --from sentinel1 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -1101,7 +1101,7 @@ if [ -n "$LOCK_THREAD_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1144,7 +1144,7 @@ TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1186,7 +1186,7 @@ if [ -n "$NEG_POST_ID" ]; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

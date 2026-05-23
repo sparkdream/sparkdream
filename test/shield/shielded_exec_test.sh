@@ -160,7 +160,7 @@ echo "--- PART 4: Shield module gas balance ---"
 BALANCE=$($BINARY query shield module-balance --output json 2>&1)
 BAL_AMOUNT=$(echo "$BALANCE" | jq -r '.balance.amount // "0"')
 
-echo "  Shield module balance: $BAL_AMOUNT uspark"
+echo "  Shield module balance: $BAL_AMOUNT ${BOND_DENOM}"
 
 if [ "$BAL_AMOUNT" == "0" ] || [ "$BAL_AMOUNT" == "null" ]; then
     echo "  Shield module has no balance (community pool funding may not have triggered yet)"

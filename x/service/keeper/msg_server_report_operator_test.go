@@ -32,7 +32,7 @@ func TestMsgReportOperator_HappyPath(t *testing.T) {
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, report.Status)
 	require.Equal(t, testReporter, report.Reporter)
 	require.Equal(t, testOperator1, report.OperatorAddress)
-	require.True(t, report.Deposit.Amount.IsPositive())
+	require.True(t, report.Deposit.IsPositive())
 
 	// ReportsByOperator index seeded.
 	has, _ := f.keeper.ReportsByOperator.Has(f.ctx, collections.Join3(testOperator1Addr.Bytes(), testServiceType, resp.ReportId))

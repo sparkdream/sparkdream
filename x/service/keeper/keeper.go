@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -39,7 +40,7 @@ type Keeper struct {
 	// SetCrossModuleKeepers / SetHooks. They live behind a shared
 	// pointer so post-construction wiring is visible to every copy of
 	// the Keeper (notably the AppModule's snapshot copy used by the
-	// msg-server — see CLAUDE.md "AppModule Value-Copy Bug").
+	// msg-server — see docs/development-conventions.md "AppModule Value-Copy Bug").
 	//
 	// Handlers that need a cross-module keeper must nil-check via the
 	// accessor helpers below; nil means standalone mode (early
@@ -146,6 +147,7 @@ type lateKeepers struct {
 	commonsKeeper      types.CommonsKeeper
 	repKeeper          types.RepKeeper
 	distributionKeeper types.DistributionKeeper
+	identityKeeper     types.IdentityKeeper
 	hooks              types.ServiceHooks
 }
 
@@ -365,6 +367,23 @@ func (k Keeper) SetHooks(hooks types.ServiceHooks) Keeper {
 	}
 	k.late.hooks = hooks
 	return k
+}
+
+// SetIdentityKeeper wires the x/identity keeper post-depinject so the
+// keeper can resolve the chain's bond denom at runtime.
+func (k Keeper) SetIdentityKeeper(ik types.IdentityKeeper) {
+	k.late.identityKeeper = ik
+}
+
+// BondDenom returns the chain's bond denom from the wired identity
+// keeper. Panics if identity is not wired — every call site needs a real
+// denom and silently returning a hardcoded literal would re-introduce
+// the legacy mixed-state bug.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.late == nil || k.late.identityKeeper == nil {
+		panic("service keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.BondDenom(ctx)
 }
 
 // commonsKeeper returns the wired CommonsKeeper, or nil if running in

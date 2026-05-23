@@ -92,7 +92,7 @@ cleanup_leave_guild() {
         --from $KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -126,7 +126,7 @@ ensure_member_profile() {
         --from $KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -189,7 +189,7 @@ for LEAVE_KEY in $ALL_CANDIDATE_KEYS; do
                 TX_RES=$($BINARY tx season transfer-guild-founder \
                     "$CURRENT_GUILD" "$TARGET_ADDR" \
                     --from $LEAVE_KEY --chain-id $CHAIN_ID \
-                    --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                    --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
                 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
                 if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                     sleep 6
@@ -206,7 +206,7 @@ for LEAVE_KEY in $ALL_CANDIDATE_KEYS; do
             echo "  Sole founder, trying dissolve..."
             TX_RES=$($BINARY tx season dissolve-guild "$CURRENT_GUILD" \
                 --from $LEAVE_KEY --chain-id $CHAIN_ID \
-                --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
             TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
             if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                 sleep 6
@@ -328,7 +328,7 @@ TX_RES=$($BINARY tx season create-guild \
     --from $GUILD_FOUNDER_KEY \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -377,7 +377,7 @@ if [ -n "$ADV_GUILD_ID" ]; then
         --from $GUILD_MEMBER1_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -406,7 +406,7 @@ if [ -n "$ADV_GUILD_ID" ]; then
         --from $GUILD_OFFICER_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -429,7 +429,7 @@ if [ -n "$ADV_GUILD_ID" ]; then
         --from $GUILD_FOUNDER_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -475,7 +475,7 @@ if [ -n "$ADV_GUILD_ID" ]; then
         --from $GUILD_OFFICER_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -527,7 +527,7 @@ if [ -n "$ADV_GUILD_ID" ]; then
         --from $GUILD_FOUNDER_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -557,7 +557,7 @@ if [ -n "$ADV_GUILD_ID" ]; then
                 --from $GUILD_FOUNDER_KEY \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -598,7 +598,7 @@ if [ -n "$ADV_GUILD_ID" ]; then
         --from $GUILD_OFFICER_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -657,7 +657,7 @@ else
         --from $CLAIM_FOUNDER_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -705,7 +705,7 @@ if [ -n "$CLAIM_GUILD_ID" ]; then
         --from $CLAIM_JOIN_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -731,7 +731,7 @@ if [ -n "$CLAIM_GUILD_ID" ]; then
         --from $CLAIM_JOIN_KEY \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

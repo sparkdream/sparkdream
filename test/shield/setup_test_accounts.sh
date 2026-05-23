@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get alice address (genesis member / validator)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -102,10 +103,10 @@ for ADDR in $MEMBER1_ADDR $MEMBER2_ADDR $MEMBER3_ADDR $SUBMITTER1_ADDR $SUBMITTE
     echo "  Sending 10 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
-        10000000uspark \
+        10000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -160,7 +161,7 @@ for i in "${!MEMBER_ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -217,7 +218,7 @@ for i in "${!MEMBER_ACCOUNTS[@]}"; do
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -263,7 +264,7 @@ for ACCOUNT in "${MEMBER_ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -313,7 +314,7 @@ register_zk_key() {
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -428,6 +429,8 @@ export MEMBER1_ZK_KEY=$MEMBER1_ZK_KEY
 export MEMBER2_ZK_KEY=$MEMBER2_ZK_KEY
 export MEMBER3_ZK_KEY=$MEMBER3_ZK_KEY
 export ALICE_ZK_KEY=$ALICE_ZK_KEY
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

@@ -116,8 +116,9 @@ func (k msgServer) handleT1Dismiss(
 		return nil, err
 	}
 
+	bondDenom := k.BondDenom(ctx)
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
-		types.NewReportResolvedT1Event(report.ReportId, "DISMISS", report.SlashAmount),
+		types.NewReportResolvedT1Event(report.ReportId, "DISMISS", sdk.NewCoin(bondDenom, report.SlashAmount)),
 	)
 	emitReportResolved(report.ServiceType, types.TierTier1, "DISMISS")
 	return &types.MsgResolveReportResponse{}, nil
@@ -159,7 +160,7 @@ func (k msgServer) handleT1Slash(
 	}
 
 	// Compute slash on CURRENT bond (§3.4.2 — basis points of current).
-	slashAmount := computeSlashAmount(op.Bond.Amount, slashBps)
+	slashAmount := computeSlashAmount(op.BondAmount, slashBps)
 	if slashAmount.IsZero() {
 		// Defensive: with current_bond=0 or bps=0, no slash possible —
 		// surface as a controller-friendly error rather than silent
@@ -198,12 +199,13 @@ func (k msgServer) handleT1Slash(
 	}
 	releaseAt := currentHeight + params.ReportContestWindowBlocks
 
+	bondDenom := k.BondDenom(ctx)
 	escrow := types.Tier1EscrowEntry{
 		EscrowId:        escrowID,
 		ReportId:        report.ReportId,
 		OperatorAddress: op.Address,
 		ServiceType:     op.ServiceType,
-		Amount:          sdk.NewCoin(types.BondDenom, slashAmount),
+		Amount:          slashAmount,
 		ReleaseAt:       releaseAt,
 	}
 	if err := k.Tier1Escrow.Set(ctx, escrowID, escrow); err != nil {
@@ -230,7 +232,7 @@ func (k msgServer) handleT1Slash(
 
 	// Update report: status RESOLVED_T1, slash_amount, proposed_slash_bps.
 	report.Status = types.ReportStatus_REPORT_STATUS_RESOLVED_T1
-	report.SlashAmount = sdk.NewCoin(types.BondDenom, slashAmount)
+	report.SlashAmount = slashAmount
 	report.ProposedSlashBps = slashBps
 
 	// Refund reporter's deposit (slash > 0 → refund per §3.4.6).
@@ -244,15 +246,17 @@ func (k msgServer) handleT1Slash(
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	emitOperatorUnderfunded := op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED && op.UnderfundedSince == currentHeight
+	slashCoin := sdk.NewCoin(bondDenom, slashAmount)
+	bondCoin := sdk.NewCoin(bondDenom, op.BondAmount)
 	events := sdk.Events{
-		types.NewOperatorSlashedEvent(op.Address, op.ServiceType, sdk.NewCoin(types.BondDenom, slashAmount), op.Bond, types.TierTier1, report.ReportId),
-		types.NewTier1EscrowLockedEvent(escrowID, report.ReportId, op.Address, op.ServiceType, escrow.Amount, releaseAt),
-		types.NewReportResolvedT1Event(report.ReportId, "SLASH", report.SlashAmount),
+		types.NewOperatorSlashedEvent(op.Address, op.ServiceType, slashCoin, bondCoin, types.TierTier1, report.ReportId),
+		types.NewTier1EscrowLockedEvent(escrowID, report.ReportId, op.Address, op.ServiceType, slashCoin, releaseAt),
+		types.NewReportResolvedT1Event(report.ReportId, "SLASH", slashCoin),
 	}
 	if emitOperatorUnderfunded {
 		cfg, _ := k.resolveServiceTypeConfig(ctx, op.ServiceType)
 		events = append(events, types.NewOperatorUnderfundedEvent(
-			op.Address, op.ServiceType, op.Bond, cfg.MinBond, currentHeight+k.effectiveUnderfundedGraceBlocks(cfg, params),
+			op.Address, op.ServiceType, bondCoin, sdk.NewCoin(bondDenom, cfg.MinBondAmount), currentHeight+k.effectiveUnderfundedGraceBlocks(cfg, params),
 		))
 	}
 	sdkCtx.EventManager().EmitEvents(events)
@@ -347,18 +351,19 @@ func (k Keeper) escalateReportToJury(
 // refundReportDeposit returns the report's escrowed deposit to the
 // reporter. No-op if the deposit is zero.
 func (k msgServer) refundReportDeposit(ctx context.Context, report *types.Report) error {
-	if report.Deposit.Amount.IsNil() || report.Deposit.Amount.IsZero() {
+	if report.Deposit.IsNil() || report.Deposit.IsZero() {
 		return nil
 	}
 	reporterBytes, err := k.addrBytes(report.Reporter)
 	if err != nil {
 		return err
 	}
+	depositCoin := sdk.NewCoin(k.BondDenom(ctx), report.Deposit)
 	return k.bankKeeper.SendCoinsFromModuleToAccount(
 		ctx,
 		types.ModuleName,
 		sdk.AccAddress(reporterBytes),
-		sdk.NewCoins(report.Deposit),
+		sdk.NewCoins(depositCoin),
 	)
 }
 
@@ -385,4 +390,3 @@ func mustAddrBytes(k msgServer, addr string) []byte {
 	}
 	return b
 }
-

@@ -30,7 +30,7 @@ echo "--- STEP 1: SETUP TARGET COMMITTEE 'FORT KNOX' ---"
 # the group expires under it):
 # - Term: 180s   (test runtime ~65s under parallel load — see 22*sleep3
 #                + per-tx block time; 3x headroom for further slowdowns)
-# - Spend Limit: 100uspark   (intentionally tiny so STEP 4's 200uspark trips it)
+# - Spend Limit: 100${BOND_DENOM}   (intentionally tiny so STEP 4's 200${BOND_DENOM} trips it)
 # - Cooldown: 3600s (1 hour)
 #
 # Per-run uniqueness: a previous failed run of this test (or a snapshot
@@ -73,7 +73,7 @@ echo '{
   ]
 }' > "$PROPOSAL_DIR/create_fort_knox.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/create_fort_knox.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/create_fort_knox.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 
@@ -137,7 +137,7 @@ echo '{
   ]
 }' > "$PROPOSAL_DIR/early_renew.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/early_renew.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/early_renew.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 
@@ -173,7 +173,7 @@ fi
 
 echo "--- STEP 3: THE 'EVE' ATTACK (UNAUTHORIZED ACCESS) ---"
 # Fund the Eve address so proposal fees can be paid
-$BINARY tx bank send alice $EVE_ADDR 5000000uspark --chain-id $CHAIN_ID -y --fees 5000uspark > /dev/null
+$BINARY tx bank send alice $EVE_ADDR 5000000${BOND_DENOM} --chain-id $CHAIN_ID -y --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
 # Eve tries to submit a proposal to update Fort Knox.
@@ -192,7 +192,7 @@ echo '{
   ]
 }' > "$PROPOSAL_DIR/eve_attack.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/eve_attack.json" --from eve -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/eve_attack.json" --from eve -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json 2>&1)
 sleep 3
 
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
@@ -217,10 +217,10 @@ fi
 
 echo "--- STEP 4: SPENDING LIMIT VIOLATION ---"
 # 1. Fund the Fort Knox treasury first
-$BINARY tx bank send alice $KNOX_POLICY 1000uspark --chain-id $CHAIN_ID -y --fees 5000uspark > /dev/null
+$BINARY tx bank send alice $KNOX_POLICY 1000${BOND_DENOM} --chain-id $CHAIN_ID -y --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
-# 2. Try to spend 200uspark (Limit is 100uspark)
+# 2. Try to spend 200${BOND_DENOM} (Limit is 100${BOND_DENOM})
 echo '{
   "policy_address": "'$KNOX_POLICY'",
   "proposers": ["'$ALICE_ADDR'"],
@@ -231,12 +231,12 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
       "authority": "'$KNOX_POLICY'",
       "recipient": "'$ALICE_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "200"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "200"}]
     }
   ]
 }' > "$PROPOSAL_DIR/overspend.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/overspend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/overspend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 
@@ -288,7 +288,7 @@ echo '{
   "metadata": "Recursion attack attempt"
 }' > "$PROPOSAL_DIR/forbidden.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/forbidden.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/forbidden.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json 2>&1)
 
 # Either submission is rejected directly (broadcast error) or the tx is
 # included with a non-zero code and a "not allowed for policy" raw_log.
@@ -325,13 +325,13 @@ echo '{
       "@type": "/cosmos.bank.v1beta1.MsgSend",
       "from_address": "'$KNOX_POLICY'",
       "to_address": "'$ALICE_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "1"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "1"}]
     }
   ],
   "metadata": "Out-of-allowlist external message"
 }' > "$PROPOSAL_DIR/external_forbidden.json"
 
-EXT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/external_forbidden.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+EXT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/external_forbidden.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json 2>&1)
 EXT_HASH=$(echo "$EXT_RES" | jq -r '.txhash // empty' 2>/dev/null)
 sleep 3
 EXT_LOG=""
@@ -381,7 +381,7 @@ echo '{
   ]
 }' > "$PROPOSAL_DIR/create_victim.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/create_victim.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/create_victim.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 
@@ -442,7 +442,7 @@ echo '{
 }' > "$PROPOSAL_DIR/cooldown_check.json"
 
 # Submit
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/cooldown_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/cooldown_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 

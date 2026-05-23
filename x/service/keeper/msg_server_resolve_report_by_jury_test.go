@@ -34,7 +34,7 @@ func TestMsgResolveReportByJury_Accept(t *testing.T) {
 
 	preBond := math.ZeroInt()
 	if op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType); ok {
-		preBond = op.Bond.Amount
+		preBond = op.BondAmount
 	}
 
 	_, err := f.msgServer.ResolveReportByJury(f.ctx, &types.MsgResolveReportByJury{
@@ -48,12 +48,12 @@ func TestMsgResolveReportByJury_Accept(t *testing.T) {
 	r, err := f.keeper.Reports.Get(f.ctx, reportID)
 	require.NoError(t, err)
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_RESOLVED_T2, r.Status)
-	require.True(t, r.SlashAmount.Amount.IsPositive())
+	require.True(t, r.SlashAmount.IsPositive())
 
 	// Operator's bond decreased.
 	op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
 	require.True(t, ok)
-	require.True(t, op.Bond.Amount.LT(preBond))
+	require.True(t, op.BondAmount.LT(preBond))
 
 	// Slash routed to community pool.
 	require.NotEmpty(t, f.distributionKeeper.Calls)
@@ -135,7 +135,7 @@ func TestMsgResolveReportByJury_Reject(t *testing.T) {
 	r, err := f.keeper.Reports.Get(f.ctx, reportID)
 	require.NoError(t, err)
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_RESOLVED_T2, r.Status)
-	require.True(t, r.SlashAmount.Amount.IsZero())
+	require.True(t, r.SlashAmount.IsZero())
 
 	// Reporter deposit forfeited to community pool.
 	require.NotEmpty(t, f.distributionKeeper.Calls)

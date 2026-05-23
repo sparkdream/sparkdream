@@ -22,6 +22,7 @@ type lateKeepers struct {
 	distrKeeper    types.DistrKeeper
 	slashingKeeper types.SlashingKeeper
 	stakingKeeper  types.StakingKeeper
+	identityKeeper types.IdentityKeeper
 	router         baseapp.MessageRouter
 
 	// shieldAwareModules maps message type URL prefixes to their ShieldAware implementations.
@@ -223,6 +224,21 @@ func (k Keeper) SetSlashingKeeper(sk types.SlashingKeeper) {
 // SetStakingKeeper wires the StakingKeeper after depinject.
 func (k Keeper) SetStakingKeeper(sk types.StakingKeeper) {
 	k.late.stakingKeeper = sk
+}
+
+// SetIdentityKeeper late-binds the identity keeper for federated-denom
+// resolution. Called from app.go post-depinject.
+func (k Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
+	k.late.identityKeeper = idk
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity isn't wired: no silent fallback to a hardcoded literal.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.late.identityKeeper == nil {
+		panic("shield keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.BondDenom(ctx)
 }
 
 // SetRouter wires the MsgServiceRouter after app build for inner message dispatch.

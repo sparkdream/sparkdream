@@ -42,7 +42,7 @@ TX_RES=$($BINARY tx rep create-initiative \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -59,7 +59,7 @@ $BINARY tx rep assign-initiative \
     --from assignee \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y > /dev/null 2>&1
 
 sleep 6
@@ -72,7 +72,7 @@ $BINARY tx rep submit-initiative-work \
     --from assignee \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y > /dev/null 2>&1
 
 sleep 6
@@ -86,7 +86,7 @@ TX_RES=$($BINARY tx rep create-challenge \
     --from challenger \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -103,7 +103,7 @@ TX_RES=$($BINARY tx rep respond-to-challenge \
     --from assignee \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -131,7 +131,7 @@ TX_RES=$($BINARY tx rep complete-interim \
     --from assignee \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -166,7 +166,7 @@ TX_RES=$($BINARY tx rep complete-interim \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 

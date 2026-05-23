@@ -140,7 +140,7 @@ create_category_as_alice() {
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -186,7 +186,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -235,7 +235,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -275,7 +275,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -343,7 +343,7 @@ if [ -n "$CAT1_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -374,7 +374,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -389,7 +389,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -416,7 +416,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
                 --from poster1 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
             if submit_tx_and_wait "$CLEAN_POST_TX" && check_tx_success "$TX_RESULT"; then
@@ -426,7 +426,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
                     --from alice \
                     --chain-id $CHAIN_ID \
                     --keyring-backend test \
-                    --fees 5000uspark \
+                    --fees 5000${BOND_DENOM} \
                     -y \
                     --output json 2>&1)
                 if submit_tx_and_wait "$CLEAN_CAT_TX" && check_tx_success "$TX_RESULT"; then
@@ -480,7 +480,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     submit_tx_and_wait "$TX_RES" > /dev/null
@@ -527,7 +527,7 @@ TX_RES=$($BINARY tx commons delete-category \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -549,10 +549,10 @@ NONDELETER_ADDR=$($BINARY keys show nondeleter -a --keyring-backend test)
 
 FUND_TX=$($BINARY tx bank send \
     alice "$NONDELETER_ADDR" \
-    1000000uspark \
+    1000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 submit_tx_and_wait "$FUND_TX" > /dev/null
@@ -562,7 +562,7 @@ TX_RES=$($BINARY tx commons delete-category \
     --from nondeleter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -580,7 +580,7 @@ TX_RES=$($BINARY tx commons delete-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -598,7 +598,7 @@ TX_RES=$($BINARY tx commons delete-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -628,7 +628,7 @@ TX_RES=$($BINARY tx commons delete-category \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 submit_tx_and_wait "$TX_RES" > /dev/null

@@ -9,6 +9,7 @@ echo ""
 # Configuration
 # ========================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 source "$SCRIPT_DIR/../check_testparams.sh"
 source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"

@@ -10,20 +10,20 @@ validation: sovereign
 # and all E2E tests. These keys hold no real funds and are never used in production.
 accounts:
 - name: alice
-  coins: [20000000000000uspark]
+  coins: [20000000000000uspark.sparkdream]
   mnemonic: "punch toss leisure miss pulse hand dentist ozone gadget pretty narrow wise ankle manage equal carry devote naive hungry betray mean word music grunt"
 - name: bob
-  coins: [10000000000000uspark]
+  coins: [10000000000000uspark.sparkdream]
   mnemonic: "chat opera segment access debate stool axis govern wave tool drift crater miracle yellow quote orchard start mistake normal evoke simple sing mimic retreat"
 - name: carol
-  coins: [5000000000000uspark]
+  coins: [5000000000000uspark.sparkdream]
   mnemonic: "remove enable fade luxury post call spring lock once retire chef luggage bless lend benefit plug phrase poem grief quit trouble still manage solve"
 - name: dave
-  coins: [5000000uspark]
+  coins: [5000000uspark.sparkdream]
   mnemonic: "pledge dice input pave satisfy student slight author battle safe place purity syrup skin buyer sick raven shock decrease acoustic fluid kick muffin soft"
 faucet:
   name: bob
-  coins: [1000uspark]
+  coins: [1000uspark.sparkdream]
 genesis:
   consensus:
     params:
@@ -31,30 +31,16 @@ genesis:
         vote_extensions_enable_height: "1"
   app_state:
     bank:
-      denom_metadata:
-      - base: uspark
-        denom_units:
-        - denom: uspark
-          exponent: 0
-        - denom: spark
-          exponent: 6
-        description: Native token of Spark Dream A T E L I E R.
-        display: spark
-        name: spark
-        symbol: spark
-      - base: udream
-        denom_units:
-        - denom: udream
-          exponent: 0
-        - denom: dream
-          exponent: 6
-        description: Internal coordination token - earned through contribution, not traded.
-        display: dream
-        name: dream
-        symbol: dream
+      # No denom_metadata — x/identity's InitGenesis writes the canonical
+      # native-token metadata (Symbol=BondDisplaySymbol, etc.) from
+      # DefaultChainIdentity(). Listing entries here used to overwrite
+      # identity's writes because bank InitGenesis runs after identity,
+      # producing a Symbol-case mismatch (config used lowercase, identity
+      # uses uppercase) that broke bank_metadata_test.
+      denom_metadata: []
     commons:
       params:
-        proposal_fee: "5000000uspark"
+        proposal_fee: "5000000uspark.sparkdream"
       category_map:
       - category_id: 1
         title: "General"
@@ -91,11 +77,11 @@ genesis:
       params:
         sysnames_pkgpath: ""
         chain_domain: "gno.land"
-        default_deposit: "100000uspark"
-        storage_price: "1uspark"
+        default_deposit: "100000uspark.sparkdream"
+        storage_price: "1uspark.sparkdream"
     crisis:
       constant_fee:
-        denom: uspark
+        denom: uspark.sparkdream
     distribution:
       params:
         community_tax: "0.15"
@@ -104,22 +90,22 @@ genesis:
         max_deposit_period: "30s"
         min_deposit:
           - amount: "50000000"
-            denom: "uspark"
+            denom: "uspark.sparkdream"
         voting_period: "60s"
         expedited_min_deposit:
           - amount: "100000000"
-            denom: "uspark"
+            denom: "uspark.sparkdream"
         expedited_voting_period: "40s"
     mint:
       params:
-        mint_denom: "uspark"
+        mint_denom: "uspark.sparkdream"
         goal_bonded: "0.67"
         inflation_max: "0.05"
         inflation_min: "0.02"
         inflation_rate_change: "0.13"
     staking:
       params:
-        bond_denom: uspark
+        bond_denom: uspark.sparkdream
     season:
       season:
         number: 1
@@ -457,6 +443,6 @@ genesis:
         max_names_per_address: "10"
 validators:
 - name: alice
-  bonded: 15000000000000uspark
+  bonded: 15000000000000uspark.sparkdream
 - name: bob
-  bonded: 5000000000000uspark
+  bonded: 5000000000000uspark.sparkdream

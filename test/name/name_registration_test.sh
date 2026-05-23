@@ -5,7 +5,7 @@ echo "--- TESTING NAME MODULE: REGISTRATION, VALIDATION & PERMISSIONS ---"
 # --- 0. SETUP & CONFIG ---
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
-DENOM="uspark"
+DENOM="$BOND_DENOM"
 
 # Ensure jq is installed
 if ! command -v jq &> /dev/null; then
@@ -25,7 +25,7 @@ echo "Fetching Name Params..."
 PARAMS=$($BINARY query name params --output json)
 MAX_LEN=$(echo $PARAMS | jq -r '.params.max_name_length')
 MIN_LEN=$(echo $PARAMS | jq -r '.params.min_name_length')
-FEE_AMOUNT=$(echo $PARAMS | jq -r '.params.registration_fee.amount')
+FEE_AMOUNT=$(echo $PARAMS | jq -r '.params.registration_fee_amount')
 
 echo "Constraints: Min $MIN_LEN, Max $MAX_LEN, Fee $FEE_AMOUNT $DENOM"
 

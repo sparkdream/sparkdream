@@ -99,7 +99,7 @@ submit_and_exec_commons_proposal() {
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --gas 500000 \
-        --fees 5500000uspark \
+        --fees 5500000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -139,7 +139,7 @@ submit_and_exec_commons_proposal() {
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000000uspark \
+        --fees 5000000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     sleep 5
@@ -153,7 +153,7 @@ submit_and_exec_commons_proposal() {
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --gas 500000 \
-        --fees 5500000uspark \
+        --fees 5500000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -246,10 +246,10 @@ echo "  All tag budget permissions present"
 echo "  Funding group policy with SPARK..."
 TX_RES=$($BINARY tx bank send \
     alice "$GROUP_POLICY_ADDR" \
-    10000000uspark \
+    10000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -386,7 +386,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -523,7 +523,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -558,7 +558,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -611,7 +611,7 @@ if [ -n "$AWARD_POST_ID" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -803,7 +803,7 @@ TX_RES=$($BINARY tx rep create-tag-budget \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -822,7 +822,7 @@ TX_RES=$($BINARY tx rep create-tag-budget \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -841,7 +841,7 @@ TX_RES=$($BINARY tx rep create-tag-budget \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -873,7 +873,7 @@ TX_RES=$($BINARY tx rep toggle-tag-budget \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -892,7 +892,7 @@ if [ -n "$TAG_BUDGET_ID_2" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -928,7 +928,7 @@ TX_RES=$($BINARY tx rep top-up-tag-budget \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -947,7 +947,7 @@ if [ -n "$TAG_BUDGET_ID_2" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -982,7 +982,7 @@ TX_RES=$($BINARY tx rep withdraw-tag-budget \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1000,7 +1000,7 @@ if [ -n "$TAG_BUDGET_ID_2" ]; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1038,7 +1038,7 @@ TX_RES=$($BINARY tx rep award-from-tag-budget \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1060,7 +1060,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1083,7 +1083,7 @@ if [ -n "$TAG_BUDGET_ID_2" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1106,7 +1106,7 @@ if [ -n "$TAG_BUDGET_ID_2" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1143,7 +1143,7 @@ TX_RES=$($BINARY tx rep report-tag \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1178,7 +1178,7 @@ TX_RES=$($BINARY tx rep report-tag \
     --from poster2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1227,7 +1227,7 @@ TX_RES=$($BINARY tx rep report-tag \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1245,7 +1245,7 @@ TX_RES=$($BINARY tx rep report-tag \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1313,7 +1313,7 @@ TX_RES=$($BINARY tx rep report-tag \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1333,7 +1333,7 @@ TX_RES=$($BINARY tx rep resolve-tag-report \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1377,7 +1377,7 @@ TX_RES=$($BINARY tx rep resolve-tag-report \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1420,7 +1420,7 @@ TX_RES=$($BINARY tx rep report-tag \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1440,7 +1440,7 @@ TX_RES=$($BINARY tx rep resolve-tag-report \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1483,7 +1483,7 @@ TX_RES=$($BINARY tx rep report-tag \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1501,7 +1501,7 @@ TX_RES=$($BINARY tx rep resolve-tag-report \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -1520,7 +1520,7 @@ TX_RES=$($BINARY tx rep resolve-tag-report \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -1539,7 +1539,7 @@ TX_RES=$($BINARY tx rep resolve-tag-report \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 

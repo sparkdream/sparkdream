@@ -26,16 +26,16 @@ func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "report-state-machine-sanity", ReportStateMachineSanityInvariant(k))
 }
 
-// BondPoolAccountingInvariant — bank.balance(module, uspark) ==
-// sum(operators[].bond) + sum(reports{PENDING|ESCALATED}.deposit) +
+// BondPoolAccountingInvariant — bank.balance(module, bondDenom) ==
+// sum(operators[].bond_amount) + sum(reports{PENDING|ESCALATED}.deposit) +
 // sum(controller_transfer_cases[].deposit) + sum(tier1_escrow[].amount).
 // (§13 + §3.4.7 four-pool decomposition.)
 func BondPoolAccountingInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		bondSum := sdkmath.ZeroInt()
 		err := k.Operators.Walk(ctx, nil, func(_ collections.Pair[[]byte, string], op types.Operator) (bool, error) {
-			if !op.Bond.Amount.IsNil() {
-				bondSum = bondSum.Add(op.Bond.Amount)
+			if !op.BondAmount.IsNil() {
+				bondSum = bondSum.Add(op.BondAmount)
 			}
 			return false, nil
 		})
@@ -47,8 +47,8 @@ func BondPoolAccountingInvariant(k Keeper) sdk.Invariant {
 		err = k.Reports.Walk(ctx, nil, func(_ uint64, r types.Report) (bool, error) {
 			if r.Status == types.ReportStatus_REPORT_STATUS_PENDING ||
 				r.Status == types.ReportStatus_REPORT_STATUS_ESCALATED {
-				if !r.Deposit.Amount.IsNil() {
-					depositSum = depositSum.Add(r.Deposit.Amount)
+				if !r.Deposit.IsNil() {
+					depositSum = depositSum.Add(r.Deposit)
 				}
 			}
 			return false, nil
@@ -59,8 +59,8 @@ func BondPoolAccountingInvariant(k Keeper) sdk.Invariant {
 
 		caseDepositSum := sdkmath.ZeroInt()
 		err = k.ControllerTransferCases.Walk(ctx, nil, func(_ uint64, c types.ControllerTransferCase) (bool, error) {
-			if !c.Deposit.Amount.IsNil() {
-				caseDepositSum = caseDepositSum.Add(c.Deposit.Amount)
+			if !c.Deposit.IsNil() {
+				caseDepositSum = caseDepositSum.Add(c.Deposit)
 			}
 			return false, nil
 		})
@@ -70,8 +70,8 @@ func BondPoolAccountingInvariant(k Keeper) sdk.Invariant {
 
 		escrowSum := sdkmath.ZeroInt()
 		err = k.Tier1Escrow.Walk(ctx, nil, func(_ uint64, e types.Tier1EscrowEntry) (bool, error) {
-			if !e.Amount.Amount.IsNil() {
-				escrowSum = escrowSum.Add(e.Amount.Amount)
+			if !e.Amount.IsNil() {
+				escrowSum = escrowSum.Add(e.Amount)
 			}
 			return false, nil
 		})
@@ -81,7 +81,7 @@ func BondPoolAccountingInvariant(k Keeper) sdk.Invariant {
 
 		expected := bondSum.Add(depositSum).Add(caseDepositSum).Add(escrowSum)
 		moduleAddr := k.bankModuleAddress()
-		actual := k.bankKeeper.GetBalance(ctx, moduleAddr, types.BondDenom).Amount
+		actual := k.bankKeeper.GetBalance(ctx, moduleAddr, k.BondDenom(ctx)).Amount
 
 		if !expected.Equal(actual) {
 			return sdk.FormatInvariant(types.ModuleName, "bond-pool-accounting",
@@ -362,7 +362,7 @@ func ReportStateMachineSanityInvariant(k Keeper) sdk.Invariant {
 				broken++
 				msg += fmt.Sprintf("  ESCALATED report %d has zero escalated_at\n", r.ReportId)
 			}
-			if r.Status == types.ReportStatus_REPORT_STATUS_RESOLVED_T2 && r.SlashAmount.Amount.IsNil() {
+			if r.Status == types.ReportStatus_REPORT_STATUS_RESOLVED_T2 && r.SlashAmount.IsNil() {
 				broken++
 				msg += fmt.Sprintf("  RESOLVED_T2 report %d has nil slash_amount\n", r.ReportId)
 			}

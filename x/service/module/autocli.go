@@ -83,9 +83,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "RegisterOperator",
-					Use:            "register-operator [service-type] [controller] [bond] [metadata]",
-					Short:          "Send a register-operator tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "service_type"}, {ProtoField: "controller"}, {ProtoField: "bond"}, {ProtoField: "metadata", Varargs: true}},
+					Use:            "register-operator [service-type] [controller] [bond-amount] [metadata]",
+					Short:          "Send a register-operator tx. bond-amount is a bare Int in the chain's bond denom.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "service_type"}, {ProtoField: "controller"}, {ProtoField: "bond_amount"}, {ProtoField: "metadata", Varargs: true}},
 				},
 				{
 					RpcMethod:      "UpdateMetadata",
@@ -107,9 +107,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "TopUpBond",
-					Use:            "top-up-bond [service-type] [additional-bond]",
-					Short:          "Send a top-up-bond tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "service_type"}, {ProtoField: "additional_bond"}},
+					Use:            "top-up-bond [service-type] [additional-bond-amount]",
+					Short:          "Send a top-up-bond tx. additional-bond-amount is a bare Int in the chain's bond denom.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "service_type"}, {ProtoField: "additional_bond_amount"}},
 				},
 				{
 					RpcMethod:      "ReportOperator",

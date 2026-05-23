@@ -239,17 +239,14 @@ var allowedVariations = map[string]string{
 	"federation.params.arbiter_escalation_window":       "build-tag conditional",
 	"federation.params.arbiter_resolution_window":       "build-tag conditional",
 	"federation.params.attestation_ttl":                 "build-tag conditional",
-	"federation.params.bridge_revocation_cooldown":      "build-tag conditional",
-	"federation.params.bridge_unbonding_period":         "build-tag conditional",
 	"federation.params.challenge_cooldown":              "build-tag conditional",
-	"federation.params.challenge_fee.amount":            "build-tag conditional fee scales per network",
+	"federation.params.challenge_fee_amount":            "build-tag conditional fee scales per network",
 	"federation.params.challenge_jury_deadline":         "build-tag conditional",
 	"federation.params.challenge_ttl":                   "build-tag conditional",
 	"federation.params.challenge_window":                "build-tag conditional",
 	"federation.params.content_ttl":                     "build-tag conditional",
-	"federation.params.escalation_fee.amount":           "build-tag conditional fee scales per network",
+	"federation.params.escalation_fee_amount":           "build-tag conditional fee scales per network",
 	"federation.params.ibc_packet_timeout":              "build-tag conditional",
-	"federation.params.min_bridge_stake.amount":         "build-tag conditional bridge stake (production stricter)",
 	"federation.params.rate_limit_window":               "build-tag conditional",
 	"federation.params.unverified_link_ttl":             "build-tag conditional",
 	"federation.params.verification_window":             "build-tag conditional",
@@ -267,6 +264,19 @@ var allowedVariations = map[string]string{
 	"shield.params.min_batch_size":         "production stricter (devnet=1 / testnet=3)",
 	"shield.params.max_pending_queue_size": "production has larger queue",
 	"shield.params.min_gas_reserve":        "production has larger gas reserve",
+
+	// === per-chain identity: every chain has its own bond/dream denom
+	// (uspark.sparkdream / uspark.sparkdreamtest / uspark.sparkdreamdev),
+	// so every param that embeds a coin string differs by design ===
+	"commons.params.proposal_fee":         "embeds chain-specific bond denom",
+	"gnovm.params.default_deposit":        "embeds chain-specific bond denom",
+	"gnovm.params.storage_price":          "embeds chain-specific bond denom",
+	"gov.params.min_deposit":              "embeds chain-specific bond denom",
+	"gov.params.expedited_min_deposit":    "embeds chain-specific bond denom",
+	"mint.params.mint_denom":              "chain's bond denom (from x/identity)",
+	"staking.params.bond_denom":           "chain's bond denom (from x/identity)",
+	"crisis.constant_fee.denom":           "chain's bond denom (from x/identity)",
+	"bank.denom_metadata":                 "denom_units[].denom and base differ per chain (uspark.sparkdream vs uspark.sparkdreamtest etc.)",
 }
 
 // uniformAppStatePaths lists JSON paths under app_state that should be

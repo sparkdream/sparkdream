@@ -65,7 +65,7 @@ echo "============================================================"
 echo ""
 echo "--- TEST A1: list-peers --page-limit 2 → exactly 2 results + next_key ---"
 
-PAGE1=$($BINARY query federation list-peers --page-limit 2 --output json 2>&1)
+PAGE1=$($BINARY query federation list-peers --page-limit 2 --output json)
 COUNT1=$(echo "$PAGE1" | jq '.peers | length')
 NEXT_KEY=$(echo "$PAGE1" | jq -r '.pagination.next_key // empty')
 
@@ -84,7 +84,7 @@ echo ""
 echo "--- TEST A2: list-peers --page-key continues pagination ---"
 
 if [ -n "$NEXT_KEY" ] && [ "$NEXT_KEY" != "null" ]; then
-    PAGE2=$($BINARY query federation list-peers --page-limit 2 --page-key "$NEXT_KEY" --output json 2>&1)
+    PAGE2=$($BINARY query federation list-peers --page-limit 2 --page-key "$NEXT_KEY" --output json)
     COUNT2=$(echo "$PAGE2" | jq '.peers | length')
     # Page 1's first peer must differ from page 2's first peer.
     P1_FIRST=$(echo "$PAGE1" | jq -r '.peers[0].id // empty')
@@ -108,7 +108,7 @@ fi
 echo ""
 echo "--- TEST A3: list-peers --page-reverse ---"
 
-REV=$($BINARY query federation list-peers --page-reverse --page-limit 1 --output json 2>&1)
+REV=$($BINARY query federation list-peers --page-reverse --page-limit 1 --output json)
 REV_COUNT=$(echo "$REV" | jq '.peers | length')
 REV_FIRST=$(echo "$REV" | jq -r '.peers[0].id // empty')
 FWD_FIRST=$(echo "$PAGE1" | jq -r '.peers[0].id // empty')
@@ -130,7 +130,7 @@ fi
 echo ""
 echo "--- TEST A4: list-peers --page-count-total ---"
 
-CT=$($BINARY query federation list-peers --page-count-total --output json 2>&1)
+CT=$($BINARY query federation list-peers --page-count-total --output json)
 TOTAL=$(echo "$CT" | jq -r '.pagination.total // "0"')
 
 if [ "$TOTAL" -ge 4 ] 2>/dev/null; then
@@ -154,7 +154,7 @@ echo "============================================================"
 echo ""
 echo "--- TEST B1: list-bridge-bindings --page-limit 1 returns ≤ 1 binding ---"
 
-BB=$($BINARY query federation list-bridge-bindings --page-limit 1 --output json 2>&1)
+BB=$($BINARY query federation list-bridge-bindings --page-limit 1 --output json)
 BB_COUNT=$(echo "$BB" | jq '.bridge_bindings | length')
 
 if [ "$BB_COUNT" -le 1 ] 2>/dev/null; then
@@ -175,7 +175,7 @@ echo "============================================================"
 echo ""
 echo "--- TEST C1: list-federated-content --page-limit 5 ---"
 
-FC=$($BINARY query federation list-federated-content --page-limit 5 --output json 2>&1)
+FC=$($BINARY query federation list-federated-content --page-limit 5 --output json)
 FC_COUNT=$(echo "$FC" | jq '.content | length')
 
 if [ "$FC_COUNT" -le 5 ] 2>/dev/null; then
@@ -196,7 +196,7 @@ echo "============================================================"
 echo ""
 echo "--- TEST D1: list-identity-links --page-limit 5 ---"
 
-IL=$($BINARY query federation list-identity-links --page-limit 5 --output json 2>&1)
+IL=$($BINARY query federation list-identity-links --page-limit 5 --output json)
 IL_COUNT=$(echo "$IL" | jq '.links | length')
 
 if [ "$IL_COUNT" -le 5 ] 2>/dev/null; then
@@ -219,7 +219,7 @@ echo "============================================================"
 echo ""
 echo "--- TEST E1: list-pending-identity-challenges <linker1> ---"
 
-PIC=$($BINARY query federation list-pending-identity-challenges "$LINKER1_ADDR" --output json 2>&1)
+PIC=$($BINARY query federation list-pending-identity-challenges "$LINKER1_ADDR" --output json)
 # Three acceptable handler outputs:
 #   1. `{ "challenges": [...] }` populated
 #   2. `{}` (proto3 omits empty repeated fields, so an address with
@@ -246,7 +246,7 @@ echo "============================================================"
 echo ""
 echo "--- TEST F1: list-outbound-attestations --page-limit 5 ---"
 
-OA=$($BINARY query federation list-outbound-attestations --page-limit 5 --output json 2>&1)
+OA=$($BINARY query federation list-outbound-attestations --page-limit 5 --output json)
 OA_COUNT=$(echo "$OA" | jq '.attestations | length')
 
 if [ "$OA_COUNT" -le 5 ] 2>/dev/null; then
@@ -270,7 +270,7 @@ echo "============================================================"
 echo ""
 echo "--- TEST G1: verifier-activity <verifier1> ---"
 
-VA=$($BINARY query federation verifier-activity "$VERIFIER1_ADDR" --output json 2>&1)
+VA=$($BINARY query federation verifier-activity "$VERIFIER1_ADDR" --output json)
 # Accept either a populated activity record or a not-found-ish empty
 # struct. The contract is "no crash, parseable JSON".
 if echo "$VA" | jq -e '.' > /dev/null 2>&1; then

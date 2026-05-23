@@ -2,7 +2,6 @@ syntax = "proto3";
 package sparkdream.federation.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
@@ -14,12 +13,8 @@ message Params {
   option (amino.name) = "sparkdream/x/federation/Params";
   option (gogoproto.equal) = true;
 
-  // Bridge operator requirements.
-  //
-  // Field 1 (min_bridge_stake), 3 (bridge_revocation_cooldown), and 4
-  // (bridge_unbonding_period) were dropped in the federation→service
-  // migration (Phase 1). Bond minimums, revocation lifecycle, and
-  // unbonding period now live on x/service ServiceTypeConfig per
+  // Bridge operator requirements. Bond minimums, revocation lifecycle,
+  // and unbonding period live on x/service ServiceTypeConfig per
   // service_type (federation-bridge-activitypub / federation-bridge-atproto).
   //
   // max_bridges_per_peer is intentionally KEPT as a kill-switch (Decision 6):
@@ -29,8 +24,6 @@ message Params {
   // peer rate limits. Gov may dial it down without a chain upgrade if
   // some unknown-unknown materializes. It is NOT a normal policy lever.
   uint64 max_bridges_per_peer = 2;
-  reserved 1, 3, 4;
-  reserved "min_bridge_stake", "bridge_revocation_cooldown", "bridge_unbonding_period";
 
   // Content types
   repeated string known_content_types = 5;
@@ -115,7 +108,15 @@ message Params {
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  cosmos.base.v1beta1.Coin challenge_fee = 30 [(gogoproto.nullable) = false];
+  // challenge_fee_amount is the per-challenge fee escrowed by a verifier
+  // challenger, in bond-denom micro-units. Denom is resolved at runtime
+  // from x/identity (see x-identity-spec.md). Escalating multiplier in
+  // msg_server_challenge_verification.go applies to this amount.
+  string challenge_fee_amount = 30 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
   google.protobuf.Duration challenge_jury_deadline = 31 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
@@ -159,7 +160,14 @@ message Params {
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  cosmos.base.v1beta1.Coin escalation_fee = 43 [(gogoproto.nullable) = false];
+  // escalation_fee_amount is the fee escrowed by a party escalating a
+  // challenge to a system report, in bond-denom micro-units. Denom is
+  // resolved at runtime from x/identity (see x-identity-spec.md).
+  string escalation_fee_amount = 43 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
   google.protobuf.Duration challenge_cooldown = 44 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true

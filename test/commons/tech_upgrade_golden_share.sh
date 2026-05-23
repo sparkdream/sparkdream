@@ -127,7 +127,7 @@ echo '{
   "metadata": "Spark Dream v2.0 - Major network upgrade via Technical Council Proxy."
 }' > "$PROPOSAL_DIR/real_upgrade.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/real_upgrade.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/real_upgrade.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 # Robust ID Extraction — wait for the tx to be indexed before querying it
@@ -181,7 +181,7 @@ echo '{
   "metadata": "Approve v2.0 Upgrade - Commons Council exercises Golden Share."
 }' > "$PROPOSAL_DIR/golden_share_vote.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/golden_share_vote.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/golden_share_vote.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 5
 

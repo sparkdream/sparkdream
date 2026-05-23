@@ -88,7 +88,7 @@ PROJECT_RES=$($BINARY tx rep propose-project \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -105,7 +105,7 @@ if [ -n "$PROJECT_TX" ] && [ "$PROJECT_TX" != "null" ]; then
     fi
 fi
 
-$BINARY tx rep approve-project-budget $PROJECT_ID "100000000" "10000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep approve-project-budget $PROJECT_ID "100000000" "10000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 echo "[ OK ] Project created: ID $PROJECT_ID"
@@ -126,7 +126,7 @@ THRESH_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -145,9 +145,9 @@ fi
 echo "[ OK ] Threshold test initiative: ID $THRESH_ID"
 
 # Assign to edge_user
-$BINARY tx rep assign-initiative $THRESH_ID $EDGE_USER_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep assign-initiative $THRESH_ID $EDGE_USER_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
-$BINARY tx rep submit-initiative-work $THRESH_ID "ipfs://QmThresholdTest" "Threshold edge test work" --from edge_user --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep submit-initiative-work $THRESH_ID "ipfs://QmThresholdTest" "Threshold edge test work" --from edge_user --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Ensure Bob has sufficient DREAM for staking (may have lost to decay from prior tests)
@@ -159,7 +159,7 @@ if [ "$BOB_AVAILABLE" -lt "200000000" ]; then
     TOP_UP=$((200000000 - BOB_AVAILABLE + 50000000))
     echo "Funding Bob with $((TOP_UP / 1000000)) DREAM for staking..."
     $BINARY tx rep transfer-dream "$BOB_ADDR" "$TOP_UP" "tip" "Funding for edge case test" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+        --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 2
 fi
 
@@ -170,11 +170,11 @@ echo "Result: External = 100 / 200 = 50% (exactly at threshold)"
 
 # Assignee stakes (affiliated, doesn't count as external) - 100 DREAM
 # Usage: stake [target-type] [target-id] [amount-micro-dream]
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100000000" --from edge_user --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100000000" --from edge_user --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # External staker stakes (counts as external) - 100 DREAM
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
@@ -213,7 +213,7 @@ echo ""
 echo "Testing with 49% external conviction (just below threshold)..."
 
 # Add one more affiliated stake to change ratio - 2 DREAM
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "2000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "2000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Query conviction again
@@ -260,7 +260,7 @@ DUR_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -280,7 +280,7 @@ echo "[ OK ] Duration test initiative: ID $DUR_ID"
 
 # Early unstaker creates a stake
 # Usage: stake [target-type] [target-id] [amount]
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $DUR_ID "200" --from early_unstaker --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $DUR_ID "200" --from early_unstaker --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 2
 
 # Get stake ID
@@ -325,7 +325,7 @@ if [ "$STAKE_COUNT" -gt 0 ]; then
             --from early_unstaker \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -538,7 +538,7 @@ EPIC_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -573,7 +573,7 @@ EXCEED_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 

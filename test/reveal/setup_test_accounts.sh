@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get alice and bob addresses (genesis members / council members)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -101,10 +102,10 @@ for ADDR in $STAKER1_ADDR $STAKER2_ADDR $STAKER3_ADDR; do
     echo "  Sending 10 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
-        10000000uspark \
+        10000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -155,7 +156,7 @@ for i in "${!ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -212,7 +213,7 @@ for i in "${!ACCOUNTS[@]}"; do
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -258,7 +259,7 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -385,7 +386,7 @@ if [ -n "$COUNCIL_POLICY" ] && [ "$COUNCIL_POLICY" != "null" ]; then
                 policy_address: $policy,
                 allowed_messages: $msgs
             }],
-            deposit: "50000000uspark",
+            deposit: "50000000${BOND_DENOM}",
             title: "Grant reveal permissions to Commons Council",
             summary: "Allow council to approve/reject/resolve-dispute reveal contributions"
         }' > "$GOV_PROPOSAL_FILE"
@@ -394,7 +395,7 @@ if [ -n "$COUNCIL_POLICY" ] && [ "$COUNCIL_POLICY" != "null" ]; then
         SUBMIT_RES=$($BINARY tx gov submit-proposal "$GOV_PROPOSAL_FILE" \
             --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
             --gas 500000 \
-            --fees 5000000uspark --output json 2>&1)
+            --fees 5000000${BOND_DENOM} --output json 2>&1)
 
         TXHASH=$(echo "$SUBMIT_RES" | jq -r '.txhash')
         if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
@@ -419,7 +420,7 @@ if [ -n "$COUNCIL_POLICY" ] && [ "$COUNCIL_POLICY" != "null" ]; then
                     echo "  Alice voting YES..."
                     $BINARY tx gov vote $GOV_PROP_ID yes \
                         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-                        --fees 5000uspark --output json > /dev/null 2>&1
+                        --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
                     sleep 6
 
                     # Wait for the voting period to end (1 minute) and proposal to pass
@@ -460,6 +461,8 @@ export STAKER1_ADDR=$STAKER1_ADDR
 export STAKER2_ADDR=$STAKER2_ADDR
 export STAKER3_ADDR=$STAKER3_ADDR
 export COUNCIL_POLICY=$COUNCIL_POLICY
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

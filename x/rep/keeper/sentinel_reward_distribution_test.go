@@ -223,7 +223,7 @@ func TestDistributeSentinelRewards_HappyPath(t *testing.T) {
 	rf.bankKeeper.SendCoinsFn = func(_ context.Context, fromAddr sdk.AccAddress, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
 		require.True(t, fromAddr.Equals(keeper.SentinelRewardPoolAddress()))
 		s, _ := rf.addressCodec.BytesToString(recipientAddr)
-		sent[s] = amt.AmountOf(types.RewardDenom)
+		sent[s] = amt.AmountOf("uspark")
 		return nil
 	}
 
@@ -276,7 +276,7 @@ func TestDistributeSentinelRewards_DemotedExcluded(t *testing.T) {
 	sent := map[string]math.Int{}
 	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
 		s, _ := rf.addressCodec.BytesToString(recipientAddr)
-		sent[s] = amt.AmountOf(types.RewardDenom)
+		sent[s] = amt.AmountOf("uspark")
 		return nil
 	}
 
@@ -362,7 +362,7 @@ func TestDistributeSentinelRewards_SinglePayoutFullPool(t *testing.T) {
 	var got math.Int
 	got = math.ZeroInt()
 	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, amt sdk.Coins) error {
-		got = amt.AmountOf(types.RewardDenom)
+		got = amt.AmountOf("uspark")
 		return nil
 	}
 

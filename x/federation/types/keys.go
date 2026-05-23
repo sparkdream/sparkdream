@@ -35,8 +35,8 @@ var (
 
 	// --- Primary Collections ---
 
-	PeersKey           = collections.NewPrefix("fed/peers/")
-	PeerPoliciesKey    = collections.NewPrefix("fed/policies/")
+	PeersKey        = collections.NewPrefix("fed/peers/")
+	PeerPoliciesKey = collections.NewPrefix("fed/policies/")
 	// BridgeBindingsKey: (operator_address, peer_id) → BridgeBinding.
 	// Renamed from BridgeOperatorsKey in the federation→service
 	// migration; storage prefix string kept stable.

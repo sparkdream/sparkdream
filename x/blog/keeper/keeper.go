@@ -18,10 +18,11 @@ type Keeper struct {
 	addressCodec address.Codec
 	// Address capable of executing a MsgUpdateParams message.
 	// Typically, this should be the x/gov module account.
-	authority     []byte
-	bankKeeper    types.BankKeeper
-	commonsKeeper types.CommonsKeeper
-	repKeeper     types.RepKeeper
+	authority      []byte
+	bankKeeper     types.BankKeeper
+	commonsKeeper  types.CommonsKeeper
+	repKeeper      types.RepKeeper
+	identityKeeper types.IdentityKeeper
 
 	Schema collections.Schema
 	Params collections.Item[types.Params]
@@ -80,6 +81,23 @@ func (k *Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
 // (season → blog → rep → season).
 func (k *Keeper) SetRepKeeper(rk types.RepKeeper) {
 	k.repKeeper = rk
+}
+
+// SetIdentityKeeper wires the x/identity keeper post-depinject so the keeper
+// can resolve the chain's bond denom at runtime.
+func (k *Keeper) SetIdentityKeeper(ik types.IdentityKeeper) {
+	k.identityKeeper = ik
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity is not wired — every call site needs a real denom and
+// silently returning a hardcoded literal would re-introduce the legacy
+// mixed-state bug we just removed.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.identityKeeper == nil {
+		panic("blog keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.identityKeeper.BondDenom(ctx)
 }
 
 // HasPost returns true if a blog post with the given ID exists.

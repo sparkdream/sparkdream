@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -15,10 +16,11 @@ import (
 // (to break cyclic dependencies). All value copies of Keeper share the same
 // pointer, so mutations via SetSeasonKeeper are visible everywhere.
 type lateKeepers struct {
-	seasonKeeper  types.SeasonKeeper
-	forumKeeper   types.ForumKeeper
-	blogKeeper    types.BlogKeeper
-	collectKeeper types.CollectKeeper
+	seasonKeeper   types.SeasonKeeper
+	forumKeeper    types.ForumKeeper
+	blogKeeper     types.BlogKeeper
+	collectKeeper  types.CollectKeeper
+	identityKeeper types.IdentityKeeper
 }
 
 type Keeper struct {
@@ -313,6 +315,30 @@ func (k Keeper) SetBlogKeeper(bk types.BlogKeeper) {
 // prevention.
 func (k Keeper) SetCollectKeeper(ck types.CollectKeeper) {
 	k.late.collectKeeper = ck
+}
+
+// SetIdentityKeeper late-binds the identity keeper used by BondDenom /
+// DreamDenom helpers to resolve the chain's federated denoms.
+func (k Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
+	k.late.identityKeeper = idk
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity isn't wired: no silent fallback to a hardcoded literal.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.late.identityKeeper == nil {
+		panic("rep keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.BondDenom(ctx)
+}
+
+// DreamDenom returns the chain's DREAM denom from the wired identity keeper.
+// Panics if identity isn't wired: no silent fallback to a hardcoded literal.
+func (k Keeper) DreamDenom(ctx context.Context) string {
+	if k.late.identityKeeper == nil {
+		panic("rep keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.DreamDenom(ctx)
 }
 
 // GetAuthority returns the module's authority.

@@ -15,6 +15,10 @@ import (
 	forummoduletypes "sparkdream/x/forum/types"
 	_ "sparkdream/x/futarchy/module"
 	futarchymoduletypes "sparkdream/x/futarchy/types"
+	_ "sparkdream/x/guardian/module"
+	guardianmoduletypes "sparkdream/x/guardian/types"
+	_ "sparkdream/x/identity/module"
+	identitymoduletypes "sparkdream/x/identity/types"
 	_ "sparkdream/x/name/module"
 	namemoduletypes "sparkdream/x/name/types"
 	_ "sparkdream/x/rep/module"
@@ -84,6 +88,25 @@ import (
 	gnovmmoduletypes "github.com/sparkdream/gnovm/x/gnovm/types"
 )
 
+// guardianAuthority is the address gated modules (bank, mint, staking)
+// set as their authority at genesis. Guardian's MsgExec is the only
+// path through which gov can invoke authority-required msgs on those
+// modules; gov calls MsgExec with the inner msg packed as Any, guardian
+// applies per-msg-type field filters (e.g., reject mint inflation_min
+// changes), and only then routes to the target module.
+//
+// We pass the bare module name here (not a pre-computed bech32 string)
+// because module-level `var` initialization runs BEFORE app/config.go's
+// `init()` seals the SDK bech32 prefix to AccountAddressPrefix. The
+// SDK's NewModuleAddressOrBech32Address resolves the name at depinject
+// time, when the prefix is already set, producing the correct sprkdrm
+// bech32. A pre-computed string here would use the default `cosmos`
+// prefix and break the runtime authority-string comparison in
+// x/auth.MsgUpdateParams (and the other gated MsgUpdateParams handlers).
+//
+// See x/guardian/keeper/keeper.go and docs/x-identity-spec.md §14.6.
+var guardianAuthority = guardianmoduletypes.ModuleName
+
 var (
 	moduleAccPerms = []*authmodulev1.ModuleAccountPermission{
 		{Account: authtypes.FeeCollectorName},
@@ -108,6 +131,7 @@ var (
 		{Account: gnovmmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: sessionmoduletypes.ModuleName},
 		{Account: federationmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
+		{Account: guardianmoduletypes.ModuleName},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 		{Account: servicemoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}}
 
@@ -201,6 +225,11 @@ var (
 					InitGenesis: []string{
 						consensustypes.ModuleName,
 						authtypes.ModuleName,
+						// identity runs immediately after auth so its sealed-identity
+						// record exists before any subsequent module (notably bank)
+						// receives a write through the BankKeeperWithIdentityGuard
+						// wrapper. See docs/x-identity-spec.md §6.3.
+						identitymoduletypes.ModuleName,
 						banktypes.ModuleName,
 						distrtypes.ModuleName,
 						stakingtypes.ModuleName,
@@ -232,6 +261,7 @@ var (
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
+						guardianmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 						servicemoduletypes.ModuleName},
 				}),
@@ -242,9 +272,10 @@ var (
 					Bech32Prefix:                AccountAddressPrefix,
 					ModuleAccountPermissions:    moduleAccPerms,
 					EnableUnorderedTransactions: true,
-					// By default modules authority is the governance module. This is configurable with the following:
-					// Authority: "group", // A custom module authority can be set using a module name
-					// Authority: "cosmos1cwwv22j5ca08ggdv9c2uky355k908694z577tv", // or a specific address
+					// Authority routed through x/guardian so gov-callable
+					// auth.MsgUpdateParams passes through the gas-cost
+					// floor filter (see filterAuthUpdateParams).
+					Authority: guardianAuthority,
 				}),
 			},
 			{
@@ -255,15 +286,29 @@ var (
 				Name: banktypes.ModuleName,
 				Config: appconfig.WrapAny(&bankmodulev1.Module{
 					BlockedModuleAccountsOverride: blockAccAddrs,
+					// Authority routed through x/guardian so gov-callable
+					// bank msgs (UpdateParams, SetSendEnabled) pass through
+					// guardian's allowlist + filter chain. See guardianAuthority.
+					Authority: guardianAuthority,
 				}),
 			},
 			{
-				Name:   stakingtypes.ModuleName,
-				Config: appconfig.WrapAny(&stakingmodulev1.Module{}),
+				Name: stakingtypes.ModuleName,
+				Config: appconfig.WrapAny(&stakingmodulev1.Module{
+					// Authority routed through x/guardian. The
+					// staking.MsgUpdateParams filter rejects bond_denom
+					// changes; other staking params remain gov-tunable.
+					Authority: guardianAuthority,
+				}),
 			},
 			{
-				Name:   slashingtypes.ModuleName,
-				Config: appconfig.WrapAny(&slashingmodulev1.Module{}),
+				Name: slashingtypes.ModuleName,
+				Config: appconfig.WrapAny(&slashingmodulev1.Module{
+					// Authority routed through x/guardian so
+					// slash_fraction_double_sign / slash_fraction_downtime
+					// floors are enforced (see filterSlashingUpdateParams).
+					Authority: guardianAuthority,
+				}),
 			},
 			{
 				Name:   "tx",
@@ -278,8 +323,16 @@ var (
 				Config: appconfig.WrapAny(&upgrademodulev1.Module{}),
 			},
 			{
-				Name:   distrtypes.ModuleName,
-				Config: appconfig.WrapAny(&distrmodulev1.Module{}),
+				Name: distrtypes.ModuleName,
+				Config: appconfig.WrapAny(&distrmodulev1.Module{
+					// Authority routed through x/guardian. Two effects:
+					// (1) distribution.MsgCommunityPoolSpend is rejected
+					// outright (x/split is the canonical revenue path).
+					// (2) distribution.MsgUpdateParams enforces
+					// community_tax floor/ceiling. See
+					// filterDistrUpdateParams.
+					Authority: guardianAuthority,
+				}),
 			},
 			{
 				Name:   evidencetypes.ModuleName,
@@ -288,19 +341,40 @@ var (
 			{
 				Name: minttypes.ModuleName,
 				Config: appconfig.WrapAny(&mintmodulev1.Module{
-					// SECURITY: Inflation parameters are immutable.
-					// Only chain upgrades can modify inflation_min, inflation_max, etc.
-					// Setting authority to an impossible address prevents x/gov param updates.
-					Authority: "sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe", // burn address - no private key exists
+					// SECURITY: inflation parameters are immutable.
+					// Authority is routed through x/guardian, whose
+					// mint.MsgUpdateParams filter rejects changes to
+					// inflation_min/max, goal_bonded, inflation_rate_change.
+					// blocks_per_year and mint_denom remain gov-tunable
+					// (mint_denom is also locked by identity invariant 5).
+					//
+					// Replaces the previous burn-address authority pattern;
+					// the rule moves from app_config.go comments to
+					// reviewable code in x/guardian/keeper/msg_server.go
+					// filterMintUpdateParams.
+					Authority: guardianAuthority,
 				}),
 			},
 			{
-				Name:   govtypes.ModuleName,
-				Config: appconfig.WrapAny(&govmodulev1.Module{}),
+				Name: govtypes.ModuleName,
+				Config: appconfig.WrapAny(&govmodulev1.Module{
+					// Authority routed through x/guardian so gov-self
+					// MsgUpdateParams passes through floors on
+					// voting_period, quorum, threshold, veto_threshold
+					// (see filterGovUpdateParams). Prevents a hostile
+					// majority from collapsing the voting window.
+					Authority: guardianAuthority,
+				}),
 			},
 			{
-				Name:   consensustypes.ModuleName,
-				Config: appconfig.WrapAny(&consensusmodulev1.Module{}),
+				Name: consensustypes.ModuleName,
+				Config: appconfig.WrapAny(&consensusmodulev1.Module{
+					// Authority routed through x/guardian so cometbft
+					// MsgUpdateParams passes through floors on block size,
+					// max gas, and evidence-age (see
+					// filterConsensusUpdateParams).
+					Authority: guardianAuthority,
+				}),
 			},
 			{
 				Name:   paramstypes.ModuleName,
@@ -374,6 +448,12 @@ var (
 			{
 				Name:   servicemoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&servicemoduletypes.Module{}),
+			}, {
+				Name:   identitymoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&identitymoduletypes.Module{}),
+			}, {
+				Name:   guardianmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&guardianmoduletypes.Module{}),
 			}},
 	})
 )

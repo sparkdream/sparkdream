@@ -141,7 +141,7 @@ TX_RES=$($BINARY tx forum freeze-thread \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -162,7 +162,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -184,7 +184,7 @@ if [ -n "$ROOT_POST_ID" ] && [ "$ROOT_POST_ID" != "null" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -204,7 +204,7 @@ if [ -n "$ROOT_POST_ID" ] && [ "$ROOT_POST_ID" != "null" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -231,7 +231,7 @@ FRESH_TX=$($BINARY tx forum create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -260,7 +260,7 @@ if [ -n "$FRESH_TXHASH" ] && [ "$FRESH_TXHASH" != "null" ]; then
                 --from alice \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -285,7 +285,7 @@ TX_RES=$($BINARY tx forum unarchive-thread \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -303,7 +303,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -324,7 +324,7 @@ if [ -n "$UNARCH_POST_ID" ] && [ "$UNARCH_POST_ID" != "null" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

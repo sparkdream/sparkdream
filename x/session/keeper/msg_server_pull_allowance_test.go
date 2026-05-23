@@ -111,7 +111,7 @@ func TestCreateGrant_SpendingAllowance_Validation(t *testing.T) {
 		{
 			name: "dream forbidden",
 			payload: &types.SpendingAllowancePayload{
-				MaxPerPeriod:  sdk.NewInt64Coin("dream", 1_000_000),
+				MaxPerPeriod:  sdk.NewInt64Coin("udream", 1_000_000),
 				PeriodSeconds: 3_600,
 			},
 			errContains: "dream denom is forbidden",

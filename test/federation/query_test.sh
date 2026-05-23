@@ -32,7 +32,7 @@ record_result() {
 echo ""
 echo "--- TEST 1: Query federation params ---"
 
-PARAMS=$($BINARY query federation params --output json 2>&1)
+PARAMS=$($BINARY query federation params --output json)
 if echo "$PARAMS" | jq -e '.params' > /dev/null 2>&1; then
     record_result "Query params" "PASS"
 else
@@ -45,7 +45,7 @@ fi
 echo ""
 echo "--- TEST 2: Get specific peer ---"
 
-PEER_DATA=$($BINARY query federation get-peer mastodon.example --output json 2>&1)
+PEER_DATA=$($BINARY query federation get-peer mastodon.example --output json)
 PEER_ID=$(echo "$PEER_DATA" | jq -r '.peer.id // empty' 2>/dev/null)
 
 if [ "$PEER_ID" == "mastodon.example" ]; then
@@ -69,7 +69,7 @@ fi
 echo ""
 echo "--- TEST 3: List all peers ---"
 
-PEERS=$($BINARY query federation list-peers --output json 2>&1)
+PEERS=$($BINARY query federation list-peers --output json)
 PEER_COUNT=$(echo "$PEERS" | jq '.peers | length' 2>/dev/null)
 
 echo "  Total peers: $PEER_COUNT"
@@ -90,7 +90,7 @@ fi
 echo ""
 echo "--- TEST 4: Get peer policy ---"
 
-POLICY=$($BINARY query federation get-peer-policy mastodon.example --output json 2>&1)
+POLICY=$($BINARY query federation get-peer-policy mastodon.example --output json)
 POLICY_PEER=$(echo "$POLICY" | jq -r '.policy.peer_id // empty' 2>/dev/null)
 
 if [ "$POLICY_PEER" == "mastodon.example" ]; then
@@ -116,7 +116,7 @@ fi
 echo ""
 echo "--- TEST 5: Get bridge binding ---"
 
-BRIDGE=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json 2>&1)
+BRIDGE=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json)
 BRIDGE_ADDR=$(echo "$BRIDGE" | jq -r '.bridge_binding.address // empty' 2>/dev/null)
 
 if [ "$BRIDGE_ADDR" == "$OPERATOR1_ADDR" ]; then
@@ -139,7 +139,7 @@ fi
 echo ""
 echo "--- TEST 6: List bridge bindings ---"
 
-BRIDGES=$($BINARY query federation list-bridge-bindings --output json 2>&1)
+BRIDGES=$($BINARY query federation list-bridge-bindings --output json)
 BRIDGE_COUNT=$(echo "$BRIDGES" | jq '.bridge_bindings | length' 2>/dev/null)
 
 echo "  Total bridge bindings: $BRIDGE_COUNT"
@@ -160,7 +160,7 @@ echo ""
 echo "--- TEST 7: Get federated content ---"
 
 # Try content ID 0 (first one)
-CONTENT=$($BINARY query federation get-federated-content 0 --output json 2>&1)
+CONTENT=$($BINARY query federation get-federated-content 0 --output json)
 CONTENT_PEER=$(echo "$CONTENT" | jq -r '.content.peer_id // empty')
 
 if [ -n "$CONTENT_PEER" ] && [ "$CONTENT_PEER" != "null" ]; then
@@ -181,7 +181,7 @@ fi
 echo ""
 echo "--- TEST 8: List federated content ---"
 
-CONTENT_LIST=$($BINARY query federation list-federated-content --output json 2>&1)
+CONTENT_LIST=$($BINARY query federation list-federated-content --output json)
 CONTENT_COUNT=$(echo "$CONTENT_LIST" | jq '.content | length' 2>/dev/null)
 
 echo "  Total federated content: $CONTENT_COUNT"
@@ -200,7 +200,7 @@ fi
 echo ""
 echo "--- TEST 9: Get identity link ---"
 
-LINK=$($BINARY query federation get-identity-link $LINKER1_ADDR mastodon.example --output json 2>&1)
+LINK=$($BINARY query federation get-identity-link $LINKER1_ADDR mastodon.example --output json)
 LINK_REMOTE=$(echo "$LINK" | jq -r '.link.remote_identity // empty')
 
 if [ -n "$LINK_REMOTE" ] && [ "$LINK_REMOTE" != "null" ]; then
@@ -218,7 +218,7 @@ fi
 echo ""
 echo "--- TEST 10: List identity links ---"
 
-LINKS=$($BINARY query federation list-identity-links --output json 2>&1)
+LINKS=$($BINARY query federation list-identity-links --output json)
 LINK_COUNT=$(echo "$LINKS" | jq '.links | length' 2>/dev/null)
 
 echo "  Total identity links: $LINK_COUNT"
@@ -237,7 +237,7 @@ fi
 echo ""
 echo "--- TEST 11: Resolve remote identity ---"
 
-RESOLVE=$($BINARY query federation resolve-remote-identity mastodon.example "@alice@mastodon.example" --output json 2>&1)
+RESOLVE=$($BINARY query federation resolve-remote-identity mastodon.example "@alice@mastodon.example" --output json)
 RESOLVED_ADDR=$(echo "$RESOLVE" | jq -r '.local_address // empty')
 
 if [ -n "$RESOLVED_ADDR" ] && [ "$RESOLVED_ADDR" != "null" ]; then
@@ -255,7 +255,7 @@ echo ""
 echo "--- TEST 12: Get verifier ---"
 
 # Verifier tests now use alice (CORE trust level) as verifier instead of verifier1
-VERIFIER=$($BINARY query rep bonded-role federation-verifier $ALICE_ADDR --output json 2>&1)
+VERIFIER=$($BINARY query rep bonded-role federation-verifier $ALICE_ADDR --output json)
 
 if echo "$VERIFIER" | jq -e '.bonded_role' > /dev/null 2>&1; then
     VERIFIER_ADDR=$(echo "$VERIFIER" | jq -r '.bonded_role.address // empty')
@@ -275,7 +275,7 @@ fi
 echo ""
 echo "--- TEST 13: List verifiers ---"
 
-VERIFIERS=$($BINARY query rep bonded-roles-by-type federation-verifier --output json 2>&1)
+VERIFIERS=$($BINARY query rep bonded-roles-by-type federation-verifier --output json)
 if echo "$VERIFIERS" | jq -e '.bonded_roles' > /dev/null 2>&1; then
     VERIFIER_COUNT=$(echo "$VERIFIERS" | jq '.bonded_roles | length')
     echo "  Total verifiers: $VERIFIER_COUNT"
@@ -295,12 +295,12 @@ echo ""
 echo "--- TEST 14: Get verification record ---"
 
 # Try the last content that was verified (find first content ID)
-CONTENT_LIST=$($BINARY query federation list-federated-content --output json 2>&1)
-FIRST_CONTENT_ID=$(echo "$CONTENT_LIST" | jq -r 'if (.content | length) > 0 then (.content[0].id // 0) else empty end')
+CONTENT_LIST=$($BINARY query federation list-federated-content --output json)
+FIRST_CONTENT_ID=$(echo "$CONTENT_LIST" | jq -r 'if (.content | length) > 0 then .content[0].id else empty end' 2>/dev/null)
 
 if [ -n "$FIRST_CONTENT_ID" ] && [ "$FIRST_CONTENT_ID" != "null" ]; then
-    RECORD=$($BINARY query federation get-verification-record $FIRST_CONTENT_ID --output json 2>&1)
-    RECORD_VERIFIER=$(echo "$RECORD" | jq -r '.record.verifier // empty')
+    RECORD=$($BINARY query federation get-verification-record $FIRST_CONTENT_ID --output json)
+    RECORD_VERIFIER=$(echo "$RECORD" | jq -r '.record.verifier // empty' 2>/dev/null)
 
     if [ -n "$RECORD_VERIFIER" ] && [ "$RECORD_VERIFIER" != "null" ]; then
         OUTCOME=$(echo "$RECORD" | jq -r '.record.outcome // "VERIFICATION_OUTCOME_UNSPECIFIED"')
@@ -321,7 +321,7 @@ fi
 echo ""
 echo "--- TEST 15: List outbound attestations ---"
 
-ATTESTATIONS=$($BINARY query federation list-outbound-attestations --output json 2>&1)
+ATTESTATIONS=$($BINARY query federation list-outbound-attestations --output json)
 ATTEST_COUNT=$(echo "$ATTESTATIONS" | jq '.attestations | length' 2>/dev/null)
 
 echo "  Total outbound attestations: $ATTEST_COUNT"
@@ -383,7 +383,7 @@ fi
 echo ""
 echo "--- TEST 19: List pending identity challenges ---"
 
-CHALLENGES=$($BINARY query federation list-pending-identity-challenges $LINKER1_ADDR --output json 2>&1)
+CHALLENGES=$($BINARY query federation list-pending-identity-challenges $LINKER1_ADDR --output json)
 CHALLENGE_COUNT=$(echo "$CHALLENGES" | jq '.challenges | length' 2>/dev/null)
 
 echo "  Pending challenges for linker1: ${CHALLENGE_COUNT:-0}"
@@ -396,7 +396,7 @@ record_result "List pending challenges" "PASS"
 echo ""
 echo "--- TEST 20: Get reputation attestation ---"
 
-ATTEST=$($BINARY query federation get-reputation-attestation $ALICE_ADDR spark.testnet --output json 2>&1)
+ATTEST=$($BINARY query federation get-reputation-attestation $ALICE_ADDR spark.testnet --output json)
 if echo "$ATTEST" | grep -qi "not found\|error"; then
     echo "  No reputation attestation (expected - requires IBC)"
     record_result "Reputation attestation query" "PASS"

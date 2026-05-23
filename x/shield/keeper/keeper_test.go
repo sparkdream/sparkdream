@@ -45,6 +45,13 @@ func (m mockAccountKeeper) GetAccount(ctx context.Context, addr sdk.AccAddress) 
 
 type mockBankKeeper struct{}
 
+// mockIdentityKeeperShield returns legacy denoms for unit tests.
+type mockIdentityKeeperShield struct{}
+
+func (mockIdentityKeeperShield) IsIdentityKeeper() {}
+func (m *mockIdentityKeeperShield) BondDenom(_ context.Context) string  { return "uspark" }
+func (m *mockIdentityKeeperShield) DreamDenom(_ context.Context) string { return "udream" }
+
 func (m mockBankKeeper) GetBalance(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin {
 	return sdk.NewCoin("uspark", math.NewInt(1000000000))
 }
@@ -118,6 +125,7 @@ func initFixture(t *testing.T) *fixture {
 		},
 	}
 	k.SetStakingKeeper(mockSK)
+	k.SetIdentityKeeper(&mockIdentityKeeperShield{})
 
 	// Initialize genesis with defaults
 	err := k.InitGenesis(ctx, *types.DefaultGenesis())
@@ -431,6 +439,7 @@ func initFixtureEmpty(t *testing.T) *fixture {
 		mockAccountKeeper{},
 		mockBankKeeper{},
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeperShield{})
 
 	return &fixture{
 		ctx:          ctx,

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/service/types"
@@ -16,7 +15,7 @@ func TestServiceTypeConfigValidate_ChallengeDefaultBoundedByUnilateralCap(t *tes
 	base := types.ServiceTypeConfig{
 		ServiceType:            "valid-type",
 		Description:            "x",
-		MinBond:                sdk.NewCoin(types.BondDenom, math.NewInt(1_000_000)),
+		MinBondAmount:          math.NewInt(1_000_000),
 		UnbondingPeriodBlocks:  10,
 		UnilateralSlashCapBps:  500, // 5%
 		Tier1WindowBlocks:      1000,
@@ -54,7 +53,7 @@ func TestServiceTypeConfigValidate_ReportTimeoutActionEnum(t *testing.T) {
 	base := types.ServiceTypeConfig{
 		ServiceType:            "valid-type",
 		Description:            "x",
-		MinBond:                sdk.NewCoin(types.BondDenom, math.NewInt(1_000_000)),
+		MinBondAmount:          math.NewInt(1_000_000),
 		UnbondingPeriodBlocks:  10,
 		UnilateralSlashCapBps:  500,
 		Tier1WindowBlocks:      1000,

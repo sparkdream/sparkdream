@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get alice address (genesis member)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -99,10 +100,10 @@ for ADDR in $BLOGGER1_ADDR $BLOGGER2_ADDR $READER1_ADDR; do
     echo "  Sending 50 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
-        50000000uspark \
+        50000000${BOND_DENOM} \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -153,7 +154,7 @@ for i in "${!ACCOUNTS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -210,7 +211,7 @@ for i in "${!ACCOUNTS[@]}"; do
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -268,6 +269,8 @@ export BLOGGER1_ADDR=$BLOGGER1_ADDR
 export BLOGGER2_ADDR=$BLOGGER2_ADDR
 export READER1_ADDR=$READER1_ADDR
 export ALICE_ADDR=$ALICE_ADDR
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

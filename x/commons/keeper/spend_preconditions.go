@@ -79,7 +79,7 @@ func (k Keeper) checkSpendGates(ctx context.Context, authority string, amount sd
 		limit := *extGroup.MaxSpendPerEpoch
 		epochDay := sdkCtx.BlockTime().Unix() / 86400
 
-		requestedUspark := amount.AmountOf("uspark")
+		requestedUspark := amount.AmountOf(k.BondDenom(ctx))
 
 		// Single-transaction check.
 		if requestedUspark.GT(limit) {
@@ -139,7 +139,7 @@ func (k Keeper) recordEpochSpend(ctx context.Context, authority string, amount s
 	}
 
 	epochDay := sdkCtx.BlockTime().Unix() / 86400
-	requestedUspark := amount.AmountOf("uspark")
+	requestedUspark := amount.AmountOf(k.BondDenom(ctx))
 
 	key := collections.Join(authority, epochDay)
 	cumulativeSpent := math.ZeroInt()

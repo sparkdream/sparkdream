@@ -65,9 +65,10 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 	}
 
 	// Charge lock_appeal_fee to appellant and escrow it
-	if params.LockAppealFee.IsPositive() {
+	if params.LockAppealFeeAmount.IsPositive() {
 		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(params.LockAppealFee)); err != nil {
+		lockAppealFee := sdk.NewCoin(k.BondDenom(ctx), params.LockAppealFeeAmount)
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(lockAppealFee)); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to charge lock appeal fee")
 		}
 	}

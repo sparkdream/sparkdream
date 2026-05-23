@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -20,9 +21,10 @@ type Keeper struct {
 	authority []byte
 
 	// External Keepers
-	bankKeeper    types.BankKeeper
-	commonsKeeper types.CommonsKeeper
-	repKeeper     types.RepKeeper
+	bankKeeper     types.BankKeeper
+	commonsKeeper  types.CommonsKeeper
+	repKeeper      types.RepKeeper
+	identityKeeper types.IdentityKeeper
 
 	// Shared DREAM token operations (delegates to repKeeper)
 	dreamOps dreamutil.Ops
@@ -124,4 +126,18 @@ func NewKeeper(
 // GetAuthority returns the module's authority.
 func (k Keeper) GetAuthority() []byte {
 	return k.authority
+}
+
+// SetIdentityKeeper wires the identity keeper post-depinject.
+func (k *Keeper) SetIdentityKeeper(ik types.IdentityKeeper) {
+	k.identityKeeper = ik
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity isn't wired; every call site needs a real denom.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.identityKeeper == nil {
+		panic("name keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.identityKeeper.BondDenom(ctx)
 }

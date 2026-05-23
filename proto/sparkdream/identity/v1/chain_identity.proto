@@ -1,0 +1,33 @@
+syntax = "proto3";
+package sparkdream.identity.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/identity/types";
+
+// ChainIdentity is the immutable identity record of a federated Spark Dream
+// chain. Set at genesis, never changeable. See docs/x-identity-spec.md.
+message ChainIdentity {
+  option (amino.name) = "sparkdream/x/identity/ChainIdentity";
+
+  // Human-readable chain name (e.g., "Phoenix").
+  string chain_human_name = 1;
+  // Uppercase ticker prefix (e.g., "PHX").
+  string chain_ticker_prefix = 2;
+
+  // SPARK gas/staking token.
+  string bond_denom = 3;            // e.g., "uspk.phoenix"
+  string bond_display_symbol = 4;   // wallet ticker, e.g., "PSPK"
+  string bond_display_name = 5;     // e.g., "Phoenix Spark"
+  uint32 bond_display_decimals = 6; // typically 6
+
+  // DREAM internal reputation token.
+  string dream_denom = 7;            // e.g., "dream.phoenix"
+  string dream_display_symbol = 8;   // e.g., "PDRM"
+  string dream_display_name = 9;     // e.g., "Phoenix Dream"
+  uint32 dream_display_decimals = 10;
+
+  // Founding metadata; surfaces in queries and federation peer registration.
+  int64 founded_at = 11;
+}

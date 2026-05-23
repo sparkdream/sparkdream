@@ -34,6 +34,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 source "$SCRIPT_DIR/../check_testparams.sh"
 source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
@@ -257,7 +258,7 @@ else
     fi
 
     # Check Alice balance
-    ALICE_BALANCE=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount' || echo "0")
+    ALICE_BALANCE=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount' || echo "0")
     if [ "$ALICE_BALANCE" -lt 1000000 ] 2>/dev/null; then
         echo "WARNING: Alice has low SPARK balance: $ALICE_BALANCE uspark"
     fi
@@ -346,7 +347,7 @@ if [ "$RESTORE_SETUP" = true ]; then
     # Populate missing policy addresses from live chain queries
     if [ -z "$COMMONS_POLICY" ] || [ "$COMMONS_POLICY" == "null" ]; then
         echo "   Looking up Commons Council policy address..."
-        COMMONS_INFO=$($BINARY query commons get-group "Commons Council" --output json 2>&1)
+        COMMONS_INFO=$($BINARY query commons get-group "Commons Council" --output json)
         COMMONS_POLICY=$(echo "$COMMONS_INFO" | jq -r '.group.policy_address // empty')
         if [ -n "$COMMONS_POLICY" ]; then
             echo "   Commons Council Policy: $COMMONS_POLICY"
@@ -358,7 +359,7 @@ if [ "$RESTORE_SETUP" = true ]; then
 
     if [ -z "$OPS_POLICY" ] || [ "$OPS_POLICY" == "null" ]; then
         echo "   Looking up Operations Committee policy address..."
-        OPS_INFO=$($BINARY query commons get-group "Commons Operations Committee" --output json 2>&1)
+        OPS_INFO=$($BINARY query commons get-group "Commons Operations Committee" --output json)
         OPS_POLICY=$(echo "$OPS_INFO" | jq -r '.group.policy_address // empty')
         if [ -n "$OPS_POLICY" ]; then
             echo "   Operations Committee Policy: $OPS_POLICY"

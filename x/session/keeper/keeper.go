@@ -19,8 +19,9 @@ import (
 // Stored as a shared pointer so value-copies of Keeper (in AppModule, msgServer)
 // see updates made after NewAppModule().
 type lateKeepers struct {
-	router        baseapp.MessageRouter
-	commonsKeeper types.CommonsKeeper
+	router         baseapp.MessageRouter
+	commonsKeeper  types.CommonsKeeper
+	identityKeeper types.IdentityKeeper
 	// claimHooks are invoked at MsgClaimRecurringPull / MsgPullAllowance /
 	// scheduled-oneshot-transfer-fire time to let downstream modules gate
 	// on-the-wire transfers (e.g. x/commons council activation / term /
@@ -65,7 +66,7 @@ type Keeper struct {
 	SessionKeyByPair collections.Map[collections.Pair[string, string], uint64]
 
 	// Per-grant UTC-day spend buckets backing the RECURRING_PULL
-	// max_per_epoch_uspark self-throttle. (grant_id, utc_day_index) ->
+	// max_per_epoch self-throttle. (grant_id, utc_day_index) ->
 	// sdk.Int (string-encoded). Bounded to O(7) entries per active grant
 	// in steady state via lazy pruning.
 	EpochSpendByGrant collections.Map[collections.Pair[uint64, int64], string]
@@ -177,6 +178,30 @@ func (k Keeper) SetRouter(router baseapp.MessageRouter) {
 // operational parameter updates. Wired in app.go post-depinject.
 func (k Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
 	k.late.commonsKeeper = ck
+}
+
+// SetIdentityKeeper late-binds the identity keeper for federated-denom
+// resolution. Called from app.go post-depinject.
+func (k Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
+	k.late.identityKeeper = idk
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity isn't wired: no silent fallback to a hardcoded literal.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.late.identityKeeper == nil {
+		panic("session keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.BondDenom(ctx)
+}
+
+// DreamDenom returns the chain's DREAM denom from the wired identity keeper.
+// Panics if identity isn't wired: no silent fallback to a hardcoded literal.
+func (k Keeper) DreamDenom(ctx context.Context) string {
+	if k.late.identityKeeper == nil {
+		panic("session keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.DreamDenom(ctx)
 }
 
 // SetClaimHooks registers one or more GrantClaimHook implementations

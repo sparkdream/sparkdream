@@ -114,8 +114,8 @@ MSG_TYPES=$(echo "$SESSION" | jq -r '.session.allowed_msg_types // []')
 MSG_COUNT=$(echo "$SESSION" | jq '.session.allowed_msg_types | length')
 EXPIRATION=$(echo "$SESSION" | jq -r '.session.expiration // empty')
 
-if [ "$SPEND_LIMIT_DENOM" = "uspark" ] && [ "$SPEND_LIMIT_AMT" = "50000000" ] && [ "$MSG_COUNT" = "1" ] && [ -n "$EXPIRATION" ]; then
-    echo "  spend_limit=50000000uspark, msg_types=$MSG_COUNT, expiration=$EXPIRATION"
+if [ "$SPEND_LIMIT_DENOM" = "$BOND_DENOM" ] && [ "$SPEND_LIMIT_AMT" = "50000000" ] && [ "$MSG_COUNT" = "1" ] && [ -n "$EXPIRATION" ]; then
+    echo "  spend_limit=50000000${BOND_DENOM}, msg_types=$MSG_COUNT, expiration=$EXPIRATION"
     record_result "Query session - verify fields" "PASS"
 else
     echo "  Unexpected: denom=$SPEND_LIMIT_DENOM, amount=$SPEND_LIMIT_AMT, msg_count=$MSG_COUNT, expiration=$EXPIRATION"

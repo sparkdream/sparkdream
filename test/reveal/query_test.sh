@@ -57,7 +57,7 @@ if [ "$SEED_NEEDED" = true ]; then
         "Project QuerySeed" "Seed for query tests" "200000000" "MIT" "MIT" \
         --tranches "$SEED_TRANCHE" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --output json 2>&1)
+        --fees 5000${BOND_DENOM} --output json 2>&1)
     SEED_TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     SEED_CONTRIB_ID=""
     if [ -n "$SEED_TXHASH" ] && [ "$SEED_TXHASH" != "null" ]; then
@@ -85,7 +85,7 @@ if [ "$SEED_NEEDED" = true ]; then
 
         SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/approve_query_seed.json" \
             --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000000uspark --output json 2>&1)
+            --fees 5000000${BOND_DENOM} --output json 2>&1)
         SUBMIT_TXHASH=$(echo "$SUBMIT_RES" | jq -r '.txhash')
         sleep 4
         SUBMIT_TX_RES=$(wait_for_tx_q $SUBMIT_TXHASH)
@@ -94,15 +94,15 @@ if [ "$SEED_NEEDED" = true ]; then
         if [ -n "$PROP_ID" ]; then
             $BINARY tx commons vote-proposal $PROP_ID yes --from alice -y \
                 --chain-id $CHAIN_ID --keyring-backend test \
-                --fees 5000000uspark --output json > /dev/null 2>&1
+                --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
             sleep 3
             $BINARY tx commons vote-proposal $PROP_ID yes --from bob -y \
                 --chain-id $CHAIN_ID --keyring-backend test \
-                --fees 5000000uspark --output json > /dev/null 2>&1
+                --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
             sleep 3
             $BINARY tx commons execute-proposal $PROP_ID --from alice -y \
                 --chain-id $CHAIN_ID --keyring-backend test \
-                --fees 5000000uspark --output json > /dev/null 2>&1
+                --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
             sleep 6
 
             # Stake from staker1 (below threshold so tranche stays in STAKING for query tests)
@@ -110,7 +110,7 @@ if [ "$SEED_NEEDED" = true ]; then
             STAKE_TX=$($BINARY tx reveal stake \
                 $SEED_CONTRIB_ID 0 "100000000" --from staker1 -y \
                 --chain-id $CHAIN_ID --keyring-backend test \
-                --fees 5000uspark --output json 2>&1)
+                --fees 5000${BOND_DENOM} --output json 2>&1)
             STAKE_TXHASH=$(echo "$STAKE_TX" | jq -r '.txhash')
             if [ -n "$STAKE_TXHASH" ] && [ "$STAKE_TXHASH" != "null" ]; then
                 sleep 6

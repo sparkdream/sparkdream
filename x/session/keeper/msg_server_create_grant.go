@@ -90,7 +90,7 @@ func (k msgServer) CreateGrant(ctx context.Context, msg *types.MsgCreateGrant) (
 		if err != nil {
 			return nil, err
 		}
-		depositCoin := sdk.NewCoin("uspark", deposit)
+		depositCoin := sdk.NewCoin(k.BondDenom(ctx), deposit)
 		granterAddr, err := k.addressCodec.StringToBytes(msg.Granter)
 		if err != nil {
 			return nil, err
@@ -196,10 +196,10 @@ func (k Keeper) validateSessionKeyPayload(
 	if !p.SpendLimit.IsPositive() {
 		return nil, types.ErrSpendLimitRequired
 	}
-	if p.SpendLimit.Amount.GT(params.MaxSpendLimit.Amount) {
+	if p.SpendLimit.Amount.GT(params.MaxSpendLimitAmount) {
 		return nil, types.ErrSpendLimitTooHigh
 	}
-	if p.SpendLimit.Denom != "uspark" {
+	if p.SpendLimit.Denom != k.BondDenom(ctx) {
 		return nil, types.ErrInvalidDenom
 	}
 
@@ -211,7 +211,7 @@ func (k Keeper) validateSessionKeyPayload(
 		return nil, types.ErrMaxExecCountTooHigh
 	}
 
-	zero := sdk.NewInt64Coin("uspark", 0)
+	zero := sdk.NewInt64Coin(k.BondDenom(ctx), 0)
 	out := *p
 	out.Spent = zero
 	out.ExecCount = 0

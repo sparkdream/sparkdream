@@ -138,7 +138,7 @@ set_forum_paused() {
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     submit_tx_and_wait "$TX_RES"
@@ -159,7 +159,7 @@ set_moderation_paused() {
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     submit_tx_and_wait "$TX_RES"
@@ -189,7 +189,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
@@ -215,7 +215,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -246,7 +246,7 @@ if echo "$SENTINEL_ACTIVITY" | grep -q "not found"; then
         --from sentinel1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     submit_tx_and_wait "$TX_RES"
@@ -276,7 +276,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -292,7 +292,7 @@ TX_RES=$($BINARY tx forum lock-thread \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -308,7 +308,7 @@ TX_RES=$($BINARY tx forum move-thread \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -333,7 +333,7 @@ TX_RES=$($BINARY tx forum hide-post \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -349,7 +349,7 @@ TX_RES=$($BINARY tx forum lock-thread \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -365,7 +365,7 @@ TX_RES=$($BINARY tx forum move-thread \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -390,7 +390,7 @@ TX_RES=$($BINARY tx forum appeal-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -412,7 +412,7 @@ TX_RES=$($BINARY tx forum create-bounty \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 

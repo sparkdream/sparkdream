@@ -51,11 +51,11 @@ func SimulateMsgRegisterName(
 		// 4. Check Solvency (registration fee + explicit gas fees of 5M uspark)
 		explicitFees := math.NewInt(5000000)
 		totalRequired := explicitFees
-		if !params.RegistrationFee.IsZero() && params.RegistrationFee.Denom == "uspark" {
-			totalRequired = totalRequired.Add(params.RegistrationFee.Amount)
+		if !params.RegistrationFeeAmount.IsZero() {
+			totalRequired = totalRequired.Add(params.RegistrationFeeAmount)
 		}
 		balance := bk.SpendableCoins(ctx, simAccount.Address)
-		if balance.AmountOf("uspark").LT(totalRequired) {
+		if balance.AmountOf(sdk.DefaultBondDenom).LT(totalRequired) {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterName{}), "insufficient funds for reg fee + gas"), nil, nil
 		}
 
@@ -108,7 +108,7 @@ func SimulateMsgRegisterName(
 			TxGen:           txGen,
 			Cdc:             nil,
 			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(params.RegistrationFee),
+			CoinsSpentInMsg: sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, params.RegistrationFeeAmount)),
 			Context:         ctx,
 			SimAccount:      simAccount,
 			AccountKeeper:   ak,
@@ -117,7 +117,7 @@ func SimulateMsgRegisterName(
 		}
 
 		// Define explicit high fees to satisfy the AnteHandler check (5M uspark)
-		fees := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(5000000)))
+		fees := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(5000000)))
 
 		return simulation.GenAndDeliverTx(opMsg, fees)
 	}

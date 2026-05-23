@@ -2,12 +2,13 @@ syntax = "proto3";
 package sparkdream.forum.v1;
 
 import "amino/amino.proto";
-import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/forum/types";
 
-// Params defines the parameters for the module.
+// Params defines the parameters for the module. Fee/cost fields are stored
+// as bare amounts in the chain's bond denom (resolved at runtime from
+// x/identity); the keeper wraps them into sdk.Coin at the point of use.
 message Params {
   option (amino.name) = "sparkdream/x/forum/Params";
   option (gogoproto.equal) = true;
@@ -30,29 +31,53 @@ message Params {
   // editing_enabled allows post editing when true
   bool editing_enabled = 6;
 
-  // spam_tax charged to non-members for posting
-  cosmos.base.v1beta1.Coin spam_tax = 7 [(gogoproto.nullable) = false];
+  // spam_tax_amount charged to non-members for posting, in bond-denom micro-units.
+  string spam_tax_amount = 7 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
-  // reaction_spam_tax charged to non-members for reactions
-  cosmos.base.v1beta1.Coin reaction_spam_tax = 8 [(gogoproto.nullable) = false];
+  // reaction_spam_tax_amount charged to non-members for reactions, in bond-denom micro-units.
+  string reaction_spam_tax_amount = 8 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
-  // flag_spam_tax charged to non-members for flagging
-  cosmos.base.v1beta1.Coin flag_spam_tax = 9 [(gogoproto.nullable) = false];
+  // flag_spam_tax_amount charged to non-members for flagging, in bond-denom micro-units.
+  string flag_spam_tax_amount = 9 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
-  // downvote_deposit burned when downvoting
-  cosmos.base.v1beta1.Coin downvote_deposit = 10 [(gogoproto.nullable) = false];
+  // downvote_deposit_amount burned when downvoting, in bond-denom micro-units.
+  string downvote_deposit_amount = 10 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
-  // appeal_fee charged for appeals
-  cosmos.base.v1beta1.Coin appeal_fee = 11 [(gogoproto.nullable) = false];
+  // appeal_fee_amount charged for appeals, in bond-denom micro-units.
+  string appeal_fee_amount = 11 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
-  // lock_appeal_fee charged for thread lock appeals
-  cosmos.base.v1beta1.Coin lock_appeal_fee = 12 [(gogoproto.nullable) = false];
+  // lock_appeal_fee_amount charged for thread lock appeals, in bond-denom micro-units.
+  string lock_appeal_fee_amount = 12 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
-  // move_appeal_fee charged for thread move appeals
-  cosmos.base.v1beta1.Coin move_appeal_fee = 13 [(gogoproto.nullable) = false];
+  // move_appeal_fee_amount charged for thread move appeals, in bond-denom micro-units.
+  string move_appeal_fee_amount = 13 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
-  // edit_fee charged for edits past grace period
-  cosmos.base.v1beta1.Coin edit_fee = 14 [(gogoproto.nullable) = false];
+  // edit_fee_amount charged for edits past grace period, in bond-denom micro-units.
+  string edit_fee_amount = 14 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // bounty_cancellation_fee_percent percentage of bounty taken on cancellation (0-100)
   uint64 bounty_cancellation_fee_percent = 15;
@@ -93,8 +118,12 @@ message Params {
   // move_appeal_cooldown in seconds (must wait this long after move before appeal)
   int64 move_appeal_cooldown = 27;
 
-  // cost_per_byte charged for on-chain content storage (applies to all posts, burned)
-  cosmos.base.v1beta1.Coin cost_per_byte = 28 [(gogoproto.nullable) = false];
+  // cost_per_byte_amount charged for on-chain content storage (applies to all
+  // posts, burned), in bond-denom micro-units.
+  string cost_per_byte_amount = 28 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 
   // cost_per_byte_exempt when true, disables cost_per_byte fee collection
   bool cost_per_byte_exempt = 29;
@@ -159,16 +188,43 @@ message ForumOperationalParams {
   bool reactions_enabled = 2;
   bool editing_enabled = 3;
 
-  // Fees
-  cosmos.base.v1beta1.Coin spam_tax = 4 [(gogoproto.nullable) = false];
-  cosmos.base.v1beta1.Coin reaction_spam_tax = 5 [(gogoproto.nullable) = false];
-  cosmos.base.v1beta1.Coin flag_spam_tax = 6 [(gogoproto.nullable) = false];
-  cosmos.base.v1beta1.Coin downvote_deposit = 7 [(gogoproto.nullable) = false];
-  cosmos.base.v1beta1.Coin appeal_fee = 8 [(gogoproto.nullable) = false];
-  cosmos.base.v1beta1.Coin lock_appeal_fee = 9 [(gogoproto.nullable) = false];
-  cosmos.base.v1beta1.Coin move_appeal_fee = 10 [(gogoproto.nullable) = false];
-  cosmos.base.v1beta1.Coin edit_fee = 11 [(gogoproto.nullable) = false];
-  cosmos.base.v1beta1.Coin cost_per_byte = 12 [(gogoproto.nullable) = false];
+  // Fees, all in bond-denom micro-units.
+  string spam_tax_amount = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string reaction_spam_tax_amount = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string flag_spam_tax_amount = 6 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string downvote_deposit_amount = 7 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string appeal_fee_amount = 8 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string lock_appeal_fee_amount = 9 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string move_appeal_fee_amount = 10 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string edit_fee_amount = 11 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string cost_per_byte_amount = 12 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
   bool cost_per_byte_exempt = 13;
 
   // Limits

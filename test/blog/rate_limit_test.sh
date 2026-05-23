@@ -137,7 +137,7 @@ for i in $(seq 1 $((MAX_POSTS + 1))); do
         --from reader1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -235,7 +235,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -257,7 +257,7 @@ if [ -n "$DISABLE_REPLIES_POST_ID" ]; then
         --from blogger1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -276,7 +276,7 @@ if [ -n "$DISABLE_REPLIES_POST_ID" ]; then
             --from blogger2 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 50000uspark \
+            --fees 50000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -307,7 +307,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from blogger2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -338,7 +338,7 @@ if [ -n "$DEPTH_POST_ID" ]; then
                 --from blogger2 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 50000uspark \
+                --fees 50000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
         else
@@ -349,7 +349,7 @@ if [ -n "$DEPTH_POST_ID" ]; then
                 --from blogger2 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 50000uspark \
+                --fees 50000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
         fi
@@ -376,7 +376,7 @@ if [ -n "$DEPTH_POST_ID" ]; then
             --from blogger2 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 50000uspark \
+            --fees 50000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 

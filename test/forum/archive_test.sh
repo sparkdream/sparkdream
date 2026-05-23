@@ -118,7 +118,7 @@ TX_RES=$($BINARY tx forum create-post \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -160,7 +160,7 @@ if [ -n "$THREAD_ID" ]; then
         --from poster2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -202,7 +202,7 @@ if [ -n "$THREAD_ID" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -243,7 +243,7 @@ TX_RES=$($BINARY tx forum freeze-thread \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -280,7 +280,7 @@ if [ -n "$REPLY_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -320,7 +320,7 @@ TX_RES=$($BINARY tx forum unarchive-thread \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -429,7 +429,7 @@ if [ -n "$THREAD_ID" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -572,7 +572,7 @@ if [ "$FREEZE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -631,7 +631,7 @@ if [ "$FREEZE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
                 --from poster1 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -756,7 +756,7 @@ if [ "$UNARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ]; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -837,7 +837,7 @@ TX_RES=$($BINARY tx forum set-forum-paused true \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -860,7 +860,7 @@ elif check_tx_success "$TX_RESULT"; then
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -886,7 +886,7 @@ elif check_tx_success "$TX_RESULT"; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -924,7 +924,7 @@ elif check_tx_success "$TX_RESULT"; then
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -960,7 +960,7 @@ elif check_tx_success "$TX_RESULT"; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -1018,7 +1018,7 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -1039,7 +1039,7 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
 
@@ -1076,7 +1076,7 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
                 --from alice \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -1096,7 +1096,7 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
                     --from poster1 \
                     --chain-id $CHAIN_ID \
                     --keyring-backend test \
-                    --fees 5000uspark \
+                    --fees 5000${BOND_DENOM} \
                     -y \
                     --output json 2>&1)
 
@@ -1131,7 +1131,7 @@ if [ "$REARCHIVE_RESULT" == "PASS" ] && [ -n "$THREAD_ID" ] && [ "$CYCLE_WAIT_TI
                         --from alice \
                         --chain-id $CHAIN_ID \
                         --keyring-backend test \
-                        --fees 5000uspark \
+                        --fees 5000${BOND_DENOM} \
                         -y \
                         --output json 2>&1)
 

@@ -72,7 +72,7 @@ ensure_dream_balance() {
         echo "  Funding $NAME with $((TOP_UP / 1000000)) DREAM (current available: $((AVAILABLE / 1000000)) DREAM)..."
         local _RES _HASH
         _RES=$($BINARY tx rep transfer-dream "$ADDR" "$TOP_UP" "tip" "Funding for endblocker test" \
-            --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+            --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
         _HASH=$(echo "$_RES" | jq -r '.txhash // empty' 2>/dev/null)
         # Poll until indexed so the next alice tx fetches the committed
         # sequence (bumped sleep 2 wasn't reliable on busy parallel chains).
@@ -110,7 +110,7 @@ PROJECT_RES=$($BINARY tx rep propose-project \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -142,7 +142,7 @@ fi
 echo "[ OK ] Project created: ID $PROJECT_ID"
 
 # Approve project with 100 DREAM budget (100000000 micro-DREAM)
-$BINARY tx rep approve-project-budget $PROJECT_ID "100000000" "10000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep approve-project-budget $PROJECT_ID "100000000" "10000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Create initiatives
@@ -161,7 +161,7 @@ INIT1_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -194,7 +194,7 @@ INIT2_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -218,10 +218,10 @@ echo "[ OK ] Initiative 2 created: ID $INIT2_ID"
 # Usage: stake [target-type] [target-id] [amount]
 echo ""
 echo "Staking on Initiative 1 (early)..."
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "300000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "300000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 echo "[ OK ] Stakes created on Initiative 1: Bob (200), Carol (300) = 500 total"
@@ -251,10 +251,10 @@ fi
 
 # Assign and submit work
 # Usage: assign-initiative [initiative-id] [assignee]
-$BINARY tx rep assign-initiative $INIT1_ID $WORKER1_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep assign-initiative $INIT1_ID $WORKER1_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 # Note: worker1 = assignee key from test setup
-$BINARY tx rep submit-initiative-work $INIT1_ID "ipfs://QmTestWork1" "Work completed for conviction test" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep submit-initiative-work $INIT1_ID "ipfs://QmTestWork1" "Work completed for conviction test" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 6
 
 echo "[ OK ] Initiative 1 submitted for review"
@@ -360,7 +360,7 @@ INIT3_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1)
 
@@ -408,7 +408,7 @@ if [ "$SKIP_INIT3_TEST" != "true" ]; then
     # Assign to worker2
     # Usage: assign-initiative [initiative-id] [assignee]
     echo "Assigning to worker2..."
-    ASSIGN_RES=$($BINARY tx rep assign-initiative $INIT3_ID $WORKER2_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    ASSIGN_RES=$($BINARY tx rep assign-initiative $INIT3_ID $WORKER2_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 6
     # Check if assign transaction failed
     ASSIGN_CODE=$(echo "$ASSIGN_RES" | jq -r '.code // 0' 2>/dev/null)
@@ -428,7 +428,7 @@ if [ "$SKIP_INIT3_TEST" != "true" ]; then
     # Submit work (must be from worker2, the assignee)
     echo "Submitting work from worker2..."
     # Note: worker2 = challenger key from test setup
-    SUBMIT_RES=$($BINARY tx rep submit-initiative-work $INIT3_ID "ipfs://QmTestWork3" "Work submitted" --from challenger --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    SUBMIT_RES=$($BINARY tx rep submit-initiative-work $INIT3_ID "ipfs://QmTestWork3" "Work submitted" --from challenger --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 6
     # Check if submit transaction failed
     SUBMIT_CODE=$(echo "$SUBMIT_RES" | jq -r '.code // 0' 2>/dev/null)
@@ -448,7 +448,7 @@ if [ "$SKIP_INIT3_TEST" != "true" ]; then
     # Test abandon (must be from worker2, the assignee - not alice!)
     echo "Abandoning from worker2 (assignee)..."
     # Note: worker2 = challenger key from test setup
-    ABANDON_RES=$($BINARY tx rep abandon-initiative $INIT3_ID "Testing abandon flow" --from challenger --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    ABANDON_RES=$($BINARY tx rep abandon-initiative $INIT3_ID "Testing abandon flow" --from challenger --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 6
     # Check if abandon transaction failed
     ABANDON_CODE=$(echo "$ABANDON_RES" | jq -r '.code // 0' 2>/dev/null)
@@ -495,7 +495,7 @@ INIT4_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -519,15 +519,15 @@ fi
 if [ "$SKIP_INIT4_TEST" != "true" ]; then
     # Assign and submit
     # Usage: assign-initiative [initiative-id] [assignee]
-    $BINARY tx rep assign-initiative $INIT4_ID $WORKER1_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+    $BINARY tx rep assign-initiative $INIT4_ID $WORKER1_ADDR --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 1
     # Note: worker1 = assignee key from test setup
-    $BINARY tx rep submit-initiative-work $INIT4_ID "ipfs://QmTestWork4" "For jury testing" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+    $BINARY tx rep submit-initiative-work $INIT4_ID "ipfs://QmTestWork4" "For jury testing" --from assignee --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 1
 
     # Add stakes for conviction
     # Usage: stake [target-type] [target-id] [amount]
-    $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT4_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+    $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT4_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 1
 
     echo "[ OK ] Initiative 4 set up for jury testing"

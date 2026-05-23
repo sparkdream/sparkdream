@@ -38,7 +38,7 @@ fi
 
 # Define Test Fee (Double the default)
 NEW_FEE_AMOUNT="10000000"
-NEW_FEE_STR="${NEW_FEE_AMOUNT}uspark"
+NEW_FEE_STR="${NEW_FEE_AMOUNT}${BOND_DENOM}"
 
 # Helper Function: Get Proposal ID (for x/gov proposals)
 get_proposal_id() {
@@ -80,7 +80,7 @@ echo '{
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Increase Council Spam Fee",
   "summary": "Raising the ante handler fee to 10 SPARK."
 }' > "$PROPOSAL_DIR/gov_fee_update.json"
@@ -127,7 +127,7 @@ echo '{
       "recipient": "'$ALICE_ADDR'",
       "amount": [
         {
-          "denom": "uspark",
+          "denom": "'"$BOND_DENOM"'",
           "amount": "1"
         }
       ]
@@ -137,13 +137,15 @@ echo '{
 }' > "$PROPOSAL_DIR/msg_spam_check.json"
 
 # TEST A: FAIL (Pay Old Fee)
-echo "Attempting submission with OLD FEE (5000000uspark)... (Expect Failure)"
-FAIL_OUTPUT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_spam_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark 2>&1)
+echo "Attempting submission with OLD FEE (5000000${BOND_DENOM})... (Expect Failure)"
+FAIL_OUTPUT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_spam_check.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} 2>&1)
 
 echo "Waiting for block inclusion (3s)..."
 sleep 5
 
-if echo "$FAIL_OUTPUT" | grep -q "insufficient fee"; then
+# YAML text output wraps long lines, so "insufficient fee" may appear split
+# across two lines. Collapse whitespace before matching to handle wrap.
+if echo "$FAIL_OUTPUT" | tr -s '[:space:]' ' ' | grep -q "insufficient fee"; then
     echo "SUCCESS: Transaction rejected correctly (Insufficient Fee)."
 else
     echo "FAILURE: Transaction was accepted or wrong error!"
@@ -180,7 +182,7 @@ echo '{
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Reset Council Fee",
   "summary": "Restoring default values."
 }' > "$PROPOSAL_DIR/gov_fee_reset.json"

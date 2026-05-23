@@ -58,7 +58,7 @@ check_tx_success() {
 # Submit a tx, wait, return "ok" or "err:<code>:<first-line-of-raw-log>".
 send_tx() {
     local out
-    out=$("$@" --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    out=$("$@" --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     local hash=$(echo "$out" | jq -r '.txhash' 2>/dev/null)
     if [ -z "$hash" ] || [ "$hash" == "null" ]; then
         # Tx rejected before broadcast (e.g. offline validation) — surface the raw CLI error.

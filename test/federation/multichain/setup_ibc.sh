@@ -23,7 +23,7 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/lib_multichain.sh"
-# Shared safe-rmtree helper (CLAUDE.md forbids `rm -rf`).
+# Shared safe-rmtree helper (see docs/development-conventions.md — `rm -rf` is forbidden project-wide).
 # shellcheck source=../../_safe_rm.sh
 source "$SCRIPT_DIR/../../_safe_rm.sh"
 
@@ -123,14 +123,14 @@ echo "=== Funding relayer accounts ==="
 fund_relayer() {
     local CHAIN=$1   # a or b
     local TARGET=$2
-    local AMOUNT=${3:-1000000000uspark}
+    local AMOUNT=${3:-1000000000${BOND_DENOM}}
     local TX
     if [ "$CHAIN" = "a" ]; then
         TX=$(cli_a tx bank send alice "$TARGET" "$AMOUNT" \
-            --from alice -y --fees 5000uspark --output json 2>&1) || true
+            --from alice -y --fees 5000${BOND_DENOM} --output json) || true
     else
         TX=$(cli_b tx bank send alice "$TARGET" "$AMOUNT" \
-            --from alice -y --fees 5000uspark --output json 2>&1) || true
+            --from alice -y --fees 5000${BOND_DENOM} --output json) || true
     fi
     if ! echo "$TX" | jq -e '.txhash' >/dev/null 2>&1; then
         echo "  ERROR: cli failed to produce a txhash" >&2
@@ -167,9 +167,9 @@ register_account() {
     local ADDR=$3
     local TX
     if [ "$CHAIN" = "a" ]; then
-        TX=$(cli_a tx bank send "$ADDR" "$ADDR" 1uspark --from "$KEY" -y --fees 5000uspark --output json 2>&1) || true
+        TX=$(cli_a tx bank send "$ADDR" "$ADDR" 1${BOND_DENOM} --from "$KEY" -y --fees 5000${BOND_DENOM} --output json) || true
     else
-        TX=$(cli_b tx bank send "$ADDR" "$ADDR" 1uspark --from "$KEY" -y --fees 5000uspark --output json 2>&1) || true
+        TX=$(cli_b tx bank send "$ADDR" "$ADDR" 1${BOND_DENOM} --from "$KEY" -y --fees 5000${BOND_DENOM} --output json) || true
     fi
     if ! echo "$TX" | jq -e '.txhash' >/dev/null 2>&1; then
         echo "  ERROR: register-account self-send (chain-$CHAIN) failed" >&2
@@ -205,14 +205,14 @@ register_account() {
     fi
 }
 
-echo "  Registering hermes-a in auth.account on chain-a (self-send 1uspark)..."
+echo "  Registering hermes-a in auth.account on chain-a (self-send 1${BOND_DENOM})..."
 register_account a hermes-a "$RELAYER_A"
-echo "  Registering hermes-b in auth.account on chain-b (self-send 1uspark)..."
+echo "  Registering hermes-b in auth.account on chain-b (self-send 1${BOND_DENOM})..."
 register_account b hermes-b "$RELAYER_B"
 
 # Verify balances
-BAL_A=$(qcli_a bank balances "$RELAYER_A" 2>/dev/null | jq -r '.balances[]? | select(.denom=="uspark") | .amount' | head -1)
-BAL_B=$(qcli_b bank balances "$RELAYER_B" 2>/dev/null | jq -r '.balances[]? | select(.denom=="uspark") | .amount' | head -1)
+BAL_A=$(qcli_a bank balances "$RELAYER_A" 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[]? | select(.denom==$denom) | .amount' | head -1)
+BAL_B=$(qcli_b bank balances "$RELAYER_B" 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[]? | select(.denom==$denom) | .amount' | head -1)
 echo "  Balance hermes-a: ${BAL_A:-0} uspark"
 echo "  Balance hermes-b: ${BAL_B:-0} uspark"
 echo ""

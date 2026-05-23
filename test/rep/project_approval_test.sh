@@ -107,7 +107,7 @@ propose_project() {
         --from "$FROM" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         --gas 400000 \
         -y \
         --output json 2>&1)
@@ -148,7 +148,7 @@ else
     TX_RES=$($BINARY tx rep approve-project-budget \
         "$PID" "$SMALL_BUDGET" "0" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --gas 300000 -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         echo "  Project #$PID approved (budget $SMALL_BUDGET udream)"
         record_result "TEST 1: small budget approved" "PASS"
@@ -178,7 +178,7 @@ else
     TX_RES=$($BINARY tx rep approve-project-budget \
         "$PID" "$LARGE_BUDGET" "0" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --gas 300000 -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
     if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
         RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
         if echo "$RAW" | grep -qi "exceeds threshold\|council proposal"; then
@@ -210,7 +210,7 @@ else
     TX_RES=$($BINARY tx rep approve-project-budget \
         "$PID" "$THRESHOLD_UDREAM" "0" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --gas 300000 -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         echo "  Project #$PID approved at exactly threshold ($THRESHOLD_UDREAM udream)"
         record_result "TEST 3: at-threshold approved" "PASS"
@@ -238,7 +238,7 @@ else
     TX_RES=$($BINARY tx rep approve-project-budget \
         "$PID" "$SMALL_BUDGET" "0" \
         --from bob --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark --gas 300000 -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
     if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
         RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
         if echo "$RAW" | grep -qi "unauthorized\|operations committee\|member of"; then

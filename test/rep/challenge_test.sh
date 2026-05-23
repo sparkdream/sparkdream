@@ -106,7 +106,7 @@ make_submitted_initiative() {
         $PROJECT_ID "$TITLE" "$DESC" "0" "0" "1" "5000" \
         --tags "$TAGS" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json)
+        --fees 5000${BOND_DENOM} -y --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     [ -z "$TXHASH" ] || [ "$TXHASH" = "null" ] && return 1
     sleep 6
@@ -119,13 +119,13 @@ make_submitted_initiative() {
 
     $BINARY tx rep assign-initiative $INIT_ID "$ASSIGNEE_ADDR" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y > /dev/null 2>&1
+        --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 6
     $BINARY tx rep submit-initiative-work $INIT_ID \
         "https://github.com/test/deliverable-$INIT_ID" \
         "Deliverable for initiative $INIT_ID" \
         --from assignee --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y > /dev/null 2>&1
+        --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 6
     echo "$INIT_ID"
     return 0
@@ -139,7 +139,7 @@ ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 TX_RES=$($BINARY tx rep transfer-dream \
     $CHALLENGER_ADDR "100000000" "gift" "funding-for-challenge-tests" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json)
+    --fees 5000${BOND_DENOM} -y --output json)
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 if [ ! -z "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     sleep 6
@@ -156,7 +156,7 @@ echo ""
 # TEST 1: TestAnonymousChallenge — SKIPPED
 #
 # The anonymous-challenge flow (with ZK proof + nullifier + payout_address
-# fields on MsgCreateChallenge) was REMOVED from x/rep. Per CLAUDE.md, all
+# fields on MsgCreateChallenge) was REMOVED from x/rep. All
 # anonymous-action infrastructure now lives in x/shield (`MsgShieldedExec`),
 # which provides a unified privacy layer with module-paid gas, a centralised
 # nullifier store, and per-domain scoping. The corresponding test coverage
@@ -214,7 +214,7 @@ if [ "$TEST_2_RESULT" = "PASS" ]; then
         "50000000" \
         --evidence "https://github.com/repo/issues/1","https://github.com/repo/issues/2" \
         --from challenger --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json)
+        --fees 5000${BOND_DENOM} -y --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
@@ -236,7 +236,7 @@ if [ "$TEST_2_RESULT" = "PASS" ] && [ -n "$CHALLENGE2_ID" ]; then
         "We believe the deliverable meets all requirements." \
         --evidence "https://github.com/repo/README.md","https://github.com/repo/docs/api.md" \
         --from assignee --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json)
+        --fees 5000${BOND_DENOM} -y --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
@@ -320,7 +320,7 @@ if [ "$TEST_2_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW_ID" ] && [ "$JURY_REVIEW_
         TX_RES=$($BINARY tx rep submit-juror-vote \
             $JURY_REVIEW_ID "$VERDICT" "0.9" "$REASON" \
             --from "$JNAME" --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000uspark -y --output json 2>&1)
+            --fees 5000${BOND_DENOM} -y --output json 2>&1)
         VTXHASH=$(echo "$TX_RES" | jq -r '.txhash' 2>/dev/null)
         if [ -n "$VTXHASH" ] && [ "$VTXHASH" != "null" ]; then
             VOTE_TX_HASHES+=("$JNAME:$VTXHASH:$VERDICT")
@@ -418,7 +418,7 @@ if [ "$TEST_3_RESULT" = "PASS" ]; then
         "50000000" \
         --evidence "https://github.com/repo/issues/broken" \
         --from challenger --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json)
+        --fees 5000${BOND_DENOM} -y --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)

@@ -32,7 +32,7 @@ if [ -z "${SCRIPT_DIR:-}" ]; then
     return 1 2>/dev/null || exit 1
 fi
 
-# Shared safe-rmtree helper (CLAUDE.md forbids `rm -rf`).
+# Shared safe-rmtree helper (see docs/development-conventions.md — `rm -rf` is forbidden project-wide).
 # SCRIPT_DIR is the module dir (test/<module>/); the helper lives one up.
 # shellcheck source=./_safe_rm.sh
 source "$SCRIPT_DIR/../_safe_rm.sh"

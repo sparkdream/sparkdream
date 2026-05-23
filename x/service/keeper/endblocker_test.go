@@ -24,7 +24,7 @@ func TestEndBlocker_UnderfundedForceUnbond(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    sdk.NewCoin(types.BondDenom, math.NewInt(100_000)), // below min
+		BondAmount:              math.NewInt(100_000), // below min
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 		UnderfundedSince:        height,
 		Tier1SlashedInWindow:    math.ZeroInt(),
@@ -61,7 +61,7 @@ func TestEndBlocker_UnderfundedWithinGrace(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    sdk.NewCoin(types.BondDenom, math.NewInt(100_000)),
+		BondAmount:              math.NewInt(100_000),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 		UnderfundedSince:        height,
 		Tier1SlashedInWindow:    math.ZeroInt(),
@@ -204,7 +204,7 @@ func TestEndBlocker_SweepLimitCaps(t *testing.T) {
 			Address:                 addr,
 			ServiceType:             testServiceType,
 			Controller:              testController,
-			Bond:                    sdk.NewCoin(types.BondDenom, math.NewInt(100_000)),
+			BondAmount:              math.NewInt(100_000),
 			Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 			UnderfundedSince:        height,
 			Tier1SlashedInWindow:    math.ZeroInt(),
@@ -253,7 +253,7 @@ func TestEndBlocker_ReportTimeoutActionEscalate(t *testing.T) {
 	cfg.ReportTimeoutAction = types.ReportTimeoutAction_REPORT_TIMEOUT_ACTION_ESCALATE
 	cfg.ChallengeDefaultSlashBps = 200
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(10))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(10))
 
 	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
 	reportID, _, err := f.keeper.OpenSystemReport(
@@ -290,7 +290,7 @@ func TestEndBlocker_ReportTimeoutActionDismissDefault(t *testing.T) {
 	cfg := f.seedServiceType(t)
 	cfg.ReportTimeoutAction = types.ReportTimeoutAction_REPORT_TIMEOUT_ACTION_DISMISS
 	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount.MulRaw(10))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(10))
 
 	// Use MsgReportOperator path (not OpenSystemReport) so the report
 	// has a real reporter and deposit.

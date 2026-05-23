@@ -15,11 +15,11 @@ import (
 func TestBondPoolAccountingInvariant_Clean(t *testing.T) {
 	f := initFixture(t)
 	cfg := f.seedServiceType(t)
-	op := f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount)
+	op := f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount)
 
 	// Make the bank balance match the bond pool exactly.
 	f.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, _ string) sdk.Coin {
-		return op.Bond
+		return sdk.NewCoin(testBondDenom, op.BondAmount)
 	}
 
 	msg, broken := keeper.BondPoolAccountingInvariant(f.keeper)(f.sdkCtx())
@@ -33,7 +33,7 @@ func TestBondPoolAccountingInvariant_Broken(t *testing.T) {
 
 	// Bank reports zero balance but operator's bond is 1_000_000.
 	f.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, _ string) sdk.Coin {
-		return sdk.NewCoin(types.BondDenom, math.ZeroInt())
+		return sdk.NewCoin(testBondDenom, math.ZeroInt())
 	}
 
 	_, broken := keeper.BondPoolAccountingInvariant(f.keeper)(f.sdkCtx())
@@ -59,7 +59,7 @@ func TestLiveArchiveDisjointInvariant_BrokenWhenBothExist(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    sdk.NewCoin(types.BondDenom, math.ZeroInt()),
+		BondAmount:              math.ZeroInt(),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_SLASHED,
 		RetiredAt:               f.sdkCtx().BlockHeight(),
 		Tier1SlashedInWindow:    math.ZeroInt(),
@@ -101,7 +101,7 @@ func TestUnderfundedQueueConsistencyInvariant_Clean(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    sdk.NewCoin(types.BondDenom, math.NewInt(100_000)),
+		BondAmount:              math.NewInt(100_000),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 		UnderfundedSince:        height,
 		Tier1SlashedInWindow:    math.ZeroInt(),

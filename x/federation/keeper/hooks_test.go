@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -32,8 +33,8 @@ import (
 // to x/service.
 type mockServiceKeeper struct {
 	// Configurable behavior.
-	RegisterOperatorFn func(ctx context.Context, creator, serviceType, controller string, bond sdk.Coin, metadata []byte, source int) (servicetypes.Operator, error)
-	TopUpBondFn        func(ctx context.Context, opBytes []byte, serviceType string, additionalBond sdk.Coin) error
+	RegisterOperatorFn func(ctx context.Context, creator, serviceType, controller string, bondAmount math.Int, metadata []byte, source int) (servicetypes.Operator, error)
+	TopUpBondFn        func(ctx context.Context, opBytes []byte, serviceType string, additionalBondAmount math.Int) error
 	OpenSystemReportFn func(ctx context.Context, callerModuleAddr sdk.AccAddress, operatorAddr sdk.AccAddress, serviceType string, slashBps uint32, evidenceURI string, dedupeKey []byte) (uint64, bool, error)
 	GetOperatorFn      func(ctx context.Context, addrBytes []byte, serviceType string) (servicetypes.Operator, bool)
 	HasSlashedRecordFn func(ctx context.Context, addrBytes []byte, serviceType string) (bool, error)
@@ -53,14 +54,14 @@ type mockSKRegister struct {
 	Creator     string
 	ServiceType string
 	Controller  string
-	Bond        sdk.Coin
+	BondAmount  math.Int
 	Metadata    []byte
 }
 
 type mockSKTopUp struct {
 	OpAddr      string
 	ServiceType string
-	Additional  sdk.Coin
+	Additional  math.Int
 }
 
 type mockSKReport struct {
@@ -80,26 +81,26 @@ func newMockServiceKeeper() *mockServiceKeeper {
 
 func (m *mockServiceKeeper) opKey(addr, st string) string { return addr + "/" + st }
 
-func (m *mockServiceKeeper) RegisterOperator(ctx context.Context, creator, serviceType, controller string, bond sdk.Coin, metadata []byte, source int) (servicetypes.Operator, error) {
-	m.RegisterCalls = append(m.RegisterCalls, mockSKRegister{creator, serviceType, controller, bond, metadata})
+func (m *mockServiceKeeper) RegisterOperator(ctx context.Context, creator, serviceType, controller string, bondAmount math.Int, metadata []byte, source int) (servicetypes.Operator, error) {
+	m.RegisterCalls = append(m.RegisterCalls, mockSKRegister{creator, serviceType, controller, bondAmount, metadata})
 	if m.RegisterOperatorFn != nil {
-		return m.RegisterOperatorFn(ctx, creator, serviceType, controller, bond, metadata, source)
+		return m.RegisterOperatorFn(ctx, creator, serviceType, controller, bondAmount, metadata, source)
 	}
 	op := servicetypes.Operator{
 		Address:     creator,
 		ServiceType: serviceType,
 		Controller:  controller,
-		Bond:        bond,
+		BondAmount:  bondAmount,
 		Status:      servicetypes.OperatorStatus_OPERATOR_STATUS_ACTIVE,
 	}
 	m.Operators[m.opKey(creator, serviceType)] = op
 	return op, nil
 }
 
-func (m *mockServiceKeeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBond sdk.Coin) error {
-	m.TopUpCalls = append(m.TopUpCalls, mockSKTopUp{string(opBytes), serviceType, additionalBond})
+func (m *mockServiceKeeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBondAmount math.Int) error {
+	m.TopUpCalls = append(m.TopUpCalls, mockSKTopUp{string(opBytes), serviceType, additionalBondAmount})
 	if m.TopUpBondFn != nil {
-		return m.TopUpBondFn(ctx, opBytes, serviceType, additionalBond)
+		return m.TopUpBondFn(ctx, opBytes, serviceType, additionalBondAmount)
 	}
 	return nil
 }

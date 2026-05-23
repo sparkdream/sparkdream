@@ -61,7 +61,7 @@ CREATE_RES=$($BINARY tx futarchy create-market \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -95,7 +95,7 @@ echo '{
       }
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Update Futarchy Parameters",
   "summary": "Increase minimum liquidity and trading fees for better market quality."
 }' > "$PROPOSAL_DIR/update_params.json"
@@ -194,7 +194,7 @@ LOW_LIQ_ATTEMPT=$($BINARY tx futarchy create-market \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json 2>&1) || true
 
@@ -223,7 +223,7 @@ CREATE_NEW_RES=$($BINARY tx futarchy create-market \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -251,7 +251,7 @@ echo "[ OK ] Market created with new minimum liquidity: $NEW_MARKET_ID"
 echo "--- STEP 9: VERIFY HIGHER TRADING FEE IS APPLIED ---"
 
 # Trade and check if fee is deducted correctly
-ALICE_BALANCE_BEFORE=$($BINARY query bank balance $ALICE_ADDR uspark --output json | jq -r '.balance.amount')
+ALICE_BALANCE_BEFORE=$($BINARY query bank balance $ALICE_ADDR ${BOND_DENOM} --output json | jq -r '.balance.amount')
 
 # Note: amount is a plain number (uspark implied)
 TRADE_RES=$($BINARY tx futarchy trade \
@@ -261,7 +261,7 @@ TRADE_RES=$($BINARY tx futarchy trade \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 

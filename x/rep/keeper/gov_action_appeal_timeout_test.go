@@ -86,11 +86,11 @@ func TestTimeoutExpiredAppeals_TransitionsAndSplitsBond(t *testing.T) {
 
 	require.Len(t, refunded, 1)
 	require.Equal(t, "50", refunded[0].Amount.String(), "half of bond is refunded")
-	require.Equal(t, types.RewardDenom, refunded[0].Denom)
+	require.Equal(t, "uspark", refunded[0].Denom)
 
 	require.Len(t, burned, 1)
 	require.Equal(t, "50", burned[0].Amount.String(), "half of bond is burned")
-	require.Equal(t, types.RewardDenom, burned[0].Denom)
+	require.Equal(t, "uspark", burned[0].Denom)
 }
 
 func TestTimeoutExpiredAppeals_ZeroBondSkipsBankCalls(t *testing.T) {

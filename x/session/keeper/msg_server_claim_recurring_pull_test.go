@@ -194,9 +194,9 @@ func TestClaimRecurringPull_EpochCeilingExceeded(t *testing.T) {
 		ExpiresAt: expiresAt,
 		Payload: &types.MsgCreateGrant_RecurringPull{
 			RecurringPull: &types.RecurringPullPayload{
-				AmountPerPeriod:   amount,
-				PeriodSeconds:     period,
-				MaxPerEpochUspark: "1500000", // ceiling = 1.5 * amount, so 2nd claim same day breaches
+				AmountPerPeriod: amount,
+				PeriodSeconds:   period,
+				MaxPerEpoch:     "1500000", // ceiling = 1.5 * amount, so 2nd claim same day breaches
 			},
 		},
 	})
@@ -212,5 +212,5 @@ func TestClaimRecurringPull_EpochCeilingExceeded(t *testing.T) {
 	ctx2 := withBlockTime(f.ctx, sdkCtx.BlockTime().Add(time.Duration(2*period+1)*time.Second))
 	_, err = ms.ClaimRecurringPull(ctx2, &types.MsgClaimRecurringPull{Grantee: grantee, GrantId: id})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "max_per_epoch_uspark")
+	require.Contains(t, err.Error(), "max_per_epoch")
 }

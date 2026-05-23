@@ -221,7 +221,7 @@ func (k Keeper) BurnSentinelRewardPoolOverflow(ctx context.Context) error {
 	// (which holds Burner) and then burn from there. The two ops are atomic
 	// inside this BeginBlocker call, so no other path observes the intermediate
 	// balance on the rep module account.
-	coins := sdk.NewCoins(sdk.NewCoin(types.RewardDenom, burnAmount))
+	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), burnAmount))
 	if err := k.bankKeeper.SendCoins(ctx, SentinelRewardPoolAddress(), authtypes.NewModuleAddress(types.ModuleName), coins); err != nil {
 		return fmt.Errorf("move sentinel overflow to module account: %w", err)
 	}

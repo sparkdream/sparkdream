@@ -153,13 +153,14 @@ func (k msgServer) applyControllerTransferAccept(
 	}
 
 	// Refund opener deposit.
-	if !caseRow.Deposit.Amount.IsZero() {
+	if !caseRow.Deposit.IsZero() {
 		openerBytes, err := k.addrBytes(caseRow.Opener)
 		if err != nil {
 			return nil, err
 		}
+		depositCoin := sdk.NewCoin(k.BondDenom(ctx), caseRow.Deposit)
 		if err := k.bankKeeper.SendCoinsFromModuleToAccount(
-			ctx, types.ModuleName, sdk.AccAddress(openerBytes), sdk.NewCoins(caseRow.Deposit),
+			ctx, types.ModuleName, sdk.AccAddress(openerBytes), sdk.NewCoins(depositCoin),
 		); err != nil {
 			return nil, err
 		}

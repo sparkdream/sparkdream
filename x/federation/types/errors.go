@@ -35,7 +35,7 @@ var (
 	// under one controller cannot register a binding for a peer that
 	// resolves to a different controller (Decision 1a — shared bond
 	// across same-protocol bridges per operator address).
-	ErrControllerMismatch = errors.Register(ModuleName, 2370, "operator's existing service.Operator controller doesn't match the peer's resolved controller")
+	ErrControllerMismatch   = errors.Register(ModuleName, 2370, "operator's existing service.Operator controller doesn't match the peer's resolved controller")
 	ErrPeerHasActiveBridges = errors.Register(ModuleName, 2371, "peer has active bridges; operators must unbond first (or the gov proposal must bundle dissolutions for abandoned peers)")
 
 	// Content errors

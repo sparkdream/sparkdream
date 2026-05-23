@@ -62,12 +62,12 @@ func (f *queryFixture) seedGrant(t *testing.T, granter, grantee string, id uint6
 		Note:      "test",
 		Payload: &sessiontypes.Grant_RecurringPull{
 			RecurringPull: &sessiontypes.RecurringPullPayload{
-				AmountPerPeriod:   sdk.NewCoin("uspark", math.NewInt(100)),
-				PeriodSeconds:     86_400,
-				StartTime:         f.ctx.BlockTime().Unix(),
-				LastClaimAdvance:  f.ctx.BlockTime().Unix(),
-				ClaimsMade:        0,
-				MaxPerEpochUspark: "10000",
+				AmountPerPeriod:  sdk.NewCoin("uspark", math.NewInt(100)),
+				PeriodSeconds:    86_400,
+				StartTime:        f.ctx.BlockTime().Unix(),
+				LastClaimAdvance: f.ctx.BlockTime().Unix(),
+				ClaimsMade:       0,
+				MaxPerEpoch:      "10000",
 			},
 		},
 	}

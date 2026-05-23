@@ -84,7 +84,7 @@ func TestCreateGrant_RecurringPull_HappyPath(t *testing.T) {
 	require.Equal(t, sdkCtx.BlockTime().Unix(), rp.StartTime)
 	require.Equal(t, rp.StartTime, rp.LastClaimAdvance)
 	// max_per_epoch defaulted to 10x amount_per_period.
-	require.Equal(t, "10000000", rp.MaxPerEpochUspark)
+	require.Equal(t, "10000000", rp.MaxPerEpoch)
 
 	// Active grant counter bumped for the RECURRING_PULL slot.
 	count, err := f.keeper.CountActiveGrants(f.ctx, granter, types.GrantType_GRANT_TYPE_RECURRING_PULL)
@@ -159,7 +159,7 @@ func TestCreateGrant_RecurringPull_Validation(t *testing.T) {
 		{
 			name: "dream denom forbidden",
 			payload: &types.RecurringPullPayload{
-				AmountPerPeriod: sdk.NewInt64Coin("dream", 1_000_000),
+				AmountPerPeriod: sdk.NewInt64Coin("udream", 1_000_000),
 				PeriodSeconds:   86_400,
 			},
 			expiresAt: futureExp, granter: granter, grantee: grantee,
@@ -168,22 +168,22 @@ func TestCreateGrant_RecurringPull_Validation(t *testing.T) {
 		{
 			name: "max_per_epoch below amount",
 			payload: &types.RecurringPullPayload{
-				AmountPerPeriod:   validAmount,
-				PeriodSeconds:     86_400,
-				MaxPerEpochUspark: "500", // below 1_000_000
+				AmountPerPeriod: validAmount,
+				PeriodSeconds:   86_400,
+				MaxPerEpoch:     "500", // below 1_000_000
 			},
 			expiresAt: futureExp, granter: granter, grantee: grantee,
-			errContains: "max_per_epoch_uspark below",
+			errContains: "max_per_epoch below",
 		},
 		{
 			name: "max_per_epoch unparseable",
 			payload: &types.RecurringPullPayload{
-				AmountPerPeriod:   validAmount,
-				PeriodSeconds:     86_400,
-				MaxPerEpochUspark: "not-a-number",
+				AmountPerPeriod: validAmount,
+				PeriodSeconds:   86_400,
+				MaxPerEpoch:     "not-a-number",
 			},
 			expiresAt: futureExp, granter: granter, grantee: grantee,
-			errContains: "max_per_epoch_uspark must parse",
+			errContains: "max_per_epoch must parse",
 		},
 		{
 			name: "self delegation",

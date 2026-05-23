@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"io"
 
 	clienthelpers "cosmossdk.io/client/v2/helpers"
@@ -56,6 +57,10 @@ import (
 	forummodulekeeper "sparkdream/x/forum/keeper"
 	futarchymodulekeeper "sparkdream/x/futarchy/keeper"
 	futarchymoduletypes "sparkdream/x/futarchy/types"
+	guardianmodulekeeper "sparkdream/x/guardian/keeper"
+	identitygenesisinit "sparkdream/x/identity/genesisinit"
+	identitymodulekeeper "sparkdream/x/identity/keeper"
+	identitytypes "sparkdream/x/identity/types"
 	namemodulekeeper "sparkdream/x/name/keeper"
 	repmodulekeeper "sparkdream/x/rep/keeper"
 	revealmodulekeeper "sparkdream/x/reveal/keeper"
@@ -143,11 +148,18 @@ type App struct {
 	SessionKeeper    sessionmodulekeeper.Keeper
 	FederationKeeper federationmodulekeeper.Keeper
 	ServiceKeeper    servicemodulekeeper.Keeper
+	IdentityKeeper   *identitymodulekeeper.Keeper
+	GuardianKeeper   *guardianmodulekeeper.Keeper
 }
 
 func init() {
 
-	sdk.DefaultBondDenom = "uspark"
+	// Wire the cosmos-sdk default bond denom to the build-tag-selected
+	// identity so the SDK's default-denom fallbacks (used by gentx tooling,
+	// staking InitGenesis hints, etc.) line up with what the chain actually
+	// mints. Without this the SDK default ("stake") would diverge from
+	// identity, producing the mixed-state bug we're removing.
+	sdk.DefaultBondDenom = identitytypes.DefaultChainIdentity().BondDenom
 
 	var err error
 	clienthelpers.EnvPrefix = Name
@@ -232,9 +244,49 @@ func New(
 		&app.SessionKeeper,
 		&app.FederationKeeper,
 		&app.ServiceKeeper,
+		&app.IdentityKeeper,
+		&app.GuardianKeeper,
 	); err != nil {
 		panic(err)
 	}
+
+	// Wrap the bank keeper with the identity guard so that gov-routed and
+	// upgrade-handler-routed SetDenomMetaData calls against native denoms are
+	// rejected if they would alter the canonical Symbol/Display fields.
+	// See docs/x-identity-spec.md §14.6.
+	app.BankKeeper = WrapBankKeeperWithIdentityGuard(app.BankKeeper, app.IdentityKeeper)
+	// Wire the (now-wrapped) bank keeper into the identity keeper so
+	// identity.InitGenesis's registerNativeDenomMetadata writes through the
+	// guard. The guard treats the pre-seal window as the legitimate seed
+	// path (identity hasn't sealed yet at this point; the seal happens
+	// inside the same InitGenesis call).
+	app.IdentityKeeper.SetBankKeeper(app.BankKeeper)
+	// Wire staking + mint keepers for invariant 5 (SDKParamsAlignedInvariant).
+	// Warning-grade: detects governance-update drift of staking.bond_denom /
+	// mint.mint_denom away from the sealed identity. See spec §16 invariant 5.
+	// Mint goes through an adapter because upstream stores params via a
+	// collection Item rather than a GetParams method (see MintKeeperAdapter).
+	app.IdentityKeeper.SetStakingKeeper(app.StakingKeeper)
+	app.IdentityKeeper.SetMintKeeper(NewMintKeeperAdapter(app.MintKeeper))
+
+	// Wire downstream keepers into guardian for its per-msg-type field
+	// filters. Guardian's MsgExec is the only path through which gov can
+	// invoke authority-required msgs on the gated modules (bank, mint,
+	// staking, distribution, gov, slashing, auth). Consensus has no
+	// "current params" comparison (cometbft owns them), so it doesn't
+	// need a keeper wire-in. See x/guardian/keeper/msg_server.go and
+	// docs/x-identity-spec.md §14.6.
+	app.GuardianKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.GuardianKeeper.SetMintKeeper(NewMintKeeperAdapter(app.MintKeeper))
+	// Staking and slashing keepers already expose GetParams(ctx) matching
+	// the guardian interfaces; no adapter needed.
+	app.GuardianKeeper.SetStakingKeeper(app.StakingKeeper)
+	app.GuardianKeeper.SetSlashingKeeper(app.SlashingKeeper)
+	// Distribution, gov, and auth need adapters because their params
+	// accessors don't match the (Params, error) shape directly.
+	app.GuardianKeeper.SetDistrKeeper(NewDistrKeeperAdapterForGuardian(app.DistrKeeper))
+	app.GuardianKeeper.SetGovKeeper(NewGovKeeperAdapterForGuardian(app.GovKeeper))
+	app.GuardianKeeper.SetAuthKeeper(NewAuthKeeperAdapterForGuardian(app.AuthKeeper))
 
 	// Wire GovKeeper into Commons via adapter (concrete keeper → interface adapter).
 	app.CommonsKeeper.SetGovKeeper(NewGovKeeperAdapter(app.GovKeeper))
@@ -264,6 +316,7 @@ func New(
 
 	// Wire cross-module keepers into Blog after depinject.
 	app.BlogKeeper.SetRepKeeper(app.RepKeeper)
+	app.BlogKeeper.SetIdentityKeeper(app.IdentityKeeper)
 
 	// Wire RepKeeper into Collect after depinject.
 	app.CollectKeeper.SetRepKeeper(app.RepKeeper)
@@ -275,6 +328,15 @@ func New(
 	// Wire ForumKeeper into Rep so tag-moderation can prune stale references.
 	// Retired when forum's sentinel state moves into x/rep (future commit).
 	app.RepKeeper.SetForumKeeper(app.ForumKeeper)
+	app.RepKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.ForumKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.CommonsKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.FutarchyKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.CollectKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.ShieldKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.SessionKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.NameKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.ServiceKeeper.SetIdentityKeeper(app.IdentityKeeper)
 
 	// Wire BlogKeeper and CollectKeeper into Rep so stake validation resolves
 	// the true author/owner for self-stake prevention rather than trusting the
@@ -295,6 +357,7 @@ func New(
 	app.FederationKeeper.SetCommonsKeeper(app.CommonsKeeper)
 	app.FederationKeeper.SetRepKeeper(app.RepKeeper)
 	app.FederationKeeper.SetNameKeeper(app.NameKeeper)
+	app.FederationKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	// Phase 2 of the federation→service migration: wire ServiceKeeper
 	// through the FederationServiceAdapter (translates federation's
 	// int-source RegisterOperator signature to the concrete servicekeeper.
@@ -469,6 +532,18 @@ func New(
 	// Manually set the module version map as shown below.
 	// The upgrade module will automatically handle de-duplication of the module version map.
 	app.SetInitChainer(func(ctx sdk.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+		// Identity sentinel-rewrite. Substitutes %BOND_DENOM% / %DREAM_DENOM%
+		// throughout app_state with the chain's chosen denoms BEFORE any
+		// module's InitGenesis runs. See docs/x-identity-spec.md §7.3.
+		rewritten, resolved, err := identitygenesisinit.RewriteSentinels(app.AppCodec(), req.AppStateBytes)
+		if err != nil {
+			panic(fmt.Sprintf("identity sentinel rewrite failed: %v", err))
+		}
+		req.AppStateBytes = rewritten
+		app.Logger().Info("identity sentinel rewrite complete",
+			"bond_denom", resolved.BondDenom,
+			"dream_denom", resolved.DreamDenom)
+
 		if err := app.UpgradeKeeper.SetModuleVersionMap(ctx, app.ModuleManager.GetVersionMap()); err != nil {
 			return nil, err
 		}

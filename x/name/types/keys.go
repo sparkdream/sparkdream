@@ -5,7 +5,6 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 const (
@@ -43,14 +42,16 @@ var (
 
 // Default parameter values
 var (
-	DefaultMinNameLength        = uint64(3)
-	DefaultMaxNameLength        = uint64(30)
-	DefaultMaxNamesPerAddress   = uint64(5)
-	DefaultRegistrationFee      = sdk.NewCoin("uspark", math.NewInt(10000000)) // 10 SPARK
-	DefaultExpirationDuration   = time.Hour * 24 * 365                         // 1 Year
-	DefaultDisputeStakeDream    = math.NewInt(50_000_000)                      // 50 DREAM in udream (aligned with x/season report stake)
-	DefaultDisputeTimeoutBlocks = uint64(100800)                               // ~7 days in blocks (aligned with x/season appeal period)
-	DefaultContestStakeDream    = math.NewInt(100_000_000)                     // 100 DREAM in udream (aligned with x/season appeal stake)
+	DefaultMinNameLength      = uint64(3)
+	DefaultMaxNameLength      = uint64(30)
+	DefaultMaxNamesPerAddress = uint64(5)
+	// DefaultRegistrationFeeAmount is the default registration fee in bond-denom
+	// micro-units. The denom comes from x/identity at runtime via k.BondDenom(ctx).
+	DefaultRegistrationFeeAmount = math.NewInt(10000000)  // 10 SPARK
+	DefaultExpirationDuration    = time.Hour * 24 * 365   // 1 Year
+	DefaultDisputeStakeDream     = math.NewInt(50_000_000)  // 50 DREAM (aligned with x/season report stake)
+	DefaultDisputeTimeoutBlocks  = uint64(100800)         // ~7 days in blocks (aligned with x/season appeal period)
+	DefaultContestStakeDream     = math.NewInt(100_000_000) // 100 DREAM (aligned with x/season appeal stake)
 )
 
 // DefaultBlockedNames includes critical system names and project-specific reserved terms

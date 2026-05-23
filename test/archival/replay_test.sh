@@ -66,8 +66,8 @@ sed -i 's/timeout_propose = "3s"/timeout_propose = "1s"/' "$SOURCE_HOME/config/c
 $BINARY keys add validator --keyring-backend test --home "$SOURCE_HOME" > /dev/null 2>&1
 VALIDATOR_ADDR=$($BINARY keys show validator -a --keyring-backend test --home "$SOURCE_HOME" 2>/dev/null)
 
-$BINARY genesis add-genesis-account "$VALIDATOR_ADDR" 100000000uspark --home "$SOURCE_HOME" --keyring-backend test > /dev/null 2>&1
-$BINARY genesis gentx validator 50000000uspark --chain-id "$CHAIN_ID" --home "$SOURCE_HOME" --keyring-backend test > /dev/null 2>&1
+$BINARY genesis add-genesis-account "$VALIDATOR_ADDR" 100000000${BOND_DENOM} --home "$SOURCE_HOME" --keyring-backend test > /dev/null 2>&1
+$BINARY genesis gentx validator 50000000${BOND_DENOM} --chain-id "$CHAIN_ID" --home "$SOURCE_HOME" --keyring-backend test > /dev/null 2>&1
 $BINARY genesis collect-gentxs --home "$SOURCE_HOME" > /dev/null 2>&1
 
 echo "  Starting source node..."
@@ -76,7 +76,7 @@ $BINARY start --home "$SOURCE_HOME" \
     --grpc.enable=false \
     --api.enable=false \
     --p2p.laddr "tcp://127.0.0.1:${P2P_PORT}" \
-    --minimum-gas-prices "0uspark" \
+    --minimum-gas-prices "0${BOND_DENOM}" \
     > "$SOURCE_HOME/node.log" 2>&1 &
 NODE_PID=$!
 
@@ -256,7 +256,7 @@ $BINARY start --home "$REPLAY_HOME" \
     --grpc.enable=false \
     --api.enable=false \
     --p2p.laddr "tcp://127.0.0.1:${REPLAY_P2P_PORT}" \
-    --minimum-gas-prices "0uspark" \
+    --minimum-gas-prices "0${BOND_DENOM}" \
     > "$REPLAY_HOME/start.log" 2>&1 &
 NODE_PID=$!
 

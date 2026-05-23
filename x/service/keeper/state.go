@@ -165,14 +165,14 @@ func (k Keeper) removeFromLiveIndexes(ctx context.Context, op types.Operator) er
 // (SLASHED via slash → 0, or jury dissolve; RETIRED via successful
 // claim).
 //
-// The caller MUST set op.Status, op.RetiredAt, and op.Bond (zero for
-// archive — see §3.1 archived-records-always-have-bond-zero rule)
+// The caller MUST set op.Status, op.RetiredAt, and op.BondAmount (zero
+// for archive — see §3.1 archived-records-always-have-bond-zero rule)
 // before invoking this function.
 func (k Keeper) ArchiveOperator(ctx context.Context, op types.Operator) error {
 	if op.RetiredAt == 0 {
 		return errors.New("ArchiveOperator: retired_at must be set")
 	}
-	if !op.Bond.Amount.IsZero() {
+	if !op.BondAmount.IsZero() {
 		return errors.New("ArchiveOperator: bond must be zero on archive")
 	}
 	if op.Status != types.OperatorStatus_OPERATOR_STATUS_SLASHED && op.Status != types.OperatorStatus_OPERATOR_STATUS_RETIRED {
@@ -246,15 +246,15 @@ func (k Keeper) pruneTier1LastSlashForOperator(ctx context.Context, opAddr []byt
 
 // settleBondBlocks updates the operator's total_lifetime_bond_blocks
 // from (current_bond * elapsed_active_blocks). MUST be called before
-// any mutation to op.Bond or op.Status (see §6.6).
+// any mutation to op.BondAmount or op.Status (see §6.6).
 //
 // Callers MUST persist the operator after settling (this function
 // mutates the passed Operator in place; it does NOT call PutOperator).
 func (k Keeper) settleBondBlocks(op *types.Operator, currentHeight int64) {
 	if op.Status == types.OperatorStatus_OPERATOR_STATUS_ACTIVE && op.LastBondBlockUpdateAt > 0 {
 		elapsed := currentHeight - op.LastBondBlockUpdateAt
-		if elapsed > 0 && !op.Bond.Amount.IsNil() && !op.Bond.Amount.IsZero() {
-			delta := op.Bond.Amount.Mul(sdkmath.NewInt(elapsed))
+		if elapsed > 0 && !op.BondAmount.IsNil() && !op.BondAmount.IsZero() {
+			delta := op.BondAmount.Mul(sdkmath.NewInt(elapsed))
 			if op.TotalLifetimeBondBlocks.IsNil() {
 				op.TotalLifetimeBondBlocks = sdkmath.ZeroInt()
 			}

@@ -4,16 +4,12 @@ import (
 	"fmt"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
 )
 
 // DefaultMinSentinelBond is the minimum DREAM required to be a sentinel (in udream).
 var DefaultMinSentinelBond = math.NewInt(500_000_000) // 500 DREAM
-
-// Default fee coin denomination
-const DefaultFeeDenom = "uspark"
 
 // Default parameter values
 const (
@@ -101,7 +97,7 @@ const (
 	DefaultConvictionRenewalPeriod = int64(604800) // 7 days
 )
 
-// Default fee amounts
+// Default fee amounts (all in bond-denom micro-units).
 var (
 	DefaultSpamTaxAmount              = math.NewInt(1000000)    // 1 SPARK
 	DefaultReactionSpamTaxAmount      = math.NewInt(100000)     // 0.1 SPARK
@@ -112,7 +108,7 @@ var (
 	DefaultMoveAppealFeeAmount        = math.NewInt(5000000)    // 5 SPARK
 	DefaultEditFeeAmount              = math.NewInt(10000)      // 0.01 SPARK
 	DefaultTagReportBond              = math.NewInt(10_000_000) // 10 DREAM (in udream)
-	DefaultCostPerByteAmount          = math.NewInt(100)        // 100 uspark/byte (~1 SPARK for 10KB)
+	DefaultCostPerByteAmount          = math.NewInt(100)        // 100 micro-units/byte (~1 SPARK for 10KB)
 	DefaultConvictionRenewalThreshold = math.LegacyNewDec(100)
 )
 
@@ -125,14 +121,14 @@ func NewParams() Params {
 		ReactionsEnabled:             true,
 		AppealsPaused:                false,
 		EditingEnabled:               true,
-		SpamTax:                      sdk.NewCoin(DefaultFeeDenom, DefaultSpamTaxAmount),
-		ReactionSpamTax:              sdk.NewCoin(DefaultFeeDenom, DefaultReactionSpamTaxAmount),
-		FlagSpamTax:                  sdk.NewCoin(DefaultFeeDenom, DefaultFlagSpamTaxAmount),
-		DownvoteDeposit:              sdk.NewCoin(DefaultFeeDenom, DefaultDownvoteDepositAmount),
-		AppealFee:                    sdk.NewCoin(DefaultFeeDenom, DefaultAppealFeeAmount),
-		LockAppealFee:                sdk.NewCoin(DefaultFeeDenom, DefaultLockAppealFeeAmount),
-		MoveAppealFee:                sdk.NewCoin(DefaultFeeDenom, DefaultMoveAppealFeeAmount),
-		EditFee:                      sdk.NewCoin(DefaultFeeDenom, DefaultEditFeeAmount),
+		SpamTaxAmount:                DefaultSpamTaxAmount,
+		ReactionSpamTaxAmount:        DefaultReactionSpamTaxAmount,
+		FlagSpamTaxAmount:            DefaultFlagSpamTaxAmount,
+		DownvoteDepositAmount:        DefaultDownvoteDepositAmount,
+		AppealFeeAmount:              DefaultAppealFeeAmount,
+		LockAppealFeeAmount:          DefaultLockAppealFeeAmount,
+		MoveAppealFeeAmount:          DefaultMoveAppealFeeAmount,
+		EditFeeAmount:                DefaultEditFeeAmount,
 		BountyCancellationFeePercent: DefaultBountyCancellationFeePercent,
 		MaxContentSize:               DefaultMaxContentSize,
 		DailyPostLimit:               DefaultDailyPostLimit,
@@ -146,7 +142,7 @@ func NewParams() Params {
 		HideAppealCooldown:           DefaultHideAppealCooldown,
 		LockAppealCooldown:           DefaultLockAppealCooldown,
 		MoveAppealCooldown:           DefaultMoveAppealCooldown,
-		CostPerByte:                  sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
+		CostPerByteAmount:            DefaultCostPerByteAmount,
 		CostPerByteExempt:            false,
 		EphemeralTtl:                 DefaultEphemeralTTL,
 		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
@@ -173,8 +169,8 @@ func DefaultParams() Params {
 
 // Validate validates the set of params.
 func (p Params) Validate() error {
-	if !p.CostPerByte.Amount.IsNil() && p.CostPerByte.IsNegative() {
-		return fmt.Errorf("cost_per_byte cannot be negative: %s", p.CostPerByte)
+	if !p.CostPerByteAmount.IsNil() && p.CostPerByteAmount.IsNegative() {
+		return fmt.Errorf("cost_per_byte_amount cannot be negative: %s", p.CostPerByteAmount)
 	}
 	if p.EphemeralTtl <= 0 {
 		return fmt.Errorf("ephemeral_ttl must be positive: %d", p.EphemeralTtl)
@@ -223,15 +219,15 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		BountiesEnabled:              true,
 		ReactionsEnabled:             true,
 		EditingEnabled:               true,
-		SpamTax:                      sdk.NewCoin(DefaultFeeDenom, DefaultSpamTaxAmount),
-		ReactionSpamTax:              sdk.NewCoin(DefaultFeeDenom, DefaultReactionSpamTaxAmount),
-		FlagSpamTax:                  sdk.NewCoin(DefaultFeeDenom, DefaultFlagSpamTaxAmount),
-		DownvoteDeposit:              sdk.NewCoin(DefaultFeeDenom, DefaultDownvoteDepositAmount),
-		AppealFee:                    sdk.NewCoin(DefaultFeeDenom, DefaultAppealFeeAmount),
-		LockAppealFee:                sdk.NewCoin(DefaultFeeDenom, DefaultLockAppealFeeAmount),
-		MoveAppealFee:                sdk.NewCoin(DefaultFeeDenom, DefaultMoveAppealFeeAmount),
-		EditFee:                      sdk.NewCoin(DefaultFeeDenom, DefaultEditFeeAmount),
-		CostPerByte:                  sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
+		SpamTaxAmount:                DefaultSpamTaxAmount,
+		ReactionSpamTaxAmount:        DefaultReactionSpamTaxAmount,
+		FlagSpamTaxAmount:            DefaultFlagSpamTaxAmount,
+		DownvoteDepositAmount:        DefaultDownvoteDepositAmount,
+		AppealFeeAmount:              DefaultAppealFeeAmount,
+		LockAppealFeeAmount:          DefaultLockAppealFeeAmount,
+		MoveAppealFeeAmount:          DefaultMoveAppealFeeAmount,
+		EditFeeAmount:                DefaultEditFeeAmount,
+		CostPerByteAmount:            DefaultCostPerByteAmount,
 		CostPerByteExempt:            false,
 		MaxContentSize:               DefaultMaxContentSize,
 		DailyPostLimit:               DefaultDailyPostLimit,
@@ -265,8 +261,8 @@ func (p ForumOperationalParams) Validate() error {
 	if p.EphemeralTtl <= 0 {
 		return fmt.Errorf("ephemeral_ttl must be positive: %d", p.EphemeralTtl)
 	}
-	if !p.CostPerByte.Amount.IsNil() && p.CostPerByte.IsNegative() {
-		return fmt.Errorf("cost_per_byte cannot be negative: %s", p.CostPerByte)
+	if !p.CostPerByteAmount.IsNil() && p.CostPerByteAmount.IsNegative() {
+		return fmt.Errorf("cost_per_byte_amount cannot be negative: %s", p.CostPerByteAmount)
 	}
 	if p.BountyCancellationFeePercent > 100 {
 		return fmt.Errorf("bounty_cancellation_fee_percent must be <= 100: %d", p.BountyCancellationFeePercent)
@@ -291,15 +287,15 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.BountiesEnabled = op.BountiesEnabled
 	p.ReactionsEnabled = op.ReactionsEnabled
 	p.EditingEnabled = op.EditingEnabled
-	p.SpamTax = op.SpamTax
-	p.ReactionSpamTax = op.ReactionSpamTax
-	p.FlagSpamTax = op.FlagSpamTax
-	p.DownvoteDeposit = op.DownvoteDeposit
-	p.AppealFee = op.AppealFee
-	p.LockAppealFee = op.LockAppealFee
-	p.MoveAppealFee = op.MoveAppealFee
-	p.EditFee = op.EditFee
-	p.CostPerByte = op.CostPerByte
+	p.SpamTaxAmount = op.SpamTaxAmount
+	p.ReactionSpamTaxAmount = op.ReactionSpamTaxAmount
+	p.FlagSpamTaxAmount = op.FlagSpamTaxAmount
+	p.DownvoteDepositAmount = op.DownvoteDepositAmount
+	p.AppealFeeAmount = op.AppealFeeAmount
+	p.LockAppealFeeAmount = op.LockAppealFeeAmount
+	p.MoveAppealFeeAmount = op.MoveAppealFeeAmount
+	p.EditFeeAmount = op.EditFeeAmount
+	p.CostPerByteAmount = op.CostPerByteAmount
 	p.CostPerByteExempt = op.CostPerByteExempt
 	p.MaxContentSize = op.MaxContentSize
 	p.DailyPostLimit = op.DailyPostLimit
@@ -335,15 +331,15 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		BountiesEnabled:              p.BountiesEnabled,
 		ReactionsEnabled:             p.ReactionsEnabled,
 		EditingEnabled:               p.EditingEnabled,
-		SpamTax:                      p.SpamTax,
-		ReactionSpamTax:              p.ReactionSpamTax,
-		FlagSpamTax:                  p.FlagSpamTax,
-		DownvoteDeposit:              p.DownvoteDeposit,
-		AppealFee:                    p.AppealFee,
-		LockAppealFee:                p.LockAppealFee,
-		MoveAppealFee:                p.MoveAppealFee,
-		EditFee:                      p.EditFee,
-		CostPerByte:                  p.CostPerByte,
+		SpamTaxAmount:                p.SpamTaxAmount,
+		ReactionSpamTaxAmount:        p.ReactionSpamTaxAmount,
+		FlagSpamTaxAmount:            p.FlagSpamTaxAmount,
+		DownvoteDepositAmount:        p.DownvoteDepositAmount,
+		AppealFeeAmount:              p.AppealFeeAmount,
+		LockAppealFeeAmount:          p.LockAppealFeeAmount,
+		MoveAppealFeeAmount:          p.MoveAppealFeeAmount,
+		EditFeeAmount:                p.EditFeeAmount,
+		CostPerByteAmount:            p.CostPerByteAmount,
 		CostPerByteExempt:            p.CostPerByteExempt,
 		MaxContentSize:               p.MaxContentSize,
 		DailyPostLimit:               p.DailyPostLimit,

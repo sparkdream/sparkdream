@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 
@@ -19,11 +20,12 @@ import (
 // Stored as a shared pointer so value-copies of Keeper (e.g. in AppModule, msgServer)
 // see updates made after NewAppModule().
 type lateKeepers struct {
-	govKeeper     types.GovKeeper
-	router        baseapp.MessageRouter
-	nameKeeper    types.NameKeeper
-	forumKeeper   types.ForumKeeper
-	sessionKeeper types.SessionKeeper
+	govKeeper      types.GovKeeper
+	router         baseapp.MessageRouter
+	nameKeeper     types.NameKeeper
+	forumKeeper    types.ForumKeeper
+	sessionKeeper  types.SessionKeeper
+	identityKeeper types.IdentityKeeper
 }
 
 type Keeper struct {
@@ -224,6 +226,23 @@ func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
 // on x/commons via commonsKeeper.GetCategory).
 func (k Keeper) SetForumKeeper(fk types.ForumKeeper) {
 	k.late.forumKeeper = fk
+}
+
+// SetIdentityKeeper late-binds the identity keeper for federated-denom
+// resolution. Called from app.go post-depinject.
+func (k Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
+	k.late.identityKeeper = idk
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity isn't wired: every call site needs a real denom and
+// silently falling back to a hardcoded literal would re-introduce the
+// mixed-state class of bug that motivated the identity module.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.late.identityKeeper == nil {
+		panic("commons keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.late.identityKeeper.BondDenom(ctx)
 }
 
 // SetSessionKeeper wires the SessionKeeper after depinject. Used by

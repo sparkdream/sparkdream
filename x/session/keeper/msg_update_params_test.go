@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/session/keeper"
@@ -92,7 +92,7 @@ func TestMsgUpdateParamsCeilingEnforcement(t *testing.T) {
 				types.DefaultAllowedMsgTypes[:3], // active subset
 				10, 20,
 				7*24*time.Hour,
-				sdk.NewInt64Coin("uspark", 100_000_000),
+				math.NewInt(100_000_000),
 				10_000,
 			),
 			expectError: false,
@@ -104,7 +104,7 @@ func TestMsgUpdateParamsCeilingEnforcement(t *testing.T) {
 				types.DefaultAllowedMsgTypes[:3],
 				10, 20,
 				7*24*time.Hour,
-				sdk.NewInt64Coin("uspark", 100_000_000),
+				math.NewInt(100_000_000),
 				10_000,
 			),
 			expectError: true,

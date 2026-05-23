@@ -39,11 +39,12 @@ func (k msgServer) EscalateChallenge(ctx context.Context, msg *types.MsgEscalate
 		return nil, err
 	}
 
-	// 3. Escrow escalation fee
+	// 3. Escrow escalation fee — denom resolved at runtime from x/identity.
 	creatorAddr, _ := k.addressCodec.StringToBytes(msg.Creator)
-	feeCoins := sdk.NewCoins(params.EscalationFee)
+	escalationFee := sdk.NewCoin(k.BondDenom(ctx), params.EscalationFeeAmount)
+	feeCoins := sdk.NewCoins(escalationFee)
 	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, feeCoins); err != nil {
-		return nil, errorsmod.Wrapf(err, "failed to escrow escalation fee %s", params.EscalationFee)
+		return nil, errorsmod.Wrapf(err, "failed to escrow escalation fee %s", escalationFee)
 	}
 
 	// 4. File a system report against the bridge operator that

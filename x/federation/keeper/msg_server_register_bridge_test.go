@@ -47,8 +47,7 @@ func TestRegisterBridgeWrongPeerType(t *testing.T) {
 	registerTestIBCPeer(t, f, ms, "sparkdream-2")
 
 	opStr := testAddr(t, f, "operator2")
-	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator: opStr, PeerId: "sparkdream-2", Protocol: "activitypub",
-	})
+	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator: opStr, PeerId: "sparkdream-2", Protocol: "activitypub"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ActivityPub/AT Protocol")
 }

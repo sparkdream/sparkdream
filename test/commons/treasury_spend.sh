@@ -28,11 +28,11 @@ echo "$GROUP_NAME Policy Address: $POLICY_ADDR"
 # FUND THE COMMITTEE (Since x/split funds the Council, the Committee starts empty).
 # 50 SPARK = enough for the 1-SPARK spend + per-proposal fee + safety margin.
 echo "Funding Committee Treasury (Seeding from Alice)..."
-$BINARY tx bank send $ALICE_ADDR $POLICY_ADDR 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null 2>&1
+$BINARY tx bank send $ALICE_ADDR $POLICY_ADDR 50000000${BOND_DENOM} --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null 2>&1
 sleep 3
 
 # Check Bob's Initial Balance
-INITIAL_BAL=$($BINARY query bank balances $BOB_ADDR --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+INITIAL_BAL=$($BINARY query bank balances $BOB_ADDR --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 if [ -z "$INITIAL_BAL" ]; then INITIAL_BAL=0; fi
 echo "Bob's Initial Balance: $INITIAL_BAL"
 
@@ -47,7 +47,7 @@ echo '{
       "recipient": "'$BOB_ADDR'",
       "amount": [
         {
-          "denom": "uspark",
+          "denom": "'"$BOND_DENOM"'",
           "amount": "1000000"
         }
       ]
@@ -59,7 +59,7 @@ echo '{
 # --- 2. Submit Proposal (x/commons) ---
 echo "Submitting proposal..."
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_spend_test.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_spend_test.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Tx Hash: $TX_HASH"
@@ -81,10 +81,10 @@ echo "[ OK ] Proposal ID: $PROPOSAL_ID"
 # --- 3. Vote ---
 # Alice and Bob are both members of the Committee (from bootstrap logic)
 echo "Alice Voting YES..."
-$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark
+$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM}
 sleep 3
 echo "Bob Voting YES..."
-$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark
+$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM}
 sleep 3
 
 echo "Votes cast. Early acceptance triggers when threshold is met..."
@@ -92,7 +92,7 @@ echo "Votes cast. Early acceptance triggers when threshold is met..."
 # --- 4. Execute ---
 # Bootstrap committee MinExecutionPeriod is 1s under testparams.
 echo "Executing Proposal $PROPOSAL_ID..."
-EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
+EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 sleep 3
 
@@ -108,7 +108,7 @@ else
 fi
 
 # --- 5. Verify Balance ---
-FINAL_BAL=$($BINARY query bank balances $BOB_ADDR --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+FINAL_BAL=$($BINARY query bank balances $BOB_ADDR --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 echo "Bob's Final Balance:   $FINAL_BAL"
 
 # Calculate Difference

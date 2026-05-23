@@ -218,7 +218,7 @@ func TestScheduleWrapper_WindowShorterThanPeriodRejected(t *testing.T) {
 		Authority:       f.council.String(),
 		Recipient:       f.recipient(),
 		AmountPerPeriod: sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1_000))),
-		PeriodSeconds:   86_400 * 7,        // 1 week period
+		PeriodSeconds:   86_400 * 7, // 1 week period
 		StartTime:       start,
 		EndTime:         start + 86_400*3, // 3-day window
 	})
@@ -242,7 +242,7 @@ func TestScheduleWrapper_MaxPerEpoch_NoCouncilCap(t *testing.T) {
 	require.Len(t, f.mock.CreateCalls, 1)
 	rp := f.mock.CreateCalls[0].Msg.GetRecurringPull()
 	expected := amt.MulRaw(10).String()
-	require.Equal(t, expected, rp.MaxPerEpochUspark,
+	require.Equal(t, expected, rp.MaxPerEpoch,
 		"with no council cap, per-grant cap = 10 × amount_per_period")
 }
 
@@ -260,7 +260,7 @@ func TestScheduleWrapper_MaxPerEpoch_CouncilCapDominates(t *testing.T) {
 	})
 	require.NoError(t, err)
 	rp := f.mock.CreateCalls[0].Msg.GetRecurringPull()
-	require.Equal(t, councilCap.String(), rp.MaxPerEpochUspark,
+	require.Equal(t, councilCap.String(), rp.MaxPerEpoch,
 		"council cap dominates when > 10 × amount")
 }
 
@@ -279,7 +279,7 @@ func TestScheduleWrapper_MaxPerEpoch_DefaultDominatesSmallCap(t *testing.T) {
 	})
 	require.NoError(t, err)
 	rp := f.mock.CreateCalls[0].Msg.GetRecurringPull()
-	require.Equal(t, amt.MulRaw(10).String(), rp.MaxPerEpochUspark,
+	require.Equal(t, amt.MulRaw(10).String(), rp.MaxPerEpoch,
 		"10 × amount dominates when council cap is smaller")
 }
 

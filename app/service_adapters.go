@@ -233,12 +233,12 @@ func NewFederationServiceAdapter(k servicekeeper.Keeper) *FederationServiceAdapt
 
 var _ federationtypes.ServiceKeeper = (*FederationServiceAdapter)(nil)
 
-func (a *FederationServiceAdapter) RegisterOperator(ctx context.Context, creator, serviceType, controller string, bond sdk.Coin, metadata []byte, source int) (servicetypes.Operator, error) {
-	return a.keeper.RegisterOperator(ctx, creator, serviceType, controller, bond, metadata, servicekeeper.SlashSource(source))
+func (a *FederationServiceAdapter) RegisterOperator(ctx context.Context, creator, serviceType, controller string, bondAmount math.Int, metadata []byte, source int) (servicetypes.Operator, error) {
+	return a.keeper.RegisterOperator(ctx, creator, serviceType, controller, bondAmount, metadata, servicekeeper.SlashSource(source))
 }
 
-func (a *FederationServiceAdapter) TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBond sdk.Coin) error {
-	return a.keeper.TopUpBond(ctx, opBytes, serviceType, additionalBond)
+func (a *FederationServiceAdapter) TopUpBond(ctx context.Context, opBytes []byte, serviceType string, additionalBondAmount math.Int) error {
+	return a.keeper.TopUpBond(ctx, opBytes, serviceType, additionalBondAmount)
 }
 
 func (a *FederationServiceAdapter) OpenSystemReport(ctx context.Context, callerModuleAddr sdk.AccAddress, operatorAddr sdk.AccAddress, serviceType string, slashBps uint32, evidenceURI string, dedupeKey []byte) (uint64, bool, error) {

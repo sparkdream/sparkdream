@@ -65,13 +65,13 @@ vote_and_execute() {
     echo "  Alice voting YES..."
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 6
 
     echo "  Executing proposal $prop_id..."
     EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --gas 2000000 --fees 5000000uspark --output json)
+        --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
@@ -93,9 +93,10 @@ echo "--- TEST 1: QUERY INITIAL FORUM PARAMETERS ---"
 
 PARAMS_JSON=$($BINARY query forum params --output json)
 
-# Operational fields we'll test
+# Operational fields we'll test. Fee fields are now flat math.Int strings
+# (spam_tax_amount, etc.) per the bond-denom-resolved-at-runtime refactor.
 INITIAL_EPHEMERAL_TTL=$(echo $PARAMS_JSON | jq -r '.params.ephemeral_ttl')
-INITIAL_SPAM_TAX=$(echo $PARAMS_JSON | jq -r '.params.spam_tax.amount')
+INITIAL_SPAM_TAX=$(echo $PARAMS_JSON | jq -r '.params.spam_tax_amount')
 INITIAL_DAILY_POST_LIMIT=$(echo $PARAMS_JSON | jq -r '.params.daily_post_limit')
 
 # Governance-only fields (should NOT change)
@@ -131,15 +132,15 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       bounties_enabled: (.bounties_enabled // false),
       reactions_enabled: (.reactions_enabled // false),
       editing_enabled: (.editing_enabled // false),
-      spam_tax,
-      reaction_spam_tax,
-      flag_spam_tax,
-      downvote_deposit,
-      appeal_fee,
-      lock_appeal_fee,
-      move_appeal_fee,
-      edit_fee,
-      cost_per_byte,
+      spam_tax_amount: (.spam_tax_amount // "0"),
+      reaction_spam_tax_amount: (.reaction_spam_tax_amount // "0"),
+      flag_spam_tax_amount: (.flag_spam_tax_amount // "0"),
+      downvote_deposit_amount: (.downvote_deposit_amount // "0"),
+      appeal_fee_amount: (.appeal_fee_amount // "0"),
+      lock_appeal_fee_amount: (.lock_appeal_fee_amount // "0"),
+      move_appeal_fee_amount: (.move_appeal_fee_amount // "0"),
+      edit_fee_amount: (.edit_fee_amount // "0"),
+      cost_per_byte_amount: (.cost_per_byte_amount // "0"),
       cost_per_byte_exempt: (.cost_per_byte_exempt // false),
       max_content_size,
       daily_post_limit,
@@ -156,7 +157,15 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       move_appeal_cooldown,
       ephemeral_ttl,
       conviction_renewal_threshold,
-      conviction_renewal_period
+      conviction_renewal_period,
+      min_sentinel_bond: (.min_sentinel_bond // "0"),
+      min_sentinel_rep_tier: (.min_sentinel_rep_tier // 0),
+      min_sentinel_trust_level: (.min_sentinel_trust_level // ""),
+      min_sentinel_age_blocks: (.min_sentinel_age_blocks // "0"),
+      sentinel_demotion_cooldown: (.sentinel_demotion_cooldown // "0"),
+      sentinel_demotion_threshold: (.sentinel_demotion_threshold // "0"),
+      sentinel_unhide_window: (.sentinel_unhide_window // "0"),
+      sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0")
     }')
 
     # Modify test fields: double the ephemeral TTL and spam tax
@@ -166,7 +175,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
 
     OP_PARAMS=$(echo "$OP_PARAMS" | jq '
       .ephemeral_ttl = "'$NEW_EPHEMERAL_TTL'" |
-      .spam_tax.amount = "'$NEW_SPAM_TAX_AMOUNT'" |
+      .spam_tax_amount = "'$NEW_SPAM_TAX_AMOUNT'" |
       .daily_post_limit = "'$NEW_DAILY_POST_LIMIT'"
     ')
 
@@ -187,7 +196,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
 
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_forum_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
     echo "Submitted tx: $TX_HASH"
@@ -223,7 +232,7 @@ echo "--- TEST 3: VERIFY OPERATIONAL PARAMS UPDATED ---"
 if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     UPDATED_PARAMS=$($BINARY query forum params --output json)
     UPDATED_EPHEMERAL_TTL=$(echo $UPDATED_PARAMS | jq -r '.params.ephemeral_ttl')
-    UPDATED_SPAM_TAX=$(echo $UPDATED_PARAMS | jq -r '.params.spam_tax.amount')
+    UPDATED_SPAM_TAX=$(echo $UPDATED_PARAMS | jq -r '.params.spam_tax_amount')
     UPDATED_DAILY_POST_LIMIT=$(echo $UPDATED_PARAMS | jq -r '.params.daily_post_limit')
 
     echo "  ephemeral_ttl:    $UPDATED_EPHEMERAL_TTL (expected: $NEW_EPHEMERAL_TTL)"
@@ -301,15 +310,15 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       bounties_enabled: (.bounties_enabled // false),
       reactions_enabled: (.reactions_enabled // false),
       editing_enabled: (.editing_enabled // false),
-      spam_tax,
-      reaction_spam_tax,
-      flag_spam_tax,
-      downvote_deposit,
-      appeal_fee,
-      lock_appeal_fee,
-      move_appeal_fee,
-      edit_fee,
-      cost_per_byte,
+      spam_tax_amount: (.spam_tax_amount // "0"),
+      reaction_spam_tax_amount: (.reaction_spam_tax_amount // "0"),
+      flag_spam_tax_amount: (.flag_spam_tax_amount // "0"),
+      downvote_deposit_amount: (.downvote_deposit_amount // "0"),
+      appeal_fee_amount: (.appeal_fee_amount // "0"),
+      lock_appeal_fee_amount: (.lock_appeal_fee_amount // "0"),
+      move_appeal_fee_amount: (.move_appeal_fee_amount // "0"),
+      edit_fee_amount: (.edit_fee_amount // "0"),
+      cost_per_byte_amount: (.cost_per_byte_amount // "0"),
       cost_per_byte_exempt: (.cost_per_byte_exempt // false),
       max_content_size,
       daily_post_limit,
@@ -326,7 +335,15 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       move_appeal_cooldown,
       ephemeral_ttl,
       conviction_renewal_threshold,
-      conviction_renewal_period
+      conviction_renewal_period,
+      min_sentinel_bond: (.min_sentinel_bond // "0"),
+      min_sentinel_rep_tier: (.min_sentinel_rep_tier // 0),
+      min_sentinel_trust_level: (.min_sentinel_trust_level // ""),
+      min_sentinel_age_blocks: (.min_sentinel_age_blocks // "0"),
+      sentinel_demotion_cooldown: (.sentinel_demotion_cooldown // "0"),
+      sentinel_demotion_threshold: (.sentinel_demotion_threshold // "0"),
+      sentinel_unhide_window: (.sentinel_unhide_window // "0"),
+      sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0")
     }')
 
     jq -n \
@@ -345,7 +362,7 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
 
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/reset_forum_op_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
     PROPOSAL_ID=$(get_group_proposal_id $TX_HASH)

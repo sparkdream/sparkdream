@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/forum/types"
 )
@@ -27,8 +26,8 @@ func TestParams_Validate(t *testing.T) {
 		{"default", func(*types.Params) {}, false},
 		{"zero ephemeral ttl", func(p *types.Params) { p.EphemeralTtl = 0 }, true},
 		{"negative ephemeral ttl", func(p *types.Params) { p.EphemeralTtl = -1 }, true},
-		{"negative cost_per_byte", func(p *types.Params) {
-			p.CostPerByte = sdk.Coin{Denom: types.DefaultFeeDenom, Amount: math.NewInt(-1)}
+		{"negative cost_per_byte_amount", func(p *types.Params) {
+			p.CostPerByteAmount = math.NewInt(-1)
 		}, true},
 	}
 
@@ -57,8 +56,8 @@ func TestForumOperationalParams_Validate(t *testing.T) {
 	}{
 		{"default", func(*types.ForumOperationalParams) {}, false},
 		{"zero ephemeral ttl", func(p *types.ForumOperationalParams) { p.EphemeralTtl = 0 }, true},
-		{"negative cost_per_byte", func(p *types.ForumOperationalParams) {
-			p.CostPerByte = sdk.Coin{Denom: types.DefaultFeeDenom, Amount: math.NewInt(-1)}
+		{"negative cost_per_byte_amount", func(p *types.ForumOperationalParams) {
+			p.CostPerByteAmount = math.NewInt(-1)
 		}, true},
 		{"bounty cancel fee over 100", func(p *types.ForumOperationalParams) { p.BountyCancellationFeePercent = 101 }, true},
 		{"negative conviction renewal threshold", func(p *types.ForumOperationalParams) {
@@ -92,8 +91,8 @@ func TestApplyAndExtractOperationalParams_RoundTrip(t *testing.T) {
 	if p.EphemeralTtl != p2.EphemeralTtl {
 		t.Errorf("EphemeralTtl changed: %d vs %d", p.EphemeralTtl, p2.EphemeralTtl)
 	}
-	if !p.SpamTax.IsEqual(p2.SpamTax) {
-		t.Errorf("SpamTax changed: %s vs %s", p.SpamTax, p2.SpamTax)
+	if !p.SpamTaxAmount.Equal(p2.SpamTaxAmount) {
+		t.Errorf("SpamTaxAmount changed: %s vs %s", p.SpamTaxAmount, p2.SpamTaxAmount)
 	}
 	if p.MaxContentSize != p2.MaxContentSize {
 		t.Errorf("MaxContentSize changed: %d vs %d", p.MaxContentSize, p2.MaxContentSize)

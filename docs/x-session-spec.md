@@ -1470,7 +1470,6 @@ The new `Grant` queries return any payload variant; the legacy `Session` queries
 
 - [docs/x-session-grant-registry-plan.md](x-session-grant-registry-plan.md) — Refactor plan (Rev 4, P1-P8). Authoritative source for the design decisions referenced above.
 - [docs/session-keys.md](session-keys.md) — Original session-key UX pattern (predates the registry refactor; still relevant for the SessionKey variant).
-- [CLAUDE.md](../CLAUDE.md) §x/session — Project blurb (kept in sync with this spec).
 - [x/session/keeper/](../x/session/keeper/) — Reference implementation.
 
 ## 28. Module-bypass keeper entrypoints (P8 foundation)

@@ -184,7 +184,7 @@ func TestCreateSession(t *testing.T) {
 				Expiration:      futureExp,
 			},
 			expectError: true,
-			errContains: "spend limit exceeds max_spend_limit",
+			errContains: "spend limit exceeds max_spend_limit_amount",
 		},
 		{
 			name: "invalid denom",
@@ -196,7 +196,7 @@ func TestCreateSession(t *testing.T) {
 				Expiration:      futureExp,
 			},
 			expectError: true,
-			errContains: "denom is not uspark",
+			errContains: "denom does not match the chain's bond denom",
 		},
 		{
 			name: "zero spend limit is rejected (SESSION-4 fix)",

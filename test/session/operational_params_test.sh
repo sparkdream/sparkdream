@@ -118,7 +118,7 @@ submit_and_pass_gov_proposal() {
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000000uspark \
+        --fees 5000000${BOND_DENOM} \
         --gas 500000 \
         -y \
         --output json 2>&1)
@@ -152,7 +152,7 @@ submit_and_pass_gov_proposal() {
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     sleep 6
@@ -241,7 +241,7 @@ else
           "operational_params": $op
         }
       ],
-      "deposit": "100000000uspark",
+      "deposit": "100000000${BOND_DENOM}",
       "title": "Narrow Session Allowlist",
       "summary": "Remove x/name and x/collect message types from the active session allowlist",
       "expedited": true
@@ -295,13 +295,13 @@ EXPIRATION=$(date -u -d "+1 hour" +"%Y-%m-%dT%H:%M:%SZ")
 TX_RES=$($BINARY tx session create-session \
     "$OP_GRANTEE1_ADDR" \
     "/sparkdream.name.v1.MsgSetPrimary" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -359,7 +359,7 @@ else
           "operational_params": $op
         }
       ],
-      "deposit": "100000000uspark",
+      "deposit": "100000000${BOND_DENOM}",
       "title": "Restore Session Allowlist",
       "summary": "Re-add all ceiling types to the active session allowlist",
       "expedited": true
@@ -418,7 +418,7 @@ else
           "operational_params": $op
         }
       ],
-      "deposit": "100000000uspark",
+      "deposit": "100000000${BOND_DENOM}",
       "title": "Invalid Ceiling Expansion",
       "summary": "This should fail: trying to add a type not in the ceiling",
       "expedited": true
@@ -481,7 +481,7 @@ jq -n \
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "50000"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "50000"}],
       "gas_limit": "300000",
       "payer": "",
       "granter": ""

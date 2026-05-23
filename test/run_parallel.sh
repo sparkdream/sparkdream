@@ -122,7 +122,7 @@ TEST_DIR="$PROJECT_DIR/test"
 
 # Shared timing helpers (timing_now_epoch, timing_format_duration, ...).
 source "$TEST_DIR/_timing.sh"
-# Shared safe-rmtree helper (CLAUDE.md forbids `rm -rf`).
+# Shared safe-rmtree helper (see docs/development-conventions.md — `rm -rf` is forbidden project-wide).
 source "$TEST_DIR/_safe_rm.sh"
 
 # Workdir root and PID file used by the cleanup trap and --stop flag.
@@ -186,7 +186,7 @@ kill_orphan_parallel_chains() {
 #   - Operate ONLY on $E2E_ROOT/parallel-* (path is checked, not just globbed)
 #   - Skip dirs whose embedded PID is still alive (defends against clobbering
 #     a concurrent run launched against the same E2E_ROOT)
-#   - Use `find ... -delete` rather than `rm -rf` (per CLAUDE.md convention)
+#   - Use `find ... -delete` rather than `rm -rf` (per docs/development-conventions.md)
 # ----------------------------------------------------------------------------
 
 # Remove a single parallel-<PID> directory tree. Refuses to operate outside
@@ -965,8 +965,9 @@ done
 
 # ----------------------------------------------------------------------------
 # Auto-build sparkdreamd as needed.
-# Mirrors test/run_all_tests.sh: cleans stale binaries (per CLAUDE.md "stale
-# binary problem") then runs `ignite chain build -y --build.tags testparams`.
+# Mirrors test/run_all_tests.sh: cleans stale binaries (per the "stale
+# binary problem" in docs/development-conventions.md) then runs
+# `ignite chain build -y --build.tags testparams`.
 # ----------------------------------------------------------------------------
 build_sparkdreamd() {
     echo "================================================================"
@@ -1386,10 +1387,12 @@ prepare_suite_chain() {
             return 0
             ;;
         legacy)
-            # legacy scripts (ecosystem_spend, split/*, gov/inflation_immutable)
-            # depend on the genesis-bootstrapped state (council policies,
-            # community pool, etc.) but NOT on a setup_test_accounts.sh.
-            # Always do a fresh init — there's no snapshot to consume.
+            # legacy scripts (ecosystem_spend, split/*) depend on the
+            # genesis-bootstrapped state (council policies, community pool,
+            # etc.) but NOT on a setup_test_accounts.sh. Always do a fresh
+            # init — there's no snapshot to consume. (gov/inflation_immutable
+            # moved to test/guardian/mint_filter_test.sh, which is wired as
+            # a normal module under test/guardian/.)
             echo "    → legacy pseudo-module — fresh ignite chain init (no setup_test_accounts.sh)"
             ignite_init_into_home "$home" || return 1
             patch_suite_ports "$home" "$rpc" "$p2p" "$grpc" "$grpc_web" "$api" \
@@ -1568,6 +1571,16 @@ run_suite() {
             return 99
         fi
 
+        # Resolve BOND_DENOM/DREAM_DENOM once from the running chain via
+        # test/lib/denoms.sh and export so every test script in this suite
+        # sees them. Tests reference $BOND_DENOM / $DREAM_DENOM in fee
+        # strings, balance queries, etc.; without these env vars the
+        # expansion is empty and tx submissions panic with
+        # "invalid decimal coin expression: 5000000".
+        # shellcheck disable=SC1091
+        BINARY="sparkdreamd" source "$TEST_DIR/lib/denoms.sh" || true
+        echo "[$module] resolved denoms: BOND_DENOM=$BOND_DENOM DREAM_DENOM=$DREAM_DENOM"
+
         # Run setup_test_accounts.sh — UNLESS the chain was restored from a
         # post-setup snapshot, in which case the accounts/membership are
         # already provisioned in the LevelDB and re-running setup would either
@@ -1613,7 +1626,6 @@ run_suite() {
                 "split/accounts.sh"
                 "split/autodivert.sh"
                 "ecosystem/ecosystem_security_test.sh"
-                "gov/inflation_immutable_test.sh"
             )
         else
             # Run each *_test.sh in the order declared by the module's

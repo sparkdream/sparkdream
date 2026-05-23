@@ -15,8 +15,9 @@ import (
 // (to break cyclic dependencies). All value copies of Keeper share the same
 // pointer, so mutations via SetCommonsKeeper are visible everywhere.
 type lateKeepers struct {
-	commonsKeeper types.CommonsKeeper
-	repKeeper     types.RepKeeper
+	commonsKeeper  types.CommonsKeeper
+	repKeeper      types.RepKeeper
+	identityKeeper types.IdentityKeeper
 }
 
 type Keeper struct {

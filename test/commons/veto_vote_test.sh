@@ -28,8 +28,8 @@ echo "$GROUP_NAME Policy Address: $POLICY_ADDR"
 # x/commons MsgSubmitProposal deducts a per-proposal ProposalFee (5 SPARK by
 # default) from the proposer (alice). Pre-fund the policy address too in case
 # the spend tx itself dips below the rate-limit floor.
-$BINARY tx bank send alice "$POLICY_ADDR" 50000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y \
+$BINARY tx bank send alice "$POLICY_ADDR" 50000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y \
     --output json > /dev/null 2>&1
 sleep 5
 
@@ -48,7 +48,7 @@ echo '{
       "recipient": "'$BOB_ADDR'",
       "amount": [
         {
-          "denom": "uspark",
+          "denom": "'"$BOND_DENOM"'",
           "amount": "500000000"
         }
       ]
@@ -60,7 +60,7 @@ echo '{
 # --- 2. Submit Proposal (x/commons) ---
 echo "Submitting proposal..."
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_veto_test.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_veto_test.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Tx Hash: $TX_HASH"
@@ -84,11 +84,11 @@ echo "[ OK ] Found Proposal ID: $PROPOSAL_ID"
 # Voting NO_WITH_VETO counts strongly against passing.
 
 echo "Alice voting NO_WITH_VETO..."
-$BINARY tx commons vote-proposal $PROPOSAL_ID no_with_veto --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark
+$BINARY tx commons vote-proposal $PROPOSAL_ID no_with_veto --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM}
 sleep 3
 
 echo "Bob voting NO_WITH_VETO..."
-$BINARY tx commons vote-proposal $PROPOSAL_ID no_with_veto --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark
+$BINARY tx commons vote-proposal $PROPOSAL_ID no_with_veto --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM}
 sleep 3
 
 echo "Votes cast. Attempting Execution (rejected proposal cannot execute)..."
@@ -96,7 +96,7 @@ echo "Votes cast. Attempting Execution (rejected proposal cannot execute)..."
 # --- 4. Attempt Execution (should fail because the proposal didn't reach the
 # YES threshold; status will move to REJECTED at voting deadline OR the
 # execute tx will return ErrInvalidRequest because the proposal isn't ACCEPTED)
-EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json 2>&1)
+EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json 2>&1)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash // empty' 2>/dev/null)
 sleep 3
 
@@ -118,7 +118,7 @@ fi
 
 # Check that money did NOT move
 echo "--- VERIFYING BOB'S BALANCE (SHOULD BE UNCHANGED) ---"
-FINAL_BAL=$($BINARY query bank balances $BOB_ADDR --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+FINAL_BAL=$($BINARY query bank balances $BOB_ADDR --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 if [ -z "$FINAL_BAL" ]; then FINAL_BAL=0; fi
 
 echo "Bob's Final Balance: $FINAL_BAL"

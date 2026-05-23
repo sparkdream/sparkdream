@@ -50,7 +50,7 @@ wait_for_tx() {
     local MAX_ATTEMPTS=20
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx "$TXHASH" --output json 2>&1)
+        RESULT=$($BINARY q tx "$TXHASH" --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
         ATTEMPT=$((ATTEMPT + 1)); sleep 1
     done
@@ -94,10 +94,10 @@ vote_and_execute_ops() {
         local STATUS
         STATUS=$($BINARY query commons get-proposal "$PROP_ID" --output json 2>/dev/null | jq -r '.proposal.status')
         if [ "$STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
-        TX_RES=$($BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+        TX_RES=$($BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
         submit_and_wait "$TX_RES" "$VOTER vote" || true
     done
-    TX_RES=$($BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json 2>&1)
+    TX_RES=$($BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
     submit_and_wait "$TX_RES" "exec"
     local RC=$?
     sleep 5
@@ -108,7 +108,7 @@ submit_commons_proposal() {
     local FILE=$1
     local LABEL=${2:-"proposal"}
     echo "  Submitting $LABEL..."
-    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+    TX_RES=$($BINARY tx commons submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "$LABEL submission"; then return 1; fi
     PROPOSAL_ID=$(get_commons_proposal_id "$TX_RESULT")
     if [ -z "$PROPOSAL_ID" ]; then echo "  No proposal ID"; return 1; fi
@@ -123,7 +123,7 @@ submit_gov_proposal_expedited() {
     local FILE=$1
     local LABEL=${2:-"gov proposal"}
     echo "  Submitting $LABEL via x/gov (expedited)..."
-    TX_RES=$($BINARY tx gov submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+    TX_RES=$($BINARY tx gov submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "$LABEL gov submit"; then return 1; fi
     local PROP_ID
     PROP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"' | head -n 1)
@@ -135,7 +135,7 @@ submit_gov_proposal_expedited() {
 
     # Vote yes from each member (alice carries the delegation in testparams)
     for VOTER in alice bob; do
-        $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json > /dev/null 2>&1
+        $BINARY tx gov vote "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json > /dev/null 2>&1
         sleep 3
     done
 
@@ -204,7 +204,7 @@ cat > "$PROPOSAL_DIR/gov_update_peer_controller.json" <<EOF
       "controller_group": "$TARGET_CG"
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "title": "Update controller for $PEER_ID",
   "summary": "Test: switch controller from OpsComm default to Commons Council",
   "expedited": true
@@ -278,7 +278,7 @@ cat > "$PROPOSAL_DIR/gov_bad_controller.json" <<EOF
       "controller_group": "$ALICE_ADDR"
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "title": "Bad controller for $PEER_ID",
   "summary": "Test: alice EOA is not a Group policy address",
   "expedited": true
@@ -321,7 +321,7 @@ cat > "$PROPOSAL_DIR/gov_missing_peer.json" <<EOF
       "controller_group": "$COMMONS_POLICY"
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "title": "Update controller for nonexistent peer",
   "summary": "Test: handler rejects unknown peer_id",
   "expedited": true
@@ -399,7 +399,7 @@ cat > "$PROPOSAL_DIR/council_resync.json" <<EOF
 }
 EOF
 
-TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/council_resync.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/council_resync.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 # Two acceptable rejection paths:
 #   1. Submit-time: Commons enforces AllowedMessages on the policy at
 #      SUBMIT time. The Council's AllowedMessages doesn't include
@@ -416,10 +416,10 @@ if [ $SUBMIT_RC -ne 0 ]; then
 else
     PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
     for VOTER in alice bob carol; do
-        $BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json > /dev/null 2>&1
+        $BINARY tx commons vote-proposal "$PROP_ID" yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
         sleep 2
     done
-    $BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json > /dev/null 2>&1
+    $BINARY tx commons execute-proposal "$PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json > /dev/null 2>&1
     sleep 5
     echo "  Inner-execute path used (proposal accepted but authority check rejects)"
     record_result "Council ResyncBridgeCount rejected" "PASS"
@@ -474,7 +474,7 @@ cat > "$PROPOSAL_DIR/gov_prune.json" <<EOF
       "peer_id": "$PEER_ID"
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "title": "Prune orphan bindings for $PEER_ID",
   "summary": "Test: gov path for dual-authority PruneOrphanBindings",
   "expedited": true

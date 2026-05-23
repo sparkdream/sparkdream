@@ -71,7 +71,7 @@ if [ -z "$BOB_MEMBER" ] || [ "$BOB_MEMBER" == "null" ]; then
     # Invite Bob (query required stake — escalates per invitation)
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
-    INV_RES=$($BINARY tx rep invite-member "$BOB_ADDR" "$REQUIRED_STAKE" --vouched-tags "staking" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>/dev/null)
+    INV_RES=$($BINARY tx rep invite-member "$BOB_ADDR" "$REQUIRED_STAKE" --vouched-tags "staking" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>/dev/null)
     sleep 1
     INV_TX=$(echo $INV_RES | jq -r '.txhash' 2>/dev/null)
     if [ -n "$INV_TX" ] && [ "$INV_TX" != "null" ]; then
@@ -79,7 +79,7 @@ if [ -z "$BOB_MEMBER" ] || [ "$BOB_MEMBER" == "null" ]; then
             jq -r '.events[] | select(.type=="create_invitation") | .attributes[] | select(.key=="invitation_id") | .value' 2>/dev/null | \
             tr -d '"')
         if [ -n "$INV_ID" ] && [ "$INV_ID" != "null" ]; then
-            $BINARY tx rep accept-invitation "$INV_ID" --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+            $BINARY tx rep accept-invitation "$INV_ID" --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
             sleep 1
         fi
     fi
@@ -91,7 +91,7 @@ if [ -z "$CAROL_MEMBER" ] || [ "$CAROL_MEMBER" == "null" ]; then
     # Invite Carol (query required stake — escalates per invitation)
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
-    INV_RES=$($BINARY tx rep invite-member "$CAROL_ADDR" "$REQUIRED_STAKE" --vouched-tags "staking" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>/dev/null)
+    INV_RES=$($BINARY tx rep invite-member "$CAROL_ADDR" "$REQUIRED_STAKE" --vouched-tags "staking" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>/dev/null)
     sleep 1
     INV_TX=$(echo $INV_RES | jq -r '.txhash' 2>/dev/null)
     if [ -n "$INV_TX" ] && [ "$INV_TX" != "null" ]; then
@@ -99,16 +99,16 @@ if [ -z "$CAROL_MEMBER" ] || [ "$CAROL_MEMBER" == "null" ]; then
             jq -r '.events[] | select(.type=="create_invitation") | .attributes[] | select(.key=="invitation_id") | .value' 2>/dev/null | \
             tr -d '"')
         if [ -n "$INV_ID" ] && [ "$INV_ID" != "null" ]; then
-            $BINARY tx rep accept-invitation "$INV_ID" --from carol --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+            $BINARY tx rep accept-invitation "$INV_ID" --from carol --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
             sleep 1
         fi
     fi
 fi
 
 # Transfer DREAM to Bob and Carol for staking (500 DREAM = 500,000,000 micro-DREAM each)
-$BINARY tx rep transfer-dream "$BOB_ADDR" "500000000" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep transfer-dream "$BOB_ADDR" "500000000" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
-$BINARY tx rep transfer-dream "$CAROL_ADDR" "500000000" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep transfer-dream "$CAROL_ADDR" "500000000" "gift" "Staking test setup" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 echo "[ OK ] Bob and Carol setup complete"
 
@@ -145,7 +145,7 @@ PROJECT_RES=$($BINARY tx rep propose-project \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -164,7 +164,7 @@ fi
 echo "[ OK ] Project created: ID $PROJECT_ID"
 
 # Approve project with 100 DREAM budget
-$BINARY tx rep approve-project-budget "$PROJECT_ID" "1000000000" "100000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep approve-project-budget "$PROJECT_ID" "1000000000" "100000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 PROJECT_DETAIL=$($BINARY query rep get-project "$PROJECT_ID" --output json)
@@ -193,7 +193,7 @@ for i in "${!WORKERS[@]}"; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -271,7 +271,7 @@ for i in "${!INITIATIVE_IDS[@]}"; do
         continue
     fi
 
-    ASSIGN_RES=$($BINARY tx rep assign-initiative "$INIT_ID" "$WORKER_ADDR" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    ASSIGN_RES=$($BINARY tx rep assign-initiative "$INIT_ID" "$WORKER_ADDR" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 2
 
     # Check for assignment errors
@@ -316,7 +316,7 @@ for i in "${!INITIATIVE_IDS[@]}"; do
         --from "$WORKER" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     sleep 2
@@ -470,7 +470,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
         --from assignee \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -490,7 +490,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y > /dev/null 2>&1
         sleep 3
 
@@ -514,7 +514,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -531,7 +531,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y > /dev/null 2>&1
         sleep 3
 
@@ -542,7 +542,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
             --from assignee \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y > /dev/null 2>&1
         sleep 3
 
@@ -551,7 +551,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y > /dev/null 2>&1
         sleep 2
 
@@ -559,7 +559,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
             --from challenger \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y > /dev/null 2>&1
         sleep 2
 
@@ -571,7 +571,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y > /dev/null 2>&1
         sleep 3
 
@@ -579,7 +579,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y > /dev/null 2>&1
         sleep 3
 
@@ -625,10 +625,10 @@ if [ "$NEW_CREDITS" != "0" ] && [ -n "$NEW_CREDITS" ]; then
         REF_CHILD1_MEMBER=$($BINARY query rep get-member "$REF_CHILD1_ADDR" --output json 2>/dev/null)
         if [ -z "$REF_CHILD1_MEMBER" ] || [ "$(echo "$REF_CHILD1_MEMBER" | jq -r '.member.address // empty')" == "" ]; then
             # Fund with SPARK for gas
-            $BINARY tx bank send alice "$REF_CHILD1_ADDR" 10000000uspark \
+            $BINARY tx bank send alice "$REF_CHILD1_ADDR" 10000000${BOND_DENOM} \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y > /dev/null 2>&1
             sleep 3
 
@@ -642,7 +642,7 @@ if [ "$NEW_CREDITS" != "0" ] && [ -n "$NEW_CREDITS" ]; then
                 --from assignee \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 
@@ -662,7 +662,7 @@ if [ "$NEW_CREDITS" != "0" ] && [ -n "$NEW_CREDITS" ]; then
                         --from ref_child1 \
                         --chain-id $CHAIN_ID \
                         --keyring-backend test \
-                        --fees 5000uspark \
+                        --fees 5000${BOND_DENOM} \
                         -y > /dev/null 2>&1
                     sleep 3
 
@@ -726,7 +726,7 @@ TX_RES=$($BINARY tx rep create-initiative \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -743,7 +743,7 @@ if [ -n "$TXHASH" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y > /dev/null 2>&1
     sleep 3
 
@@ -754,7 +754,7 @@ if [ -n "$TXHASH" ]; then
         --from assignee \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y > /dev/null 2>&1
     sleep 3
 
@@ -763,7 +763,7 @@ if [ -n "$TXHASH" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y > /dev/null 2>&1
     sleep 2
 
@@ -771,7 +771,7 @@ if [ -n "$TXHASH" ]; then
         --from challenger \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y > /dev/null 2>&1
     sleep 2
 
@@ -783,7 +783,7 @@ if [ -n "$TXHASH" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y > /dev/null 2>&1
     sleep 3
 
@@ -791,7 +791,7 @@ if [ -n "$TXHASH" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
     sleep 3
@@ -915,7 +915,7 @@ BUDGET_RES=$($BINARY tx rep propose-project \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -933,7 +933,7 @@ if [ -n "$BUDGET_TX" ] && [ "$BUDGET_TX" != "null" ]; then
 fi
 
 # Approve with specific budget (10,000 DREAM = 10000000000 micro-DREAM)
-$BINARY tx rep approve-project-budget "$BUDGET_PROJECT_ID" "10000000000" "50000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep approve-project-budget "$BUDGET_PROJECT_ID" "10000000000" "50000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 echo "[ OK ] Limited budget project created: ID $BUDGET_PROJECT_ID (10,000 DREAM)"
@@ -957,7 +957,7 @@ for i in 1 2 3; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json)
 
@@ -1010,7 +1010,7 @@ COMP_RES=$($BINARY tx rep create-initiative \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json)
 
@@ -1033,17 +1033,17 @@ echo ""
 echo "Stakers competing on conviction..."
 
 # Bob stakes early (300 DREAM = 300,000,000 micro-DREAM)
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "300000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "300000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Carol stakes more (500 DREAM = 500,000,000 micro-DREAM)
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "500000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "500000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Worker1 stakes from initiative assignee (200 DREAM = 200,000,000 micro-DREAM)
-$BINARY tx rep assign-initiative "$COMP_ID" "${WORKER_ADDRS[0]}" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep assign-initiative "$COMP_ID" "${WORKER_ADDRS[0]}" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "200000000" --from assignee --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "200000000" --from assignee --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
@@ -1106,7 +1106,7 @@ for i in 1 2 3; do
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json)
 
@@ -1131,9 +1131,9 @@ for i in "${!CHALLENGE_INITS[@]}"; do
     WORKER_ADDR=${WORKER_ADDRS[$i % 5]}
 
     WORKER=${WORKERS[$i % 5]}
-    $BINARY tx rep assign-initiative "$INIT_ID" "$WORKER_ADDR" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+    $BINARY tx rep assign-initiative "$INIT_ID" "$WORKER_ADDR" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 1
-    $BINARY tx rep submit-initiative-work "$INIT_ID" "ipfs://QmChallenge$i" "Work for challenge test" --from "$WORKER" --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+    $BINARY tx rep submit-initiative-work "$INIT_ID" "ipfs://QmChallenge$i" "Work for challenge test" --from "$WORKER" --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 1
 
     echo "  Initiative $INIT_ID: submitted for challenge testing"
@@ -1167,7 +1167,7 @@ PROJECT2_RES=$($BINARY tx rep propose-project \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   --output json)
 
@@ -1185,7 +1185,7 @@ if [ -n "$PROJECT2_TX" ] && [ "$PROJECT2_TX" != "null" ]; then
 fi
 
 # Approve with 100 DREAM budget
-$BINARY tx rep approve-project-budget "$PROJECT2_ID" "100000000" "50000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep approve-project-budget "$PROJECT2_ID" "100000000" "50000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 echo "[ OK ] Secondary project created: ID $PROJECT2_ID"
@@ -1203,7 +1203,7 @@ PROJECT2_INIT_RES=$($BINARY tx rep create-initiative \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json)
 
@@ -1221,7 +1221,7 @@ if [ -n "$P2_INIT_TX" ] && [ "$P2_INIT_TX" != "null" ]; then
 fi
 
 # Assign to worker1 (who already has initiative in project 1)
-$BINARY tx rep assign-initiative "$P2_INIT_ID" "${WORKER_ADDRS[0]}" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y > /dev/null 2>&1
+$BINARY tx rep assign-initiative "$P2_INIT_ID" "${WORKER_ADDRS[0]}" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Check worker1's assigned initiatives

@@ -98,6 +98,13 @@ func (m *MockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, sender
 
 type MockAuthKeeper struct{}
 
+// mockIdentityKeeperFutarchy returns legacy denoms for unit tests.
+type mockIdentityKeeperFutarchy struct{}
+
+func (mockIdentityKeeperFutarchy) IsIdentityKeeper() {}
+func (m *mockIdentityKeeperFutarchy) BondDenom(_ context.Context) string  { return "uspark" }
+func (m *mockIdentityKeeperFutarchy) DreamDenom(_ context.Context) string { return "udream" }
+
 func (m *MockAuthKeeper) AddressCodec() address.Codec {
 	return addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
 }
@@ -145,6 +152,7 @@ func initFixture(t *testing.T) *fixture {
 		mockAuth,
 		mockBank,
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeperFutarchy{})
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {

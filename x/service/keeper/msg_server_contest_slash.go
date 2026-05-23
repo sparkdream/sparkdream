@@ -95,9 +95,9 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 	// the module account (just move accounting from the escrow pool to
 	// the bond pool).
 	k.settleBondBlocks(&op, currentHeight)
-	op.Bond = op.Bond.Add(escrow.Amount)
-	if !op.Tier1SlashedInWindow.IsNil() && !escrow.Amount.Amount.IsZero() {
-		op.Tier1SlashedInWindow = op.Tier1SlashedInWindow.Sub(escrow.Amount.Amount)
+	op.BondAmount = op.BondAmount.Add(escrow.Amount)
+	if !op.Tier1SlashedInWindow.IsNil() && !escrow.Amount.IsZero() {
+		op.Tier1SlashedInWindow = op.Tier1SlashedInWindow.Sub(escrow.Amount)
 		if op.Tier1SlashedInWindow.IsNegative() {
 			op.Tier1SlashedInWindow = op.Tier1SlashedInWindow.MulRaw(0) // zero out
 		}
@@ -107,7 +107,7 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 	// the restored bond clears min_bond, revert to ACTIVE.
 	refundedTransition := false
 	if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED &&
-		op.Bond.Amount.GTE(cfg.MinBond.Amount) {
+		op.BondAmount.GTE(cfg.MinBondAmount) {
 		oldUnderfundedSince := op.UnderfundedSince
 		op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
 		op.UnderfundedSince = 0
@@ -161,9 +161,10 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 		return nil, err
 	}
 
+	escrowCoin := sdk.NewCoin(k.BondDenom(ctx), escrow.Amount)
 	sdkCtx.EventManager().EmitEvents(sdk.Events{
-		types.NewReportContestedEvent(report.ReportId, escrow.Amount),
-		types.NewTier1EscrowReleasedEvent(escrowID, report.ReportId, op.Address, op.ServiceType, escrow.Amount, types.EscrowDestBondRestored),
+		types.NewReportContestedEvent(report.ReportId, escrowCoin),
+		types.NewTier1EscrowReleasedEvent(escrowID, report.ReportId, op.Address, op.ServiceType, escrowCoin, types.EscrowDestBondRestored),
 		types.NewReportEscalatedEvent(report.ReportId, report.JuryCaseId, report.ProposedSlashBps),
 	})
 

@@ -83,7 +83,7 @@ TX_RES=$($BINARY tx rep resolve-member-report \
     --from moderator \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -204,7 +204,7 @@ TX_RES=$($BINARY tx rep resolve-member-report \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -252,7 +252,7 @@ TX_RES=$($BINARY tx rep resolve-member-report \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 

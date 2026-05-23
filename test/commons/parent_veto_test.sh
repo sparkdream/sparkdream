@@ -9,7 +9,7 @@ mkdir -p "$PROPOSAL_DIR"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
-FEES="5000uspark"
+FEES="5000${BOND_DENOM}"
 GAS_FLAGS="--gas auto --gas-adjustment 1.5"
 
 # Ensure jq is installed
@@ -72,12 +72,12 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
       "authority": "'$CHILD_POLICY_ADDR'",
       "recipient": "'$ALICE_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "999999"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "999999"}]
     }
   ]
 }' > "$PROPOSAL_DIR/rogue_proposal.json"
 
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/rogue_proposal.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/rogue_proposal.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 4
 

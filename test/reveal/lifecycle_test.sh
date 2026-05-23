@@ -119,19 +119,19 @@ vote_and_execute() {
     echo "  Alice voting YES on proposal #$prop_id..."
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 3
 
     echo "  Bob voting YES on proposal #$prop_id..."
     $BINARY tx commons vote-proposal $prop_id yes \
         --from bob -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json > /dev/null 2>&1
+        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 3
 
     echo "  Executing proposal #$prop_id..."
     EXEC_RES=$($BINARY tx commons execute-proposal $prop_id \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
     sleep 6
 
@@ -169,7 +169,7 @@ TX_RES=$($BINARY tx reveal propose \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -236,7 +236,7 @@ jq -n \
 echo "  Submitting council approval proposal..."
 SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/approve_contribution.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000000uspark --output json)
+    --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "  Submitted tx: $TX_HASH"
@@ -299,7 +299,7 @@ if [ "$TRANCHE_STAKING_RESULT" == "PASS" ]; then
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -327,7 +327,7 @@ if [ "$TRANCHE_STAKING_RESULT" == "PASS" ]; then
         --from staker2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -415,7 +415,7 @@ if [ "$TRANCHE_BACKED_RESULT" == "PASS" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -477,7 +477,7 @@ if [ "$TRANCHE_REVEALED_RESULT" == "PASS" ]; then
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -504,7 +504,7 @@ if [ "$TRANCHE_REVEALED_RESULT" == "PASS" ]; then
         --from staker2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -602,7 +602,7 @@ if [ "$VERIFY1_RESULT" == "PASS" ]; then
         --from staker1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -637,7 +637,7 @@ if [ "$TRANCHE_REVEALED_RESULT" == "PASS" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -672,7 +672,7 @@ if [ "$TRANCHE_REVEALED_RESULT" == "PASS" ]; then
         --from staker3 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -707,7 +707,7 @@ if [ "$TRANCHE_REVEALED_RESULT" == "PASS" ]; then
         --from staker3 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -742,7 +742,7 @@ if [ "$TRANCHE_REVEALED_RESULT" == "PASS" ]; then
         --from staker3 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -785,7 +785,7 @@ TX_RES=$($BINARY tx reveal propose \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -819,7 +819,7 @@ if [ -n "$EMBER_ID" ]; then
 
     SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/approve_ember.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json)
+        --fees 5000000${BOND_DENOM} --output json)
     TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
     EMBER_PROP_ID=$(get_group_proposal_id $TX_HASH)
 
@@ -832,7 +832,7 @@ if [ -n "$EMBER_ID" ]; then
             --from staker1 \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 5000uspark \
+            --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -856,7 +856,7 @@ if [ -n "$EMBER_ID" ]; then
                 --from staker1 \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json 2>&1)
 

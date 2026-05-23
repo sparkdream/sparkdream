@@ -24,7 +24,7 @@ assert_tx_success "Transfer 200 DREAM from Alice to collector1" "$TX_OUT"
 # Test 1: Register Alice as curator (CORE trust level)
 # =========================================================================
 echo ""
-# Min bond is 500_000_000 udream (500 DREAM); CLI takes raw udream amounts.
+# Min bond is 500_000_000 DREAM-micros (500 DREAM); CLI takes raw amounts.
 echo "--- Test 1: Register curator ---"
 TX_OUT=$(send_tx rep bond-role collect-curator 500000000 --from alice)
 assert_tx_success "Register Alice as curator" "$TX_OUT"

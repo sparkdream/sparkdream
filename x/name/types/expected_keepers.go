@@ -16,6 +16,13 @@ type AuthKeeper interface {
 	GetAccount(context.Context, sdk.AccAddress) sdk.AccountI // only used for simulation
 }
 
+// IdentityKeeper defines the expected interface for the identity module.
+// Resolves the chain's bond denom at runtime.
+type IdentityKeeper interface {
+	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+}
+
 // BankKeeper defines the expected interface for the Bank module.
 type BankKeeper interface {
 	SpendableCoins(context.Context, sdk.AccAddress) sdk.Coins

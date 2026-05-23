@@ -382,6 +382,13 @@ func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string
 
 type mockForumKeeper struct{}
 
+// mockIdentityKeeper returns the legacy denom literals for unit tests.
+type mockIdentityKeeper struct{}
+
+func (mockIdentityKeeper) IsIdentityKeeper() {}
+func (m *mockIdentityKeeper) BondDenom(_ context.Context) string  { return "uspark" }
+func (m *mockIdentityKeeper) DreamDenom(_ context.Context) string { return "udream" }
+
 func (m *mockForumKeeper) HasPost(_ context.Context, _ uint64) bool {
 	return true
 }
@@ -456,6 +463,7 @@ func initTestFixture(t *testing.T) *testFixture {
 		fk,
 	)
 	k.SetRepKeeper(rk)
+	k.SetIdentityKeeper(&mockIdentityKeeper{})
 
 	if err := k.Params.Set(sdkCtx, types.DefaultParams()); err != nil {
 		t.Fatalf("failed to set params: %v", err)

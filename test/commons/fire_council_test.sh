@@ -40,7 +40,7 @@ echo '{
       "new_member_weights": ["1"]
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000'"$BOND_DENOM"'",
   "title": "FIRE THE COUNCIL",
   "summary": "The Council has gone rogue. We are wiping the slate via Expedited Proposal.",
   "expedited": true

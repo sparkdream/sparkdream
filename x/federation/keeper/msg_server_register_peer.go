@@ -3,11 +3,15 @@ package keeper
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"strings"
 
 	"sparkdream/x/federation/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 )
 
 func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer) (*types.MsgRegisterPeerResponse, error) {
@@ -62,7 +66,9 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 
-	// 5. Create peer with PENDING status
+	// 5. Create peer with PENDING status. peer_identity is optional; when
+	// supplied for SPARK_DREAM peers, we pre-register IBC voucher metadata
+	// below (step 6b).
 	peer := types.Peer{
 		Id:           msg.PeerId,
 		DisplayName:  msg.DisplayName,
@@ -72,10 +78,31 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 		RegisteredAt: blockTime,
 		RegisteredBy: msg.Authority,
 		Metadata:     msg.Metadata,
+		PeerIdentity: msg.PeerIdentity,
 	}
 
 	if err := k.Peers.Set(ctx, msg.PeerId, peer); err != nil {
 		return nil, err
+	}
+
+	// 6b. Pre-register IBC voucher metadata for SPARK_DREAM peers that
+	// supplied a peer_identity and an ibc_channel_id (spec §9.2). Skipped for
+	// non-Spark-Dream peers or when identity/channel is missing. Errors here
+	// do not fail registration — metadata is informational only.
+	if msg.Type == types.PeerType_PEER_TYPE_SPARK_DREAM &&
+		msg.IbcChannelId != "" &&
+		msg.PeerIdentity != nil &&
+		msg.PeerIdentity.BondDenom != "" {
+		if err := k.preRegisterIBCVoucherMetadata(ctx, peer); err != nil {
+			// Log via event but do not fail; the peer record is the source of truth.
+			sdkCtx.EventManager().EmitEvent(
+				sdk.NewEvent(
+					"federation_peer_metadata_skipped",
+					sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId),
+					sdk.NewAttribute("reason", err.Error()),
+				),
+			)
+		}
 	}
 
 	// 6. Create default PeerPolicy
@@ -98,4 +125,47 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 	)
 
 	return &types.MsgRegisterPeerResponse{}, nil
+}
+
+// preRegisterIBCVoucherMetadata computes the canonical single-hop ICS-20
+// voucher denom for peer SPARK arriving on this chain via the registered
+// IBC channel, and registers DenomMetadata so wallets render <SYMBOL>.ibc
+// instead of ibc/<hash>. See x-identity-spec.md §9.2.
+//
+// Single-hop only: vouchers arriving via multi-hop relay paths produce a
+// different denom hash and are not covered. Deferred to spec §18 future
+// extension.
+//
+// Skips silently if metadata already exists at the computed denom key (e.g.,
+// peer was previously registered against the same channel and the metadata
+// survived a removal).
+func (k Keeper) preRegisterIBCVoucherMetadata(ctx context.Context, peer types.Peer) error {
+	id := peer.PeerIdentity
+	if id == nil {
+		return fmt.Errorf("peer identity not supplied")
+	}
+	denom := ibctransfertypes.Denom{
+		Base:  id.BondDenom,
+		Trace: []ibctransfertypes.Hop{{PortId: "transfer", ChannelId: peer.IbcChannelId}},
+	}
+	ibcDenom := denom.IBCDenom()
+	if _, ok := k.bankKeeper.GetDenomMetaData(ctx, ibcDenom); ok {
+		return nil // already registered, skip
+	}
+	symbol := id.BondDisplaySymbol + ".ibc"
+	display := strings.ToLower(id.BondDisplaySymbol) + ".ibc"
+	meta := banktypes.Metadata{
+		Description: fmt.Sprintf("%s (IBC voucher), sourced from peer chain %s via %s",
+			id.BondDisplayName, peer.Id, peer.IbcChannelId),
+		DenomUnits: []*banktypes.DenomUnit{
+			{Denom: ibcDenom, Exponent: 0},
+			{Denom: display, Exponent: id.BondDisplayDecimals},
+		},
+		Base:    ibcDenom,
+		Display: display,
+		Name:    id.BondDisplayName + " (IBC)",
+		Symbol:  symbol,
+	}
+	k.bankKeeper.SetDenomMetaData(ctx, meta)
+	return nil
 }

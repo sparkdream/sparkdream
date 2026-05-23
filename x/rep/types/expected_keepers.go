@@ -15,6 +15,17 @@ type SeasonState struct {
 	Number uint64
 }
 
+// IdentityKeeper is the subset of x/identity that rep reads to resolve the
+// chain's bond and dream denoms at runtime. Late-bound via SetIdentityKeeper
+// from app.go. Required: rep panics on first denom lookup if identity isn't
+// wired — silently falling back to a hardcoded literal re-introduces the
+// mixed-state bug we just removed.
+type IdentityKeeper interface {
+	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+	DreamDenom(ctx context.Context) string
+}
+
 // AuthKeeper defines the expected interface for the Auth module.
 type AuthKeeper interface {
 	AddressCodec() address.Codec

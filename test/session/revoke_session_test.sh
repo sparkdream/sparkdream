@@ -119,13 +119,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$REVOKE_GRANTEE1_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -150,7 +150,7 @@ else
             --from session_granter \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --fees 50000uspark \
+            --fees 50000${BOND_DENOM} \
             --gas 300000 \
             -y \
             --output json 2>&1)
@@ -203,7 +203,7 @@ TX_RES=$($BINARY tx session revoke-session \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -236,7 +236,7 @@ if [ "$SESS_GRANTEE" = "$GRANTEE1_ADDR" ]; then
         --from session_granter \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         --gas 300000 \
         -y \
         --output json 2>&1)
@@ -288,7 +288,7 @@ if [ "$SESS_GRANTEE" = "$GRANTEE2_ADDR" ]; then
         --from session_granter \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         --gas 300000 \
         -y \
         --output json 2>&1)

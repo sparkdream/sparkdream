@@ -150,6 +150,7 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 		mockSplitKeeper{},
 		mockUpgradeKeeper{},
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeperCommons{})
 
 	return k, ctx, mockBK
 }
@@ -212,6 +213,7 @@ func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, sdk.AccAddre
 		mockSplitKeeper{},
 		mockUpgradeKeeper{},
 	)
+	k.SetIdentityKeeper(&mockIdentityKeeperCommons{})
 
 	return k, ctx, k.GetModuleAddress()
 }
@@ -324,6 +326,13 @@ func (m mockSplitKeeper) SetShareByAddress(ctx context.Context, address string, 
 
 // --- Mock Upgrade Keeper ---
 type mockUpgradeKeeper struct{}
+
+// mockIdentityKeeperCommons returns legacy denoms for unit tests.
+type mockIdentityKeeperCommons struct{}
+
+func (mockIdentityKeeperCommons) IsIdentityKeeper() {}
+func (m *mockIdentityKeeperCommons) BondDenom(_ context.Context) string  { return "uspark" }
+func (m *mockIdentityKeeperCommons) DreamDenom(_ context.Context) string { return "udream" }
 
 func (m mockUpgradeKeeper) ScheduleUpgrade(ctx context.Context, plan upgradetypes.Plan) error {
 	// We just log or return nil for unit tests.

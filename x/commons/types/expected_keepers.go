@@ -31,7 +31,15 @@ type BankKeeper interface {
 	SendCoinsFromModuleToAccount(context.Context, string, sdk.AccAddress, sdk.Coins) error
 }
 
-// GovKeeper defines the expected interface for the x/gov module.
+// IdentityKeeper is the subset of x/identity that commons reads to resolve
+// the chain's bond denom at runtime. Late-bound via SetIdentityKeeper from
+// app.go. Required: commons panics on first denom lookup if identity isn't
+// wired (no silent fallback to a hardcoded literal).
+type IdentityKeeper interface {
+	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+}
+
 // x/gov is a core module that stays in the chain. This interface replaces the
 // concrete *govkeeper.Keeper dependency so x/commons doesn't import the gov keeper package.
 type GovKeeper interface {

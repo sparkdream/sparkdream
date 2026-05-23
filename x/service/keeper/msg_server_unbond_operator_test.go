@@ -12,7 +12,7 @@ import (
 func TestMsgUnbondOperator_FromActive(t *testing.T) {
 	f := initFixture(t)
 	cfg := f.seedServiceType(t)
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount)
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount)
 
 	_, err := f.msgServer.UnbondOperator(f.ctx, &types.MsgUnbondOperator{
 		Operator:    testOperator1,
@@ -34,12 +34,12 @@ func TestMsgUnbondOperator_FromUnderfundedClearsQueue(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		Bond:                    cfg.MinBond,
+		BondAmount:                    cfg.MinBondAmount,
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 		UnderfundedSince:        height,
 		Tier1SlashedInWindow:    math.ZeroInt(),
 		Tier1WindowStart:        height,
-		Tier1WindowStartBond:    cfg.MinBond.Amount,
+		Tier1WindowStartBond:    cfg.MinBondAmount,
 		RegisteredAt:            height,
 		TotalLifetimeBondBlocks: math.ZeroInt(),
 		LastBondBlockUpdateAt:   height,
@@ -61,7 +61,7 @@ func TestMsgUnbondOperator_FromUnderfundedClearsQueue(t *testing.T) {
 func TestMsgUnbondOperator_DoubleUnbondRejected(t *testing.T) {
 	f := initFixture(t)
 	cfg := f.seedServiceType(t)
-	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBond.Amount)
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount)
 
 	_, err := f.msgServer.UnbondOperator(f.ctx, &types.MsgUnbondOperator{
 		Operator:    testOperator1,

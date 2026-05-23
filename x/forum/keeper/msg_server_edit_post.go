@@ -63,12 +63,12 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	}
 
 	// Charge cost_per_byte storage delta fee (applies to all posters, burned)
-	if !params.CostPerByteExempt && params.CostPerByte.IsPositive() {
+	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() {
 		oldBytes := int64(len(post.Content))
 		newBytes := int64(len(msg.NewContent))
 		if newBytes > oldBytes {
-			deltaFee := sdk.NewCoin(params.CostPerByte.Denom,
-				params.CostPerByte.Amount.MulRaw(newBytes-oldBytes))
+			deltaFee := sdk.NewCoin(k.BondDenom(ctx),
+				params.CostPerByteAmount.MulRaw(newBytes-oldBytes))
 			if deltaFee.IsPositive() {
 				creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 				if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(deltaFee)); err != nil {
@@ -120,9 +120,9 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	}
 
 	// Charge edit fee if past grace period; split 50/50 burn / sentinel reward pool
-	if editAge > params.EditGracePeriod && params.EditFee.IsPositive() {
+	if editAge > params.EditGracePeriod && params.EditFeeAmount.IsPositive() {
 		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-		editFeeCoins := sdk.NewCoins(params.EditFee)
+		editFeeCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), params.EditFeeAmount))
 		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, editFeeCoins); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to charge edit fee")
 		}

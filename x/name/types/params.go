@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
@@ -23,25 +22,25 @@ func NewParams(
 	maxNameLength uint64,
 	maxNamesPerAddress uint64,
 	expirationDuration time.Duration,
-	registrationFee sdk.Coin,
+	registrationFeeAmount math.Int,
 	disputeStakeDream math.Int,
 	disputeTimeoutBlocks uint64,
 	contestStakeDream math.Int,
 ) Params {
 	return Params{
-		BlockedNames:         blockedNames,
-		MinNameLength:        minNameLength,
-		MaxNameLength:        maxNameLength,
-		MaxNamesPerAddress:   maxNamesPerAddress,
-		ExpirationDuration:   expirationDuration,
-		RegistrationFee:      registrationFee,
-		DisputeStakeDream:    disputeStakeDream,
-		DisputeTimeoutBlocks: disputeTimeoutBlocks,
-		ContestStakeDream:    contestStakeDream,
+		BlockedNames:          blockedNames,
+		MinNameLength:         minNameLength,
+		MaxNameLength:         maxNameLength,
+		MaxNamesPerAddress:    maxNamesPerAddress,
+		ExpirationDuration:    expirationDuration,
+		RegistrationFeeAmount: registrationFeeAmount,
+		DisputeStakeDream:     disputeStakeDream,
+		DisputeTimeoutBlocks:  disputeTimeoutBlocks,
+		ContestStakeDream:     contestStakeDream,
 	}
 }
 
-// DefaultParams returns a default set of parameters
+// DefaultParams returns a default set of parameters.
 func DefaultParams() Params {
 	return NewParams(
 		DefaultBlockedNames,
@@ -49,7 +48,7 @@ func DefaultParams() Params {
 		DefaultMaxNameLength,
 		DefaultMaxNamesPerAddress,
 		DefaultExpirationDuration,
-		DefaultRegistrationFee,
+		DefaultRegistrationFeeAmount,
 		DefaultDisputeStakeDream,
 		DefaultDisputeTimeoutBlocks,
 		DefaultContestStakeDream,
@@ -64,7 +63,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyMaxNameLength, &p.MaxNameLength, validateMaxNameLength),
 		paramtypes.NewParamSetPair(KeyMaxNamesPerAddress, &p.MaxNamesPerAddress, validateMaxNamesPerAddress),
 		paramtypes.NewParamSetPair(KeyExpirationDuration, &p.ExpirationDuration, validateExpirationDuration),
-		paramtypes.NewParamSetPair(KeyRegistrationFee, &p.RegistrationFee, validateRegistrationFee),
+		paramtypes.NewParamSetPair(KeyRegistrationFee, &p.RegistrationFeeAmount, validateRegistrationFee),
 	}
 }
 
@@ -85,7 +84,7 @@ func (p Params) Validate() error {
 	if err := validateExpirationDuration(p.ExpirationDuration); err != nil {
 		return err
 	}
-	if err := validateRegistrationFee(p.RegistrationFee); err != nil {
+	if err := validateRegistrationFee(p.RegistrationFeeAmount); err != nil {
 		return err
 	}
 	if p.DisputeStakeDream.IsNegative() {
@@ -109,7 +108,7 @@ func (p Params) Validate() error {
 func DefaultNameOperationalParams() NameOperationalParams {
 	return NameOperationalParams{
 		ExpirationDuration:   DefaultExpirationDuration,
-		RegistrationFee:      DefaultRegistrationFee,
+		RegistrationFeeAmount: DefaultRegistrationFeeAmount,
 		DisputeStakeDream:    DefaultDisputeStakeDream,
 		DisputeTimeoutBlocks: DefaultDisputeTimeoutBlocks,
 		ContestStakeDream:    DefaultContestStakeDream,
@@ -121,8 +120,8 @@ func (op NameOperationalParams) Validate() error {
 	if op.ExpirationDuration <= 0 {
 		return fmt.Errorf("expiration duration must be positive")
 	}
-	if !op.RegistrationFee.IsValid() {
-		return fmt.Errorf("invalid registration fee coin: %s", op.RegistrationFee)
+	if err := validateRegistrationFee(op.RegistrationFeeAmount); err != nil {
+		return err
 	}
 	if op.DisputeStakeDream.IsNegative() {
 		return fmt.Errorf("dispute stake must be non-negative")
@@ -137,7 +136,7 @@ func (op NameOperationalParams) Validate() error {
 // preserving BlockedNames, MinNameLength, MaxNameLength, MaxNamesPerAddress.
 func (p Params) ApplyOperationalParams(op NameOperationalParams) Params {
 	p.ExpirationDuration = op.ExpirationDuration
-	p.RegistrationFee = op.RegistrationFee
+	p.RegistrationFeeAmount = op.RegistrationFeeAmount
 	p.DisputeStakeDream = op.DisputeStakeDream
 	p.DisputeTimeoutBlocks = op.DisputeTimeoutBlocks
 	p.ContestStakeDream = op.ContestStakeDream
@@ -147,11 +146,11 @@ func (p Params) ApplyOperationalParams(op NameOperationalParams) Params {
 // ExtractOperationalParams extracts the operational fields from the full params.
 func (p Params) ExtractOperationalParams() NameOperationalParams {
 	return NameOperationalParams{
-		ExpirationDuration:   p.ExpirationDuration,
-		RegistrationFee:      p.RegistrationFee,
-		DisputeStakeDream:    p.DisputeStakeDream,
-		DisputeTimeoutBlocks: p.DisputeTimeoutBlocks,
-		ContestStakeDream:    p.ContestStakeDream,
+		ExpirationDuration:    p.ExpirationDuration,
+		RegistrationFeeAmount: p.RegistrationFeeAmount,
+		DisputeStakeDream:     p.DisputeStakeDream,
+		DisputeTimeoutBlocks:  p.DisputeTimeoutBlocks,
+		ContestStakeDream:     p.ContestStakeDream,
 	}
 }
 
@@ -215,12 +214,15 @@ func validateExpirationDuration(i interface{}) error {
 }
 
 func validateRegistrationFee(i interface{}) error {
-	v, ok := i.(sdk.Coin)
+	v, ok := i.(math.Int)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-	if !v.IsValid() {
-		return fmt.Errorf("invalid registration fee coin: %s", v)
+	if v.IsNil() {
+		return fmt.Errorf("registration fee amount must not be nil")
+	}
+	if v.IsNegative() {
+		return fmt.Errorf("registration fee amount must not be negative: %s", v)
 	}
 	return nil
 }

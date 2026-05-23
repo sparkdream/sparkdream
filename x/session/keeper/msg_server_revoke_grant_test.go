@@ -129,10 +129,10 @@ func TestRevokeGrant_SessionKey_AllowSelfRevoke(t *testing.T) {
 			SessionKey: &types.SessionKeyPayload{
 				// allow_self_revoke means MsgRevokeGrant doesn't need to be
 				// in allowed_msg_types — the flag is the gate.
-				AllowedMsgTypes:  types.DefaultAllowedMsgTypes[:1],
-				SpendLimit:       sdk.NewInt64Coin("uspark", 1_000_000),
-				MaxExecCount:     10,
-				AllowSelfRevoke:  true,
+				AllowedMsgTypes: types.DefaultAllowedMsgTypes[:1],
+				SpendLimit:      sdk.NewInt64Coin("uspark", 1_000_000),
+				MaxExecCount:    10,
+				AllowSelfRevoke: true,
 			},
 		},
 	})

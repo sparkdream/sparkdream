@@ -148,7 +148,7 @@ func (k Keeper) CreateGrantOnBehalfOf(
 		if err != nil {
 			return 0, err
 		}
-		depositCoin := sdk.NewCoin("uspark", deposit)
+		depositCoin := sdk.NewCoin(k.BondDenom(ctx), deposit)
 		granterAddr, err := k.addressCodec.StringToBytes(msg.Granter)
 		if err != nil {
 			return 0, err
@@ -233,7 +233,7 @@ func (k Keeper) RevokeGrantInternal(
 	}
 
 	// Refund any held oneshot deposit.
-	refund := sdk.NewCoin("uspark", sdkmath.ZeroInt())
+	refund := sdk.NewCoin(k.BondDenom(ctx), sdkmath.ZeroInt())
 	if grant.Type == types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT {
 		dep, depErr := k.OneshotGasDeposit.Get(ctx, grant.Id)
 		if depErr == nil && !dep.IsZero() {
@@ -327,7 +327,7 @@ func (k Keeper) DeclineGrantInternal(
 	}
 
 	// Refund any held oneshot deposit before deleting the grant.
-	refund := sdk.NewCoin("uspark", sdkmath.ZeroInt())
+	refund := sdk.NewCoin(k.BondDenom(ctx), sdkmath.ZeroInt())
 	if grant.Type == types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT {
 		dep, depErr := k.OneshotGasDeposit.Get(ctx, grant.Id)
 		if depErr == nil && !dep.IsZero() {

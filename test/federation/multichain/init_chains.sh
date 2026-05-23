@@ -31,7 +31,7 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_DIR="$( cd "$SCRIPT_DIR/../../.." && pwd )"
 
-# Shared safe-rmtree helper (CLAUDE.md forbids `rm -rf`).
+# Shared safe-rmtree helper (see docs/development-conventions.md — `rm -rf` is forbidden project-wide).
 # shellcheck source=../../_safe_rm.sh
 source "$SCRIPT_DIR/../../_safe_rm.sh"
 
@@ -126,6 +126,18 @@ restore_user_home
 trap - INT TERM
 
 echo "  template ready at $TEMPLATE_HOME"
+
+# Resolve the chain's bond denom from the template's genesis (x/identity is
+# genesis-only immutable). The clone helper bakes this into per-chain config
+# at chain_id rewrite time. Falls back to the canonical `uspark.sparkdream`
+# default if the field is missing (older template), which keeps gentx and
+# the minimum-gas-prices line correct for the default ignite init.
+BOND_DENOM=$(jq -r '.app_state.identity.identity.bond_denom // "uspark.sparkdream"' "$TEMPLATE_HOME/config/genesis.json" 2>/dev/null)
+if [ -z "$BOND_DENOM" ] || [ "$BOND_DENOM" = "null" ]; then
+    BOND_DENOM="uspark.sparkdream"
+fi
+export BOND_DENOM
+echo "  resolved BOND_DENOM=$BOND_DENOM"
 
 # ------------------------------------------------------------------
 # Helper: clone the template into a chain home, patch chain_id +
@@ -251,12 +263,12 @@ PVSTATE
         fi
     fi
 
-    # Pin minimum-gas-prices to match Hermes' gas_price (0.0025uspark, see
-    # hermes_config.toml). Previously this was 0.001uspark, which under deep
+    # Pin minimum-gas-prices to match Hermes' gas_price (0.0025${BOND_DENOM}, see
+    # hermes_config.toml). Previously this was 0.001${BOND_DENOM}, which under deep
     # IBC flushes (max_msg_num=30) could let Hermes compute a per-tx fee
     # below the chain's per-tx floor and trigger "insufficient fee" rejections.
     # 0.0025 matches the relayer side exactly.
-    sed -i 's|^minimum-gas-prices *=.*|minimum-gas-prices = "0.0025uspark"|' "$CHAIN_HOME/config/app.toml"
+    sed -i "s|^minimum-gas-prices *=.*|minimum-gas-prices = \"0.0025${BOND_DENOM}\"|" "$CHAIN_HOME/config/app.toml"
 
     # Enable API + gRPC explicitly (Hermes needs gRPC).
     sed -i '/^\[api\]/,/^\[/{s|^enable *=.*|enable = true|}'  "$CHAIN_HOME/config/app.toml" 2>/dev/null || true
@@ -272,7 +284,7 @@ PVSTATE
     # chain-id="sparkdream" and would fail signature verification at init.)
     safe_rmtree "$CHAIN_HOME/config/gentx" || return 1
     mkdir -p "$CHAIN_HOME/config/gentx"
-    "$BINARY" genesis gentx alice 1000000000uspark \
+    "$BINARY" genesis gentx alice 1000000000${BOND_DENOM} \
         --chain-id "$CHAIN_ID" \
         --home "$CHAIN_HOME" \
         --keyring-backend test \

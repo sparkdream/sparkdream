@@ -176,7 +176,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -194,7 +194,7 @@ TX_RES=$($BINARY tx blog create-post \
     --from bob \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -222,7 +222,7 @@ if [ -n "$BLOG_POST_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -310,7 +310,7 @@ TX_RES=$($BINARY tx season nominate \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -334,7 +334,7 @@ if [ -n "$BLOG_POST_ID" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -363,7 +363,7 @@ if [ -n "$BLOG_POST_2_ID" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -394,7 +394,7 @@ if [ -n "$NOMINATION_ID" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -470,7 +470,7 @@ if [ -n "$NOMINATION_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -498,7 +498,7 @@ if [ -n "$NOMINATION_ID" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -525,7 +525,7 @@ if [ -n "$NOMINATION_ID" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -555,7 +555,7 @@ if [ -n "$NOMINATION_ID" ]; then
         --from bob \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 50000uspark \
+        --fees 50000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

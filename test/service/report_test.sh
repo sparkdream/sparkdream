@@ -29,7 +29,7 @@ wait_for_tx() {
     local MAX_ATTEMPTS=20
     local ATTEMPT=0
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        RESULT=$($BINARY q tx $TXHASH --output json)
         if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
             echo "$RESULT"
             return 0
@@ -90,16 +90,16 @@ b64() {
 # ========================================================================
 echo "--- PRECONDITION: operator1 must be ACTIVE ---"
 
-OP1_INFO=$($BINARY query service operator "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" --output json 2>&1)
+OP1_INFO=$($BINARY query service operator "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" --output json)
 OP1_STATUS=$(echo "$OP1_INFO" | jq -r '.operator.status // empty')
 
 if [ -z "$OP1_STATUS" ]; then
     echo "operator1 not registered yet; registering now..."
-    MIN_BOND_AMT=$($BINARY query service service-type "$TEST_SERVICE_TYPE" --output json | jq -r '.config.min_bond.amount')
+    MIN_BOND_AMT=$($BINARY query service service-type "$TEST_SERVICE_TYPE" --output json | jq -r '.config.min_bond_amount')
     TX_RES=$($BINARY tx service register-operator \
-        "$TEST_SERVICE_TYPE" "$COMMONS_POLICY" "${MIN_BOND_AMT}uspark" "$(b64 'operator1-report-init')" \
+        "$TEST_SERVICE_TYPE" "$COMMONS_POLICY" "${MIN_BOND_AMT}" "$(b64 'operator1-report-init')" \
         --from operator1 --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} -y --output json)
     submit_and_wait "$TX_RES"
     if ! check_tx_success "$TX_RESULT"; then
         echo "FAIL: precondition register-operator failed"
@@ -126,7 +126,7 @@ echo "--- PART 1: REJECTION — non-member reporter ---"
 TX_RES=$($BINARY tx service report-operator \
     "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" "non-member trying to file" \
     --from non_member --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_failure "$TX_RESULT"; then
     echo "FAIL: non-member reporter should have been rejected"
@@ -144,7 +144,7 @@ echo "--- PART 2: REJECTION — controller-group member as reporter (alice) ---"
 TX_RES=$($BINARY tx service report-operator \
     "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" "alice cannot report on Council-controlled op" \
     --from alice --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_failure "$TX_RESULT"; then
     echo "FAIL: alice (controller-group member) should have been rejected"
@@ -158,13 +158,13 @@ echo ""
 # ========================================================================
 echo "--- PART 3: HAPPY PATH — reporter1 files ---"
 
-REPORTER_BAL_BEFORE=$($BINARY query bank balances "$REPORTER1_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+REPORTER_BAL_BEFORE=$($BINARY query bank balances "$REPORTER1_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 echo "reporter1 balance before: $REPORTER_BAL_BEFORE uspark"
 
 TX_RES=$($BINARY tx service report-operator \
     "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" "reporter1 alleges operator1 misbehaved on test deployment" \
     --from reporter1 --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_success "$TX_RESULT"; then
     echo "FAIL: reporter1 report-operator failed"
@@ -180,7 +180,7 @@ fi
 echo "OK: filed report #$REPORT_ID"
 
 # Verify the report record is PENDING with the right shape.
-REPORT_INFO=$($BINARY query service report "$REPORT_ID" --output json 2>&1)
+REPORT_INFO=$($BINARY query service report "$REPORT_ID" --output json)
 R_STATUS=$(echo "$REPORT_INFO" | jq -r '.report.status')
 R_OP=$(echo "$REPORT_INFO" | jq -r '.report.operator_address')
 R_RPT=$(echo "$REPORT_INFO" | jq -r '.report.reporter')
@@ -207,7 +207,7 @@ fi
 echo "OK: Report record verified (status=$R_STATUS deposit=$R_DEP)"
 
 # Verify deposit was escrowed.
-REPORTER_BAL_AFTER=$($BINARY query bank balances "$REPORTER1_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+REPORTER_BAL_AFTER=$($BINARY query bank balances "$REPORTER1_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 echo "reporter1 balance after:  $REPORTER_BAL_AFTER uspark (lost $((REPORTER_BAL_BEFORE - REPORTER_BAL_AFTER)) to deposit + gas)"
 echo ""
 
@@ -216,7 +216,7 @@ echo ""
 # ========================================================================
 echo "--- PART 4: Query ReportsByOperator returns the new report ---"
 
-BY_OP=$($BINARY query service reports-by-operator "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" --output json 2>&1)
+BY_OP=$($BINARY query service reports-by-operator "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" --output json)
 # proto JSON renders uint64 fields as strings, so compare as strings.
 FOUND=$(echo "$BY_OP" | jq -r --arg id "$REPORT_ID" '.reports | map(select(.report_id == $id)) | length')
 if [ "$FOUND" -lt 1 ]; then
@@ -240,7 +240,7 @@ for i in 2 3; do
     TX_RES=$($BINARY tx service report-operator \
         "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" "follow-up report #$i" \
         --from reporter1 --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000uspark -y --output json 2>&1)
+        --fees 5000${BOND_DENOM} -y --output json)
     submit_and_wait "$TX_RES"
     if ! check_tx_success "$TX_RESULT"; then
         echo "FAIL: follow-up report #$i should have succeeded (cap is 3)"
@@ -255,7 +255,7 @@ done
 TX_RES=$($BINARY tx service report-operator \
     "$OPERATOR1_ADDR" "$TEST_SERVICE_TYPE" "over the cap" \
     --from reporter1 --chain-id $CHAIN_ID --keyring-backend test \
-    --fees 5000uspark -y --output json 2>&1)
+    --fees 5000${BOND_DENOM} -y --output json)
 submit_and_wait "$TX_RES"
 if ! check_tx_failure "$TX_RESULT"; then
     echo "FAIL: 4th report from reporter1 should hit the rate-limit cap"

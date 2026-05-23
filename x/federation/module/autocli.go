@@ -155,9 +155,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "RegisterBridge",
-					Use:            "register-bridge [peer-id] [protocol] [endpoint] [stake]",
-					Short:          "Operator-signed bridge registration (federation→service migration: operator pays own bond)",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "protocol"}, {ProtoField: "endpoint"}, {ProtoField: "stake"}},
+					Use:            "register-bridge [peer-id] [protocol] [endpoint] [stake-amount]",
+					Short:          "Operator-signed bridge registration (federation→service migration: operator pays own bond). stake-amount is a bare bond-denom amount; denom resolved at runtime from x/identity.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "protocol"}, {ProtoField: "endpoint"}, {ProtoField: "stake_amount"}},
 				},
 				{
 					RpcMethod:      "UpdateBridge",

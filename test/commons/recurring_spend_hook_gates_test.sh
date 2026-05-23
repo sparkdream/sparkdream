@@ -79,11 +79,11 @@ FUND_AMOUNT=$((MAX_SPEND_PER_EPOCH * 2))  # double the cap so balance never bind
 
 # --- 1. FUND THE COMMITTEE --------------------------------------------------
 echo ""
-echo "STEP 1: Funding committee with ${FUND_AMOUNT}uspark..."
-$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" "${FUND_AMOUNT}uspark" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null
+echo "STEP 1: Funding committee with ${FUND_AMOUNT}${BOND_DENOM}..."
+$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" "${FUND_AMOUNT}${BOND_DENOM}" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
 sleep 3
 
-POLICY_BAL_PRE=$($BINARY query bank balances "$POLICY_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+POLICY_BAL_PRE=$($BINARY query bank balances "$POLICY_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 if [ -z "$POLICY_BAL_PRE" ] || [ "$POLICY_BAL_PRE" -lt "$FUND_AMOUNT" ]; then
     echo "[FAIL] Funding did not arrive: policy balance=$POLICY_BAL_PRE"
     exit 1
@@ -102,7 +102,7 @@ cat > "$PROPOSAL_DIR/spend_drain.json" <<EOF
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
       "authority": "$POLICY_ADDR",
       "recipient": "$CAROL_ADDR",
-      "amount": [{"denom":"uspark","amount":"$SPEND_AMOUNT"}]
+      "amount": [{"denom": "${BOND_DENOM}","amount":"$SPEND_AMOUNT"}]
     }
   ],
   "metadata": "drain bucket"
@@ -113,9 +113,9 @@ DRAIN_SUBMIT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/spend_drain.jso
 DRAIN_HASH=$(echo "$DRAIN_SUBMIT" | jq -r '.txhash')
 sleep 3
 DRAIN_PROP=$($BINARY query tx "$DRAIN_HASH" --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-$BINARY tx commons vote-proposal "$DRAIN_PROP" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-$BINARY tx commons vote-proposal "$DRAIN_PROP" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-DRAIN_EXEC_RES=$($BINARY tx commons execute-proposal "$DRAIN_PROP" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json 2>&1)
+$BINARY tx commons vote-proposal "$DRAIN_PROP" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+$BINARY tx commons vote-proposal "$DRAIN_PROP" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+DRAIN_EXEC_RES=$($BINARY tx commons execute-proposal "$DRAIN_PROP" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json 2>&1)
 DRAIN_EXEC_HASH=$(echo "$DRAIN_EXEC_RES" | jq -r '.txhash // empty')
 sleep 5
 
@@ -135,7 +135,7 @@ echo "[ OK ] Drain proposal executed."
 
 # --- 3. SCHEDULE A RECURRING SPEND WHOSE FIRST CLAIM OVERFLOWS THE BUDGET ---
 echo ""
-echo "STEP 3: Scheduling a recurring spend with amount_per_period=${CLAIM_AMOUNT}uspark (overflows the remaining ${HEADROOM}uspark headroom)..."
+echo "STEP 3: Scheduling a recurring spend with amount_per_period=${CLAIM_AMOUNT}${BOND_DENOM} (overflows the remaining ${HEADROOM}${BOND_DENOM} headroom)..."
 
 NOW=$(date +%s)
 START_TIME=$((NOW + 30))
@@ -150,7 +150,7 @@ cat > "$PROPOSAL_DIR/schedule_overflow.json" <<EOF
       "@type": "/sparkdream.commons.v1.MsgScheduleRecurringSpend",
       "authority": "$POLICY_ADDR",
       "recipient": "$BOB_ADDR",
-      "amount_per_period": [{"denom":"uspark","amount":"$CLAIM_AMOUNT"}],
+      "amount_per_period": [{"denom": "${BOND_DENOM}","amount":"$CLAIM_AMOUNT"}],
       "period_seconds": "$PERIOD_SECONDS",
       "start_time": "$START_TIME",
       "end_time": "$END_TIME",
@@ -165,9 +165,9 @@ SCHED_SUBMIT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/schedule_overfl
 SCHED_HASH=$(echo "$SCHED_SUBMIT" | jq -r '.txhash')
 sleep 3
 SCHED_PROP=$($BINARY query tx "$SCHED_HASH" --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-$BINARY tx commons vote-proposal "$SCHED_PROP" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-$BINARY tx commons vote-proposal "$SCHED_PROP" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-SCHED_EXEC=$($BINARY tx commons execute-proposal "$SCHED_PROP" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
+$BINARY tx commons vote-proposal "$SCHED_PROP" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+$BINARY tx commons vote-proposal "$SCHED_PROP" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+SCHED_EXEC=$($BINARY tx commons execute-proposal "$SCHED_PROP" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
 sleep 3
 SCHED_EXEC_HASH=$(echo "$SCHED_EXEC" | jq -r '.txhash')
 
@@ -197,11 +197,11 @@ echo "STEP 4: Waiting ${WAIT_FOR}s for the first claim window..."
 sleep "$WAIT_FOR"
 
 # Capture bob's balance BEFORE the claim attempt to confirm no bank send.
-BOB_BAL_PRE=$($BINARY query bank balances "$BOB_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+BOB_BAL_PRE=$($BINARY query bank balances "$BOB_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 if [ -z "$BOB_BAL_PRE" ]; then BOB_BAL_PRE=0; fi
 echo "Bob's pre-claim balance: $BOB_BAL_PRE uspark"
 
-CLAIM_RES=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark --output json 2>&1)
+CLAIM_RES=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>&1)
 CLAIM_CODE=$(echo "$CLAIM_RES" | jq -r '.code')
 CLAIM_HASH=$(echo "$CLAIM_RES" | jq -r '.txhash')
 if [ "$CLAIM_CODE" == "0" ]; then
@@ -217,10 +217,10 @@ fi
 echo "[ OK ] Overflow claim rejected (code=$CLAIM_CODE)."
 
 # Bob's balance must be unchanged (minus fees for the failed tx).
-BOB_BAL_POST=$($BINARY query bank balances "$BOB_ADDR" --output json | jq -r '.balances[] | select(.denom=="uspark") | .amount')
+BOB_BAL_POST=$($BINARY query bank balances "$BOB_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 if [ -z "$BOB_BAL_POST" ]; then BOB_BAL_POST=0; fi
 DELTA=$((BOB_BAL_POST - BOB_BAL_PRE))
-# Bob paid up to 5000uspark in fees; the claim itself must not have credited.
+# Bob paid up to 5000${BOND_DENOM} in fees; the claim itself must not have credited.
 if [ "$DELTA" -gt 0 ]; then
     echo "[FAIL] Bob's balance increased by $DELTA — vetoed claim still moved coins."
     exit 1
@@ -264,9 +264,9 @@ CANCEL_SUBMIT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/cancel_overflo
 CANCEL_HASH=$(echo "$CANCEL_SUBMIT" | jq -r '.txhash')
 sleep 3
 CANCEL_PROP=$($BINARY query tx "$CANCEL_HASH" --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
-$BINARY tx commons vote-proposal "$CANCEL_PROP" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-$BINARY tx commons vote-proposal "$CANCEL_PROP" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null; sleep 3
-$BINARY tx commons execute-proposal "$CANCEL_PROP" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark > /dev/null
+$BINARY tx commons vote-proposal "$CANCEL_PROP" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+$BINARY tx commons vote-proposal "$CANCEL_PROP" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null; sleep 3
+$BINARY tx commons execute-proposal "$CANCEL_PROP" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} > /dev/null
 sleep 3
 echo "[ OK ] Schedule cancelled."
 

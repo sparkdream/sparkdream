@@ -35,7 +35,7 @@ func SimulateMsgCreateMarket(
 
 		// 1. Check for spendable uspark coins (market creation uses uspark specifically)
 		spendable := bk.SpendableCoins(ctx, simAccount.Address)
-		usparkBalance := spendable.AmountOf("uspark")
+		usparkBalance := spendable.AmountOf(sdk.DefaultBondDenom)
 		if usparkBalance.IsZero() {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "No uspark balance"), nil, nil
 		}
@@ -53,7 +53,7 @@ func SimulateMsgCreateMarket(
 		if amount.LT(minLiquidity) {
 			amount = minLiquidity
 		}
-		liquidity := sdk.NewCoin("uspark", amount)
+		liquidity := sdk.NewCoin(sdk.DefaultBondDenom, amount)
 
 		msg := &types.MsgCreateMarket{
 			Creator:          simAccount.Address.String(),

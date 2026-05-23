@@ -1,0 +1,23 @@
+syntax = "proto3";
+package sparkdream.guardian.module.v1;
+
+import "cosmos/app/v1alpha1/module.proto";
+
+option go_package = "sparkdream/x/guardian/types";
+
+// Module is the config object for the guardian module.
+//
+// guardian is a generic authority-gating module. It owns the authority
+// addresses for one or more downstream modules (bank, mint, staking by
+// default) and exposes a single MsgExec wrapper that gov can call to
+// invoke msg-type-specific proxies. Per-msg-type filters reject changes
+// to fields the chain has decided are immutable (e.g., mint inflation
+// parameters, bank native-denom Symbol/Display).
+//
+// See docs/x-identity-spec.md §14.6 for the identity-protection use
+// case, and the implementation-decisions doc for the broader rationale.
+message Module {
+  option (cosmos.app.v1alpha1.module) = {
+    go_import: "sparkdream/x/guardian"
+  };
+}

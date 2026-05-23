@@ -68,7 +68,7 @@ echo '{
       "term_duration": 31536000
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Create Commons Council",
   "summary": "Bootstrapping the Cultural Pillar."
 }' > "$PROPOSAL_DIR/create_commons.json"
@@ -105,7 +105,7 @@ echo '{
       "term_duration": 31536000
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Create Technical Council",
   "summary": "Bootstrapping the Technical Pillar."
 }' > "$PROPOSAL_DIR/create_tech.json"
@@ -142,7 +142,7 @@ echo '{
       "term_duration": 31536000
     }
   ],
-  "deposit": "50000000uspark",
+  "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Create Ecosystem Council",
   "summary": "Bootstrapping the Growth Pillar."
 }' > "$PROPOSAL_DIR/create_eco.json"

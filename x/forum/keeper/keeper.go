@@ -26,6 +26,10 @@ type Keeper struct {
 	bankKeeper           types.BankKeeper
 	repKeeper            types.RepKeeper
 	commonsKeeper        types.CommonsKeeper
+	// identityKeeper is late-bound via SetIdentityKeeper from app.go.
+	// Used by BondDenom() to resolve the chain's bond denom for federated
+	// chains. Panics if unwired — see BondDenom() for rationale.
+	identityKeeper       types.IdentityKeeper
 	Post                 collections.Map[uint64, types.Post]
 	PostSeq              collections.Sequence
 	UserRateLimit        collections.Map[string, types.UserRateLimit]
@@ -127,6 +131,23 @@ func NewKeeper(
 	k.Schema = schema
 
 	return k
+}
+
+// SetIdentityKeeper late-binds the identity keeper for federated-denom
+// resolution. Called from app.go post-depinject.
+func (k *Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
+	k.identityKeeper = idk
+}
+
+// BondDenom returns the chain's bond denom from the wired identity keeper.
+// Panics if identity isn't wired or returns no denom: every call site
+// needs a real denom and silently falling back to a hardcoded literal
+// re-introduces the mixed-state class of bug we just removed.
+func (k Keeper) BondDenom(ctx context.Context) string {
+	if k.identityKeeper == nil {
+		panic("forum keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
+	}
+	return k.identityKeeper.BondDenom(ctx)
 }
 
 // GetAuthority returns the module's authority.

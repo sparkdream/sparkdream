@@ -73,8 +73,10 @@ func (k msgServer) ClaimUnbondedBond(ctx context.Context, msg *types.MsgClaimUnb
 	k.settleBondBlocks(&op, currentHeight)
 
 	// Return bond to operator wallet.
-	if !op.Bond.Amount.IsZero() {
-		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, sdk.AccAddress(opBytes), sdk.NewCoins(op.Bond)); err != nil {
+	bondDenom := k.BondDenom(ctx)
+	bondCoin := sdk.NewCoin(bondDenom, op.BondAmount)
+	if !op.BondAmount.IsZero() {
+		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, sdk.AccAddress(opBytes), sdk.NewCoins(bondCoin)); err != nil {
 			return nil, err
 		}
 	}
@@ -95,10 +97,10 @@ func (k msgServer) ClaimUnbondedBond(ctx context.Context, msg *types.MsgClaimUnb
 	}
 
 	// Capture returned amount before zeroing for the event.
-	returnedBond := op.Bond
+	returnedBond := bondCoin
 
 	// Zero bond + flip to RETIRED + archive.
-	op.Bond = sdk.NewCoin(types.BondDenom, sdkmath.ZeroInt())
+	op.BondAmount = sdkmath.ZeroInt()
 	op.Status = types.OperatorStatus_OPERATOR_STATUS_RETIRED
 	op.RetiredAt = currentHeight
 	if err := k.ArchiveOperator(ctx, op); err != nil {

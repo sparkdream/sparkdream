@@ -33,7 +33,7 @@ func (k msgServer) TopUpTagBudget(ctx context.Context, msg *types.MsgTopUpTagBud
 	}
 
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-	topUpCoins := sdk.NewCoins(sdk.NewCoin(types.TagBudgetFeeDenom, topUpAmount))
+	topUpCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), topUpAmount))
 	if err := k.bankKeeper.SendCoins(ctx, creatorAddr, TagBudgetEscrowAddress(), topUpCoins); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to escrow top up funds")
 	}

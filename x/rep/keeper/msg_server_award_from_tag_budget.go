@@ -126,7 +126,7 @@ func (k msgServer) AwardFromTagBudget(ctx context.Context, msg *types.MsgAwardFr
 	}
 
 	recipientAddr, _ := sdk.AccAddressFromBech32(author)
-	awardCoins := sdk.NewCoins(sdk.NewCoin(types.TagBudgetFeeDenom, awardAmount))
+	awardCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), awardAmount))
 	if err := k.bankKeeper.SendCoins(ctx, TagBudgetEscrowAddress(), recipientAddr, awardCoins); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to transfer award funds")
 	}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 const (
@@ -12,8 +11,6 @@ const (
 	DefaultMaxTitleLength uint64 = 200
 	// DefaultMaxBodyLength is the default maximum length for post bodies
 	DefaultMaxBodyLength uint64 = 10000
-	// DefaultFeeDenom is the default fee coin denomination
-	DefaultFeeDenom = "uspark"
 
 	// DefaultMaxReplyLength is the default maximum reply body length in bytes
 	DefaultMaxReplyLength uint64 = 2000
@@ -50,13 +47,13 @@ const (
 )
 
 var (
-	// DefaultCostPerByteAmount is the default per-byte storage cost (100 uspark/byte)
+	// DefaultCostPerByteAmount is the default per-byte storage cost in bond-denom micro-units.
 	DefaultCostPerByteAmount = math.NewInt(100)
-	// DefaultReactionFeeAmount is the default flat fee per reaction (50 uspark)
+	// DefaultReactionFeeAmount is the default flat fee per reaction in bond-denom micro-units.
 	DefaultReactionFeeAmount = math.NewInt(50)
-	// DefaultMaxCostPerByteAmount is the governance-only ceiling for cost_per_byte (1000 uspark)
+	// DefaultMaxCostPerByteAmount is the governance-only ceiling for cost_per_byte_amount.
 	DefaultMaxCostPerByteAmount = math.NewInt(1000)
-	// DefaultMaxReactionFeeAmount is the governance-only ceiling for reaction_fee (500 uspark)
+	// DefaultMaxReactionFeeAmount is the governance-only ceiling for reaction_fee_amount.
 	DefaultMaxReactionFeeAmount = math.NewInt(500)
 	// DefaultConvictionRenewalThreshold is the default min conviction score to renew anonymous content (100.0)
 	DefaultConvictionRenewalThreshold = math.LegacyNewDec(100)
@@ -67,11 +64,11 @@ func NewParams(maxTitleLength, maxBodyLength uint64) Params {
 	return Params{
 		MaxTitleLength:             maxTitleLength,
 		MaxBodyLength:              maxBodyLength,
-		CostPerByte:                sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
+		CostPerByteAmount:          DefaultCostPerByteAmount,
 		CostPerByteExempt:          false,
 		MaxReplyLength:             DefaultMaxReplyLength,
 		MaxReplyDepth:              DefaultMaxReplyDepth,
-		ReactionFee:                sdk.NewCoin(DefaultFeeDenom, DefaultReactionFeeAmount),
+		ReactionFeeAmount:          DefaultReactionFeeAmount,
 		ReactionFeeExempt:          false,
 		MaxPostsPerDay:             DefaultMaxPostsPerDay,
 		MaxRepliesPerDay:           DefaultMaxRepliesPerDay,
@@ -80,8 +77,8 @@ func NewParams(maxTitleLength, maxBodyLength uint64) Params {
 		PinMinTrustLevel:           DefaultPinMinTrustLevel,
 		MaxPinsPerDay:              DefaultMaxPinsPerDay,
 		MinEphemeralContentTtl:     DefaultMinEphemeralContentTTL,
-		MaxCostPerByte:             sdk.NewCoin(DefaultFeeDenom, DefaultMaxCostPerByteAmount),
-		MaxReactionFee:             sdk.NewCoin(DefaultFeeDenom, DefaultMaxReactionFeeAmount),
+		MaxCostPerByteAmount:       DefaultMaxCostPerByteAmount,
+		MaxReactionFeeAmount:       DefaultMaxReactionFeeAmount,
 		ConvictionRenewalThreshold: DefaultConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:    DefaultConvictionRenewalPeriod,
 		MaxTagsPerPost:             DefaultMaxTagsPerPost,
@@ -98,9 +95,9 @@ func DefaultParams() Params {
 // matching the full Params defaults for all operational fields.
 func DefaultBlogOperationalParams() BlogOperationalParams {
 	return BlogOperationalParams{
-		CostPerByte:                sdk.NewCoin(DefaultFeeDenom, DefaultCostPerByteAmount),
+		CostPerByteAmount:          DefaultCostPerByteAmount,
 		CostPerByteExempt:          false,
-		ReactionFee:                sdk.NewCoin(DefaultFeeDenom, DefaultReactionFeeAmount),
+		ReactionFeeAmount:          DefaultReactionFeeAmount,
 		ReactionFeeExempt:          false,
 		MaxPostsPerDay:             DefaultMaxPostsPerDay,
 		MaxRepliesPerDay:           DefaultMaxRepliesPerDay,
@@ -114,11 +111,11 @@ func DefaultBlogOperationalParams() BlogOperationalParams {
 
 // Validate validates the operational params.
 func (op BlogOperationalParams) Validate() error {
-	if !op.CostPerByte.Amount.IsNil() && op.CostPerByte.IsNegative() {
-		return fmt.Errorf("cost_per_byte cannot be negative: %s", op.CostPerByte)
+	if !op.CostPerByteAmount.IsNil() && op.CostPerByteAmount.IsNegative() {
+		return fmt.Errorf("cost_per_byte_amount cannot be negative: %s", op.CostPerByteAmount)
 	}
-	if !op.ReactionFee.Amount.IsNil() && op.ReactionFee.IsNegative() {
-		return fmt.Errorf("reaction_fee cannot be negative: %s", op.ReactionFee)
+	if !op.ReactionFeeAmount.IsNil() && op.ReactionFeeAmount.IsNegative() {
+		return fmt.Errorf("reaction_fee_amount cannot be negative: %s", op.ReactionFeeAmount)
 	}
 	if op.MaxPostsPerDay == 0 {
 		return fmt.Errorf("max_posts_per_day must be positive, got %d", op.MaxPostsPerDay)
@@ -148,12 +145,12 @@ func (op BlogOperationalParams) Validate() error {
 
 // ApplyOperationalParams copies all operational fields from op into p,
 // preserving governance-only fields (MaxTitleLength, MaxBodyLength,
-// MinEphemeralContentTtl, MaxCostPerByte, MaxReactionFee,
+// MinEphemeralContentTtl, MaxCostPerByteAmount, MaxReactionFeeAmount,
 // MaxReplyLength, MaxReplyDepth, PinMinTrustLevel).
 func (p Params) ApplyOperationalParams(op BlogOperationalParams) Params {
-	p.CostPerByte = op.CostPerByte
+	p.CostPerByteAmount = op.CostPerByteAmount
 	p.CostPerByteExempt = op.CostPerByteExempt
-	p.ReactionFee = op.ReactionFee
+	p.ReactionFeeAmount = op.ReactionFeeAmount
 	p.ReactionFeeExempt = op.ReactionFeeExempt
 	p.MaxPostsPerDay = op.MaxPostsPerDay
 	p.MaxRepliesPerDay = op.MaxRepliesPerDay
@@ -168,9 +165,9 @@ func (p Params) ApplyOperationalParams(op BlogOperationalParams) Params {
 // ExtractOperationalParams extracts the operational fields from the full params.
 func (p Params) ExtractOperationalParams() BlogOperationalParams {
 	return BlogOperationalParams{
-		CostPerByte:                p.CostPerByte,
+		CostPerByteAmount:          p.CostPerByteAmount,
 		CostPerByteExempt:          p.CostPerByteExempt,
-		ReactionFee:                p.ReactionFee,
+		ReactionFeeAmount:          p.ReactionFeeAmount,
 		ReactionFeeExempt:          p.ReactionFeeExempt,
 		MaxPostsPerDay:             p.MaxPostsPerDay,
 		MaxRepliesPerDay:           p.MaxRepliesPerDay,
@@ -198,8 +195,8 @@ func (p Params) Validate() error {
 			p.MaxTitleLength, p.MaxBodyLength)
 	}
 
-	if !p.CostPerByte.Amount.IsNil() && p.CostPerByte.IsNegative() {
-		return fmt.Errorf("cost_per_byte cannot be negative: %s", p.CostPerByte)
+	if !p.CostPerByteAmount.IsNil() && p.CostPerByteAmount.IsNegative() {
+		return fmt.Errorf("cost_per_byte_amount cannot be negative: %s", p.CostPerByteAmount)
 	}
 
 	if p.MaxReplyLength == 0 {
@@ -210,8 +207,8 @@ func (p Params) Validate() error {
 		return fmt.Errorf("max_reply_depth must be between 1 and 20, got %d", p.MaxReplyDepth)
 	}
 
-	if !p.ReactionFee.Amount.IsNil() && p.ReactionFee.IsNegative() {
-		return fmt.Errorf("reaction_fee cannot be negative: %s", p.ReactionFee)
+	if !p.ReactionFeeAmount.IsNil() && p.ReactionFeeAmount.IsNegative() {
+		return fmt.Errorf("reaction_fee_amount cannot be negative: %s", p.ReactionFeeAmount)
 	}
 
 	if p.MaxPostsPerDay == 0 {
@@ -248,28 +245,28 @@ func (p Params) Validate() error {
 			p.EphemeralContentTtl, p.MinEphemeralContentTtl)
 	}
 
-	// Cross-field: cost_per_byte must not exceed max_cost_per_byte (if both non-zero)
-	if !p.CostPerByte.Amount.IsNil() && !p.MaxCostPerByte.Amount.IsNil() &&
-		!p.CostPerByte.Amount.IsZero() && !p.MaxCostPerByte.Amount.IsZero() &&
-		p.CostPerByte.Amount.GT(p.MaxCostPerByte.Amount) {
-		return fmt.Errorf("cost_per_byte (%s) must not exceed max_cost_per_byte (%s)",
-			p.CostPerByte, p.MaxCostPerByte)
+	// Cross-field: cost_per_byte_amount must not exceed max_cost_per_byte_amount (if both non-zero)
+	if !p.CostPerByteAmount.IsNil() && !p.MaxCostPerByteAmount.IsNil() &&
+		!p.CostPerByteAmount.IsZero() && !p.MaxCostPerByteAmount.IsZero() &&
+		p.CostPerByteAmount.GT(p.MaxCostPerByteAmount) {
+		return fmt.Errorf("cost_per_byte_amount (%s) must not exceed max_cost_per_byte_amount (%s)",
+			p.CostPerByteAmount, p.MaxCostPerByteAmount)
 	}
 
-	// Cross-field: reaction_fee must not exceed max_reaction_fee (if both non-zero)
-	if !p.ReactionFee.Amount.IsNil() && !p.MaxReactionFee.Amount.IsNil() &&
-		!p.ReactionFee.Amount.IsZero() && !p.MaxReactionFee.Amount.IsZero() &&
-		p.ReactionFee.Amount.GT(p.MaxReactionFee.Amount) {
-		return fmt.Errorf("reaction_fee (%s) must not exceed max_reaction_fee (%s)",
-			p.ReactionFee, p.MaxReactionFee)
+	// Cross-field: reaction_fee_amount must not exceed max_reaction_fee_amount (if both non-zero)
+	if !p.ReactionFeeAmount.IsNil() && !p.MaxReactionFeeAmount.IsNil() &&
+		!p.ReactionFeeAmount.IsZero() && !p.MaxReactionFeeAmount.IsZero() &&
+		p.ReactionFeeAmount.GT(p.MaxReactionFeeAmount) {
+		return fmt.Errorf("reaction_fee_amount (%s) must not exceed max_reaction_fee_amount (%s)",
+			p.ReactionFeeAmount, p.MaxReactionFeeAmount)
 	}
 
-	if p.MaxCostPerByte.Amount.IsNil() || !p.MaxCostPerByte.IsPositive() {
-		return fmt.Errorf("max_cost_per_byte must be positive, got %s", p.MaxCostPerByte)
+	if p.MaxCostPerByteAmount.IsNil() || !p.MaxCostPerByteAmount.IsPositive() {
+		return fmt.Errorf("max_cost_per_byte_amount must be positive, got %s", p.MaxCostPerByteAmount)
 	}
 
-	if p.MaxReactionFee.Amount.IsNil() || !p.MaxReactionFee.IsPositive() {
-		return fmt.Errorf("max_reaction_fee must be positive, got %s", p.MaxReactionFee)
+	if p.MaxReactionFeeAmount.IsNil() || !p.MaxReactionFeeAmount.IsPositive() {
+		return fmt.Errorf("max_reaction_fee_amount must be positive, got %s", p.MaxReactionFeeAmount)
 	}
 
 	// Conviction renewal validation

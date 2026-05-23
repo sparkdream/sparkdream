@@ -287,7 +287,7 @@ elif echo "$DAY_FUND" | grep -qi "error"; then
     record_result "Day funding tracking" "PASS"
 else
     FUNDED=$(echo "$DAY_FUND" | jq -r '.day_funding.amount_funded // "0"')
-    echo "  Day $CURRENT_DAY funded: $FUNDED uspark"
+    echo "  Day $CURRENT_DAY funded: $FUNDED ${BOND_DENOM}"
     record_result "Day funding tracking" "PASS"
 fi
 
@@ -304,10 +304,10 @@ if echo "$BALANCE" | grep -qi "error"; then
 else
     BAL_AMOUNT=$(echo "$BALANCE" | jq -r '.balance.amount // "0"')
 
-    echo "  Shield module balance: $BAL_AMOUNT uspark"
+    echo "  Shield module balance: $BAL_AMOUNT ${BOND_DENOM}"
 
     MIN_RESERVE=$(echo "$PARAMS" | jq -r '.params.min_gas_reserve // "0"')
-    echo "  Min gas reserve: $MIN_RESERVE uspark"
+    echo "  Min gas reserve: $MIN_RESERVE ${BOND_DENOM}"
 
     if [ "$BAL_AMOUNT" != "0" ] && [ "$BAL_AMOUNT" != "null" ]; then
         if [ "$BAL_AMOUNT" -ge "$MIN_RESERVE" ] 2>/dev/null; then

@@ -46,7 +46,7 @@ echo ""
 echo "Funding invitee accounts with SPARK for transaction fees..."
 
 # Check Alice's SPARK balance first
-ALICE_SPARK=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r '[.balances[] | select(.denom=="uspark") | .amount] | if length > 0 then .[0] else "0" end')
+ALICE_SPARK=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '[.balances[] | select(.denom==$denom) | .amount] | if length > 0 then .[0] else "0" end')
 REQUIRED_SPARK=$((4 * 1000000 + 4 * 5000))  # 4 * 1 SPARK + 4 * fees
 echo "Alice's SPARK balance: $ALICE_SPARK uspark (needs at least $REQUIRED_SPARK uspark)"
 
@@ -56,20 +56,20 @@ if [ "$ALICE_SPARK" -lt "$REQUIRED_SPARK" ]; then
 fi
 
 # Fund each invitee sequentially to ensure they all get funded
-$BINARY tx bank send alice $INVITEE1_ADDR 1000000uspark --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json > /dev/null 2>&1
+$BINARY tx bank send alice $INVITEE1_ADDR 1000000${BOND_DENOM} --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json > /dev/null 2>&1
 sleep 2
-$BINARY tx bank send alice $INVITEE2_ADDR 1000000uspark --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json > /dev/null 2>&1
+$BINARY tx bank send alice $INVITEE2_ADDR 1000000${BOND_DENOM} --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json > /dev/null 2>&1
 sleep 2
-$BINARY tx bank send alice $INVITEE3_ADDR 1000000uspark --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json > /dev/null 2>&1
+$BINARY tx bank send alice $INVITEE3_ADDR 1000000${BOND_DENOM} --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json > /dev/null 2>&1
 sleep 2
-$BINARY tx bank send alice $INVITEE4_ADDR 1000000uspark --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json > /dev/null 2>&1
+$BINARY tx bank send alice $INVITEE4_ADDR 1000000${BOND_DENOM} --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json > /dev/null 2>&1
 sleep 2
 
 # Verify accounts were funded
-INV1_BALANCE=$($BINARY query bank balances $INVITEE1_ADDR --output json 2>/dev/null | jq -r '[.balances[] | select(.denom=="uspark") | .amount] | if length > 0 then .[0] else "0" end')
-INV2_BALANCE=$($BINARY query bank balances $INVITEE2_ADDR --output json 2>/dev/null | jq -r '[.balances[] | select(.denom=="uspark") | .amount] | if length > 0 then .[0] else "0" end')
-INV3_BALANCE=$($BINARY query bank balances $INVITEE3_ADDR --output json 2>/dev/null | jq -r '[.balances[] | select(.denom=="uspark") | .amount] | if length > 0 then .[0] else "0" end')
-INV4_BALANCE=$($BINARY query bank balances $INVITEE4_ADDR --output json 2>/dev/null | jq -r '[.balances[] | select(.denom=="uspark") | .amount] | if length > 0 then .[0] else "0" end')
+INV1_BALANCE=$($BINARY query bank balances $INVITEE1_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '[.balances[] | select(.denom==$denom) | .amount] | if length > 0 then .[0] else "0" end')
+INV2_BALANCE=$($BINARY query bank balances $INVITEE2_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '[.balances[] | select(.denom==$denom) | .amount] | if length > 0 then .[0] else "0" end')
+INV3_BALANCE=$($BINARY query bank balances $INVITEE3_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '[.balances[] | select(.denom==$denom) | .amount] | if length > 0 then .[0] else "0" end')
+INV4_BALANCE=$($BINARY query bank balances $INVITEE4_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '[.balances[] | select(.denom==$denom) | .amount] | if length > 0 then .[0] else "0" end')
 
 if [ "$INV1_BALANCE" -gt 0 ] && [ "$INV2_BALANCE" -gt 0 ] && [ "$INV3_BALANCE" -gt 0 ] && [ "$INV4_BALANCE" -gt 0 ]; then
     echo "[ OK ] Invitees funded with 1 SPARK each for transaction fees"
@@ -137,7 +137,7 @@ elif [ -z "$EXISTING_MEMBER" ]; then
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json)
 
@@ -214,7 +214,7 @@ if [ -z "$EXISTING_MEMBER" ]; then
       --from invitee1 \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json)
 
@@ -268,7 +268,7 @@ if [ "$INVITEE1_IS_MEMBER" = "yes" ]; then
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json 2>&1)
 else
@@ -282,7 +282,7 @@ else
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json 2>&1)
 fi
@@ -350,7 +350,7 @@ else
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json)
 
@@ -379,7 +379,7 @@ elif [ "$INV2_STATUS" = "INVITATION_STATUS_ACCEPTED" ]; then
     echo "[INFO]  Invitation already accepted but member record not found (may need investigation)"
 elif [ "$INV2_STATUS" = "null" ] || [ "$INV2_STATUS" = "INVITATION_STATUS_PENDING" ] || [ -z "$INV2_STATUS" ]; then
     echo "Invitee2 accepts invitation..."
-    ACCEPT_RES=$($BINARY tx rep accept-invitation $INVITATION_ID2 --from invitee2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    ACCEPT_RES=$($BINARY tx rep accept-invitation $INVITATION_ID2 --from invitee2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if response is valid JSON
@@ -440,7 +440,7 @@ if echo "$INVITEE2_MEMBER" | grep -q "member"; then
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y > /dev/null 2>&1
     sleep 3
 
@@ -469,7 +469,7 @@ else
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json)
 
@@ -492,7 +492,7 @@ INVITEE3_EXISTS=$($BINARY query rep get-member $INVITEE3_ADDR --output json 2>&1
 
 if [ "$INVITEE3_EXISTS" = "no" ] && [ -n "$INVITATION_ID3" ]; then
     echo "Invitee3 accepts invitation..."
-    ACCEPT3_RES=$($BINARY tx rep accept-invitation $INVITATION_ID3 --from invitee3 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    ACCEPT3_RES=$($BINARY tx rep accept-invitation $INVITATION_ID3 --from invitee3 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if transaction succeeded
@@ -562,7 +562,7 @@ else
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       --output json)
 
@@ -593,7 +593,7 @@ elif [ "$INVITEE4_EXISTS" = "yes" ]; then
     echo "[INFO]  Invitee4 is already a member"
 else
     echo "Invitee4 accepts invitation..."
-    ACCEPT4_RES=$($BINARY tx rep accept-invitation $INVITATION_ID4 --from invitee4 --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+    ACCEPT4_RES=$($BINARY tx rep accept-invitation $INVITATION_ID4 --from invitee4 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if transaction succeeded

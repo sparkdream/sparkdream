@@ -113,13 +113,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$GRANTEE1_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -150,13 +150,13 @@ EXPIRATION=$(get_future_expiration 2)
 TX_RES=$($BINARY tx session create-session \
     "$GRANTEE2_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost,/sparkdream.blog.v1.MsgUpdatePost,/sparkdream.blog.v1.MsgReact" \
-    "20000000uspark" \
+    "20000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "5" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -186,13 +186,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$GRANTER_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -220,13 +220,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$GRANTEE1_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -259,13 +259,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP1_ADDR" \
     "/sparkdream.session.v1.MsgCreateSession" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -297,13 +297,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP2_ADDR" \
     "/sparkdream.rep.v1.MsgInviteMember" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -332,17 +332,17 @@ fi
 TEMP3_ADDR=$($BINARY keys show session_temp3 -a --keyring-backend test)
 
 EXPIRATION=$(get_future_expiration 1)
-# Default max is 100 SPARK = 100000000uspark, try 200 SPARK
+# Default max is 100 SPARK = 100000000${BOND_DENOM}, try 200 SPARK
 TX_RES=$($BINARY tx session create-session \
     "$TEMP3_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "200000000uspark" \
+    "200000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -375,13 +375,13 @@ EXPIRATION=$(date -u -d "+192 hours" +"%Y-%m-%dT%H:%M:%SZ")
 TX_RES=$($BINARY tx session create-session \
     "$TEMP4_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -413,13 +413,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP5_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "0uspark" \
+    "0${BOND_DENOM}" \
     "$EXPIRATION" \
     "10" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -459,7 +459,7 @@ TX_RES=$($BINARY tx session create-session \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -491,13 +491,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP7_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "0" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -536,13 +536,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP8_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "$OVER_CAP" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -575,13 +575,13 @@ EXPIRATION=$(get_future_expiration 1)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP9_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "$PARAMS_MAX_EXEC" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)

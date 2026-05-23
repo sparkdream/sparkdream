@@ -89,7 +89,7 @@ APPRENTICE_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -141,7 +141,7 @@ STANDARD_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -217,7 +217,7 @@ ASSIGN_RES=$($BINARY tx rep assign-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -289,7 +289,7 @@ SUBMIT_RES=$($BINARY tx rep submit-initiative-work \
   --from $WORKER_NAME \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -333,7 +333,7 @@ CHALLENGE_RES=$($BINARY tx rep create-challenge \
   --from challenger \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -424,7 +424,7 @@ if [ "$CHALLENGE_ID" != "unknown" ] && [ -n "$CHALLENGE_ID" ]; then
       --from $WORKER_NAME \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       -o json)
 
@@ -465,7 +465,7 @@ STAKER1_STAKE_RES=$($BINARY tx rep stake \
   --keyring-backend test \
   --gas auto \
   --gas-adjustment 1.5 \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json 2>&1)
 
@@ -524,7 +524,7 @@ STAKER2_STAKE_RES=$($BINARY tx rep stake \
   --keyring-backend test \
   --gas auto \
   --gas-adjustment 1.5 \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json 2>&1)
 
@@ -677,7 +677,7 @@ ABANDON_TEST_RES=$($BINARY tx rep create-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -722,7 +722,7 @@ ASSIGN_ABANDON_RES=$($BINARY tx rep assign-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -761,7 +761,7 @@ ABANDON_RES=$($BINARY tx rep abandon-initiative \
   --from $WORKER_NAME \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -815,7 +815,7 @@ COMPLETE_RES=$($BINARY tx rep complete-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
-  --fees 5000uspark \
+  --fees 5000${BOND_DENOM} \
   -y \
   -o json)
 
@@ -909,7 +909,7 @@ if [ "$STAKER1_STAKE_ID" != "unknown" ] && [ -n "$STAKER1_STAKE_ID" ]; then
       --from $STAKER1_NAME \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
-      --fees 5000uspark \
+      --fees 5000${BOND_DENOM} \
       -y \
       -o json)
 

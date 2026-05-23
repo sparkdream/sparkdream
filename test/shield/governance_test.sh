@@ -93,7 +93,7 @@ submit_and_pass_proposal() {
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --gas 500000 \
-        --fees 10000uspark \
+        --fees 10000${BOND_DENOM} \
         -y \
         --output json 2>/dev/null)
 
@@ -129,7 +129,7 @@ submit_and_pass_proposal() {
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>/dev/null)
 
@@ -185,7 +185,7 @@ cat > "$PROPOSAL_DIR/register_test_op.json" <<EOF
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Register test shielded operation",
   "summary": "Register a test shielded operation for e2e testing"
@@ -300,7 +300,7 @@ cat > "$PROPOSAL_DIR/update_test_op.json" <<EOF
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Update test shielded operation",
   "summary": "Update test operation: lower trust, set inactive, change scope to global"
@@ -377,7 +377,7 @@ cat > "$PROPOSAL_DIR/deregister_test_op.json" <<EOF
       "message_type_url": "/sparkdream.test.v1.MsgTestShielded"
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Deregister test shielded operation",
   "summary": "Remove the test shielded operation after testing"
@@ -463,7 +463,7 @@ cat > "$PROPOSAL_DIR/update_shield_params.json" <<EOF
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Update shield module parameters",
   "summary": "Update max_gas_per_exec and max_execs_per_identity_per_epoch for testing"
@@ -540,7 +540,7 @@ cat > "$PROPOSAL_DIR/restore_shield_params.json" <<EOF
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Restore shield module parameters",
   "summary": "Restore original shield parameters after testing"
@@ -590,7 +590,7 @@ cat > "$PROPOSAL_DIR/invalid_authority.json" <<EOF
       }
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Invalid authority test",
   "summary": "This proposal uses alice as authority instead of gov module"
@@ -602,7 +602,7 @@ INVALID_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/invalid_authority.js
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --gas 500000 \
-    --fees 10000uspark \
+    --fees 10000${BOND_DENOM} \
     -y \
     --output json 2>/dev/null)
 
@@ -649,7 +649,7 @@ cat > "$PROPOSAL_DIR/deregister_nonexistent.json" <<EOF
       "message_type_url": "/sparkdream.test.v1.MsgDoesNotExist"
     }
   ],
-  "deposit": "100000000uspark",
+  "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Deregister non-existent operation",
   "summary": "Attempt to deregister an operation that was never registered"
@@ -662,7 +662,7 @@ NONEX_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/deregister_nonexistent
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --gas 500000 \
-    --fees 10000uspark \
+    --fees 10000${BOND_DENOM} \
     -y \
     --output json 2>/dev/null)
 
@@ -687,7 +687,7 @@ else
                 --from alice \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
-                --fees 5000uspark \
+                --fees 5000${BOND_DENOM} \
                 -y \
                 --output json > /dev/null 2>&1
 

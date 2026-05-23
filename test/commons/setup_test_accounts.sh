@@ -11,6 +11,7 @@ echo ""
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test 2>/dev/null || echo "")
@@ -79,8 +80,8 @@ provision_member() {
 
     # Fund with SPARK for gas (10 SPARK is enough for the half-dozen post/category txs).
     local TX
-    TX=$($BINARY tx bank send alice "$ADDR" 10000000uspark \
-        --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y \
+    TX=$($BINARY tx bank send alice "$ADDR" 10000000${BOND_DENOM} \
+        --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y \
         --output json 2>&1)
     local H
     H=$(echo "$TX" | jq -r '.txhash')
@@ -100,7 +101,7 @@ provision_member() {
     STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
     TX=$($BINARY tx rep invite-member "$ADDR" "$STAKE" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y \
         --output json 2>&1)
     H=$(echo "$TX" | jq -r '.txhash')
     if [ -z "$H" ] || [ "$H" == "null" ]; then
@@ -120,7 +121,7 @@ provision_member() {
     fi
 
     TX=$($BINARY tx rep accept-invitation "$INV" \
-        --from $NAME --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y \
+        --from $NAME --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y \
         --output json 2>&1)
     H=$(echo "$TX" | jq -r '.txhash')
     sleep 6
@@ -144,6 +145,8 @@ export BOB_ADDR=$BOB_ADDR
 export CAROL_ADDR=$CAROL_ADDR
 export POSTER1_ADDR=$POSTER1_ADDR
 export POSTER2_ADDR=$POSTER2_ADDR
+export BOND_DENOM=$BOND_DENOM
+export DREAM_DENOM=$DREAM_DENOM
 EOF
 
 echo "=================================================="

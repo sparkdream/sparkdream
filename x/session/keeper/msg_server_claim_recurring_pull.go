@@ -21,7 +21,7 @@ import (
 //   - verifies the grant's logical clock is at least one period in the
 //     past relative to block time (catch-up requires multiple txs),
 //   - debits the current UTC-day bucket and rejects if it would breach
-//     max_per_epoch_uspark,
+//     max_per_epoch,
 //   - transfers amount_per_period from granter to grantee,
 //   - advances last_claim_advance by exactly period_seconds (anchored to
 //     the grant, not block time), and
@@ -105,9 +105,9 @@ func (k Keeper) claimRecurringPullCommon(ctx context.Context, grantID uint64, gr
 	}
 
 	// Epoch self-throttle: debit the current UTC-day bucket. Reject if
-	// it would breach max_per_epoch_uspark.
+	// it would breach max_per_epoch.
 	day := utcDayIndex(sdkCtx.BlockTime())
-	maxPerEpoch, ok := sdkmath.NewIntFromString(rp.MaxPerEpochUspark)
+	maxPerEpoch, ok := sdkmath.NewIntFromString(rp.MaxPerEpoch)
 	if !ok {
 		// Should be impossible — validated at creation. Treat as zero.
 		maxPerEpoch = sdkmath.ZeroInt()

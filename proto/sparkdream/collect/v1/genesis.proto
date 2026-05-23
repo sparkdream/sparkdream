@@ -22,11 +22,6 @@ message GenesisState {
   repeated Item items = 4 [(gogoproto.nullable) = false];
   uint64 item_count = 5;
   repeated Collaborator collaborators = 6 [(gogoproto.nullable) = false];
-  // field 7 previously held repeated Curator — replaced by x/rep BondedRole
-  // (ROLE_TYPE_COLLECT_CURATOR). Per-module counters live in
-  // curator_activities.
-  reserved 7;
-  reserved "curators";
   repeated CuratorActivity curator_activities = 16 [(gogoproto.nullable) = false];
   repeated CurationReview curation_reviews = 8 [(gogoproto.nullable) = false];
   uint64 curation_review_count = 9;

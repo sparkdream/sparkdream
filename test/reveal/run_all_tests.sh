@@ -26,6 +26,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../lib/denoms.sh"
 source "$SCRIPT_DIR/../check_testparams.sh"
 source "$SCRIPT_DIR/../_timing.sh"
 BINARY="sparkdreamd"
@@ -191,7 +192,7 @@ else
     fi
 
     # Check Alice balance
-    ALICE_BALANCE=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount' || echo "0")
+    ALICE_BALANCE=$($BINARY query bank balances $ALICE_ADDR --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount' || echo "0")
     if [ "$ALICE_BALANCE" -lt 1000000 ] 2>/dev/null; then
         echo "WARNING: Alice has low SPARK balance: $ALICE_BALANCE uspark"
     fi
@@ -420,8 +421,9 @@ fi
 # `tx reveal propose` — like stake_withdraw setting up Project Vega —
 # fails with "contributor is still in proposal cooldown".
 #
-# CLAUDE.md flags this same hazard for the parallel runner; keeping the
-# sequential order in sync prevents the same false-fail.
+# The parallel runner ([test/run_parallel.sh](../run_parallel.sh)) documents
+# the same hazard; keeping the sequential order in sync prevents the same
+# false-fail.
 if [ "$RUN_STAKE" = true ]; then
     run_test "Stake/Withdraw Tests" "stake_withdraw_test.sh"
 else

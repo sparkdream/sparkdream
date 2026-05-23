@@ -59,7 +59,7 @@ func SimulateMsgRedeem(
 			// Also ensure module has collateral for payout
 			denom := market.Denom
 			if denom == "" {
-				denom = "uspark"
+				denom = sdk.DefaultBondDenom
 			}
 			collateralCoins := sdk.NewCoins(sdk.NewCoin(denom, shareAmount))
 			if err := bk.MintCoins(ctx, types.ModuleName, collateralCoins); err != nil {
@@ -84,7 +84,7 @@ func SimulateMsgRedeem(
 		// Pay out collateral
 		denom := market.Denom
 		if denom == "" {
-			denom = "uspark"
+			denom = sdk.DefaultBondDenom
 		}
 		payout := sdk.NewCoin(denom, shareBalance.Amount)
 		if err := bk.SendCoinsFromModuleToAccount(ctx, types.ModuleName, simAccount.Address, sdk.NewCoins(payout)); err != nil {
@@ -175,7 +175,7 @@ func getOrCreateResolvedMarket(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, c
 		Creator:            creator,
 		Symbol:             fmt.Sprintf("SIM%d", marketID),
 		Question:           "Simulation test market?",
-		Denom:              "uspark",
+		Denom:              sdk.DefaultBondDenom,
 		MinTick:            &minTick,
 		EndBlock:           ctx.BlockHeight() - 100,
 		RedemptionBlocks:   0,

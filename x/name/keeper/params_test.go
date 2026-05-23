@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/name/types"
@@ -22,7 +21,7 @@ func TestKeeper_SetParams(t *testing.T) {
 	// Override with a custom set and confirm round-trip through SetParams.
 	custom := types.DefaultParams()
 	custom.MaxNameLength = 42
-	custom.RegistrationFee = sdk.NewCoin("uspark", math.NewInt(7))
+	custom.RegistrationFeeAmount = math.NewInt(7)
 	custom.ExpirationDuration = 2 * time.Hour
 
 	require.NoError(t, f.keeper.SetParams(f.ctx, custom))

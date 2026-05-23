@@ -65,7 +65,7 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 	}
 
 	// 5. Anti-censorship: check cooldown and escalating fee
-	effectiveFee := params.ChallengeFee
+	effectiveFeeAmount := params.ChallengeFeeAmount
 	if record.PriorRejectedChallenges > 0 {
 		// Check cooldown
 		if record.LastChallengeResolvedAt > 0 {
@@ -81,10 +81,11 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 			shifts = 20
 		}
 		multiplier := uint64(1) << shifts
-		effectiveFee.Amount = effectiveFee.Amount.MulRaw(int64(multiplier))
+		effectiveFeeAmount = effectiveFeeAmount.MulRaw(int64(multiplier))
 	}
 
-	// 6. Escrow challenge fee
+	// 6. Escrow challenge fee — denom resolved at runtime from x/identity.
+	effectiveFee := sdk.NewCoin(k.BondDenom(ctx), effectiveFeeAmount)
 	challengerAddr, _ := k.addressCodec.StringToBytes(msg.Creator)
 	feeCoins := sdk.NewCoins(effectiveFee)
 	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, challengerAddr, types.ModuleName, feeCoins); err != nil {

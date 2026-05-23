@@ -28,7 +28,7 @@ echo "Signaling Policy Address: $POLICY_ADDR"
 
 # Pre-fund the policy: needs 5 SPARK proposal fee + 1 uspark loopback +
 # whatever the policy already holds. 50 SPARK is plenty.
-$BINARY tx bank send $ALICE_ADDR $POLICY_ADDR 50000000uspark --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark > /dev/null 2>&1
+$BINARY tx bank send $ALICE_ADDR $POLICY_ADDR 50000000${BOND_DENOM} --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null 2>&1
 sleep 3
 
 # --- 2. CREATE SIGNAL PROPOSAL (x/commons format) ---
@@ -40,7 +40,7 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgSpendFromCommons",
       "authority": "'$POLICY_ADDR'",
       "recipient": "'$POLICY_ADDR'",
-      "amount": [{"denom": "uspark", "amount": "1"}]
+      "amount": [{"denom": "'"$BOND_DENOM"'", "amount": "1"}]
     }
   ],
   "metadata": "OFFICIAL STATEMENT: We disapprove. Loopback signal."
@@ -48,7 +48,7 @@ echo '{
 
 # --- 3. SUBMIT (x/commons) ---
 echo "Submitting Signal Proposal..."
-SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_social_signal.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json)
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/msg_social_signal.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 echo "Proposal Tx Hash: $TX_HASH"
 
@@ -69,16 +69,16 @@ echo "[ OK ] Signal Proposal ID: $PROPOSAL_ID"
 # --- 4. VOTE ---
 # Commons Council members (Alice & Bob from bootstrap) vote
 echo "Alice voting YES..."
-$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark
+$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM}
 sleep 3
 echo "Bob voting YES..."
-$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark
+$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM}
 sleep 3
 
 echo "Votes cast. Attempting Execution..."
 
 # --- 5. EXECUTE ---
-EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000uspark --output json)
+EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
 
 echo "Waiting for execution block..."

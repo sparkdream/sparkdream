@@ -63,7 +63,7 @@ func (k msgServer) CancelBounty(ctx context.Context, msg *types.MsgCancelBounty)
 
 	// Refund to creator (minus fee)
 	if refundAmount.IsPositive() {
-		refundCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, refundAmount))
+		refundCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), refundAmount))
 		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, creatorAddr, refundCoins); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to refund bounty")
 		}
@@ -71,7 +71,7 @@ func (k msgServer) CancelBounty(ctx context.Context, msg *types.MsgCancelBounty)
 
 	// Burn the cancellation fee
 	if cancellationFee.IsPositive() {
-		feeCoins := sdk.NewCoins(sdk.NewCoin(types.DefaultFeeDenom, cancellationFee))
+		feeCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), cancellationFee))
 		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, feeCoins); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to burn cancellation fee")
 		}

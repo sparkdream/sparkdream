@@ -134,7 +134,7 @@ TX_RES=$($BINARY tx season create-quest \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 5000uspark \
+    --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
 
@@ -178,7 +178,7 @@ if echo "$PROFILE_CHECK" | grep -q "not found"; then
         --from quest_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -311,7 +311,7 @@ if [ -n "$TEST_QUEST_ID" ]; then
         --from quest_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -395,7 +395,7 @@ if [ -n "$STARTED_QUEST" ]; then
         --from quest_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -438,7 +438,7 @@ if [ -n "$STARTED_QUEST" ] && [ "$QUEST_CLAIMED" != "true" ]; then
         --from quest_user \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
@@ -522,7 +522,7 @@ if [ -n "$TEST_QUEST_ID" ]; then
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 5000uspark \
+        --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 

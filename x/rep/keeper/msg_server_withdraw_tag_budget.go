@@ -33,7 +33,7 @@ func (k msgServer) WithdrawTagBudget(ctx context.Context, msg *types.MsgWithdraw
 	}
 
 	groupAddr, _ := sdk.AccAddressFromBech32(budget.GroupAccount)
-	withdrawCoins := sdk.NewCoins(sdk.NewCoin(types.TagBudgetFeeDenom, remainingBalance))
+	withdrawCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), remainingBalance))
 	if err := k.bankKeeper.SendCoins(ctx, TagBudgetEscrowAddress(), groupAddr, withdrawCoins); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to withdraw tag budget funds")
 	}

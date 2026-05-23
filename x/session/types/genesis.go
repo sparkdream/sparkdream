@@ -62,9 +62,8 @@ func (gs GenesisState) Validate() error {
 			if !sk.SpendLimit.IsValid() || !sk.SpendLimit.IsPositive() {
 				return fmt.Errorf("grant %d: spend_limit must be a valid positive coin", i)
 			}
-			if sk.SpendLimit.Denom != "uspark" {
-				return fmt.Errorf("grant %d: spend_limit denom must be uspark, got %q", i, sk.SpendLimit.Denom)
-			}
+			// Per-chain bond-denom check happens at runtime (keeper.denomAllowed)
+			// — Validate() has no ctx and can't read x/identity here.
 			if !sk.Spent.IsValid() {
 				return fmt.Errorf("grant %d: spent coin is invalid", i)
 			}
@@ -82,9 +81,8 @@ func (gs GenesisState) Validate() error {
 			if !rp.AmountPerPeriod.IsValid() || !rp.AmountPerPeriod.IsPositive() {
 				return fmt.Errorf("grant %d: amount_per_period must be a valid positive coin", i)
 			}
-			if rp.AmountPerPeriod.Denom == "dream" {
-				return fmt.Errorf("grant %d: amount_per_period denom must not be dream", i)
-			}
+			// DREAM-denom rejection happens at runtime via k.DreamDenom(ctx);
+			// Validate() has no ctx and can't read x/identity here.
 			if rp.PeriodSeconds <= 0 {
 				return fmt.Errorf("grant %d: period_seconds must be > 0", i)
 			}
@@ -96,9 +94,8 @@ func (gs GenesisState) Validate() error {
 			if !sa.MaxPerPeriod.IsValid() || !sa.MaxPerPeriod.IsPositive() {
 				return fmt.Errorf("grant %d: max_per_period must be a valid positive coin", i)
 			}
-			if sa.MaxPerPeriod.Denom == "dream" {
-				return fmt.Errorf("grant %d: max_per_period denom must not be dream", i)
-			}
+			// DREAM-denom rejection happens at runtime via k.DreamDenom(ctx);
+			// Validate() has no ctx and can't read x/identity here.
 			if sa.PeriodSeconds <= 0 {
 				return fmt.Errorf("grant %d: period_seconds must be > 0", i)
 			}

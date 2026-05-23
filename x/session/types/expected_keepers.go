@@ -29,3 +29,13 @@ type BankKeeper interface {
 type CommonsKeeper interface {
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
 }
+
+// IdentityKeeper is the subset of x/identity that session reads to resolve
+// the chain's bond and dream denoms at runtime. Late-bound via
+// SetIdentityKeeper from app.go. Required: session panics on first denom
+// lookup if identity isn't wired (no silent fallback to a hardcoded literal).
+type IdentityKeeper interface {
+	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	BondDenom(ctx context.Context) string
+	DreamDenom(ctx context.Context) string
+}

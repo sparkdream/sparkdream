@@ -25,9 +25,9 @@ import (
 //     federation-bridge-atproto).
 //  3. Look up existing service.Operator for (operator, service_type):
 //     - Exists: validate the existing controller matches the resolved
-//       controller. Defer any TopUpBond to step 5.
+//     controller. Defer any TopUpBond to step 5.
 //     - New: call serviceKeeper.RegisterOperator (escrows bond, no
-//       hooks fire). Skip step 5.
+//     hooks fire). Skip step 5.
 //  4. Write BridgeBinding + BindingsByOperator reverse index. After
 //     this point any hook firing on the operator sees the new binding.
 //  5. Exists branch only, when msg.stake > 0: call serviceKeeper.TopUpBond.
@@ -115,7 +115,7 @@ func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBri
 		// creates the Operator record. Does NOT fire hooks, so it's
 		// safe to call before we write the binding in step 4.
 		metadata := []byte("federation:" + msg.PeerId) // small, audit-friendly
-		if _, err := sk.RegisterOperator(ctx, msg.Operator, serviceType, controller, msg.Stake, metadata, types.ServiceSourceNormal); err != nil {
+		if _, err := sk.RegisterOperator(ctx, msg.Operator, serviceType, controller, msg.StakeAmount, metadata, types.ServiceSourceNormal); err != nil {
 			return nil, err
 		}
 	}
@@ -142,8 +142,8 @@ func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBri
 
 	// Step 5: if reusing an existing operator and the registrant
 	// supplied extra stake, top up now (after the binding is written).
-	if exists && msg.Stake.Amount.IsPositive() {
-		if err := sk.TopUpBond(ctx, operatorBytes, serviceType, msg.Stake); err != nil {
+	if exists && msg.StakeAmount.IsPositive() {
+		if err := sk.TopUpBond(ctx, operatorBytes, serviceType, msg.StakeAmount); err != nil {
 			return nil, err
 		}
 	}

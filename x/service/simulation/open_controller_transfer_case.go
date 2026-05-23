@@ -64,7 +64,7 @@ func SimulateMsgOpenControllerTransferCase(
 			ServiceType:           msg.ServiceType,
 			Opener:                msg.Opener,
 			ProposedNewController: msg.ProposedNewController,
-			Deposit:               params.ReportDeposit,
+			Deposit:               params.ReportDepositAmount,
 			OpenedAt:              height,
 		}
 		_ = k.ControllerTransferCases.Set(ctx, caseID, caseRow)

@@ -33,7 +33,7 @@ record_result() {
 echo ""
 echo "--- TEST 1: Query federation params ---"
 
-PARAMS=$($BINARY query federation params --output json 2>&1)
+PARAMS=$($BINARY query federation params --output json)
 
 if echo "$PARAMS" | jq -e '.params' > /dev/null 2>&1; then
     echo "  Params returned successfully"
@@ -143,7 +143,7 @@ MIN_TRUST=$(echo "$PARAMS" | jq -r '.params.min_verifier_trust_level // "0"')
 MIN_BOND=$(echo "$PARAMS" | jq -r '.params.min_verifier_bond // "0"')
 VERIFY_WINDOW=$(echo "$PARAMS" | jq -r '.params.verification_window // "0s"')
 CHALLENGE_WINDOW=$(echo "$PARAMS" | jq -r '.params.challenge_window // "0s"')
-CHALLENGE_FEE=$(echo "$PARAMS" | jq -r '.params.challenge_fee.amount // "0"')
+CHALLENGE_FEE=$(echo "$PARAMS" | jq -r '.params.challenge_fee_amount // "0"')
 
 echo "  min_verifier_trust_level: $MIN_TRUST"
 echo "  min_verifier_bond:        $MIN_BOND"
@@ -165,7 +165,7 @@ echo "--- TEST 7: Verify arbiter parameters ---"
 
 ARBITER_QUORUM=$(echo "$PARAMS" | jq -r '.params.arbiter_quorum // "0"')
 ARBITER_WINDOW=$(echo "$PARAMS" | jq -r '.params.arbiter_resolution_window // "0s"')
-ESCALATION_FEE=$(echo "$PARAMS" | jq -r '.params.escalation_fee.amount // "0"')
+ESCALATION_FEE=$(echo "$PARAMS" | jq -r '.params.escalation_fee_amount // "0"')
 
 echo "  arbiter_quorum:           $ARBITER_QUORUM"
 echo "  arbiter_resolution_window: $ARBITER_WINDOW"
@@ -262,7 +262,7 @@ EOF
     wait_for_tx_param() {
         local TXHASH=$1; local MAX=20; local A=0
         while [ $A -lt $MAX ]; do
-            RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+            RESULT=$($BINARY q tx $TXHASH --output json)
             if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
             A=$((A + 1)); sleep 1
         done
@@ -272,7 +272,7 @@ EOF
     # Submit proposal
     TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/update_ops_params.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000uspark --output json 2>&1)
+        --fees 5000000${BOND_DENOM} --output json)
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -n "$TXHASH" ]; then
@@ -288,18 +288,18 @@ EOF
                 for VOTER in "alice" "bob"; do
                     S=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
                     [ "$S" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$S" == "PROPOSAL_STATUS_EXECUTED" ] && continue
-                    VR=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+                    VR=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
                     VH=$(echo "$VR" | jq -r '.txhash // empty')
                     [ -n "$VH" ] && sleep 6
                 done
 
                 # Execute
-                ER=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json 2>&1)
+                ER=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
                 EH=$(echo "$ER" | jq -r '.txhash // empty')
                 [ -n "$EH" ] && sleep 6
 
                 # Verify params changed
-                NEW_PARAMS=$($BINARY query federation params --output json 2>&1)
+                NEW_PARAMS=$($BINARY query federation params --output json)
                 UPDATED_INBOUND=$(echo "$NEW_PARAMS" | jq -r '.params.max_inbound_per_block // "0"')
                 UPDATED_BODY=$(echo "$NEW_PARAMS" | jq -r '.params.max_content_body_size // "0"')
 
@@ -335,7 +335,7 @@ EOF
   "metadata": "Restore original operational params"
 }
 REOF
-                    RR=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/restore_ops_params.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json 2>&1)
+                    RR=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/restore_ops_params.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
                     RH=$(echo "$RR" | jq -r '.txhash // empty')
                     if [ -n "$RH" ]; then
                         sleep 6
@@ -345,10 +345,10 @@ REOF
                             for V in "alice" "bob"; do
                                 S=$($BINARY query commons get-proposal $RP --output json 2>/dev/null | jq -r '.proposal.status')
                                 [ "$S" == "PROPOSAL_STATUS_ACCEPTED" ] && continue
-                                $BINARY tx commons vote-proposal $RP yes --from $V -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --output json > /dev/null 2>&1
+                                $BINARY tx commons vote-proposal $RP yes --from $V -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
                                 sleep 6
                             done
-                            $BINARY tx commons execute-proposal $RP --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000uspark --gas 2000000 --output json > /dev/null 2>&1
+                            $BINARY tx commons execute-proposal $RP --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json > /dev/null 2>&1
                             sleep 5
                             echo "  Original params restored"
                         fi

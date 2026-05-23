@@ -105,7 +105,7 @@ get_future_expiration() {
 
 get_balance() {
     local ADDR=$1
-    $BINARY query bank balances "$ADDR" --output json 2>/dev/null | jq -r '.balances[] | select(.denom=="uspark") | .amount // "0"'
+    $BINARY query bank balances "$ADDR" --output json 2>/dev/null | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount // "0"'
 }
 
 # Build an unsigned MsgExecSession tx JSON and sign+broadcast it.
@@ -140,7 +140,7 @@ exec_session_via_json() {
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "uspark", "amount": "$FEES"}],
+      "amount": [{"denom": "${BOND_DENOM}", "amount": "$FEES"}],
       "gas_limit": "$GAS",
       "payer": "",
       "granter": ""
@@ -185,13 +185,13 @@ fi
 FEE_GRANTEE_ADDR=$($BINARY keys show fee_grantee -a --keyring-backend test)
 
 # Fund fee_granter generously (needs rep membership for blog posts)
-TX_RES=$($BINARY tx bank send alice "$FEE_GRANTER_ADDR" 50000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+TX_RES=$($BINARY tx bank send alice "$FEE_GRANTER_ADDR" 50000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 sleep 6
 
 # Fund fee_grantee with enough for gas
-TX_RES=$($BINARY tx bank send alice "$FEE_GRANTEE_ADDR" 10000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+TX_RES=$($BINARY tx bank send alice "$FEE_GRANTEE_ADDR" 10000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 sleep 6
 
 # Invite fee_granter to x/rep (required for blog posts)
@@ -201,7 +201,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
     TX_RES=$($BINARY tx rep invite-member "$FEE_GRANTER_ADDR" "$REQUIRED_STAKE" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+        --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
         sleep 6
@@ -210,7 +210,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
             INVITATION_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="create_invitation") | .attributes[] | select(.key=="invitation_id") | .value' | tr -d '"')
             [ -z "$INVITATION_ID" ] && INVITATION_ID="1"
             TX_RES=$($BINARY tx rep accept-invitation "$INVITATION_ID" \
-                --from fee_granter --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+                --from fee_granter --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
             TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
             if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
                 sleep 6
@@ -225,13 +225,13 @@ EXPIRATION=$(get_future_expiration 2)
 TX_RES=$($BINARY tx session create-session \
     "$FEE_GRANTEE_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from fee_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -323,7 +323,7 @@ echo "  spent=$SPENT_AMT$SPENT_DENOM"
 
 # NOTE: UpdateSessionSpent is never called (no post handler wired).
 # When the post handler is added, spent should be > 0 after execution.
-if [ "$SPENT_DENOM" = "uspark" ]; then
+if [ "$SPENT_DENOM" = "$BOND_DENOM" ]; then
     echo "  session.spent field present (amount=$SPENT_AMT)"
     record_result "session.spent field present" "PASS"
 else
@@ -375,8 +375,8 @@ if ! $BINARY keys show unlimited_grantee --keyring-backend test > /dev/null 2>&1
 fi
 UNLIMITED_GRANTEE_ADDR=$($BINARY keys show unlimited_grantee -a --keyring-backend test)
 
-TX_RES=$($BINARY tx bank send alice "$UNLIMITED_GRANTEE_ADDR" 10000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+TX_RES=$($BINARY tx bank send alice "$UNLIMITED_GRANTEE_ADDR" 10000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 sleep 6
 
 # Create session with max_exec_count=0 (unlimited)
@@ -384,13 +384,13 @@ EXPIRATION=$(get_future_expiration 2)
 TX_RES=$($BINARY tx session create-session \
     "$UNLIMITED_GRANTEE_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "50000000uspark" \
+    "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)
@@ -444,8 +444,8 @@ if ! $BINARY keys show zero_spend_grantee --keyring-backend test > /dev/null 2>&
 fi
 ZERO_SPEND_GRANTEE_ADDR=$($BINARY keys show zero_spend_grantee -a --keyring-backend test)
 
-TX_RES=$($BINARY tx bank send alice "$ZERO_SPEND_GRANTEE_ADDR" 10000000uspark \
-    --chain-id $CHAIN_ID --keyring-backend test --fees 5000uspark -y --output json 2>&1)
+TX_RES=$($BINARY tx bank send alice "$ZERO_SPEND_GRANTEE_ADDR" 10000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 sleep 6
 
 # Create session with zero spend limit (no fee delegation)
@@ -453,13 +453,13 @@ EXPIRATION=$(get_future_expiration 2)
 TX_RES=$($BINARY tx session create-session \
     "$ZERO_SPEND_GRANTEE_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
-    "0uspark" \
+    "0${BOND_DENOM}" \
     "$EXPIRATION" \
     "5" \
     --from session_granter \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 50000uspark \
+    --fees 50000${BOND_DENOM} \
     --gas 300000 \
     -y \
     --output json 2>&1)

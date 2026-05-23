@@ -126,10 +126,10 @@ type RepKeeper interface {
 // x/rep/types.Verdict_name). Centralised here so spec drift on either
 // side surfaces as a constant rename in this file.
 const (
-	JuryVerdictPending          = "VERDICT_PENDING"
-	JuryVerdictUpholdChallenge  = "VERDICT_UPHOLD_CHALLENGE"
-	JuryVerdictRejectChallenge  = "VERDICT_REJECT_CHALLENGE"
-	JuryVerdictInconclusive     = "VERDICT_INCONCLUSIVE"
+	JuryVerdictPending         = "VERDICT_PENDING"
+	JuryVerdictUpholdChallenge = "VERDICT_UPHOLD_CHALLENGE"
+	JuryVerdictRejectChallenge = "VERDICT_REJECT_CHALLENGE"
+	JuryVerdictInconclusive    = "VERDICT_INCONCLUSIVE"
 )
 
 // DistributionKeeper defines the slice of x/distribution that x/service
@@ -227,4 +227,14 @@ func (h MultiServiceHooks) AfterOperatorReFunded(ctx context.Context, operator s
 type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})
 	Set(context.Context, []byte, interface{})
+}
+
+// IdentityKeeper exposes the resolved chain denoms from x/identity. The
+// service keeper consults this at every fee-charging / coin-constructing
+// site so a federated chain's denom (e.g. uspark.phoenix) flows through
+// correctly instead of a hardcoded "uspark" literal.
+type IdentityKeeper interface {
+	IsIdentityKeeper() // marker — disambiguates from other keepers exposing BondDenom
+	BondDenom(ctx context.Context) string
+	DreamDenom(ctx context.Context) string
 }

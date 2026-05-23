@@ -54,11 +54,6 @@ message Grant {
     (gogoproto.nullable) = false,
     (gogoproto.stdtime) = true
   ];
-  // Field 8 reserved (was an explicit replay-nonce in Rev 1; replaced by
-  // relying on the SDK account sequence on MsgCreateGrant which already
-  // prevents replay of any signed tx).
-  reserved 8;
-  reserved "nonce";
   // Human-readable purpose (256-char cap enforced at validation time).
   string note = 9;
 
@@ -101,9 +96,10 @@ message RecurringPullPayload {
   int64 start_time = 3;
   int64 last_claim_advance = 4;
   uint64 claims_made = 5;
-  // User-declared per-epoch ceiling (sdk.Int as string). Epoch = UTC
-  // calendar day, computed as floor(block_time.Unix() / 86400).
-  string max_per_epoch_uspark = 6;
+  // User-declared per-epoch ceiling (sdk.Int as string), denominated in
+  // the same denom as amount_per_period. Epoch = UTC calendar day,
+  // computed as floor(block_time.Unix() / 86400).
+  string max_per_epoch = 6;
 }
 
 // SpendingAllowancePayload — a refilling per-period cap; the grantee picks
