@@ -103,9 +103,15 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 			share := n.conviction.Quo(totalConviction)
 			reward := budget.Mul(share)
 
-			// Mint DREAM to nominator
+			// Pay DREAM to nominator. PayRetroPgfReward drains the x/rep
+			// treasury first when TreasuryFundsRetroPgf is on, minting
+			// only the shortfall — the (treasuryPaid, minted) split is
+			// recorded on the success event for downstream accounting.
 			mintSuccess := false
 			var mintFailReason string
+			var treasuryPaid, minted math.Int
+			treasuryPaid = math.ZeroInt()
+			minted = math.ZeroInt()
 			if k.repKeeper != nil {
 				addr, err := k.addressCodec.StringToBytes(n.nomination.Nominator)
 				if err != nil {
@@ -113,14 +119,17 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 				} else {
 					rewardInt := reward.TruncateInt()
 					if rewardInt.IsPositive() {
-						if mintErr := k.repKeeper.MintDREAM(ctx, addr, rewardInt); mintErr != nil {
-							sdkCtx.Logger().Error("failed to mint DREAM for retro reward",
+						tPaid, mAmt, payErr := k.repKeeper.PayRetroPgfReward(ctx, addr, rewardInt)
+						if payErr != nil {
+							sdkCtx.Logger().Error("failed to pay DREAM for retro reward",
 								"nomination_id", n.nomination.Id,
 								"nominator", n.nomination.Nominator,
 								"amount", rewardInt.String(),
-								"error", mintErr)
-							mintFailReason = mintErr.Error()
+								"error", payErr)
+							mintFailReason = payErr.Error()
 						} else {
+							treasuryPaid = tPaid
+							minted = mAmt
 							mintSuccess = true
 						}
 					} else {
@@ -160,6 +169,8 @@ func (k Keeper) processRetroRewardsPhase(ctx context.Context, state *types.Seaso
 						sdk.NewAttribute("recipient", nom.Nominator),
 						sdk.NewAttribute("content_ref", nom.ContentRef),
 						sdk.NewAttribute("reward_amount", reward.String()),
+						sdk.NewAttribute("treasury_paid", treasuryPaid.String()),
+						sdk.NewAttribute("minted", minted.String()),
 						sdk.NewAttribute("conviction", n.conviction.String()),
 					),
 				)

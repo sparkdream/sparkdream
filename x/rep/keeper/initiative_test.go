@@ -321,26 +321,27 @@ func TestSeasonInitiativeRewardsCap(t *testing.T) {
 		return initID
 	}
 
-	// First initiative: 100 micro-DREAM budget → 90 completer reward (90% share)
-	// 90 < 150 cap → should succeed
+	// First initiative: 100 micro-DREAM budget splits into 90 completer (90%) +
+	// 10 treasury (10%) = 100 total minted. Both halves count against the cap.
+	// 100 < 150 cap → should succeed.
 	initID1 := createCompletable(math.NewInt(100), "_a")
 	err := k.CompleteInitiative(ctx, initID1)
 	require.NoError(t, err)
 
-	// Verify counter was tracked
+	// Verify counter was tracked against the full mint (completer + treasury).
 	minted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
 	require.NoError(t, err)
-	require.Equal(t, math.NewInt(90).String(), minted.String()) // 100 * 0.9 = 90
+	require.Equal(t, math.NewInt(100).String(), minted.String())
 
-	// Second initiative: 100 micro-DREAM budget → 90 completer reward
-	// 90 + 90 = 180 > 150 cap → should fail
+	// Second initiative: same budget → another 100 of mint.
+	// 100 + 100 = 200 > 150 cap → should fail.
 	initID2 := createCompletable(math.NewInt(100), "_b")
 	err = k.CompleteInitiative(ctx, initID2)
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInitiativeRewardCapReached)
 
-	// Counter should still be 90 (second completion was rejected)
+	// Counter should still be 100 (second completion was rejected).
 	minted, err = k.GetSeasonInitiativeRewardsMinted(ctx)
 	require.NoError(t, err)
-	require.Equal(t, math.NewInt(90).String(), minted.String())
+	require.Equal(t, math.NewInt(100).String(), minted.String())
 }

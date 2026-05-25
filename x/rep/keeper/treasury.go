@@ -9,7 +9,26 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
+
+// readIntItem returns the math.Int stored as a string in `item`, or zero
+// when the item has not been set. Used by the per-season counters in this
+// file.
+func readIntItem(ctx context.Context, item collections.Item[string], name string) (math.Int, error) {
+	str, err := item.Get(ctx)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return math.ZeroInt(), nil
+		}
+		return math.Int{}, err
+	}
+	val, ok := math.NewIntFromString(str)
+	if !ok {
+		return math.Int{}, fmt.Errorf("invalid %s %q", name, str)
+	}
+	return val, nil
+}
 
 // ---------------------------------------------------------------------------
 // Treasury management — DREAM balance tracking and enforcement
@@ -32,20 +51,51 @@ func (k Keeper) GetTreasuryBalance(ctx context.Context) (math.Int, error) {
 	return val, nil
 }
 
-// AddToTreasury adds the given amount of DREAM to the module treasury.
+// AddToTreasury credits `amount` DREAM to the module treasury ledger and
+// updates the per-season inflow counter. Callers responsible for any minting
+// (mint-cap enforcement + SeasonMinted tracking) must do that before calling
+// AddToTreasury; see MintToTreasury for the combined helper.
 func (k Keeper) AddToTreasury(ctx context.Context, amount math.Int) error {
+	if amount.IsNil() || !amount.IsPositive() {
+		return nil
+	}
 	bal, err := k.GetTreasuryBalance(ctx)
 	if err != nil {
 		return err
 	}
 	bal = bal.Add(amount)
-	return k.TreasuryBalance.Set(ctx, bal.String())
+	if err := k.TreasuryBalance.Set(ctx, bal.String()); err != nil {
+		return err
+	}
+	return k.trackTreasuryInflow(ctx, amount)
+}
+
+// MintToTreasury mints `amount` fresh DREAM into the module treasury ledger.
+// Enforces the per-epoch mint ceiling, increments the season mint counter,
+// and records the treasury inflow in a single bookkeeping step. Use this
+// for revenue that the protocol "earns" into treasury (e.g. the
+// CompleteInitiative TreasuryShare), distinct from member-account mints.
+func (k Keeper) MintToTreasury(ctx context.Context, amount math.Int) error {
+	if amount.IsNil() || !amount.IsPositive() {
+		return nil
+	}
+	if err := k.CheckAndTrackEpochMint(ctx, amount); err != nil {
+		return err
+	}
+	if err := k.TrackMint(ctx, amount); err != nil {
+		return err
+	}
+	return k.AddToTreasury(ctx, amount)
 }
 
 // SpendFromTreasury spends up to `amount` of DREAM from the module treasury.
 // If the treasury holds less than the requested amount, the entire remaining
-// balance is spent. Returns the actual amount spent.
+// balance is spent. The per-season outflow counter is incremented by the
+// actual amount drawn. Returns the actual amount spent.
 func (k Keeper) SpendFromTreasury(ctx context.Context, amount math.Int) (math.Int, error) {
+	if amount.IsNil() || !amount.IsPositive() {
+		return math.ZeroInt(), nil
+	}
 	bal, err := k.GetTreasuryBalance(ctx)
 	if err != nil {
 		return math.Int{}, err
@@ -56,11 +106,150 @@ func (k Keeper) SpendFromTreasury(ctx context.Context, amount math.Int) (math.In
 		spent = bal
 	}
 
+	if !spent.IsPositive() {
+		return math.ZeroInt(), nil
+	}
+
 	bal = bal.Sub(spent)
 	if err := k.TreasuryBalance.Set(ctx, bal.String()); err != nil {
 		return math.Int{}, err
 	}
+	if err := k.trackTreasuryOutflow(ctx, spent); err != nil {
+		return math.Int{}, err
+	}
 	return spent, nil
+}
+
+// PayDREAMFromTreasuryFirst pays `amount` DREAM to the recipient, draining
+// the module treasury first and minting the shortfall to the recipient. The
+// `enabled` switch corresponds to the TreasuryFundsInterims /
+// TreasuryFundsRetroPgf operational params: when false this is equivalent
+// to a straight MintDREAM. Returns the (treasury_paid, minted) split.
+//
+// Referral rewards fire ONCE on the total (treasury_paid + minted) so an
+// invitee's inviter is compensated identically regardless of whether the
+// payment was fresh-minted or drained from treasury. MintDREAM's built-in
+// per-mint referral is suppressed via the reentrancy guard so the
+// shortfall mint doesn't double-pay the inviter on the same payment.
+//
+// Note: the treasury-paid portion does NOT route through MintDREAM (no new
+// DREAM is created for it) — it is transferred from the treasury ledger
+// directly to the recipient's member balance, bypassing the per-epoch mint
+// cap. The minted shortfall is subject to that cap as usual.
+func (k Keeper) PayDREAMFromTreasuryFirst(
+	ctx context.Context,
+	recipient sdk.AccAddress,
+	amount math.Int,
+	enabled bool,
+) (treasuryPaid, minted math.Int, err error) {
+	treasuryPaid = math.ZeroInt()
+	minted = math.ZeroInt()
+
+	if amount.IsNil() || !amount.IsPositive() {
+		return treasuryPaid, minted, nil
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	// If we're already inside a referral cascade, do not fire another level
+	// of referral — mirrors the guard MintDREAM uses for the same reason.
+	alreadyInCascade := sdkCtx.Value(referralMintingKey) != nil
+
+	remaining := amount
+	if enabled {
+		drawn, drawErr := k.SpendFromTreasury(ctx, amount)
+		if drawErr != nil {
+			return treasuryPaid, minted, drawErr
+		}
+		if drawn.IsPositive() {
+			if creditErr := k.CreditDREAM(ctx, recipient, drawn); creditErr != nil {
+				return treasuryPaid, minted, creditErr
+			}
+			treasuryPaid = drawn
+			remaining = amount.Sub(drawn)
+		}
+	}
+
+	if remaining.IsPositive() {
+		// Mint with the referral guard set so MintDREAM does NOT fire
+		// CalculateReferralReward on the shortfall alone — we fire it on
+		// the total below to keep inviter economics flat across treasury
+		// states.
+		mintCtx := ctx
+		if !alreadyInCascade {
+			mintCtx = sdkCtx.WithValue(referralMintingKey, true)
+		}
+		if mintErr := k.MintDREAM(mintCtx, recipient, remaining); mintErr != nil {
+			return treasuryPaid, minted, mintErr
+		}
+		minted = remaining
+	}
+
+	total := treasuryPaid.Add(minted)
+	if total.IsPositive() && !alreadyInCascade {
+		guardedCtx := sdkCtx.WithValue(referralMintingKey, true)
+		if refErr := k.CalculateReferralReward(guardedCtx, recipient, total); refErr != nil {
+			sdkCtx.Logger().Error("failed to calculate referral reward for treasury-funded payment",
+				"recipient", recipient.String(),
+				"total", total.String(),
+				"treasury_paid", treasuryPaid.String(),
+				"minted", minted.String(),
+				"error", refErr)
+		}
+	}
+
+	return treasuryPaid, minted, nil
+}
+
+// PayRetroPgfReward pays a retroactive public-goods reward to `recipient`.
+// Internally reads the TreasuryFundsRetroPgf flag and routes through
+// PayDREAMFromTreasuryFirst so the treasury is drained first when the flag
+// is on. Returns the (treasuryPaid, minted) split.
+func (k Keeper) PayRetroPgfReward(ctx context.Context, recipient sdk.AccAddress, amount math.Int) (treasuryPaid, minted math.Int, err error) {
+	params, perr := k.Params.Get(ctx)
+	if perr != nil {
+		return math.ZeroInt(), math.ZeroInt(), perr
+	}
+	return k.PayDREAMFromTreasuryFirst(ctx, recipient, amount, params.TreasuryFundsRetroPgf)
+}
+
+// trackTreasuryInflow advances the per-season treasury inflow counter.
+func (k Keeper) trackTreasuryInflow(ctx context.Context, amount math.Int) error {
+	if amount.IsNil() || !amount.IsPositive() {
+		return nil
+	}
+	inflow, err := k.GetSeasonTreasuryInflow(ctx)
+	if err != nil {
+		return err
+	}
+	inflow = inflow.Add(amount)
+	return k.SeasonTreasuryInflow.Set(ctx, inflow.String())
+}
+
+// trackTreasuryOutflow advances the per-season treasury outflow counter.
+func (k Keeper) trackTreasuryOutflow(ctx context.Context, amount math.Int) error {
+	if amount.IsNil() || !amount.IsPositive() {
+		return nil
+	}
+	outflow, err := k.GetSeasonTreasuryOutflow(ctx)
+	if err != nil {
+		return err
+	}
+	outflow = outflow.Add(amount)
+	return k.SeasonTreasuryOutflow.Set(ctx, outflow.String())
+}
+
+// GetSeasonTreasuryInflow returns the total DREAM credited to the module
+// treasury during the current season. Returns zero if the counter has not
+// been set.
+func (k Keeper) GetSeasonTreasuryInflow(ctx context.Context) (math.Int, error) {
+	return readIntItem(ctx, k.SeasonTreasuryInflow, "season treasury inflow")
+}
+
+// GetSeasonTreasuryOutflow returns the total DREAM spent from the module
+// treasury during the current season. Returns zero if the counter has not
+// been set.
+func (k Keeper) GetSeasonTreasuryOutflow(ctx context.Context) (math.Int, error) {
+	return readIntItem(ctx, k.SeasonTreasuryOutflow, "season treasury outflow")
 }
 
 // EnforceTreasuryBalance checks whether the treasury balance exceeds the

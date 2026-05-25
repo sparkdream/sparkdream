@@ -494,20 +494,24 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		return fmt.Errorf("failed to get params: %w", err)
 	}
 
-	// Calculate rewards
+	// Calculate rewards. Budget splits into the completer payout (CompleterShare)
+	// and the protocol's TreasuryShare; both are freshly minted DREAM so the
+	// total mint equals the budget when shares sum to 1.
 	totalReward := DerefInt(initiative.Budget)
 	completerReward := math.LegacyNewDecFromInt(totalReward).Mul(params.CompleterShare).TruncateInt()
-	// Treasury share is tracked but not distributed here (handled by treasury module)
-	_ = math.LegacyNewDecFromInt(totalReward).Mul(params.TreasuryShare).TruncateInt()
+	treasuryShare := math.LegacyNewDecFromInt(totalReward).Mul(params.TreasuryShare).TruncateInt()
+	totalInitiativeMint := completerReward.Add(treasuryShare)
 
-	// Check per-season initiative reward minting cap before minting
+	// Check per-season initiative reward minting cap against the full mint
+	// (completer + treasury) so the cap reflects every DREAM created by the
+	// completion, not just what the completer received.
 	seasonRewardsMinted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get season initiative rewards: %w", err)
 	}
-	if seasonRewardsMinted.Add(completerReward).GT(params.MaxInitiativeRewardsPerSeason) {
+	if seasonRewardsMinted.Add(totalInitiativeMint).GT(params.MaxInitiativeRewardsPerSeason) {
 		return fmt.Errorf("completing this initiative would mint %s DREAM, exceeding season cap of %s (already minted %s): %w",
-			completerReward.String(), params.MaxInitiativeRewardsPerSeason.String(), seasonRewardsMinted.String(),
+			totalInitiativeMint.String(), params.MaxInitiativeRewardsPerSeason.String(), seasonRewardsMinted.String(),
 			types.ErrInitiativeRewardCapReached)
 	}
 
@@ -520,8 +524,17 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		return fmt.Errorf("failed to mint DREAM for completer: %w", err)
 	}
 
-	// Track initiative reward minting against the per-season cap
-	if err := k.TrackInitiativeRewardMint(ctx, completerReward); err != nil {
+	// Mint the TreasuryShare into the module treasury ledger. Uses
+	// MintToTreasury so the per-epoch mint cap is enforced and SeasonMinted
+	// + SeasonTreasuryInflow are both advanced.
+	if treasuryShare.IsPositive() {
+		if err := k.MintToTreasury(ctx, treasuryShare); err != nil {
+			return fmt.Errorf("failed to mint treasury share: %w", err)
+		}
+	}
+
+	// Track initiative reward minting against the per-season cap (both halves).
+	if err := k.TrackInitiativeRewardMint(ctx, totalInitiativeMint); err != nil {
 		return fmt.Errorf("failed to track initiative reward mint: %w", err)
 	}
 

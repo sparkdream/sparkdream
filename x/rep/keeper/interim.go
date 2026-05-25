@@ -277,14 +277,21 @@ func (k Keeper) ApproveInterim(
 		if len(interim.Assignees) > 0 {
 			paymentPerAssignee := interim.Budget.QuoRaw(int64(len(interim.Assignees)))
 
+			// TreasuryFundsInterims drains the module treasury first and mints
+			// only the shortfall. Disabled => straight MintDREAM.
+			params, err := k.Params.Get(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get params: %w", err)
+			}
+			treasuryFirst := params.TreasuryFundsInterims
+
 			for _, assigneeStr := range interim.Assignees {
 				assigneeAddr, err := sdk.AccAddressFromBech32(assigneeStr)
 				if err != nil {
 					continue
 				}
-				// Mint DREAM to assignee
-				if err := k.MintDREAM(ctx, assigneeAddr, paymentPerAssignee); err != nil {
-					return fmt.Errorf("failed to mint DREAM for assignee %s: %w", assigneeStr, err)
+				if _, _, err := k.PayDREAMFromTreasuryFirst(ctx, assigneeAddr, paymentPerAssignee, treasuryFirst); err != nil {
+					return fmt.Errorf("failed to pay DREAM for assignee %s: %w", assigneeStr, err)
 				}
 
 				// Grant reputation for interim completion
@@ -347,14 +354,21 @@ func (k Keeper) CompleteInterimDirectly(
 	if len(interim.Assignees) > 0 && interim.Type != types.InterimType_INTERIM_TYPE_ADJUDICATION {
 		paymentPerAssignee := interim.Budget.QuoRaw(int64(len(interim.Assignees)))
 
+		// TreasuryFundsInterims drains the module treasury first and mints
+		// only the shortfall. Disabled => straight MintDREAM.
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get params: %w", err)
+		}
+		treasuryFirst := params.TreasuryFundsInterims
+
 		for _, assigneeStr := range interim.Assignees {
 			assigneeAddr, err := sdk.AccAddressFromBech32(assigneeStr)
 			if err != nil {
 				continue
 			}
-			// Mint DREAM to assignee
-			if err := k.MintDREAM(ctx, assigneeAddr, paymentPerAssignee); err != nil {
-				return fmt.Errorf("failed to mint DREAM for assignee %s: %w", assigneeStr, err)
+			if _, _, err := k.PayDREAMFromTreasuryFirst(ctx, assigneeAddr, paymentPerAssignee, treasuryFirst); err != nil {
+				return fmt.Errorf("failed to pay DREAM for assignee %s: %w", assigneeStr, err)
 			}
 
 			// Grant reputation for interim completion

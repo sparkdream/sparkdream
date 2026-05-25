@@ -200,6 +200,47 @@ func (k Keeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 	return nil
 }
 
+// CreditDREAM credits previously-minted DREAM to a member's balance without
+// passing through the per-epoch mint cap or the referral-reward cascade. It
+// is used to move DREAM out of the module treasury (which was counted
+// against the mint cap at MintToTreasury time) into a recipient account —
+// e.g. when TreasuryFundsInterims drains the treasury for an interim
+// payout. The lifetime-earned counter is incremented so members still see
+// the income in their history.
+func (k Keeper) CreditDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if amount.IsNegative() || amount.IsZero() {
+		return types.ErrInvalidAmount
+	}
+
+	member, err := k.Member.Get(ctx, addr.String())
+	if err != nil {
+		return types.ErrMemberNotFound
+	}
+
+	if err := k.ApplyPendingDecay(ctx, &member); err != nil {
+		return err
+	}
+
+	*member.DreamBalance = member.DreamBalance.Add(amount)
+	*member.LifetimeEarned = member.LifetimeEarned.Add(amount)
+
+	if err := k.Member.Set(ctx, addr.String(), member); err != nil {
+		return err
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"credit_dream",
+			sdk.NewAttribute("recipient", addr.String()),
+			sdk.NewAttribute("amount", amount.String()),
+			sdk.NewAttribute("source", "treasury"),
+		),
+	)
+
+	return nil
+}
+
 // BurnDREAM burns DREAM tokens from a member's balance.
 // This updates the member's balance and lifetime burned tracking.
 func (k Keeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {

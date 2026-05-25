@@ -153,32 +153,51 @@ echo "   New status: $INTERIM_STATUS"
 echo ""
 echo "Step 4: Verifying DREAM compensation via transaction events..."
 
-# Check for DREAM minting event in the completion transaction
-MINT_EVENT=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="mint_dream")' 2>/dev/null)
+# Check for DREAM compensation events in the completion transaction.
+# With TreasuryFundsInterims=true (default), an interim payment drains the
+# module treasury first and mints only the shortfall. So an interim payout
+# of 50 DREAM may emit:
+#   - mint_dream (50000000) when treasury was empty,
+#   - credit_dream (50000000) when treasury fully covered it,
+#   - or one of each summing to 50000000 (partial coverage).
+# The assertion is therefore: (mint_dream + credit_dream).amount == expected.
+sum_event_amounts() {
+    # $1 = event type, prints sum of .amount attribute over all matches.
+    echo "$TX_RESULT" | jq -r --arg t "$1" '
+        [ .events[]
+          | select(.type == $t)
+          | .attributes[]
+          | select(.key == "amount")
+          | (.value | tonumber)
+        ] | add // 0'
+}
+
+MINT_AMOUNT=$(sum_event_amounts "mint_dream")
+CREDIT_AMOUNT=$(sum_event_amounts "credit_dream")
+TOTAL_PAID=$((MINT_AMOUNT + CREDIT_AMOUNT))
+
 INTERIM_COMPLETED_EVENT=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="interim_completed" or .type=="sparkdream.rep.v1.EventInterimCompleted")' 2>/dev/null)
 
-if [ -n "$MINT_EVENT" ]; then
-    MINT_AMOUNT=$(echo "$MINT_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
-    MINT_RECIPIENT=$(echo "$MINT_EVENT" | jq -r '.attributes[] | select(.key=="recipient") | .value' | tr -d '"')
-
-    echo "   [ OK ] DREAM minted via event:"
-    echo "      Amount: $MINT_AMOUNT micro-DREAM"
-    echo "      Recipient: ${MINT_RECIPIENT:0:20}..."
+if [ "$TOTAL_PAID" -gt 0 ]; then
+    echo "   [ OK ] DREAM compensation via events:"
+    echo "      Treasury credit: $CREDIT_AMOUNT micro-DREAM (TreasuryFundsInterims drain)"
+    echo "      Fresh mint:      $MINT_AMOUNT micro-DREAM (shortfall)"
+    echo "      Total paid:      $TOTAL_PAID micro-DREAM"
 
     # SIMPLE complexity = 50 DREAM = 50000000 micro-DREAM
     EXPECTED_MINT="50000000"
-    if [ "$MINT_AMOUNT" == "$EXPECTED_MINT" ]; then
+    if [ "$TOTAL_PAID" == "$EXPECTED_MINT" ]; then
         echo "      [ OK ] Exact match: 50 DREAM (SIMPLE complexity)"
-    elif [ -n "$MINT_AMOUNT" ] && [ "$MINT_AMOUNT" != "0" ]; then
-        MINT_DREAM=$(echo "scale=2; $MINT_AMOUNT / 1000000" | bc 2>/dev/null || echo "unknown")
-        echo "      [INFO]  Minted $MINT_DREAM DREAM (expected 50 DREAM for SIMPLE)"
+    else
+        TOTAL_DREAM=$(echo "scale=2; $TOTAL_PAID / 1000000" | bc 2>/dev/null || echo "unknown")
+        echo "      [INFO]  Total $TOTAL_DREAM DREAM (expected 50 DREAM for SIMPLE)"
     fi
 elif [ -n "$INTERIM_COMPLETED_EVENT" ]; then
     # Fallback: check the interim_completed event for compensation info
     COMP_AMOUNT=$(echo "$INTERIM_COMPLETED_EVENT" | jq -r '.attributes[] | select(.key=="compensation" or .key=="budget") | .value' | tr -d '"')
     echo "   [ OK ] Interim completed (compensation: ${COMP_AMOUNT:-unknown} micro-DREAM)"
 else
-    echo "   [INFO]  No mint_dream event found in tx (may use different event name)"
+    echo "   [INFO]  No mint_dream or credit_dream event found in tx"
     echo "      Checking balance as fallback..."
 
     ALICE_BALANCE_AFTER=$(get_dream_balance "$ALICE_ADDR")

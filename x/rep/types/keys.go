@@ -126,6 +126,13 @@ var (
 	SeasonBurnedKey = collections.NewPrefix("econ/season_burned")
 	// SeasonInitiativeRewardsMintedKey tracks DREAM minted via initiative completion this season
 	SeasonInitiativeRewardsMintedKey = collections.NewPrefix("econ/season_initiative_rewards")
+	// SeasonTreasuryInflowKey tracks DREAM credited to the module treasury this season.
+	// Drives the TreasuryStatus query's season_inflow field (true inflow, distinct from
+	// global SeasonMinted which mixes treasury and non-treasury mints).
+	SeasonTreasuryInflowKey = collections.NewPrefix("econ/season_treasury_inflow")
+	// SeasonTreasuryOutflowKey tracks DREAM spent from the module treasury this season.
+	// Drives the TreasuryStatus query's season_outflow field.
+	SeasonTreasuryOutflowKey = collections.NewPrefix("econ/season_treasury_outflow")
 	// EpochMintedEpochKey / EpochMintedAmountKey track the global DREAM mint total
 	// for the current epoch — the pair enforces max_dream_mint_per_epoch.
 	EpochMintedEpochKey  = collections.NewPrefix("econ/epoch_minted_epoch")

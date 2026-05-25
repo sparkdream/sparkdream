@@ -106,14 +106,32 @@ func TestQueryTreasuryStatus(t *testing.T) {
 	qs := keeper.NewQueryServerImpl(f.keeper)
 
 	require.NoError(t, f.keeper.AddToTreasury(f.ctx, math.NewInt(7_500)))
-	require.NoError(t, f.keeper.TrackMint(f.ctx, math.NewInt(1_234)))
 	require.NoError(t, f.keeper.TrackBurn(f.ctx, math.NewInt(321)))
 
 	resp, err := qs.TreasuryStatus(f.ctx, &types.QueryTreasuryStatusRequest{})
 	require.NoError(t, err)
 	require.Equal(t, math.NewInt(7_500), resp.Balance)
-	require.Equal(t, math.NewInt(1_234), resp.SeasonInflow)
+	// SeasonInflow tracks only DREAM credited to the module treasury,
+	// not the global SeasonMinted (which would include non-treasury mints).
+	require.Equal(t, math.NewInt(7_500), resp.SeasonInflow)
+	require.True(t, resp.SeasonOutflow.IsZero(), "no SpendFromTreasury yet")
 	require.Equal(t, math.NewInt(321), resp.SeasonBurned)
+}
+
+func TestQueryTreasuryStatus_TracksOutflow(t *testing.T) {
+	f := initFixture(t)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+
+	require.NoError(t, f.keeper.AddToTreasury(f.ctx, math.NewInt(10_000)))
+	spent, err := f.keeper.SpendFromTreasury(f.ctx, math.NewInt(3_000))
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(3_000), spent)
+
+	resp, err := qs.TreasuryStatus(f.ctx, &types.QueryTreasuryStatusRequest{})
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(7_000), resp.Balance, "10000 in, 3000 out")
+	require.Equal(t, math.NewInt(10_000), resp.SeasonInflow)
+	require.Equal(t, math.NewInt(3_000), resp.SeasonOutflow)
 }
 
 func TestQueryEconomicHealth_NilRequestsRejected(t *testing.T) {

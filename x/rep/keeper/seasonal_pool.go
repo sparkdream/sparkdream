@@ -124,6 +124,12 @@ func (k Keeper) InitSeasonalPool(ctx context.Context, season uint64) error {
 	if err := k.SeasonInitiativeRewardsMinted.Set(ctx, "0"); err != nil {
 		return fmt.Errorf("failed to reset season initiative rewards minted: %w", err)
 	}
+	if err := k.SeasonTreasuryInflow.Set(ctx, "0"); err != nil {
+		return fmt.Errorf("failed to reset season treasury inflow: %w", err)
+	}
+	if err := k.SeasonTreasuryOutflow.Set(ctx, "0"); err != nil {
+		return fmt.Errorf("failed to reset season treasury outflow: %w", err)
+	}
 
 	return nil
 }

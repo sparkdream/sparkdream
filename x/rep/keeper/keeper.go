@@ -97,6 +97,8 @@ type Keeper struct {
 	SeasonMinted                  collections.Item[string] // total DREAM minted this season (as Int string)
 	SeasonBurned                  collections.Item[string] // total DREAM burned this season (as Int string)
 	SeasonInitiativeRewardsMinted collections.Item[string] // DREAM minted via initiative completion this season (as Int string)
+	SeasonTreasuryInflow          collections.Item[string] // DREAM credited to module treasury this season (as Int string)
+	SeasonTreasuryOutflow         collections.Item[string] // DREAM spent from module treasury this season (as Int string)
 	EpochMintedEpoch              collections.Item[uint64] // tracked epoch for the per-epoch mint counter
 	EpochMintedAmount             collections.Item[string] // DREAM minted during tracked epoch (as Int string)
 	DecayLastProcessedEpoch       collections.Item[uint64] // last epoch for which bulk DREAM decay has been applied
@@ -239,6 +241,8 @@ func NewKeeper(
 		SeasonMinted:                  collections.NewItem(sb, types.SeasonMintedKey, "seasonMinted", collections.StringValue),
 		SeasonBurned:                  collections.NewItem(sb, types.SeasonBurnedKey, "seasonBurned", collections.StringValue),
 		SeasonInitiativeRewardsMinted: collections.NewItem(sb, types.SeasonInitiativeRewardsMintedKey, "seasonInitiativeRewards", collections.StringValue),
+		SeasonTreasuryInflow:          collections.NewItem(sb, types.SeasonTreasuryInflowKey, "seasonTreasuryInflow", collections.StringValue),
+		SeasonTreasuryOutflow:         collections.NewItem(sb, types.SeasonTreasuryOutflowKey, "seasonTreasuryOutflow", collections.StringValue),
 		EpochMintedEpoch:              collections.NewItem(sb, types.EpochMintedEpochKey, "epochMintedEpoch", collections.Uint64Value),
 		EpochMintedAmount:             collections.NewItem(sb, types.EpochMintedAmountKey, "epochMintedAmount", collections.StringValue),
 		DecayLastProcessedEpoch:       collections.NewItem(sb, types.DecayLastProcessedEpochKey, "decayLastProcessedEpoch", collections.Uint64Value),

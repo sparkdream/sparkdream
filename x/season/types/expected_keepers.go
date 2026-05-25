@@ -58,6 +58,12 @@ type RepKeeper interface {
 	// MintDREAM mints DREAM tokens to the given address.
 	MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 
+	// PayRetroPgfReward pays a retroactive public-goods reward, draining the
+	// x/rep treasury first when the TreasuryFundsRetroPgf operational param
+	// is on and minting any shortfall. Returns the (treasuryPaid, minted)
+	// split for event emission.
+	PayRetroPgfReward(ctx context.Context, recipient sdk.AccAddress, amount math.Int) (treasuryPaid, minted math.Int, err error)
+
 	// GetTrustLevel returns the trust level for a member address.
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 

@@ -169,6 +169,16 @@ func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amou
 	return nil
 }
 
+// PayRetroPgfReward is a stub that mints the full amount (treasury_paid=0)
+// so existing season tests continue to pass without modeling treasury state.
+// Tests that exercise the TreasuryFundsRetroPgf flag should override this.
+func (m *mockRepKeeper) PayRetroPgfReward(ctx context.Context, recipient sdk.AccAddress, amount math.Int) (math.Int, math.Int, error) {
+	if err := m.MintDREAM(ctx, recipient, amount); err != nil {
+		return math.ZeroInt(), math.ZeroInt(), err
+	}
+	return math.ZeroInt(), amount, nil
+}
+
 // GetTrustLevel returns the trust level for a member address.
 func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
 	addrStr := addr.String()
