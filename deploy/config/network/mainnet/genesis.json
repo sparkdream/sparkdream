@@ -1657,6 +1657,34 @@
           "unbonding_period_blocks": "241920",
           "underfunded_grace_blocks": "120960",
           "unilateral_slash_cap_bps": 500
+        },
+        {
+          "challenge_default_slash_bps": 100,
+          "description": "Off-chain bridge operator for NOSTR federation",
+          "enabled": true,
+          "min_bond_amount": "1000000000",
+          "report_timeout_action": "REPORT_TIMEOUT_ACTION_ESCALATE",
+          "service_type": "federation-bridge-nostr",
+          "tier1_aggregate_cap_bps": 1500,
+          "tier1_cooldown_blocks": "120960",
+          "tier1_window_blocks": "1555200",
+          "unbonding_period_blocks": "241920",
+          "underfunded_grace_blocks": "120960",
+          "unilateral_slash_cap_bps": 500
+        },
+        {
+          "challenge_default_slash_bps": 100,
+          "description": "Off-chain bridge operator for Lens Protocol federation",
+          "enabled": true,
+          "min_bond_amount": "1000000000",
+          "report_timeout_action": "REPORT_TIMEOUT_ACTION_ESCALATE",
+          "service_type": "federation-bridge-lens",
+          "tier1_aggregate_cap_bps": 1500,
+          "tier1_cooldown_blocks": "120960",
+          "tier1_window_blocks": "1555200",
+          "unbonding_period_blocks": "241920",
+          "underfunded_grace_blocks": "120960",
+          "unilateral_slash_cap_bps": 500
         }
       ],
       "tier1_escrow": [],
