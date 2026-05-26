@@ -11,8 +11,7 @@ import (
 	reptypes "sparkdream/x/rep/types"
 )
 
-// EndBlocker runs at the end of each block.
-// 13 phases as specified in the federation spec Section 9.
+// EndBlocker runs at the end of each block. 12 phases per spec §9.
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -52,51 +51,49 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		logger.Error("EndBlocker phase 4 (prune expired identity challenges) failed", "error", phaseErr)
 	}
 
-	// Phase 5 (Release Unbonded Bridge Stakes) was removed in the
-	// federation→service migration. x/service owns operator unbonding
-	// now via UnderfundedQueue + per-type unbonding_period_blocks; the
-	// AfterOperatorRetired hook fires federation cleanup.
-
-	// Phase 6: Expire Unverified Content
+	// Phase 5: Expire Unverified Content
 	pruned, phaseErr = k.expireUnverifiedContent(ctx, sdkCtx, now, maxPrune, pruned)
 	if phaseErr != nil {
-		logger.Error("EndBlocker phase 6 (expire unverified content) failed", "error", phaseErr)
+		logger.Error("EndBlocker phase 5 (expire unverified content) failed", "error", phaseErr)
 	}
 
-	// Phase 7: Release Verifier Bond Commitments
+	// Phase 6: Release Verifier Bond Commitments
 	pruned, phaseErr = k.releaseVerifierBondCommitments(ctx, now, maxPrune, pruned)
 	if phaseErr != nil {
-		logger.Error("EndBlocker phase 7 (release verifier bond commitments) failed", "error", phaseErr)
+		logger.Error("EndBlocker phase 6 (release verifier bond commitments) failed", "error", phaseErr)
 	}
 
-	// Phase 8: Expire Arbiter Resolution Windows
+	// Phase 7: Expire Arbiter Resolution Windows
 	pruned, phaseErr = k.expireArbiterResolutions(ctx, sdkCtx, now, maxPrune, pruned)
 	if phaseErr != nil {
-		logger.Error("EndBlocker phase 8 (expire arbiter resolutions) failed", "error", phaseErr)
+		logger.Error("EndBlocker phase 7 (expire arbiter resolutions) failed", "error", phaseErr)
 	}
 
-	// Phase 9: Finalize Auto-Resolutions
-	pruned, phaseErr = k.finalizeAutoResolutions(ctx, now, maxPrune, pruned)
+	// Phase 8: Finalize Auto-Resolutions
+	pruned, phaseErr = k.finalizeAutoResolutions(ctx, now, maxPrune, pruned, params)
 	if phaseErr != nil {
-		logger.Error("EndBlocker phase 9 (finalize auto-resolutions) failed", "error", phaseErr)
+		logger.Error("EndBlocker phase 8 (finalize auto-resolutions) failed", "error", phaseErr)
 	}
 
-	// Phase 10: Process Peer Removal Queue
+	// Phase 9: Process Peer Removal Queue
 	_, phaseErr = k.processPeerRemovalQueue(ctx, sdkCtx, maxPrune, pruned)
 	if phaseErr != nil {
-		logger.Error("EndBlocker phase 10 (process peer removal queue) failed", "error", phaseErr)
+		logger.Error("EndBlocker phase 9 (process peer removal queue) failed", "error", phaseErr)
 	}
 
-	// Phase 11: Verifier Epoch Rewards (TODO: epoch detection + reward distribution)
+	// Phase 10: Verifier Epoch Rewards
+	if err := k.DistributeVerifierRewards(ctx); err != nil {
+		logger.Error("EndBlocker phase 10 (verifier epoch rewards) failed", "error", err)
+	}
 
-	// Phase 12: Bridge Operator Monitoring
+	// Phase 11: Bridge Operator Monitoring
 	if err := k.monitorBridgeOperators(ctx, sdkCtx, now, params); err != nil {
-		logger.Error("EndBlocker phase 12 (monitor bridge operators) failed", "error", err)
+		logger.Error("EndBlocker phase 11 (monitor bridge operators) failed", "error", err)
 	}
 
-	// Phase 13: Clean Stale Rate Limit Counters
+	// Phase 12: Clean Stale Rate Limit Counters
 	if err := k.cleanStaleRateLimitCounters(ctx, now, params); err != nil {
-		logger.Error("EndBlocker phase 13 (clean stale rate limit counters) failed", "error", err)
+		logger.Error("EndBlocker phase 12 (clean stale rate limit counters) failed", "error", err)
 	}
 
 	return nil
@@ -216,11 +213,6 @@ func (k Keeper) pruneExpiredIdentityChallenges(ctx context.Context, sdkCtx sdk.C
 
 // --- Phase 5 ---
 
-// (releaseUnbondedBridgeStakes removed in Phase 4 of the federation→
-// service migration; x/service owns operator unbonding now.)
-
-// --- Phase 6 ---
-
 func (k Keeper) expireUnverifiedContent(ctx context.Context, sdkCtx sdk.Context, now int64, maxPrune, pruned uint64) (uint64, error) {
 	if pruned >= maxPrune {
 		return pruned, nil
@@ -255,7 +247,7 @@ func (k Keeper) expireUnverifiedContent(ctx context.Context, sdkCtx sdk.Context,
 	return pruned, err
 }
 
-// --- Phase 7 ---
+// --- Phase 6 ---
 
 func (k Keeper) releaseVerifierBondCommitments(ctx context.Context, now int64, maxPrune, pruned uint64) (uint64, error) {
 	if pruned >= maxPrune {
@@ -294,7 +286,7 @@ func (k Keeper) releaseVerifierBondCommitments(ctx context.Context, now int64, m
 	return pruned, err
 }
 
-// --- Phase 8 ---
+// --- Phase 7 ---
 
 func (k Keeper) expireArbiterResolutions(ctx context.Context, sdkCtx sdk.Context, now int64, maxPrune, pruned uint64) (uint64, error) {
 	if pruned >= maxPrune {
@@ -318,28 +310,59 @@ func (k Keeper) expireArbiterResolutions(ctx context.Context, sdkCtx sdk.Context
 	return pruned, err
 }
 
-// --- Phase 9 ---
+// --- Phase 8 ---
 
-func (k Keeper) finalizeAutoResolutions(ctx context.Context, now int64, maxPrune, pruned uint64) (uint64, error) {
+// finalizeAutoResolutions drains two queues sharing the prune budget:
+// (a) the arbiter escalation queue, which fires the Phase 1 auto-
+// verdict when the escalation window expires without an escalation,
+// and (b) the jury deadline queue, which stamps TIMEOUT on
+// EscalatedChallenges that the Operations Committee never resolved.
+func (k Keeper) finalizeAutoResolutions(ctx context.Context, now int64, maxPrune, pruned uint64, params types.Params) (uint64, error) {
 	if pruned >= maxPrune {
 		return pruned, nil
 	}
 	rng := new(collections.Range[collections.Pair[int64, uint64]]).
 		EndExclusive(collections.Join(now+1, uint64(0)))
 
-	err := k.ArbiterEscalationQueue.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
+	if err := k.ArbiterEscalationQueue.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
 		if pruned >= maxPrune {
 			return true, nil
 		}
-		k.cleanupArbiterData(ctx, key.K2())
+		contentID := key.K2()
+		// Apply any stashed PendingVerifierVerdict before cleaning up
+		// arbiter data. Escalation cleared it back to UNSPECIFIED;
+		// otherwise this is where the auto-verdict (counter bumps +
+		// fee disbursement + slash + content status flip) takes effect.
+		k.applyAutoVerdict(ctx, contentID, now, params)
+		k.cleanupArbiterData(ctx, contentID)
 		_ = k.ArbiterEscalationQueue.Remove(ctx, key)
+		pruned++
+		return false, nil
+	}); err != nil {
+		return pruned, err
+	}
+
+	if pruned >= maxPrune {
+		return pruned, nil
+	}
+	juryRng := new(collections.Range[collections.Pair[int64, uint64]]).
+		EndExclusive(collections.Join(now+1, uint64(0)))
+	err := k.EscalatedChallengeDeadline.Walk(ctx, juryRng, func(key collections.Pair[int64, uint64]) (bool, error) {
+		if pruned >= maxPrune {
+			return true, nil
+		}
+		contentID := key.K2()
+		// applyJuryVerdict removes both the EscalatedChallenge entry
+		// and its deadline-queue entry, so no explicit Remove needed
+		// here. Skip silently if the entry is gone (race-safe).
+		k.applyJuryVerdict(ctx, contentID, types.JuryVerdict_JURY_VERDICT_CHALLENGE_TIMEOUT, now, params)
 		pruned++
 		return false, nil
 	})
 	return pruned, err
 }
 
-// --- Phase 10 ---
+// --- Phase 9 ---
 
 func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context, maxPrune, pruned uint64) (uint64, error) {
 	if pruned >= maxPrune {
@@ -411,7 +434,7 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 	return pruned, err
 }
 
-// --- Phase 12 ---
+// --- Phase 11 ---
 
 func (k Keeper) monitorBridgeOperators(ctx context.Context, sdkCtx sdk.Context, now int64, params types.Params) error {
 	// Bound the walk to maxPrunePerBlock to prevent unbounded iteration every block.
@@ -445,20 +468,55 @@ func (k Keeper) monitorBridgeOperators(ctx context.Context, sdkCtx sdk.Context, 
 	})
 }
 
-// --- Phase 13 ---
+// --- Phase 12 ---
 
 func (k Keeper) cleanStaleRateLimitCounters(ctx context.Context, now int64, params types.Params) error {
+	// Bound all walks to maxPrunePerBlock to prevent unbounded iteration.
+	maxPrune := params.MaxPrunePerBlock
+	var pruned uint64
+
+	// Per-block caps: at most one entry per direction per block. Prune
+	// everything strictly below the current height — the current block's
+	// entry is still live until EndBlocker returns; deleting it here is
+	// fine because no further txs can land in this block.
+	currentHeight := sdk.UnwrapSDKContext(ctx).BlockHeight()
+	err := k.InboundPerBlock.Walk(ctx, nil, func(height int64, _ uint64) (bool, error) {
+		if pruned >= maxPrune {
+			return true, nil
+		}
+		if height < currentHeight {
+			_ = k.InboundPerBlock.Remove(ctx, height)
+			pruned++
+		}
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = k.OutboundPerBlock.Walk(ctx, nil, func(height int64, _ uint64) (bool, error) {
+		if pruned >= maxPrune {
+			return true, nil
+		}
+		if height < currentHeight {
+			_ = k.OutboundPerBlock.Remove(ctx, height)
+			pruned++
+		}
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Per-peer sliding-window counters: keep two windows of history so
+	// the current-window calculation can still consult the previous
+	// window; anything older is dead state.
 	windowSec := int64(params.RateLimitWindow.Seconds())
 	if windowSec <= 0 {
 		return nil
 	}
 	cutoff := now - 2*windowSec
 
-	// Bound both walks to maxPrunePerBlock to prevent unbounded iteration.
-	maxPrune := params.MaxPrunePerBlock
-	var pruned uint64
-
-	err := k.InboundRateLimits.Walk(ctx, nil, func(key collections.Pair[string, int64], _ uint64) (bool, error) {
+	err = k.InboundRateLimits.Walk(ctx, nil, func(key collections.Pair[string, int64], _ uint64) (bool, error) {
 		if pruned >= maxPrune {
 			return true, nil
 		}

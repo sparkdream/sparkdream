@@ -69,6 +69,9 @@ service Query {
   rpc GetVerificationRecord(QueryGetVerificationRecordRequest) returns (QueryGetVerificationRecordResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/get_verification_record/{content_id}";
   }
+  rpc GetEscalatedChallenge(QueryGetEscalatedChallengeRequest) returns (QueryGetEscalatedChallengeResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/get_escalated_challenge/{content_id}";
+  }
 }
 
 // --- Params ---
@@ -218,4 +221,15 @@ message QueryGetVerificationRecordRequest {
 }
 message QueryGetVerificationRecordResponse {
   VerificationRecord record = 1 [(gogoproto.nullable) = false];
+}
+
+// EscalatedChallenge lookup. Returns the Phase 2 (jury) lifecycle
+// record for a content_id whose challenge has been escalated past the
+// auto-resolution window. Returns NotFound when no jury lifecycle is
+// currently open.
+message QueryGetEscalatedChallengeRequest {
+  uint64 content_id = 1;
+}
+message QueryGetEscalatedChallengeResponse {
+  EscalatedChallenge escalated = 1 [(gogoproto.nullable) = false];
 }

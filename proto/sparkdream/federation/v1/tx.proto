@@ -46,6 +46,7 @@ service Msg {
   rpc ChallengeVerification(MsgChallengeVerification) returns (MsgChallengeVerificationResponse);
   rpc SubmitArbiterHash(MsgSubmitArbiterHash) returns (MsgSubmitArbiterHashResponse);
   rpc EscalateChallenge(MsgEscalateChallenge) returns (MsgEscalateChallengeResponse);
+  rpc ResolveEscalatedChallenge(MsgResolveEscalatedChallenge) returns (MsgResolveEscalatedChallengeResponse);
   rpc UpdateOperationalParams(MsgUpdateOperationalParams) returns (MsgUpdateOperationalParamsResponse);
   rpc UpdatePeerController(MsgUpdatePeerController) returns (MsgUpdatePeerControllerResponse);
   rpc ResyncBridgeCount(MsgResyncBridgeCount) returns (MsgResyncBridgeCountResponse);
@@ -303,6 +304,22 @@ message MsgEscalateChallenge {
   uint64 content_id = 2;
 }
 message MsgEscalateChallengeResponse {}
+
+// MsgResolveEscalatedChallenge applies a Phase 2 (human jury) verdict
+// to an EscalatedChallenge. Operations Committee only; signature is
+// the council policy address. Verdict must be CHALLENGE_UPHELD,
+// CHALLENGE_REJECTED, or CHALLENGE_TIMEOUT (the EndBlocker reaches the
+// TIMEOUT branch automatically on jury_deadline expiry — submitting
+// TIMEOUT here is an explicit early-cancel).
+message MsgResolveEscalatedChallenge {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/federation/MsgResolveEscalatedChallenge";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 content_id = 2;
+  JuryVerdict verdict = 3;
+  string reasoning = 4;
+}
+message MsgResolveEscalatedChallengeResponse {}
 
 // --- Operational Params (Operations Committee) ---
 

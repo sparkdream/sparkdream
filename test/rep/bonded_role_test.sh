@@ -137,7 +137,17 @@ if [ "$RES" == "ok" ]; then
     echo "  sentinel1 post-bond current_bond: $POST_BOND"
     EXPECTED=$((${PRE_BOND:-0} + DELTA_AMOUNT))
     if [ "$POST_BOND" == "$EXPECTED" ]; then
+        # Sub-assertion: the reward-tracking fields (used by both forum
+        # sentinel reward distribution and federation Phase 10 verifier
+        # rewards) must be queryable on the BondedRole. Default values
+        # are "0" / "0" until a reward distribution stamps them.
+        FULL_BR=$($BINARY q rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>/dev/null)
+        # Proto3 JSON omits zero-value fields — last_reward_epoch=0 won't
+        # appear so use jq's // operator to surface 0 as the default.
+        LRE=$(echo "$FULL_BR" | jq -r '.bonded_role.last_reward_epoch // 0')
+        CUM=$(echo "$FULL_BR" | jq -r '.bonded_role.cumulative_rewards // "0"')
         T1_BOND_HAPPY="PASS"
+        echo "  last_reward_epoch=$LRE cumulative_rewards=$CUM (reward fields queryable)"
     else
         echo "  expected $EXPECTED, got $POST_BOND"
     fi

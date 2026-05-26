@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/federation/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -60,6 +61,7 @@ func (k msgServer) EscalateChallenge(ctx context.Context, msg *types.MsgEscalate
 	evidenceURI := fmt.Sprintf("content_id=%d escalator=%s record_verifier=%s record_challenger=%s",
 		msg.ContentId, msg.Creator, record.Verifier, record.Challenger)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	blockTime := sdkCtx.BlockTime().Unix()
 	if rerr := k.Keeper.fileChallengeReport(ctx, content, evidenceURI); rerr != nil {
 		sdkCtx.EventManager().EmitEvent(
 			sdk.NewEvent(types.EventTypeFederationHookFailure,
@@ -70,10 +72,44 @@ func (k msgServer) EscalateChallenge(ctx context.Context, msg *types.MsgEscalate
 		)
 	}
 
+	// 5. Open the jury lifecycle. Snapshot the Phase 1 auto-verdict on
+	// the EscalatedChallenge (the jury will be compared against this to
+	// determine "overturned" for the escalation-fee refund), then clear
+	// PendingVerifierVerdict on the record so finalizeAutoResolutions
+	// skips its auto-application path. Reject if a jury lifecycle is
+	// already open for this content (double-escalation guard).
+	if _, err := k.EscalatedChallenges.Get(ctx, msg.ContentId); err == nil {
+		return nil, errorsmod.Wrap(types.ErrNoAutoResolutionToEscalate,
+			"challenge already escalated to jury")
+	}
+	autoVerdict := record.PendingVerifierVerdict
+	juryDeadline := blockTime + int64(params.ChallengeJuryDeadline.Seconds())
+	escalated := types.EscalatedChallenge{
+		ContentId:                   msg.ContentId,
+		Escalator:                   msg.Creator,
+		EscrowedEscalationFee:       params.EscalationFeeAmount,
+		AutoVerdictBeforeEscalation: autoVerdict,
+		JuryDeadline:                juryDeadline,
+	}
+	if err := k.EscalatedChallenges.Set(ctx, msg.ContentId, escalated); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to open escalated challenge")
+	}
+	if err := k.EscalatedChallengeDeadline.Set(ctx, collections.Join(juryDeadline, msg.ContentId)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to queue jury deadline")
+	}
+	if record.PendingVerifierVerdict != types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_UNSPECIFIED {
+		record.PendingVerifierVerdict = types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_UNSPECIFIED
+		if err := k.VerificationRecords.Set(ctx, msg.ContentId, record); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to clear pending verifier verdict")
+		}
+	}
+
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(types.EventTypeChallengeEscalated,
 			sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", msg.ContentId)),
-			sdk.NewAttribute(types.AttributeKeyUpdatedBy, msg.Creator)),
+			sdk.NewAttribute(types.AttributeKeyUpdatedBy, msg.Creator),
+			sdk.NewAttribute("jury_deadline", fmt.Sprintf("%d", juryDeadline)),
+			sdk.NewAttribute("auto_verdict", autoVerdict.String())),
 	)
 
 	return &types.MsgEscalateChallengeResponse{}, nil

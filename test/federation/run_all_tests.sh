@@ -15,6 +15,9 @@
 #   ./run_all_tests.sh --no-content     # Skip content federation tests
 #   ./run_all_tests.sh --no-identity    # Skip identity link tests
 #   ./run_all_tests.sh --no-verifier    # Skip verifier tests
+#   ./run_all_tests.sh --no-jury        # Skip jury resolution tests (Phase 2)
+#   ./run_all_tests.sh --no-rewards     # Skip verifier epoch reward tests (Phase 10)
+#   ./run_all_tests.sh --no-ratelimit   # Skip rate-limit enforcement tests
 #   ./run_all_tests.sh --no-query       # Skip query tests
 #   ./run_all_tests.sh --no-pagination  # Skip query pagination tests
 #   ./run_all_tests.sh --no-hooks       # Skip x/service hook integration tests
@@ -54,6 +57,9 @@ RUN_BRIDGE=true
 RUN_CONTENT=true
 RUN_IDENTITY=true
 RUN_VERIFIER=true
+RUN_JURY=true
+RUN_REWARDS=true
+RUN_RATELIMIT=true
 RUN_QUERY=true
 RUN_PAGINATION=true
 RUN_HOOKS=true
@@ -91,6 +97,15 @@ for arg in "$@"; do
         --no-verifier)
             RUN_VERIFIER=false
             ;;
+        --no-jury)
+            RUN_JURY=false
+            ;;
+        --no-rewards)
+            RUN_REWARDS=false
+            ;;
+        --no-ratelimit)
+            RUN_RATELIMIT=false
+            ;;
         --no-query)
             RUN_QUERY=false
             ;;
@@ -117,6 +132,9 @@ for arg in "$@"; do
             RUN_CONTENT=false
             RUN_IDENTITY=false
             RUN_VERIFIER=false
+            RUN_JURY=false
+            RUN_REWARDS=false
+            RUN_RATELIMIT=false
             RUN_QUERY=false
             RUN_PAGINATION=false
             RUN_HOOKS=false
@@ -134,6 +152,9 @@ for arg in "$@"; do
             RUN_CONTENT=false
             RUN_IDENTITY=false
             RUN_VERIFIER=false
+            RUN_JURY=false
+            RUN_REWARDS=false
+            RUN_RATELIMIT=false
             RUN_QUERY=false
             RUN_PAGINATION=false
             RUN_HOOKS=false
@@ -156,6 +177,9 @@ for arg in "$@"; do
             RUN_CONTENT=false
             RUN_IDENTITY=false
             RUN_VERIFIER=false
+            RUN_JURY=false
+            RUN_REWARDS=false
+            RUN_RATELIMIT=false
             RUN_QUERY=false
             RUN_PAGINATION=false
             RUN_HOOKS=false
@@ -175,6 +199,9 @@ for arg in "$@"; do
             echo "  --no-content     Skip content federation tests"
             echo "  --no-identity    Skip identity link tests"
             echo "  --no-verifier    Skip verifier tests"
+            echo "  --no-jury        Skip jury resolution tests (Phase 2 / EscalatedChallenge)"
+            echo "  --no-rewards     Skip verifier epoch reward tests (Phase 10)"
+            echo "  --no-ratelimit   Skip rate-limit enforcement tests"
             echo "  --no-query       Skip query tests"
             echo "  --no-pagination  Skip query pagination tests"
             echo "  --no-hooks       Skip x/service ServiceHooks integration tests"
@@ -542,6 +569,39 @@ if [ "$RUN_VERIFIER" = true ]; then
     run_test "Verifier Tests" "verifier_test.sh"
 else
     echo "Skipping verifier tests (--no-verifier)"
+    echo ""
+fi
+
+# Phase 2 jury resolution tests (MsgResolveEscalatedChallenge happy
+# paths + EndBlocker jury-deadline auto-TIMEOUT + escalation-fee
+# disposition). Bumps challenge_jury_deadline via gov for the happy-
+# path tests, restores at end. Wall time ~3 min mostly from gov
+# voting periods.
+if [ "$RUN_JURY" = true ]; then
+    run_test "Jury Resolution Tests" "jury_resolution_test.sh"
+else
+    echo "Skipping jury resolution tests (--no-jury)"
+    echo ""
+fi
+
+# Phase 10 verifier epoch reward tests. Waits ~2 min for the next
+# 20-block reward epoch boundary, then asserts EpochVerifications
+# reset + LastRewardEpoch/CumulativeRewards updates + last_slash_epoch
+# gate disqualifies same-epoch-slashed verifiers.
+if [ "$RUN_REWARDS" = true ]; then
+    run_test "Verifier Rewards Tests" "verifier_rewards_test.sh"
+else
+    echo "Skipping verifier rewards tests (--no-rewards)"
+    echo ""
+fi
+
+# Rate-limit enforcement tests (registers its own isolated peer so the
+# sliding-window counter starts at zero; safe to run after content
+# federation has filled mastodon.example's window).
+if [ "$RUN_RATELIMIT" = true ]; then
+    run_test "Rate Limit Tests" "rate_limit_test.sh"
+else
+    echo "Skipping rate-limit tests (--no-ratelimit)"
     echo ""
 fi
 

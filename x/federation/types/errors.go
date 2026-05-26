@@ -92,4 +92,8 @@ var (
 	ErrNotChallengeParty          = errors.Register(ModuleName, 2348, "escalation signer is not the challenger or verifier")
 	ErrNoAutoResolutionToEscalate = errors.Register(ModuleName, 2349, "content has no pending auto-resolution to escalate")
 	ErrEscalationWindowExpired    = errors.Register(ModuleName, 2350, "escalation window has passed")
+
+	// Jury resolution errors
+	ErrEscalatedChallengeNotFound = errors.Register(ModuleName, 2380, "no escalated challenge for content")
+	ErrInvalidJuryVerdict         = errors.Register(ModuleName, 2381, "jury verdict must be UPHELD, REJECTED, or TIMEOUT")
 )

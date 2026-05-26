@@ -56,7 +56,27 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		return nil, err
 	}
 
-	// 5. (Rate limits checked elsewhere — TODO: implement sliding window check)
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	blockTime := sdkCtx.BlockTime().Unix()
+
+	// 5a. Global per-block cap (spec §10.2). Checked before the per-peer
+	//     window so a chain-wide flood from one peer can't waste a slot
+	//     on every other peer's counter.
+	if err := k.checkAndRecordInboundPerBlock(ctx, sdkCtx.BlockHeight(), params.MaxInboundPerBlock); err != nil {
+		return nil, errorsmod.Wrap(err, "global per-block inbound cap")
+	}
+
+	// 5b. Per-peer sliding-window rate limit (spec §10.2). Zero policy
+	//     limit or non-positive window disables the check.
+	if err := k.checkAndRecordInboundRate(
+		ctx,
+		msg.PeerId,
+		blockTime,
+		int64(params.RateLimitWindow.Seconds()),
+		policy.InboundRateLimitPerEpoch,
+	); err != nil {
+		return nil, errorsmod.Wrapf(err, "peer %s", msg.PeerId)
+	}
 
 	// 6. Content hash is REQUIRED
 	if len(msg.ContentHash) == 0 {
@@ -83,9 +103,6 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 	if err == nil {
 		return nil, errorsmod.Wrapf(types.ErrDuplicateContent, "content with hash %s already exists", hashHex)
 	}
-
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	blockTime := sdkCtx.BlockTime().Unix()
 
 	// 9. Allocate content ID
 	contentID, err := k.ContentSeq.Next(ctx)

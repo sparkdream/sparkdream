@@ -115,6 +115,9 @@ const (
 type RepKeeper interface {
 	// GetTrustLevel returns the trust level for a member.
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
+	// MintDREAM mints DREAM to a member's balance. Used by Phase 10 verifier
+	// epoch rewards; subject to x/rep's per-epoch global mint cap.
+	MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	// BurnDREAM burns DREAM from an address (used for challenge-fee burns).
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	// LockDREAM locks DREAM tokens (moves from available balance to staked).
@@ -128,6 +131,13 @@ type RepKeeper interface {
 	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	ReleaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	SlashBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int, reason string) error
+	// IncreaseBond locks `amount` DREAM from the role-holder and credits it
+	// to current_bond. Used by Phase 10 verifier rewards to auto-bond into
+	// RECOVERY status until min_bond is restored.
+	IncreaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
+	// RecordRewardPayout updates LastRewardEpoch + CumulativeRewards on the
+	// BondedRole record after a reward distribution.
+	RecordRewardPayout(ctx context.Context, roleType reptypes.RoleType, addr string, epoch int64, amount math.Int) error
 	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error
 	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
 	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error

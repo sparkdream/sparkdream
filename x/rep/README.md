@@ -327,7 +327,8 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 |---------|-------------|--------|
 | `MsgStake` | Create conviction/content/author bond stake | Members |
 | `MsgUnstake` | Partial/full unstake (min 24h duration) | Stake owner |
-| `MsgClaimRewards` | Claim accumulated staking rewards | Members |
+| `MsgClaimStakingRewards` | Claim accumulated staking rewards | Members |
+| `MsgCompoundStakingRewards` | Re-stake accumulated rewards in place | Members |
 
 ### Challenges
 
@@ -374,12 +375,14 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 | `MsgToggleTagBudget` | Enable/disable awards without withdrawing | Budget creator |
 | `MsgWithdrawTagBudget` | Close pool, return remaining SPARK | Budget creator |
 
-### Sentinel Bonding
+### Bonded-Role Accountability (generic primitive)
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgBondSentinel` | Stake DREAM to register as an accountable sentinel | Members |
-| `MsgUnbondSentinel` | Withdraw sentinel bond (subject to committed/pending constraints) | Sentinels |
+| `MsgBondRole` | Stake DREAM to register as an accountable role-holder (`role_type` = `ROLE_TYPE_FORUM_SENTINEL` / `ROLE_TYPE_COLLECT_CURATOR` / `ROLE_TYPE_FEDERATION_VERIFIER`) | Members |
+| `MsgUnbondRole` | Withdraw role bond (subject to committed/pending constraints; respects per-role unbonding window) | Bonded role-holder |
+
+DREAM-bonded role primitive only. SPARK-staked roles (e.g. federation bridge operators) keep their own primitives in x/service. See [docs/bonded-role-generalization.md](../../docs/bonded-role-generalization.md).
 
 ### Member Accountability
 
@@ -390,6 +393,7 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 | `MsgDefendMemberReport` | Reported member submits defense | Reported member |
 | `MsgResolveMemberReport` | Apply a resolution (warn / demote / zero / dismiss) | Authority |
 | `MsgAppealGovAction` | Appeal a governance action (creates appeal initiative) | Affected member |
+| `MsgResolveGovActionAppeal` | Resolve a gov-action appeal (UPHELD / OVERTURNED) | Operations Committee on commons council |
 
 ### Parameter Updates
 

@@ -57,6 +57,29 @@ func (k msgServer) FederateContent(ctx context.Context, msg *types.MsgFederateCo
 		}
 	}
 
+	// 3a. Per-peer sliding-window rate limit (spec §10.3). Zero policy
+	//     limit or non-positive window disables the check. Charged
+	//     before IBC send so a rate-limited request never commits a
+	//     packet — successful sends consume a slot.
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	blockTime := sdkCtx.BlockTime().Unix()
+	if err := k.checkAndRecordOutboundPerBlock(ctx, sdkCtx.BlockHeight(), params.MaxOutboundPerBlock); err != nil {
+		return nil, errorsmod.Wrap(err, "global per-block outbound cap")
+	}
+	if err := k.checkAndRecordOutboundRate(
+		ctx,
+		msg.PeerId,
+		blockTime,
+		int64(params.RateLimitWindow.Seconds()),
+		policy.OutboundRateLimitPerEpoch,
+	); err != nil {
+		return nil, errorsmod.Wrapf(err, "peer %s", msg.PeerId)
+	}
+
 	// 4. Send ContentPacket via IBC
 	packetData := &types.FederationPacketData{
 		Packet: &types.FederationPacketData_Content{
@@ -71,7 +94,6 @@ func (k msgServer) FederateContent(ctx context.Context, msg *types.MsgFederateCo
 			},
 		},
 	}
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	// Best-effort: the outbound attestation is recorded locally regardless, and
 	// content delivery completes when the remote chain acknowledges the packet.
 	// However, if SendFederationPacket fails (IBC not wired, channel closed, etc.)
@@ -94,8 +116,6 @@ func (k msgServer) FederateContent(ctx context.Context, msg *types.MsgFederateCo
 				sdk.NewAttribute(types.AttributeKeyError, sendErr.Error())),
 		)
 	}
-
-	blockTime := sdkCtx.BlockTime().Unix()
 
 	// 6. Store OutboundAttestation
 	attestID, err := k.OutboundAttestSeq.Next(ctx)

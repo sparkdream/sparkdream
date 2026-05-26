@@ -462,7 +462,32 @@ e2e_status_report() {
                 # correct, the rc is what we ignore.
                 pass=$(grep -c "^\[$mod\] PASS:" "$log" 2>/dev/null) || pass=0
                 fail=$(grep -c "^\[$mod\] FAIL:" "$log" 2>/dev/null) || fail=0
-                if echo "$ps_snapshot" | grep -qF "$d/home"; then
+                # Liveness check, in priority order:
+                #   1. $d/suite.pid (written at launch) — authoritative for any
+                #      suite, including the multichain pseudo-module whose
+                #      chains live outside $d/home and so are invisible to the
+                #      ps_snapshot grep below.
+                #   2. ps_snapshot match on $d/home — works for standard suites
+                #      and stays as a fallback for older run dirs that pre-date
+                #      the suite.pid file.
+                #   3. Parent orchestrator alive — last-resort hedge: if the
+                #      parent is still waiting on suites, a missing chain
+                #      process is more likely a transient (chain restart,
+                #      multichain pre-bootstrap) than a real abort.
+                local suite_pid_file="$d/suite.pid"
+                local alive="no"
+                if [ -s "$suite_pid_file" ]; then
+                    local sp
+                    sp=$(cat "$suite_pid_file" 2>/dev/null)
+                    if [[ "$sp" =~ ^[0-9]+$ ]] && kill -0 "$sp" 2>/dev/null; then
+                        alive="yes"
+                    fi
+                elif echo "$ps_snapshot" | grep -qF "$d/home"; then
+                    alive="yes"
+                elif [ "$run_alive" = "yes" ]; then
+                    alive="yes"
+                fi
+                if [ "$alive" = "yes" ]; then
                     state="RUNNING"
                     n_running=$((n_running + 1))
                 else
@@ -1858,6 +1883,12 @@ while [ $batch_start -lt $NUM_SUITES ]; do
             "${SUITE_RPCS[$i]}" "${LOGS[$i]}" &
         SUITE_PIDS[$i]=$!
         CHILD_PIDS+=("${SUITE_PIDS[$i]}")
+        # Persist the launcher PID for --status liveness checks. Required for
+        # the multichain pseudo-module, whose chains live outside $suite/home
+        # and are therefore invisible to the ps_snapshot grep in
+        # e2e_status_report. SUITE_HOMES[i] is "<suite_root>/home", so the
+        # parent dir is the suite root.
+        echo "${SUITE_PIDS[$i]}" > "$(dirname "${SUITE_HOMES[$i]}")/suite.pid"
     done
 
     # Tails for the batch — only tailing live suites avoids tying up file

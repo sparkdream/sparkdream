@@ -29,6 +29,7 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
     exit 1
 fi
 source "$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/peer_fixtures.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -38,6 +39,8 @@ TEST_NAMES=()
 # Service types — one per supported peer protocol (genesis-seeded).
 SVC_AP="federation-bridge-activitypub"
 SVC_AT="federation-bridge-atproto"
+SVC_NOSTR="federation-bridge-nostr"
+SVC_LENS="federation-bridge-lens"
 
 record_result() {
     local NAME=$1
@@ -458,13 +461,220 @@ echo "--- TEST 14: Federation-bridge service types seeded at genesis ---"
 
 AP_CFG=$($BINARY query service service-type $SVC_AP --output json 2>&1 | jq -r '.config.service_type // empty')
 AT_CFG=$($BINARY query service service-type $SVC_AT --output json 2>&1 | jq -r '.config.service_type // empty')
+NOSTR_CFG=$($BINARY query service service-type $SVC_NOSTR --output json 2>&1 | jq -r '.config.service_type // empty')
+LENS_CFG=$($BINARY query service service-type $SVC_LENS --output json 2>&1 | jq -r '.config.service_type // empty')
 
-if [ "$AP_CFG" == "$SVC_AP" ] && [ "$AT_CFG" == "$SVC_AT" ]; then
-    echo "  Both federation-bridge ServiceTypeConfigs present"
+if [ "$AP_CFG" == "$SVC_AP" ] && [ "$AT_CFG" == "$SVC_AT" ] && [ "$NOSTR_CFG" == "$SVC_NOSTR" ] && [ "$LENS_CFG" == "$SVC_LENS" ]; then
+    echo "  All four federation-bridge ServiceTypeConfigs present"
     record_result "Service types seeded" "PASS"
 else
-    echo "  AP=$AP_CFG AT=$AT_CFG"
+    echo "  AP=$AP_CFG AT=$AT_CFG NOSTR=$NOSTR_CFG LENS=$LENS_CFG"
     record_result "Service types seeded" "FAIL"
+fi
+
+# ========================================================================
+# TEST 15: Register a NOSTR-relay peer (Commons Council) and a bridge
+# against it. Exercises the third PEER_TYPE_NOSTR → federation-bridge-nostr
+# mapping end-to-end: peer registration via peer_fixtures helper, bridge
+# registration, service.Operator creation under the NOSTR service_type.
+# Uses operator1 because operator2 may be in unbonding from earlier tests.
+# ========================================================================
+echo ""
+echo "--- TEST 15: Register NOSTR peer + bridge ---"
+
+NOSTR_PEER_ID="relay.example.nostr"
+NOSTR_PEER_OK=true
+register_test_peer "$NOSTR_PEER_ID" "PEER_TYPE_NOSTR" "Example NOSTR relay" "" || NOSTR_PEER_OK=false
+
+if [ "$NOSTR_PEER_OK" = "true" ]; then
+    # operator1 is funded with 5000 SPARK at setup; one extra
+    # 1000-SPARK bond under federation-bridge-nostr is independent of
+    # any ActivityPub state operator1 may hold.
+    register_test_bridge operator1 "$OPERATOR1_ADDR" "$NOSTR_PEER_ID" "nostr" "wss://bridge.example.com/nostr"
+    NOSTR_BIND_RC=$?
+
+    NOSTR_BINDING_PROTO=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR $NOSTR_PEER_ID --output json 2>&1 | jq -r '.bridge_binding.protocol // empty')
+    NOSTR_SVC_STATUS=$($BINARY query service operator $OPERATOR1_ADDR $SVC_NOSTR --output json 2>&1 | jq -r '.operator.status // empty')
+    NOSTR_SVC_BOND=$($BINARY query service operator $OPERATOR1_ADDR $SVC_NOSTR --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
+    NOSTR_PEER_STATUS_POST=$($BINARY query federation get-peer $NOSTR_PEER_ID --output json 2>&1 | jq -r '.peer.status // empty')
+
+    if [ "$NOSTR_BIND_RC" -eq 0 ] && [ "$NOSTR_BINDING_PROTO" == "nostr" ] && [ "$NOSTR_SVC_STATUS" == "OPERATOR_STATUS_ACTIVE" ] && [ "$NOSTR_SVC_BOND" == "$MIN_BOND_AMT" ] && [ "$NOSTR_PEER_STATUS_POST" == "PEER_STATUS_ACTIVE" ]; then
+        echo "  NOSTR binding present; service.Operator ACTIVE under $SVC_NOSTR; bond=$NOSTR_SVC_BOND; peer ACTIVE"
+        record_result "Register NOSTR bridge" "PASS"
+    else
+        echo "  bind_rc=$NOSTR_BIND_RC proto=$NOSTR_BINDING_PROTO svc_status=$NOSTR_SVC_STATUS bond=$NOSTR_SVC_BOND peer=$NOSTR_PEER_STATUS_POST"
+        record_result "Register NOSTR bridge" "FAIL"
+    fi
+else
+    echo "  Failed to register NOSTR peer; skipping bridge"
+    record_result "Register NOSTR bridge" "FAIL"
+fi
+
+# ========================================================================
+# TEST 16: Reputation bridging rejected on NOSTR peer.
+# The on-chain guard (peer.Type != PEER_TYPE_SPARK_DREAM) must reject
+# allow_reputation_queries / accept_reputation_attestations for NOSTR
+# peers, exactly as it does for ActivityPub and AT Protocol.
+# ========================================================================
+echo ""
+echo "--- TEST 16: Reputation policy rejected on NOSTR peer ---"
+
+if [ "$NOSTR_PEER_OK" = "true" ]; then
+    cat > "$PROPOSAL_DIR/nostr_rep_policy.json" <<EOF
+{
+  "policy_address": "$OPS_POLICY",
+  "messages": [
+    {
+      "@type": "/sparkdream.federation.v1.MsgUpdatePeerPolicy",
+      "authority": "$OPS_POLICY",
+      "peer_id": "relay.example.nostr",
+      "policy": {
+        "peer_id": "relay.example.nostr",
+        "allow_reputation_queries": true,
+        "accept_reputation_attestations": true
+      }
+    }
+  ],
+  "metadata": "Attempt reputation bridging on NOSTR (should fail)"
+}
+EOF
+
+    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/nostr_rep_policy.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
+    if ! submit_and_wait "$TX_RES" "submit nostr rep policy"; then
+        record_result "NOSTR rep policy rejected" "FAIL"
+    else
+        PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
+        if [ -z "$PROP_ID" ]; then
+            record_result "NOSTR rep policy rejected" "FAIL"
+        else
+            # Vote yes; execution must fail because the inner MsgUpdatePeerPolicy
+            # is rejected by the federation handler. The proposal can reach
+            # ACCEPTED but execute-proposal returns non-zero / proposal status
+            # stays ACCEPTED instead of EXECUTED.
+            for VOTER in "alice" "bob"; do
+                STATUS=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
+                if [ "$STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
+                VTX=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
+                submit_and_wait "$VTX" "$VOTER vote" || true
+            done
+            EXEC_TX=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
+            submit_and_wait "$EXEC_TX" "nostr rep exec" || true
+            sleep 5
+            FINAL_STATUS=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
+            # Policy did NOT update — re-query and assert the flags are still false (or unset).
+            ALLOW_Q=$($BINARY query federation get-peer-policy relay.example.nostr --output json 2>&1 | jq -r '.policy.allow_reputation_queries // false')
+            if [ "$ALLOW_Q" != "true" ] && [ "$FINAL_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
+                echo "  Reputation policy correctly rejected (proposal status=$FINAL_STATUS, allow_reputation_queries=$ALLOW_Q)"
+                record_result "NOSTR rep policy rejected" "PASS"
+            else
+                echo "  Unexpected: status=$FINAL_STATUS allow_q=$ALLOW_Q"
+                record_result "NOSTR rep policy rejected" "FAIL"
+            fi
+        fi
+    fi
+else
+    echo "  Skipped — NOSTR peer not registered"
+    record_result "NOSTR rep policy rejected" "FAIL"
+fi
+
+# ========================================================================
+# TEST 17: Register a Lens Chain peer (Commons Council) and a bridge
+# against it. Exercises the fourth PEER_TYPE_LENS → federation-bridge-lens
+# mapping end-to-end. Uses operator2 because operator1 is now bound under
+# federation-bridge-nostr in TEST 15.
+# ========================================================================
+echo ""
+echo "--- TEST 17: Register Lens peer + bridge ---"
+
+LENS_PEER_ID="lens.example"
+LENS_PEER_OK=true
+register_test_peer "$LENS_PEER_ID" "PEER_TYPE_LENS" "Example Lens deployment" "" || LENS_PEER_OK=false
+
+if [ "$LENS_PEER_OK" = "true" ]; then
+    # operator2 has an ActivityPub service.Operator from TEST 2; a Lens
+    # registration creates an independent service.Operator under
+    # federation-bridge-lens with its own bond.
+    register_test_bridge operator2 "$OPERATOR2_ADDR" "$LENS_PEER_ID" "lens" "https://bridge.example.com/lens"
+    LENS_BIND_RC=$?
+
+    LENS_BINDING_PROTO=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR $LENS_PEER_ID --output json 2>&1 | jq -r '.bridge_binding.protocol // empty')
+    LENS_SVC_STATUS=$($BINARY query service operator $OPERATOR2_ADDR $SVC_LENS --output json 2>&1 | jq -r '.operator.status // empty')
+    LENS_SVC_BOND=$($BINARY query service operator $OPERATOR2_ADDR $SVC_LENS --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
+    LENS_PEER_STATUS_POST=$($BINARY query federation get-peer $LENS_PEER_ID --output json 2>&1 | jq -r '.peer.status // empty')
+
+    if [ "$LENS_BIND_RC" -eq 0 ] && [ "$LENS_BINDING_PROTO" == "lens" ] && [ "$LENS_SVC_STATUS" == "OPERATOR_STATUS_ACTIVE" ] && [ "$LENS_SVC_BOND" == "$MIN_BOND_AMT" ] && [ "$LENS_PEER_STATUS_POST" == "PEER_STATUS_ACTIVE" ]; then
+        echo "  Lens binding present; service.Operator ACTIVE under $SVC_LENS; bond=$LENS_SVC_BOND; peer ACTIVE"
+        record_result "Register Lens bridge" "PASS"
+    else
+        echo "  bind_rc=$LENS_BIND_RC proto=$LENS_BINDING_PROTO svc_status=$LENS_SVC_STATUS bond=$LENS_SVC_BOND peer=$LENS_PEER_STATUS_POST"
+        record_result "Register Lens bridge" "FAIL"
+    fi
+else
+    echo "  Failed to register Lens peer; skipping bridge"
+    record_result "Register Lens bridge" "FAIL"
+fi
+
+# ========================================================================
+# TEST 18: Reputation bridging rejected on Lens peer.
+# The on-chain guard (peer.Type != PEER_TYPE_SPARK_DREAM) must reject
+# allow_reputation_queries / accept_reputation_attestations for Lens
+# peers, mirroring NOSTR/ActivityPub/AT Protocol behavior. Lens has no
+# Spark-Dream-comparable reputation system to bridge.
+# ========================================================================
+echo ""
+echo "--- TEST 18: Reputation policy rejected on Lens peer ---"
+
+if [ "$LENS_PEER_OK" = "true" ]; then
+    cat > "$PROPOSAL_DIR/lens_rep_policy.json" <<EOF
+{
+  "policy_address": "$OPS_POLICY",
+  "messages": [
+    {
+      "@type": "/sparkdream.federation.v1.MsgUpdatePeerPolicy",
+      "authority": "$OPS_POLICY",
+      "peer_id": "$LENS_PEER_ID",
+      "policy": {
+        "peer_id": "$LENS_PEER_ID",
+        "allow_reputation_queries": true,
+        "accept_reputation_attestations": true
+      }
+    }
+  ],
+  "metadata": "Attempt reputation bridging on Lens (should fail)"
+}
+EOF
+
+    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/lens_rep_policy.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
+    if ! submit_and_wait "$TX_RES" "submit lens rep policy"; then
+        record_result "Lens rep policy rejected" "FAIL"
+    else
+        PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
+        if [ -z "$PROP_ID" ]; then
+            record_result "Lens rep policy rejected" "FAIL"
+        else
+            for VOTER in "alice" "bob"; do
+                STATUS=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
+                if [ "$STATUS" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
+                VTX=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
+                submit_and_wait "$VTX" "$VOTER vote" || true
+            done
+            EXEC_TX=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
+            submit_and_wait "$EXEC_TX" "lens rep exec" || true
+            sleep 5
+            FINAL_STATUS=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
+            ALLOW_Q=$($BINARY query federation get-peer-policy $LENS_PEER_ID --output json 2>&1 | jq -r '.policy.allow_reputation_queries // false')
+            if [ "$ALLOW_Q" != "true" ] && [ "$FINAL_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
+                echo "  Reputation policy correctly rejected (proposal status=$FINAL_STATUS, allow_reputation_queries=$ALLOW_Q)"
+                record_result "Lens rep policy rejected" "PASS"
+            else
+                echo "  Unexpected: status=$FINAL_STATUS allow_q=$ALLOW_Q"
+                record_result "Lens rep policy rejected" "FAIL"
+            fi
+        fi
+    fi
+else
+    echo "  Skipped — Lens peer not registered"
+    record_result "Lens rep policy rejected" "FAIL"
 fi
 
 # ========================================================================

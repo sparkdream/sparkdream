@@ -16,6 +16,10 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgResolveEscalatedChallenge{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgSubmitArbiterHash{},
 	)
 

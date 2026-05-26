@@ -209,6 +209,10 @@ func (m *mockRepKeeper) GetTrustLevel(_ context.Context, _ sdk.AccAddress) (rept
 	return reptypes.TrustLevel(3), nil // TRUSTED
 }
 
+func (m *mockRepKeeper) MintDREAM(_ context.Context, _ sdk.AccAddress, _ math.Int) error {
+	return nil
+}
+
 func (m *mockRepKeeper) BurnDREAM(_ context.Context, _ sdk.AccAddress, _ math.Int) error {
 	return nil
 }
@@ -293,6 +297,37 @@ func (m *mockRepKeeper) SlashBond(_ context.Context, roleType reptypes.RoleType,
 	return nil
 }
 
+func (m *mockRepKeeper) IncreaseBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return reptypes.ErrBondedRoleNotFound
+	}
+	current, _ := math.NewIntFromString(br.CurrentBond)
+	if current.IsNil() {
+		current = math.ZeroInt()
+	}
+	br.CurrentBond = current.Add(amount).String()
+	m.bondedRoles[key] = br
+	return nil
+}
+
+func (m *mockRepKeeper) RecordRewardPayout(_ context.Context, roleType reptypes.RoleType, addr string, epoch int64, amount math.Int) error {
+	key := mockBondedRoleKey(roleType, addr)
+	br, ok := m.bondedRoles[key]
+	if !ok {
+		return nil
+	}
+	prev, _ := math.NewIntFromString(br.CumulativeRewards)
+	if prev.IsNil() {
+		prev = math.ZeroInt()
+	}
+	br.CumulativeRewards = prev.Add(amount).String()
+	br.LastRewardEpoch = epoch
+	m.bondedRoles[key] = br
+	return nil
+}
+
 func (m *mockRepKeeper) RecordActivity(_ context.Context, _ reptypes.RoleType, _ string) error {
 	return nil
 }
@@ -353,6 +388,48 @@ func registerTestPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID strin
 		PeerId:      peerID,
 		DisplayName: "Test Peer " + peerID,
 		Type:        types.PeerType_PEER_TYPE_ACTIVITYPUB,
+	})
+	require.NoError(t, err)
+	_, err = ms.UpdatePeerPolicy(f.ctx, &types.MsgUpdatePeerPolicy{
+		Authority: f.authority,
+		PeerId:    peerID,
+		Policy: types.PeerPolicy{
+			InboundContentTypes:  []string{"blog_post", "forum_thread"},
+			OutboundContentTypes: []string{"blog_post"},
+		},
+	})
+	require.NoError(t, err)
+}
+
+// registerTestNOSTRPeer registers a NOSTR relay peer with inbound blog_post allowed.
+func registerTestNOSTRPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID string) {
+	t.Helper()
+	_, err := ms.RegisterPeer(f.ctx, &types.MsgRegisterPeer{
+		Authority:   f.authority,
+		PeerId:      peerID,
+		DisplayName: "NOSTR Relay " + peerID,
+		Type:        types.PeerType_PEER_TYPE_NOSTR,
+	})
+	require.NoError(t, err)
+	_, err = ms.UpdatePeerPolicy(f.ctx, &types.MsgUpdatePeerPolicy{
+		Authority: f.authority,
+		PeerId:    peerID,
+		Policy: types.PeerPolicy{
+			InboundContentTypes:  []string{"blog_post", "forum_thread"},
+			OutboundContentTypes: []string{"blog_post"},
+		},
+	})
+	require.NoError(t, err)
+}
+
+// registerTestLENSPeer registers a Lens Chain peer with inbound blog_post allowed.
+func registerTestLENSPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID string) {
+	t.Helper()
+	_, err := ms.RegisterPeer(f.ctx, &types.MsgRegisterPeer{
+		Authority:   f.authority,
+		PeerId:      peerID,
+		DisplayName: "Lens deployment " + peerID,
+		Type:        types.PeerType_PEER_TYPE_LENS,
 	})
 	require.NoError(t, err)
 	_, err = ms.UpdatePeerPolicy(f.ctx, &types.MsgUpdatePeerPolicy{

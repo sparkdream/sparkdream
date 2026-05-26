@@ -45,8 +45,8 @@ func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBri
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrPeerNotFound, "peer %q not found", msg.PeerId)
 	}
-	if peer.Type != types.PeerType_PEER_TYPE_ACTIVITYPUB && peer.Type != types.PeerType_PEER_TYPE_ATPROTO {
-		return nil, errorsmod.Wrapf(types.ErrPeerTypeMismatch, "bridge operators only for ActivityPub/AT Protocol peers, got %s", peer.Type)
+	if peer.Type != types.PeerType_PEER_TYPE_ACTIVITYPUB && peer.Type != types.PeerType_PEER_TYPE_ATPROTO && peer.Type != types.PeerType_PEER_TYPE_NOSTR && peer.Type != types.PeerType_PEER_TYPE_LENS {
+		return nil, errorsmod.Wrapf(types.ErrPeerTypeMismatch, "bridge operators only for ActivityPub/AT Protocol/NOSTR/Lens peers, got %s", peer.Type)
 	}
 
 	params, err := k.Params.Get(ctx)
@@ -179,6 +179,10 @@ func serviceTypeForPeer(peerType types.PeerType) (string, error) {
 		return types.ServiceTypeFederationBridgeActivityPub, nil
 	case types.PeerType_PEER_TYPE_ATPROTO:
 		return types.ServiceTypeFederationBridgeATProto, nil
+	case types.PeerType_PEER_TYPE_NOSTR:
+		return types.ServiceTypeFederationBridgeNOSTR, nil
+	case types.PeerType_PEER_TYPE_LENS:
+		return types.ServiceTypeFederationBridgeLENS, nil
 	default:
 		return "", errorsmod.Wrapf(types.ErrPeerTypeMismatch, "no service_type mapping for peer type %s", peerType)
 	}

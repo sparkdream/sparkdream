@@ -84,7 +84,7 @@ ACTIVE ◄─── MsgUnhidePost ─── HIDDEN ◄── MsgHidePost (sentin
 
 ### Sentinel System
 
-Sentinels are reputation-bearing members who stake DREAM bonds to moderate content. Bond, bond status, activity stamps, and `MsgBondSentinel` / `MsgUnbondSentinel` are owned by **x/rep** (`sparkdream.rep.v1.SentinelActivity`). See [x/rep spec — Sentinel Accountability](../../docs/x-rep-spec.md).
+Sentinels are reputation-bearing members who stake DREAM bonds to moderate content. Bond, bond status, activity stamps, and the role-typed `MsgBondRole` / `MsgUnbondRole` (with `role_type = ROLE_TYPE_FORUM_SENTINEL`) are owned by **x/rep**. Forum keeps the per-sentinel forum-side counters in `sparkdream.forum.v1.SentinelActivity` (29 counters). See [docs/bonded-role-generalization.md](../../docs/bonded-role-generalization.md) and [x/rep spec — Sentinel Accountability](../../docs/x-rep-spec.md).
 
 Forum owns only the per-action counters (`sparkdream.forum.v1.SentinelActivity`): hides, locks, moves, pins, proposals, per-epoch tallies, and local cooldowns. Content-action handlers (hide / lock / move / dismiss-flags) auth-check via `repKeeper.GetSentinel`, reserve bond via `repKeeper.ReserveBond`, record activity via `repKeeper.RecordActivity`, and release/slash on appeal outcomes.
 
@@ -436,8 +436,8 @@ sparkdreamd tx forum delete-post 1 --from alice
 sparkdreamd tx forum follow-thread 1 --from alice
 sparkdreamd tx forum unfollow-thread 1 --from alice
 
-# Moderation (bond-sentinel lives under `tx rep`)
-sparkdreamd tx rep bond-sentinel --amount 1000 --from bob
+# Moderation (role bonding lives under `tx rep`)
+sparkdreamd tx rep bond-role ROLE_TYPE_FORUM_SENTINEL 1000udream --from bob
 sparkdreamd tx forum hide-post 1 --reason-code SPAM --from sentinel
 
 # Bounties

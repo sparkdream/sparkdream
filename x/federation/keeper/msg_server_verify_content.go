@@ -95,6 +95,7 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		ChallengeWindowEnds:  blockTime + int64(params.ChallengeWindow.Seconds()),
 		CommittedAmount:      params.VerifierSlashAmount,
 		VerifierBondSnapshot: bondSnapshot,
+		EscrowedChallengeFee: math.ZeroInt(),
 	}
 
 	// Bump per-module verifier activity counters.

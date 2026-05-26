@@ -11,16 +11,36 @@ This system moves beyond simple token-voting by delegating authority to speciali
 │                           SPARK DREAM                                   │
 │                        Cosmos SDK Appchain                              │
 │                                                                         │
-│  16 custom modules · Dual tokens (SPARK/DREAM) · Shielded execution     │
+│  18 custom modules · Dual tokens (SPARK/DREAM) · Shielded execution     │
 └─────────────────────────────────────────────────────────────────────────┘
 
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    FOUNDATION LAYER (Genesis-Sealed)                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  x/identity                       x/guardian                            │
+│    │                                │                                   │
+│  Per-Chain Token Identity         Authority Proxy for SDK Modules       │
+│  (bond_denom, dream_denom,        (auth, bank, mint, staking,           │
+│   symbols, decimals)                distribution, gov, slashing,        │
+│  Genesis-only immutable —           consensus)                          │
+│  no Msg surface                   Field-filtered MsgUpdateParams        │
+│  BankKeeperWithIdentityGuard      Hard-rejects MsgCommunityPoolSpend    │
+│    panics on post-seal             (spending must flow x/split)         │
+│    metadata mutation              Allowlist (not denylist), single      │
+│  Five crisis invariants             MsgExec entrypoint, immutable       │
+│                                     field locks                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         GOVERNANCE LAYER                                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  x/gov (SPARK)     x/commons (Councils)       x/futarchy (Markets)      │
 │       │                   │                          │                  │
 │  Parameter         Three Pillars              Elastic Tenure            │
-│  Changes           Governance                 Confidence Markets        │
+│  Changes →         Governance                 Confidence Markets        │
+│  x/guardian        (host of RecurringSpend                              │
+│                     wrappers over x/session)                            │
 └─────────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -110,7 +130,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 | Module | Messages | Queries | EndBlocker | BeginBlocker | Purpose |
 |--------|----------|---------|------------|--------------|---------|
-| x/commons | 18 | 11 | 2 phases | — | Three Pillars governance, anonymous proposals |
+| x/commons | 24 | 11 | 2 phases | — | Three Pillars governance, anonymous proposals, RecurringSpend wrappers (host in x/session) |
 | x/split | 1 | 3 | — | BeginBlock | Automated revenue distribution |
 | x/futarchy | 7 | 4 | Yes | — | LMSR prediction markets, elastic tenure |
 | x/ecosystem | 2 | 1 | — | — | Governance-gated ecosystem treasury |
@@ -122,9 +142,11 @@ This system moves beyond simple token-voting by delegating authority to speciali
 | x/collect | 29 | 25 | 6 phases | — | Curated collections, curation, endorsements |
 | x/name | 8 | 6 | — | Yes | Human-readable identity registry |
 | x/shield | 5 | 17 | Yes | Yes | Shielded execution, ZK proofs, TLE, DKG |
-| x/session | 4 | 4 | 1 phase | — | Session keys, scoped delegation, fee delegation |
+| x/session | 11 | 8 | 3 passes | — | Unified grant registry (SessionKey / RecurringPull / SpendingAllowance / ScheduledOneshot), claim hooks |
 | x/service | 13 | 10 | 4 sweeps | — | SPARK-bonded off-chain operators (federation bridges, future external services); two-tier slashing, per-peer controllers, system reports |
 | x/federation | 24 | 17 | 12 phases | — | Cross-chain content, reputation bridging, identity linking, verification (bridge bond/slash delegated to x/service) |
+| x/identity | 0 | 3 | — | — | Per-chain identity (bond_denom, dream_denom, symbols, decimals); genesis-only immutable, no Msg surface |
+| x/guardian | 1 | 1 | — | — | Authority proxy for SDK modules (auth, bank, mint, staking, distribution, gov, slashing, consensus); single `MsgExec` with per-msg-type field filters |
 | x/common | — | — | — | — | Shared types (tags, flags, moderation) |
 
 ## Core Module Architecture
@@ -145,7 +167,11 @@ This system moves beyond simple token-voting by delegating authority to speciali
 
 **Anonymous Governance:** `SubmitAnonymousProposal` and `AnonymousVoteProposal` are shield-aware messages routed via x/shield's `MsgShieldedExec`, enabling anonymous council proposals and votes.
 
-**Messages (18):** `register_group`, `renew_group`, `update_group_members`, `update_group_config`, `delete_group`, `spend_from_commons`, `policy_permissions` (create/update/delete), `force_upgrade`, `emergency_cancel_gov_proposal`, `veto_group_proposals`, `submit_proposal`, `vote_proposal`, `execute_proposal`, `submit_anonymous_proposal`, `anonymous_vote_proposal`, `update_params`
+**Recurring Spends (hosted in x/session as RECURRING_PULL grants):** `MsgScheduleRecurringSpend` / `MsgCancelRecurringSpend` / `MsgClaimRecurringSpend` / `MsgDeclineRecurringSpend` are wire-compatible wrappers over the unified grant registry — `Schedule → CreateGrantOnBehalfOf`, `Cancel → RevokeGrantInternal`, `Decline → DeclineGrantInternal`, `Claim → ClaimRecurringPullForGrantee`. The legacy `RecurringSpends*` collections and the three duplicated params (`MinRecurringPeriodSeconds`, `MaxRecurringDurationSeconds`, `MaxActiveRecurringSpendsPerGroup`) are gone (proto `reserved 2, 3, 4` in [params.proto](../proto/sparkdream/commons/v1/params.proto)). Council activation, term-expiry, and per-epoch rate-limit gates apply to every council-policy claim via `SessionClaimHook` (PreCheck + PostCommit). Cancelled and declined schedules return `NotFound` post-migration — audit trail is the `grant_revoked` / `grant_declined` events.
+
+**Treasury Accounting:** `MintToTreasury` (enforces per-epoch cap, advances `SeasonMinted` + `SeasonTreasuryInflow`), `PayDREAMFromTreasuryFirst` (drains treasury when the flag is on, mints shortfall, fires referral on the combined total via `referralMintingKey` guard), `CreditDREAM` (mint-cap-free, referral-silent, emits `credit_dream{source=treasury}`), `AddToTreasury` / `SpendFromTreasury` advance inflow/outflow counters. Wired into `CompleteInitiative` (10% treasury share now actually credited) and into both interim payment paths + x/season's retro-PGF distribution via `PayRetroPgfReward`.
+
+**Messages (24):** `register_group`, `renew_group`, `update_group_members`, `update_group_config`, `delete_group`, `spend_from_commons`, `policy_permissions` (create/update/delete), `force_upgrade`, `emergency_cancel_gov_proposal`, `veto_group_proposals`, `submit_proposal`, `vote_proposal`, `execute_proposal`, `submit_anonymous_proposal`, `anonymous_vote_proposal`, `create_category`, `delete_category`, `schedule_recurring_spend`, `cancel_recurring_spend`, `claim_recurring_spend`, `decline_recurring_spend`, `update_params`
 
 **Queries (11):** `params`, `get_policy_permissions`, `list_policy_permissions`, `get_decision_policy`, `list_decision_policies`, `get_group`, `list_groups`, `get_council_members`, `get_proposal`, `list_proposals`, `get_proposal_votes`
 
@@ -196,6 +222,56 @@ The `get_decision_policy` and `list_decision_policies` queries expose each counc
 Separate from the `x/split` distribution pipeline, this module holds funds for ecosystem grants and partnerships, spending only via `x/gov` authority.
 
 **Messages (2):** `spend`, `update_params`
+
+## Foundation Layer
+
+### x/identity (Per-Chain Identity)
+
+**Purpose:** Single source of truth for a federated Spark Dream chain's identity — bond_denom (e.g. `uspark.sparkdream`), dream_denom (e.g. `udream.sparkdream`), display symbols, decimals, founded_at. Chosen at genesis, immutable forever. Full specification at [`docs/x-identity-spec.md`](x-identity-spec.md).
+
+**Key Features:**
+- **Genesis-only immutable.** Zero `Msg*` mutation surface. Renaming a chain's native token post-launch is architecturally impossible.
+- **Two-record seal.** `identity` (mutable read path) and `sealed_identity` (immutable reference written exactly once at `InitGenesis`). `ExportGenesis` errors if the live record has drifted from the sealed one.
+- **Pre-init sentinel substitution.** Standalone `genesisinit` package rewrites `%BOND_DENOM%` / `%DREAM_DENOM%` placeholders in the raw genesis JSON before any module loads, and purges legacy `uspark` / `udream` / `dream` / `stake` entries from `bank.denom_metadata`.
+- **SDK params writethrough.** At genesis, writes `staking.bond_denom` and `mint.mint_denom` so off-the-shelf wallets and REST tooling work unchanged.
+- **DenomMetadata bootstrap.** Seeds `x/bank` `DenomMetadata` for both native tokens so wallets render `SPARK` / `DREAM` (uppercase Symbol) instead of raw denom strings.
+- **`BankKeeperWithIdentityGuard`** wrapper at the app layer (`app/bank_guard.go`) intercepts `SetDenomMetaData` and panics with `ErrIdentityImmutable` if any post-seal write mutates the native bond/dream `Symbol`/`Display`. Closes §14.6 attack where a gov upgrade-handler could rewrite the user-visible token name post-launch.
+- **Five crisis invariants:** `identity-initialized`, `canonical-fields` (mutable vs sealed), `bank-metadata-present`, `bank-metadata-canonical` (Symbol/Display drift), `sdk-params-aligned` (warning-grade).
+- **Init ordering:** placed between `auth` and `bank` so the sealed record exists before bank's first `SetDenomMetaData`.
+- **Panic-on-pre-genesis-read.** Keeper accessors `BondDenom(ctx)` / `DreamDenom(ctx)` panic if called pre-genesis — deliberate, prevents silent fallback to hardcoded literals.
+
+**Messages (0):** No Msg service. `RegisterInterfaces` is an intentional no-op.
+
+**Queries (3):** `chain_identity` (full record), `bond_denom`, `dream_denom`
+
+**No BeginBlocker / EndBlocker.** Pure genesis-only writes + read-served queries.
+
+### x/guardian (Authority Proxy)
+
+**Purpose:** Owns the `Authority` address for sensitive SDK modules (auth, bank, mint, staking, distribution, gov, slashing, consensus) and routes gov-submitted `MsgUpdateParams` (and friends) through per-msg-type field filters before dispatch.
+
+**Key Features:**
+- **Single `MsgExec` entrypoint** accepting `google.protobuf.Any` inner msg. On accept, the filter overwrites the inner msg's `Authority` with guardian's module address and routes via `baseapp.MessageRouter`.
+- **Hard-coded allowlist** of routable msg types — chain upgrade required to change. Unknown inner msg types are rejected with `ErrInnerMsgNotAllowed` (allowlist, not denylist).
+- **Per-msg-type field filters** lock immutable fields and enforce bounds on tunable ones:
+  - `mint.MsgUpdateParams`: `inflation_min`, `inflation_max`, `inflation_rate_change`, `goal_bonded`, `mint_denom` rejected; `blocks_per_year` passes through.
+  - `staking.MsgUpdateParams`: `bond_denom` rejected; rest pass.
+  - `bank.MsgSetSendEnabled`: rejects toggles that would disable send on native bond/dream denoms.
+  - `distribution.MsgUpdateParams`: `community_tax` clamped to `[0.05, 0.25]`.
+  - **`distribution.MsgCommunityPoolSpend`: hard reject** — community pool spending must flow through x/split.
+  - `gov.MsgUpdateParams`: floors on `voting_period` (6h), `expedited_voting_period` (1h), `quorum` (0.2), `threshold` (0.5), `veto_threshold` (0.2).
+  - `slashing.MsgUpdateParams`: floors on `slash_fraction_double_sign` (0.01), `slash_fraction_downtime` (1e-5); ceiling on `signed_blocks_window` (1M).
+  - `auth.MsgUpdateParams`: floors on `tx_size_cost_per_byte`, `sig_verify_cost_ed25519`, `sig_verify_cost_secp256k1`.
+  - `consensus.MsgUpdateParams`: floors on `block.max_bytes` (200k), `block.max_gas` (1M or -1), `evidence.max_age_num_blocks` (1k), `evidence.max_age_duration` (1h).
+- **Fail-closed** on missing late-bound keepers: filters that need an identity/mint/staking keeper return `ErrIdentityNotSealed` / `ErrImmutableField` until wired.
+- **No state of its own.** Empty genesis, no invariants, no ante handler — enforcement is purely through the Msg server.
+- **Authority module name resolution.** Authority passed as the bare module name `"guardian"` (not a pre-computed bech32 string) so depinject resolves it *after* `sdk.SetBech32PrefixForAccount` seals the prefix.
+
+**Messages (1):** `exec`
+
+**Queries (1):** `allowed_msgs` — sorted list of routable inner msg type URLs
+
+**No BeginBlocker / EndBlocker.**
 
 ## Coordination Layer
 
@@ -422,23 +498,31 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - `ShieldGasDecorator`: Intercepts `MsgShieldedExec`, deducts gas from shield module account
 - `SkipFeeDecorator`: Skips normal fee processing for shielded messages
 
-### x/session (Session Keys)
+### x/session (Delegated Authorization Registry)
 
-**Purpose:** Scoped, time-limited transaction delegation with integrated fee delegation. Purpose-built replacement for `x/authz` + `x/feegrant`.
+**Purpose:** Unified registry for any "I authorize you to do X on my behalf, under these constraints" primitive. Clean-room replacement for `x/authz` + `x/feegrant`. Inspired by EIP-7702 + ERC-7710/7715 on the EVM side. Full specification at [`docs/x-session-spec.md`](x-session-spec.md).
 
 **Key Features:**
-- **Session lifecycle:** Granter creates session for ephemeral grantee key → grantee signs `MsgExecSession` → granter pays gas → session expires or is revoked
-- **Bounded allowlist:** Two-tier model — ceiling (`max_allowed_msg_types`, upgrade-only) and active list (governance can shrink, ops committee can restore within ceiling)
-- **Integrated fee delegation:** `spend_limit` on each session, `SessionFeeDecorator` ante handler overrides fee payer
-- **Non-recursive:** `MsgExecSession` cannot contain another `MsgExecSession` — eliminates recursion attacks
-- **Leaf module:** Depends only on x/bank, x/auth, msg router. No cycle risk.
+- **Four typed payload variants** under a single `Grant` record:
+  - **`SessionKey`** — ephemeral session keys with scoped message-type delegation; integrated fee delegation via `spend_limit` (granter pays gas via `SessionFeeDecorator` ante handler).
+  - **`RecurringPull`** — granter-authorized periodic SendCoins to a grantee; logical-clock advances with catch-up via multiple txs. Per-grant `max_per_epoch_uspark` self-throttle backed by UTC-day buckets (no dependency on any other module's epoch). Insufficient-funds → `PAUSED_INSUFFICIENT_FUNDS`; flips back to ACTIVE on first successful retry.
+  - **`SpendingAllowance`** — refilling per-period cap; grantee picks recipient + amount per pull within rolling window + optional whitelist. Period-clock only advances on successful pull.
+  - **`ScheduledOneshot`** (Transfer + Exec) — fires once at `fire_at`, EndBlocker-driven. **Gas-deposit escrow**: granter pre-funds `max(ceil(gas_limit * gas_price) + creation_fee, min_deposit)` SPARK at creation. Refunded on Revoke/Decline/auto-revoke; sent to fee collector on FIRED. Fire path runs in a child `CacheContext` with a fresh gas meter capped at `gas_limit` and unconditional `defer recover()` — a buggy/malicious handler can at most consume `gas_limit` gas and one EndBlocker slot.
+- **Universal lifecycle messages:** `MsgCreateGrant` (payload-dispatching umbrella), `MsgRevokeGrant`, `MsgDeclineGrant`. Type-specific actions: `MsgExecSession`, `MsgClaimRecurringPull`, `MsgPullAllowance`, `MsgRetryScheduledOneshot`. Legacy `MsgCreateSession` / `MsgRevokeSession` remain as wire-compatible facades.
+- **Anti-recursion:** hardcoded `NonDelegableSessionMsgs` denylist absolute — no payload-level allowlist can re-enable. `MsgRevokeGrant` is intentionally NOT denylisted; gated by `SessionKeyPayload.allow_self_revoke` (Rev 2) instead.
+- **Bounded allowlist:** ceiling (`max_allowed_msg_types`) set at genesis, only expandable via chain upgrade; active list can be narrowed by governance and restored by Operations Committee.
+- **Module-bypass entrypoints:** `CreateGrantOnBehalfOf`, `RevokeGrantInternal`, `DeclineGrantInternal`, `ClaimRecurringPullForGrantee` — all gated by the `params.authorized_grant_creators` allowlist (gov-only, not ops-editable). Genesis default seeds the commons module address so x/commons `RecurringSpend` wrappers work from block 0.
+- **`GrantClaimHook` interface** (two-method: `PreCheck` + `PostCommit`): late-wired via `SetClaimHooks`; invoked at every on-the-wire transfer. PreCheck vetoes before bank send; PostCommit runs after bank send and is **tx-halting on error** (closes a double-debit window the single-method design would have left open on bank-send retry). Shipped consumer is x/commons's `SessionClaimHook`, which re-applies council `CheckSpendGates` (PreCheck) + `recordEpochSpend` (PostCommit) to council-policy grants.
+- **Leaf module:** depends only on x/bank, x/auth, msg router. No cycle risk.
 
-**Messages (4):** `create_session`, `revoke_session`, `exec_session`, `update_params`
+**Messages (11):** `create_grant`, `revoke_grant`, `decline_grant`, `exec_session`, `claim_recurring_pull`, `pull_allowance`, `retry_scheduled_oneshot`, `update_params`, `update_operational_params`, plus legacy facades `create_session`, `revoke_session`.
 
-**Queries (4):** `params`, `get_session`, `sessions_by_granter`, `sessions_by_grantee`
+**Queries (8):** `params`, `session`, `sessions_by_granter`, `sessions_by_grantee`, `grant`, `grants_by_granter`, `grants_by_grantee`, `allowed_msg_types`
 
-**EndBlocker (1 phase):**
-1. Prune expired sessions (walk `SessionsByExpiration` index)
+**EndBlocker (3 ordered, independently-capped passes):**
+1. Fire scheduled oneshots in `(fire_at ASC, grant_id ASC)` order
+2. Auto-revoke paused oneshots past TTL (default 7d) and refund deposits
+3. Expire grants past `expires_at` and refund any held oneshot deposit
 
 ## Accountability Layer
 
@@ -787,6 +871,20 @@ x/shield     ← SetRepKeeper(rep), SetDistrKeeper(distr)
              ← RegisterShieldAwareModule(blog, forum, collect, rep, commons, federation)
 
 x/session    ← (no late wiring needed — leaf module, all deps via depinject)
+             ← SetClaimHooks(commons.SessionClaimHook) [late-wired so x/commons
+                                                        gates council-policy grants
+                                                        via PreCheck + PostCommit]
+
+x/identity   ← SetBankKeeper(bank) [required, seeds DenomMetadata + invariants]
+             ← SetStakingKeeper(staking) [optional, invariant 5 only]
+             ← SetMintKeeper(mint)       [optional, invariant 5 only]
+
+x/guardian   ← SetIdentityKeeper(identity)
+             ← SetMintKeeper(mint), SetStakingKeeper(staking)
+             ← SetDistrKeeper(distr), SetGovKeeper(gov)
+             ← SetSlashingKeeper(slashing), SetAuthKeeper(auth)
+             [all keepers via app-layer adapters so guardian can read current
+              params for diff-based field filters]
 
 x/service    ← SetCrossModuleKeepers(commons, rep, distr) [trimmed adapter
                                                             interfaces]

@@ -14,6 +14,19 @@ enum PeerType {
   PEER_TYPE_SPARK_DREAM = 1;
   PEER_TYPE_ACTIVITYPUB = 2;
   PEER_TYPE_ATPROTO = 3;
+  // NOSTR peers are modeled per-relay (one Peer = one relay endpoint).
+  // Uses an off-chain bridge daemon, same accountability model as
+  // ActivityPub/AT Protocol. NOSTR identity (pubkey) is global, so the
+  // same remote_identity may be linked across multiple NOSTR-relay peers.
+  PEER_TYPE_NOSTR = 4;
+  // Lens peers represent a Lens Chain deployment (zkSync L2 + Avail DA).
+  // Identity is on-chain (wallet address + tokenized handle NFT); the
+  // off-chain bridge daemon is expected to query Lens Chain RPC to
+  // verify NFT ownership before attesting, raising the bar relative to
+  // pure HTTP-signature attestation used for ActivityPub. Future work
+  // (deferred): MsgLinkIdentityViaStateProof for fully on-chain
+  // verification via EVM state proofs.
+  PEER_TYPE_LENS = 5;
 }
 
 enum PeerStatus {
@@ -168,6 +181,77 @@ message VerificationRecord {
   uint32 prior_rejected_challenges = 9;
   int64 last_challenge_resolved_at = 10;
   string challenger = 11 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // escrowed_challenge_fee is the per-challenge SPARK amount the
+  // challenger escrowed at MsgChallengeVerification time. Snapshotted
+  // because the effective fee escalates with prior_rejected_challenges
+  // (2^N multiplier) — recomputing at resolution time would be fragile.
+  // Used by the auto-resolve path to refund (UPHELD) or split
+  // (REJECTED) the escrow.
+  string escrowed_challenge_fee = 12 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // pending_verifier_verdict snapshots the would-be auto-verdict from
+  // the arbiter-quorum branch (UNSPECIFIED until quorum lands, then
+  // VERIFIER_RIGHT or VERIFIER_WRONG). The verdict is applied by the
+  // EndBlocker when the escalation window expires; MsgEscalateChallenge
+  // clears it back to UNSPECIFIED, deferring resolution to the jury path.
+  PendingVerifierVerdict pending_verifier_verdict = 13;
+}
+
+// PendingVerifierVerdict captures an arbiter-quorum auto-verdict that
+// hasn't yet been applied (escalation window still open). Drives the
+// fee-disbursement and slash logic in EndBlocker phase
+// finalizeAutoResolutions.
+enum PendingVerifierVerdict {
+  PENDING_VERIFIER_VERDICT_UNSPECIFIED = 0;
+  PENDING_VERIFIER_VERDICT_VERIFIER_RIGHT = 1;
+  PENDING_VERIFIER_VERDICT_VERIFIER_WRONG = 2;
+}
+
+// JuryVerdict is the Phase 2 (human jury) outcome for an escalated
+// challenge. Submitted via MsgResolveEscalatedChallenge or stamped
+// automatically on jury deadline expiry (TIMEOUT). Drives the final
+// fee disbursement, content status, and verifier-side accounting.
+enum JuryVerdict {
+  JURY_VERDICT_UNSPECIFIED = 0;
+  JURY_VERDICT_CHALLENGE_UPHELD = 1;
+  JURY_VERDICT_CHALLENGE_REJECTED = 2;
+  JURY_VERDICT_CHALLENGE_TIMEOUT = 3;
+}
+
+// EscalatedChallenge tracks the Phase 2 (human jury) lifecycle for a
+// challenge whose Phase 1 auto-verdict was contested via
+// MsgEscalateChallenge. Operations Committee submits the jury verdict
+// via MsgResolveEscalatedChallenge; the EndBlocker stamps TIMEOUT on
+// jury_deadline expiry. Both paths feed the same applyJuryVerdict
+// helper which disposes of the escrowed challenge_fee + escalation_fee
+// and (on UPHELD/REJECTED) applies the same verifier-side accounting
+// as the auto-resolution path.
+message EscalatedChallenge {
+  uint64 content_id = 1;
+  // escalator is the address that paid the escalation_fee (challenger
+  // or verifier — either party can escalate within the window).
+  string escalator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // escrowed_escalation_fee snapshots the SPARK amount escrowed at
+  // escalation time. Refunded to the escalator if the jury verdict
+  // overturns the auto-verdict; burned otherwise.
+  string escrowed_escalation_fee = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // auto_verdict_before_escalation snapshots the Phase 1 verdict that
+  // was about to apply. Compared to the jury verdict to determine if
+  // the jury "overturned" the auto-verdict (escalation fee refund).
+  PendingVerifierVerdict auto_verdict_before_escalation = 4;
+  // jury_deadline is the unix-time block-time after which the
+  // EndBlocker stamps TIMEOUT if no MsgResolveEscalatedChallenge has
+  // landed.
+  int64 jury_deadline = 5;
 }
 
 // ArbiterHashSubmission stores an arbiter's hash for quorum-based challenge resolution.

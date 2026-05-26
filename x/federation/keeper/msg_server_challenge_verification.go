@@ -99,8 +99,13 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 	}
 
 	// 8. VerificationRecord outcome → CHALLENGED, store challenger address
+	// and the actual escrowed fee. Snapshot is needed because the auto-
+	// resolve path can't recompute the escalating fee multiplier reliably
+	// (PriorRejectedChallenges may move forward before resolution lands).
 	record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_CHALLENGED
 	record.Challenger = msg.Creator
+	record.EscrowedChallengeFee = effectiveFeeAmount
+	record.PendingVerifierVerdict = types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_UNSPECIFIED
 	if err := k.VerificationRecords.Set(ctx, msg.ContentId, record); err != nil {
 		return nil, err
 	}

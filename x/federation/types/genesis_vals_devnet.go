@@ -39,5 +39,21 @@ func getFederationGenesisParams() federationGenesisParams {
 
 		RateLimitWindow:  1 * time.Hour,
 		IBCPacketTimeout: 5 * time.Minute,
+
+		// Verifier-bond economics — spec defaults
+		MinVerifierBond:              math.NewInt(500_000_000),         // 500 DREAM
+		VerifierRecoveryThreshold:    math.NewInt(250_000_000),         // 250 DREAM
+		VerifierSlashAmount:          math.NewInt(50_000_000),          // 50 DREAM
+		MinEpochVerifications:        uint32(3),
+		MinVerifierAccuracy:          math.LegacyNewDecWithPrec(8, 1), // 0.8
+		VerifierDreamReward:          math.NewInt(5_000_000),          // 5 DREAM
+		MaxVerifierDreamMintPerEpoch: math.NewInt(100_000_000),        // 100 DREAM
 	}
+}
+
+// getVerifierRewardEpochBlocks returns the cadence at which Phase 10 fires
+// on devnet (~6h at 6s blocks — fastest of the three networks so devs can
+// observe a full epoch in a working session). Production cadence is ~7 days.
+func getVerifierRewardEpochBlocks() uint64 {
+	return 3600
 }

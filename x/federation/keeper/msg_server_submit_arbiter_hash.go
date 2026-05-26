@@ -115,6 +115,28 @@ func (k msgServer) SubmitArbiterHash(ctx context.Context, msg *types.MsgSubmitAr
 				sdk.NewAttribute("matching_count", fmt.Sprintf("%d", newCount))),
 		)
 
+		// Stash the verifier-side auto-verdict on the record. The verdict
+		// is APPLIED later by the EndBlocker (finalizeAutoResolutions)
+		// once the escalation window closes without an escalation.
+		// MsgEscalateChallenge clears the stash, deferring the final
+		// verdict to the jury path.
+		//
+		// The verifier is right iff the arbiter quorum hash equals the
+		// hash the verifier originally submitted (record.VerifierHash);
+		// otherwise the auto-verdict is CHALLENGE_UPHELD (verifier was
+		// overturned). Skipped silently if the verification record is
+		// missing (defensive — the verify path always writes one).
+		if record, rerr := k.VerificationRecords.Get(ctx, msg.ContentId); rerr == nil {
+			if bytesEqual(msg.ContentHash, record.VerifierHash) {
+				record.PendingVerifierVerdict = types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_VERIFIER_RIGHT
+			} else {
+				record.PendingVerifierVerdict = types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_VERIFIER_WRONG
+			}
+			if err := k.VerificationRecords.Set(ctx, msg.ContentId, record); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to stash pending verifier verdict")
+			}
+		}
+
 		// Auto-resolve: schedule the resolution window (existing
 		// behavior) and, if the arbiter quorum hash differs from the
 		// originally-submitted content hash, file a system report

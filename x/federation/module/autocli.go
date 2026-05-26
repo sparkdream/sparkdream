@@ -113,6 +113,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Query GetVerificationRecord",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "content_id"}},
 				},
+				{
+					RpcMethod:      "GetEscalatedChallenge",
+					Use:            "get-escalated-challenge [content-id]",
+					Short:          "Query the Phase 2 jury lifecycle record for an escalated challenge",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "content_id"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{
@@ -243,6 +249,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "escalate-challenge [content-id]",
 					Short:          "Send a EscalateChallenge tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "content_id"}},
+				},
+				{
+					RpcMethod:      "ResolveEscalatedChallenge",
+					Use:            "resolve-escalated-challenge [content-id] [verdict] [reasoning]",
+					Short:          "Apply a Phase 2 jury verdict (Operations Committee only)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "content_id"}, {ProtoField: "verdict"}, {ProtoField: "reasoning"}},
 				},
 				{
 					RpcMethod:      "UpdateOperationalParams",

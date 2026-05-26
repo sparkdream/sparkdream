@@ -361,6 +361,8 @@ func randomPeerType(r *rand.Rand) types.PeerType {
 		types.PeerType_PEER_TYPE_SPARK_DREAM,
 		types.PeerType_PEER_TYPE_ACTIVITYPUB,
 		types.PeerType_PEER_TYPE_ATPROTO,
+		types.PeerType_PEER_TYPE_NOSTR,
+		types.PeerType_PEER_TYPE_LENS,
 	}
 	return pts[r.Intn(len(pts))]
 }

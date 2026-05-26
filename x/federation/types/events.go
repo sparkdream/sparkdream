@@ -88,6 +88,11 @@ const (
 	EventTypeArbiterResolutionExpired      = "arbiter_resolution_expired"
 	EventTypeChallengeCancelledPeerRemoved = "challenge_cancelled_peer_removed"
 
+	// Phase 2 (jury) resolution
+	EventTypeJuryVerdictApplied = "jury_verdict_applied"
+	EventTypeEscalationFeeRefunded = "escalation_fee_refunded"
+	EventTypeEscalationFeeBurned   = "escalation_fee_burned"
+
 	// Common attribute keys
 	AttributeKeyPeerID          = "peer_id"
 	AttributeKeyPeerType        = "type"

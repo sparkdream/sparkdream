@@ -121,6 +121,13 @@ type Keeper struct {
 	ArbiterResolutionQueue collections.KeySet[collections.Pair[int64, uint64]]
 	ArbiterEscalationQueue collections.KeySet[collections.Pair[int64, uint64]]
 
+	// EscalatedChallenges tracks Phase 2 (jury) lifecycle for
+	// challenges escalated past their auto-resolve window. Keyed by
+	// content_id; populated by MsgEscalateChallenge, drained by
+	// MsgResolveEscalatedChallenge or the jury-deadline timeout sweep.
+	EscalatedChallenges        collections.Map[uint64, types.EscalatedChallenge]
+	EscalatedChallengeDeadline collections.KeySet[collections.Pair[int64, uint64]]
+
 	// BridgeUnbondingQueue removed in Phase 4 of the federation→service
 	// migration: x/service owns operator unbonding now (the EndBlocker
 	// sweepUnderfunded + per-type unbonding_period_blocks). Federation
@@ -128,6 +135,11 @@ type Keeper struct {
 
 	InboundRateLimits  collections.Map[collections.Pair[string, int64], uint64]
 	OutboundRateLimits collections.Map[collections.Pair[string, int64], uint64]
+
+	// Global per-block caps. Map[block_height, count]; at most one
+	// entry per direction per block, pruned by EndBlocker phase 13.
+	InboundPerBlock  collections.Map[int64, uint64]
+	OutboundPerBlock collections.Map[int64, uint64]
 }
 
 func NewKeeper(
@@ -243,6 +255,12 @@ func NewKeeper(
 		ArbiterEscalationQueue: collections.NewKeySet(sb, types.ArbiterEscalationQueueKey, "arbiterEscalationQueue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 
+		// Phase 2 (jury) escalation lifecycle.
+		EscalatedChallenges: collections.NewMap(sb, types.EscalatedChallengesKey, "escalatedChallenges",
+			collections.Uint64Key, codec.CollValue[types.EscalatedChallenge](cdc)),
+		EscalatedChallengeDeadline: collections.NewKeySet(sb, types.EscalatedChallengeDeadlineKey, "escalatedChallengeDeadline",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+
 		// (BridgeUnbondingQueue removed in Phase 4 of the federation→
 		// service migration; x/service owns operator unbonding now.)
 
@@ -253,6 +271,10 @@ func NewKeeper(
 		OutboundRateLimits: collections.NewMap(sb, types.OutboundRateLimitKey, "outboundRateLimits",
 			collections.PairKeyCodec(collections.StringKey, collections.Int64Key),
 			collections.Uint64Value),
+		InboundPerBlock: collections.NewMap(sb, types.InboundPerBlockKey, "inboundPerBlock",
+			collections.Int64Key, collections.Uint64Value),
+		OutboundPerBlock: collections.NewMap(sb, types.OutboundPerBlockKey, "outboundPerBlock",
+			collections.Int64Key, collections.Uint64Value),
 	}
 
 	schema, err := sb.Build()

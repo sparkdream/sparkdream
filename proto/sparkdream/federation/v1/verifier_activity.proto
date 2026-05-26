@@ -35,4 +35,12 @@ message VerifierActivity {
   // slash_count is the lifetime number of times this verifier has been
   // slashed (overturn verdicts).
   uint64 slash_count = 11;
+
+  // last_slash_epoch records the Phase 11 reward-epoch number
+  // (height / GetVerifierRewardEpochBlocks) in which this verifier was
+  // most recently slashed. Phase 11's "no slashing this epoch"
+  // eligibility gate compares this against the current reward epoch —
+  // an exact match disqualifies the verifier for the current epoch's
+  // payout. Zero means "never slashed under the current accounting".
+  int64 last_slash_epoch = 12;
 }

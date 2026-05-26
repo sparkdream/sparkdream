@@ -83,7 +83,7 @@ func TestVerifyContentSelfVerification(t *testing.T) {
 			Address:            opStr,
 			RoleType:           reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
 			BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
-			CurrentBond:        types.DefaultMinVerifierBond.String(),
+			CurrentBond:        types.DefaultParams().MinVerifierBond.String(),
 			TotalCommittedBond: "0",
 		},
 	)

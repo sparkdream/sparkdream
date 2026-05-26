@@ -18,7 +18,10 @@ If you only want the multichain quick-start, jump to [multichain/README.md](mult
 | Single-chain | [bridge_operator_test.sh](bridge_operator_test.sh) | `MsgRegisterBridge` (operator-signed), `MsgUpdateBridge`, plus the x/service top-up/unbond/double-unbond flows that replace the deleted federation messages |
 | Single-chain | [content_federation_test.sh](content_federation_test.sh) | `FederateContent` (IBC outbound — sender-side validation) and inbound moderation |
 | Single-chain | [identity_link_test.sh](identity_link_test.sh) | `LinkIdentity` (Phase 1 outbound), `UnlinkIdentity`, claimed-address rejections |
-| Single-chain | [verifier_test.sh](verifier_test.sh) | Cross-chain verifier role: `VerifyContent`, `ChallengeVerification`, `SubmitArbiterHash`, `EscalateChallenge` (verifier bonding flows through `tx rep bond-role federation-verifier`) |
+| Single-chain | [verifier_test.sh](verifier_test.sh) | Cross-chain verifier role: `VerifyContent`, `ChallengeVerification`, `SubmitArbiterHash`, `EscalateChallenge` (verifier bonding flows through `tx rep bond-role federation-verifier`); plus the new schema fields (`escrowed_challenge_fee`, `pending_verifier_verdict`, `last_slash_epoch`) and the `GetEscalatedChallenge` query |
+| Single-chain | [jury_resolution_test.sh](jury_resolution_test.sh) | Phase 2 (human jury) lifecycle: `MsgResolveEscalatedChallenge` happy paths (`CHALLENGE_REJECTED` / `CHALLENGE_UPHELD` via OpsComm), auth gate rejection, invalid-verdict + missing-escalation rejection, double-escalation rejection, and the EndBlocker Phase 8 auto-TIMEOUT sweep. Bumps `challenge_jury_deadline` via gov proposal for the happy-path tests, restores at end. |
+| Single-chain | [verifier_rewards_test.sh](verifier_rewards_test.sh) | Phase 10 verifier epoch rewards (`DistributeVerifierRewards`): waits for the next 20-block reward epoch boundary, asserts `epoch_verifications` + `epoch_challenges_resolved` reset, `LastRewardEpoch` / `CumulativeRewards` update on the BondedRole, and the `last_slash_epoch` gate disqualifies same-epoch-slashed verifiers. |
+| Single-chain | [rate_limit_test.sh](rate_limit_test.sh) | Per-peer inbound sliding-window enforcement on `SubmitFederatedContent` (spec §10.2): submissions accepted up to `inbound_rate_limit_per_epoch`, rejected past it, accepted again when the limit is set to 0. Uses a dedicated `rl-test.example` peer so the counter starts at zero. (Global per-block cap is covered by the Go unit tests in [`x/federation/keeper/rate_limit_test.go`](../../x/federation/keeper/rate_limit_test.go) — racing multiple txs into one block is too flaky to do reliably from a shell.) |
 | Single-chain | [query_test.sh](query_test.sh) | All read-side queries (peers, policies, content, links, attestations, bindings, verifier activity) |
 | Single-chain | [query_pagination_test.sh](query_pagination_test.sh) | `--limit` / `--page-key` / `--reverse` / `--count-total` against every `List*` query + the per-claimed-address filter on `ListPendingIdentityChallenges` |
 | Single-chain | [service_hooks_test.sh](service_hooks_test.sh) | All four x/service hooks end-to-end: `AfterOperatorUnderfunded` → `BridgeBinding.suspended=true` (Group A via T1_SLASH that drops bond below `min_bond`); `AfterOperatorReFunded` → suspended cleared (Group A via `tx service top-up-bond`); `AfterOperatorRetired` → binding pruned (Group B via voluntary unbond + wait + claim); `AfterOperatorDissolved` → binding pruned (Group C via gov-tightened cap + 100% T1_SLASH that drives bond to zero per spec §3.4.9); plus Decision 1a shared-bond binding and SLASHED re-registration block |
@@ -90,6 +93,9 @@ The snapshot under [snapshots/post-setup/](snapshots/post-setup/) contains a ful
 | `--no-content` | Content federation tests |
 | `--no-identity` | Identity link tests |
 | `--no-verifier` | Verifier tests |
+| `--no-jury` | Jury resolution tests (Phase 2 EscalatedChallenge lifecycle, ~3 min) |
+| `--no-rewards` | Phase 10 verifier epoch reward tests (waits ~2 min for epoch boundary) |
+| `--no-ratelimit` | Rate-limit enforcement tests |
 | `--no-query` | Query tests |
 | `--no-pagination` | Query pagination tests |
 | `--no-hooks` | x/service ServiceHooks integration tests |
@@ -138,6 +144,9 @@ test/federation/
 ├── content_federation_test.sh
 ├── identity_link_test.sh
 ├── verifier_test.sh
+├── jury_resolution_test.sh             # Phase 2 jury resolution (EscalatedChallenge lifecycle)
+├── verifier_rewards_test.sh            # Phase 10 verifier epoch rewards
+├── rate_limit_test.sh                  # per-peer sliding-window enforcement
 ├── query_test.sh
 ├── query_pagination_test.sh            # --limit / --page-key / --reverse / filter args
 ├── service_hooks_test.sh               # x/service ServiceHooks integration

@@ -41,8 +41,11 @@ func TestMsgUpdateParams(t *testing.T) {
 				Authority: authorityStr,
 				Params:    types.Params{},
 			},
-			expErr:    true,
-			expErrMsg: "min_verifier_bond",
+			expErr: true,
+			// Validate() now checks several Int fields up-front; the
+			// first nil/missing one wins. Asserting on "must be set"
+			// keeps the test stable when the iteration order shifts.
+			expErrMsg: "must be set",
 		},
 		{
 			name: "all good",

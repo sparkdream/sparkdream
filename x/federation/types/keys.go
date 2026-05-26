@@ -9,6 +9,8 @@ const (
 	// (or wherever the ServiceTypeConfig entries are bootstrapped).
 	ServiceTypeFederationBridgeActivityPub = "federation-bridge-activitypub"
 	ServiceTypeFederationBridgeATProto     = "federation-bridge-atproto"
+	ServiceTypeFederationBridgeNOSTR       = "federation-bridge-nostr"
+	ServiceTypeFederationBridgeLENS        = "federation-bridge-lens"
 
 	// ModuleName defines the module name
 	ModuleName = "federation"
@@ -94,6 +96,13 @@ var (
 	ArbiterResolutionQueueKey = collections.NewPrefix("fed/idx/arbiter_res/")
 	ArbiterEscalationQueueKey = collections.NewPrefix("fed/idx/arbiter_esc/")
 
+	// Phase 2 (jury) escalation lifecycle. EscalatedChallengesKey is
+	// keyed by content_id; EscalatedChallengeDeadlineKey is a
+	// (deadline, content_id) KeySet driven by the EndBlocker timeout
+	// sweep.
+	EscalatedChallengesKey        = collections.NewPrefix("fed/escalated/")
+	EscalatedChallengeDeadlineKey = collections.NewPrefix("fed/escalated_deadline/")
+
 	// Bridge unbonding queue removed in Phase 4 of the federation→
 	// service migration. x/service owns operator unbonding now via
 	// UnderfundedQueue + per-type unbonding_period_blocks.
@@ -101,4 +110,8 @@ var (
 	// Rate limiting
 	InboundRateLimitKey  = collections.NewPrefix("fed/rate/inbound/")
 	OutboundRateLimitKey = collections.NewPrefix("fed/rate/outbound/")
+	// Global per-block caps. Keyed by block height; entries are
+	// pruned by EndBlocker phase 13.
+	InboundPerBlockKey  = collections.NewPrefix("fed/rate/inbound_block/")
+	OutboundPerBlockKey = collections.NewPrefix("fed/rate/outbound_block/")
 )

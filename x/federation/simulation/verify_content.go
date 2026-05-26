@@ -43,6 +43,7 @@ func SimulateMsgVerifyContent(
 			ChallengeWindowEnds:  ctx.BlockTime().Unix() + int64(types.DefaultParams().ChallengeWindow.Seconds()),
 			CommittedAmount:      commitAmount,
 			VerifierBondSnapshot: math.ZeroInt(),
+			EscrowedChallengeFee: math.ZeroInt(),
 			Outcome:              types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING,
 		}
 

@@ -132,6 +132,88 @@ func (k Keeper) ReleaseBond(ctx context.Context, roleType types.RoleType, addr s
 	return k.BondedRoles.Set(ctx, key, br)
 }
 
+// IncreaseBond locks `amount` DREAM from the role-holder's available balance
+// and credits it to current_bond on the BondedRole record. Used by reward
+// flows that auto-bond DREAM payouts (e.g. federation verifier rewards in
+// RECOVERY status). Recomputes bond_status against the role's thresholds so
+// crossing min_bond auto-promotes RECOVERY → NORMAL.
+//
+// Rejects when an unbond is in flight (state-machine linearity matches
+// MsgBondRole's rule) and when the role record is missing. Does not enforce
+// trust-level / rep-tier gates — those apply only to user-initiated bonding.
+func (k Keeper) IncreaseBond(ctx context.Context, roleType types.RoleType, addr string, amount math.Int) error {
+	if err := validateRoleType(roleType); err != nil {
+		return err
+	}
+	if amount.IsNegative() || amount.IsZero() {
+		return types.ErrInvalidAmount
+	}
+	key := bondedRoleKey(roleType, addr)
+	br, err := k.BondedRoles.Get(ctx, key)
+	if err != nil {
+		return errorsmod.Wrapf(types.ErrBondedRoleNotFound, "%s:%s", roleType.String(), addr)
+	}
+	if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING {
+		return errorsmod.Wrap(types.ErrInvalidRequest,
+			"cannot increase bond while UNBONDING is in flight")
+	}
+	roleAddr, addrErr := sdk.AccAddressFromBech32(addr)
+	if addrErr != nil {
+		return fmt.Errorf("invalid role-holder address: %w", addrErr)
+	}
+	if err := k.LockDREAM(ctx, roleAddr, amount); err != nil {
+		return fmt.Errorf("failed to lock DREAM for bond increase: %w", err)
+	}
+	current, err := parseIntOrZero(br.CurrentBond)
+	if err != nil {
+		return err
+	}
+	newBond := current.Add(amount)
+	br.CurrentBond = newBond.String()
+	br.BondStatus = k.computeBondStatus(ctx, roleType, newBond)
+	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+		return err
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"bonded_role_bond_increased",
+			sdk.NewAttribute("role_type", roleType.String()),
+			sdk.NewAttribute("address", addr),
+			sdk.NewAttribute("amount", amount.String()),
+			sdk.NewAttribute("total_bond", br.CurrentBond),
+			sdk.NewAttribute("bond_status", br.BondStatus.String()),
+		),
+	)
+	return nil
+}
+
+// RecordRewardPayout updates the LastRewardEpoch and CumulativeRewards
+// counters on the BondedRole record. Called by role-owning modules from
+// their per-role reward distribution flow (e.g. federation verifier
+// epoch rewards). No-op when the record is missing — callers iterating
+// activity counters may pass addresses without a bond record.
+func (k Keeper) RecordRewardPayout(ctx context.Context, roleType types.RoleType, addr string, epoch int64, amount math.Int) error {
+	if err := validateRoleType(roleType); err != nil {
+		return err
+	}
+	if amount.IsNegative() {
+		return types.ErrInvalidAmount
+	}
+	key := bondedRoleKey(roleType, addr)
+	br, err := k.BondedRoles.Get(ctx, key)
+	if err != nil {
+		return nil
+	}
+	prev, err := parseIntOrZero(br.CumulativeRewards)
+	if err != nil {
+		return fmt.Errorf("invalid cumulative_rewards on bonded role: %w", err)
+	}
+	br.CumulativeRewards = prev.Add(amount).String()
+	br.LastRewardEpoch = epoch
+	return k.BondedRoles.Set(ctx, key, br)
+}
+
 // SlashBond decrements both current_bond and total_committed_bond on the role
 // record by amount, and burns the equivalent DREAM from the role-holder's
 // member balance (unlock staked → burn, mirroring the author-bond slash).

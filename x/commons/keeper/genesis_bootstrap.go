@@ -476,6 +476,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 			// and RegisterBridge moved to operator-signed in Phase 4.
 			"/sparkdream.federation.v1.MsgResyncBridgeCount",
 			"/sparkdream.federation.v1.MsgPruneOrphanBindings",
+			// Apply Phase 2 jury verdicts to escalated content
+			// challenges. OpsComm-only per spec §6.25a; the proposal
+			// dispatches via x/commons so the council vote is the
+			// jury authorization signal.
+			"/sparkdream.federation.v1.MsgResolveEscalatedChallenge",
 			// Resolve service-side reports against bridge operators
 			// (controllers are x/commons Group policy addresses).
 			"/sparkdream.service.v1.MsgResolveReport",

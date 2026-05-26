@@ -49,5 +49,55 @@ func TestRegisterBridgeWrongPeerType(t *testing.T) {
 	opStr := testAddr(t, f, "operator2")
 	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{Operator: opStr, PeerId: "sparkdream-2", Protocol: "activitypub"})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "ActivityPub/AT Protocol")
+	require.Contains(t, err.Error(), "ActivityPub/AT Protocol/NOSTR/Lens")
+}
+
+func TestRegisterBridgeLens(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestLENSPeer(t, f, ms, "lens.example")
+
+	opStr := testAddr(t, f, "lens-op")
+
+	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{
+		Operator: opStr,
+		PeerId:   "lens.example",
+		Protocol: "lens",
+		Endpoint: "https://bridge.example.com/lens",
+	})
+	require.NoError(t, err)
+
+	binding, err := f.keeper.BridgeBindings.Get(f.ctx, collections.Join(opStr, "lens.example"))
+	require.NoError(t, err)
+	require.Equal(t, "lens", binding.Protocol)
+	require.Equal(t, "https://bridge.example.com/lens", binding.Endpoint)
+	require.False(t, binding.Suspended)
+
+	peer, _ := f.keeper.Peers.Get(f.ctx, "lens.example")
+	require.Equal(t, types.PeerStatus_PEER_STATUS_ACTIVE, peer.Status)
+}
+
+func TestRegisterBridgeNOSTR(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestNOSTRPeer(t, f, ms, "relay.damus.io")
+
+	opStr := testAddr(t, f, "nostr-op")
+
+	_, err := ms.RegisterBridge(f.ctx, &types.MsgRegisterBridge{
+		Operator: opStr,
+		PeerId:   "relay.damus.io",
+		Protocol: "nostr",
+		Endpoint: "https://bridge.example.com/nostr",
+	})
+	require.NoError(t, err)
+
+	binding, err := f.keeper.BridgeBindings.Get(f.ctx, collections.Join(opStr, "relay.damus.io"))
+	require.NoError(t, err)
+	require.Equal(t, "nostr", binding.Protocol)
+	require.Equal(t, "https://bridge.example.com/nostr", binding.Endpoint)
+	require.False(t, binding.Suspended)
+
+	peer, _ := f.keeper.Peers.Get(f.ctx, "relay.damus.io")
+	require.Equal(t, types.PeerStatus_PEER_STATUS_ACTIVE, peer.Status)
 }

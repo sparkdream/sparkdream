@@ -15,6 +15,9 @@ This module provides:
 - **Permission system** — restricted message allowlisting with forbidden/restricted message enforcement
 - **Elastic tenure** — integration with `x/futarchy` for confidence-vote-based term extension (+20%) or reduction (-50%)
 - **Electoral delegation** — child committees control parent council membership
+- **Recurring spends** — wire-compatible wrappers (`Schedule`/`Cancel`/`Claim`/`Decline` `RecurringSpend`) over x/session's unified grant registry (`RECURRING_PULL` payload variant); council policies are granters
+- **Categories** — typed councils for proposal classification
+- **Treasury accounting** — `MintToTreasury` / `PayDREAMFromTreasuryFirst` / `CreditDREAM` / `AddToTreasury` / `SpendFromTreasury` primitives with per-epoch caps, inflow/outflow counters, and referral-reward consolidation
 
 ## Concepts
 
@@ -168,6 +171,26 @@ When a group has `futarchy_enabled=true`:
 |---------|-------------|--------|
 | `MsgSpendFromCommons` | Transfer from community pool to recipient | Council policy via proposal |
 
+### Categories
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgCreateCategory` | Create a proposal/spend category | Council policy via proposal |
+| `MsgDeleteCategory` | Remove an existing category | Council policy via proposal |
+
+### Recurring Spends (wrappers over x/session)
+
+These four messages are wire-compatible facades. Internally they call x/session's module-bypass entrypoints with the council policy as granter. The legacy `RecurringSpends*` collections and the three duplicated params (`MinRecurringPeriodSeconds`, `MaxRecurringDurationSeconds`, `MaxActiveRecurringSpendsPerGroup`) are removed (proto `reserved 2, 3, 4` in [params.proto](../../proto/sparkdream/commons/v1/params.proto)).
+
+| Message | Maps to | Access |
+|---------|---------|--------|
+| `MsgScheduleRecurringSpend` | `session.CreateGrantOnBehalfOf` with `RecurringPull` payload | Council policy via proposal |
+| `MsgCancelRecurringSpend` | `session.RevokeGrantInternal` | Granter (council policy) or grantee |
+| `MsgClaimRecurringSpend` | `session.ClaimRecurringPullForGrantee` | Grantee |
+| `MsgDeclineRecurringSpend` | `session.DeclineGrantInternal` | Grantee |
+
+Cancelled and declined schedules return `NotFound` from `QueryGetRecurringSpend(id)` post-migration — audit trail is the `grant_revoked` / `grant_declined` events. Council activation, term-expiry, and per-epoch rate-limit gates apply to every council-policy claim via `SessionClaimHook` (PreCheck + PostCommit). PostCommit is tx-halting on error, closing a double-debit window the single-method design would have left open on bank-send retry.
+
 ### Permission Management
 
 | Message | Description | Access |
@@ -215,6 +238,15 @@ When a group has `futarchy_enabled=true`:
 | `anonymous_vote_proposal` | proposal_id, option | Anonymous vote via shield |
 | `proposal_finalized` | proposal_id, status | EndBlocker auto-finalization |
 
+## Treasury Accounting
+
+`x/commons` mints DREAM into a per-pillar treasury account and pays from it before mint when configured to do so. Five keeper primitives back this:
+
+- `MintToTreasury` — enforces per-epoch cap, advances `SeasonMinted` and the new `SeasonTreasuryInflow` counter, called from `CompleteInitiative` to credit the 10% treasury share. Per-season initiative-reward cap now accounts for the full (completer + treasury) mint.
+- `PayDREAMFromTreasuryFirst` — drains treasury first when the `TreasuryFundsInterims` / `TreasuryFundsRetroPgf` flags are on, mints only the shortfall. Critically, fires `CalculateReferralReward` ONCE on the combined (treasuryPaid + minted) total — MintDREAM's per-mint referral is suppressed via the existing `referralMintingKey` guard for the shortfall portion. Closes a silent regression where flipping `TreasuryFundsInterims` on would have under-paid inviters by the treasury-covered fraction. Wired into both interim payment paths and into x/season's retro-PGF distribution via `PayRetroPgfReward` on the `season.RepKeeper` interface.
+- `CreditDREAM` — mint-cap-free, referral-silent primitive used for the treasury-paid portion of payouts; emits `credit_dream{source=treasury}`. Recipients may see either or both `mint_dream` and `credit_dream` events.
+- `AddToTreasury` / `SpendFromTreasury` — advance the new inflow/outflow counters (both reset in `InitSeasonalPool`). `TreasuryStatus` reads the counters and reports both `SeasonTreasuryInflow` and `SeasonTreasuryOutflow`.
+
 ## Dependencies
 
 | Module | Required | Purpose |
@@ -225,11 +257,14 @@ When a group has `futarchy_enabled=true`:
 | `x/futarchy` | No | Prediction market creation and resolution hooks |
 | `x/split` | No | Treasury fund distribution by funding weight |
 | `x/upgrade` | No | Chain upgrade scheduling |
+| `x/session` | Yes | Host for recurring-spend grants (genesis-seeds commons module address in `authorized_grant_creators`) |
+| `x/service` | No | Subscribes to `AfterOperatorDissolved` hook to auto-cancel matching `RecurringSpend` schedules |
 
 ### Late Wiring (app.go)
 
 - `SetGovKeeper()` — wires `x/gov`'s GovKeeper after depinject (breaks cycle)
 - `SetRouter()` — wires baseapp's MsgServiceRouter after app build (needed for proposal execution)
+- `session.SetClaimHooks(SessionClaimHook)` — commons supplies the implementation of x/session's `GrantClaimHook` interface so council-policy grants flow through `CheckSpendGates` (PreCheck) + `recordEpochSpend` (PostCommit)
 
 ## Genesis
 

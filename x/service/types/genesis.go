@@ -8,10 +8,12 @@ import (
 
 // DefaultGenesis returns the default genesis state.
 //
-// Seeds two ServiceTypeConfig entries for the federation→service
+// Seeds four ServiceTypeConfig entries for the federation→service
 // migration (Phase 8 of the migration plan):
 //   - federation-bridge-activitypub
 //   - federation-bridge-atproto
+//   - federation-bridge-nostr
+//   - federation-bridge-lens
 //
 // Both use the same default knobs initially (matching x/service module
 // params); per Decision 1 of the migration plan they may diverge via
@@ -57,6 +59,8 @@ func defaultFederationBridgeServiceTypes(params Params) []ServiceTypeConfig {
 	return []ServiceTypeConfig{
 		mkCfg("federation-bridge-activitypub", "Off-chain bridge operator for ActivityPub federation"),
 		mkCfg("federation-bridge-atproto", "Off-chain bridge operator for AT Protocol federation"),
+		mkCfg("federation-bridge-nostr", "Off-chain bridge operator for NOSTR federation"),
+		mkCfg("federation-bridge-lens", "Off-chain bridge operator for Lens Protocol federation"),
 	}
 }
 
