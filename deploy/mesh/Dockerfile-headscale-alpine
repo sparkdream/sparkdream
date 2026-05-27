@@ -3,14 +3,24 @@ FROM headscale/headscale:v0.28.0 AS headscale
 FROM alpine:3.21
 
 ARG LITESTREAM_VERSION=0.3.13
+ARG S5CMD_VERSION=2.2.2
 ARG TARGETARCH=amd64
 
+# `age` encrypts the static-key archive (noise_private.key, derp_server_private.key)
+# that the entrypoint restores alongside the litestream SQLite replica.
+# `s5cmd` is a small static Go binary for the get/put of that archive — litestream
+# itself only handles SQLite WAL frames, not arbitrary files.
 RUN set -eux; \
-    apk add --no-cache ca-certificates tzdata curl vim sqlite; \
+    apk add --no-cache ca-certificates tzdata curl vim sqlite age; \
     curl -fsSL -o /tmp/litestream.tar.gz "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-${TARGETARCH}.tar.gz"; \
     tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin; \
     rm /tmp/litestream.tar.gz; \
-    litestream version
+    curl -fsSL -o /tmp/s5cmd.tar.gz "https://github.com/peak/s5cmd/releases/download/v${S5CMD_VERSION}/s5cmd_${S5CMD_VERSION}_Linux-64bit.tar.gz"; \
+    tar -xzf /tmp/s5cmd.tar.gz -C /usr/local/bin s5cmd; \
+    rm /tmp/s5cmd.tar.gz; \
+    litestream version; \
+    age --version; \
+    s5cmd version
 
 COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
 

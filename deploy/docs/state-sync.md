@@ -110,10 +110,11 @@ sed -i "s|^persistent_peers *=.*|persistent_peers = \"${PEER_ID}@${PEER_ADDR}\"|
 ```
 
 If syncing via the Tailscale mesh, use the peer's Tailscale IP and
-port 26656 directly:
+port 26656 directly (`100.64.0.10` below is a placeholder — substitute
+your actual peer's tailnet IP):
 
 ```bash
-sed -i "s|^persistent_peers *=.*|persistent_peers = \"${PEER_ID}@100.64.0.1:26656\"|" \
+sed -i "s|^persistent_peers *=.*|persistent_peers = \"${PEER_ID}@100.64.0.10:26656\"|" \
   ~/.sparkdream/config/config.toml
 ```
 

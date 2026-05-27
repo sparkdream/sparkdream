@@ -25,6 +25,19 @@ services:
       - "STARTUP_DELAY=20"
       # Set to "true" for initial deploy to upload chain data
       - "WAIT_FOR_CONFIG=true"
+      # --- Privval keepalive proxy (remote signer over Tailscale userspace) ---
+      # Required when tmkms is on the other end of a DERP-relayed Tailscale
+      # tunnel and the privval TCP connection drops between sign requests,
+      # causing CometBFT to miss prevote/precommit rounds. socat owns the
+      # public port and keeps the TCP connection warm with kernel keepalives.
+      # ALSO update config.toml on the persistent volume:
+      #   priv_validator_laddr = "tcp://127.0.0.1:26660"
+      # so sparkdreamd binds to the backend port instead of the public one.
+      - "PRIVVAL_KEEPALIVE_PORT=26659"
+      # - "PRIVVAL_BACKEND_PORT=26660"   # optional, default 26660
+      # - "PRIVVAL_KEEPIDLE=10"          # optional, default 10
+      # - "PRIVVAL_KEEPINTVL=5"          # optional, default 5
+      # - "PRIVVAL_KEEPCNT=3"            # optional, default 3
     params:
       storage:
         data:

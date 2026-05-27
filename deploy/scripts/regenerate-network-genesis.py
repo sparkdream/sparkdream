@@ -34,6 +34,7 @@ Usage:
 import argparse
 import copy
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -567,6 +568,124 @@ def _bech32_data(addr):
     return addr[idx + 1 : -6]
 
 
+# -------------------- gentx tamper detection (hash pinning) --------------------
+#
+# Catches the bug class introduced by commit efcf392: a migration script
+# bulk-rewrote denoms inside gentxs (uspark → uspark.sparkdreamtest etc.)
+# but had no access to the operator's secp256k1 key, so the signature was
+# left pointing at the pre-migration bytes. The chain panics at InitChain
+# with "signature verification failed" — which we now want to surface at
+# regenerate time, not at deploy time.
+#
+# Why hash-pinning instead of full signature verification:
+# cosmos-sdk's SIGN_MODE_LEGACY_AMINO_JSON sign-doc reconstruction depends on
+# the aminojson encoder's exact rules (uint64-as-string, dont_omitempty
+# semantics, the `legacy_coins` Coin encoding, and the new `unordered`/
+# `timeout_timestamp` fields in SDK 0.53). Reproducing that byte-for-byte
+# in Python is high-effort and fragile. A trust-on-first-use hash baseline
+# catches the same bug class — any tampering, signature-related or not —
+# without needing to track SDK signing internals.
+#
+# On the FIRST run after a fresh gentx is committed, the hash file is
+# created automatically and the operator is asked to commit it. On every
+# subsequent run, the recorded hash is compared to a freshly-computed one
+# over the carried-forward gentx; any drift fails the regenerator loudly.
+#
+# If the gentx has to legitimately change (e.g. a new chain_id and the
+# operator regenerates), delete the .gentx-hashes file and re-run.
+
+
+def _gentx_canonical_bytes(gentx):
+    """Return a deterministic byte representation of the gentx for hashing.
+    Sorted keys, no whitespace, UTF-8 encoded — same recipe cosmos-sdk uses
+    for canonical JSON, so two semantically-equal gentxs hash identically
+    regardless of insertion order in the source genesis."""
+    return json.dumps(gentx, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _gentx_hash_path(network):
+    """Sibling file to the network's genesis.json. One hash per line, in
+    the same order as app_state.genutil.gen_txs."""
+    return NETWORKS[network]["out"] + ".gentx-hashes"
+
+
+def check_gentx_tampering(network, gen_txs):
+    """Compare each carried-forward gentx to its recorded hash. Raise on
+    any drift, with diagnostics that name the specific mismatch."""
+    hash_path = _gentx_hash_path(network)
+    rel = os.path.relpath(hash_path, REPO_ROOT)
+    current_hashes = [
+        hashlib.sha256(_gentx_canonical_bytes(tx)).hexdigest() for tx in gen_txs
+    ]
+
+    if not os.path.exists(hash_path):
+        # Bootstrap: record current hashes and ask the operator to commit.
+        with open(hash_path, "w") as f:
+            f.write("\n".join(current_hashes) + "\n")
+        print(
+            f"  [{network}] {rel} did not exist — recorded {len(current_hashes)} "
+            f"gentx hash(es) from the current genesis. Review the gentx for\n"
+            f"  correctness (in particular: the denom in body.messages[i].value\n"
+            f"  and auth_info.fee.amount[*] matches NETWORKS[{network!r}]\n"
+            f"  ['bond_denom']), then commit this file. Future regenerations\n"
+            f"  will fail if anyone silently modifies a gentx after this point."
+        )
+        return
+
+    with open(hash_path) as f:
+        recorded_hashes = [line.strip() for line in f if line.strip()]
+
+    if len(recorded_hashes) != len(current_hashes):
+        raise ValueError(
+            f"{network}: gentx count drift — {rel} has {len(recorded_hashes)} "
+            f"hash(es) but the genesis has {len(current_hashes)} gen_tx(s). "
+            f"If gentxs were intentionally added/removed, delete {rel} and "
+            f"re-run to record a new baseline."
+        )
+
+    for i, (got, want) in enumerate(zip(current_hashes, recorded_hashes)):
+        if got != want:
+            bond_denom = NETWORKS[network]["bond_denom"]
+            tx = gen_txs[i]
+            body_denoms = sorted({
+                c["denom"]
+                for msg in tx.get("body", {}).get("messages", [])
+                if isinstance(msg.get("value"), dict) and "denom" in msg["value"]
+                for c in [msg["value"]]
+            })
+            fee_denoms = sorted({
+                c["denom"]
+                for c in tx.get("auth_info", {}).get("fee", {}).get("amount", [])
+                if "denom" in c
+            })
+            raise ValueError(
+                f"\n{network}: gen_tx[{i}] HAS BEEN MODIFIED since its hash was "
+                f"recorded.\n"
+                f"  expected sha256       : {want}\n"
+                f"  current sha256        : {got}\n"
+                f"  gentx body denoms     : {body_denoms}\n"
+                f"  gentx fee denoms      : {fee_denoms}\n"
+                f"  expected bond_denom   : {bond_denom}\n\n"
+                f"This is the bug class introduced by commit efcf392 (the\n"
+                f"x/identity denom rewrite that silently retagged gentx bytes\n"
+                f"without re-signing). The chain will panic at InitChain with\n"
+                f"'signature verification failed'.\n\n"
+                f"If this change is INTENTIONAL (operator regenerated the\n"
+                f"gentx and you've verified the new signature), delete\n"
+                f"  {rel}\n"
+                f"and re-run to record the new baseline.\n\n"
+                f"If this change is UNEXPECTED, restore the gentx from a known-\n"
+                f"good source (the operator, a deployed chain's export, or a\n"
+                f"git revision before the modification). Carrying the broken\n"
+                f"gentx forward will deploy a chain that can't start.\n"
+            )
+
+    print(
+        f"  [{network}] {len(current_hashes)} gen_tx(s) match recorded "
+        f"hashes in {os.path.basename(rel)} ✓"
+    )
+
+
 def preserve_gen_txs(network, account_addrs):
     """Load gen_txs from the existing output genesis (if present), validate
     each against the current chain_id and account list, and return them.
@@ -624,6 +743,12 @@ def preserve_gen_txs(network, account_addrs):
                 f"{network}: gen_tx[{i}] delegator_address {delegator} does not "
                 f"correspond to any account in FOUNDERS/TEST_ACCOUNTS."
             )
+
+    # Hash-pinning tamper check (see comment block above check_gentx_tampering).
+    # Runs after the structural checks so the diagnostics that fire here can
+    # assume chain_id and known signers are already correct.
+    check_gentx_tampering(network, gen_txs)
+
     print(
         f"preserved {len(gen_txs)} gen_tx(s) from existing "
         f"{os.path.relpath(out_path, REPO_ROOT)}"

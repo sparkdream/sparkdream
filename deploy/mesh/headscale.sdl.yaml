@@ -1,7 +1,7 @@
 ---
 # Headscale on Akash mainnet, with Litestream continuous backup.
 #
-# The image (sparkdreamnft/headscale:v0.28.1-litestream) bundles headscale +
+# The image (sparkdreamnft/headscale:v0.28.0) bundles headscale +
 # litestream. On startup the entrypoint restores /var/lib/headscale/db.sqlite
 # from the configured S3 replica if the persistent volume is empty, then runs
 # `litestream replicate -exec "headscale serve"` so every WAL frame is shipped
@@ -17,10 +17,10 @@
 version: "2.0"
 services:
   headscale:
-    image: sparkdreamnft/headscale:v0.28.0-litestream
+    image: sparkdreamnft/headscale:v0.28.0
     expose:
       - port: 8080
-        as: 8080
+        as: 80
         accept:
           - headscale.sparkdream.io
         proto: tcp
@@ -48,6 +48,17 @@ services:
       # means every encrypted blob in the bucket is unrecoverable.
       - AGE_RECIPIENT=CHANGE_ME
       - AGE_IDENTITY=CHANGE_ME
+      # --- Optional static-key overrides ---
+      # Headscale generates noise_private.key and derp_server_private.key on
+      # first boot. Clients pin them, so regenerating either rejects every
+      # existing peer. Primary recovery path is the S3 state-keys.tar.age that
+      # seed-replica.sh uploads alongside the litestream snapshot. Setting
+      # these env vars overrides whatever the S3 archive holds — useful when
+      # you want to deploy without seeding the bucket. Same trust posture as
+      # AGE_IDENTITY (the Akash provider sees them). Paste the file contents
+      # verbatim, including any trailing newline headscale wrote.
+      # - HEADSCALE_NOISE_PRIVATE_KEY=
+      # - HEADSCALE_DERP_PRIVATE_KEY=
     params:
       storage:
         headscale-data:

@@ -492,77 +492,7 @@
       }
     },
     "genutil": {
-      "gen_txs": [
-        {
-          "auth_info": {
-            "fee": {
-              "amount": [
-                {
-                  "amount": "25000",
-                  "denom": "uspark.sparkdreamdev"
-                }
-              ],
-              "gas_limit": "1000000",
-              "granter": "",
-              "payer": ""
-            },
-            "signer_infos": [
-              {
-                "mode_info": {
-                  "single": {
-                    "mode": "SIGN_MODE_DIRECT"
-                  }
-                },
-                "public_key": {
-                  "@type": "/cosmos.crypto.secp256k1.PubKey",
-                  "key": "AtnkidlTeEKxyHkmeIhfJrKbtnaIWdQQKEF10+hh1nF9"
-                },
-                "sequence": "0"
-              }
-            ],
-            "tip": null
-          },
-          "body": {
-            "extension_options": [],
-            "memo": "708212a28d7fd407bb144b2e4afbeddd1ece6631@172.17.0.2:26656",
-            "messages": [
-              {
-                "@type": "/cosmos.staking.v1beta1.MsgCreateValidator",
-                "commission": {
-                  "max_change_rate": "0.010000000000000000",
-                  "max_rate": "0.200000000000000000",
-                  "rate": "0.100000000000000000"
-                },
-                "delegator_address": "",
-                "description": {
-                  "details": "",
-                  "identity": "",
-                  "moniker": "sparkdream-dev-1",
-                  "security_contact": "",
-                  "website": ""
-                },
-                "min_self_delegation": "1",
-                "pubkey": {
-                  "@type": "/cosmos.crypto.ed25519.PubKey",
-                  "key": "0XlqYYqQElYGkZQ2v1EhV57low5fT1a6vtxO138eo6Y="
-                },
-                "validator_address": "sprkdrmvaloper1mm04tct5hspk2qzjtf0xaqyjl46ajhcuv49xws",
-                "value": {
-                  "amount": "50000000",
-                  "denom": "uspark.sparkdreamdev"
-                }
-              }
-            ],
-            "non_critical_extension_options": [],
-            "timeout_height": "0",
-            "timeout_timestamp": null,
-            "unordered": false
-          },
-          "signatures": [
-            "Fc5ZABkNLNXpkCIc1eUeKARo3lDdIAIzecEKQwXQg08UwBkg+WXwIE3QYThEQn0ZY3kJSYQdIwTgLG01aWDn+Q=="
-          ]
-        }
-      ]
+      "gen_txs": []
     },
     "gnovm": {
       "params": {

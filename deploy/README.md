@@ -125,10 +125,10 @@ envsubst < deploy/config/template/client.toml.validator > ~/.sparkdream/config/c
 | `SNAPSHOT_INTERVAL` | `1000` | app.toml |
 | `SNAPSHOT_KEEP_RECENT` | `2` | app.toml |
 | `VALIDATOR_NODE_ID` | *(node ID hex)* | config.toml.sentry |
-| `VALIDATOR_HOST` | `100.64.0.1` | config.toml.sentry |
+| `VALIDATOR_HOST` | `100.64.0.10` (placeholder — actual validator tailnet IP) | config.toml.sentry |
 | `VALIDATOR_PORT` | `26656` | config.toml.sentry |
 | `SENTRY_NODE_ID` | *(node ID hex)* | config.toml.validator |
-| `SENTRY_HOST` | `100.64.0.2` | config.toml.validator |
+| `SENTRY_HOST` | `100.64.0.11` (placeholder — actual sentry tailnet IP) | config.toml.validator |
 | `SENTRY_PORT` | `26656` | config.toml.validator |
 
 Peer variables are empty by default in `chain.env` and should be set per-deployment after nodes are initialized (see [DEPLOYMENT.md](docs/DEPLOYMENT.md) Phase 6).

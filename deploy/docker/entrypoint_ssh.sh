@@ -88,6 +88,60 @@ if [ -n "$HEADSCALE_URL" ] && [ -n "$TS_AUTHKEY" ]; then
                 EXEC:"tailscale --socket=${TS_SOCKET} nc ${REMOTE_IP} ${REMOTE_PORT}" &
         fi
     done
+
+    # 5c. Privval keepalive proxy.
+    #
+    # When a remote signer (tmkms) connects to the validator's privval port over a
+    # tailscale-userspace tunnel + DERP, the TCP connection is fragile: anything in
+    # the path that idles-out TCP connections (the tailscale userspace forwarder,
+    # the DERP relay, NAT) will tear it down between sign requests, which arrive
+    # seconds apart. CometBFT's built-in heartbeat (~1s ping, ~3s timeout) is too
+    # slow to keep the connection warm and too coarse to recover gracefully — every
+    # reconnect costs a fresh handshake (5-30s) and any signs requested during that
+    # window time out, causing CometBFT to vote nil and miss the round.
+    #
+    # The fix is to insert socat as a keepalive-enforcing proxy: sparkdreamd binds
+    # privval on a private port (PRIVVAL_BACKEND_PORT, default 26660 on 127.0.0.1)
+    # while socat owns the public-facing port (PRIVVAL_KEEPALIVE_PORT, default
+    # 26659). socat sets SO_KEEPALIVE + tight TCP_KEEPIDLE/INTVL/CNT on both legs,
+    # so the kernel sends real TCP keepalive packets through the tunnel before any
+    # idle-timer can fire.
+    #
+    # Gated on Tailscale being configured because the privval-drop problem only
+    # exists when traffic transits the tailscale-userspace+DERP path. With
+    # kernel-mode tailscale or no tunnel at all, the kernel TCP stack already
+    # honors SO_KEEPALIVE end-to-end and this proxy is dead weight.
+    #
+    # To enable: set PRIVVAL_KEEPALIVE_PORT in the SDL env, and set
+    #   priv_validator_laddr = "tcp://127.0.0.1:26660"
+    # in $HOME/.sparkdream/config/config.toml so sparkdreamd binds to the backend
+    # port instead of the public one. Pi-side tmkms keeps dialing the validator's
+    # tailnet IP on PRIVVAL_KEEPALIVE_PORT — nothing changes there.
+    #
+    # Knobs (all optional):
+    #   PRIVVAL_KEEPALIVE_PORT   public-facing port (default 26659)
+    #   PRIVVAL_BACKEND_PORT     localhost port sparkdreamd binds (default 26660)
+    #   PRIVVAL_KEEPIDLE         seconds idle before first keepalive (default 10)
+    #   PRIVVAL_KEEPINTVL        seconds between keepalive retries (default 5)
+    #   PRIVVAL_KEEPCNT          retries before dropping connection (default 3)
+    if [ -n "$PRIVVAL_KEEPALIVE_PORT" ]; then
+        PRIVVAL_BACKEND_PORT="${PRIVVAL_BACKEND_PORT:-26660}"
+        PRIVVAL_KEEPIDLE="${PRIVVAL_KEEPIDLE:-10}"
+        PRIVVAL_KEEPINTVL="${PRIVVAL_KEEPINTVL:-5}"
+        PRIVVAL_KEEPCNT="${PRIVVAL_KEEPCNT:-3}"
+        SOCAT_OPTS="keepalive,keepidle=${PRIVVAL_KEEPIDLE},keepintvl=${PRIVVAL_KEEPINTVL},keepcnt=${PRIVVAL_KEEPCNT}"
+
+        echo "Starting privval keepalive proxy: 0.0.0.0:${PRIVVAL_KEEPALIVE_PORT} -> 127.0.0.1:${PRIVVAL_BACKEND_PORT}"
+        echo "  (keepidle=${PRIVVAL_KEEPIDLE}s intvl=${PRIVVAL_KEEPINTVL}s cnt=${PRIVVAL_KEEPCNT}; dead-connection detection ~$((PRIVVAL_KEEPIDLE + PRIVVAL_KEEPINTVL * PRIVVAL_KEEPCNT))s)"
+        echo "  REMINDER: priv_validator_laddr in config.toml must be tcp://127.0.0.1:${PRIVVAL_BACKEND_PORT}"
+
+        socat -d \
+            TCP-LISTEN:${PRIVVAL_KEEPALIVE_PORT},fork,reuseaddr,${SOCAT_OPTS} \
+            TCP:127.0.0.1:${PRIVVAL_BACKEND_PORT},${SOCAT_OPTS} \
+            &>/var/log/socat-privval.log &
+        SOCAT_PID=$!
+        echo "  socat pid=${SOCAT_PID} (logs at /var/log/socat-privval.log)"
+    fi
 elif [ -n "$HEADSCALE_URL" ] || [ -n "$TS_AUTHKEY" ]; then
     echo "WARNING: Both HEADSCALE_URL and TS_AUTHKEY must be set for Tailscale. Skipping."
 else

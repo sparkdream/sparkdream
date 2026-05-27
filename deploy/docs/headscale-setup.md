@@ -104,13 +104,16 @@ tailscale ping sentry
 On the validator, get its Tailscale IP:
 ```
 tailscale ip -4
-# e.g., 100.64.0.1
+# e.g., 100.64.0.10
 ```
 
 Update config.toml on the validator:
 ```
-# Bind TMKMS listener to Tailscale IP only
-priv_validator_laddr = "tcp://100.64.0.1:26659"
+# Bind privval to the BACKEND port (127.0.0.1:26660). The socat keepalive
+# proxy in entrypoint_ssh.sh §5c owns the tailnet-facing 26659 and forwards
+# here with TCP keepalives to defeat DERP idle-drops. See DEPLOYMENT.md
+# Phase 6 for the full rationale.
+priv_validator_laddr = "tcp://127.0.0.1:26660"
 
 # Peer with sentry over Tailscale
 persistent_peers = "<sentry_node_id>@<sentry_tailscale_ip>:26656"
@@ -123,10 +126,12 @@ persistent_peers = "<validator_node_id>@<validator_tailscale_ip>:26656"
 private_peer_ids = "<validator_node_id>"
 ```
 
-Update TMKMS config to connect to validator's Tailscale IP:
+Update TMKMS config to dial the validator's tailnet IP on the keepalive-proxy
+port (substitute your validator's actual tailnet IP for `100.64.0.10`; port
+stays at 26659 because socat owns it, not sparkdreamd):
 ```
 [[validator]]
-addr = "tcp://100.64.0.1:26659"
+addr = "tcp://100.64.0.10:26659"
 ```
 
 ## Step 9: Remove public ports from validator SDL

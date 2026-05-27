@@ -31,9 +31,15 @@ prefixes:
   allocation: sequential
 
 # DERP relay configuration
+#
+# Embedded DERP is the SOLE relay path for this tailnet. The public Tailscale
+# DERP map is intentionally NOT included as a fallback — Akash provider NAT
+# blocks direct WireGuard, so every peer-to-peer connection must relay, and
+# we want a single predictable path we control. To restore the public DERP
+# map as a fallback, add the controlplane.tailscale.com URL back to `urls`
+# and set `auto_update_enabled: true`.
 derp:
   server:
-    # Enable embedded DERP server as fallback relay
     enabled: true
     region_id: 999
     region_code: "sparkdream"
@@ -45,12 +51,9 @@ derp:
     # UPDATE these with the provider's actual IP after deployment
     # ipv4: <provider_ip>
 
-  # Also use Tailscale's public DERP servers as fallback
-  urls:
-    - https://controlplane.tailscale.com/derpmap/default
+  urls: []
   paths: []
-  auto_update_enabled: true
-  update_frequency: 3h
+  auto_update_enabled: false
 
 # Disable update checks
 disable_check_updates: true

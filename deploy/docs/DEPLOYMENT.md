@@ -35,12 +35,40 @@ Deploy it on a **different Akash provider** than your validator and sentry.
 
 | File | Purpose |
 |------|---------|
-| `mesh/Dockerfile-headscale-alpine` | Multi-stage Dockerfile (Alpine + official Headscale binary) |
-| `mesh/headscale-config.yaml` | Default Headscale config bundled into the image |
-| `mesh/entrypoint.sh` | Copies default config on first run, then exec's `headscale serve` |
-| `mesh/headscale.sdl.yaml` | Akash SDL for deploying the image |
+| `mesh/Dockerfile-headscale-alpine` | Multi-stage Dockerfile (Alpine + headscale + litestream + age + s5cmd) |
+| `mesh/headscale-config.yaml` | Default Headscale config bundled into the image (sole-relay embedded DERP) |
+| `mesh/entrypoint.sh` | Restores static keys from S3, copies default config on first run, then exec's `litestream replicate -exec "headscale serve"` |
+| `mesh/headscale.sdl.yaml` | Akash SDL — Cloudflare-fronted, litestream env vars, age key overrides |
+| `mesh/seed-replica.sh` | Host-side seed: hardened SQLite checks + uploads encrypted `state-keys.tar.age` |
+| `mesh/migrate-schema.sh` | Rebuilds the DB with the canonical schema when atlas rejects an older one (used during headscale version bumps) |
 
-### Build and Push the Headscale Image
+### Architecture overview
+
+- **Litestream** replicates the SQLite DB to an S3-compatible bucket on every WAL frame so a fresh PVC on a new provider can restore the full mesh state. RPO ≈ 10s.
+- **State-key archive** (`state-keys.tar.age`) holds `noise_private.key` + `derp_server_private.key` — files litestream cannot replicate (it only ships SQLite). Without these, a fresh headscale generates new keys and every existing client rejects the new control plane.
+- **Cloudflare** terminates TLS and proxies HTTP(S)/WebSocket to the Akash container on port 80. The container itself speaks plain HTTP; the SDL exposes `as: 80` with `accept: <your-hostname>`.
+
+### Generate backup credentials (one-time, before first deploy)
+
+These secrets live in the SDL env block — pick names you don't already use elsewhere.
+
+```bash
+# Age keypair for client-side encryption of the state archive.
+# Stash AGE_IDENTITY offline (password manager + paper). Losing it makes
+# every encrypted blob in the bucket unrecoverable.
+age-keygen -o headscale-backup-age.key
+cat headscale-backup-age.key
+# => # public key: age1...
+#    AGE-SECRET-KEY-1...
+
+# S3 bucket: create on your provider of choice (Cloudflare R2, Backblaze B2,
+# 4everland, Wasabi, MinIO, etc.). Mint a NEW bucket-scoped access key —
+# never the root credential, since the Akash provider sees the env vars.
+# Note: for R2 use LITESTREAM_S3_REGION=auto; for everyone else, us-east-1
+# is the safe universal default.
+```
+
+### Build and push the Headscale image
 
 ```bash
 docker build \
@@ -51,22 +79,32 @@ docker build \
 docker push sparkdreamnft/headscale:v0.28.0
 ```
 
-The build context is `deploy/mesh/` so both `headscale-config.yaml` and `entrypoint.sh` are picked up from that directory. To customize the default config before building, edit `mesh/headscale-config.yaml` — it is baked into the image at `/opt/headscale/default-config.yaml` and copied to `/etc/headscale/config.yaml` on first boot only.
+The build context is `deploy/mesh/` so `headscale-config.yaml` and `entrypoint.sh` are picked up from that directory. To customize the default config before building, edit `mesh/headscale-config.yaml` — it is baked into the image at `/opt/headscale/default-config.yaml` and copied to `/etc/headscale/config.yaml` on first boot only.
 
-To bump the Headscale version, update the `FROM headscale/headscale:<version>` line in the Dockerfile and the image tag.
+To bump the Headscale version, update the `FROM headscale/headscale:<version>` line in the Dockerfile and the image tag. See [Updating Headscale](#updating-headscale) below for the schema-migration step that often follows.
 
-### Deploy and Configure
+### Deploy and configure
 
-1. Deploy `mesh/headscale.sdl.yaml` via Akash Console (no changes needed for initial deploy)
-2. Note the provider address and forwarded port for 8080 (e.g., `provider.example.com:31234`)
-3. Access the Akash shell and update the config:
+1. Edit `mesh/headscale.sdl.yaml`:
+   - Set `LITESTREAM_S3_ENDPOINT` / `LITESTREAM_S3_BUCKET` / `LITESTREAM_S3_REGION` / `LITESTREAM_S3_ACCESS_KEY_ID` / `LITESTREAM_S3_SECRET_ACCESS_KEY` to your bucket
+   - Set `AGE_RECIPIENT` to the `age1...` public key, `AGE_IDENTITY` to the `AGE-SECRET-KEY-1...` private key
+   - Edit `accept:` under the port-8080 expose block to your DNS hostname (e.g. `headscale.example.io`)
+
+2. Deploy via Akash Console on a provider that doesn't sit behind tight egress filtering (s5cmd needs outbound HTTPS to your bucket endpoint)
+
+3. Configure Cloudflare:
+   - DNS: A record `headscale.example.io` → provider IP, proxied (orange cloud)
+   - SSL/TLS mode: **Flexible** (Cloudflare terminates TLS, origin speaks plain HTTP)
+   - Network: enable **WebSockets** (headscale's control-plane stream uses them)
+
+4. SSH into the Akash container and set `server_url` to the public Cloudflare URL:
 
 ```bash
-sed -i 's|http://CHANGE_ME:8080|http://provider.example.com:31234|' \
+sed -i 's|http://CHANGE_ME:8080|https://headscale.example.io|' \
   /etc/headscale/config.yaml
+kill 1   # restart so headscale re-reads; persistent volumes survive
 ```
 
-4. Restart the deployment for config to take effect (on subsequent restarts the existing config is preserved since the entrypoint only copies the default when no config exists)
 5. Create user and pre-auth keys:
 
 ```bash
@@ -86,6 +124,40 @@ headscale preauthkeys create --user <USER_ID> --reusable --expiration 8760h
 headscale preauthkeys create --user <USER_ID> --reusable --expiration 8760h
 # Save output as HOME_AUTHKEY
 ```
+
+6. **Seed the backup** (one-time, after first deploy is healthy). This uploads the
+   first litestream snapshot AND `state-keys.tar.age` so a future disaster-recovery
+   deploy on a new provider can fully restore the mesh. Run on your host (not in
+   the container — `seed-replica.sh` is host-side):
+
+```bash
+# Install host-side deps if missing
+sudo apt install -y age sqlite3 litestream
+curl -fsSL https://github.com/peak/s5cmd/releases/download/v2.2.2/s5cmd_2.2.2_Linux-64bit.tar.gz \
+  | sudo tar -xz -C /usr/local/bin s5cmd
+
+# Copy the headscale DB + static keys from the Akash container to the host
+ssh -p <ssh_port> -i ~/.ssh/your_key root@<provider> \
+    'tar czf - /var/lib/headscale/db.sqlite /var/lib/headscale/db.sqlite-{shm,wal} \
+       /var/lib/headscale/noise_private.key /var/lib/headscale/derp_server_private.key 2>/dev/null' \
+  | tar xzf - -C /tmp/headscale-source/
+
+# Run the seed script (validates the DB has user tables + nodes, then ships it)
+export LITESTREAM_S3_ENDPOINT=...        # same values as in the SDL
+export LITESTREAM_S3_BUCKET=...
+export LITESTREAM_S3_PATH=archive
+export LITESTREAM_S3_REGION=...
+export LITESTREAM_S3_ACCESS_KEY_ID=...
+export LITESTREAM_S3_SECRET_ACCESS_KEY=...
+export AGE_RECIPIENT=age1...
+export AGE_IDENTITY=AGE-SECRET-KEY-1...
+./deploy/mesh/seed-replica.sh /tmp/headscale-source/var/lib/headscale/db.sqlite
+```
+
+   The script refuses to upload if the DB is empty (zero user tables) — this is the
+   guard against a silently-corrupted source that would have shipped a schema-less
+   replica. It also prints a summary of users/nodes/active preauth keys so you can
+   eyeball that the mesh you're seeding is the one you expect.
 
 ## Phase 3: Prepare Chain Data
 
@@ -118,6 +190,16 @@ tar czf validator-data.tgz -C ~/.sparkdream .
    - Set `HEADSCALE_URL` to your Headscale address
    - Set `TS_AUTHKEY` to VALIDATOR_AUTHKEY
    - Set `WAIT_FOR_CONFIG=true` for initial deploy
+   - Leave `PRIVVAL_KEEPALIVE_PORT=26659` set (default). This enables the keepalive
+     proxy in `entrypoint_ssh.sh` section 5c; required for stable remote-signer
+     (tmkms) operation over tailscale-userspace + DERP. The proxy is configured via
+     the optional `PRIVVAL_BACKEND_PORT` / `PRIVVAL_KEEPIDLE` / `PRIVVAL_KEEPINTVL`
+     / `PRIVVAL_KEEPCNT` env vars — defaults work for most setups.
+   - Leave `STARTUP_DELAY=20` set. The entrypoint sleeps this many seconds after
+     Tailscale comes up so tmkms has time to dial in before sparkdreamd's first
+     consensus round. Without this delay a freshly-restarted validator can panic
+     on block 1 because the privval socket isn't accepting yet, triggering an
+     Akash crash-loop.
 
 2. Deploy on Akash (choose a **different provider** than Headscale)
 
@@ -140,7 +222,7 @@ rm validator-data.tgz
 # Inside Akash containers, tailscaled uses a custom socket path
 tailscale --socket=$TS_STATE_DIR/tailscaled.sock status
 tailscale --socket=$TS_STATE_DIR/tailscaled.sock ip -4
-# Note the validator's Tailscale IP (e.g., 100.64.0.1)
+# Note the validator's Tailscale IP (e.g., 100.64.0.10)
 ```
 
 5. Update `config.toml` for sentry peering (will do after sentry deploys):
@@ -247,15 +329,21 @@ envsubst < deploy/config/template/client.toml.sentry > /root/.sparkdream/config/
 
 **On the validator** — two critical config changes for Tailscale userspace networking:
 
-1. Bind TMKMS listener to all interfaces (Tailscale userspace networking doesn't create a
-   kernel interface, so binding to a specific Tailscale IP will fail with "cannot assign
-   requested address". Port 26659 is not in the SDL `expose` block, so it is only reachable
-   via Tailscale):
+1. Bind the privval listener to the **backend port** (`127.0.0.1:26660`), not the
+   tailnet-facing port. The entrypoint runs a `socat` keepalive proxy in front of it
+   (see `PRIVVAL_KEEPALIVE_PORT` in the SDL — section 5c of `entrypoint_ssh.sh`).
+   Without this proxy, the privval TCP connection drops between sign requests over
+   tailscale-userspace + DERP and the validator misses prevotes/precommits. With it,
+   the kernel sends SO_KEEPALIVE probes through the tunnel on a 10/5/3-second cadence
+   so the connection never goes idle long enough to be torn down:
 
 ```bash
-sed -i 's|^priv_validator_laddr.*|priv_validator_laddr = "tcp://0.0.0.0:26659"|' \
+sed -i 's|^priv_validator_laddr.*|priv_validator_laddr = "tcp://127.0.0.1:26660"|' \
   /root/.sparkdream/config/config.toml
 ```
+
+   tmkms continues to dial the validator's tailnet IP on `26659` (the keepalive proxy's
+   public-facing port); only the validator's *internal* bind moves.
 
 2. Allow duplicate IPs. Because sentries connect through socat tunnels, the validator sees
    all inbound sentry connections as coming from `127.0.0.1`. CometBFT deduplicates by
@@ -284,12 +372,17 @@ sudo tailscale up \
   --hostname=tmkms
 ```
 
-Update TMKMS config to connect to validator via Tailscale:
+Update TMKMS config to connect to the validator via Tailscale. Use the **validator's**
+tailnet IP (visible in `headscale nodes list` or `tailscale status` on the validator);
+the placeholder `100.64.0.10` below is illustrative — substitute your own. Port stays
+at `26659` (the keepalive proxy's public-facing port — the proxy forwards internally to
+`127.0.0.1:26660` where sparkdreamd binds):
 
 ```toml
 [[validator]]
-addr = "tcp://100.64.0.1:26659"
+addr = "tcp://100.64.0.10:26659"
 chain_id = "sparkdream-1"  # match your CHAIN_ID from chain.env
+reconnect = true
 ```
 
 ### Archive Node (optional)
@@ -380,6 +473,63 @@ storage survives redeployments on the same provider.
 2. Rebuild and push: `docker build -f deploy/mesh/Dockerfile-headscale-alpine -t sparkdreamnft/headscale:<version> deploy/mesh/ && docker push sparkdreamnft/headscale:<version>`
 3. Update the `image:` field in `mesh/headscale.sdl.yaml`
 4. Redeploy — persistent volumes retain the config and SQLite database
+
+**Schema-validation gotcha.** Recent headscale versions run `atlas` schema
+validation at startup and reject DBs whose table definitions don't match
+byte-for-byte — column order, backtick-quoted identifiers, and obsolete
+`migrations` table entries all cause failures even when the data is intact.
+If the container logs show `SQLite schema failed to validate` followed by
+a long `+ CREATE TABLE ...` diff, run `mesh/migrate-schema.sh` on a host-side
+copy of the DB to rebuild it with the canonical schema, then re-seed via
+`seed-replica.sh`:
+
+```bash
+# Pull the current DB out of the running container
+scp -P <ssh_port> root@<provider>:/var/lib/headscale/db.sqlite ./db.sqlite
+
+# Rebuild against the canonical schema (preserves data via named INSERTs)
+./deploy/mesh/migrate-schema.sh ./db.sqlite
+
+# Clear orphaned litestream generations and re-seed
+AWS_ACCESS_KEY_ID=$LITESTREAM_S3_ACCESS_KEY_ID \
+AWS_SECRET_ACCESS_KEY=$LITESTREAM_S3_SECRET_ACCESS_KEY \
+  s5cmd --endpoint-url "$LITESTREAM_S3_ENDPOINT" \
+        rm "s3://$LITESTREAM_S3_BUCKET/$LITESTREAM_S3_PATH/generations/*"
+
+./deploy/mesh/seed-replica.sh ./db.migrated.sqlite
+
+# In the container, wipe the broken DB and restart so litestream re-pulls
+ssh root@<provider> "rm -f /var/lib/headscale/db.sqlite* && \
+                     rm -rf /var/lib/headscale/.db.sqlite-litestream && \
+                     kill 1"
+```
+
+The static keys on the PVC (`noise_private.key`, `derp_server_private.key`)
+are preserved across this dance, so clients re-attach with their pinned
+machine keys — no re-auth required.
+
+### Regenerating genesis files
+
+`deploy/scripts/regenerate-network-genesis.py` rebuilds the per-network
+`genesis.json` files from `config.yml` overrides + the script's account
+constants. Existing gentxs are carried forward and structurally validated
+(chain_id, signer accounts).
+
+The script also writes a sibling `genesis.json.gentx-hashes` file the first
+time it sees a gentx, recording the SHA-256 of the canonical gentx JSON.
+On every subsequent run it recomputes the hash and **refuses to ship a
+modified gentx** — this catches the bug class where a migration silently
+rewrites bytes inside a signed gentx (e.g. denom substitution) without
+re-signing, which would otherwise surface only as a chain-start panic.
+
+Workflow:
+
+- **First run** for a network: review the printed notice, confirm the
+  gentx denom matches the chain's `bond_denom`, then commit both
+  `genesis.json` and `genesis.json.gentx-hashes`.
+- **Operator regenerates a gentx legitimately** (new chain_id, new
+  validator key, etc.): delete the `.gentx-hashes` file, swap in the
+  new gentx, re-run the script to record a new baseline, commit both.
 
 ### Rotating Tailscale keys
 

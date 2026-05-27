@@ -63,8 +63,12 @@ genesis_file = "config/genesis.json"
 # priv_validator_state_file = "data/priv_validator_state.json"
 
 # TCP or UNIX socket address for CometBFT to listen on for
-# connections from an external PrivValidator process
-priv_validator_laddr = "tcp://0.0.0.0:26659"
+# connections from an external PrivValidator process.
+# Binds to the BACKEND port; the socat keepalive proxy in
+# deploy/docker/entrypoint_ssh.sh (section 5c) owns the tailnet-facing
+# 26659 and forwards here with TCP keepalives to defeat DERP idle-drops.
+# tmkms still dials the validator's tailnet IP on 26659 unchanged.
+priv_validator_laddr = "tcp://127.0.0.1:26660"
 
 # Path to the JSON file containing the private key to use for node authentication in the p2p protocol
 node_key_file = "config/node_key.json"
