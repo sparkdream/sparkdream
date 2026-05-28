@@ -44,6 +44,8 @@ RUN_ADVANCED=true
 RUN_ARCHIVE=true
 RUN_OPERATIONAL_PARAMS=true
 RUN_ANON=true
+RUN_MAKE_PERMANENT=true
+RUN_PROMOTION_QUEUE=true
 # Master gate for the entire test-execution loop. Three later invocations
 # (pause_flags_test, content_status_test, archive_cycle_test) sit at column
 # 0 with no per-test gate; this master flag lets `--no-tests` skip them too,
@@ -85,6 +87,12 @@ for arg in "$@"; do
         --no-anon)
             RUN_ANON=false
             ;;
+        --no-make-permanent)
+            RUN_MAKE_PERMANENT=false
+            ;;
+        --no-promotion-queue)
+            RUN_PROMOTION_QUEUE=false
+            ;;
         --only-setup)
             RUN_POST=false
             RUN_SENTINEL=false
@@ -95,6 +103,8 @@ for arg in "$@"; do
             RUN_ARCHIVE=false
             RUN_OPERATIONAL_PARAMS=false
             RUN_ANON=false
+            RUN_MAKE_PERMANENT=false
+            RUN_PROMOTION_QUEUE=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -108,6 +118,8 @@ for arg in "$@"; do
             RUN_ARCHIVE=false
             RUN_OPERATIONAL_PARAMS=false
             RUN_ANON=false
+            RUN_MAKE_PERMANENT=false
+            RUN_PROMOTION_QUEUE=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -124,6 +136,8 @@ for arg in "$@"; do
             RUN_ARCHIVE=false
             RUN_OPERATIONAL_PARAMS=false
             RUN_ANON=false
+            RUN_MAKE_PERMANENT=false
+            RUN_PROMOTION_QUEUE=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -139,6 +153,8 @@ for arg in "$@"; do
             echo "  --no-archive     Skip archive tests"
             echo "  --no-operational-params  Skip operational params tests"
             echo "  --no-anon        Skip anonymous action tests (via x/shield)"
+            echo "  --no-make-permanent  Skip make-post-permanent tests"
+            echo "  --no-promotion-queue Skip membership-driven promotion-queue tests"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -520,6 +536,25 @@ if [ "$RUN_ANON" = true ]; then
     run_test "Anonymous Action Tests" "anon_test.sh"
 else
     echo "Skipping anonymous action tests (--no-anon)"
+    echo ""
+fi
+
+# MakePostPermanent (lifecycle promotion). Exercises the strict separation
+# between pin (display marker) and make-permanent (lifecycle change).
+if [ "$RUN_MAKE_PERMANENT" = true ]; then
+    run_test "Make-Permanent Tests" "make_permanent_test.sh"
+else
+    echo "Skipping make-permanent tests (--no-make-permanent)"
+    echo ""
+fi
+
+# Membership-driven promotion queue. Verifies that AfterMemberAdmitted
+# enqueues the new member and the EndBlocker drain flips their pre-
+# admission ephemeral content to permanent within a couple of blocks.
+if [ "$RUN_PROMOTION_QUEUE" = true ]; then
+    run_test "Promotion Queue Tests" "promotion_queue_test.sh"
+else
+    echo "Skipping promotion-queue tests (--no-promotion-queue)"
     echo ""
 fi
 

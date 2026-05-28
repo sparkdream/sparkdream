@@ -219,4 +219,22 @@ func TestMsgServerPinReply(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, types.ErrPostStatus)
 	})
+
+	// Same ephemeral block as MsgPinPost — replies that are still under TTL
+	// must be promoted with MakePostPermanent before they can be featured.
+	t.Run("cannot pin ephemeral reply (ErrCannotPinEphemeral)", func(t *testing.T) {
+		rootPost := f.createTestPost(t, testCreator, 0, 0)
+		reply := f.createTestPost(t, testCreator2, rootPost.PostId, 0)
+		reply.ExpirationTime = 9999999999
+		require.NoError(t, f.keeper.Post.Set(f.ctx, reply.PostId, reply))
+
+		msg := &types.MsgPinReply{
+			Creator:  authority,
+			ThreadId: rootPost.PostId,
+			ReplyId:  reply.PostId,
+		}
+		_, err := f.msgServer.PinReply(f.ctx, msg)
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrCannotPinEphemeral)
+	})
 }

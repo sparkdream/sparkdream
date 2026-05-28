@@ -145,6 +145,9 @@ var (
 	ErrPinDisputed            = errors.Register(ModuleName, 1908, "pin is being disputed")
 	ErrCannotDisputeGovPin    = errors.Register(ModuleName, 1909, "cannot dispute governance pins")
 	ErrAlreadyDisputed        = errors.Register(ModuleName, 1910, "pin is already disputed")
+	ErrCannotPinEphemeral     = errors.Register(ModuleName, 1911, "content is ephemeral; promote with MakePostPermanent before pinning")
+	ErrInsufficientTrustLevel = errors.Register(ModuleName, 1912, "insufficient trust level")
+	ErrPostExpired            = errors.Register(ModuleName, 1913, "post has expired")
 
 	// Follow errors (1950-1999)
 	ErrAlreadyFollowing  = errors.Register(ModuleName, 1950, "already following this thread")

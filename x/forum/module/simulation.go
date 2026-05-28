@@ -137,6 +137,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		forumsimulation.SimulateMsgUnpinPost(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
+		opWeightMsgMakePostPermanent          = "op_weight_msg_forum"
+		defaultWeightMsgMakePostPermanent int = 100
+	)
+
+	var weightMsgMakePostPermanent int
+	simState.AppParams.GetOrGenerate(opWeightMsgMakePostPermanent, &weightMsgMakePostPermanent, nil,
+		func(_ *rand.Rand) {
+			weightMsgMakePostPermanent = defaultWeightMsgMakePostPermanent
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgMakePostPermanent,
+		forumsimulation.SimulateMsgMakePostPermanent(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
 		opWeightMsgLockThread          = "op_weight_msg_forum"
 		defaultWeightMsgLockThread int = 100
 	)

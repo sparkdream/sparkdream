@@ -79,6 +79,12 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 		return nil, errorsmod.Wrapf(types.ErrPostStatus, "cannot pin reply with status %s", reply.Status.String())
 	}
 
+	// Pin is display-only and requires the reply to already be permanent. Use
+	// MakePostPermanent on the reply id first to lift the TTL, then pin it.
+	if reply.ExpirationTime > 0 {
+		return nil, errorsmod.Wrapf(types.ErrCannotPinEphemeral, "reply %d is ephemeral; call MakePostPermanent first", msg.ReplyId)
+	}
+
 	// Get or create thread metadata
 	metadata, err := k.ThreadMetadata.Get(ctx, msg.ThreadId)
 	if err != nil {

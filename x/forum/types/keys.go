@@ -31,6 +31,20 @@ var (
 // ExpirationQueueKey is the prefix for the ephemeral post expiration queue
 var ExpirationQueueKey = collections.NewPrefix("expiration_queue/")
 
+// EphemeralByAuthorKey indexes still-ephemeral posts by (author, post_id) so
+// the EndBlocker promotion drain can locate a queued author's pending content
+// without scanning ExpirationQueue. Forum unifies root posts and replies under
+// one Post record, so a single key set covers both. Maintained in lockstep
+// with ExpirationQueue.
+var EphemeralByAuthorKey = collections.NewPrefix("ephemeral_by_author/")
+
+// PromotionQueueKey holds the set of authors with ephemeral posts awaiting
+// eager promotion to permanent (enqueued when the author becomes a member).
+// Key = author bech32 string, value = enqueue block-height (8B big-endian) for
+// telemetry only. Drained by the EndBlocker; transient (not persisted to
+// genesis).
+var PromotionQueueKey = collections.NewPrefix("promotion_queue/")
+
 // FORUM-S2-8 secondary indexes — replace unbounded full-store walks with
 // prefix lookups maintained on every relevant write path. See keeper write
 // sites (upvote/downvote, pin/unpin, follow/unfollow, bounty lifecycle) for

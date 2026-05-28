@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/collections"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -15,6 +16,11 @@ import (
 // SimulateMsgPinPost simulates a MsgPinPost message using direct keeper calls.
 // This bypasses the operations committee requirement for simulation purposes.
 // Full integration testing should be done in integration tests.
+//
+// Under the strict-separation design, Pin requires a permanent target. The
+// simulation collapses both state mutations (promote + pin) into one direct
+// keeper write so the sim can exercise pinned-post invariants downstream
+// without first wiring through the trust-gated MsgMakePostPermanent path.
 func SimulateMsgPinPost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -39,6 +45,14 @@ func SimulateMsgPinPost(
 		rootPost, err := k.Post.Get(ctx, rootID)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPinPost{}), "failed to get post"), nil, nil
+		}
+
+		// If ephemeral, run an equivalent of MakePostPermanent first so the
+		// pin's ephemeral-block invariant holds. Mirrors the blog sim.
+		if rootPost.ExpirationTime > 0 {
+			_ = k.ExpirationQueue.Remove(ctx, collections.Join(rootPost.ExpirationTime, rootID))
+			k.RemoveEphemeralAuthorIndex(ctx, rootPost.Author, rootID)
+			rootPost.ExpirationTime = 0
 		}
 
 		// Use direct keeper calls to pin the post

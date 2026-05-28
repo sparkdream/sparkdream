@@ -42,6 +42,13 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 		return nil, errorsmod.Wrapf(types.ErrPostStatus, "cannot pin post with status %s", post.Status.String())
 	}
 
+	// Pin is display-only ("featuring") and requires the post to already be
+	// permanent. The lifecycle change (ephemeral → permanent) belongs to
+	// MsgMakePostPermanent — see the rework notes on errors.ErrCannotPinEphemeral.
+	if post.ExpirationTime > 0 {
+		return nil, errorsmod.Wrapf(types.ErrCannotPinEphemeral, "post %d is ephemeral; call MakePostPermanent first", msg.PostId)
+	}
+
 	// Check if already pinned
 	if post.Pinned {
 		return nil, errorsmod.Wrap(types.ErrAlreadyPinned, "post is already pinned")

@@ -122,4 +122,27 @@ func TestMsgServerPinPost(t *testing.T) {
 		require.Equal(t, authority, updatedPost.PinnedBy)
 		require.Equal(t, uint64(5), updatedPost.PinPriority)
 	})
+
+	// Pin is display-only and now refuses ephemeral targets — the lifecycle
+	// change (ephemeral → permanent) lives in MsgMakePostPermanent.
+	t.Run("cannot pin ephemeral post (ErrCannotPinEphemeral)", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+		post.ExpirationTime = 9999999999 // far future TTL
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
+
+		msg := &types.MsgPinPost{
+			Creator:  authority,
+			PostId:   post.PostId,
+			Priority: 1,
+		}
+		_, err := f.msgServer.PinPost(f.ctx, msg)
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrCannotPinEphemeral)
+
+		// Pin marker NOT set after rejection.
+		got, gErr := f.keeper.Post.Get(f.ctx, post.PostId)
+		require.NoError(t, gErr)
+		require.False(t, got.Pinned)
+		require.Empty(t, got.PinnedBy)
+	})
 }

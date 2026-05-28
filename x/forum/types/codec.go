@@ -124,6 +124,10 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgMakePostPermanent{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgUnarchiveThread{},
 	)
 

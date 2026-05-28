@@ -165,6 +165,7 @@ func (m *mockBankKeeper) MintCoins(ctx context.Context, moduleName string, amt s
 type mockRepKeeper struct {
 	CreateAppealInitiativeFn        func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
 	IsMemberFn                      func(ctx context.Context, addr sdk.AccAddress) bool
+	GetTrustLevelFn                 func(addr sdk.AccAddress) uint64
 	ValidateInitiativeReferenceFn   func(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLinkFn func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
 	RemoveContentInitiativeLinkFn   func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
@@ -285,6 +286,9 @@ func (m *mockRepKeeper) GetMember(ctx context.Context, addr sdk.AccAddress) (rep
 }
 
 func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
+	if m.GetTrustLevelFn != nil {
+		return reptypes.TrustLevel(m.GetTrustLevelFn(addr)), nil
+	}
 	return reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED, nil
 }
 

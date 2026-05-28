@@ -56,6 +56,10 @@ type Keeper struct {
 	ThreadsByFollower collections.KeySet[collections.Pair[string, uint64]]
 	BountiesByCreator collections.KeySet[collections.Pair[string, uint64]]
 	BountiesByExpiry  collections.KeySet[collections.Pair[int64, uint64]]
+
+	// Membership-driven promotion indexes (see promotion_queue.go).
+	EphemeralByAuthor collections.KeySet[collections.Pair[string, uint64]]
+	PromotionQueue    collections.Map[string, int64]
 }
 
 func NewKeeper(
@@ -123,6 +127,11 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 		BountiesByExpiry: collections.NewKeySet(sb, types.BountiesByExpiryKey, "bountiesByExpiry",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+
+		EphemeralByAuthor: collections.NewKeySet(sb, types.EphemeralByAuthorKey, "ephemeralByAuthor",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		PromotionQueue: collections.NewMap(sb, types.PromotionQueueKey, "promotionQueue",
+			collections.StringKey, collections.Int64Value),
 	}
 	schema, err := sb.Build()
 	if err != nil {

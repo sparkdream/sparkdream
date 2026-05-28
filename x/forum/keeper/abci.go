@@ -24,12 +24,27 @@ const maxBountyExpirations = 50
 const maxHiddenExpiry = 50
 
 // EndBlocker runs at the end of each block.
-// Phase 1: Ephemeral post pruning
+// Phase 0: Drain the membership-driven promotion queue (eager ephemeral →
+//
+//	permanent for posts owned by recently-admitted members). Capped per
+//	block by params.max_promotions_per_block so it can't blow block gas.
+//
+// Phase 1: Process expired ephemeral posts (upgrade-if-now-member, then
+//
+//	conviction-renew if anonymous, else hard-delete).
+//
 // Phase 2: Hidden post expiration
 // Phase 3: Bounty expiration
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
+
+	// Phase 0: Drain the membership-driven promotion queue. Skipped if
+	// the per-block budget is zero (e.g. emergency throttle via gov).
+	params, err := k.Params.Get(ctx)
+	if err == nil && params.MaxPromotionsPerBlock > 0 {
+		k.drainPromotionQueue(ctx, int(params.MaxPromotionsPerBlock))
+	}
 
 	// Phase 1: Prune expired ephemeral posts
 	if err := k.PruneExpiredPosts(ctx, now); err != nil {
@@ -84,6 +99,36 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 			}
 			pruned++
 			return false, nil
+		}
+
+		// Upgrade path: if the author is now an active member (e.g. admitted
+		// after they posted), flip the post to permanent rather than pruning
+		// it. The eager flow runs in the promotion-queue drain (Phase 0); this
+		// is the lazy fallback that catches posts whose authors joined after
+		// the queue was already drained — or that were created by an existing
+		// member before the EphemeralByAuthor index existed. Skip the upgrade
+		// when the post is no longer visible (DELETED/HIDDEN) — let those go
+		// down the normal hard-delete path.
+		if post.Status == types.PostStatus_POST_STATUS_ACTIVE &&
+			post.Author != "" && post.Author != k.forumModuleAddrString() &&
+			k.IsMember(ctx, post.Author) {
+			oldExpiresAt := post.ExpirationTime
+			post.ExpirationTime = 0
+			if post.ConvictionSustained {
+				post.ConvictionSustained = false
+			}
+			if setErr := k.Post.Set(ctx, postID, post); setErr == nil {
+				_ = k.ExpirationQueue.Remove(ctx, collections.Join(oldExpiresAt, postID))
+				k.RemoveEphemeralAuthorIndex(ctx, post.Author, postID)
+				sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+					"forum.post.upgraded",
+					sdk.NewAttribute("post_id", fmt.Sprintf("%d", postID)),
+					sdk.NewAttribute("creator", post.Author),
+					sdk.NewAttribute("via", "ttl_member_upgrade"),
+				))
+				pruned++
+				return false, nil
+			}
 		}
 
 		// Conviction renewal check: if post has initiative_id and conviction meets threshold, renew TTL
@@ -143,6 +188,12 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 				_ = k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, postID))
 			}
 		}
+
+		// Drop the EphemeralByAuthor entry now that the post is being
+		// hard-deleted; without this, idle index entries would point at
+		// non-existent posts and the next promotion-queue drain would have
+		// to scrub them.
+		k.RemoveEphemeralAuthorIndex(ctx, post.Author, postID)
 
 		// Drop rep-registry UsageCount for every tag the post carried. The post
 		// is being hard-deleted by TTL; without this, ephemeral-post churn

@@ -54,6 +54,10 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 		}
 	}
 
+	// Drop the EphemeralByAuthor entry — the post is being soft-deleted, so
+	// the membership-driven promotion queue should no longer try to flip it.
+	k.RemoveEphemeralAuthorIndex(ctx, post.Author, msg.PostId)
+
 	// Drop rep-registry UsageCount for every tag the post carried — the post
 	// is being soft-deleted and no longer "uses" those tags. Without this,
 	// delete leaks UsageCount and ExpireTags stops reclaiming idle tags.

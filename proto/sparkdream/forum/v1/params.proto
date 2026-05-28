@@ -173,6 +173,17 @@ message Params {
   // Propagated to x/rep BondedRoleConfig via SyncSentinelBondedRoleConfig.
   // Zero = immediate withdrawal (legacy behavior).
   int64 sentinel_unbond_cooldown = 47;
+
+  // make_permanent_min_trust_level is the minimum trust level a caller of
+  // MsgMakePostPermanent must hold (0–4). Default PROVISIONAL (1) — lower
+  // than the sentinel-pin gate because preservation is a smaller curator
+  // action than featuring.
+  uint32 make_permanent_min_trust_level = 48;
+
+  // max_promotions_per_block bounds how many ephemeral posts the EndBlocker
+  // membership-promotion drain may flip per block. Bounds block gas; the
+  // remaining queue is processed in subsequent blocks.
+  uint32 max_promotions_per_block = 49;
 }
 
 // ForumOperationalParams defines the operational parameters that can be updated
@@ -300,4 +311,10 @@ message ForumOperationalParams {
   // BondedRole is in UNBONDING status and forum action gates refuse
   // authority. Zero = immediate withdrawal.
   int64 sentinel_unbond_cooldown = 47;
+
+  // make_permanent_min_trust_level — see Params.make_permanent_min_trust_level.
+  uint32 make_permanent_min_trust_level = 48;
+
+  // max_promotions_per_block — see Params.max_promotions_per_block.
+  uint32 max_promotions_per_block = 49;
 }

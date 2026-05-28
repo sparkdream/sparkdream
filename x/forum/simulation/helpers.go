@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
@@ -303,6 +304,63 @@ func findThreadFollow(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, follower s
 
 func getOrCreateCategory(_ *rand.Rand, _ sdk.Context, _ keeper.Keeper) (uint64, error) {
 	return simCategoryID, nil
+}
+
+// getOrCreateEphemeralPost returns an existing ephemeral root post by `author`
+// or seeds a fresh one with a future ExpirationTime + matching ExpirationQueue
+// and EphemeralByAuthor entries. Used by SimulateMsgMakePostPermanent to drive
+// the lifecycle-promotion path. The post is intentionally NOT pinned and is
+// owned by `author` so the sim caller can promote it without trust-gate
+// shenanigans on the direct-keeper path.
+func getOrCreateEphemeralPost(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, author string) (uint64, error) {
+	// Try to find an existing ephemeral post by this author.
+	var foundID uint64
+	err := k.Post.Walk(ctx, nil, func(id uint64, post types.Post) (bool, error) {
+		if post.Author == author && post.ExpirationTime > 0 &&
+			post.Status == types.PostStatus_POST_STATUS_ACTIVE {
+			foundID = id
+			return true, nil // stop
+		}
+		return false, nil
+	})
+	if err == nil && foundID != 0 {
+		return foundID, nil
+	}
+
+	// Fresh ephemeral root post.
+	categoryID, err := getOrCreateCategory(r, ctx, k)
+	if err != nil {
+		return 0, err
+	}
+
+	postID, err := k.PostSeq.Next(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	now := ctx.BlockTime().Unix()
+	exp := now + types.DefaultEphemeralTTL
+	newPost := types.Post{
+		PostId:         postID,
+		CategoryId:     categoryID,
+		RootId:         postID,
+		ParentId:       0,
+		Author:         author,
+		Content:        fmt.Sprintf("Simulation ephemeral post %d", r.Intn(10000)),
+		CreatedAt:      now,
+		ExpirationTime: exp,
+		Status:         types.PostStatus_POST_STATUS_ACTIVE,
+	}
+	if err := k.Post.Set(ctx, postID, newPost); err != nil {
+		return 0, err
+	}
+	if err := k.ExpirationQueue.Set(ctx, collections.Join(exp, postID)); err != nil {
+		return 0, err
+	}
+	if err := k.AddEphemeralAuthorIndex(ctx, author, postID); err != nil {
+		return 0, err
+	}
+	return postID, nil
 }
 
 // getOrCreatePost returns an existing post or creates one

@@ -12,6 +12,14 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.Post.Set(ctx, elem.PostId, elem); err != nil {
 			return err
 		}
+		// Rebuild the EphemeralByAuthor index for any still-ephemeral posts.
+		// PromotionQueue is intentionally transient (not persisted) — it is
+		// rebuilt at runtime when new members are admitted post-genesis.
+		if elem.ExpirationTime > 0 {
+			if err := k.AddEphemeralAuthorIndex(ctx, elem.Author, elem.PostId); err != nil {
+				return err
+			}
+		}
 	}
 	for _, elem := range genState.UserRateLimitMap {
 		if err := k.UserRateLimit.Set(ctx, elem.UserAddress, elem); err != nil {

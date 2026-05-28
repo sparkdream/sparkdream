@@ -370,6 +370,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
 				},
 				{
+					RpcMethod:      "MakePostPermanent",
+					Use:            "make-post-permanent [post-id]",
+					Short:          "Promote an ephemeral post (root or reply) to permanent",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
+				},
+				{
 					RpcMethod:      "LockThread",
 					Use:            "lock-thread [root-id] [reason]",
 					Short:          "Send a lock-thread tx",

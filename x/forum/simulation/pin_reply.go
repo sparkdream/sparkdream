@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/collections"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -46,6 +47,14 @@ func SimulateMsgPinReply(
 		// Check if already pinned
 		if reply.Pinned {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPinReply{}), "reply is already pinned"), nil, nil
+		}
+
+		// If ephemeral, promote first (Pin refuses ephemeral targets under the
+		// strict-separation design). Mirrors the blog sim shortcut.
+		if reply.ExpirationTime > 0 {
+			_ = k.ExpirationQueue.Remove(ctx, collections.Join(reply.ExpirationTime, replyID))
+			k.RemoveEphemeralAuthorIndex(ctx, reply.Author, replyID)
+			reply.ExpirationTime = 0
 		}
 
 		// Set reply as pinned

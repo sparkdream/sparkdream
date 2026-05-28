@@ -44,6 +44,14 @@ service Msg {
   // UnpinPost defines the UnpinPost RPC.
   rpc UnpinPost(MsgUnpinPost) returns (MsgUnpinPostResponse);
 
+  // MakePostPermanent promotes an ephemeral post (root post or reply) to
+  // permanent by clearing its expiration_time and dropping the matching
+  // ExpirationQueue / EphemeralByAuthor entries. Strict separation from pin:
+  // pin is display-only and now refuses ephemeral targets, MakePermanent is
+  // the lifecycle change. Gated on make_permanent_min_trust_level (default
+  // PROVISIONAL) and consumes one slot from the daily post-rate limit.
+  rpc MakePostPermanent(MsgMakePostPermanent) returns (MsgMakePostPermanentResponse);
+
   // LockThread defines the LockThread RPC.
   rpc LockThread(MsgLockThread) returns (MsgLockThreadResponse);
 
@@ -265,6 +273,18 @@ message MsgUnpinPost {
 
 // MsgUnpinPostResponse defines the MsgUnpinPostResponse message.
 message MsgUnpinPostResponse {}
+
+// MsgMakePostPermanent promotes an ephemeral post (root post or reply) to
+// permanent.
+message MsgMakePostPermanent {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgMakePostPermanent";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 2;
+}
+
+// MsgMakePostPermanentResponse defines the MsgMakePostPermanent response.
+message MsgMakePostPermanentResponse {}
 
 // MsgLockThread defines the MsgLockThread message.
 message MsgLockThread {

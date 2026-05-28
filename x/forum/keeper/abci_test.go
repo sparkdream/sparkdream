@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -13,9 +14,18 @@ import (
 	"sparkdream/x/forum/types"
 )
 
+// markNonMember forces the mock RepKeeper's IsMember to return false for every
+// address. Hard-delete tests need this because the default mock reports the
+// author as a member, which now triggers the upgrade-if-member path in the
+// EndBlocker (hard-delete is reserved for non-members under the new flow).
+func markNonMember(f *fixture) {
+	f.repKeeper.IsMemberFn = func(_ context.Context, _ sdk.AccAddress) bool { return false }
+}
+
 func TestPruneExpiredPosts(t *testing.T) {
 	t.Run("prunes expired ephemeral posts", func(t *testing.T) {
 		f := initFixture(t)
+		markNonMember(f)
 		cat := f.createTestCategory(t, "General")
 
 		now := int64(1000000)
@@ -161,6 +171,7 @@ func TestPruneExpiredPosts(t *testing.T) {
 
 	t.Run("cleans up PostFlag and HideRecord on prune", func(t *testing.T) {
 		f := initFixture(t)
+		markNonMember(f)
 		cat := f.createTestCategory(t, "General")
 
 		now := int64(1000000)
@@ -210,6 +221,7 @@ func TestPruneExpiredPosts(t *testing.T) {
 
 	t.Run("respects maxPrunePerBlock limit", func(t *testing.T) {
 		f := initFixture(t)
+		markNonMember(f)
 		cat := f.createTestCategory(t, "General")
 
 		now := int64(1000000)
@@ -266,6 +278,7 @@ func TestPruneExpiredPosts(t *testing.T) {
 
 	t.Run("prunes posts exactly at block time", func(t *testing.T) {
 		f := initFixture(t)
+		markNonMember(f)
 		cat := f.createTestCategory(t, "General")
 
 		now := int64(1000000)
@@ -299,6 +312,7 @@ func TestPruneExpiredPosts(t *testing.T) {
 
 	t.Run("emits ephemeral_post_pruned events", func(t *testing.T) {
 		f := initFixture(t)
+		markNonMember(f)
 		cat := f.createTestCategory(t, "General")
 
 		now := int64(1000000)
@@ -355,6 +369,7 @@ func TestPruneExpiredPosts(t *testing.T) {
 	// UsageCount monotonically and ExpireTags loses its grip on idle tags.
 	t.Run("decrements tag usage on tombstone", func(t *testing.T) {
 		f := initFixture(t)
+		markNonMember(f)
 		cat := f.createTestCategory(t, "General")
 
 		now := int64(1000000)
@@ -394,6 +409,47 @@ func TestPruneExpiredPosts(t *testing.T) {
 			"tag alpha usage must drop on TTL prune")
 		require.Equal(t, uint64(0), f.repKeeper.tags["beta"].UsageCount,
 			"tag beta usage must drop on TTL prune")
+	})
+
+	// Upgrade-if-now-member lazy fallback: an expired ephemeral post whose
+	// author is now an active member should flip to permanent rather than
+	// hard-delete. This catches authors who joined after the promotion queue
+	// was already drained, or posts created before EphemeralByAuthor existed.
+	t.Run("upgrades to permanent when author is now a member", func(t *testing.T) {
+		f := initFixture(t)
+		// Default mock IsMember=true is what we want here.
+		cat := f.createTestCategory(t, "General")
+
+		now := int64(1000000)
+		f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+
+		postID, err := f.keeper.PostSeq.Next(f.ctx)
+		require.NoError(t, err)
+
+		expirationTime := now - 100
+		post := types.Post{
+			PostId:         postID,
+			CategoryId:     cat.CategoryId,
+			Author:         testCreator,
+			Content:        "Ephemeral while not a member",
+			CreatedAt:      now - 200,
+			ExpirationTime: expirationTime,
+			Status:         types.PostStatus_POST_STATUS_ACTIVE,
+		}
+		require.NoError(t, f.keeper.Post.Set(f.ctx, postID, post))
+		require.NoError(t, f.keeper.ExpirationQueue.Set(f.ctx, collections.Join(expirationTime, postID)))
+
+		require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+		got, err := f.keeper.Post.Get(f.ctx, postID)
+		require.NoError(t, err, "post must NOT be hard-deleted when author is now a member")
+		require.Equal(t, int64(0), got.ExpirationTime, "ExpirationTime must be cleared (permanent)")
+		require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, got.Status)
+
+		// Queue entry purged.
+		has, err := f.keeper.ExpirationQueue.Has(f.ctx, collections.Join(expirationTime, postID))
+		require.NoError(t, err)
+		require.False(t, has)
 	})
 }
 

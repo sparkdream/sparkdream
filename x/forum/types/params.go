@@ -95,6 +95,16 @@ const (
 
 	// Conviction renewal defaults
 	DefaultConvictionRenewalPeriod = int64(604800) // 7 days
+
+	// DefaultMakePermanentMinTrustLevel is the default minimum trust level for
+	// MsgMakePostPermanent (PROVISIONAL = 1). Lower than the sentinel-pin gate
+	// because preservation is a smaller curator action than featuring.
+	DefaultMakePermanentMinTrustLevel = uint32(1)
+
+	// DefaultMaxPromotionsPerBlock is the per-block cap on the EndBlocker
+	// membership-promotion drain. 50 is enough to clear a typical new-member
+	// backlog within a few blocks without blowing block gas.
+	DefaultMaxPromotionsPerBlock = uint32(50)
 )
 
 // Default fee amounts (all in bond-denom micro-units).
@@ -155,6 +165,8 @@ func NewParams() Params {
 		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
 		SentinelUnhideWindow:         DefaultSentinelUnhideWindow,
 		SentinelUnbondCooldown:       DefaultSentinelUnbondCooldown,
+		MakePermanentMinTrustLevel:   DefaultMakePermanentMinTrustLevel,
+		MaxPromotionsPerBlock:        DefaultMaxPromotionsPerBlock,
 	}
 }
 
@@ -179,6 +191,9 @@ func (p Params) Validate() error {
 		if _, ok := reptypes.TrustLevel_value[p.MinSentinelTrustLevel]; !ok {
 			return fmt.Errorf("invalid min_sentinel_trust_level: %s", p.MinSentinelTrustLevel)
 		}
+	}
+	if p.MakePermanentMinTrustLevel > 4 {
+		return fmt.Errorf("make_permanent_min_trust_level must be 0-4, got %d", p.MakePermanentMinTrustLevel)
 	}
 	return nil
 }
@@ -253,6 +268,8 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
 		SentinelUnhideWindow:         DefaultSentinelUnhideWindow,
 		SentinelUnbondCooldown:       DefaultSentinelUnbondCooldown,
+		MakePermanentMinTrustLevel:   DefaultMakePermanentMinTrustLevel,
+		MaxPromotionsPerBlock:        DefaultMaxPromotionsPerBlock,
 	}
 }
 
@@ -277,6 +294,9 @@ func (p ForumOperationalParams) Validate() error {
 		if _, ok := reptypes.TrustLevel_value[p.MinSentinelTrustLevel]; !ok {
 			return fmt.Errorf("invalid min_sentinel_trust_level: %s", p.MinSentinelTrustLevel)
 		}
+	}
+	if p.MakePermanentMinTrustLevel > 4 {
+		return fmt.Errorf("make_permanent_min_trust_level must be 0-4, got %d", p.MakePermanentMinTrustLevel)
 	}
 	return nil
 }
@@ -322,6 +342,8 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.SentinelUnhideWindow = op.SentinelUnhideWindow
 	// Zero is a meaningful value (immediate withdrawal), so always copy.
 	p.SentinelUnbondCooldown = op.SentinelUnbondCooldown
+	p.MakePermanentMinTrustLevel = op.MakePermanentMinTrustLevel
+	p.MaxPromotionsPerBlock = op.MaxPromotionsPerBlock
 	return p
 }
 
@@ -365,6 +387,8 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		SentinelDemotionThreshold:    p.SentinelDemotionThreshold,
 		SentinelUnhideWindow:         p.SentinelUnhideWindow,
 		SentinelUnbondCooldown:       p.SentinelUnbondCooldown,
+		MakePermanentMinTrustLevel:   p.MakePermanentMinTrustLevel,
+		MaxPromotionsPerBlock:        p.MaxPromotionsPerBlock,
 	}
 }
 

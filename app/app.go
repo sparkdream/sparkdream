@@ -345,13 +345,14 @@ func New(
 	app.RepKeeper.SetBlogKeeper(app.BlogKeeper)
 	app.RepKeeper.SetCollectKeeper(app.CollectKeeper)
 
-	// Wire x/rep lifecycle hooks. Today only x/blog subscribes: on member
-	// admission it enqueues the new member's address into the EndBlocker
-	// promotion queue so their pre-admission ephemeral content is eagerly
-	// promoted to permanent. Wrap in MultiRepHooks so additional subscribers
-	// can be added without changing this call shape.
+	// Wire x/rep lifecycle hooks. On member admission each subscriber
+	// enqueues the new member's address into its own EndBlocker promotion
+	// queue so pre-admission ephemeral content is eagerly flipped to
+	// permanent. Wrap in MultiRepHooks so additional subscribers can be
+	// added without changing this call shape.
 	app.RepKeeper.SetHooks(repmoduletypes.NewMultiRepHooks(
 		blogmodulekeeper.NewBlogRepHooks(&app.BlogKeeper),
+		forummodulekeeper.NewForumRepHooks(&app.ForumKeeper),
 	))
 
 	// Wire DistrKeeper into Split after depinject (adapter adds GetCommunityPool).

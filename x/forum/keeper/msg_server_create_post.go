@@ -276,6 +276,12 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		if err := k.ExpirationQueue.Set(ctx, collections.Join(expirationTime, postID)); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to enqueue post for expiration")
 		}
+		// Index by author so the membership-driven promotion queue can find
+		// it in O(promoted) without scanning ExpirationQueue. No-op for
+		// module-account (anonymous) authors.
+		if err := k.AddEphemeralAuthorIndex(ctx, msg.Creator, postID); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to index ephemeral post by author")
+		}
 	}
 
 	// Handle salvation for ephemeral parent posts
@@ -432,10 +438,11 @@ func (k msgServer) salvageAncestors(ctx context.Context, memberAddr string, pare
 				break
 			}
 
-			// Salvage: make permanent — remove from expiration queue
+			// Salvage: make permanent — remove from expiration queue + author index
 			if err := k.ExpirationQueue.Remove(ctx, collections.Join(post.ExpirationTime, post.PostId)); err != nil {
 				sdkCtx.Logger().Info("failed to remove from expiration queue", "post_id", post.PostId, "error", err)
 			}
+			k.RemoveEphemeralAuthorIndex(ctx, post.Author, post.PostId)
 			post.ExpirationTime = 0
 			if err := k.Post.Set(ctx, post.PostId, post); err != nil {
 				return errorsmod.Wrap(err, "failed to salvage post")
