@@ -16,10 +16,20 @@ import (
 	reptypes "sparkdream/x/rep/types"
 )
 
-// EndBlock runs at the end of each block. Handles TTL expiry.
+// EndBlock runs at the end of each block. Two ordered passes:
+//   1. drainPromotionQueue: eagerly promote up to MaxPromotionsPerBlock
+//      ephemerals belonging to recently-admitted members. Pulls forward the
+//      promotion that would otherwise happen lazily at TTL so the frontend
+//      sees expires_at=0 immediately.
+//   2. processExpiredContent: tombstone or member-promote anything past its TTL.
 func (k Keeper) EndBlock(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
+
+	params, err := k.Params.Get(ctx)
+	if err == nil && params.MaxPromotionsPerBlock > 0 {
+		k.drainPromotionQueue(ctx, int(params.MaxPromotionsPerBlock))
+	}
 
 	k.processExpiredContent(ctx, blockTime)
 
@@ -109,6 +119,7 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 	if post.Status == types.PostStatus_POST_STATUS_DELETED {
 		// Already deleted, just clean up
 		k.RemoveFromExpiryIndex(ctx, expiresAt, "post", id)
+		k.RemoveEphemeralAuthorIndex(ctx, post.Creator, EphemeralKindPost, id)
 		return
 	}
 
@@ -120,6 +131,7 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 			post.ExpiresAt = 0
 			k.SetPost(ctx, post)
 			k.RemoveFromExpiryIndex(ctx, expiresAt, "post", id)
+			k.RemoveEphemeralAuthorIndex(ctx, post.Creator, EphemeralKindPost, id)
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 				"blog.post.upgraded",
 				sdk.NewAttribute("id", fmt.Sprintf("%d", id)),
@@ -176,12 +188,14 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 	// (the post no longer "uses" the tag), mark deleted.
 	k.removeTagIndexEntries(ctx, post.Id, post.Tags)
 	k.decrementTagUsages(ctx, post.Id, post.Tags)
+	creatorBeforeTombstone := post.Creator
 	post.Title = ""
 	post.Body = ""
 	post.Status = types.PostStatus_POST_STATUS_DELETED
 	post.Tags = nil
 	k.SetPost(ctx, post)
 	k.RemoveFromExpiryIndex(ctx, expiresAt, "post", id)
+	k.RemoveEphemeralAuthorIndex(ctx, creatorBeforeTombstone, EphemeralKindPost, id)
 
 	// Clean up orphaned reaction records for this post
 	k.RemoveReactionsForContent(ctx, id, 0)
@@ -202,6 +216,7 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 
 	if reply.Status == types.ReplyStatus_REPLY_STATUS_DELETED {
 		k.RemoveFromExpiryIndex(ctx, expiresAt, "reply", id)
+		k.RemoveEphemeralAuthorIndex(ctx, reply.Creator, EphemeralKindReply, id)
 		return
 	}
 
@@ -212,6 +227,7 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 			reply.ExpiresAt = 0
 			k.SetReply(ctx, reply)
 			k.RemoveFromExpiryIndex(ctx, expiresAt, "reply", id)
+			k.RemoveEphemeralAuthorIndex(ctx, reply.Creator, EphemeralKindReply, id)
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 				"blog.reply.upgraded",
 				sdk.NewAttribute("id", fmt.Sprintf("%d", id)),
@@ -269,10 +285,12 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 
 	// Tombstone: clear content, mark deleted
 	wasActive := reply.Status == types.ReplyStatus_REPLY_STATUS_ACTIVE
+	creatorBeforeTombstone := reply.Creator
 	reply.Body = ""
 	reply.Status = types.ReplyStatus_REPLY_STATUS_DELETED
 	k.SetReply(ctx, reply)
 	k.RemoveFromExpiryIndex(ctx, expiresAt, "reply", id)
+	k.RemoveEphemeralAuthorIndex(ctx, creatorBeforeTombstone, EphemeralKindReply, id)
 
 	// Clean up orphaned reaction records for this reply
 	k.RemoveReactionsForContent(ctx, reply.PostId, id)

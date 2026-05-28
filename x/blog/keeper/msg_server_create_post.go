@@ -131,6 +131,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	// Add to expiry index if ephemeral
 	if expiresAt > 0 {
 		k.AddToExpiryIndex(ctx, expiresAt, "post", id)
+		k.AddEphemeralAuthorIndex(ctx, msg.Creator, EphemeralKindPost, id)
 	}
 
 	// Increment rate limit

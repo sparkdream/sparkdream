@@ -64,6 +64,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 		if post.ExpiresAt > 0 {
 			k.AddToExpiryIndex(ctx, post.ExpiresAt, "post", post.Id)
+			k.AddEphemeralAuthorIndex(ctx, post.Creator, EphemeralKindPost, post.Id)
 		}
 	}
 
@@ -75,6 +76,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 		if reply.ExpiresAt > 0 {
 			k.AddToExpiryIndex(ctx, reply.ExpiresAt, "reply", reply.Id)
+			k.AddEphemeralAuthorIndex(ctx, reply.Creator, EphemeralKindReply, reply.Id)
 		}
 	}
 

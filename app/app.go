@@ -63,6 +63,7 @@ import (
 	identitytypes "sparkdream/x/identity/types"
 	namemodulekeeper "sparkdream/x/name/keeper"
 	repmodulekeeper "sparkdream/x/rep/keeper"
+	repmoduletypes "sparkdream/x/rep/types"
 	revealmodulekeeper "sparkdream/x/reveal/keeper"
 	seasonmodulekeeper "sparkdream/x/season/keeper"
 	servicemodulekeeper "sparkdream/x/service/keeper"
@@ -343,6 +344,15 @@ func New(
 	// user-supplied target_identifier.
 	app.RepKeeper.SetBlogKeeper(app.BlogKeeper)
 	app.RepKeeper.SetCollectKeeper(app.CollectKeeper)
+
+	// Wire x/rep lifecycle hooks. Today only x/blog subscribes: on member
+	// admission it enqueues the new member's address into the EndBlocker
+	// promotion queue so their pre-admission ephemeral content is eagerly
+	// promoted to permanent. Wrap in MultiRepHooks so additional subscribers
+	// can be added without changing this call shape.
+	app.RepKeeper.SetHooks(repmoduletypes.NewMultiRepHooks(
+		blogmodulekeeper.NewBlogRepHooks(&app.BlogKeeper),
+	))
 
 	// Wire DistrKeeper into Split after depinject (adapter adds GetCommunityPool).
 	app.SplitKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))

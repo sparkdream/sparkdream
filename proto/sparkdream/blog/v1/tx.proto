@@ -60,11 +60,29 @@ service Msg {
   // RemoveReaction removes your reaction from a post or reply.
   rpc RemoveReaction(MsgRemoveReaction) returns (MsgRemoveReactionResponse);
 
-  // PinPost pins an ephemeral post, making it permanent.
+  // MakePostPermanent promotes an ephemeral post to permanent by clearing
+  // expires_at and removing the expiry-index entry. Idempotent on already-
+  // permanent posts. Display markers (pinned_by) are untouched. Gated on
+  // params.pin_min_trust_level and shares the per-day pin rate-limit counter.
+  rpc MakePostPermanent(MsgMakePostPermanent) returns (MsgMakePostPermanentResponse);
+
+  // MakeReplyPermanent mirrors MakePostPermanent for replies.
+  rpc MakeReplyPermanent(MsgMakeReplyPermanent) returns (MsgMakeReplyPermanentResponse);
+
+  // PinPost sets the pinned marker on a post (curator "feature this"). The
+  // post must already be permanent — call MakePostPermanent first to promote
+  // ephemeral content. Gated on params.pin_min_trust_level.
   rpc PinPost(MsgPinPost) returns (MsgPinPostResponse);
 
-  // PinReply pins an ephemeral reply, making it permanent.
+  // UnpinPost clears the pinned marker on a post. The post stays permanent.
+  // Gated on the same trust level as Pin.
+  rpc UnpinPost(MsgUnpinPost) returns (MsgUnpinPostResponse);
+
+  // PinReply mirrors PinPost. Requires the reply to already be permanent.
   rpc PinReply(MsgPinReply) returns (MsgPinReplyResponse);
+
+  // UnpinReply clears the pinned marker on a reply. The reply stays permanent.
+  rpc UnpinReply(MsgUnpinReply) returns (MsgUnpinReplyResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -276,7 +294,21 @@ message MsgRemoveReaction {
 // MsgRemoveReactionResponse defines the MsgRemoveReactionResponse message.
 message MsgRemoveReactionResponse {}
 
-// MsgPinPost defines the MsgPinPost message.
+// MsgMakePostPermanent promotes an ephemeral post to permanent. No-op if
+// the post is already permanent.
+message MsgMakePostPermanent {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/blog/MsgMakePostPermanent";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgMakePostPermanentResponse defines the response.
+message MsgMakePostPermanentResponse {}
+
+// MsgPinPost sets the pinned marker on a permanent post (display-only). The
+// post must already be permanent; promote ephemeral content with
+// MsgMakePostPermanent first.
 message MsgPinPost {
   option (cosmos.msg.v1.signer) = "creator";
   option (amino.name) = "sparkdream/x/blog/MsgPinPost";
@@ -287,7 +319,20 @@ message MsgPinPost {
 // MsgPinPostResponse defines the MsgPinPostResponse message.
 message MsgPinPostResponse {}
 
-// MsgPinReply defines the MsgPinReply message.
+// MsgMakeReplyPermanent promotes an ephemeral reply to permanent.
+message MsgMakeReplyPermanent {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/blog/MsgMakeReplyPermanent";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgMakeReplyPermanentResponse defines the response.
+message MsgMakeReplyPermanentResponse {}
+
+// MsgPinReply sets the pinned marker on a permanent reply. The reply must
+// already be permanent; promote ephemeral content with MsgMakeReplyPermanent
+// first.
 message MsgPinReply {
   option (cosmos.msg.v1.signer) = "creator";
   option (amino.name) = "sparkdream/x/blog/MsgPinReply";
@@ -297,3 +342,25 @@ message MsgPinReply {
 
 // MsgPinReplyResponse defines the MsgPinReplyResponse message.
 message MsgPinReplyResponse {}
+
+// MsgUnpinPost defines the MsgUnpinPost message.
+message MsgUnpinPost {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/blog/MsgUnpinPost";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgUnpinPostResponse defines the MsgUnpinPostResponse message.
+message MsgUnpinPostResponse {}
+
+// MsgUnpinReply defines the MsgUnpinReply message.
+message MsgUnpinReply {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/blog/MsgUnpinReply";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 id = 2;
+}
+
+// MsgUnpinReplyResponse defines the MsgUnpinReplyResponse message.
+message MsgUnpinReplyResponse {}

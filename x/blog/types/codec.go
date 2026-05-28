@@ -8,6 +8,22 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgMakePostPermanent{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgMakeReplyPermanent{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUnpinReply{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUnpinPost{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgPinReply{},
 	)
 

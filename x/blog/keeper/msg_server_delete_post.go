@@ -35,6 +35,7 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	// Remove from expiry index if ephemeral
 	if val.ExpiresAt > 0 {
 		k.RemoveFromExpiryIndex(ctx, val.ExpiresAt, "post", val.Id)
+		k.RemoveEphemeralAuthorIndex(ctx, val.Creator, EphemeralKindPost, val.Id)
 	}
 
 	// Remove initiative link if post references an initiative

@@ -189,15 +189,25 @@ message Params {
   // anon_subsidy_relay_addresses) have been eliminated. Anonymous operations are now
   // managed entirely by x/shield. See docs/x-shield-spec.md.
   int64 ephemeral_content_ttl = 17;                                 // TTL in seconds for ephemeral content: anonymous and non-member posts/replies (default: 604800 = 7 days; 0 = no expiry)
-  uint32 pin_min_trust_level = 18;                               // Minimum trust level to pin ephemeral content (default: 2 = ESTABLISHED)
-  uint32 max_pins_per_day = 19;                                  // Max pins per address per day (default: 20)
+  uint32 pin_min_trust_level = 18;                               // Minimum trust level to set the pinned display marker on a permanent post (default: 2 = ESTABLISHED)
+  uint32 max_pins_per_day = 19;                                  // Max pin and make-permanent actions per address per day (shared counter, default: 20)
   int64 min_ephemeral_content_ttl = 20;                          // Governance-only floor for ephemeral_content_ttl (default: 86400 = 1 day)
   cosmos.base.v1beta1.Coin max_cost_per_byte = 21;              // Governance-only ceiling for cost_per_byte (default: 1000uspark)
   cosmos.base.v1beta1.Coin max_reaction_fee = 22;               // Governance-only ceiling for reaction_fee (default: 500uspark)
   string conviction_renewal_threshold = 23 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Min conviction score to renew anonymous content at TTL expiry (default: 100.0; 0 = disabled)
   int64 conviction_renewal_period = 24;                          // Duration in seconds to extend TTL by when conviction-renewed (default: 604800 = 7 days, same as ephemeral_content_ttl)
+  // Field 25-26 reserved (tag fields covered in §3.x cross-module overview).
+  uint32 max_promotions_per_block = 27;                          // Per-block cap on the EndBlocker membership-promotion drain (default: 50; 0 disables eager drain — relies solely on lazy TTL-time promotion)
+  uint32 make_permanent_min_trust_level = 28;                    // Minimum trust level to call MsgMakePostPermanent / MsgMakeReplyPermanent (default: 1 = PROVISIONAL; lower than pin gate because preservation is a smaller curator action than featuring)
 }
 ```
+
+**Strict pin-vs-lifecycle separation (post-rework).** Two distinct curator actions sit on independent trust gates:
+
+- **Pin** = display-only "feature this" marker, gated on `pin_min_trust_level` (ESTABLISHED). Requires the target to already be permanent — ephemeral content is rejected with `ErrCannotPinEphemeral`.
+- **MakePermanent** = lifecycle promotion from ephemeral to permanent, gated on `make_permanent_min_trust_level` (PROVISIONAL). Does **not** set any pin marker.
+
+The two actions share `max_pins_per_day` as a single per-address daily counter so that an attacker cannot double their effective curation throughput by alternating between them.
 
 **Length limits apply to the stored byte representation**, not to decompressed or resolved content. When `content_type` is `CONTENT_TYPE_GZIP` or an off-chain reference like `CONTENT_TYPE_IPFS`, the limit governs the size of the compressed data or the CID string stored on-chain. Interpretation of referenced or compressed content is entirely the client's responsibility.
 
@@ -218,11 +228,14 @@ message BlogOperationalParams {
   // anon_subsidy_budget_per_epoch, anon_subsidy_max_per_post, anon_subsidy_relay_addresses)
   // have been eliminated. Anonymous operations are now managed entirely by x/shield.
   int64 ephemeral_content_ttl = 12;                                 // TTL for ephemeral content (anonymous + non-member)
-  uint32 max_pins_per_day = 13;                                  // Max pins per address per day
+  uint32 max_pins_per_day = 13;                                  // Max pin + make-permanent actions per address per day (shared counter)
   string conviction_renewal_threshold = 14 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Operations Committee can adjust conviction renewal threshold
   int64 conviction_renewal_period = 15;                          // Operations Committee can adjust conviction renewal period
+  uint32 max_promotions_per_block = 16;                          // Per-block cap on the EndBlocker membership-promotion drain (0 = disabled)
 }
 ```
+
+`pin_min_trust_level` and `make_permanent_min_trust_level` are intentionally **not** in `BlogOperationalParams` — both are trust gates that bound curator authority and only governance can move them. `max_promotions_per_block` is ops-tunable because it's a throughput knob, not a policy gate.
 
 ### 3.10. RateLimitEntry
 
@@ -261,6 +274,8 @@ Removed -- anonymous post metadata (nullifiers, merkle roots, proven trust level
 | ExpiryIndex | `Expiry/{expires_at}/{type}/{id}` | []byte | Index: content by expiry time (type = `post` or `reply`) |
 | CreatorPostIndex | `Post/creator/{creator}/{post_id}` | []byte | Index: all posts by a specific creator |
 | ReactorIndex | `Reaction/creator/{creator}/{post_id}/{reply_id}` | []byte | Index: all reactions by a specific creator |
+| EphemeralByAuthorIndex | `Ephemeral/creator/{creator}/{kind}/{id}` | []byte | Index: still-ephemeral content (`kind = 1` post, `kind = 2` reply) grouped by author. Anonymous (module-creator) ephemerals are NOT tracked. Maintained in lockstep with `ExpiryIndex`. |
+| PromotionQueue | `Promotion/queue/{creator}` | uint64 (enqueue block height, big-endian, telemetry only) | Set of authors with pending ephemeral content awaiting eager EndBlocker promotion to permanent. Enqueued by the `AfterMemberAdmitted` hook from x/rep. |
 
 **ID Assignment:**
 - Post and reply IDs are each auto-incrementing starting from 0 (separate counters)
@@ -741,45 +756,43 @@ message MsgRemoveReactionResponse {}
 
 ### 5.15. PinPost
 
-Pin an ephemeral post, making it permanent (clearing its TTL). Only posts with a non-zero `expires_at` (anonymous or non-member posts) can be pinned — member posts are already permanent. Requires active membership at `params.pin_min_trust_level` or above.
+Set the pinned **display** marker on a post that is already permanent. Pin is intentionally split from the lifecycle promotion of ephemeral content (which lives in `MsgMakePostPermanent`, §5.17). Pinning leaves `expires_at` and the conviction-sustained flag untouched.
 
 ```protobuf
 message MsgPinPost {
   string creator = 1;  // Must be active member at pin_min_trust_level+
-  uint64 id = 2;       // Post ID to pin
+  uint64 id = 2;       // Post ID to pin (must already be permanent)
 }
 
 message MsgPinPostResponse {}
 ```
 
 **Validation:**
-- Post must exist and have `status = POST_STATUS_ACTIVE`
-- Post must be ephemeral (`expires_at > 0`); posts with `expires_at == 0` are already permanent (`ErrContentNotEphemeral`)
+- Post must exist and have `status = POST_STATUS_ACTIVE` (rejects `POST_STATUS_HIDDEN` and `POST_STATUS_DELETED`)
+- Post must already be permanent (`expires_at == 0`); ephemeral posts are rejected with `ErrCannotPinEphemeral`. The caller must promote with `MsgMakePostPermanent` first.
 - Post must not already be pinned (`ErrAlreadyPinned`)
-- Post must not be expired (`ErrPostExpired` if `block_time >= expires_at`)
 - Creator must be an active member with `RepKeeper.GetTrustLevel(ctx, addr) >= params.pin_min_trust_level`
   - Returns `ErrNotMember` when the caller isn't an active member (regardless of `pin_min_trust_level`); `ErrInsufficientTrustLevel` when the caller is a member but the trust level is below the bar — same dual-error semantics used for `MsgReact` and `MsgCreateReply` (see §5.13)
-- Creator must not exceed `params.max_pins_per_day`
+- Creator must not exceed `params.max_pins_per_day` (shared counter with `MsgUnpinPost`, `MsgMakePostPermanent`, `MsgMakeReplyPermanent`, `MsgPinReply`, `MsgUnpinReply`)
 
 **Logic:**
-1. Validate creator address and membership/trust level
-2. Retrieve post, verify it is active, ephemeral, not already pinned, and not expired
-3. Check rate limit for pins (`params.max_pins_per_day`)
-4. Set `expires_at = 0`, `pinned_by = creator`, `pinned_at = block_time`
-5. If `conviction_sustained == true`: set `conviction_sustained = false`
-6. Remove from `ExpiryIndex` (post is now permanent)
-7. Increment rate limit counter
-8. Store updated post
-9. Emit `blog.post.pinned` event
+1. Validate creator address
+2. Retrieve post, verify status, permanence, and not-already-pinned
+3. Verify membership/trust level
+4. Check rate limit (`params.max_pins_per_day`)
+5. Set `pinned_by = creator`, `pinned_at = block_time`. **No change to `expires_at` or `conviction_sustained`** (strict separation).
+6. Increment rate limit counter
+7. Store updated post
+8. Emit `blog.post.pinned` event
 
 ### 5.16. PinReply
 
-Pin an ephemeral reply, making it permanent (clearing its TTL). Same rules as PinPost but for replies. If conviction-sustained, clears the flag (same as PinPost step 5).
+Set the pinned display marker on a reply that is already permanent. Mirrors `MsgPinPost`: pin no longer promotes; pair with `MsgMakeReplyPermanent` for ephemeral replies.
 
 ```protobuf
 message MsgPinReply {
   string creator = 1;  // Must be active member at pin_min_trust_level+
-  uint64 id = 2;       // Reply ID to pin
+  uint64 id = 2;       // Reply ID to pin (must already be permanent)
 }
 
 message MsgPinReplyResponse {}
@@ -787,22 +800,99 @@ message MsgPinReplyResponse {}
 
 **Validation:**
 - Reply must exist and have `status = REPLY_STATUS_ACTIVE`
-- Reply must be ephemeral (`expires_at > 0`); replies with `expires_at == 0` are already permanent (`ErrContentNotEphemeral`)
+- Reply must already be permanent (`expires_at == 0`); ephemeral replies are rejected with `ErrCannotPinEphemeral`
 - Reply must not already be pinned (`ErrAlreadyPinned`)
-- Reply must not be expired (`ErrReplyExpired` if `block_time >= expires_at`)
-- Creator must be an active member with `RepKeeper.GetTrustLevel(ctx, addr) >= params.pin_min_trust_level`
-  - Returns `ErrNotMember` when the caller isn't an active member; `ErrInsufficientTrustLevel` when the caller is a member but trust is below the bar — same dual-error semantics as `MsgPinPost` (see §5.15)
-- Creator must not exceed `params.max_pins_per_day` (shared counter with PinPost)
+- Creator must be an active member with `RepKeeper.GetTrustLevel(ctx, addr) >= params.pin_min_trust_level` (dual-error semantics as `MsgPinPost`)
+- Creator must not exceed `params.max_pins_per_day` (shared counter with all pin / unpin / make-permanent messages)
 
 **Logic:**
-1. Validate creator address and membership/trust level
-2. Retrieve reply and parent post, verify reply is active, ephemeral, not already pinned, and not expired
-3. Check rate limit for pins (`params.max_pins_per_day`)
-4. Set `expires_at = 0`, `pinned_by = creator`, `pinned_at = block_time`
-5. Remove from `ExpiryIndex`
+1. Validate creator address
+2. Retrieve reply, verify status, permanence, and not-already-pinned
+3. Verify membership/trust level
+4. Check rate limit
+5. Set `pinned_by = creator`, `pinned_at = block_time`. No change to `expires_at` or `conviction_sustained`.
 6. Increment rate limit counter
 7. Store updated reply
 8. Emit `blog.reply.pinned` event
+
+### 5.17. MakePostPermanent
+
+Promote an ephemeral post to permanent by clearing `expires_at`, dropping its `ExpiryIndex` and `EphemeralByAuthorIndex` entries, and clearing any `conviction_sustained` flag. **Display markers (`pinned_by`, `pinned_at`) are not touched** — strict separation from `MsgPinPost`.
+
+```protobuf
+message MsgMakePostPermanent {
+  string creator = 1;  // Must be active member at make_permanent_min_trust_level+
+  uint64 id = 2;       // Post ID to promote
+}
+
+message MsgMakePostPermanentResponse {}
+```
+
+**Validation:**
+- Post must exist and have `status = POST_STATUS_ACTIVE` (rejects HIDDEN and DELETED)
+- Post must not have already expired (`block_time < expires_at`); the EndBlocker may otherwise race the promotion with tombstoning (`ErrPostExpired`)
+- Caller must meet `params.make_permanent_min_trust_level` (default PROVISIONAL); dual-error semantics with `ErrNotMember` / `ErrInsufficientTrustLevel` as elsewhere
+- Caller must not exceed `params.max_pins_per_day` (shared counter)
+
+**Idempotence:** Calling `MsgMakePostPermanent` on an already-permanent post (`expires_at == 0`) is a success no-op. The caller still consumes a rate-limit slot, so the post can't be used as a free probe of trust-level eligibility.
+
+**Logic:**
+1. Validate caller address
+2. Retrieve post and verify status and not-expired
+3. Verify caller's trust level
+4. Check rate limit
+5. If `expires_at == 0`: idempotent success — increment rate limit and return.
+6. Capture `old_expires_at`, set `expires_at = 0`. If `conviction_sustained == true`: clear it.
+7. Store updated post
+8. Remove the matching `ExpiryIndex` entry and the matching `EphemeralByAuthorIndex` entry
+9. Increment rate limit
+10. Emit `blog.post.upgraded` event with `via = make_permanent` (distinguishes the curator-driven path from `via = promotion_queue` and the TTL-time lazy upgrade)
+
+### 5.18. MakeReplyPermanent
+
+Mirror of `MsgMakePostPermanent` for replies.
+
+```protobuf
+message MsgMakeReplyPermanent {
+  string creator = 1;
+  uint64 id = 2;
+}
+
+message MsgMakeReplyPermanentResponse {}
+```
+
+**Validation:** identical shape to `MsgMakePostPermanent` against the reply.
+
+**Logic:** identical shape; emits `blog.reply.upgraded` with `via = make_permanent`.
+
+### 5.19. UnpinPost
+
+Clear the pinned display marker. The post **stays permanent** — no TTL is re-introduced.
+
+```protobuf
+message MsgUnpinPost {
+  string creator = 1;
+  uint64 id = 2;
+}
+
+message MsgUnpinPostResponse {}
+```
+
+**Validation:**
+- Post must exist, be `POST_STATUS_ACTIVE`, and currently pinned (`ErrNotPinned` otherwise)
+- Caller must meet `params.pin_min_trust_level` (same gate as Pin)
+- Shared `max_pins_per_day` rate limit applies
+
+**Logic:**
+1. Verify caller, post status, and that `pinned_by != ""`
+2. Verify trust level + rate limit
+3. Clear `pinned_by = ""`, `pinned_at = 0`. **`expires_at` stays 0** (permanence is preserved; Unpin is purely a marker reversal).
+4. Increment rate limit
+5. Emit `blog.post.unpinned` (attributes include the prior `was_pinned_by` for audit)
+
+### 5.20. UnpinReply
+
+Mirror of `MsgUnpinPost` for replies. Emits `blog.reply.unpinned`.
 
 ---
 
@@ -1178,25 +1268,40 @@ func (k Keeper) RemoveFromExpiryIndex(ctx context.Context, expiresAt int64, cont
 
 // TombstoneExpiredContent iterates the expiry index up to block_time and tombstones
 // all expired anonymous posts and replies. Returns the count of tombstoned items.
-// Called by EndBlocker.
+// Called by EndBlocker (Pass 2).
 func (k Keeper) TombstoneExpiredContent(ctx context.Context) uint64
+
+// AddEphemeralAuthorIndex / RemoveEphemeralAuthorIndex maintain the author-keyed
+// shadow of ExpiryIndex. Skipped automatically when `creator` is the module
+// account (anonymous content is not tracked here).
+func (k Keeper) AddEphemeralAuthorIndex(ctx context.Context, creator string, kind byte, id uint64)
+func (k Keeper) RemoveEphemeralAuthorIndex(ctx context.Context, creator string, kind byte, id uint64)
+
+// EnqueueAuthorForPromotion places `creator` in the promotion queue. Idempotent;
+// invoked by BlogRepHooks.AfterMemberAdmitted.
+func (k Keeper) EnqueueAuthorForPromotion(ctx context.Context, creator string)
+
+// IsAuthorQueuedForPromotion reports whether the given author is currently in the
+// promotion queue (exposed for tests and observability).
+func (k Keeper) IsAuthorQueuedForPromotion(ctx context.Context, creator string) bool
 ```
+
+**EndBlocker Pass 1 (promotion queue drain)** is implemented as a single private method on the keeper; callers do not invoke the drain directly. The two public Enqueue / IsQueued surfaces are intentionally narrow to keep the queue's internal data shape (FIFO + cursor handling) free to evolve.
 
 ### 7.9. Parameter Helpers (types)
 
 ```go
 // ApplyOperationalParams copies cost_per_byte, cost_per_byte_exempt, reaction_fee,
 // reaction_fee_exempt, max_posts_per_day, max_replies_per_day, max_reactions_per_day,
-// ephemeral_content_ttl, max_pins_per_day, conviction_renewal_threshold, and
-// conviction_renewal_period from op, preserving all other fields (max_title_length,
-// max_body_length, max_reply_length, max_reply_depth, pin_min_trust_level,
-// min_ephemeral_content_ttl, max_cost_per_byte, max_reaction_fee)
+// ephemeral_content_ttl, max_pins_per_day, max_promotions_per_block,
+// conviction_renewal_threshold, and conviction_renewal_period from op,
+// preserving all governance-only fields (max_title_length, max_body_length,
+// max_reply_length, max_reply_depth, pin_min_trust_level,
+// make_permanent_min_trust_level, min_ephemeral_content_ttl, max_cost_per_byte,
+// max_reaction_fee)
 func (p Params) ApplyOperationalParams(op BlogOperationalParams) Params
 
-// ExtractOperationalParams extracts cost_per_byte, cost_per_byte_exempt, reaction_fee,
-// reaction_fee_exempt, max_posts_per_day, max_replies_per_day, max_reactions_per_day,
-// ephemeral_content_ttl, max_pins_per_day, conviction_renewal_threshold, and
-// conviction_renewal_period from the full params
+// ExtractOperationalParams pulls the operational subset out of the full params.
 func (p Params) ExtractOperationalParams() BlogOperationalParams
 ```
 
@@ -1217,9 +1322,11 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 | `max_posts_per_day` | 10 | Prevents post flooding; reasonable for active authors |
 | `max_replies_per_day` | 50 | Prevents reply spam; allows active discussion participation |
 | `max_reactions_per_day` | 100 | Prevents mass reaction manipulation; generous for normal use |
-| `ephemeral_content_ttl` | 604,800 (7 days) | Ephemeral content (anonymous + non-member) expires unless pinned; balances free speech with no obligation to preserve bad content |
-| `pin_min_trust_level` | 2 (ESTABLISHED) | Ensures only members with meaningful reputation can preserve ephemeral content |
-| `max_pins_per_day` | 20 | Prevents mass-pinning of ephemeral content; generous for legitimate curation |
+| `ephemeral_content_ttl` | 604,800 (7 days) | Ephemeral content (anonymous + non-member) expires unless promoted; balances free speech with no obligation to preserve bad content |
+| `pin_min_trust_level` | 2 (ESTABLISHED) | Floor for setting the pinned display marker — a curator action that elevates visibility |
+| `make_permanent_min_trust_level` | 1 (PROVISIONAL) | Floor for promoting ephemeral content to permanent — preservation is a smaller curator action than featuring, so the gate is one rung lower |
+| `max_pins_per_day` | 20 | Single per-address counter shared by `MsgPinPost`, `MsgUnpinPost`, `MsgPinReply`, `MsgUnpinReply`, `MsgMakePostPermanent`, and `MsgMakeReplyPermanent` — prevents an attacker from doubling curation throughput by alternating action types |
+| `max_promotions_per_block` | 50 | Per-block cap on the EndBlocker membership-promotion drain; 0 disables eager draining (relies solely on lazy TTL-time promotion) |
 | `min_ephemeral_content_ttl` | 86,400 (1 day) | **Governance-only.** Floor for `ephemeral_content_ttl` — prevents Operations Committee from setting TTL near-zero to suppress ephemeral content |
 | `max_cost_per_byte` | 1,000uspark | **Governance-only.** Ceiling for `cost_per_byte` (10x default) — prevents economic censorship via extreme fee increases |
 | `max_reaction_fee` | 500uspark | **Governance-only.** Ceiling for `reaction_fee` (10x default) — prevents economic censorship via extreme reaction fees |
@@ -1238,6 +1345,7 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 - `max_reactions_per_day` must be > 0
 - `ephemeral_content_ttl` must be ≥ 0; zero disables TTL (all content is permanent regardless of authorship)
 - `pin_min_trust_level` must be between 0 and 4 inclusive
+- `make_permanent_min_trust_level` must be between 0 and 4 inclusive
 - `max_pins_per_day` must be > 0
 - `min_ephemeral_content_ttl` must be > 0
 - `max_cost_per_byte` amount must be > 0
@@ -1258,8 +1366,9 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 - `max_pins_per_day` must be > 0
 - `conviction_renewal_threshold` must be ≥ 0
 - `conviction_renewal_period` must be ≥ 0
+- `max_promotions_per_block` has no lower bound (0 disables the EndBlocker promotion drain)
 
-Note: `BlogOperationalParams.Validate()` is a subset of `Params.Validate()` covering only the operational fields. In `MsgUpdateOperationalParams`, both `BlogOperationalParams.Validate()` and the merged `Params.Validate()` are called (Section 5.7), so structural constraints (e.g., all lengths > 0, reply depth ≤ 20) and **cross-field constraints** (e.g., `ephemeral_content_ttl >= min_ephemeral_content_ttl`, `cost_per_byte <= max_cost_per_byte`, `reaction_fee <= max_reaction_fee`) are enforced on the final merged result. The governance-only params (`min_ephemeral_content_ttl`, `max_cost_per_byte`, `max_reaction_fee`, `pin_min_trust_level`) cannot be changed via `MsgUpdateOperationalParams`, so the Operations Committee cannot bypass these guardrails.
+Note: `BlogOperationalParams.Validate()` is a subset of `Params.Validate()` covering only the operational fields. In `MsgUpdateOperationalParams`, both `BlogOperationalParams.Validate()` and the merged `Params.Validate()` are called (Section 5.7), so structural constraints (e.g., all lengths > 0, reply depth ≤ 20) and **cross-field constraints** (e.g., `ephemeral_content_ttl >= min_ephemeral_content_ttl`, `cost_per_byte <= max_cost_per_byte`, `reaction_fee <= max_reaction_fee`) are enforced on the final merged result. The governance-only params (`min_ephemeral_content_ttl`, `max_cost_per_byte`, `max_reaction_fee`, `pin_min_trust_level`, `make_permanent_min_trust_level`) cannot be changed via `MsgUpdateOperationalParams`, so the Operations Committee cannot bypass these guardrails.
 
 ---
 
@@ -1283,12 +1392,14 @@ Note: `BlogOperationalParams.Validate()` is a subset of `Params.Validate()` cove
 | `ErrRateLimitExceeded` | 1213 | Address has exceeded the daily rate limit for this action |
 | `ErrInvalidReactionType` | 1214 | Invalid reaction type value |
 | `ErrReactionNotFound` | 1215 | No reaction to remove for this user on this target |
-| `ErrContentNotEphemeral` | 1216 | Content is already permanent (`expires_at == 0`) and cannot be pinned |
+| `ErrContentNotEphemeral` | 1216 | **Legacy.** Was raised by the pre-rework `PinPost`/`PinReply` when the target was already permanent. Reserved (no current handler raises it) — the strict-separation rework makes "already permanent" the *required* precondition for Pin, not an error. |
 | `ErrAlreadyPinned` | 1217 | Content is already pinned |
-| `ErrInsufficientTrustLevel` | 1218 | Creator's trust level is below the required minimum (e.g., post's `min_reply_trust_level` or `pin_min_trust_level`) |
+| `ErrInsufficientTrustLevel` | 1218 | Caller's trust level is below the required minimum (e.g., post's `min_reply_trust_level`, `pin_min_trust_level`, or `make_permanent_min_trust_level`) |
 | `ErrPostExpired` | 1222 | Post has expired (TTL elapsed, not yet tombstoned by EndBlocker) |
 | `ErrReplyExpired` | 1223 | Reply has expired |
 | `ErrInvalidInitiativeRef` | 1224 | Invalid initiative reference for conviction propagation |
+| `ErrNotPinned` | 1230 | `MsgUnpinPost` / `MsgUnpinReply` target has no pin marker to clear |
+| `ErrCannotPinEphemeral` | 1231 | `MsgPinPost` / `MsgPinReply` target is still ephemeral (`expires_at > 0`); the caller must promote with `MsgMakePostPermanent` / `MsgMakeReplyPermanent` first. Strict-separation guard. |
 
 Standard SDK errors used inline:
 - `sdkerrors.ErrInvalidRequest` — empty or over-length content, `min_reply_trust_level` out of range (-1 to 4)
@@ -1306,7 +1417,9 @@ Standard SDK errors used inline:
 | DeletePost | Original creator only |
 | HidePost | Post author only (self-moderation) |
 | UnhidePost | Post author only |
-| PinPost | Active member at `pin_min_trust_level` or above (ephemeral posts only -- anonymous or non-member) |
+| PinPost | Active member at `pin_min_trust_level`+ (post must already be permanent — strict separation) |
+| UnpinPost | Active member at `pin_min_trust_level`+ |
+| MakePostPermanent | Active member at `make_permanent_min_trust_level`+ (lower gate than Pin — preservation is a smaller curator action than featuring) |
 | UpdateParams | Governance authority only |
 | UpdateOperationalParams | Operations Committee member (or governance authority as fallback) |
 
@@ -1319,7 +1432,9 @@ Standard SDK errors used inline:
 | DeleteReply | Reply author OR post author |
 | HideReply | Post author only |
 | UnhideReply | Post author only |
-| PinReply | Active member at `pin_min_trust_level` or above (ephemeral replies only — anonymous or non-member) |
+| PinReply | Active member at `pin_min_trust_level`+ (reply must already be permanent) |
+| UnpinReply | Active member at `pin_min_trust_level`+ |
+| MakeReplyPermanent | Active member at `make_permanent_min_trust_level`+ |
 
 ### 10.3. Reaction Operations
 
@@ -1414,14 +1529,33 @@ sparkdreamd tx blog remove-reaction 1 --reply-id 5 --from carol
 
 Note: `UpdateParams` and `UpdateOperationalParams` are skipped from AutoCLI (authority/council-gated).
 
-### 11.4. Pin Transactions
+### 11.4. Pin / Unpin / MakePermanent Transactions
+
+Under the strict-separation design these are three distinct curator actions:
+preservation (`make-*-permanent`), featuring (`pin-*`), and unfeaturing
+(`unpin-*`). Pin requires the target to already be permanent; promote
+ephemeral content with `make-*-permanent` first.
 
 ```bash
-# Pin an anonymous post (requires ESTABLISHED+ trust)
+# Promote an ephemeral post to permanent (requires PROVISIONAL+ trust)
+sparkdreamd tx blog make-post-permanent 1 --from alice
+
+# Promote an ephemeral reply to permanent
+sparkdreamd tx blog make-reply-permanent 3 --from alice
+
+# Set the pinned display marker on a permanent post (requires ESTABLISHED+ trust)
 sparkdreamd tx blog pin-post 1 --from alice
 
-# Pin an anonymous reply (requires ESTABLISHED+ trust)
+# Clear the pinned marker (post stays permanent)
+sparkdreamd tx blog unpin-post 1 --from alice
+
+# Pin / unpin a permanent reply
 sparkdreamd tx blog pin-reply 3 --from alice
+sparkdreamd tx blog unpin-reply 3 --from alice
+
+# Two-step "feature this ephemeral post" flow
+sparkdreamd tx blog make-post-permanent 7 --from alice && \
+  sparkdreamd tx blog pin-post 7 --from alice
 ```
 
 ### 11.5. Anonymous Posting [REMOVED]
@@ -1509,7 +1643,11 @@ Posts and replies incur a per-byte storage fee that is burned, creating deflatio
 | React (change type) | No fee |
 | RemoveReaction | No fee |
 | PinPost | No fee |
+| UnpinPost | No fee |
+| MakePostPermanent | No fee |
 | PinReply | No fee |
+| UnpinReply | No fee |
+| MakeReplyPermanent | No fee |
 
 - Fees are sent from the creator to the `blog` module account and immediately burned
 - For anonymous operations routed through x/shield's `MsgShieldedExec`, the shield module account pays gas fees; storage fees for the inner message (e.g., `MsgCreatePost`) are paid by the shield module account as the sender
@@ -1549,7 +1687,9 @@ message GenesisReactionCounts {
 
 All state is preserved across genesis import/export. This includes tombstoned posts, hidden posts, hidden replies, tombstoned replies, and pin/expiry fields on posts and replies -- the full state is exported and restored faithfully.
 
-**Derived indexes are not exported.** `ReplyPostIndex`, `CreatorPostIndex`, `ExpiryIndex`, and `ReactorIndex` are rebuilt during `InitGenesis` by iterating imported posts, replies, and reactions.
+**Derived indexes are not exported.** `ReplyPostIndex`, `CreatorPostIndex`, `ExpiryIndex`, `EphemeralByAuthorIndex`, and `ReactorIndex` are rebuilt during `InitGenesis` by iterating imported posts, replies, and reactions. `EphemeralByAuthorIndex` is rebuilt at the same time as `ExpiryIndex`: any imported post or reply with `expires_at > 0` and a non-module-creator gets both index entries.
+
+**The promotion queue is not exported either.** `PromotionQueue` is a strictly forward-looking eager-drain hint. It's safe to start empty after a chain restart — the EndBlocker Pass 2 lazy member-now check still catches every ephemeral whose author is a member at TTL time, so no content is ever stranded. Any author who had pending eager promotion at export time loses only the "expires_at displayed as 0 sooner" UX benefit until they post again or the TTL hits.
 
 **Rate limit entries are not exported.** `RateLimitEntry` records are ephemeral (day-scoped with lazy cleanup) and reset to zero on chain restart. This is intentional — rate limits serve as real-time spam prevention, not persistent state.
 
@@ -1579,16 +1719,32 @@ All state is preserved across genesis import/export. This includes tombstoned po
 | Hook | Implementation |
 |------|----------------|
 | `BeginBlock` | No-op |
-| `EndBlock` | Process expired ephemeral content (auto-upgrade or tombstone) |
+| `EndBlock` | Two ordered passes: (1) drain the membership-promotion queue up to `params.max_promotions_per_block`, (2) process expired ephemeral content (auto-upgrade or tombstone) |
 
-**EndBlock — TTL Expiry:**
+**EndBlock — Pass 1: Promotion Queue Drain**
+
+Subscribes to x/rep's `RepHooks.AfterMemberAdmitted` via `BlogRepHooks` (wired in `app.go` through `repmoduletypes.NewMultiRepHooks(...)`). When a non-member becomes a member via `MsgAcceptInvitation`, x/rep invokes the hook; x/blog enqueues the new member's address into `PromotionQueue` (no-op if the address is the blog module account — anonymous content has its own conviction-renewal lifecycle and is never queued).
+
+At each block end, before the TTL pruner, the queue is drained with `params.max_promotions_per_block` total promotions as a budget across all queued authors:
+
+1. Iterate `PromotionQueue` in bech32-string order
+2. For each queued author, iterate their entries in `EphemeralByAuthorIndex` in `(kind, id)` order:
+   - Load the post or reply.
+   - If gone, deleted, already permanent, or its `creator` no longer matches: drop the stale index entry and continue (cleanup-only path, doesn't consume budget).
+   - Otherwise: set `expires_at = 0`, clear `conviction_sustained` if set, remove from both `ExpiryIndex` and `EphemeralByAuthorIndex`, emit `blog.post.upgraded` / `blog.reply.upgraded` with `via = promotion_queue`, and consume one slot of budget.
+3. When an author's `EphemeralByAuthorIndex` is fully drained, remove them from `PromotionQueue` (also handles the "re-invitation with no ephemerals" case — queue entry is dropped on first drain).
+4. If the budget is reached mid-author, that author stays queued; the next block resumes from the next un-promoted entry.
+
+Setting `max_promotions_per_block = 0` disables Pass 1 entirely; in that mode the only path to permanent for pre-admission content is the lazy member-now check in Pass 2. The Pass 1 implementation never sets pin markers — strict separation is preserved through the entire automated path.
+
+**EndBlock — Pass 2: TTL Expiry**
 
 Iterates the `ExpiryIndex` for all entries where `expires_at <= block_time`. For each expired entry:
 
 1. Retrieve the post or reply
 2. If already tombstoned (e.g., manually deleted before TTL): remove from expiry index, skip
 3. If already hidden: proceed to step 4 (hidden ephemeral content is not shielded from expiry — see note below)
-4. **Membership auto-upgrade check (non-anonymous only):** If the creator is a real address (not module account, i.e. non-anonymous) and `RepKeeper.IsActiveMember(ctx, creator)` is true: the creator has since joined x/rep. Clear `expires_at = 0`, remove from `ExpiryIndex`, and emit `blog.post.upgraded` or `blog.reply.upgraded` event. **No additional fee is charged** — the creator already paid full storage fees at creation, and membership itself is the qualifying event. Skip tombstoning.
+4. **Membership auto-upgrade check (non-anonymous only):** If the creator is a real address (not module account, i.e. non-anonymous) and `RepKeeper.IsActiveMember(ctx, creator)` is true: the creator has since joined x/rep. Clear `expires_at = 0`, remove from `ExpiryIndex` AND `EphemeralByAuthorIndex`, and emit `blog.post.upgraded` or `blog.reply.upgraded` event (with no `via` attribute — `via` is reserved for the explicit MakePermanent and queue-drain paths). **No additional fee is charged** — the creator already paid full storage fees at creation, and membership itself is the qualifying event. Skip tombstoning. **In practice this lazy path is rarely hit post-rework** — Pass 1's eager drain promotes nearly all member-author content within a few blocks of admission; this branch survives as a safety net for queue-drained chain restarts and `max_promotions_per_block = 0` configurations.
 5. **Conviction check (anonymous only):** If the creator is the module account (anonymous content) and `params.conviction_renewal_threshold > 0`: query `RepKeeper.GetContentConviction(ctx, targetType, targetID)` where `targetType` = `STAKE_TARGET_CONTENT` and `targetID` encodes `"blog/post/{id}"` or `"blog/reply/{id}"`.
    - **Entering conviction-sustained state (first expiry):** If `conviction_sustained == false` and conviction score ≥ threshold: set `conviction_sustained = true`, set `expires_at = block_time + params.conviction_renewal_period`, update `ExpiryIndex`, and emit `blog.post.conviction_sustained` or `blog.reply.conviction_sustained` event. Skip tombstoning.
    - **Renewal (already conviction-sustained):** If `conviction_sustained == true` and conviction score ≥ threshold: set `expires_at = block_time + params.conviction_renewal_period`, update `ExpiryIndex`, emit `blog.post.renewed` or `blog.reply.renewed` event. Skip tombstoning.
@@ -1628,6 +1784,8 @@ If `Config.Authority` is not set, defaults to the `x/gov` module account.
 
 **`RepKeeper` is a required dependency.** The module panics on startup if `RepKeeper` is nil. All membership and trust-level checks depend on it. There is no graceful degradation — this prevents a misconfiguration from silently disabling all access control in production.
 
+**`RepHooks` subscription (post-depinject wiring).** x/blog implements `reptypes.RepHooks` via `BlogRepHooks` and subscribes through `RepKeeper.SetHooks(repmoduletypes.NewMultiRepHooks(blogmodulekeeper.NewBlogRepHooks(&app.BlogKeeper)))` in `app.go`, after the `depinject.Inject` call. The hook's only current consumer is `AfterMemberAdmitted`, which enqueues the new member into x/blog's `PromotionQueue`. Hook invocation is non-tx-halting: x/rep logs and continues on error so a buggy implementation cannot brick `MsgAcceptInvitation`. The hook is invented from scratch in x/rep — there was no prior hooks plumbing in that module.
+
 ---
 
 ## 16. Simulation
@@ -1646,8 +1804,8 @@ If `Config.Authority` is not set, defaults to the `x/gov` module account.
 | `SimulateMsgUnhideReply` | 20 | Post author unhides previously hidden reply |
 | `SimulateMsgReact` | 80 | Random reaction on existing post/reply |
 | `SimulateMsgRemoveReaction` | 30 | Remove existing reaction |
-| `SimulateMsgPinPost` | 15 | ESTABLISHED+ member pins random unpinned ephemeral post |
-| `SimulateMsgPinReply` | 15 | ESTABLISHED+ member pins random unpinned ephemeral reply |
+| `SimulateMsgPinPost` | 15 | Exercises the two-step ephemeral → permanent → pinned flow via direct keeper calls (the on-chain `MsgPinPost` rejects ephemeral targets; sim covers the bundled state transition with both index removals) |
+| `SimulateMsgPinReply` | 15 | Same as `SimulateMsgPinPost` for replies |
 
 Each operation has a unique configuration key (`op_weight_msg_blog_<operation>`) so weights can be individually tuned via simulation app params.
 
@@ -1675,9 +1833,11 @@ Each state-changing message handler emits an event for off-chain indexers and fr
 | `blog.reaction.changed` | `creator`, `post_id`, `reply_id`, `old_type`, `new_type` | React (change) |
 | `blog.reaction.removed` | `creator`, `post_id`, `reply_id`, `reaction_type` | RemoveReaction |
 | `blog.post.pinned` | `post_id`, `pinned_by` | PinPost |
+| `blog.post.unpinned` | `post_id`, `unpinned_by`, `was_pinned_by` | UnpinPost |
 | `blog.reply.pinned` | `reply_id`, `post_id`, `pinned_by` | PinReply |
-| `blog.post.upgraded` | `post_id`, `creator` | EndBlock membership auto-upgrade (non-member → member) |
-| `blog.reply.upgraded` | `reply_id`, `post_id`, `creator` | EndBlock membership auto-upgrade (non-member → member) |
+| `blog.reply.unpinned` | `reply_id`, `post_id`, `unpinned_by`, `was_pinned_by` | UnpinReply |
+| `blog.post.upgraded` | `post_id`, `creator`, optional `by`, optional `via` | Lifecycle promotion. `via` distinguishes paths: `make_permanent` (MsgMakePostPermanent, `by` = caller), `promotion_queue` (EndBlock Pass 1 drain after AfterMemberAdmitted), or absent (EndBlock Pass 2 lazy member-now check at TTL). |
+| `blog.reply.upgraded` | `reply_id`, `post_id`, `creator`, optional `by`, optional `via` | Same `via` semantics as the post equivalent |
 | `blog.post.conviction_sustained` | `post_id`, `conviction_score`, `new_expires_at` | EndBlock: first entry into conviction-sustained state |
 | `blog.reply.conviction_sustained` | `reply_id`, `post_id`, `conviction_score`, `new_expires_at` | EndBlock: first entry into conviction-sustained state |
 | `blog.post.renewed` | `post_id`, `conviction_score`, `new_expires_at` | EndBlock: subsequent conviction renewal |
@@ -1711,7 +1871,11 @@ For every post, `post.reply_count` must equal the count of replies with `status 
 
 ### 18.4. Expiry Index Consistency
 
-Every entry in the `ExpiryIndex` must reference a post or reply that (a) exists and (b) has `expires_at > 0` matching the index key. Conversely, every active post/reply with `expires_at > 0` must have a corresponding `ExpiryIndex` entry. Pinned content (`pinned_by != ""`) must have `expires_at == 0` and no expiry index entry.
+Every entry in the `ExpiryIndex` must reference a post or reply that (a) exists and (b) has `expires_at > 0` matching the index key. Conversely, every active post/reply with `expires_at > 0` must have a corresponding `ExpiryIndex` entry. Pinned content (`pinned_by != ""`) must have `expires_at == 0` and no expiry index entry — strict separation guarantees this: `MsgPinPost` / `MsgPinReply` reject ephemeral targets, and `MsgUnpin*` never reintroduce a TTL.
+
+**EphemeralByAuthor consistency.** For every active post/reply with `expires_at > 0` AND a non-anonymous (non-module) creator, there must be exactly one matching `EphemeralByAuthorIndex` entry keyed by `{creator}/{kind}/{id}`. Anonymous (module-creator) ephemerals are tracked only in `ExpiryIndex`. The EndBlocker promotion drain and the keeper add/remove helpers maintain both indexes in lockstep at every state-mutating site (create, delete, pin/unpin is a no-op here, MakePermanent, EndBlock member-now path, EndBlock tombstone, EndBlock queue drain).
+
+**PromotionQueue is purely informational.** It may contain authors with no remaining `EphemeralByAuthorIndex` entries — the next EndBlock drain dequeues them as a no-op. There is no consistency relation between the queue and any other state worth checking via the crisis module; the queue is self-pruning.
 
 ### 18.5. High-Water Mark Consistency
 

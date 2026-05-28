@@ -21,6 +21,7 @@ type lateKeepers struct {
 	blogKeeper     types.BlogKeeper
 	collectKeeper  types.CollectKeeper
 	identityKeeper types.IdentityKeeper
+	hooks          types.RepHooks
 }
 
 type Keeper struct {
@@ -325,6 +326,23 @@ func (k Keeper) SetCollectKeeper(ck types.CollectKeeper) {
 // DreamDenom helpers to resolve the chain's federated denoms.
 func (k Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
 	k.late.identityKeeper = idk
+}
+
+// SetHooks late-binds the RepHooks dispatcher. Idempotent overwrite; wrap
+// multiple subscribers in types.NewMultiRepHooks(...) before calling. Hook
+// invocations are non-tx-halting so a buggy downstream module cannot brick
+// member admission.
+func (k Keeper) SetHooks(h types.RepHooks) {
+	k.late.hooks = h
+}
+
+// Hooks returns the wired RepHooks dispatcher, or a no-op fallback if none
+// has been wired yet. Callers can invoke hook methods without nil-checking.
+func (k Keeper) Hooks() types.RepHooks {
+	if k.late.hooks == nil {
+		return types.MultiRepHooks{}
+	}
+	return k.late.hooks
 }
 
 // BondDenom returns the chain's bond denom from the wired identity keeper.

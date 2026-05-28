@@ -206,15 +206,39 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					},
 				},
 				{
+					RpcMethod:      "MakePostPermanent",
+					Use:            "make-post-permanent [id]",
+					Short:          "Promote an ephemeral post to permanent (clears expires_at)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod:      "MakeReplyPermanent",
+					Use:            "make-reply-permanent [id]",
+					Short:          "Promote an ephemeral reply to permanent",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
 					RpcMethod:      "PinPost",
 					Use:            "pin-post [id]",
-					Short:          "Pin an ephemeral post, making it permanent",
+					Short:          "Set the pinned display marker on a permanent post",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod:      "UnpinPost",
+					Use:            "unpin-post [id]",
+					Short:          "Clear the pinned marker on a post (stays permanent)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
 				},
 				{
 					RpcMethod:      "PinReply",
 					Use:            "pin-reply [id]",
-					Short:          "Pin an ephemeral reply, making it permanent",
+					Short:          "Set the pinned display marker on a permanent reply",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod:      "UnpinReply",
+					Use:            "unpin-reply [id]",
+					Short:          "Clear the pinned marker on a reply (stays permanent)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx

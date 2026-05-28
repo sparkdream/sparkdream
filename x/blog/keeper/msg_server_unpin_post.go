@@ -10,7 +10,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.MsgPinPostResponse, error) {
+// UnpinPost clears the pinned marker on a post without re-introducing an
+// expiry. Once a post is permanent (either pinned or authored as a member),
+// unpin only walks back the curation marker; the content stays live. Gated on
+// the same trust level as Pin and shares its rate-limit counter.
+func (k msgServer) UnpinPost(ctx context.Context, msg *types.MsgUnpinPost) (*types.MsgUnpinPostResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
 	}
@@ -18,7 +22,6 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Get post, must exist and be active
 	post, found := k.GetPost(ctx, msg.Id)
 	if !found {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("post %d not found", msg.Id))
@@ -30,15 +33,8 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 		return nil, errorsmod.Wrap(types.ErrPostHidden, fmt.Sprintf("post %d is hidden", msg.Id))
 	}
 
-	// Pin is display-only and requires the post to already be permanent.
-	// Promote ephemeral content with MakePostPermanent first (strict
-	// separation between the lifecycle change and the display marker).
-	if post.ExpiresAt > 0 {
-		return nil, errorsmod.Wrap(types.ErrCannotPinEphemeral, fmt.Sprintf("post %d is ephemeral; call MakePostPermanent first", msg.Id))
-	}
-
-	if post.PinnedBy != "" {
-		return nil, errorsmod.Wrap(types.ErrAlreadyPinned, fmt.Sprintf("post %d is already pinned", msg.Id))
+	if post.PinnedBy == "" {
+		return nil, errorsmod.Wrap(types.ErrNotPinned, fmt.Sprintf("post %d is not pinned", msg.Id))
 	}
 
 	params, err := k.Params.Get(ctx)
@@ -46,29 +42,26 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 		return nil, err
 	}
 
-	// Creator must meet pin trust level (helper distinguishes ErrNotMember
-	// from ErrInsufficientTrustLevel so the caller knows whether the fix is
-	// to join or to earn trust)
 	if !k.meetsReplyTrustLevel(ctx, creatorAddr, int32(params.PinMinTrustLevel)) {
-		return nil, k.trustLevelError(ctx, creatorAddr, int32(params.PinMinTrustLevel), "pinning posts")
+		return nil, k.trustLevelError(ctx, creatorAddr, int32(params.PinMinTrustLevel), "unpinning posts")
 	}
 
 	if err := k.checkRateLimit(ctx, "pin", creatorAddr, params.MaxPinsPerDay); err != nil {
 		return nil, err
 	}
 
-	post.PinnedBy = msg.Creator
-	post.PinnedAt = sdkCtx.BlockTime().Unix()
+	prevPinnedBy := post.PinnedBy
+	post.PinnedBy = ""
+	post.PinnedAt = 0
 	k.SetPost(ctx, post)
 
-	// Increment rate limit
 	k.incrementRateLimit(ctx, "pin", creatorAddr)
 
-	// Emit event
-	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("blog.post.pinned",
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("blog.post.unpinned",
 		sdk.NewAttribute("post_id", fmt.Sprintf("%d", msg.Id)),
-		sdk.NewAttribute("pinned_by", msg.Creator),
+		sdk.NewAttribute("unpinned_by", msg.Creator),
+		sdk.NewAttribute("was_pinned_by", prevPinnedBy),
 	))
 
-	return &types.MsgPinPostResponse{}, nil
+	return &types.MsgUnpinPostResponse{}, nil
 }

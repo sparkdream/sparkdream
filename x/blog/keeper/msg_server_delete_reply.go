@@ -40,6 +40,7 @@ func (k msgServer) DeleteReply(ctx context.Context, msg *types.MsgDeleteReply) (
 	// Remove from expiry index if ephemeral
 	if reply.ExpiresAt > 0 {
 		k.RemoveFromExpiryIndex(ctx, reply.ExpiresAt, "reply", reply.Id)
+		k.RemoveEphemeralAuthorIndex(ctx, reply.Creator, EphemeralKindReply, reply.Id)
 	}
 
 	// Decrement post reply count if reply was active (hidden replies already decremented)

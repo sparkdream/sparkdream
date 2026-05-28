@@ -41,6 +41,19 @@ const (
 
 	// Expiry index
 	ExpiryKey = "Expiry/"
+
+	// EphemeralByAuthorKey indexes still-ephemeral content by (creator, kind, id)
+	// so the EndBlocker promotion drain can locate a queued author's pending
+	// content in O(promoted) without scanning the global expiry index. Only
+	// non-anonymous (non-module-creator) ephemerals are tracked. Maintained in
+	// lockstep with ExpiryKey.
+	EphemeralByAuthorKey = "Ephemeral/creator/"
+
+	// PromotionQueueKey holds the set of authors with ephemeral content
+	// awaiting eager promotion to permanent (enqueued when the author becomes a
+	// member). Key = creator bech32 string, value = enqueue block-height (8B
+	// big-endian) for telemetry only. Drained by the EndBlocker.
+	PromotionQueueKey = "Promotion/queue/"
 )
 
 // ParamsKey is the prefix to retrieve all Params

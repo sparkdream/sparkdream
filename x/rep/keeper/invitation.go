@@ -296,6 +296,16 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 		),
 	)
 
+	// Notify downstream subscribers. Hook errors are non-tx-halting: log and
+	// continue so a buggy implementation cannot brick member admission.
+	if err := k.Hooks().AfterMemberAdmitted(ctx, invitee); err != nil {
+		sdkCtx.Logger().Error("AfterMemberAdmitted hook failed",
+			"member", invitee.String(),
+			"invitation_id", invitationID,
+			"error", err,
+		)
+	}
+
 	return nil
 }
 

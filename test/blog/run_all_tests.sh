@@ -38,6 +38,8 @@ RUN_POST=true
 RUN_REPLY=true
 RUN_REACTION=true
 RUN_PIN=true
+RUN_MAKE_PERMANENT=true
+RUN_PROMOTION_QUEUE=true
 RUN_ANON=true
 RUN_TAG=true
 # Master gate for the entire test-execution loop. The per-test RUN_* flags
@@ -68,6 +70,12 @@ for arg in "$@"; do
         --no-pin)
             RUN_PIN=false
             ;;
+        --no-make-permanent)
+            RUN_MAKE_PERMANENT=false
+            ;;
+        --no-promotion-queue)
+            RUN_PROMOTION_QUEUE=false
+            ;;
         --no-anon)
             RUN_ANON=false
             ;;
@@ -79,6 +87,8 @@ for arg in "$@"; do
             RUN_REPLY=false
             RUN_REACTION=false
             RUN_PIN=false
+            RUN_MAKE_PERMANENT=false
+            RUN_PROMOTION_QUEUE=false
             RUN_ANON=false
             RUN_TAG=false
             ;;
@@ -89,6 +99,8 @@ for arg in "$@"; do
             RUN_REPLY=false
             RUN_REACTION=false
             RUN_PIN=false
+            RUN_MAKE_PERMANENT=false
+            RUN_PROMOTION_QUEUE=false
             RUN_ANON=false
             RUN_TAG=false
             ;;
@@ -102,6 +114,8 @@ for arg in "$@"; do
             RUN_REPLY=false
             RUN_REACTION=false
             RUN_PIN=false
+            RUN_MAKE_PERMANENT=false
+            RUN_PROMOTION_QUEUE=false
             RUN_ANON=false
             RUN_TAG=false
             ;;
@@ -114,6 +128,8 @@ for arg in "$@"; do
             echo "  --no-reply       Skip reply tests"
             echo "  --no-reaction    Skip reaction tests"
             echo "  --no-pin         Skip pin post/reply tests"
+            echo "  --no-make-permanent     Skip MakePostPermanent/MakeReplyPermanent tests"
+            echo "  --no-promotion-queue    Skip membership-driven promotion-queue tests"
             echo "  --no-anon        Skip anonymous action tests (via x/shield)"
             echo "  --no-tag         Skip tag validation and list-by-tag tests"
             echo "  --only-setup     Run only setup (skip all tests)"
@@ -447,6 +463,23 @@ if [ "$RUN_PIN" = true ]; then
     run_test "Pin Post/Reply Tests" "pin_test.sh"
 else
     echo "Skipping pin tests (--no-pin)"
+    echo ""
+fi
+
+# MakePostPermanent / MakeReplyPermanent tests (separated from Pin in the
+# strict-separation rework — preservation lifecycle, not display marker).
+if [ "$RUN_MAKE_PERMANENT" = true ]; then
+    run_test "MakePostPermanent / MakeReplyPermanent Tests" "make_permanent_test.sh"
+else
+    echo "Skipping make-permanent tests (--no-make-permanent)"
+    echo ""
+fi
+
+# Membership-driven promotion-queue tests (AfterMemberAdmitted hook + EndBlocker drain).
+if [ "$RUN_PROMOTION_QUEUE" = true ]; then
+    run_test "Promotion Queue Tests" "promotion_queue_test.sh"
+else
+    echo "Skipping promotion-queue tests (--no-promotion-queue)"
     echo ""
 fi
 

@@ -137,7 +137,7 @@ This system moves beyond simple token-voting by delegating authority to speciali
 | x/rep | 31 | 38 | 12 phases | — | Reputation, DREAM, trust tree, ZK keys |
 | x/season | 43 | 72 | — | 3 phases | Seasons, XP, guilds, quests, retro funding |
 | x/reveal | 10 | 11 | Yes | — | Progressive open-source, tranched funding |
-| x/blog | 16 | 11 | 1 phase | — | Blog posts, replies, reactions |
+| x/blog | 18 | 11 | 2 phases | — | Blog posts, replies, reactions; strict-separation Pin / MakePermanent; membership-driven promotion queue |
 | x/forum | 49 | 73 | 4 phases | — | Discussion threads, moderation, bounties |
 | x/collect | 29 | 25 | 6 phases | — | Curated collections, curation, endorsements |
 | x/name | 8 | 6 | — | Yes | Human-readable identity registry |
@@ -371,15 +371,20 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Rate limiting:** Max 10 posts/day, 50 replies/day, 100 reactions/day per address
 - **Ephemeral content:** Non-member posts expire after TTL (7 days default); conviction renewal extends TTL if conviction ≥ threshold
 - **Storage fees:** 100 uspark/byte, charged to submitter
-- **Pin/hide system:** Trust-level-gated pinning (CORE trust for blog), owner/admin hiding
+- **Strict-separation Pin & MakePermanent:** Pin (`pin_min_trust_level`, ESTABLISHED) is a display-only marker that requires the target to already be permanent — ephemeral content is rejected with `ErrCannotPinEphemeral`. MakePermanent (`make_permanent_min_trust_level`, PROVISIONAL) is the lifecycle promotion that clears `expires_at` without touching pin markers. The two share one daily rate-limit counter so an attacker can't double curation throughput by alternating types.
+- **Membership-driven promotion queue:** An `AfterMemberAdmitted` hook from x/rep enqueues newly-admitted members; an EndBlocker pass drains up to `max_promotions_per_block` (default 50) of their pre-admission ephemeral posts/replies to permanent each block, with the lazy TTL-time member-now check still catching any laggards.
+- **Self-moderation:** Post authors can hide/unhide their own posts (owner-only).
 - **Shield-aware:** Implements `ShieldAware` interface; anonymous posts/replies/reactions routed via x/shield's `MsgShieldedExec`
 
-**Messages (16):** Post CRUD (3), reply CRUD (3), hide/unhide post (2), hide/unhide reply (2), pin post (1), pin reply (1), react (1), remove reaction (1), `update_params`, `update_operational_params`
+**Messages (18):** Post CRUD (3), reply CRUD (3), hide/unhide post (2), hide/unhide reply (2), pin/unpin post (2), pin/unpin reply (2), make-post-permanent (1), make-reply-permanent (1), react (1), remove reaction (1), `update_params`, `update_operational_params`
 
 **Queries (11):** `params`, `show_post`, `list_post`, `show_reply`, `list_replies`, `list_posts_by_creator`, `reaction_counts`, `user_reaction`, `list_reactions`, `list_reactions_by_creator`, `list_expiring_content`
 
-**EndBlocker (1 phase):**
-1. TTL expiry — upgrades to permanent if creator becomes member, conviction renewal if conviction ≥ threshold, or tombstones expired content
+**EndBlocker (2 phases):**
+1. **Promotion queue drain** — eagerly promote up to `max_promotions_per_block` ephemeral posts/replies belonging to recently-admitted members (resolves the frontend-visibility gap that lazy TTL-time promotion otherwise creates).
+2. **TTL expiry** — for each expired entry: upgrade to permanent if creator is now a member, renew if conviction-sustained ≥ threshold, otherwise tombstone.
+
+**RepHooks integration:** Invents a new `RepHooks` interface in x/rep (no prior hook plumbing in that module). `BlogRepHooks.AfterMemberAdmitted` enqueues the new member into x/blog's `PromotionQueue`. Hook invocation is non-tx-halting so a buggy implementation can't brick `MsgAcceptInvitation`.
 
 ### x/forum (Decentralized Discussion)
 
@@ -862,6 +867,12 @@ x/rep        ← SetSeasonKeeper(season)  [via shared lateKeepers pointer]
                                          GetPostAuthor, GetPostTags.
                                          Tag storage + bond mechanics live
                                          in x/rep itself]
+             ← SetHooks(NewMultiRepHooks(BlogRepHooks{blog}))
+                                         [AfterMemberAdmitted fires from
+                                          MsgAcceptInvitation — x/blog uses
+                                          it to enqueue the new member for
+                                          pre-admission-ephemeral promotion;
+                                          non-tx-halting]
 
 x/split      ← SetDistrKeeper(distr)    [via adapter]
 

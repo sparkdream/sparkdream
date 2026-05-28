@@ -10,170 +10,103 @@ import (
 	"sparkdream/x/blog/types"
 )
 
+// TestPinPost covers the post-rework strict Pin semantics: Pin only sets the
+// pinned marker, requires the post to already be permanent, and rejects
+// ephemeral content with ErrCannotPinEphemeral. The ephemeral→permanent
+// lifecycle change moved to MsgMakePostPermanent (covered in its own test).
 func TestPinPost(t *testing.T) {
 	creator := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
 
-	// createEphemeralPost creates a post and then manually makes it ephemeral
-	// by setting ExpiresAt and adding to the expiry index.
-	createEphemeralPost := func(t *testing.T) (keeper.Keeper, types.MsgServer, sdk.Context, uint64) {
+	// createPermanentPost creates a permanent post and returns its id. The
+	// mockRepKeeper used by setupMsgServer reports the creator as an active
+	// member, so newly-created posts default to permanent (ExpiresAt=0).
+	createPermanentPost := func(t *testing.T) (keeper.Keeper, types.MsgServer, sdk.Context, uint64) {
 		t.Helper()
 		k, msgServer, ctx, _ := setupMsgServer(t)
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-
 		resp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
 			Creator: creator,
-			Title:   "Ephemeral Post",
-			Body:    "This post will be made ephemeral",
+			Title:   "Permanent Post",
+			Body:    "...",
 		})
 		require.NoError(t, err)
-
-		// Make the post ephemeral by setting ExpiresAt
 		post, found := k.GetPost(ctx, resp.Id)
 		require.True(t, found)
-		post.ExpiresAt = sdkCtx.BlockTime().Unix() + 604800
-		k.SetPost(ctx, post)
-		k.AddToExpiryIndex(ctx, post.ExpiresAt, "post", post.Id)
-
+		require.Equal(t, int64(0), post.ExpiresAt, "test fixture must produce a permanent post")
 		return k, msgServer, ctx, resp.Id
 	}
 
-	t.Run("successful pin of ephemeral post", func(t *testing.T) {
-		k, msgServer, ctx, postId := createEphemeralPost(t)
+	t.Run("successful pin of permanent post", func(t *testing.T) {
+		k, msgServer, ctx, postId := createPermanentPost(t)
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-		resp, err := msgServer.PinPost(ctx, &types.MsgPinPost{
-			Creator: creator,
-			Id:      postId,
-		})
+		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{Creator: creator, Id: postId})
 		require.NoError(t, err)
-		require.NotNil(t, resp)
 
-		// Verify post is now permanent and pinned
 		post, found := k.GetPost(ctx, postId)
 		require.True(t, found)
 		require.Equal(t, int64(0), post.ExpiresAt)
 		require.Equal(t, creator, post.PinnedBy)
-		require.NotZero(t, post.PinnedAt)
+		require.Equal(t, sdkCtx.BlockTime().Unix(), post.PinnedAt)
+	})
+
+	t.Run("ephemeral post rejected with ErrCannotPinEphemeral", func(t *testing.T) {
+		k, msgServer, ctx, postId := createPermanentPost(t)
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+		// Force ephemeral via direct keeper access.
+		post, _ := k.GetPost(ctx, postId)
+		post.ExpiresAt = sdkCtx.BlockTime().Unix() + 604800
+		k.SetPost(ctx, post)
+		k.AddToExpiryIndex(ctx, post.ExpiresAt, "post", post.Id)
+		k.AddEphemeralAuthorIndex(ctx, creator, keeper.EphemeralKindPost, post.Id)
+
+		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{Creator: creator, Id: postId})
+		require.ErrorIs(t, err, types.ErrCannotPinEphemeral)
+
+		// Sanity: pin marker NOT set after rejection.
+		post, _ = k.GetPost(ctx, postId)
+		require.Empty(t, post.PinnedBy)
 	})
 
 	t.Run("post not found", func(t *testing.T) {
 		_, msgServer, ctx, _ := setupMsgServer(t)
 
-		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{
-			Creator: creator,
-			Id:      9999,
-		})
+		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{Creator: creator, Id: 9999})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "post not found")
 	})
 
-	t.Run("post not active", func(t *testing.T) {
-		k, msgServer, ctx, postId := createEphemeralPost(t)
+	t.Run("post deleted rejected", func(t *testing.T) {
+		k, msgServer, ctx, postId := createPermanentPost(t)
 
-		// Set post status to deleted
-		post, found := k.GetPost(ctx, postId)
-		require.True(t, found)
+		post, _ := k.GetPost(ctx, postId)
 		post.Status = types.PostStatus_POST_STATUS_DELETED
 		k.SetPost(ctx, post)
 
-		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{
-			Creator: creator,
-			Id:      postId,
-		})
+		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{Creator: creator, Id: postId})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "has been deleted")
 	})
 
-	t.Run("post is permanent not ephemeral", func(t *testing.T) {
-		_, msgServer, ctx, _ := setupMsgServer(t)
+	t.Run("post hidden rejected", func(t *testing.T) {
+		k, msgServer, ctx, postId := createPermanentPost(t)
 
-		// Create a permanent post (active member, ExpiresAt=0)
-		resp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
-			Creator: creator,
-			Title:   "Permanent Post",
-			Body:    "This is a permanent post",
-		})
-		require.NoError(t, err)
-
-		_, err = msgServer.PinPost(ctx, &types.MsgPinPost{
-			Creator: creator,
-			Id:      resp.Id,
-		})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "not ephemeral")
-	})
-
-	t.Run("post already expired", func(t *testing.T) {
-		k, msgServer, ctx, _ := setupMsgServer(t)
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-
-		resp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
-			Creator: creator,
-			Title:   "Expired Post",
-			Body:    "This post will be expired",
-		})
-		require.NoError(t, err)
-
-		// Set ExpiresAt to a time in the past
-		post, found := k.GetPost(ctx, resp.Id)
-		require.True(t, found)
-		post.ExpiresAt = sdkCtx.BlockTime().Unix() - 1
+		post, _ := k.GetPost(ctx, postId)
+		post.Status = types.PostStatus_POST_STATUS_HIDDEN
 		k.SetPost(ctx, post)
 
-		_, err = msgServer.PinPost(ctx, &types.MsgPinPost{
-			Creator: creator,
-			Id:      resp.Id,
-		})
+		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{Creator: creator, Id: postId})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "expired")
+		require.Contains(t, err.Error(), "is hidden")
 	})
 
 	t.Run("post already pinned", func(t *testing.T) {
-		k, msgServer, ctx, postId := createEphemeralPost(t)
+		_, msgServer, ctx, postId := createPermanentPost(t)
 
-		// Pin it once
-		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{
-			Creator: creator,
-			Id:      postId,
-		})
+		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{Creator: creator, Id: postId})
 		require.NoError(t, err)
 
-		// PinnedBy is now set. Re-set ExpiresAt to a future value so
-		// the ephemeral check passes and we reach the already-pinned check.
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		post, found := k.GetPost(ctx, postId)
-		require.True(t, found)
-		post.ExpiresAt = sdkCtx.BlockTime().Unix() + 604800
-		k.SetPost(ctx, post)
-
-		_, err = msgServer.PinPost(ctx, &types.MsgPinPost{
-			Creator: creator,
-			Id:      postId,
-		})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "already pinned")
-	})
-
-	t.Run("verify ExpiresAt becomes 0 and PinnedBy is set after pin", func(t *testing.T) {
-		k, msgServer, ctx, postId := createEphemeralPost(t)
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-
-		// Confirm ephemeral before pinning
-		post, found := k.GetPost(ctx, postId)
-		require.True(t, found)
-		require.NotZero(t, post.ExpiresAt)
-		require.Empty(t, post.PinnedBy)
-
-		_, err := msgServer.PinPost(ctx, &types.MsgPinPost{
-			Creator: creator,
-			Id:      postId,
-		})
-		require.NoError(t, err)
-
-		// Confirm permanent after pinning
-		post, found = k.GetPost(ctx, postId)
-		require.True(t, found)
-		require.Equal(t, int64(0), post.ExpiresAt)
-		require.Equal(t, creator, post.PinnedBy)
-		require.Equal(t, sdkCtx.BlockTime().Unix(), post.PinnedAt)
+		_, err = msgServer.PinPost(ctx, &types.MsgPinPost{Creator: creator, Id: postId})
+		require.ErrorIs(t, err, types.ErrAlreadyPinned)
 	})
 }

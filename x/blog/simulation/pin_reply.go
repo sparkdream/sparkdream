@@ -40,12 +40,13 @@ func SimulateMsgPinReply(
 			return simtypes.NoOpMsg(types.ModuleName, msgType, "reply not found"), nil, nil
 		}
 
-		// Remove from expiry index
+		// Promote ephemeral → permanent, then set pin marker (two state
+		// transitions, exercised via direct keeper calls).
 		if reply.ExpiresAt > 0 {
 			k.RemoveFromExpiryIndex(ctx, reply.ExpiresAt, "reply", reply.Id)
+			k.RemoveEphemeralAuthorIndex(ctx, reply.Creator, keeper.EphemeralKindReply, reply.Id)
 		}
 
-		// Pin the reply
 		reply.ExpiresAt = 0
 		reply.PinnedBy = simAccount.Address.String()
 		reply.PinnedAt = ctx.BlockTime().Unix()

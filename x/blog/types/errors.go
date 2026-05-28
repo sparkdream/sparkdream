@@ -27,6 +27,7 @@ var (
 	ErrReactionNotFound       = errors.Register(ModuleName, 1215, "reaction not found")
 	ErrContentNotEphemeral    = errors.Register(ModuleName, 1216, "content is not ephemeral")
 	ErrAlreadyPinned          = errors.Register(ModuleName, 1217, "content is already pinned")
+	ErrNotPinned              = errors.Register(ModuleName, 1230, "content is not pinned")
 	ErrInsufficientTrustLevel = errors.Register(ModuleName, 1218, "insufficient trust level")
 	ErrPostExpired            = errors.Register(ModuleName, 1222, "post has expired")
 	ErrReplyExpired           = errors.Register(ModuleName, 1223, "reply has expired")
@@ -37,4 +38,6 @@ var (
 	ErrTagLimitExceeded = errors.Register(ModuleName, 1227, "tag limit exceeded for post")
 	ErrTagNotFound      = errors.Register(ModuleName, 1228, "tag not found")
 	ErrReservedTag      = errors.Register(ModuleName, 1229, "tag is reserved")
+
+	ErrCannotPinEphemeral = errors.Register(ModuleName, 1231, "content is ephemeral; promote with MakePermanent before pinning")
 )

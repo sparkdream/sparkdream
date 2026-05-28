@@ -35,12 +35,15 @@ func SimulateMsgPinPost(
 			return simtypes.NoOpMsg(types.ModuleName, msgType, "post not found"), nil, nil
 		}
 
-		// Remove from expiry index
+		// Promote ephemeral → permanent (equivalent to MakePostPermanent), then
+		// set the pin marker. Under the strict-separation design these are two
+		// distinct messages, but the simulation exercises both state mutations
+		// via direct keeper calls.
 		if post.ExpiresAt > 0 {
 			k.RemoveFromExpiryIndex(ctx, post.ExpiresAt, "post", post.Id)
+			k.RemoveEphemeralAuthorIndex(ctx, post.Creator, keeper.EphemeralKindPost, post.Id)
 		}
 
-		// Pin the post
 		post.ExpiresAt = 0
 		post.PinnedBy = simAccount.Address.String()
 		post.PinnedAt = ctx.BlockTime().Unix()

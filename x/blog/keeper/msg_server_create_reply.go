@@ -139,6 +139,7 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 	// Add to expiry index if ephemeral
 	if expiresAt > 0 {
 		k.AddToExpiryIndex(ctx, expiresAt, "reply", id)
+		k.AddEphemeralAuthorIndex(ctx, msg.Creator, EphemeralKindReply, id)
 	}
 
 	// Increment rate limit

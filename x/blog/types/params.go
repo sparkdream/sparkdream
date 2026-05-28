@@ -26,10 +26,19 @@ const (
 
 	// DefaultEphemeralContentTTL is the default TTL in seconds for ephemeral content (7 days)
 	DefaultEphemeralContentTTL int64 = 604800
-	// DefaultPinMinTrustLevel is the default minimum trust level to pin ephemeral content (ESTABLISHED)
+	// DefaultPinMinTrustLevel is the default minimum trust level to pin
+	// permanent content (ESTABLISHED).
 	DefaultPinMinTrustLevel uint32 = 2
+	// DefaultMakePermanentMinTrustLevel is the default minimum trust level to
+	// promote ephemeral content to permanent (PROVISIONAL). Lower than the pin
+	// gate because preservation is a smaller curator action than featuring.
+	DefaultMakePermanentMinTrustLevel uint32 = 1
 	// DefaultMaxPinsPerDay is the default max pins per address per day
 	DefaultMaxPinsPerDay uint32 = 20
+	// DefaultMaxPromotionsPerBlock is the default per-block cap on the
+	// EndBlocker membership-promotion drain. 50 is enough to drain a typical
+	// new-member backlog within a few blocks without blowing block gas.
+	DefaultMaxPromotionsPerBlock uint32 = 50
 
 	// DefaultMinEphemeralContentTTL is the governance-only floor for ephemeral_content_ttl (1 day)
 	DefaultMinEphemeralContentTTL int64 = 86400
@@ -75,7 +84,9 @@ func NewParams(maxTitleLength, maxBodyLength uint64) Params {
 		MaxReactionsPerDay:         DefaultMaxReactionsPerDay,
 		EphemeralContentTtl:        DefaultEphemeralContentTTL,
 		PinMinTrustLevel:           DefaultPinMinTrustLevel,
+		MakePermanentMinTrustLevel: DefaultMakePermanentMinTrustLevel,
 		MaxPinsPerDay:              DefaultMaxPinsPerDay,
+		MaxPromotionsPerBlock:      DefaultMaxPromotionsPerBlock,
 		MinEphemeralContentTtl:     DefaultMinEphemeralContentTTL,
 		MaxCostPerByteAmount:       DefaultMaxCostPerByteAmount,
 		MaxReactionFeeAmount:       DefaultMaxReactionFeeAmount,
@@ -104,6 +115,7 @@ func DefaultBlogOperationalParams() BlogOperationalParams {
 		MaxReactionsPerDay:         DefaultMaxReactionsPerDay,
 		EphemeralContentTtl:        DefaultEphemeralContentTTL,
 		MaxPinsPerDay:              DefaultMaxPinsPerDay,
+		MaxPromotionsPerBlock:      DefaultMaxPromotionsPerBlock,
 		ConvictionRenewalThreshold: DefaultConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:    DefaultConvictionRenewalPeriod,
 	}
@@ -157,6 +169,7 @@ func (p Params) ApplyOperationalParams(op BlogOperationalParams) Params {
 	p.MaxReactionsPerDay = op.MaxReactionsPerDay
 	p.EphemeralContentTtl = op.EphemeralContentTtl
 	p.MaxPinsPerDay = op.MaxPinsPerDay
+	p.MaxPromotionsPerBlock = op.MaxPromotionsPerBlock
 	p.ConvictionRenewalThreshold = op.ConvictionRenewalThreshold
 	p.ConvictionRenewalPeriod = op.ConvictionRenewalPeriod
 	return p
@@ -174,6 +187,7 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams {
 		MaxReactionsPerDay:         p.MaxReactionsPerDay,
 		EphemeralContentTtl:        p.EphemeralContentTtl,
 		MaxPinsPerDay:              p.MaxPinsPerDay,
+		MaxPromotionsPerBlock:      p.MaxPromotionsPerBlock,
 		ConvictionRenewalThreshold: p.ConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:    p.ConvictionRenewalPeriod,
 	}
@@ -229,6 +243,10 @@ func (p Params) Validate() error {
 
 	if p.PinMinTrustLevel > 4 {
 		return fmt.Errorf("pin_min_trust_level must be 0-4, got %d", p.PinMinTrustLevel)
+	}
+
+	if p.MakePermanentMinTrustLevel > 4 {
+		return fmt.Errorf("make_permanent_min_trust_level must be 0-4, got %d", p.MakePermanentMinTrustLevel)
 	}
 
 	if p.EphemeralContentTtl < 0 {

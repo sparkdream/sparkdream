@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "--- TESTING: BLOG PIN POST & PIN REPLY ---"
+echo "--- TESTING: BLOG PIN POST & PIN REPLY (strict separation) ---"
 
 # --- 0. SETUP ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -69,7 +69,6 @@ submit_tx_and_wait() {
         return 1
     fi
 
-    # Check if tx was rejected at broadcast time (code != 0 in broadcast response)
     local BROADCAST_CODE=$(echo "$TX_RES" | jq -r '.code // "0"')
     if [ "$BROADCAST_CODE" != "0" ]; then
         TX_RESULT="$TX_RES"
@@ -108,16 +107,18 @@ record_result() {
 }
 
 # ========================================================================
-# PREREQUISITE: Create ephemeral posts and replies for pinning tests
+# PREREQUISITE: Create posts/replies in known lifecycle states.
 # ========================================================================
-# Posts created by non-members are ephemeral (ExpiresAt > 0) because the
-# blog module assigns a TTL (EphemeralContentTtl) when isActiveMember()
-# returns false. We use a dedicated non-member account for this.
+# Under the post-rework strict separation:
+#   - Pin requires the post to already be permanent (expires_at == 0).
+#   - Ephemeral content is rejected with ErrCannotPinEphemeral.
+# A separate test (make_permanent_test.sh) covers the MsgMakePostPermanent
+# lifecycle change. This script focuses only on Pin/Unpin marker semantics.
 
-echo "=== PREREQUISITE: Create ephemeral content via non-member account ==="
+echo "=== PREREQUISITE: Create ephemeral + permanent fixtures ==="
 echo ""
 
-# Create a non-member account for ephemeral content creation
+# Non-member account for ephemeral content fixtures.
 NONMEMBER_ACCOUNT="pintest_nonmember"
 if ! $BINARY keys show $NONMEMBER_ACCOUNT --keyring-backend test > /dev/null 2>&1; then
     $BINARY keys add $NONMEMBER_ACCOUNT --keyring-backend test --output json > /dev/null 2>&1
@@ -138,12 +139,12 @@ TX_RES=$($BINARY tx bank send \
     --output json 2>&1)
 sleep 6
 
-# Create ephemeral post 1 (for pinning)
+# Ephemeral post — for "Pin rejects ephemeral" test.
 EPHEMERAL_POST_ID=""
 echo "  Creating ephemeral post from non-member..."
 TX_RES=$($BINARY tx blog create-post \
-    "Ephemeral Post for Pinning" \
-    "This ephemeral post will be pinned to make it permanent." \
+    "Ephemeral Post (Pin should reject)" \
+    "Non-member content stays ephemeral until promoted." \
     --min-reply-trust-level=-1 \
     --from $NONMEMBER_ACCOUNT \
     --chain-id $CHAIN_ID \
@@ -154,44 +155,21 @@ TX_RES=$($BINARY tx blog create-post \
 
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     EPHEMERAL_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
-    echo "  Ephemeral post created: ID=$EPHEMERAL_POST_ID"
-
-    # Verify it actually has a TTL (ExpiresAt > 0)
     POST_Q=$($BINARY query blog show-post $EPHEMERAL_POST_ID --output json 2>&1)
     EXPIRES_AT=$(echo "$POST_Q" | jq -r '(.post.expires_at // 0)')
-    echo "  ExpiresAt=$EXPIRES_AT (should be > 0 for ephemeral)"
+    echo "  Ephemeral post created: ID=$EPHEMERAL_POST_ID (expires_at=$EXPIRES_AT)"
 else
     RAW_LOG=$(echo "${TX_RESULT:-$TX_RES}" | jq -r '.raw_log // .message // "unknown error"' 2>/dev/null)
     echo "  Failed to create ephemeral post: $RAW_LOG"
 fi
 
-# Create ephemeral post 2 (for hiding + pin fail test)
-EPHEMERAL_POST_2_ID=""
-echo "  Creating ephemeral post 2 from non-member..."
-TX_RES=$($BINARY tx blog create-post \
-    "Ephemeral Post for Hide Test" \
-    "This post will be hidden, then we try to pin it." \
-    --from $NONMEMBER_ACCOUNT \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 50000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-    EPHEMERAL_POST_2_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
-    echo "  Ephemeral post 2 created: ID=$EPHEMERAL_POST_2_ID"
-else
-    echo "  Failed to create ephemeral post 2"
-fi
-
-# Create ephemeral reply (for reply pinning)
+# Ephemeral reply — for "Pin rejects ephemeral reply".
 EPHEMERAL_REPLY_ID=""
 if [ -n "$EPHEMERAL_POST_ID" ]; then
     echo "  Creating ephemeral reply from non-member..."
     TX_RES=$($BINARY tx blog create-reply \
         $EPHEMERAL_POST_ID \
-        "Ephemeral reply to be pinned." \
+        "Ephemeral reply." \
         --from $NONMEMBER_ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -208,13 +186,10 @@ if [ -n "$EPHEMERAL_POST_ID" ]; then
     fi
 fi
 
-# Use alice for permanent post prerequisites — she's a founding member (posts are permanent)
-# and hasn't been used for post creation in prior test scripts, so no rate limit concern.
-
-# Create a regular (permanent) post for "not ephemeral" test.
+# Permanent post for the happy-path Pin (and the already-pinned test).
 TX_RES=$($BINARY tx blog create-post \
-    "Permanent Post for Pin Fail" \
-    "This permanent post cannot be pinned because it is not ephemeral." \
+    "Permanent Post for Pin" \
+    "Pin works on permanent posts only." \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -231,10 +206,29 @@ else
     echo "  Failed to create permanent post: $RAW_LOG"
 fi
 
-# Create a post that will be hidden (for TEST 7: pin-hidden-post)
+# Permanent reply for the happy-path Pin reply test.
+PERMANENT_REPLY_ID=""
+if [ -n "$PERMANENT_POST_ID" ]; then
+    TX_RES=$($BINARY tx blog create-reply \
+        $PERMANENT_POST_ID \
+        "Permanent reply for pin test." \
+        --from alice \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        PERMANENT_REPLY_ID=$(extract_event_value "$TX_RESULT" "blog.reply.created" "reply_id")
+        echo "  Permanent reply created: ID=$PERMANENT_REPLY_ID"
+    fi
+fi
+
+# A post we'll hide for the pin-hidden test.
 TX_RES=$($BINARY tx blog create-post \
     "Post to Hide for Pin Test" \
-    "This post will be hidden so we can test that pinning a hidden post is rejected." \
+    "Pinning a hidden post must be rejected." \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -245,9 +239,6 @@ TX_RES=$($BINARY tx blog create-post \
 HIDDEN_POST_FOR_PIN_ID=""
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     HIDDEN_POST_FOR_PIN_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
-    echo "  Post to hide created: ID=$HIDDEN_POST_FOR_PIN_ID"
-
-    # Hide it immediately (alice is the creator, so she can hide it)
     TX_RES=$($BINARY tx blog hide-post \
         $HIDDEN_POST_FOR_PIN_ID \
         --from alice \
@@ -263,15 +254,12 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         echo "  Failed to hide post $HIDDEN_POST_FOR_PIN_ID"
         HIDDEN_POST_FOR_PIN_ID=""
     fi
-else
-    RAW_LOG=$(echo "${TX_RESULT:-$TX_RES}" | jq -r '.raw_log // .message // "unknown error"' 2>/dev/null)
-    echo "  Failed to create post for hiding: $RAW_LOG"
 fi
 
-# Create a post to delete (for pin-deleted test)
+# A post we'll delete for the pin-deleted test.
 TX_RES=$($BINARY tx blog create-post \
     "Post to Delete for Pin Test" \
-    "This post will be deleted." \
+    "Pinning a deleted post must be rejected." \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -282,9 +270,6 @@ TX_RES=$($BINARY tx blog create-post \
 DELETED_POST_ID=""
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     DELETED_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
-    echo "  Post to delete created: ID=$DELETED_POST_ID"
-
-    # Delete it (alice is the creator)
     TX_RES=$($BINARY tx blog delete-post $DELETED_POST_ID \
         --from alice \
         --chain-id $CHAIN_ID \
@@ -296,9 +281,6 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         echo "  Post $DELETED_POST_ID deleted"
     fi
-else
-    RAW_LOG=$(echo "${TX_RESULT:-$TX_RES}" | jq -r '.raw_log // .message // "unknown error"' 2>/dev/null)
-    echo "  Failed to create post to delete: $RAW_LOG"
 fi
 
 echo ""
@@ -306,14 +288,13 @@ echo "=== PIN TESTS ==="
 echo ""
 
 # ========================================================================
-# TEST 1: Pin an ephemeral post (happy path)
+# TEST 1: Pin a permanent post (happy path — display marker only)
 # ========================================================================
-echo "--- TEST 1: Pin an ephemeral post (happy path) ---"
+echo "--- TEST 1: Pin a permanent post (happy path) ---"
 
-if [ -n "$EPHEMERAL_POST_ID" ]; then
-    # Use alice (TRUST_LEVEL_CORE) since pin requires trust_level >= PinMinTrustLevel (ESTABLISHED=2)
+if [ -n "$PERMANENT_POST_ID" ]; then
     TX_RES=$($BINARY tx blog pin-post \
-        $EPHEMERAL_POST_ID \
+        $PERMANENT_POST_ID \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -323,51 +304,45 @@ if [ -n "$EPHEMERAL_POST_ID" ]; then
 
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         PINNED_BY=$(extract_event_value "$TX_RESULT" "blog.post.pinned" "pinned_by")
-        echo "  Post $EPHEMERAL_POST_ID pinned by: $PINNED_BY"
-        record_result "Pin ephemeral post (happy path)" "PASS"
+        echo "  Post $PERMANENT_POST_ID pinned by: $PINNED_BY"
+        record_result "Pin permanent post (happy path)" "PASS"
     else
-        echo "  Failed to pin post"
         echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
-        record_result "Pin ephemeral post (happy path)" "FAIL"
+        record_result "Pin permanent post (happy path)" "FAIL"
     fi
 else
-    echo "  Skipped (no ephemeral post available)"
-    record_result "Pin ephemeral post (happy path)" "FAIL"
+    record_result "Pin permanent post (happy path)" "FAIL"
 fi
 
 # ========================================================================
-# TEST 2: Query pinned post — verify ExpiresAt=0, PinnedBy set
+# TEST 2: Query pinned post — verify expires_at=0 + pinned_by populated.
 # ========================================================================
-echo "--- TEST 2: Query pinned post — verify permanence ---"
+echo "--- TEST 2: Query pinned post — verify display marker ---"
 
-if [ -n "$EPHEMERAL_POST_ID" ]; then
-    POST_Q=$($BINARY query blog show-post $EPHEMERAL_POST_ID --output json 2>&1)
-    # expires_at=0 means permanent; proto3 omits zero-value fields from JSON,
-    # so use // 0 to substitute the default when the field is absent.
+if [ -n "$PERMANENT_POST_ID" ]; then
+    POST_Q=$($BINARY query blog show-post $PERMANENT_POST_ID --output json 2>&1)
     EXPIRES_AT=$(echo "$POST_Q" | jq -r '(.post.expires_at // 0)')
     PINNED_BY=$(echo "$POST_Q" | jq -r '.post.pinned_by // ""')
 
     if [ "$EXPIRES_AT" == "0" ] && [ -n "$PINNED_BY" ] && [ "$PINNED_BY" != "null" ]; then
-        echo "  ExpiresAt=$EXPIRES_AT (permanent), PinnedBy=${PINNED_BY:0:20}..."
-        record_result "Query pinned post permanence" "PASS"
+        echo "  expires_at=$EXPIRES_AT (permanent), pinned_by=${PINNED_BY:0:20}..."
+        record_result "Query pinned post display marker" "PASS"
     else
-        echo "  Expected ExpiresAt=0 and PinnedBy set, got ExpiresAt=$EXPIRES_AT, PinnedBy=$PINNED_BY"
-        record_result "Query pinned post permanence" "FAIL"
+        echo "  Expected expires_at=0 and pinned_by set, got expires_at=$EXPIRES_AT, pinned_by=$PINNED_BY"
+        record_result "Query pinned post display marker" "FAIL"
     fi
 else
-    echo "  Skipped (no ephemeral post)"
-    record_result "Query pinned post permanence" "FAIL"
+    record_result "Query pinned post display marker" "FAIL"
 fi
 
 # ========================================================================
-# TEST 3: Pin an ephemeral reply (happy path)
+# TEST 3: Pin a permanent reply (happy path)
 # ========================================================================
-echo "--- TEST 3: Pin an ephemeral reply (happy path) ---"
+echo "--- TEST 3: Pin a permanent reply (happy path) ---"
 
-if [ -n "$EPHEMERAL_REPLY_ID" ]; then
-    # Use alice (TRUST_LEVEL_CORE) since pin requires trust_level >= PinMinTrustLevel (ESTABLISHED=2)
+if [ -n "$PERMANENT_REPLY_ID" ]; then
     TX_RES=$($BINARY tx blog pin-reply \
-        $EPHEMERAL_REPLY_ID \
+        $PERMANENT_REPLY_ID \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -377,27 +352,25 @@ if [ -n "$EPHEMERAL_REPLY_ID" ]; then
 
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         PINNED_BY=$(extract_event_value "$TX_RESULT" "blog.reply.pinned" "pinned_by")
-        echo "  Reply $EPHEMERAL_REPLY_ID pinned by: $PINNED_BY"
-        record_result "Pin ephemeral reply (happy path)" "PASS"
+        echo "  Reply $PERMANENT_REPLY_ID pinned by: $PINNED_BY"
+        record_result "Pin permanent reply (happy path)" "PASS"
     else
-        echo "  Failed to pin reply"
         echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
-        record_result "Pin ephemeral reply (happy path)" "FAIL"
+        record_result "Pin permanent reply (happy path)" "FAIL"
     fi
 else
-    echo "  Skipped (no ephemeral reply available)"
-    record_result "Pin ephemeral reply (happy path)" "FAIL"
+    record_result "Pin permanent reply (happy path)" "FAIL"
 fi
 
 # ========================================================================
-# TEST 4: Fail — pin a non-ephemeral post (ErrContentNotEphemeral)
+# TEST 4: Pin an ephemeral post is REJECTED with ErrCannotPinEphemeral.
 # ========================================================================
-echo "--- TEST 4: Fail — pin a non-ephemeral post ---"
+echo "--- TEST 4: Pin ephemeral post rejected (strict separation) ---"
 
-if [ -n "$PERMANENT_POST_ID" ]; then
+if [ -n "$EPHEMERAL_POST_ID" ]; then
     TX_RES=$($BINARY tx blog pin-post \
-        $PERMANENT_POST_ID \
-        --from blogger1 \
+        $EPHEMERAL_POST_ID \
+        --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 50000${BOND_DENOM} \
@@ -405,25 +378,70 @@ if [ -n "$PERMANENT_POST_ID" ]; then
         --output json 2>&1)
 
     if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
-        echo "  Correctly rejected: post is not ephemeral"
-        record_result "Pin non-ephemeral post rejected" "PASS"
+        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)
+        if echo "$RAW_LOG" | grep -q "ephemeral"; then
+            echo "  Correctly rejected: $RAW_LOG"
+            record_result "Pin ephemeral post rejected" "PASS"
+        else
+            echo "  Rejected but message did not mention ephemeral: $RAW_LOG"
+            record_result "Pin ephemeral post rejected" "FAIL"
+        fi
     else
         echo "  Should have been rejected"
-        record_result "Pin non-ephemeral post rejected" "FAIL"
+        record_result "Pin ephemeral post rejected" "FAIL"
+    fi
+
+    # Verify the ephemeral post is still ephemeral and has no pin marker.
+    POST_Q=$($BINARY query blog show-post $EPHEMERAL_POST_ID --output json 2>&1)
+    EXPIRES_AT=$(echo "$POST_Q" | jq -r '(.post.expires_at // 0)')
+    PINNED_BY=$(echo "$POST_Q" | jq -r '.post.pinned_by // ""')
+    if [ "$EXPIRES_AT" != "0" ] && [ -z "$PINNED_BY" -o "$PINNED_BY" == "null" ]; then
+        echo "  Post unchanged: still ephemeral (expires_at=$EXPIRES_AT), unpinned"
+    else
+        echo "  WARNING: rejection should leave post unchanged"
     fi
 else
-    echo "  Skipped (no permanent post)"
-    record_result "Pin non-ephemeral post rejected" "FAIL"
+    record_result "Pin ephemeral post rejected" "FAIL"
 fi
 
 # ========================================================================
-# TEST 5: Fail — pin a non-existent post (ErrPostNotFound)
+# TEST 5: Pin an ephemeral reply is REJECTED.
 # ========================================================================
-echo "--- TEST 5: Fail — pin a non-existent post ---"
+echo "--- TEST 5: Pin ephemeral reply rejected ---"
+
+if [ -n "$EPHEMERAL_REPLY_ID" ]; then
+    TX_RES=$($BINARY tx blog pin-reply \
+        $EPHEMERAL_REPLY_ID \
+        --from alice \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
+        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)
+        if echo "$RAW_LOG" | grep -q "ephemeral"; then
+            record_result "Pin ephemeral reply rejected" "PASS"
+        else
+            echo "  Rejected but message did not mention ephemeral: $RAW_LOG"
+            record_result "Pin ephemeral reply rejected" "FAIL"
+        fi
+    else
+        record_result "Pin ephemeral reply rejected" "FAIL"
+    fi
+else
+    record_result "Pin ephemeral reply rejected" "FAIL"
+fi
+
+# ========================================================================
+# TEST 6: Pin non-existent post.
+# ========================================================================
+echo "--- TEST 6: Pin non-existent post rejected ---"
 
 TX_RES=$($BINARY tx blog pin-post \
     999999 \
-    --from blogger1 \
+    --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 50000${BOND_DENOM} \
@@ -431,22 +449,20 @@ TX_RES=$($BINARY tx blog pin-post \
     --output json 2>&1)
 
 if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
-    echo "  Correctly rejected: post not found"
     record_result "Pin non-existent post rejected" "PASS"
 else
-    echo "  Should have been rejected"
     record_result "Pin non-existent post rejected" "FAIL"
 fi
 
 # ========================================================================
-# TEST 6: Fail — pin a deleted post (ErrPostDeleted)
+# TEST 7: Pin a deleted post.
 # ========================================================================
-echo "--- TEST 6: Fail — pin a deleted post ---"
+echo "--- TEST 7: Pin deleted post rejected ---"
 
 if [ -n "$DELETED_POST_ID" ]; then
     TX_RES=$($BINARY tx blog pin-post \
         $DELETED_POST_ID \
-        --from blogger1 \
+        --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 50000${BOND_DENOM} \
@@ -454,25 +470,20 @@ if [ -n "$DELETED_POST_ID" ]; then
         --output json 2>&1)
 
     if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
-        echo "  Correctly rejected: post is deleted"
         record_result "Pin deleted post rejected" "PASS"
     else
-        echo "  Should have been rejected"
         record_result "Pin deleted post rejected" "FAIL"
     fi
 else
-    echo "  Skipped (no deleted post)"
     record_result "Pin deleted post rejected" "FAIL"
 fi
 
 # ========================================================================
-# TEST 7: Fail — pin a hidden post (ErrPostHidden)
+# TEST 8: Pin a hidden post.
 # ========================================================================
-echo "--- TEST 7: Fail — pin a hidden post ---"
+echo "--- TEST 8: Pin hidden post rejected ---"
 
 if [ -n "$HIDDEN_POST_FOR_PIN_ID" ]; then
-    # HIDDEN_POST_FOR_PIN_ID is a regular (permanent) post that has been hidden.
-    # PinPost checks HIDDEN status before checking ephemeral, so this will return ErrPostHidden.
     TX_RES=$($BINARY tx blog pin-post \
         $HIDDEN_POST_FOR_PIN_ID \
         --from alice \
@@ -483,26 +494,22 @@ if [ -n "$HIDDEN_POST_FOR_PIN_ID" ]; then
         --output json 2>&1)
 
     if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
-        echo "  Correctly rejected: post is hidden"
         record_result "Pin hidden post rejected" "PASS"
     else
-        echo "  Should have been rejected (post is hidden)"
         record_result "Pin hidden post rejected" "FAIL"
     fi
 else
-    echo "  Skipped (no hidden post available)"
     record_result "Pin hidden post rejected" "FAIL"
 fi
 
 # ========================================================================
-# TEST 8: Fail — pin an already-pinned post (ErrAlreadyPinned)
+# TEST 9: Pin an already-pinned post.
 # ========================================================================
-echo "--- TEST 8: Fail — pin an already-pinned post ---"
+echo "--- TEST 9: Pin already-pinned post rejected ---"
 
-if [ -n "$EPHEMERAL_POST_ID" ]; then
-    # Try to pin the same ephemeral post again (already pinned by alice in TEST 1)
+if [ -n "$PERMANENT_POST_ID" ]; then
     TX_RES=$($BINARY tx blog pin-post \
-        $EPHEMERAL_POST_ID \
+        $PERMANENT_POST_ID \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -511,25 +518,22 @@ if [ -n "$EPHEMERAL_POST_ID" ]; then
         --output json 2>&1)
 
     if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
-        echo "  Correctly rejected: post already pinned"
         record_result "Pin already-pinned post rejected" "PASS"
     else
-        echo "  Should have been rejected"
         record_result "Pin already-pinned post rejected" "FAIL"
     fi
 else
-    echo "  Skipped (no pinned post)"
     record_result "Pin already-pinned post rejected" "FAIL"
 fi
 
 # ========================================================================
-# TEST 9: Fail — pin a non-existent reply (ErrReplyNotFound)
+# TEST 10: Pin non-existent reply.
 # ========================================================================
-echo "--- TEST 9: Fail — pin a non-existent reply ---"
+echo "--- TEST 10: Pin non-existent reply rejected ---"
 
 TX_RES=$($BINARY tx blog pin-reply \
     999999 \
-    --from blogger1 \
+    --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 50000${BOND_DENOM} \
@@ -537,22 +541,19 @@ TX_RES=$($BINARY tx blog pin-reply \
     --output json 2>&1)
 
 if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
-    echo "  Correctly rejected: reply not found"
     record_result "Pin non-existent reply rejected" "PASS"
 else
-    echo "  Should have been rejected"
     record_result "Pin non-existent reply rejected" "FAIL"
 fi
 
 # ========================================================================
-# TEST 10: Fail — pin an already-pinned reply (ErrAlreadyPinned)
+# TEST 11: Pin an already-pinned reply.
 # ========================================================================
-echo "--- TEST 10: Fail — pin an already-pinned reply ---"
+echo "--- TEST 11: Pin already-pinned reply rejected ---"
 
-if [ -n "$EPHEMERAL_REPLY_ID" ]; then
-    # Try to pin the same ephemeral reply again (already pinned by alice in TEST 3)
+if [ -n "$PERMANENT_REPLY_ID" ]; then
     TX_RES=$($BINARY tx blog pin-reply \
-        $EPHEMERAL_REPLY_ID \
+        $PERMANENT_REPLY_ID \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -561,39 +562,47 @@ if [ -n "$EPHEMERAL_REPLY_ID" ]; then
         --output json 2>&1)
 
     if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
-        echo "  Correctly rejected: reply already pinned"
         record_result "Pin already-pinned reply rejected" "PASS"
     else
-        echo "  Should have been rejected"
         record_result "Pin already-pinned reply rejected" "FAIL"
     fi
 else
-    echo "  Skipped (no pinned reply)"
     record_result "Pin already-pinned reply rejected" "FAIL"
 fi
 
 # ========================================================================
-# TEST 11: Query pinned reply — verify ExpiresAt=0
+# TEST 12: Unpin the previously-pinned permanent post — stays permanent,
+# marker cleared.
 # ========================================================================
-echo "--- TEST 11: Query pinned reply — verify permanence ---"
+echo "--- TEST 12: Unpin permanent post (stays permanent) ---"
 
-if [ -n "$EPHEMERAL_REPLY_ID" ]; then
-    REPLY_Q=$($BINARY query blog show-reply $EPHEMERAL_REPLY_ID --output json 2>&1)
-    # expires_at=0 means permanent; proto3 omits zero-value fields from JSON,
-    # so use // 0 to substitute the default when the field is absent.
-    EXPIRES_AT=$(echo "$REPLY_Q" | jq -r '(.reply.expires_at // 0)')
-    PINNED_BY=$(echo "$REPLY_Q" | jq -r '.reply.pinned_by // ""')
+if [ -n "$PERMANENT_POST_ID" ]; then
+    TX_RES=$($BINARY tx blog unpin-post \
+        $PERMANENT_POST_ID \
+        --from alice \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
 
-    if [ "$EXPIRES_AT" == "0" ] && [ -n "$PINNED_BY" ] && [ "$PINNED_BY" != "null" ]; then
-        echo "  ExpiresAt=$EXPIRES_AT (permanent), PinnedBy=${PINNED_BY:0:20}..."
-        record_result "Query pinned reply permanence" "PASS"
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        POST_Q=$($BINARY query blog show-post $PERMANENT_POST_ID --output json 2>&1)
+        EXPIRES_AT=$(echo "$POST_Q" | jq -r '(.post.expires_at // 0)')
+        PINNED_BY=$(echo "$POST_Q" | jq -r '.post.pinned_by // ""')
+
+        if [ "$EXPIRES_AT" == "0" ] && { [ -z "$PINNED_BY" ] || [ "$PINNED_BY" == "null" ]; }; then
+            echo "  After unpin: expires_at=0 (still permanent), pinned_by cleared"
+            record_result "Unpin permanent post (stays permanent)" "PASS"
+        else
+            echo "  Expected expires_at=0 + cleared pinned_by, got expires_at=$EXPIRES_AT pinned_by=$PINNED_BY"
+            record_result "Unpin permanent post (stays permanent)" "FAIL"
+        fi
     else
-        echo "  Expected ExpiresAt=0 and PinnedBy set, got ExpiresAt=$EXPIRES_AT, PinnedBy=$PINNED_BY"
-        record_result "Query pinned reply permanence" "FAIL"
+        record_result "Unpin permanent post (stays permanent)" "FAIL"
     fi
 else
-    echo "  Skipped (no pinned reply)"
-    record_result "Query pinned reply permanence" "FAIL"
+    record_result "Unpin permanent post (stays permanent)" "FAIL"
 fi
 
 # ========================================================================

@@ -336,6 +336,7 @@ func getOrCreateEphemeralPost(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, cr
 	}
 	postID := k.AppendPost(ctx, post)
 	k.AddToExpiryIndex(ctx, expiresAt, "post", postID)
+	k.AddEphemeralAuthorIndex(ctx, creator, keeper.EphemeralKindPost, postID)
 	return postID, nil
 }
 
@@ -358,6 +359,7 @@ func getOrCreateEphemeralReply(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, p
 	}
 	replyID := k.AppendReply(ctx, reply)
 	k.AddToExpiryIndex(ctx, expiresAt, "reply", replyID)
+	k.AddEphemeralAuthorIndex(ctx, creator, keeper.EphemeralKindReply, replyID)
 
 	// Increment post reply count
 	post, found := k.GetPost(ctx, postId)
