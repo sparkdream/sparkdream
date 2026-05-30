@@ -92,6 +92,14 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgStakePostConviction{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgReleasePostConviction{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgUpvotePost{},
 	)
 

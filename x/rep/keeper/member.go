@@ -54,7 +54,8 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 	// This count is incremented when interims are completed via CompleteInterimDirectly
 	completedInterims := member.CompletedInterimsCount
 
-	// Helper to get total reputation across all tags
+	// getTotalReputation sums the member's per-tag scores in ReputationScores
+	// (the verified-work ladder: interim/initiative/reveal completions).
 	getTotalReputation := func() (math.LegacyDec, error) {
 		total := math.LegacyZeroDec()
 		for _, repStr := range member.ReputationScores {
@@ -67,32 +68,60 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 		return total, nil
 	}
 
+	// sumForumRep sums the member's per-tag forum reputation
+	// (conviction-staked endorsements). Counted toward PROVISIONAL and
+	// ESTABLISHED only — TRUSTED and CORE require verified work because
+	// those tiers gate council eligibility and conviction-completion of
+	// initiatives, where forum-earned rep would be too easy to farm.
+	sumForumRep := func() math.LegacyDec {
+		total := math.LegacyZeroDec()
+		for _, s := range member.ForumRepPerTag {
+			v, err := math.LegacyNewDecFromStr(s)
+			if err != nil {
+				continue
+			}
+			total = total.Add(v)
+		}
+		return total
+	}
+
 	// Check eligibility for trust level upgrades based on config
 	switch member.TrustLevel {
 	case types.TrustLevel_TRUST_LEVEL_NEW:
-		// NEW -> PROVISIONAL: Requires minimum reputation and completed interims
+		// NEW -> PROVISIONAL: requires minimum reputation and completed
+		// interims. Forum rep counts here — early participation is a real
+		// signal at the lowest rungs.
 		totalRep, err := getTotalReputation()
 		if err != nil {
 			return err
 		}
+		totalRep = totalRep.Add(sumForumRep())
 
 		if completedInterims >= config.ProvisionalMinInterims && totalRep.GTE(config.ProvisionalMinRep) {
 			newLevel = types.TrustLevel_TRUST_LEVEL_PROVISIONAL
 		}
 
 	case types.TrustLevel_TRUST_LEVEL_PROVISIONAL:
-		// PROVISIONAL -> ESTABLISHED: Requires minimum reputation and completed interims
+		// PROVISIONAL -> ESTABLISHED: requires minimum reputation and
+		// completed interims. Forum rep counts here — ESTABLISHED is the
+		// "you're plugged in" tier and conviction-staked endorsement is a
+		// legitimate demonstration of that.
 		totalRep, err := getTotalReputation()
 		if err != nil {
 			return err
 		}
+		totalRep = totalRep.Add(sumForumRep())
 
 		if completedInterims >= config.EstablishedMinInterims && totalRep.GTE(config.EstablishedMinRep) {
 			newLevel = types.TrustLevel_TRUST_LEVEL_ESTABLISHED
 		}
 
 	case types.TrustLevel_TRUST_LEVEL_ESTABLISHED:
-		// ESTABLISHED -> TRUSTED: Requires minimum seasons and reputation
+		// ESTABLISHED -> TRUSTED: requires minimum seasons and reputation.
+		// Forum rep does NOT count — TRUSTED requires verified-work
+		// reputation only, because TRUSTED is the entry to council-adjacent
+		// responsibility (conviction-completion of initiatives) and
+		// discourse is too cheap to game.
 		totalRep, err := getTotalReputation()
 		if err != nil {
 			return err
@@ -105,7 +134,10 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 		}
 
 	case types.TrustLevel_TRUST_LEVEL_TRUSTED:
-		// TRUSTED -> CORE: Requires minimum seasons and reputation
+		// TRUSTED -> CORE: requires minimum seasons and reputation. Forum
+		// rep does NOT count — CORE gates council eligibility and veto
+		// adjacency, must be earned exclusively through shipped initiative
+		// output.
 		totalRep, err := getTotalReputation()
 		if err != nil {
 			return err

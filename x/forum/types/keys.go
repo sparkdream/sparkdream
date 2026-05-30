@@ -64,3 +64,26 @@ var (
 	// BountiesByExpiry: (expiresAt, bountyID) — for BountyExpiringSoon query.
 	BountiesByExpiryKey = collections.NewPrefix("idx/bounties_expiry/")
 )
+
+// Post conviction-stake collections (see x/forum/keeper/post_conviction.go
+// for accrual and slash semantics).
+var (
+	// PostConvictionStake: (stake_id) -> PostConvictionStake.
+	PostConvictionStakeKey    = collections.NewPrefix("post_conviction/value/")
+	PostConvictionStakeSeqKey = collections.NewPrefix("post_conviction/seq/")
+	// PostConvictionStakesByPost indexes active stakes for a post for the
+	// EndBlocker accrual loop and ExpireHiddenPosts slash path.
+	// (post_id, stake_id).
+	PostConvictionStakesByPostKey = collections.NewPrefix("idx/post_conviction_by_post/")
+	// PostConvictionStakesByStaker indexes a staker's open stakes for queries
+	// and bulk release. (staker, stake_id).
+	PostConvictionStakesByStakerKey = collections.NewPrefix("idx/post_conviction_by_staker/")
+	// ForumRepEpochCounter: (author, tag) -> ForumRepEpochCounter. Used by
+	// the post-conviction accrual loop to enforce
+	// max_forum_rep_per_tag_per_epoch.
+	ForumRepEpochCounterKey = collections.NewPrefix("forum_rep_epoch/")
+	// PostConvictionAccrualCursor: stake_id at which the next AccruePostConvictions
+	// pass should resume. Persists round-robin progress across blocks so the
+	// per-block cap can't starve high-id stakes.
+	PostConvictionAccrualCursorKey = collections.NewPrefix("post_conviction/accrual_cursor/")
+)

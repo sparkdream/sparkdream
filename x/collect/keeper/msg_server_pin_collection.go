@@ -6,37 +6,46 @@ import (
 
 	"sparkdream/x/collect/types"
 
-	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
+// PinCollection sets the display-only `pinned` marker on a permanent
+// collection. Lifecycle promotion (ephemeral → permanent + deposit burn) is
+// owned by MsgMakeCollectionPermanent — Pin refuses to accept an ephemeral
+// target so callers can't conflate "feature this" with "preserve this".
+//
+// Gates:
+//   - trust level ≥ params.pin_min_trust_level (default ESTABLISHED)
+//   - target must already be permanent (expires_at == 0); ephemeral → ErrCannotPinEphemeral
+//   - target must be ACTIVE (not HIDDEN / PENDING)
+//   - daily pin counter (shared with MakeCollectionPermanent so a
+//     Pin → Unpin → Pin → MakePermanent rotation can't bypass the per-day cap)
 func (k msgServer) PinCollection(ctx context.Context, msg *types.MsgPinCollection) (*types.MsgPinCollectionResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
-		return nil, errorsmod.Wrap(err, "invalid authority address")
+		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Get collection, must exist
 	coll, err := k.Collection.Get(ctx, msg.CollectionId)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrCollectionNotFound, fmt.Sprintf("collection %d not found", msg.CollectionId))
 	}
 
-	// Must be active
 	if coll.Status != types.CollectionStatus_COLLECTION_STATUS_ACTIVE {
 		return nil, errorsmod.Wrap(types.ErrCollectionNotFound, fmt.Sprintf("collection %d is not active", msg.CollectionId))
 	}
 
-	// Must be ephemeral (has TTL)
-	if coll.ExpiresAt == 0 {
-		return nil, errorsmod.Wrap(types.ErrCannotPinActive, "collection is already permanent")
+	// Display-only Pin: requires the collection to already be permanent.
+	// Lifecycle change belongs to MsgMakeCollectionPermanent.
+	if coll.ExpiresAt > 0 {
+		return nil, errorsmod.Wrap(types.ErrCannotPinEphemeral,
+			fmt.Sprintf("collection %d is ephemeral; call MsgMakeCollectionPermanent first", msg.CollectionId))
 	}
 
-	// Must not be expired
-	if coll.ExpiresAt <= sdkCtx.BlockHeight() {
-		return nil, errorsmod.Wrap(types.ErrCollectionExpired, fmt.Sprintf("collection %d has expired", msg.CollectionId))
+	if coll.Pinned {
+		return nil, errorsmod.Wrap(types.ErrCollectionAlreadyPinned, fmt.Sprintf("collection %d is already pinned", msg.CollectionId))
 	}
 
 	params, err := k.Params.Get(ctx)
@@ -44,7 +53,6 @@ func (k msgServer) PinCollection(ctx context.Context, msg *types.MsgPinCollectio
 		return nil, err
 	}
 
-	// Creator must meet pin trust level
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 	if k.repKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrPinTrustLevelTooLow, "reputation module not available")
@@ -60,34 +68,15 @@ func (k msgServer) PinCollection(ctx context.Context, msg *types.MsgPinCollectio
 		return nil, errorsmod.Wrap(types.ErrPinTrustLevelTooLow, "does not meet pin trust level requirement")
 	}
 
-	// Rate limit check (reuse daily limit infrastructure with "pin" category)
 	if err := k.checkDailyLimit(ctx, msg.Creator, sdkCtx.BlockHeight(), "pin", params.MaxPinsPerDay); err != nil {
 		return nil, err
 	}
 
-	// Remove from expiry index
-	k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)) //nolint:errcheck
-
-	// Update collection: make permanent
-	coll.ExpiresAt = 0
-	coll.DepositBurned = true
-	if coll.ConvictionSustained {
-		coll.ConvictionSustained = false
-	}
-
-	// Burn held deposits (collection + item) from module account
-	totalDeposit := coll.DepositAmount.Add(coll.ItemDepositTotal)
-	if totalDeposit.IsPositive() {
-		if err := k.BurnSPARK(ctx, totalDeposit); err != nil {
-			return nil, err
-		}
-	}
-
+	coll.Pinned = true
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, err
 	}
 
-	// Emit event
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collect.collection.pinned",
 		sdk.NewAttribute("collection_id", fmt.Sprintf("%d", msg.CollectionId)),
 		sdk.NewAttribute("pinned_by", msg.Creator),

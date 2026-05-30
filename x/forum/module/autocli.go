@@ -418,6 +418,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
 				},
 				{
+					RpcMethod:      "StakePostConviction",
+					Use:            "stake-post-conviction [post-id] [amount]",
+					Short:          "Lock DREAM as a PostConvictionStake to credit the author's per-tag forum rep",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "amount"}},
+				},
+				{
+					RpcMethod:      "ReleasePostConviction",
+					Use:            "release-post-conviction [stake-id]",
+					Short:          "Close a PostConvictionStake and unlock the remaining DREAM after the lock window",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "stake_id"}},
+				},
+				{
 					RpcMethod:      "FlagPost",
 					Use:            "flag-post [post-id] [category] [reason]",
 					Short:          "Send a flag-post tx",

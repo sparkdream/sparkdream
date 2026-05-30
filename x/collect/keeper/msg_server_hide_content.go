@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
@@ -161,21 +162,39 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 	}
 
 	// Slash author bond on collection moderation (best-effort: log if no bond exists)
+	// and apply a matching per-tag rep deduction so the author's score on the
+	// collection's topic tags reflects the moderation event. Mirrors the
+	// eager SlashAuthorBond timing — neither is restored if a later appeal is
+	// upheld; consistent with existing author-bond behavior.
+	authorRepApplied := false
 	if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION && k.repKeeper != nil {
 		if err := k.repKeeper.SlashAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, msg.TargetId); err != nil {
 			sdkCtx.Logger().Debug("author bond slash skipped", "target_id", msg.TargetId, "error", err)
 		}
+		if ownerAddr, ownerErr := k.addressCodec.StringToBytes(coll.Owner); ownerErr == nil &&
+			params.AuthorRepPenalty.IsPositive() && len(coll.Tags) > 0 {
+			k.deductRepPerTag(ctx, ownerAddr, coll.Tags, params.AuthorRepPenalty)
+			authorRepApplied = true
+		}
 	}
 
 	// Emit event
-	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("content_hidden",
+	hideAttrs := []sdk.Attribute{
 		sdk.NewAttribute("hide_record_id", strconv.FormatUint(hideRecordID, 10)),
 		sdk.NewAttribute("sentinel", msg.Creator),
 		sdk.NewAttribute("target_id", strconv.FormatUint(msg.TargetId, 10)),
 		sdk.NewAttribute("target_type", msg.TargetType.String()),
 		sdk.NewAttribute("reason_code", msg.ReasonCode.String()),
 		sdk.NewAttribute("appeal_deadline", strconv.FormatInt(appealDeadline, 10)),
-	))
+	}
+	if authorRepApplied {
+		hideAttrs = append(hideAttrs,
+			sdk.NewAttribute("author", coll.Owner),
+			sdk.NewAttribute("rep_penalty", params.AuthorRepPenalty.String()),
+			sdk.NewAttribute("rep_penalty_tags", strings.Join(coll.Tags, ",")),
+		)
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("content_hidden", hideAttrs...))
 
 	return &types.MsgHideContentResponse{HideRecordId: hideRecordID}, nil
 }

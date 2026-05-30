@@ -19,6 +19,10 @@ import (
 // timed-out appeals, expired flags, unendorsed collections, and releases endorsement stakes.
 // Called by the EndBlocker each block. All 7 tasks share a single pruned counter
 // capped at params.MaxPrunePerBlock.
+//
+// Phase 0 (membership-driven auto-promotion) runs first against its own
+// independent cap (params.MaxPromotionsPerBlock) so a busy prune cycle never
+// starves the promotion queue — and vice versa.
 func (k Keeper) PruneExpired(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentBlock := sdkCtx.BlockHeight()
@@ -26,6 +30,12 @@ func (k Keeper) PruneExpired(ctx context.Context) error {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return err
+	}
+
+	// Phase 0 — drain the membership-driven promotion queue. Zero disables
+	// the drain entirely (governance throttle).
+	if params.MaxPromotionsPerBlock > 0 {
+		k.drainPromotionQueue(ctx, int(params.MaxPromotionsPerBlock))
 	}
 
 	pruned := uint32(0)
@@ -157,6 +167,26 @@ func (k Keeper) pruneExpiredCollections(
 				coll.ConvictionSustained = false
 				k.Collection.Set(ctx, collID, coll) //nolint:errcheck
 			}
+		}
+
+		// Defer deletion if a hide appeal is in flight. The jury hasn't ruled
+		// and we don't want to force a verdict by deletion: an upheld appeal
+		// (sentinel wrong) means the endorser was vouching for legitimate
+		// content, while a rejected appeal (sentinel right) earns the slash.
+		// Leave the collection in CollectionsByExpiry; this loop will retry
+		// next block. handleAppealedHideExpiry (§10.3a) is the backstop — if
+		// the jury never rules, the appeal_deadline timeout restores status
+		// to ACTIVE and a subsequent §10.1 pass deletes via the normal
+		// unlock path. The CollectionsByExpiry entry is permitted to outlive
+		// expires_at while the appeal sits; this is the only place in §10.1
+		// where that happens, and the pruned-counter is intentionally not
+		// incremented so the slot stays available for other work this block.
+		if coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN && k.hasInflightHideAppeal(ctx, collID) {
+			sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collection_expiry_deferred",
+				sdk.NewAttribute("id", strconv.FormatUint(collID, 10)),
+				sdk.NewAttribute("reason", "hide_appeal_in_flight"),
+			))
+			continue
 		}
 
 		// Remove initiative link on hard-delete (best effort)
@@ -339,6 +369,11 @@ func (k Keeper) handleUnappealedHideExpiry(
 	case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
 		coll, err := k.Collection.Get(ctx, hr.TargetId)
 		if err == nil {
+			// coll.Status is HIDDEN here (set by HideContent, not flipped back
+			// because no appeal was filed) — deleteCollectionFull's endorser
+			// cleanup branches on that to BURN the endorser's stake instead of
+			// unlocking it. Mirrors the sentinel-wins branch of
+			// ResolveHideAppeal.
 			if err := k.deleteCollectionFull(ctx, coll); err != nil {
 				sdkCtx.Logger().Error("endblock: failed to delete hidden collection",
 					"collection_id", hr.TargetId, "error", err)

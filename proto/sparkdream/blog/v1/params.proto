@@ -101,6 +101,11 @@ message Params {
   // (default: 1 = PROVISIONAL). Separate gate from pin_min_trust_level — making
   // content permanent is a lower-impact curator action than featuring it.
   uint32 make_permanent_min_trust_level = 28;
+
+  // Max MsgMakePostPermanent + MsgMakeReplyPermanent calls per address per day.
+  // Independent of max_pins_per_day and max_posts_per_day — promoting an
+  // ephemeral to permanent is a distinct curator action with its own quota.
+  uint32 max_make_permanent_per_day = 29;
 }
 
 // BlogOperationalParams defines the operational parameters that can be updated
@@ -154,4 +159,7 @@ message BlogOperationalParams {
 
   // Per-block cap on EndBlocker membership-promotion drain (0 = disabled).
   uint32 max_promotions_per_block = 16;
+
+  // Max MsgMakePostPermanent + MsgMakeReplyPermanent calls per address per day.
+  uint32 max_make_permanent_per_day = 17;
 }

@@ -190,7 +190,7 @@ message Params {
   // managed entirely by x/shield. See docs/x-shield-spec.md.
   int64 ephemeral_content_ttl = 17;                                 // TTL in seconds for ephemeral content: anonymous and non-member posts/replies (default: 604800 = 7 days; 0 = no expiry)
   uint32 pin_min_trust_level = 18;                               // Minimum trust level to set the pinned display marker on a permanent post (default: 2 = ESTABLISHED)
-  uint32 max_pins_per_day = 19;                                  // Max pin and make-permanent actions per address per day (shared counter, default: 20)
+  uint32 max_pins_per_day = 19;                                  // Max pin / unpin actions per address per day (default: 20)
   int64 min_ephemeral_content_ttl = 20;                          // Governance-only floor for ephemeral_content_ttl (default: 86400 = 1 day)
   cosmos.base.v1beta1.Coin max_cost_per_byte = 21;              // Governance-only ceiling for cost_per_byte (default: 1000uspark)
   cosmos.base.v1beta1.Coin max_reaction_fee = 22;               // Governance-only ceiling for reaction_fee (default: 500uspark)
@@ -199,6 +199,7 @@ message Params {
   // Field 25-26 reserved (tag fields covered in §3.x cross-module overview).
   uint32 max_promotions_per_block = 27;                          // Per-block cap on the EndBlocker membership-promotion drain (default: 50; 0 disables eager drain — relies solely on lazy TTL-time promotion)
   uint32 make_permanent_min_trust_level = 28;                    // Minimum trust level to call MsgMakePostPermanent / MsgMakeReplyPermanent (default: 1 = PROVISIONAL; lower than pin gate because preservation is a smaller curator action than featuring)
+  uint32 max_make_permanent_per_day = 29;                        // Max MsgMakePostPermanent + MsgMakeReplyPermanent calls per address per day (shared counter, default: 10; independent of max_pins_per_day and max_posts_per_day)
 }
 ```
 
@@ -207,7 +208,7 @@ message Params {
 - **Pin** = display-only "feature this" marker, gated on `pin_min_trust_level` (ESTABLISHED). Requires the target to already be permanent — ephemeral content is rejected with `ErrCannotPinEphemeral`.
 - **MakePermanent** = lifecycle promotion from ephemeral to permanent, gated on `make_permanent_min_trust_level` (PROVISIONAL). Does **not** set any pin marker.
 
-The two actions share `max_pins_per_day` as a single per-address daily counter so that an attacker cannot double their effective curation throughput by alternating between them.
+Each action has its own per-address daily rate-limit counter. Pin / unpin draw from `max_pins_per_day` (default 20); the two MakePermanent messages draw from a **separate** `max_make_permanent_per_day` counter (default 10). The MakePermanent counter is shared across `MsgMakePostPermanent` and `MsgMakeReplyPermanent` (so an attacker cannot double promotion throughput by alternating between post and reply promotion) but is **independent** of both `max_pins_per_day` and `max_posts_per_day` — promoting an ephemeral to permanent is a distinct curator action with its own quota.
 
 **Length limits apply to the stored byte representation**, not to decompressed or resolved content. When `content_type` is `CONTENT_TYPE_GZIP` or an off-chain reference like `CONTENT_TYPE_IPFS`, the limit governs the size of the compressed data or the CID string stored on-chain. Interpretation of referenced or compressed content is entirely the client's responsibility.
 
@@ -228,10 +229,11 @@ message BlogOperationalParams {
   // anon_subsidy_budget_per_epoch, anon_subsidy_max_per_post, anon_subsidy_relay_addresses)
   // have been eliminated. Anonymous operations are now managed entirely by x/shield.
   int64 ephemeral_content_ttl = 12;                                 // TTL for ephemeral content (anonymous + non-member)
-  uint32 max_pins_per_day = 13;                                  // Max pin + make-permanent actions per address per day (shared counter)
+  uint32 max_pins_per_day = 13;                                  // Max pin / unpin actions per address per day
   string conviction_renewal_threshold = 14 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Operations Committee can adjust conviction renewal threshold
   int64 conviction_renewal_period = 15;                          // Operations Committee can adjust conviction renewal period
   uint32 max_promotions_per_block = 16;                          // Per-block cap on the EndBlocker membership-promotion drain (0 = disabled)
+  uint32 max_make_permanent_per_day = 17;                        // Max MsgMakePostPermanent + MsgMakeReplyPermanent calls per address per day (shared counter)
 }
 ```
 
@@ -773,7 +775,7 @@ message MsgPinPostResponse {}
 - Post must not already be pinned (`ErrAlreadyPinned`)
 - Creator must be an active member with `RepKeeper.GetTrustLevel(ctx, addr) >= params.pin_min_trust_level`
   - Returns `ErrNotMember` when the caller isn't an active member (regardless of `pin_min_trust_level`); `ErrInsufficientTrustLevel` when the caller is a member but the trust level is below the bar — same dual-error semantics used for `MsgReact` and `MsgCreateReply` (see §5.13)
-- Creator must not exceed `params.max_pins_per_day` (shared counter with `MsgUnpinPost`, `MsgMakePostPermanent`, `MsgMakeReplyPermanent`, `MsgPinReply`, `MsgUnpinReply`)
+- Creator must not exceed `params.max_pins_per_day` (shared counter with `MsgUnpinPost`, `MsgPinReply`, `MsgUnpinReply`; MakePermanent draws from the separate `max_make_permanent_per_day` counter)
 
 **Logic:**
 1. Validate creator address
@@ -803,7 +805,7 @@ message MsgPinReplyResponse {}
 - Reply must already be permanent (`expires_at == 0`); ephemeral replies are rejected with `ErrCannotPinEphemeral`
 - Reply must not already be pinned (`ErrAlreadyPinned`)
 - Creator must be an active member with `RepKeeper.GetTrustLevel(ctx, addr) >= params.pin_min_trust_level` (dual-error semantics as `MsgPinPost`)
-- Creator must not exceed `params.max_pins_per_day` (shared counter with all pin / unpin / make-permanent messages)
+- Creator must not exceed `params.max_pins_per_day` (shared counter with all pin / unpin messages; MakePermanent draws from the separate `max_make_permanent_per_day` counter)
 
 **Logic:**
 1. Validate creator address
@@ -832,9 +834,9 @@ message MsgMakePostPermanentResponse {}
 - Post must exist and have `status = POST_STATUS_ACTIVE` (rejects HIDDEN and DELETED)
 - Post must not have already expired (`block_time < expires_at`); the EndBlocker may otherwise race the promotion with tombstoning (`ErrPostExpired`)
 - Caller must meet `params.make_permanent_min_trust_level` (default PROVISIONAL); dual-error semantics with `ErrNotMember` / `ErrInsufficientTrustLevel` as elsewhere
-- Caller must not exceed `params.max_pins_per_day` (shared counter)
+- Caller must not exceed `params.max_make_permanent_per_day` (the dedicated MakePermanent counter, shared with `MsgMakeReplyPermanent` and independent of `max_pins_per_day` / `max_posts_per_day`)
 
-**Idempotence:** Calling `MsgMakePostPermanent` on an already-permanent post (`expires_at == 0`) is a success no-op. The caller still consumes a rate-limit slot, so the post can't be used as a free probe of trust-level eligibility.
+**Idempotence:** Calling `MsgMakePostPermanent` on an already-permanent post (`expires_at == 0`) is a success no-op. The caller still consumes a MakePermanent rate-limit slot, so the post can't be used as a free probe of trust-level eligibility.
 
 **Logic:**
 1. Validate caller address
@@ -1293,8 +1295,9 @@ func (k Keeper) IsAuthorQueuedForPromotion(ctx context.Context, creator string) 
 ```go
 // ApplyOperationalParams copies cost_per_byte, cost_per_byte_exempt, reaction_fee,
 // reaction_fee_exempt, max_posts_per_day, max_replies_per_day, max_reactions_per_day,
-// ephemeral_content_ttl, max_pins_per_day, max_promotions_per_block,
-// conviction_renewal_threshold, and conviction_renewal_period from op,
+// ephemeral_content_ttl, max_pins_per_day, max_make_permanent_per_day,
+// max_promotions_per_block, conviction_renewal_threshold, and
+// conviction_renewal_period from op,
 // preserving all governance-only fields (max_title_length, max_body_length,
 // max_reply_length, max_reply_depth, pin_min_trust_level,
 // make_permanent_min_trust_level, min_ephemeral_content_ttl, max_cost_per_byte,
@@ -1325,7 +1328,8 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 | `ephemeral_content_ttl` | 604,800 (7 days) | Ephemeral content (anonymous + non-member) expires unless promoted; balances free speech with no obligation to preserve bad content |
 | `pin_min_trust_level` | 2 (ESTABLISHED) | Floor for setting the pinned display marker — a curator action that elevates visibility |
 | `make_permanent_min_trust_level` | 1 (PROVISIONAL) | Floor for promoting ephemeral content to permanent — preservation is a smaller curator action than featuring, so the gate is one rung lower |
-| `max_pins_per_day` | 20 | Single per-address counter shared by `MsgPinPost`, `MsgUnpinPost`, `MsgPinReply`, `MsgUnpinReply`, `MsgMakePostPermanent`, and `MsgMakeReplyPermanent` — prevents an attacker from doubling curation throughput by alternating action types |
+| `max_pins_per_day` | 20 | Per-address counter shared by `MsgPinPost`, `MsgUnpinPost`, `MsgPinReply`, and `MsgUnpinReply` — prevents an attacker from doubling pin/unpin throughput by alternating action types |
+| `max_make_permanent_per_day` | 10 | Per-address counter shared by `MsgMakePostPermanent` and `MsgMakeReplyPermanent` — independent of `max_pins_per_day` and `max_posts_per_day` because promoting an ephemeral to permanent is a distinct curator action with its own quota |
 | `max_promotions_per_block` | 50 | Per-block cap on the EndBlocker membership-promotion drain; 0 disables eager draining (relies solely on lazy TTL-time promotion) |
 | `min_ephemeral_content_ttl` | 86,400 (1 day) | **Governance-only.** Floor for `ephemeral_content_ttl` — prevents Operations Committee from setting TTL near-zero to suppress ephemeral content |
 | `max_cost_per_byte` | 1,000uspark | **Governance-only.** Ceiling for `cost_per_byte` (10x default) — prevents economic censorship via extreme fee increases |
@@ -1347,6 +1351,7 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 - `pin_min_trust_level` must be between 0 and 4 inclusive
 - `make_permanent_min_trust_level` must be between 0 and 4 inclusive
 - `max_pins_per_day` must be > 0
+- `max_make_permanent_per_day` must be > 0
 - `min_ephemeral_content_ttl` must be > 0
 - `max_cost_per_byte` amount must be > 0
 - `max_reaction_fee` amount must be > 0
@@ -1364,6 +1369,7 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams
 - `max_reactions_per_day` must be > 0
 - `ephemeral_content_ttl` must be ≥ 0
 - `max_pins_per_day` must be > 0
+- `max_make_permanent_per_day` must be > 0
 - `conviction_renewal_threshold` must be ≥ 0
 - `conviction_renewal_period` must be ≥ 0
 - `max_promotions_per_block` has no lower bound (0 disables the EndBlocker promotion drain)

@@ -6,13 +6,15 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
 )
 
 func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollaborator) (*types.MsgAddCollaboratorResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
+	creatorAddr, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 	if _, err := k.addressCodec.StringToBytes(msg.Address); err != nil {
@@ -40,11 +42,6 @@ func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollabo
 	// Collection must not be immutable
 	if coll.Immutable {
 		return nil, types.ErrCollectionImmutable
-	}
-
-	// Target address must be x/rep member
-	if !k.isMember(ctx, msg.Address) {
-		return nil, types.ErrNotMember
 	}
 
 	// Not owner
@@ -76,6 +73,36 @@ func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollabo
 		return nil, types.ErrAdminOnlyOwner
 	}
 
+	// Non-member branch: the inviter locks DREAM as accountability for the
+	// non-member's behavior. Stake is refunded on RemoveCollaborator when the
+	// collection is ACTIVE; a fraction is burned when the collection is
+	// HIDDEN at exit (see helpers.releaseOrSlashCollabStake).
+	var inviter string
+	dreamStake := math.ZeroInt()
+	if !k.isMember(ctx, msg.Address) {
+		// Non-members can only hold EDITOR — preventing transitive non-member
+		// invites and capping the inviter's per-collection exposure.
+		if msg.Role != types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR {
+			return nil, types.ErrNonMemberAdminRole
+		}
+		// Inviter must meet min_sponsor_trust_level (same gate as endorsement /
+		// sponsorship — vouching for outsiders).
+		if !k.meetsMinTrustLevel(ctx, msg.Creator, params.MinSponsorTrustLevel) {
+			return nil, errorsmod.Wrapf(types.ErrInviterTrustLevelTooLow,
+				"inviter must be at or above %s", params.MinSponsorTrustLevel)
+		}
+		// Sub-cap on non-member slots per collection.
+		if coll.NonMemberCollaboratorCount >= params.MaxNonMemberCollaboratorsPerCollection {
+			return nil, types.ErrMaxNonMemberCollaborators
+		}
+		// Lock stake from the inviter.
+		if err := k.repKeeper.LockDREAM(ctx, creatorAddr, params.NonMemberCollabDreamStake); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to lock inviter DREAM stake")
+		}
+		inviter = msg.Creator
+		dreamStake = params.NonMemberCollabDreamStake
+	}
+
 	// Create Collaborator record
 	compositeKey := CollaboratorCompositeKey(coll.Id, msg.Address)
 	collab := types.Collaborator{
@@ -83,6 +110,8 @@ func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollabo
 		Address:      msg.Address,
 		Role:         msg.Role,
 		AddedAt:      blockHeight,
+		Inviter:      inviter,
+		DreamStake:   dreamStake,
 	}
 	if err := k.Collaborator.Set(ctx, compositeKey, collab); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store collaborator")
@@ -93,19 +122,29 @@ func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollabo
 		return nil, errorsmod.Wrap(err, "failed to set reverse index")
 	}
 
-	// Increment collaborator_count
+	// Increment counters
 	coll.CollaboratorCount++
+	if dreamStake.IsPositive() {
+		coll.NonMemberCollaboratorCount++
+	}
 	coll.UpdatedAt = blockHeight
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update collection")
 	}
 
-	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collaborator_added",
+	attrs := []sdk.Attribute{
 		sdk.NewAttribute("collection_id", strconv.FormatUint(coll.Id, 10)),
 		sdk.NewAttribute("address", msg.Address),
 		sdk.NewAttribute("role", msg.Role.String()),
 		sdk.NewAttribute("added_by", msg.Creator),
-	))
+	}
+	if dreamStake.IsPositive() {
+		attrs = append(attrs,
+			sdk.NewAttribute("inviter", inviter),
+			sdk.NewAttribute("dream_stake", dreamStake.String()),
+		)
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collaborator_added", attrs...))
 
 	return &types.MsgAddCollaboratorResponse{}, nil
 }

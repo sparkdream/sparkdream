@@ -48,6 +48,14 @@ func (k msgServer) UpdateCollaboratorRole(ctx context.Context, msg *types.MsgUpd
 		return nil, types.ErrAdminOnlyOwner
 	}
 
+	// Non-member collaborators (stake-bearing) cannot be promoted to ADMIN —
+	// matches the AddCollaborator rule and prevents transitive non-member
+	// invites that would compound the inviter's exposure.
+	if msg.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN &&
+		!collab.DreamStake.IsNil() && collab.DreamStake.IsPositive() {
+		return nil, types.ErrNonMemberAdminRole
+	}
+
 	// Must be owner or admin to update roles
 	isOwnerAdmin, err := k.IsOwnerOrAdmin(ctx, coll, msg.Creator)
 	if err != nil {

@@ -46,6 +46,8 @@ RUN_OPERATIONAL_PARAMS=true
 RUN_ANON=true
 RUN_MAKE_PERMANENT=true
 RUN_PROMOTION_QUEUE=true
+RUN_PROMOTER_WARNING=true
+RUN_POST_CONVICTION=true
 # Master gate for the entire test-execution loop. Three later invocations
 # (pause_flags_test, content_status_test, archive_cycle_test) sit at column
 # 0 with no per-test gate; this master flag lets `--no-tests` skip them too,
@@ -93,6 +95,12 @@ for arg in "$@"; do
         --no-promotion-queue)
             RUN_PROMOTION_QUEUE=false
             ;;
+        --no-promoter-warning)
+            RUN_PROMOTER_WARNING=false
+            ;;
+        --no-post-conviction)
+            RUN_POST_CONVICTION=false
+            ;;
         --only-setup)
             RUN_POST=false
             RUN_SENTINEL=false
@@ -105,6 +113,8 @@ for arg in "$@"; do
             RUN_ANON=false
             RUN_MAKE_PERMANENT=false
             RUN_PROMOTION_QUEUE=false
+            RUN_PROMOTER_WARNING=false
+            RUN_POST_CONVICTION=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -120,6 +130,8 @@ for arg in "$@"; do
             RUN_ANON=false
             RUN_MAKE_PERMANENT=false
             RUN_PROMOTION_QUEUE=false
+            RUN_PROMOTER_WARNING=false
+            RUN_POST_CONVICTION=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -138,6 +150,8 @@ for arg in "$@"; do
             RUN_ANON=false
             RUN_MAKE_PERMANENT=false
             RUN_PROMOTION_QUEUE=false
+            RUN_PROMOTER_WARNING=false
+            RUN_POST_CONVICTION=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -155,6 +169,8 @@ for arg in "$@"; do
             echo "  --no-anon        Skip anonymous action tests (via x/shield)"
             echo "  --no-make-permanent  Skip make-post-permanent tests"
             echo "  --no-promotion-queue Skip membership-driven promotion-queue tests"
+            echo "  --no-promoter-warning Skip promoter-warning + author-rep-slash on unappealed-hide tests"
+            echo "  --no-post-conviction Skip PostConvictionStake accrual + slash e2e"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -555,6 +571,33 @@ if [ "$RUN_PROMOTION_QUEUE" = true ]; then
     run_test "Promotion Queue Tests" "promotion_queue_test.sh"
 else
     echo "Skipping promotion-queue tests (--no-promotion-queue)"
+    echo ""
+fi
+
+# Promoter warning + author rep slash on unappealed hide. Verifies the
+# two accountability hooks in ExpireHiddenPosts: a MemberWarning is
+# issued against the member who called MsgMakePostPermanent on a post
+# that the community later rejected via sentinel hide, and the author's
+# per-tag rep is deducted (smoke-tested via the absence of errors in
+# the deduct loop). Depends on sentinel_test.sh having bonded sentinel1.
+if [ "$RUN_PROMOTER_WARNING" = true ]; then
+    run_test "Promoter Warning Tests" "promoter_warning_test.sh"
+else
+    echo "Skipping promoter-warning tests (--no-promoter-warning)"
+    echo ""
+fi
+
+# PostConvictionStake e2e: ESTABLISHED+ members lock DREAM to credit an
+# author's per-tag forum reputation (counted toward PROVISIONAL +
+# ESTABLISHED only, excluded from TRUSTED + CORE). Covers error paths
+# (self-stake / below-min / non-member), the accrual loop (EndBlocker
+# phase 4), the release happy path, and the slash linkage in
+# ExpireHiddenPosts (clawback + 25% staker DREAM burn). Depends on
+# sentinel_test.sh having bonded sentinel1 for the slash sequence.
+if [ "$RUN_POST_CONVICTION" = true ]; then
+    run_test "Post Conviction Tests" "post_conviction_test.sh"
+else
+    echo "Skipping post-conviction tests (--no-post-conviction)"
     echo ""
 fi
 

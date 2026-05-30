@@ -24,6 +24,15 @@ func (k msgServer) DeleteCollection(ctx context.Context, msg *types.MsgDeleteCol
 		return nil, types.ErrUnauthorized
 	}
 
+	// Cannot self-delete a HIDDEN collection. A sentinel hide is currently
+	// standing against it; allowing the owner to delete here would let them
+	// dodge the endorsement-slash decision (forfeit-by-delete instead of
+	// appeal). The owner's recourse is MsgAppealHide; if the appeal upholds,
+	// status restores to ACTIVE and delete becomes available again.
+	if coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
+		return nil, types.ErrCannotDeleteHidden
+	}
+
 	// Call deleteCollectionFull() helper
 	if err := k.deleteCollectionFull(ctx, coll); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to delete collection")

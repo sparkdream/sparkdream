@@ -116,12 +116,37 @@ func (m *mockBankKeeper) BurnCoins(ctx context.Context, moduleName string, amt s
 // Mock RepKeeper
 // ---------------------------------------------------------------------------
 
+// dreamCall records a single LockDREAM/UnlockDREAM/BurnDREAM invocation so
+// tests can assert on the inviter address and amount that flowed through the
+// rep keeper, without having to wire a real DREAM ledger.
+type dreamCall struct {
+	addr   sdk.AccAddress
+	amount math.Int
+}
+
+// repDeductionCall records a per-tag reputation deduction so tests can assert
+// the address, tag, and amount that flowed through the rep keeper on slash
+// paths without wiring a real reputation store.
+type repDeductionCall struct {
+	addr   sdk.AccAddress
+	tag    string
+	amount math.LegacyDec
+}
+
 type mockRepKeeper struct {
-	isMemberFn      func(ctx context.Context, addr sdk.AccAddress) bool
-	getTrustLevelFn func(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
-	lockDREAMFn     func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
-	unlockDREAMFn   func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
-	burnDREAMFn     func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	isMemberFn          func(ctx context.Context, addr sdk.AccAddress) bool
+	getTrustLevelFn     func(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
+	lockDREAMFn         func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	unlockDREAMFn       func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	burnDREAMFn         func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	deductReputationFn  func(ctx context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error
+
+	// Call recorders, optional. Tests opt in by setting the *Fn fields above
+	// to write into these slices.
+	lockCalls            []dreamCall
+	unlockCalls          []dreamCall
+	burnCalls            []dreamCall
+	deductReputationCalls []repDeductionCall
 
 	// Tag registry behavior. KnownTags: tag names that exist in the registry
 	// (nil map means permissive — any tag accepted, so existing non-tag tests
@@ -187,6 +212,14 @@ func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 func (m *mockRepKeeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
 	if m.burnDREAMFn != nil {
 		return m.burnDREAMFn(ctx, addr, amount)
+	}
+	return nil
+}
+
+func (m *mockRepKeeper) DeductReputation(ctx context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	m.deductReputationCalls = append(m.deductReputationCalls, repDeductionCall{addr: addr, tag: tag, amount: amount})
+	if m.deductReputationFn != nil {
+		return m.deductReputationFn(ctx, addr, tag, amount)
 	}
 	return nil
 }

@@ -20,8 +20,8 @@ import (
 // Strict separation from Pin: pin is display-only and now refuses ephemeral
 // targets; MakePostPermanent owns the lifecycle change. Gated on
 // params.MakePermanentMinTrustLevel (default PROVISIONAL) and consumes one
-// slot from the daily post-rate limit so it cannot be used to bypass the
-// daily-post quota in bulk.
+// slot from a dedicated per-day MakePermanent rate-limit counter
+// (params.MaxMakePermanentPerDay), independent of DailyPostLimit.
 //
 // Idempotent on already-permanent posts (returns success without state
 // change) — this lets callers blindly upgrade-then-pin without first
@@ -63,10 +63,8 @@ func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePost
 			reptypes.TrustLevel_name[int32(callerTrust)])
 	}
 
-	// Consume one slot from the daily-post rate limit so MakePermanent calls
-	// can't be used to bypass the per-day posting quota. This matches the
-	// "one content action per slot" budgeting model used elsewhere in forum.
-	if err := k.checkAndUpdateRateLimit(ctx, msg.Creator, now); err != nil {
+	// Dedicated MakePermanent daily counter — independent of DailyPostLimit.
+	if err := k.checkAndUpdateMakePermanentRateLimit(ctx, msg.Creator, now, params.MaxMakePermanentPerDay); err != nil {
 		return nil, err
 	}
 
@@ -79,6 +77,14 @@ func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePost
 	post.ExpirationTime = 0
 	if post.ConvictionSustained {
 		post.ConvictionSustained = false
+	}
+	// Record the promoter so ExpireHiddenPosts can issue a MemberWarning
+	// against them if the post is later hidden and unappealed. Skip when the
+	// promoter is the post author — promoting one's own post is not a
+	// vouching act on someone else's content.
+	if msg.Creator != post.Author {
+		post.PromotedBy = msg.Creator
+		post.PromotedAt = now
 	}
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")

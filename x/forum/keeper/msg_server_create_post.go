@@ -193,7 +193,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	}
 
 	// Check rate limit
-	if err := k.checkAndUpdateRateLimit(ctx, msg.Creator, now); err != nil {
+	if err := k.checkAndUpdateRateLimit(ctx, msg.Creator, now, params.DailyPostLimit); err != nil {
 		return nil, err
 	}
 
@@ -309,8 +309,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	return &types.MsgCreatePostResponse{}, nil
 }
 
-// checkAndUpdateRateLimit checks and updates the rate limit for a user.
-func (k msgServer) checkAndUpdateRateLimit(ctx context.Context, addr string, now int64) error {
+// checkAndUpdateRateLimit checks and updates the post rate limit for a user.
+// limit==0 disables the gate.
+func (k msgServer) checkAndUpdateRateLimit(ctx context.Context, addr string, now int64, limit uint64) error {
+	if limit == 0 {
+		return nil
+	}
+
 	rateLimit, err := k.UserRateLimit.Get(ctx, addr)
 	if err != nil {
 		// Create new rate limit record
@@ -339,7 +344,7 @@ func (k msgServer) checkAndUpdateRateLimit(ctx context.Context, addr string, now
 	}
 	effectiveCount := float64(rateLimit.CurrentEpochCount) + float64(rateLimit.PreviousEpochCount)*overlapRatio
 
-	if effectiveCount >= float64(types.DefaultDailyPostLimit) {
+	if effectiveCount >= float64(limit) {
 		return types.ErrRateLimitExceeded
 	}
 
@@ -349,6 +354,50 @@ func (k msgServer) checkAndUpdateRateLimit(ctx context.Context, addr string, now
 
 	if err := k.UserRateLimit.Set(ctx, addr, rateLimit); err != nil {
 		return errorsmod.Wrap(err, "failed to update rate limit")
+	}
+
+	return nil
+}
+
+// checkAndUpdateMakePermanentRateLimit mirrors checkAndUpdateRateLimit for the
+// MakePermanent action class. Uses the parallel counter fields on the same
+// UserRateLimit record so MakePermanent and CreatePost have independent
+// per-day quotas. limit==0 disables the gate.
+func (k msgServer) checkAndUpdateMakePermanentRateLimit(ctx context.Context, addr string, now int64, limit uint64) error {
+	if limit == 0 {
+		return nil
+	}
+
+	rateLimit, err := k.UserRateLimit.Get(ctx, addr)
+	if err != nil {
+		rateLimit = types.UserRateLimit{UserAddress: addr}
+	}
+
+	const epochDuration int64 = 86400
+	if rateLimit.MakePermanentCurrentEpochStart == 0 {
+		rateLimit.MakePermanentCurrentEpochStart = now
+	}
+	if now-rateLimit.MakePermanentCurrentEpochStart >= epochDuration {
+		rateLimit.MakePermanentPreviousEpochCount = rateLimit.MakePermanentCurrentEpochCount
+		rateLimit.MakePermanentCurrentEpochCount = 0
+		rateLimit.MakePermanentCurrentEpochStart = now
+	}
+
+	var overlapRatio float64
+	elapsed := now - rateLimit.MakePermanentCurrentEpochStart
+	if elapsed < epochDuration {
+		overlapRatio = float64(epochDuration-elapsed) / float64(epochDuration)
+	}
+	effectiveCount := float64(rateLimit.MakePermanentCurrentEpochCount) + float64(rateLimit.MakePermanentPreviousEpochCount)*overlapRatio
+
+	if effectiveCount >= float64(limit) {
+		return types.ErrRateLimitExceeded
+	}
+
+	rateLimit.MakePermanentCurrentEpochCount++
+
+	if err := k.UserRateLimit.Set(ctx, addr, rateLimit); err != nil {
+		return errorsmod.Wrap(err, "failed to update make-permanent rate limit")
 	}
 
 	return nil

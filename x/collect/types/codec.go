@@ -111,5 +111,13 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 		&MsgPinCollection{},
 	)
 
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUnpinCollection{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgMakeCollectionPermanent{},
+	)
+
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

@@ -116,4 +116,10 @@ var (
 	// CollectionsByTagKey: (tag, collectionID) → empty - for ListCollectionsByTag
 	// Maintained by CreateCollection, UpdateCollection (diff), DeleteCollection.
 	CollectionsByTagKey = collections.NewPrefix("collection/by_tag/")
+
+	// PromotionQueueKey holds the set of addresses awaiting membership-driven
+	// promotion: address → blockHeight at enqueue time. Populated by
+	// CollectRepHooks.AfterMemberAdmitted and drained in EndBlocker (Phase 0)
+	// up to params.max_promotions_per_block units of work per block.
+	PromotionQueueKey = collections.NewPrefix("promotion_queue/")
 )

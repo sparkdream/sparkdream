@@ -39,6 +39,8 @@ Members progress through five trust levels by earning reputation and completing 
 | TRUSTED | 500 | 1 season | 5 |
 | CORE | 1,000 | 2 seasons | 10 |
 
+**Two reputation pools, asymmetric ladder.** Verified-work rep (`reputation_scores`, from completed interims/initiatives/reveals) always counts. **Forum rep** (`forum_rep_per_tag`, from conviction-staked endorsements on x/forum content) is summed in **only for the NEW→PROVISIONAL and PROVISIONAL→ESTABLISHED** transitions — early participation is a legitimate signal at the lower rungs. It is **excluded from ESTABLISHED→TRUSTED and TRUSTED→CORE**, which compare verified-work rep alone, because those tiers gate council eligibility and initiative conviction-completion where discourse popularity would be too cheap to farm. A member can reach ESTABLISHED on forum rep alone but never TRUSTED without verified work. See [Reputation System](#reputation-system) and the [spec](../../docs/x-rep-spec.md#trust-level-progression-and-forum-reputation).
+
 Member statuses: ACTIVE, INACTIVE, ZEROED. Zeroing burns all DREAM, zeroes reputation, and resets trust level — but the person can restart with a new address and new invitation ("punish position, not person").
 
 ### DREAM Token
@@ -58,6 +60,14 @@ DREAM is the internal earned token:
 - **Seasonal reset**: reputation resets at start of each season (~5 months); lifetime archive preserved
 - **Decay**: 0.5% per epoch during season (applied lazily)
 - **Anti-gaming cap**: max 50 reputation per tag per epoch
+
+**Forum reputation** (`forum_rep_per_tag`) is a second, separate per-tag pool earned through conviction-staked endorsements on x/forum posts/replies — kept apart from `reputation_scores` so the trust ladder can count it toward PROVISIONAL/ESTABLISHED but exclude it from TRUSTED/CORE (see [Members and Trust Levels](#members-and-trust-levels)). x/forum drives it through four keeper methods on the `RepKeeper` surface:
+
+- `AddForumRep(member, tag, amount)` — credits forum rep (ACTIVE members only); x/forum's `PostConvictionStake` accrual loop records the exact amount on each stake's `accrued_rep_per_tag`.
+- `DeductForumRep(member, tag, amount)` — claws back forum rep, **floored at zero**; x/forum's `SlashStakesForPost` / `ExpireHiddenPosts` deduct precisely each stake's `accrued_rep_per_tag` when a post is finalized as hidden.
+- `GetForumRep(member, tag)` / `SumForumRep(member)` — query a single tag or the total; `SumForumRep` feeds the PROVISIONAL/ESTABLISHED thresholds.
+
+On season transition, `ArchiveSeasonalReputation` folds `forum_rep_per_tag` into the display-only `lifetime_forum_rep_per_tag` then clears it (mirroring `reputation_scores` → `lifetime_reputation`); the lifetime forum map is never read by the trust ladder.
 
 ### Invitation System
 
@@ -229,6 +239,8 @@ Messages:
 | `MsgAppealGovAction` | Appeal an applied action; creates appeal initiative | Affected member |
 
 Member salvation state is absorbed into the `Member` proto (`epoch_salvations`, `last_salvation_epoch`) rather than a standalone message.
+
+**Keeper-internal warning issuance.** Beyond `MsgResolveMemberReport`, other modules can record a `MemberWarning` directly via the keeper method `IssueWarning(ctx, member, issuedBy, reason, evidencePostIDs)`. It allocates a global id, derives a **per-member** `warning_number` (matching the resolve-report numbering so queries stay consistent), and emits `member_warning_issued`. `issuedBy` is the caller's module account address (auditable origin) and `reason` is a stable short identifier (e.g. `"promoted_hidden_content"`). It does not touch salvation counters — the accumulated warning count feeds the auto-demotion threshold. x/forum's `ExpireHiddenPosts` uses it to warn a post's promoter (when distinct from the author) on an unappealed hide; x/collect may use it for analogous accountability.
 
 Enums: `GovActionType`, `MemberReportStatus`, `GovAppealStatus`.
 

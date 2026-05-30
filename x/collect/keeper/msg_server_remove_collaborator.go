@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
@@ -61,6 +62,13 @@ func (k msgServer) RemoveCollaborator(ctx context.Context, msg *types.MsgRemoveC
 		}
 	}
 
+	// Settle the inviter's locked stake (non-member collaborators only).
+	// HIDDEN at exit triggers a fractional burn; otherwise full refund.
+	burned, refunded, err := k.releaseOrSlashCollabStake(ctx, coll, targetCollab)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to settle collaborator stake")
+	}
+
 	// Remove Collaborator record
 	if err := k.Collaborator.Remove(ctx, compositeKey); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to remove collaborator")
@@ -69,20 +77,40 @@ func (k msgServer) RemoveCollaborator(ctx context.Context, msg *types.MsgRemoveC
 	// Remove reverse index
 	k.CollaboratorReverse.Remove(ctx, collections.Join(msg.Address, coll.Id)) //nolint:errcheck
 
-	// Decrement collaborator_count
+	// Decrement counters
 	if coll.CollaboratorCount > 0 {
 		coll.CollaboratorCount--
+	}
+	if targetCollab.DreamStake.IsPositive() && coll.NonMemberCollaboratorCount > 0 {
+		coll.NonMemberCollaboratorCount--
 	}
 	coll.UpdatedAt = blockHeight
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update collection")
 	}
 
-	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collaborator_removed",
+	attrs := []sdk.Attribute{
 		sdk.NewAttribute("collection_id", strconv.FormatUint(coll.Id, 10)),
 		sdk.NewAttribute("address", msg.Address),
 		sdk.NewAttribute("removed_by", msg.Creator),
-	))
+	}
+	if targetCollab.DreamStake.IsPositive() {
+		attrs = append(attrs,
+			sdk.NewAttribute("inviter", targetCollab.Inviter),
+			sdk.NewAttribute("dream_burned", burned.String()),
+			sdk.NewAttribute("dream_refunded", refunded.String()),
+		)
+	}
+	if burned.IsPositive() {
+		params, perr := k.Params.Get(ctx)
+		if perr == nil && params.CollabInviterRepPenalty.IsPositive() && len(coll.Tags) > 0 {
+			attrs = append(attrs,
+				sdk.NewAttribute("rep_penalty", params.CollabInviterRepPenalty.String()),
+				sdk.NewAttribute("rep_penalty_tags", strings.Join(coll.Tags, ",")),
+			)
+		}
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collaborator_removed", attrs...))
 
 	return &types.MsgRemoveCollaboratorResponse{}, nil
 }

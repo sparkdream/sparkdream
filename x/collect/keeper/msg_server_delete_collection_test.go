@@ -104,6 +104,34 @@ func TestDeleteCollection(t *testing.T) {
 			expErr:         true,
 			expErrContains: "collection not found",
 		},
+		{
+			// Regression: blocking owner delete on HIDDEN status is what
+			// stops the bad-faith escape hatch where the owner sees a
+			// sentinel hide coming and races to MsgDeleteCollection before
+			// the §10.3 unappealed-hide path can slash the endorser. The
+			// owner's only recourse must be MsgAppealHide; if the appeal
+			// upholds, status restores to ACTIVE and delete is available.
+			name: "error: cannot delete HIDDEN collection",
+			setup: func(f *testFixture) uint64 {
+				f.setBlockHeight(100)
+				collID := f.createTTLCollection(t, f.owner, 10100)
+				// Flip status to HIDDEN directly (skip the sentinel-hide
+				// machinery — this test exercises only the gate, not the
+				// hide flow itself).
+				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
+				coll.Status = types.CollectionStatus_COLLECTION_STATUS_HIDDEN
+				f.keeper.Collection.Set(f.ctx, collID, coll) //nolint:errcheck
+				return collID
+			},
+			msg: func(f *testFixture, collID uint64) *types.MsgDeleteCollection {
+				return &types.MsgDeleteCollection{
+					Creator: f.owner,
+					Id:      collID,
+				}
+			},
+			expErr:         true,
+			expErrContains: "cannot delete a collection while it is HIDDEN",
+		},
 	}
 
 	for _, tc := range tests {

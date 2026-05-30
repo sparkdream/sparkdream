@@ -73,6 +73,18 @@ service Msg {
   // DownvotePost defines the DownvotePost RPC.
   rpc DownvotePost(MsgDownvotePost) returns (MsgDownvotePostResponse);
 
+  // StakePostConviction opens a PostConvictionStake: locks the staker's DREAM
+  // and starts EndBlocker-driven per-tag rep accrual for the post's author.
+  // Caller must be ESTABLISHED+, must not be the post's author, and must
+  // commit at least Params.min_post_conviction_stake DREAM.
+  rpc StakePostConviction(MsgStakePostConviction) returns (MsgStakePostConvictionResponse);
+
+  // ReleasePostConviction closes a previously-opened PostConvictionStake
+  // after post_conviction_lock_seconds has elapsed. The non-slashed portion
+  // of the staker's DREAM is unlocked; any rep credited to the author stays
+  // (subject to the slash path on confirmed hide).
+  rpc ReleasePostConviction(MsgReleasePostConviction) returns (MsgReleasePostConvictionResponse);
+
   // FlagPost defines the FlagPost RPC.
   rpc FlagPost(MsgFlagPost) returns (MsgFlagPostResponse);
 
@@ -365,6 +377,39 @@ message MsgDownvotePost {
 
 // MsgDownvotePostResponse defines the MsgDownvotePostResponse message.
 message MsgDownvotePostResponse {}
+
+// MsgStakePostConviction opens a PostConvictionStake. The signer is the
+// staker; the post's author cannot stake on their own post.
+message MsgStakePostConviction {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgStakePostConviction";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 2;
+  // amount is the DREAM (uDREAM) to lock for this stake. Must be at least
+  // Params.min_post_conviction_stake.
+  string amount = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// MsgStakePostConvictionResponse returns the new stake's id.
+message MsgStakePostConvictionResponse {
+  uint64 stake_id = 1;
+}
+
+// MsgReleasePostConviction closes a PostConvictionStake. Only the original
+// staker may release; release before unlocks_at is rejected.
+message MsgReleasePostConviction {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgReleasePostConviction";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 stake_id = 2;
+}
+
+// MsgReleasePostConvictionResponse defines the MsgReleasePostConviction response.
+message MsgReleasePostConvictionResponse {}
 
 // MsgFlagPost defines the MsgFlagPost message.
 message MsgFlagPost {

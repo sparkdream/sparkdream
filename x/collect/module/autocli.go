@@ -336,7 +336,19 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{
 					RpcMethod:      "PinCollection",
 					Use:            "pin-collection [collection-id]",
-					Short:          "Pin an ephemeral collection to make it permanent",
+					Short:          "Set the display-only pinned marker on a permanent collection",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}},
+				},
+				{
+					RpcMethod:      "UnpinCollection",
+					Use:            "unpin-collection [collection-id]",
+					Short:          "Clear the display-only pinned marker",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}},
+				},
+				{
+					RpcMethod:      "MakeCollectionPermanent",
+					Use:            "make-collection-permanent [collection-id]",
+					Short:          "Promote an ephemeral collection to permanent (burns deposits)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx

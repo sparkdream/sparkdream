@@ -3,11 +3,19 @@ package sparkdream.forum.v1;
 
 option go_package = "sparkdream/x/forum/types";
 
-// UserRateLimit defines the UserRateLimit message.
+// UserRateLimit defines the UserRateLimit message. Counters are split by
+// action class — the post counter (fields 2-5) bounds CreatePost, the
+// make-permanent counter (fields 6-8) bounds MakePostPermanent. They are
+// kept on the same record to avoid an extra collection lookup per call.
 message UserRateLimit {
   string user_address = 1;
   uint64 current_epoch_count = 2;
   uint64 previous_epoch_count = 3;
   int64 current_epoch_start = 4;
   int64 last_post_time = 5;
+
+  // MakePostPermanent sliding-window counters, mirrored from the post counter.
+  uint64 make_permanent_current_epoch_count = 6;
+  uint64 make_permanent_previous_epoch_count = 7;
+  int64 make_permanent_current_epoch_start = 8;
 }

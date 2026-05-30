@@ -49,6 +49,9 @@ RUN_IMMUTABILITY_TEST=true
 RUN_SPONSORSHIP_FLOW_TEST=true
 RUN_ANON=true
 RUN_TAG_TEST=true
+RUN_PIN_MAKE_PERMANENT_TEST=true
+RUN_ENDORSEMENT_SLASH_TEST=true
+RUN_PROMOTION_QUEUE_TEST=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -103,6 +106,15 @@ for arg in "$@"; do
         --no-tag)
             RUN_TAG_TEST=false
             ;;
+        --no-pin-make-permanent)
+            RUN_PIN_MAKE_PERMANENT_TEST=false
+            ;;
+        --no-endorsement-slash)
+            RUN_ENDORSEMENT_SLASH_TEST=false
+            ;;
+        --no-promotion-queue)
+            RUN_PROMOTION_QUEUE_TEST=false
+            ;;
         --only-setup)
             RUN_COLLECTION_TEST=false
             RUN_ITEM_TEST=false
@@ -119,6 +131,9 @@ for arg in "$@"; do
             RUN_SPONSORSHIP_FLOW_TEST=false
             RUN_ANON=false
             RUN_TAG_TEST=false
+            RUN_PIN_MAKE_PERMANENT_TEST=false
+            RUN_ENDORSEMENT_SLASH_TEST=false
+            RUN_PROMOTION_QUEUE_TEST=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -138,6 +153,9 @@ for arg in "$@"; do
             RUN_SPONSORSHIP_FLOW_TEST=false
             RUN_ANON=false
             RUN_TAG_TEST=false
+            RUN_PIN_MAKE_PERMANENT_TEST=false
+            RUN_ENDORSEMENT_SLASH_TEST=false
+            RUN_PROMOTION_QUEUE_TEST=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -159,6 +177,9 @@ for arg in "$@"; do
             RUN_SPONSORSHIP_FLOW_TEST=false
             RUN_ANON=false
             RUN_TAG_TEST=false
+            RUN_PIN_MAKE_PERMANENT_TEST=false
+            RUN_ENDORSEMENT_SLASH_TEST=false
+            RUN_PROMOTION_QUEUE_TEST=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -180,6 +201,9 @@ for arg in "$@"; do
             echo "  --no-sponsorship-flow  Skip sponsorship_flow_test.sh"
             echo "  --no-anon              Skip anonymous action tests (via x/shield)"
             echo "  --no-tag               Skip tag validation and list-by-tag tests"
+            echo "  --no-pin-make-permanent Skip pin/unpin/make-permanent tests"
+            echo "  --no-endorsement-slash  Skip unappealed-hide endorser-slash regression"
+            echo "  --no-promotion-queue    Skip membership-driven promotion-queue tests"
             echo "  --only-setup       Run only setup (skip all tests)"
             echo "  --save-setup       Run setup, save chain state, then exit"
             echo "  --restore-setup    Restore saved setup state, then run tests"
@@ -579,6 +603,31 @@ if [ "$RUN_TAG_TEST" = true ]; then
     run_test "Tag Tests" "tag_test.sh"
 else
     echo "Skipping tag tests (--no-tag)"
+    echo ""
+fi
+
+# Pin / Unpin / MakeCollectionPermanent strict-separation tests
+if [ "$RUN_PIN_MAKE_PERMANENT_TEST" = true ]; then
+    run_test "Pin / Unpin / MakePermanent Tests" "pin_make_permanent_test.sh"
+else
+    echo "Skipping pin/make-permanent tests (--no-pin-make-permanent)"
+    echo ""
+fi
+
+# Unappealed-hide endorser slash regression (deleteCollectionFull loophole fix)
+if [ "$RUN_ENDORSEMENT_SLASH_TEST" = true ]; then
+    run_test "Endorsement Slash Tests" "endorsement_slash_test.sh"
+else
+    echo "Skipping endorsement-slash tests (--no-endorsement-slash)"
+    echo ""
+fi
+
+# Membership-driven promotion-queue tests (AfterMemberAdmitted hook +
+# EndBlocker drain: inviter-stake refunds + ephemeral-collection promotion)
+if [ "$RUN_PROMOTION_QUEUE_TEST" = true ]; then
+    run_test "Promotion Queue Tests" "promotion_queue_test.sh"
+else
+    echo "Skipping promotion-queue tests (--no-promotion-queue)"
     echo ""
 fi
 

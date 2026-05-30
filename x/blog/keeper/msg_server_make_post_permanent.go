@@ -13,8 +13,10 @@ import (
 // MakePostPermanent promotes an ephemeral post to permanent by clearing
 // expires_at and dropping its expiry-index entries. Idempotent on already-
 // permanent posts (returns success without state change). Pin markers are
-// untouched. Gated on params.pin_min_trust_level and shares the per-day pin
-// rate-limit counter.
+// untouched. Gated on params.make_permanent_min_trust_level and consumes one
+// slot from the dedicated per-day MakePermanent rate-limit counter (shared
+// with MsgMakeReplyPermanent and independent of MaxPinsPerDay /
+// MaxPostsPerDay).
 func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePostPermanent) (*types.MsgMakePostPermanentResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
@@ -47,13 +49,13 @@ func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePost
 		return nil, k.trustLevelError(ctx, creatorAddr, int32(params.MakePermanentMinTrustLevel), "making posts permanent")
 	}
 
-	if err := k.checkRateLimit(ctx, "pin", creatorAddr, params.MaxPinsPerDay); err != nil {
+	if err := k.checkRateLimit(ctx, "make_permanent", creatorAddr, params.MaxMakePermanentPerDay); err != nil {
 		return nil, err
 	}
 
 	// Idempotent: already-permanent posts no-op (still consumes a rate-limit slot).
 	if post.ExpiresAt == 0 {
-		k.incrementRateLimit(ctx, "pin", creatorAddr)
+		k.incrementRateLimit(ctx, "make_permanent", creatorAddr)
 		return &types.MsgMakePostPermanentResponse{}, nil
 	}
 
@@ -66,7 +68,7 @@ func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePost
 	k.RemoveFromExpiryIndex(ctx, oldExpiresAt, "post", post.Id)
 	k.RemoveEphemeralAuthorIndex(ctx, post.Creator, EphemeralKindPost, post.Id)
 
-	k.incrementRateLimit(ctx, "pin", creatorAddr)
+	k.incrementRateLimit(ctx, "make_permanent", creatorAddr)
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("blog.post.upgraded",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", msg.Id)),

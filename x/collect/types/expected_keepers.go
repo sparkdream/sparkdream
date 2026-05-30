@@ -46,6 +46,11 @@ type RepKeeper interface {
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 
+	// Per-tag reputation deduction, floored at zero. Used on slash paths
+	// (endorsement burn, collaborator-stake burn, author bond slash) so the
+	// rep score reflects the same accountability event as the DREAM burn.
+	DeductReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error
+
 	// Content conviction staking & author bonds
 	GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
 	GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error)

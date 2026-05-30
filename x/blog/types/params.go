@@ -35,6 +35,10 @@ const (
 	DefaultMakePermanentMinTrustLevel uint32 = 1
 	// DefaultMaxPinsPerDay is the default max pins per address per day
 	DefaultMaxPinsPerDay uint32 = 20
+	// DefaultMaxMakePermanentPerDay is the default per-address per-day cap on
+	// MsgMakePostPermanent + MsgMakeReplyPermanent. Independent of MaxPinsPerDay
+	// and MaxPostsPerDay — promotion is a distinct curator action.
+	DefaultMaxMakePermanentPerDay uint32 = 10
 	// DefaultMaxPromotionsPerBlock is the default per-block cap on the
 	// EndBlocker membership-promotion drain. 50 is enough to drain a typical
 	// new-member backlog within a few blocks without blowing block gas.
@@ -86,6 +90,7 @@ func NewParams(maxTitleLength, maxBodyLength uint64) Params {
 		PinMinTrustLevel:           DefaultPinMinTrustLevel,
 		MakePermanentMinTrustLevel: DefaultMakePermanentMinTrustLevel,
 		MaxPinsPerDay:              DefaultMaxPinsPerDay,
+		MaxMakePermanentPerDay:     DefaultMaxMakePermanentPerDay,
 		MaxPromotionsPerBlock:      DefaultMaxPromotionsPerBlock,
 		MinEphemeralContentTtl:     DefaultMinEphemeralContentTTL,
 		MaxCostPerByteAmount:       DefaultMaxCostPerByteAmount,
@@ -115,6 +120,7 @@ func DefaultBlogOperationalParams() BlogOperationalParams {
 		MaxReactionsPerDay:         DefaultMaxReactionsPerDay,
 		EphemeralContentTtl:        DefaultEphemeralContentTTL,
 		MaxPinsPerDay:              DefaultMaxPinsPerDay,
+		MaxMakePermanentPerDay:     DefaultMaxMakePermanentPerDay,
 		MaxPromotionsPerBlock:      DefaultMaxPromotionsPerBlock,
 		ConvictionRenewalThreshold: DefaultConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:    DefaultConvictionRenewalPeriod,
@@ -140,6 +146,9 @@ func (op BlogOperationalParams) Validate() error {
 	}
 	if op.MaxPinsPerDay == 0 {
 		return fmt.Errorf("max_pins_per_day must be positive, got %d", op.MaxPinsPerDay)
+	}
+	if op.MaxMakePermanentPerDay == 0 {
+		return fmt.Errorf("max_make_permanent_per_day must be positive, got %d", op.MaxMakePermanentPerDay)
 	}
 	if op.EphemeralContentTtl < 0 {
 		return fmt.Errorf("ephemeral_content_ttl must be >= 0, got %d", op.EphemeralContentTtl)
@@ -169,6 +178,7 @@ func (p Params) ApplyOperationalParams(op BlogOperationalParams) Params {
 	p.MaxReactionsPerDay = op.MaxReactionsPerDay
 	p.EphemeralContentTtl = op.EphemeralContentTtl
 	p.MaxPinsPerDay = op.MaxPinsPerDay
+	p.MaxMakePermanentPerDay = op.MaxMakePermanentPerDay
 	p.MaxPromotionsPerBlock = op.MaxPromotionsPerBlock
 	p.ConvictionRenewalThreshold = op.ConvictionRenewalThreshold
 	p.ConvictionRenewalPeriod = op.ConvictionRenewalPeriod
@@ -187,6 +197,7 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams {
 		MaxReactionsPerDay:         p.MaxReactionsPerDay,
 		EphemeralContentTtl:        p.EphemeralContentTtl,
 		MaxPinsPerDay:              p.MaxPinsPerDay,
+		MaxMakePermanentPerDay:     p.MaxMakePermanentPerDay,
 		MaxPromotionsPerBlock:      p.MaxPromotionsPerBlock,
 		ConvictionRenewalThreshold: p.ConvictionRenewalThreshold,
 		ConvictionRenewalPeriod:    p.ConvictionRenewalPeriod,
@@ -239,6 +250,10 @@ func (p Params) Validate() error {
 
 	if p.MaxPinsPerDay == 0 {
 		return fmt.Errorf("max_pins_per_day must be positive, got %d", p.MaxPinsPerDay)
+	}
+
+	if p.MaxMakePermanentPerDay == 0 {
+		return fmt.Errorf("max_make_permanent_per_day must be positive, got %d", p.MaxMakePermanentPerDay)
 	}
 
 	if p.PinMinTrustLevel > 4 {

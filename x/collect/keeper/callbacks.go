@@ -352,31 +352,26 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 			sdk.NewAttribute("appellant_refund", appellantRefund.String()),
 		))
 	} else {
-		// Sentinel wins — content should be deleted
+		// Sentinel wins — content should be deleted.
+		//
+		// IMPORTANT: persist hr.Resolved=true BEFORE deleteCollectionFull, so
+		// the endorsement slash gate inside deleteCollectionFull
+		// (hasInflightHideAppeal) does NOT see this just-resolved appeal as
+		// still in flight and suppress the burn. The other resolved-state
+		// bookkeeping (HideRecordExpiry removal, event emission) can stay
+		// below the switch with the bond release; only the persistence has
+		// to move up.
+		hr.Resolved = true
+		k.HideRecord.Set(ctx, hr.Id, hr) //nolint:errcheck
 
 		// Delete target
 		switch hr.TargetType {
 		case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
 			coll, collErr := k.Collection.Get(ctx, hr.TargetId)
 			if collErr == nil {
-				// Check if endorsed — slash endorser stake
-				if coll.EndorsedBy != "" {
-					endorsement, endErr := k.Endorsement.Get(ctx, coll.Id)
-					if endErr == nil && !endorsement.StakeReleased {
-						endorserAddr, addrErr := k.addressCodec.StringToBytes(endorsement.Endorser)
-						if addrErr == nil {
-							k.repKeeper.BurnDREAM(ctx, endorserAddr, endorsement.DreamStake) //nolint:errcheck
-						}
-						endorsement.StakeReleased = true
-						k.Endorsement.Set(ctx, coll.Id, endorsement) //nolint:errcheck
-
-						sdkCtx.EventManager().EmitEvent(sdk.NewEvent("endorsement_stake_slashed",
-							sdk.NewAttribute("collection_id", strconv.FormatUint(coll.Id, 10)),
-							sdk.NewAttribute("endorser", endorsement.Endorser),
-							sdk.NewAttribute("amount", endorsement.DreamStake.String()),
-						))
-					}
-				}
+				// coll.Status is HIDDEN here — deleteCollectionFull's endorser
+				// cleanup branches on that to BURN the endorser's stake
+				// instead of unlocking it.
 				k.deleteCollectionFull(ctx, coll) //nolint:errcheck
 			}
 		case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
@@ -423,7 +418,9 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 			k.BurnSPARK(ctx, burnAmount) //nolint:errcheck
 		}
 
-		hr.Resolved = true
+		// hr.Resolved was already persisted above the switch so the slash
+		// gate inside deleteCollectionFull would see the appeal as resolved.
+		// Just clean up the expiry index here.
 		k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
 		k.HideRecordExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)) //nolint:errcheck
 

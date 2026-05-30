@@ -353,6 +353,7 @@ func New(
 	app.RepKeeper.SetHooks(repmoduletypes.NewMultiRepHooks(
 		blogmodulekeeper.NewBlogRepHooks(&app.BlogKeeper),
 		forummodulekeeper.NewForumRepHooks(&app.ForumKeeper),
+		collectmodulekeeper.NewCollectRepHooks(&app.CollectKeeper),
 	))
 
 	// Wire DistrKeeper into Split after depinject (adapter adds GetCommunityPool).

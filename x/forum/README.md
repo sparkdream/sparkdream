@@ -14,6 +14,8 @@ This module provides:
 - **Bounties** — thread-attached SPARK bounties with assignment, cancellation, and expiry
 - **Anonymous posting** — anonymous posts, replies, and reactions via `x/shield`'s `MsgShieldedExec`
 - **Conviction renewal** — posts linked to `x/rep` initiatives can extend their TTL based on community conviction staking
+- **Post conviction-stakes** — ESTABLISHED+ members lock DREAM on others' posts to stream slashable, author-earned per-tag forum reputation
+- **Promoter / author accountability** — an unappealed sentinel hide slashes the author's per-tag rep, slashes post conviction-stakers, and warns whoever promoted the post to permanent
 - **Appeals system** — forum-action appeals (hide, lock, move) via `x/rep` jury initiatives
 - **Thread following** — members can follow threads and track activity
 
@@ -92,6 +94,26 @@ Forum owns only the per-action counters (`sparkdream.forum.v1.SentinelActivity`)
 
 Posts linked to `x/rep` initiatives (via `initiative_id`) can renew their ephemeral TTL if conviction exceeds the `conviction_renewal_threshold`. The EndBlocker checks conviction before pruning and extends TTL instead if sufficient.
 
+### Post Conviction-Stakes (Author-Earned Forum Rep)
+
+`MsgStakePostConviction` lets an **ESTABLISHED+** member lock DREAM on a post (not their own, ≥ `min_post_conviction_stake`) to endorse it. While the stake is active, the EndBlocker streams per-tag forum reputation to the post's **author**, split evenly across the post's tags, at `post_conviction_stream_rate_per_block` — which is **per-DREAM-per-day** despite the legacy `_per_block` name (formula: `amount_dream * rate * elapsed_days`, then divided by the tag count). Per-`(author, tag)` accrual is capped per UTC-day epoch by `max_forum_rep_per_tag_per_epoch`; excess is silently dropped (no error, no refund).
+
+DREAM is locked for `post_conviction_lock_seconds`; `MsgReleasePostConviction` before `unlocks_at` is rejected. `LockDREAM` / `UnlockDREAM` bypass the 3% DREAM transfer tax (internal member-balance rebalance, not a transfer).
+
+On a **confirmed sentinel hide** (`ExpireHiddenPosts` finalizes an unappealed hide), the rep each stake produced is clawed back from the author per tag (`repKeeper.DeductForumRep`), and `post_conviction_staker_slash_bps` of the staker's locked DREAM is burned; the remainder is unlocked and the stake closed.
+
+The forum-earned rep lives on the x/rep `Member.forum_rep_per_tag` map (counted toward PROVISIONAL/ESTABLISHED only — see the [x/rep spec](../../docs/x-rep-spec.md)); forum reaches into x/rep via `AddForumRep`, `DeductForumRep`, `LockDREAM`, `UnlockDREAM`, `BurnDREAM`, `DeductReputation`, and `IssueWarning`.
+
+### Promoter & Author Accountability
+
+`MsgMakePostPermanent` records `promoted_by` / `promoted_at` on the post (empty when still ephemeral, or when promoted via author auto-promotion / self-promotion). When `ExpireHiddenPosts` finalizes an **unappealed** hide, three best-effort hooks fire against the pre-tombstone state:
+
+- **Author rep slash** — `author_rep_slash` deducted from the author's rep in each tag the post carried (floored at zero by `DeductReputation`).
+- **Conviction-stake slash** — every stake on the post is slashed and its author-rep contribution clawed back (above).
+- **Promoter warning** — a `MemberWarning` (in x/rep) is issued against `promoted_by` for `promoted_hidden_content` — they vouched for content the community rejected. Self-promoters are never warned.
+
+`MsgMakePostPermanent` consumes a slot from a **dedicated** per-day counter (`max_make_permanent_per_day`, fields 6-8 of `UserRateLimit`), independent of `daily_post_limit`.
+
 ### Tag System
 
 Tags are owned by **x/rep** — `Tag` / `ReservedTag` / `MsgCreateTag` / `MsgReportTag` / `MsgResolveTagReport` all live there. Forum posts reference tags by name; x/rep validates creation, enforces the trust-level gate and per-creation fee burn, handles expiry, and holds the tag registry.
@@ -124,8 +146,10 @@ The following messages support anonymous execution via `x/shield`'s `MsgShielded
 | `ArchiveMetadata` | `archivemeta/value/{root_id}` | Archival state and cycle tracking |
 | `Bounty` | `bounty/value/{id}` | Escrowed SPARK bounty on a thread |
 | `PostFlag` | `postflag/value/{post_id}/{flagger}` | Flag record on a post |
-| `UserRateLimit` | `userratelimit/value/{address}` | Per-user daily post tracking |
+| `UserRateLimit` | `userratelimit/value/{address}` | Per-user daily post tracking + parallel MakePermanent counters |
 | `UserReactionLimit` | `userreactionlimit/value/{address}` | Per-user daily reaction tracking |
+| `PostConvictionStake` | `post_conviction/value/{stake_id}` | DREAM lock backing a post's author; tracks per-tag accrued rep |
+| `ForumRepEpochCounter` | `forum_rep_epoch/{author}/{tag}` | Per-(author, tag) UTC-day forum-rep accrual cap |
 
 Owned by x/rep (not forum): `Tag`, `ReservedTag`, `TagBudget`, `TagBudgetAward`, `TagReport`, `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`; salvation counters on the rep `Member` proto; sentinel bond/status/activity-stamp fields on the rep `SentinelActivity`.
 
@@ -146,6 +170,8 @@ Owned by x/rep (not forum): `Tag`, `ReservedTag`, `TagBudget`, `TagBudgetAward`,
 | `upvote_count` / `downvote_count` | uint64 | Denormalized reaction counts |
 | `expiration_time` | int64 | TTL expiry (0 = permanent) |
 | `conviction_sustained` | bool | True if TTL renewed by conviction |
+| `promoted_by` | string | Member who ran MsgMakePostPermanent (empty if ephemeral or author self/auto-promotion) |
+| `promoted_at` | int64 | Block-time of promotion (0 when `promoted_by` empty) |
 
 ## Messages
 
@@ -156,6 +182,7 @@ Owned by x/rep (not forum): `Tag`, `ReservedTag`, `TagBudget`, `TagBudgetAward`,
 | `MsgCreatePost` | Create post or reply; pays spam tax + storage cost | Any address (member or non-member) |
 | `MsgEditPost` | Edit within grace period (free) or after (edit fee) | Post author only |
 | `MsgDeletePost` | Soft-delete (tombstone) | Post author only |
+| `MsgMakePostPermanent` | Promote an ephemeral post to permanent; records `promoted_by` for accountability; consumes one `max_make_permanent_per_day` slot | Member ≥ `make_permanent_min_trust_level` |
 | `MsgCreateCategory` | Create a governance-controlled category | Governance |
 
 Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShieldedExec` wrapping standard forum messages. See [x/shield](../shield/README.md) for details.
@@ -168,6 +195,13 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `MsgDownvotePost` | Downvote (costs SPARK deposit, burned) | Any member |
 | `MsgFlagPost` | Flag post for review | Any member (non-members pay spam tax) |
 | `MsgDismissFlags` | Dismiss flags after review | Governance |
+
+### Post Conviction-Stakes
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgStakePostConviction` | Lock DREAM on another member's post to stream slashable per-tag rep to its author; returns `stake_id` | ESTABLISHED+ member (not the author) |
+| `MsgReleasePostConviction` | Close a stake after `post_conviction_lock_seconds` and unlock remaining DREAM | Original staker |
 
 ### Moderation
 
@@ -341,6 +375,7 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `max_content_size` | uint64 | 10,240 bytes | Post content limit |
 | `max_reply_depth` | uint32 | 10 | Max reply nesting |
 | `daily_post_limit` | uint64 | 50 | Posts per user per day |
+| `max_make_permanent_per_day` | uint64 | 10 | MsgMakePostPermanent calls per address per day (independent of `daily_post_limit`) |
 | `max_follows_per_day` | uint64 | 50 | Thread follows per user per day |
 | `bounty_cancellation_fee_percent` | uint64 | 10% | Fee on bounty cancellation |
 
@@ -364,6 +399,19 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 |-----------|------|---------|-------------|
 | `conviction_renewal_threshold` | LegacyDec | 100 | Min conviction to renew TTL |
 | `conviction_renewal_period` | int64 | 604,800 (7d) | TTL extension on renewal |
+
+#### Post Conviction-Stakes & Accountability
+
+All operational (editable via `MsgUpdateOperationalParams`). Defaults are the same across all networks.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `author_rep_slash` | LegacyDec | 5 | Per-tag rep deducted from a post's author on an unappealed hide finalization (floored at zero) |
+| `min_post_conviction_stake` | math.Int | 10,000,000 (10 DREAM) | Minimum uDREAM to open a conviction stake |
+| `post_conviction_lock_seconds` | int64 | 1,209,600 (14d) | DREAM-lock window before release is allowed |
+| `post_conviction_stream_rate_per_block` | LegacyDec | 0.05 | Rep accrual rate — **per-DREAM-per-day** despite the legacy name |
+| `max_forum_rep_per_tag_per_epoch` | LegacyDec | 5 | Per-(author, tag) rep cap per UTC-day epoch; excess silently dropped |
+| `post_conviction_staker_slash_bps` | uint64 | 2,500 (25%) | Basis-points of the staker's locked DREAM burned on a confirmed hide (0-10000) |
 
 ### Non-Operational (hardcoded defaults, not in `ForumOperationalParams`)
 
@@ -411,12 +459,14 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 
 ## EndBlocker
 
-Four phases executed per block (with per-phase caps for gas efficiency):
+Bounded passes executed per block (per-phase caps + persisted cursors for gas efficiency):
 
 1. **Ephemeral Post Pruning** (max 100/block) — remove expired TTL posts; check conviction renewal before pruning (extend TTL if conviction sufficient)
-2. **Hidden Post Expiration** (max 50/block) — soft-delete posts hidden >7 days
-3. **Bounty Expiration** (max 50/block) — mark expired bounties, refund escrowed amount
-4. **Tag Expiration** (max 50/block) — remove unused tags past 30-day expiration (reserved tags exempt)
+2. **Hidden Post Expiration** — soft-delete posts hidden past `hidden_expiration` whose appeal window lapsed unappealed. Before tombstoning, three best-effort accountability hooks fire (failures log, never halt): author per-tag rep slash (`author_rep_slash`), post conviction-stake slash + author-rep clawback (`SlashStakesForPost`), and a `MemberWarning` against `promoted_by` (when set and not the author)
+3. **Bounty Expiration** — mark expired bounties, refund escrowed amount
+4. **Tag Expiration** — remove unused tags past 30-day expiration (reserved tags exempt)
+5. **Post Conviction Accrual** (max 100 stakes/block, round-robin cursor) — stream per-tag forum rep to backed posts' authors, capped per (author, tag) per UTC-day epoch
+6. **Released-Stake GC** (max 100/block) — delete released `PostConvictionStake` records past the retention window (`post_conviction_lock_seconds + hide_appeal_cooldown + 1d`)
 
 ## Events
 
@@ -431,6 +481,11 @@ All state-changing operations emit typed events for indexing and client notifica
 sparkdreamd tx forum create-post --category-id 1 --content "Hello World" --tags "general" --from alice
 sparkdreamd tx forum edit-post 1 --content "Updated" --from alice
 sparkdreamd tx forum delete-post 1 --from alice
+sparkdreamd tx forum make-post-permanent 1 --from alice
+
+# Post conviction-stakes (ESTABLISHED+; not your own post; amount is bare uDREAM)
+sparkdreamd tx forum stake-post-conviction 1 10000000 --from bob
+sparkdreamd tx forum release-post-conviction 1 --from bob
 
 # Thread following
 sparkdreamd tx forum follow-thread 1 --from alice

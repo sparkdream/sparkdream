@@ -136,6 +136,18 @@ func (stubRepKeeper) SetBondStatus(context.Context, reptypes.RoleType, string, r
 func (stubRepKeeper) SetBondedRoleConfig(context.Context, reptypes.BondedRoleConfig) error {
 	return nil
 }
+func (stubRepKeeper) DeductReputation(context.Context, sdk.AccAddress, string, math.LegacyDec) error {
+	return nil
+}
+func (stubRepKeeper) AddForumRep(context.Context, sdk.AccAddress, string, math.LegacyDec) error {
+	return nil
+}
+func (stubRepKeeper) DeductForumRep(context.Context, sdk.AccAddress, string, math.LegacyDec) error {
+	return nil
+}
+func (stubRepKeeper) IssueWarning(context.Context, string, string, string, []uint64) error {
+	return nil
+}
 
 func TestExpectedKeepersImplementable(t *testing.T) {
 	var (

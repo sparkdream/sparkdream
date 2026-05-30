@@ -184,6 +184,76 @@ message Params {
   // membership-promotion drain may flip per block. Bounds block gas; the
   // remaining queue is processed in subsequent blocks.
   uint32 max_promotions_per_block = 49;
+
+  // author_rep_slash is the per-tag reputation deduction applied to a post's
+  // author when ExpireHiddenPosts finalizes an unappealed sentinel hide.
+  // Deducted from the author's score in each tag the post carried.
+  // DeductReputation floors at zero, so authors with no rep in the tag take
+  // no harm — safe to ship before any forum-side rep-grant flow exists.
+  string author_rep_slash = 50 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // max_make_permanent_per_day caps MsgMakePostPermanent calls per address per
+  // UTC day. Independent of daily_post_limit — promoting an ephemeral to
+  // permanent is a distinct curator action with its own quota.
+  uint64 max_make_permanent_per_day = 51;
+
+  // ---------------------------------------------------------------------------
+  // Post conviction-stake (author-earned forum rep) config.
+  //
+  // ESTABLISHED+ members lock DREAM on a post to express endorsement. The
+  // EndBlocker streams per-tag rep to the author for as long as the stake is
+  // active; ExpireHiddenPosts claws back the rep and slashes the staker if the
+  // hide stands. See proto/sparkdream/forum/v1/types.proto:PostConvictionStake.
+  // ---------------------------------------------------------------------------
+
+  // min_post_conviction_stake is the minimum DREAM amount required to open a
+  // PostConvictionStake (math.Int string, e.g. "10000000" = 10 DREAM). Floors
+  // out sybil dust stakes that would otherwise farm the per-tag epoch cap with
+  // many tiny accounts.
+  string min_post_conviction_stake = 60 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // post_conviction_lock_seconds is the DREAM-lock duration in seconds. A
+  // staker cannot call MsgReleasePostConviction before staked_at + this many
+  // seconds. Longer lock = more skin-in-the-game per uDREAM committed.
+  int64 post_conviction_lock_seconds = 61;
+
+  // post_conviction_stream_rate_per_block is the per-DREAM-per-day rep
+  // accrual rate (math.LegacyDec). Despite the historical "per_block"
+  // suffix in the field name, the formula is unit-clean and time-based, not
+  // block-based:
+  //   amount_dream         = stake.amount_uDREAM / 1_000_000
+  //   elapsed_days         = (now - last_accrual_at) / 86400
+  //   rep_credited_total   = amount_dream * rate * elapsed_days
+  //   rep_credited_per_tag = rep_credited_total / len(post.tags)
+  // The author's per-tag credit is then capped by
+  // max_forum_rep_per_tag_per_epoch (one epoch = one UTC day).
+  string post_conviction_stream_rate_per_block = 62 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // max_forum_rep_per_tag_per_epoch caps the per-tag forum rep an author may
+  // earn from conviction stakes in a single epoch (math.LegacyDec). Prevents
+  // a single tag from being flooded by many simultaneous stakes — excess
+  // accrual is silently dropped (no error, no refund) so honest stakers do not
+  // suffer from saturation they could not have foreseen.
+  string max_forum_rep_per_tag_per_epoch = 63 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // post_conviction_staker_slash_bps is the basis-points slash applied to the
+  // staker's locked DREAM when ExpireHiddenPosts finalizes a hide on the post
+  // (0-10000; 2500 = 25%). The slashed DREAM is burned. The non-slashed
+  // portion is unlocked back to the staker on the next MsgReleasePostConviction
+  // and the stake is closed.
+  uint64 post_conviction_staker_slash_bps = 64;
 }
 
 // ForumOperationalParams defines the operational parameters that can be updated
@@ -317,4 +387,41 @@ message ForumOperationalParams {
 
   // max_promotions_per_block — see Params.max_promotions_per_block.
   uint32 max_promotions_per_block = 49;
+
+  // author_rep_slash — see Params.author_rep_slash.
+  string author_rep_slash = 50 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // max_make_permanent_per_day — see Params.max_make_permanent_per_day.
+  uint64 max_make_permanent_per_day = 51;
+
+  // ---------------------------------------------------------------------------
+  // Post conviction-stake (author-earned forum rep) config. See Params.
+  // ---------------------------------------------------------------------------
+
+  // min_post_conviction_stake — see Params.min_post_conviction_stake.
+  string min_post_conviction_stake = 60 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // post_conviction_lock_seconds — see Params.post_conviction_lock_seconds.
+  int64 post_conviction_lock_seconds = 61;
+
+  // post_conviction_stream_rate_per_block — see Params.post_conviction_stream_rate_per_block.
+  string post_conviction_stream_rate_per_block = 62 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // max_forum_rep_per_tag_per_epoch — see Params.max_forum_rep_per_tag_per_epoch.
+  string max_forum_rep_per_tag_per_epoch = 63 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // post_conviction_staker_slash_bps — see Params.post_conviction_staker_slash_bps.
+  uint64 post_conviction_staker_slash_bps = 64;
 }

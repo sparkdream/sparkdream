@@ -283,6 +283,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Member lifecycle:** Invitation-based membership with 5 trust levels and "zeroing" instead of banning
 - **DREAM token:** Minting via initiative completion, burning via slashing/decay/transfer tax, limited transfers (tips/gifts only)
 - **Reputation:** Per-tag scores with seasonal resets, anti-gaming caps (0.5%/epoch decay, 33% max conviction share, 50 rep/tag/epoch cap)
+- **Forum-earned reputation:** A second per-tag pool (`Member.forum_rep_per_tag`) credited by x/forum post-conviction stakes, stored separately from verified-work `reputation_scores`. Asymmetric trust ladder — forum rep counts toward the `NEW → PROVISIONAL` and `PROVISIONAL → ESTABLISHED` thresholds only; it is excluded from `ESTABLISHED → TRUSTED` and `TRUSTED → CORE`, which gate on verified-work rep alone (forum participation is legitimate early contribution but cheaper to game than initiative output). Slashable on confirmed hide of the post that produced it; archived to `lifetime_forum_rep_per_tag` (display-only) and cleared on season transition. Keeper surface: `AddForumRep` / `DeductForumRep` / `GetForumRep` / `SumForumRep`
 - **Projects & initiatives:** Council-approved budgets, tiered initiatives (Apprentice/Standard/Expert/Epic), conviction-based completion
 - **Conviction staking:** Time-weighted engagement (half-life: 7 epochs), 50% external conviction requirement
 - **Challenges:** Named + anonymous (via x/shield, no DREAM stake), jury resolution (5 members, 67% supermajority)
@@ -294,7 +295,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Tag registry:** `Tag`, `ReservedTag`, `MsgCreateTag` (permissionless, ESTABLISHED+ trust, fee-burn), `TagReport`, `MsgReportTag`, `MsgResolveTagReport`; tag expiry GC in EndBlocker
 - **Tag budgets:** Five `*TagBudget*` messages for per-tag SPARK reward pools; awards delegate to x/forum via the narrow `ForumKeeper.GetPostAuthor`/`GetPostTags` interface
 - **Bonded-role accountability** (generic primitive for forum sentinels, collect curators, federation verifiers): `BondedRole(role_type, address)` record plus per-role `BondedRoleConfig`; `MsgBondRole`/`MsgUnbondRole` (role-typed); keeper surface `IsBondedRole`, `GetBondedRole`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`, `SetBondedRoleConfig`, `GetBondedRoleConfig`. Role types: `ROLE_TYPE_FORUM_SENTINEL`, `ROLE_TYPE_COLLECT_CURATOR`, `ROLE_TYPE_FEDERATION_VERIFIER`. DREAM-bond only — SPARK-staked roles like federation bridge operators keep their own primitives. See [bonded-role-generalization.md](bonded-role-generalization.md).
-- **Member accountability:** `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`, and the 5 member-report messages + `MsgAppealGovAction`; salvation counters live on the `Member` proto (`epoch_salvations`, `last_salvation_epoch`)
+- **Member accountability:** `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`, and the 5 member-report messages + `MsgAppealGovAction`; salvation counters live on the `Member` proto (`epoch_salvations`, `last_salvation_epoch`). A keeper-internal `IssueWarning` path lets downstream modules file a `MemberWarning` without a user-signed message — x/forum's `ExpireHiddenPosts` warns the promoter of an unappealed-hidden post, and x/collect uses it on confirmed hides
 - **Sentinel reward pool:** SPARK pool fed by split of forum spam taxes/edit fees and `UPHELD` appeal bonds, capped (`max_sentinel_reward_pool`) with overflow burn; epoch distribution is accuracy-weighted via `accuracy_rate * sqrt(appeals_resolved) + action bonuses`, pro-rata in `uspark`
 - **Gov-action appeal resolution:** two paths — `MsgResolveGovActionAppeal` (Operations Committee on commons council) and rep EndBlocker timeout; verdicts (`UPHELD`/`OVERTURNED`/`TIMEOUT`) drive appellant-bond burn/refund, sentinel `SlashBond(ROLE_TYPE_FORUM_SENTINEL, ...)` on OVERTURNED, and forum counter updates via `RecordSentinelActionUpheld` / `RecordSentinelActionOverturned`
 
@@ -371,7 +372,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Rate limiting:** Max 10 posts/day, 50 replies/day, 100 reactions/day per address
 - **Ephemeral content:** Non-member posts expire after TTL (7 days default); conviction renewal extends TTL if conviction ≥ threshold
 - **Storage fees:** 100 uspark/byte, charged to submitter
-- **Strict-separation Pin & MakePermanent:** Pin (`pin_min_trust_level`, ESTABLISHED) is a display-only marker that requires the target to already be permanent — ephemeral content is rejected with `ErrCannotPinEphemeral`. MakePermanent (`make_permanent_min_trust_level`, PROVISIONAL) is the lifecycle promotion that clears `expires_at` without touching pin markers. The two share one daily rate-limit counter so an attacker can't double curation throughput by alternating types.
+- **Strict-separation Pin & MakePermanent:** Pin (`pin_min_trust_level`, ESTABLISHED) is a display-only marker that requires the target to already be permanent — ephemeral content is rejected with `ErrCannotPinEphemeral`. MakePermanent (`make_permanent_min_trust_level`, PROVISIONAL) is the lifecycle promotion that clears `expires_at` without touching pin markers. Each action class has its own daily counter: pin/unpin draw from `max_pins_per_day`, while `MsgMakePostPermanent` + `MsgMakeReplyPermanent` share a separate `max_make_permanent_per_day` quota (default 10) — promoting an ephemeral to permanent is a distinct curator action and no longer competes with pinning for throughput.
 - **Membership-driven promotion queue:** An `AfterMemberAdmitted` hook from x/rep enqueues newly-admitted members; an EndBlocker pass drains up to `max_promotions_per_block` (default 50) of their pre-admission ephemeral posts/replies to permanent each block, with the lazy TTL-time member-now check still catching any laggards.
 - **Self-moderation:** Post authors can hide/unhide their own posts (owner-only).
 - **Shield-aware:** Implements `ShieldAware` interface; anonymous posts/replies/reactions routed via x/shield's `MsgShieldedExec`
@@ -398,18 +399,22 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Shield-aware:** Implements `ShieldAware` interface; anonymous threads/replies/reactions routed via x/shield's `MsgShieldedExec`
 - **Appeals:** Forum-specific appeals for hide, lock, move via x/rep jury initiatives (5 SPARK fee, 14-day deadline); `MsgAppealGovAction` for broader governance actions lives in x/rep
 - **Thread operations:** Lock, freeze, move, archive, pin/unpin, follow/unfollow
+- **Post conviction-stakes (author-earned forum rep):** ESTABLISHED+ members lock DREAM on a post they did not author (`MsgStakePostConviction`, ≥ `min_post_conviction_stake`) to endorse it. The EndBlocker streams per-tag reputation to the author into x/rep's `forum_rep_per_tag`, split across the post's tags at `post_conviction_stream_rate_per_block` (time-based, per-DREAM-per-day despite the legacy field name) and capped per author/tag/UTC-day by `max_forum_rep_per_tag_per_epoch` (excess silently dropped). DREAM is locked for `post_conviction_lock_seconds` and released via `MsgReleasePostConviction` (LockDREAM/UnlockDREAM bypass the 3% transfer tax — internal rebalance). On confirmed hide, the accrued rep is clawed back and `post_conviction_staker_slash_bps` of the locked DREAM is burned.
+- **Promoter & author accountability:** `Post.promoted_by` / `promoted_at` record who called `MsgMakePostPermanent`. When `ExpireHiddenPosts` finalizes an unappealed sentinel hide, the promoter receives a `MemberWarning` (via x/rep `IssueWarning`) and the author takes an `author_rep_slash` per-tag rep deduction. `MsgMakePostPermanent` has its own daily quota (`max_make_permanent_per_day`, sliding-window counters on `UserRateLimit`), independent of `daily_post_limit`.
 - **Rate limiting:** 50 posts/day, 100 reactions/day, 20 downvotes/day, 20 flags/day
 - **`ForumKeeper` surface exposed to x/rep (3 methods):** `PruneTagReferences`, `GetPostAuthor`, `GetPostTags`
 
-**Messages (47):** Post operations (6), moderation (6), thread control (5), reactions (2), reply management (5), bounties (5), tag budgets (5), tags (2), appeals (4), thread ops (3), emergency (2), member reports (4), governance (1), `update_params`, `update_operational_params`. Sentinel bond/unbond flows through `MsgBondRole` / `MsgUnbondRole` in x/rep (`role_type=ROLE_TYPE_FORUM_SENTINEL`), not a forum-local msg.
+**Messages (49):** Post operations (6), post conviction-stakes (2: `stake_post_conviction`, `release_post_conviction`), moderation (6), thread control (5), reactions (2), reply management (5), bounties (5), tag budgets (5), tags (2), appeals (4), thread ops (3), emergency (2), member reports (4), governance (1), `update_params`, `update_operational_params`. Sentinel bond/unbond flows through `MsgBondRole` / `MsgUnbondRole` in x/rep (`role_type=ROLE_TYPE_FORUM_SENTINEL`), not a forum-local msg.
 
 **Queries (70):** CRUD queries for posts, categories, tags, reserved tags, rate limits, reaction limits, sentinel activity (per-action counters), hide records, thread lock/move records, post flags, bounties, tag budgets, tag budget awards, thread metadata, thread follows, thread follow counts, archive metadata, tag reports, member salvation status, jury participation, member reports, member warnings, gov action appeals. Plus specialized: posts, thread, categories, user_posts, archive_cooldown, tag_exists, tag_reports, forum_status, appeal_cooldown, member_reports, member_warnings, member_standing, pinned_posts, locked_threads, thread_lock_status, top_posts, thread_followers, user_followed_threads, is_following_thread, bounty_by_thread, active_bounties, user_bounties, bounty_expiring_soon, tag_budget_by_tag, tag_budgets, tag_budget_awards, post_flags, flag_review_queue, gov_action_appeals, params. Sentinel bond/status now queried via `query rep bonded-role ROLE_TYPE_FORUM_SENTINEL <addr>`.
 
-**EndBlocker (4 phases):**
-1. Prune expired ephemeral posts (max 100/block, conviction renewal check for initiatives)
-2. Expire hidden posts (max 50/block, soft-delete after configured hidden expiration)
+**EndBlocker (6 phases):**
+0. Drain the membership-driven promotion queue (eager ephemeral → permanent for posts of recently-admitted members, capped by `max_promotions_per_block`)
+1. Prune expired ephemeral posts (max 100/block, upgrade-if-now-member then conviction renewal, else hard-delete)
+2. Expire hidden posts (max 50/block, soft-delete after configured hidden expiration; on unappealed hide also slashes author rep, slashes conviction stakers, and warns the promoter)
 3. Expire bounties (max 50/block, refund escrowed funds)
-4. Expire tags (max 50/block, reserved tags never expire)
+4. Accrue post conviction-stakes (stream per-tag forum rep to authors, epoch-capped)
+5. GC released-and-retained `PostConvictionStake`s past their retention window
 
 ### x/collect (Curated Collections)
 
@@ -418,6 +423,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 **Key Features:**
 - **Collection types:** NFTs, links, on-chain references, custom data with max 500 items per collection
 - **Collaboration:** Role-based permissions (EDITOR, ADMIN) with up to 20 collaborators
+- **Non-member collaborators:** Non-members can be invited as EDITOR collaborators (never ADMIN). The inviter — owner or ADMIN meeting `min_sponsor_trust_level` — locks `non_member_collab_dream_stake` DREAM per slot (bounded by `max_non_member_collaborators_per_collection`). Stake is refunded on removal/TTL-expiry/delete while the collection is ACTIVE; when HIDDEN, `non_member_collab_burn_fraction` (default 0.5) is burned and the rest refunded. Tracked via `Collaborator.inviter` / `dream_stake` and `Collection.non_member_collaborator_count`.
 - **Privacy:** Client-side encryption for private collections
 - **Two-tier content:** Members get permanent storage, non-members get TTL + PENDING status
 - **Curator bonding:** DREAM-staked via x/rep's `MsgBondRole ROLE_TYPE_COLLECT_CURATOR` (min 500 DREAM, PROVISIONAL+ trust). Per-module counters live in collect's `CuratorActivity`. Quality ratings and challenge mechanism (250 DREAM deposit) remain collect-owned; committed-bond slashing via rep's `ReserveBond`/`SlashBond`/`ReleaseBond`.
@@ -426,14 +432,17 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Sponsorship:** Non-members can request sponsorship (1 SPARK fee) for ESTABLISHED+ members to sponsor
 - **Sentinel moderation:** Shared with x/forum sentinel system, 100 DREAM bond, appeals
 - **Shield-aware:** Implements `ShieldAware` interface; anonymous collections/reactions routed via x/shield's `MsgShieldedExec`
-- **Pinning:** ESTABLISHED+ trust, max 10 pins/day
+- **Strict-separation Pin & MakePermanent:** `MsgPinCollection` is a display-only marker requiring an already-permanent target (ephemeral rejected with `ErrCannotPinEphemeral`); `MsgUnpinCollection` clears it. `MsgMakeCollectionPermanent` is the lifecycle promotion that burns the escrowed collection + item deposits, gated on `make_permanent_min_trust_level` (default PROVISIONAL) with its own daily quota `max_make_permanent_per_day`, separate from `max_pins_per_day`. Mirrors the x/blog / x/forum pin separation.
+- **Membership-driven promotion queue:** When a member is admitted, an x/rep hook enqueues work; EndBlocker Phase 0 drains up to `max_promotions_per_block` units/block — releasing inviters' collaborator stakes and flipping the member's owned ephemeral collections to permanent.
+- **Slash rep-penalties:** Per-tag reputation deductions (looped over the collection's tags, floored at zero) fired alongside DREAM-burn slash paths — `author_rep_penalty` on a sentinel hide of the creator's collection (highest), `endorser_rep_penalty` when an endorsed collection's hide stands, `collab_inviter_rep_penalty` when a collaborator exits a HIDDEN collection (lowest).
 - **On-chain references:** Validate content existence in x/blog and x/forum
 
-**Messages (27):** Collection CRUD (3), items (5), collaborators (3), curation action/challenge (2), sponsorship (3), endorsement (2), reactions (3), moderation (3), pin (1), `update_params`, `update_operational_params`. Curator bond/unbond flows through `MsgBondRole` / `MsgUnbondRole` in x/rep (`role_type=ROLE_TYPE_COLLECT_CURATOR`), not a collect-local msg.
+**Messages (29):** Collection CRUD (3), items (5), collaborators (3), curation action/challenge (2), sponsorship (3), endorsement (2), reactions (3), moderation (3), pin/unpin (2), make-collection-permanent (1), `update_params`, `update_operational_params`. Curator bond/unbond flows through `MsgBondRole` / `MsgUnbondRole` in x/rep (`role_type=ROLE_TYPE_COLLECT_CURATOR`), not a collect-local msg.
 
 **Queries (24):** `params`, `collection`, `collections_by_owner`, `public_collections`, `public_collections_by_type`, `collections_by_collaborator`, `item`, `items`, `items_by_owner`, `collaborators`, `curator_activity`, `curation_summary`, `curation_reviews`, `curation_reviews_by_curator`, `sponsorship_request`, `sponsorship_requests`, `content_flag`, `flagged_content`, `hide_record`, `hide_records_by_target`, `pending_collections`, `endorsement`, `collections_by_content`, `collection_conviction`. Curator bond/status queried via `query rep bonded-role ROLE_TYPE_COLLECT_CURATOR <addr>`.
 
-**EndBlocker (6 phases, cap 100/block total):**
+**EndBlocker (7 phases; Phase 0 has its own `max_promotions_per_block` cap, Phases 1-6 share a `max_prune_per_block` counter):**
+0. Drain the membership-driven promotion queue (release collaborator stakes, flip owned ephemeral collections to permanent)
 1. Prune expired collections (conviction renewal for anonymous collections)
 2. Prune sponsorship requests (refund escrowed deposits)
 3. Prune hide records (delete unappealed, restore appealed)
@@ -1018,6 +1027,8 @@ approves project DREAM budget
     ├── Transfer tax 3% (burned)
     ├── Content author bonds (slashable)
     ├── Curator challenge bonds (slashable)
+    ├── Forum post conviction-stakes (locked; slashed/burned on confirmed hide)
+    ├── Non-member collaborator stakes (locked; fraction burned on HIDDEN exit)
     └── Display name appeal stakes (burned on loss)
 
 Additional DREAM minting sources:

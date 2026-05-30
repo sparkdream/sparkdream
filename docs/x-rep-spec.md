@@ -91,6 +91,26 @@ message Member {
   // Set via MsgRegisterZkPublicKey. Used by the persistent Merkle tree
   // to build leaves as MiMC(zk_public_key, trust_level).
   bytes zk_public_key = 28;
+
+  // Salvation counters (per-epoch window for the accountability salvation path).
+  uint32 epoch_salvations = 29;
+  int64 last_salvation_epoch = 30;
+
+  // Forum-earned reputation (current season). Per-tag rep earned through
+  // conviction-staked endorsements on x/forum posts/replies. Stored SEPARATELY
+  // from reputation_scores so the trust-level ladder can count it toward
+  // PROVISIONAL and ESTABLISHED while EXCLUDING it from TRUSTED and CORE —
+  // forum participation is a legitimate early-stage signal but cheaper to game
+  // than verified initiative output, so it must not gate the council-adjacent
+  // tiers. Slashable on confirmed hide of the originating post. Map value is a
+  // decimal string (math.LegacyDec).
+  map<string, string> forum_rep_per_tag = 31;
+
+  // Forum-earned reputation (lifetime archive). On season transition,
+  // forum_rep_per_tag is added here then cleared (mirrors lifetime_reputation /
+  // reputation_scores). Display-only — never read by the trust-level ladder, so
+  // forum rep accrued in an early season cannot ride into TRUSTED/CORE later.
+  map<string, string> lifetime_forum_rep_per_tag = 32;
 }
 
 enum TrustLevel {
@@ -107,6 +127,56 @@ enum MemberStatus {
   MEMBER_STATUS_ZEROED = 2;
 }
 ```
+
+#### Trust-Level Progression and Forum Reputation
+
+`UpdateTrustLevel` (in `keeper/member.go`) promotes a member one tier at a time
+by comparing two inputs against the per-tier thresholds in `TrustLevelConfig`:
+
+- **Verified-work rep** — the sum of `reputation_scores` across all tags. This
+  is the rep earned from completed interims, initiatives, and reveals.
+- **Forum rep** — the sum of `forum_rep_per_tag` across all tags
+  (`SumForumRep`). This is rep earned through conviction-staked endorsements on
+  x/forum content.
+
+Whether forum rep counts depends on the target tier — this asymmetry is the
+core anti-gaming mechanism:
+
+| Transition | Reputation input compared to threshold | Other gate |
+|-----------|------------------------------------------|------------|
+| NEW → PROVISIONAL | `sum(reputation_scores) + sum(forum_rep_per_tag)` | `completed_interims >= ProvisionalMinInterims` |
+| PROVISIONAL → ESTABLISHED | `sum(reputation_scores) + sum(forum_rep_per_tag)` | `completed_interims >= EstablishedMinInterims` |
+| ESTABLISHED → TRUSTED | `sum(reputation_scores)` only — **forum rep excluded** | min seasons since join |
+| TRUSTED → CORE | `sum(reputation_scores)` only — **forum rep excluded** | min seasons since join |
+
+Forum rep counts toward **PROVISIONAL and ESTABLISHED** because early
+participation and conviction-staked endorsement are legitimate "you're plugged
+in" signals at the lower rungs. It is **excluded from TRUSTED and CORE** because
+those tiers gate council eligibility and conviction-completion of initiatives,
+where discourse popularity would be too cheap to farm — those rungs must be
+earned exclusively through shipped, verified initiative output. A member can
+therefore reach ESTABLISHED on forum rep alone (when interim counts are met) but
+can never cross into TRUSTED without sufficient verified-work rep.
+
+#### Forum Reputation Keeper Surface
+
+x/forum credits and slashes forum rep through four exported keeper methods on
+x/rep (`keeper/forum_rep.go`), wired into x/forum's `RepKeeper` interface:
+
+| Method | Semantics |
+|--------|-----------|
+| `AddForumRep(ctx, memberAddr, tag, amount)` | Adds `amount` to `forum_rep_per_tag[tag]`. No-op on nil/zero, rejects negative (`ErrInvalidAmount`). Requires an ACTIVE member. Emits `forum_rep_added`. Called by x/forum's `PostConvictionStake` accrual loop, which records the credited amount on each stake's `accrued_rep_per_tag` so a later slash can be exact. |
+| `DeductForumRep(ctx, memberAddr, tag, amount)` | Subtracts `amount` from `forum_rep_per_tag[tag]`, **floored at zero** (never negative); deletes the tag entry when it hits zero. No-op on nil/zero or missing tag, rejects negative. Emits `forum_rep_deducted`. Called by x/forum's `SlashStakesForPost` / `ExpireHiddenPosts` to claw back exactly the rep each conviction stake produced (using its `accrued_rep_per_tag`) when the originating post is finalized as hidden. |
+| `GetForumRep(ctx, memberAddr, tag)` | Returns the member's forum rep in one tag (zero if absent or unregistered). |
+| `SumForumRep(ctx, memberAddr)` | Returns total forum rep across all tags. Used by `UpdateTrustLevel` for the PROVISIONAL/ESTABLISHED thresholds above. |
+
+On **season transition**, `ArchiveSeasonalReputation` (in
+`keeper/season_integration.go`) folds `forum_rep_per_tag` into
+`lifetime_forum_rep_per_tag` per tag, then clears `forum_rep_per_tag` —
+mirroring the `reputation_scores` → `lifetime_reputation` archive. The lifetime
+forum map is display-only and is never read by the trust ladder, so forum rep
+accrued in an early season cannot be ridden into TRUSTED/CORE in a later one.
+The `reputation_archived` event gains a `forum_tags_archived` attribute.
 
 ### GiftRecord
 
@@ -876,7 +946,47 @@ message MemberWarning {
   uint64          warning_number     = 6;
   repeated uint64 evidence_post_ids  = 10;
 }
+```
 
+#### Keeper-internal warning issuance (`IssueWarning`)
+
+Besides the governance/sentinel `MsgResolveMemberReport` path, x/rep exposes a
+keeper method other modules call directly from their EndBlocker / ABCI paths
+(via their `RepKeeper` interface):
+
+```go
+func (k Keeper) IssueWarning(ctx context.Context, member string, issuedBy string, reason string, evidencePostIDs []uint64) error
+```
+
+Semantics (`keeper/member_warning.go`):
+
+- Validates `member` is a parseable address and `reason` is non-empty
+  (`ErrEmptyWarningReason`, code 2201); `issuedBy` is supplied by the caller —
+  typically the caller module's account address so the warning's origin is
+  auditable. `reason` should be a stable short identifier (e.g.
+  `"promoted_hidden_content"`) rather than free-form prose so consumers can
+  filter on it.
+- Allocates a global `id` from `MemberWarningSeq` and computes a **per-member**
+  `warning_number` by counting existing warnings for that member and assigning
+  N+1 — the same numbering `MsgResolveMemberReport` uses, so
+  `ListMemberWarning` / `GetMemberStanding` read a consistent sequence
+  regardless of which path produced the warning. (The count is currently an
+  O(N) scan over all warnings.)
+- Stores the warning and emits `member_warning_issued`. It does **not** touch
+  the salvation counters (`epoch_salvations` / `last_salvation_epoch`); like all
+  warnings, the accumulated warning count feeds the existing auto-demotion
+  threshold rather than the salvation window.
+
+**Consumers.** x/forum's `ExpireHiddenPosts` calls `IssueWarning` to warn the
+post **promoter** (the member who called `MsgMakePostPermanent`, when distinct
+from the author — self-promotion is not a vouching act) with reason
+`"promoted_hidden_content"` and the post ID as evidence, when a hidden post
+times out unappealed. x/collect may use the same surface for analogous
+curator/promoter accountability.
+
+#### Remaining accountability state
+
+```protobuf
 // proto/sparkdream/rep/v1/gov_action_appeal.proto
 message GovActionAppeal {
   uint64          id                   = 1;

@@ -12,6 +12,25 @@ CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
+wait_for_tx() {
+    local TXHASH=$1
+    local MAX_ATTEMPTS=20
+    local ATTEMPT=0
+
+    while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+        RESULT=$($BINARY q tx $TXHASH --output json 2>&1)
+        if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then
+            echo "$RESULT"
+            return 0
+        fi
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 1
+    done
+
+    echo "ERROR: Transaction $TXHASH not found after $MAX_ATTEMPTS attempts" >&2
+    return 1
+}
+
 GROUP_NAME="Commons Operations Committee"
 
 echo "Looking up '$GROUP_NAME'..."
@@ -64,10 +83,13 @@ TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Tx Hash: $TX_HASH"
 echo "Waiting for block inclusion..."
-sleep 3
+TX_RES=$(wait_for_tx $TX_HASH)
+if [ $? -ne 0 ]; then
+    echo "[FAIL] ERROR: Submit tx $TX_HASH never landed in a block."
+    exit 1
+fi
 
-# Query Tx to find the Proposal ID — x/commons emits "submit_proposal" events
-TX_RES=$($BINARY query tx $TX_HASH --output json)
+# Extract Proposal ID — x/commons emits "submit_proposal" events
 PROPOSAL_ID=$(echo $TX_RES | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
 if [ -z "$PROPOSAL_ID" ]; then
@@ -94,7 +116,11 @@ echo "Votes cast. Early acceptance triggers when threshold is met..."
 echo "Executing Proposal $PROPOSAL_ID..."
 EXEC_RES=$($BINARY tx commons execute-proposal $PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
 EXEC_TX_HASH=$(echo $EXEC_RES | jq -r '.txhash')
-sleep 3
+EXEC_TX_JSON=$(wait_for_tx $EXEC_TX_HASH)
+if [ $? -ne 0 ]; then
+    echo "[FAIL] ERROR: Execute tx $EXEC_TX_HASH never landed in a block."
+    exit 1
+fi
 
 # Verify Execution by checking proposal status
 PROP_STATUS=$($BINARY query commons get-proposal $PROPOSAL_ID --output json | jq -r '.proposal.status')
@@ -102,7 +128,6 @@ if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
     echo "[ OK ] Execution Successful (status=$PROP_STATUS)."
 else
     echo "[FAIL] Execution did not complete (status=$PROP_STATUS)."
-    EXEC_TX_JSON=$($BINARY query tx $EXEC_TX_HASH --output json 2>/dev/null)
     echo "Exec Tx Raw Log: $(echo $EXEC_TX_JSON | jq -r '.raw_log // empty' 2>/dev/null)"
     exit 1
 fi

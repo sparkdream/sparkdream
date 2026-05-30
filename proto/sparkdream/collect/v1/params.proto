@@ -173,4 +173,91 @@ message Params {
   // Propagated to x/rep BondedRoleConfig via SyncCuratorBondedRoleConfig.
   // Zero = immediate withdrawal (legacy behavior).
   int64 curator_unbond_cooldown = 66;
+
+  // make_permanent_min_trust_level is the minimum trust level a caller of
+  // MsgMakeCollectionPermanent must hold (0–4). Default PROVISIONAL (1) —
+  // lower than pin_min_trust_level because preservation (committing the
+  // deposit so the collection never expires) is a smaller curator action
+  // than featuring it on the pinned list.
+  uint32 make_permanent_min_trust_level = 67;
+
+  // max_make_permanent_per_day caps MsgMakeCollectionPermanent calls per
+  // address per UTC day. Independent of max_pins_per_day — promoting an
+  // ephemeral to permanent is a distinct curator action with its own quota.
+  uint32 max_make_permanent_per_day = 75;
+
+  // --- Non-member collaboration parameters — OPERATIONAL ---
+  //
+  // Non-members may be invited as EDITOR collaborators on member-owned
+  // collections. The inviter (owner or ADMIN) locks
+  // non_member_collab_dream_stake DREAM at MsgAddCollaborator time and must
+  // meet min_sponsor_trust_level. Stake is refunded on MsgRemoveCollaborator
+  // (and on TTL expiry / DeleteCollection) when the collection's status is
+  // ACTIVE; a fraction (non_member_collab_burn_fraction) is burned and the
+  // remainder refunded when the status is HIDDEN at removal/deletion time.
+  // Non-members cannot hold the ADMIN role and cannot be promoted to it via
+  // MsgUpdateCollaboratorRole.
+
+  // non_member_collab_dream_stake is the DREAM amount the inviter locks per
+  // non-member collaborator.
+  string non_member_collab_dream_stake = 68 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // non_member_collab_burn_fraction is the fraction of the inviter's locked
+  // DREAM that is burned when the collaborator exits while the collection is
+  // HIDDEN. Must be in [0, 1]. Default 0.5 — heavier than
+  // endorsement_deletion_burn_fraction because HIDDEN is an explicit
+  // misconduct signal, not just abandonment.
+  string non_member_collab_burn_fraction = 69 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // max_non_member_collaborators_per_collection caps how many slots within a
+  // single collection may be held by non-member collaborators. Must be
+  // <= max_collaborators_per_collection.
+  uint32 max_non_member_collaborators_per_collection = 70;
+
+  // max_promotions_per_block caps the membership-driven promotion-queue drain
+  // (Phase 0 in EndBlocker). Each unit of work — releasing an inviter's
+  // collaborator stake or flipping an owned ephemeral collection to permanent
+  // — counts against this cap. Zero disables the drain. Mirrors the matching
+  // forum/blog parameter.
+  uint32 max_promotions_per_block = 71;
+
+  // --- Slash rep-penalty parameters — OPERATIONAL ---
+  //
+  // Per-tag reputation deduction applied alongside DREAM-burn slash paths.
+  // Deduction loops over the collection's own tags so the penalty lands in
+  // the topic areas the actor claimed expertise in. Floored at zero by
+  // x/rep's DeductReputation.
+
+  // endorser_rep_penalty is the per-tag rep deduction on an endorser when
+  // their endorsed collection is hidden and the hide stands (sentinel hide
+  // unappealed or appeal rejected). Fires alongside the BurnDREAM of the
+  // endorsement stake.
+  string endorser_rep_penalty = 72 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // collab_inviter_rep_penalty is the per-tag rep deduction on a
+  // collaborator-inviter when the collaborator exits a HIDDEN collection and
+  // the inviter's stake is fractionally burned. Lower than
+  // endorser_rep_penalty because vouching for a person's future contributions
+  // is a weaker claim than vouching for specific content quality.
+  string collab_inviter_rep_penalty = 73 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // author_rep_penalty is the per-tag rep deduction on a collection creator
+  // when a sentinel hides their collection (fires alongside SlashAuthorBond).
+  // Highest of the three because the author authored the bad content.
+  string author_rep_penalty = 74 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }

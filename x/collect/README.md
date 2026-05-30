@@ -7,7 +7,8 @@ The `x/collect` module is a decentralized collection management system for curat
 This module provides:
 
 - **Flexible referencing** — items support NFTs, external links, on-chain references (blog posts, forum threads), and custom typed data
-- **Collaborative collections** — multiple members can manage a collection with role-based permissions (EDITOR, ADMIN)
+- **Collaborative collections** — multiple members can manage a collection with role-based permissions (EDITOR, ADMIN); non-members can be invited as stake-backed EDITORs
+- **Preservation vs. pinning (strict separation)** — `MsgMakeCollectionPermanent` owns the lifecycle (burn deposits, clear TTL), while `MsgPinCollection`/`MsgUnpinCollection` are display-only markers that require an already-permanent target
 - **Privacy-first design** — client-side encryption for private collections; single opaque blob model
 - **Two-tier content system** — members create permanent collections; non-members create TTL (ephemeral) collections with sponsorship pathway to permanence
 - **Quality curation** — bonded curators rate public collections with verdicts and tags; challenges via `x/rep` jury system
@@ -16,6 +17,8 @@ This module provides:
 - **Tiered collection limits** — capacity scales with `x/rep` trust level
 - **Anonymous operations** — anonymous collections and reactions via `x/shield`'s `MsgShieldedExec`
 - **Conviction renewal** — anonymous collections can be sustained if community conviction staking meets threshold
+- **Membership-driven promotion** — when a non-member is admitted, an EndBlocker pass releases their inviters' collaborator stakes and flips their owned ephemeral collections to permanent
+- **Slash rep-penalties** — endorsers, collaborator-inviters, and authors take per-tag reputation deductions alongside their DREAM-burn slash paths
 
 ## Concepts
 
@@ -34,6 +37,32 @@ Three types of deposits:
 3. **Non-member surcharges** — endorsement creation fee (10 SPARK, split on endorsement) + per-item spam tax (0.5 SPARK/item, burned)
 
 For **TTL collections**: deposits held and refunded at expiry. For **permanent collections**: deposits burned immediately (reflects permanent state cost).
+
+### Non-Member Collaborators
+
+A non-member can be invited as an `EDITOR` (never `ADMIN`) on a member-owned
+collection. The inviter (owner or ADMIN meeting `min_sponsor_trust_level`) locks
+`non_member_collab_dream_stake` DREAM (default 100) as accountability. Per
+collection, non-member slots are capped by
+`max_non_member_collaborators_per_collection` (default 2). On removal or
+collection deletion the stake is settled: full refund when the collection is
+ACTIVE; when HIDDEN, `non_member_collab_burn_fraction` (default 0.5) is burned
+and the inviter takes a per-tag `collab_inviter_rep_penalty`. When the
+non-member is later admitted as a member, an EndBlocker pass refunds the
+inviter's stake in full.
+
+### Preservation vs. Pinning
+
+- `MsgMakeCollectionPermanent` — the lifecycle action: burns the escrowed
+  collection + item deposits and clears the TTL. Gated on
+  `make_permanent_min_trust_level` (default PROVISIONAL, lower than pin) with its
+  own daily quota `max_make_permanent_per_day`. Idempotent on already-permanent
+  collections.
+- `MsgPinCollection` / `MsgUnpinCollection` — display-only marker
+  (`Collection.pinned`). Pin requires the target to already be permanent
+  (ephemeral rejected with `ErrCannotPinEphemeral`); gated on
+  `pin_min_trust_level` (default ESTABLISHED) with a shared Pin/Unpin daily
+  counter.
 
 ### Visibility and Encryption
 
@@ -62,7 +91,7 @@ Non-member requests sponsorship → escrowed deposit paid → member sponsors (p
 
 ### Anonymous Collections
 
-Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `MsgCreateCollection`. The shield module verifies ZK proofs demonstrating membership and minimum trust level without revealing identity. Nullifiers prevent double-creation while preserving privacy. The shield module pays gas fees so submitters need zero balance. Pinning converts anonymous ephemeral collections to permanent; the pinner becomes the new owner.
+Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `MsgCreateCollection`. The shield module verifies ZK proofs demonstrating membership and minimum trust level without revealing identity. Nullifiers prevent double-creation while preserving privacy. The shield module pays gas fees so submitters need zero balance. `MsgMakeCollectionPermanent` converts anonymous ephemeral collections to permanent (burning deposits); `MsgPinCollection` is a separate display-only marker that requires the collection to already be permanent.
 
 ## State
 
@@ -70,9 +99,9 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 
 | Object | Key | Description |
 |--------|-----|-------------|
-| `Collection` | `collection/value/{id}` | Collection metadata, status, visibility, encryption |
+| `Collection` | `collection/value/{id}` | Collection metadata, status, visibility, encryption, `pinned` marker, `non_member_collaborator_count` |
 | `Item` | `item/value/{id}` | Collection item with references and attributes |
-| `Collaborator` | `collaborator/value/{collectionID}/{address}` | Collaborator role entry (EDITOR, ADMIN) |
+| `Collaborator` | `collaborator/value/{collectionID}/{address}` | Collaborator role entry (EDITOR, ADMIN); non-members carry `inviter` + `dream_stake` |
 | `Curator` | `curator/value/{address}` | Curator registration and bond |
 | `CurationReview` | `curation_review/value/{id}` | Curator review record |
 | `CurationSummary` | `curation_summary/value/{collectionID}` | Aggregated verdict counts and top tags |
@@ -101,7 +130,8 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 | `HideRecordExpiry` | Hide/appeal timeout index |
 | `EndorsementPending` | Unendorsed collections auto-prune |
 | `EndorsementStakeExpiry` | Endorser stake release index |
-| `ReactionLimit` | Per-address daily reaction counter |
+| `ReactionLimit` | Per-address daily reaction counter (also backs `pin` and `make_permanent` daily quotas) |
+| `PromotionQueue` | Addresses awaiting membership-driven EndBlocker promotion (Phase 0) |
 
 ## Messages
 
@@ -128,9 +158,9 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgAddCollaborator` | Add member as EDITOR or ADMIN | Owner only |
-| `MsgRemoveCollaborator` | Remove collaborator | Owner only |
-| `MsgUpdateCollaboratorRole` | Change EDITOR/ADMIN; only owner can grant ADMIN | Owner only |
+| `MsgAddCollaborator` | Add member (any role) or non-member (EDITOR only; inviter locks `non_member_collab_dream_stake` DREAM, must meet `min_sponsor_trust_level`) | Owner or ADMIN |
+| `MsgRemoveCollaborator` | Remove collaborator; settles non-member inviter stake (full refund if ACTIVE, fractional burn + rep penalty if HIDDEN) | Owner or ADMIN |
+| `MsgUpdateCollaboratorRole` | Change EDITOR/ADMIN; only owner can grant ADMIN; non-members cannot be promoted to ADMIN | Owner or ADMIN |
 
 ### Curation
 
@@ -168,18 +198,20 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgFlagContent` | Report inappropriate content (builds review queue) | Any member |
-| `MsgHideContent` | Hide flagged content (auth + bond commit/release/slash via x/rep `BondedRole(ROLE_TYPE_FORUM_SENTINEL)`) | Active forum sentinel |
-| `MsgAppealHide` | Appeal hide decision; 50% fee refunded on timeout | Content owner |
+| `MsgHideContent` | Hide flagged content (auth + bond commit/release/slash via x/rep `BondedRole(ROLE_TYPE_FORUM_SENTINEL)`); slashes author bond and applies per-tag `author_rep_penalty` on collection hides | Active forum sentinel |
+| `MsgAppealHide` | Appeal hide decision; 50% fee refunded on timeout. Cannot self-delete a HIDDEN collection (`ErrCannotDeleteHidden`) — must appeal first | Content owner |
 
 ### Anonymous Operations (via x/shield)
 
 Anonymous collections and reactions are submitted via `x/shield`'s `MsgShieldedExec` wrapping standard collect messages (`MsgCreateCollection`, `MsgUpvoteContent`, `MsgDownvoteContent`). The shield module handles ZK proof verification, nullifier management, and module-paid gas. The collect module implements the `ShieldAware` interface to validate shielded messages.
 
-### Pinning
+### Preservation and Pinning
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgPinCollection` | Convert ephemeral collection to permanent (burns deposits) | ESTABLISHED+ trust level |
+| `MsgMakeCollectionPermanent` | Flip an ephemeral collection to permanent (burns escrowed deposits, clears TTL); idempotent on permanent collections | `make_permanent_min_trust_level`+ (default PROVISIONAL) |
+| `MsgPinCollection` | Set the display-only `pinned` marker; requires an already-permanent target (`ErrCannotPinEphemeral` otherwise) | `pin_min_trust_level`+ (default ESTABLISHED) |
+| `MsgUnpinCollection` | Clear the display-only `pinned` marker | `pin_min_trust_level`+ |
 
 ### Parameter Updates
 
@@ -244,6 +276,8 @@ These can only be changed via `x/gov` proposal (`MsgUpdateParams`).
 | `max_ttl_blocks` | int64 | 0 | Member TTL ceiling (0 = unlimited) |
 | `max_non_member_ttl_blocks` | int64 | 432,000 | Non-member TTL ceiling (~30 days) |
 | `max_prune_per_block` | uint32 | 100 | EndBlocker prune operations per block |
+| `max_non_member_collaborators_per_collection` | uint32 | 2 | Per-collection non-member slot cap (≤ `max_collaborators_per_collection`) |
+| `max_promotions_per_block` | uint32 | 50 | EndBlocker Phase 0 promotion-queue work-unit cap (0 disables) |
 
 ### Operationally-Controlled
 
@@ -289,8 +323,15 @@ These can be updated by the Commons Council Operations Committee via `MsgUpdateO
 | `endorsement_deletion_burn_fraction` | LegacyDec | 10% | Fraction burned on endorsed collection deletion |
 | `conviction_renewal_threshold` | LegacyDec | 0 | Conviction to sustain anonymous TTL (0 = disabled) |
 | `conviction_renewal_period` | int64 | 432,000 | TTL extension period (~30 days) |
-| `pin_min_trust_level` | uint32 | 2 | Min trust to pin collections |
-| `max_pins_per_day` | uint32 | 10 | Per-address daily pin limit |
+| `pin_min_trust_level` | uint32 | 2 | Min trust to pin / unpin collections |
+| `max_pins_per_day` | uint32 | 10 | Per-address daily pin limit (shared Pin/Unpin counter) |
+| `make_permanent_min_trust_level` | uint32 | 1 | Min trust to make a collection permanent (PROVISIONAL) |
+| `max_make_permanent_per_day` | uint32 | 5 | Per-address daily make-permanent limit (UTC day) |
+| `non_member_collab_dream_stake` | Int | 100 | DREAM the inviter locks per non-member collaborator |
+| `non_member_collab_burn_fraction` | LegacyDec | 50% | Stake fraction burned when a collaborator exits a HIDDEN collection |
+| `endorser_rep_penalty` | LegacyDec | 10 | Per-tag rep deducted from an endorser on a standing-hide stake burn |
+| `collab_inviter_rep_penalty` | LegacyDec | 5 | Per-tag rep deducted from a collaborator-inviter on a HIDDEN-exit burn |
+| `author_rep_penalty` | LegacyDec | 15 | Per-tag rep deducted from the author when a sentinel hides their collection |
 
 ## Dependencies
 
@@ -306,17 +347,20 @@ These can be updated by the Commons Council Operations Committee via `MsgUpdateO
 
 ## EndBlocker
 
-The EndBlocker processes up to `max_prune_per_block` state changes across six tasks (shared budget):
+**Phase 0 — Membership-driven promotion** (independent budget `max_promotions_per_block`, runs first): drains the `PromotionQueue` populated when members are admitted. Each work unit either releases a non-member collaborator inviter's locked DREAM (full refund) or flips one of the new member's owned ephemeral collections to permanent (burning deposits, refunding endorsement fees / releasing endorser stakes as applicable). HIDDEN collections are skipped. Partial progress is preserved across blocks.
+
+The remaining tasks share the `max_prune_per_block` budget:
 
 1. **TTL Collection Pruning** — expire collections past their `expires_at`:
    - Anonymous collection with conviction >= threshold: renew TTL
+   - HIDDEN collection with an in-flight hide appeal: deletion deferred (retried next block) until the appeal resolves
    - Otherwise: delete collection, refund TTL deposits
 
 2. **Sponsorship Request Expiry** — refund escrowed deposits for expired requests
 
 3. **Hide Record Expiry** — process unappealed and appealed hides:
-   - Unappealed: delete content, release sentinel bond
-   - Appealed: restore content, refund 50% appeal fee, release sentinel bond
+   - Unappealed: delete content (status still HIDDEN, so endorser/collaborator stakes are burned with their per-tag rep penalties), release sentinel bond
+   - Appealed (timeout): restore content, refund 50% appeal fee, release sentinel bond
 
 4. **Flag Expiry** — remove expired flags from review queue
 
@@ -341,6 +385,15 @@ sparkdreamd tx collect delete-collection 1 --from alice
 # Items
 sparkdreamd tx collect add-item 1 --title "Item" --from alice
 sparkdreamd tx collect remove-item 1 --from alice
+
+# Collaborators (non-member target locks inviter DREAM stake)
+sparkdreamd tx collect add-collaborator 1 --address sprkdrm1xyz... --role editor --from alice
+sparkdreamd tx collect remove-collaborator 1 --address sprkdrm1xyz... --from alice
+
+# Preservation & pinning
+sparkdreamd tx collect make-collection-permanent 1 --from alice
+sparkdreamd tx collect pin-collection 1 --from alice
+sparkdreamd tx collect unpin-collection 1 --from alice
 
 # Curation
 sparkdreamd tx collect register-curator --from bob

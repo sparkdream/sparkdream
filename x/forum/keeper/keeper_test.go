@@ -180,6 +180,51 @@ type mockRepKeeper struct {
 	// restoreCalls / restoreError observe RestoreAuthorBond invocations.
 	restoreCalls []reptypes.Stake
 	restoreError error
+	// deductCalls / warningCalls observe the unappealed-hide finalization
+	// hooks (Tier 0 and Tier 1 from the promotion-slash plan).
+	deductCalls  []mockDeductCall
+	warningCalls []mockWarningCall
+
+	// forumRepBalances tracks per-(addr, tag) forum rep credited via
+	// AddForumRep so the conviction-stake accrual test can assert exact
+	// values. DeductForumRep deducts and floors at zero.
+	forumRepBalances map[string]math.LegacyDec
+	// forumRepDeductCalls observes DeductForumRep invocations for the
+	// hide-finalization slash test.
+	forumRepDeductCalls []mockDeductCall
+	// burnDreamCalls observes BurnDREAM invocations so the slash test can
+	// assert the staker's portion was burned.
+	burnDreamCalls []mockBurnDreamCall
+	// lockDreamCalls / unlockDreamCalls observe Lock/Unlock for assertion.
+	lockDreamCalls   []mockLockDreamCall
+	unlockDreamCalls []mockLockDreamCall
+}
+
+type mockBurnDreamCall struct {
+	Addr   string
+	Amount math.Int
+}
+
+type mockLockDreamCall struct {
+	Addr   string
+	Amount math.Int
+}
+
+func forumRepKey(addr, tag string) string {
+	return addr + "|" + tag
+}
+
+type mockDeductCall struct {
+	Addr   string
+	Tag    string
+	Amount math.LegacyDec
+}
+
+type mockWarningCall struct {
+	Member          string
+	IssuedBy        string
+	Reason          string
+	EvidencePostIDs []uint64
 }
 
 func authorBondKey(t reptypes.StakeTargetType, id uint64) string {
@@ -246,14 +291,17 @@ func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amou
 }
 
 func (m *mockRepKeeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	m.burnDreamCalls = append(m.burnDreamCalls, mockBurnDreamCall{Addr: addr.String(), Amount: amount})
 	return nil
 }
 
 func (m *mockRepKeeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	m.lockDreamCalls = append(m.lockDreamCalls, mockLockDreamCall{Addr: addr.String(), Amount: amount})
 	return nil
 }
 
 func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	m.unlockDreamCalls = append(m.unlockDreamCalls, mockLockDreamCall{Addr: addr.String(), Amount: amount})
 	return nil
 }
 
@@ -462,11 +510,56 @@ func (m *mockRepKeeper) UpdateSalvationCounters(_ context.Context, _ string, _ u
 	return nil
 }
 
+func (m *mockRepKeeper) DeductReputation(_ context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	m.deductCalls = append(m.deductCalls, mockDeductCall{Addr: addr.String(), Tag: tag, Amount: amount})
+	return nil
+}
+
+func (m *mockRepKeeper) AddForumRep(_ context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	if m.forumRepBalances == nil {
+		m.forumRepBalances = make(map[string]math.LegacyDec)
+	}
+	key := forumRepKey(addr.String(), tag)
+	prior, ok := m.forumRepBalances[key]
+	if !ok {
+		prior = math.LegacyZeroDec()
+	}
+	m.forumRepBalances[key] = prior.Add(amount)
+	return nil
+}
+
+func (m *mockRepKeeper) DeductForumRep(_ context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	m.forumRepDeductCalls = append(m.forumRepDeductCalls, mockDeductCall{
+		Addr: addr.String(), Tag: tag, Amount: amount,
+	})
+	if m.forumRepBalances != nil {
+		key := forumRepKey(addr.String(), tag)
+		if prior, ok := m.forumRepBalances[key]; ok {
+			next := prior.Sub(amount)
+			if next.IsNegative() {
+				next = math.LegacyZeroDec()
+			}
+			m.forumRepBalances[key] = next
+		}
+	}
+	return nil
+}
+
+func (m *mockRepKeeper) IssueWarning(_ context.Context, member, issuedBy, reason string, evidencePostIDs []uint64) error {
+	m.warningCalls = append(m.warningCalls, mockWarningCall{
+		Member:          member,
+		IssuedBy:        issuedBy,
+		Reason:          reason,
+		EvidencePostIDs: append([]uint64(nil), evidencePostIDs...),
+	})
+	return nil
+}
+
 // mockCommonsKeeper implements types.CommonsKeeper for testing.
 // mockIdentityKeeperForum returns legacy denoms for unit tests.
 type mockIdentityKeeperForum struct{}
 
-func (mockIdentityKeeperForum) IsIdentityKeeper() {}
+func (mockIdentityKeeperForum) IsIdentityKeeper()                      {}
 func (m *mockIdentityKeeperForum) BondDenom(_ context.Context) string  { return "uspark" }
 func (m *mockIdentityKeeperForum) DreamDenom(_ context.Context) string { return "udream" }
 

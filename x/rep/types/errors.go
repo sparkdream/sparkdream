@@ -168,4 +168,7 @@ var (
 	// doesn't accumulate junk proposals with absurd requested amounts).
 	ErrRequestedBudgetExceedsCap = errors.Register(ModuleName, 2104, "requested project budget exceeds the proposal-time cap")
 	ErrRequestedSparkExceedsCap  = errors.Register(ModuleName, 2105, "requested project SPARK exceeds the proposal-time cap")
+
+	// Keeper-internal validation
+	ErrEmptyWarningReason = errors.Register(ModuleName, 2201, "warning reason is required")
 )

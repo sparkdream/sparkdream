@@ -42,12 +42,12 @@ func (k msgServer) MakeReplyPermanent(ctx context.Context, msg *types.MsgMakeRep
 		return nil, k.trustLevelError(ctx, creatorAddr, int32(params.MakePermanentMinTrustLevel), "making replies permanent")
 	}
 
-	if err := k.checkRateLimit(ctx, "pin", creatorAddr, params.MaxPinsPerDay); err != nil {
+	if err := k.checkRateLimit(ctx, "make_permanent", creatorAddr, params.MaxMakePermanentPerDay); err != nil {
 		return nil, err
 	}
 
 	if reply.ExpiresAt == 0 {
-		k.incrementRateLimit(ctx, "pin", creatorAddr)
+		k.incrementRateLimit(ctx, "make_permanent", creatorAddr)
 		return &types.MsgMakeReplyPermanentResponse{}, nil
 	}
 
@@ -60,7 +60,7 @@ func (k msgServer) MakeReplyPermanent(ctx context.Context, msg *types.MsgMakeRep
 	k.RemoveFromExpiryIndex(ctx, oldExpiresAt, "reply", reply.Id)
 	k.RemoveEphemeralAuthorIndex(ctx, reply.Creator, EphemeralKindReply, reply.Id)
 
-	k.incrementRateLimit(ctx, "pin", creatorAddr)
+	k.incrementRateLimit(ctx, "make_permanent", creatorAddr)
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("blog.reply.upgraded",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", msg.Id)),

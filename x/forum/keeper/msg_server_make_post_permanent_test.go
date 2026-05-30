@@ -158,6 +158,38 @@ func TestMsgServerMakePostPermanent(t *testing.T) {
 		require.Contains(t, err.Error(), "invalid creator address")
 	})
 
+	t.Run("records PromotedBy + PromotedAt when promoter != author", func(t *testing.T) {
+		f := initFixture(t)
+		post := createEphemeral(t, f, 0) // author = testCreator
+		_, err := f.msgServer.MakePostPermanent(f.ctx, &types.MsgMakePostPermanent{
+			Creator: testCreator2, // different from post.Author
+			PostId:  post.PostId,
+		})
+		require.NoError(t, err)
+
+		got, err := f.keeper.Post.Get(f.ctx, post.PostId)
+		require.NoError(t, err)
+		require.Equal(t, testCreator2, got.PromotedBy,
+			"PromotedBy must record the cross-member promoter for later accountability")
+		require.Equal(t, f.sdkCtx().BlockTime().Unix(), got.PromotedAt,
+			"PromotedAt must capture the promotion block time")
+	})
+
+	t.Run("does NOT record PromotedBy on self-promote", func(t *testing.T) {
+		f := initFixture(t)
+		post := createEphemeral(t, f, 0)
+		_, err := f.msgServer.MakePostPermanent(f.ctx, &types.MsgMakePostPermanent{
+			Creator: testCreator, // same as post.Author
+			PostId:  post.PostId,
+		})
+		require.NoError(t, err)
+
+		got, err := f.keeper.Post.Get(f.ctx, post.PostId)
+		require.NoError(t, err)
+		require.Empty(t, got.PromotedBy, "self-promote is not a vouching act")
+		require.Zero(t, got.PromotedAt)
+	})
+
 	t.Run("post is no-longer-pinned by MakePermanent (strict separation)", func(t *testing.T) {
 		f := initFixture(t)
 		post := createEphemeral(t, f, 0)

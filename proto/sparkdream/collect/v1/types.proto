@@ -105,6 +105,18 @@ message Collection {
   bool immutable = 26;
   bool conviction_sustained = 27;
   uint64 initiative_id = 28;
+
+  // pinned is a display-only marker set by MsgPinCollection and cleared by
+  // MsgUnpinCollection. Requires the collection to already be permanent
+  // (expires_at == 0); does not affect lifecycle. The lifecycle change
+  // (ephemeral → permanent + deposit burn) is owned by
+  // MsgMakeCollectionPermanent.
+  bool pinned = 29;
+
+  // non_member_collaborator_count counts how many of `collaborator_count` are
+  // non-members (stake-bearing collaborators). Maintained alongside the total
+  // count; bounded by Params.max_non_member_collaborators_per_collection.
+  uint32 non_member_collaborator_count = 30;
 }
 
 // Item represents a single entry within a collection.
@@ -173,6 +185,22 @@ message Collaborator {
   string address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   CollaboratorRole role = 3;
   int64 added_at = 4;
+
+  // inviter is the member who added this collaborator. Set only for non-member
+  // collaborators (members invite themselves implicitly via the trust-level
+  // gate). Used to identify the address whose DREAM stake is locked behind
+  // this collaboration.
+  string inviter = 5 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // dream_stake is the DREAM amount the inviter locked when the collaborator
+  // was added. Zero for member collaborators. Released on RemoveCollaborator
+  // when the collection is ACTIVE; a fraction (non_member_collab_burn_fraction)
+  // is burned and the remainder refunded when the collection is HIDDEN at
+  // removal/deletion time.
+  string dream_stake = 6 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // CurationReview records a curator's verdict on a collection.
@@ -346,6 +374,43 @@ message CollectOperationalParams {
   ];
   uint64 curator_overturn_demotion_streak = 47;
   int64 curator_unbond_cooldown = 48;
+
+  // make_permanent_min_trust_level — see Params.make_permanent_min_trust_level.
+  uint32 make_permanent_min_trust_level = 49;
+
+  // max_make_permanent_per_day — see Params.max_make_permanent_per_day.
+  uint32 max_make_permanent_per_day = 55;
+
+  // non_member_collab_dream_stake is the DREAM amount the inviter locks when
+  // adding a non-member as an EDITOR collaborator. Mirrors the endorsement
+  // stake model but per-collaborator. See Params.non_member_collab_dream_stake.
+  string non_member_collab_dream_stake = 50 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // non_member_collab_burn_fraction is the fraction of the inviter's locked
+  // DREAM that is burned when the collaborator is removed (or the collection
+  // is deleted) while the collection's status is HIDDEN. See
+  // Params.non_member_collab_burn_fraction.
+  string non_member_collab_burn_fraction = 51 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Slash rep-penalty parameters — see Params for rationale.
+  string endorser_rep_penalty = 52 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string collab_inviter_rep_penalty = 53 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string author_rep_penalty = 54 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // CollectionFlag aggregates all flags on a single piece of content.

@@ -92,6 +92,39 @@ var (
 	// Pinning defaults
 	DefaultPinMinTrustLevel uint32 = 2 // ESTABLISHED
 	DefaultMaxPinsPerDay    uint32 = 10
+
+	// MakeCollectionPermanent defaults. Lower than DefaultPinMinTrustLevel
+	// because preservation (committing the deposit so the collection never
+	// expires) is a smaller curator action than featuring it on the pinned
+	// list.
+	DefaultMakePermanentMinTrustLevel uint32 = 1 // PROVISIONAL
+	// DefaultMaxMakePermanentPerDay caps MsgMakeCollectionPermanent per address
+	// per day, independent of MaxPinsPerDay.
+	DefaultMaxMakePermanentPerDay uint32 = 5
+
+	// Non-member collaboration defaults. Stake amount matches the endorsement
+	// stake (same trust signal). Burn fraction is heavier than
+	// DefaultEndorsementDeletionBurnFraction because HIDDEN at exit is an
+	// explicit misconduct signal, not just abandonment. Cap is a sub-cap of
+	// DefaultMaxCollaboratorsPerCollection (20).
+	DefaultNonMemberCollabDreamStake                  = math.NewInt(100_000_000)        // 100 DREAM (in udream)
+	DefaultNonMemberCollabBurnFraction                = math.LegacyNewDecWithPrec(50, 2) // 50%
+	DefaultMaxNonMemberCollaboratorsPerCollection uint32 = 2
+
+	// DefaultMaxPromotionsPerBlock matches the blog/forum cap. Each unit of
+	// work in the EndBlocker promotion drain (a collaborator-stake release or
+	// an owned-collection promotion) counts against the per-block budget.
+	DefaultMaxPromotionsPerBlock uint32 = 50
+
+	// Slash rep-penalty defaults. Magnitudes follow x/reveal's pattern of
+	// small absolute deductions (10–20). Endorser is the strongest claim
+	// (content quality) so it carries the strongest content-aligned penalty;
+	// author is highest because they authored the bad content; inviter is
+	// lowest because vouching for a person's future contributions is the
+	// weakest claim.
+	DefaultEndorserRepPenalty       = math.LegacyNewDec(10)
+	DefaultCollabInviterRepPenalty  = math.LegacyNewDec(5)
+	DefaultAuthorRepPenalty         = math.LegacyNewDec(15)
 )
 
 // DefaultParams returns a default set of parameters.
@@ -155,10 +188,22 @@ func DefaultParams() Params {
 		ConvictionRenewalPeriod:         DefaultConvictionRenewalPeriod,
 		PinMinTrustLevel:                DefaultPinMinTrustLevel,
 		MaxPinsPerDay:                   DefaultMaxPinsPerDay,
+		MakePermanentMinTrustLevel:      DefaultMakePermanentMinTrustLevel,
+		MaxMakePermanentPerDay:          DefaultMaxMakePermanentPerDay,
 		CuratorDemotionCooldown:         DefaultCuratorDemotionCooldown,
 		CuratorDemotionThreshold:        DefaultCuratorDemotionThreshold,
 		CuratorOverturnDemotionStreak:   DefaultCuratorOverturnDemotionStreak,
 		CuratorUnbondCooldown:           DefaultCuratorUnbondCooldown,
+
+		NonMemberCollabDreamStake:                 DefaultNonMemberCollabDreamStake,
+		NonMemberCollabBurnFraction:               DefaultNonMemberCollabBurnFraction,
+		MaxNonMemberCollaboratorsPerCollection:    DefaultMaxNonMemberCollaboratorsPerCollection,
+
+		MaxPromotionsPerBlock: DefaultMaxPromotionsPerBlock,
+
+		EndorserRepPenalty:      DefaultEndorserRepPenalty,
+		CollabInviterRepPenalty: DefaultCollabInviterRepPenalty,
+		AuthorRepPenalty:        DefaultAuthorRepPenalty,
 	}
 }
 
@@ -338,6 +383,28 @@ func (p Params) Validate() error {
 	if p.ConvictionRenewalPeriod < 0 {
 		return fmt.Errorf("conviction_renewal_period must be non-negative: %d", p.ConvictionRenewalPeriod)
 	}
+	if p.NonMemberCollabDreamStake.IsNil() || !p.NonMemberCollabDreamStake.IsPositive() {
+		return fmt.Errorf("non_member_collab_dream_stake must be positive: %s", p.NonMemberCollabDreamStake)
+	}
+	if p.NonMemberCollabBurnFraction.IsNil() || p.NonMemberCollabBurnFraction.IsNegative() {
+		return fmt.Errorf("non_member_collab_burn_fraction must be non-negative: %s", p.NonMemberCollabBurnFraction)
+	}
+	if p.NonMemberCollabBurnFraction.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("non_member_collab_burn_fraction must be <= 1: %s", p.NonMemberCollabBurnFraction)
+	}
+	if p.MaxNonMemberCollaboratorsPerCollection > p.MaxCollaboratorsPerCollection {
+		return fmt.Errorf("max_non_member_collaborators_per_collection (%d) must be <= max_collaborators_per_collection (%d)",
+			p.MaxNonMemberCollaboratorsPerCollection, p.MaxCollaboratorsPerCollection)
+	}
+	if p.EndorserRepPenalty.IsNil() || p.EndorserRepPenalty.IsNegative() {
+		return fmt.Errorf("endorser_rep_penalty must be non-negative: %s", p.EndorserRepPenalty)
+	}
+	if p.CollabInviterRepPenalty.IsNil() || p.CollabInviterRepPenalty.IsNegative() {
+		return fmt.Errorf("collab_inviter_rep_penalty must be non-negative: %s", p.CollabInviterRepPenalty)
+	}
+	if p.AuthorRepPenalty.IsNil() || p.AuthorRepPenalty.IsNegative() {
+		return fmt.Errorf("author_rep_penalty must be non-negative: %s", p.AuthorRepPenalty)
+	}
 	return nil
 }
 
@@ -388,6 +455,12 @@ func (op CollectOperationalParams) Validate() error {
 	if !op.EndorsementDeletionBurnFraction.IsNil() && (op.EndorsementDeletionBurnFraction.IsNegative() || op.EndorsementDeletionBurnFraction.GT(math.LegacyOneDec())) {
 		return fmt.Errorf("endorsement_deletion_burn_fraction must be in [0, 1]: %s", op.EndorsementDeletionBurnFraction)
 	}
+	if !op.NonMemberCollabDreamStake.IsNil() && !op.NonMemberCollabDreamStake.IsPositive() {
+		return fmt.Errorf("non_member_collab_dream_stake must be positive: %s", op.NonMemberCollabDreamStake)
+	}
+	if !op.NonMemberCollabBurnFraction.IsNil() && (op.NonMemberCollabBurnFraction.IsNegative() || op.NonMemberCollabBurnFraction.GT(math.LegacyOneDec())) {
+		return fmt.Errorf("non_member_collab_burn_fraction must be in [0, 1]: %s", op.NonMemberCollabBurnFraction)
+	}
 	if !op.ConvictionRenewalThreshold.IsNil() && op.ConvictionRenewalThreshold.IsNegative() {
 		return fmt.Errorf("conviction_renewal_threshold must be non-negative: %s", op.ConvictionRenewalThreshold)
 	}
@@ -395,6 +468,15 @@ func (op CollectOperationalParams) Validate() error {
 		if _, ok := reptypes.TrustLevel_value[op.MinCuratorTrustLevel]; !ok {
 			return fmt.Errorf("invalid min_curator_trust_level: %s", op.MinCuratorTrustLevel)
 		}
+	}
+	if !op.EndorserRepPenalty.IsNil() && op.EndorserRepPenalty.IsNegative() {
+		return fmt.Errorf("endorser_rep_penalty must be non-negative: %s", op.EndorserRepPenalty)
+	}
+	if !op.CollabInviterRepPenalty.IsNil() && op.CollabInviterRepPenalty.IsNegative() {
+		return fmt.Errorf("collab_inviter_rep_penalty must be non-negative: %s", op.CollabInviterRepPenalty)
+	}
+	if !op.AuthorRepPenalty.IsNil() && op.AuthorRepPenalty.IsNegative() {
+		return fmt.Errorf("author_rep_penalty must be non-negative: %s", op.AuthorRepPenalty)
 	}
 	return nil
 }
@@ -523,6 +605,12 @@ func (p Params) ApplyOperationalParams(op CollectOperationalParams) Params {
 	if op.MaxPinsPerDay > 0 {
 		p.MaxPinsPerDay = op.MaxPinsPerDay
 	}
+	if op.MakePermanentMinTrustLevel > 0 {
+		p.MakePermanentMinTrustLevel = op.MakePermanentMinTrustLevel
+	}
+	if op.MaxMakePermanentPerDay > 0 {
+		p.MaxMakePermanentPerDay = op.MaxMakePermanentPerDay
+	}
 	// Curator bonded-role demotion config.
 	if op.CuratorDemotionCooldown > 0 {
 		p.CuratorDemotionCooldown = op.CuratorDemotionCooldown
@@ -538,5 +626,23 @@ func (p Params) ApplyOperationalParams(op CollectOperationalParams) Params {
 	// is the source of truth for it, including the ability to flip it back
 	// to zero.
 	p.CuratorUnbondCooldown = op.CuratorUnbondCooldown
+	// Non-member collaboration. Stake amount and burn fraction copy on
+	// presence; max sub-cap is governance-only and not in op.
+	if !op.NonMemberCollabDreamStake.IsNil() {
+		p.NonMemberCollabDreamStake = op.NonMemberCollabDreamStake
+	}
+	if !op.NonMemberCollabBurnFraction.IsNil() {
+		p.NonMemberCollabBurnFraction = op.NonMemberCollabBurnFraction
+	}
+	// Slash rep-penalty parameters.
+	if !op.EndorserRepPenalty.IsNil() {
+		p.EndorserRepPenalty = op.EndorserRepPenalty
+	}
+	if !op.CollabInviterRepPenalty.IsNil() {
+		p.CollabInviterRepPenalty = op.CollabInviterRepPenalty
+	}
+	if !op.AuthorRepPenalty.IsNil() {
+		p.AuthorRepPenalty = op.AuthorRepPenalty
+	}
 	return p
 }

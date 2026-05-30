@@ -165,7 +165,19 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       sentinel_demotion_cooldown: (.sentinel_demotion_cooldown // "0"),
       sentinel_demotion_threshold: (.sentinel_demotion_threshold // "0"),
       sentinel_unhide_window: (.sentinel_unhide_window // "0"),
-      sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0")
+      sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0"),
+      make_permanent_min_trust_level: (.make_permanent_min_trust_level // 0),
+      max_make_permanent_per_day: (.max_make_permanent_per_day // "10"),
+      max_promotions_per_block: (
+        if (.max_promotions_per_block // 0) > 0
+        then .max_promotions_per_block else 50 end
+      ),
+      author_rep_slash: (.author_rep_slash // "5000000000000000000"),
+      min_post_conviction_stake: (.min_post_conviction_stake // "10000000"),
+      post_conviction_lock_seconds: (.post_conviction_lock_seconds // "1209600"),
+      post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "50000000000000000"),
+      max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
+      post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500")
     }')
 
     # Modify test fields: double the ephemeral TTL and spam tax
@@ -343,7 +355,19 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       sentinel_demotion_cooldown: (.sentinel_demotion_cooldown // "0"),
       sentinel_demotion_threshold: (.sentinel_demotion_threshold // "0"),
       sentinel_unhide_window: (.sentinel_unhide_window // "0"),
-      sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0")
+      sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0"),
+      make_permanent_min_trust_level: (.make_permanent_min_trust_level // 0),
+      max_make_permanent_per_day: (.max_make_permanent_per_day // "10"),
+      max_promotions_per_block: (
+        if (.max_promotions_per_block // 0) > 0
+        then .max_promotions_per_block else 50 end
+      ),
+      author_rep_slash: (.author_rep_slash // "5000000000000000000"),
+      min_post_conviction_stake: (.min_post_conviction_stake // "10000000"),
+      post_conviction_lock_seconds: (.post_conviction_lock_seconds // "1209600"),
+      post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "50000000000000000"),
+      max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
+      post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500")
     }')
 
     jq -n \

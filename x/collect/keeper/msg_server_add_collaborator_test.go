@@ -2,12 +2,16 @@ package keeper_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestAddCollaborator(t *testing.T) {
@@ -40,9 +44,8 @@ func TestAddCollaborator(t *testing.T) {
 			},
 		},
 		{
-			name: "error: target is not a member",
+			name: "success: owner adds non-member as EDITOR with locked stake",
 			setup: func(f *testFixture) uint64 {
-				// Override isMemberFn to return false for nonMember
 				f.repKeeper.isMemberFn = func(_ context.Context, addr sdk.AccAddress) bool {
 					return addr.Equals(f.ownerAddr) || addr.Equals(f.memberAddr) || addr.Equals(f.sentinelAddr)
 				}
@@ -56,8 +59,110 @@ func TestAddCollaborator(t *testing.T) {
 					Role:         types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR,
 				}
 			},
+			expErr: false,
+			check: func(t *testing.T, f *testFixture, collID uint64) {
+				coll, err := f.keeper.Collection.Get(f.ctx, collID)
+				require.NoError(t, err)
+				require.Equal(t, uint32(1), coll.CollaboratorCount)
+				require.Equal(t, uint32(1), coll.NonMemberCollaboratorCount)
+
+				key := keeper.CollaboratorCompositeKey(collID, f.nonMember)
+				collab, err := f.keeper.Collaborator.Get(f.ctx, key)
+				require.NoError(t, err)
+				require.Equal(t, f.owner, collab.Inviter)
+
+				params, err := f.keeper.Params.Get(f.ctx)
+				require.NoError(t, err)
+				require.True(t, collab.DreamStake.Equal(params.NonMemberCollabDreamStake),
+					"expected stake %s, got %s", params.NonMemberCollabDreamStake, collab.DreamStake)
+			},
+		},
+		{
+			name: "error: cannot add non-member as ADMIN",
+			setup: func(f *testFixture) uint64 {
+				f.repKeeper.isMemberFn = func(_ context.Context, addr sdk.AccAddress) bool {
+					return addr.Equals(f.ownerAddr) || addr.Equals(f.memberAddr) || addr.Equals(f.sentinelAddr)
+				}
+				return f.createCollection(t, f.owner)
+			},
+			msg: func(f *testFixture, collID uint64) *types.MsgAddCollaborator {
+				return &types.MsgAddCollaborator{
+					Creator:      f.owner,
+					CollectionId: collID,
+					Address:      f.nonMember,
+					Role:         types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN,
+				}
+			},
 			expErr:         true,
-			expErrContains: "not an active x/rep member",
+			expErrContains: "non-members cannot hold ADMIN role",
+		},
+		{
+			name: "error: inviter below min sponsor trust level",
+			setup: func(f *testFixture) uint64 {
+				f.repKeeper.isMemberFn = func(_ context.Context, addr sdk.AccAddress) bool {
+					return addr.Equals(f.ownerAddr) || addr.Equals(f.memberAddr) || addr.Equals(f.sentinelAddr)
+				}
+				f.repKeeper.getTrustLevelFn = func(_ context.Context, _ sdk.AccAddress) (reptypes.TrustLevel, error) {
+					return reptypes.TrustLevel_TRUST_LEVEL_PROVISIONAL, nil
+				}
+				return f.createCollection(t, f.owner)
+			},
+			msg: func(f *testFixture, collID uint64) *types.MsgAddCollaborator {
+				return &types.MsgAddCollaborator{
+					Creator:      f.owner,
+					CollectionId: collID,
+					Address:      f.nonMember,
+					Role:         types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR,
+				}
+			},
+			expErr:         true,
+			expErrContains: "inviter below min sponsor trust level",
+		},
+		{
+			name: "error: non-member sub-cap reached",
+			setup: func(f *testFixture) uint64 {
+				f.repKeeper.isMemberFn = func(_ context.Context, addr sdk.AccAddress) bool {
+					return addr.Equals(f.ownerAddr) || addr.Equals(f.memberAddr) || addr.Equals(f.sentinelAddr)
+				}
+				collID := f.createCollection(t, f.owner)
+				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
+				params, _ := f.keeper.Params.Get(f.ctx)
+				coll.NonMemberCollaboratorCount = params.MaxNonMemberCollaboratorsPerCollection
+				f.keeper.Collection.Set(f.ctx, collID, coll)
+				return collID
+			},
+			msg: func(f *testFixture, collID uint64) *types.MsgAddCollaborator {
+				return &types.MsgAddCollaborator{
+					Creator:      f.owner,
+					CollectionId: collID,
+					Address:      f.nonMember,
+					Role:         types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR,
+				}
+			},
+			expErr:         true,
+			expErrContains: "max non-member collaborators",
+		},
+		{
+			name: "error: inviter has insufficient DREAM",
+			setup: func(f *testFixture) uint64 {
+				f.repKeeper.isMemberFn = func(_ context.Context, addr sdk.AccAddress) bool {
+					return addr.Equals(f.ownerAddr) || addr.Equals(f.memberAddr) || addr.Equals(f.sentinelAddr)
+				}
+				f.repKeeper.lockDREAMFn = func(_ context.Context, _ sdk.AccAddress, _ math.Int) error {
+					return errors.New("insufficient DREAM balance")
+				}
+				return f.createCollection(t, f.owner)
+			},
+			msg: func(f *testFixture, collID uint64) *types.MsgAddCollaborator {
+				return &types.MsgAddCollaborator{
+					Creator:      f.owner,
+					CollectionId: collID,
+					Address:      f.nonMember,
+					Role:         types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR,
+				}
+			},
+			expErr:         true,
+			expErrContains: "failed to lock inviter DREAM stake",
 		},
 		{
 			name: "error: already collaborator",

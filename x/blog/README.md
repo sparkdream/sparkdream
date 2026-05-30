@@ -13,7 +13,7 @@ This module provides:
 - **Reactions** — fixed-set reaction system (Like, Insightful, Disagree, Funny)
 - **Ephemeral content** — non-member and anonymous content auto-expires with TTL
 - **Conviction renewal** — community conviction staking can extend ephemeral content indefinitely
-- **Pinning** — trusted members can convert ephemeral content to permanent
+- **Make-permanent** — trusted members promote ephemeral content to permanent (own per-day quota); **Pinning** is a separate display-only marker on already-permanent content
 - **Rate limiting** — per-address daily limits on all content actions
 - **Storage fees** — per-byte fees burned on creation/expansion
 
@@ -98,7 +98,9 @@ Each user can have at most one reaction per target. Reacting again changes the r
 | `MsgDeletePost` | Tombstone a post (clears content, preserves structure) | Post creator only |
 | `MsgHidePost` | Soft-hide a post (excluded from lists, content preserved) | Post creator only |
 | `MsgUnhidePost` | Restore a hidden post | Post creator only |
-| `MsgPinPost` | Convert ephemeral post to permanent | ESTABLISHED+ trust level |
+| `MsgMakePostPermanent` | Promote an ephemeral post to permanent (clears `expires_at`); display markers untouched | PROVISIONAL+ trust level |
+| `MsgPinPost` | Set the pinned display marker on an already-permanent post | ESTABLISHED+ trust level |
+| `MsgUnpinPost` | Clear the pinned display marker (post stays permanent) | ESTABLISHED+ trust level |
 
 ### Reply Operations
 
@@ -109,7 +111,9 @@ Each user can have at most one reaction per target. Reacting again changes the r
 | `MsgDeleteReply` | Tombstone a reply | Reply creator only |
 | `MsgHideReply` | Soft-hide a reply on your post | Post author only |
 | `MsgUnhideReply` | Restore a hidden reply | Post author only |
-| `MsgPinReply` | Convert ephemeral reply to permanent | ESTABLISHED+ trust level |
+| `MsgMakeReplyPermanent` | Promote an ephemeral reply to permanent (clears `expires_at`); display markers untouched | PROVISIONAL+ trust level |
+| `MsgPinReply` | Set the pinned display marker on an already-permanent reply | ESTABLISHED+ trust level |
+| `MsgUnpinReply` | Clear the pinned display marker (reply stays permanent) | ESTABLISHED+ trust level |
 
 ### Reactions
 
@@ -157,7 +161,8 @@ These can only be changed via `x/gov` proposal (`MsgUpdateParams`).
 | `max_body_length` | uint64 | 10,000 | Maximum post body length (chars) |
 | `max_reply_length` | uint64 | 2,000 | Maximum reply body length (bytes) |
 | `max_reply_depth` | uint32 | 5 | Maximum reply nesting depth |
-| `pin_min_trust_level` | uint32 | 2 | Minimum trust level to pin content |
+| `pin_min_trust_level` | uint32 | 2 | Minimum trust level to set the pinned display marker |
+| `make_permanent_min_trust_level` | uint32 | 1 | Minimum trust level to promote ephemeral content to permanent |
 | `min_ephemeral_content_ttl` | int64 | 86,400 | Floor for ephemeral TTL (seconds) |
 | `max_cost_per_byte` | Coin | 1,000 uspark | Ceiling for storage fee |
 | `max_reaction_fee` | Coin | 500 uspark | Ceiling for reaction fee |
@@ -175,7 +180,8 @@ These can be updated by the Commons Council Operations Committee via `MsgUpdateO
 | `max_posts_per_day` | uint32 | 10 | Per-address daily post limit |
 | `max_replies_per_day` | uint32 | 50 | Per-address daily reply limit |
 | `max_reactions_per_day` | uint32 | 100 | Per-address daily reaction limit |
-| `max_pins_per_day` | uint32 | 20 | Per-address daily pin limit |
+| `max_pins_per_day` | uint32 | 20 | Per-address daily pin / unpin limit |
+| `max_make_permanent_per_day` | uint32 | 10 | Per-address daily limit for `MakePostPermanent` + `MakeReplyPermanent` (shared counter, independent of `max_pins_per_day` and `max_posts_per_day`) |
 | `ephemeral_content_ttl` | int64 | 604,800 | TTL for ephemeral content (seconds, default 7 days) |
 | `conviction_renewal_threshold` | LegacyDec | 100.0 | Minimum conviction score to extend TTL |
 | `conviction_renewal_period` | int64 | 604,800 | Duration to extend TTL by (seconds) |
@@ -215,7 +221,8 @@ sparkdreamd tx blog update-post 1 --title "Updated" --from alice
 sparkdreamd tx blog delete-post 1 --from alice
 sparkdreamd tx blog hide-post 1 --from alice
 sparkdreamd tx blog unhide-post 1 --from alice
-sparkdreamd tx blog pin-post 1 --from bob
+sparkdreamd tx blog make-post-permanent 1 --from alice  # promote ephemeral -> permanent
+sparkdreamd tx blog pin-post 1 --from bob               # display marker (post must already be permanent)
 
 # Replies
 sparkdreamd tx blog create-reply 1 --body "Great post!" --from bob

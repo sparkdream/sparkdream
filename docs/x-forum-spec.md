@@ -108,7 +108,7 @@ This model is simpler than debt-based systems because DREAM pools don't overlap 
 
 ### 4.1. Post
 
-> **Implementation note:** The actual proto (`proto/sparkdream/forum/v1/post.proto`) uses `post_id` instead of `id`, and does not have an `archive_count` field. Field numbering differs from the design spec below. The `tags` field is at field 30 (not 7), `content_type` is at field 31, `initiative_id` at field 32, and `conviction_sustained` at field 33.
+> **Implementation note:** The actual proto (`proto/sparkdream/forum/v1/post.proto`) uses `post_id` instead of `id`, and does not have an `archive_count` field. Field numbering differs from the design spec below. The `tags` field is at field 30 (not 7), `content_type` is at field 31, `initiative_id` at field 32, `conviction_sustained` at field 33, `promoted_by` at field 34, and `promoted_at` at field 35.
 
 ```protobuf
 // proto/sparkdream/forum/v1/post.proto (actual implementation)
@@ -163,6 +163,10 @@ message Post {
   // Cross-Module Conviction Propagation (optional initiative reference)
   uint64 initiative_id = 32;                              // x/rep initiative referenced by this post (0 = none, immutable after creation)
   bool conviction_sustained = 33;                         // True if content has entered conviction-sustained state (TTL extended by community conviction)
+
+  // Promoter accountability (set by MsgMakePostPermanent)
+  string promoted_by = 34;                                // Member who promoted this ephemeral to permanent; empty if still ephemeral or promoted via author auto-promotion / self-promotion
+  int64 promoted_at = 35;                                 // Block-time (unix seconds) of the MsgMakePostPermanent call; 0 when promoted_by is empty
 }
 
 // PostStatus is defined in types.proto
@@ -237,12 +241,22 @@ import "cosmos_proto/cosmos.proto";
 
 // Epoch-based rate limit - fixed memory, no unbounded growth
 // Uses sliding window approximation: previous_epoch_count * overlap_ratio + current_epoch_count
+// Counters are split by action class: the post counter (fields 2-5) bounds
+// CreatePost against daily_post_limit; the make-permanent counter (fields 6-8)
+// bounds MakePostPermanent against max_make_permanent_per_day. Both are on the
+// same record to avoid an extra collection lookup per call, and each uses the
+// same sliding-window approximation independently.
 message UserRateLimit {
   string user_address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 current_epoch_count = 2;                        // Posts in current epoch
   uint64 previous_epoch_count = 3;                       // Posts in previous epoch (for overlap calculation)
   int64  current_epoch_start = 4;                        // Timestamp when current epoch started
   int64  last_post_time = 5;                             // Last post timestamp (for activity tracking)
+
+  // MakePostPermanent sliding-window counters, mirrored from the post counter.
+  uint64 make_permanent_current_epoch_count = 6;         // MakePermanent calls in current epoch
+  uint64 make_permanent_previous_epoch_count = 7;        // MakePermanent calls in previous epoch (for overlap)
+  int64  make_permanent_current_epoch_start = 8;         // Timestamp when current make-permanent epoch started
 }
 
 // Unified reaction rate limit - tracks ALL reactions (upvotes + downvotes, public + private) per 24h rolling window
@@ -270,6 +284,35 @@ message ReactionRecord {
 
 // REMOVED — AnonymousReactionMetadata deleted. Private reactions now routed through
 // x/shield's MsgShieldedExec. Nullifier tracking managed by x/shield's centralized store.
+
+// PostConvictionStake records an ESTABLISHED+ member's DREAM lock backing a
+// post's author. While the stake is active, the EndBlocker streams per-tag
+// forum reputation to the author (split evenly across the post's tags). On a
+// confirmed sentinel hide (ExpireHiddenPosts), the accrued rep is clawed back
+// from the author per tag and post_conviction_staker_slash_bps of the staker's
+// locked DREAM is burned. Stakers cannot stake on their own posts.
+// (proto/sparkdream/forum/v1/types.proto)
+message PostConvictionStake {
+  uint64 id = 1;
+  string staker = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 3;
+  string amount = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];  // uDREAM locked
+  int64 staked_at = 5;
+  int64 unlocks_at = 6;                                  // staked_at + post_conviction_lock_seconds
+  map<string, string> accrued_rep_per_tag = 7;          // tag -> LegacyDec; exact rep this stake minted to the author, so a hide can claw back precisely
+  int64 last_accrual_at = 8;                             // last EndBlocker tick that credited rep (init = staked_at)
+  bool released = 9;                                     // set on MsgReleasePostConviction; retained until GC after the hide-appeal window
+}
+
+// ForumRepEpochCounter caps per-(author, tag) forum rep earned in a single
+// UTC-day epoch (max_forum_rep_per_tag_per_epoch). Reset implicitly by
+// comparing epoch_id to floor(block_time / 86400) on read — a stale epoch_id
+// treats the accumulator as zero. Keyed by (author, tag).
+// (proto/sparkdream/forum/v1/types.proto)
+message ForumRepEpochCounter {
+  int64 epoch_id = 1;                                    // UTC-day index: floor(block_time / 86400)
+  string accumulated = 2 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];  // rep credited so far this epoch
+}
 
 // Sentinel bond status for recovery mode tracking
 // > **Implementation note:** `SentinelBondStatus` is defined in
@@ -773,8 +816,25 @@ message Params {
   // Cross-Module Conviction Propagation
   string conviction_renewal_threshold = 31 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Min conviction score to renew content at TTL expiry (default: 100.0; 0 = disabled)
   int64 conviction_renewal_period = 32;                  // Duration in seconds to extend TTL by when conviction-renewed (default: 604800 = 7 days)
+
+  // (later additions — see fields 33..49 in params.proto for pin/make-permanent
+  //  trust-gate, daily make-permanent counter precursors, and membership
+  //  auto-promotion: make_permanent_min_trust_level, max_promotions_per_block, …)
+
+  // Promoter / author accountability
+  string author_rep_slash = 50 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];  // Per-tag rep deducted from a post's author when ExpireHiddenPosts finalizes an unappealed hide (default 5)
+  uint64 max_make_permanent_per_day = 51;                // Caps MsgMakePostPermanent per address per UTC day, independent of daily_post_limit (default 10)
+
+  // Post conviction-stake (author-earned forum rep)
+  string min_post_conviction_stake = 60 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];        // Minimum uDREAM to open a PostConvictionStake (default 10_000_000 = 10 DREAM)
+  int64 post_conviction_lock_seconds = 61;               // DREAM-lock duration; release rejected before staked_at + this (default 1_209_600 = 14 days)
+  string post_conviction_stream_rate_per_block = 62 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];  // Per-DREAM-per-DAY rep accrual rate despite the legacy name (default 0.05)
+  string max_forum_rep_per_tag_per_epoch = 63 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];        // Per-(author, tag) rep cap per UTC-day epoch; excess silently dropped (default 5)
+  uint64 post_conviction_staker_slash_bps = 64;          // Basis-points of the staker's locked DREAM burned on a confirmed hide; 0-10000 (default 2500 = 25%)
 }
 ```
+
+> **Naming caveat:** `post_conviction_stream_rate_per_block` is **per-DREAM-per-day**, not per-block — the accrual formula is time-based and block-time-independent (see §7.2.1). The `_per_block` suffix is a legacy artifact retained for wire compatibility.
 
 The module also defines `ForumOperationalParams` — a subset of `Params` that can be updated by the Commons Council Operations Committee via `MsgUpdateOperationalParams` without a full governance proposal. This excludes the three governance-only emergency controls (`forum_paused`, `moderation_paused`, `appeals_paused`).
 
@@ -961,6 +1021,13 @@ reward_pool                   -> sdk.Coins
 total_tags                    -> uint64
 next_post_id                  -> uint64
 next_category_id              -> uint64
+# Post conviction-stakes (author-earned forum rep)
+post_conviction/value/{stake_id}              -> PostConvictionStake
+post_conviction/seq/                          -> uint64 (stake_id sequence)
+idx/post_conviction_by_post/{post_id}/{stake_id}     -> active-stake index by post
+idx/post_conviction_by_staker/{staker}/{stake_id}    -> active-stake index by staker
+forum_rep_epoch/{author}/{tag}                -> ForumRepEpochCounter (per-(author,tag) UTC-day cap)
+post_conviction/accrual_cursor/               -> uint64 (round-robin accrual resume cursor)
 
 # New keys for anti-gaming protections
 tag_reports/{tag_name}        -> TagReport (active reports against tag)
@@ -2574,6 +2641,84 @@ Downvote a post (public reaction). Requires SPARK deposit which is burned immedi
 
 ---
 
+#### `MsgStakePostConviction`
+
+Opens a `PostConvictionStake`: locks the staker's DREAM and starts EndBlocker-driven per-tag forum reputation accrual for the post's **author**. This is the author-earned, slashable forum-rep primitive — endorsement of someone else's content puts both the staker's DREAM and (on a confirmed hide) the author's rep at risk. Returns the new `stake_id`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `creator` | `string` | Staker address (signer) |
+| `post_id` | `uint64` | Post to back |
+| `amount` | `string` (math.Int) | uDREAM to lock; must be ≥ `min_post_conviction_stake` |
+
+Response: `MsgStakePostConvictionResponse { uint64 stake_id }`.
+
+**Authorization:** Active, ESTABLISHED+ member. PROVISIONAL/NEW members are rejected (the trust ladder must not be boostable by low-trust members staking on each other). The staker may **not** be the post's author.
+
+**State Transitions:**
+1. **Caller-policy validation (msg_server):**
+   - Fail if the staker is not an active member (`repKeeper.IsActiveMember`)
+   - Fail if `repKeeper.GetTrustLevel(staker) < ESTABLISHED`
+2. **Structural validation (keeper):**
+   - Fail if `amount` is non-positive or below `params.min_post_conviction_stake`
+   - Fail if `params.post_conviction_lock_seconds <= 0` (feature not configured)
+   - Load post; fail if missing, if `status != ACTIVE`, if `author == staker`, or if the post has no tags (nothing to credit)
+3. **Lock DREAM:**
+   - `repKeeper.LockDREAM(staker, amount)` — bypasses the 3% transfer tax (internal member-balance rebalance, not a transfer)
+4. **Persist stake:**
+   - Allocate `stake_id`; write `PostConvictionStake { staked_at = now, unlocks_at = now + post_conviction_lock_seconds, last_accrual_at = now, released = false }`
+   - Add `(post_id, stake_id)` and `(staker, stake_id)` secondary-index entries
+5. **Emit Event:** `post_conviction_staked` (`stake_id`, `post_id`, `staker`, `amount`, `unlocks_at`)
+
+---
+
+#### `MsgReleasePostConviction`
+
+Closes a `PostConvictionStake` after the lock window has elapsed and unlocks the staker's remaining DREAM. Rep already credited to the author stays (it was the point of the stake) unless a confirmed hide later claws it back. Only the original staker may release; stakes already closed by a slash are rejected as already-released.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `creator` | `string` | Staker address (signer) |
+| `stake_id` | `uint64` | Stake to release |
+
+Response: `MsgReleasePostConvictionResponse {}`.
+
+**Authorization:** The original staker only.
+
+**State Transitions:**
+1. **Validation:**
+   - Load stake; fail if missing
+   - Fail if `stake.released` is already true
+   - Fail if `caller != stake.staker`
+   - Fail if `now < stake.unlocks_at` (still locked)
+2. **Unlock DREAM:**
+   - `repKeeper.UnlockDREAM(caller, stake.amount)` for the remaining (non-slashed) amount — tax-exempt
+3. **Close stake:**
+   - Set `released = true`; remove the `(post_id, stake_id)` and `(staker, stake_id)` active-stake index entries. The record itself is retained until the EndBlocker GC pass collects it (see §7.2.1) so a late-arriving hide-finalization can still find and slash it.
+4. **Emit Event:** `post_conviction_released` (`stake_id`, `staker`, `post_id`, `amount`)
+
+---
+
+#### `MsgMakePostPermanent`
+
+Promotes an ephemeral post to permanent. Strictly separated from pinning: pin is display-only and refuses ephemeral targets, while `MakePostPermanent` owns the lifecycle change. Idempotent on already-permanent posts.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `creator` | `string` | Promoter address (signer) |
+| `post_id` | `uint64` | Post to promote |
+
+**Authorization:** Member at or above `params.make_permanent_min_trust_level` (default PROVISIONAL).
+
+**State Transitions:**
+1. **Validation:** trust-level gate; load post.
+2. **Rate limit:** consume one slot from the dedicated MakePermanent daily counter (`checkAndUpdateMakePermanentRateLimit` against `params.max_make_permanent_per_day`, fields 6-8 of `UserRateLimit`). This is **independent** of `daily_post_limit` — promoting is a distinct curator action with its own quota. `limit == 0` disables the gate.
+3. **Promote:** clear `expiration_time` (make permanent); reset `conviction_sustained` if set.
+4. **Record promoter accountability:** if `creator != post.author`, set `post.promoted_by = creator` and `post.promoted_at = now`. Self-promotion is **not** recorded — promoting one's own content is not a vouching act on someone else's content, so a self-promoter is never warned on a later hide.
+5. **Emit Event.**
+
+---
+
 #### `MsgEditPost`
 
 Edits post content within time window. Free during grace period, SPARK fee required after.
@@ -3141,18 +3286,36 @@ func (k Keeper) OnJuryInsufficientForAppeal(ctx sdk.Context, payload []byte) {
 
 ### 7.2. EndBlocker (GC + Reward Distribution)
 
-> **Implementation status:** The current EndBlocker implementation (`x/forum/keeper/abci.go`) only implements **ephemeral post pruning** — walking the `ExpirationQueue` and hard-deleting posts whose TTL has passed (up to 100 per block). The complex multi-phase design below (reward pool management, epoch-based sentinel rewards, DREAM minting, accuracy decay) is **not yet implemented**. The design is preserved here as the target specification.
+> **Implementation status:** The current EndBlocker (`x/forum/keeper/abci.go`) runs several bounded, independently-capped passes per block (ephemeral pruning, hidden-post expiration + accountability hooks, bounty expiration, tag expiration, post-conviction accrual, and released-stake GC). The complex reward design further below (epoch-based sentinel rewards, DREAM minting, accuracy decay) is **not yet implemented**. That design is preserved as the target specification.
 
 #### 7.2.1. Current Implementation
 
-```go
-// x/forum/keeper/abci.go (actual implementation)
-const maxPrunePerBlock = 100
+Bounded passes per block (cursor/queue-driven so the remainder resumes next block):
 
-func (k Keeper) EndBlocker(ctx context.Context) error {
-    now := sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
-    return k.PruneExpiredPosts(ctx, now)
-}
+1. **Ephemeral pruning** (max 100/block) — walk `ExpirationQueue` up to `now`, hard-delete expired-TTL posts; check conviction renewal first (extend TTL instead of tombstoning when conviction ≥ threshold).
+2. **Hidden-post expiration** (`ExpireHiddenPosts`) — finalize posts hidden past `hidden_expiration` whose appeal window lapsed unappealed. Before tombstoning, three best-effort accountability hooks fire against the **pre-tombstone** state (failures log, never halt the tombstone):
+   - **Author rep slash** — for each tag the post carried, `repKeeper.DeductReputation(author, tag, params.author_rep_slash)`. Floored at zero, so an author with no rep in a tag takes no harm.
+   - **Post-conviction slash** (`SlashStakesForPost`) — for every active (or recently-released-but-not-GC'd) `PostConvictionStake` on the post: claw back the exact per-tag rep the stake produced via `repKeeper.DeductForumRep`, burn `post_conviction_staker_slash_bps` of the staker's locked DREAM (UnlockDREAM → BurnDREAM), unlock the remainder, and close the stake.
+   - **Promoter warning** — if `post.promoted_by` is set and differs from the author, `repKeeper.IssueWarning(promoted_by, forumModuleAddr, "promoted_hidden_content", [post_id])` — the promoter vouched for rejected content.
+3. **Bounty expiration** — mark expired bounties, refund escrow.
+4. **Post-conviction accrual** (`AccruePostConvictions`, max 100 stakes/block via a persisted round-robin cursor) — stream per-tag forum rep to each backed post's author. Per stake:
+
+   ```
+   amount_dream         = stake.amount_uDREAM / 1_000_000
+   effectiveNow         = min(now, stake.unlocks_at)   // post-window time does not accrue
+   elapsed_days         = (effectiveNow - last_accrual_at) / 86400
+   rep_credited_total   = amount_dream * post_conviction_stream_rate_per_block * elapsed_days
+   rep_credited_per_tag = rep_credited_total / len(post.tags)
+   ```
+
+   Each per-tag credit is bounded by `max_forum_rep_per_tag_per_epoch` (epoch = `floor(block_time / 86400)`, tracked in `ForumRepEpochCounter`); excess is **silently dropped** — no error, no refund. The rep is written to the author's `forum_rep_per_tag` via `repKeeper.AddForumRep`; the credited amount is also recorded on the stake's `accrued_rep_per_tag` so a later slash claws back exactly what was credited. Per-stake errors log but never abort the loop.
+5. **Released-stake GC** (`GcReleasedPostConvictionStakes`, max 100/block) — delete `PostConvictionStake` records that are `released` and older than the retention window (`post_conviction_lock_seconds + hide_appeal_cooldown + 1 day`), past which no slash can still target them.
+
+> The forum-earned rep itself lives on the x/rep `Member.forum_rep_per_tag` map; x/rep's trust-ladder counts it toward the PROVISIONAL and ESTABLISHED thresholds only (see [`docs/x-rep-spec.md`](x-rep-spec.md)). The forum keeper reaches into x/rep through `AddForumRep` / `DeductForumRep`, `LockDREAM` / `UnlockDREAM` / `BurnDREAM`, `DeductReputation`, and `IssueWarning`.
+
+```go
+// x/forum/keeper/abci.go (illustrative — ephemeral pruning shown)
+const maxPrunePerBlock = 100
 
 // PruneExpiredPosts walks ExpirationQueue up to `now` and hard-deletes
 // up to maxPrunePerBlock posts. Also cleans up associated PostFlag and

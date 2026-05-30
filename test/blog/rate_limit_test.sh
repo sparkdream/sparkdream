@@ -208,14 +208,17 @@ MAX_POSTS_VAL=$(echo "$PARAMS_JSON" | jq -r '.params.max_posts_per_day // "0"')
 MAX_REPLIES_VAL=$(echo "$PARAMS_JSON" | jq -r '.params.max_replies_per_day // "0"')
 MAX_REACTIONS_VAL=$(echo "$PARAMS_JSON" | jq -r '.params.max_reactions_per_day // "0"')
 MAX_PINS_VAL=$(echo "$PARAMS_JSON" | jq -r '.params.max_pins_per_day // "0"')
+MAX_MAKE_PERMANENT_VAL=$(echo "$PARAMS_JSON" | jq -r '.params.max_make_permanent_per_day // "0"')
 
-echo "  max_posts_per_day:     $MAX_POSTS_VAL"
-echo "  max_replies_per_day:   $MAX_REPLIES_VAL"
-echo "  max_reactions_per_day: $MAX_REACTIONS_VAL"
-echo "  max_pins_per_day:      $MAX_PINS_VAL"
+echo "  max_posts_per_day:           $MAX_POSTS_VAL"
+echo "  max_replies_per_day:         $MAX_REPLIES_VAL"
+echo "  max_reactions_per_day:       $MAX_REACTIONS_VAL"
+echo "  max_pins_per_day:            $MAX_PINS_VAL"
+echo "  max_make_permanent_per_day:  $MAX_MAKE_PERMANENT_VAL"
 
 if [ "$MAX_POSTS_VAL" -gt 0 ] && [ "$MAX_REPLIES_VAL" -gt 0 ] && \
-   [ "$MAX_REACTIONS_VAL" -gt 0 ] && [ "$MAX_PINS_VAL" -gt 0 ]; then
+   [ "$MAX_REACTIONS_VAL" -gt 0 ] && [ "$MAX_PINS_VAL" -gt 0 ] && \
+   [ "$MAX_MAKE_PERMANENT_VAL" -gt 0 ]; then
     record_result "Rate limit params present and positive" "PASS"
 else
     echo "  ERROR: One or more rate limit params are missing or zero"

@@ -534,13 +534,21 @@ echo ""
 # ========================================================================
 # NEG 6: NEGATIVE TARGET SURVIVED EVERY FAILED ATTEMPT
 # ========================================================================
-echo "--- NEG 6: NEGATIVE TARGET STILL HIDDEN ---"
+echo "--- NEG 6: NEGATIVE TARGET NEVER UNHIDDEN ---"
+# The invariant under test is that none of the failed unhide attempts ever
+# flipped the target back to ACTIVE. Under the testparams build the hidden
+# expiration is only 15s (vs 7 days in prod), so the cumulative ~6s/tx pacing
+# of NEG 1-5 can let ExpireHiddenPosts soft-delete the target mid-run. That is
+# fine for this assertion: a post only reaches DELETED via expiry of a still-
+# HIDDEN post — a successful unhide would have set it ACTIVE (and ACTIVE posts
+# are never touched by ExpireHiddenPosts). So HIDDEN or DELETED both prove no
+# unauthorized unhide succeeded; only ACTIVE is a real failure.
 STATUS_FINAL=$(post_status "$NEG_TARGET")
-if [ "$STATUS_FINAL" = "POST_STATUS_HIDDEN" ]; then
-    echo "  Negative target $NEG_TARGET still HIDDEN after all failed attempts (correct)"
+if [ "$STATUS_FINAL" = "POST_STATUS_HIDDEN" ] || [ "$STATUS_FINAL" = "POST_STATUS_DELETED" ]; then
+    echo "  Negative target $NEG_TARGET never unhidden (status=$STATUS_FINAL) after all failed attempts (correct)"
     NEG_TARGET_SURVIVED_RESULT="PASS"
 else
-    echo "  ERROR: negative target moved to $STATUS_FINAL despite all failed unhide attempts"
+    echo "  ERROR: negative target moved to $STATUS_FINAL — a failed unhide attempt promoted it to ACTIVE"
     NEG_TARGET_SURVIVED_RESULT="FAIL"
 fi
 

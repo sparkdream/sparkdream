@@ -36,4 +36,16 @@ message Post {
   sparkdream.common.v1.ContentType content_type = 31;
   uint64 initiative_id = 32;
   bool conviction_sustained = 33;
+
+  // promoted_by is the member who called MsgMakePostPermanent on this post
+  // (or reply). Empty if still ephemeral, or if it became permanent via
+  // author-admission auto-promotion / explicit author self-promotion. Used by
+  // ExpireHiddenPosts to issue a MemberWarning against the promoter on
+  // unappealed sentinel hide — they vouched for content the community
+  // rejected.
+  string promoted_by = 34;
+
+  // promoted_at is the block-time (unix seconds) at which promoted_by called
+  // MsgMakePostPermanent. Zero when promoted_by is empty.
+  int64 promoted_at = 35;
 }

@@ -433,6 +433,28 @@ genesis:
         # too new" rejection still fires for a curator rating on the same
         # block they registered (currentBlock - registeredAt = 0-1).
         min_curator_age_blocks: "5"
+        # Hide-expiry window - SHORT for testing (production: 100800 ~7 days).
+        # endorsement_slash_test.sh waits an unappealed hide out to verify
+        # deleteCollectionFull burns the endorser's DREAM stake (instead of
+        # refunding it, the pre-fix loophole). At ~1s/block this is ~40s — long
+        # enough that Test 2's HIDDEN collection survives the owner's rejected
+        # delete + status/lock assertions (~15s of tx pacing), and that Test 3's
+        # MsgAppealHide (filed ~44 blocks in) lands before the unappealed-hide
+        # auto-expiry fires, yet short enough that Test 1's 75s wait covers it.
+        hide_expiry_blocks: "40"
+        # Appeal-cooldown window - SHORT for testing (production: 600 ~1 hour).
+        # The appeal-deferral subtest needs the owner to file an appeal within
+        # a couple of blocks of the sentinel hide.
+        appeal_cooldown_blocks: "2"
+        # Appeal-deadline window - SHORT for testing (production: 201600
+        # ~14 days). The appeal-deferral subtest waits for an unresolved
+        # appeal to time out via §10.3a (handleAppealedHideExpiry) so the
+        # collection's status restores to ACTIVE and the §10.1 deferral
+        # finally drops. At ~1s/block this is ~60s — wide enough that the
+        # deferral assertion (~30s after the appeal) lands while the appeal is
+        # still in flight, then the subsequent 75s wait outlasts the deadline so
+        # the timeout-restore + delete completes.
+        appeal_deadline_blocks: "60"
     name:
       params:
         # Bumped from 5 → 10 for E2E. Alice now auto-claims `alice` at

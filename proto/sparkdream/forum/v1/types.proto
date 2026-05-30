@@ -2,6 +2,7 @@ syntax = "proto3";
 package sparkdream.forum.v1;
 
 import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
 import "sparkdream/common/v1/moderation_reason.proto";
 
 option go_package = "sparkdream/x/forum/types";
@@ -73,4 +74,59 @@ message PinnedReplyRecord {
   bool is_sentinel_pin = 4;
   bool disputed = 5;
   uint64 initiative_id = 6;
+}
+
+// ForumRepEpochCounter tracks how much forum reputation a single author has
+// earned in a single tag during the current UTC-day epoch. Reset implicitly
+// by comparing epoch_id to floor(block_time / 86400) on read — when the
+// stored epoch_id is stale, the accumulated counter is treated as zero and
+// overwritten on the next credit. Used by the post-conviction accrual loop
+// to enforce Params.max_forum_rep_per_tag_per_epoch.
+message ForumRepEpochCounter {
+  // epoch_id is the UTC-day index: floor(block_time / 86400).
+  int64 epoch_id = 1;
+  // accumulated is the dec-string of rep credited so far this epoch.
+  string accumulated = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// PostConvictionStake records an ESTABLISHED+ member's DREAM lock backing a
+// post's author. While the stake is active, the EndBlocker streams per-tag
+// reputation to the author proportional to the stake's share of total active
+// stakes on the post (split evenly across the post's tags). On confirmed
+// sentinel hide (ExpireHiddenPosts), the accrued rep is clawed back from the
+// author per tag and a fraction of the staker's locked DREAM is slashed
+// (staker_slash_bps) — both staker and author endorsed harm.
+//
+// Stakers cannot stake on their own posts. Stakes are released after
+// unlocks_at via MsgReleasePostConviction; LockDREAM/UnlockDREAM bypass the
+// 3% transfer tax because it is internal member-balance rebalancing, not a
+// transfer.
+message PostConvictionStake {
+  uint64 id = 1;
+  string staker = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 post_id = 3;
+  string amount = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 staked_at = 5;
+  int64 unlocks_at = 6;
+  // accrued_rep_per_tag tracks how much rep this stake has minted to the
+  // author per tag, so a confirmed hide can claw back exactly the amount this
+  // stake produced (and no more). Map key is tag name, value is a decimal
+  // string (math.LegacyDec). Populated by the EndBlocker accrual loop.
+  map<string, string> accrued_rep_per_tag = 7;
+  // last_accrual_at is the last EndBlocker tick at which this stake credited
+  // rep to the author. Initialized to staked_at on creation; streaming is
+  // bounded by the per-(author,tag) epoch cap so multiple stakes can saturate
+  // a single tag without one stake monopolizing the budget.
+  int64 last_accrual_at = 8;
+  // released is set true once the staker has called MsgReleasePostConviction
+  // after unlocks_at. Released stakes are kept in state until the post's
+  // hide-appeal window has fully elapsed so any retroactive slash can still
+  // find them; after that they are GC'd by a pass in EndBlocker.
+  bool released = 9;
 }

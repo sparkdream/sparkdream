@@ -230,8 +230,12 @@ set_peer_policy "$PEER_ID" "blog_post" "" "" "false" "false" || true
 # (likely, from bridge_operator_test), passing stake=0 reuses the
 # existing bond per the multi-binding-per-operator model.
 SVC_TYPE="federation-bridge-activitypub"
-OP_STATUS=$($BINARY query service operator "$OPERATOR2_ADDR" $SVC_TYPE --output json 2>&1 | jq -r '.operator.status // empty')
-BINDING_ADDR=$($BINARY query federation get-bridge-binding "$OPERATOR2_ADDR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_binding.address // empty')
+# Note: 2>/dev/null (not 2>&1) — when operator2 has no service.Operator or
+# no binding yet, the CLI prints a "not found" error to stderr. Merging it
+# into jq's stdin produces a "jq: parse error". Dropping stderr lets jq see
+# empty input so the `// empty` fallback yields "" cleanly.
+OP_STATUS=$($BINARY query service operator "$OPERATOR2_ADDR" $SVC_TYPE --output json 2>/dev/null | jq -r '.operator.status // empty')
+BINDING_ADDR=$($BINARY query federation get-bridge-binding "$OPERATOR2_ADDR" "$PEER_ID" --output json 2>/dev/null | jq -r '.bridge_binding.address // empty')
 
 if [ -z "$BINDING_ADDR" ]; then
     if [ "$OP_STATUS" == "OPERATOR_STATUS_ACTIVE" ]; then
@@ -244,7 +248,7 @@ if [ -z "$BINDING_ADDR" ]; then
         "$PEER_ID" activitypub "https://bridge.example/rl" "$STAKE_FOR_REG" \
         --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     submit_and_wait_capture "$TX_RES" || true
-    BINDING_ADDR=$($BINARY query federation get-bridge-binding "$OPERATOR2_ADDR" "$PEER_ID" --output json 2>&1 | jq -r '.bridge_binding.address // empty')
+    BINDING_ADDR=$($BINARY query federation get-bridge-binding "$OPERATOR2_ADDR" "$PEER_ID" --output json 2>/dev/null | jq -r '.bridge_binding.address // empty')
 fi
 
 if [ -z "$BINDING_ADDR" ]; then
@@ -340,23 +344,29 @@ if ! update_inbound_limit "$PEER_ID" 2; then
 fi
 record_result "Tighten inbound limit to 2" "PASS"
 
-# Wall-clock-align to the next 5-minute window boundary so all 3
-# submissions land inside one window (~280s headroom). Without this
-# alignment, ~4% of runs start late enough in a window that sub3
-# crosses into a new window; the smoothed prevCount*remaining/window
-# slack then lets it through. Use the chain's block_time (not the
-# host's date) so wall-clock skew doesn't bite.
+# Align so all 3 submissions land inside ONE fresh window (count starts
+# at 0, ~240s+ of headroom). We must NOT use a wall-clock `sleep` to hit
+# a chain-time boundary: under parallel-suite load the chain runs behind
+# wall-clock (block production drifts to ~2s/block), so sleeping N
+# wall-seconds advances chain-time by less and strands the first
+# submission in the *previous* window. That splits the counter (1 prev +
+# 1 current) and the smoothed prevCount*remaining/window slack lets sub3
+# through (~4% of runs). Instead, POLL the chain's block_time until it's
+# safely inside a fresh window before submitting.
 WIN_S=300  # we bumped rate_limit_window to 5m above
-BT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_time' | sed 's/T/ /; s/\.[0-9]*Z$//')
-BT_EPOCH=$(date -d "$BT UTC" +%s 2>/dev/null || echo 0)
-ALIGN_WAIT=$(( WIN_S - (BT_EPOCH % WIN_S) ))
-# Cap to avoid pathological waits (>290s); fallback to a fixed wait
-# that's safely inside one window.
-if [ "$ALIGN_WAIT" -gt 290 ] 2>/dev/null; then ALIGN_WAIT=0; fi
-if [ "$ALIGN_WAIT" -gt 0 ] 2>/dev/null; then
-    echo "  Aligning to next ${WIN_S}s window boundary (chain block_time=$BT, waiting ${ALIGN_WAIT}s)..."
-    sleep "$ALIGN_WAIT"
-fi
+echo "  Polling chain block_time for a fresh ${WIN_S}s window (no wall-clock sleep)..."
+POS=-1
+for _ in $(seq 1 120); do
+    BT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_time' | sed 's/T/ /; s/\.[0-9]*Z$//')
+    BT_EPOCH=$(date -d "$BT UTC" +%s 2>/dev/null || echo 0)
+    POS=$(( BT_EPOCH % WIN_S ))
+    # Safe zone: at least 5s past a boundary (a fresh window — this is a
+    # dedicated peer, so its count is 0) and >=150s of headroom for the
+    # three serial submissions (each ~6-10s incl. poll).
+    if [ "$POS" -ge 5 ] && [ "$POS" -le 150 ] 2>/dev/null; then break; fi
+    sleep 3
+done
+echo "  Aligned: chain block_time=$BT (pos=${POS}s into ${WIN_S}s window)"
 
 # Diagnostic: print params and block-time at each step so we can see
 # whether the rate-limit counter actually persists between submissions.

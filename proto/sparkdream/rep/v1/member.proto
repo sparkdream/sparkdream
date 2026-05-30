@@ -67,6 +67,26 @@ message Member {
   // salvation epoch window.
   uint32 epoch_salvations = 29;
   int64 last_salvation_epoch = 30;
+
+  // forum_rep_per_tag is per-tag reputation earned through forum activity
+  // (conviction-staked endorsements on posts and replies). Stored separately
+  // from reputation_scores so the trust-level ladder can include it for
+  // PROVISIONAL and ESTABLISHED tiers while excluding it from TRUSTED and
+  // CORE — forum participation is legitimate early-stage contribution but
+  // is cheaper to game than verified initiative output, so it must not gate
+  // the high-consequence council-adjacent tiers. Slashable on confirmed
+  // hide of the post that produced the rep (see x/forum
+  // PostConvictionStake.accrued_rep_per_tag). Map key is tag name, value is
+  // a decimal string (math.LegacyDec).
+  map<string, string> forum_rep_per_tag = 31;
+
+  // lifetime_forum_rep_per_tag accumulates forum_rep_per_tag across all
+  // completed seasons. Reset on season transition: forum_rep_per_tag is
+  // added to this map then cleared (mirroring lifetime_reputation /
+  // reputation_scores). Display-only — never read by the trust-level
+  // ladder. Keeps the historical signal visible on profiles without
+  // letting forum participation gate higher tiers across seasons.
+  map<string, string> lifetime_forum_rep_per_tag = 32;
 }
 
 enum TrustLevel {

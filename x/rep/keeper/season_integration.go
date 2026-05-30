@@ -70,6 +70,30 @@ func (k Keeper) ArchiveSeasonalReputation(ctx context.Context, addr string) (map
 	// Reset seasonal scores (clear for new season)
 	member.ReputationScores = make(map[string]string)
 
+	// Forum rep follows the same archive-then-reset pattern but writes to a
+	// separate lifetime field. lifetime_forum_rep_per_tag is display-only —
+	// the trust-level ladder never reads it, so a member who racked up
+	// forum rep in season 1 cannot ride that signal into TRUSTED in
+	// season 5 (which is the asymmetry the cap encodes).
+	if member.LifetimeForumRepPerTag == nil {
+		member.LifetimeForumRepPerTag = make(map[string]string)
+	}
+	for tag, scoreStr := range member.ForumRepPerTag {
+		seasonScore, err := math.LegacyNewDecFromStr(scoreStr)
+		if err != nil {
+			continue
+		}
+		lifetimeScore := math.LegacyZeroDec()
+		if existingStr, ok := member.LifetimeForumRepPerTag[tag]; ok {
+			if parsed, err := math.LegacyNewDecFromStr(existingStr); err == nil {
+				lifetimeScore = parsed
+			}
+		}
+		member.LifetimeForumRepPerTag[tag] = lifetimeScore.Add(seasonScore).String()
+	}
+	forumTagsArchived := len(member.ForumRepPerTag)
+	member.ForumRepPerTag = make(map[string]string)
+
 	// Save updated member
 	if err := k.Member.Set(ctx, addr, member); err != nil {
 		return nil, err
@@ -82,6 +106,7 @@ func (k Keeper) ArchiveSeasonalReputation(ctx context.Context, addr string) (map
 			"reputation_archived",
 			sdk.NewAttribute("member", addr),
 			sdk.NewAttribute("tags_archived", formatTagCount(len(archivedScores))),
+			sdk.NewAttribute("forum_tags_archived", formatTagCount(forumTagsArchived)),
 		),
 	)
 

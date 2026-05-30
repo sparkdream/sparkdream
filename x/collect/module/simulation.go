@@ -405,6 +405,39 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgPinCollection,
 		collectsimulation.SimulateMsgPinCollection(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+
+	const (
+		opWeightMsgUnpinCollection          = "op_weight_msg_collect_unpin_collection"
+		defaultWeightMsgUnpinCollection int = 10
+	)
+
+	var weightMsgUnpinCollection int
+	simState.AppParams.GetOrGenerate(opWeightMsgUnpinCollection, &weightMsgUnpinCollection, nil,
+		func(_ *rand.Rand) {
+			weightMsgUnpinCollection = defaultWeightMsgUnpinCollection
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUnpinCollection,
+		collectsimulation.SimulateMsgUnpinCollection(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgMakeCollectionPermanent          = "op_weight_msg_collect_make_collection_permanent"
+		defaultWeightMsgMakeCollectionPermanent int = 30
+	)
+
+	var weightMsgMakeCollectionPermanent int
+	simState.AppParams.GetOrGenerate(opWeightMsgMakeCollectionPermanent, &weightMsgMakeCollectionPermanent, nil,
+		func(_ *rand.Rand) {
+			weightMsgMakeCollectionPermanent = defaultWeightMsgMakeCollectionPermanent
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgMakeCollectionPermanent,
+		collectsimulation.SimulateMsgMakeCollectionPermanent(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
 	return operations
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
@@ -99,6 +100,95 @@ func (k Keeper) IsCollaborator(ctx context.Context, collectionID uint64, address
 		return false, types.CollaboratorRole_COLLABORATOR_ROLE_UNSPECIFIED, nil
 	}
 	return true, collab.Role, nil
+}
+
+// deductRepPerTag applies a per-tag reputation deduction on slash paths
+// (endorsement burn, collaborator-stake burn, author bond slash). The
+// deduction is best-effort — DeductReputation errors when the address is not
+// an active member, which is a non-critical condition for a slash
+// side-effect (cf. x/reveal's matching pattern). Floored at zero by x/rep.
+func (k Keeper) deductRepPerTag(ctx context.Context, addr sdk.AccAddress, tags []string, amount math.LegacyDec) {
+	if k.repKeeper == nil || amount.IsNil() || !amount.IsPositive() || len(tags) == 0 {
+		return
+	}
+	for _, tag := range tags {
+		_ = k.repKeeper.DeductReputation(ctx, addr, tag, amount)
+	}
+}
+
+// releaseOrSlashCollabStake settles a non-member collaborator's locked DREAM
+// stake when their record is being removed (via MsgRemoveCollaborator or as
+// part of collection deletion). Returns (burned, refunded) DREAM amounts.
+//
+// Decision rule:
+//   - Collaborator carries no stake (member or legacy) → no-op.
+//   - Collection status == HIDDEN at settlement time → burn
+//     params.NonMemberCollabBurnFraction of the stake; refund the rest.
+//   - Otherwise → refund the full stake.
+//
+// Failures in the rep keeper (e.g. the inviter is no longer a Member because
+// they were zeroed) are logged and swallowed so collaborator removal /
+// collection deletion is never blocked by stake settlement. Mirrors the
+// endorser-stake release pattern in deleteCollectionFull.
+func (k Keeper) releaseOrSlashCollabStake(
+	ctx context.Context,
+	coll types.Collection,
+	collab types.Collaborator,
+) (burned math.Int, refunded math.Int, err error) {
+	burned, refunded = math.ZeroInt(), math.ZeroInt()
+	if collab.DreamStake.IsNil() || !collab.DreamStake.IsPositive() {
+		return burned, refunded, nil
+	}
+	if collab.Inviter == "" {
+		// Defensive: a non-zero stake without an inviter is malformed state;
+		// nothing to refund to.
+		return burned, refunded, nil
+	}
+	inviterAddr, addrErr := k.addressCodec.StringToBytes(collab.Inviter)
+	if addrErr != nil {
+		return burned, refunded, nil
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	params, paramsErr := k.Params.Get(ctx)
+	if paramsErr != nil {
+		return burned, refunded, paramsErr
+	}
+
+	stake := collab.DreamStake
+	burnAmt := math.ZeroInt()
+	if coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN &&
+		!params.NonMemberCollabBurnFraction.IsNil() && params.NonMemberCollabBurnFraction.IsPositive() {
+		burnAmt = params.NonMemberCollabBurnFraction.MulInt(stake).TruncateInt()
+		if burnAmt.GT(stake) {
+			burnAmt = stake
+		}
+	}
+
+	// Unlock the full stake first — BurnDREAM only sees DreamBalance, so the
+	// burn portion must already be in the unlocked pool.
+	if unlockErr := k.repKeeper.UnlockDREAM(ctx, inviterAddr, stake); unlockErr != nil {
+		sdkCtx.Logger().Error("failed to unlock inviter DREAM stake",
+			"collection_id", coll.Id, "inviter", collab.Inviter, "address", collab.Address, "error", unlockErr)
+		return burned, refunded, nil
+	}
+
+	if burnAmt.IsPositive() {
+		if burnErr := k.repKeeper.BurnDREAM(ctx, inviterAddr, burnAmt); burnErr != nil {
+			sdkCtx.Logger().Error("failed to burn inviter DREAM stake fraction",
+				"collection_id", coll.Id, "inviter", collab.Inviter, "address", collab.Address, "burn", burnAmt.String(), "error", burnErr)
+			// Burn failed but unlock succeeded — the full stake stayed with the
+			// inviter. Surface this as refunded=stake to keep accounting honest.
+			refunded = stake
+			return burned, refunded, nil
+		}
+		burned = burnAmt
+		// Mirror the DREAM burn with a per-tag rep deduction so the inviter's
+		// score on the collection's topic tags reflects the misjudged vouch.
+		k.deductRepPerTag(ctx, inviterAddr, coll.Tags, params.CollabInviterRepPenalty)
+	}
+	refunded = stake.Sub(burned)
+	return burned, refunded, nil
 }
 
 // --- Target resolution ---
@@ -315,6 +405,33 @@ func (k Keeper) InsertAtPosition(ctx context.Context, collectionID uint64, posit
 
 // --- Cleanup ---
 
+// hasInflightHideAppeal returns true when at least one HideRecord on the
+// given collection is currently appealed and unresolved — i.e., the appellant
+// filed but the jury has not yet ruled and the appeal deadline has not yet
+// expired. Used by deleteCollectionFull to suppress the endorser slash in
+// that ambiguous window: a jury that would have upheld the appeal cannot be
+// asked retroactively after the collection is gone, so we give the endorser
+// the benefit of the doubt rather than over-slash on TTL/owner-delete races.
+func (k Keeper) hasInflightHideAppeal(ctx context.Context, collID uint64) bool {
+	var inflight bool
+	prefix := HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, collID)
+	_ = k.HideRecordByTarget.Walk(ctx,
+		collections.NewPrefixedPairRange[string, uint64](prefix),
+		func(key collections.Pair[string, uint64]) (bool, error) {
+			hr, err := k.HideRecord.Get(ctx, key.K2())
+			if err != nil {
+				return false, nil
+			}
+			if hr.Appealed && !hr.Resolved {
+				inflight = true
+				return true, nil // stop walking — one is enough
+			}
+			return false, nil
+		},
+	)
+	return inflight
+}
+
 // deleteCollectionFull removes a collection and all associated state.
 // Used by MsgDeleteCollection and EndBlocker TTL pruning.
 func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection) error {
@@ -363,15 +480,53 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		}) //nolint:errcheck
 	}
 
-	// Handle endorsed collection: release endorser stake if not yet released
+	// Handle endorsed collection: release endorser stake if not yet released.
+	//
+	// If the collection is being deleted while a sentinel hide stands against
+	// it (status HIDDEN), the endorser vouched for content that a sentinel
+	// later judged hide-worthy. Burn the locked DREAM. Otherwise (TTL on
+	// healthy content, appeal restored to ACTIVE, owner delete on ACTIVE,
+	// etc.) unlock back to the endorser.
+	//
+	// Callers must ensure we never reach this point while a hide appeal is
+	// in flight (Appealed && !Resolved): the §10.1 TTL pruner skips such
+	// collections (defers until the appeal resolves), MsgDeleteCollection
+	// rejects HIDDEN status outright with ErrCannotDeleteHidden, and
+	// ResolveHideAppeal pre-persists Resolved=true before calling here. So
+	// Status==HIDDEN at this point unambiguously means "sentinel hide stands
+	// AND the appeal lane is settled (no appeal, jury rejected, or appeal
+	// timed out in sentinel's favor — though the last doesn't currently
+	// trigger a delete)."
 	if coll.EndorsedBy != "" {
 		endorsement, err := k.Endorsement.Get(ctx, coll.Id)
 		if err == nil && !endorsement.StakeReleased {
-			endorserAddr, err := k.addressCodec.StringToBytes(endorsement.Endorser)
-			if err == nil {
-				if unlockErr := k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
-					sdkCtx.Logger().Error("failed to unlock DREAM for endorser on collection delete",
-						"collection_id", coll.Id, "endorser", endorsement.Endorser, "error", unlockErr)
+			endorserAddr, addrErr := k.addressCodec.StringToBytes(endorsement.Endorser)
+			if addrErr == nil {
+				if coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
+					// Unlock the stake before burning so staked_dream is
+					// decremented; otherwise the slashed amount stays counted
+					// as locked even though it no longer backs any balance.
+					if unlockErr := k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
+						sdkCtx.Logger().Error("failed to unlock DREAM for endorser before slash burn",
+							"collection_id", coll.Id, "endorser", endorsement.Endorser, "error", unlockErr)
+					}
+					if burnErr := k.repKeeper.BurnDREAM(ctx, endorserAddr, endorsement.DreamStake); burnErr != nil {
+						sdkCtx.Logger().Error("failed to burn DREAM for endorser on hidden collection delete",
+							"collection_id", coll.Id, "endorser", endorsement.Endorser, "error", burnErr)
+					}
+					k.deductRepPerTag(ctx, endorserAddr, coll.Tags, params.EndorserRepPenalty)
+					sdkCtx.EventManager().EmitEvent(sdk.NewEvent("endorsement_stake_slashed",
+						sdk.NewAttribute("collection_id", strconv.FormatUint(coll.Id, 10)),
+						sdk.NewAttribute("endorser", endorsement.Endorser),
+						sdk.NewAttribute("amount", endorsement.DreamStake.String()),
+						sdk.NewAttribute("rep_penalty", params.EndorserRepPenalty.String()),
+						sdk.NewAttribute("rep_penalty_tags", strings.Join(coll.Tags, ",")),
+					))
+				} else {
+					if unlockErr := k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
+						sdkCtx.Logger().Error("failed to unlock DREAM for endorser on collection delete",
+							"collection_id", coll.Id, "endorser", endorsement.Endorser, "error", unlockErr)
+					}
 				}
 			}
 			endorsement.StakeReleased = true
@@ -498,19 +653,27 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	// Delete all collaborators by walking the Collaborator map with a collection-ID prefix.
 	// This avoids a full global scan of the CollaboratorReverse index.
 	collabPrefix := fmt.Sprintf("%d/", coll.Id)
-	var collabKeys []string
+	type collabEntry struct {
+		key    string
+		record types.Collaborator
+	}
+	var collabEntries []collabEntry
 	k.Collaborator.Walk(ctx, nil,
-		func(key string, _ types.Collaborator) (bool, error) {
+		func(key string, record types.Collaborator) (bool, error) {
 			if len(key) >= len(collabPrefix) && key[:len(collabPrefix)] == collabPrefix {
-				collabKeys = append(collabKeys, key)
+				collabEntries = append(collabEntries, collabEntry{key: key, record: record})
 			}
 			return false, nil
 		},
 	) //nolint:errcheck
-	for _, compositeKey := range collabKeys {
+	for _, entry := range collabEntries {
+		// Settle non-member collaborator stake first (HIDDEN → fractional
+		// burn; otherwise full refund). Failures are logged inside the helper
+		// and never block deletion.
+		_, _, _ = k.releaseOrSlashCollabStake(ctx, coll, entry.record)
 		// Extract address from composite key "collectionID/address"
-		addr := compositeKey[len(collabPrefix):]
-		k.Collaborator.Remove(ctx, compositeKey)                           //nolint:errcheck
+		addr := entry.key[len(collabPrefix):]
+		k.Collaborator.Remove(ctx, entry.key)                              //nolint:errcheck
 		k.CollaboratorReverse.Remove(ctx, collections.Join(addr, coll.Id)) //nolint:errcheck
 	}
 

@@ -499,3 +499,134 @@ func TestExpireHiddenPosts_DecrementsTagUsage(t *testing.T) {
 	require.Equal(t, uint64(0), f.repKeeper.tags["gamma"].UsageCount,
 		"hidden-post expiry must decrement tag usage")
 }
+
+// Author per-tag rep slash (Tier 0): an unappealed sentinel hide must deduct
+// the configured AuthorRepSlash from the author's score in *each* tag the
+// post carried. Asserts deduct fires for every tag and not for non-tagged
+// posts.
+func TestExpireHiddenPosts_SlashesAuthorRepPerTag(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+
+	hiddenAt := int64(1_000_000)
+	now := hiddenAt + types.DefaultHiddenExpiration + 1
+	f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+
+	// Seed the post's tags so DecrementTagUsage doesn't fail before our slash
+	// hook runs (we already insert tags before the hook in abci.go).
+	f.repKeeper.tags = map[string]reptypes.Tag{
+		"alpha": {Name: "alpha", UsageCount: 1},
+		"bravo": {Name: "bravo", UsageCount: 1},
+	}
+
+	postID, err := f.keeper.PostSeq.Next(f.ctx)
+	require.NoError(t, err)
+
+	post := types.Post{
+		PostId:     postID,
+		CategoryId: cat.CategoryId,
+		Author:     testCreator,
+		Content:    "Hidden tagged post",
+		CreatedAt:  hiddenAt - 100,
+		Status:     types.PostStatus_POST_STATUS_HIDDEN,
+		HiddenAt:   hiddenAt,
+		Tags:       []string{"alpha", "bravo"},
+	}
+	require.NoError(t, f.keeper.Post.Set(f.ctx, postID, post))
+	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{
+		PostId:   postID,
+		HiddenAt: hiddenAt,
+	}))
+
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+
+	require.Len(t, f.repKeeper.deductCalls, 2, "expected one rep slash per tag")
+	got := map[string]bool{}
+	for _, call := range f.repKeeper.deductCalls {
+		require.Equal(t, testCreator, call.Addr, "slash must target the post author")
+		require.True(t, call.Amount.Equal(types.DefaultAuthorRepSlash),
+			"slash amount must match params.AuthorRepSlash")
+		got[call.Tag] = true
+	}
+	require.True(t, got["alpha"] && got["bravo"], "both tags must be slashed")
+}
+
+// Promoter MemberWarning (Tier 1): if the post was promoted via
+// MsgMakePostPermanent by a different member, the unappealed-hide
+// finalization must issue a MemberWarning against that promoter with the
+// post id in the evidence list.
+func TestExpireHiddenPosts_IssuesPromoterWarning(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+
+	hiddenAt := int64(1_000_000)
+	now := hiddenAt + types.DefaultHiddenExpiration + 1
+	f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+
+	promoter := sdk.AccAddress([]byte("phoenix_promoter")).String()
+
+	postID, err := f.keeper.PostSeq.Next(f.ctx)
+	require.NoError(t, err)
+
+	post := types.Post{
+		PostId:      postID,
+		CategoryId:  cat.CategoryId,
+		Author:      testCreator,
+		Content:     "Promoted but then hidden",
+		CreatedAt:   hiddenAt - 100,
+		Status:      types.PostStatus_POST_STATUS_HIDDEN,
+		HiddenAt:    hiddenAt,
+		PromotedBy:  promoter,
+		PromotedAt:  hiddenAt - 50,
+	}
+	require.NoError(t, f.keeper.Post.Set(f.ctx, postID, post))
+	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{
+		PostId:   postID,
+		HiddenAt: hiddenAt,
+	}))
+
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+
+	require.Len(t, f.repKeeper.warningCalls, 1, "exactly one warning must be issued")
+	w := f.repKeeper.warningCalls[0]
+	require.Equal(t, promoter, w.Member)
+	require.Equal(t, f.keeper.GetModuleAddress(), w.IssuedBy)
+	require.Equal(t, "promoted_hidden_content", w.Reason)
+	require.Equal(t, []uint64{postID}, w.EvidencePostIDs)
+}
+
+// Self-promote skip: if the post's PromotedBy equals the author (which
+// shouldn't happen given the msg-server guard, but defense-in-depth here),
+// no warning fires — Tier 1 only bites cross-member vouching.
+func TestExpireHiddenPosts_NoWarningOnSelfPromote(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+
+	hiddenAt := int64(1_000_000)
+	now := hiddenAt + types.DefaultHiddenExpiration + 1
+	f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+
+	postID, err := f.keeper.PostSeq.Next(f.ctx)
+	require.NoError(t, err)
+
+	post := types.Post{
+		PostId:     postID,
+		CategoryId: cat.CategoryId,
+		Author:     testCreator,
+		Content:    "Self-promoted hidden post",
+		CreatedAt:  hiddenAt - 100,
+		Status:     types.PostStatus_POST_STATUS_HIDDEN,
+		HiddenAt:   hiddenAt,
+		PromotedBy: testCreator, // same as Author
+		PromotedAt: hiddenAt - 50,
+	}
+	require.NoError(t, f.keeper.Post.Set(f.ctx, postID, post))
+	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{
+		PostId:   postID,
+		HiddenAt: hiddenAt,
+	}))
+
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+
+	require.Empty(t, f.repKeeper.warningCalls, "self-promote must not trigger a warning")
+}

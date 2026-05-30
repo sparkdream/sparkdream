@@ -23,9 +23,9 @@ type Keeper struct {
 	Schema collections.Schema
 	Params collections.Item[types.Params]
 
-	bankKeeper           types.BankKeeper
-	repKeeper            types.RepKeeper
-	commonsKeeper        types.CommonsKeeper
+	bankKeeper    types.BankKeeper
+	repKeeper     types.RepKeeper
+	commonsKeeper types.CommonsKeeper
 	// identityKeeper is late-bound via SetIdentityKeeper from app.go.
 	// Used by BondDenom() to resolve the chain's bond denom for federated
 	// chains. Panics if unwired — see BondDenom() for rationale.
@@ -60,6 +60,20 @@ type Keeper struct {
 	// Membership-driven promotion indexes (see promotion_queue.go).
 	EphemeralByAuthor collections.KeySet[collections.Pair[string, uint64]]
 	PromotionQueue    collections.Map[string, int64]
+
+	// Post conviction-stake state (see post_conviction.go).
+	PostConvictionStake          collections.Map[uint64, types.PostConvictionStake]
+	PostConvictionStakeSeq       collections.Sequence
+	PostConvictionStakesByPost   collections.KeySet[collections.Pair[uint64, uint64]]
+	PostConvictionStakesByStaker collections.KeySet[collections.Pair[string, uint64]]
+	// ForumRepEpochCounter: (author, tag) -> per-epoch accumulated rep, used
+	// by AccruePostConvictions to enforce the per-(author, tag, epoch) cap.
+	ForumRepEpochCounter collections.Map[collections.Pair[string, string], types.ForumRepEpochCounter]
+	// PostConvictionAccrualCursor holds the stake_id where the next
+	// AccruePostConvictions pass should resume. Round-robin progress that
+	// prevents the per-block cap from starving high-id stakes when the
+	// active set exceeds maxAccrualPerBlock.
+	PostConvictionAccrualCursor collections.Item[uint64]
 }
 
 func NewKeeper(
@@ -132,6 +146,19 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 		PromotionQueue: collections.NewMap(sb, types.PromotionQueueKey, "promotionQueue",
 			collections.StringKey, collections.Int64Value),
+
+		PostConvictionStake: collections.NewMap(sb, types.PostConvictionStakeKey, "postConvictionStake",
+			collections.Uint64Key, codec.CollValue[types.PostConvictionStake](cdc)),
+		PostConvictionStakeSeq: collections.NewSequence(sb, types.PostConvictionStakeSeqKey, "postConvictionStakeSequence"),
+		PostConvictionStakesByPost: collections.NewKeySet(sb, types.PostConvictionStakesByPostKey, "postConvictionStakesByPost",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		PostConvictionStakesByStaker: collections.NewKeySet(sb, types.PostConvictionStakesByStakerKey, "postConvictionStakesByStaker",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		ForumRepEpochCounter: collections.NewMap(sb, types.ForumRepEpochCounterKey, "forumRepEpochCounter",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
+			codec.CollValue[types.ForumRepEpochCounter](cdc)),
+		PostConvictionAccrualCursor: collections.NewItem(sb, types.PostConvictionAccrualCursorKey,
+			"postConvictionAccrualCursor", collections.Uint64Value),
 	}
 	schema, err := sb.Build()
 	if err != nil {

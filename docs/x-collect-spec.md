@@ -103,6 +103,12 @@ message Collection {
 
   // --- Cross-module conviction propagation ---
   uint64 initiative_id = 28;            // x/rep initiative referenced by this collection (0 = none, immutable)
+
+  // --- Display-only pin marker ---
+  bool pinned = 29;                     // Set by MsgPinCollection, cleared by MsgUnpinCollection. Requires the collection to already be permanent (expires_at == 0); does not affect lifecycle. The lifecycle change (ephemeral → permanent + deposit burn) is owned by MsgMakeCollectionPermanent.
+
+  // --- Non-member collaboration ---
+  uint32 non_member_collaborator_count = 30;  // How many of collaborator_count are stake-bearing non-members. Bounded by Params.max_non_member_collaborators_per_collection.
 }
 ```
 
@@ -305,11 +311,29 @@ message CustomReference {
 ```protobuf
 message Collaborator {
   uint64 collection_id = 1;
-  string address = 2;             // Must be active x/rep member
+  string address = 2;             // x/rep member, OR a non-member invited as EDITOR (see below)
   CollaboratorRole role = 3;
   int64 added_at = 4;
+  string inviter = 5;             // Member who added a non-member collaborator (empty for member collaborators). Identifies the address whose DREAM stake is locked behind this collaboration.
+  string dream_stake = 6 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // DREAM the inviter locked when adding a non-member (zero for member collaborators)
 }
 ```
+
+**Non-member collaborators.** A non-member may be added as an `EDITOR`
+collaborator on a member-owned collection. The inviter (collection owner or an
+`ADMIN`, who must meet `params.min_sponsor_trust_level`) locks
+`params.non_member_collab_dream_stake` DREAM as accountability. Non-members
+**cannot** hold `ADMIN` and cannot be promoted to `ADMIN` via
+`MsgUpdateCollaboratorRole` (both rejected with `ErrNonMemberAdminRole`).
+Per-collection non-member slots are capped by
+`params.max_non_member_collaborators_per_collection` (a sub-cap of
+`max_collaborators_per_collection`, rejected with
+`ErrMaxNonMemberCollaborators`).
+
+Stake settlement on removal / deletion (`releaseOrSlashCollabStake`):
+- Collection status `ACTIVE` at settlement → the inviter's full stake is unlocked and refunded.
+- Collection status `HIDDEN` at settlement → `params.non_member_collab_burn_fraction` of the stake is burned (the remainder refunded), and the inviter takes a per-tag `collab_inviter_rep_penalty` reputation deduction across the collection's tags.
+- When the new member is admitted, the EndBlocker promotion queue (§10.0) releases the inviter's stake in full (admission is not misconduct) and clears the `inviter` / `dream_stake` fields.
 
 ### 3.11. CollaboratorRole
 
@@ -626,8 +650,34 @@ message Params {
   // --- Pinning parameters — OPERATIONAL ---
   uint32 pin_min_trust_level = 61;    // Min trust level to pin collections (default: 2 = ESTABLISHED)
   uint32 max_pins_per_day = 62;       // Max pins per address per day (default: 10)
+
+  // --- Make-permanent parameters ---
+  uint32 make_permanent_min_trust_level = 67;  // OPERATIONAL. Min trust level to call MsgMakeCollectionPermanent (default: 1 = PROVISIONAL — lower than pin_min_trust_level)
+  uint32 max_make_permanent_per_day = 75;      // OPERATIONAL. Max MsgMakeCollectionPermanent per address per UTC day (default: 5). Independent of max_pins_per_day.
+
+  // --- Non-member collaboration parameters ---
+  string non_member_collab_dream_stake = 68 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];      // OPERATIONAL. DREAM the inviter locks per non-member collaborator (default: 100 DREAM)
+  string non_member_collab_burn_fraction = 69 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // OPERATIONAL. Fraction of locked stake burned when the collaborator exits a HIDDEN collection (default: 0.5)
+  uint32 max_non_member_collaborators_per_collection = 70;  // GOVERNANCE ONLY. Per-collection non-member slot cap (default: 2). Must be <= max_collaborators_per_collection.
+
+  // --- Membership-driven promotion queue ---
+  uint32 max_promotions_per_block = 71;  // GOVERNANCE ONLY. Cap on EndBlocker Phase 0 promotion-queue work units per block (default: 50). Zero disables the drain.
+
+  // --- Slash rep-penalty parameters — OPERATIONAL ---
+  string endorser_rep_penalty = 72 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];        // Per-tag rep deducted from an endorser when their endorsed collection is hidden and the hide stands (default: 10)
+  string collab_inviter_rep_penalty = 73 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Per-tag rep deducted from a collaborator-inviter on HIDDEN-exit stake burn (default: 5 — lowest)
+  string author_rep_penalty = 74 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];          // Per-tag rep deducted from a collection creator when a sentinel hides it (default: 15 — highest)
 }
 ```
+
+The three `*_rep_penalty` values are **per-tag** deductions applied alongside
+their respective DREAM-burn slash paths. The deduction loops over the
+collection's own tags so the penalty lands in the topic areas the actor
+claimed expertise in, and is floored at zero by x/rep's `DeductReputation`.
+Relative magnitudes: `author_rep_penalty` (15) > `endorser_rep_penalty` (10) >
+`collab_inviter_rep_penalty` (5) — the author authored the bad content,
+the endorser vouched for content quality, and the inviter only vouched for a
+person's future contributions.
 
 ### 3.24. CollectOperationalParams
 
@@ -692,10 +742,24 @@ message CollectOperationalParams {
   // --- Pinning parameters ---
   uint32 pin_min_trust_level = 43;
   uint32 max_pins_per_day = 44;
+
+  // --- Make-permanent parameters ---
+  uint32 make_permanent_min_trust_level = 49;
+  uint32 max_make_permanent_per_day = 55;
+
+  // --- Non-member collaboration parameters ---
+  // (max_non_member_collaborators_per_collection is governance-only and is NOT in op params)
+  string non_member_collab_dream_stake = 50 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string non_member_collab_burn_fraction = 51 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+
+  // --- Slash rep-penalty parameters ---
+  string endorser_rep_penalty = 52 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string collab_inviter_rep_penalty = 53 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string author_rep_penalty = 54 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
 }
 ```
 
-**Governance-only fields** (require full `x/gov` proposal via `MsgUpdateParams`): collection limits (`max_collections_base`, `max_collections_per_trust_level`), all size limits (`max_items_per_collection`, `max_title_length`, `max_name_length`, `max_description_length`, `max_tag_length`, `max_tags_per_collection`, `max_attributes_per_item`, `max_attribute_key_length`, `max_attribute_value_length`, `max_reference_field_length`, `max_encrypted_data_size`, `max_collaborators_per_collection`, `max_batch_size`), TTL policies (`max_ttl_blocks`, `max_non_member_ttl_blocks`), and EndBlocker config (`max_prune_per_block`). These are structural constraints that affect validation rules, capacity planning, and consensus behavior.
+**Governance-only fields** (require full `x/gov` proposal via `MsgUpdateParams`): collection limits (`max_collections_base`, `max_collections_per_trust_level`), all size limits (`max_items_per_collection`, `max_title_length`, `max_name_length`, `max_description_length`, `max_tag_length`, `max_tags_per_collection`, `max_attributes_per_item`, `max_attribute_key_length`, `max_attribute_value_length`, `max_reference_field_length`, `max_encrypted_data_size`, `max_collaborators_per_collection`, `max_batch_size`), TTL policies (`max_ttl_blocks`, `max_non_member_ttl_blocks`), EndBlocker config (`max_prune_per_block`, `max_promotions_per_block`), and the non-member collaborator slot cap (`max_non_member_collaborators_per_collection`). These are structural constraints that affect validation rules, capacity planning, and consensus behavior.
 
 ---
 
@@ -735,6 +799,7 @@ message CollectOperationalParams {
 | `ReactionDedup/{address}/{target_type}/{target_id}` | `uint8` | Dedup: 1 = upvoted, 2 = downvoted. Prevents same member from voting same target twice |
 | `Item/by_onchain_ref/{module}:{entity_type}:{entity_id}/{item_id}` | `[]byte{}` | Reverse index for OnChainReference lookups |
 | `Collection/by_status/{status}/{id}` | `[]byte{}` | Index: collections by status (for PendingCollections query) |
+| `promotion_queue/{address}` | `int64` | Membership-driven promotion queue: addresses awaiting EndBlocker §10.0 drain, stamped with enqueue block height (`pin` and `make_permanent` daily counters reuse the `ReactionLimit` prefix with category keys) |
 
 **Module account** (`x/collect`): Holds **SPARK** (TTL collection deposits, TTL per-item deposits, sponsorship escrow deposits, appeal fee escrow, endorsement creation fee escrow) and **DREAM** (curator bonds, challenge deposits). Endorser DREAM stakes are held via x/rep keeper (not in the module account directly). Permanent deposits, sponsor fees, downvote costs, and all spam taxes are sent directly to the burn address.
 
@@ -849,6 +914,7 @@ message MsgDeleteCollectionResponse {}
 
 **Validation:**
 - `creator` must be collection owner
+- Collection must not be `HIDDEN` (`ErrCannotDeleteHidden`). A standing sentinel hide must be appealed first; allowing self-delete here would let the owner dodge the endorsement / collaborator slash decision (forfeit-by-delete). If the appeal upholds, status restores to ACTIVE and delete becomes available again.
 
 **Cleanup:** If the collection has a TTL (`expires_at > 0`), its expiry index entry is removed. If a pending `SponsorshipRequest` exists, the escrowed permanent deposits are also refunded to the owner, the request deleted, and its expiry index entry removed.
 
@@ -858,7 +924,9 @@ message MsgDeleteCollectionResponse {}
 
 **PENDING collection deletion:** If `status = PENDING` (non-member collection), the escrowed `endorsement_creation_fee` is partially refunded: `endorsement_deletion_burn_fraction` (default 10%) is burned to cover network costs, the remainder is refunded to the owner.
 
-**Endorsed collection deletion:** If the collection was endorsed (`endorsed_by` is not empty) and the endorser's DREAM stake has not yet been released (`stake_released = false` on the `Endorsement` record), the endorser's stake is released immediately via x/rep keeper. The endorser already received their fee share at endorsement time and should not be penalized for the owner's deletion.
+**Endorsed collection deletion:** If the collection was endorsed (`endorsed_by` is not empty) and the endorser's DREAM stake has not yet been released (`stake_released = false` on the `Endorsement` record): when status is **not** HIDDEN, the endorser's stake is released (unlocked) immediately via x/rep keeper — they already received their fee share and should not be penalized for the owner's own deletion. When status is **HIDDEN** (a sentinel hide stands and the appeal lane is settled), the endorser's locked DREAM is instead **burned** and an `endorser_rep_penalty` per-tag reputation deduction is applied across the collection's tags (this is the same slash branch as a rejected hide appeal). Since `MsgDeleteCollection` rejects HIDDEN outright, this HIDDEN-slash path is only reached via EndBlocker deletion of an unappealed expired hide (§10.3).
+
+**Non-member collaborator stake settlement:** for each collaborator record carrying a `dream_stake`, the inviter's stake is settled via `releaseOrSlashCollabStake` during the collaborator-cleanup walk — full refund when the collection is ACTIVE, fractional burn (`non_member_collab_burn_fraction`) plus a per-tag `collab_inviter_rep_penalty` when the collection is HIDDEN. Failures are logged and never block deletion.
 
 **Active appeal cleanup:** If there is an active hide appeal on this collection or any of its items (i.e., a `HideRecord` with `appealed = true` and `resolved = false`), the escrowed `appeal_fee` is burned (the owner chose to delete rather than await resolution). The sentinel's bond commitment is released (no slash since there is no verdict). The HideRecord is marked `resolved = true` and removed from the `HideRecord/expiry/` index to prevent §10.3a from processing a stale record.
 
@@ -1055,9 +1123,10 @@ message MsgAddCollaboratorResponse {}
 **Validation:**
 - `creator` must be owner or ADMIN
 - **Collection must not be `immutable`** (endorsed non-member collections cannot add collaborators until owner becomes member)
-- `address` must be active `x/rep` member
 - `address` not already a collaborator or the owner
 - Collection ≤ `max_collaborators_per_collection`
+- **Member `address`**: added directly (no stake), any role.
+- **Non-member `address`** (the address is not an active `x/rep` member): allowed only as `EDITOR` (else `ErrNonMemberAdminRole`). The inviter (`creator`) must meet `params.min_sponsor_trust_level` (else `ErrInviterTrustLevelTooLow`) and the collection's non-member slots must be below `params.max_non_member_collaborators_per_collection` (else `ErrMaxNonMemberCollaborators`). The inviter locks `params.non_member_collab_dream_stake` DREAM; the record's `inviter` and `dream_stake` are set and `non_member_collaborator_count` is incremented.
 
 ### 5.11. MsgRemoveCollaborator
 
@@ -1076,6 +1145,8 @@ message MsgRemoveCollaboratorResponse {}
 - **Collection must not be `immutable`** (endorsed non-member collections cannot modify collaborators until owner becomes member), unless self-removal
 - Self-removal always allowed
 
+**Stake settlement (non-member collaborators):** when the removed record carries a `dream_stake`, the inviter's stake is settled via `releaseOrSlashCollabStake` — full refund when the collection is `ACTIVE`, otherwise (`HIDDEN`) a `params.non_member_collab_burn_fraction` slice is burned (remainder refunded) and the inviter takes a per-tag `collab_inviter_rep_penalty` deduction across the collection's tags. `non_member_collaborator_count` is decremented. Stake-settlement failures in x/rep are logged and never block removal.
+
 ### 5.12. MsgUpdateCollaboratorRole
 
 ```protobuf
@@ -1092,6 +1163,7 @@ message MsgUpdateCollaboratorRoleResponse {}
 **Validation:**
 - **Collection must not be `immutable`** (endorsed non-member collections cannot modify collaborator roles until owner becomes member)
 - Only owner can grant/revoke ADMIN
+- A stake-bearing (non-member) collaborator cannot be promoted to `ADMIN` (`ErrNonMemberAdminRole`)
 
 ### 5.13. Curator bonding (moved to x/rep)
 
@@ -1421,8 +1493,9 @@ message MsgHideContentResponse {
 2. Commit `sentinel_commit_amount` (100 DREAM) from sentinel's bond via x/forum keeper (cross-module bond commitment)
 3. Create `HideRecord` with `appeal_deadline = current_block + hide_expiry_blocks`
 4. Clear any existing `CollectionFlag` for this target (sentinel action supersedes flags)
-5. If hiding a collection: all items within are implicitly hidden (excluded from queries)
-6. Emit `content_hidden` event
+5. When hiding a **collection**: slash the author's bond (`SlashAuthorBond`) and apply a per-tag `author_rep_penalty` deduction across the collection's tags (best-effort; skipped if no tags or zero penalty). This is eager, mirroring the bond-slash timing — neither is restored if a later appeal is upheld.
+6. If hiding a collection: all items within are implicitly hidden (excluded from queries)
+7. Emit `content_hidden` event (carries `author`, `rep_penalty`, `rep_penalty_tags` attributes when the author penalty was applied)
 
 ### 5.26. MsgAppealHide
 
@@ -1467,7 +1540,7 @@ message MsgAppealHideResponse {}
   - Deposit refunds follow standard deletion logic
   - Sentinel receives 50% of `appeal_fee` (2.5 SPARK)
   - 50% burned (2.5 SPARK)
-  - If endorsed non-member collection: endorser's DREAM stake is slashed (burned)
+  - If endorsed non-member collection: endorser's DREAM stake is slashed (burned) and an `endorser_rep_penalty` per-tag deduction is applied across the collection's tags
   - HideRecord marked `resolved = true`
   - Emit `hide_appeal_rejected` event
 
@@ -1534,7 +1607,12 @@ message MsgSetSeekingEndorsementResponse {}
 
 ### 5.29. MsgPinCollection
 
-Makes an ephemeral collection permanent by burning its deposits. See §18.12 for full details.
+**Strict separation (mirrors x/blog and x/forum).** Pin is a **display-only
+marker** — it sets `Collection.pinned = true` and does **not** touch the
+lifecycle. The target must already be permanent; lifecycle promotion is owned
+exclusively by `MsgMakeCollectionPermanent` (§5.31). An ephemeral target is
+rejected with `ErrCannotPinEphemeral` so callers can't conflate "feature this"
+with "preserve this".
 
 ```protobuf
 message MsgPinCollection {
@@ -1546,17 +1624,67 @@ message MsgPinCollectionResponse {}
 ```
 
 **Validation:**
-1. `creator` must be an active x/rep member at or above `pin_min_trust_level`
-2. Collection must exist and have `expires_at > 0` (TTL collection)
-3. Collection must have `status = ACTIVE`
-4. `creator` must not exceed `max_pins_per_day` (rolling 24h window)
+1. `creator` must be an active x/rep member at or above `pin_min_trust_level` (default ESTABLISHED)
+2. Collection must exist and have `status = ACTIVE`
+3. Collection must already be permanent (`expires_at == 0`) — ephemeral targets rejected with `ErrCannotPinEphemeral`
+4. Collection must not already be pinned (`ErrCollectionAlreadyPinned`)
+5. `creator` must not exceed `max_pins_per_day` (rolling 24h window; shared counter with Unpin so a Pin → Unpin → Pin rotation can't bypass the cap)
 
 **Logic:**
-1. Set `expires_at = 0` (permanent)
-2. If `conviction_sustained == true`: set `conviction_sustained = false`
-3. Burn the held collection deposit + item deposits from module account (`deposit_burned = true`)
-4. Remove from expiry index
-5. Emit `collection_pinned` event with `collection_id`, `pinned_by`
+1. Set `pinned = true`
+2. Emit `collect.collection.pinned` event with `collection_id`, `pinned_by`
+
+### 5.30. MsgUnpinCollection
+
+Clears the display-only `pinned` marker.
+
+```protobuf
+message MsgUnpinCollection {
+  string creator = 1;
+  uint64 collection_id = 2;
+}
+
+message MsgUnpinCollectionResponse {}
+```
+
+**Validation:**
+1. Collection must exist and currently be pinned (`ErrCollectionNotPinned` otherwise — the message is rejected, not silently no-op'd, when already unpinned)
+2. `creator` must be an active x/rep member at or above `pin_min_trust_level`
+3. `creator` must not exceed `max_pins_per_day` (same shared counter as Pin)
+
+**Logic:**
+1. Set `pinned = false`
+2. Emit `collect.collection.unpinned` event with `collection_id`, `unpinned_by`
+
+### 5.31. MsgMakeCollectionPermanent
+
+Flips an ephemeral collection to permanent by burning its escrowed deposits —
+the lifecycle action that the pre-rework `MsgPinCollection` used to perform.
+Gated on its own trust level (`make_permanent_min_trust_level`, default
+PROVISIONAL — lower than `pin_min_trust_level`, since preservation is a smaller
+curator action than featuring) and its own daily quota.
+
+```protobuf
+message MsgMakeCollectionPermanent {
+  string creator = 1;
+  uint64 collection_id = 2;
+}
+
+message MsgMakeCollectionPermanentResponse {}
+```
+
+**Validation:**
+1. `creator` must be an active x/rep member at or above `make_permanent_min_trust_level` (default PROVISIONAL = 1); failures wrap `ErrMakePermanentTrustLevelTooLow`
+2. Collection must exist and have `status = ACTIVE`
+3. Expired-but-not-yet-pruned targets (`expires_at > 0 && expires_at <= current_block`) are rejected with `ErrCollectionExpired` to avoid racing the next EndBlocker
+4. `creator` must not exceed `max_make_permanent_per_day` (per-UTC-day counter, independent of `max_pins_per_day`)
+
+**Logic:**
+1. **Idempotent on already-permanent** (`expires_at == 0`): returns success without state change, so callers can blindly upgrade-then-pin
+2. Set `expires_at = 0`, `deposit_burned = true`; clear `conviction_sustained` if set
+3. Burn the escrowed collection deposit + item deposits (`deposit_amount + item_deposit_total`)
+4. Remove the `CollectionsByExpiry` entry so the TTL prune never fires; pin markers are untouched
+5. Emit `collect.collection.upgraded` event with `collection_id`, `owner`, `by`, `via=make_permanent`, `deposit_burned`
 
 ---
 
@@ -1714,8 +1842,13 @@ type Keeper interface {
     SetParams(ctx context.Context, params Params) error
     UpdateOperationalParams(ctx context.Context, msg *MsgUpdateOperationalParams) error
 
-    // Pinning
+    // Pinning / preservation
     PinCollection(ctx context.Context, msg *MsgPinCollection) error
+    UnpinCollection(ctx context.Context, msg *MsgUnpinCollection) error
+    MakeCollectionPermanent(ctx context.Context, msg *MsgMakeCollectionPermanent) error
+
+    // Membership-driven promotion queue (EndBlocker §10.0)
+    EnqueueMemberForPromotion(ctx context.Context, addr string) error
 
     // Conviction (delegates to x/rep)
     GetCollectionConviction(ctx context.Context, collectionID uint64) (ConvictionResponse, error)
@@ -1792,8 +1925,17 @@ type Keeper interface {
 | `endorsement_deletion_burn_fraction` | `0.10` (10%) | Ops | Fraction of endorsement fee burned when owner deletes PENDING collection (remainder refunded) |
 | `conviction_renewal_threshold` | `0` (disabled) | Ops | Min conviction score to renew anonymous collections at TTL expiry (0 = disabled) |
 | `conviction_renewal_period` | `432000` (~30 days) | Ops | Blocks to extend TTL by when conviction-renewed |
-| `pin_min_trust_level` | `2` (ESTABLISHED) | Ops | Minimum trust level to pin anonymous collections |
-| `max_pins_per_day` | `10` | Ops | Max pins per address per rolling 24h |
+| `pin_min_trust_level` | `2` (ESTABLISHED) | Ops | Minimum trust level to pin / unpin collections |
+| `max_pins_per_day` | `10` | Ops | Max pins per address per rolling 24h (shared Pin/Unpin counter) |
+| `make_permanent_min_trust_level` | `1` (PROVISIONAL) | Ops | Minimum trust level to call `MsgMakeCollectionPermanent` (lower than pin) |
+| `max_make_permanent_per_day` | `5` | Ops | Max `MsgMakeCollectionPermanent` per address per UTC day (independent of pins) |
+| `non_member_collab_dream_stake` | `100` DREAM | Ops | DREAM the inviter locks per non-member collaborator |
+| `non_member_collab_burn_fraction` | `0.50` (50%) | Ops | Fraction of locked stake burned when the collaborator exits a HIDDEN collection |
+| `max_non_member_collaborators_per_collection` | `2` | Gov | Per-collection non-member slot cap (≤ `max_collaborators_per_collection`) |
+| `max_promotions_per_block` | `50` | Gov | EndBlocker Phase 0 promotion-queue work-unit cap (0 disables the drain) |
+| `endorser_rep_penalty` | `10` | Ops | Per-tag rep deducted from an endorser on a standing-hide stake burn |
+| `collab_inviter_rep_penalty` | `5` | Ops | Per-tag rep deducted from a collaborator-inviter on a HIDDEN-exit stake burn |
+| `author_rep_penalty` | `15` | Ops | Per-tag rep deducted from the author when a sentinel hides their collection |
 
 ---
 
@@ -1828,7 +1970,43 @@ message GenesisState {
 | `InitGenesis` | Import params, collections, items, collaborators, curators, reviews, summaries, sponsorship requests, and all counters |
 | `ExportGenesis` | Export all state |
 | `BeginBlock` | None |
-| `EndBlock` | Prune expired collections/sponsorship requests (10.1), unappealed hides (10.3), appeal timeouts (10.3a), expired flags (10.4), unendorsed collections (10.5), release endorsement stakes (10.6) |
+| `EndBlock` | Drain membership-driven promotion queue (10.0), prune expired collections/sponsorship requests (10.1), unappealed hides (10.3), appeal timeouts (10.3a), expired flags (10.4), unendorsed collections (10.5), release endorsement stakes (10.6) |
+
+### 10.0. EndBlocker: Membership-Driven Promotion Queue (Phase 0)
+
+Runs **first**, against its own independent cap (`max_promotions_per_block`,
+default 50; zero disables the drain) so a busy prune cycle never starves the
+promotion queue and vice versa.
+
+When x/rep admits a new member, `CollectRepHooks.AfterMemberAdmitted` (wired
+via the `RepHooks` interface) enqueues the address into `PromotionQueue`. The
+EndBlocker drains the queue up to the per-block budget, where each **work
+unit** is one of:
+
+1. **Inviter-stake release.** For each collaborator record where the new member
+   is the (formerly non-member) collaborator carrying a non-zero `dream_stake`,
+   the inviter's locked DREAM is **fully refunded** (admission is not
+   misconduct), the `inviter` / `dream_stake` fields are cleared, and the
+   collection's `non_member_collaborator_count` is decremented. Emits
+   `collect.collab_stake.released` (`via=member_admitted`).
+2. **Owned-ephemeral promotion.** For each ephemeral collection the new member
+   owns (PENDING or ACTIVE+TTL, including endorsed/immutable ones), the
+   collection is flipped to permanent — burning its escrowed collection + item
+   deposits, clearing the TTL and `CollectionsByExpiry` entry, transitioning
+   PENDING→ACTIVE (with `CollectionsByStatus` reindex), refunding the
+   endorsement creation fee and clearing the `EndorsementPending` entry for
+   PENDING collections, and releasing the endorser's stake for endorsed ones
+   (the pre-member insurance is no longer needed). Emits
+   `collect.collection.upgraded` (`via=promotion_queue`). HIDDEN collections
+   are **skipped** (deferred until moderation resolves) and already-permanent
+   collections are no-ops.
+
+Per address the two passes run in order (stake releases first, then
+promotions). Partial progress is preserved: if the budget is exhausted
+mid-address, the address stays queued and the next block resumes where this one
+stopped; an address whose work fully drains is removed from the queue. All
+units are best-effort — missing records, missing collections, and rep-keeper
+failures are logged-and-skipped rather than aborting the drain.
 
 ### 10.1. EndBlocker: TTL Pruning
 
@@ -1862,6 +2040,18 @@ for each expired collection expiry index entry (where expires_at ≤ current_blo
                 if collection.conviction_sustained:
                     collection.conviction_sustained = false
                 // Fall through to normal deletion below
+
+        // --- Defer deletion while a hide appeal is in flight ---
+        if status = HIDDEN AND a HideRecord on this collection has appealed = true AND resolved = false:
+            // The jury hasn't ruled; deleting now would force a verdict by
+            // deletion and over-slash a possibly-legitimate endorser. Leave the
+            // CollectionsByExpiry entry in place (it is permitted to outlive
+            // expires_at only here), do NOT increment pruned, retry next block.
+            // §10.3a is the backstop: if the jury never rules, the appeal
+            // timeout restores status to ACTIVE and a later §10.1 pass deletes
+            // via the normal refund/unlock path.
+            emit collection_expiry_deferred (id, reason=hide_appeal_in_flight)
+            continue
 
         if deposit_burned = false:
             refund deposit_amount + item_deposit_total from module account to owner
@@ -1916,7 +2106,7 @@ For batch removes (MsgRemoveItems), all removals happen first, then one compacti
 
 Each block, processes the hide expiry index for hide records where `appeal_deadline ≤ current_block` and `appealed = false` and `resolved = false`:
 
-1. Delete the hidden content (collection with full cleanup, or item with position compaction)
+1. Delete the hidden content (collection with full cleanup, or item with position compaction). Because the collection's status is still HIDDEN at deletion (no appeal flipped it back), `deleteCollectionFull` takes the **slash** branches: an endorser's locked DREAM is burned with an `endorser_rep_penalty` per-tag deduction, and any non-member collaborator stakes are fractionally burned (`non_member_collab_burn_fraction`) with a `collab_inviter_rep_penalty`. This is the only path that reaches the HIDDEN-slash branch (since `MsgDeleteCollection` rejects HIDDEN). Mirrors the rejected-appeal branch of `ResolveHideAppeal`.
 2. Refund deposits per standard deletion logic
 3. Release sentinel's committed bond (no penalty — content was not appealed, implying owner accepted the hide)
 4. Mark HideRecord `resolved = true`
@@ -2018,8 +2208,9 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `item_removed` | `id`, `collection_id`, `creator`, `deposit_refunded` | MsgRemoveItem |
 | `items_removed` | `collection_id`, `creator`, `count`, `deposit_refunded` | MsgRemoveItems |
 | `item_reordered` | `id`, `collection_id`, `old_position`, `new_position` | MsgReorderItem |
-| `collaborator_added` | `collection_id`, `address`, `role`, `added_by` | MsgAddCollaborator |
-| `collaborator_removed` | `collection_id`, `address`, `removed_by` | MsgRemoveCollaborator |
+| `collaborator_added` | `collection_id`, `address`, `role`, `added_by` (+ `inviter`, `dream_stake` for non-member invites) | MsgAddCollaborator |
+| `collaborator_removed` | `collection_id`, `address`, `removed_by` (+ `inviter`, `dream_burned`, `dream_refunded`, and `rep_penalty`/`rep_penalty_tags` on HIDDEN-exit burn) | MsgRemoveCollaborator |
+| `collect.collab_stake.released` | `collection_id`, `address`, `inviter`, `dream_refunded`, `via=member_admitted` | EndBlocker §10.0 (member admitted) |
 | `collaborator_role_updated` | `collection_id`, `address`, `old_role`, `new_role` | MsgUpdateCollaboratorRole |
 | `bonded_role_bonded` (role_type=ROLE_TYPE_COLLECT_CURATOR) | `address`, `amount`, `total_bond`, `bond_status` | Emitted by x/rep on `MsgBondRole` |
 | `bonded_role_unbonded` (role_type=ROLE_TYPE_COLLECT_CURATOR) | `address`, `amount`, `remaining_bond`, `bond_status` | Emitted by x/rep on `MsgUnbondRole` |
@@ -2035,7 +2226,7 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `content_upvoted` | `target_id`, `target_type`, `voter` | MsgUpvoteContent |
 | `content_downvoted` | `target_id`, `target_type`, `voter`, `cost_burned` | MsgDownvoteContent |
 | `content_flagged` | `target_id`, `target_type`, `flagger`, `reason`, `total_weight`, `in_review_queue` | MsgFlagContent |
-| `content_hidden` | `target_id`, `target_type`, `sentinel`, `hide_record_id`, `reason_code`, `committed_amount` | MsgHideContent |
+| `content_hidden` | `hide_record_id`, `sentinel`, `target_id`, `target_type`, `reason_code`, `appeal_deadline` (+ `author`, `rep_penalty`, `rep_penalty_tags` when an author rep penalty is applied) | MsgHideContent |
 | `hide_appealed` | `hide_record_id`, `appellant`, `appeal_fee` | MsgAppealHide |
 | `hide_appeal_upheld` | `hide_record_id`, `target_id`, `target_type`, `sentinel_slashed`, `appellant_refund` | x/rep jury callback |
 | `hide_appeal_rejected` | `hide_record_id`, `target_id`, `target_type`, `sentinel_reward`, `target_deleted` | x/rep jury callback |
@@ -2044,10 +2235,13 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `collection_endorsed` | `collection_id`, `endorser`, `dream_staked`, `endorser_reward` | MsgEndorseCollection |
 | `seeking_endorsement_updated` | `collection_id`, `seeking` | MsgSetSeekingEndorsement |
 | `endorsement_stake_released` | `collection_id`, `endorser`, `amount` | EndBlocker |
-| `endorsement_stake_slashed` | `collection_id`, `endorser`, `amount` | Sentinel hide during stake period |
+| `endorsement_stake_slashed` | `collection_id`, `endorser`, `amount`, `rep_penalty`, `rep_penalty_tags` | Endorsed HIDDEN collection deleted (standing hide / rejected appeal) |
 | `unendorsed_collection_pruned` | `collection_id`, `owner`, `deposit_refunded` | EndBlocker |
 | `flags_expired` | `target_id`, `target_type` | EndBlocker |
-| `collection_pinned` | `collection_id`, `pinned_by` | MsgPinCollection |
+| `collect.collection.pinned` | `collection_id`, `pinned_by` | MsgPinCollection (display-only marker set) |
+| `collect.collection.unpinned` | `collection_id`, `unpinned_by` | MsgUnpinCollection (marker cleared) |
+| `collect.collection.upgraded` | `collection_id`, `owner`, `deposit_burned`, `via` (`make_permanent` or `promotion_queue`) (+ `by` for make_permanent) | MsgMakeCollectionPermanent / EndBlocker §10.0 |
+| `collection_expiry_deferred` | `id`, `reason=hide_appeal_in_flight` | EndBlocker §10.1 (deletion deferred while appeal in flight) |
 
 ---
 
@@ -2146,9 +2340,17 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `ErrFlagReasonTextTooLong` | 1188 | `reason_text` exceeds `max_flag_reason_length` |
 | `ErrInvalidOnChainRef` | 1189 | Invalid on-chain reference: unknown `entity_type` or malformed `entity_id` |
 | `ErrOnChainRefNotFound` | 1190 | On-chain referenced content not found |
-| `ErrCannotPinActive` | 1214 | Collection is already permanent |
-| `ErrPinTrustLevelTooLow` | 1215 | Below required pin trust level |
+| `ErrCannotPinActive` | 1214 | (Legacy — retained for proto codec compat with replayed historical txs; Pin no longer rejects permanent targets) |
+| `ErrPinTrustLevelTooLow` | 1215 | Below required pin/unpin trust level |
+| `ErrCannotPinEphemeral` | 1216 | Collection is ephemeral; promote with MsgMakeCollectionPermanent before pinning |
+| `ErrCollectionNotPinned` | 1217 | Collection is not pinned (cannot unpin) |
+| `ErrMakePermanentTrustLevelTooLow` | 1218 | Below required make-permanent trust level (or not a member / rep unavailable) |
+| `ErrCollectionAlreadyPinned` | 1219 | Collection is already pinned |
 | `ErrInvalidInitiativeRef` | 1230 | Invalid initiative reference for conviction propagation |
+| `ErrNonMemberAdminRole` | 1250 | Non-members cannot hold or be promoted to ADMIN role |
+| `ErrMaxNonMemberCollaborators` | 1251 | Collection at `max_non_member_collaborators_per_collection` |
+| `ErrInviterTrustLevelTooLow` | 1252 | Inviter below `min_sponsor_trust_level` (non-member invite) |
+| `ErrCannotDeleteHidden` | 1260 | Cannot delete a collection while it is HIDDEN; appeal the hide first |
 
 **Rate-limit error note:** Errors 1172 (`ErrFlagRateLimitExceeded`), 1173 (`ErrMaxDailyReactions`), and 1174 (`ErrDownvoteRateLimitExceeded`) cover distinct rate-limiting aspects: flagging, general daily reactions, and downvotes respectively. Each has an independent daily counter tracked in `ReactionLimit/{address}/{day}`.
 
@@ -2178,7 +2380,7 @@ Ciphertext includes overhead (nonce, auth tag, padding). `max_encrypted_data_siz
 A single address can store at most: `max_collections × max_items_per_collection × max_encrypted_data_size` bytes. At defaults: 5 collections × 500 items × 4096 bytes = ~10MB for a non-member, ~130MB for a COUNCIL member. The per-item deposit ensures this storage is paid for: 500 items × 0.1 SPARK = 50 SPARK per collection. Non-member storage is further constrained: all non-member collections are ephemeral (TTL ≤ ~30 days), so non-member encrypted storage is always temporary and self-cleaning.
 
 ### 14.8. Collaborator Membership Lapse
-Collaborator records persist after membership lapses, but write operations are rejected at execution time. Owner/ADMIN can remove stale collaborators.
+Member collaborator records persist after membership lapses, but write operations are rejected at execution time. Owner/ADMIN can remove stale collaborators. **Non-member collaborators** (see §3.10) are a distinct, explicitly-staked class: the inviter locks `non_member_collab_dream_stake` DREAM as accountability, the non-member is limited to `EDITOR`, and exiting a HIDDEN collection burns a fraction of the inviter's stake plus a per-tag `collab_inviter_rep_penalty`. When the non-member is later admitted as a member, the EndBlocker promotion queue (§10.0) refunds the inviter's stake in full and clears the stake bookkeeping.
 
 ### 14.9. Spam Prevention
 Five layers: (1) non-member collections are ephemeral (self-cleaning), (2) storage deposits scale with data size, (3) non-member endorsement creation fee (10 SPARK escrowed) gates collection creation, (4) non-member per-item spam tax is burned on every item addition — ensuring the non-refundable cost scales linearly with items stored, (5) tiered collection limits cap non-members at `max_collections_base`. Together these make spam attacks expensive, bounded, and temporary.
@@ -2238,9 +2440,12 @@ When a non-member who owns collections becomes an `x/rep` member, their existing
 2. **Immutability lifted**: `immutable = false` on all collections owned by the new member. The owner regains full editing rights.
 3. **Seeking endorsement cleared**: `seeking_endorsement = false` on any collections still awaiting endorsement.
 4. **Unendorsed collections preserved**: PENDING collections that were not yet endorsed are transitioned directly — no endorsement is needed when the owner becomes a member.
-5. **Endorsed collection stakes unaffected**: If an endorser already staked DREAM on a collection, the stake continues its normal lifecycle (released after `endorsement_stake_duration`). The endorser already received their fee share.
+5. **Ephemeral → permanent (deferred to EndBlocker §10.0)**: The owner's ephemeral collections (PENDING or ACTIVE+TTL) are flipped to permanent — matching the member-creates-permanent path that would have applied at create time — by the membership-driven promotion queue, bounded by `max_promotions_per_block`. This burns the escrowed deposits, clears the TTL index, refunds the endorsement creation fee for PENDING collections, and releases the endorser's stake for endorsed ones. HIDDEN collections are skipped until moderation resolves.
+6. **Inviter collaborator stakes released (deferred to EndBlocker §10.0)**: For every non-member-collaborator record the new member holds, the inviter's locked DREAM is refunded in full and the stake bookkeeping is cleared (admission is not misconduct).
 
-**Implementation:** This is triggered by an `x/rep` membership callback. When `x/rep` confirms a new member, it calls `collectKeeper.OnMembershipGranted(ctx, address)` which iterates the owner's collections and applies the above transitions. The callback is idempotent.
+**Implementation (two stages):**
+- **Synchronous callback** `collectKeeper.OnMembershipGranted(ctx, address)` applies the immediate, cheap transitions (PENDING→ACTIVE status + index reindex, immutability lift, `seeking_endorsement` clear) over the owner's collections. Idempotent.
+- **Asynchronous promotion queue.** `CollectRepHooks.AfterMemberAdmitted` (the `RepHooks` interface, fired from `MsgAcceptInvitation`) enqueues the address; the EndBlocker §10.0 drains the deposit-burning lifecycle promotions and inviter-stake releases at the per-block cap so a burst of admissions stays bounded.
 
 ---
 
@@ -2282,7 +2487,9 @@ Client-side join: resolve `owner` → name for display. No keeper dependency.
 - **Reputation impact**: Collection owners with high UP ratings gain "curation" reputation. DOWN ratings carry no direct penalty.
 - **Jury resolution**: Challenge verdicts and hide appeal verdicts come from x/rep jury via `ResolveChallengeResult` and `ResolveHideAppeal` callbacks.
 - **Endorser DREAM staking**: Endorser stakes are managed via x/rep keeper (`LockDREAM` / `UnlockDREAM` / `BurnDREAM`).
-- **Endorser reputation**: If endorsed content is hidden by sentinel, endorser receives a small reputation penalty.
+- **Non-member collaborator stakes**: Inviter stakes for non-member collaborators are also locked/unlocked/burned via the same x/rep DREAM keeper methods (see §3.10).
+- **Slash rep-penalties**: On the standing-hide slash paths, x/collect calls `repKeeper.DeductReputation(ctx, addr, tag, amount)` per collection tag for the endorser (`endorser_rep_penalty`), the collaborator-inviter (`collab_inviter_rep_penalty`), and the author (`author_rep_penalty`). Deductions are best-effort (floored at zero by x/rep; non-member targets are skipped).
+- **Membership admission hook**: x/collect implements `reptypes.RepHooks` (`CollectRepHooks.AfterMemberAdmitted`), fired from x/rep's `MsgAcceptInvitation`, which enqueues the new member into the EndBlocker promotion queue (§10.0, §14.20) to release inviter stakes and promote owned ephemeral collections.
 - **Community conviction staking**: Any active member can stake DREAM on a public collection via `MsgStake` (x/rep) with `target_type = STAKE_TARGET_CONTENT` and `target_identifier = "collect/collection/{id}"`. Conviction builds over time using the `content_conviction_half_life_epochs` half-life formula (see x/rep spec §Content Staking). No DREAM rewards — conviction is the only output. Authors cannot stake conviction on their own collections (use author bonds instead). `max_content_stake_per_member` caps individual whale influence. Works for both anonymous and regular collections.
 - **Author bonds**: Collection creators can deposit DREAM as an author bond via x/rep's `CreateAuthorBond()`, keyed to `"collect/collection/{id}"`. Bonds signal skin-in-the-game quality commitment; slashable via sentinel moderation. Author bonds do NOT contribute to conviction score — the two signals are independent (see x/rep spec §Author Bonds).
 
@@ -2487,7 +2694,7 @@ if collection.InitiativeId > 0 and repKeeper is not nil:
 | **Author bonds** | Author bonds (`CreateAuthorBond`) are separate from content conviction stakes. An author can bond DREAM and the community can also conviction-stake — these are independent mechanisms. |
 | **Anonymous collections** | Anonymous collections can reference initiatives. The anonymous author cannot stake on their own collection (identity hidden), so all conviction comes from other community members. |
 | **Sponsorship** | Sponsored collections retain their initiative link after becoming permanent. Conviction continues to propagate. |
-| **Pinning** | Pinned anonymous collections retain their initiative link. The `conviction_sustained` flag is cleared (§18.12) but the initiative link persists — pinning makes the collection permanent, and conviction propagation continues independently. |
+| **Made permanent / pinning** | Collections made permanent (`MsgMakeCollectionPermanent`) retain their initiative link. The `conviction_sustained` flag is cleared (§18.12) but the initiative link persists — making the collection permanent does not affect conviction propagation, which continues independently. The display-only `pinned` marker has no effect on the link. |
 | **Collection hiding** | Hiding a collection does NOT remove the initiative link — the collection may be restored on appeal. Link is only removed on deletion or TTL expiry. |
 | **Collection deletion** | Deleting a collection removes the initiative link immediately (owner chose to remove their content). |
 | **Endorsement** | Non-member collections in PENDING status can reference initiatives. The initiative link is created at collection creation time, regardless of endorsement status. If the collection is pruned before endorsement, the link is cleaned up. |
@@ -2517,9 +2724,14 @@ sparkdreamd tx collect add-items 1 --items-file ./my-nfts.json --from alice
 sparkdreamd tx collect remove-items 5 6 7 8 --from alice
 
 # Collaborators
-sparkdreamd tx collect add-collaborator 1 --address sprkdrm1xyz... --role editor --from alice
+sparkdreamd tx collect add-collaborator 1 --address sprkdrm1xyz... --role editor --from alice    # Non-member target: inviter locks non_member_collab_dream_stake DREAM (EDITOR only)
 sparkdreamd tx collect remove-collaborator 1 --address sprkdrm1xyz... --from alice
 sparkdreamd tx collect update-collaborator-role 1 --address sprkdrm1xyz... --role admin --from alice
+
+# Preservation & pinning
+sparkdreamd tx collect make-collection-permanent 1 --from alice    # Burn deposits, clear TTL (PROVISIONAL+)
+sparkdreamd tx collect pin-collection 1 --from alice               # Display marker; collection must already be permanent (ESTABLISHED+)
+sparkdreamd tx collect unpin-collection 1 --from alice             # Clear display marker
 
 # Sponsorship
 sparkdreamd tx collect request-sponsorship 1 --from bob                    # Non-member requests sponsorship for collection 1
@@ -2690,7 +2902,7 @@ Anonymous collections participate in the same conviction staking and expert cura
 
 For anonymous collections where the curator's identity is unknown, conviction score and curation reviews together provide the quality signal that curator identity would normally reinforce for regular collections.
 
-**Conviction-based lifetime extension:** Anonymous collections are ephemeral by default (TTL required, §18.6). When a collection's TTL expires, the EndBlocker (§10.1) checks its community conviction score. If the score meets or exceeds `params.conviction_renewal_threshold`, the TTL is extended by `params.conviction_renewal_period` instead of pruning — the collection survives as long as the community actively supports it with staked DREAM. Deposits remain held through renewals and are only refunded when the collection is finally pruned (conviction dropped below threshold) or pinned (§18.12). See [x-shield-spec.md](x-shield-spec.md) for the unified privacy architecture.
+**Conviction-based lifetime extension:** Anonymous collections are ephemeral by default (TTL required, §18.6). When a collection's TTL expires, the EndBlocker (§10.1) checks its community conviction score. If the score meets or exceeds `params.conviction_renewal_threshold`, the TTL is extended by `params.conviction_renewal_period` instead of pruning — the collection survives as long as the community actively supports it with staked DREAM. Deposits remain held through renewals and are only refunded when the collection is finally pruned (conviction dropped below threshold) or burned when made permanent (§18.12). See [x-shield-spec.md](x-shield-spec.md) for the unified privacy architecture.
 
 This creates a three-tier lifecycle for anonymous collections:
 
@@ -2698,7 +2910,7 @@ This creates a three-tier lifecycle for anonymous collections:
 |-------|---------|--------|
 | **Ephemeral** (default) | Creation with `expires_at > 0` | Pruned by EndBlocker at TTL expiry |
 | **Conviction-sustained** | Conviction score ≥ threshold at expiry | TTL extended; rolling renewal as long as community supports |
-| **Pinned** (permanent) | ESTABLISHED+ member calls `MsgPinCollection` | TTL cleared; deposits burned; permanently stored |
+| **Permanent** | PROVISIONAL+ member calls `MsgMakeCollectionPermanent` | TTL cleared; deposits burned; permanently stored (optionally additionally `pinned` via `MsgPinCollection`) |
 
 ### 18.10. Anonymous Reactions (Upvote/Downvote)
 
@@ -2727,33 +2939,35 @@ Members can upvote or downvote any public collection or item without revealing t
 
 The `AnonymousCollections` query has been removed. Anonymous collections (where `owner = module_account_address`) can be found via `CollectionsByOwner` with the module account address. The `CollectionConviction` query remains (works for all collections).
 
-### 18.12. Pinning (TTL Override)
+### 18.12. Preservation and Pinning (strict separation)
 
-Anonymous collections are ephemeral by default (TTL required). Any active x/rep member at or above `pin_min_trust_level` (default ESTABLISHED) can **pin** an anonymous collection, clearing its TTL and making it permanent:
+Anonymous collections are ephemeral by default (TTL required). Two **separate**
+curator actions apply to them (mirroring the x/blog and x/forum rework):
 
-```protobuf
-message MsgPinCollection {
-  string creator = 1;           // Member pinning the collection
-  uint64 collection_id = 2;
-}
+1. **`MsgMakeCollectionPermanent`** (§5.31) — the *lifecycle* action. Any active
+   x/rep member at or above `make_permanent_min_trust_level` (default
+   PROVISIONAL, lower than the pin threshold) clears the TTL and burns the held
+   collection + item deposits, making the collection permanent. Gated by its
+   own daily quota `max_make_permanent_per_day`, independent of pins. Removes
+   the collection from the conviction-renewal cycle. This is the action that
+   the pre-rework `MsgPinCollection` used to perform.
+2. **`MsgPinCollection`** / **`MsgUnpinCollection`** (§5.29, §5.30) — the
+   *display-only* marker. Pin sets `Collection.pinned = true` for featuring on
+   curated lists; it does **not** touch the lifecycle and **rejects ephemeral
+   targets** with `ErrCannotPinEphemeral`. A collection must therefore be made
+   permanent first. Gated by `pin_min_trust_level` (default ESTABLISHED) and
+   the shared `max_pins_per_day` counter (one counter across Pin and Unpin so a
+   rotation can't bypass the cap). Unpin clears the marker.
 
-message MsgPinCollectionResponse {}
-```
-
-**Validation:**
-1. `creator` must be an active x/rep member at or above `pin_min_trust_level`
-2. Collection must exist and have `expires_at > 0` (TTL collection)
-3. Collection must have `status = ACTIVE`
-4. `creator` must not exceed `max_pins_per_day` (rolling 24h window)
-
-**Logic:**
-1. Set `expires_at = 0` (permanent)
-2. If `conviction_sustained == true`: set `conviction_sustained = false`
-3. Burn the held collection deposit + item deposits from module account (`deposit_burned = true`)
-4. Remove from expiry index
-5. Emit `collection_pinned` event with `collection_id`, `pinned_by`
-
-**Rationale:** This mirrors x/blog's pinning mechanism for anonymous posts. The pinner signals that the collection is valuable enough to persist. The deposit burn reflects the permanent state burden. Combined with conviction staking and conviction-based lifetime extension (§18.9), this creates a three-tier quality filter: low-quality anonymous collections expire at TTL, community-supported ones survive through conviction renewal, and the most valuable ones get pinned for permanence. Pinning a conviction-sustained collection removes it from the renewal cycle entirely.
+**Rationale:** Separating preservation from featuring prevents conflating "this
+is valuable enough to persist" (a lower-bar deposit commitment) with "feature
+this on the pinned list" (a higher-trust curation signal). Combined with
+conviction staking and conviction-based lifetime extension (§18.9), this yields
+a layered quality filter: low-quality anonymous collections expire at TTL,
+community-supported ones survive through conviction renewal, valuable ones are
+preserved via `MsgMakeCollectionPermanent`, and the best are additionally
+pinned for display. Making a conviction-sustained collection permanent removes
+it from the renewal cycle entirely.
 
 ### 18.13. Deposit Refund Behavior
 
@@ -2761,7 +2975,7 @@ Deposit refunds for anonymous collections work slightly differently from regular
 
 - **TTL expiry refund**: Collection deposit + item deposits are refunded to the **module account** (which already holds them) — effectively a no-op. The deposits are simply released from the module account's balance when the collection and its bookkeeping are deleted.
 - **Item removal refund** (via `MsgShieldedExec` wrapping `MsgRemoveItem`): The `per_item_deposit` for removed items stays in the module account (held for future expiry cleanup). `item_deposit_total` is decremented on the collection.
-- **Pinning**: When an anonymous collection is pinned (§18.12), held deposits are burned — same as when a member converts TTL → permanent.
+- **Made permanent**: When an anonymous collection is made permanent via `MsgMakeCollectionPermanent` (§18.12), held deposits are burned — same as when a member converts TTL → permanent. (Pinning is display-only and never touches deposits.)
 - **Sentinel hide/deletion**: Standard deposit handling applies — deposits are released or burned per the hide/appeal resolution rules (§5.25, §5.26).
 
 ### 18.14. Cross-Module Linking
@@ -2780,7 +2994,7 @@ OnChainReference { module: "collect", entity_type: "collection", entity_id: "5" 
 3. Each item links to the blog post and/or a forum thread for discussion
 4. Community members stake conviction on the collection (x/rep content staking)
 5. High-conviction collections surface in ranked queries
-6. If validated, an ESTABLISHED+ member pins the collection for permanence
+6. If validated, a PROVISIONAL+ member makes the collection permanent (`MsgMakeCollectionPermanent`); an ESTABLISHED+ member may additionally pin it for display
 
 The anonymous author can also add items over time as new evidence emerges, using the management key.
 
@@ -2794,8 +3008,10 @@ Remaining parameters in `Params` and `CollectOperationalParams`:
 
 | Parameter | Default | Gov/Ops | Description |
 |-----------|---------|---------|-------------|
-| `pin_min_trust_level` | `2` (ESTABLISHED) | Ops | Minimum trust level to pin anonymous collections |
-| `max_pins_per_day` | `10` | Ops | Max pins per address per rolling 24h |
+| `pin_min_trust_level` | `2` (ESTABLISHED) | Ops | Minimum trust level to pin / unpin collections |
+| `max_pins_per_day` | `10` | Ops | Max pins per address per rolling 24h (shared Pin/Unpin counter) |
+| `make_permanent_min_trust_level` | `1` (PROVISIONAL) | Ops | Minimum trust level to make a collection permanent (§5.31) |
+| `max_make_permanent_per_day` | `5` | Ops | Max `MsgMakeCollectionPermanent` per address per UTC day |
 | `conviction_renewal_threshold` | `0` (disabled) | Ops | Min conviction score to renew anonymous collections at TTL expiry (0 = disabled). See §18.9 and §10.1 |
 | `conviction_renewal_period` | `432000` (~30 days) | Ops | Blocks to extend TTL by when conviction-renewed |
 
@@ -2807,7 +3023,9 @@ Remaining anonymous-specific events:
 
 | Event | Attributes | Trigger |
 |-------|------------|---------|
-| `collection_pinned` | `collection_id`, `pinned_by` | MsgPinCollection |
+| `collect.collection.pinned` | `collection_id`, `pinned_by` | MsgPinCollection (display marker set) |
+| `collect.collection.unpinned` | `collection_id`, `unpinned_by` | MsgUnpinCollection |
+| `collect.collection.upgraded` | `collection_id`, `owner`, `by`, `via=make_permanent`, `deposit_burned` | MsgMakeCollectionPermanent |
 | `collection_conviction_sustained` | `id`, `conviction_score`, `new_expires_at` | EndBlocker: first entry into conviction-sustained state |
 | `collection_renewed` | `id`, `conviction_score`, `new_expires_at` | EndBlocker: subsequent conviction renewal |
 
@@ -2830,8 +3048,12 @@ Remaining anonymous-specific events:
 | `ErrNotAnonymousCollection` | 1210 | REMOVED | No per-module anonymous metadata |
 | `ErrMaxAnonymousCollections` | 1211 | REMOVED | Rate limiting handled by x/shield |
 | `ErrAnonymousCannotBePrivate` | 1212 | REMOVED | Enforced by x/shield shielded op registration |
-| `ErrCannotPinActive` | 1214 | Retained | Collection is already permanent (`expires_at = 0`) |
-| `ErrPinTrustLevelTooLow` | 1215 | Retained | Caller below `pin_min_trust_level` |
+| `ErrCannotPinActive` | 1214 | Legacy | Retained for proto codec compat; Pin no longer rejects permanent targets |
+| `ErrPinTrustLevelTooLow` | 1215 | Retained | Caller below `pin_min_trust_level` (Pin/Unpin) |
+| `ErrCannotPinEphemeral` | 1216 | New | Target is ephemeral; make it permanent first |
+| `ErrCollectionNotPinned` | 1217 | New | Target is not pinned (cannot unpin) |
+| `ErrMakePermanentTrustLevelTooLow` | 1218 | New | Caller below `make_permanent_min_trust_level` |
+| `ErrCollectionAlreadyPinned` | 1219 | New | Target is already pinned |
 
 ### 18.18. Access Control
 
@@ -2839,7 +3061,8 @@ Remaining anonymous-specific events:
 |-----------|-----------------|
 | Create anonymous collection | Via `MsgShieldedExec` wrapping `MsgCreateCollection`; x/shield verifies ZK proof (domain 21, `min_trust_level=1`) |
 | Manage anonymous collection (add/remove/update/reorder items, update metadata) | Via `MsgShieldedExec` wrapping the appropriate inner message; x/shield handles proof/nullifier verification |
-| Pin anonymous collection | Active x/rep member at `pin_min_trust_level`+ |
+| Make anonymous collection permanent | Active x/rep member at `make_permanent_min_trust_level`+ (`MsgMakeCollectionPermanent`) |
+| Pin / unpin anonymous collection (display marker; collection must already be permanent) | Active x/rep member at `pin_min_trust_level`+ |
 | Flag anonymous collection | Any x/rep member (same as regular collections) |
 | Hide anonymous collection | Active x/forum sentinel (same as regular collections) |
 | Appeal hide on anonymous collection | **Nobody** — owner is module account (cannot sign). Anonymous collections rely on TTL expiry or sentinel discretion |
@@ -2891,8 +3114,10 @@ sparkdreamd tx shield shielded-exec \
   --proof <base64-proof> --nullifier <hex> --merkle-root <hex> \
   --from relay1
 
-# Pin anonymous collection (member action — remains in x/collect)
+# Make anonymous collection permanent, then optionally pin it (member actions — remain in x/collect)
+sparkdreamd tx collect make-collection-permanent 42 --from alice
 sparkdreamd tx collect pin-collection 42 --from alice
+sparkdreamd tx collect unpin-collection 42 --from alice
 
 # Queries (remaining in x/collect)
 sparkdreamd query collect collection-conviction 42
@@ -2912,8 +3137,13 @@ sparkdreamd query shield nullifier-used --domain 21 --scope 12345 --nullifier <h
 Remaining keeper additions:
 
 ```go
-// Pinning
-PinCollection(ctx context.Context, msg *MsgPinCollection) error
+// Pinning / preservation (msgServer methods)
+PinCollection(ctx context.Context, msg *MsgPinCollection) (*MsgPinCollectionResponse, error)
+UnpinCollection(ctx context.Context, msg *MsgUnpinCollection) (*MsgUnpinCollectionResponse, error)
+MakeCollectionPermanent(ctx context.Context, msg *MsgMakeCollectionPermanent) (*MsgMakeCollectionPermanentResponse, error)
+
+// Membership-driven promotion queue (EndBlocker §10.0)
+EnqueueMemberForPromotion(ctx context.Context, addr string) error
 
 // ShieldAware interface (see x/collect/keeper/shield_aware.go)
 IsShieldCompatible(ctx context.Context, msg sdk.Msg) bool

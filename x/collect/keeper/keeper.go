@@ -85,6 +85,11 @@ type Keeper struct {
 	// ItemsByOnChainRef: (refKey, itemID) - reverse index for OnChainReference lookups
 	ItemsByOnChainRef collections.KeySet[collections.Pair[string, uint64]]
 
+	// PromotionQueue holds addresses awaiting membership-driven promotion
+	// (address → blockHeight at enqueue). Populated by
+	// CollectRepHooks.AfterMemberAdmitted; drained in EndBlocker (Phase 0).
+	PromotionQueue collections.Map[string, int64]
+
 	// External keepers (optional)
 	blogKeeper     types.BlogKeeper
 	forumKeeper    types.ForumKeeper
@@ -212,6 +217,10 @@ func NewKeeper(
 		ItemsByOnChainRef: collections.NewKeySet(
 			sb, types.ItemsByOnChainRefKey, "itemsByOnChainRef",
 			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
+		PromotionQueue: collections.NewMap(
+			sb, types.PromotionQueueKey, "promotionQueue",
+			collections.StringKey, collections.Int64Value,
 		),
 	}
 

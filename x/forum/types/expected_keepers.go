@@ -15,7 +15,7 @@ import (
 // the chain's bond denom at runtime. Late-bound via SetIdentityKeeper
 // from app.go; keeper.BondDenom panics if unwired.
 type IdentityKeeper interface {
-	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	IsIdentityKeeper() // marker — disambiguates from rep/session.Keeper for depinject
 	BondDenom(ctx context.Context) string
 }
 
@@ -139,4 +139,26 @@ type RepKeeper interface {
 	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error
 	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
 	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error
+
+	// Reputation slash (per-tag). Called from ExpireHiddenPosts to deduct
+	// reputation from a post's author for each tag when an unappealed
+	// sentinel hide finalizes. Floors at zero; no-op if the member has no
+	// rep in the tag.
+	DeductReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error
+
+	// Forum-earned reputation (per-tag). Counted toward PROVISIONAL and
+	// ESTABLISHED trust thresholds in x/rep but excluded from TRUSTED and
+	// CORE — discourse is too cheap to game to gate council-adjacent tiers.
+	// Used by the PostConvictionStake accrual loop and ExpireHiddenPosts
+	// slash path.
+	AddForumRep(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error
+	DeductForumRep(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error
+
+	// Member-accountability warnings. Called from ExpireHiddenPosts to
+	// record a MemberWarning against a post's promoter (who called
+	// MsgMakePostPermanent) when the promoted content is hidden unappealed.
+	// `issuedBy` should be the forum module address so the warning's origin
+	// is auditable. `reason` is a stable short identifier; `evidencePostIDs`
+	// lists the offending post(s).
+	IssueWarning(ctx context.Context, member string, issuedBy string, reason string, evidencePostIDs []uint64) error
 }

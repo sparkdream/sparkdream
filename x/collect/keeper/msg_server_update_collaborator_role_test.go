@@ -1,12 +1,14 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestUpdateCollaboratorRole(t *testing.T) {
@@ -59,6 +61,33 @@ func TestUpdateCollaboratorRole(t *testing.T) {
 			},
 			expErr:         true,
 			expErrContains: "only owner can grant/revoke ADMIN",
+		},
+		{
+			name: "error: cannot promote non-member to ADMIN",
+			setup: func(f *testFixture) uint64 {
+				f.repKeeper.isMemberFn = func(_ context.Context, addr sdk.AccAddress) bool {
+					return addr.Equals(f.ownerAddr) || addr.Equals(f.memberAddr) || addr.Equals(f.sentinelAddr)
+				}
+				collID := f.createCollection(t, f.owner)
+				_, err := f.msgServer.AddCollaborator(f.ctx, &types.MsgAddCollaborator{
+					Creator:      f.owner,
+					CollectionId: collID,
+					Address:      f.nonMember,
+					Role:         types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR,
+				})
+				require.NoError(t, err)
+				return collID
+			},
+			msg: func(f *testFixture, collID uint64) *types.MsgUpdateCollaboratorRole {
+				return &types.MsgUpdateCollaboratorRole{
+					Creator:      f.owner,
+					CollectionId: collID,
+					Address:      f.nonMember,
+					Role:         types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN,
+				}
+			},
+			expErr:         true,
+			expErrContains: "non-members cannot hold ADMIN role",
 		},
 		{
 			name: "error: non-owner cannot grant ADMIN",

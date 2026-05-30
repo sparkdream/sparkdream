@@ -61,6 +61,20 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("error expiring bounties", "error", err)
 	}
 
+	// Phase 4: Stream forum reputation to post authors from active
+	// PostConvictionStakes. Per-stake errors log but never abort the loop.
+	if err := k.AccruePostConvictions(ctx); err != nil {
+		sdkCtx.Logger().Error("error accruing post conviction stakes", "error", err)
+	}
+
+	// Phase 5: GC released-and-retained PostConvictionStakes whose retention
+	// window has passed (lock_window + hide_appeal_cooldown + 1d). Bounded
+	// per block by maxStakeGcPerBlock so a large backlog never dominates
+	// gas.
+	if err := k.GcReleasedPostConvictionStakes(ctx); err != nil {
+		sdkCtx.Logger().Error("error gc'ing released post conviction stakes", "error", err)
+	}
+
 	return nil
 }
 
@@ -281,6 +295,62 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 			// Post was restored, clean up stale hide record
 			_ = k.HideRecord.Remove(ctx, postID)
 			return false, nil
+		}
+
+		// Accountability hooks fire here — BEFORE the post's tags are cleared
+		// and the post is soft-deleted, because both hooks read the
+		// pre-tombstone state. Failures log but never halt: a hide-finalize
+		// must always tombstone the post or the moderation flow stalls.
+
+		// Tier 0: author per-tag rep slash. The author put the post in these
+		// tags; an unappealed hide says the community rejected it, so claw back
+		// rep in each tag. DeductReputation floors at zero — no harm if the
+		// author has no rep in the tag (e.g. they never earned any).
+		if k.repKeeper != nil && len(post.Tags) > 0 {
+			paramsForSlash, paramsErr := k.Params.Get(ctx)
+			if paramsErr == nil && !paramsForSlash.AuthorRepSlash.IsNil() && paramsForSlash.AuthorRepSlash.IsPositive() {
+				authorBytes, addrErr := k.addressCodec.StringToBytes(post.Author)
+				if addrErr == nil {
+					for _, tag := range post.Tags {
+						if err := k.repKeeper.DeductReputation(ctx, sdk.AccAddress(authorBytes), tag, paramsForSlash.AuthorRepSlash); err != nil {
+							sdkCtx.Logger().Warn("failed to slash author rep on hide expiry",
+								"post_id", postID, "author", post.Author, "tag", tag, "error", err)
+						}
+					}
+				}
+			}
+		}
+
+		// Tier 0b: post conviction-stake slash. Every active (or
+		// recently-released-but-not-GC'd) PostConvictionStake on this post
+		// gets:
+		//   - exact author forum-rep clawback per tag (uses each stake's
+		//     accrued_rep_per_tag, so we deduct precisely what was credited
+		//     — no over-slashing the author beyond what stakes produced)
+		//   - staker_slash_bps burn on the staker's locked DREAM
+		//   - remaining locked DREAM unlocked + stake closed
+		// Best-effort: SlashStakesForPost logs per-stake errors but never
+		// halts the tombstone path.
+		if err := k.SlashStakesForPost(ctx, postID); err != nil {
+			sdkCtx.Logger().Warn("post conviction slash failed on hide expiry",
+				"post_id", postID, "error", err)
+		}
+
+		// Tier 1: promoter MemberWarning. The member who called
+		// MsgMakePostPermanent on this post vouched for content the community
+		// rejected. PromotedBy is only set when the promoter is different from
+		// the author (self-promote is not a vouching act).
+		if k.repKeeper != nil && post.PromotedBy != "" && post.PromotedBy != post.Author {
+			if err := k.repKeeper.IssueWarning(
+				ctx,
+				post.PromotedBy,
+				k.GetModuleAddress(),
+				"promoted_hidden_content",
+				[]uint64{postID},
+			); err != nil {
+				sdkCtx.Logger().Warn("failed to issue promoter warning on hide expiry",
+					"post_id", postID, "promoter", post.PromotedBy, "error", err)
+			}
 		}
 
 		// Drop rep-registry UsageCount for every tag the post carried — this is

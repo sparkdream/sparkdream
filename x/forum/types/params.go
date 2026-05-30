@@ -32,7 +32,6 @@ const (
 	DefaultEphemeralTTL              = int64(86400)   // 24h
 	DefaultArchiveThreshold          = int64(2592000) // 30 days
 	DefaultTagExpiration             = int64(2592000) // 30 days
-	DefaultHiddenExpiration          = int64(604800)  // 7 days
 	DefaultAppealDeadline            = int64(1209600) // 14 days
 	DefaultEditGracePeriod           = int64(300)     // 5 minutes
 	DefaultEditMaxWindow             = int64(86400)   // 24 hours
@@ -105,7 +104,19 @@ const (
 	// membership-promotion drain. 50 is enough to clear a typical new-member
 	// backlog within a few blocks without blowing block gas.
 	DefaultMaxPromotionsPerBlock = uint32(50)
+
+	// DefaultMaxMakePermanentPerDay caps MsgMakePostPermanent per address per
+	// day. Independent of DailyPostLimit — promotion is a distinct curator
+	// action with its own quota.
+	DefaultMaxMakePermanentPerDay = uint64(10)
 )
+
+// DefaultHiddenExpiration is the time (in seconds) a HIDDEN post lingers
+// before ExpireHiddenPosts soft-deletes it. Production is 7 days; the
+// testparams build (default in CI / E2E shell tests) shortens it via
+// hiddenExpirationDefault() so test runs can observe the EndBlocker
+// finalization (and its slash hooks) within a few blocks.
+var DefaultHiddenExpiration = hiddenExpirationDefault()
 
 // Default fee amounts (all in bond-denom micro-units).
 var (
@@ -120,53 +131,100 @@ var (
 	DefaultTagReportBond              = math.NewInt(10_000_000) // 10 DREAM (in udream)
 	DefaultCostPerByteAmount          = math.NewInt(100)        // 100 micro-units/byte (~1 SPARK for 10KB)
 	DefaultConvictionRenewalThreshold = math.LegacyNewDec(100)
+
+	// DefaultAuthorRepSlash is the per-tag reputation deduction applied to a
+	// post's author when an unappealed sentinel hide finalizes for the post.
+	// 5.0 is a low-but-noticeable amount — enough to bite established
+	// contributors without zeroing a marginal one in a single bad post.
+	DefaultAuthorRepSlash = math.LegacyNewDec(5)
+
+	// DefaultMinPostConvictionStake is the minimum DREAM (in uDREAM) required
+	// to open a PostConvictionStake. 10 DREAM = 10_000_000 uDREAM floors out
+	// sybil dust stakes that would otherwise farm the per-tag epoch cap with
+	// many tiny accounts.
+	DefaultMinPostConvictionStake = math.NewInt(10_000_000)
+
+	// DefaultPostConvictionRepPerDreamPerDay is the per-DREAM-per-day rep
+	// accrual rate. 0.05 means a 10-DREAM stake held for 14 days accrues
+	// 10 * 14 * 0.05 = 7 forum-rep total, split across the post's tags.
+	// Sized so a meaningful endorsement nudges ESTABLISHED admission but
+	// no single stake catapults anyone there.
+	DefaultPostConvictionRepPerDreamPerDay = math.LegacyMustNewDecFromStr("0.05")
+
+	// DefaultMaxForumRepPerTagPerEpoch caps per-(author, tag) forum-rep
+	// accrual per UTC day. 5.0 lets a popular post saturate the cap from a
+	// few coordinated stakers without enabling unbounded farming. Excess is
+	// silently dropped (no error, no refund) per the spec — honest stakers
+	// cannot foresee saturation.
+	DefaultMaxForumRepPerTagPerEpoch = math.LegacyNewDec(5)
+)
+
+const (
+	// DefaultPostConvictionLockSeconds is the default DREAM-lock window for
+	// a PostConvictionStake. 14 days mirrors common slash-cooldown windows
+	// elsewhere in the protocol and is long enough that the staker has real
+	// skin in the game while the hide-appeal window completes.
+	DefaultPostConvictionLockSeconds = int64(14 * 86400)
+
+	// DefaultPostConvictionStakerSlashBps is the staker slash applied (in
+	// basis points) when SlashStakesForPost runs on a confirmed hide.
+	// 25% of locked DREAM is burned — meaningful skin in the game without
+	// being so punitive that ESTABLISHED+ members refuse to stake.
+	DefaultPostConvictionStakerSlashBps = uint64(2500)
 )
 
 // NewParams creates a new Params instance.
 func NewParams() Params {
 	return Params{
-		ForumPaused:                  false,
-		ModerationPaused:             false,
-		BountiesEnabled:              true,
-		ReactionsEnabled:             true,
-		AppealsPaused:                false,
-		EditingEnabled:               true,
-		SpamTaxAmount:                DefaultSpamTaxAmount,
-		ReactionSpamTaxAmount:        DefaultReactionSpamTaxAmount,
-		FlagSpamTaxAmount:            DefaultFlagSpamTaxAmount,
-		DownvoteDepositAmount:        DefaultDownvoteDepositAmount,
-		AppealFeeAmount:              DefaultAppealFeeAmount,
-		LockAppealFeeAmount:          DefaultLockAppealFeeAmount,
-		MoveAppealFeeAmount:          DefaultMoveAppealFeeAmount,
-		EditFeeAmount:                DefaultEditFeeAmount,
-		BountyCancellationFeePercent: DefaultBountyCancellationFeePercent,
-		MaxContentSize:               DefaultMaxContentSize,
-		DailyPostLimit:               DefaultDailyPostLimit,
-		MaxReplyDepth:                DefaultMaxReplyDepth,
-		EditGracePeriod:              DefaultEditGracePeriod,
-		EditMaxWindow:                DefaultEditMaxWindow,
-		MaxFollowsPerDay:             DefaultMaxFollowsPerDay,
-		ArchiveThreshold:             DefaultArchiveThreshold,
-		UnarchiveCooldown:            DefaultUnarchiveCooldown,
-		ArchiveCooldown:              DefaultArchiveCooldown,
-		HideAppealCooldown:           DefaultHideAppealCooldown,
-		LockAppealCooldown:           DefaultLockAppealCooldown,
-		MoveAppealCooldown:           DefaultMoveAppealCooldown,
-		CostPerByteAmount:            DefaultCostPerByteAmount,
-		CostPerByteExempt:            false,
-		EphemeralTtl:                 DefaultEphemeralTTL,
-		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
-		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
-		MinSentinelBond:              DefaultMinSentinelBond.String(),
-		MinSentinelRepTier:           DefaultMinRepTierSentinel,
-		MinSentinelTrustLevel:        "TRUST_LEVEL_ESTABLISHED",
-		MinSentinelAgeBlocks:         0,
-		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
-		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
-		SentinelUnhideWindow:         DefaultSentinelUnhideWindow,
-		SentinelUnbondCooldown:       DefaultSentinelUnbondCooldown,
-		MakePermanentMinTrustLevel:   DefaultMakePermanentMinTrustLevel,
-		MaxPromotionsPerBlock:        DefaultMaxPromotionsPerBlock,
+		ForumPaused:                      false,
+		ModerationPaused:                 false,
+		BountiesEnabled:                  true,
+		ReactionsEnabled:                 true,
+		AppealsPaused:                    false,
+		EditingEnabled:                   true,
+		SpamTaxAmount:                    DefaultSpamTaxAmount,
+		ReactionSpamTaxAmount:            DefaultReactionSpamTaxAmount,
+		FlagSpamTaxAmount:                DefaultFlagSpamTaxAmount,
+		DownvoteDepositAmount:            DefaultDownvoteDepositAmount,
+		AppealFeeAmount:                  DefaultAppealFeeAmount,
+		LockAppealFeeAmount:              DefaultLockAppealFeeAmount,
+		MoveAppealFeeAmount:              DefaultMoveAppealFeeAmount,
+		EditFeeAmount:                    DefaultEditFeeAmount,
+		BountyCancellationFeePercent:     DefaultBountyCancellationFeePercent,
+		MaxContentSize:                   DefaultMaxContentSize,
+		DailyPostLimit:                   DefaultDailyPostLimit,
+		MaxReplyDepth:                    DefaultMaxReplyDepth,
+		EditGracePeriod:                  DefaultEditGracePeriod,
+		EditMaxWindow:                    DefaultEditMaxWindow,
+		MaxFollowsPerDay:                 DefaultMaxFollowsPerDay,
+		ArchiveThreshold:                 DefaultArchiveThreshold,
+		UnarchiveCooldown:                DefaultUnarchiveCooldown,
+		ArchiveCooldown:                  DefaultArchiveCooldown,
+		HideAppealCooldown:               DefaultHideAppealCooldown,
+		LockAppealCooldown:               DefaultLockAppealCooldown,
+		MoveAppealCooldown:               DefaultMoveAppealCooldown,
+		CostPerByteAmount:                DefaultCostPerByteAmount,
+		CostPerByteExempt:                false,
+		EphemeralTtl:                     DefaultEphemeralTTL,
+		ConvictionRenewalThreshold:       DefaultConvictionRenewalThreshold,
+		ConvictionRenewalPeriod:          DefaultConvictionRenewalPeriod,
+		MinSentinelBond:                  DefaultMinSentinelBond.String(),
+		MinSentinelRepTier:               DefaultMinRepTierSentinel,
+		MinSentinelTrustLevel:            "TRUST_LEVEL_ESTABLISHED",
+		MinSentinelAgeBlocks:             0,
+		SentinelDemotionCooldown:         DefaultSentinelDemotionCooldown,
+		SentinelDemotionThreshold:        math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
+		SentinelUnhideWindow:             DefaultSentinelUnhideWindow,
+		SentinelUnbondCooldown:           DefaultSentinelUnbondCooldown,
+		MakePermanentMinTrustLevel:       DefaultMakePermanentMinTrustLevel,
+		MaxPromotionsPerBlock:            DefaultMaxPromotionsPerBlock,
+		AuthorRepSlash:                   DefaultAuthorRepSlash,
+		MaxMakePermanentPerDay:           DefaultMaxMakePermanentPerDay,
+		MinPostConvictionStake:           DefaultMinPostConvictionStake,
+		PostConvictionLockSeconds:        DefaultPostConvictionLockSeconds,
+		PostConvictionStreamRatePerBlock: DefaultPostConvictionRepPerDreamPerDay,
+		MaxForumRepPerTagPerEpoch:        DefaultMaxForumRepPerTagPerEpoch,
+		PostConvictionStakerSlashBps:     DefaultPostConvictionStakerSlashBps,
 	}
 }
 
@@ -194,6 +252,24 @@ func (p Params) Validate() error {
 	}
 	if p.MakePermanentMinTrustLevel > 4 {
 		return fmt.Errorf("make_permanent_min_trust_level must be 0-4, got %d", p.MakePermanentMinTrustLevel)
+	}
+	if !p.AuthorRepSlash.IsNil() && p.AuthorRepSlash.IsNegative() {
+		return fmt.Errorf("author_rep_slash cannot be negative: %s", p.AuthorRepSlash)
+	}
+	if !p.MinPostConvictionStake.IsNil() && p.MinPostConvictionStake.IsNegative() {
+		return fmt.Errorf("min_post_conviction_stake cannot be negative: %s", p.MinPostConvictionStake)
+	}
+	if p.PostConvictionLockSeconds < 0 {
+		return fmt.Errorf("post_conviction_lock_seconds cannot be negative: %d", p.PostConvictionLockSeconds)
+	}
+	if !p.PostConvictionStreamRatePerBlock.IsNil() && p.PostConvictionStreamRatePerBlock.IsNegative() {
+		return fmt.Errorf("post_conviction_stream_rate_per_block cannot be negative: %s", p.PostConvictionStreamRatePerBlock)
+	}
+	if !p.MaxForumRepPerTagPerEpoch.IsNil() && p.MaxForumRepPerTagPerEpoch.IsNegative() {
+		return fmt.Errorf("max_forum_rep_per_tag_per_epoch cannot be negative: %s", p.MaxForumRepPerTagPerEpoch)
+	}
+	if p.PostConvictionStakerSlashBps > 10000 {
+		return fmt.Errorf("post_conviction_staker_slash_bps must be <= 10000: %d", p.PostConvictionStakerSlashBps)
 	}
 	return nil
 }
@@ -231,45 +307,52 @@ func DefaultEditMaxWindowValue() int64 {
 // DefaultForumOperationalParams returns default operational parameters.
 func DefaultForumOperationalParams() ForumOperationalParams {
 	return ForumOperationalParams{
-		BountiesEnabled:              true,
-		ReactionsEnabled:             true,
-		EditingEnabled:               true,
-		SpamTaxAmount:                DefaultSpamTaxAmount,
-		ReactionSpamTaxAmount:        DefaultReactionSpamTaxAmount,
-		FlagSpamTaxAmount:            DefaultFlagSpamTaxAmount,
-		DownvoteDepositAmount:        DefaultDownvoteDepositAmount,
-		AppealFeeAmount:              DefaultAppealFeeAmount,
-		LockAppealFeeAmount:          DefaultLockAppealFeeAmount,
-		MoveAppealFeeAmount:          DefaultMoveAppealFeeAmount,
-		EditFeeAmount:                DefaultEditFeeAmount,
-		CostPerByteAmount:            DefaultCostPerByteAmount,
-		CostPerByteExempt:            false,
-		MaxContentSize:               DefaultMaxContentSize,
-		DailyPostLimit:               DefaultDailyPostLimit,
-		MaxReplyDepth:                DefaultMaxReplyDepth,
-		MaxFollowsPerDay:             DefaultMaxFollowsPerDay,
-		BountyCancellationFeePercent: DefaultBountyCancellationFeePercent,
-		EditGracePeriod:              DefaultEditGracePeriod,
-		EditMaxWindow:                DefaultEditMaxWindow,
-		ArchiveThreshold:             DefaultArchiveThreshold,
-		UnarchiveCooldown:            DefaultUnarchiveCooldown,
-		ArchiveCooldown:              DefaultArchiveCooldown,
-		HideAppealCooldown:           DefaultHideAppealCooldown,
-		LockAppealCooldown:           DefaultLockAppealCooldown,
-		MoveAppealCooldown:           DefaultMoveAppealCooldown,
-		EphemeralTtl:                 DefaultEphemeralTTL,
-		ConvictionRenewalThreshold:   DefaultConvictionRenewalThreshold,
-		ConvictionRenewalPeriod:      DefaultConvictionRenewalPeriod,
-		MinSentinelBond:              DefaultMinSentinelBond.String(),
-		MinSentinelRepTier:           DefaultMinRepTierSentinel,
-		MinSentinelTrustLevel:        "TRUST_LEVEL_ESTABLISHED",
-		MinSentinelAgeBlocks:         0,
-		SentinelDemotionCooldown:     DefaultSentinelDemotionCooldown,
-		SentinelDemotionThreshold:    math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
-		SentinelUnhideWindow:         DefaultSentinelUnhideWindow,
-		SentinelUnbondCooldown:       DefaultSentinelUnbondCooldown,
-		MakePermanentMinTrustLevel:   DefaultMakePermanentMinTrustLevel,
-		MaxPromotionsPerBlock:        DefaultMaxPromotionsPerBlock,
+		BountiesEnabled:                  true,
+		ReactionsEnabled:                 true,
+		EditingEnabled:                   true,
+		SpamTaxAmount:                    DefaultSpamTaxAmount,
+		ReactionSpamTaxAmount:            DefaultReactionSpamTaxAmount,
+		FlagSpamTaxAmount:                DefaultFlagSpamTaxAmount,
+		DownvoteDepositAmount:            DefaultDownvoteDepositAmount,
+		AppealFeeAmount:                  DefaultAppealFeeAmount,
+		LockAppealFeeAmount:              DefaultLockAppealFeeAmount,
+		MoveAppealFeeAmount:              DefaultMoveAppealFeeAmount,
+		EditFeeAmount:                    DefaultEditFeeAmount,
+		CostPerByteAmount:                DefaultCostPerByteAmount,
+		CostPerByteExempt:                false,
+		MaxContentSize:                   DefaultMaxContentSize,
+		DailyPostLimit:                   DefaultDailyPostLimit,
+		MaxReplyDepth:                    DefaultMaxReplyDepth,
+		MaxFollowsPerDay:                 DefaultMaxFollowsPerDay,
+		BountyCancellationFeePercent:     DefaultBountyCancellationFeePercent,
+		EditGracePeriod:                  DefaultEditGracePeriod,
+		EditMaxWindow:                    DefaultEditMaxWindow,
+		ArchiveThreshold:                 DefaultArchiveThreshold,
+		UnarchiveCooldown:                DefaultUnarchiveCooldown,
+		ArchiveCooldown:                  DefaultArchiveCooldown,
+		HideAppealCooldown:               DefaultHideAppealCooldown,
+		LockAppealCooldown:               DefaultLockAppealCooldown,
+		MoveAppealCooldown:               DefaultMoveAppealCooldown,
+		EphemeralTtl:                     DefaultEphemeralTTL,
+		ConvictionRenewalThreshold:       DefaultConvictionRenewalThreshold,
+		ConvictionRenewalPeriod:          DefaultConvictionRenewalPeriod,
+		MinSentinelBond:                  DefaultMinSentinelBond.String(),
+		MinSentinelRepTier:               DefaultMinRepTierSentinel,
+		MinSentinelTrustLevel:            "TRUST_LEVEL_ESTABLISHED",
+		MinSentinelAgeBlocks:             0,
+		SentinelDemotionCooldown:         DefaultSentinelDemotionCooldown,
+		SentinelDemotionThreshold:        math.NewInt(DefaultSentinelDemotionThresholdAmount).String(),
+		SentinelUnhideWindow:             DefaultSentinelUnhideWindow,
+		SentinelUnbondCooldown:           DefaultSentinelUnbondCooldown,
+		MakePermanentMinTrustLevel:       DefaultMakePermanentMinTrustLevel,
+		MaxPromotionsPerBlock:            DefaultMaxPromotionsPerBlock,
+		AuthorRepSlash:                   DefaultAuthorRepSlash,
+		MaxMakePermanentPerDay:           DefaultMaxMakePermanentPerDay,
+		MinPostConvictionStake:           DefaultMinPostConvictionStake,
+		PostConvictionLockSeconds:        DefaultPostConvictionLockSeconds,
+		PostConvictionStreamRatePerBlock: DefaultPostConvictionRepPerDreamPerDay,
+		MaxForumRepPerTagPerEpoch:        DefaultMaxForumRepPerTagPerEpoch,
+		PostConvictionStakerSlashBps:     DefaultPostConvictionStakerSlashBps,
 	}
 }
 
@@ -297,6 +380,24 @@ func (p ForumOperationalParams) Validate() error {
 	}
 	if p.MakePermanentMinTrustLevel > 4 {
 		return fmt.Errorf("make_permanent_min_trust_level must be 0-4, got %d", p.MakePermanentMinTrustLevel)
+	}
+	if !p.AuthorRepSlash.IsNil() && p.AuthorRepSlash.IsNegative() {
+		return fmt.Errorf("author_rep_slash cannot be negative: %s", p.AuthorRepSlash)
+	}
+	if !p.MinPostConvictionStake.IsNil() && p.MinPostConvictionStake.IsNegative() {
+		return fmt.Errorf("min_post_conviction_stake cannot be negative: %s", p.MinPostConvictionStake)
+	}
+	if p.PostConvictionLockSeconds < 0 {
+		return fmt.Errorf("post_conviction_lock_seconds cannot be negative: %d", p.PostConvictionLockSeconds)
+	}
+	if !p.PostConvictionStreamRatePerBlock.IsNil() && p.PostConvictionStreamRatePerBlock.IsNegative() {
+		return fmt.Errorf("post_conviction_stream_rate_per_block cannot be negative: %s", p.PostConvictionStreamRatePerBlock)
+	}
+	if !p.MaxForumRepPerTagPerEpoch.IsNil() && p.MaxForumRepPerTagPerEpoch.IsNegative() {
+		return fmt.Errorf("max_forum_rep_per_tag_per_epoch cannot be negative: %s", p.MaxForumRepPerTagPerEpoch)
+	}
+	if p.PostConvictionStakerSlashBps > 10000 {
+		return fmt.Errorf("post_conviction_staker_slash_bps must be <= 10000: %d", p.PostConvictionStakerSlashBps)
 	}
 	return nil
 }
@@ -344,51 +445,65 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.SentinelUnbondCooldown = op.SentinelUnbondCooldown
 	p.MakePermanentMinTrustLevel = op.MakePermanentMinTrustLevel
 	p.MaxPromotionsPerBlock = op.MaxPromotionsPerBlock
+	p.AuthorRepSlash = op.AuthorRepSlash
+	p.MaxMakePermanentPerDay = op.MaxMakePermanentPerDay
+	p.MinPostConvictionStake = op.MinPostConvictionStake
+	p.PostConvictionLockSeconds = op.PostConvictionLockSeconds
+	p.PostConvictionStreamRatePerBlock = op.PostConvictionStreamRatePerBlock
+	p.MaxForumRepPerTagPerEpoch = op.MaxForumRepPerTagPerEpoch
+	p.PostConvictionStakerSlashBps = op.PostConvictionStakerSlashBps
 	return p
 }
 
 // ExtractOperationalParams extracts the operational fields from Params into ForumOperationalParams.
 func (p Params) ExtractOperationalParams() ForumOperationalParams {
 	return ForumOperationalParams{
-		BountiesEnabled:              p.BountiesEnabled,
-		ReactionsEnabled:             p.ReactionsEnabled,
-		EditingEnabled:               p.EditingEnabled,
-		SpamTaxAmount:                p.SpamTaxAmount,
-		ReactionSpamTaxAmount:        p.ReactionSpamTaxAmount,
-		FlagSpamTaxAmount:            p.FlagSpamTaxAmount,
-		DownvoteDepositAmount:        p.DownvoteDepositAmount,
-		AppealFeeAmount:              p.AppealFeeAmount,
-		LockAppealFeeAmount:          p.LockAppealFeeAmount,
-		MoveAppealFeeAmount:          p.MoveAppealFeeAmount,
-		EditFeeAmount:                p.EditFeeAmount,
-		CostPerByteAmount:            p.CostPerByteAmount,
-		CostPerByteExempt:            p.CostPerByteExempt,
-		MaxContentSize:               p.MaxContentSize,
-		DailyPostLimit:               p.DailyPostLimit,
-		MaxReplyDepth:                p.MaxReplyDepth,
-		MaxFollowsPerDay:             p.MaxFollowsPerDay,
-		BountyCancellationFeePercent: p.BountyCancellationFeePercent,
-		EditGracePeriod:              p.EditGracePeriod,
-		EditMaxWindow:                p.EditMaxWindow,
-		ArchiveThreshold:             p.ArchiveThreshold,
-		UnarchiveCooldown:            p.UnarchiveCooldown,
-		ArchiveCooldown:              p.ArchiveCooldown,
-		HideAppealCooldown:           p.HideAppealCooldown,
-		LockAppealCooldown:           p.LockAppealCooldown,
-		MoveAppealCooldown:           p.MoveAppealCooldown,
-		EphemeralTtl:                 p.EphemeralTtl,
-		ConvictionRenewalThreshold:   p.ConvictionRenewalThreshold,
-		ConvictionRenewalPeriod:      p.ConvictionRenewalPeriod,
-		MinSentinelBond:              p.MinSentinelBond,
-		MinSentinelRepTier:           p.MinSentinelRepTier,
-		MinSentinelTrustLevel:        p.MinSentinelTrustLevel,
-		MinSentinelAgeBlocks:         p.MinSentinelAgeBlocks,
-		SentinelDemotionCooldown:     p.SentinelDemotionCooldown,
-		SentinelDemotionThreshold:    p.SentinelDemotionThreshold,
-		SentinelUnhideWindow:         p.SentinelUnhideWindow,
-		SentinelUnbondCooldown:       p.SentinelUnbondCooldown,
-		MakePermanentMinTrustLevel:   p.MakePermanentMinTrustLevel,
-		MaxPromotionsPerBlock:        p.MaxPromotionsPerBlock,
+		BountiesEnabled:                  p.BountiesEnabled,
+		ReactionsEnabled:                 p.ReactionsEnabled,
+		EditingEnabled:                   p.EditingEnabled,
+		SpamTaxAmount:                    p.SpamTaxAmount,
+		ReactionSpamTaxAmount:            p.ReactionSpamTaxAmount,
+		FlagSpamTaxAmount:                p.FlagSpamTaxAmount,
+		DownvoteDepositAmount:            p.DownvoteDepositAmount,
+		AppealFeeAmount:                  p.AppealFeeAmount,
+		LockAppealFeeAmount:              p.LockAppealFeeAmount,
+		MoveAppealFeeAmount:              p.MoveAppealFeeAmount,
+		EditFeeAmount:                    p.EditFeeAmount,
+		CostPerByteAmount:                p.CostPerByteAmount,
+		CostPerByteExempt:                p.CostPerByteExempt,
+		MaxContentSize:                   p.MaxContentSize,
+		DailyPostLimit:                   p.DailyPostLimit,
+		MaxReplyDepth:                    p.MaxReplyDepth,
+		MaxFollowsPerDay:                 p.MaxFollowsPerDay,
+		BountyCancellationFeePercent:     p.BountyCancellationFeePercent,
+		EditGracePeriod:                  p.EditGracePeriod,
+		EditMaxWindow:                    p.EditMaxWindow,
+		ArchiveThreshold:                 p.ArchiveThreshold,
+		UnarchiveCooldown:                p.UnarchiveCooldown,
+		ArchiveCooldown:                  p.ArchiveCooldown,
+		HideAppealCooldown:               p.HideAppealCooldown,
+		LockAppealCooldown:               p.LockAppealCooldown,
+		MoveAppealCooldown:               p.MoveAppealCooldown,
+		EphemeralTtl:                     p.EphemeralTtl,
+		ConvictionRenewalThreshold:       p.ConvictionRenewalThreshold,
+		ConvictionRenewalPeriod:          p.ConvictionRenewalPeriod,
+		MinSentinelBond:                  p.MinSentinelBond,
+		MinSentinelRepTier:               p.MinSentinelRepTier,
+		MinSentinelTrustLevel:            p.MinSentinelTrustLevel,
+		MinSentinelAgeBlocks:             p.MinSentinelAgeBlocks,
+		SentinelDemotionCooldown:         p.SentinelDemotionCooldown,
+		SentinelDemotionThreshold:        p.SentinelDemotionThreshold,
+		SentinelUnhideWindow:             p.SentinelUnhideWindow,
+		SentinelUnbondCooldown:           p.SentinelUnbondCooldown,
+		MakePermanentMinTrustLevel:       p.MakePermanentMinTrustLevel,
+		MaxPromotionsPerBlock:            p.MaxPromotionsPerBlock,
+		AuthorRepSlash:                   p.AuthorRepSlash,
+		MaxMakePermanentPerDay:           p.MaxMakePermanentPerDay,
+		MinPostConvictionStake:           p.MinPostConvictionStake,
+		PostConvictionLockSeconds:        p.PostConvictionLockSeconds,
+		PostConvictionStreamRatePerBlock: p.PostConvictionStreamRatePerBlock,
+		MaxForumRepPerTagPerEpoch:        p.MaxForumRepPerTagPerEpoch,
+		PostConvictionStakerSlashBps:     p.PostConvictionStakerSlashBps,
 	}
 }
 
