@@ -78,6 +78,8 @@ The `content_type` field is an enum from `sparkdream.common.v1` indicating how t
 
 Default is `0` (any active member), consistent with participation being a membership perk. Authors who want fully open discussion can set `-1` — that opens the post to non-member replies AND non-member reactions, since the same audience-control knob governs both. Reactions on a reply use the parent post's setting (the post author chooses the audience).
 
+**Thread-author exemption.** The author of the root post may always *reply* and *react* within their own thread — including replying to and reacting on replies — even as a non-member and even when `min_reply_trust_level` would otherwise exclude them. Non-members can author posts (they get ephemeral content), so without this carve-out a non-member could start a conversation and then be locked out of it. The exemption is scoped to the trust gate only: `replies_enabled`, moderation state (deleted/hidden post/reply), the per-day rate limits, the storage/reaction fees, and the ephemeral TTL for non-member content all still apply, so a non-member author's self-replies are throttled, charged, and garbage-collected exactly like their post. It never lets anyone reply or react into a thread they did not author.
+
 ### 3.2. PostStatus
 
 ```protobuf

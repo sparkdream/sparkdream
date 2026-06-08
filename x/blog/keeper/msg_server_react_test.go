@@ -94,7 +94,9 @@ func TestReact(t *testing.T) {
 		// Reactor eligibility is checked AFTER post lookup (the post's
 		// MinReplyTrustLevel determines who can react). Default 0 means
 		// "any active member", so a non-member here is rejected with
-		// ErrNotMember.
+		// ErrNotMember. The reactor (creator2) is NOT the post author, so the
+		// thread-author exemption does not apply — that exemption is covered
+		// separately below.
 		k.SetPost(ctx, types.Post{
 			Id:      0,
 			Creator: creator,
@@ -105,12 +107,86 @@ func TestReact(t *testing.T) {
 		k.SetPostCount(ctx, 1)
 
 		_, err := msgServer.React(ctx, &types.MsgReact{
-			Creator:      creator,
+			Creator:      creator2,
 			PostId:       0,
 			ReplyId:      0,
 			ReactionType: types.ReactionType_REACTION_TYPE_LIKE,
 		})
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "not an active member")
+	})
+
+	t.Run("thread author (non-member) can react in own thread", func(t *testing.T) {
+		// Mirrors the CreateReply thread-author exemption: the author of the
+		// root post may always react within their own thread — on the post
+		// itself or on a reply to it — even as a non-member, even on a
+		// default-gated post (MinReplyTrustLevel = 0) that would otherwise
+		// require active membership.
+		encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+		ac := addresscodec.NewBech32Codec("sprkdrm")
+		storeKey := storetypes.NewKVStoreKey(types.StoreKey)
+		storeService := runtime.NewKVStoreService(storeKey)
+		ctx := testutil.DefaultContextWithDB(t, storeKey, storetypes.NewTransientStoreKey("transient_test")).Ctx
+		authority := authtypes.NewModuleAddress(types.GovModuleName)
+
+		// Everyone is a non-member.
+		repKeeper := &mockRepKeeper{
+			IsActiveMemberFn: func(ctx context.Context, addr sdk.AccAddress) bool {
+				return false
+			},
+		}
+		k := keeper.NewKeeper(storeService, encCfg.Codec, ac, authority, &mockBankKeeper{}, nil, repKeeper)
+		params := types.DefaultParams()
+		params.MaxReactionsPerDay = 100
+		params.ReactionFeeExempt = true
+		require.NoError(t, k.Params.Set(ctx, params))
+		msgServer := keeper.NewMsgServerImpl(k)
+
+		// Default-gated post (MinReplyTrustLevel = 0) authored by `creator`,
+		// plus a reply in the thread.
+		k.SetPost(ctx, types.Post{
+			Id:      0,
+			Creator: creator,
+			Title:   "Author's own thread",
+			Body:    "Started by a non-member",
+			Status:  types.PostStatus_POST_STATUS_ACTIVE,
+		})
+		k.SetPostCount(ctx, 1)
+		k.SetReply(ctx, types.Reply{
+			Id:      1,
+			PostId:  0,
+			Creator: creator2,
+			Body:    "A reply in the author's thread",
+			Status:  types.ReplyStatus_REPLY_STATUS_ACTIVE,
+		})
+		k.SetReplyCount(ctx, 2)
+
+		// Author reacts on their own post.
+		_, err := msgServer.React(ctx, &types.MsgReact{
+			Creator:      creator,
+			PostId:       0,
+			ReplyId:      0,
+			ReactionType: types.ReactionType_REACTION_TYPE_LIKE,
+		})
+		require.NoError(t, err, "thread author must be able to react on own post")
+
+		// Author reacts on a reply within their own thread.
+		_, err = msgServer.React(ctx, &types.MsgReact{
+			Creator:      creator,
+			PostId:       0,
+			ReplyId:      1,
+			ReactionType: types.ReactionType_REACTION_TYPE_INSIGHTFUL,
+		})
+		require.NoError(t, err, "thread author must be able to react on a reply in own thread")
+
+		// Sanity: a non-author non-member is still rejected by the gate.
+		_, err = msgServer.React(ctx, &types.MsgReact{
+			Creator:      creator2,
+			PostId:       0,
+			ReplyId:      0,
+			ReactionType: types.ReactionType_REACTION_TYPE_LIKE,
+		})
+		require.Error(t, err, "non-author non-member must not bypass the reaction gate")
 		require.Contains(t, err.Error(), "not an active member")
 	})
 

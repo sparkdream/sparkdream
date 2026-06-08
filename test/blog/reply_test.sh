@@ -171,7 +171,10 @@ if [ -n "$REPLY1_ID" ]; then
     REPLY_DATA=$($BINARY query blog show-reply $REPLY1_ID --output json 2>&1)
     BODY=$(echo "$REPLY_DATA" | jq -r '.reply.body // empty')
     CREATOR=$(echo "$REPLY_DATA" | jq -r '.reply.creator // empty')
-    POST_ID=$(echo "$REPLY_DATA" | jq -r '.reply.post_id // empty')
+    # post_id defaults to "0": a zero-valued post ID (the first post on a fresh
+    # chain, as in a standalone run) is omitted from proto3 JSON as null, so
+    # `// empty` would mismatch the "0" carried in PARENT_POST_ID.
+    POST_ID=$(echo "$REPLY_DATA" | jq -r '.reply.post_id // "0"')
 
     if [ "$CREATOR" == "$BLOGGER1_ADDR" ] && [ "$POST_ID" == "$PARENT_POST_ID" ]; then
         echo "  Body: $(echo "$BODY" | head -c 40)..."
@@ -733,6 +736,135 @@ else
     else
         echo "  Should have been rejected"
         record_result "Non-member rejected on default-gated reply" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# PART 3: Thread-author exemption (non-member replies in own thread)
+# ========================================================================
+# A non-member may always reply within a thread they authored — including
+# replying to replies — even on a default-gated post that would otherwise
+# reject them (TEST 16). The exemption bypasses ONLY the trust gate: the
+# self-reply is still ephemeral, rate-limited, and fee-charged. Here we
+# verify the CLI-exercisable behavior: the non-member authors a
+# default-gated post, replies on it, a member replies, and the non-member
+# replies to that reply.
+echo "--- PART 3 SETUP: Non-member authors a default-gated post ---"
+
+# Top up the non-member so storage/tx fees for the new replies are covered.
+TX_RES=$($BINARY tx bank send \
+    alice $REPLY_NONMEMBER_ADDR \
+    10000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+sleep 6
+
+# Non-member creates their own post (default min_reply_trust_level=0).
+TX_RES=$($BINARY tx blog create-post \
+    "Non-member's own thread" \
+    "I started this conversation as a non-member." \
+    --from $REPLY_NONMEMBER_ACCOUNT \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+
+NM_POST_ID=""
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    NM_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
+    echo "  Non-member post created: ID=$NM_POST_ID"
+else
+    echo "  Failed to create non-member post"
+    echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+fi
+
+echo ""
+
+# ========================================================================
+# TEST 17: Non-member author replies on their OWN default-gated post
+# ========================================================================
+echo "--- TEST 17: Non-member author replies on own default-gated post ---"
+
+if [ -z "$NM_POST_ID" ]; then
+    echo "  Skipped (non-member post setup failed)"
+    record_result "Author exemption: non-member replies on own post" "FAIL"
+else
+    TX_RES=$($BINARY tx blog create-reply \
+        $NM_POST_ID \
+        "Replying in my own thread." \
+        --from $REPLY_NONMEMBER_ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        echo "  Author exemption honored: non-member replied on own post"
+        record_result "Author exemption: non-member replies on own post" "PASS"
+    else
+        echo "  Author exemption NOT honored (expected success)"
+        echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+        record_result "Author exemption: non-member replies on own post" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 18: Non-member author replies to a reply in their own thread
+# ========================================================================
+# A member replies on the non-member's post (member passes the gate), then
+# the non-member author replies to that reply — the "reply to replies on
+# their created posts" case.
+echo "--- TEST 18: Non-member author replies to a reply in own thread ---"
+
+if [ -z "$NM_POST_ID" ]; then
+    echo "  Skipped (non-member post setup failed)"
+    record_result "Author exemption: non-member replies to a reply" "FAIL"
+else
+    # Member (blogger1) replies on the non-member's post.
+    TX_RES=$($BINARY tx blog create-reply \
+        $NM_POST_ID \
+        "A member chiming in on the thread." \
+        --from blogger1 \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    MEMBER_REPLY_ID=""
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        MEMBER_REPLY_ID=$(extract_event_value "$TX_RESULT" "blog.reply.created" "reply_id")
+    fi
+
+    if [ -z "$MEMBER_REPLY_ID" ] || [ "$MEMBER_REPLY_ID" == "0" ]; then
+        echo "  Skipped (could not get a parentable member reply ID; got '$MEMBER_REPLY_ID')"
+        record_result "Author exemption: non-member replies to a reply" "FAIL"
+    else
+        # Non-member author replies to the member's reply (nested).
+        TX_RES=$($BINARY tx blog create-reply \
+            $NM_POST_ID \
+            "Responding to the member's reply in my thread." \
+            --parent-reply-id=$MEMBER_REPLY_ID \
+            --from $REPLY_NONMEMBER_ACCOUNT \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 50000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+
+        if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+            echo "  Author exemption honored for reply-to-reply"
+            record_result "Author exemption: non-member replies to a reply" "PASS"
+        else
+            echo "  Author exemption NOT honored for reply-to-reply (expected success)"
+            echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+            record_result "Author exemption: non-member replies to a reply" "FAIL"
+        fi
     fi
 fi
 

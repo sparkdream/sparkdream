@@ -118,7 +118,15 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 	// knob, one audience. For reply reactions the parent post's setting
 	// applies (post.MinReplyTrustLevel, post fetched above), since the
 	// post author owns the conversation's audience.
-	if !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
+	//
+	// Thread-author exemption (mirrors CreateReply): the author of the root
+	// post may always react within their own thread — on the post itself or
+	// on any reply to it — even as a non-member, so they are never locked out
+	// of a conversation they started. Bypasses ONLY the trust gate; the
+	// moderation checks above, the rate limit, and the reaction fee below all
+	// still apply. Narrowly scoped to this thread's own author.
+	isThreadAuthor := msg.Creator == post.Creator
+	if !isThreadAuthor && !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
 		return nil, k.trustLevelError(ctx, creatorAddr, post.MinReplyTrustLevel, "reactions on this post")
 	}
 

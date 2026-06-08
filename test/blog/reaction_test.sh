@@ -655,6 +655,130 @@ else
 fi
 
 # ========================================================================
+# PART 3: Thread-author exemption (non-member reacts in own thread)
+# ========================================================================
+# Mirrors the reply policy: the author of a post may always react within a
+# thread they created — on the post itself or on a reply to it — even as a
+# non-member, even on a default-gated post (min_reply_trust_level=0) that
+# would otherwise reject them (TEST 16). The exemption bypasses ONLY the
+# trust gate; the reaction fee and rate limit still apply.
+echo "--- PART 3 SETUP: Non-member authors a default-gated post ---"
+
+# Top up the non-member so the post + reaction fees are covered.
+TX_RES=$($BINARY tx bank send \
+    alice $REACT_NONMEMBER_ADDR \
+    10000000${BOND_DENOM} \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+sleep 6
+
+# Non-member creates their own post (default min_reply_trust_level=0).
+TX_RES=$($BINARY tx blog create-post \
+    "Non-member's own reaction thread" \
+    "I started this thread as a non-member." \
+    --from $REACT_NONMEMBER_ACCOUNT \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+
+NM_REACT_POST_ID=""
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    NM_REACT_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
+    echo "  Non-member post created: ID=$NM_REACT_POST_ID"
+else
+    echo "  Failed to create non-member post"
+    echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+fi
+
+echo ""
+
+# ========================================================================
+# TEST 18: Non-member author reacts on their OWN default-gated post
+# ========================================================================
+echo "--- TEST 18: Non-member author reacts on own default-gated post ---"
+
+if [ -z "$NM_REACT_POST_ID" ]; then
+    echo "  Skipped (non-member post setup failed)"
+    record_result "Author exemption: non-member reacts on own post" "FAIL"
+else
+    TX_RES=$($BINARY tx blog react \
+        $NM_REACT_POST_ID \
+        like \
+        --from $REACT_NONMEMBER_ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        echo "  Author exemption honored: non-member reacted on own post"
+        record_result "Author exemption: non-member reacts on own post" "PASS"
+    else
+        echo "  Author exemption NOT honored (expected success)"
+        echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+        record_result "Author exemption: non-member reacts on own post" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 19: Non-member author reacts on a reply in their own thread
+# ========================================================================
+# A member (blogger1) replies on the non-member's post, then the non-member
+# author reacts on that reply — reaction-on-reply within own thread.
+echo "--- TEST 19: Non-member author reacts on a reply in own thread ---"
+
+if [ -z "$NM_REACT_POST_ID" ]; then
+    echo "  Skipped (non-member post setup failed)"
+    record_result "Author exemption: non-member reacts on a reply" "FAIL"
+else
+    TX_RES=$($BINARY tx blog create-reply \
+        $NM_REACT_POST_ID \
+        "A member's reply in the non-member's thread." \
+        --from blogger1 \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    NM_THREAD_REPLY_ID=""
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        NM_THREAD_REPLY_ID=$(extract_event_value "$TX_RESULT" "blog.reply.created" "reply_id")
+    fi
+
+    if [ -z "$NM_THREAD_REPLY_ID" ]; then
+        echo "  Skipped (could not create member reply in thread)"
+        record_result "Author exemption: non-member reacts on a reply" "FAIL"
+    else
+        TX_RES=$($BINARY tx blog react \
+            $NM_REACT_POST_ID \
+            insightful \
+            --reply-id $NM_THREAD_REPLY_ID \
+            --from $REACT_NONMEMBER_ACCOUNT \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 50000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+
+        if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+            echo "  Author exemption honored for reaction-on-reply"
+            record_result "Author exemption: non-member reacts on a reply" "PASS"
+        else
+            echo "  Author exemption NOT honored for reaction-on-reply (expected success)"
+            echo "  Raw log: $(echo "$TX_RESULT" | jq -r '.raw_log' 2>/dev/null)"
+            record_result "Author exemption: non-member reacts on a reply" "FAIL"
+        fi
+    fi
+fi
+
+# ========================================================================
 # SUMMARY
 # ========================================================================
 echo "============================================"

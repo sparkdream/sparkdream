@@ -54,8 +54,19 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 
 	// Trust level gate (shares min_reply_trust_level with reactions; the
 	// helper distinguishes ErrNotMember from ErrInsufficientTrustLevel so
-	// the caller knows whether the fix is to join or to earn trust)
-	if !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
+	// the caller knows whether the fix is to join or to earn trust).
+	//
+	// Thread-author exemption: the author of the root post may always reply
+	// within their own thread (including replying to replies), even as a
+	// non-member, so they are never locked out of a conversation they
+	// started. This bypasses ONLY the trust gate — replies_enabled,
+	// moderation state (deleted/hidden), rate limiting, the storage fee, and
+	// the ephemeral TTL for non-members all still apply below, so a
+	// non-member author's self-replies are throttled, charged, and GC'd just
+	// like their post. The exemption is narrowly scoped to this thread's own
+	// author; replying into anyone else's thread stays gated.
+	isThreadAuthor := msg.Creator == post.Creator
+	if !isThreadAuthor && !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
 		return nil, k.trustLevelError(ctx, creatorAddr, post.MinReplyTrustLevel, "replies on this post")
 	}
 
