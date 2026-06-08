@@ -223,7 +223,7 @@ if [ "$TOTAL_MEMBERS" -gt 0 ]; then
     echo "  Members found, querying by trust level..."
     # Try querying by trust level 0 (PROVISIONAL)
     PROV_MEMBERS=$($BINARY query rep members-by-trust-level 0 --output json 2>&1)
-    PROV_COUNT=$(echo "$PROV_MEMBERS" | jq -r '.member | length' 2>/dev/null || echo "0")
+    PROV_COUNT=$(echo "$PROV_MEMBERS" | jq -r '.members | length' 2>/dev/null || echo "0")
     echo "  PROVISIONAL (0) members: $PROV_COUNT"
     record_result "Query members by trust level" "PASS"
 else

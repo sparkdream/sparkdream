@@ -633,9 +633,8 @@ message QueryMembersByTrustLevelRequest {
 
 // QueryMembersByTrustLevelResponse defines the QueryMembersByTrustLevelResponse message.
 message QueryMembersByTrustLevelResponse {
-  string address = 1;
-  string dream_balance = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+  repeated Member members = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryInvitationsByInviterRequest defines the QueryInvitationsByInviterRequest message.

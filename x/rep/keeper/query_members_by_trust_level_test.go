@@ -27,25 +27,31 @@ func createMemberWithTrustLevel(k keeper.Keeper, ctx context.Context, address st
 	_ = k.Member.Set(ctx, address, member)
 }
 
+func memberAddresses(members []types.Member) []string {
+	addrs := make([]string, len(members))
+	for i, m := range members {
+		addrs[i] = m.Address
+	}
+	return addrs
+}
+
 func TestMembersByTrustLevel(t *testing.T) {
 	tests := []struct {
-		name         string
-		setup        func(*fixture)
-		trustLevel   uint64
-		wantAddress  string
-		wantDreamBal string
-		wantErr      error
+		name          string
+		setup         func(*fixture)
+		trustLevel    uint64
+		wantAddresses []string
+		wantErr       error
 	}{
 		{
-			name: "ReturnsFirstMemberForTrustLevel",
+			name: "ReturnsAllMembersForTrustLevel",
 			setup: func(f *fixture) {
 				createMemberWithTrustLevel(f.keeper, f.ctx, "member1", types.TrustLevel_TRUST_LEVEL_NEW)
 				createMemberWithTrustLevel(f.keeper, f.ctx, "member2", types.TrustLevel_TRUST_LEVEL_ESTABLISHED)
 				createMemberWithTrustLevel(f.keeper, f.ctx, "member3", types.TrustLevel_TRUST_LEVEL_NEW)
 			},
-			trustLevel:   uint64(types.TrustLevel_TRUST_LEVEL_NEW),
-			wantAddress:  "member1",
-			wantDreamBal: "1000",
+			trustLevel:    uint64(types.TrustLevel_TRUST_LEVEL_NEW),
+			wantAddresses: []string{"member1", "member3"},
 		},
 		{
 			name: "EmptyResponseWhenNoMembersForTrustLevel",
@@ -53,24 +59,23 @@ func TestMembersByTrustLevel(t *testing.T) {
 				createMemberWithTrustLevel(f.keeper, f.ctx, "member1", types.TrustLevel_TRUST_LEVEL_NEW)
 				createMemberWithTrustLevel(f.keeper, f.ctx, "member2", types.TrustLevel_TRUST_LEVEL_ESTABLISHED)
 			},
-			trustLevel: uint64(types.TrustLevel_TRUST_LEVEL_CORE),
-			wantErr:    nil,
+			trustLevel:    uint64(types.TrustLevel_TRUST_LEVEL_CORE),
+			wantAddresses: []string{},
 		},
 		{
-			name:       "EmptyResponseWhenNoMembersExist",
-			setup:      func(f *fixture) {},
-			trustLevel: uint64(types.TrustLevel_TRUST_LEVEL_NEW),
-			wantErr:    nil,
+			name:          "EmptyResponseWhenNoMembersExist",
+			setup:         func(f *fixture) {},
+			trustLevel:    uint64(types.TrustLevel_TRUST_LEVEL_NEW),
+			wantAddresses: []string{},
 		},
 		{
-			name: "ReturnsMemberWithAdminTrustLevel",
+			name: "ReturnsAllMembersWithAdminTrustLevel",
 			setup: func(f *fixture) {
 				createMemberWithTrustLevel(f.keeper, f.ctx, "admin1", types.TrustLevel_TRUST_LEVEL_CORE)
 				createMemberWithTrustLevel(f.keeper, f.ctx, "admin2", types.TrustLevel_TRUST_LEVEL_CORE)
 			},
-			trustLevel:   uint64(types.TrustLevel_TRUST_LEVEL_CORE),
-			wantAddress:  "admin1",
-			wantDreamBal: "1000",
+			trustLevel:    uint64(types.TrustLevel_TRUST_LEVEL_CORE),
+			wantAddresses: []string{"admin1", "admin2"},
 		},
 		{
 			name:       "InvalidRequestNil",
@@ -99,18 +104,15 @@ func TestMembersByTrustLevel(t *testing.T) {
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tc.wantErr)
-			} else if tc.wantAddress != "" {
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, tc.wantAddress, response.Address)
-				require.Equal(t, tc.wantDreamBal, response.DreamBalance.String())
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, "", response.Address)
-				if response.DreamBalance != nil {
-					require.Equal(t, "0", response.DreamBalance.String())
-				}
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, response)
+			require.ElementsMatch(t, tc.wantAddresses, memberAddresses(response.Members))
+			// Every returned member must actually carry the requested trust level.
+			for _, m := range response.Members {
+				require.Equal(t, tc.trustLevel, uint64(m.TrustLevel))
 			}
 		})
 	}
@@ -124,13 +126,16 @@ func TestMembersByTrustLevel_MultipleMembers(t *testing.T) {
 	createMemberWithTrustLevel(f.keeper, f.ctx, "contributor1", types.TrustLevel_TRUST_LEVEL_ESTABLISHED)
 	createMemberWithTrustLevel(f.keeper, f.ctx, "contributor2", types.TrustLevel_TRUST_LEVEL_ESTABLISHED)
 	createMemberWithTrustLevel(f.keeper, f.ctx, "contributor3", types.TrustLevel_TRUST_LEVEL_ESTABLISHED)
+	// A member at a different level must be excluded.
+	createMemberWithTrustLevel(f.keeper, f.ctx, "newcomer", types.TrustLevel_TRUST_LEVEL_NEW)
 
-	// Query should return first member (contributor1)
 	response, err := qs.MembersByTrustLevel(f.ctx, &types.QueryMembersByTrustLevelRequest{
 		TrustLevel: uint64(types.TrustLevel_TRUST_LEVEL_ESTABLISHED),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, response)
-	require.Equal(t, "contributor1", response.Address)
-	require.Equal(t, "1000", response.DreamBalance.String())
+	require.ElementsMatch(t,
+		[]string{"contributor1", "contributor2", "contributor3"},
+		memberAddresses(response.Members),
+	)
 }

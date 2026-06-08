@@ -116,11 +116,12 @@ for level_num in 0 1 2 3 4; do
     if echo "$MEMBER_RESULT" | grep -q "error\|not found"; then
         echo "  No members found with $level_name"
     else
-        # Query returns a single member object, not an array
-        MEMBER_ADDR=$(echo "$MEMBER_RESULT" | jq -r '.address // empty' 2>/dev/null)
-        if [ -n "$MEMBER_ADDR" ]; then
-            MEMBER_BALANCE=$(echo "$MEMBER_RESULT" | jq -r '.dream_balance // "0"' 2>/dev/null)
-            echo "[ OK ] Found member with $level_name: $MEMBER_ADDR ($(echo "scale=2; $MEMBER_BALANCE / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
+        # Query returns a paginated list of members under .members
+        MEMBER_COUNT=$(echo "$MEMBER_RESULT" | jq -r '.members | length' 2>/dev/null || echo "0")
+        if [ "$MEMBER_COUNT" -gt 0 ]; then
+            MEMBER_ADDR=$(echo "$MEMBER_RESULT" | jq -r '.members[0].address // empty' 2>/dev/null)
+            MEMBER_BALANCE=$(echo "$MEMBER_RESULT" | jq -r '.members[0].dream_balance // "0"' 2>/dev/null)
+            echo "[ OK ] Found $MEMBER_COUNT member(s) with $level_name; first: $MEMBER_ADDR ($(echo "scale=2; $MEMBER_BALANCE / 1000000" | bc 2>/dev/null || echo "0") DREAM)"
         else
             echo "  No members found with $level_name"
         fi

@@ -5,6 +5,7 @@ import (
 
 	"sparkdream/x/rep/types"
 
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -14,25 +15,21 @@ func (q queryServer) MembersByTrustLevel(ctx context.Context, req *types.QueryMe
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Collect first member matching the trust level (proto response is singular)
-	var foundMember *types.Member
-	err := q.k.Member.Walk(ctx, nil, func(address string, member types.Member) (bool, error) {
-		if uint64(member.TrustLevel) == req.TrustLevel {
-			foundMember = &member
-			return true, nil // stop iteration
-		}
-		return false, nil
-	})
+	members, pageRes, err := query.CollectionFilteredPaginate(
+		ctx,
+		q.k.Member,
+		req.Pagination,
+		func(_ string, value types.Member) (bool, error) {
+			return uint64(value.TrustLevel) == req.TrustLevel, nil
+		},
+		func(_ string, value types.Member) (types.Member, error) {
+			_ = q.k.ApplyPendingDecay(ctx, &value)
+			return value, nil
+		},
+	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if foundMember != nil {
-		return &types.QueryMembersByTrustLevelResponse{
-			Address:      foundMember.Address,
-			DreamBalance: foundMember.DreamBalance,
-		}, nil
-	}
-
-	return &types.QueryMembersByTrustLevelResponse{}, nil
+	return &types.QueryMembersByTrustLevelResponse{Members: members, Pagination: pageRes}, nil
 }
