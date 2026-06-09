@@ -181,14 +181,23 @@ func TestClaimRecurringPull_EpochCeilingExceeded(t *testing.T) {
 	grantee := testAddr("grantee", f.addressCodec)
 	amount := sdk.NewInt64Coin("uspark", 1_000_000)
 	period := int64(60 * 60) // 1h — short period so we can drive multiple claims within one UTC day
-	expiresAt := sdkCtx.BlockTime().Add(48 * time.Hour)
+
+	// Anchor block time to UTC midnight. The epoch bucket is keyed by UTC
+	// calendar day (floor(block_time / 86400)); initFixture seeds block time
+	// from the real wall clock, so the +1h / +2h claims below straddle a UTC
+	// day boundary whenever the suite runs in the ~2h before midnight,
+	// resetting the bucket and masking the breach. Pinning the base to a day
+	// boundary keeps both same-day claims in one bucket deterministically.
+	base := time.Unix(sdkCtx.BlockTime().UTC().Unix()/86_400*86_400, 0).UTC()
+	baseCtx := withBlockTime(f.ctx, base)
+	expiresAt := base.Add(48 * time.Hour)
 
 	// Override min period for this test.
 	params, _ := f.keeper.Params.Get(f.ctx)
 	params.MinRecurringPeriodSeconds = 60
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
-	resp, err := ms.CreateGrant(f.ctx, &types.MsgCreateGrant{
+	resp, err := ms.CreateGrant(baseCtx, &types.MsgCreateGrant{
 		Granter:   granter,
 		Grantee:   grantee,
 		ExpiresAt: expiresAt,
@@ -204,12 +213,12 @@ func TestClaimRecurringPull_EpochCeilingExceeded(t *testing.T) {
 	id := resp.GrantId
 
 	// First claim (one period later).
-	ctx1 := withBlockTime(f.ctx, sdkCtx.BlockTime().Add(time.Duration(period+1)*time.Second))
+	ctx1 := withBlockTime(f.ctx, base.Add(time.Duration(period+1)*time.Second))
 	_, err = ms.ClaimRecurringPull(ctx1, &types.MsgClaimRecurringPull{Grantee: grantee, GrantId: id})
 	require.NoError(t, err)
 
 	// Second claim same UTC day — should breach max_per_epoch.
-	ctx2 := withBlockTime(f.ctx, sdkCtx.BlockTime().Add(time.Duration(2*period+1)*time.Second))
+	ctx2 := withBlockTime(f.ctx, base.Add(time.Duration(2*period+1)*time.Second))
 	_, err = ms.ClaimRecurringPull(ctx2, &types.MsgClaimRecurringPull{Grantee: grantee, GrantId: id})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "max_per_epoch")

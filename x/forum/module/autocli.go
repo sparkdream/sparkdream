@@ -306,6 +306,27 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 
+				{
+					RpcMethod:      "GetPostConvictionStake",
+					Use:            "get-post-conviction-stake [id]",
+					Short:          "Query a single post-conviction stake by id",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+
+				{
+					RpcMethod:      "PostConvictionStakesByStaker",
+					Use:            "post-conviction-stakes-by-staker [staker]",
+					Short:          "List a staker's open post-conviction stakes",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "staker"}},
+				},
+
+				{
+					RpcMethod:      "PostConvictionStakesByPost",
+					Use:            "post-conviction-stakes-by-post [post-id]",
+					Short:          "List all active stakes backing a post",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
+				},
+
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},

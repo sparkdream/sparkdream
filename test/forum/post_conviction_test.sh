@@ -6,6 +6,9 @@ echo "--- TESTING: FORUM POST CONVICTION STAKE (accrual + slash) ---"
 #   - OpenPostConvictionStake error paths: self-stake, below-min, non-member
 #   - AccruePostConvictions (EndBlocker phase 4): per-tag forum rep is
 #     credited to the post's author across blocks while the stake is active
+#   - Read-back queries: GetPostConvictionStake / PostConvictionStakesByStaker
+#     / PostConvictionStakesByPost surface an open stake (and its id) so
+#     clients don't have to mirror stake ids locally
 #   - ReleasePostConvictionStake happy path: after the lock window passes,
 #     the staker reclaims locked DREAM and the stake is closed
 #   - SlashStakesForPost (called from ExpireHiddenPosts): on confirmed
@@ -104,6 +107,44 @@ extract_event_value() {
     local EVENT_TYPE=$2
     local ATTR_KEY=$3
     echo "$TX_RESULT" | jq -r ".events[] | select(.type==\"$EVENT_TYPE\") | .attributes[] | select(.key==\"$ATTR_KEY\") | .value" | tr -d '"'
+}
+
+# Build COUNT EPIC interims for $ACCOUNT to push it past the ESTABLISHED trust
+# gate that bonding a forum-sentinel requires. Mirrors bootstrap_reputation in
+# unhide_post_test.sh — 3 EPICs reliably reach ESTABLISHED under default params.
+bootstrap_reputation() {
+    local ACCOUNT=$1
+    local COUNT=$2
+    echo "  Bootstrapping $COUNT EPIC interims for $ACCOUNT..."
+
+    for i in $(seq 1 $COUNT); do
+        TX_RES=$($BINARY tx rep create-interim other 0 "pc-sentinel-$i" epic 999999999 \
+            --from $ACCOUNT \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+            echo "    Failed to create interim $i"
+            return 1
+        fi
+        INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
+
+        TX_RES=$($BINARY tx rep complete-interim $INTERIM_ID "post-conviction test setup" \
+            --from $ACCOUNT \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+            echo "    Failed to complete interim $i"
+            return 1
+        fi
+        echo "    Completed interim $i/$COUNT (ID: $INTERIM_ID)"
+    done
+    echo "  Reputation bootstrapped for $ACCOUNT"
 }
 
 # forum_rep_for returns the author's forum_rep_per_tag entry for the given
@@ -322,6 +363,69 @@ else
 fi
 
 # ============================================================================
+# TEST 4b: the new read-back queries surface the open stake by id, staker,
+# and post — so UI clients can recover the stake_id required by
+# MsgReleasePostConviction without mirroring it locally.
+# ============================================================================
+if [ -n "$HAPPY_STAKE_ID" ]; then
+    echo "--- TEST 4b: query stake by id / staker / post ---"
+    QUERY_OK=true
+
+    # NOTE: uint64 proto fields are omitted from JSON when zero, so a stake
+    # with id 0 (the first one minted) has no ".id" key — normalize absent
+    # numeric fields to "0" everywhere below.
+
+    # get-post-conviction-stake [id]
+    STAKE_Q=$($BINARY query forum get-post-conviction-stake "$HAPPY_STAKE_ID" --output json 2>&1)
+    Q_ID=$(echo "$STAKE_Q" | jq -r '.stake.id // "0"')
+    Q_STAKER=$(echo "$STAKE_Q" | jq -r '.stake.staker // ""')
+    Q_POST=$(echo "$STAKE_Q" | jq -r '.stake.post_id // "0"')
+    if [ "$Q_ID" != "$HAPPY_STAKE_ID" ] || [ "$Q_STAKER" != "$ALICE_ADDR" ] || [ "$Q_POST" != "$POSTER2_POST_ID" ]; then
+        echo "  FAIL get-by-id: id=$Q_ID staker=$Q_STAKER post=$Q_POST (want id=$HAPPY_STAKE_ID staker=$ALICE_ADDR post=$POSTER2_POST_ID)"
+        QUERY_OK=false
+    fi
+
+    # get-post-conviction-stake on a non-existent id -> error (no stake body).
+    MISS_Q=$($BINARY query forum get-post-conviction-stake 999999 --output json 2>&1)
+    if echo "$MISS_Q" | jq -e '.stake.staker' > /dev/null 2>&1; then
+        echo "  FAIL get-by-id miss: expected error for id 999999, got $MISS_Q"
+        QUERY_OK=false
+    fi
+
+    # post-conviction-stakes-by-staker [staker] -> must include our stake.
+    BY_STAKER_Q=$($BINARY query forum post-conviction-stakes-by-staker "$ALICE_ADDR" --output json 2>&1)
+    if ! echo "$BY_STAKER_Q" | jq -e --arg id "$HAPPY_STAKE_ID" '.stakes[] | select((.id // "0")==$id)' > /dev/null 2>&1; then
+        echo "  FAIL by-staker: stake $HAPPY_STAKE_ID not in $BY_STAKER_Q"
+        QUERY_OK=false
+    fi
+    # every returned stake must belong to alice.
+    BAD_STAKER=$(echo "$BY_STAKER_Q" | jq -r --arg s "$ALICE_ADDR" '[.stakes[] | select(.staker != $s)] | length')
+    if [ "${BAD_STAKER:-0}" != "0" ]; then
+        echo "  FAIL by-staker: returned $BAD_STAKER stakes not owned by alice"
+        QUERY_OK=false
+    fi
+
+    # post-conviction-stakes-by-post [post-id] -> must include our stake.
+    BY_POST_Q=$($BINARY query forum post-conviction-stakes-by-post "$POSTER2_POST_ID" --output json 2>&1)
+    if ! echo "$BY_POST_Q" | jq -e --arg id "$HAPPY_STAKE_ID" '.stakes[] | select((.id // "0")==$id)' > /dev/null 2>&1; then
+        echo "  FAIL by-post: stake $HAPPY_STAKE_ID not in $BY_POST_Q"
+        QUERY_OK=false
+    fi
+    # every returned stake must reference this post.
+    BAD_POST=$(echo "$BY_POST_Q" | jq -r --arg p "$POSTER2_POST_ID" '[.stakes[] | select((.post_id // "0") != $p)] | length')
+    if [ "${BAD_POST:-0}" != "0" ]; then
+        echo "  FAIL by-post: returned $BAD_POST stakes not on post $POSTER2_POST_ID"
+        QUERY_OK=false
+    fi
+
+    if [ "$QUERY_OK" == "true" ]; then
+        record_result "Stake read-back queries (id/staker/post)" "PASS"
+    else
+        record_result "Stake read-back queries (id/staker/post)" "FAIL"
+    fi
+fi
+
+# ============================================================================
 # TEST 5: accrual credits the author's forum_rep over a few blocks.
 # ============================================================================
 if [ -n "$HAPPY_STAKE_ID" ]; then
@@ -384,6 +488,43 @@ if [ -n "$HAPPY_STAKE_ID" ]; then
 fi
 
 # ============================================================================
+# SETUP FOR TEST 7: ensure sentinel1 is a bonded forum-sentinel.
+# ============================================================================
+# The slash path is driven by a sentinel hiding the post, and MsgHidePost
+# requires the caller to hold a non-DEMOTED ROLE_TYPE_FORUM_SENTINEL bond at
+# ESTABLISHED+ trust. In the full suite sentinel_test.sh bonds sentinel1 in an
+# earlier PART, but this test must also pass standalone — so bond it here if no
+# preceding test already did. Idempotent: skipped when sentinel1 is bonded.
+echo "--- SETUP: ensure sentinel1 is a bonded forum-sentinel ---"
+SENTINEL_READY=true
+SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>&1)
+if echo "$SENTINEL_STATUS" | grep -qi "error\|not found"; then
+    if ! bootstrap_reputation sentinel1 3; then
+        echo "  Failed to bootstrap sentinel1 reputation; skipping slash test."
+        SENTINEL_READY=false
+    else
+        echo "  Bonding sentinel1 (500 DREAM = DefaultMinSentinelBond)..."
+        TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+            "500000000" \
+            --from sentinel1 \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+            echo "  Failed to bond sentinel1: $(echo "$TX_RESULT" | jq -r '.raw_log')"
+            SENTINEL_READY=false
+        else
+            echo "  Sentinel1 bonded"
+        fi
+    fi
+else
+    echo "  Sentinel1 already bonded (skipping bootstrap)"
+fi
+echo ""
+
+# ============================================================================
 # TEST 7: SLASH — open a new stake on a fresh post, hide it, wait for
 # ExpireHiddenPosts to finalize, and confirm:
 #   (a) the author's forum_rep for the tag is clawed back, AND
@@ -394,18 +535,23 @@ echo "--- TEST 7: slash path — hide finalization claws back rep + burns DREAM 
 # Fresh post by poster2 — different from POSTER2_POST_ID because that one's
 # author rep may still be non-zero post-release.
 SLASH_POST_ID=""
-TX_RES=$($BINARY tx forum create-post \
-    $CATEGORY_ID 0 "Poster2's slash-test post — will be hidden." \
-    --tags "$POST_TAG" \
-    --from poster2 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 50000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-    SLASH_POST_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
-    echo "  Slash-target post: ID=$SLASH_POST_ID"
+if [ "$SENTINEL_READY" != "true" ]; then
+    echo "  Sentinel1 prerequisite unmet; cannot exercise the slash path."
+    record_result "Hide-finalization slashes conviction stake" "FAIL"
+else
+    TX_RES=$($BINARY tx forum create-post \
+        $CATEGORY_ID 0 "Poster2's slash-test post — will be hidden." \
+        --tags "$POST_TAG" \
+        --from poster2 \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        SLASH_POST_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
+        echo "  Slash-target post: ID=$SLASH_POST_ID"
+    fi
 fi
 
 if [ -n "$SLASH_POST_ID" ]; then

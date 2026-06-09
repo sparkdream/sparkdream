@@ -156,23 +156,59 @@ fi
 echo "[ OK ] Schedule ID: $SCHEDULE_ID"
 
 # --- 3. WAIT ONE PERIOD AND CLAIM -------------------------------------------
-# Need to be past start_time + period_seconds before the first claim is admissible.
+# The claim is admissible once the schedule's logical clock (start_time +
+# period_seconds) is in the past *relative to block time*. We must therefore
+# wait on the chain's BLOCK time, not wall-clock: under heavy parallel-suite
+# load block production lags wall-clock by seconds, so a plain `sleep` can
+# fire the claim before its block-time window opens. That delivers an
+# ErrRecurringPullNotDue claim which disburses nothing and only burns the
+# fee — surfacing later as a bogus "unexpected balance delta -5000". Poll
+# block time instead.
 echo ""
-WAIT_FOR=$((START_TIME + PERIOD_SECONDS + 3 - $(date +%s)))
-if [ "$WAIT_FOR" -lt 0 ]; then WAIT_FOR=0; fi
-echo "STEP 3: Waiting ${WAIT_FOR}s for the first claim window..."
-sleep "$WAIT_FOR"
+
+# block_epoch echoes the chain's latest block time as a Unix timestamp.
+block_epoch() {
+    local bt
+    bt=$($BINARY status --output json 2>/dev/null | jq -r '.sync_info.latest_block_time // empty')
+    [ -n "$bt" ] && date -d "$bt" +%s 2>/dev/null
+}
+
+CLAIM_WINDOW=$((START_TIME + PERIOD_SECONDS + 2))
+echo "STEP 3: Waiting for block time to reach the first claim window ($CLAIM_WINDOW)..."
+WAIT_DEADLINE=$(( $(date +%s) + 240 ))
+while :; do
+    BE=$(block_epoch)
+    if [ -n "$BE" ] && [ "$BE" -ge "$CLAIM_WINDOW" ]; then
+        break
+    fi
+    if [ "$(date +%s)" -ge "$WAIT_DEADLINE" ]; then
+        echo "[FAIL] Block time ($BE) did not reach claim window ($CLAIM_WINDOW) within timeout."
+        exit 1
+    fi
+    sleep 2
+done
 
 INITIAL_BAL=$($BINARY query bank balances "$CAROL_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
 if [ -z "$INITIAL_BAL" ]; then INITIAL_BAL=0; fi
 echo "Carol's pre-claim balance: $INITIAL_BAL"
 
 CLAIM_RES=$($BINARY tx commons claim-recurring-spend "$SCHEDULE_ID" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
-sleep 3
+CLAIM_HASH=$(echo "$CLAIM_RES" | jq -r '.txhash')
 CLAIM_CODE=$(echo "$CLAIM_RES" | jq -r '.code')
+# A code-0 broadcast only means mempool-accepted; the disbursement can still
+# fail in DeliverTx. Poll the delivered code so a failed claim can never be
+# masked as a balance-delta surprise.
+if [ "$CLAIM_CODE" == "0" ]; then
+    sleep 3
+    CLAIM_TX=$($BINARY query tx "$CLAIM_HASH" --output json 2>/dev/null)
+    CLAIM_CODE=$(echo "$CLAIM_TX" | jq -r '.code // "0"')
+    CLAIM_LOG=$(echo "$CLAIM_TX" | jq -r '.raw_log // empty')
+else
+    CLAIM_LOG=$(echo "$CLAIM_RES" | jq -r '.raw_log')
+fi
 if [ "$CLAIM_CODE" != "0" ]; then
-    echo "[FAIL] Claim returned non-zero code: $CLAIM_CODE"
-    echo "raw_log: $(echo "$CLAIM_RES" | jq -r '.raw_log')"
+    echo "[FAIL] Claim deliver returned non-zero code: $CLAIM_CODE"
+    echo "raw_log: $CLAIM_LOG"
     exit 1
 fi
 

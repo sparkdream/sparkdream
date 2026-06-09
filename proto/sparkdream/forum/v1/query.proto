@@ -18,6 +18,7 @@ import "sparkdream/forum/v1/thread_follow_count.proto";
 import "sparkdream/forum/v1/thread_lock_record.proto";
 import "sparkdream/forum/v1/thread_metadata.proto";
 import "sparkdream/forum/v1/thread_move_record.proto";
+import "sparkdream/forum/v1/types.proto";
 import "sparkdream/forum/v1/user_rate_limit.proto";
 import "sparkdream/forum/v1/user_reaction_limit.proto";
 
@@ -253,6 +254,24 @@ service Query {
   // FlagReviewQueue Queries a list of FlagReviewQueue items.
   rpc FlagReviewQueue(QueryFlagReviewQueueRequest) returns (QueryFlagReviewQueueResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/flag_review_queue";
+  }
+
+  // GetPostConvictionStake returns a single post-conviction stake by id.
+  rpc GetPostConvictionStake(QueryGetPostConvictionStakeRequest) returns (QueryGetPostConvictionStakeResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post_conviction_stake/{id}";
+  }
+
+  // PostConvictionStakesByStaker lists a staker's open post-conviction stakes.
+  // Replaces the need for clients to mirror their own stake ids locally: the
+  // stake id required by MsgReleasePostConviction is otherwise only returned in
+  // the StakePostConviction tx response/event.
+  rpc PostConvictionStakesByStaker(QueryPostConvictionStakesByStakerRequest) returns (QueryPostConvictionStakesByStakerResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post_conviction_stakes_by_staker/{staker}";
+  }
+
+  // PostConvictionStakesByPost lists all active stakes backing a post.
+  rpc PostConvictionStakesByPost(QueryPostConvictionStakesByPostRequest) returns (QueryPostConvictionStakesByPostResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post_conviction_stakes_by_post/{post_id}";
   }
 }
 
@@ -779,4 +798,38 @@ message QueryFlagReviewQueueResponse {
   uint64 post_id = 1;
   string total_weight = 2;
   cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryGetPostConvictionStakeRequest defines the QueryGetPostConvictionStakeRequest message.
+message QueryGetPostConvictionStakeRequest {
+  uint64 id = 1;
+}
+
+// QueryGetPostConvictionStakeResponse defines the QueryGetPostConvictionStakeResponse message.
+message QueryGetPostConvictionStakeResponse {
+  PostConvictionStake stake = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryPostConvictionStakesByStakerRequest defines the QueryPostConvictionStakesByStakerRequest message.
+message QueryPostConvictionStakesByStakerRequest {
+  string staker = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryPostConvictionStakesByStakerResponse defines the QueryPostConvictionStakesByStakerResponse message.
+message QueryPostConvictionStakesByStakerResponse {
+  repeated PostConvictionStake stakes = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryPostConvictionStakesByPostRequest defines the QueryPostConvictionStakesByPostRequest message.
+message QueryPostConvictionStakesByPostRequest {
+  uint64 post_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryPostConvictionStakesByPostResponse defines the QueryPostConvictionStakesByPostResponse message.
+message QueryPostConvictionStakesByPostResponse {
+  repeated PostConvictionStake stakes = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
