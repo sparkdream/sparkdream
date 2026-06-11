@@ -17,7 +17,7 @@ func (q queryServer) AuthorBond(ctx context.Context, req *types.QueryAuthorBondR
 
 	targetType := types.StakeTargetType(req.TargetType)
 	if !types.IsAuthorBondType(targetType) {
-		return nil, status.Errorf(codes.InvalidArgument, "target_type must be an author bond type (7, 8, or 9), got %d", req.TargetType)
+		return nil, status.Errorf(codes.InvalidArgument, "target_type must be an author bond type (7, 8, 9, or 10), got %d", req.TargetType)
 	}
 
 	bond, err := q.k.GetAuthorBond(ctx, targetType, req.TargetId)

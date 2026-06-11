@@ -569,15 +569,15 @@ func TestExpireHiddenPosts_IssuesPromoterWarning(t *testing.T) {
 	require.NoError(t, err)
 
 	post := types.Post{
-		PostId:      postID,
-		CategoryId:  cat.CategoryId,
-		Author:      testCreator,
-		Content:     "Promoted but then hidden",
-		CreatedAt:   hiddenAt - 100,
-		Status:      types.PostStatus_POST_STATUS_HIDDEN,
-		HiddenAt:    hiddenAt,
-		PromotedBy:  promoter,
-		PromotedAt:  hiddenAt - 50,
+		PostId:     postID,
+		CategoryId: cat.CategoryId,
+		Author:     testCreator,
+		Content:    "Promoted but then hidden",
+		CreatedAt:  hiddenAt - 100,
+		Status:     types.PostStatus_POST_STATUS_HIDDEN,
+		HiddenAt:   hiddenAt,
+		PromotedBy: promoter,
+		PromotedAt: hiddenAt - 50,
 	}
 	require.NoError(t, f.keeper.Post.Set(f.ctx, postID, post))
 	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{

@@ -99,7 +99,7 @@ func initFixture(t *testing.T) *fixture {
 // mockIdentityKeeper returns legacy denoms for unit tests.
 type mockIdentityKeeper struct{}
 
-func (mockIdentityKeeper) IsIdentityKeeper() {}
+func (mockIdentityKeeper) IsIdentityKeeper()                     {}
 func (m *mockIdentityKeeper) BondDenom(_ context.Context) string { return "uspark" }
 
 type MockCommonsKeeper struct {

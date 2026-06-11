@@ -89,7 +89,7 @@ const (
 	EventTypeChallengeCancelledPeerRemoved = "challenge_cancelled_peer_removed"
 
 	// Phase 2 (jury) resolution
-	EventTypeJuryVerdictApplied = "jury_verdict_applied"
+	EventTypeJuryVerdictApplied    = "jury_verdict_applied"
 	EventTypeEscalationFeeRefunded = "escalation_fee_refunded"
 	EventTypeEscalationFeeBurned   = "escalation_fee_burned"
 

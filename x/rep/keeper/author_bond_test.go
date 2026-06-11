@@ -60,6 +60,7 @@ func TestCreateAuthorBond_AllTargetTypes(t *testing.T) {
 		types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
 		types.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND,
 		types.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND,
+		types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND,
 	}
 
 	for _, bondType := range bondTypes {
@@ -309,4 +310,32 @@ func TestSlashAuthorBond_SlashingDisabled(t *testing.T) {
 	bond, err := f.keeper.GetAuthorBond(f.ctx, types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND, 1)
 	require.NoError(t, err)
 	require.Equal(t, math.NewInt(100000000), bond.Amount)
+}
+
+// Blog posts and replies have independent id sequences, so a post bond and a
+// reply bond with the same numeric id must not collide. Regression test for
+// the shared-BLOG_AUTHOR_BOND-namespace bug.
+func TestCreateAuthorBond_PostAndReplySameIDNoCollision(t *testing.T) {
+	f, authorAddr := setupAuthorBondFixture(t)
+
+	postBondID, err := f.keeper.CreateAuthorBond(
+		f.ctx, authorAddr, types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND, 3, math.NewInt(100000000),
+	)
+	require.NoError(t, err)
+
+	// Same target id under the reply bond type must succeed, not
+	// ErrAuthorBondExists.
+	replyBondID, err := f.keeper.CreateAuthorBond(
+		f.ctx, authorAddr, types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND, 3, math.NewInt(200000000),
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, postBondID, replyBondID)
+
+	// Each lookup resolves its own bond.
+	postBond, err := f.keeper.GetAuthorBond(f.ctx, types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND, 3)
+	require.NoError(t, err)
+	require.Equal(t, "100000000", postBond.Amount.String())
+	replyBond, err := f.keeper.GetAuthorBond(f.ctx, types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND, 3)
+	require.NoError(t, err)
+	require.Equal(t, "200000000", replyBond.Amount.String())
 }

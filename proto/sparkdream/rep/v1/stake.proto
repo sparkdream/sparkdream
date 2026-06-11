@@ -41,9 +41,14 @@ enum StakeTargetType {
   STAKE_TARGET_COLLECTION_CONTENT = 6; // Community conviction on x/collect collections
 
   // Author bonds (no DREAM rewards, slashable on moderation)
-  STAKE_TARGET_BLOG_AUTHOR_BOND = 7; // Author bond on x/blog content
-  STAKE_TARGET_FORUM_AUTHOR_BOND = 8; // Author bond on x/forum content
+  STAKE_TARGET_BLOG_AUTHOR_BOND = 7; // Author bond on x/blog posts
+  STAKE_TARGET_FORUM_AUTHOR_BOND = 8; // Author bond on x/forum content (posts and replies share one id space)
   STAKE_TARGET_COLLECTION_AUTHOR_BOND = 9; // Author bond on x/collect content
+
+  // Blog replies have their own id sequence independent of blog posts, so
+  // reply bonds need a distinct target type: sharing BLOG_AUTHOR_BOND would
+  // make post N and reply N collide (one-bond-per-target, queries, challenges).
+  STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND = 10; // Author bond on x/blog replies
 }
 
 // MemberStakePool tracks aggregate staking on a member for O(1) reward distribution

@@ -445,6 +445,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Long:           "Reports the effective MinInvitationStake floor for an inviter's next MsgInviteMember, accounting for InvitationCostMultiplier escalation based on credits spent this season.",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "inviter"}},
 				},
+				{
+					RpcMethod:      "AuthorBondsByType",
+					Use:            "author-bonds-by-type [target-type]",
+					Short:          "Query author-bonds-by-type",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_type"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

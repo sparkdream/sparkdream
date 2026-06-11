@@ -28,7 +28,8 @@ func (k Keeper) GetPendingStakingRewards(ctx context.Context, stake types.Stake)
 		types.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT,
 		types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
 		types.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND,
-		types.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND:
+		types.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND,
+		types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND:
 		// Content conviction and author bond stakes earn no DREAM rewards
 		return math.ZeroInt(), nil
 	}

@@ -41,13 +41,15 @@ func (k Keeper) RemovePost(ctx context.Context, id uint64) {
 	store.Delete(GetPostIDBytes(id))
 }
 
+// GetPostCount returns the next post ID to assign. Post IDs start at 1:
+// ID 0 is reserved so that zero-valued ID fields unambiguously mean "unset".
 func (k Keeper) GetPostCount(ctx context.Context) uint64 {
 	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
 	store := prefix.NewStore(storeAdapter, []byte{})
 	byteKey := []byte(types.PostCountKey)
 	bz := store.Get(byteKey)
 	if bz == nil {
-		return 0
+		return 1
 	}
 	return binary.BigEndian.Uint64(bz)
 }

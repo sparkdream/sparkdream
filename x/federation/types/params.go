@@ -25,8 +25,8 @@ type federationGenesisParams struct {
 	UnverifiedLinkTTL       time.Duration
 	ChallengeTTL            time.Duration
 
-	VerificationWindow           time.Duration
-	ChallengeWindow              time.Duration
+	VerificationWindow time.Duration
+	ChallengeWindow    time.Duration
 	// ChallengeFeeAmount and EscalationFeeAmount are bare amounts in the
 	// chain's bond denom (resolved at runtime from x/identity); the keeper
 	// wraps them into sdk.Coin at the point of use.
@@ -181,13 +181,13 @@ func GetVerifierRewardEpochBlocks() uint64 {
 func (p Params) Validate() error {
 	// --- Required math.Int amounts: non-nil + non-negative ---
 	intFields := map[string]math.Int{
-		"min_verifier_bond":                p.MinVerifierBond,
-		"verifier_recovery_threshold":      p.VerifierRecoveryThreshold,
-		"verifier_slash_amount":            p.VerifierSlashAmount,
-		"verifier_dream_reward":            p.VerifierDreamReward,
+		"min_verifier_bond":                 p.MinVerifierBond,
+		"verifier_recovery_threshold":       p.VerifierRecoveryThreshold,
+		"verifier_slash_amount":             p.VerifierSlashAmount,
+		"verifier_dream_reward":             p.VerifierDreamReward,
 		"max_verifier_dream_mint_per_epoch": p.MaxVerifierDreamMintPerEpoch,
-		"challenge_fee_amount":             p.ChallengeFeeAmount,
-		"escalation_fee_amount":            p.EscalationFeeAmount,
+		"challenge_fee_amount":              p.ChallengeFeeAmount,
+		"escalation_fee_amount":             p.EscalationFeeAmount,
 	}
 	for name, v := range intFields {
 		if v.IsNil() {

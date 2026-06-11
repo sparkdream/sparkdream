@@ -77,7 +77,7 @@ type ParamSubspace interface {
 // federated chain's denom (e.g. uspark.phoenix) flows through correctly
 // instead of a hardcoded "uspark" literal.
 type IdentityKeeper interface {
-	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	IsIdentityKeeper() // marker — disambiguates from rep/session.Keeper for depinject
 	BondDenom(ctx context.Context) string
 	DreamDenom(ctx context.Context) string
 }

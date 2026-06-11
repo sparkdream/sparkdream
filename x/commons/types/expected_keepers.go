@@ -36,7 +36,7 @@ type BankKeeper interface {
 // app.go. Required: commons panics on first denom lookup if identity isn't
 // wired (no silent fallback to a hardcoded literal).
 type IdentityKeeper interface {
-	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	IsIdentityKeeper() // marker — disambiguates from rep/session.Keeper for depinject
 	BondDenom(ctx context.Context) string
 }
 

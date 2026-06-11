@@ -171,7 +171,7 @@ TX_RES=$(create_post_with_tags "Tagged Post" "Post with two tags" "$TAG_A,$TAG_B
 
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     TAGGED_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
-    [ -z "$TAGGED_POST_ID" ] && TAGGED_POST_ID="0"
+    [ -z "$TAGGED_POST_ID" ] && TAGGED_POST_ID="1"
     echo "  Post created with ID: $TAGGED_POST_ID"
     record_result "Create post with valid tags" "PASS"
 else

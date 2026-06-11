@@ -25,11 +25,11 @@ func getFederationGenesisParams() federationGenesisParams {
 		ChallengeTTL:            3 * 24 * time.Hour,  // 3 days
 
 		VerificationWindow:           12 * time.Hour,
-		ChallengeWindow:              3 * 24 * time.Hour,         // 3 days
-		ChallengeFeeAmount:           math.NewInt(150_000_000),   // 150 SPARK in bond-denom micro-units
-		ChallengeJuryDeadline:        7 * 24 * time.Hour,         // 7 days
-		VerifierDemotionCooldown:     3 * 24 * time.Hour,                              // 3 days
-		VerifierUnbondCooldown:       7 * 24 * time.Hour,                              // 7 days — mirrors BridgeUnbondingPeriod
+		ChallengeWindow:              3 * 24 * time.Hour,       // 3 days
+		ChallengeFeeAmount:           math.NewInt(150_000_000), // 150 SPARK in bond-denom micro-units
+		ChallengeJuryDeadline:        7 * 24 * time.Hour,       // 7 days
+		VerifierDemotionCooldown:     3 * 24 * time.Hour,       // 3 days
+		VerifierUnbondCooldown:       7 * 24 * time.Hour,       // 7 days — mirrors BridgeUnbondingPeriod
 		VerifierOverturnBaseCooldown: 12 * time.Hour,
 		ChallengeCooldown:            3 * 24 * time.Hour, // 3 days
 
@@ -41,9 +41,9 @@ func getFederationGenesisParams() federationGenesisParams {
 		IBCPacketTimeout: 5 * time.Minute,
 
 		// Verifier-bond economics — spec defaults
-		MinVerifierBond:              math.NewInt(500_000_000),         // 500 DREAM
-		VerifierRecoveryThreshold:    math.NewInt(250_000_000),         // 250 DREAM
-		VerifierSlashAmount:          math.NewInt(50_000_000),          // 50 DREAM
+		MinVerifierBond:              math.NewInt(500_000_000), // 500 DREAM
+		VerifierRecoveryThreshold:    math.NewInt(250_000_000), // 250 DREAM
+		VerifierSlashAmount:          math.NewInt(50_000_000),  // 50 DREAM
 		MinEpochVerifications:        uint32(3),
 		MinVerifierAccuracy:          math.LegacyNewDecWithPrec(8, 1), // 0.8
 		VerifierDreamReward:          math.NewInt(5_000_000),          // 5 DREAM

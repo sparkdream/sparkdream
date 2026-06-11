@@ -21,7 +21,7 @@ type SeasonState struct {
 // wired — silently falling back to a hardcoded literal re-introduces the
 // mixed-state bug we just removed.
 type IdentityKeeper interface {
-	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	IsIdentityKeeper() // marker — disambiguates from rep/session.Keeper for depinject
 	BondDenom(ctx context.Context) string
 	DreamDenom(ctx context.Context) string
 }

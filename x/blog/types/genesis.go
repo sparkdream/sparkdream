@@ -2,14 +2,16 @@ package types
 
 import "fmt"
 
-// DefaultGenesis returns the default genesis state
+// DefaultGenesis returns the default genesis state.
+// Counters start at 1: ID 0 is reserved because reply_id=0 / parent_reply_id=0
+// mean "the post itself" / "top-level" in MsgReact and MsgCreateReply.
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params:         DefaultParams(),
 		Posts:          []Post{},
-		PostCount:      0,
+		PostCount:      1,
 		Replies:        []Reply{},
-		ReplyCount:     0,
+		ReplyCount:     1,
 		Reactions:      []Reaction{},
 		ReactionCounts: []GenesisReactionCounts{},
 	}
@@ -32,6 +34,9 @@ func (gs GenesisState) Validate() error {
 	for i := range gs.Posts {
 		post := &gs.Posts[i]
 
+		if post.Id == 0 {
+			return fmt.Errorf("post ID 0 is reserved (IDs start at 1)")
+		}
 		if post.Id >= gs.PostCount {
 			return fmt.Errorf("post ID %d is >= post_count %d", post.Id, gs.PostCount)
 		}
@@ -56,6 +61,9 @@ func (gs GenesisState) Validate() error {
 	for i := range gs.Replies {
 		reply := &gs.Replies[i]
 
+		if reply.Id == 0 {
+			return fmt.Errorf("reply ID 0 is reserved (reply_id=0 means a post-level target)")
+		}
 		if reply.Id >= gs.ReplyCount {
 			return fmt.Errorf("reply ID %d is >= reply_count %d", reply.Id, gs.ReplyCount)
 		}

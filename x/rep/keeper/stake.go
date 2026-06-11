@@ -133,7 +133,8 @@ func (k Keeper) CreateStake(
 		}
 	case types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
 		types.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND,
-		types.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND:
+		types.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND,
+		types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND:
 		// Author bonds must be created via keeper methods, not MsgStake
 		return 0, types.ErrAuthorBondViaMsg
 	default:

@@ -16,7 +16,7 @@ func TestQueryServiceTypes(t *testing.T) {
 	other := types.ServiceTypeConfig{
 		ServiceType:            "other-service",
 		Description:            "second",
-		MinBondAmount:                math.NewInt(1_000_000),
+		MinBondAmount:          math.NewInt(1_000_000),
 		UnbondingPeriodBlocks:  20,
 		UnilateralSlashCapBps:  500,
 		Tier1WindowBlocks:      1000,

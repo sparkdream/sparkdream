@@ -34,7 +34,7 @@ func TestMsgUnbondOperator_FromUnderfundedClearsQueue(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		BondAmount:                    cfg.MinBondAmount,
+		BondAmount:              cfg.MinBondAmount,
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 		UnderfundedSince:        height,
 		Tier1SlashedInWindow:    math.ZeroInt(),

@@ -157,16 +157,33 @@ func TestCounterConsistencyInvariant_NoViolation(t *testing.T) {
 	f := initFixture(t)
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 
-	f.keeper.SetPost(f.ctx, types.Post{Id: 0, Status: types.PostStatus_POST_STATUS_ACTIVE})
 	f.keeper.SetPost(f.ctx, types.Post{Id: 1, Status: types.PostStatus_POST_STATUS_ACTIVE})
-	f.keeper.SetPostCount(f.ctx, 2)
+	f.keeper.SetPost(f.ctx, types.Post{Id: 2, Status: types.PostStatus_POST_STATUS_ACTIVE})
+	f.keeper.SetPostCount(f.ctx, 3)
+
+	f.keeper.SetReply(f.ctx, types.Reply{Id: 1, PostId: 1, Status: types.ReplyStatus_REPLY_STATUS_ACTIVE})
+	f.keeper.SetReplyCount(f.ctx, 2)
+
+	invariant := keeper.CounterConsistencyInvariant(f.keeper)
+	msg, broken := invariant(sdkCtx)
+	require.False(t, broken, "invariant should not be broken: %s", msg)
+}
+
+func TestCounterConsistencyInvariant_ReservedIDZero(t *testing.T) {
+	f := initFixture(t)
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+
+	f.keeper.SetPost(f.ctx, types.Post{Id: 0, Status: types.PostStatus_POST_STATUS_ACTIVE})
+	f.keeper.SetPostCount(f.ctx, 1)
 
 	f.keeper.SetReply(f.ctx, types.Reply{Id: 0, PostId: 0, Status: types.ReplyStatus_REPLY_STATUS_ACTIVE})
 	f.keeper.SetReplyCount(f.ctx, 1)
 
 	invariant := keeper.CounterConsistencyInvariant(f.keeper)
 	msg, broken := invariant(sdkCtx)
-	require.False(t, broken, "invariant should not be broken: %s", msg)
+	require.True(t, broken, "invariant should flag reserved ID 0")
+	require.Contains(t, msg, "post ID 0 exists")
+	require.Contains(t, msg, "reply ID 0 exists")
 }
 
 func TestCounterConsistencyInvariant_PostIDExceedsCount(t *testing.T) {

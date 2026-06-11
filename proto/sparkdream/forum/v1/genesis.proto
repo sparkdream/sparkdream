@@ -42,4 +42,9 @@ message GenesisState {
   repeated ThreadFollow thread_follow_map = 13 [(gogoproto.nullable) = false];
   repeated ThreadFollowCount thread_follow_count_map = 14 [(gogoproto.nullable) = false];
   repeated ArchiveMetadata archive_metadata_map = 15 [(gogoproto.nullable) = false];
+  // post_count persists the PostSeq counter (next post ID) across
+  // export/import. Post IDs start at 1; 0 is reserved (parent_id=0 means
+  // "no parent"). InitGenesis floors the restored value above every
+  // imported post ID, so legacy exports without this field stay safe.
+  uint64 post_count = 16;
 }

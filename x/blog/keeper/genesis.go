@@ -20,17 +20,19 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	// Import posts
+	// Import posts. Counters are floored at 1: ID 0 is reserved (reply_id=0 /
+	// parent_reply_id=0 are "post-level" / "top-level" sentinels), so legacy
+	// genesis files exported with count 0 are bumped to the new starting value.
 	for _, post := range genState.Posts {
 		k.SetPost(ctx, post)
 	}
-	k.SetPostCount(ctx, genState.PostCount)
+	k.SetPostCount(ctx, max(genState.PostCount, 1))
 
 	// Import replies
 	for _, reply := range genState.Replies {
 		k.SetReply(ctx, reply)
 	}
-	k.SetReplyCount(ctx, genState.ReplyCount)
+	k.SetReplyCount(ctx, max(genState.ReplyCount, 1))
 
 	// Import reactions
 	for _, reaction := range genState.Reactions {

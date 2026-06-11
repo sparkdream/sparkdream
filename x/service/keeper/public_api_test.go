@@ -72,7 +72,7 @@ func TestGetArchivedOperators(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		BondAmount:                    math.ZeroInt(),
+		BondAmount:              math.ZeroInt(),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_SLASHED,
 		RetiredAt:               f.sdkCtx().BlockHeight(),
 		Tier1SlashedInWindow:    math.ZeroInt(),

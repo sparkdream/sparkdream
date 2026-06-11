@@ -18,8 +18,8 @@ func TestMsgTopUpBond_HappyPath(t *testing.T) {
 
 	additional := math.NewInt(500_000)
 	_, err := f.msgServer.TopUpBond(f.ctx, &types.MsgTopUpBond{
-		Operator:       testOperator1,
-		ServiceType:    testServiceType,
+		Operator:             testOperator1,
+		ServiceType:          testServiceType,
 		AdditionalBondAmount: additional,
 	})
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestMsgTopUpBond_UnderfundedReturnsActive(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		BondAmount:                    startBond,
+		BondAmount:              startBond,
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 		UnderfundedSince:        height,
 		Tier1SlashedInWindow:    math.ZeroInt(),
@@ -61,8 +61,8 @@ func TestMsgTopUpBond_UnderfundedReturnsActive(t *testing.T) {
 	// Top up enough to clear min_bond.
 	topup := cfg.MinBondAmount // pushes bond > min_bond
 	_, err := f.msgServer.TopUpBond(f.ctx, &types.MsgTopUpBond{
-		Operator:       testOperator1,
-		ServiceType:    testServiceType,
+		Operator:             testOperator1,
+		ServiceType:          testServiceType,
 		AdditionalBondAmount: topup,
 	})
 	require.NoError(t, err)
@@ -87,8 +87,8 @@ func TestMsgTopUpBond_Rejections(t *testing.T) {
 			name:  "operator not found",
 			setup: func(f *fixture) { f.seedServiceType(t) },
 			msg: &types.MsgTopUpBond{
-				Operator:       testOperator1,
-				ServiceType:    testServiceType,
+				Operator:             testOperator1,
+				ServiceType:          testServiceType,
 				AdditionalBondAmount: math.NewInt(1),
 			},
 			expErr: types.ErrOperatorNotFound,
@@ -103,8 +103,8 @@ func TestMsgTopUpBond_Rejections(t *testing.T) {
 				require.NoError(t, f.keeper.PutOperator(f.ctx, op))
 			},
 			msg: &types.MsgTopUpBond{
-				Operator:       testOperator1,
-				ServiceType:    testServiceType,
+				Operator:             testOperator1,
+				ServiceType:          testServiceType,
 				AdditionalBondAmount: math.NewInt(1),
 			},
 			expErr: types.ErrOperatorUnbonding,
@@ -153,7 +153,7 @@ func TestTopUpBond_FiresAfterOperatorReFundedOnTransition(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		BondAmount:                    startBond,
+		BondAmount:              startBond,
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED,
 		UnderfundedSince:        height,
 		Tier1SlashedInWindow:    math.ZeroInt(),

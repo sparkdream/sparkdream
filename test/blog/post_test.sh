@@ -147,7 +147,7 @@ TX_RES=$($BINARY tx blog create-post \
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     POST1_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
     if [ -z "$POST1_ID" ]; then
-        POST1_ID="0"
+        POST1_ID="1"
     fi
     echo "  Post created with ID: $POST1_ID"
     record_result "Create a post" "PASS"

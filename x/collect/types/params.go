@@ -107,8 +107,8 @@ var (
 	// DefaultEndorsementDeletionBurnFraction because HIDDEN at exit is an
 	// explicit misconduct signal, not just abandonment. Cap is a sub-cap of
 	// DefaultMaxCollaboratorsPerCollection (20).
-	DefaultNonMemberCollabDreamStake                  = math.NewInt(100_000_000)        // 100 DREAM (in udream)
-	DefaultNonMemberCollabBurnFraction                = math.LegacyNewDecWithPrec(50, 2) // 50%
+	DefaultNonMemberCollabDreamStake                     = math.NewInt(100_000_000)         // 100 DREAM (in udream)
+	DefaultNonMemberCollabBurnFraction                   = math.LegacyNewDecWithPrec(50, 2) // 50%
 	DefaultMaxNonMemberCollaboratorsPerCollection uint32 = 2
 
 	// DefaultMaxPromotionsPerBlock matches the blog/forum cap. Each unit of
@@ -122,9 +122,9 @@ var (
 	// author is highest because they authored the bad content; inviter is
 	// lowest because vouching for a person's future contributions is the
 	// weakest claim.
-	DefaultEndorserRepPenalty       = math.LegacyNewDec(10)
-	DefaultCollabInviterRepPenalty  = math.LegacyNewDec(5)
-	DefaultAuthorRepPenalty         = math.LegacyNewDec(15)
+	DefaultEndorserRepPenalty      = math.LegacyNewDec(10)
+	DefaultCollabInviterRepPenalty = math.LegacyNewDec(5)
+	DefaultAuthorRepPenalty        = math.LegacyNewDec(15)
 )
 
 // DefaultParams returns a default set of parameters.
@@ -195,9 +195,9 @@ func DefaultParams() Params {
 		CuratorOverturnDemotionStreak:   DefaultCuratorOverturnDemotionStreak,
 		CuratorUnbondCooldown:           DefaultCuratorUnbondCooldown,
 
-		NonMemberCollabDreamStake:                 DefaultNonMemberCollabDreamStake,
-		NonMemberCollabBurnFraction:               DefaultNonMemberCollabBurnFraction,
-		MaxNonMemberCollaboratorsPerCollection:    DefaultMaxNonMemberCollaboratorsPerCollection,
+		NonMemberCollabDreamStake:              DefaultNonMemberCollabDreamStake,
+		NonMemberCollabBurnFraction:            DefaultNonMemberCollabBurnFraction,
+		MaxNonMemberCollaboratorsPerCollection: DefaultMaxNonMemberCollaboratorsPerCollection,
 
 		MaxPromotionsPerBlock: DefaultMaxPromotionsPerBlock,
 

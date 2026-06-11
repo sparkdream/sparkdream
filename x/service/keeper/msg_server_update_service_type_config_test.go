@@ -13,7 +13,7 @@ func validSimCfg() types.ServiceTypeConfig {
 	return types.ServiceTypeConfig{
 		ServiceType:            testServiceType,
 		Description:            "unit-test config",
-		MinBondAmount:                math.NewInt(1_000_000),
+		MinBondAmount:          math.NewInt(1_000_000),
 		UnbondingPeriodBlocks:  20,
 		UnilateralSlashCapBps:  500,
 		Tier1WindowBlocks:      1000,

@@ -167,6 +167,10 @@ func CounterConsistencyInvariant(k Keeper) sdk.Invariant {
 		for ; postIter.Valid(); postIter.Next() {
 			var post types.Post
 			k.cdc.MustUnmarshal(postIter.Value(), &post)
+			if post.Id == 0 {
+				broken++
+				msg += "  post ID 0 exists (reserved, IDs start at 1)\n"
+			}
 			if post.Id >= postCount {
 				broken++
 				msg += fmt.Sprintf("  post ID %d >= PostCount %d\n", post.Id, postCount)
@@ -179,6 +183,10 @@ func CounterConsistencyInvariant(k Keeper) sdk.Invariant {
 		for ; replyIter.Valid(); replyIter.Next() {
 			var reply types.Reply
 			k.cdc.MustUnmarshal(replyIter.Value(), &reply)
+			if reply.Id == 0 {
+				broken++
+				msg += "  reply ID 0 exists (reserved, reply_id=0 means a post-level target)\n"
+			}
 			if reply.Id >= replyCount {
 				broken++
 				msg += fmt.Sprintf("  reply ID %d >= ReplyCount %d\n", reply.Id, replyCount)

@@ -107,11 +107,11 @@ func (p Params) Validate() error {
 // matching the existing Params defaults for the 5 operational fields.
 func DefaultNameOperationalParams() NameOperationalParams {
 	return NameOperationalParams{
-		ExpirationDuration:   DefaultExpirationDuration,
+		ExpirationDuration:    DefaultExpirationDuration,
 		RegistrationFeeAmount: DefaultRegistrationFeeAmount,
-		DisputeStakeDream:    DefaultDisputeStakeDream,
-		DisputeTimeoutBlocks: DefaultDisputeTimeoutBlocks,
-		ContestStakeDream:    DefaultContestStakeDream,
+		DisputeStakeDream:     DefaultDisputeStakeDream,
+		DisputeTimeoutBlocks:  DefaultDisputeTimeoutBlocks,
+		ContestStakeDream:     DefaultContestStakeDream,
 	}
 }
 

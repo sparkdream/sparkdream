@@ -136,9 +136,12 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 
 	id := k.AppendReply(ctx, reply)
 
-	// Create author bond if requested (requires repKeeper)
+	// Create author bond if requested (requires repKeeper). Reply bonds use
+	// BLOG_REPLY_AUTHOR_BOND, not BLOG_AUTHOR_BOND: replies have their own id
+	// sequence, so sharing the post bond namespace would make post N and
+	// reply N collide (one bond per target).
 	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.repKeeper != nil {
-		if _, err := k.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND, id, *msg.AuthorBond); err != nil {
+		if _, err := k.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND, id, *msg.AuthorBond); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to create author bond")
 		}
 	}

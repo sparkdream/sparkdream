@@ -62,7 +62,7 @@ func (ContentChallengeStatus) EnumDescriptor() ([]byte, []int) {
 // The challenge routes through the jury system for resolution.
 type ContentChallenge struct {
 	Id uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Target content identification (author bond type: 7=BLOG, 8=FORUM, 9=COLLECTION)
+	// Target content identification (author bond type: 7=BLOG, 8=FORUM, 9=COLLECTION, 10=BLOG_REPLY)
 	TargetType StakeTargetType `protobuf:"varint,2,opt,name=target_type,json=targetType,proto3,enum=sparkdream.rep.v1.StakeTargetType" json:"target_type,omitempty"`
 	TargetId   uint64          `protobuf:"varint,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
 	// Challenger info

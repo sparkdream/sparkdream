@@ -137,7 +137,7 @@ func (m *mockBankKeeper) GetDenomMetaData(_ context.Context, _ string) (banktype
 // E2E tests run against a real chain with the real identity keeper.
 type mockIdentityKeeper struct{}
 
-func (mockIdentityKeeper) IsIdentityKeeper()                       {}
+func (mockIdentityKeeper) IsIdentityKeeper()                      {}
 func (m *mockIdentityKeeper) BondDenom(_ context.Context) string  { return "uspark" }
 func (m *mockIdentityKeeper) DreamDenom(_ context.Context) string { return "udream" }
 

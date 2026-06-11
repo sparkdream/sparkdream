@@ -12,9 +12,9 @@ import (
 // Regexes used by ChainIdentity.Validate.
 var (
 	tickerPrefixRE = regexp.MustCompile(`^[A-Z]{2,5}$`)
-	bondDenomRE   = regexp.MustCompile(`^u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}$`)
-	dreamDenomRE  = regexp.MustCompile(`^udream\.[a-z][a-z0-9-]{2,15}$`)
-	displaySymRE  = regexp.MustCompile(`^[A-Z][A-Z0-9]{2,7}$`)
+	bondDenomRE    = regexp.MustCompile(`^u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}$`)
+	dreamDenomRE   = regexp.MustCompile(`^udream\.[a-z][a-z0-9-]{2,15}$`)
+	displaySymRE   = regexp.MustCompile(`^[A-Z][A-Z0-9]{2,7}$`)
 
 	// chainIDStripRE captures common Cosmos chain-id suffix patterns. Group 1
 	// is the "base" name with any "-<word>" and "-<digits>" suffixes removed.

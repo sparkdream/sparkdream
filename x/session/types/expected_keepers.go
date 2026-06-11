@@ -35,7 +35,7 @@ type CommonsKeeper interface {
 // SetIdentityKeeper from app.go. Required: session panics on first denom
 // lookup if identity isn't wired (no silent fallback to a hardcoded literal).
 type IdentityKeeper interface {
-	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	IsIdentityKeeper() // marker — disambiguates from rep/session.Keeper for depinject
 	BondDenom(ctx context.Context) string
 	DreamDenom(ctx context.Context) string
 }

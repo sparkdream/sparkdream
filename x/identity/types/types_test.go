@@ -32,13 +32,13 @@ func TestValidateAcceptsCanonical(t *testing.T) {
 
 func TestChainIdentityValidateRejectsBadDenoms(t *testing.T) {
 	bondBad := []string{
-		"uspark",         // missing dot suffix
-		"spark",          // missing u prefix and dot
-		"SPARK",          // uppercase
-		"uatom",          // missing dot suffix
-		"u.phoenix",      // missing 2-5 letters between u and dot
-		"upspkphoenix",   // missing dot
-		"upspk.PHX",      // uppercase in chain part
+		"uspark",       // missing dot suffix
+		"spark",        // missing u prefix and dot
+		"SPARK",        // uppercase
+		"uatom",        // missing dot suffix
+		"u.phoenix",    // missing 2-5 letters between u and dot
+		"upspkphoenix", // missing dot
+		"upspk.PHX",    // uppercase in chain part
 		"%BOND_DENOM%",
 	}
 	for _, d := range bondBad {

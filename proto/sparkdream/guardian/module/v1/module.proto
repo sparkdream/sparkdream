@@ -17,7 +17,5 @@ option go_package = "sparkdream/x/guardian/types";
 // See docs/x-identity-spec.md §14.6 for the identity-protection use
 // case, and the implementation-decisions doc for the broader rationale.
 message Module {
-  option (cosmos.app.v1alpha1.module) = {
-    go_import: "sparkdream/x/guardian"
-  };
+  option (cosmos.app.v1alpha1.module) = {go_import: "sparkdream/x/guardian"};
 }

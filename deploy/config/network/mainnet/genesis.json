@@ -257,12 +257,12 @@
         "reaction_fee_amount": "50",
         "reaction_fee_exempt": false
       },
-      "post_count": "0",
+      "post_count": "1",
       "posts": [],
       "reaction_counts": [],
       "reactions": [],
       "replies": [],
-      "reply_count": "0"
+      "reply_count": "1"
     },
     "collect": {
       "collaborators": [],
@@ -570,6 +570,7 @@
         "spam_tax_amount": "1000000",
         "unarchive_cooldown": "86400"
       },
+      "post_count": "1",
       "post_flag_map": [],
       "post_map": [],
       "sentinel_activity_map": [],

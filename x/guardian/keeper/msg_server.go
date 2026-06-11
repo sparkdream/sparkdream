@@ -290,7 +290,7 @@ var (
 
 	// slashing fractions: defaults 0.05 (double-sign) and 0.0001 (downtime).
 	// Floors prevent gov from setting them to zero.
-	slashFractionDoubleSignFloor = math.LegacyNewDecWithPrec(1, 2)  // 1%
+	slashFractionDoubleSignFloor = math.LegacyNewDecWithPrec(1, 2) // 1%
 	slashFractionDowntimeFloor   = math.LegacyNewDecWithPrec(1, 5) // 0.00001
 	signedBlocksWindowCeiling    = int64(1_000_000)
 
@@ -303,9 +303,9 @@ var (
 	// consensus floors / ceilings. block.max_gas == -1 (unlimited) is
 	// allowed; any other value must be at least minMaxGas. max_bytes must
 	// be at least minMaxBytes to avoid bricking block production.
-	consensusMinMaxBytes = int64(200_000)
-	consensusMinMaxGas   = int64(1_000_000) // -1 (unlimited) also allowed
-	consensusMinEvidenceAgeBlocks  = int64(1_000)
+	consensusMinMaxBytes            = int64(200_000)
+	consensusMinMaxGas              = int64(1_000_000) // -1 (unlimited) also allowed
+	consensusMinEvidenceAgeBlocks   = int64(1_000)
 	consensusMinEvidenceAgeDuration = 1 * time.Hour
 )
 

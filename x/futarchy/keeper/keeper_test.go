@@ -101,7 +101,7 @@ type MockAuthKeeper struct{}
 // mockIdentityKeeperFutarchy returns legacy denoms for unit tests.
 type mockIdentityKeeperFutarchy struct{}
 
-func (mockIdentityKeeperFutarchy) IsIdentityKeeper() {}
+func (mockIdentityKeeperFutarchy) IsIdentityKeeper()                      {}
 func (m *mockIdentityKeeperFutarchy) BondDenom(_ context.Context) string  { return "uspark" }
 func (m *mockIdentityKeeperFutarchy) DreamDenom(_ context.Context) string { return "udream" }
 

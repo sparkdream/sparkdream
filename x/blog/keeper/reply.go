@@ -55,14 +55,16 @@ func (k Keeper) RemoveReply(ctx context.Context, id uint64) {
 	store.Delete(GetReplyIDBytes(id))
 }
 
-// GetReplyCount returns the current reply counter.
+// GetReplyCount returns the next reply ID to assign. Reply IDs start at 1:
+// ID 0 is reserved because reply_id=0 means "the post itself" in reactions
+// and parent_reply_id=0 means "top-level" in MsgCreateReply.
 func (k Keeper) GetReplyCount(ctx context.Context) uint64 {
 	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
 	store := prefix.NewStore(storeAdapter, []byte{})
 	byteKey := []byte(types.ReplyCountKey)
 	bz := store.Get(byteKey)
 	if bz == nil {
-		return 0
+		return 1
 	}
 	return binary.BigEndian.Uint64(bz)
 }

@@ -143,11 +143,11 @@ func TestUpdateOperationalParams(t *testing.T) {
 
 	// Modified operational params to verify the update actually takes effect.
 	modifiedOp := types.NameOperationalParams{
-		ExpirationDuration:   time.Hour * 24 * 180, // 180 days
+		ExpirationDuration:    time.Hour * 24 * 180, // 180 days
 		RegistrationFeeAmount: math.NewInt(20000000),
-		DisputeStakeDream:    math.NewInt(75),
-		DisputeTimeoutBlocks: 200000,
-		ContestStakeDream:    math.NewInt(150),
+		DisputeStakeDream:     math.NewInt(75),
+		DisputeTimeoutBlocks:  200000,
+		ContestStakeDream:     math.NewInt(150),
 	}
 
 	tests := []struct {
@@ -222,11 +222,11 @@ func TestUpdateOperationalParams(t *testing.T) {
 				return f, authorityStr
 			},
 			opParams: types.NameOperationalParams{
-				ExpirationDuration:   -time.Hour, // invalid
+				ExpirationDuration:    -time.Hour, // invalid
 				RegistrationFeeAmount: math.NewInt(10000000),
-				DisputeStakeDream:    math.NewInt(50),
-				DisputeTimeoutBlocks: 100800,
-				ContestStakeDream:    math.NewInt(100),
+				DisputeStakeDream:     math.NewInt(50),
+				DisputeTimeoutBlocks:  100800,
+				ContestStakeDream:     math.NewInt(100),
 			},
 			expectErr: true,
 			errMsg:    "expiration duration must be positive",
@@ -240,11 +240,11 @@ func TestUpdateOperationalParams(t *testing.T) {
 				return f, authorityStr
 			},
 			opParams: types.NameOperationalParams{
-				ExpirationDuration:   time.Hour * 24 * 365,
+				ExpirationDuration:    time.Hour * 24 * 365,
 				RegistrationFeeAmount: math.NewInt(10000000),
-				DisputeStakeDream:    math.NewInt(-1), // invalid
-				DisputeTimeoutBlocks: 100800,
-				ContestStakeDream:    math.NewInt(100),
+				DisputeStakeDream:     math.NewInt(-1), // invalid
+				DisputeTimeoutBlocks:  100800,
+				ContestStakeDream:     math.NewInt(100),
 			},
 			expectErr: true,
 			errMsg:    "dispute stake must be non-negative",

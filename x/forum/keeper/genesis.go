@@ -95,16 +95,18 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	// Prime PostSeq to start at 1 if not already advanced. ID 0 is reserved
-	// (PostId=0 conflicts with ParentId=0 meaning "no parent").
-	postSeqVal, err := k.PostSeq.Peek(ctx)
-	if err != nil {
-		return err
-	}
-	if postSeqVal == 0 && len(genState.PostMap) == 0 {
-		if _, err := k.PostSeq.Next(ctx); err != nil {
-			return err
+	// Restore PostSeq (next post ID). Floored at 1 — ID 0 is reserved
+	// (PostId=0 conflicts with ParentId=0 meaning "no parent") — and above
+	// every imported post ID, so legacy exports that predate post_count
+	// cannot make new posts overwrite imported ones.
+	postSeq := max(genState.PostCount, 1)
+	for _, elem := range genState.PostMap {
+		if elem.PostId >= postSeq {
+			postSeq = elem.PostId + 1
 		}
+	}
+	if err := k.PostSeq.Set(ctx, postSeq); err != nil {
+		return err
 	}
 
 	return nil
@@ -176,6 +178,10 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 
 	genesis.BountyCount, err = k.BountySeq.Peek(ctx)
+	if err != nil {
+		return nil, err
+	}
+	genesis.PostCount, err = k.PostSeq.Peek(ctx)
 	if err != nil {
 		return nil, err
 	}

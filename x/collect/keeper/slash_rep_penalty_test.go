@@ -8,8 +8,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // withTags is a createCollection option that sets the collection's tags.

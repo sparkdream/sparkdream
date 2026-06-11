@@ -19,7 +19,7 @@ func TestMsgRegisterOperator_HappyPath(t *testing.T) {
 		Creator:     testOperator1,
 		ServiceType: testServiceType,
 		Controller:  testController,
-		BondAmount:        bond,
+		BondAmount:  bond,
 		Metadata:    []byte("operator1-metadata"),
 	})
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestMsgRegisterOperator_Rejections(t *testing.T) {
 				Creator:     testOperator1,
 				ServiceType: testServiceType,
 				Controller:  testController,
-				BondAmount:        cfgBond,
+				BondAmount:  cfgBond,
 				Metadata:    []byte("ok"),
 			}
 			tc.mutate(f, msg)
@@ -137,7 +137,7 @@ func TestMsgRegisterOperator_DuplicateRejected(t *testing.T) {
 		Creator:     testOperator1,
 		ServiceType: testServiceType,
 		Controller:  testController,
-		BondAmount:        math.NewInt(1_000_000),
+		BondAmount:  math.NewInt(1_000_000),
 		Metadata:    []byte("dup"),
 	})
 	require.Error(t, err)
@@ -153,7 +153,7 @@ func TestMsgRegisterOperator_PreviouslySlashedRejected(t *testing.T) {
 		Address:                 testOperator1,
 		ServiceType:             testServiceType,
 		Controller:              testController,
-		BondAmount:                    math.ZeroInt(),
+		BondAmount:              math.ZeroInt(),
 		Status:                  types.OperatorStatus_OPERATOR_STATUS_SLASHED,
 		RetiredAt:               f.sdkCtx().BlockHeight(),
 		Tier1SlashedInWindow:    math.ZeroInt(),
@@ -166,7 +166,7 @@ func TestMsgRegisterOperator_PreviouslySlashedRejected(t *testing.T) {
 		Creator:     testOperator1,
 		ServiceType: testServiceType,
 		Controller:  testController,
-		BondAmount:        math.NewInt(1_000_000),
+		BondAmount:  math.NewInt(1_000_000),
 		Metadata:    []byte("retry"),
 	})
 	require.Error(t, err)

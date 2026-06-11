@@ -330,7 +330,7 @@ type mockUpgradeKeeper struct{}
 // mockIdentityKeeperCommons returns legacy denoms for unit tests.
 type mockIdentityKeeperCommons struct{}
 
-func (mockIdentityKeeperCommons) IsIdentityKeeper() {}
+func (mockIdentityKeeperCommons) IsIdentityKeeper()                      {}
 func (m *mockIdentityKeeperCommons) BondDenom(_ context.Context) string  { return "uspark" }
 func (m *mockIdentityKeeperCommons) DreamDenom(_ context.Context) string { return "udream" }
 

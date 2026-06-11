@@ -17,7 +17,8 @@ func IsAuthorBondType(t StakeTargetType) bool {
 	switch t {
 	case StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
 		StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND,
-		StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND:
+		StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND,
+		StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND:
 		return true
 	default:
 		return false
@@ -48,7 +49,8 @@ func ContentTypeToAuthorBondType(t StakeTargetType) StakeTargetType {
 // Returns the input unchanged if it's not an author bond type.
 func AuthorBondTypeToContentType(t StakeTargetType) StakeTargetType {
 	switch t {
-	case StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND:
+	case StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
+		StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND:
 		return StakeTargetType_STAKE_TARGET_BLOG_CONTENT
 	case StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND:
 		return StakeTargetType_STAKE_TARGET_FORUM_CONTENT

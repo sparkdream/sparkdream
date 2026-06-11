@@ -21,6 +21,8 @@ func DefaultGenesis() *GenesisState {
 		ThreadFollowMap:      []ThreadFollow{},
 		ThreadFollowCountMap: []ThreadFollowCount{},
 		ArchiveMetadataMap:   []ArchiveMetadata{},
+		// Post IDs start at 1; 0 is reserved (parent_id=0 means "no parent").
+		PostCount: 1,
 	}
 }
 
@@ -158,6 +160,9 @@ func (gs GenesisState) Validate() error {
 
 	// Post status must not be UNSPECIFIED
 	for _, post := range gs.PostMap {
+		if post.PostId == 0 {
+			return fmt.Errorf("post ID 0 is reserved (parent_id=0 means \"no parent\"; IDs start at 1)")
+		}
 		if post.Status == PostStatus_POST_STATUS_UNSPECIFIED {
 			return fmt.Errorf("post %d has UNSPECIFIED status", post.PostId)
 		}

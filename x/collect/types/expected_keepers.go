@@ -30,7 +30,7 @@ type BankKeeper interface {
 // SetIdentityKeeper from app.go. Required: collect panics on first denom
 // lookup if identity isn't wired.
 type IdentityKeeper interface {
-	IsIdentityKeeper()  // marker — disambiguates from rep/session.Keeper for depinject
+	IsIdentityKeeper() // marker — disambiguates from rep/session.Keeper for depinject
 	BondDenom(ctx context.Context) string
 }
 

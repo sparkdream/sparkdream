@@ -78,8 +78,8 @@ func TestCheckAndRecordInboundRate_PrevWindowBoundaryAttack(t *testing.T) {
 
 	const limit uint64 = 10
 	// Pre-seed the previous window at capacity.
-	prevWindowStart := int64(0)                   // window covers [0, 3600)
-	currentWindowStart := testWindowSec           // current window starts at 3600
+	prevWindowStart := int64(0)         // window covers [0, 3600)
+	currentWindowStart := testWindowSec // current window starts at 3600
 	require.NoError(t, f.keeper.InboundRateLimits.Set(f.ctx, collections.Join("p1", prevWindowStart), limit))
 
 	// One second into the new window: remaining = window - 1 = 3599.

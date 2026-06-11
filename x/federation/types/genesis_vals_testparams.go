@@ -31,10 +31,10 @@ func getFederationGenesisParams() federationGenesisParams {
 		ChallengeWindow:              5 * time.Minute,        // 5m (prod: 7 days)
 		ChallengeFeeAmount:           math.NewInt(1_000_000), // 1 SPARK in bond-denom micro-units (prod: 250)
 		ChallengeJuryDeadline:        15 * time.Second,       // 15s (prod: 14 days)
-		VerifierDemotionCooldown:     10 * time.Second,                              // 10s (prod: 7 days)
-		VerifierUnbondCooldown:       10 * time.Second,                              // 10s (prod: 14 days) — mirrors BridgeUnbondingPeriod
-		VerifierOverturnBaseCooldown: 5 * time.Second,                               // 5s (prod: 24h)
-		ChallengeCooldown:            5 * time.Second,                               // 5s (prod: 7 days)
+		VerifierDemotionCooldown:     10 * time.Second,       // 10s (prod: 7 days)
+		VerifierUnbondCooldown:       10 * time.Second,       // 10s (prod: 14 days) — mirrors BridgeUnbondingPeriod
+		VerifierOverturnBaseCooldown: 5 * time.Second,        // 5s (prod: 24h)
+		ChallengeCooldown:            5 * time.Second,        // 5s (prod: 7 days)
 
 		// Arbiter — short windows
 		ArbiterResolutionWindow: 15 * time.Second,       // 15s (prod: 24h)
@@ -53,13 +53,13 @@ func getFederationGenesisParams() federationGenesisParams {
 		// (between recovery_threshold and min_bond). The reward cap
 		// (7 DREAM) is set so 2 eligible verifiers (each entitled to
 		// 5 DREAM) trigger pro-rata scaling.
-		MinVerifierBond:              math.NewInt(100_000_000),  // 100 DREAM (prod: 500)
-		VerifierRecoveryThreshold:    math.NewInt(50_000_000),   // 50 DREAM  (prod: 250)
-		VerifierSlashAmount:          math.NewInt(20_000_000),   // 20 DREAM  (prod: 50)
-		MinEpochVerifications:        uint32(1),                 // 1 verif   (prod: 3)
-		MinVerifierAccuracy:          math.LegacyZeroDec(),      // 0%        (prod: 0.8) — lets overturned verifiers earn under fresh activity in RECOVERY test
-		VerifierDreamReward:          math.NewInt(5_000_000),    // 5 DREAM   (prod: 5)
-		MaxVerifierDreamMintPerEpoch: math.NewInt(7_000_000),    // 7 DREAM   (prod: 100) — forces scaling with 2+ eligibles
+		MinVerifierBond:              math.NewInt(100_000_000), // 100 DREAM (prod: 500)
+		VerifierRecoveryThreshold:    math.NewInt(50_000_000),  // 50 DREAM  (prod: 250)
+		VerifierSlashAmount:          math.NewInt(20_000_000),  // 20 DREAM  (prod: 50)
+		MinEpochVerifications:        uint32(1),                // 1 verif   (prod: 3)
+		MinVerifierAccuracy:          math.LegacyZeroDec(),     // 0%        (prod: 0.8) — lets overturned verifiers earn under fresh activity in RECOVERY test
+		VerifierDreamReward:          math.NewInt(5_000_000),   // 5 DREAM   (prod: 5)
+		MaxVerifierDreamMintPerEpoch: math.NewInt(7_000_000),   // 7 DREAM   (prod: 100) — forces scaling with 2+ eligibles
 	}
 }
 

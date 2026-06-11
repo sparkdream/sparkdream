@@ -268,15 +268,15 @@ var allowedVariations = map[string]string{
 	// === per-chain identity: every chain has its own bond/dream denom
 	// (uspark.sparkdream / uspark.sparkdreamtest / uspark.sparkdreamdev),
 	// so every param that embeds a coin string differs by design ===
-	"commons.params.proposal_fee":         "embeds chain-specific bond denom",
-	"gnovm.params.default_deposit":        "embeds chain-specific bond denom",
-	"gnovm.params.storage_price":          "embeds chain-specific bond denom",
-	"gov.params.min_deposit":              "embeds chain-specific bond denom",
-	"gov.params.expedited_min_deposit":    "embeds chain-specific bond denom",
-	"mint.params.mint_denom":              "chain's bond denom (from x/identity)",
-	"staking.params.bond_denom":           "chain's bond denom (from x/identity)",
-	"crisis.constant_fee.denom":           "chain's bond denom (from x/identity)",
-	"bank.denom_metadata":                 "denom_units[].denom and base differ per chain (uspark.sparkdream vs uspark.sparkdreamtest etc.)",
+	"commons.params.proposal_fee":      "embeds chain-specific bond denom",
+	"gnovm.params.default_deposit":     "embeds chain-specific bond denom",
+	"gnovm.params.storage_price":       "embeds chain-specific bond denom",
+	"gov.params.min_deposit":           "embeds chain-specific bond denom",
+	"gov.params.expedited_min_deposit": "embeds chain-specific bond denom",
+	"mint.params.mint_denom":           "chain's bond denom (from x/identity)",
+	"staking.params.bond_denom":        "chain's bond denom (from x/identity)",
+	"crisis.constant_fee.denom":        "chain's bond denom (from x/identity)",
+	"bank.denom_metadata":              "denom_units[].denom and base differ per chain (uspark.sparkdream vs uspark.sparkdreamtest etc.)",
 }
 
 // uniformAppStatePaths lists JSON paths under app_state that should be

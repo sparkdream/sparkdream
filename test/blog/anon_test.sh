@@ -198,7 +198,7 @@ if [ -z "$ANON_POST_ID" ]; then
         --from blogger1 --chain-id $CHAIN_ID --keyring-backend test \
         --fees 500000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
     submit_tx_and_wait "$TX_RES"
-    ANON_POST_ID=$(extract_event_value "$TX_RESULT" "create_post" "post_id")
+    ANON_POST_ID=$(extract_event_value "$TX_RESULT" "blog.post.created" "post_id")
     if [ -z "$ANON_POST_ID" ]; then
         ANON_POST_ID="1"
     fi

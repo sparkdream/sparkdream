@@ -12,33 +12,33 @@ import (
 func TestAppendReply(t *testing.T) {
 	f := initFixture(t)
 
-	// Counter starts at 0
-	require.Equal(t, uint64(0), f.keeper.GetReplyCount(f.ctx))
+	// Counter starts at 1 (ID 0 is reserved: reply_id=0 means a post-level target)
+	require.Equal(t, uint64(1), f.keeper.GetReplyCount(f.ctx))
 
-	// First append returns ID 0
+	// First append returns ID 1
 	id := f.keeper.AppendReply(f.ctx, types.Reply{
 		Creator: "creator1",
 		PostId:  10,
 		Body:    "Reply body",
 	})
-	require.Equal(t, uint64(0), id)
-	require.Equal(t, uint64(1), f.keeper.GetReplyCount(f.ctx))
+	require.Equal(t, uint64(1), id)
+	require.Equal(t, uint64(2), f.keeper.GetReplyCount(f.ctx))
 
 	// Verify stored
-	reply, found := f.keeper.GetReply(f.ctx, 0)
+	reply, found := f.keeper.GetReply(f.ctx, 1)
 	require.True(t, found)
-	require.Equal(t, uint64(0), reply.Id)
+	require.Equal(t, uint64(1), reply.Id)
 	require.Equal(t, "creator1", reply.Creator)
 	require.Equal(t, uint64(10), reply.PostId)
 
-	// Second append returns ID 1
+	// Second append returns ID 2
 	id2 := f.keeper.AppendReply(f.ctx, types.Reply{
 		Creator: "creator2",
 		PostId:  10,
 		Body:    "Reply 2",
 	})
-	require.Equal(t, uint64(1), id2)
-	require.Equal(t, uint64(2), f.keeper.GetReplyCount(f.ctx))
+	require.Equal(t, uint64(2), id2)
+	require.Equal(t, uint64(3), f.keeper.GetReplyCount(f.ctx))
 }
 
 func TestAppendReply_AutoIncrement(t *testing.T) {
@@ -53,9 +53,9 @@ func TestAppendReply_AutoIncrement(t *testing.T) {
 	}
 
 	for i, id := range ids {
-		require.Equal(t, uint64(i), id)
+		require.Equal(t, uint64(i+1), id)
 	}
-	require.Equal(t, uint64(5), f.keeper.GetReplyCount(f.ctx))
+	require.Equal(t, uint64(6), f.keeper.GetReplyCount(f.ctx))
 }
 
 func TestSetReply(t *testing.T) {
@@ -69,13 +69,13 @@ func TestSetReply(t *testing.T) {
 
 	// Update via SetReply
 	f.keeper.SetReply(f.ctx, types.Reply{
-		Id:      0,
+		Id:      1,
 		Creator: "creator",
 		PostId:  1,
 		Body:    "Updated body",
 	})
 
-	reply, found := f.keeper.GetReply(f.ctx, 0)
+	reply, found := f.keeper.GetReply(f.ctx, 1)
 	require.True(t, found)
 	require.Equal(t, "Updated body", reply.Body)
 }
@@ -96,12 +96,12 @@ func TestRemoveReply(t *testing.T) {
 		Body:    "To delete",
 	})
 
-	_, found := f.keeper.GetReply(f.ctx, 0)
+	_, found := f.keeper.GetReply(f.ctx, 1)
 	require.True(t, found)
 
-	f.keeper.RemoveReply(f.ctx, 0)
+	f.keeper.RemoveReply(f.ctx, 1)
 
-	_, found = f.keeper.GetReply(f.ctx, 0)
+	_, found = f.keeper.GetReply(f.ctx, 1)
 	require.False(t, found)
 }
 
@@ -115,13 +115,11 @@ func TestRemoveReply_NonExistent(t *testing.T) {
 func TestReplyCount_SetAndGet(t *testing.T) {
 	f := initFixture(t)
 
-	require.Equal(t, uint64(0), f.keeper.GetReplyCount(f.ctx))
+	// Unset counter reads as 1 (IDs start at 1)
+	require.Equal(t, uint64(1), f.keeper.GetReplyCount(f.ctx))
 
 	f.keeper.SetReplyCount(f.ctx, 42)
 	require.Equal(t, uint64(42), f.keeper.GetReplyCount(f.ctx))
-
-	f.keeper.SetReplyCount(f.ctx, 0)
-	require.Equal(t, uint64(0), f.keeper.GetReplyCount(f.ctx))
 }
 
 func TestGetReplyIDBytes(t *testing.T) {
@@ -152,17 +150,17 @@ func TestAppendReply_PostIndex(t *testing.T) {
 	f.keeper.AppendReply(f.ctx, types.Reply{Creator: "c", PostId: 10, Body: "R3"})
 
 	// All retrievable by ID
-	r0, found := f.keeper.GetReply(f.ctx, 0)
-	require.True(t, found)
-	require.Equal(t, uint64(10), r0.PostId)
-
 	r1, found := f.keeper.GetReply(f.ctx, 1)
 	require.True(t, found)
-	require.Equal(t, uint64(20), r1.PostId)
+	require.Equal(t, uint64(10), r1.PostId)
 
 	r2, found := f.keeper.GetReply(f.ctx, 2)
 	require.True(t, found)
-	require.Equal(t, uint64(10), r2.PostId)
+	require.Equal(t, uint64(20), r2.PostId)
+
+	r3, found := f.keeper.GetReply(f.ctx, 3)
+	require.True(t, found)
+	require.Equal(t, uint64(10), r3.PostId)
 }
 
 func TestReplyCountIndependentFromPostCount(t *testing.T) {
@@ -171,8 +169,8 @@ func TestReplyCountIndependentFromPostCount(t *testing.T) {
 	// Append posts and replies — counters should be independent
 	f.keeper.AppendPost(f.ctx, types.Post{Creator: "c", Title: "P1"})
 	f.keeper.AppendPost(f.ctx, types.Post{Creator: "c", Title: "P2"})
-	f.keeper.AppendReply(f.ctx, types.Reply{Creator: "c", PostId: 0})
+	f.keeper.AppendReply(f.ctx, types.Reply{Creator: "c", PostId: 1})
 
-	require.Equal(t, uint64(2), f.keeper.GetPostCount(f.ctx))
-	require.Equal(t, uint64(1), f.keeper.GetReplyCount(f.ctx))
+	require.Equal(t, uint64(3), f.keeper.GetPostCount(f.ctx))
+	require.Equal(t, uint64(2), f.keeper.GetReplyCount(f.ctx))
 }

@@ -422,6 +422,11 @@ service Query {
   rpc RequiredInvitationStake(QueryRequiredInvitationStakeRequest) returns (QueryRequiredInvitationStakeResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/required_invitation_stake/{inviter}";
   }
+
+  // AuthorBondsByType Queries a list of AuthorBondsByType items.
+  rpc AuthorBondsByType(QueryAuthorBondsByTypeRequest) returns (QueryAuthorBondsByTypeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/author_bonds_by_type/{target_type}";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -893,7 +898,7 @@ message QueryContentConvictionResponse {
 
 // QueryAuthorBondRequest defines the request for author bond info
 message QueryAuthorBondRequest {
-  uint64 target_type = 1; // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND)
+  uint64 target_type = 1; // StakeTargetType (7=BLOG_AUTHOR_BOND, 8=FORUM_AUTHOR_BOND, 9=COLLECTION_AUTHOR_BOND, 10=BLOG_REPLY_AUTHOR_BOND)
   uint64 target_id = 2; // Content ID
 }
 
@@ -1396,20 +1401,37 @@ message QueryRequiredInvitationStakeResponse {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
   // Base floor (params.MinInvitationStake) before any cost-multiplier escalation.
   string base_stake = 2 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
   // InvitationCostMultiplier raised to credits_used (mirror of the on-chain math).
   string cost_multiplier = 3 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+
   // Number of invitation credits the inviter has already spent this season.
   uint32 credits_used = 4;
+
   // Credits the inviter has remaining for the current season.
   uint32 credits_remaining = 5;
+
   // Trust level enum used to derive the credit cap.
   TrustLevel trust_level = 6;
+}
+
+// QueryAuthorBondsByTypeRequest defines the QueryAuthorBondsByTypeRequest message.
+message QueryAuthorBondsByTypeRequest {
+  uint64 target_type = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryAuthorBondsByTypeResponse defines the QueryAuthorBondsByTypeResponse message.
+message QueryAuthorBondsByTypeResponse {
+  repeated Stake bonds = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

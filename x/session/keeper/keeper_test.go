@@ -69,7 +69,7 @@ func (m *mockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, sender
 // mockIdentityKeeperSession returns legacy denoms for unit tests.
 type mockIdentityKeeperSession struct{}
 
-func (mockIdentityKeeperSession) IsIdentityKeeper() {}
+func (mockIdentityKeeperSession) IsIdentityKeeper()                      {}
 func (m *mockIdentityKeeperSession) BondDenom(_ context.Context) string  { return "uspark" }
 func (m *mockIdentityKeeperSession) DreamDenom(_ context.Context) string { return "udream" }
 

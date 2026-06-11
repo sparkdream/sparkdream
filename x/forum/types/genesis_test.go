@@ -24,14 +24,25 @@ func TestGenesisState_Validate(t *testing.T) {
 			genState: &types.GenesisState{
 				Params: types.DefaultParams(),
 				PostMap: []types.Post{
-					{PostId: 0, CategoryId: 0, Status: types.PostStatus_POST_STATUS_ACTIVE},
-					{PostId: 1, CategoryId: 1, Status: types.PostStatus_POST_STATUS_ACTIVE},
+					{PostId: 1, CategoryId: 0, Status: types.PostStatus_POST_STATUS_ACTIVE},
+					{PostId: 2, CategoryId: 1, Status: types.PostStatus_POST_STATUS_ACTIVE},
 				},
 				UserRateLimitMap: []types.UserRateLimit{{UserAddress: "addr0"}, {UserAddress: "addr1"}},
 				BountyList:       []types.Bounty{{Id: 0, ThreadId: 0}, {Id: 1, ThreadId: 1}},
 				BountyCount:      2,
+				PostCount:        3,
 			},
 			valid: true,
+		},
+		{
+			desc: "post ID 0 is reserved",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				PostMap: []types.Post{
+					{PostId: 0, Status: types.PostStatus_POST_STATUS_ACTIVE},
+				},
+			},
+			valid: false,
 		},
 		{
 			desc: "duplicated post",

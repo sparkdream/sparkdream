@@ -60,7 +60,7 @@ func (m mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string
 // identity keeper.
 type mockIdentityKeeper struct{}
 
-func (mockIdentityKeeper) IsIdentityKeeper() {}
+func (mockIdentityKeeper) IsIdentityKeeper()                   {}
 func (mockIdentityKeeper) BondDenom(_ context.Context) string  { return "uspark" }
 func (mockIdentityKeeper) DreamDenom(_ context.Context) string { return "udream" }
 

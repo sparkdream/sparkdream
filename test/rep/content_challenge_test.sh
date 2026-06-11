@@ -233,6 +233,61 @@ else
 fi
 
 # ========================================================================
+# TEST 1b: Query author-bonds-by-type lists the bonded post
+# ========================================================================
+echo "--- TEST 1b: Query author-bonds-by-type ---"
+
+if [ -n "$BONDED_POST_ID" ]; then
+    # Target type 7 = STAKE_TARGET_BLOG_AUTHOR_BOND
+    BONDS_Q=$($BINARY query rep author-bonds-by-type 7 --output json 2>&1)
+    # CLI proto-JSON omits zero-default fields, so a bond on post id 0 has no
+    # target_id key — default it when matching.
+    BONDED_ENTRY=$(echo "$BONDS_Q" | jq -r ".bonds[] | select((.target_id // \"0\")==\"$BONDED_POST_ID\")" 2>/dev/null)
+    ENTRY_AMOUNT=$(echo "$BONDED_ENTRY" | jq -r '.amount // "0"' 2>/dev/null)
+    # Every returned entry must be a blog author bond
+    NON_BOND_ENTRIES=$(echo "$BONDS_Q" | jq -r '[.bonds[] | select(.target_type != "STAKE_TARGET_BLOG_AUTHOR_BOND")] | length' 2>/dev/null)
+    # The no-bond post must not appear
+    NO_BOND_ENTRY=""
+    if [ -n "$NO_BOND_POST_ID" ]; then
+        NO_BOND_ENTRY=$(echo "$BONDS_Q" | jq -r ".bonds[] | select((.target_id // \"0\")==\"$NO_BOND_POST_ID\")" 2>/dev/null)
+    fi
+
+    if [ -n "$BONDED_ENTRY" ] && [ "$ENTRY_AMOUNT" == "$AUTHOR_BOND_AMOUNT" ] && [ "$NON_BOND_ENTRIES" == "0" ] && [ -z "$NO_BOND_ENTRY" ]; then
+        echo "  Bonded post $BONDED_POST_ID listed with amount=$ENTRY_AMOUNT; no stray entries"
+        record_result "Query author bonds by type" "PASS"
+    else
+        echo "  Unexpected listing (entry=$BONDED_ENTRY, amount=$ENTRY_AMOUNT, non_bond=$NON_BOND_ENTRIES, no_bond_entry=$NO_BOND_ENTRY)"
+        echo "  Full response: $BONDS_Q"
+        record_result "Query author bonds by type" "FAIL"
+    fi
+else
+    echo "  Skipped (no bonded post)"
+    record_result "Query author bonds by type" "FAIL"
+fi
+
+# Pagination: limit=1 returns at most one bond
+BONDS_PAGE_Q=$($BINARY query rep author-bonds-by-type 7 --page-limit 1 --output json 2>&1)
+PAGE_LEN=$(echo "$BONDS_PAGE_Q" | jq -r '.bonds | length' 2>/dev/null)
+if [ "$PAGE_LEN" == "1" ]; then
+    echo "  Pagination limit honored (1 bond returned)"
+    record_result "Author bonds by type pagination" "PASS"
+else
+    echo "  Expected 1 bond with --page-limit 1, got: $PAGE_LEN"
+    echo "  Full response: $BONDS_PAGE_Q"
+    record_result "Author bonds by type pagination" "FAIL"
+fi
+
+# Non-bond target type (0 = INITIATIVE) must be rejected
+INVALID_Q=$($BINARY query rep author-bonds-by-type 0 --output json 2>&1)
+if echo "$INVALID_Q" | grep -q "author bond type"; then
+    echo "  Non-bond target type rejected as expected"
+    record_result "Author bonds by type invalid target" "PASS"
+else
+    echo "  Expected InvalidArgument for target type 0, got: $INVALID_Q"
+    record_result "Author bonds by type invalid target" "FAIL"
+fi
+
+# ========================================================================
 # TEST 2: Challenge bonded content (happy path)
 # ========================================================================
 echo "--- TEST 2: Challenge bonded content (happy path) ---"

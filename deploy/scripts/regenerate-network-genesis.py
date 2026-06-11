@@ -178,7 +178,7 @@ DEVNET_MEMBER_PROFILES = [
     },
 ]
 
-# Testnet-only welcome blog post (id=0), authored by kingofbitchain. Lives
+# Testnet-only welcome blog post (id=1; blog IDs start at 1), authored by kingofbitchain. Lives
 # in genesis so a fresh testnet always boots with the same landing post and
 # we don't have to re-post it after every chain reset. The body references
 # `sparkdream-test-1` and the testnet reset cadence explicitly, so devnet
@@ -867,9 +867,11 @@ def _set_user_state(g, principal_accounts, members, profiles, bond_denom):
 
 
 def _apply_testnet_welcome_blog_post(g):
-    """Inject the kingofbitchain testnet welcome post at blog post id=0.
+    """Inject the kingofbitchain testnet welcome post at blog post id=1.
 
-    Replaces the empty `posts` list and bumps `post_count` to 1. The
+    Blog post IDs start at 1 (ID 0 is reserved: reply_id=0 means a
+    post-level reaction target and parent_reply_id=0 means top-level).
+    Replaces the empty `posts` list and bumps `post_count` to 2. The
     `created_at` is set to the network's genesis_time so the post's
     timestamp moves with the chain start rather than drifting on each
     regenerate. Testnet-only — the body references `sparkdream-test-1`
@@ -878,7 +880,7 @@ def _apply_testnet_welcome_blog_post(g):
     creator = next(f["address"] for f in FOUNDERS if f["name"] == "kingofbitchain")
 
     welcome_post = {
-        "id": 0,
+        "id": 1,
         "title": TESTNET_WELCOME_POST_TITLE,
         "body": TESTNET_WELCOME_POST_BODY,
         "creator": creator,
@@ -902,7 +904,7 @@ def _apply_testnet_welcome_blog_post(g):
         "tags": [],
     }
     g["app_state"]["blog"]["posts"] = [welcome_post]
-    g["app_state"]["blog"]["post_count"] = "1"
+    g["app_state"]["blog"]["post_count"] = "2"
 
 
 def _build_with_founders(network, fresh):

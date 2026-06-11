@@ -111,12 +111,12 @@ var (
 	// Pin is now a display-only marker (set/cleared via Pin/Unpin) that
 	// requires the target to already be permanent, so this code is retained
 	// only for proto codec compatibility with replayed historical txs.
-	ErrCannotPinActive                = errors.Register(ModuleName, 1214, "collection is already permanent")
-	ErrPinTrustLevelTooLow            = errors.Register(ModuleName, 1215, "below required pin trust level")
-	ErrCannotPinEphemeral             = errors.Register(ModuleName, 1216, "collection is ephemeral; promote with MakeCollectionPermanent before pinning")
-	ErrCollectionNotPinned            = errors.Register(ModuleName, 1217, "collection is not pinned")
-	ErrMakePermanentTrustLevelTooLow  = errors.Register(ModuleName, 1218, "below required make-permanent trust level")
-	ErrCollectionAlreadyPinned        = errors.Register(ModuleName, 1219, "collection is already pinned")
+	ErrCannotPinActive               = errors.Register(ModuleName, 1214, "collection is already permanent")
+	ErrPinTrustLevelTooLow           = errors.Register(ModuleName, 1215, "below required pin trust level")
+	ErrCannotPinEphemeral            = errors.Register(ModuleName, 1216, "collection is ephemeral; promote with MakeCollectionPermanent before pinning")
+	ErrCollectionNotPinned           = errors.Register(ModuleName, 1217, "collection is not pinned")
+	ErrMakePermanentTrustLevelTooLow = errors.Register(ModuleName, 1218, "below required make-permanent trust level")
+	ErrCollectionAlreadyPinned       = errors.Register(ModuleName, 1219, "collection is already pinned")
 
 	// Cross-module conviction propagation errors (1230+)
 	ErrInvalidInitiativeRef = errors.Register(ModuleName, 1230, "invalid initiative reference")
@@ -128,9 +128,9 @@ var (
 	ErrDuplicateTag = errors.Register(ModuleName, 1243, "duplicate tag")
 
 	// Non-member collaborator errors (1250+)
-	ErrNonMemberAdminRole         = errors.Register(ModuleName, 1250, "non-members cannot hold ADMIN role")
-	ErrMaxNonMemberCollaborators  = errors.Register(ModuleName, 1251, "collection at max non-member collaborators")
-	ErrInviterTrustLevelTooLow    = errors.Register(ModuleName, 1252, "inviter below min sponsor trust level")
+	ErrNonMemberAdminRole        = errors.Register(ModuleName, 1250, "non-members cannot hold ADMIN role")
+	ErrMaxNonMemberCollaborators = errors.Register(ModuleName, 1251, "collection at max non-member collaborators")
+	ErrInviterTrustLevelTooLow   = errors.Register(ModuleName, 1252, "inviter below min sponsor trust level")
 
 	// Hide / appeal lifecycle errors (1260+)
 	ErrCannotDeleteHidden = errors.Register(ModuleName, 1260, "cannot delete a collection while it is HIDDEN; appeal the hide first")

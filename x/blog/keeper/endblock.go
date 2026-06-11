@@ -17,11 +17,11 @@ import (
 )
 
 // EndBlock runs at the end of each block. Two ordered passes:
-//   1. drainPromotionQueue: eagerly promote up to MaxPromotionsPerBlock
-//      ephemerals belonging to recently-admitted members. Pulls forward the
-//      promotion that would otherwise happen lazily at TTL so the frontend
-//      sees expires_at=0 immediately.
-//   2. processExpiredContent: tombstone or member-promote anything past its TTL.
+//  1. drainPromotionQueue: eagerly promote up to MaxPromotionsPerBlock
+//     ephemerals belonging to recently-admitted members. Pulls forward the
+//     promotion that would otherwise happen lazily at TTL so the frontend
+//     sees expires_at=0 immediately.
+//  2. processExpiredContent: tombstone or member-promote anything past its TTL.
 func (k Keeper) EndBlock(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()

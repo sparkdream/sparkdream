@@ -48,7 +48,7 @@ type mockBankKeeper struct{}
 // mockIdentityKeeperShield returns legacy denoms for unit tests.
 type mockIdentityKeeperShield struct{}
 
-func (mockIdentityKeeperShield) IsIdentityKeeper() {}
+func (mockIdentityKeeperShield) IsIdentityKeeper()                      {}
 func (m *mockIdentityKeeperShield) BondDenom(_ context.Context) string  { return "uspark" }
 func (m *mockIdentityKeeperShield) DreamDenom(_ context.Context) string { return "udream" }
 

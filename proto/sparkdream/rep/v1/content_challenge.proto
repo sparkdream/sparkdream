@@ -13,7 +13,7 @@ option go_package = "sparkdream/x/rep/types";
 message ContentChallenge {
   uint64 id = 1;
 
-  // Target content identification (author bond type: 7=BLOG, 8=FORUM, 9=COLLECTION)
+  // Target content identification (author bond type: 7=BLOG, 8=FORUM, 9=COLLECTION, 10=BLOG_REPLY)
   StakeTargetType target_type = 2;
   uint64 target_id = 3;
 

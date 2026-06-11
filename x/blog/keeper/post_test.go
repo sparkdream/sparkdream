@@ -12,33 +12,33 @@ import (
 func TestAppendPost(t *testing.T) {
 	f := initFixture(t)
 
-	// Counter starts at 0
-	require.Equal(t, uint64(0), f.keeper.GetPostCount(f.ctx))
+	// Counter starts at 1 (ID 0 is reserved)
+	require.Equal(t, uint64(1), f.keeper.GetPostCount(f.ctx))
 
-	// First append returns ID 0
+	// First append returns ID 1
 	id := f.keeper.AppendPost(f.ctx, types.Post{
 		Creator: "creator1",
 		Title:   "First",
 		Body:    "Body 1",
 	})
-	require.Equal(t, uint64(0), id)
-	require.Equal(t, uint64(1), f.keeper.GetPostCount(f.ctx))
+	require.Equal(t, uint64(1), id)
+	require.Equal(t, uint64(2), f.keeper.GetPostCount(f.ctx))
 
 	// Verify stored
-	post, found := f.keeper.GetPost(f.ctx, 0)
+	post, found := f.keeper.GetPost(f.ctx, 1)
 	require.True(t, found)
-	require.Equal(t, uint64(0), post.Id)
+	require.Equal(t, uint64(1), post.Id)
 	require.Equal(t, "creator1", post.Creator)
 	require.Equal(t, "First", post.Title)
 
-	// Second append returns ID 1
+	// Second append returns ID 2
 	id2 := f.keeper.AppendPost(f.ctx, types.Post{
 		Creator: "creator2",
 		Title:   "Second",
 		Body:    "Body 2",
 	})
-	require.Equal(t, uint64(1), id2)
-	require.Equal(t, uint64(2), f.keeper.GetPostCount(f.ctx))
+	require.Equal(t, uint64(2), id2)
+	require.Equal(t, uint64(3), f.keeper.GetPostCount(f.ctx))
 }
 
 func TestAppendPost_AutoIncrement(t *testing.T) {
@@ -53,9 +53,9 @@ func TestAppendPost_AutoIncrement(t *testing.T) {
 	}
 
 	for i, id := range ids {
-		require.Equal(t, uint64(i), id)
+		require.Equal(t, uint64(i+1), id)
 	}
-	require.Equal(t, uint64(5), f.keeper.GetPostCount(f.ctx))
+	require.Equal(t, uint64(6), f.keeper.GetPostCount(f.ctx))
 }
 
 func TestSetPost(t *testing.T) {
@@ -70,13 +70,13 @@ func TestSetPost(t *testing.T) {
 
 	// Update via SetPost
 	f.keeper.SetPost(f.ctx, types.Post{
-		Id:      0,
+		Id:      1,
 		Creator: "creator",
 		Title:   "Updated",
 		Body:    "Updated body",
 	})
 
-	post, found := f.keeper.GetPost(f.ctx, 0)
+	post, found := f.keeper.GetPost(f.ctx, 1)
 	require.True(t, found)
 	require.Equal(t, "Updated", post.Title)
 	require.Equal(t, "Updated body", post.Body)
@@ -98,14 +98,14 @@ func TestRemovePost(t *testing.T) {
 	})
 
 	// Verify exists
-	_, found := f.keeper.GetPost(f.ctx, 0)
+	_, found := f.keeper.GetPost(f.ctx, 1)
 	require.True(t, found)
 
 	// Remove
-	f.keeper.RemovePost(f.ctx, 0)
+	f.keeper.RemovePost(f.ctx, 1)
 
 	// Verify gone
-	_, found = f.keeper.GetPost(f.ctx, 0)
+	_, found = f.keeper.GetPost(f.ctx, 1)
 	require.False(t, found)
 }
 
@@ -119,13 +119,11 @@ func TestRemovePost_NonExistent(t *testing.T) {
 func TestPostCount_SetAndGet(t *testing.T) {
 	f := initFixture(t)
 
-	require.Equal(t, uint64(0), f.keeper.GetPostCount(f.ctx))
+	// Unset counter reads as 1 (IDs start at 1)
+	require.Equal(t, uint64(1), f.keeper.GetPostCount(f.ctx))
 
 	f.keeper.SetPostCount(f.ctx, 42)
 	require.Equal(t, uint64(42), f.keeper.GetPostCount(f.ctx))
-
-	f.keeper.SetPostCount(f.ctx, 0)
-	require.Equal(t, uint64(0), f.keeper.GetPostCount(f.ctx))
 }
 
 func TestGetPostIDBytes(t *testing.T) {
@@ -156,15 +154,15 @@ func TestAppendPost_CreatorIndex(t *testing.T) {
 	f.keeper.AppendPost(f.ctx, types.Post{Creator: "alice", Title: "A2"})
 
 	// Both should be retrievable by ID
-	p0, found := f.keeper.GetPost(f.ctx, 0)
-	require.True(t, found)
-	require.Equal(t, "alice", p0.Creator)
-
 	p1, found := f.keeper.GetPost(f.ctx, 1)
 	require.True(t, found)
-	require.Equal(t, "bob", p1.Creator)
+	require.Equal(t, "alice", p1.Creator)
 
 	p2, found := f.keeper.GetPost(f.ctx, 2)
 	require.True(t, found)
-	require.Equal(t, "alice", p2.Creator)
+	require.Equal(t, "bob", p2.Creator)
+
+	p3, found := f.keeper.GetPost(f.ctx, 3)
+	require.True(t, found)
+	require.Equal(t, "alice", p3.Creator)
 }
