@@ -72,8 +72,9 @@ var (
 	// Each message was reviewed as a low-risk, UX-frequent content/identity/social
 	// operation safe for ephemeral key delegation. Excluded across all modules:
 	// any message that locks/burns/transfers SPARK or DREAM, requires a bonded
-	// role / committee / council privilege, or initiates a dispute that escrows
-	// fees. Only expandable via chain upgrade.
+	// role / committee / council privilege (except sentinel hide/unhide, see the
+	// x/forum entries), or initiates a dispute that escrows fees. Only expandable
+	// via chain upgrade.
 	DefaultAllowedMsgTypes = []string{
 		// x/blog — content CRUD + reactions (DREAM author_bond fields stripped at dispatch)
 		"/sparkdream.blog.v1.MsgCreatePost",
@@ -82,6 +83,23 @@ var (
 		"/sparkdream.blog.v1.MsgEditReply",
 		"/sparkdream.blog.v1.MsgReact",
 		"/sparkdream.blog.v1.MsgRemoveReaction",
+		// Hide/unhide are author-only self-curation (msg server requires
+		// creator == post author), no bond or funds — same risk class as the
+		// edit messages above.
+		"/sparkdream.blog.v1.MsgHidePost",
+		"/sparkdream.blog.v1.MsgUnhidePost",
+		"/sparkdream.blog.v1.MsgHideReply",
+		"/sparkdream.blog.v1.MsgUnhideReply",
+		// Pin/unpin are display-only, reversible, and the trust-level gate is
+		// re-checked against the granter at dispatch. MsgMakePostPermanent /
+		// MsgMakeReplyPermanent are deliberately excluded: the promotion is
+		// irreversible (no demote path), commits permanent state, and burns
+		// the granter's per-day make-permanent quota — too much damage for a
+		// stolen session key, with no UX-frequency case.
+		"/sparkdream.blog.v1.MsgPinPost",
+		"/sparkdream.blog.v1.MsgUnpinPost",
+		"/sparkdream.blog.v1.MsgPinReply",
+		"/sparkdream.blog.v1.MsgUnpinReply",
 		// x/forum — content CRUD + voting + thread subscription (author_bond stripped)
 		"/sparkdream.forum.v1.MsgCreatePost",
 		"/sparkdream.forum.v1.MsgEditPost",
@@ -92,6 +110,15 @@ var (
 		"/sparkdream.forum.v1.MsgMarkAcceptedReply",
 		"/sparkdream.forum.v1.MsgConfirmProposedReply",
 		"/sparkdream.forum.v1.MsgRejectProposedReply",
+		// Sentinel moderation hide/unhide. Exception to the no-bonded-role-
+		// privilege rule: the msg server re-checks the granter's sentinel bond
+		// status at dispatch, so a session key grants nothing the granter
+		// doesn't already hold, and the per-hide bond reserve is set by forum
+		// params rather than by anything the session key controls. Admitted so
+		// sentinels can moderate from a UX session without re-signing each
+		// action with the full wallet.
+		"/sparkdream.forum.v1.MsgHidePost",
+		"/sparkdream.forum.v1.MsgUnhidePost",
 		// x/name — identity metadata (no fee, no dispute). MsgRegisterName, transfer,
 		// and dispute messages are deliberately excluded.
 		"/sparkdream.name.v1.MsgSetPrimary",
