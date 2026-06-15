@@ -2843,20 +2843,50 @@ Allows post author to soft-delete their own post. Content is replaced with "[del
 
 #### `MsgHidePost`
 
-Sentinel hides a post for moderation.
+Hides a post for moderation. The signer may act as a bonded **sentinel** (the
+accountable, author-appealable default) or, when authorized, as the **Commons
+Operations Committee / governance** (a council hide that is not author-appealable
+and is reversible only by a council proposal).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sentinel` | `string` | Sentinel address (signer) |
+| `creator` | `string` | Caller address (signer) — sentinel or council member |
 | `post_id` | `uint64` | Target post ID |
 | `reason_code` | `ModerationReason` | Structured reason (unified with flag categories) |
 | `reason_text` | `string` | Custom reason text (required if reason_code=OTHER) |
+| `authority` | `HideAuthority` | Which authority the caller invokes (default `AUTO`) |
+
+**Authority disambiguation (`HideAuthority`).** An account can be BOTH a bonded
+sentinel AND a committee member. The `authority` field makes the choice explicit
+instead of letting the handler silently pick the more powerful, less accountable
+council path. See `docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md`.
+
+- `HIDE_AUTHORITY_AUTO` (0, default, back-compat): if the account is an **eligible
+  sentinel** (holds a `ROLE_TYPE_FORUM_SENTINEL` bond in `NORMAL`/`RECOVERY`),
+  take the sentinel path; else if council-authorized, take the council path; else
+  fail with the specific sentinel reason (`ErrNotSentinel` / `ErrSentinelDemoted`).
+  AUTO **prefers the accountable sentinel path** even when the account is also
+  council — least privilege, the cheaper path is never the silent default.
+- `HIDE_AUTHORITY_SENTINEL` (1): force the sentinel path; fail (no fallback) if
+  the account is not an eligible sentinel (`ErrNotSentinel` / `ErrSentinelDemoted`
+  / `ErrInvalidAmount`).
+- `HIDE_AUTHORITY_COUNCIL` (2): force the council (gov) path; fail with
+  `ErrNotAuthorized` if not council-authorized. Allowed for a bonded sentinel —
+  this is the deliberate "act as committee" choice, recorded as a gov hide
+  (`HideRecord.sentinel == ""`).
+
+A demoted/unbonding sentinel bond is **not** eligible: under AUTO such an account
+falls through to the council path if it is also council, otherwise it surfaces
+`ErrSentinelDemoted`. Council members retain every override power (unhide past the
+self-correct window, act while moderation is paused, overturn other sentinels);
+those remain explicit `COUNCIL`/override actions.
 
 **Validation:**
 - Fail with `ErrInvalidModerationReason` if `reason_code == UNSPECIFIED`
 - Fail with `ErrReasonTextRequired` if `reason_code == OTHER` and `reason_text` is empty
+- Fail with `ErrInvalidHideAuthority` if `authority` is not a known enum value
 
-**Authorization:**
+**Authorization (sentinel path):**
 - Fail with `ErrForumPaused` if `params.forum_paused == true`
 - Fail with `ErrModerationPaused` if `params.moderation_paused == true`
 - Sender must satisfy `x/rep` Tier >= `min_rep_tier_sentinel`
@@ -2894,7 +2924,16 @@ Sentinel hides a post for moderation.
 6. Add post to `hidden_queue/{now + hidden_expiration}/{post_id}`
 7. **Set appeal cooldown:** Store `appeal_cooldown/{post_id} = now + hide_appeal_cooldown`
 8. Increment `sentinel.total_hides` and `sentinel.epoch_hides`
-9. Emit `EventPostHidden`
+9. Emit `EventPostHidden` (`is_gov_authority=false`)
+
+**Council (gov) path:** When the resolved authority is council (explicit
+`COUNCIL`, or `AUTO` with no eligible sentinel bond), no bond is committed and no
+sentinel counters move. A minimal `HideRecord` is written with `sentinel == ""`
+(the gov-hide marker) plus `reason_code`/`reason_text`/`author_bond_amount`; the
+post is hidden the same way. The empty `sentinel` field is what makes
+`MsgAppealPost` reject the hide as `ErrGovLockNotAppealable` — gov hides are
+reversed by `MsgUnhidePost` from the committee/governance, not by author appeal.
+`EventPostHidden` is emitted with `is_gov_authority=true`.
 
 ---
 

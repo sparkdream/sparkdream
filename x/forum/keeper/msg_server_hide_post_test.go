@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	commontypes "sparkdream/x/common/types"
@@ -248,4 +249,172 @@ func TestHidePost_UnbondingSentinelRejected(t *testing.T) {
 	_, err := f.msgServer.HidePost(f.ctx, msg)
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrSentinelDemoted)
+}
+
+// TestHidePost_AuthorityDisambiguation covers the case where an account is BOTH
+// a bonded forum sentinel AND a Commons Operations Committee member. Without an
+// explicit authority the hide must default to the accountable sentinel path
+// (bonded, author-appealable) rather than silently upgrading to the council
+// (gov) path. See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+func TestHidePost_AuthorityDisambiguation(t *testing.T) {
+	makeSentinelAndCouncil := func(t *testing.T) (*fixture, uint64) {
+		t.Helper()
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		f.createTestSentinel(t, testSentinel, "2000000000")
+		// Make the bonded sentinel ALSO a council member. The default
+		// IsCouncilAuthorizedFn only matches the gov authority address; extend
+		// it so testSentinel resolves as council too.
+		authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+		f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, addr string, _ string, _ string) bool {
+			return addr == authority || addr == testSentinel
+		}
+		return f, post.PostId
+	}
+
+	// AUTO by a sentinel-and-council account must take the sentinel path:
+	// HideRecord.Sentinel == creator (NOT the empty gov-hide marker), bond
+	// committed, forum counters bumped.
+	t.Run("auto prefers sentinel path", func(t *testing.T) {
+		f, postID := makeSentinelAndCouncil(t)
+		_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+			Creator:    testSentinel,
+			PostId:     postID,
+			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+			ReasonText: "spam",
+			Authority:  types.HideAuthority_HIDE_AUTHORITY_AUTO,
+		})
+		require.NoError(t, err)
+		hr, err := f.keeper.HideRecord.Get(f.ctx, postID)
+		require.NoError(t, err)
+		require.Equal(t, testSentinel, hr.Sentinel, "AUTO must default to the sentinel path")
+		require.NotEmpty(t, hr.SentinelBondSnapshot, "sentinel hide must snapshot bond")
+		require.NotEmpty(t, hr.CommittedAmount, "sentinel hide must commit slash amount")
+		local, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), local.TotalHides)
+	})
+
+	// Explicit COUNCIL by the same account is the deliberate "act as committee"
+	// choice: gov-hide marker (Sentinel == ""), no bond committed.
+	t.Run("explicit council is opt-in gov hide", func(t *testing.T) {
+		f, postID := makeSentinelAndCouncil(t)
+		_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+			Creator:    testSentinel,
+			PostId:     postID,
+			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+			ReasonText: "spam",
+			Authority:  types.HideAuthority_HIDE_AUTHORITY_COUNCIL,
+		})
+		require.NoError(t, err)
+		hr, err := f.keeper.HideRecord.Get(f.ctx, postID)
+		require.NoError(t, err)
+		require.Empty(t, hr.Sentinel, "explicit COUNCIL must write the gov-hide marker")
+		require.Empty(t, hr.CommittedAmount, "gov hide must not commit slash amount")
+		// Forum-local sentinel counters must NOT be bumped by a council hide.
+		local, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), local.TotalHides, "council hide must not bump sentinel counters")
+	})
+
+	// Explicit SENTINEL by the same account takes the sentinel path.
+	t.Run("explicit sentinel forces sentinel path", func(t *testing.T) {
+		f, postID := makeSentinelAndCouncil(t)
+		_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+			Creator:    testSentinel,
+			PostId:     postID,
+			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+			ReasonText: "spam",
+			Authority:  types.HideAuthority_HIDE_AUTHORITY_SENTINEL,
+		})
+		require.NoError(t, err)
+		hr, err := f.keeper.HideRecord.Get(f.ctx, postID)
+		require.NoError(t, err)
+		require.Equal(t, testSentinel, hr.Sentinel)
+	})
+}
+
+// TestHidePost_ExplicitAuthorityErrors covers the hard-error edges: an explicit
+// authority the caller cannot satisfy must fail with no silent fallback.
+func TestHidePost_ExplicitAuthorityErrors(t *testing.T) {
+	// Explicit SENTINEL by a non-sentinel council member → ErrNotSentinel
+	// (no silent fallback to council).
+	t.Run("explicit sentinel by council-only fails", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+		_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+			Creator:    authority, // council, but not a sentinel
+			PostId:     post.PostId,
+			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+			ReasonText: "x",
+			Authority:  types.HideAuthority_HIDE_AUTHORITY_SENTINEL,
+		})
+		require.ErrorIs(t, err, types.ErrNotSentinel)
+	})
+
+	// Explicit COUNCIL by a sentinel-only account → ErrNotAuthorized.
+	t.Run("explicit council by sentinel-only fails", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		f.createTestSentinel(t, testSentinel, "2000000000")
+		_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+			Creator:    testSentinel, // sentinel, but not council
+			PostId:     post.PostId,
+			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+			ReasonText: "x",
+			Authority:  types.HideAuthority_HIDE_AUTHORITY_COUNCIL,
+		})
+		require.ErrorIs(t, err, types.ErrNotAuthorized)
+	})
+
+	// AUTO by a DEMOTED sentinel that is also council falls through to the
+	// council path (demoted bond is not eligible).
+	t.Run("auto falls through to council when sentinel demoted", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		f.createTestSentinel(t, testSentinel, "2000000000")
+		br := f.repKeeper.sentinels[testSentinel]
+		br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
+		f.repKeeper.sentinels[testSentinel] = br
+		authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+		f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, addr string, _ string, _ string) bool {
+			return addr == authority || addr == testSentinel
+		}
+		_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+			Creator:    testSentinel,
+			PostId:     post.PostId,
+			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+			ReasonText: "x",
+			Authority:  types.HideAuthority_HIDE_AUTHORITY_AUTO,
+		})
+		require.NoError(t, err)
+		hr, err := f.keeper.HideRecord.Get(f.ctx, post.PostId)
+		require.NoError(t, err)
+		require.Empty(t, hr.Sentinel, "demoted sentinel that is council hides as council under AUTO")
+	})
+
+	// AUTO by a demoted, non-council account surfaces the specific sentinel
+	// reason rather than a generic unauthorized error.
+	t.Run("auto by demoted non-council surfaces demotion", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+		post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		f.createTestSentinel(t, testSentinel, "2000000000")
+		br := f.repKeeper.sentinels[testSentinel]
+		br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
+		f.repKeeper.sentinels[testSentinel] = br
+		_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+			Creator:    testSentinel,
+			PostId:     post.PostId,
+			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+			ReasonText: "x",
+			Authority:  types.HideAuthority_HIDE_AUTHORITY_AUTO,
+		})
+		require.ErrorIs(t, err, types.ErrSentinelDemoted)
+	})
 }

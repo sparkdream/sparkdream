@@ -89,6 +89,7 @@ var (
 	ErrNotGovAuthority          = errors.Register(ModuleName, 1566, "not governance authority")
 	ErrNotAuthorized            = errors.Register(ModuleName, 1567, "not authorized for this action")
 	ErrPostStatus               = errors.Register(ModuleName, 1568, "invalid post status for this operation")
+	ErrInvalidHideAuthority     = errors.Register(ModuleName, 1569, "invalid hide authority")
 
 	// Appeal errors (1650-1699)
 	ErrAppealCooldown         = errors.Register(ModuleName, 1650, "appeal cooldown not yet passed")

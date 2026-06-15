@@ -39,37 +39,77 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		return nil, types.ErrReasonTextRequired
 	}
 
-	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
-
-	// Rep-owned accountability state for non-gov senders.
+	// Resolve which moderation authority this hide invokes. An account can be
+	// BOTH a bonded sentinel and a Commons Operations Committee member, so the
+	// choice must be explicit rather than an implicit upgrade to the cheaper,
+	// less-appealable council path. See
+	// docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+	//
+	// "Eligible sentinel" = holds a ROLE_TYPE_FORUM_SENTINEL bond in NORMAL or
+	// RECOVERY status with a valid current_bond. DEMOTED/UNBONDING are NOT
+	// eligible (UNBONDING because the bond is draining and we won't back fresh
+	// moderation with bond already pledged to leave).
 	var (
-		repSentinel  reptypes.BondedRole
-		bondSnapshot string
+		repSentinel      reptypes.BondedRole
+		bondSnapshot     string
+		sentinelEligible bool
+		// sentinelErr explains why the sentinel path is unavailable; surfaced
+		// for explicit SENTINEL requests and for the AUTO no-fallback case.
+		sentinelErr error
 	)
 	slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
 
-	if !isGovAuthority {
-		if k.repKeeper == nil {
-			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
-		}
-		br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-		if err != nil {
-			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
-		}
-		if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
-			return nil, errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
-		}
+	if k.repKeeper == nil {
+		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
+	} else if br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator); err != nil {
+		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
+	} else if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
+		sentinelErr = errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
+	} else if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
+		br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
+		sentinelErr = types.ErrSentinelDemoted
+	} else {
 		repSentinel = br
 		bondSnapshot = br.CurrentBond
+		sentinelEligible = true
+	}
 
-		// Only NORMAL and RECOVERY can moderate. DEMOTED and UNBONDING are
-		// deauthorized — UNBONDING because the bond is draining and we won't
-		// back fresh moderation with bond that's already pledged to leave.
-		if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-			br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-			return nil, types.ErrSentinelDemoted
+	isCouncil := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+
+	// isGovAuthority is the resolved decision: take the gov (council) path.
+	var isGovAuthority bool
+	switch msg.Authority {
+	case types.HideAuthority_HIDE_AUTHORITY_SENTINEL:
+		// Force sentinel; no silent fallback to council.
+		if !sentinelEligible {
+			return nil, sentinelErr
 		}
+		isGovAuthority = false
+	case types.HideAuthority_HIDE_AUTHORITY_COUNCIL:
+		// Force council; the deliberate "act as committee" choice, allowed even
+		// for a bonded sentinel.
+		if !isCouncil {
+			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "not authorized as council")
+		}
+		isGovAuthority = true
+	case types.HideAuthority_HIDE_AUTHORITY_AUTO:
+		// Prefer the accountable sentinel path; fall through to council only
+		// when the account is not an eligible sentinel.
+		switch {
+		case sentinelEligible:
+			isGovAuthority = false
+		case isCouncil:
+			isGovAuthority = true
+		default:
+			// Neither path available: surface the specific sentinel reason
+			// (ErrNotSentinel / ErrSentinelDemoted / ErrInvalidAmount).
+			return nil, sentinelErr
+		}
+	default:
+		return nil, errorsmod.Wrapf(types.ErrInvalidHideAuthority, "unknown authority %d", msg.Authority)
+	}
 
+	if !isGovAuthority {
 		// Forum-local cooldown + hide counter.
 		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
 		if err != nil {

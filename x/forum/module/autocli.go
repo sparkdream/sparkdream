@@ -467,6 +467,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "hide-post [post-id] [reason-code] [reason-text]",
 					Short:          "Send a hide-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "reason_code"}, {ProtoField: "reason_text"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"authority": {Name: "authority", Usage: "moderation authority: HIDE_AUTHORITY_AUTO (default, sentinel-first), HIDE_AUTHORITY_SENTINEL (force sentinel), HIDE_AUTHORITY_COUNCIL (force committee)"},
+					},
 				},
 				{
 					RpcMethod:      "UnhidePost",

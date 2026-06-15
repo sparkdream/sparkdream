@@ -518,6 +518,11 @@ if [ "$RUN_APPEALS" = true ]; then
     # (sentinel self-correct + council override) alongside the appeal flow;
     # keep it in the same phase so it benefits from the appeals --no-* gate.
     run_test "Unhide Post Tests" "unhide_post_test.sh"
+    # hide_authority_test.sh exercises MsgHidePost.authority, disambiguating the
+    # sentinel-vs-council path when one account holds both roles. It bonds alice
+    # (the harness council authority) as a sentinel, so keep it after the appeal
+    # flow where sentinel bonding is already warmed up.
+    run_test "Hide Authority Tests" "hide_authority_test.sh"
 else
     echo "Skipping appeals tests (--no-appeals)"
     echo ""
