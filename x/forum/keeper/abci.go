@@ -440,14 +440,16 @@ func (k Keeper) ExpireBounties(ctx context.Context, now int64) error {
 		// bounty is no longer ACTIVE.
 		_ = k.BountiesByExpiry.Remove(ctx, collections.Join(bounty.ExpiresAt, id))
 
-		// Refund escrowed amount to creator (best effort)
+		// Refund escrowed amount to creator (best effort). Amount is a bare
+		// integer string in the bond denom, as written by CreateBounty.
 		if bounty.Amount != "" && bounty.Creator != "" {
 			creatorAddr, addrErr := sdk.AccAddressFromBech32(bounty.Creator)
 			if addrErr == nil {
-				refundCoin, coinErr := sdk.ParseCoinNormalized(bounty.Amount)
-				if coinErr == nil && refundCoin.IsPositive() {
+				refundAmount, ok := sdkmath.NewIntFromString(bounty.Amount)
+				if ok && refundAmount.IsPositive() {
+					refundCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), refundAmount))
 					if sendErr := k.bankKeeper.SendCoinsFromModuleToAccount(
-						ctx, types.ModuleName, creatorAddr, sdk.NewCoins(refundCoin),
+						ctx, types.ModuleName, creatorAddr, refundCoins,
 					); sendErr != nil {
 						sdkCtx.Logger().Error("failed to refund expired bounty",
 							"bounty_id", id, "amount", bounty.Amount, "error", sendErr)

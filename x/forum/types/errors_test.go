@@ -109,6 +109,7 @@ func TestErrorCodesUnique(t *testing.T) {
 		ErrBountyInModeration,
 		ErrNotReplyInThread,
 		ErrBountyFullyAwarded,
+		ErrCannotAwardSelf,
 		ErrAlreadyFlagged,
 		ErrFlagNotFound,
 		ErrNotInReviewQueue,

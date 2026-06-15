@@ -41,34 +41,33 @@ func (k msgServer) AwardBounty(ctx context.Context, msg *types.MsgAwardBounty) (
 		return nil, errorsmod.Wrap(types.ErrBountyNotActive, "no awards assigned yet - use AssignBountyToReply first")
 	}
 
-	// Reject when assigned awards exceed the escrowed bounty amount — prevents
-	// over-payout if award assignment logic allowed drift.
-	totalAwards := math.ZeroInt()
-	for _, award := range bounty.Awards {
-		awardAmt, ok := math.NewIntFromString(award.Amount)
-		if !ok || !awardAmt.IsPositive() {
-			continue
-		}
-		totalAwards = totalAwards.Add(awardAmt)
-	}
 	bountyAmount, ok := math.NewIntFromString(bounty.Amount)
 	if !ok {
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid bounty escrow amount")
 	}
-	if totalAwards.GT(bountyAmount) {
-		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "awards exceed bounty escrow")
-	}
 
-	// Transfer escrowed funds to each award recipient
-	for _, award := range bounty.Awards {
-		awardAmount, ok := math.NewIntFromString(award.Amount)
-		if !ok || !awardAmount.IsPositive() {
-			continue
+	// Split the escrow equally among the accepted replies. The integer-division
+	// remainder is handed out one unit at a time in award order (largest-remainder
+	// method) so the full escrow is always paid out — nothing stays stranded in
+	// the module account and the creator gets no dust refund.
+	numAwards := int64(len(bounty.Awards))
+	share := bountyAmount.Quo(math.NewInt(numAwards))
+	extra := bountyAmount.Mod(math.NewInt(numAwards)).Int64()
+
+	for i, award := range bounty.Awards {
+		awardAmount := share
+		if int64(i) < extra {
+			awardAmount = awardAmount.AddRaw(1)
+		}
+		if !awardAmount.IsPositive() {
+			return nil, errorsmod.Wrap(types.ErrInvalidAmount, "bounty escrow too small to split among awards")
 		}
 		recipientAddr, err := sdk.AccAddressFromBech32(award.Recipient)
 		if err != nil {
 			return nil, errorsmod.Wrapf(err, "invalid recipient address for award to post %d", award.PostId)
 		}
+		// Persist the actual paid share on the award for the audit trail.
+		award.Amount = awardAmount.String()
 		awardCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), awardAmount))
 		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipientAddr, awardCoins); err != nil {
 			return nil, errorsmod.Wrapf(err, "failed to transfer bounty award to %s", award.Recipient)
@@ -93,6 +92,7 @@ func (k msgServer) AwardBounty(ctx context.Context, msg *types.MsgAwardBounty) (
 			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", bounty.ThreadId)),
 			sdk.NewAttribute("creator", msg.Creator),
 			sdk.NewAttribute("total_awards", fmt.Sprintf("%d", len(bounty.Awards))),
+			sdk.NewAttribute("amount", bounty.Amount),
 		),
 	)
 

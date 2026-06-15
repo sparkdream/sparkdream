@@ -553,10 +553,10 @@ enum BountyStatus {
 message BountyAward {
   uint64 post_id = 1;                                    // Winning reply
   string recipient = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  string amount = 3;                                     // SPARK amount awarded
+  string amount = 3;                                     // Paid share (empty until MsgAwardBounty computes the equal split)
   string reason = 4;                                     // Public justification (required)
   int64  awarded_at = 5;
-  uint32 rank = 6;                                       // 1 = first place, 2 = second, etc. (ties allowed)
+  uint32 rank = 6;                                       // Assignment order (1 = first accepted; remainder units go to earliest)
 }
 
 // Tag budget for groups - simple pool for rewarding quality posts in their tag
@@ -1954,55 +1954,45 @@ Attach a SPARK bounty to a thread to reward helpful replies.
 
 #### `MsgAwardBounty`
 
-Award bounty to one or more winning replies.
+Finalize a bounty: split the escrow equally among the accepted replies and pay them out. Winners are accepted beforehand via `MsgAssignBountyToReply` (which records who was accepted without fixing amounts); this message computes the shares and transfers the funds.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `creator` | `string` | Bounty creator (signer) |
-| `bounty_id` | `uint64` | Bounty to award |
-| `awards` | `[]AwardEntry` | Winners with amounts and reasons |
-
-```protobuf
-message AwardEntry {
-  uint64 post_id = 1;    // Winning reply
-  string amount = 2;     // SPARK amount (must sum to bounty total)
-  string reason = 3;     // Public justification (required)
-  uint32 rank = 4;       // 1 = first place, 2 = second, etc. (ties allowed, e.g., two 2nd places)
-}
-```
+| `bounty_id` | `uint64` | Bounty to finalize |
 
 **Authorization:** Original bounty creator only.
 
 **Logic:**
 1. **Validation:**
-   - Fail with `ErrBountiesDisabled` if `params.bounties_enabled == false`
    - Load bounty by `bounty_id`
    - Fail with `ErrBountyNotFound` if not found
    - Fail with `ErrNotBountyCreator` if `creator != bounty.creator`
    - Fail with `ErrBountyNotActive` if `bounty.status != ACTIVE`
-   - Fail with `ErrTooManyWinners` if `len(awards) > max_bounty_winners`
-   - For each award:
-     - Fail with `ErrInvalidRank` if `rank == 0` (rank is required)
-     - Fail with `ErrInvalidRank` if `rank > len(awards)` (rank can't exceed winner count)
-     - Fail with `ErrPostNotFound` if reply does not exist
-     - Fail with `ErrNotReplyToThread` if reply is not in bounty's thread
-     - Fail with `ErrCannotAwardSelf` if `reply.author == creator`
-     - Fail with `ErrAwardReasonRequired` if `reason` is empty
-   - **Fail with `ErrInvalidRank` if no award has `rank == 1`** (first place required)
-   - Fail with `ErrAwardAmountMismatch` if sum of award amounts ≠ bounty amount
-   - *Note: Ties are allowed (e.g., two entries with rank=2), but at least one rank=1 is required*
+   - Fail with `ErrBountyNotActive` if `len(bounty.awards) == 0` (nothing accepted yet — use `MsgAssignBountyToReply` first)
 
-2. **Distribute Awards:**
-   - For each award (sorted by rank for deterministic ordering):
-     - Transfer `award.amount` from module account to `reply.author`
-     - Create `BountyAward` record with rank
+2. **Distribute Awards (equal split, largest remainder):**
+   - `share = bounty.amount / len(awards)` (integer division)
+   - The remainder `bounty.amount mod len(awards)` is handed out one unit at a time in assignment order, so the first `remainder` winners receive `share + 1`
+   - The full escrow is always paid out — nothing stays stranded in the module account and the creator gets no dust refund
+   - For each award:
+     - Persist the paid share on `award.amount` (audit trail)
+     - Transfer the share from module account to `award.recipient`
 
 3. **Finalize Bounty:**
    - Set `bounty.status = AWARDED`
-   - Store awards in `bounty.awards`
    - Remove from expiration queue
-   - Delete `bounty_by_thread/{thread_id}`
    - Emit `EventBountyAwarded`
+
+**Payout examples** (escrow 1001, `max_bounty_winners = 5`):
+
+| Accepted replies | Payouts |
+|------------------|---------|
+| 1 | 1001 |
+| 2 | 501, 500 |
+| 3 | 334, 334, 333 |
+
+*Note: `max_bounty_winners` only caps how many replies can be accepted; it is never the divisor. The advertised escrow is always fully committed to whoever is accepted.*
 
 ---
 
@@ -2032,7 +2022,7 @@ Increase an existing bounty amount.
 
 #### `MsgCancelBounty`
 
-Cancel a bounty before any awards (full refund).
+Cancel a bounty before any replies have been accepted (refund minus cancellation fee).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -2048,7 +2038,8 @@ Cancel a bounty before any awards (full refund).
    - Fail with `ErrBountyHasAwards` if `len(bounty.awards) > 0`
 
 2. **Refund:**
-   - Transfer full bounty amount from module account to creator
+   - Calculate fee: `bounty.amount × bounty_cancellation_fee_percent / 100`
+   - Burn the fee; transfer the remainder from module account to creator
    - Set `bounty.status = CANCELLED`
    - Remove from expiration queue
    - Delete `bounty_by_thread/{thread_id}`
@@ -2530,13 +2521,13 @@ Proposals auto-confirm if author doesn't respond within `accept_proposal_timeout
 
 #### `MsgAssignBountyToReply`
 
-Assign bounty reward to a specific reply (shorthand for `MsgAwardBounty` with single winner).
+Accept a reply as a bounty winner. No funds move and no amount is fixed here — the escrow is divided equally among all accepted replies when the creator finalizes via `MsgAwardBounty`. The bounty stays `ACTIVE` so more replies can be accepted (up to `max_bounty_winners`).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `creator` | `string` | Bounty creator (signer) |
 | `thread_id` | `uint64` | Thread with bounty |
-| `reply_id` | `uint64` | Reply to award bounty to |
+| `reply_id` | `uint64` | Reply to accept |
 | `reason` | `string` | Public justification |
 
 **Authorization:** Original bounty creator only.
@@ -2544,16 +2535,21 @@ Assign bounty reward to a specific reply (shorthand for `MsgAwardBounty` with si
 **Logic:**
 1. **Validation:**
    - Load `bounty_by_thread/{thread_id}` to get `bounty_id`
-   - Fail with `ErrNoBountyOnThread` if no bounty exists
-   - Delegate to `MsgAwardBounty` logic with single award entry:
-     - `awards = [{post_id: reply_id, amount: bounty.amount, reason: reason}]`
+   - Fail with `ErrBountyNotFound` if no active bounty exists for the thread
+   - Fail with `ErrBountyNotActive` if `bounty.status != ACTIVE`
+   - Fail with `ErrNotBountyCreator` if `creator != bounty.creator`
+   - Fail with `ErrBountyExpired` if past `expires_at`
+   - Fail with `ErrMaxBountyWinners` if `len(bounty.awards) >= max_bounty_winners`
+   - Fail with `ErrBountyAlreadyAwarded` if the reply was already accepted
+   - Fail with `ErrPostNotFound` if reply does not exist
+   - Fail with `ErrNotReplyInThread` if reply is not in the bounty's thread or is the thread root
+   - Fail with `ErrCannotAwardSelf` if `reply.author == bounty.creator` (creators cannot pay the escrow back to themselves)
 
-2. **Optional Auto-Accept:**
-   - After awarding, automatically mark reply as accepted:
-     - Load or create `ThreadMetadata`
-     - Set `accepted_reply_id = reply_id`, `accepted_by = creator`, `accepted_at = now`
-     - Emit `EventAcceptedReplyMarked`
-   - This provides a convenient single action for "this reply solved my problem"
+2. **Record Acceptance:**
+   - Append a `BountyAward { post_id: reply_id, recipient: reply.author, reason, awarded_at: now, rank: len(awards)+1 }` to `bounty.awards`
+   - `award.amount` is left empty — the paid share is computed and persisted at `MsgAwardBounty`
+   - Assignment order matters: the integer-division remainder of the final split goes to the earliest-assigned winners
+   - Emit `EventBountyAssigned`
 
 ---
 
@@ -5441,6 +5437,7 @@ message EventInitiativeLinkRemoved {
 | | `ErrBountyInModeration` | 1759 | Bounty is pending moderation resolution |
 | | `ErrNotReplyInThread` | 1760 | Post is not a reply in the bounty thread |
 | | `ErrBountyFullyAwarded` | 1761 | Bounty has been fully awarded |
+| | `ErrCannotAwardSelf` | 1762 | Cannot award bounty to own reply |
 | **Tag Budget (1800-1849)** | | | |
 | | `ErrTagBudgetNotFound` | 1800 | Tag budget not found |
 | | `ErrTagBudgetNotActive` | 1801 | Tag budget is not active |

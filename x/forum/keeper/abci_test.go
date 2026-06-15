@@ -630,3 +630,38 @@ func TestExpireHiddenPosts_NoWarningOnSelfPromote(t *testing.T) {
 
 	require.Empty(t, f.repKeeper.warningCalls, "self-promote must not trigger a warning")
 }
+
+func TestExpireBountiesRefundsCreator(t *testing.T) {
+	f := initFixture(t)
+
+	post := f.createTestPost(t, testCreator, 0, 0)
+	bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
+
+	// Push the bounty past its deadline
+	b, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)
+	require.NoError(t, err)
+	b.ExpiresAt = f.sdkCtx().BlockTime().Unix() - 1
+	require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, b))
+
+	var refundTo sdk.AccAddress
+	var refundAmt sdk.Coins
+	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
+		refundTo = recipientAddr
+		refundAmt = amt
+		return nil
+	}
+	defer func() { f.bankKeeper.SendCoinsFromModuleToAccountFn = nil }()
+
+	require.NoError(t, f.keeper.ExpireBounties(f.ctx, f.sdkCtx().BlockTime().Unix()))
+
+	// Full escrow refunded to the creator in the bond denom
+	require.NotNil(t, refundTo)
+	require.Equal(t, testCreator, refundTo.String())
+	denom := f.keeper.BondDenom(f.ctx)
+	require.Equal(t, "1000000", refundAmt.AmountOf(denom).String())
+
+	// Bounty marked expired
+	updated, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)
+	require.NoError(t, err)
+	require.Equal(t, types.BountyStatus_BOUNTY_STATUS_EXPIRED, updated.Status)
+}

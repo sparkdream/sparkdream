@@ -7,7 +7,6 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -76,36 +75,17 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 		return nil, errorsmod.Wrap(types.ErrNotReplyInThread, "cannot award bounty to thread root post")
 	}
 
-	// Calculate per-winner share: total bounty divided equally among max_winners.
-	// This is a winner-take-equal-share model: each assignment receives the same
-	// fraction (1/max_winners) of the total bounty.
-	totalAmount, ok := math.NewIntFromString(bounty.Amount)
-	if !ok {
-		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid bounty amount")
-	}
-	perWinnerAmount := totalAmount.Quo(math.NewInt(int64(types.DefaultMaxBountyWinners)))
-	if !perWinnerAmount.IsPositive() {
-		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "bounty amount too small to split among winners")
+	// Creators cannot pay the escrow back to themselves through their own reply
+	if reply.Author == bounty.Creator {
+		return nil, errorsmod.Wrap(types.ErrCannotAwardSelf, "bounty creator cannot accept their own reply")
 	}
 
-	// Verify remaining funds cover another award
-	assignedAmount := math.ZeroInt()
-	for _, a := range bounty.Awards {
-		awardAmt, ok := math.NewIntFromString(a.Amount)
-		if ok {
-			assignedAmount = assignedAmount.Add(awardAmt)
-		}
-	}
-	remainingAmount := totalAmount.Sub(assignedAmount)
-	if remainingAmount.LT(perWinnerAmount) {
-		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "no remaining bounty funds to assign")
-	}
-
-	// Create award with per-winner share
+	// Shares are not fixed here. The escrow is divided equally among all
+	// accepted replies when the creator finalizes via AwardBounty, so an
+	// assignment only records who was accepted; Amount is filled in at payout.
 	award := &types.BountyAward{
 		PostId:    msg.ReplyId,
 		Recipient: reply.Author,
-		Amount:    perWinnerAmount.String(),
 		Reason:    msg.Reason,
 		AwardedAt: now,
 		Rank:      uint32(len(bounty.Awards) + 1),
@@ -129,7 +109,6 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", msg.ThreadId)),
 			sdk.NewAttribute("reply_id", fmt.Sprintf("%d", msg.ReplyId)),
 			sdk.NewAttribute("recipient", reply.Author),
-			sdk.NewAttribute("amount", award.Amount),
 			sdk.NewAttribute("reason", msg.Reason),
 		),
 	)

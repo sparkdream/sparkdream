@@ -23,6 +23,12 @@ func TestAssignBountyToReply(t *testing.T) {
 	replyPost.RootId = thread.PostId
 	_ = f.keeper.Post.Set(f.ctx, reply.PostId, replyPost)
 
+	// Reply authored by the bounty creator (for the self-award guard)
+	selfReply := f.createTestPost(t, testCreator, thread.PostId, cat.CategoryId)
+	selfReplyPost, _ := f.keeper.Post.Get(f.ctx, selfReply.PostId)
+	selfReplyPost.RootId = thread.PostId
+	_ = f.keeper.Post.Set(f.ctx, selfReply.PostId, selfReplyPost)
+
 	// Create an active bounty
 	bounty := f.createTestBounty(t, testCreator, thread.PostId, "100000000")
 
@@ -98,6 +104,17 @@ func TestAssignBountyToReply(t *testing.T) {
 			expectError: true,
 			errContains: "cannot award bounty to thread root",
 		},
+		{
+			name: "creator cannot accept own reply",
+			msg: &types.MsgAssignBountyToReply{
+				Creator:  testCreator,
+				ThreadId: thread.PostId,
+				ReplyId:  selfReply.PostId,
+				Reason:   "Paying myself back",
+			},
+			expectError: true,
+			errContains: "cannot accept their own reply",
+		},
 	}
 
 	for _, tt := range tests {
@@ -138,11 +155,11 @@ func TestAssignBountyTransfer(t *testing.T) {
 	f := initFixture(t)
 
 	// Track bank calls
-	var transferredTo sdk.AccAddress
-	var transferredAmount sdk.Coins
+	var transferredTo []sdk.AccAddress
+	var transferredAmount []sdk.Coins
 	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
-		transferredTo = recipientAddr
-		transferredAmount = amt
+		transferredTo = append(transferredTo, recipientAddr)
+		transferredAmount = append(transferredAmount, amt)
 		return nil
 	}
 
@@ -169,7 +186,7 @@ func TestAssignBountyTransfer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify no transfer happened yet (funds stay escrowed until AwardBounty)
-	require.Nil(t, transferredTo)
+	require.Empty(t, transferredTo)
 
 	// Now finalize the bounty with AwardBounty
 	_, err = f.msgServer.AwardBounty(f.ctx, &types.MsgAwardBounty{
@@ -178,11 +195,11 @@ func TestAssignBountyTransfer(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify transfer happened after AwardBounty
-	// With per-winner split, single winner gets totalAmount / maxWinners
-	require.NotNil(t, transferredTo)
-	expectedPerWinner := "20000000" // 100000000 / 5 (DefaultMaxBountyWinners)
-	require.Equal(t, expectedPerWinner, transferredAmount.AmountOf("uspark").String())
+	// Verify transfer happened after AwardBounty: the escrow is split equally
+	// among accepted replies, so a single winner receives the full bounty.
+	require.Len(t, transferredTo, 1)
+	require.Equal(t, testCreator2, transferredTo[0].String())
+	require.Equal(t, "100000000", transferredAmount[0].AmountOf("uspark").String())
 
 	// Verify bounty is now marked as awarded
 	b, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)

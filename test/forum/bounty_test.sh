@@ -442,7 +442,18 @@ if [ -n "$BOUNTY_THREAD_ID" ] && [ -n "$BOUNTY_REPLY_ID" ]; then
             BOUNTY_INFO=$($BINARY query forum get-bounty $BOUNTY_ID --output json 2>&1)
             AWARD_COUNT=$(echo "$BOUNTY_INFO" | jq -r '.bounty.awards | length' 2>/dev/null || echo "0")
             echo "  Awards assigned: $AWARD_COUNT"
-            ASSIGN_BOUNTY_RESULT="PASS"
+
+            # Shares are computed at award-bounty (equal split among accepted
+            # replies), so a pending assignment must not carry an amount yet.
+            # proto3 omits empty strings from JSON, hence the // "" fallback.
+            PENDING_AMOUNT=$(echo "$BOUNTY_INFO" | jq -r '.bounty.awards[0].amount // ""')
+            if [ -z "$PENDING_AMOUNT" ] || [ "$PENDING_AMOUNT" == "0" ]; then
+                echo "  Pending award has no amount yet (computed at finalize)"
+                ASSIGN_BOUNTY_RESULT="PASS"
+            else
+                echo "  FAIL: Pending award unexpectedly has amount: $PENDING_AMOUNT"
+                ASSIGN_BOUNTY_RESULT="FAIL"
+            fi
         else
             echo "  Failed to assign bounty"
             ASSIGN_BOUNTY_RESULT="FAIL"
@@ -461,8 +472,15 @@ echo ""
 echo "--- PART 9: AWARD BOUNTY (Finalize) ---"
 
 # CLI: award-bounty [bounty-id]
-# Transfers escrowed funds to all assigned recipients
+# Splits the escrow equally among assigned recipients and transfers the shares.
+# With a single assignment, the winner (poster1) receives the FULL escrow.
 if [ -n "$BOUNTY_ID" ]; then
+    # Record escrow amount and winner balance before finalizing
+    BOUNTY_INFO=$($BINARY query forum get-bounty $BOUNTY_ID --output json 2>&1)
+    ESCROW_AMOUNT=$(echo "$BOUNTY_INFO" | jq -r '.bounty.amount')
+    POSTER1_BAL_PRE=$($BINARY query bank balances $POSTER1_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
+    echo "  Escrow: $ESCROW_AMOUNT uspark | poster1 balance before: $POSTER1_BAL_PRE uspark"
+
     echo "Awarding bounty $BOUNTY_ID (transferring escrowed funds to recipients)..."
 
     TX_RES=$($BINARY tx forum award-bounty \
@@ -488,17 +506,35 @@ if [ -n "$BOUNTY_ID" ]; then
             STATUS=$(echo "$BOUNTY_INFO" | jq -r '.bounty.status')
             echo "  Bounty status: $STATUS"
             AWARD_BOUNTY_RESULT="PASS"
+
+            # Single winner must receive the full escrow (equal split among
+            # accepted replies; one reply accepted -> 100%). poster1 did not
+            # sign the award tx, so their balance delta is exactly the payout.
+            POSTER1_BAL_POST=$($BINARY query bank balances $POSTER1_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
+            PAYOUT=$((POSTER1_BAL_POST - POSTER1_BAL_PRE))
+            PAID_AMOUNT=$(echo "$BOUNTY_INFO" | jq -r '.bounty.awards[0].amount // ""')
+
+            if [ "$PAYOUT" == "$ESCROW_AMOUNT" ] && [ "$PAID_AMOUNT" == "$ESCROW_AMOUNT" ]; then
+                echo "  PASS: Winner received full escrow ($PAYOUT uspark), award.amount persisted as $PAID_AMOUNT"
+                AWARD_FULL_PAYOUT_RESULT="PASS"
+            else
+                echo "  FAIL: Expected payout=$ESCROW_AMOUNT, got balance delta=$PAYOUT, award.amount=$PAID_AMOUNT"
+                AWARD_FULL_PAYOUT_RESULT="FAIL"
+            fi
         else
             echo "  Failed to award bounty"
             AWARD_BOUNTY_RESULT="FAIL"
+            AWARD_FULL_PAYOUT_RESULT="FAIL"
         fi
     else
         echo "  Failed to submit transaction"
         AWARD_BOUNTY_RESULT="FAIL"
+        AWARD_FULL_PAYOUT_RESULT="FAIL"
     fi
 else
     echo "  No bounty available to award"
     AWARD_BOUNTY_RESULT="FAIL"
+    AWARD_FULL_PAYOUT_RESULT="FAIL"
 fi
 
 echo ""
@@ -1064,11 +1100,57 @@ if [ -n "$ERROR_THREAD_ID" ] && [ -n "$ERROR_BOUNTY_ID" ]; then
     else
         ERR_ASSIGN_DIFF_THREAD_RESULT="FAIL"
     fi
+
+    # 17d: Creator tries to accept their own reply (self-award guard)
+    TX_RES=$($BINARY tx forum create-post \
+        "${TEST_CATEGORY_ID:-1}" \
+        "$ERROR_THREAD_ID" \
+        "Creator answering own bounty question" \
+        --from bounty_creator \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    SELF_REPLY_ID=""
+
+    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        sleep 6
+        TX_RESULT=$(wait_for_tx $TXHASH)
+        if check_tx_success "$TX_RESULT"; then
+            SELF_REPLY_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
+            echo "  Created self-reply $SELF_REPLY_ID from bounty_creator"
+        fi
+    fi
+
+    if [ -n "$SELF_REPLY_ID" ]; then
+        TX_RES=$($BINARY tx forum assign-bounty-to-reply \
+            "$ERROR_THREAD_ID" \
+            "$SELF_REPLY_ID" \
+            "Paying myself back" \
+            --from bounty_creator \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+        if expect_tx_failure "Assign bounty to creator's own reply" "own reply" "$TX_RES"; then
+            ERR_ASSIGN_SELF_AWARD_RESULT="PASS"
+        else
+            ERR_ASSIGN_SELF_AWARD_RESULT="FAIL"
+        fi
+    else
+        echo "  Could not create self-reply for self-award test"
+        ERR_ASSIGN_SELF_AWARD_RESULT="FAIL"
+    fi
 else
     echo "  No error-test thread/bounty available for AssignBountyToReply error tests"
     ERR_ASSIGN_NON_CREATOR_RESULT="FAIL"
     ERR_ASSIGN_ROOT_POST_RESULT="FAIL"
     ERR_ASSIGN_DIFF_THREAD_RESULT="FAIL"
+    ERR_ASSIGN_SELF_AWARD_RESULT="FAIL"
 fi
 
 echo ""
@@ -1311,6 +1393,189 @@ fi
 echo ""
 
 # ========================================================================
+# PART 20: MULTI-WINNER EQUAL SPLIT (largest-remainder distribution)
+# ========================================================================
+echo "--- PART 20: MULTI-WINNER EQUAL SPLIT (largest-remainder distribution) ---"
+
+# The escrow is divided equally among ALL accepted replies at award-bounty.
+# 1001 uspark over 2 winners does not divide evenly: the integer remainder is
+# handed out one unit at a time in assignment order, so the first assigned
+# winner gets 501 and the second gets 500 - the full escrow is paid out, no
+# dust stays in the module account and the creator gets no refund.
+SPLIT_BOUNTY_AMOUNT="1001"
+SPLIT_PAYOUT_RESULT="FAIL"
+SPLIT_AUDIT_RESULT="FAIL"
+
+TX_RES=$($BINARY tx forum create-post \
+    "${TEST_CATEGORY_ID:-1}" \
+    "0" \
+    "Multi-winner split test thread" \
+    --from bounty_creator \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+
+TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+SPLIT_THREAD_ID=""
+
+if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+    sleep 6
+    TX_RESULT=$(wait_for_tx $TXHASH)
+    if check_tx_success "$TX_RESULT"; then
+        SPLIT_THREAD_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
+        echo "  Created thread $SPLIT_THREAD_ID for split test"
+    fi
+fi
+
+SPLIT_BOUNTY_ID=""
+if [ -n "$SPLIT_THREAD_ID" ]; then
+    TX_RES=$($BINARY tx forum create-bounty \
+        "$SPLIT_THREAD_ID" \
+        "$SPLIT_BOUNTY_AMOUNT" \
+        "1000" \
+        --from bounty_creator \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        sleep 6
+        TX_RESULT=$(wait_for_tx $TXHASH)
+        if check_tx_success "$TX_RESULT"; then
+            SPLIT_BOUNTY_ID=$(extract_event_value "$TX_RESULT" "bounty_created" "bounty_id")
+            echo "  Created bounty $SPLIT_BOUNTY_ID of $SPLIT_BOUNTY_AMOUNT uspark"
+        fi
+    fi
+fi
+
+# Create one reply each from poster1 and poster2, then assign both
+SPLIT_REPLY1_ID=""
+SPLIT_REPLY2_ID=""
+if [ -n "$SPLIT_BOUNTY_ID" ]; then
+    for POSTER in poster1 poster2; do
+        TX_RES=$($BINARY tx forum create-post \
+            "${TEST_CATEGORY_ID:-1}" \
+            "$SPLIT_THREAD_ID" \
+            "Split test answer from $POSTER" \
+            --from $POSTER \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+
+        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+        if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+            sleep 6
+            TX_RESULT=$(wait_for_tx $TXHASH)
+            if check_tx_success "$TX_RESULT"; then
+                REPLY_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
+                if [ "$POSTER" == "poster1" ]; then
+                    SPLIT_REPLY1_ID=$REPLY_ID
+                else
+                    SPLIT_REPLY2_ID=$REPLY_ID
+                fi
+                echo "  Created reply $REPLY_ID from $POSTER"
+            fi
+        fi
+    done
+fi
+
+if [ -n "$SPLIT_REPLY1_ID" ] && [ -n "$SPLIT_REPLY2_ID" ]; then
+    ASSIGN_OK=true
+    for REPLY_ID in $SPLIT_REPLY1_ID $SPLIT_REPLY2_ID; do
+        TX_RES=$($BINARY tx forum assign-bounty-to-reply \
+            "$SPLIT_THREAD_ID" \
+            "$REPLY_ID" \
+            "Both answers helped" \
+            --from bounty_creator \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+
+        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+        if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+            sleep 6
+            TX_RESULT=$(wait_for_tx $TXHASH)
+            if ! check_tx_success "$TX_RESULT"; then
+                echo "  Failed to assign reply $REPLY_ID"
+                ASSIGN_OK=false
+            fi
+        else
+            ASSIGN_OK=false
+        fi
+    done
+
+    if [ "$ASSIGN_OK" == "true" ]; then
+        echo "  Assigned both replies to bounty $SPLIT_BOUNTY_ID"
+
+        # Record winner balances, then finalize. Neither poster signs the
+        # award tx, so their balance deltas are exactly the payouts.
+        P1_BAL_PRE=$($BINARY query bank balances $POSTER1_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
+        P2_BAL_PRE=$($BINARY query bank balances $POSTER2_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
+
+        TX_RES=$($BINARY tx forum award-bounty \
+            "$SPLIT_BOUNTY_ID" \
+            --from bounty_creator \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+
+        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+        if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+            sleep 6
+            TX_RESULT=$(wait_for_tx $TXHASH)
+            if check_tx_success "$TX_RESULT"; then
+                P1_BAL_POST=$($BINARY query bank balances $POSTER1_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
+                P2_BAL_POST=$($BINARY query bank balances $POSTER2_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
+                P1_PAYOUT=$((P1_BAL_POST - P1_BAL_PRE))
+                P2_PAYOUT=$((P2_BAL_POST - P2_BAL_PRE))
+
+                # 1001 / 2 = 500 rem 1: first assigned winner gets the extra unit
+                echo "  poster1 payout: $P1_PAYOUT uspark (expected 501)"
+                echo "  poster2 payout: $P2_PAYOUT uspark (expected 500)"
+                if [ "$P1_PAYOUT" == "501" ] && [ "$P2_PAYOUT" == "500" ]; then
+                    echo "  PASS: Escrow split equally, remainder to first assigned, full payout"
+                    SPLIT_PAYOUT_RESULT="PASS"
+                else
+                    echo "  FAIL: Unexpected split (expected 501/500)"
+                fi
+
+                # Paid shares must be persisted on the awards for the audit trail
+                BOUNTY_INFO=$($BINARY query forum get-bounty $SPLIT_BOUNTY_ID --output json 2>&1)
+                AWARD1_AMOUNT=$(echo "$BOUNTY_INFO" | jq -r '.bounty.awards[0].amount // ""')
+                AWARD2_AMOUNT=$(echo "$BOUNTY_INFO" | jq -r '.bounty.awards[1].amount // ""')
+                if [ "$AWARD1_AMOUNT" == "501" ] && [ "$AWARD2_AMOUNT" == "500" ]; then
+                    echo "  PASS: Paid shares persisted on awards (501 / 500)"
+                    SPLIT_AUDIT_RESULT="PASS"
+                else
+                    echo "  FAIL: Persisted award amounts: '$AWARD1_AMOUNT' / '$AWARD2_AMOUNT' (expected 501 / 500)"
+                fi
+            else
+                echo "  Failed to award split bounty"
+            fi
+        else
+            echo "  Failed to submit award transaction"
+        fi
+    else
+        echo "  Could not assign both replies"
+    fi
+else
+    echo "  Could not set up split test (thread/bounty/replies missing)"
+fi
+
+echo ""
+
+# ========================================================================
 # SUMMARY
 # ========================================================================
 echo "--- BOUNTY TEST SUMMARY ---"
@@ -1326,6 +1591,7 @@ echo "    Increase bounty:               $INCREASE_BOUNTY_RESULT"
 echo "    Create reply for award:        $CREATE_REPLY_RESULT"
 echo "    Assign bounty to reply:        $ASSIGN_BOUNTY_RESULT"
 echo "    Award bounty (finalize):       $AWARD_BOUNTY_RESULT"
+echo "    Single winner full payout:     $AWARD_FULL_PAYOUT_RESULT"
 echo "    Query active bounties:         $QUERY_ACTIVE_RESULT"
 echo "    Query expiring bounties:       $QUERY_EXPIRING_RESULT"
 echo "    Cancel bounty:                 $CANCEL_BOUNTY_RESULT"
@@ -1350,6 +1616,7 @@ echo "  Error Paths - AssignBountyToReply:"
 echo "    Non-creator:                   $ERR_ASSIGN_NON_CREATOR_RESULT"
 echo "    Assign to root post:           $ERR_ASSIGN_ROOT_POST_RESULT"
 echo "    Reply from different thread:   $ERR_ASSIGN_DIFF_THREAD_RESULT"
+echo "    Creator's own reply:           $ERR_ASSIGN_SELF_AWARD_RESULT"
 echo ""
 echo "  Error Paths - CancelBounty:"
 echo "    Non-creator:                   $ERR_CANCEL_NON_CREATOR_RESULT"
@@ -1359,6 +1626,10 @@ echo ""
 echo "  Balance Verification:"
 echo "    Escrow deducts on create:      $BAL_ESCROW_RESULT"
 echo "    Partial refund on cancel:      $BAL_REFUND_RESULT"
+echo ""
+echo "  Multi-Winner Equal Split:"
+echo "    Payouts 501/500 of 1001:       $SPLIT_PAYOUT_RESULT"
+echo "    Paid shares persisted:         $SPLIT_AUDIT_RESULT"
 echo ""
 
 # Count failures
@@ -1374,6 +1645,7 @@ ALL_RESULTS=(
     "$CREATE_REPLY_RESULT"
     "$ASSIGN_BOUNTY_RESULT"
     "$AWARD_BOUNTY_RESULT"
+    "$AWARD_FULL_PAYOUT_RESULT"
     "$QUERY_ACTIVE_RESULT"
     "$QUERY_EXPIRING_RESULT"
     "$CANCEL_BOUNTY_RESULT"
@@ -1390,11 +1662,14 @@ ALL_RESULTS=(
     "$ERR_ASSIGN_NON_CREATOR_RESULT"
     "$ERR_ASSIGN_ROOT_POST_RESULT"
     "$ERR_ASSIGN_DIFF_THREAD_RESULT"
+    "$ERR_ASSIGN_SELF_AWARD_RESULT"
     "$ERR_CANCEL_NON_CREATOR_RESULT"
     "$ERR_CANCEL_HAS_AWARDS_RESULT"
     "$ERR_CANCEL_NOT_ACTIVE_RESULT"
     "$BAL_ESCROW_RESULT"
     "$BAL_REFUND_RESULT"
+    "$SPLIT_PAYOUT_RESULT"
+    "$SPLIT_AUDIT_RESULT"
 )
 
 for R in "${ALL_RESULTS[@]}"; do
