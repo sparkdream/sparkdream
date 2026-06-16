@@ -48,39 +48,46 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 
 	originalCategoryId := post.CategoryId
 
-	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+	// Resolve which moderation authority this move invokes. An account can be
+	// BOTH a bonded sentinel and a Commons Operations Committee member, so the
+	// choice must be explicit rather than an implicit upgrade to the council
+	// path. See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+	//
+	// Move eligibility = bonded sentinel in NORMAL/RECOVERY with a valid bond
+	// AND the thread carries no reserved tag (only the council may move a
+	// reserved-tag thread). Cooldown and the epoch limit are operational gates
+	// applied once the sentinel path is taken, not part of the decision.
+	var (
+		bondSnapshot     string
+		sentinelEligible bool
+		sentinelErr      error
+	)
+	if k.repKeeper == nil {
+		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
+	} else if br, berr := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator); berr != nil {
+		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
+	} else if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
+		sentinelErr = errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
+	} else if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
+		br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
+		sentinelErr = types.ErrSentinelDemoted
+	} else if reservedTag := k.firstReservedTag(ctx, post.Tags); reservedTag != "" {
+		sentinelErr = errorsmod.Wrapf(types.ErrCannotMoveReservedTag, "thread has reserved tag '%s'", reservedTag)
+	} else {
+		bondSnapshot = br.CurrentBond
+		sentinelEligible = true
+	}
 
-	var bondSnapshot string
+	isCouncil := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+
+	isGovAuthority, err := resolveModerationAuthority(msg.Authority, sentinelEligible, sentinelErr, isCouncil)
+	if err != nil {
+		return nil, err
+	}
+
 	if !isGovAuthority {
 		if params.ModerationPaused {
 			return nil, types.ErrModerationPaused
-		}
-
-		if k.repKeeper != nil {
-			for _, tag := range post.Tags {
-				reserved, rerr := k.repKeeper.IsReservedTag(ctx, tag)
-				if rerr == nil && reserved {
-					return nil, errorsmod.Wrapf(types.ErrCannotMoveReservedTag,
-						"thread has reserved tag '%s'", tag)
-				}
-			}
-		}
-
-		if k.repKeeper == nil {
-			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
-		}
-		br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-		if err != nil {
-			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
-		}
-		if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
-			return nil, errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
-		}
-		bondSnapshot = br.CurrentBond
-
-		if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-			br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-			return nil, types.ErrSentinelDemoted
 		}
 
 		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
@@ -91,7 +98,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
 				"cooldown until %d", local.OverturnCooldownUntil)
 		}
-		if local.EpochMoves >= types.DefaultMaxSentinelMovesPerEpoch {
+		if local.EpochMoves >= params.MaxSentinelMovesPerEpochOrDefault() {
 			return nil, types.ErrMoveLimitExceeded
 		}
 
@@ -103,7 +110,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 
 		// Reserve slash amount against the sentinel's bond so overturned
 		// appeals have funds to slash. Mirrors the HidePost reservation path.
-		slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
+		slashAmount := params.SentinelSlashAmountOrDefault()
 		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to move")
 		}
@@ -153,4 +160,20 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 	)
 
 	return &types.MsgMoveThreadResponse{}, nil
+}
+
+// firstReservedTag returns the first tag in tags that the rep registry marks as
+// reserved, or "" if none are (or the rep keeper is unwired). Only the council
+// may move a thread carrying a reserved tag, so a non-empty result makes the
+// caller ineligible for the sentinel move path.
+func (k msgServer) firstReservedTag(ctx context.Context, tags []string) string {
+	if k.repKeeper == nil {
+		return ""
+	}
+	for _, tag := range tags {
+		if reserved, rerr := k.repKeeper.IsReservedTag(ctx, tag); rerr == nil && reserved {
+			return tag
+		}
+	}
+	return ""
 }

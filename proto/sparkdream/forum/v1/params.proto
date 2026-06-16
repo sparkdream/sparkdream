@@ -201,6 +201,53 @@ message Params {
   uint64 max_make_permanent_per_day = 51;
 
   // ---------------------------------------------------------------------------
+  // Sentinel moderation rate caps + per-action slash (Operations-Committee
+  // tunable; see ForumOperationalParams 52-55). Each value is bounded in
+  // Params.Validate(). A stored 0 means "unset" and the handler falls back to
+  // the compile-time default — so existing chains keep today's behavior with
+  // no migration, while fresh genesis seeds the real defaults.
+  // ---------------------------------------------------------------------------
+
+  // max_hides_per_epoch caps sentinel MsgHidePost actions per address per UTC
+  // day. 0 = use the default (50).
+  uint64 max_hides_per_epoch = 52;
+
+  // max_sentinel_locks_per_epoch caps sentinel MsgLockThread actions per
+  // address per UTC day. 0 = use the default (5).
+  uint64 max_sentinel_locks_per_epoch = 53;
+
+  // max_sentinel_moves_per_epoch caps sentinel MsgMoveThread actions per
+  // address per UTC day. 0 = use the default (10).
+  uint64 max_sentinel_moves_per_epoch = 54;
+
+  // sentinel_slash_amount is the DREAM reserved-then-slashed per moderation
+  // action that is later overturned on appeal (math.Int string, udream).
+  // Bounded to (0, min_sentinel_bond]. Empty/"0" = use the default (100 DREAM).
+  string sentinel_slash_amount = 55;
+
+  // ---------------------------------------------------------------------------
+  // Thread-lock eligibility floors (governance-only; NOT in
+  // ForumOperationalParams). Bounded in Params.Validate(). Lock requirements
+  // are expressed relative to the base sentinel bond/tier so there is a single
+  // source of truth (no base-vs-lock duplication). A stored 0/empty means
+  // "unset" → the handler uses the compile-time default.
+  // ---------------------------------------------------------------------------
+
+  // lock_bond_multiplier: a sentinel must have bonded at least
+  // lock_bond_multiplier × min_sentinel_bond to lock a thread. Bounded >= 1
+  // (lock can never be weaker than the base bond). 0 = use the default (4).
+  uint64 lock_bond_multiplier = 56;
+
+  // lock_backing_amount is the minimum DREAM backing (total balance) a sentinel
+  // must hold to lock a thread (math.Int string, udream). Bounded >= the
+  // derived lock bond. Empty/"0" = use the default (20000 DREAM).
+  string lock_backing_amount = 57;
+
+  // lock_min_rep_tier is the minimum reputation tier required to lock a thread.
+  // Bounded to [min_sentinel_rep_tier, 5]. 0 = use the default (4).
+  uint64 lock_min_rep_tier = 58;
+
+  // ---------------------------------------------------------------------------
   // Post conviction-stake (author-earned forum rep) config.
   //
   // ESTABLISHED+ members lock DREAM on a post to express endorsement. The
@@ -396,6 +443,24 @@ message ForumOperationalParams {
 
   // max_make_permanent_per_day — see Params.max_make_permanent_per_day.
   uint64 max_make_permanent_per_day = 51;
+
+  // ---------------------------------------------------------------------------
+  // Sentinel moderation rate caps + per-action slash. See Params 52-55.
+  // The lock-eligibility floors (Params 56-58) are intentionally NOT here —
+  // those are governance-only.
+  // ---------------------------------------------------------------------------
+
+  // max_hides_per_epoch — see Params.max_hides_per_epoch.
+  uint64 max_hides_per_epoch = 52;
+
+  // max_sentinel_locks_per_epoch — see Params.max_sentinel_locks_per_epoch.
+  uint64 max_sentinel_locks_per_epoch = 53;
+
+  // max_sentinel_moves_per_epoch — see Params.max_sentinel_moves_per_epoch.
+  uint64 max_sentinel_moves_per_epoch = 54;
+
+  // sentinel_slash_amount — see Params.sentinel_slash_amount.
+  string sentinel_slash_amount = 55;
 
   // ---------------------------------------------------------------------------
   // Post conviction-stake (author-earned forum rep) config. See Params.

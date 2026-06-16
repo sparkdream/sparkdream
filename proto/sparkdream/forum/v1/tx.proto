@@ -305,6 +305,9 @@ message MsgLockThread {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
   string reason = 3;
+  // authority selects which moderation authority the caller is invoking.
+  // Defaults to AUTO for backward compatibility.
+  ModerationAuthority authority = 4;
 }
 
 // MsgLockThreadResponse defines the MsgLockThreadResponse message.
@@ -329,6 +332,9 @@ message MsgMoveThread {
   uint64 root_id = 2;
   uint64 new_category_id = 3;
   string reason = 4;
+  // authority selects which moderation authority the caller is invoking.
+  // Defaults to AUTO for backward compatibility.
+  ModerationAuthority authority = 5;
 }
 
 // MsgMoveThreadResponse defines the MsgMoveThreadResponse message.
@@ -436,24 +442,25 @@ message MsgDismissFlags {
 // MsgDismissFlagsResponse defines the MsgDismissFlagsResponse message.
 message MsgDismissFlagsResponse {}
 
-// HideAuthority selects which authority the caller of MsgHidePost is invoking.
-// It disambiguates the case where an account is BOTH a bonded forum sentinel
-// and a Commons Operations Committee member: without it the handler would
-// silently pick the council (gov) path — a strictly more powerful, less
-// accountable action chosen by accident. See
-// docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
-enum HideAuthority {
+// ModerationAuthority selects which authority the caller of a sentinel/council
+// moderation message (hide, lock, move) is invoking. It disambiguates the case
+// where an account is BOTH a bonded forum sentinel and a Commons Operations
+// Committee member: without it the handler would silently pick the council
+// (gov) path — a strictly more powerful, less accountable action chosen by
+// accident. See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+enum ModerationAuthority {
   // AUTO (default, back-compat): resolve to the sentinel path whenever the
-  // account holds an eligible sentinel bond (NORMAL/RECOVERY), else fall
-  // through to the council path if council-authorized, else error. AUTO
-  // prefers the accountable (bonded + author-appealable) sentinel path.
-  HIDE_AUTHORITY_AUTO = 0;
-  // SENTINEL: force the sentinel path; error if the account is not an
-  // eligible sentinel (no silent fallback to council).
-  HIDE_AUTHORITY_SENTINEL = 1;
+  // account is eligible for that specific action (bonded sentinel in
+  // NORMAL/RECOVERY plus the action's own requirements), else fall through to
+  // the council path if council-authorized, else error. AUTO prefers the
+  // accountable (bonded + author-appealable) sentinel path.
+  MODERATION_AUTHORITY_AUTO = 0;
+  // SENTINEL: force the sentinel path; error if the account is not eligible
+  // for the action (no silent fallback to council).
+  MODERATION_AUTHORITY_SENTINEL = 1;
   // COUNCIL: force the council (gov-authority) path; error if the account is
   // not council-authorized. The deliberate "act as committee" choice.
-  HIDE_AUTHORITY_COUNCIL = 2;
+  MODERATION_AUTHORITY_COUNCIL = 2;
 }
 
 // MsgHidePost defines the MsgHidePost message.
@@ -466,7 +473,7 @@ message MsgHidePost {
   string reason_text = 4;
   // authority selects which moderation authority the caller is invoking.
   // Defaults to AUTO for backward compatibility.
-  HideAuthority authority = 5;
+  ModerationAuthority authority = 5;
 }
 
 // MsgHidePostResponse defines the MsgHidePostResponse message.

@@ -84,6 +84,10 @@ bump_ephemeral_ttl() {
       sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0"),
       make_permanent_min_trust_level: (.make_permanent_min_trust_level // 0),
       max_make_permanent_per_day: (.max_make_permanent_per_day // "10"),
+      max_hides_per_epoch: (.max_hides_per_epoch // "50"),
+      max_sentinel_locks_per_epoch: (.max_sentinel_locks_per_epoch // "5"),
+      max_sentinel_moves_per_epoch: (.max_sentinel_moves_per_epoch // "10"),
+      sentinel_slash_amount: (.sentinel_slash_amount // "100000000"),
       max_promotions_per_block: (
         if (.max_promotions_per_block // 0) > 0
         then .max_promotions_per_block else 50 end
@@ -240,6 +244,10 @@ bump_post_conviction_params() {
       sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0"),
       make_permanent_min_trust_level: (.make_permanent_min_trust_level // 0),
       max_make_permanent_per_day: (.max_make_permanent_per_day // "10"),
+      max_hides_per_epoch: (.max_hides_per_epoch // "50"),
+      max_sentinel_locks_per_epoch: (.max_sentinel_locks_per_epoch // "5"),
+      max_sentinel_moves_per_epoch: (.max_sentinel_moves_per_epoch // "10"),
+      sentinel_slash_amount: (.sentinel_slash_amount // "100000000"),
       max_promotions_per_block: (
         if (.max_promotions_per_block // 0) > 0
         then .max_promotions_per_block else 50 end

@@ -42,35 +42,58 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 		return nil, types.ErrThreadAlreadyLocked
 	}
 
-	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+	// Resolve which moderation authority this lock invokes. An account can be
+	// BOTH a bonded sentinel and a Commons Operations Committee member, so the
+	// choice must be explicit rather than an implicit upgrade to the council
+	// path (which writes no lock record and is unlockable only by the council).
+	// See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+	//
+	// Lock eligibility = bonded sentinel in NORMAL/RECOVERY with a valid bond,
+	// meeting the lock rep-tier and the 2x (2000 DREAM) bond floor. The backing
+	// floor, cooldown, and epoch limit are operational gates applied once the
+	// sentinel path is taken, not part of the authority decision.
+	// Lock-eligibility floors are governance-tunable + bounded (Params 56-58),
+	// derived from the base sentinel bond/tier so there is a single source of
+	// truth. The *OrDefault accessors fall back to the historical constants
+	// (2000 DREAM bond, tier 4, 20000 DREAM backing) when unset.
+	minLockBond := params.LockMinBondOrDefault()
+	lockMinRepTier := params.LockMinRepTierOrDefault()
+	var (
+		bondSnapshot     string
+		sentinelEligible bool
+		sentinelErr      error
+	)
+	if k.repKeeper == nil {
+		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
+	} else if repTier := k.GetRepTier(ctx, msg.Creator); repTier < lockMinRepTier {
+		sentinelErr = errorsmod.Wrapf(types.ErrInsufficientReputation,
+			"tier %d required for locking, have %d", lockMinRepTier, repTier)
+	} else if br, berr := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator); berr != nil {
+		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
+	} else if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
+		sentinelErr = errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
+	} else if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
+		br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
+		sentinelErr = types.ErrSentinelDemoted
+	} else if currentBond := parseIntOrZero(br.CurrentBond); currentBond.LT(minLockBond) {
+		// Higher bond requirement for locking (2x normal bond, in DREAM micro-units).
+		sentinelErr = errorsmod.Wrapf(types.ErrInsufficientLockBond,
+			"need %s udream bonded for locking, have %s", minLockBond.String(), currentBond.String())
+	} else {
+		bondSnapshot = br.CurrentBond
+		sentinelEligible = true
+	}
 
-	var bondSnapshot string
+	isCouncil := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+
+	isGovAuthority, err := resolveModerationAuthority(msg.Authority, sentinelEligible, sentinelErr, isCouncil)
+	if err != nil {
+		return nil, err
+	}
+
 	if !isGovAuthority {
 		if params.ModerationPaused {
 			return nil, types.ErrModerationPaused
-		}
-
-		repTier := k.GetRepTier(ctx, msg.Creator)
-		if repTier < types.DefaultMinRepTierThreadLock {
-			return nil, errorsmod.Wrapf(types.ErrInsufficientReputation,
-				"tier %d required for locking, have %d", types.DefaultMinRepTierThreadLock, repTier)
-		}
-
-		if k.repKeeper == nil {
-			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
-		}
-		br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-		if err != nil {
-			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
-		}
-		if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
-			return nil, errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
-		}
-		bondSnapshot = br.CurrentBond
-
-		if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-			br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-			return nil, types.ErrSentinelDemoted
 		}
 
 		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
@@ -81,20 +104,12 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
 				"cooldown until %d", local.OverturnCooldownUntil)
 		}
-		if local.EpochLocks >= types.DefaultMaxSentinelLocksPerEpoch {
+		if local.EpochLocks >= params.MaxSentinelLocksPerEpochOrDefault() {
 			return nil, types.ErrLockLimitExceeded
 		}
 
-		// Higher bond requirement for locking (2x normal bond, in DREAM micro-units).
-		currentBond := parseIntOrZero(br.CurrentBond)
-		minLockBond := math.NewInt(2_000_000_000) // 2000 DREAM
-		if currentBond.LT(minLockBond) {
-			return nil, errorsmod.Wrapf(types.ErrInsufficientLockBond,
-				"need %s udream bonded for locking, have %s", minLockBond.String(), currentBond.String())
-		}
-
 		backing := k.GetSentinelBacking(ctx, msg.Creator)
-		minLockBacking := math.NewInt(20_000_000_000) // 20000 DREAM
+		minLockBacking := params.LockBackingAmountOrDefault()
 		if backing.LT(minLockBacking) {
 			return nil, errorsmod.Wrapf(types.ErrInsufficientLockBacking,
 				"need %s udream backing for locking, have %s", minLockBacking.String(), backing.String())
@@ -106,7 +121,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 
 		// Reserve slash amount against the sentinel's bond so overturned
 		// appeals have funds to slash. Mirrors the HidePost reservation path.
-		slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
+		slashAmount := params.SentinelSlashAmountOrDefault()
 		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to lock")
 		}

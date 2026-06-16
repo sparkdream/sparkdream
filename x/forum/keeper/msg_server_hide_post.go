@@ -57,7 +57,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		// for explicit SENTINEL requests and for the AUTO no-fallback case.
 		sentinelErr error
 	)
-	slashAmount := math.NewInt(types.DefaultSentinelSlashAmount)
+	slashAmount := params.SentinelSlashAmountOrDefault()
 
 	if k.repKeeper == nil {
 		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
@@ -77,36 +77,9 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	isCouncil := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
 	// isGovAuthority is the resolved decision: take the gov (council) path.
-	var isGovAuthority bool
-	switch msg.Authority {
-	case types.HideAuthority_HIDE_AUTHORITY_SENTINEL:
-		// Force sentinel; no silent fallback to council.
-		if !sentinelEligible {
-			return nil, sentinelErr
-		}
-		isGovAuthority = false
-	case types.HideAuthority_HIDE_AUTHORITY_COUNCIL:
-		// Force council; the deliberate "act as committee" choice, allowed even
-		// for a bonded sentinel.
-		if !isCouncil {
-			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "not authorized as council")
-		}
-		isGovAuthority = true
-	case types.HideAuthority_HIDE_AUTHORITY_AUTO:
-		// Prefer the accountable sentinel path; fall through to council only
-		// when the account is not an eligible sentinel.
-		switch {
-		case sentinelEligible:
-			isGovAuthority = false
-		case isCouncil:
-			isGovAuthority = true
-		default:
-			// Neither path available: surface the specific sentinel reason
-			// (ErrNotSentinel / ErrSentinelDemoted / ErrInvalidAmount).
-			return nil, sentinelErr
-		}
-	default:
-		return nil, errorsmod.Wrapf(types.ErrInvalidHideAuthority, "unknown authority %d", msg.Authority)
+	isGovAuthority, err := resolveModerationAuthority(msg.Authority, sentinelEligible, sentinelErr, isCouncil)
+	if err != nil {
+		return nil, err
 	}
 
 	if !isGovAuthority {
@@ -119,7 +92,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
 				"cooldown until %d", local.OverturnCooldownUntil)
 		}
-		if local.EpochHides >= types.DefaultMaxHidesPerEpoch {
+		if local.EpochHides >= params.MaxHidesPerEpochOrDefault() {
 			return nil, types.ErrHideLimitExceeded
 		}
 

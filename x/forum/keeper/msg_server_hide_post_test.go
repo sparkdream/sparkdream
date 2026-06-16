@@ -251,6 +251,37 @@ func TestHidePost_UnbondingSentinelRejected(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrSentinelDemoted)
 }
 
+// TestHidePost_ParamDrivenEpochCap proves the per-epoch hide cap is read from
+// params (not the hardcoded DefaultMaxHidesPerEpoch): lowering it to 1 makes the
+// second hide in the epoch fail.
+func TestHidePost_ParamDrivenEpochCap(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+	f.createTestSentinel(t, testSentinel, "2000000000")
+
+	params := types.DefaultParams()
+	params.MaxHidesPerEpoch = 1
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	p1 := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+	_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+		Creator:    testSentinel,
+		PostId:     p1.PostId,
+		ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+		ReasonText: "x",
+	})
+	require.NoError(t, err)
+
+	p2 := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+	_, err = f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+		Creator:    testSentinel,
+		PostId:     p2.PostId,
+		ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+		ReasonText: "x",
+	})
+	require.ErrorIs(t, err, types.ErrHideLimitExceeded)
+}
+
 // TestHidePost_AuthorityDisambiguation covers the case where an account is BOTH
 // a bonded forum sentinel AND a Commons Operations Committee member. Without an
 // explicit authority the hide must default to the accountable sentinel path
@@ -283,7 +314,7 @@ func TestHidePost_AuthorityDisambiguation(t *testing.T) {
 			PostId:     postID,
 			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 			ReasonText: "spam",
-			Authority:  types.HideAuthority_HIDE_AUTHORITY_AUTO,
+			Authority:  types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
 		})
 		require.NoError(t, err)
 		hr, err := f.keeper.HideRecord.Get(f.ctx, postID)
@@ -305,7 +336,7 @@ func TestHidePost_AuthorityDisambiguation(t *testing.T) {
 			PostId:     postID,
 			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 			ReasonText: "spam",
-			Authority:  types.HideAuthority_HIDE_AUTHORITY_COUNCIL,
+			Authority:  types.ModerationAuthority_MODERATION_AUTHORITY_COUNCIL,
 		})
 		require.NoError(t, err)
 		hr, err := f.keeper.HideRecord.Get(f.ctx, postID)
@@ -326,7 +357,7 @@ func TestHidePost_AuthorityDisambiguation(t *testing.T) {
 			PostId:     postID,
 			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 			ReasonText: "spam",
-			Authority:  types.HideAuthority_HIDE_AUTHORITY_SENTINEL,
+			Authority:  types.ModerationAuthority_MODERATION_AUTHORITY_SENTINEL,
 		})
 		require.NoError(t, err)
 		hr, err := f.keeper.HideRecord.Get(f.ctx, postID)
@@ -350,7 +381,7 @@ func TestHidePost_ExplicitAuthorityErrors(t *testing.T) {
 			PostId:     post.PostId,
 			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 			ReasonText: "x",
-			Authority:  types.HideAuthority_HIDE_AUTHORITY_SENTINEL,
+			Authority:  types.ModerationAuthority_MODERATION_AUTHORITY_SENTINEL,
 		})
 		require.ErrorIs(t, err, types.ErrNotSentinel)
 	})
@@ -366,7 +397,7 @@ func TestHidePost_ExplicitAuthorityErrors(t *testing.T) {
 			PostId:     post.PostId,
 			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 			ReasonText: "x",
-			Authority:  types.HideAuthority_HIDE_AUTHORITY_COUNCIL,
+			Authority:  types.ModerationAuthority_MODERATION_AUTHORITY_COUNCIL,
 		})
 		require.ErrorIs(t, err, types.ErrNotAuthorized)
 	})
@@ -390,7 +421,7 @@ func TestHidePost_ExplicitAuthorityErrors(t *testing.T) {
 			PostId:     post.PostId,
 			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 			ReasonText: "x",
-			Authority:  types.HideAuthority_HIDE_AUTHORITY_AUTO,
+			Authority:  types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
 		})
 		require.NoError(t, err)
 		hr, err := f.keeper.HideRecord.Get(f.ctx, post.PostId)
@@ -413,7 +444,7 @@ func TestHidePost_ExplicitAuthorityErrors(t *testing.T) {
 			PostId:     post.PostId,
 			ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
 			ReasonText: "x",
-			Authority:  types.HideAuthority_HIDE_AUTHORITY_AUTO,
+			Authority:  types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
 		})
 		require.ErrorIs(t, err, types.ErrSentinelDemoted)
 	})

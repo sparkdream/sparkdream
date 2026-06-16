@@ -168,6 +168,10 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0"),
       make_permanent_min_trust_level: (.make_permanent_min_trust_level // 0),
       max_make_permanent_per_day: (.max_make_permanent_per_day // "10"),
+      max_hides_per_epoch: (.max_hides_per_epoch // "50"),
+      max_sentinel_locks_per_epoch: (.max_sentinel_locks_per_epoch // "5"),
+      max_sentinel_moves_per_epoch: (.max_sentinel_moves_per_epoch // "10"),
+      sentinel_slash_amount: (.sentinel_slash_amount // "100000000"),
       max_promotions_per_block: (
         if (.max_promotions_per_block // 0) > 0
         then .max_promotions_per_block else 50 end
@@ -180,15 +184,18 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500")
     }')
 
-    # Modify test fields: double the ephemeral TTL and spam tax
+    # Modify test fields: double the ephemeral TTL and spam tax, and tune the
+    # moderation lock cap (a newly ops-tunable sentinel rate knob).
     NEW_EPHEMERAL_TTL="172800"
     NEW_SPAM_TAX_AMOUNT="2000000"
     NEW_DAILY_POST_LIMIT="100"
+    NEW_MAX_LOCKS_PER_EPOCH="3"
 
     OP_PARAMS=$(echo "$OP_PARAMS" | jq '
       .ephemeral_ttl = "'$NEW_EPHEMERAL_TTL'" |
       .spam_tax_amount = "'$NEW_SPAM_TAX_AMOUNT'" |
-      .daily_post_limit = "'$NEW_DAILY_POST_LIMIT'"
+      .daily_post_limit = "'$NEW_DAILY_POST_LIMIT'" |
+      .max_sentinel_locks_per_epoch = "'$NEW_MAX_LOCKS_PER_EPOCH'"
     ')
 
     # Build the proposal JSON
@@ -246,10 +253,12 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     UPDATED_EPHEMERAL_TTL=$(echo $UPDATED_PARAMS | jq -r '.params.ephemeral_ttl')
     UPDATED_SPAM_TAX=$(echo $UPDATED_PARAMS | jq -r '.params.spam_tax_amount')
     UPDATED_DAILY_POST_LIMIT=$(echo $UPDATED_PARAMS | jq -r '.params.daily_post_limit')
+    UPDATED_MAX_LOCKS=$(echo $UPDATED_PARAMS | jq -r '.params.max_sentinel_locks_per_epoch')
 
     echo "  ephemeral_ttl:    $UPDATED_EPHEMERAL_TTL (expected: $NEW_EPHEMERAL_TTL)"
     echo "  spam_tax:         $UPDATED_SPAM_TAX (expected: $NEW_SPAM_TAX_AMOUNT)"
     echo "  daily_post_limit: $UPDATED_DAILY_POST_LIMIT (expected: $NEW_DAILY_POST_LIMIT)"
+    echo "  max_sentinel_locks_per_epoch: $UPDATED_MAX_LOCKS (expected: $NEW_MAX_LOCKS_PER_EPOCH)"
 
     VERIFY_OP_OK=true
     if [ "$UPDATED_EPHEMERAL_TTL" != "$NEW_EPHEMERAL_TTL" ]; then
@@ -262,6 +271,10 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     fi
     if [ "$UPDATED_DAILY_POST_LIMIT" != "$NEW_DAILY_POST_LIMIT" ]; then
         echo "  daily_post_limit mismatch (got $UPDATED_DAILY_POST_LIMIT)"
+        VERIFY_OP_OK=false
+    fi
+    if [ "$UPDATED_MAX_LOCKS" != "$NEW_MAX_LOCKS_PER_EPOCH" ]; then
+        echo "  max_sentinel_locks_per_epoch mismatch (got $UPDATED_MAX_LOCKS)"
         VERIFY_OP_OK=false
     fi
 
@@ -358,6 +371,10 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       sentinel_unbond_cooldown: (.sentinel_unbond_cooldown // "0"),
       make_permanent_min_trust_level: (.make_permanent_min_trust_level // 0),
       max_make_permanent_per_day: (.max_make_permanent_per_day // "10"),
+      max_hides_per_epoch: (.max_hides_per_epoch // "50"),
+      max_sentinel_locks_per_epoch: (.max_sentinel_locks_per_epoch // "5"),
+      max_sentinel_moves_per_epoch: (.max_sentinel_moves_per_epoch // "10"),
+      sentinel_slash_amount: (.sentinel_slash_amount // "100000000"),
       max_promotions_per_block: (
         if (.max_promotions_per_block // 0) > 0
         then .max_promotions_per_block else 50 end

@@ -425,6 +425,15 @@ genesis:
         hide_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         lock_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
         move_appeal_cooldown: "5"    # 5 seconds (was 1 hour = 3600)
+        # Per-UTC-day post cap - RAISED for testing (production default 50).
+        # The forum e2e suite runs ~20 test files sequentially against one chain
+        # in a single UTC day, and poster1 alone authors well over 50 posts
+        # cumulatively. At the default 50 the cap is exhausted mid-suite
+        # (advanced_test), cascading rate-limit (code 1500) failures into
+        # anon_test and content_status_test whose prerequisite posts then fail
+        # to create. No script asserts the 50 cap, so raise it far above the
+        # suite's cumulative volume.
+        daily_post_limit: "1000"
     collect:
       params:
         # Curator age gate - SHORT for testing (production: 14400 ~1 day).

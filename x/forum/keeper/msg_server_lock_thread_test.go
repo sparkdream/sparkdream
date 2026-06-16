@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"sparkdream/x/forum/types"
@@ -248,4 +249,132 @@ func TestLockThread_UnbondingSentinelRejected(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrSentinelDemoted)
+}
+
+// TestLockThread_ParamDrivenBondFloor proves the lock bond floor is read from
+// params (lock_bond_multiplier × min_sentinel_bond), not a hardcoded constant:
+// raising the multiplier makes an otherwise-eligible sentinel ineligible, and
+// lowering it restores eligibility.
+func TestLockThread_ParamDrivenBondFloor(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+	thread := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+	f.createTestSentinel(t, testSentinel, "3000000000") // 3000 DREAM
+
+	// Raise the multiplier so the derived floor (10 × 500 = 5000 DREAM) exceeds
+	// the sentinel's 3000 DREAM bond.
+	params := types.DefaultParams()
+	params.LockBondMultiplier = 10
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+	_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+		Creator:   testSentinel,
+		RootId:    thread.PostId,
+		Reason:    "x",
+		Authority: types.ModerationAuthority_MODERATION_AUTHORITY_SENTINEL,
+	})
+	require.ErrorIs(t, err, types.ErrInsufficientLockBond)
+
+	// Restore the default multiplier (4 × 500 = 2000 DREAM <= 3000) → succeeds.
+	params.LockBondMultiplier = 4
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+	_, err = f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+		Creator: testSentinel,
+		RootId:  thread.PostId,
+		Reason:  "x",
+	})
+	require.NoError(t, err)
+}
+
+// TestLockThread_AuthorityDisambiguation covers the sentinel-vs-council choice
+// for MsgLockThread when one account holds both roles. AUTO must prefer the
+// accountable sentinel path (writes a ThreadLockRecord) over the council path
+// (no record, unlockable only by the council). See
+// docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+func TestLockThread_AuthorityDisambiguation(t *testing.T) {
+	// Lock-eligible sentinel that is ALSO council.
+	setup := func(t *testing.T, bond string) (*fixture, uint64) {
+		t.Helper()
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+		thread := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		f.createTestSentinel(t, testSentinel, bond)
+		authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+		f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, addr string, _ string, _ string) bool {
+			return addr == authority || addr == testSentinel
+		}
+		return f, thread.PostId
+	}
+
+	// AUTO by a lock-eligible (3000 DREAM ≥ 2000) sentinel-and-council account
+	// takes the sentinel path: a ThreadLockRecord with Sentinel == creator.
+	t.Run("auto prefers sentinel path when lock-eligible", func(t *testing.T) {
+		f, rootID := setup(t, "3000000000")
+		_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+			Creator:   testSentinel,
+			RootId:    rootID,
+			Reason:    "off-topic",
+			Authority: types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
+		})
+		require.NoError(t, err)
+		rec, err := f.keeper.ThreadLockRecord.Get(f.ctx, rootID)
+		require.NoError(t, err, "AUTO must take the sentinel path and write a lock record")
+		require.Equal(t, testSentinel, rec.Sentinel)
+	})
+
+	// Explicit COUNCIL by the same account is the deliberate gov lock: no record.
+	t.Run("explicit council is opt-in gov lock", func(t *testing.T) {
+		f, rootID := setup(t, "3000000000")
+		_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+			Creator:   testSentinel,
+			RootId:    rootID,
+			Reason:    "",
+			Authority: types.ModerationAuthority_MODERATION_AUTHORITY_COUNCIL,
+		})
+		require.NoError(t, err)
+		_, err = f.keeper.ThreadLockRecord.Get(f.ctx, rootID)
+		require.Error(t, err, "explicit COUNCIL lock must not write a sentinel lock record")
+	})
+
+	// AUTO by a council account whose bond is BELOW the 2x lock floor (1000 <
+	// 2000 DREAM) is NOT lock-eligible, so it falls through to the council path.
+	t.Run("auto falls through to council when bond below lock floor", func(t *testing.T) {
+		f, rootID := setup(t, "1000000000") // 1000 DREAM < 2000 lock floor
+		_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+			Creator:   testSentinel,
+			RootId:    rootID,
+			Reason:    "",
+			Authority: types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
+		})
+		require.NoError(t, err)
+		_, err = f.keeper.ThreadLockRecord.Get(f.ctx, rootID)
+		require.Error(t, err, "sub-floor bond with council falls through to a gov lock (no record)")
+	})
+
+	// Explicit SENTINEL by a sub-floor-bond account hard-errors with the
+	// specific lock-bond error — no silent downgrade to council.
+	t.Run("explicit sentinel below lock floor hard-errors", func(t *testing.T) {
+		f, rootID := setup(t, "1000000000")
+		_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+			Creator:   testSentinel,
+			RootId:    rootID,
+			Reason:    "x",
+			Authority: types.ModerationAuthority_MODERATION_AUTHORITY_SENTINEL,
+		})
+		require.ErrorIs(t, err, types.ErrInsufficientLockBond)
+	})
+
+	// Explicit COUNCIL by a non-council account → ErrNotAuthorized.
+	t.Run("explicit council by non-council fails", func(t *testing.T) {
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+		thread := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+		f.createTestSentinel(t, testSentinel, "3000000000") // sentinel, not council
+		_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+			Creator:   testSentinel,
+			RootId:    thread.PostId,
+			Reason:    "x",
+			Authority: types.ModerationAuthority_MODERATION_AUTHORITY_COUNCIL,
+		})
+		require.ErrorIs(t, err, types.ErrNotAuthorized)
+	})
 }

@@ -401,6 +401,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "lock-thread [root-id] [reason]",
 					Short:          "Send a lock-thread tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "root_id"}, {ProtoField: "reason"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"authority": {Name: "authority", Usage: "moderation authority: auto (default, sentinel-first), sentinel (force sentinel), council (force committee)"},
+					},
 				},
 				{
 					RpcMethod:      "UnlockThread",
@@ -413,6 +416,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "move-thread [root-id] [new-category-id] [reason]",
 					Short:          "Send a move-thread tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "root_id"}, {ProtoField: "new_category_id"}, {ProtoField: "reason"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"authority": {Name: "authority", Usage: "moderation authority: auto (default, sentinel-first), sentinel (force sentinel), council (force committee)"},
+					},
 				},
 				{
 					RpcMethod:      "FollowThread",
@@ -468,7 +474,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Send a hide-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "reason_code"}, {ProtoField: "reason_text"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
-						"authority": {Name: "authority", Usage: "moderation authority: HIDE_AUTHORITY_AUTO (default, sentinel-first), HIDE_AUTHORITY_SENTINEL (force sentinel), HIDE_AUTHORITY_COUNCIL (force committee)"},
+						"authority": {Name: "authority", Usage: "moderation authority: auto (default, sentinel-first), sentinel (force sentinel), council (force committee)"},
 					},
 				},
 				{

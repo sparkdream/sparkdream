@@ -125,11 +125,12 @@ source "$TEST_DIR/_timing.sh"
 # Shared safe-rmtree helper (see docs/development-conventions.md — `rm -rf` is forbidden project-wide).
 source "$TEST_DIR/_safe_rm.sh"
 
-# Workdir root and PID file used by the cleanup trap and --stop flag.
-# (Set early so --stop can find the running run_parallel.sh before any other
-# initialization runs.)
+# Workdir root, PID file, and run lock used by the cleanup trap and --stop flag.
+# (Set early so --stop can find the running run_parallel.sh — and release a
+# leftover lock — before any other initialization runs.)
 E2E_ROOT="${SPARKDREAM_E2E_DIR:-$PROJECT_DIR/e2e}"
 PID_FILE="$E2E_ROOT/run_parallel.pid"
+PID_LOCK="$E2E_ROOT/run_parallel.lock"
 
 # ----------------------------------------------------------------------------
 # kill_tree: SIGTERM/KILL a process AND all its descendants, post-order.
@@ -170,6 +171,37 @@ kill_orphan_parallel_chains() {
             kill -KILL "$pid" 2>/dev/null && count=$((count + 1))
         fi
     done < <(pgrep -x sparkdreamd 2>/dev/null)
+    echo "$count"
+}
+
+# ----------------------------------------------------------------------------
+# release_run_lock: kill any process still holding the run-lock fd, then remove
+# the lock file. Echoes the number of holders killed.
+#
+# acquire_pid_lock holds the lock via flock on fd 9, which stays held for the
+# LIFETIME of that fd — and the fd is inherited by every child run_parallel.sh
+# spawns, including the per-suite `tail -F chain.log | sed 's/^/[mod] /'` log
+# pipeline. If the tracked harness dies ungracefully (e.g. `kill -9` of just the
+# parent) without reaping its tree, those children outlive it and keep the flock
+# held, so the next run fails with "another run_parallel.sh holds the lock" even
+# though no run is active. The PID-file and sparkdreamd-orphan paths in --stop
+# don't match the tail|sed holders; this clears the lock directly. Removing the
+# lock file is safe even if a holder survives: the next run creates a fresh
+# inode and flocks that, while the orphan keeps the now-unlinked one harmlessly.
+release_run_lock() {
+    [ -e "$PID_LOCK" ] || { echo 0; return 0; }
+    local holders=""
+    if command -v fuser >/dev/null 2>&1; then
+        holders=$(fuser "$PID_LOCK" 2>/dev/null)
+    elif command -v lsof >/dev/null 2>&1; then
+        holders=$(lsof -t "$PID_LOCK" 2>/dev/null)
+    fi
+    holders=$(echo $holders | xargs 2>/dev/null) # normalize whitespace
+    local count=0 pid
+    for pid in $holders; do
+        kill -KILL "$pid" 2>/dev/null && count=$((count + 1))
+    done
+    rm -f "$PID_LOCK" 2>/dev/null
     echo "$count"
 }
 
@@ -840,7 +872,15 @@ while [ $# -gt 0 ]; do
             if [ "$orphan_count" -gt 0 ]; then
                 echo "  Reaped $orphan_count orphaned sparkdreamd process(es)"
             fi
-            if [ "$stopped_tree" -eq 0 ] && [ "$orphan_count" -eq 0 ]; then
+            # Release the run lock even when the harness died ungracefully: its
+            # tail|sed log pipeline can outlive it still holding the flock fd,
+            # which neither the (stale) PID file nor the sparkdreamd sweep above
+            # would catch.
+            lock_holders=$(release_run_lock)
+            if [ "$lock_holders" -gt 0 ]; then
+                echo "  Released run lock held by $lock_holders orphaned process(es)"
+            fi
+            if [ "$stopped_tree" -eq 0 ] && [ "$orphan_count" -eq 0 ] && [ "$lock_holders" -eq 0 ]; then
                 echo "  Nothing to stop."
             else
                 echo "Done."
@@ -1063,8 +1103,8 @@ mkdir -p "$E2E_ROOT"
 # under flock-on-the-PID-file when flock is available. Two concurrent
 # run_parallel.sh invocations would otherwise both pass the staleness
 # check and clobber each other's `latest` symlink. flock makes the
-# read-then-write check-and-claim atomic.
-PID_LOCK="$E2E_ROOT/run_parallel.lock"
+# read-then-write check-and-claim atomic. ($PID_LOCK is defined early near
+# $PID_FILE so --stop's release_run_lock can reach it too.)
 acquire_pid_lock() {
     if command -v flock >/dev/null 2>&1; then
         # Open fd 9 on the lock file; flock holds the lock for the lifetime

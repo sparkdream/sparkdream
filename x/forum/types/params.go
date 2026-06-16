@@ -11,6 +11,11 @@ import (
 // DefaultMinSentinelBond is the minimum DREAM required to be a sentinel (in udream).
 var DefaultMinSentinelBond = math.NewInt(500_000_000) // 500 DREAM
 
+// DefaultLockBackingAmount is the default minimum DREAM backing (total balance)
+// a sentinel must hold to lock a thread (in udream). Governance-tunable but
+// bounded >= the derived lock bond in Params.Validate().
+var DefaultLockBackingAmount = math.NewInt(20_000_000_000) // 20000 DREAM
+
 // Default parameter values
 const (
 	// Content limits
@@ -58,6 +63,17 @@ const (
 	DefaultMaxHidesPerEpoch         = uint64(50)
 	DefaultMaxSentinelLocksPerEpoch = uint64(5)
 	DefaultMaxSentinelMovesPerEpoch = uint64(10)
+
+	// ModerationEpochCapCeiling is the upper bound for the per-action epoch
+	// caps (hides/locks/moves). A sanity ceiling so a stored cap can't be set
+	// absurdly high; well above any realistic per-day moderation volume.
+	ModerationEpochCapCeiling = uint64(10_000)
+
+	// DefaultLockBondMultiplier: the lock bond floor is
+	// lock_bond_multiplier × min_sentinel_bond. Default 4 → 4 × 500 = 2000
+	// DREAM, matching the historical hardcoded lock bond. Bounded >= 1 in
+	// Params.Validate() so locking is never weaker than the base bond.
+	DefaultLockBondMultiplier       = uint64(4)
 	DefaultSentinelOverturnCooldown = int64(86400)       // 24 hours
 	DefaultSentinelDemotionCooldown = int64(604800)      // 7 days
 	DefaultMinSentinelBondAmount    = int64(500_000_000) // 500 DREAM (in udream)
@@ -220,6 +236,13 @@ func NewParams() Params {
 		MaxPromotionsPerBlock:            DefaultMaxPromotionsPerBlock,
 		AuthorRepSlash:                   DefaultAuthorRepSlash,
 		MaxMakePermanentPerDay:           DefaultMaxMakePermanentPerDay,
+		MaxHidesPerEpoch:                 DefaultMaxHidesPerEpoch,
+		MaxSentinelLocksPerEpoch:         DefaultMaxSentinelLocksPerEpoch,
+		MaxSentinelMovesPerEpoch:         DefaultMaxSentinelMovesPerEpoch,
+		SentinelSlashAmount:              math.NewInt(DefaultSentinelSlashAmount).String(),
+		LockBondMultiplier:               DefaultLockBondMultiplier,
+		LockBackingAmount:                DefaultLockBackingAmount.String(),
+		LockMinRepTier:                   DefaultMinRepTierThreadLock,
 		MinPostConvictionStake:           DefaultMinPostConvictionStake,
 		PostConvictionLockSeconds:        DefaultPostConvictionLockSeconds,
 		PostConvictionStreamRatePerBlock: DefaultPostConvictionRepPerDreamPerDay,
@@ -270,6 +293,54 @@ func (p Params) Validate() error {
 	}
 	if p.PostConvictionStakerSlashBps > 10000 {
 		return fmt.Errorf("post_conviction_staker_slash_bps must be <= 10000: %d", p.PostConvictionStakerSlashBps)
+	}
+	if err := validateModerationCaps(p.MaxHidesPerEpoch, p.MaxSentinelLocksPerEpoch, p.MaxSentinelMovesPerEpoch); err != nil {
+		return err
+	}
+	// sentinel_slash_amount: if set, positive and not larger than the base
+	// bond (a single action must never reserve more than the whole bond).
+	if p.SentinelSlashAmount != "" {
+		slash, ok := math.NewIntFromString(p.SentinelSlashAmount)
+		if !ok || !slash.IsPositive() {
+			return fmt.Errorf("sentinel_slash_amount must be a positive integer: %q", p.SentinelSlashAmount)
+		}
+		if slash.GT(p.MinSentinelBondOrDefault()) {
+			return fmt.Errorf("sentinel_slash_amount (%s) must not exceed min_sentinel_bond (%s)", slash, p.MinSentinelBondOrDefault())
+		}
+	}
+	// lock_backing_amount: if set, positive and at least the derived lock bond.
+	if p.LockBackingAmount != "" {
+		backing, ok := math.NewIntFromString(p.LockBackingAmount)
+		if !ok || !backing.IsPositive() {
+			return fmt.Errorf("lock_backing_amount must be a positive integer: %q", p.LockBackingAmount)
+		}
+		if backing.LT(p.LockMinBondOrDefault()) {
+			return fmt.Errorf("lock_backing_amount (%s) must be >= lock bond (%s)", backing, p.LockMinBondOrDefault())
+		}
+	}
+	// lock_min_rep_tier: 0 = unset (default); if set, within [min_sentinel_rep_tier, 5].
+	if p.LockMinRepTier != 0 {
+		if p.LockMinRepTier > 5 {
+			return fmt.Errorf("lock_min_rep_tier must be <= 5: %d", p.LockMinRepTier)
+		}
+		if p.LockMinRepTier < p.MinSentinelRepTier {
+			return fmt.Errorf("lock_min_rep_tier (%d) must be >= min_sentinel_rep_tier (%d)", p.LockMinRepTier, p.MinSentinelRepTier)
+		}
+	}
+	return nil
+}
+
+// validateModerationCaps enforces the shared upper bound on the per-action
+// epoch caps. A stored 0 is the "unset → default" sentinel and always passes.
+func validateModerationCaps(hides, locks, moves uint64) error {
+	for name, v := range map[string]uint64{
+		"max_hides_per_epoch":          hides,
+		"max_sentinel_locks_per_epoch": locks,
+		"max_sentinel_moves_per_epoch": moves,
+	} {
+		if v > ModerationEpochCapCeiling {
+			return fmt.Errorf("%s must be <= %d: %d", name, ModerationEpochCapCeiling, v)
+		}
 	}
 	return nil
 }
@@ -348,6 +419,10 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		MaxPromotionsPerBlock:            DefaultMaxPromotionsPerBlock,
 		AuthorRepSlash:                   DefaultAuthorRepSlash,
 		MaxMakePermanentPerDay:           DefaultMaxMakePermanentPerDay,
+		MaxHidesPerEpoch:                 DefaultMaxHidesPerEpoch,
+		MaxSentinelLocksPerEpoch:         DefaultMaxSentinelLocksPerEpoch,
+		MaxSentinelMovesPerEpoch:         DefaultMaxSentinelMovesPerEpoch,
+		SentinelSlashAmount:              math.NewInt(DefaultSentinelSlashAmount).String(),
 		MinPostConvictionStake:           DefaultMinPostConvictionStake,
 		PostConvictionLockSeconds:        DefaultPostConvictionLockSeconds,
 		PostConvictionStreamRatePerBlock: DefaultPostConvictionRepPerDreamPerDay,
@@ -399,7 +474,97 @@ func (p ForumOperationalParams) Validate() error {
 	if p.PostConvictionStakerSlashBps > 10000 {
 		return fmt.Errorf("post_conviction_staker_slash_bps must be <= 10000: %d", p.PostConvictionStakerSlashBps)
 	}
+	if err := validateModerationCaps(p.MaxHidesPerEpoch, p.MaxSentinelLocksPerEpoch, p.MaxSentinelMovesPerEpoch); err != nil {
+		return err
+	}
+	// sentinel_slash_amount: if set, positive and not larger than the base bond.
+	// The full invariant is re-checked against the merged Params after apply.
+	if p.SentinelSlashAmount != "" {
+		slash, ok := math.NewIntFromString(p.SentinelSlashAmount)
+		if !ok || !slash.IsPositive() {
+			return fmt.Errorf("sentinel_slash_amount must be a positive integer: %q", p.SentinelSlashAmount)
+		}
+	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Moderation-parameter accessors. Each returns the stored value, or the
+// compile-time default when the stored value is unset (0 / empty / unparseable).
+// This zero-means-default convention lets a chain that adds these fields via an
+// upgrade keep today's behavior with NO state migration (proto3 reads absent
+// fields as 0); fresh genesis seeds the real defaults explicitly.
+// ---------------------------------------------------------------------------
+
+// MaxHidesPerEpochOrDefault returns the effective per-epoch hide cap.
+func (p Params) MaxHidesPerEpochOrDefault() uint64 {
+	if p.MaxHidesPerEpoch == 0 {
+		return DefaultMaxHidesPerEpoch
+	}
+	return p.MaxHidesPerEpoch
+}
+
+// MaxSentinelLocksPerEpochOrDefault returns the effective per-epoch lock cap.
+func (p Params) MaxSentinelLocksPerEpochOrDefault() uint64 {
+	if p.MaxSentinelLocksPerEpoch == 0 {
+		return DefaultMaxSentinelLocksPerEpoch
+	}
+	return p.MaxSentinelLocksPerEpoch
+}
+
+// MaxSentinelMovesPerEpochOrDefault returns the effective per-epoch move cap.
+func (p Params) MaxSentinelMovesPerEpochOrDefault() uint64 {
+	if p.MaxSentinelMovesPerEpoch == 0 {
+		return DefaultMaxSentinelMovesPerEpoch
+	}
+	return p.MaxSentinelMovesPerEpoch
+}
+
+// SentinelSlashAmountOrDefault returns the effective per-action slash (udream).
+func (p Params) SentinelSlashAmountOrDefault() math.Int {
+	if v, ok := math.NewIntFromString(p.SentinelSlashAmount); ok && v.IsPositive() {
+		return v
+	}
+	return math.NewInt(DefaultSentinelSlashAmount)
+}
+
+// MinSentinelBondOrDefault returns the effective base sentinel bond (udream).
+func (p Params) MinSentinelBondOrDefault() math.Int {
+	if v, ok := math.NewIntFromString(p.MinSentinelBond); ok && v.IsPositive() {
+		return v
+	}
+	return DefaultMinSentinelBond
+}
+
+// LockBondMultiplierOrDefault returns the effective lock-bond multiplier (>= 1).
+func (p Params) LockBondMultiplierOrDefault() uint64 {
+	if p.LockBondMultiplier == 0 {
+		return DefaultLockBondMultiplier
+	}
+	return p.LockBondMultiplier
+}
+
+// LockMinBondOrDefault returns the minimum bond required to lock a thread,
+// derived as lock_bond_multiplier × min_sentinel_bond — one source of truth so
+// the lock floor can never silently diverge from the base bond.
+func (p Params) LockMinBondOrDefault() math.Int {
+	return p.MinSentinelBondOrDefault().Mul(math.NewIntFromUint64(p.LockBondMultiplierOrDefault()))
+}
+
+// LockBackingAmountOrDefault returns the minimum DREAM backing to lock (udream).
+func (p Params) LockBackingAmountOrDefault() math.Int {
+	if v, ok := math.NewIntFromString(p.LockBackingAmount); ok && v.IsPositive() {
+		return v
+	}
+	return DefaultLockBackingAmount
+}
+
+// LockMinRepTierOrDefault returns the minimum rep tier required to lock a thread.
+func (p Params) LockMinRepTierOrDefault() uint64 {
+	if p.LockMinRepTier == 0 {
+		return DefaultMinRepTierThreadLock
+	}
+	return p.LockMinRepTier
 }
 
 // ApplyOperationalParams copies all operational fields from ForumOperationalParams
@@ -447,6 +612,13 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.MaxPromotionsPerBlock = op.MaxPromotionsPerBlock
 	p.AuthorRepSlash = op.AuthorRepSlash
 	p.MaxMakePermanentPerDay = op.MaxMakePermanentPerDay
+	p.MaxHidesPerEpoch = op.MaxHidesPerEpoch
+	p.MaxSentinelLocksPerEpoch = op.MaxSentinelLocksPerEpoch
+	p.MaxSentinelMovesPerEpoch = op.MaxSentinelMovesPerEpoch
+	p.SentinelSlashAmount = op.SentinelSlashAmount
+	// NB: lock_bond_multiplier / lock_backing_amount / lock_min_rep_tier are
+	// governance-only (Params) and are deliberately NOT copied from the
+	// operational params, so an Operations-Committee update leaves them intact.
 	p.MinPostConvictionStake = op.MinPostConvictionStake
 	p.PostConvictionLockSeconds = op.PostConvictionLockSeconds
 	p.PostConvictionStreamRatePerBlock = op.PostConvictionStreamRatePerBlock
@@ -499,6 +671,10 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		MaxPromotionsPerBlock:            p.MaxPromotionsPerBlock,
 		AuthorRepSlash:                   p.AuthorRepSlash,
 		MaxMakePermanentPerDay:           p.MaxMakePermanentPerDay,
+		MaxHidesPerEpoch:                 p.MaxHidesPerEpoch,
+		MaxSentinelLocksPerEpoch:         p.MaxSentinelLocksPerEpoch,
+		MaxSentinelMovesPerEpoch:         p.MaxSentinelMovesPerEpoch,
+		SentinelSlashAmount:              p.SentinelSlashAmount,
 		MinPostConvictionStake:           p.MinPostConvictionStake,
 		PostConvictionLockSeconds:        p.PostConvictionLockSeconds,
 		PostConvictionStreamRatePerBlock: p.PostConvictionStreamRatePerBlock,

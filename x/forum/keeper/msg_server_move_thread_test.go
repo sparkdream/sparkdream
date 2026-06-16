@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"sparkdream/x/forum/types"
@@ -276,4 +277,96 @@ func TestMoveThread_UnbondingSentinelRejected(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrSentinelDemoted)
+}
+
+// TestMoveThread_AuthorityDisambiguation covers the sentinel-vs-council choice
+// for MsgMoveThread when one account holds both roles. Move eligibility is
+// bonded NORMAL/RECOVERY + no reserved tag (no extra bond/tier floor), so a
+// plain bonded sentinel that is also council defaults to the sentinel path.
+// See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+func TestMoveThread_AuthorityDisambiguation(t *testing.T) {
+	setup := func(t *testing.T) (*fixture, uint64, uint64) {
+		t.Helper()
+		f := initFixture(t)
+		cat1 := f.createTestCategory(t, "General")
+		cat2 := f.createTestCategory(t, "Off-Topic")
+		thread := f.createTestPost(t, testCreator, 0, cat1.CategoryId)
+		f.createTestSentinel(t, testSentinel, "2000000000")
+		authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+		f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, addr string, _ string, _ string) bool {
+			return addr == authority || addr == testSentinel
+		}
+		return f, thread.PostId, cat2.CategoryId
+	}
+
+	// AUTO by a sentinel-and-council account takes the sentinel path: a
+	// ThreadMoveRecord with Sentinel == creator.
+	t.Run("auto prefers sentinel path", func(t *testing.T) {
+		f, rootID, destCat := setup(t)
+		_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{
+			Creator:       testSentinel,
+			RootId:        rootID,
+			NewCategoryId: destCat,
+			Reason:        "off-topic",
+			Authority:     types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
+		})
+		require.NoError(t, err)
+		rec, err := f.keeper.ThreadMoveRecord.Get(f.ctx, rootID)
+		require.NoError(t, err, "AUTO must take the sentinel path and write a move record")
+		require.Equal(t, testSentinel, rec.Sentinel)
+	})
+
+	// Explicit COUNCIL by the same account is the deliberate gov move: no record.
+	t.Run("explicit council is opt-in gov move", func(t *testing.T) {
+		f, rootID, destCat := setup(t)
+		_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{
+			Creator:       testSentinel,
+			RootId:        rootID,
+			NewCategoryId: destCat,
+			Reason:        "",
+			Authority:     types.ModerationAuthority_MODERATION_AUTHORITY_COUNCIL,
+		})
+		require.NoError(t, err)
+		_, err = f.keeper.ThreadMoveRecord.Get(f.ctx, rootID)
+		require.Error(t, err, "explicit COUNCIL move must not write a sentinel move record")
+	})
+
+	// AUTO by a council account moving a RESERVED-tag thread is not
+	// sentinel-eligible (only council may move reserved-tag threads), so it
+	// falls through to the council path instead of erroring.
+	t.Run("auto falls through to council for reserved-tag thread", func(t *testing.T) {
+		f, rootID, destCat := setup(t)
+		p, _ := f.keeper.Post.Get(f.ctx, rootID)
+		p.Tags = []string{"governance"}
+		_ = f.keeper.Post.Set(f.ctx, rootID, p)
+		_ = f.repKeeper.SetReservedTag(f.ctx, reptypes.ReservedTag{Name: "governance", Authority: testAuthority, MembersCanUse: true})
+		_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{
+			Creator:       testSentinel,
+			RootId:        rootID,
+			NewCategoryId: destCat,
+			Reason:        "",
+			Authority:     types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
+		})
+		require.NoError(t, err)
+		_, err = f.keeper.ThreadMoveRecord.Get(f.ctx, rootID)
+		require.Error(t, err, "council moving a reserved-tag thread writes no sentinel record")
+	})
+
+	// Explicit SENTINEL moving a reserved-tag thread hard-errors with the
+	// reserved-tag error — no silent downgrade to council.
+	t.Run("explicit sentinel on reserved-tag thread hard-errors", func(t *testing.T) {
+		f, rootID, destCat := setup(t)
+		p, _ := f.keeper.Post.Get(f.ctx, rootID)
+		p.Tags = []string{"governance"}
+		_ = f.keeper.Post.Set(f.ctx, rootID, p)
+		_ = f.repKeeper.SetReservedTag(f.ctx, reptypes.ReservedTag{Name: "governance", Authority: testAuthority, MembersCanUse: true})
+		_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{
+			Creator:       testSentinel,
+			RootId:        rootID,
+			NewCategoryId: destCat,
+			Reason:        "x",
+			Authority:     types.ModerationAuthority_MODERATION_AUTHORITY_SENTINEL,
+		})
+		require.ErrorIs(t, err, types.ErrCannotMoveReservedTag)
+	})
 }

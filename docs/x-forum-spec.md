@@ -1475,6 +1475,26 @@ Locks a thread, preventing any new replies to any post within the thread. Can be
 | `sender` | `string` | HR Committee Address OR high-trust Sentinel |
 | `root_id` | `uint64` | Root post ID of thread to lock |
 | `reason` | `string` | Reason for locking (required for Sentinels, optional for HR Committee) |
+| `authority` | `ModerationAuthority` | Which authority the caller invokes (default `AUTO`) |
+
+**Authority disambiguation (`ModerationAuthority`).** Same shared field as
+`MsgHidePost` (see [Shared `ModerationAuthority`](#shared-moderationauthority)).
+**Lock eligibility** for the sentinel path = bonded sentinel in `NORMAL`/`RECOVERY`
+**and** meeting the lock rep-tier (`lock_min_rep_tier`, default 4) and the
+`lock_bond_multiplier × min_sentinel_bond` bond floor (default 4 × 500 = 2000
+DREAM). These lock floors are **governance-tunable and bounded** (see
+[Tunable moderation parameters](#tunable-moderation-parameters)) — the bond floor
+is derived from the base sentinel bond so it can never silently diverge from it.
+Under AUTO,
+a council member whose bond is below the lock floor (or who lacks the tier) is not
+lock-eligible and **falls through to the council path** — the council lock writes
+no `ThreadLockRecord` and is unlockable only by the council. Explicit `SENTINEL`
+hard-errors with the specific bond/tier reason (e.g. `ErrInsufficientLockBond`)
+rather than silently downgrading; explicit `COUNCIL` requires council
+authorization (`ErrNotAuthorized` otherwise). The backing floor, cooldown, and
+epoch limit are operational gates applied once the sentinel path is taken, not
+part of the authority decision. `MsgUnlockThread` needs no authority field — its
+reversal path is already determined by whether a lock record exists.
 
 **Authorization:**
 - **HR Committee:** Always authorized (no additional checks)
@@ -1638,6 +1658,18 @@ Moves a thread to a different category. HR Committee can move any thread. Sentin
 | `root_id` | `uint64` | Root post ID of thread to move |
 | `new_category_id` | `uint64` | Destination category |
 | `reason` | `string` | Reason for moving (required for Sentinels) |
+| `authority` | `ModerationAuthority` | Which authority the caller invokes (default `AUTO`) |
+
+**Authority disambiguation (`ModerationAuthority`).** Same shared field as
+`MsgHidePost` (see [Shared `ModerationAuthority`](#shared-moderationauthority)).
+**Move eligibility** for the sentinel path = bonded sentinel in `NORMAL`/`RECOVERY`
+**and** the thread carries **no reserved tag** (only the council may move a
+reserved-tag thread). Under AUTO, a council member moving a reserved-tag thread is
+not move-eligible and **falls through to the council path** (no `ThreadMoveRecord`
+written). Explicit `SENTINEL` on a reserved-tag thread hard-errors with
+`ErrCannotMoveReservedTag` rather than silently downgrading; explicit `COUNCIL`
+requires council authorization. Cooldown and the epoch limit are operational gates
+applied once the sentinel path is taken, not part of the authority decision.
 
 **Authorization:**
 - **HR Committee:** Can move any thread to any category
@@ -2841,6 +2873,70 @@ Allows post author to soft-delete their own post. Content is replaced with "[del
 
 ### 6.2. Moderation (The Sentinel Flow)
 
+#### Shared `ModerationAuthority`
+
+`MsgHidePost`, `MsgLockThread`, and `MsgMoveThread` are the three sentinel/council
+moderation messages. Each carries a `ModerationAuthority authority` field (proto
+enum, default `AUTO`) so that an account which is BOTH a bonded sentinel AND a
+Commons Operations Committee member chooses its authority **explicitly** rather
+than silently defaulting to the more powerful, less-accountable council path.
+
+| Value | Behavior |
+|-------|----------|
+| `MODERATION_AUTHORITY_AUTO` (0) | Take the **sentinel** path if the caller is *eligible for that specific action*; else fall through to the **council** path if council-authorized; else fail with the specific sentinel reason. Prefers the accountable sentinel path. |
+| `MODERATION_AUTHORITY_SENTINEL` (1) | Force the sentinel path; hard-error (no fallback) if not eligible. |
+| `MODERATION_AUTHORITY_COUNCIL` (2) | Force the council path; `ErrNotAuthorized` if not council-authorized. |
+
+**Eligibility is per-action** (this is what AUTO checks before preferring
+sentinel):
+
+| Action | Sentinel eligibility |
+|--------|----------------------|
+| Hide | bonded `ROLE_TYPE_FORUM_SENTINEL` in `NORMAL`/`RECOVERY` |
+| Lock | the above **plus** lock rep-tier **and** the 2× (2000 DREAM) bond floor |
+| Move | the above **plus** the thread carries no reserved tag |
+
+Operational gates beyond eligibility (backing, cooldown, epoch limit, `reason`
+required, bond reservation) run only **after** the sentinel path is chosen, so
+they never silently divert AUTO to the council path. An out-of-range enum value
+fails with `ErrInvalidModerationAuthority`. The resolution is centralized in
+`resolveModerationAuthority` ([x/forum/keeper/moderation_authority.go](../x/forum/keeper/moderation_authority.go))
+and shared by all three handlers. The on-wire integer encoding matches the
+amino/proto-JSON contract (AUTO omitted as 0; 1/2 emitted as ints).
+
+#### Tunable moderation parameters
+
+The sentinel rate caps, per-action slash, and lock-eligibility floors are
+on-chain params (no longer hardcoded constants). They split by mutation surface
+and are bounded in `Params.Validate()` / `ForumOperationalParams.Validate()`:
+
+| Param | Default | Surface | Bound |
+|-------|---------|---------|-------|
+| `max_hides_per_epoch` | 50 | Ops Committee (`ForumOperationalParams`) | `[1, 10000]` |
+| `max_sentinel_locks_per_epoch` | 5 | Ops Committee | `[1, 10000]` |
+| `max_sentinel_moves_per_epoch` | 10 | Ops Committee | `[1, 10000]` |
+| `sentinel_slash_amount` | 100 DREAM | Ops Committee | `(0, min_sentinel_bond]` |
+| `lock_bond_multiplier` | 4 | **Governance only** (`Params`) | `>= 1`; lock bond = `mult × min_sentinel_bond` |
+| `lock_backing_amount` | 20000 DREAM | **Governance only** | `>= derived lock bond` |
+| `lock_min_rep_tier` | 4 | **Governance only** | `[min_sentinel_rep_tier, 5]` |
+
+Design notes:
+
+- **Lock floors are gov-only and bounded.** They protect the "skin in the game"
+  accountability guarantee, so they are kept off the Operations-Committee surface
+  (a captured committee cannot weaken them) and are derived from the base sentinel
+  bond/tier — a single source of truth that eliminates the old base-vs-lock
+  duplication (`lock_bond_multiplier` ≥ 1 means locking is never weaker than base
+  bonding).
+- **Zero means default.** Each accessor (`*OrDefault()`) treats a stored `0` /
+  empty as "unset" and returns the compile-time default. This makes the change
+  **migration-free**: a chain that adds these fields via upgrade reads the absent
+  fields as 0 and keeps today's behavior; fresh genesis seeds the real defaults
+  explicitly. `0` is a reserved sentinel (none of these has a meaningful 0 value).
+- The compile-time defaults reproduce the historical hardcoded values exactly
+  (50/5/10 caps, 100 DREAM slash, 2000 DREAM lock bond, 20000 DREAM backing,
+  tier 4), so the upgrade is behavior-preserving at defaults.
+
 #### `MsgHidePost`
 
 Hides a post for moderation. The signer may act as a bonded **sentinel** (the
@@ -2854,23 +2950,27 @@ and is reversible only by a council proposal).
 | `post_id` | `uint64` | Target post ID |
 | `reason_code` | `ModerationReason` | Structured reason (unified with flag categories) |
 | `reason_text` | `string` | Custom reason text (required if reason_code=OTHER) |
-| `authority` | `HideAuthority` | Which authority the caller invokes (default `AUTO`) |
+| `authority` | `ModerationAuthority` | Which authority the caller invokes (default `AUTO`) |
 
-**Authority disambiguation (`HideAuthority`).** An account can be BOTH a bonded
-sentinel AND a committee member. The `authority` field makes the choice explicit
-instead of letting the handler silently pick the more powerful, less accountable
-council path. See `docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md`.
+**Authority disambiguation (`ModerationAuthority`).** An account can be BOTH a
+bonded sentinel AND a committee member. The `authority` field makes the choice
+explicit instead of letting the handler silently pick the more powerful, less
+accountable council path. The same enum is shared by every sentinel/council
+moderation message — hide, lock, move (see
+[Shared `ModerationAuthority`](#shared-moderationauthority)). See
+`docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md`.
 
-- `HIDE_AUTHORITY_AUTO` (0, default, back-compat): if the account is an **eligible
-  sentinel** (holds a `ROLE_TYPE_FORUM_SENTINEL` bond in `NORMAL`/`RECOVERY`),
-  take the sentinel path; else if council-authorized, take the council path; else
-  fail with the specific sentinel reason (`ErrNotSentinel` / `ErrSentinelDemoted`).
-  AUTO **prefers the accountable sentinel path** even when the account is also
-  council — least privilege, the cheaper path is never the silent default.
-- `HIDE_AUTHORITY_SENTINEL` (1): force the sentinel path; fail (no fallback) if
-  the account is not an eligible sentinel (`ErrNotSentinel` / `ErrSentinelDemoted`
-  / `ErrInvalidAmount`).
-- `HIDE_AUTHORITY_COUNCIL` (2): force the council (gov) path; fail with
+- `MODERATION_AUTHORITY_AUTO` (0, default, back-compat): if the account is an
+  **eligible sentinel** (holds a `ROLE_TYPE_FORUM_SENTINEL` bond in
+  `NORMAL`/`RECOVERY`), take the sentinel path; else if council-authorized, take
+  the council path; else fail with the specific sentinel reason (`ErrNotSentinel`
+  / `ErrSentinelDemoted`). AUTO **prefers the accountable sentinel path** even
+  when the account is also council — least privilege, the cheaper path is never
+  the silent default.
+- `MODERATION_AUTHORITY_SENTINEL` (1): force the sentinel path; fail (no fallback)
+  if the account is not an eligible sentinel (`ErrNotSentinel` /
+  `ErrSentinelDemoted` / `ErrInvalidAmount`).
+- `MODERATION_AUTHORITY_COUNCIL` (2): force the council (gov) path; fail with
   `ErrNotAuthorized` if not council-authorized. Allowed for a bonded sentinel —
   this is the deliberate "act as committee" choice, recorded as a gov hide
   (`HideRecord.sentinel == ""`).
@@ -2884,7 +2984,7 @@ those remain explicit `COUNCIL`/override actions.
 **Validation:**
 - Fail with `ErrInvalidModerationReason` if `reason_code == UNSPECIFIED`
 - Fail with `ErrReasonTextRequired` if `reason_code == OTHER` and `reason_text` is empty
-- Fail with `ErrInvalidHideAuthority` if `authority` is not a known enum value
+- Fail with `ErrInvalidModerationAuthority` if `authority` is not a known enum value
 
 **Authorization (sentinel path):**
 - Fail with `ErrForumPaused` if `params.forum_paused == true`
