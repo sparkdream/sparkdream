@@ -64,6 +64,32 @@ func (k Keeper) GetPostTags(ctx context.Context, postID uint64) ([]string, error
 	return post.Tags, nil
 }
 
+// findPinnedRecord locates the PinnedReplyRecord for a reply by deriving its
+// owning thread from the reply post's RootId, then scanning that thread's
+// metadata. Returns the record, the thread id, its slice index, and ok=false
+// when the reply, thread metadata, or record is missing (soft skip for
+// callers — the pin may have been removed/GC'd).
+func (k Keeper) findPinnedRecord(ctx context.Context, replyID uint64) (*types.PinnedReplyRecord, uint64, int, bool) {
+	reply, err := k.Post.Get(ctx, replyID)
+	if err != nil {
+		return nil, 0, 0, false
+	}
+	threadID := reply.RootId
+	if threadID == 0 {
+		threadID = reply.PostId
+	}
+	metadata, err := k.ThreadMetadata.Get(ctx, threadID)
+	if err != nil {
+		return nil, 0, 0, false
+	}
+	for i, rec := range metadata.PinnedRecords {
+		if rec.PostId == replyID {
+			return rec, threadID, i, true
+		}
+	}
+	return nil, 0, 0, false
+}
+
 // GetActionSentinel resolves the sentinel address that executed the given
 // gov action from forum's own moderation records. Returns the empty string
 // with no error if the record is missing (already garbage-collected) —
@@ -87,8 +113,16 @@ func (k Keeper) GetActionSentinel(ctx context.Context, actionType reptypes.GovAc
 			return "", nil
 		}
 		return rec.Sentinel, nil
+	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+		// actionTarget is the reply id; the owning thread is derived from it.
+		rec, _, _, ok := k.findPinnedRecord(ctx, id)
+		if !ok {
+			return "", nil
+		}
+		return rec.PinnedBy, nil
 	default:
-		// Hide-like (post-level actions).
+		// Post-level hide (GOV_ACTION_TYPE_POST_HIDE; default kept as a safe
+		// fallback for legacy/unspecified targets).
 		rec, err := k.HideRecord.Get(ctx, id)
 		if err != nil {
 			return "", nil
@@ -97,11 +131,24 @@ func (k Keeper) GetActionSentinel(ctx context.Context, actionType reptypes.GovAc
 	}
 }
 
-// GetActionCommittedAmount returns the bond amount reserved by the sentinel
-// for the given gov action. Hide actions record committed_amount on the
-// HideRecord proto; lock/move actions reserve a flat DefaultSentinelSlashAmount.
-// Returns zero (no error) when the record is missing — caller should treat as
-// a soft skip.
+// committedOrDefault parses a record's committed_amount, falling back to the
+// flat DefaultSentinelSlashAmount for legacy lock/move records written before
+// committed_amount was snapshotted (so they still release/slash a sane amount).
+func committedOrDefault(committed string) math.Int {
+	if committed != "" {
+		if v, ok := math.NewIntFromString(committed); ok {
+			return v
+		}
+	}
+	return math.NewInt(types.DefaultSentinelSlashAmount)
+}
+
+// GetActionCommittedAmount returns the bond amount reserved by the sentinel for
+// the given gov action. Hide / lock / move / pin actions each snapshot
+// committed_amount on their record at action time (committedOrDefault applies
+// the flat DefaultSentinelSlashAmount fallback for legacy lock/move records that
+// predate the snapshot). Returns zero (no error) when the record is missing —
+// caller should treat as a soft skip.
 func (k Keeper) GetActionCommittedAmount(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) (math.Int, error) {
 	id, err := strconv.ParseUint(actionTarget, 10, 64)
 	if err != nil {
@@ -109,15 +156,27 @@ func (k Keeper) GetActionCommittedAmount(ctx context.Context, actionType reptype
 	}
 	switch actionType {
 	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:
-		if _, err := k.ThreadLockRecord.Get(ctx, id); err != nil {
+		rec, err := k.ThreadLockRecord.Get(ctx, id)
+		if err != nil {
 			return math.ZeroInt(), nil
 		}
-		return math.NewInt(types.DefaultSentinelSlashAmount), nil
+		return committedOrDefault(rec.CommittedAmount), nil
 	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
-		if _, err := k.ThreadMoveRecord.Get(ctx, id); err != nil {
+		rec, err := k.ThreadMoveRecord.Get(ctx, id)
+		if err != nil {
 			return math.ZeroInt(), nil
 		}
-		return math.NewInt(types.DefaultSentinelSlashAmount), nil
+		return committedOrDefault(rec.CommittedAmount), nil
+	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+		rec, _, _, ok := k.findPinnedRecord(ctx, id)
+		if !ok || rec.CommittedAmount == "" {
+			return math.ZeroInt(), nil
+		}
+		v, ok := math.NewIntFromString(rec.CommittedAmount)
+		if !ok {
+			return math.ZeroInt(), nil
+		}
+		return v, nil
 	default:
 		rec, err := k.HideRecord.Get(ctx, id)
 		if err != nil {
@@ -162,6 +221,8 @@ func (k Keeper) RecordSentinelActionUpheld(ctx context.Context, actionType repty
 		local.UpheldLocks++
 	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
 		local.UpheldMoves++
+	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+		local.UpheldPins++
 	default:
 		local.UpheldHides++
 		if local.PendingHideCount > 0 {
@@ -208,6 +269,8 @@ func (k Keeper) RecordSentinelActionOverturned(ctx context.Context, actionType r
 		local.OverturnedLocks++
 	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
 		local.OverturnedMoves++
+	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+		local.OverturnedPins++
 	default:
 		local.OverturnedHides++
 		if local.PendingHideCount > 0 {
@@ -293,6 +356,9 @@ func (k Keeper) ResetSentinelEpochCounters(ctx context.Context, addr string) err
 //     just resolved, so the deadline is irrelevant.
 //   - GOV_ACTION_TYPE_THREAD_MOVE: restores post.CategoryId to the
 //     ThreadMoveRecord.OriginalCategoryId and removes the move record.
+//   - GOV_ACTION_TYPE_REPLY_PIN: removes the reply from the owning thread's
+//     PinnedReplyIds / PinnedRecords (actionTarget is the reply id; the thread
+//     is derived from the reply post's RootId).
 //   - default (post-level hide): flips post.Status HIDDEN → ACTIVE, clears
 //     HiddenBy / HiddenAt, and removes the HideRecord.
 //
@@ -386,6 +452,45 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 			sdk.NewAttribute("from_category", fmt.Sprintf("%d", rec.NewCategoryId)),
 			sdk.NewAttribute("to_category", fmt.Sprintf("%d", rec.OriginalCategoryId)),
 			sdk.NewAttribute("moved_by", "appeal_overturned"),
+		))
+		return nil
+
+	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+		// Overturned pin dispute: unpin the reply. actionTarget is the reply id;
+		// the owning thread is derived from the reply post's RootId.
+		_, threadID, _, ok := k.findPinnedRecord(ctx, id)
+		if !ok {
+			sdkCtx.Logger().Warn("reverse sentinel action: pin record missing for unpin",
+				"reply_id", id)
+			return nil
+		}
+		metadata, err := k.ThreadMetadata.Get(ctx, threadID)
+		if err != nil {
+			sdkCtx.Logger().Warn("reverse sentinel action: thread metadata missing for unpin",
+				"thread_id", threadID, "reply_id", id, "error", err)
+			return nil
+		}
+		// Remove from both the id list and the record list.
+		for i, pid := range metadata.PinnedReplyIds {
+			if pid == id {
+				metadata.PinnedReplyIds = append(metadata.PinnedReplyIds[:i], metadata.PinnedReplyIds[i+1:]...)
+				break
+			}
+		}
+		for i, r := range metadata.PinnedRecords {
+			if r.PostId == id {
+				metadata.PinnedRecords = append(metadata.PinnedRecords[:i], metadata.PinnedRecords[i+1:]...)
+				break
+			}
+		}
+		if err := k.ThreadMetadata.Set(ctx, threadID, metadata); err != nil {
+			return fmt.Errorf("reverse pin: update thread metadata: %w", err)
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"reply_unpinned",
+			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", threadID)),
+			sdk.NewAttribute("reply_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("unpinned_by", "appeal_overturned"),
 		))
 		return nil
 

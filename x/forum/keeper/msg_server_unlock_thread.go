@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -54,6 +56,20 @@ func (k msgServer) UnlockThread(ctx context.Context, msg *types.MsgUnlockThread)
 		if now >= lockAppealDeadline {
 			return nil, errorsmod.Wrapf(types.ErrLockAppealExpired,
 				"lock appeal window expired at %d", lockAppealDeadline)
+		}
+
+		// Release the sentinel's reserved lock bond. A self-unlock within the
+		// appeal window (no appeal pending) means the lock will not be appealed,
+		// so there is nothing to slash and the reservation must be freed —
+		// mirroring the MsgUnhidePost / MsgUnpinReply self-correct paths.
+		// Best-effort: a release failure is logged but does not block the unlock.
+		if lockRecord.CommittedAmount != "" && k.repKeeper != nil {
+			if committed, ok := math.NewIntFromString(lockRecord.CommittedAmount); ok && committed.IsPositive() {
+				if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, lockRecord.Sentinel, committed); err != nil {
+					sdkCtx.Logger().Warn("unlock thread: failed to release sentinel lock bond",
+						"sentinel", lockRecord.Sentinel, "root_id", msg.RootId, "error", err)
+				}
+			}
 		}
 
 		// Remove lock record (atomic coordination point)

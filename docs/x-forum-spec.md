@@ -362,7 +362,7 @@ message SentinelActivity {
   uint64 total_hides = 2;                                // Total posts hidden by this sentinel
   uint64 upheld_hides = 3;                               // Hides not overturned by appeal
   uint64 overturned_hides = 4;                           // Hides overturned (sentinel was wrong)
-  uint64 unchallenged_hides = 5;                         // Hides with no appeal filed (DO NOT count toward accuracy - prevents gaming)
+  uint64 unchallenged_hides = 5;                         // Hides that expired without an appeal (display/audit only — excluded from accuracy to prevent gaming)
   uint64 epoch_hides = 6;                                // Hides in current reward epoch (reset each epoch)
   uint64 epoch_appeals_resolved = 7;                     // Appeals resolved in current epoch
   int64  last_reward_epoch = 8;                          // Last epoch sentinel received rewards
@@ -389,15 +389,15 @@ message SentinelActivity {
   uint64 overturned_moves = 26;                          // Moves overturned on appeal (sentinel was wrong)
   uint64 epoch_moves = 27;                               // Moves in current reward epoch (reset each epoch)
 
-  // Curation tracking (pins and accept proposals)
+  // Curation tracking (reply pins). upheld_pins / overturned_pins are written
+  // when a pin dispute resolves through the unified GovActionAppeal (REPLY_PIN)
+  // path. The curation-PROPOSAL counters (total/confirmed/rejected_proposals,
+  // epoch_curations) were removed — never implemented, and epoch_curations
+  // silently fed 0 into the reward score. Reserved in proto.
   uint64 total_pins = 28;                                // Total replies pinned by this sentinel
   uint64 upheld_pins = 29;                               // Pins upheld on dispute (sentinel was right)
   uint64 overturned_pins = 30;                           // Pins overturned on dispute (author won)
   uint64 epoch_pins = 31;                                // Pins in current reward epoch
-  uint64 total_proposals = 32;                           // Total accept proposals made
-  uint64 confirmed_proposals = 33;                       // Proposals confirmed by author or auto-confirmed
-  uint64 rejected_proposals = 34;                        // Proposals rejected by author
-  uint64 epoch_curations = 35;                           // Total curation actions this epoch (pins + proposals)
 
   // Inactivity tracking (for accuracy decay)
   int64  last_active_epoch = 22;                         // Last epoch where sentinel had any moderation activity
@@ -426,7 +426,8 @@ message ThreadLockRecord {
   string sentinel_backing_snapshot = 5;                  // DREAM delegated at lock time
   string lock_reason = 6;                                // Reason provided by sentinel
   bool   appeal_pending = 7;                             // Whether an appeal is currently active
-  uint64 initiative_id = 8;                              // x/rep initiative ID if appeal filed (0 if no appeal)
+  uint64 initiative_id = 8;                              // x/rep jury initiative ID if appeal filed (0 if no appeal)
+  string committed_amount = 9;                           // Sentinel bond reserved at lock time (udream); released on self-unlock / upheld appeal
 }
 
 // Snapshot of sentinel state at thread move time - for appeal/slashing
@@ -441,7 +442,8 @@ message ThreadMoveRecord {
   string sentinel_backing_snapshot = 7;                  // DREAM delegated at move time
   string move_reason = 8;                                // Reason provided by sentinel
   bool   appeal_pending = 9;                             // Whether an appeal is currently active
-  uint64 initiative_id = 10;                             // x/rep initiative ID if appeal filed (0 if no appeal)
+  uint64 initiative_id = 10;                             // x/rep jury initiative ID if appeal filed (0 if no appeal)
+  string committed_amount = 11;                          // Sentinel bond reserved at move time (udream); released on upheld appeal
 }
 
 // ============================================
@@ -606,26 +608,24 @@ message ThreadMetadata {
   repeated PinnedReplyRecord pinned_records = 6;         // Details of who pinned each reply
 }
 
-// Record of who pinned a reply and when
+// Record of who pinned a reply and when. A sentinel pin reserves committed_amount
+// against the sentinel's bond (released on self-unpin or an upheld dispute,
+// slashed basis on an overturn) — mirroring HideRecord / lock / move.
 message PinnedReplyRecord {
   uint64 post_id = 1;                                    // Pinned reply ID
   string pinned_by = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   int64  pinned_at = 3;
   bool   is_sentinel_pin = 4;                            // True if pinned by sentinel (disputeable)
   bool   disputed = 5;                                   // True if author has filed dispute
-  uint64 initiative_id = 6;                              // x/rep initiative ID if disputed (0 if not)
+  uint64 initiative_id = 6;                              // x/rep jury initiative ID if disputed (0 if not)
+  string committed_amount = 7;                           // Sentinel bond reserved at pin time (udream; empty for gov pins)
 }
 
-// Record for tracking sentinel pin disputes (for appeal resolution)
-message SentinelPinRecord {
-  uint64 thread_id = 1;
-  uint64 reply_id = 2;
-  string sentinel = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  int64  pinned_at = 4;
-  string sentinel_bond_snapshot = 5;                     // DREAM bonded at pin time
-  bool   appeal_pending = 6;
-  uint64 initiative_id = 7;                              // x/rep initiative ID if appealed
-}
+// NOTE: pin disputes are resolved through the unified x/rep GovActionAppeal path
+// (ActionType REPLY_PIN, ActionTarget = reply id) — see MsgDisputePin below and
+// docs/x-forum-appeal-reconciliation.md. The standalone SentinelPinRecord below
+// is legacy and unused by the implementation; PinnedReplyRecord.committed_amount
+// carries the bond snapshot the resolver reads.
 
 // ============================================
 // THREAD FOLLOWING (for off-chain notifications)
@@ -728,8 +728,23 @@ message MemberWarning {
   uint64 warning_number = 6;                             // 1st, 2nd, 3rd warning etc.
 }
 
-// HR Committee action appeal (meta-appeal to x/rep jury)
-// Allows members to challenge HR Committee decisions (warnings, demotions, zeroing, thread moderation)
+// Moderation/governance action appeal (resolved by x/rep).
+//
+// IMPLEMENTATION NOTE — unified moderation-appeal path (see
+// docs/x-forum-appeal-reconciliation.md). In the shipped code this enum and the
+// GovActionAppeal record are the SINGLE appeal mechanism for BOTH sentinel and
+// committee moderation actions, not just HR actions. All forum appeal entry
+// points — MsgAppealPost (POST_HIDE), MsgAppealThreadLock (THREAD_LOCK),
+// MsgAppealThreadMove (THREAD_MOVE), and MsgDisputePin (REPLY_PIN) — are thin
+// facades that call x/rep's CreateGovActionAppeal, charging the rep appeal bond
+// (the legacy per-action forum appeal fees are superseded). Each appeal seats a
+// jury (selectModerationAppealJury, parties excluded) and resolves by jury
+// verdict through the vote-triggered TallyJuryVotes path: UPHOLD_CHALLENGE →
+// OVERTURNED, REJECT_CHALLENGE → UPHELD, INCONCLUSIVE/no-quorum → left PENDING
+// for TimeoutExpiredAppeals (TIMEOUT, no penalty). The committee
+// MsgResolveGovActionAppeal remains as a manual override (same auth-free
+// applyGovActionAppealVerdict core, idempotent on status). Both paths run
+// ReverseSentinelAction + RecordSentinelAction{Upheld,Overturned}.
 enum GovActionType {
   GOV_ACTION_TYPE_UNSPECIFIED = 0;
   GOV_ACTION_TYPE_WARNING = 1;
@@ -737,8 +752,10 @@ enum GovActionType {
   GOV_ACTION_TYPE_ZEROING = 3;
   GOV_ACTION_TYPE_TAG_REMOVAL = 4;
   GOV_ACTION_TYPE_FORUM_PAUSE = 5;                        // Extended pause (>24h) can be appealed
-  GOV_ACTION_TYPE_THREAD_LOCK = 6;                        // HR-initiated thread lock can be appealed by thread author
-  GOV_ACTION_TYPE_THREAD_MOVE = 7;                        // HR-initiated thread move can be appealed by thread author
+  GOV_ACTION_TYPE_THREAD_LOCK = 6;                        // Sentinel- or HR-initiated thread lock, appealed by thread author
+  GOV_ACTION_TYPE_THREAD_MOVE = 7;                        // Sentinel- or HR-initiated thread move, appealed by thread author
+  GOV_ACTION_TYPE_REPLY_PIN = 8;                          // Sentinel reply pin, disputed by thread author (ActionTarget = reply id)
+  GOV_ACTION_TYPE_POST_HIDE = 9;                          // Sentinel post hide, appealed by post author
 }
 
 message GovActionAppeal {
@@ -1584,7 +1601,16 @@ Unlocks a previously locked thread, allowing new replies. HR Committee can unloc
 
 #### `MsgAppealThreadLock`
 
-Thread author appeals a sentinel-initiated lock to jury. Only applies to locks made by Sentinels (HR Committee locks must be appealed via `MsgAppealGovAction` with `GOV_ACTION_TYPE_THREAD_LOCK`).
+Thread author appeals a sentinel-initiated lock.
+
+> **Implementation note:** this message is now a thin facade over x/rep's
+> `CreateGovActionAppeal` (ActionType `THREAD_LOCK`). It charges the x/rep appeal
+> bond (not the legacy `lock_appeal_fee`, superseded) and resolves through the
+> unified `GovActionAppeal` path — see the `GovActionType` note and
+> [docs/x-forum-appeal-reconciliation.md](x-forum-appeal-reconciliation.md). The
+> "Cost"/"Verdict Handling (via x/rep hook)" prose below describes the original
+> design; the current resolution is the unified jury/committee path. HR-Committee
+> locks are appealed the same way via `MsgAppealGovAction`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -1713,7 +1739,12 @@ applied once the sentinel path is taken, not part of the authority decision.
 
 #### `MsgAppealThreadMove`
 
-Thread author appeals a sentinel-initiated move to jury. Only applies to moves made by Sentinels (HR Committee moves must be appealed via `MsgAppealGovAction` with `GOV_ACTION_TYPE_THREAD_MOVE`).
+Thread author appeals a sentinel-initiated move.
+
+> **Implementation note:** thin facade over x/rep's `CreateGovActionAppeal`
+> (ActionType `THREAD_MOVE`); charges the x/rep appeal bond (not the legacy
+> `move_appeal_fee`) and resolves through the unified `GovActionAppeal` path. The
+> "Verdict Handling (via x/rep hook)" prose below is the original design.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -2354,11 +2385,15 @@ Remove a pinned reply from the thread.
 
 #### `MsgDisputePin`
 
-Thread author disputes a sentinel's pin. Creates x/rep initiative for jury resolution.
+Thread author disputes a sentinel's pin. **Implemented via the unified
+moderation-appeal path** — it opens an x/rep `GovActionAppeal` (ActionType
+`REPLY_PIN`, ActionTarget = reply id), the same machinery used for hide / lock /
+move. See the `GovActionType` note above and
+[docs/x-forum-appeal-reconciliation.md](x-forum-appeal-reconciliation.md).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `author` | `string` | Thread author (signer) |
+| `creator` | `string` | Thread author (signer) |
 | `thread_id` | `uint64` | Thread root post ID |
 | `reply_id` | `uint64` | Pinned reply being disputed |
 | `reason` | `string` | Why author disputes this pin |
@@ -2367,38 +2402,35 @@ Thread author disputes a sentinel's pin. Creates x/rep initiative for jury resol
 
 **Logic:**
 1. **Validation:**
-   - Fail with `ErrForumPaused` if `params.forum_paused == true`
-   - Load thread root, verify `author == thread.author`
-   - Load `ThreadMetadata`, verify `reply_id` is in `pinned_reply_ids`
-   - Load `PinnedReplyRecord` for `reply_id`
-   - Fail with `ErrCannotDisputeAuthorPin` if `is_sentinel_pin == false`
-   - Fail with `ErrPinAlreadyDisputed` if `disputed == true`
-   - Fail with `ErrDisputeReasonRequired` if `reason` is empty
+   - Load thread root, verify `creator == thread.author`
+   - Load `ThreadMetadata`, find the `PinnedReplyRecord` for `reply_id`
+   - Fail with `ErrCannotDisputeGovPin` if `is_sentinel_pin == false`
+   - Fail with `ErrAlreadyDisputed` if `disputed == true`
 
-2. **Charge Fee:**
-   - Transfer `pin_dispute_fee` from author to module account
+2. **Open the appeal (via `repKeeper.CreateGovActionAppeal`):**
+   - Charges the appellant the x/rep appeal bond (`DefaultAppealBondAmount`,
+     refundable) — **not** the legacy `pin_dispute_fee` (superseded).
+   - Creates the `GovActionAppeal` record + a jury initiative and seats a jury
+     (parties excluded).
+   - Sets `pinned_record.disputed = true` and stores the returned `initiative_id`
+     on the record; emits `EventPinDisputed`.
 
-3. **Create Dispute:**
-   - Set `pinned_record.disputed = true`
-   - Load `SentinelPinRecord`
-   - Create x/rep initiative for jury resolution
-   - Store `initiative_id` in both records
-   - Increment `sentinel_activity.epoch_appeals_filed` for the sentinel
-   - Emit `EventPinDisputed`
+**Resolution (unified `GovActionAppeal` path):** decided by jury verdict
+(vote-triggered, or at the deadline via `TimeoutExpiredAppeals`) or by an
+Operations-Committee `MsgResolveGovActionAppeal` override — both run
+`applyGovActionAppealVerdict`:
+- **Overturned (author wins):** reply unpinned (`ReverseSentinelAction`),
+  appellant bond fully refunded, sentinel's reserved pin bond slashed
+  (`DefaultSentinelOverturnSlash`), `sentinel_activity.overturned_pins++`
+  (demotion on streak).
+- **Upheld (sentinel wins):** pin remains, sentinel's reserved pin bond released,
+  appellant bond split (half burned / half to the sentinel reward pool),
+  `sentinel_activity.upheld_pins++`.
+- **Timeout (no quorum by deadline):** appellant bond half-refunded / half-burned,
+  no sentinel penalty.
 
-**Resolution (via x/rep jury callback):**
-- **Dispute upheld (author wins):**
-  - Unpin the reply
-  - Slash sentinel `curation_slash_amount` DREAM
-  - Refund `pin_dispute_fee` to author
-  - Increment `sentinel_activity.overturned_pins`
-  - Emit `EventPinDisputeUpheld`
-- **Dispute rejected (sentinel wins):**
-  - Pin remains
-  - Burn `pin_dispute_fee` (or award portion to sentinel)
-  - Increment `sentinel_activity.upheld_pins`
-  - Award `curation_dream_reward` to sentinel
-  - Emit `EventPinDisputeRejected`
+A sentinel may also `MsgUnpinReply` their own undisputed pin, which releases the
+reserved pin bond (no slash).
 
 ---
 
@@ -2456,7 +2488,8 @@ Mark a reply as the accepted answer. For thread authors, this is immediate. For 
    - Set `proposed_by = marker`
    - Set `proposed_at = now`
    - Add to `proposal_auto_confirm_queue/{now + accept_proposal_timeout}/{thread_id}`
-   - Increment `sentinel_activity.total_proposals` and `epoch_curations`
+   - (The `total_proposals` / `epoch_curations` counters were removed — the
+     handlers never wrote them; see SentinelActivity above.)
    - Emit `EventAcceptProposalCreated`
    - Store updated `ThreadMetadata`
 
@@ -2486,7 +2519,7 @@ Thread author confirms a sentinel's accept proposal.
    - Clear `proposed_reply_id`, `proposed_by`, `proposed_at`
    - Remove from `proposal_auto_confirm_queue`
    - Award `curation_dream_reward` to `proposed_by` sentinel
-   - Increment `sentinel_activity.confirmed_proposals` for that sentinel
+   - (The `confirmed_proposals` counter was removed — see SentinelActivity above.)
    - Store updated `ThreadMetadata`
    - Emit `EventAcceptProposalConfirmed`
 
@@ -2514,7 +2547,7 @@ Thread author rejects a sentinel's accept proposal.
    - Record `proposed_by` for tracking
    - Clear `proposed_reply_id`, `proposed_by`, `proposed_at`
    - Remove from `proposal_auto_confirm_queue`
-   - Increment `sentinel_activity.rejected_proposals` for that sentinel
+   - (The `rejected_proposals` counter was removed — see SentinelActivity above.)
    - *No slash* - rejection is feedback, not punishment
    - Store updated `ThreadMetadata`
    - Emit `EventAcceptProposalRejected`
@@ -2545,7 +2578,7 @@ Proposals auto-confirm if author doesn't respond within `accept_proposal_timeout
      - Set `accepted_at = now`
      - Clear proposal fields
      - Award `curation_dream_reward` to sentinel
-     - Increment `sentinel_activity.confirmed_proposals`
+     - (The `confirmed_proposals` counter was removed — see SentinelActivity above.)
      - Emit `EventAcceptProposalAutoConfirmed`
    - Remove from queue
 
@@ -3039,7 +3072,12 @@ reversed by `MsgUnhidePost` from the committee/governance, not by author appeal.
 
 #### `MsgAppealPost`
 
-Author appeals a hidden post to jury.
+Author appeals a hidden post.
+
+> **Implementation note:** thin facade over x/rep's `CreateGovActionAppeal`
+> (ActionType `POST_HIDE`); charges the x/rep appeal bond (not the legacy
+> `appeal_fee`) and resolves through the unified `GovActionAppeal` path — see the
+> `GovActionType` note and [docs/x-forum-appeal-reconciliation.md](x-forum-appeal-reconciliation.md).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -3500,8 +3538,10 @@ func (k Keeper) EndBlock(ctx sdk.Context) {
 
         // Hidden Posts (update sentinel metrics for expired hides, release committed bond)
         k.PruneExpiredHiddenPosts(ctx, params.LazyPruneLimit * 5)
-        // NOTE: PruneExpiredHiddenPosts also releases committed_bond for each expired hide
-        // and increments unchallenged_hides for the sentinel
+        // NOTE: for each expired hide this also releases the sentinel's committed
+        // bond and, for an UNAPPEALED hide, increments unchallenged_hides and
+        // decrements pending_hide_count (an appealed hide was already tallied as
+        // upheld/overturned at appeal-resolve).
 
         // Expired Tags
         k.PruneExpiredTags(ctx, params.LazyPruneLimit * 5)

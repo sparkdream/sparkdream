@@ -82,6 +82,9 @@ func (stubRepKeeper) DemoteMember(context.Context, sdk.AccAddress, string) error
 func (stubRepKeeper) CreateAppealInitiative(context.Context, string, []byte, int64) (uint64, error) {
 	return 0, nil
 }
+func (stubRepKeeper) CreateGovActionAppeal(context.Context, reptypes.GovActionType, string, sdk.AccAddress, string) (uint64, uint64, error) {
+	return 0, 0, nil
+}
 func (stubRepKeeper) GetContentConviction(context.Context, reptypes.StakeTargetType, uint64) (math.LegacyDec, error) {
 	return math.LegacyZeroDec(), nil
 }

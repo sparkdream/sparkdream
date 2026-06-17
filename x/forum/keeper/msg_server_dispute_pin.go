@@ -2,10 +2,10 @@ package keeper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -19,7 +19,6 @@ func (k msgServer) DisputePin(ctx context.Context, msg *types.MsgDisputePin) (*t
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	now := sdkCtx.BlockTime().Unix()
 
 	// Load thread root to verify thread author
 	thread, err := k.Post.Get(ctx, msg.ThreadId)
@@ -68,21 +67,27 @@ func (k msgServer) DisputePin(ctx context.Context, msg *types.MsgDisputePin) (*t
 		return nil, errorsmod.Wrap(types.ErrAlreadyDisputed, "pin is already disputed")
 	}
 
-	// Create appeal initiative
-	payload := map[string]interface{}{
-		"type":        "pin_dispute",
-		"thread_id":   msg.ThreadId,
-		"reply_id":    msg.ReplyId,
-		"pinned_by":   foundRecord.PinnedBy,
-		"pinned_at":   foundRecord.PinnedAt,
-		"disputed_by": msg.Creator,
-		"reason":      msg.Reason,
+	// Route the dispute through x/rep's GovActionAppeal machinery (ActionType
+	// REPLY_PIN, ActionTarget = reply_id) so it resolves through the same
+	// audited ResolveGovActionAppeal path as lock/move/hide — charging the
+	// appeal bond, slashing/releasing the sentinel's pin bond, updating
+	// upheld_pins/overturned_pins, and unpinning on overturn.
+	if k.repKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
 	}
-	payloadBytes, _ := json.Marshal(payload)
-
-	initiativeID, err := k.CreateAppealInitiative(ctx, "pin_dispute", payloadBytes, now+types.DefaultAppealDeadline)
+	creatorAddr, err := sdk.AccAddressFromBech32(msg.Creator)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to create dispute initiative")
+		return nil, errorsmod.Wrap(err, "invalid creator address")
+	}
+	_, initiativeID, err := k.repKeeper.CreateGovActionAppeal(
+		ctx,
+		reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN,
+		fmt.Sprintf("%d", msg.ReplyId),
+		creatorAddr,
+		msg.Reason,
+	)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to create pin dispute appeal")
 	}
 
 	// Mark as disputed

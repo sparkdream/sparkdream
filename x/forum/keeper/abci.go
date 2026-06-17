@@ -387,6 +387,26 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 			}
 		}
 
+		// Finalize sentinel counters for an UNAPPEALED hide that has now expired:
+		// the hide stood by default, so count it as unchallenged and clear it from
+		// the pending tally. An appealed hide was already tallied as
+		// upheld/overturned (and its pending slot decremented) at appeal-resolve,
+		// so skip those to avoid double-counting. Gov hides (Sentinel == "")
+		// carry no sentinel counters.
+		if hr.Sentinel != "" && !hr.Appealed {
+			local, lerr := k.SentinelActivity.Get(ctx, hr.Sentinel)
+			if lerr == nil {
+				local.UnchallengedHides++
+				if local.PendingHideCount > 0 {
+					local.PendingHideCount--
+				}
+				if err := k.SentinelActivity.Set(ctx, hr.Sentinel, local); err != nil {
+					sdkCtx.Logger().Warn("failed to record unchallenged hide on expiry",
+						"post_id", postID, "sentinel", hr.Sentinel, "error", err)
+				}
+			}
+		}
+
 		// Clean up hide record
 		_ = k.HideRecord.Remove(ctx, postID)
 

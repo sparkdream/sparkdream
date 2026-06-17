@@ -2,10 +2,12 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -213,13 +215,24 @@ func TestAppealPostNoHideRecord(t *testing.T) {
 	})
 }
 
-func TestAppealPostWithFee(t *testing.T) {
+func TestAppealPostCreatesGovActionAppeal(t *testing.T) {
 	f := initFixture(t)
 
-	// Track if bank keeper was called
-	bankCalled := false
+	// The unified path routes hide appeals through x/rep's CreateGovActionAppeal
+	// (POST_HIDE) rather than charging a forum-side fee. Track the rep call and
+	// assert no forum fee is charged.
+	var gotActionType reptypes.GovActionType
+	var gotTarget string
+	repCalled := false
+	f.repKeeper.CreateGovActionAppealFn = func(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error) {
+		repCalled = true
+		gotActionType = actionType
+		gotTarget = actionTarget
+		return 7, 7, nil
+	}
+	forumFeeCharged := false
 	f.bankKeeper.SendCoinsFromAccountToModuleFn = func(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
-		bankCalled = true
+		forumFeeCharged = true
 		return nil
 	}
 
@@ -249,6 +262,8 @@ func TestAppealPostWithFee(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify bank was called for appeal fee
-	require.True(t, bankCalled, "bank keeper should have been called for appeal fee")
+	require.True(t, repCalled, "should route through CreateGovActionAppeal")
+	require.Equal(t, reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE, gotActionType)
+	require.Equal(t, fmt.Sprintf("%d", post.PostId), gotTarget)
+	require.False(t, forumFeeCharged, "legacy forum appeal fee must no longer be charged")
 }

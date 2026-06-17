@@ -14,12 +14,25 @@ import (
 // gas-equivalent state writes per block.
 const maxAppealTimeoutsPerBlock = 50
 
-// TimeoutExpiredAppeals walks pending GovActionAppeal records and transitions
-// any whose Deadline < now to GOV_APPEAL_STATUS_TIMEOUT.
+// TimeoutExpiredAppeals walks pending GovActionAppeal records past their
+// Deadline and gives each a terminal outcome.
 //
-// On timeout: half of the appellant bond is refunded to the appellant and
-// the other half is burned. No forum counter update — neither party is
-// penalized for the jury failing to act.
+// For each expired appeal it first attempts a deadline jury tally by running
+// TallyJuryVotes, which enforces the quorum + supermajority rules centrally: if a
+// quorum of the seated jury voted decisively it applies the verdict
+// (overturn/uphold) through the normal dispatch. This closes the
+// partial-participation gap — the vote-triggered path only fires once a
+// *supermajority of votes is cast*, so an appeal where, say, 3 of 5 jurors voted
+// decisively would otherwise expire un-decided.
+//
+// If no quorum voted (or the tally is inconclusive), the appeal TIMES OUT: half
+// of the appellant bond is refunded and the other half burned. No forum counter
+// update and no sentinel penalty — neither party is blamed for jurors failing to
+// reach a verdict.
+//
+// Note: this is the only working deadline-resolution path for appeals. The
+// generic jury EndBlocker loop (IterateActiveJuryReviews in abci.go) cannot
+// resolve appeals — see the comment there.
 func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -60,6 +73,24 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 	iter.Close()
 
 	for _, p := range toProcess {
+		// Deadline jury tally: if a quorum of the seated jury has voted, let the
+		// verdict decide instead of a neutral timeout. TallyJuryVotes applies the
+		// verdict via the gov_action_appeal dispatch (idempotent on appeal
+		// status); if it resolves the appeal we skip the timeout branch.
+		if review, rErr := k.GetJuryReview(ctx, p.appeal.InitiativeId); rErr == nil {
+			// TallyJuryVotes enforces the quorum + supermajority rules and, for a
+			// decisive appeal, applies the verdict via dispatch (idempotent on
+			// status). If it resolves the appeal, skip the timeout fallback.
+			if tErr := k.TallyJuryVotes(ctx, review.Id); tErr != nil {
+				sdkCtx.Logger().Error("deadline jury tally failed",
+					"appeal_id", p.id, "review_id", review.Id, "error", tErr)
+			} else if updated, gErr := k.GovActionAppeal.Get(ctx, p.id); gErr == nil &&
+				updated.Status != types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
+				// Jury reached a verdict — appeal already finalized.
+				continue
+			}
+		}
+
 		bond, parseErr := parseIntOrZero(p.appeal.AppealBond)
 		if parseErr != nil {
 			sdkCtx.Logger().Error("invalid appeal bond on timeout",

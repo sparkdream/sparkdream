@@ -126,6 +126,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 			MoveReason:              msg.Reason,
 			AppealPending:           false,
 			InitiativeId:            0,
+			CommittedAmount:         slashAmount.String(),
 		}
 
 		if err := k.ThreadMoveRecord.Set(ctx, msg.RootId, moveRecord); err != nil {

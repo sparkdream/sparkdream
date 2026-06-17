@@ -2,10 +2,10 @@ package keeper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -66,28 +66,35 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 			"must wait until %d to appeal", cooldownEnd)
 	}
 
-	// Charge appeal_fee to appellant and escrow it
-	if params.AppealFeeAmount.IsPositive() {
-		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-		appealFee := sdk.NewCoin(k.BondDenom(ctx), params.AppealFeeAmount)
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(appealFee)); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to charge appeal fee")
-		}
+	// Open a moderation appeal through the unified x/rep GovActionAppeal path
+	// (ActionType POST_HIDE, ActionTarget = post id). This charges the rep
+	// appeal bond and creates a jury initiative + resolvable GovActionAppeal
+	// record — the same machinery lock/move/pin disputes use. The legacy
+	// per-action forum appeal fee is no longer charged; the rep bond
+	// (refunded/burned per verdict) supersedes it.
+	if k.repKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable, "rep keeper not wired")
+	}
+	creatorAddr, err := sdk.AccAddressFromBech32(msg.Creator)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid creator address")
+	}
+	_, initiativeID, err := k.repKeeper.CreateGovActionAppeal(
+		ctx,
+		reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
+		fmt.Sprintf("%d", msg.PostId),
+		creatorAddr,
+		fmt.Sprintf("hide appeal: %s", hideRecord.ReasonText),
+	)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to create hide appeal")
 	}
 
-	// Create appeal initiative in x/rep (stub)
-	payload, _ := json.Marshal(map[string]interface{}{
-		"post_id":        msg.PostId,
-		"sentinel_addr":  hideRecord.Sentinel,
-		"appellant_addr": msg.Creator,
-		"reason_code":    hideRecord.ReasonCode,
-		"reason_text":    hideRecord.ReasonText,
-	})
-
-	deadline := now + types.DefaultAppealDeadline
-	initiativeID, err := k.CreateAppealInitiative(ctx, "POST_HIDE_APPEAL", payload, deadline)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to create appeal initiative")
+	// Mark the hide as appealed so the hide-expiry EndBlocker does not later
+	// count it as unchallenged (it will be tallied as upheld/overturned instead).
+	hideRecord.Appealed = true
+	if err := k.HideRecord.Set(ctx, msg.PostId, hideRecord); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to mark hide record appealed")
 	}
 
 	// Update sentinel activity to track pending appeal
@@ -107,7 +114,6 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 			sdk.NewAttribute("appellant", msg.Creator),
 			sdk.NewAttribute("sentinel", hideRecord.Sentinel),
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-			sdk.NewAttribute("deadline", fmt.Sprintf("%d", deadline)),
 		),
 	)
 

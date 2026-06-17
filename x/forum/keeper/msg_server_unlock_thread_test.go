@@ -86,6 +86,36 @@ func TestMsgServerUnlockThread(t *testing.T) {
 		require.Contains(t, err.Error(), "sentinels can only unlock threads they locked")
 	})
 
+	t.Run("sentinel self-unlock releases the reserved lock bond", func(t *testing.T) {
+		f.createTestSentinel(t, testSentinel, "2000000000")
+		// Simulate the reservation MsgLockThread makes (100 DREAM committed).
+		br := f.repKeeper.sentinels[testSentinel]
+		br.TotalCommittedBond = "100000000"
+		f.repKeeper.sentinels[testSentinel] = br
+
+		post := f.createTestPost(t, testCreator, 0, 0)
+		post.Locked = true
+		post.LockedBy = testSentinel
+		post.LockedAt = f.sdkCtx().BlockTime().Unix()
+		f.keeper.Post.Set(f.ctx, post.PostId, post)
+
+		f.keeper.ThreadLockRecord.Set(f.ctx, post.PostId, types.ThreadLockRecord{
+			RootId:          post.PostId,
+			Sentinel:        testSentinel,
+			LockedAt:        f.sdkCtx().BlockTime().Unix(),
+			AppealPending:   false,
+			CommittedAmount: "100000000",
+		})
+
+		_, err := f.msgServer.UnlockThread(f.ctx, &types.MsgUnlockThread{
+			Creator: testSentinel,
+			RootId:  post.PostId,
+		})
+		require.NoError(t, err)
+		require.Equal(t, "0", f.repKeeper.sentinels[testSentinel].TotalCommittedBond,
+			"self-unlock must release the sentinel's reserved lock bond")
+	})
+
 	t.Run("sentinel can unlock thread they locked", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 

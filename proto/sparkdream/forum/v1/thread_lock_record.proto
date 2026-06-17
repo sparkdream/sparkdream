@@ -13,4 +13,8 @@ message ThreadLockRecord {
   string lock_reason = 6;
   bool appeal_pending = 7;
   uint64 initiative_id = 8;
+  // committed_amount is the sentinel bond (udream, as a string) reserved at lock
+  // time. Released on self-unlock or an upheld appeal, and the amount slashed
+  // basis on an overturn. Empty for governance-authority locks (no bond).
+  string committed_amount = 9;
 }

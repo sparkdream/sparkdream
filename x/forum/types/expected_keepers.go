@@ -95,6 +95,13 @@ type RepKeeper interface {
 	// Returns the initiative ID or error.
 	CreateAppealInitiative(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
 
+	// CreateGovActionAppeal charges the appellant the standard appeal bond,
+	// opens a jury initiative, and records a pending GovActionAppeal that
+	// resolves through x/rep's ResolveGovActionAppeal. Used by DisputePin to
+	// route reply-pin disputes (ActionType REPLY_PIN) through the same audited
+	// resolution path as lock/move/hide. Returns (appealID, initiativeID).
+	CreateGovActionAppeal(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error)
+
 	// Content conviction staking & author bonds
 	GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
 	CreateAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) (uint64, error)

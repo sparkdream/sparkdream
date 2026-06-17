@@ -336,6 +336,50 @@ func TestSelectJury(t *testing.T) {
 		}
 	})
 
+	t.Run("excluded addresses (e.g. challenger) are removed from the pool", func(t *testing.T) {
+		fixture := initFixture(t)
+		k := fixture.keeper
+		ctx := fixture.ctx
+
+		params, _ := k.Params.Get(ctx)
+		params.JurySize = 3
+		params.MinJurorReputation = math.LegacyNewDec(50)
+		k.Params.Set(ctx, params)
+
+		// Challenger is a high-rep, NON-affiliated member — would be eligible if
+		// not explicitly excluded.
+		challenger := sdk.AccAddress([]byte("the-challenger-ad"))
+		k.Member.Set(ctx, challenger.String(), types.Member{
+			Address:          challenger.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{"coding": "1000.0"},
+		})
+
+		for i := 0; i < 3; i++ {
+			addr := sdk.AccAddress([]byte(fmt.Sprintf("pool-member-%d", i)))
+			k.Member.Set(ctx, addr.String(), types.Member{
+				Address:          addr.String(),
+				DreamBalance:     PtrInt(math.ZeroInt()),
+				StakedDream:      PtrInt(math.ZeroInt()),
+				LifetimeEarned:   PtrInt(math.ZeroInt()),
+				LifetimeBurned:   PtrInt(math.ZeroInt()),
+				ReputationScores: map[string]string{"coding": "100.0"},
+			})
+		}
+
+		initiative := types.Initiative{Id: 1, Tags: []string{"coding"}, Assignee: "other-addr"}
+
+		jurors, err := k.SelectJury(ctx, initiative, params.JurySize, challenger.String())
+		require.NoError(t, err)
+		require.Len(t, jurors, 3)
+		for _, j := range jurors {
+			require.NotEqual(t, challenger.String(), j, "challenger must not sit on the jury for their own challenge")
+		}
+	})
+
 	t.Run("members below MinJurorReputation are excluded", func(t *testing.T) {
 		fixture := initFixture(t)
 		k := fixture.keeper

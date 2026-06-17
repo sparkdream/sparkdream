@@ -13,6 +13,8 @@ enum GovActionType {
   GOV_ACTION_TYPE_FORUM_PAUSE = 5;
   GOV_ACTION_TYPE_THREAD_LOCK = 6;
   GOV_ACTION_TYPE_THREAD_MOVE = 7;
+  GOV_ACTION_TYPE_REPLY_PIN = 8;
+  GOV_ACTION_TYPE_POST_HIDE = 9;
 }
 
 // MemberReportStatus represents the status of a member report.

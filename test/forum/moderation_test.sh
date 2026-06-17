@@ -388,6 +388,15 @@ PART4_RESULT="FAIL"
 # late cooldown error still slips through.
 
 if [ -n "$MOVE_THREAD_ID" ]; then
+    # Appeals now escrow the x/rep appeal bond (10 SPARK, refundable) instead of
+    # the legacy forum fee. Fund poster1 (the thread author / appellant) so the
+    # move appeal can post its bond.
+    echo "  Funding poster1 for the move-appeal bond..."
+    FR=$($BINARY tx bank send alice $POSTER1_ADDR 20000000${BOND_DENOM} \
+        --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    FH=$(echo "$FR" | jq -r '.txhash // empty')
+    if [ -n "$FH" ] && [ "$FH" != "null" ]; then sleep 6; wait_for_tx "$FH" > /dev/null 2>&1; fi
+
     # Read on-chain MovedAt and current block time
     MOVE_REC=$($BINARY query forum get-thread-move-record $MOVE_THREAD_ID --output json 2>/dev/null)
     MOVED_AT=$(echo "$MOVE_REC" | jq -r '.move_record.moved_at // .moved_at // "0"' 2>/dev/null)
@@ -646,6 +655,15 @@ echo "--- PART 9: DISPUTE PIN ---"
 PART9_RESULT="FAIL"
 
 if [ -n "$PIN_REPLY_ID" ]; then
+    # Disputing a pin now opens an x/rep GovActionAppeal (REPLY_PIN) and escrows
+    # the appeal bond (10 SPARK, refundable) — the legacy dispute was free. Fund
+    # poster1 so the dispute can post its bond.
+    echo "  Funding poster1 for the pin-dispute appeal bond..."
+    FR=$($BINARY tx bank send alice $POSTER1_ADDR 20000000${BOND_DENOM} \
+        --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    FH=$(echo "$FR" | jq -r '.txhash // empty')
+    if [ -n "$FH" ] && [ "$FH" != "null" ]; then sleep 6; wait_for_tx "$FH" > /dev/null 2>&1; fi
+
     echo "  Disputing pinned reply $PIN_REPLY_ID..."
 
     TX_RES=$($BINARY tx forum dispute-pin \

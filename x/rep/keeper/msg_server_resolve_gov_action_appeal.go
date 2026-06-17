@@ -12,21 +12,15 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
+// govActionAppealInitiativeType is the appeal-type string stored on the jury
+// review (ChallengerClaim) for moderation appeals. TallyJuryVotes dispatches on
+// it to apply the jury verdict through applyGovActionAppealVerdict.
+const govActionAppealInitiativeType = "gov_action_appeal"
+
 // ResolveGovActionAppeal resolves a pending appeal via commons council
-// Operations Committee authority. Executes the bond flow and forum counter
-// update per the verdict, then transitions the appeal to its terminal status.
-//
-// UPHELD:     50% of appellant bond burned, 50% retained in rep module (tops
-//
-//	up the sentinel reward pool). Forum counter RecordSentinelActionUpheld.
-//
-// OVERTURNED: 100% refund to appellant. Sentinel slashed DefaultSentinelOverturnSlash
-//
-//	DREAM. Forum counter RecordSentinelActionOverturned (which may trigger
-//	demotion on streak).
-//
-// TIMEOUT and UNSPECIFIED verdicts are rejected — TIMEOUT is driven only by
-// the EndBlocker (see TimeoutExpiredAppeals).
+// Operations Committee authority. This is the manual-override entry point; the
+// same verdict logic is invoked automatically from TallyJuryVotes when a jury
+// reaches a verdict (see applyGovActionAppealVerdict).
 func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgResolveGovActionAppeal) (*types.MsgResolveGovActionAppealResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Resolver); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid resolver address")
@@ -37,34 +31,61 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 			"only commons council operations committee can resolve gov action appeals")
 	}
 
-	appeal, err := k.GovActionAppeal.Get(ctx, msg.AppealId)
+	if err := k.applyGovActionAppealVerdict(ctx, msg.AppealId, msg.Verdict, msg.Resolver, msg.Reason); err != nil {
+		return nil, err
+	}
+
+	return &types.MsgResolveGovActionAppealResponse{}, nil
+}
+
+// applyGovActionAppealVerdict executes the bond flow, sentinel slashing/release,
+// forum counter update, and content reversal for an appeal verdict, then
+// transitions the appeal to its terminal status. Shared by the manual committee
+// resolver (MsgResolveGovActionAppeal) and the automatic jury path
+// (TallyJuryVotes). Idempotent on appeal status: a non-PENDING appeal is
+// rejected, so a jury verdict and a committee override cannot double-apply.
+//
+// UPHELD:     50% of appellant bond burned, 50% retained in rep module (tops up
+//
+//	the sentinel reward pool). Sentinel's reserved bond released. Forum
+//	counter RecordSentinelActionUpheld.
+//
+// OVERTURNED: 100% refund to appellant. Sentinel slashed DefaultSentinelOverturnSlash
+//
+//	DREAM. Forum counter RecordSentinelActionOverturned (may trigger
+//	demotion on streak) and ReverseSentinelAction (unhide/unlock/un-move/unpin).
+//
+// resolver and reason are recorded on the emitted event for audit (the manual
+// path passes the committee member; the jury path passes "jury:<review id>").
+func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64, verdict types.GovAppealStatus, resolver, reason string) error {
+	appeal, err := k.GovActionAppeal.Get(ctx, appealID)
 	if err != nil {
-		return nil, errorsmod.Wrap(types.ErrAppealNotFound, fmt.Sprintf("appeal %d", msg.AppealId))
+		return errorsmod.Wrap(types.ErrAppealNotFound, fmt.Sprintf("appeal %d", appealID))
 	}
 
 	if appeal.Status != types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
-		return nil, errorsmod.Wrapf(types.ErrAppealNotPending,
-			"appeal %d has status %s", msg.AppealId, appeal.Status.String())
+		return errorsmod.Wrapf(types.ErrAppealNotPending,
+			"appeal %d has status %s", appealID, appeal.Status.String())
 	}
 
-	if msg.Verdict != types.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD &&
-		msg.Verdict != types.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED {
-		return nil, errorsmod.Wrapf(types.ErrInvalidAppealVerdict,
-			"verdict must be UPHELD or OVERTURNED, got %s", msg.Verdict.String())
+	if verdict != types.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD &&
+		verdict != types.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED {
+		return errorsmod.Wrapf(types.ErrInvalidAppealVerdict,
+			"verdict must be UPHELD or OVERTURNED, got %s", verdict.String())
 	}
 
 	bond, err := parseIntOrZero(appeal.AppealBond)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "invalid appeal bond on appeal record")
+		return errorsmod.Wrap(err, "invalid appeal bond on appeal record")
 	}
 	appellantAddr, err := sdk.AccAddressFromBech32(appeal.Appellant)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "invalid appellant address on appeal record")
+		return errorsmod.Wrap(err, "invalid appellant address on appeal record")
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	switch msg.Verdict {
+	switch verdict {
 	case types.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD:
 		// Half of the bond is burned; the other half is moved to the sentinel
 		// reward pool sub-address. Both halves flow through the rep module
@@ -76,16 +97,16 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 			if half.IsPositive() {
 				burnCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), half))
 				if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), authtypes.NewModuleAddress(types.ModuleName), burnCoins); err != nil {
-					return nil, errorsmod.Wrap(err, "failed to move appeal bond half to module account")
+					return errorsmod.Wrap(err, "failed to move appeal bond half to module account")
 				}
 				if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, burnCoins); err != nil {
-					return nil, errorsmod.Wrap(err, "failed to burn appeal bond half")
+					return errorsmod.Wrap(err, "failed to burn appeal bond half")
 				}
 			}
 			if remainder.IsPositive() {
 				poolCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), remainder))
 				if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), SentinelRewardPoolAddress(), poolCoins); err != nil {
-					return nil, errorsmod.Wrap(err, "failed to forward appeal bond remainder to sentinel pool")
+					return errorsmod.Wrap(err, "failed to forward appeal bond remainder to sentinel pool")
 				}
 			}
 		}
@@ -97,16 +118,16 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 			sentinelAddr, sErr := fk.GetActionSentinel(ctx, appeal.ActionType, appeal.ActionTarget)
 			if sErr != nil {
 				sdkCtx.Logger().Warn("failed to resolve sentinel for upheld appeal",
-					"appeal_id", msg.AppealId, "error", sErr)
+					"appeal_id", appealID, "error", sErr)
 			} else if sentinelAddr != "" {
 				committed, cErr := fk.GetActionCommittedAmount(ctx, appeal.ActionType, appeal.ActionTarget)
 				if cErr != nil {
 					sdkCtx.Logger().Warn("failed to read sentinel committed amount on uphold",
-						"sentinel", sentinelAddr, "appeal_id", msg.AppealId, "error", cErr)
+						"sentinel", sentinelAddr, "appeal_id", appealID, "error", cErr)
 				} else if committed.IsPositive() {
 					if err := k.ReleaseBond(ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, committed); err != nil {
 						sdkCtx.Logger().Warn("failed to release sentinel bond on uphold",
-							"sentinel", sentinelAddr, "appeal_id", msg.AppealId, "error", err)
+							"sentinel", sentinelAddr, "appeal_id", appealID, "error", err)
 					}
 				}
 			}
@@ -116,7 +137,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 		if fk := k.late.forumKeeper; fk != nil {
 			if err := fk.RecordSentinelActionUpheld(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
 				sdkCtx.Logger().Warn("failed to record sentinel action upheld",
-					"appeal_id", msg.AppealId, "error", err)
+					"appeal_id", appealID, "error", err)
 			}
 		}
 
@@ -125,7 +146,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 		if bond.IsPositive() {
 			refundCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), bond))
 			if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), appellantAddr, refundCoins); err != nil {
-				return nil, errorsmod.Wrap(err, "failed to refund appeal bond")
+				return errorsmod.Wrap(err, "failed to refund appeal bond")
 			}
 		}
 
@@ -136,7 +157,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 			sentinelAddr, err = fk.GetActionSentinel(ctx, appeal.ActionType, appeal.ActionTarget)
 			if err != nil {
 				sdkCtx.Logger().Warn("failed to resolve sentinel for overturned appeal",
-					"appeal_id", msg.AppealId, "error", err)
+					"appeal_id", appealID, "error", err)
 			}
 		}
 
@@ -146,7 +167,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 			slashAmount := math.NewInt(types.DefaultSentinelOverturnSlash)
 			if err := k.SlashBond(ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, slashAmount, "appeal_overturned"); err != nil {
 				sdkCtx.Logger().Warn("failed to slash sentinel bond on overturn",
-					"sentinel", sentinelAddr, "appeal_id", msg.AppealId, "error", err)
+					"sentinel", sentinelAddr, "appeal_id", appealID, "error", err)
 			}
 		}
 
@@ -154,18 +175,19 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 		if fk := k.late.forumKeeper; fk != nil {
 			if err := fk.RecordSentinelActionOverturned(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
 				sdkCtx.Logger().Warn("failed to record sentinel action overturned",
-					"appeal_id", msg.AppealId, "error", err)
+					"appeal_id", appealID, "error", err)
 			}
 
-			// Reverse the underlying content action: unhide / unlock / un-move.
-			// Without this, the sentinel gets slashed but the user's content
-			// stays affected — the appeal loop would be incomplete. Errors
-			// here are logged and the appeal still finalizes; the dangling-
-			// reference guard inside ReverseSentinelAction may legitimately
-			// skip the reversal if the parent category has since been deleted.
+			// Reverse the underlying content action: unhide / unlock / un-move /
+			// unpin. Without this, the sentinel gets slashed but the user's
+			// content stays affected — the appeal loop would be incomplete.
+			// Errors here are logged and the appeal still finalizes; the
+			// dangling-reference guard inside ReverseSentinelAction may
+			// legitimately skip the reversal if the parent category has since
+			// been deleted.
 			if err := fk.ReverseSentinelAction(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
 				sdkCtx.Logger().Warn("failed to reverse sentinel action on overturn",
-					"appeal_id", msg.AppealId,
+					"appeal_id", appealID,
 					"action_type", appeal.ActionType.String(),
 					"action_target", appeal.ActionTarget,
 					"error", err)
@@ -173,22 +195,39 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 		}
 	}
 
-	appeal.Status = msg.Verdict
-	if err := k.GovActionAppeal.Set(ctx, msg.AppealId, appeal); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to update appeal")
+	appeal.Status = verdict
+	if err := k.GovActionAppeal.Set(ctx, appealID, appeal); err != nil {
+		return errorsmod.Wrap(err, "failed to update appeal")
 	}
 
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"gov_action_appeal_resolved",
-			sdk.NewAttribute("appeal_id", fmt.Sprintf("%d", msg.AppealId)),
-			sdk.NewAttribute("verdict", msg.Verdict.String()),
-			sdk.NewAttribute("resolver", msg.Resolver),
-			sdk.NewAttribute("reason", msg.Reason),
+			sdk.NewAttribute("appeal_id", fmt.Sprintf("%d", appealID)),
+			sdk.NewAttribute("verdict", verdict.String()),
+			sdk.NewAttribute("resolver", resolver),
+			sdk.NewAttribute("reason", reason),
 			sdk.NewAttribute("action_type", appeal.ActionType.String()),
 			sdk.NewAttribute("action_target", appeal.ActionTarget),
 		),
 	)
 
-	return &types.MsgResolveGovActionAppealResponse{}, nil
+	return nil
+}
+
+// findGovActionAppealByInitiative returns the PENDING GovActionAppeal whose
+// InitiativeId matches the given jury review id. Used by TallyJuryVotes to map a
+// resolved appeal jury review back to its appeal record.
+func (k Keeper) findGovActionAppealByInitiative(ctx context.Context, initiativeID uint64) (types.GovActionAppeal, bool) {
+	var found types.GovActionAppeal
+	ok := false
+	_ = k.GovActionAppeal.Walk(ctx, nil, func(id uint64, a types.GovActionAppeal) (bool, error) {
+		if a.InitiativeId == initiativeID && a.Status == types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
+			found = a
+			ok = true
+			return true, nil
+		}
+		return false, nil
+	})
+	return found, ok
 }

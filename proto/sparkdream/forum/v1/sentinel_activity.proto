@@ -11,6 +11,10 @@ message SentinelActivity {
   uint64 total_hides = 2;
   uint64 upheld_hides = 3;
   uint64 overturned_hides = 4;
+  // unchallenged_hides counts hides that expired without ever being appealed
+  // (the hide stood by default). Written by the hide-expiry EndBlocker. Excluded
+  // from accuracy/reward math by design — it is a display/audit metric only, so
+  // a sentinel cannot game rewards by spam-hiding low-visibility content.
   uint64 unchallenged_hides = 5;
   uint64 epoch_hides = 6;
   uint64 epoch_appeals_resolved = 7;
@@ -31,8 +35,4 @@ message SentinelActivity {
   uint64 upheld_pins = 22;
   uint64 overturned_pins = 23;
   uint64 epoch_pins = 24;
-  uint64 total_proposals = 25;
-  uint64 confirmed_proposals = 26;
-  uint64 rejected_proposals = 27;
-  uint64 epoch_curations = 28;
 }

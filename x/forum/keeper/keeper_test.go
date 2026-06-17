@@ -164,6 +164,7 @@ func (m *mockBankKeeper) MintCoins(ctx context.Context, moduleName string, amt s
 // mockRepKeeper implements types.RepKeeper for testing
 type mockRepKeeper struct {
 	CreateAppealInitiativeFn        func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
+	CreateGovActionAppealFn         func(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error)
 	IsMemberFn                      func(ctx context.Context, addr sdk.AccAddress) bool
 	GetTrustLevelFn                 func(addr sdk.AccAddress) uint64
 	ValidateInitiativeReferenceFn   func(ctx context.Context, initiativeID uint64) error
@@ -358,6 +359,14 @@ func (m *mockRepKeeper) CreateAppealInitiative(ctx context.Context, initiativeTy
 	}
 	m.nextInitiativeID++
 	return m.nextInitiativeID, nil
+}
+
+func (m *mockRepKeeper) CreateGovActionAppeal(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error) {
+	if m.CreateGovActionAppealFn != nil {
+		return m.CreateGovActionAppealFn(ctx, actionType, actionTarget, appellant, reason)
+	}
+	m.nextInitiativeID++
+	return m.nextInitiativeID, m.nextInitiativeID, nil
 }
 
 func (m *mockRepKeeper) GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error) {

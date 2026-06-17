@@ -15,4 +15,8 @@ message ThreadMoveRecord {
   string move_reason = 8;
   bool appeal_pending = 9;
   uint64 initiative_id = 10;
+  // committed_amount is the sentinel bond (udream, as a string) reserved at move
+  // time. Released on an upheld appeal; the slash basis on an overturn. Empty
+  // for governance-authority moves (no bond).
+  string committed_amount = 11;
 }

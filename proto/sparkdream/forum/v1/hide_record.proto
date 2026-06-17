@@ -33,4 +33,9 @@ message HideRecord {
   // hides and gov-authority hides — see the `sentinel` field for how the two
   // hide flavors are distinguished.
   string author_bond_amount = 9;
+  // appealed is set true when an appeal is filed against this hide (via
+  // MsgAppealPost). The hide-expiry EndBlocker reads it to avoid double-counting:
+  // an appealed hide was already tallied as upheld/overturned, so only an
+  // un-appealed hide that expires increments unchallenged_hides.
+  bool appealed = 10;
 }

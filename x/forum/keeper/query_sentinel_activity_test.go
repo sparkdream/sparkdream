@@ -21,7 +21,6 @@ func createNSentinelActivity(keeper keeper.Keeper, ctx context.Context, n int) [
 		items[i].TotalHides = uint64(i)
 		items[i].UpheldHides = uint64(i)
 		items[i].OverturnedHides = uint64(i)
-		items[i].UnchallengedHides = uint64(i)
 		items[i].EpochHides = uint64(i)
 		items[i].EpochAppealsResolved = uint64(i)
 		items[i].OverturnCooldownUntil = int64(i)
@@ -41,10 +40,6 @@ func createNSentinelActivity(keeper keeper.Keeper, ctx context.Context, n int) [
 		items[i].UpheldPins = uint64(i)
 		items[i].OverturnedPins = uint64(i)
 		items[i].EpochPins = uint64(i)
-		items[i].TotalProposals = uint64(i)
-		items[i].ConfirmedProposals = uint64(i)
-		items[i].RejectedProposals = uint64(i)
-		items[i].EpochCurations = uint64(i)
 		_ = keeper.SentinelActivity.Set(ctx, items[i].Address, items[i])
 	}
 	return items

@@ -103,14 +103,31 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 		}
 	}
 
+	// Reserve the sentinel's slash bond so an overturned pin dispute has funds
+	// to slash, mirroring the hide/lock/move reservation path. Released on an
+	// upheld dispute via GetActionCommittedAmount. Gov pins reserve nothing.
+	committedAmount := ""
+	if isSentinel {
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			params = types.DefaultParams()
+		}
+		slashAmount := params.SentinelSlashAmountOrDefault()
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
+			return nil, errorsmod.Wrap(err, "insufficient bond to pin")
+		}
+		committedAmount = slashAmount.String()
+	}
+
 	// Create pinned record
 	record := &types.PinnedReplyRecord{
-		PostId:        msg.ReplyId,
-		PinnedBy:      msg.Creator,
-		PinnedAt:      now,
-		IsSentinelPin: !isGov,
-		Disputed:      false,
-		InitiativeId:  0,
+		PostId:          msg.ReplyId,
+		PinnedBy:        msg.Creator,
+		PinnedAt:        now,
+		IsSentinelPin:   !isGov,
+		Disputed:        false,
+		InitiativeId:    0,
+		CommittedAmount: committedAmount,
 	}
 
 	metadata.PinnedReplyIds = append(metadata.PinnedReplyIds, msg.ReplyId)
@@ -118,6 +135,23 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 
 	if err := k.ThreadMetadata.Set(ctx, msg.ThreadId, metadata); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
+	}
+
+	// Forum-local counters for sentinel pins only. Gov pins are not sentinel
+	// activity and must not count toward epoch curation rewards. Mirrors the
+	// lock/move/hide counter convention.
+	if isSentinel {
+		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
+		if err != nil {
+			local = types.SentinelActivity{Address: msg.Creator}
+		}
+		local.TotalPins++
+		local.EpochPins++
+		if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
+		}
+
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
 	}
 
 	// Emit event

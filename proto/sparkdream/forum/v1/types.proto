@@ -74,6 +74,10 @@ message PinnedReplyRecord {
   bool is_sentinel_pin = 4;
   bool disputed = 5;
   uint64 initiative_id = 6;
+  // committed_amount is the sentinel bond (in udream, as a string) reserved at
+  // pin time, released on an upheld dispute and available to slash on an
+  // overturn. Empty for governance-authority pins (no bond reserved).
+  string committed_amount = 7;
 }
 
 // ForumRepEpochCounter tracks how much forum reputation a single author has

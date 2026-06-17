@@ -83,15 +83,13 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		return false
 	})
 
-	// 6. Process jury review deadlines
-	k.IterateActiveJuryReviews(ctx, func(index int64, review types.JuryReview) bool {
-		if sdkCtx.BlockHeight() >= review.Deadline {
-			if err := k.TallyJuryVotes(ctx, review.Id); err != nil {
-				sdkCtx.Logger().Error("failed to tally jury votes", "review_id", review.Id, "error", err)
-			}
-		}
-		return false
-	})
+	// 6. Resolve challenge / content-challenge jury reviews whose (block-height)
+	// deadline passed without reaching a verdict by votes. Appeals are NOT
+	// handled here (timestamp deadline) — they resolve via the vote-triggered
+	// path and, at their deadline, via TimeoutExpiredAppeals below.
+	if err := k.ResolveExpiredChallengeJuryReviews(ctx); err != nil {
+		sdkCtx.Logger().Error("failed to resolve expired challenge jury reviews", "error", err)
+	}
 
 	// 7. Process assigned initiative deadlines (interims)
 	k.IteratePendingInterims(ctx, func(index int64, interim types.Interim) bool {

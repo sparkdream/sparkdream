@@ -2,10 +2,10 @@ package keeper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -59,29 +59,26 @@ func (k msgServer) AppealThreadMove(ctx context.Context, msg *types.MsgAppealThr
 			"must wait until %d to appeal", cooldownEnd)
 	}
 
-	// Charge move_appeal_fee to appellant and escrow it
-	if params.MoveAppealFeeAmount.IsPositive() {
-		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-		moveAppealFee := sdk.NewCoin(k.BondDenom(ctx), params.MoveAppealFeeAmount)
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(moveAppealFee)); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to charge move appeal fee")
-		}
+	// Open a moderation appeal through the unified x/rep GovActionAppeal path
+	// (ActionType THREAD_MOVE, ActionTarget = root id). Charges the rep appeal
+	// bond and creates the resolvable GovActionAppeal record + jury initiative.
+	// The legacy per-action forum move-appeal fee is superseded by the rep bond.
+	if k.repKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable, "rep keeper not wired")
 	}
-
-	// Create appeal initiative in x/rep (stub)
-	payload, _ := json.Marshal(map[string]interface{}{
-		"thread_id":            msg.RootId,
-		"sentinel_addr":        moveRecord.Sentinel,
-		"appellant_addr":       msg.Creator,
-		"original_category_id": moveRecord.OriginalCategoryId,
-		"new_category_id":      moveRecord.NewCategoryId,
-		"move_reason":          moveRecord.MoveReason,
-	})
-
-	deadline := now + types.DefaultMoveAppealDeadline
-	initiativeID, err := k.CreateAppealInitiative(ctx, "THREAD_MOVE_APPEAL", payload, deadline)
+	creatorAddr, err := sdk.AccAddressFromBech32(msg.Creator)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to create appeal initiative")
+		return nil, errorsmod.Wrap(err, "invalid creator address")
+	}
+	_, initiativeID, err := k.repKeeper.CreateGovActionAppeal(
+		ctx,
+		reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE,
+		fmt.Sprintf("%d", msg.RootId),
+		creatorAddr,
+		fmt.Sprintf("move appeal: %s", moveRecord.MoveReason),
+	)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to create move appeal")
 	}
 
 	// Update move record with appeal info
@@ -100,7 +97,6 @@ func (k msgServer) AppealThreadMove(ctx context.Context, msg *types.MsgAppealThr
 			sdk.NewAttribute("appellant", msg.Creator),
 			sdk.NewAttribute("sentinel", moveRecord.Sentinel),
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-			sdk.NewAttribute("deadline", fmt.Sprintf("%d", deadline)),
 		),
 	)
 

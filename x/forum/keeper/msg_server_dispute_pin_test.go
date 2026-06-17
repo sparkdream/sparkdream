@@ -1,12 +1,15 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestMsgDisputePin(t *testing.T) {
@@ -148,6 +151,17 @@ func TestMsgDisputePin(t *testing.T) {
 	})
 
 	t.Run("success", func(t *testing.T) {
+		// Capture the gov-action-appeal routing args (ActionType REPLY_PIN,
+		// ActionTarget = reply id) so a dispute is provably folded into the
+		// unified appeal path rather than a bare initiative.
+		var gotType reptypes.GovActionType
+		var gotTarget string
+		f.repKeeper.CreateGovActionAppealFn = func(_ context.Context, at reptypes.GovActionType, target string, _ sdk.AccAddress, _ string) (uint64, uint64, error) {
+			gotType = at
+			gotTarget = target
+			return 9, 9, nil
+		}
+
 		// Create thread
 		thread := f.createTestPost(t, testCreator, 0, 0)
 
@@ -175,11 +189,16 @@ func TestMsgDisputePin(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Verify pin marked as disputed
+		// Verify the dispute was folded into the unified gov-action-appeal path
+		// with the correct action type + target (the reply id).
+		require.Equal(t, reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN, gotType)
+		require.Equal(t, "200", gotTarget)
+
+		// Verify pin marked as disputed, carrying the returned initiative id.
 		updated, err := f.keeper.ThreadMetadata.Get(f.ctx, thread.PostId)
 		require.NoError(t, err)
 		require.Len(t, updated.PinnedRecords, 1)
 		require.True(t, updated.PinnedRecords[0].Disputed)
-		require.NotZero(t, updated.PinnedRecords[0].InitiativeId)
+		require.Equal(t, uint64(9), updated.PinnedRecords[0].InitiativeId)
 	})
 }

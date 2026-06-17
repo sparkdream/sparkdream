@@ -2,9 +2,11 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -196,13 +198,23 @@ func TestAppealThreadLockNoLockRecord(t *testing.T) {
 	require.Contains(t, err.Error(), "governance authority")
 }
 
-func TestAppealThreadLockWithFee(t *testing.T) {
+func TestAppealThreadLockCreatesGovActionAppeal(t *testing.T) {
 	f := initFixture(t)
 
-	// Track if bank keeper was called
-	bankCalled := false
+	// The unified path routes lock appeals through CreateGovActionAppeal
+	// (THREAD_LOCK) and no longer charges a forum-side fee.
+	var gotActionType reptypes.GovActionType
+	var gotTarget string
+	repCalled := false
+	f.repKeeper.CreateGovActionAppealFn = func(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error) {
+		repCalled = true
+		gotActionType = actionType
+		gotTarget = actionTarget
+		return 11, 11, nil
+	}
+	forumFeeCharged := false
 	f.bankKeeper.SendCoinsFromAccountToModuleFn = func(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
-		bankCalled = true
+		forumFeeCharged = true
 		return nil
 	}
 
@@ -229,6 +241,14 @@ func TestAppealThreadLockWithFee(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify bank was called for appeal fee
-	require.True(t, bankCalled, "bank keeper should have been called for lock appeal fee")
+	require.True(t, repCalled, "should route through CreateGovActionAppeal")
+	require.Equal(t, reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, gotActionType)
+	require.Equal(t, fmt.Sprintf("%d", thread.PostId), gotTarget)
+	require.False(t, forumFeeCharged, "legacy forum lock appeal fee must no longer be charged")
+
+	// Lock record marks appeal pending (blocks sentinel self-unlock).
+	updated, err := f.keeper.ThreadLockRecord.Get(f.ctx, thread.PostId)
+	require.NoError(t, err)
+	require.True(t, updated.AppealPending)
+	require.Equal(t, uint64(11), updated.InitiativeId)
 }

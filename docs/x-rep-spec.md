@@ -903,6 +903,8 @@ enum GovActionType {
   GOV_ACTION_TYPE_FORUM_PAUSE = 5;
   GOV_ACTION_TYPE_THREAD_LOCK = 6;
   GOV_ACTION_TYPE_THREAD_MOVE = 7;
+  GOV_ACTION_TYPE_REPLY_PIN   = 8;  // sentinel reply pin (ActionTarget = reply id)
+  GOV_ACTION_TYPE_POST_HIDE   = 9;  // sentinel post hide
 }
 
 enum MemberReportStatus {
@@ -1002,6 +1004,23 @@ message GovActionAppeal {
   GovAppealStatus status               = 11;
   uint64          original_category_id = 12;
 }
+//
+// GovActionAppeal is the SINGLE moderation/governance appeal mechanism, covering
+// both sentinel actions (hide/lock/move/pin) and committee actions. All x/forum
+// appeal entry points (MsgAppealPost, MsgAppealThreadLock, MsgAppealThreadMove,
+// MsgDisputePin) are facades that call CreateGovActionAppeal; it charges the
+// refundable appeal bond and seats a jury (selectModerationAppealJury — parties
+// excluded). Resolution runs applyGovActionAppealVerdict, reached either:
+//   - automatically by JURY VERDICT — TallyJuryVotes when a supermajority of
+//     votes is cast, or at the deadline via TimeoutExpiredAppeals (which tallies
+//     if a quorum of the seated jury voted, else TIMEOUT); the no-quorum guard
+//     means juror inaction never resolves an appeal; OR
+//   - manually by an Operations-Committee MsgResolveGovActionAppeal override.
+// The two paths share applyGovActionAppealVerdict and are idempotent on status,
+// so they cannot double-apply. On OVERTURNED the underlying content action is
+// reversed (ReverseSentinelAction) and the sentinel is slashed; on UPHELD the
+// sentinel's reserved bond is released and the appeal bond is half-burned /
+// half-routed to the sentinel reward pool. See docs/x-forum-appeal-reconciliation.md.
 
 // proto/sparkdream/rep/v1/jury_participation.proto
 message JuryParticipation {

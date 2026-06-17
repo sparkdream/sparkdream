@@ -35,8 +35,10 @@ func (k Keeper) CreateJuryReview(
 		return err
 	}
 
-	// Select jury members
-	jurors, err := k.SelectJury(ctx, initiative, params.JurySize)
+	// Select jury members, excluding the challenger so they can't sit on the jury
+	// for their own challenge (the accused side is already excluded via
+	// IsAffiliatedWithProject).
+	jurors, err := k.SelectJury(ctx, initiative, params.JurySize, challenge.Challenger)
 	if err != nil {
 		return err
 	}
@@ -70,6 +72,11 @@ func (k Keeper) CreateJuryReview(
 
 	// Save jury review
 	if err := k.JuryReview.Set(ctx, juryReview.Id, juryReview); err != nil {
+		return err
+	}
+	// Index as PENDING so the deadline sweep can find it if jurors don't reach a
+	// verdict via votes before the review's (block-height) deadline.
+	if err := k.AddJuryReviewToVerdictIndex(ctx, juryReview); err != nil {
 		return err
 	}
 
@@ -113,15 +120,26 @@ func (k Keeper) CreateJuryReview(
 	return nil
 }
 
-// SelectJury selects jury members for a challenge
+// SelectJury selects jury members for a challenge. excludeAddrs are removed from
+// the candidate pool in addition to members affiliated with the initiative —
+// callers pass the challenger so a party to the dispute can never judge it
+// (mirroring SelectContentJury and selectModerationAppealJury).
 func (k Keeper) SelectJury(
 	ctx context.Context,
 	initiative types.Initiative,
 	jurySize uint32,
+	excludeAddrs ...string,
 ) ([]string, error) {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	excludeSet := make(map[string]struct{}, len(excludeAddrs))
+	for _, a := range excludeAddrs {
+		if a != "" {
+			excludeSet[a] = struct{}{}
+		}
 	}
 
 	// Get all eligible members
@@ -130,7 +148,11 @@ func (k Keeper) SelectJury(
 
 	// Iterate through all members
 	err = k.Member.Walk(ctx, nil, func(addr string, member types.Member) (stop bool, err error) {
-		// Skip if affiliated with initiative (including project creator)
+		// Skip parties to the dispute (e.g. the challenger).
+		if _, skip := excludeSet[addr]; skip {
+			return false, nil
+		}
+		// Skip if affiliated with initiative (assignee / apprentice / project creator).
 		if k.IsAffiliatedWithProject(ctx, initiative, addr) {
 			return false, nil
 		}
@@ -209,6 +231,105 @@ func (k Keeper) SelectJury(
 	}
 
 	return selectedJurors, nil
+}
+
+// selectModerationAppealJury selects jurors for a moderation appeal. Unlike
+// SelectJury it is not scoped to an initiative's tags (an appeal has no
+// initiative): eligibility is "member with any tag reputation >=
+// MinJurorReputation", weight is the member's total reputation across all tags,
+// and the parties to the dispute (appellant, accused/sentinel, action target)
+// are excluded. Selection is best-effort: if fewer than JurySize eligible
+// members exist, it returns as many as it can (possibly zero), so appeal
+// creation never fails for lack of jurors — such appeals fall back to committee
+// resolution (MsgResolveGovActionAppeal) or timeout.
+//
+// Deterministic: seeded from the block AppHash XOR the jury review id so all
+// validators select identically.
+func (k Keeper) selectModerationAppealJury(ctx context.Context, juryReviewID uint64, excludes []string) ([]string, error) {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	minReputation := params.MinJurorReputation
+
+	excludeSet := make(map[string]struct{}, len(excludes))
+	for _, e := range excludes {
+		if e != "" {
+			excludeSet[e] = struct{}{}
+		}
+	}
+
+	var (
+		eligible []string
+		weights  []float64
+	)
+	err = k.Member.Walk(ctx, nil, func(addr string, member types.Member) (stop bool, err error) {
+		if _, skip := excludeSet[addr]; skip {
+			return false, nil
+		}
+		qualifies := false
+		totalRep := math.LegacyZeroDec()
+		for _, scoreStr := range member.ReputationScores {
+			score, perr := math.LegacyNewDecFromStr(scoreStr)
+			if perr != nil {
+				continue
+			}
+			totalRep = totalRep.Add(score)
+			if score.GTE(minReputation) {
+				qualifies = true
+			}
+		}
+		if qualifies {
+			eligible = append(eligible, addr)
+			weights = append(weights, totalRep.MustFloat64())
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	size := int(params.JurySize)
+	if len(eligible) < size {
+		size = len(eligible)
+	}
+	if size == 0 {
+		return []string{}, nil
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	appHash := sdkCtx.BlockHeader().AppHash
+	var seed int64
+	if len(appHash) >= 8 {
+		seed = int64(binary.BigEndian.Uint64(appHash[:8])) ^ int64(juryReviewID)
+	} else {
+		seed = int64(juryReviewID) ^ sdkCtx.BlockHeight()
+	}
+	rng := rand.New(rand.NewSource(seed))
+
+	selected := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+		idx := weightedRandomSelect(rng, weights)
+		selected = append(selected, eligible[idx])
+		eligible = append(eligible[:idx], eligible[idx+1:]...)
+		weights = append(weights[:idx], weights[idx+1:]...)
+	}
+	return selected, nil
+}
+
+// appealRequiredVotes returns the supermajority vote count required to resolve
+// an appeal seated with jurySize jurors (ceil(JurySuperMajority * jurySize)),
+// minimum 1. Mirrors the supermajority math used for challenge jury reviews.
+func (k Keeper) appealRequiredVotes(ctx context.Context, jurySize int) uint64 {
+	params, err := k.Params.Get(ctx)
+	if err != nil || jurySize <= 0 {
+		return 1
+	}
+	req := params.JurySuperMajority.MulInt64(int64(jurySize)).Ceil().TruncateInt().Uint64()
+	if req == 0 {
+		req = 1
+	}
+	return req
 }
 
 // weightedRandomSelect performs weighted random selection using a deterministic PRNG.
@@ -401,12 +522,23 @@ func (k Keeper) TallyJuryVotes(ctx context.Context, juryReviewID uint64) error {
 	superMajority := params.JurySuperMajority
 	requiredSupermajority := superMajority.MulInt64(int64(totalVotes)).Ceil().TruncateInt().Uint64()
 
+	// Quorum guard: a tally is only decisive if a majority of the SEATED jury
+	// actually voted. Below that bar — including zero votes — the result is
+	// INCONCLUSIVE, so neither juror inaction nor a tiny minority can resolve a
+	// dispute. The vote-triggered path always clears this bar (it fires at the
+	// supermajority RequiredVotes); the guard matters for deadline tallies
+	// (ResolveExpiredChallengeJuryReviews for challenges, TimeoutExpiredAppeals
+	// for appeals), where participation may be partial.
+	quorum := len(juryReview.Jurors)/2 + 1
 	var finalVerdict types.Verdict
-	if upholdVotes >= int(requiredSupermajority) {
+	switch {
+	case totalVotes < quorum:
+		finalVerdict = types.Verdict_VERDICT_INCONCLUSIVE
+	case upholdVotes >= int(requiredSupermajority):
 		finalVerdict = types.Verdict_VERDICT_UPHOLD_CHALLENGE
-	} else if rejectVotes > totalVotes/2 {
+	case rejectVotes > totalVotes/2:
 		finalVerdict = types.Verdict_VERDICT_REJECT_CHALLENGE
-	} else {
+	default:
 		finalVerdict = types.Verdict_VERDICT_INCONCLUSIVE
 	}
 
@@ -425,6 +557,51 @@ func (k Keeper) TallyJuryVotes(ctx context.Context, juryReviewID uint64) error {
 
 	if err := k.JuryReview.Set(ctx, juryReview.Id, juryReview); err != nil {
 		return err
+	}
+
+	// Moderation-appeal resolution (dispatched on the appeal-type string stored
+	// in ChallengerClaim). Appeals carry no ContentChallengeId/ChallengeId, so
+	// this must intercept before the challenge-resolution paths below.
+	//
+	//   UPHOLD_CHALLENGE  -> appellant (the challenger) wins -> action OVERTURNED
+	//   REJECT_CHALLENGE  -> appellant loses               -> action UPHELD
+	//   INCONCLUSIVE      -> leave the appeal PENDING; TimeoutExpiredAppeals
+	//                        gives it a terminal TIMEOUT (no party penalized).
+	if juryReview.ChallengerClaim == govActionAppealInitiativeType {
+		if appeal, ok := k.findGovActionAppealByInitiative(ctx, juryReview.Id); ok {
+			var verdict types.GovAppealStatus
+			switch finalVerdict {
+			case types.Verdict_VERDICT_UPHOLD_CHALLENGE:
+				verdict = types.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED
+			case types.Verdict_VERDICT_REJECT_CHALLENGE:
+				verdict = types.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD
+			default:
+				verdict = types.GovAppealStatus_GOV_APPEAL_STATUS_UNSPECIFIED
+			}
+			if verdict != types.GovAppealStatus_GOV_APPEAL_STATUS_UNSPECIFIED {
+				if err := k.applyGovActionAppealVerdict(ctx, appeal.Id, verdict,
+					fmt.Sprintf("jury:%d", juryReview.Id), "jury verdict"); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error(
+						"failed to apply jury verdict to gov action appeal",
+						"appeal_id", appeal.Id, "jury_review_id", juryReview.Id, "error", err)
+				}
+			}
+		}
+		// Reward jurors for participating, then stop — appeals are not challenges.
+		return k.RewardJurors(ctx, juryReview)
+	}
+
+	// Initiative-challenge review resolved: move it out of the PENDING verdict
+	// index so the deadline sweep (ResolveExpiredChallengeJuryReviews) stops
+	// revisiting it. ONLY initiative challenges are indexed: appeals returned
+	// above, and content challenges are deliberately NOT in the sweep (they have
+	// their own response-deadline path and resolving them at the short jury
+	// deadline regressed e2e behavior — see content_challenge.go).
+	if juryReview.ContentChallengeId == 0 {
+		if err := k.UpdateJuryReviewVerdictIndex(ctx, types.Verdict_VERDICT_PENDING, finalVerdict, juryReview.Id); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("failed to update jury verdict index",
+				"review_id", juryReview.Id, "error", err)
+		}
 	}
 
 	// Content challenge resolution (dispatched when ContentChallengeId > 0)
@@ -547,6 +724,45 @@ func (k Keeper) GetJuryReview(ctx context.Context, juryReviewID uint64) (types.J
 		return juryReview, err
 	}
 	return found, nil
+}
+
+// maxJuryDeadlinesPerBlock bounds the per-block deadline sweep work.
+const maxJuryDeadlinesPerBlock = 50
+
+// ResolveExpiredChallengeJuryReviews tallies INITIATIVE-challenge jury reviews
+// whose (block-height) deadline has passed but which never reached a verdict by
+// votes. It walks the PENDING verdict index (which only ever contains
+// initiative-challenge reviews — appeals and content challenges are not indexed),
+// collects the due ids, then tallies each: TallyJuryVotes applies the quorum +
+// supermajority rules, resolves the underlying challenge (or escalates on
+// INCONCLUSIVE), and moves the review out of the PENDING index.
+//
+// Appeals (timestamp deadline — see TimeoutExpiredAppeals) and content
+// challenges (own response-deadline path — see content_challenge.go) are
+// deliberately NOT handled here.
+func (k Keeper) ResolveExpiredChallengeJuryReviews(ctx context.Context) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	height := sdkCtx.BlockHeight()
+
+	// Collect first, then tally — TallyJuryVotes mutates the PENDING index, so we
+	// must not tally while walking it.
+	var due []uint64
+	k.IterateActiveJuryReviews(ctx, func(_ int64, review types.JuryReview) bool {
+		if len(due) >= maxJuryDeadlinesPerBlock {
+			return true // stop
+		}
+		if review.Deadline > 0 && height >= review.Deadline {
+			due = append(due, review.Id)
+		}
+		return false
+	})
+
+	for _, id := range due {
+		if err := k.TallyJuryVotes(ctx, id); err != nil {
+			sdkCtx.Logger().Error("failed to tally expired jury review", "review_id", id, "error", err)
+		}
+	}
+	return nil
 }
 
 // CreateAppealInitiative creates a special initiative for jury-based appeal resolution.

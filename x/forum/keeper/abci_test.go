@@ -500,6 +500,70 @@ func TestExpireHiddenPosts_DecrementsTagUsage(t *testing.T) {
 		"hidden-post expiry must decrement tag usage")
 }
 
+// An UNAPPEALED sentinel hide that expires is finalized as unchallenged: the
+// expiry path increments unchallenged_hides and clears the pending slot. An
+// APPEALED hide was already tallied (upheld/overturned) at appeal-resolve, so
+// expiry must not double-count it.
+func TestExpireHiddenPosts_RecordsUnchallengedHide(t *testing.T) {
+	run := func(t *testing.T, appealed bool) (uint64, uint64) {
+		t.Helper()
+		f := initFixture(t)
+		cat := f.createTestCategory(t, "General")
+		f.createTestSentinel(t, testSentinel, "2000000000")
+
+		// Sentinel currently has one pending hide.
+		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+		require.NoError(t, err)
+		act.PendingHideCount = 1
+		require.NoError(t, f.keeper.SentinelActivity.Set(f.ctx, testSentinel, act))
+
+		hiddenAt := int64(1_000_000)
+		now := hiddenAt + types.DefaultHiddenExpiration + 1
+		f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+
+		postID, err := f.keeper.PostSeq.Next(f.ctx)
+		require.NoError(t, err)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, postID, types.Post{
+			PostId:     postID,
+			CategoryId: cat.CategoryId,
+			Author:     testCreator,
+			Content:    "Hidden post",
+			CreatedAt:  hiddenAt - 100,
+			Status:     types.PostStatus_POST_STATUS_HIDDEN,
+			HiddenAt:   hiddenAt,
+		}))
+		require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{
+			PostId:          postID,
+			Sentinel:        testSentinel,
+			HiddenAt:        hiddenAt,
+			CommittedAmount: "100000000",
+			Appealed:        appealed,
+		}))
+
+		require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+
+		got, err := f.keeper.Post.Get(f.ctx, postID)
+		require.NoError(t, err)
+		require.Equal(t, types.PostStatus_POST_STATUS_DELETED, got.Status)
+
+		final, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+		require.NoError(t, err)
+		return final.UnchallengedHides, final.PendingHideCount
+	}
+
+	t.Run("unappealed hide expiry counts unchallenged and clears pending", func(t *testing.T) {
+		unchallenged, pending := run(t, false)
+		require.Equal(t, uint64(1), unchallenged)
+		require.Equal(t, uint64(0), pending, "expiry must decrement the pending-hide slot (no leak)")
+	})
+
+	t.Run("appealed hide expiry does not double-count", func(t *testing.T) {
+		unchallenged, pending := run(t, true)
+		require.Equal(t, uint64(0), unchallenged, "an appealed hide was already tallied as upheld/overturned")
+		require.Equal(t, uint64(1), pending, "an appealed hide's pending slot is cleared at appeal-resolve, not at expiry")
+	})
+}
+
 // Author per-tag rep slash (Tier 0): an unappealed sentinel hide must deduct
 // the configured AuthorRepSlash from the author's score in *each* tag the
 // post carried. Asserts deduct fires for every tag and not for non-tagged

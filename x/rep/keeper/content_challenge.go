@@ -418,6 +418,13 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 	if err := k.JuryReview.Set(ctx, juryReview.Id, juryReview); err != nil {
 		return err
 	}
+	// NOTE: content-challenge jury reviews are intentionally NOT added to the
+	// PENDING verdict index, so the EndBlocker deadline sweep
+	// (ResolveExpiredChallengeJuryReviews) does not resolve them. Content
+	// challenges have their own response-deadline EndBlocker path; sweeping their
+	// jury review at the short jury deadline would resolve an in-review challenge
+	// out from under callers (it regressed content_challenge_test). They resolve
+	// by juror votes (TallyJuryVotes) as before.
 
 	// Update content challenge status
 	oldStatus := cc.Status

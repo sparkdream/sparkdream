@@ -285,57 +285,64 @@ echo "--- PART 4: APPEAL POST ---"
 APPEAL_POST_RESULT="SKIP"
 APPEAL_POST_FILED=false
 
-if [ "$POST_HIDDEN" = true ] && [ -n "$APPEAL_POST_ID" ]; then
-    # Top up poster1 with SPARK for appeal fee (5M uspark) — gas from prior tests may have drained the balance
-    echo "Topping up poster1 with SPARK for appeal fee..."
-    TX_RES=$($BINARY tx bank send \
-        alice $POSTER1_ADDR \
-        10000000${BOND_DENOM} \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y \
-        --output json 2>&1)
+if [ "$POST_HIDDEN" = true ]; then
+    # testparams auto-deletes a HIDDEN post 15s after it is hidden
+    # (DefaultHiddenExpiration), so the appeal must land inside the
+    # [hide+cooldown(5s), hide+15s] window. To stay robust against block-rate
+    # drift late in a run we (1) pre-fund poster1 for the appeal bond BEFORE the
+    # hide so the funding tx is outside the window, and (2) hide a FRESH post
+    # here and appeal it immediately after the cooldown rather than reusing the
+    # older PART 2 post (which may already have expired). Appeals now escrow the
+    # x/rep appeal bond (DefaultAppealBondAmount = 10 SPARK, refundable) instead
+    # of the legacy 5 SPARK forum fee.
+    echo "Funding poster1 for the appeal bond (10 SPARK, refundable)..."
+    TX_RES=$($BINARY tx bank send alice $POSTER1_ADDR 20000000${BOND_DENOM} \
+        --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-        sleep 6
-        wait_for_tx $TXHASH > /dev/null 2>&1
-    fi
+    [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ] && { sleep 4; wait_for_tx $TXHASH > /dev/null 2>&1; }
 
-    echo "Waiting for appeal cooldown (5s)..."
-    sleep 6
+    # Fresh post by poster1.
+    TX_RES=$($BINARY tx forum create-post "$TEST_CATEGORY_ID" "0" "Appeal-post target $(date +%s)" \
+        --from poster1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash'); sleep 4; TX_RESULT=$(wait_for_tx $TXHASH)
+    APPEAL_POST_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
+    [ -z "$APPEAL_POST_ID" ] && APPEAL_POST_ID=$($BINARY query forum list-post --output json 2>&1 | jq -r '.post[-1].id // empty')
+    echo "  Fresh post to appeal: $APPEAL_POST_ID"
 
-    echo "Author appealing hidden post $APPEAL_POST_ID..."
+    # Hide it (starts the 15s expiry + 5s appeal-cooldown clock).
+    TX_RES=$($BINARY tx forum hide-post "$APPEAL_POST_ID" "1" "Appeal flow" \
+        --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash'); sleep 3; HIDE_RES=$(wait_for_tx $TXHASH)
 
-    TX_RES=$($BINARY tx forum appeal-post \
-        "$APPEAL_POST_ID" \
-        --from poster1 \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  Failed to submit appeal"
-        echo "  Response: $(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)"
+    if [ "$(echo "$HIDE_RES" | jq -r '.code')" != "0" ]; then
+        echo "  Failed to hide fresh post"
+        echo "  $(echo "$HIDE_RES" | jq -r '.raw_log')"
         APPEAL_POST_RESULT="FAIL"
     else
-        echo "  Transaction: $TXHASH"
+        echo "Waiting for appeal cooldown (5s)..."
         sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-
-        CODE=$(echo "$TX_RESULT" | jq -r '.code')
-        if [ "$CODE" == "0" ]; then
-            echo "  Appeal filed successfully"
-            APPEAL_POST_RESULT="PASS"
-            APPEAL_POST_FILED=true
-        else
-            echo "  Failed to file appeal (code: $CODE)"
-            echo "  $(echo "$TX_RESULT" | jq -r '.raw_log')"
+        echo "Author appealing hidden post $APPEAL_POST_ID..."
+        TX_RES=$($BINARY tx forum appeal-post "$APPEAL_POST_ID" \
+            --from poster1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+            echo "  Failed to submit appeal"
+            echo "  Response: $(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)"
             APPEAL_POST_RESULT="FAIL"
+        else
+            echo "  Transaction: $TXHASH"
+            sleep 4
+            TX_RESULT=$(wait_for_tx $TXHASH)
+            CODE=$(echo "$TX_RESULT" | jq -r '.code')
+            if [ "$CODE" == "0" ]; then
+                echo "  Appeal filed successfully"
+                APPEAL_POST_RESULT="PASS"
+                APPEAL_POST_FILED=true
+            else
+                echo "  Failed to file appeal (code: $CODE)"
+                echo "  $(echo "$TX_RESULT" | jq -r '.raw_log')"
+                APPEAL_POST_RESULT="FAIL"
+            fi
         fi
     fi
 else
@@ -465,6 +472,23 @@ APPEAL_LOCK_RESULT="SKIP"
 APPEAL_LOCK_FILED=false
 
 if [ "$THREAD_LOCKED" = true ] && [ -n "$LOCK_THREAD_ID" ]; then
+    # Fund poster2 for the appeal bond (10 SPARK, refundable) + gas. Appeals now
+    # escrow the x/rep appeal bond rather than the legacy forum fee.
+    echo "Topping up poster2 with SPARK for appeal bond..."
+    TX_RES=$($BINARY tx bank send \
+        alice $POSTER2_ADDR \
+        20000000${BOND_DENOM} \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        sleep 6
+        wait_for_tx $TXHASH > /dev/null 2>&1
+    fi
+
     echo "Waiting for appeal cooldown (5s)..."
     sleep 6
 
@@ -983,11 +1007,11 @@ echo ""
 # ========================================================================
 echo "--- PART 23: SETUP - MOVE THREAD (Setup for move appeal) ---"
 
-# Top up poster1's SPARK — earlier appeal fees may have drained the balance
-echo "Topping up poster1 with 10 SPARK for move appeal fees..."
+# Top up poster1's SPARK for the move appeal bond (10 SPARK, refundable) + gas.
+echo "Topping up poster1 with 20 SPARK for move appeal bond..."
 TX_RES=$($BINARY tx bank send \
     alice $POSTER1_ADDR \
-    10000000${BOND_DENOM} \
+    20000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000${BOND_DENOM} \

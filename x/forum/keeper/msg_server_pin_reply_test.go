@@ -238,3 +238,122 @@ func TestMsgServerPinReply(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrCannotPinEphemeral)
 	})
 }
+
+// TestMsgServerPinReplyCounters covers the SentinelActivity pin counters that
+// feed the "Total Pins" UI surface and epoch curation rewards. Regression for
+// the bug where PinReply never incremented total_pins/epoch_pins, so the
+// counter always read 0 regardless of how many pins a sentinel made.
+func TestPinReplyBondLifecycle(t *testing.T) {
+	f := initFixture(t)
+	authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+
+	f.createTestSentinel(t, testSentinel, "2000000000")
+	root := f.createTestPost(t, testCreator, 0, 0)
+	reply := f.createTestPost(t, testCreator2, root.PostId, 0)
+
+	committed := func(addr string) string {
+		return f.repKeeper.sentinels[addr].TotalCommittedBond
+	}
+	recordFor := func(threadID, replyID uint64) *types.PinnedReplyRecord {
+		md, err := f.keeper.ThreadMetadata.Get(f.ctx, threadID)
+		require.NoError(t, err)
+		for _, r := range md.PinnedRecords {
+			if r.PostId == replyID {
+				return r
+			}
+		}
+		return nil
+	}
+
+	slash := types.DefaultParams().SentinelSlashAmountOrDefault().String()
+
+	// Sentinel pin reserves the slash amount and snapshots it on the record.
+	_, err := f.msgServer.PinReply(f.ctx, &types.MsgPinReply{
+		Creator: testSentinel, ThreadId: root.PostId, ReplyId: reply.PostId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, slash, committed(testSentinel), "pin must reserve the slash bond")
+	require.Equal(t, slash, recordFor(root.PostId, reply.PostId).CommittedAmount)
+
+	// Self-unpin (no dispute) releases the reservation.
+	_, err = f.msgServer.UnpinReply(f.ctx, &types.MsgUnpinReply{
+		Creator: testSentinel, ThreadId: root.PostId, ReplyId: reply.PostId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "0", committed(testSentinel), "unpin must release the reserved bond")
+
+	// Governance pin reserves nothing.
+	root2 := f.createTestPost(t, testCreator, 0, 0)
+	govReply := f.createTestPost(t, testCreator2, root2.PostId, 0)
+	_, err = f.msgServer.PinReply(f.ctx, &types.MsgPinReply{
+		Creator: authority, ThreadId: root2.PostId, ReplyId: govReply.PostId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "", recordFor(root2.PostId, govReply.PostId).CommittedAmount,
+		"gov pin must not reserve bond")
+}
+
+func TestMsgServerPinReplyCounters(t *testing.T) {
+	f := initFixture(t)
+	authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+
+	f.createTestSentinel(t, testSentinel, "2000000000")
+	root := f.createTestPost(t, testCreator, 0, 0)
+	r1 := f.createTestPost(t, testCreator2, root.PostId, 0)
+	r2 := f.createTestPost(t, testCreator2, root.PostId, 0)
+
+	pins := func(addr string) types.SentinelActivity {
+		act, err := f.keeper.SentinelActivity.Get(f.ctx, addr)
+		require.NoError(t, err)
+		return act
+	}
+
+	// First sentinel pin: total_pins and epoch_pins go 0 -> 1.
+	_, err := f.msgServer.PinReply(f.ctx, &types.MsgPinReply{
+		Creator: testSentinel, ThreadId: root.PostId, ReplyId: r1.PostId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), pins(testSentinel).TotalPins)
+	require.Equal(t, uint64(1), pins(testSentinel).EpochPins)
+
+	// Second pin (different reply, same sentinel): both counters advance to 2.
+	_, err = f.msgServer.PinReply(f.ctx, &types.MsgPinReply{
+		Creator: testSentinel, ThreadId: root.PostId, ReplyId: r2.PostId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), pins(testSentinel).TotalPins)
+	require.Equal(t, uint64(2), pins(testSentinel).EpochPins)
+
+	// Unpin is not a moderation action: lifetime/epoch counters are unchanged
+	// (mirrors unlock/unhide, which never decrement total_* counters).
+	_, err = f.msgServer.UnpinReply(f.ctx, &types.MsgUnpinReply{
+		Creator: testSentinel, ThreadId: root.PostId, ReplyId: r1.PostId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), pins(testSentinel).TotalPins)
+	require.Equal(t, uint64(2), pins(testSentinel).EpochPins)
+
+	// Repinning the same reply counts again: this is the pin/unpin/repin flow
+	// the bug report described, which previously still showed 0.
+	_, err = f.msgServer.PinReply(f.ctx, &types.MsgPinReply{
+		Creator: testSentinel, ThreadId: root.PostId, ReplyId: r1.PostId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), pins(testSentinel).TotalPins)
+	require.Equal(t, uint64(3), pins(testSentinel).EpochPins)
+
+	// Governance pins are not sentinel activity: they must not create or
+	// increment a SentinelActivity record for the gov authority, and must not
+	// touch the sentinel's counters.
+	root2 := f.createTestPost(t, testCreator, 0, 0)
+	govReply := f.createTestPost(t, testCreator2, root2.PostId, 0)
+	_, err = f.msgServer.PinReply(f.ctx, &types.MsgPinReply{
+		Creator: authority, ThreadId: root2.PostId, ReplyId: govReply.PostId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), pins(testSentinel).TotalPins)
+	require.Equal(t, uint64(3), pins(testSentinel).EpochPins)
+
+	_, govErr := f.keeper.SentinelActivity.Get(f.ctx, authority)
+	require.Error(t, govErr, "gov pin must not create a SentinelActivity record")
+}

@@ -524,6 +524,10 @@ if [ "$RUN_APPEALS" = true ]; then
     # a sentinel, so keep it after the appeal flow where sentinel bonding is
     # already warmed up.
     run_test "Moderation Authority Tests" "moderation_authority_test.sh"
+    # pin_dispute_test.sh strictly exercises the sentinel reply-pin dispute flow
+    # (REPLY_PIN GovActionAppeal). Depends on sentinel_test.sh having bonded
+    # sentinel1; lives in the appeals phase as a moderation-appeal flow.
+    run_test "Pin Dispute Tests" "pin_dispute_test.sh"
 else
     echo "Skipping appeals tests (--no-appeals)"
     echo ""

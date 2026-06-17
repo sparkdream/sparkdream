@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -67,6 +69,20 @@ func (k msgServer) UnpinReply(ctx context.Context, msg *types.MsgUnpinReply) (*t
 
 	if err := k.ThreadMetadata.Set(ctx, msg.ThreadId, metadata); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
+	}
+
+	// Release the sentinel's reserved pin bond. PinReply reserved it to back a
+	// possible overturn; a self-unpin (no dispute pending) means there is
+	// nothing to slash, so the reservation must be freed — mirroring the
+	// MsgUnhidePost self-correct path. Best-effort: a release failure is logged
+	// but does not block the unpin. Gov pins reserve nothing (empty amount).
+	if foundRecord.CommittedAmount != "" && k.repKeeper != nil {
+		if committed, ok := math.NewIntFromString(foundRecord.CommittedAmount); ok && committed.IsPositive() {
+			if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, foundRecord.PinnedBy, committed); err != nil {
+				sdkCtx.Logger().Warn("unpin reply: failed to release sentinel pin bond",
+					"sentinel", foundRecord.PinnedBy, "reply_id", msg.ReplyId, "error", err)
+			}
+		}
 	}
 
 	// Emit event

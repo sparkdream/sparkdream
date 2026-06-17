@@ -2,10 +2,10 @@ package keeper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -64,30 +64,30 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 			"must wait until %d to appeal", cooldownEnd)
 	}
 
-	// Charge lock_appeal_fee to appellant and escrow it
-	if params.LockAppealFeeAmount.IsPositive() {
-		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-		lockAppealFee := sdk.NewCoin(k.BondDenom(ctx), params.LockAppealFeeAmount)
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(lockAppealFee)); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to charge lock appeal fee")
-		}
+	// Open a moderation appeal through the unified x/rep GovActionAppeal path
+	// (ActionType THREAD_LOCK, ActionTarget = root id). Charges the rep appeal
+	// bond and creates the resolvable GovActionAppeal record + jury initiative.
+	// The legacy per-action forum lock-appeal fee is superseded by the rep bond.
+	if k.repKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable, "rep keeper not wired")
 	}
-
-	// Create appeal initiative in x/rep (stub)
-	payload, _ := json.Marshal(map[string]interface{}{
-		"thread_id":      msg.RootId,
-		"sentinel_addr":  lockRecord.Sentinel,
-		"appellant_addr": msg.Creator,
-		"lock_reason":    lockRecord.LockReason,
-	})
-
-	deadline := now + types.DefaultLockAppealDeadline
-	initiativeID, err := k.CreateAppealInitiative(ctx, "THREAD_LOCK_APPEAL", payload, deadline)
+	creatorAddr, err := sdk.AccAddressFromBech32(msg.Creator)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to create appeal initiative")
+		return nil, errorsmod.Wrap(err, "invalid creator address")
+	}
+	_, initiativeID, err := k.repKeeper.CreateGovActionAppeal(
+		ctx,
+		reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK,
+		fmt.Sprintf("%d", msg.RootId),
+		creatorAddr,
+		fmt.Sprintf("lock appeal: %s", lockRecord.LockReason),
+	)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to create lock appeal")
 	}
 
-	// Update lock record with appeal info
+	// Update lock record with appeal info (blocks sentinel self-unlock while
+	// the appeal is pending; see MsgUnlockThread).
 	lockRecord.AppealPending = true
 	lockRecord.InitiativeId = initiativeID
 
@@ -103,7 +103,6 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 			sdk.NewAttribute("appellant", msg.Creator),
 			sdk.NewAttribute("sentinel", lockRecord.Sentinel),
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-			sdk.NewAttribute("deadline", fmt.Sprintf("%d", deadline)),
 		),
 	)
 

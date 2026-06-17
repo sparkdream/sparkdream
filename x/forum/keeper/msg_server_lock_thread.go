@@ -135,6 +135,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 			LockReason:              msg.Reason,
 			AppealPending:           false,
 			InitiativeId:            0,
+			CommittedAmount:         slashAmount.String(),
 		}
 		if err := k.ThreadLockRecord.Set(ctx, msg.RootId, lockRecord); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store lock record")
