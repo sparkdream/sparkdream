@@ -71,7 +71,7 @@ func TestRecordSentinelActionUpheld(t *testing.T) {
 	}))
 
 	// Hide upheld: increments UpheldHides + decrements pending.
-	require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, "10"))
+	require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, 1, reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, "10"))
 	sa, err := f.keeper.SentinelActivity.Get(f.ctx, sentinel)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), sa.UpheldHides)
@@ -80,14 +80,14 @@ func TestRecordSentinelActionUpheld(t *testing.T) {
 	require.Equal(t, uint64(0), sa.ConsecutiveOverturns)
 
 	// Lock upheld.
-	require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, "11"))
+	require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, 1, reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, "11"))
 	sa, err = f.keeper.SentinelActivity.Get(f.ctx, sentinel)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), sa.UpheldLocks)
 	require.Equal(t, uint64(2), sa.ConsecutiveUpheld)
 
 	// Move upheld.
-	require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE, "12"))
+	require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, 1, reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE, "12"))
 	sa, err = f.keeper.SentinelActivity.Get(f.ctx, sentinel)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), sa.UpheldMoves)
@@ -226,7 +226,7 @@ func TestRecordSentinelActionOverturnedTriggersDemotion(t *testing.T) {
 
 	for i := uint64(100); i < 103; i++ {
 		require.NoError(t, f.keeper.RecordSentinelActionOverturned(
-			f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, fmt.Sprintf("%d", i),
+			f.ctx, 1, reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, fmt.Sprintf("%d", i),
 		))
 	}
 

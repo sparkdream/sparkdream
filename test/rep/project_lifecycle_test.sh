@@ -232,6 +232,7 @@ build_op_params_with_override() {
       sentinel_reward_pool_overflow_burn_ratio, sentinel_reward_epoch_blocks,
       min_sentinel_accuracy, min_appeals_for_accuracy,
       min_epoch_activity_for_reward, min_appeal_rate,
+      sentinel_accuracy_window_epochs,
       max_active_initiatives_per_member, max_active_interims_per_member,
       max_dream_mint_per_epoch,
       max_project_requested_budget, max_project_requested_spark,

@@ -135,7 +135,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 
 		// Forum counter update (best-effort — logs warning on missing record).
 		if fk := k.late.forumKeeper; fk != nil {
-			if err := fk.RecordSentinelActionUpheld(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
+			if err := fk.RecordSentinelActionUpheld(ctx, k.CurrentSentinelRewardEpoch(ctx), appeal.ActionType, appeal.ActionTarget); err != nil {
 				sdkCtx.Logger().Warn("failed to record sentinel action upheld",
 					"appeal_id", appealID, "error", err)
 			}
@@ -173,7 +173,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 
 		// Forum counter update (handles demotion-on-streak internally).
 		if fk := k.late.forumKeeper; fk != nil {
-			if err := fk.RecordSentinelActionOverturned(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
+			if err := fk.RecordSentinelActionOverturned(ctx, k.CurrentSentinelRewardEpoch(ctx), appeal.ActionType, appeal.ActionTarget); err != nil {
 				sdkCtx.Logger().Warn("failed to record sentinel action overturned",
 					"appeal_id", appealID, "error", err)
 			}

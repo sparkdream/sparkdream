@@ -33,6 +33,13 @@ type mockForumKeeper struct {
 	// Stage D hooks (populated by sentinel-reward distribution tests):
 	counters   map[string]types.SentinelActivityCounters
 	resetAddrs []string
+	// Rolling accuracy window: keyed by sentinel address -> (upheld, overturned)
+	// returned regardless of currentEpoch/window (tests set the effective view
+	// directly). lastUpheldEpoch / lastOverturnedEpoch capture the epoch passed
+	// to the most recent record call for assertions.
+	windowedAccuracy    map[string][2]uint64
+	lastUpheldEpoch     uint64
+	lastOverturnedEpoch uint64
 }
 
 func mockForumKey(actionType types.GovActionType, target string) string {
@@ -67,14 +74,24 @@ func (m *mockForumKeeper) GetActionSentinel(_ context.Context, actionType types.
 	return m.actionSentinels[mockForumKey(actionType, actionTarget)], nil
 }
 
-func (m *mockForumKeeper) RecordSentinelActionUpheld(_ context.Context, actionType types.GovActionType, actionTarget string) error {
+func (m *mockForumKeeper) RecordSentinelActionUpheld(_ context.Context, epoch uint64, actionType types.GovActionType, actionTarget string) error {
 	m.upheldCalls = append(m.upheldCalls, mockForumKey(actionType, actionTarget))
+	m.lastUpheldEpoch = epoch
 	return m.upheldError
 }
 
-func (m *mockForumKeeper) RecordSentinelActionOverturned(_ context.Context, actionType types.GovActionType, actionTarget string) error {
+func (m *mockForumKeeper) RecordSentinelActionOverturned(_ context.Context, epoch uint64, actionType types.GovActionType, actionTarget string) error {
 	m.overturnedCalls = append(m.overturnedCalls, mockForumKey(actionType, actionTarget))
+	m.lastOverturnedEpoch = epoch
 	return m.overturnedError
+}
+
+func (m *mockForumKeeper) GetSentinelWindowedAccuracy(_ context.Context, addr string, _, _ uint64) (uint64, uint64, error) {
+	if m.windowedAccuracy == nil {
+		return 0, 0, nil
+	}
+	v := m.windowedAccuracy[addr]
+	return v[0], v[1], nil
 }
 
 func (m *mockForumKeeper) ReverseSentinelAction(_ context.Context, actionType types.GovActionType, actionTarget string) error {

@@ -74,6 +74,12 @@ const (
 	// DREAM, matching the historical hardcoded lock bond. Bounded >= 1 in
 	// Params.Validate() so locking is never weaker than the base bond.
 	DefaultLockBondMultiplier       = uint64(4)
+	// SentinelAccuracyRingSize is the fixed number of reward-epoch slots in the
+	// per-sentinel accuracy ring (SentinelActivity.accuracy_window). The reward
+	// accuracy window (x/rep SentinelAccuracyWindowEpochs) must be <= this value;
+	// sizing the ring generously lets the window be tuned upward with no
+	// migration. Kept in sync with reptypes.MaxSentinelAccuracyWindowEpochs.
+	SentinelAccuracyRingSize        = 24
 	DefaultSentinelOverturnCooldown = int64(86400)       // 24 hours
 	DefaultSentinelDemotionCooldown = int64(604800)      // 7 days
 	DefaultMinSentinelBondAmount    = int64(500_000_000) // 500 DREAM (in udream)

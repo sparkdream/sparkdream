@@ -179,6 +179,7 @@ func DefaultParams() Params {
 		MinAppealsForAccuracy:               10,
 		MinEpochActivityForReward:           1,
 		MinAppealRate:                       math.LegacyNewDecWithPrec(5, 2), // 0.05
+		SentinelAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
 
 		// Per-member active work caps (anti-monopolization)
 		MaxActiveInitiativesPerMember: 10,
@@ -413,6 +414,9 @@ func (p Params) Validate() error {
 	if p.MinAppealRate.IsNegative() || p.MinAppealRate.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("min appeal rate must be in [0,1]: %s", p.MinAppealRate)
 	}
+	if p.SentinelAccuracyWindowEpochs == 0 || p.SentinelAccuracyWindowEpochs > MaxSentinelAccuracyWindowEpochs {
+		return fmt.Errorf("sentinel accuracy window epochs must be in [1,%d]: %d", MaxSentinelAccuracyWindowEpochs, p.SentinelAccuracyWindowEpochs)
+	}
 
 	// DREAM emission cap must be strictly positive; zero/negative/nil disallowed.
 	if p.MaxDreamMintPerEpoch.IsNil() || p.MaxDreamMintPerEpoch.IsZero() || p.MaxDreamMintPerEpoch.IsNegative() {
@@ -529,6 +533,7 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MinAppealsForAccuracy:               10,
 		MinEpochActivityForReward:           1,
 		MinAppealRate:                       math.LegacyNewDecWithPrec(5, 2), // 0.05
+		SentinelAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
 
 		// Per-member active work caps
 		MaxActiveInitiativesPerMember: 10,
@@ -694,6 +699,9 @@ func (op RepOperationalParams) Validate() error {
 	if op.MinAppealRate.IsNegative() || op.MinAppealRate.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("min appeal rate must be in [0,1]: %s", op.MinAppealRate)
 	}
+	if op.SentinelAccuracyWindowEpochs == 0 || op.SentinelAccuracyWindowEpochs > MaxSentinelAccuracyWindowEpochs {
+		return fmt.Errorf("sentinel accuracy window epochs must be in [1,%d]: %d", MaxSentinelAccuracyWindowEpochs, op.SentinelAccuracyWindowEpochs)
+	}
 	if op.MaxDreamMintPerEpoch.IsNil() || op.MaxDreamMintPerEpoch.IsZero() || op.MaxDreamMintPerEpoch.IsNegative() {
 		return fmt.Errorf("max_dream_mint_per_epoch must be positive")
 	}
@@ -803,6 +811,7 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.MinAppealsForAccuracy = op.MinAppealsForAccuracy
 	p.MinEpochActivityForReward = op.MinEpochActivityForReward
 	p.MinAppealRate = op.MinAppealRate
+	p.SentinelAccuracyWindowEpochs = op.SentinelAccuracyWindowEpochs
 	// Per-member active work caps
 	p.MaxActiveInitiativesPerMember = op.MaxActiveInitiativesPerMember
 	p.MaxActiveInterimsPerMember = op.MaxActiveInterimsPerMember
@@ -908,6 +917,7 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		MinAppealsForAccuracy:               p.MinAppealsForAccuracy,
 		MinEpochActivityForReward:           p.MinEpochActivityForReward,
 		MinAppealRate:                       p.MinAppealRate,
+		SentinelAccuracyWindowEpochs:        p.SentinelAccuracyWindowEpochs,
 		// Per-member active work caps
 		MaxActiveInitiativesPerMember: p.MaxActiveInitiativesPerMember,
 		MaxActiveInterimsPerMember:    p.MaxActiveInterimsPerMember,

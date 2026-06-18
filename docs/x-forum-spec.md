@@ -12,7 +12,7 @@
 > |------|------|----------------|
 > | **Parameters** | ~136 fields across economics, sentinel, anti-gaming | ~30 fields in `Params` + `ForumOperationalParams` (Section 4.6.1) — many design params hardcoded in keeper |
 > | **Genesis** | Includes reward_pool, epoch tracking | Ignite CRUD pattern (Section 4.7.1) |
-> | **EndBlocker** | Multi-phase: GC + reward distribution + accuracy decay | Ephemeral post pruning only (Section 7.2.1); sentinel reward distribution is implemented in the x/rep EndBlocker — see x/rep spec "Sentinel Rewards" |
+> | **EndBlocker** | Multi-phase: GC + reward distribution | Ephemeral post pruning only (Section 7.2.1); sentinel reward distribution is implemented in the x/rep EndBlocker — see x/rep spec "Sentinel Rewards". Accuracy freshness is handled by a self-expiring rolling window (no decay pass) — see [docs/sentinel-accuracy-window.md](sentinel-accuracy-window.md) |
 > | **Queries** | Custom query names | Ignite CRUD `Get/List` pairs; tag/budget/member-report/appeal queries are served by x/rep |
 > | **Tags/ModerationReason** | In `forum/v1/` | `ModerationReason` + `FlagRecord` in `sparkdream.common.v1.*`; `Tag` and `ReservedTag` live in `sparkdream.rep.v1.*` |
 > | **Anonymous features** | Full ZK-SNARK anonymous posting (Section 16) | **REMOVED** — Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) deleted. Anonymous operations now routed through `x/shield`'s unified `MsgShieldedExec`. Forum implements `ShieldAware` interface (see `x/forum/keeper/shield_aware.go`). |
@@ -3473,7 +3473,7 @@ func (k Keeper) OnJuryInsufficientForAppeal(ctx sdk.Context, payload []byte) {
 
 ### 7.2. EndBlocker (GC + Reward Distribution)
 
-> **Implementation status:** The current EndBlocker (`x/forum/keeper/abci.go`) runs several bounded, independently-capped passes per block (ephemeral pruning, hidden-post expiration + accountability hooks, bounty expiration, tag expiration, post-conviction accrual, and released-stake GC). The complex reward design further below (epoch-based sentinel rewards, DREAM minting, accuracy decay) is **not yet implemented**. That design is preserved as the target specification.
+> **Implementation status:** The current EndBlocker (`x/forum/keeper/abci.go`) runs several bounded, independently-capped passes per block (ephemeral pruning, hidden-post expiration + accountability hooks, bounty expiration, tag expiration, post-conviction accrual, and released-stake GC). Epoch-based sentinel reward distribution + DREAM minting are implemented in the **x/rep** EndBlocker (not forum). Accuracy **freshness** — keeping a sentinel's reward accuracy reflective of recent behavior — is handled by a rolling window (`SentinelActivity.accuracy_window` ring + `SentinelAccuracyWindowEpochs`), **not** by the symmetric inactivity-decay pseudocode that previously appeared below. The decay design was abandoned (symmetric decay preserves the very ratio it feeds, so it was a no-op until an abrupt reset) in favor of the window; see [docs/sentinel-accuracy-window.md](sentinel-accuracy-window.md).
 
 #### 7.2.1. Current Implementation
 
@@ -3818,80 +3818,28 @@ func (k Keeper) EndBlock(ctx sdk.Context) {
     })
 }
 
-// ResetEpochMetrics resets per-epoch counters for all sentinels and applies accuracy decay
+// ResetEpochMetrics resets per-epoch counters for all sentinels.
+//
+// NOTE (superseded): an earlier revision of this design applied *symmetric
+// accuracy decay* during sentinel inactivity here. That approach was abandoned
+// before implementation — decaying upheld and overturned at the same rate
+// preserves the accuracy ratio it feeds, so it was a no-op on the score until an
+// abrupt full reset. Accuracy freshness is instead handled by the rolling
+// window described in docs/sentinel-accuracy-window.md (a self-expiring
+// per-epoch ring on SentinelActivity, read over SentinelAccuracyWindowEpochs by
+// x/rep's reward distribution). No decay pass runs. The pseudocode below retains
+// only the per-epoch counter reset; the ConsecutiveInactiveEpochs / decay logic
+// is intentionally removed.
 func (k Keeper) ResetEpochMetrics(ctx sdk.Context, newEpoch int64) {
     params := k.GetParams(ctx)
 
     for _, sentinel := range k.GetAllSentinels(ctx) {
-        // Track activity for this epoch
-        epochActivity := sentinel.EpochHides + sentinel.EpochLocks
-
-        if epochActivity > 0 {
-            // Active this epoch - reset inactivity counter
-            sentinel.LastActiveEpoch = newEpoch
-            sentinel.ConsecutiveInactiveEpochs = 0
-        } else {
-            // Inactive this epoch - increment counter
-            sentinel.ConsecutiveInactiveEpochs++
-
-            // Apply accuracy decay if enabled and past grace period
-            if params.AccuracyDecayEnabled &&
-               sentinel.ConsecutiveInactiveEpochs > params.AccuracyDecayGraceEpochs {
-
-                inactiveEpochs := sentinel.ConsecutiveInactiveEpochs - params.AccuracyDecayGraceEpochs
-
-                if inactiveEpochs >= params.AccuracyDecayMaxEpochs {
-                    // Full reset after max decay epochs
-                    k.EmitEvent(ctx, EventSentinelAccuracyReset{
-                        Sentinel:         sentinel.Address,
-                        InactiveEpochs:   sentinel.ConsecutiveInactiveEpochs,
-                        PreviousUpheld:   sentinel.UpheldHides + sentinel.UpheldLocks,
-                        PreviousOverturned: sentinel.OverturnedHides + sentinel.OverturnedLocks,
-                    })
-                    sentinel.UpheldHides = 0
-                    sentinel.OverturnedHides = 0
-                    sentinel.UpheldLocks = 0
-                    sentinel.OverturnedLocks = 0
-                } else {
-                    // SYMMETRIC DECAY: Both upheld and overturned decay at same rate
-                    // This preserves accuracy ratio while reducing total history
-                    // Rationale: prevents gaming where sentinel could exploit asymmetric decay
-                    // to manipulate their ratio through timed inactivity
-                    decayRate := params.AccuracyDecayRate           // e.g., 10%
-                    retainRate := sdk.OneDec().Sub(decayRate)
-
-                    oldUpheldHides := sentinel.UpheldHides
-                    oldUpheldLocks := sentinel.UpheldLocks
-                    oldOverturnedHides := sentinel.OverturnedHides
-                    oldOverturnedLocks := sentinel.OverturnedLocks
-
-                    // Decay all counts at same rate (preserves ratio)
-                    sentinel.UpheldHides = uint64(sdk.NewDec(int64(sentinel.UpheldHides)).Mul(retainRate).TruncateInt64())
-                    sentinel.UpheldLocks = uint64(sdk.NewDec(int64(sentinel.UpheldLocks)).Mul(retainRate).TruncateInt64())
-                    sentinel.OverturnedHides = uint64(sdk.NewDec(int64(sentinel.OverturnedHides)).Mul(retainRate).TruncateInt64())
-                    sentinel.OverturnedLocks = uint64(sdk.NewDec(int64(sentinel.OverturnedLocks)).Mul(retainRate).TruncateInt64())
-
-                    // Accuracy ratio preserved during decay:
-                    // Example: 80 upheld / 20 overturned = 80% accuracy
-                    // After 1 epoch (10% decay): 72 upheld / 18 overturned = 80% accuracy
-                    // After 5 epochs: 47 upheld / 12 overturned = 80% accuracy (roughly)
-                    // Total history shrinks but ratio stable - sentinel must stay active to maintain stats
-
-                    if oldUpheldHides != sentinel.UpheldHides || oldUpheldLocks != sentinel.UpheldLocks ||
-                       oldOverturnedHides != sentinel.OverturnedHides || oldOverturnedLocks != sentinel.OverturnedLocks {
-                        k.EmitEvent(ctx, EventSentinelAccuracyDecay{
-                            Sentinel:       sentinel.Address,
-                            InactiveEpochs: sentinel.ConsecutiveInactiveEpochs,
-                            DecayRate:      decayRate.String(),
-                            UpheldHidesDecayed: oldUpheldHides - sentinel.UpheldHides,
-                            UpheldLocksDecayed: oldUpheldLocks - sentinel.UpheldLocks,
-                            OverturnedHidesDecayed: oldOverturnedHides - sentinel.OverturnedHides,
-                            OverturnedLocksDecayed: oldOverturnedLocks - sentinel.OverturnedLocks,
-                        })
-                    }
-                }
-            }
-        }
+        // Accuracy freshness is handled by the rolling window (see
+        // docs/sentinel-accuracy-window.md), not by inactivity decay here.
+        // x/rep's reward distribution reads SentinelActivity.accuracy_window over
+        // the last SentinelAccuracyWindowEpochs reward epochs; an inactive
+        // sentinel's in-window resolved appeals age out automatically with no
+        // bookkeeping in this loop.
 
         // Reset epoch counters
         sentinel.EpochHides = 0
@@ -5213,6 +5161,11 @@ message EventSentinelDemoted {
   string reason = 3;                                     // "bond_below_demotion_threshold" or "voluntary_unbond"
 }
 
+// DEPRECATED / NOT IMPLEMENTED. The inactivity-decay design these two events
+// belonged to was abandoned in favor of the rolling accuracy window
+// (docs/sentinel-accuracy-window.md). No decay or reset pass runs, so neither
+// event is ever emitted. Retained here only to explain the superseded design.
+//
 // Emitted when sentinel accuracy stats are decayed due to inactivity
 // NOTE: Symmetric decay - both upheld and overturned decay at same rate to preserve ratio
 message EventSentinelAccuracyDecay {

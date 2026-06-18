@@ -45,4 +45,14 @@ const (
 	// DefaultSentinelDemotionCooldown is the duration (seconds) a demoted
 	// sentinel must wait before regaining sentinel privileges.
 	DefaultSentinelDemotionCooldown = int64(604800) // 7 days
+
+	// DefaultSentinelAccuracyWindowEpochs is the rolling window (in reward
+	// epochs) over which sentinel reward accuracy is measured.
+	DefaultSentinelAccuracyWindowEpochs = uint64(6)
+
+	// MaxSentinelAccuracyWindowEpochs caps SentinelAccuracyWindowEpochs. It MUST
+	// equal the forum SentinelAccuracyRingSize (the ring cannot resolve a window
+	// longer than it has slots). Kept here (not imported from x/forum) to avoid
+	// a rep -> forum import; the two are asserted equal by a forum-side test.
+	MaxSentinelAccuracyWindowEpochs = uint64(24)
 )

@@ -532,6 +532,13 @@ if [ "$RUN_APPEALS" = true ]; then
     # (REPLY_PIN GovActionAppeal). Depends on sentinel_test.sh having bonded
     # sentinel1; lives in the appeals phase as a moderation-appeal flow.
     run_test "Pin Dispute Tests" "pin_dispute_test.sh"
+    # sentinel_accuracy_window_test.sh resolves hide appeals (UPHELD) via the
+    # Operations Committee and asserts the resolution lands in the sentinel's
+    # rolling accuracy ring (SentinelActivity.accuracy_window), bucketed per reward
+    # epoch and advancing across an epoch boundary. Depends on the appeal-resolution
+    # path, so it belongs in the appeals phase. Resolves are UPHELD-only so the
+    # shared sentinel1 is never left in an overturn cooldown for later tests.
+    run_test "Sentinel Accuracy Window Tests" "sentinel_accuracy_window_test.sh"
 else
     echo "Skipping appeals tests (--no-appeals)"
     echo ""

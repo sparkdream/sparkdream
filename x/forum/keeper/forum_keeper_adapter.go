@@ -198,7 +198,7 @@ func (k Keeper) GetActionCommittedAmount(ctx context.Context, actionType reptype
 // counter (hide / lock / move) and consecutive_upheld, and resets
 // consecutive_overturns. For hide actions, also decrements pending_hide_count.
 // No-op (with log) when the sentinel cannot be resolved.
-func (k Keeper) RecordSentinelActionUpheld(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) error {
+func (k Keeper) RecordSentinelActionUpheld(ctx context.Context, epoch uint64, actionType reptypes.GovActionType, actionTarget string) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	sentinel, err := k.GetActionSentinel(ctx, actionType, actionTarget)
@@ -233,6 +233,7 @@ func (k Keeper) RecordSentinelActionUpheld(ctx context.Context, actionType repty
 	local.ConsecutiveUpheld++
 	local.ConsecutiveOverturns = 0
 	local.EpochAppealsResolved++
+	bumpAccuracyWindow(&local, epoch, true)
 
 	if err := k.SentinelActivity.Set(ctx, sentinel, local); err != nil {
 		return fmt.Errorf("persist sentinel activity (upheld): %w", err)
@@ -246,7 +247,7 @@ func (k Keeper) RecordSentinelActionUpheld(ctx context.Context, actionType repty
 // consecutive_overturns crosses DefaultMaxConsecutiveOverturnsBeforeDemotion,
 // demotes the sentinel via the rep keeper. No-op (with log) when the sentinel
 // cannot be resolved.
-func (k Keeper) RecordSentinelActionOverturned(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) error {
+func (k Keeper) RecordSentinelActionOverturned(ctx context.Context, epoch uint64, actionType reptypes.GovActionType, actionTarget string) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	sentinel, err := k.GetActionSentinel(ctx, actionType, actionTarget)
@@ -281,6 +282,7 @@ func (k Keeper) RecordSentinelActionOverturned(ctx context.Context, actionType r
 	local.ConsecutiveOverturns++
 	local.ConsecutiveUpheld = 0
 	local.EpochAppealsResolved++
+	bumpAccuracyWindow(&local, epoch, false)
 	local.OverturnCooldownUntil = sdkCtx.BlockTime().Unix() + types.DefaultSentinelOverturnCooldown
 
 	if err := k.SentinelActivity.Set(ctx, sentinel, local); err != nil {
@@ -302,6 +304,57 @@ func (k Keeper) RecordSentinelActionOverturned(ctx context.Context, actionType r
 		}
 	}
 	return nil
+}
+
+// bumpAccuracyWindow records one resolved appeal in the sentinel's rolling
+// accuracy ring at the slot for `epoch` (slot index = epoch % ring size). The
+// ring is lazily allocated to its fixed size on first write. A slot whose
+// stamp does not match `epoch` is stale (left by an earlier epoch that mapped
+// to the same index) and is reset before counting — because the ring size is
+// >= the read window, any slot being overwritten is necessarily older than the
+// window, so the overwrite never drops in-window data.
+func bumpAccuracyWindow(local *types.SentinelActivity, epoch uint64, upheld bool) {
+	if len(local.AccuracyWindow) != types.SentinelAccuracyRingSize {
+		local.AccuracyWindow = make([]*types.AccuracyEpochBucket, types.SentinelAccuracyRingSize)
+		for i := range local.AccuracyWindow {
+			local.AccuracyWindow[i] = &types.AccuracyEpochBucket{}
+		}
+	}
+	slot := local.AccuracyWindow[epoch%uint64(types.SentinelAccuracyRingSize)]
+	if slot.Epoch != epoch {
+		slot.Epoch, slot.Upheld, slot.Overturned = epoch, 0, 0
+	}
+	if upheld {
+		slot.Upheld++
+	} else {
+		slot.Overturned++
+	}
+}
+
+// GetSentinelWindowedAccuracy returns (upheld, overturned) resolved-appeal
+// counts summed over the last `window` reward epochs ending at currentEpoch
+// (inclusive). Slots stamped outside that range — stale entries or epochs
+// older than the window — are ignored. Missing record or window 0 -> (0, 0).
+func (k Keeper) GetSentinelWindowedAccuracy(ctx context.Context, addr string, currentEpoch, window uint64) (uint64, uint64, error) {
+	if window == 0 {
+		return 0, 0, nil
+	}
+	local, err := k.SentinelActivity.Get(ctx, addr)
+	if err != nil {
+		return 0, 0, nil
+	}
+	var lo uint64
+	if currentEpoch+1 > window {
+		lo = currentEpoch - window + 1
+	}
+	var up, ov uint64
+	for _, b := range local.AccuracyWindow {
+		if b != nil && b.Epoch >= lo && b.Epoch <= currentEpoch {
+			up += b.Upheld
+			ov += b.Overturned
+		}
+	}
+	return up, ov, nil
 }
 
 // GetSentinelActivityCounters loads forum's per-sentinel counter record and

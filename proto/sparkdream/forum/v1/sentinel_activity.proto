@@ -3,6 +3,16 @@ package sparkdream.forum.v1;
 
 option go_package = "sparkdream/x/forum/types";
 
+// AccuracyEpochBucket holds one reward-epoch's resolved-appeal tally for a
+// sentinel. Stored in a fixed-size ring on SentinelActivity (slot index =
+// epoch % SentinelAccuracyRingSize); the `epoch` stamp disambiguates a live
+// slot from a stale one left behind by an inactive epoch.
+message AccuracyEpochBucket {
+  uint64 epoch = 1;
+  uint64 upheld = 2;     // upheld_hides + upheld_locks + upheld_moves resolved this epoch
+  uint64 overturned = 3; // overturned_* resolved this epoch
+}
+
 // SentinelActivity holds forum-specific action counters and local cooldowns
 // for a sentinel. The accountability record (bond, bond status, activity
 // stamps) lives in sparkdream.rep.v1.SentinelActivity.
@@ -51,4 +61,14 @@ message SentinelActivity {
   uint64 confirmed_proposals = 26;
   uint64 rejected_proposals = 27;
   uint64 epoch_curations = 28;
+
+  // Rolling-window accuracy ring. Fixed length SentinelAccuracyRingSize once
+  // first written; slot e % C holds reward-epoch e's resolved-appeal tally.
+  // x/rep's reward distribution computes accuracy over the last
+  // SentinelAccuracyWindowEpochs slots from this ring. The lifetime
+  // upheld_*/overturned_* counters above are retained for display/audit and are
+  // NO LONGER used for reward accuracy. Append-only field — empty on records
+  // written before this field existed (no migration needed; an empty ring reads
+  // as zero decided appeals).
+  repeated AccuracyEpochBucket accuracy_window = 29;
 }

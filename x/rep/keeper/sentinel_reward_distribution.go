@@ -29,6 +29,23 @@ func (k Keeper) IsSentinelRewardEpoch(ctx context.Context) bool {
 	return uint64(height)%blocks == 0
 }
 
+// CurrentSentinelRewardEpoch returns the current reward-epoch index
+// (blockHeight / SentinelRewardEpochBlocks). Used both to bucket resolved
+// appeals into the accuracy ring and to read the rolling window at distribution
+// time, so a resolution and the distribution that follows agree on the epoch.
+// Returns 0 if params are unreadable or the cadence is unset.
+func (k Keeper) CurrentSentinelRewardEpoch(ctx context.Context) uint64 {
+	params, err := k.Params.Get(ctx)
+	if err != nil || params.SentinelRewardEpochBlocks == 0 {
+		return 0
+	}
+	height := sdk.UnwrapSDKContext(ctx).BlockHeight()
+	if height <= 0 {
+		return 0
+	}
+	return uint64(height) / params.SentinelRewardEpochBlocks
+}
+
 // sentinelRewardCandidate bundles an eligible sentinel with its computed score.
 type sentinelRewardCandidate struct {
 	addr  string
@@ -91,10 +108,20 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 			return false, nil
 		}
 
-		// Gate 2: Min appeals for accuracy.
-		totalDecided := counters.UpheldHides + counters.OverturnedHides +
-			counters.UpheldLocks + counters.OverturnedLocks +
-			counters.UpheldMoves + counters.OverturnedMoves
+		// Gate 2: Min appeals for accuracy — measured over the rolling window
+		// (last SentinelAccuracyWindowEpochs reward epochs), NOT lifetime. This
+		// keeps accuracy responsive to recent behavior: a long-tenured sentinel's
+		// huge lifetime denominator no longer dilutes recent overturns, and a
+		// sentinel who goes inactive ages out of eligibility as their in-window
+		// resolved appeals fall off.
+		windowUpheld, windowOverturned, werr := k.late.forumKeeper.GetSentinelWindowedAccuracy(
+			ctx, addr, epochNum, params.SentinelAccuracyWindowEpochs)
+		if werr != nil {
+			sdkCtx.Logger().Warn("sentinel reward: windowed accuracy lookup failed",
+				"sentinel", addr, "error", werr)
+			return false, nil
+		}
+		totalDecided := windowUpheld + windowOverturned
 		if totalDecided < params.MinAppealsForAccuracy {
 			return false, nil
 		}
@@ -117,9 +144,8 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 			}
 		}
 
-		// Gate 5: Accuracy.
-		totalUpheld := counters.UpheldHides + counters.UpheldLocks + counters.UpheldMoves
-		accuracyRate := math.LegacyNewDec(int64(totalUpheld)).
+		// Gate 5: Accuracy — windowed upheld / windowed decided.
+		accuracyRate := math.LegacyNewDec(int64(windowUpheld)).
 			Quo(math.LegacyNewDec(int64(totalDecided)))
 		if accuracyRate.LT(params.MinSentinelAccuracy) {
 			return false, nil

@@ -34,10 +34,11 @@ func newSentinelRewardFixture(t *testing.T) *sentinelRewardFixture {
 	f := initFixture(t, WithCustomParams(params))
 
 	fk := &mockForumKeeper{
-		authors:         make(map[uint64]string),
-		tags:            make(map[uint64][]string),
-		actionSentinels: make(map[string]string),
-		counters:        make(map[string]types.SentinelActivityCounters),
+		authors:          make(map[uint64]string),
+		tags:             make(map[uint64][]string),
+		actionSentinels:  make(map[string]string),
+		counters:         make(map[string]types.SentinelActivityCounters),
+		windowedAccuracy: make(map[string][2]uint64),
 	}
 	f.keeper.SetForumKeeper(fk)
 
@@ -70,6 +71,14 @@ func (rf *sentinelRewardFixture) seedSentinel(
 		BondStatus: status,
 	}))
 	rf.fk.counters[addrStr] = counters
+	// Mirror the counters' decided-appeal totals into the rolling window the
+	// distribution now reads for the accuracy gates. The lifetime upheld/
+	// overturned fields on the counters double as the in-window tallies for
+	// these tests, so eligibility behaves identically to the pre-window logic.
+	rf.fk.windowedAccuracy[addrStr] = [2]uint64{
+		counters.UpheldHides + counters.UpheldLocks + counters.UpheldMoves,
+		counters.OverturnedHides + counters.OverturnedLocks + counters.OverturnedMoves,
+	}
 	return addrStr
 }
 
@@ -411,4 +420,64 @@ func TestDistributeSentinelRewards_SinglePayoutFullPool(t *testing.T) {
 	sa, err := rf.keeper.BondedRoles.Get(rf.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), only))
 	require.NoError(t, err)
 	require.Equal(t, pool.String(), sa.CumulativeRewards)
+}
+
+// TestDistributeSentinelRewards_EmptyWindowIneligible proves the accuracy gates
+// read the rolling window, not lifetime counters: a sentinel with a strong
+// lifetime record but no in-window resolved appeals (the cutover / inactivity
+// case) is ineligible.
+func TestDistributeSentinelRewards_EmptyWindowIneligible(t *testing.T) {
+	rf := newSentinelRewardFixture(t)
+	rf.ctx = rf.ctx.WithBlockHeight(10)
+
+	addr := rf.seedSentinel(t, []byte("stale-sentinel-aaaa"),
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, happyCounters())
+	// Empty the rolling window despite strong lifetime counters.
+	rf.fk.windowedAccuracy[addr] = [2]uint64{0, 0}
+
+	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
+		return sdk.NewCoin(denom, math.NewInt(1_000))
+	}
+	sendCount := 0
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, _ sdk.Coins) error {
+		sendCount++
+		return nil
+	}
+
+	require.NoError(t, rf.keeper.DistributeSentinelRewards(rf.ctx))
+	require.Zero(t, sendCount, "empty window -> below MinAppealsForAccuracy -> ineligible")
+	require.Contains(t, rf.fk.resetAddrs, addr, "epoch counters still reset")
+}
+
+// TestDistributeSentinelRewards_WindowDrivesAccuracy proves the inverse: an
+// empty lifetime record but a populated, high-accuracy window IS eligible.
+func TestDistributeSentinelRewards_WindowDrivesAccuracy(t *testing.T) {
+	rf := newSentinelRewardFixture(t)
+	rf.ctx = rf.ctx.WithBlockHeight(10)
+
+	// Counters carry the epoch-activity / appeal-rate signal but zero lifetime
+	// upheld/overturned (so seedSentinel mirrors an empty window).
+	c := types.SentinelActivityCounters{
+		EpochHides:           10,
+		EpochAppealsFiled:    2,
+		EpochAppealsResolved: 4,
+	}
+	addr := rf.seedSentinel(t, []byte("fresh-sentinel-aaaa"),
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, c)
+	// Populate the window directly: 12 upheld / 16 decided = 0.75 (>= 0.70),
+	// 16 decided (>= MinAppealsForAccuracy=10).
+	rf.fk.windowedAccuracy[addr] = [2]uint64{12, 4}
+
+	pool := math.NewInt(500_000)
+	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
+		return sdk.NewCoin(denom, pool)
+	}
+	got := math.ZeroInt()
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, _ sdk.AccAddress, amt sdk.Coins) error {
+		got = amt.AmountOf("uspark")
+		return nil
+	}
+
+	require.NoError(t, rf.keeper.DistributeSentinelRewards(rf.ctx))
+	require.Equal(t, pool, got, "high-accuracy window alone makes the sentinel eligible")
 }

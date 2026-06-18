@@ -1284,6 +1284,7 @@
         "referral_reward_rate": "0.050000000000000000",
         "reputation_decay_rate": "0.005000000000000000",
         "season_duration_epochs": "75",
+        "sentinel_accuracy_window_epochs": "6",
         "sentinel_reward_epoch_blocks": "7200",
         "sentinel_reward_pool_overflow_burn_ratio": "0.500000000000000000",
         "severe_slash_penalty": "0.300000000000000000",

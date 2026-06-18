@@ -69,7 +69,7 @@ func TestReplyPinAppealResolution(t *testing.T) {
 	t.Run("upheld bumps upheld_pins and keeps the pin", func(t *testing.T) {
 		thread, reply := setup(t)
 
-		require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, pinType, target(reply.PostId)))
+		require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, 1, pinType, target(reply.PostId)))
 
 		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
 		require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestReplyPinAppealResolution(t *testing.T) {
 	t.Run("overturned bumps overturned_pins, consecutive_overturns, and unpins", func(t *testing.T) {
 		thread, reply := setup(t)
 
-		require.NoError(t, f.keeper.RecordSentinelActionOverturned(f.ctx, pinType, target(reply.PostId)))
+		require.NoError(t, f.keeper.RecordSentinelActionOverturned(f.ctx, 1, pinType, target(reply.PostId)))
 
 		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
 		require.NoError(t, err)

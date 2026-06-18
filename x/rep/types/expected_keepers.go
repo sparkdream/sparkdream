@@ -130,22 +130,32 @@ type ForumKeeper interface {
 
 	// RecordSentinelActionUpheld increments the sentinel's upheld_* counter
 	// for the action type (hide / lock / move), increments consecutive_upheld,
-	// and resets consecutive_overturns. If the sentinel cannot be resolved
-	// (record GC'd), logs a warning and returns nil.
-	RecordSentinelActionUpheld(ctx context.Context, actionType GovActionType, actionTarget string) error
+	// resets consecutive_overturns, and records the upheld appeal in the
+	// sentinel's rolling accuracy window at the given reward epoch. If the
+	// sentinel cannot be resolved (record GC'd), logs a warning and returns nil.
+	RecordSentinelActionUpheld(ctx context.Context, epoch uint64, actionType GovActionType, actionTarget string) error
 
 	// RecordSentinelActionOverturned increments the sentinel's overturned_*
-	// counter for the action type, increments consecutive_overturns, and
-	// resets consecutive_upheld. If consecutive_overturns crosses the demotion
-	// threshold, calls the rep keeper to demote the sentinel. If the sentinel
-	// cannot be resolved (record GC'd), logs a warning and returns nil.
-	RecordSentinelActionOverturned(ctx context.Context, actionType GovActionType, actionTarget string) error
+	// counter for the action type, increments consecutive_overturns, resets
+	// consecutive_upheld, and records the overturned appeal in the sentinel's
+	// rolling accuracy window at the given reward epoch. If consecutive_overturns
+	// crosses the demotion threshold, calls the rep keeper to demote the
+	// sentinel. If the sentinel cannot be resolved (record GC'd), logs a warning
+	// and returns nil.
+	RecordSentinelActionOverturned(ctx context.Context, epoch uint64, actionType GovActionType, actionTarget string) error
 
 	// GetSentinelActivityCounters loads the forum-side per-sentinel counter
 	// snapshot for the given address. Returns a zero-valued struct with no
 	// error when the sentinel has no forum record yet (e.g., bonded but has
 	// not taken a single moderation action).
 	GetSentinelActivityCounters(ctx context.Context, addr string) (SentinelActivityCounters, error)
+
+	// GetSentinelWindowedAccuracy returns the (upheld, overturned) resolved-appeal
+	// counts summed over the last `window` reward epochs ending at currentEpoch.
+	// Used by the reward distribution to compute a freshness-sensitive accuracy
+	// rate instead of an ever-growing lifetime ratio. Missing record or window 0
+	// -> (0, 0) with no error.
+	GetSentinelWindowedAccuracy(ctx context.Context, addr string, currentEpoch, window uint64) (upheld, overturned uint64, err error)
 
 	// ResetSentinelEpochCounters zeros the forum-side per-epoch counters
 	// (epoch_hides / epoch_locks / epoch_moves / epoch_pins /
