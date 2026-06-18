@@ -57,7 +57,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		// for explicit SENTINEL requests and for the AUTO no-fallback case.
 		sentinelErr error
 	)
-	slashAmount := params.SentinelSlashAmountOrDefault()
+	slashAmount := params.SentinelSlashAmountInt()
 
 	if k.repKeeper == nil {
 		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
@@ -92,7 +92,7 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
 				"cooldown until %d", local.OverturnCooldownUntil)
 		}
-		if local.EpochHides >= params.MaxHidesPerEpochOrDefault() {
+		if local.EpochHides >= params.MaxHidesPerEpoch {
 			return nil, types.ErrHideLimitExceeded
 		}
 

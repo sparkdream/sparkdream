@@ -98,7 +98,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
 				"cooldown until %d", local.OverturnCooldownUntil)
 		}
-		if local.EpochMoves >= params.MaxSentinelMovesPerEpochOrDefault() {
+		if local.EpochMoves >= params.MaxSentinelMovesPerEpoch {
 			return nil, types.ErrMoveLimitExceeded
 		}
 
@@ -110,7 +110,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 
 		// Reserve slash amount against the sentinel's bond so overturned
 		// appeals have funds to slash. Mirrors the HidePost reservation path.
-		slashAmount := params.SentinelSlashAmountOrDefault()
+		slashAmount := params.SentinelSlashAmountInt()
 		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to move")
 		}

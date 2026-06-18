@@ -112,7 +112,7 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 		if err != nil {
 			params = types.DefaultParams()
 		}
-		slashAmount := params.SentinelSlashAmountOrDefault()
+		slashAmount := params.SentinelSlashAmountInt()
 		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to pin")
 		}

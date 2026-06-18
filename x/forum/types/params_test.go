@@ -29,24 +29,35 @@ func TestParams_Validate(t *testing.T) {
 		{"negative cost_per_byte_amount", func(p *types.Params) {
 			p.CostPerByteAmount = math.NewInt(-1)
 		}, true},
-		// Moderation rate caps: 0 = unset (ok); above the ceiling = reject.
+		// Moderation rate caps: must be positive and within the ceiling.
+		{"hides cap zero", func(p *types.Params) { p.MaxHidesPerEpoch = 0 }, true},
+		{"locks cap zero", func(p *types.Params) { p.MaxSentinelLocksPerEpoch = 0 }, true},
+		{"moves cap zero", func(p *types.Params) { p.MaxSentinelMovesPerEpoch = 0 }, true},
 		{"hides cap at ceiling ok", func(p *types.Params) { p.MaxHidesPerEpoch = types.ModerationEpochCapCeiling }, false},
 		{"hides cap over ceiling", func(p *types.Params) { p.MaxHidesPerEpoch = types.ModerationEpochCapCeiling + 1 }, true},
 		{"locks cap over ceiling", func(p *types.Params) { p.MaxSentinelLocksPerEpoch = types.ModerationEpochCapCeiling + 1 }, true},
 		{"moves cap over ceiling", func(p *types.Params) { p.MaxSentinelMovesPerEpoch = types.ModerationEpochCapCeiling + 1 }, true},
-		// Slash amount: positive and <= the base bond.
+		// min_sentinel_bond: required positive.
+		{"min bond empty", func(p *types.Params) { p.MinSentinelBond = "" }, true},
+		{"min bond zero", func(p *types.Params) { p.MinSentinelBond = "0" }, true},
+		// lock_bond_multiplier: required >= 1.
+		{"lock multiplier zero", func(p *types.Params) { p.LockBondMultiplier = 0 }, true},
+		// Slash amount: required positive and <= the base bond.
+		{"slash empty", func(p *types.Params) { p.SentinelSlashAmount = "" }, true},
 		{"slash non-positive", func(p *types.Params) { p.SentinelSlashAmount = "0" }, true},
 		{"slash unparseable", func(p *types.Params) { p.SentinelSlashAmount = "abc" }, true},
 		{"slash equals min bond ok", func(p *types.Params) { p.SentinelSlashAmount = p.MinSentinelBond }, false},
 		{"slash exceeds min bond", func(p *types.Params) {
-			p.SentinelSlashAmount = p.MinSentinelBondOrDefault().AddRaw(1).String()
+			p.SentinelSlashAmount = p.MinSentinelBondInt().AddRaw(1).String()
 		}, true},
-		// Lock backing: positive and >= the derived lock bond (4 × 500 = 2000 DREAM).
+		// Lock backing: required positive and >= the derived lock bond (4 × 500 = 2000 DREAM).
+		{"backing empty", func(p *types.Params) { p.LockBackingAmount = "" }, true},
 		{"backing below lock bond", func(p *types.Params) { p.LockBackingAmount = "1999000000" }, true},
 		{"backing equals lock bond ok", func(p *types.Params) {
-			p.LockBackingAmount = p.LockMinBondOrDefault().String()
+			p.LockBackingAmount = p.LockMinBondInt().String()
 		}, false},
-		// Lock min rep tier: within [min_sentinel_rep_tier, 5].
+		// Lock min rep tier: 0 = no floor (ok); else within [min_sentinel_rep_tier, 5].
+		{"lock tier zero ok", func(p *types.Params) { p.LockMinRepTier = 0 }, false},
 		{"lock tier over 5", func(p *types.Params) { p.LockMinRepTier = 6 }, true},
 		{"lock tier below base tier", func(p *types.Params) {
 			p.MinSentinelRepTier = 3
@@ -143,36 +154,6 @@ func TestApplyOperationalParams_PreservesPauseFlags(t *testing.T) {
 	}
 }
 
-func TestModerationParamAccessors_ZeroMeansDefault(t *testing.T) {
-	// An all-zero/empty Params (e.g. the state an existing chain sees right
-	// after the upgrade adds these fields) must fall back to the historical
-	// defaults — this is what makes the change migration-free.
-	var p types.Params
-	if got := p.MaxHidesPerEpochOrDefault(); got != types.DefaultMaxHidesPerEpoch {
-		t.Errorf("hides default: got %d want %d", got, types.DefaultMaxHidesPerEpoch)
-	}
-	if got := p.MaxSentinelLocksPerEpochOrDefault(); got != types.DefaultMaxSentinelLocksPerEpoch {
-		t.Errorf("locks default: got %d want %d", got, types.DefaultMaxSentinelLocksPerEpoch)
-	}
-	if got := p.MaxSentinelMovesPerEpochOrDefault(); got != types.DefaultMaxSentinelMovesPerEpoch {
-		t.Errorf("moves default: got %d want %d", got, types.DefaultMaxSentinelMovesPerEpoch)
-	}
-	if got := p.SentinelSlashAmountOrDefault(); !got.Equal(math.NewInt(types.DefaultSentinelSlashAmount)) {
-		t.Errorf("slash default: got %s", got)
-	}
-	if got := p.LockMinRepTierOrDefault(); got != types.DefaultMinRepTierThreadLock {
-		t.Errorf("lock tier default: got %d want %d", got, types.DefaultMinRepTierThreadLock)
-	}
-	// Derived lock bond = multiplier(4) × min_sentinel_bond(500 DREAM) = 2000 DREAM.
-	wantLockBond := types.DefaultMinSentinelBond.Mul(math.NewIntFromUint64(types.DefaultLockBondMultiplier))
-	if got := p.LockMinBondOrDefault(); !got.Equal(wantLockBond) {
-		t.Errorf("lock bond default: got %s want %s", got, wantLockBond)
-	}
-	if got := p.LockBackingAmountOrDefault(); !got.Equal(types.DefaultLockBackingAmount) {
-		t.Errorf("lock backing default: got %s", got)
-	}
-}
-
 func TestLockMinBond_TracksBaseBondAndMultiplier(t *testing.T) {
 	// The lock bond is derived from the base bond, so raising either the base
 	// bond or the multiplier raises the lock floor — no separate hardcoded
@@ -181,7 +162,7 @@ func TestLockMinBond_TracksBaseBondAndMultiplier(t *testing.T) {
 	p.MinSentinelBond = "1000000000" // 1000 DREAM base
 	p.LockBondMultiplier = 3
 	want := math.NewInt(3_000_000_000) // 3 × 1000 DREAM
-	if got := p.LockMinBondOrDefault(); !got.Equal(want) {
+	if got := p.LockMinBondInt(); !got.Equal(want) {
 		t.Errorf("derived lock bond: got %s want %s", got, want)
 	}
 }

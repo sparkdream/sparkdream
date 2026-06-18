@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 
+	"cosmossdk.io/errors"
 	"cosmossdk.io/math"
 )
 
@@ -160,23 +161,73 @@ func DefaultParams() Params {
 // Validate validates the set of params.
 func (p Params) Validate() error {
 	if p.EpochBlocks <= 0 {
-		return ErrInvalidSigner // Using existing error, should create specific validation errors
+		return errors.Wrapf(ErrInvalidParams, "epoch_blocks must be positive: %d", p.EpochBlocks)
 	}
 	if p.SeasonDurationEpochs <= 0 {
-		return ErrInvalidSigner
+		return errors.Wrapf(ErrInvalidParams, "season_duration_epochs must be positive: %d", p.SeasonDurationEpochs)
 	}
 	if p.MinGuildMembers < 1 {
-		return ErrInvalidSigner
+		return errors.Wrapf(ErrInvalidParams, "min_guild_members must be >= 1: %d", p.MinGuildMembers)
 	}
 	if p.MaxGuildMembers < p.MinGuildMembers {
-		return ErrInvalidSigner
+		return errors.Wrapf(ErrInvalidParams, "max_guild_members (%d) must be >= min_guild_members (%d)", p.MaxGuildMembers, p.MinGuildMembers)
 	}
 	if p.DisplayNameMinLength > p.DisplayNameMaxLength {
-		return ErrInvalidSigner
+		return errors.Wrapf(ErrInvalidParams, "display_name_min_length (%d) must be <= display_name_max_length (%d)", p.DisplayNameMinLength, p.DisplayNameMaxLength)
 	}
 	if p.UsernameMinLength > p.UsernameMaxLength {
-		return ErrInvalidSigner
+		return errors.Wrapf(ErrInvalidParams, "username_min_length (%d) must be <= username_max_length (%d)", p.UsernameMinLength, p.UsernameMaxLength)
 	}
+
+	// Transition driver params: 0 stalls or silently substitutes magic defaults.
+	if p.TransitionBatchSize == 0 {
+		return errors.Wrap(ErrInvalidParams, "transition_batch_size must be positive (0 would process no rows and stall season transition)")
+	}
+	if p.TransitionMaxRetries == 0 {
+		return errors.Wrap(ErrInvalidParams, "transition_max_retries must be positive")
+	}
+	if p.TransitionGracePeriod == 0 {
+		return errors.Wrap(ErrInvalidParams, "transition_grace_period must be positive")
+	}
+
+	// Retention windows: 0 would immediately GC live data.
+	if p.SnapshotRetentionSeasons == 0 {
+		return errors.Wrap(ErrInvalidParams, "snapshot_retention_seasons must be positive")
+	}
+	if p.EpochTrackerRetentionEpochs == 0 {
+		return errors.Wrap(ErrInvalidParams, "epoch_tracker_retention_epochs must be positive")
+	}
+	if p.VoteXpRecordRetentionSeasons == 0 {
+		return errors.Wrap(ErrInvalidParams, "vote_xp_record_retention_seasons must be positive")
+	}
+	if p.ForumCooldownRetentionEpochs == 0 {
+		return errors.Wrap(ErrInvalidParams, "forum_cooldown_retention_epochs must be positive")
+	}
+
+	// Count limits: 0 disables the relevant feature in a nonsensical way.
+	if p.MaxGuildOfficers == 0 {
+		return errors.Wrap(ErrInvalidParams, "max_guild_officers must be positive")
+	}
+	if p.MaxPendingInvites == 0 {
+		return errors.Wrap(ErrInvalidParams, "max_pending_invites must be positive")
+	}
+	if p.MaxQuestObjectives == 0 {
+		return errors.Wrap(ErrInvalidParams, "max_quest_objectives must be positive")
+	}
+	if p.MaxActiveQuestsPerMember == 0 {
+		return errors.Wrap(ErrInvalidParams, "max_active_quests_per_member must be positive")
+	}
+
+	// level_thresholds must be non-empty and strictly increasing.
+	if len(p.LevelThresholds) == 0 {
+		return errors.Wrap(ErrInvalidParams, "level_thresholds must not be empty")
+	}
+	for i := 1; i < len(p.LevelThresholds); i++ {
+		if p.LevelThresholds[i] <= p.LevelThresholds[i-1] {
+			return errors.Wrapf(ErrInvalidParams, "level_thresholds must be strictly increasing: index %d (%d) <= index %d (%d)", i, p.LevelThresholds[i], i-1, p.LevelThresholds[i-1])
+		}
+	}
+
 	if p.NominationWindowEpochs == 0 {
 		return fmt.Errorf("nomination_window_epochs must be positive")
 	}
@@ -290,6 +341,24 @@ func (op SeasonOperationalParams) Validate() error {
 	}
 	if op.MinGuildMembers < 1 {
 		return fmt.Errorf("min_guild_members must be >= 1: %d", op.MinGuildMembers)
+	}
+	if op.TransitionBatchSize == 0 {
+		return fmt.Errorf("transition_batch_size must be positive (0 would process no rows and stall season transition)")
+	}
+	if op.TransitionGracePeriod == 0 {
+		return fmt.Errorf("transition_grace_period must be positive")
+	}
+	if op.MaxGuildOfficers == 0 {
+		return fmt.Errorf("max_guild_officers must be positive")
+	}
+	if op.MaxPendingInvites == 0 {
+		return fmt.Errorf("max_pending_invites must be positive")
+	}
+	if op.MaxQuestObjectives == 0 {
+		return fmt.Errorf("max_quest_objectives must be positive")
+	}
+	if op.MaxActiveQuestsPerMember == 0 {
+		return fmt.Errorf("max_active_quests_per_member must be positive")
 	}
 	if op.NominationWindowEpochs == 0 {
 		return fmt.Errorf("nomination_window_epochs must be positive")

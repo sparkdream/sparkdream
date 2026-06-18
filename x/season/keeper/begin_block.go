@@ -109,10 +109,8 @@ func (k Keeper) processTransitionBatch(ctx context.Context, state types.SeasonTr
 		return err
 	}
 
+	// TransitionBatchSize is validated > 0 by Params.Validate.
 	batchSize := params.TransitionBatchSize
-	if batchSize == 0 {
-		batchSize = 100 // Default batch size
-	}
 
 	var phaseComplete bool
 	var processErr error
@@ -801,10 +799,8 @@ func (k Keeper) handleTransitionError(ctx context.Context, state types.SeasonTra
 
 	// Get params for max retries
 	params, _ := k.Params.Get(ctx)
+	// TransitionMaxRetries is validated > 0 by Params.Validate.
 	maxRetries := params.TransitionMaxRetries
-	if maxRetries == 0 {
-		maxRetries = 3 // Default
-	}
 
 	if recovery.FailureCount >= uint64(maxRetries) {
 		recovery.RecoveryMode = true

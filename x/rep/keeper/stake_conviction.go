@@ -55,10 +55,14 @@ func (k Keeper) CalculateRawStakeConviction(ctx context.Context, stake types.Sta
 		timeElapsed = 0
 	}
 
-	// Calculate half life in seconds (approx 6s per block)
+	// Calculate half life in seconds (approx 6s per block).
+	// ConvictionHalfLifeEpochs and EpochBlocks are both rejected at <= 0 by
+	// Params.Validate, so this product is always positive. Defensive guard only:
+	// if it is somehow non-positive, treat conviction as zero rather than
+	// substituting a magic value or risking a div-by-zero.
 	halfLifeSeconds := int64(params.ConvictionHalfLifeEpochs * params.EpochBlocks * 6)
-	if halfLifeSeconds == 0 {
-		halfLifeSeconds = 1 // avoid div by zero
+	if halfLifeSeconds <= 0 {
+		return math.LegacyZeroDec(), nil
 	}
 
 	// Calculate conviction with exponential decay (time-weighted)

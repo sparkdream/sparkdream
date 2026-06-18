@@ -252,6 +252,52 @@ func (p Params) Validate() error {
 		return fmt.Errorf("jury size must be odd: %d", p.JurySize)
 	}
 
+	// Jury super-majority must be in (0,1]; >1 deadlocks every jury/appeal.
+	if p.JurySuperMajority.IsNil() || !p.JurySuperMajority.IsPositive() || p.JurySuperMajority.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("jury super majority must be in (0,1]: %s", p.JurySuperMajority)
+	}
+
+	// Transfer tax rate must be in [0,1].
+	if p.TransferTaxRate.IsNegative() {
+		return fmt.Errorf("transfer tax rate cannot be negative: %s", p.TransferTaxRate)
+	}
+	if p.TransferTaxRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("transfer tax rate cannot be greater than 1: %s", p.TransferTaxRate)
+	}
+
+	// Conviction parameters.
+	if p.ExternalConvictionRatio.IsNegative() || p.ExternalConvictionRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("external conviction ratio must be in [0,1]: %s", p.ExternalConvictionRatio)
+	}
+	if p.ConvictionPerDream.IsNil() || !p.ConvictionPerDream.IsPositive() {
+		return fmt.Errorf("conviction per dream must be positive: %s", p.ConvictionPerDream)
+	}
+	if p.ConvictionHalfLifeEpochs <= 0 {
+		return fmt.Errorf("conviction half life epochs must be positive: %d", p.ConvictionHalfLifeEpochs)
+	}
+
+	// Review/challenge windows must be positive; 0 yields an instant deadline.
+	if p.DefaultReviewPeriodEpochs <= 0 {
+		return fmt.Errorf("default review period epochs must be positive: %d", p.DefaultReviewPeriodEpochs)
+	}
+	if p.DefaultChallengePeriodEpochs <= 0 {
+		return fmt.Errorf("default challenge period epochs must be positive: %d", p.DefaultChallengePeriodEpochs)
+	}
+
+	// Slash penalties must each be in [0,1]; >1 over-slashes.
+	if p.MinorSlashPenalty.IsNegative() || p.MinorSlashPenalty.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("minor slash penalty must be in [0,1]: %s", p.MinorSlashPenalty)
+	}
+	if p.ModerateSlashPenalty.IsNegative() || p.ModerateSlashPenalty.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("moderate slash penalty must be in [0,1]: %s", p.ModerateSlashPenalty)
+	}
+	if p.SevereSlashPenalty.IsNegative() || p.SevereSlashPenalty.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("severe slash penalty must be in [0,1]: %s", p.SevereSlashPenalty)
+	}
+	if p.ZeroingSlashPenalty.IsNegative() || p.ZeroingSlashPenalty.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("zeroing slash penalty must be in [0,1]: %s", p.ZeroingSlashPenalty)
+	}
+
 	// Gift rate limiting validation
 	if p.GiftCooldownBlocks < 0 {
 		return fmt.Errorf("gift cooldown blocks cannot be negative: %d", p.GiftCooldownBlocks)
@@ -537,6 +583,17 @@ func (op RepOperationalParams) Validate() error {
 	}
 	if op.JurySize%2 == 0 {
 		return fmt.Errorf("jury size must be odd: %d", op.JurySize)
+	}
+	// Jury super-majority must be in (0,1]; >1 deadlocks every jury/appeal.
+	if op.JurySuperMajority.IsNil() || !op.JurySuperMajority.IsPositive() || op.JurySuperMajority.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("jury super majority must be in (0,1]: %s", op.JurySuperMajority)
+	}
+	// Review/challenge windows must be positive; 0 yields an instant deadline.
+	if op.DefaultReviewPeriodEpochs <= 0 {
+		return fmt.Errorf("default review period epochs must be positive: %d", op.DefaultReviewPeriodEpochs)
+	}
+	if op.DefaultChallengePeriodEpochs <= 0 {
+		return fmt.Errorf("default challenge period epochs must be positive: %d", op.DefaultChallengePeriodEpochs)
 	}
 	if op.GiftCooldownBlocks < 0 {
 		return fmt.Errorf("gift cooldown blocks cannot be negative: %d", op.GiftCooldownBlocks)

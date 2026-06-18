@@ -9,6 +9,7 @@ import (
 // x/season module sentinel errors
 var (
 	ErrInvalidSigner = errors.Register(ModuleName, 1100, "expected gov account as only signer for proposal message")
+	ErrInvalidParams = errors.Register(ModuleName, 1099, "invalid module parameters")
 
 	// Profile errors (1101-1119)
 	ErrProfileNotFound            = errors.Register(ModuleName, 1101, "member profile not found")

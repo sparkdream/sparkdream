@@ -22,9 +22,14 @@ func (k Keeper) CalculateNominationConviction(ctx context.Context, nomination ty
 		return math.LegacyZeroDec(), err
 	}
 
+	// Both nomination_conviction_half_life_epochs and epoch_blocks are validated
+	// > 0 by Params.Validate, so halfLifeBlocks is normally always positive. Guard
+	// defensively against a corrupt/zero param read rather than substituting a magic
+	// default: a zero or negative half-life makes the time-decay factor meaningless,
+	// so return zero conviction instead of fabricating a window.
 	halfLifeBlocks := int64(params.NominationConvictionHalfLifeEpochs) * params.EpochBlocks
 	if halfLifeBlocks <= 0 {
-		halfLifeBlocks = 3 * 17280 // fallback: 3 epochs * default blocks
+		return math.LegacyZeroDec(), fmt.Errorf("non-positive conviction half-life (%d blocks): half_life_epochs=%d epoch_blocks=%d", halfLifeBlocks, params.NominationConvictionHalfLifeEpochs, params.EpochBlocks)
 	}
 
 	totalConviction := math.LegacyZeroDec()

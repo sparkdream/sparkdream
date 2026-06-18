@@ -90,6 +90,9 @@ func (p Params) Validate() error {
 	if p.MaxOpsPerBatch == 0 {
 		return fmt.Errorf("max_ops_per_batch must be positive")
 	}
+	if p.DkgWindowBlocks == 0 {
+		return fmt.Errorf("dkg_window_blocks must be positive")
+	}
 	if p.TleMissTolerance > p.TleMissWindow {
 		return fmt.Errorf("tle_miss_tolerance (%d) must not exceed tle_miss_window (%d)", p.TleMissTolerance, p.TleMissWindow)
 	}

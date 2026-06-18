@@ -311,47 +311,59 @@ func (p Params) Validate() error {
 	if err := validateModerationCaps(p.MaxHidesPerEpoch, p.MaxSentinelLocksPerEpoch, p.MaxSentinelMovesPerEpoch); err != nil {
 		return err
 	}
-	// sentinel_slash_amount: if set, positive and not larger than the base
+	// min_sentinel_bond: required, a positive integer. It is the source of truth
+	// for the derived lock-bond floor, so it must always be set explicitly.
+	minBond, ok := math.NewIntFromString(p.MinSentinelBond)
+	if !ok || !minBond.IsPositive() {
+		return fmt.Errorf("min_sentinel_bond must be a positive integer: %q", p.MinSentinelBond)
+	}
+	// lock_bond_multiplier: required >= 1 — locking can never be weaker than the
+	// base bond.
+	if p.LockBondMultiplier < 1 {
+		return fmt.Errorf("lock_bond_multiplier must be >= 1: %d", p.LockBondMultiplier)
+	}
+	lockBond := minBond.Mul(math.NewIntFromUint64(p.LockBondMultiplier))
+	// sentinel_slash_amount: required, positive, and not larger than the base
 	// bond (a single action must never reserve more than the whole bond).
-	if p.SentinelSlashAmount != "" {
-		slash, ok := math.NewIntFromString(p.SentinelSlashAmount)
-		if !ok || !slash.IsPositive() {
-			return fmt.Errorf("sentinel_slash_amount must be a positive integer: %q", p.SentinelSlashAmount)
-		}
-		if slash.GT(p.MinSentinelBondOrDefault()) {
-			return fmt.Errorf("sentinel_slash_amount (%s) must not exceed min_sentinel_bond (%s)", slash, p.MinSentinelBondOrDefault())
-		}
+	slash, ok := math.NewIntFromString(p.SentinelSlashAmount)
+	if !ok || !slash.IsPositive() {
+		return fmt.Errorf("sentinel_slash_amount must be a positive integer: %q", p.SentinelSlashAmount)
 	}
-	// lock_backing_amount: if set, positive and at least the derived lock bond.
-	if p.LockBackingAmount != "" {
-		backing, ok := math.NewIntFromString(p.LockBackingAmount)
-		if !ok || !backing.IsPositive() {
-			return fmt.Errorf("lock_backing_amount must be a positive integer: %q", p.LockBackingAmount)
-		}
-		if backing.LT(p.LockMinBondOrDefault()) {
-			return fmt.Errorf("lock_backing_amount (%s) must be >= lock bond (%s)", backing, p.LockMinBondOrDefault())
-		}
+	if slash.GT(minBond) {
+		return fmt.Errorf("sentinel_slash_amount (%s) must not exceed min_sentinel_bond (%s)", slash, minBond)
 	}
-	// lock_min_rep_tier: 0 = unset (default); if set, within [min_sentinel_rep_tier, 5].
-	if p.LockMinRepTier != 0 {
-		if p.LockMinRepTier > 5 {
-			return fmt.Errorf("lock_min_rep_tier must be <= 5: %d", p.LockMinRepTier)
-		}
-		if p.LockMinRepTier < p.MinSentinelRepTier {
-			return fmt.Errorf("lock_min_rep_tier (%d) must be >= min_sentinel_rep_tier (%d)", p.LockMinRepTier, p.MinSentinelRepTier)
-		}
+	// lock_backing_amount: required, positive, and at least the derived lock bond.
+	backing, ok := math.NewIntFromString(p.LockBackingAmount)
+	if !ok || !backing.IsPositive() {
+		return fmt.Errorf("lock_backing_amount must be a positive integer: %q", p.LockBackingAmount)
+	}
+	if backing.LT(lockBond) {
+		return fmt.Errorf("lock_backing_amount (%s) must be >= lock bond (%s)", backing, lockBond)
+	}
+	// lock_min_rep_tier: 0 legitimately means "no rep-tier floor for locking"
+	// (consistent with min_sentinel_rep_tier). If set, it must be within
+	// [min_sentinel_rep_tier, 5].
+	if p.LockMinRepTier > 5 {
+		return fmt.Errorf("lock_min_rep_tier must be <= 5: %d", p.LockMinRepTier)
+	}
+	if p.LockMinRepTier != 0 && p.LockMinRepTier < p.MinSentinelRepTier {
+		return fmt.Errorf("lock_min_rep_tier (%d) must be >= min_sentinel_rep_tier (%d)", p.LockMinRepTier, p.MinSentinelRepTier)
 	}
 	return nil
 }
 
-// validateModerationCaps enforces the shared upper bound on the per-action
-// epoch caps. A stored 0 is the "unset → default" sentinel and always passes.
+// validateModerationCaps enforces that each per-action epoch cap is positive and
+// within the shared upper bound. A cap of 0 would mean "no moderation actions
+// ever" — a nonsensical value, refused rather than silently defaulted.
 func validateModerationCaps(hides, locks, moves uint64) error {
 	for name, v := range map[string]uint64{
 		"max_hides_per_epoch":          hides,
 		"max_sentinel_locks_per_epoch": locks,
 		"max_sentinel_moves_per_epoch": moves,
 	} {
+		if v == 0 {
+			return fmt.Errorf("%s must be positive", name)
+		}
 		if v > ModerationEpochCapCeiling {
 			return fmt.Errorf("%s must be <= %d: %d", name, ModerationEpochCapCeiling, v)
 		}
@@ -499,94 +511,50 @@ func (p ForumOperationalParams) Validate() error {
 	if err := validateModerationCaps(p.MaxHidesPerEpoch, p.MaxSentinelLocksPerEpoch, p.MaxSentinelMovesPerEpoch); err != nil {
 		return err
 	}
-	// sentinel_slash_amount: if set, positive and not larger than the base bond.
-	// The full invariant is re-checked against the merged Params after apply.
-	if p.SentinelSlashAmount != "" {
-		slash, ok := math.NewIntFromString(p.SentinelSlashAmount)
-		if !ok || !slash.IsPositive() {
-			return fmt.Errorf("sentinel_slash_amount must be a positive integer: %q", p.SentinelSlashAmount)
-		}
+	// min_sentinel_bond / sentinel_slash_amount: required positive integers. The
+	// cross-invariant (slash <= bond) is re-checked against the merged Params
+	// after ApplyOperationalParams.
+	if v, ok := math.NewIntFromString(p.MinSentinelBond); !ok || !v.IsPositive() {
+		return fmt.Errorf("min_sentinel_bond must be a positive integer: %q", p.MinSentinelBond)
+	}
+	if v, ok := math.NewIntFromString(p.SentinelSlashAmount); !ok || !v.IsPositive() {
+		return fmt.Errorf("sentinel_slash_amount must be a positive integer: %q", p.SentinelSlashAmount)
 	}
 	return nil
 }
 
 // ---------------------------------------------------------------------------
-// Moderation-parameter accessors. Each returns the stored value, or the
-// compile-time default when the stored value is unset (0 / empty / unparseable).
-// This zero-means-default convention lets a chain that adds these fields via an
-// upgrade keep today's behavior with NO state migration (proto3 reads absent
-// fields as 0); fresh genesis seeds the real defaults explicitly.
+// Moderation-parameter accessors. The bond/slash/backing params are stored as
+// integer strings; these thin accessors parse them. Params.Validate guarantees
+// each is a positive integer, so there is NO unset/default fallback — the stored
+// value is the effective value (genesis seeds the defaults explicitly). The
+// uint64 caps (max_*_per_epoch), lock_bond_multiplier and lock_min_rep_tier are
+// read directly off the struct.
 // ---------------------------------------------------------------------------
 
-// MaxHidesPerEpochOrDefault returns the effective per-epoch hide cap.
-func (p Params) MaxHidesPerEpochOrDefault() uint64 {
-	if p.MaxHidesPerEpoch == 0 {
-		return DefaultMaxHidesPerEpoch
-	}
-	return p.MaxHidesPerEpoch
+// MinSentinelBondInt parses the base sentinel bond (udream).
+func (p Params) MinSentinelBondInt() math.Int {
+	v, _ := math.NewIntFromString(p.MinSentinelBond)
+	return v
 }
 
-// MaxSentinelLocksPerEpochOrDefault returns the effective per-epoch lock cap.
-func (p Params) MaxSentinelLocksPerEpochOrDefault() uint64 {
-	if p.MaxSentinelLocksPerEpoch == 0 {
-		return DefaultMaxSentinelLocksPerEpoch
-	}
-	return p.MaxSentinelLocksPerEpoch
+// SentinelSlashAmountInt parses the per-action slash (udream).
+func (p Params) SentinelSlashAmountInt() math.Int {
+	v, _ := math.NewIntFromString(p.SentinelSlashAmount)
+	return v
 }
 
-// MaxSentinelMovesPerEpochOrDefault returns the effective per-epoch move cap.
-func (p Params) MaxSentinelMovesPerEpochOrDefault() uint64 {
-	if p.MaxSentinelMovesPerEpoch == 0 {
-		return DefaultMaxSentinelMovesPerEpoch
-	}
-	return p.MaxSentinelMovesPerEpoch
+// LockBackingAmountInt parses the minimum DREAM backing required to lock (udream).
+func (p Params) LockBackingAmountInt() math.Int {
+	v, _ := math.NewIntFromString(p.LockBackingAmount)
+	return v
 }
 
-// SentinelSlashAmountOrDefault returns the effective per-action slash (udream).
-func (p Params) SentinelSlashAmountOrDefault() math.Int {
-	if v, ok := math.NewIntFromString(p.SentinelSlashAmount); ok && v.IsPositive() {
-		return v
-	}
-	return math.NewInt(DefaultSentinelSlashAmount)
-}
-
-// MinSentinelBondOrDefault returns the effective base sentinel bond (udream).
-func (p Params) MinSentinelBondOrDefault() math.Int {
-	if v, ok := math.NewIntFromString(p.MinSentinelBond); ok && v.IsPositive() {
-		return v
-	}
-	return DefaultMinSentinelBond
-}
-
-// LockBondMultiplierOrDefault returns the effective lock-bond multiplier (>= 1).
-func (p Params) LockBondMultiplierOrDefault() uint64 {
-	if p.LockBondMultiplier == 0 {
-		return DefaultLockBondMultiplier
-	}
-	return p.LockBondMultiplier
-}
-
-// LockMinBondOrDefault returns the minimum bond required to lock a thread,
-// derived as lock_bond_multiplier × min_sentinel_bond — one source of truth so
-// the lock floor can never silently diverge from the base bond.
-func (p Params) LockMinBondOrDefault() math.Int {
-	return p.MinSentinelBondOrDefault().Mul(math.NewIntFromUint64(p.LockBondMultiplierOrDefault()))
-}
-
-// LockBackingAmountOrDefault returns the minimum DREAM backing to lock (udream).
-func (p Params) LockBackingAmountOrDefault() math.Int {
-	if v, ok := math.NewIntFromString(p.LockBackingAmount); ok && v.IsPositive() {
-		return v
-	}
-	return DefaultLockBackingAmount
-}
-
-// LockMinRepTierOrDefault returns the minimum rep tier required to lock a thread.
-func (p Params) LockMinRepTierOrDefault() uint64 {
-	if p.LockMinRepTier == 0 {
-		return DefaultMinRepTierThreadLock
-	}
-	return p.LockMinRepTier
+// LockMinBondInt is the minimum bond required to lock a thread, derived as
+// lock_bond_multiplier × min_sentinel_bond — one source of truth so the lock
+// floor can never silently diverge from the base bond.
+func (p Params) LockMinBondInt() math.Int {
+	return p.MinSentinelBondInt().Mul(math.NewIntFromUint64(p.LockBondMultiplier))
 }
 
 // ApplyOperationalParams copies all operational fields from ForumOperationalParams

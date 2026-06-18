@@ -265,7 +265,7 @@ func TestPinReplyBondLifecycle(t *testing.T) {
 		return nil
 	}
 
-	slash := types.DefaultParams().SentinelSlashAmountOrDefault().String()
+	slash := types.DefaultParams().SentinelSlashAmountInt().String()
 
 	// Sentinel pin reserves the slash amount and snapshots it on the record.
 	_, err := f.msgServer.PinReply(f.ctx, &types.MsgPinReply{

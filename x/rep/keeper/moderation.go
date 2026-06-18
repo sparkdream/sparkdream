@@ -265,11 +265,9 @@ func (k Keeper) DemoteMember(ctx context.Context, memberAddr sdk.AccAddress, rea
 		return err
 	}
 
-	// Use severe slash penalty (30% by default) for demotion
+	// Use severe slash penalty for demotion. Bounded to [0,1] by Params.Validate;
+	// 0 legitimately means "no demotion slash".
 	penaltyRate := params.SevereSlashPenalty
-	if penaltyRate.IsZero() {
-		penaltyRate = math.LegacyMustNewDecFromStr("0.3") // Default 30%
-	}
 
 	// Slash all reputation tags
 	return k.SlashReputation(ctx, memberAddr, penaltyRate, nil, reason)

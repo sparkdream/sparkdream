@@ -54,10 +54,10 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 	// sentinel path is taken, not part of the authority decision.
 	// Lock-eligibility floors are governance-tunable + bounded (Params 56-58),
 	// derived from the base sentinel bond/tier so there is a single source of
-	// truth. The *OrDefault accessors fall back to the historical constants
-	// (2000 DREAM bond, tier 4, 20000 DREAM backing) when unset.
-	minLockBond := params.LockMinBondOrDefault()
-	lockMinRepTier := params.LockMinRepTierOrDefault()
+	// truth. Read directly — Validate guarantees the bond/multiplier are
+	// positive; lock_min_rep_tier == 0 means "no rep-tier floor".
+	minLockBond := params.LockMinBondInt()
+	lockMinRepTier := params.LockMinRepTier
 	var (
 		bondSnapshot     string
 		sentinelEligible bool
@@ -104,12 +104,12 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
 				"cooldown until %d", local.OverturnCooldownUntil)
 		}
-		if local.EpochLocks >= params.MaxSentinelLocksPerEpochOrDefault() {
+		if local.EpochLocks >= params.MaxSentinelLocksPerEpoch {
 			return nil, types.ErrLockLimitExceeded
 		}
 
 		backing := k.GetSentinelBacking(ctx, msg.Creator)
-		minLockBacking := params.LockBackingAmountOrDefault()
+		minLockBacking := params.LockBackingAmountInt()
 		if backing.LT(minLockBacking) {
 			return nil, errorsmod.Wrapf(types.ErrInsufficientLockBacking,
 				"need %s udream backing for locking, have %s", minLockBacking.String(), backing.String())
@@ -121,7 +121,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 
 		// Reserve slash amount against the sentinel's bond so overturned
 		// appeals have funds to slash. Mirrors the HidePost reservation path.
-		slashAmount := params.SentinelSlashAmountOrDefault()
+		slashAmount := params.SentinelSlashAmountInt()
 		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to lock")
 		}
