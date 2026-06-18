@@ -301,6 +301,28 @@ message Params {
   // portion is unlocked back to the staker on the next MsgReleasePostConviction
   // and the stake is closed.
   uint64 post_conviction_staker_slash_bps = 64;
+
+  // ---------------------------------------------------------------------------
+  // Sentinel curation-proposal config (Operations-Committee tunable; see
+  // ForumOperationalParams 65-66).
+  // ---------------------------------------------------------------------------
+
+  // curation_dream_reward is the DREAM minted to a sentinel when their accepted-
+  // reply proposal is confirmed (by the author or via auto-confirm), in
+  // micro-DREAM (math.Int string). Read directly (no unset/default fallback):
+  // a non-positive value disables the reward, matching the IsPositive fee guards
+  // in x/rep / x/blog. Seeded by the genesis defaults.
+  string curation_dream_reward = 65 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // accept_proposal_timeout is the number of seconds after which a pending
+  // sentinel accepted-reply proposal auto-confirms if the author has not acted.
+  // Must be positive (Validate rejects 0/negative — a 0 timeout would
+  // auto-confirm on the next block, never an intended config). Seeded by the
+  // genesis defaults (48h).
+  int64 accept_proposal_timeout = 66;
 }
 
 // ForumOperationalParams defines the operational parameters that can be updated
@@ -489,4 +511,17 @@ message ForumOperationalParams {
 
   // post_conviction_staker_slash_bps — see Params.post_conviction_staker_slash_bps.
   uint64 post_conviction_staker_slash_bps = 64;
+
+  // ---------------------------------------------------------------------------
+  // Sentinel curation-proposal config. See Params 65-66.
+  // ---------------------------------------------------------------------------
+
+  // curation_dream_reward — see Params.curation_dream_reward.
+  string curation_dream_reward = 65 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // accept_proposal_timeout — see Params.accept_proposal_timeout.
+  int64 accept_proposal_timeout = 66;
 }

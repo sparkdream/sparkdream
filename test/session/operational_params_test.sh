@@ -232,6 +232,7 @@ else
 
     jq -n \
         --arg auth "$GOV_AUTHORITY" \
+        --arg denom "$BOND_DENOM" \
         --argjson op "$OP_PARAMS" '
     {
       "messages": [
@@ -241,7 +242,7 @@ else
           "operational_params": $op
         }
       ],
-      "deposit": "100000000${BOND_DENOM}",
+      "deposit": ("100000000" + $denom),
       "title": "Narrow Session Allowlist",
       "summary": "Remove x/name and x/collect message types from the active session allowlist",
       "expedited": true
@@ -350,6 +351,7 @@ else
 
     jq -n \
         --arg auth "$GOV_AUTHORITY" \
+        --arg denom "$BOND_DENOM" \
         --argjson op "$OP_PARAMS" '
     {
       "messages": [
@@ -359,7 +361,7 @@ else
           "operational_params": $op
         }
       ],
-      "deposit": "100000000${BOND_DENOM}",
+      "deposit": ("100000000" + $denom),
       "title": "Restore Session Allowlist",
       "summary": "Re-add all ceiling types to the active session allowlist",
       "expedited": true
@@ -409,6 +411,7 @@ else
 
     jq -n \
         --arg auth "$GOV_AUTHORITY" \
+        --arg denom "$BOND_DENOM" \
         --argjson op "$OP_PARAMS" '
     {
       "messages": [
@@ -418,7 +421,7 @@ else
           "operational_params": $op
         }
       ],
-      "deposit": "100000000${BOND_DENOM}",
+      "deposit": ("100000000" + $denom),
       "title": "Invalid Ceiling Expansion",
       "summary": "This should fail: trying to add a type not in the ceiling",
       "expedited": true
@@ -463,6 +466,7 @@ OP_PARAMS_TX=$(echo "$CURRENT_PARAMS" | jq '
 # seated on the Commons Operations Committee and would pass the check.)
 jq -n \
     --arg auth "$GRANTER_ADDR" \
+    --arg denom "$BOND_DENOM" \
     --argjson op "$OP_PARAMS_TX" '
 {
   "body": {
@@ -481,7 +485,7 @@ jq -n \
   "auth_info": {
     "signer_infos": [],
     "fee": {
-      "amount": [{"denom": "${BOND_DENOM}", "amount": "50000"}],
+      "amount": [{"denom": $denom, "amount": "50000"}],
       "gas_limit": "300000",
       "payer": "",
       "granter": ""

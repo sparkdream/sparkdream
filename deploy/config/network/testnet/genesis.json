@@ -545,6 +545,7 @@
       "bounty_list": [],
       "hide_record_map": [],
       "params": {
+        "accept_proposal_timeout": "172800",
         "appeal_fee_amount": "5000000",
         "appeals_paused": false,
         "archive_cooldown": "1296000",
@@ -556,6 +557,7 @@
         "conviction_renewal_threshold": "100.000000000000000000",
         "cost_per_byte_amount": "100",
         "cost_per_byte_exempt": false,
+        "curation_dream_reward": "5000000",
         "daily_post_limit": "50",
         "downvote_deposit_amount": "50000",
         "edit_fee_amount": "10000",

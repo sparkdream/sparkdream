@@ -490,6 +490,10 @@ fi
 if [ "$RUN_SENTINEL" = true ]; then
     run_test "Sentinel Tests" "sentinel_test.sh"
     run_test "Sentinel Limit Tests" "sentinel_limit_test.sh"
+    # accepted_reply_test.sh exercises the sentinel curation-proposal flow
+    # (MsgMarkAcceptedReply propose branch + confirm/reject + SentinelActivity
+    # counters). Depends on sentinel_test.sh having bonded sentinel1.
+    run_test "Accepted Reply Curation Tests" "accepted_reply_test.sh"
 else
     echo "Skipping sentinel tests (--no-sentinel)"
     echo ""

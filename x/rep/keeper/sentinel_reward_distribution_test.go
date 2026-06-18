@@ -259,6 +259,45 @@ func TestDistributeSentinelRewards_HappyPath(t *testing.T) {
 	require.Contains(t, rf.fk.resetAddrs, a2)
 }
 
+func TestDistributeSentinelRewards_CurationOnlyEligible(t *testing.T) {
+	rf := newSentinelRewardFixture(t)
+	rf.ctx = rf.ctx.WithBlockHeight(10)
+
+	// A sentinel whose ONLY epoch activity is curations (no hides/locks/moves
+	// this epoch) but with enough decided appeals + accuracy to clear the gates.
+	// Proves epoch_curations both satisfies the epoch-activity gate and feeds the
+	// score via the curation bonus.
+	c := happyCounters()
+	c.EpochHides = 0
+	c.EpochLocks = 0
+	c.EpochMoves = 0
+	c.EpochPins = 0
+	c.EpochAppealsFiled = 0
+	c.EpochAppealsResolved = 0
+	c.EpochCurations = 5
+
+	addr := rf.seedSentinel(t, []byte("curator-sentinel-aa"),
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, c)
+
+	rf.bankKeeper.GetBalanceFn = func(_ context.Context, _ sdk.AccAddress, denom string) sdk.Coin {
+		return sdk.NewCoin(denom, math.NewInt(10_000))
+	}
+	sent := map[string]math.Int{}
+	rf.bankKeeper.SendCoinsFn = func(_ context.Context, _ sdk.AccAddress, recipientAddr sdk.AccAddress, amt sdk.Coins) error {
+		s, _ := rf.addressCodec.BytesToString(recipientAddr)
+		sent[s] = amt.AmountOf("uspark")
+		return nil
+	}
+
+	require.NoError(t, rf.keeper.DistributeSentinelRewards(rf.ctx))
+
+	alloc, ok := sent[addr]
+	require.True(t, ok, "curation-only sentinel received a payout")
+	require.True(t, alloc.IsPositive())
+	require.Contains(t, rf.fk.resetAddrs, addr)
+	require.Equal(t, uint64(0), rf.fk.counters[addr].EpochCurations, "epoch_curations reset")
+}
+
 func TestDistributeSentinelRewards_DemotedExcluded(t *testing.T) {
 	rf := newSentinelRewardFixture(t)
 	rf.ctx = rf.ctx.WithBlockHeight(10)

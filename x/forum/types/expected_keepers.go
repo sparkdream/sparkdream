@@ -129,6 +129,7 @@ type RepKeeper interface {
 	// Tag registry (owned by x/rep)
 	TagExists(ctx context.Context, name string) (bool, error)
 	IsReservedTag(ctx context.Context, name string) (bool, error)
+	GetReservedTag(ctx context.Context, name string) (reptypes.ReservedTag, error)
 	GetTag(ctx context.Context, name string) (reptypes.Tag, error)
 	IncrementTagUsage(ctx context.Context, name string, timestamp int64) error
 	DecrementTagUsage(ctx context.Context, name string) error

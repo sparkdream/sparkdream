@@ -3,6 +3,8 @@ package keeper
 import (
 	"context"
 
+	"cosmossdk.io/collections"
+
 	"sparkdream/x/forum/types"
 )
 
@@ -68,6 +70,14 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	for _, elem := range genState.ThreadMetadataMap {
 		if err := k.ThreadMetadata.Set(ctx, elem.ThreadId, elem); err != nil {
 			return err
+		}
+		// Rebuild the (derived) auto-confirm queue for any pending sentinel
+		// accepted-reply proposal. The queue is not a genesis field — it is
+		// reconstructed here from the stamped proposal_fire_at.
+		if elem.ProposedReplyId != 0 && elem.ProposalFireAt != 0 {
+			if err := k.ProposalAutoConfirmQueue.Set(ctx, collections.Join(elem.ProposalFireAt, elem.ThreadId)); err != nil {
+				return err
+			}
 		}
 	}
 	for _, elem := range genState.ThreadFollowMap {

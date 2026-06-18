@@ -109,6 +109,9 @@ func (stubRepKeeper) RemoveContentInitiativeLink(context.Context, uint64, int32,
 }
 func (stubRepKeeper) TagExists(context.Context, string) (bool, error)     { return false, nil }
 func (stubRepKeeper) IsReservedTag(context.Context, string) (bool, error) { return false, nil }
+func (stubRepKeeper) GetReservedTag(context.Context, string) (reptypes.ReservedTag, error) {
+	return reptypes.ReservedTag{}, nil
+}
 func (stubRepKeeper) GetTag(context.Context, string) (reptypes.Tag, error) {
 	return reptypes.Tag{}, nil
 }

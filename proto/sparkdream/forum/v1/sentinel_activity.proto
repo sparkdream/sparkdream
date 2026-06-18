@@ -35,4 +35,20 @@ message SentinelActivity {
   uint64 upheld_pins = 22;
   uint64 overturned_pins = 23;
   uint64 epoch_pins = 24;
+
+  // Curation-proposal tracking. A sentinel may propose a reply as a thread's
+  // accepted answer (MsgMarkAcceptedReply on someone else's thread); the author
+  // confirms/rejects or it auto-confirms after a timeout.
+  //   total_proposals     — lifetime proposals created (incremented at propose).
+  //   confirmed_proposals — lifetime proposals confirmed (author confirm or
+  //                         auto-confirm); credited to the proposing sentinel.
+  //   rejected_proposals  — lifetime proposals rejected by the author.
+  //   epoch_curations     — confirmed proposals in the current reward epoch.
+  //                         Feeds the sentinel reward score; reset each epoch.
+  //                         Incremented on CONFIRM (success), not on propose, so
+  //                         it cannot be farmed by spamming unconfirmed proposals.
+  uint64 total_proposals = 25;
+  uint64 confirmed_proposals = 26;
+  uint64 rejected_proposals = 27;
+  uint64 epoch_curations = 28;
 }

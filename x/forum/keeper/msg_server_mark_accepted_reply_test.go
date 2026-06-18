@@ -33,20 +33,21 @@ func TestMsgMarkAcceptedReply(t *testing.T) {
 		require.Contains(t, err.Error(), "not found")
 	})
 
-	t.Run("not thread author", func(t *testing.T) {
+	t.Run("non-author non-sentinel rejected", func(t *testing.T) {
 		// Create thread
 		thread := f.createTestPost(t, testCreator, 0, 0)
 
 		// Create a reply in the thread
 		reply := f.createTestPost(t, testCreator2, thread.PostId, thread.PostId)
 
+		// A non-author who is not a bonded sentinel cannot propose.
 		_, err := ms.MarkAcceptedReply(f.ctx, &types.MsgMarkAcceptedReply{
-			Creator:  testCreator2, // Not the author
+			Creator:  testCreator2, // Not the author, not a sentinel
 			ThreadId: thread.PostId,
 			ReplyId:  reply.PostId,
 		})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "only thread author")
+		require.Contains(t, err.Error(), "not a registered sentinel")
 	})
 
 	t.Run("reply not found", func(t *testing.T) {

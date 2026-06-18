@@ -52,29 +52,15 @@ func (k msgServer) ConfirmProposedReply(ctx context.Context, msg *types.MsgConfi
 		return nil, errorsmod.Wrapf(types.ErrAlreadyAccepted, "reply %d is already accepted", metadata.AcceptedReplyId)
 	}
 
-	// Move proposed to accepted
-	metadata.AcceptedReplyId = metadata.ProposedReplyId
-	metadata.AcceptedBy = msg.Creator
-	metadata.AcceptedAt = now
-
-	// Clear proposed
-	metadata.ProposedReplyId = 0
-	metadata.ProposedBy = ""
-	metadata.ProposedAt = 0
-
+	// Promote the proposal: credit + reward the proposing sentinel, bump the
+	// curation counters, and drain the auto-confirm queue (shared with the
+	// EndBlocker auto-confirm path).
+	if err := k.confirmCurationProposal(ctx, &metadata, now, false); err != nil {
+		return nil, err
+	}
 	if err := k.ThreadMetadata.Set(ctx, msg.ThreadId, metadata); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
 	}
-
-	// Emit event
-	sdkCtx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			"proposed_reply_confirmed",
-			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", msg.ThreadId)),
-			sdk.NewAttribute("reply_id", fmt.Sprintf("%d", metadata.AcceptedReplyId)),
-			sdk.NewAttribute("confirmed_by", msg.Creator),
-		),
-	)
 
 	return &types.MsgConfirmProposedReplyResponse{}, nil
 }

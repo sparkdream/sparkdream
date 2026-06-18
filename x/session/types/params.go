@@ -107,6 +107,14 @@ var (
 		"/sparkdream.forum.v1.MsgDownvotePost",
 		"/sparkdream.forum.v1.MsgFollowThread",
 		"/sparkdream.forum.v1.MsgUnfollowThread",
+		// Accepted-reply curation. ConfirmProposedReply / RejectProposedReply are
+		// thread-author self-curation (same risk class as MsgEditPost).
+		// MarkAcceptedReply is dual: the thread author accepts immediately, and a
+		// bonded sentinel may instead propose an accepted reply. The sentinel
+		// branch re-checks the granter's sentinel bond status at dispatch (same
+		// exception as MsgHidePost below), so a session key grants nothing the
+		// granter doesn't already hold, and the curation DREAM reward / counters
+		// accrue to the granter, not the session key.
 		"/sparkdream.forum.v1.MsgMarkAcceptedReply",
 		"/sparkdream.forum.v1.MsgConfirmProposedReply",
 		"/sparkdream.forum.v1.MsgRejectProposedReply",

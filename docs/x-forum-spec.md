@@ -391,13 +391,24 @@ message SentinelActivity {
 
   // Curation tracking (reply pins). upheld_pins / overturned_pins are written
   // when a pin dispute resolves through the unified GovActionAppeal (REPLY_PIN)
-  // path. The curation-PROPOSAL counters (total/confirmed/rejected_proposals,
-  // epoch_curations) were removed — never implemented, and epoch_curations
-  // silently fed 0 into the reward score. Reserved in proto.
+  // path.
   uint64 total_pins = 28;                                // Total replies pinned by this sentinel
   uint64 upheld_pins = 29;                               // Pins upheld on dispute (sentinel was right)
   uint64 overturned_pins = 30;                           // Pins overturned on dispute (author won)
   uint64 epoch_pins = 31;                                // Pins in current reward epoch
+
+  // Curation-PROPOSAL tracking (sentinel-proposed accepted replies). A sentinel
+  // proposes a reply as a thread's accepted answer; the author confirms/rejects
+  // or it auto-confirms after accept_proposal_timeout. total_proposals counts
+  // proposals created; confirmed_/rejected_proposals their outcomes;
+  // epoch_curations counts CONFIRMED proposals in the current reward epoch and
+  // feeds the sentinel reward score (curation bonus 0.02). epoch_curations is
+  // incremented on confirm (not propose) so unconfirmed proposals cannot farm
+  // rewards; reset each epoch.
+  uint64 total_proposals = 32;                           // Proposals created by this sentinel
+  uint64 confirmed_proposals = 33;                       // Proposals confirmed (author or auto)
+  uint64 rejected_proposals = 34;                        // Proposals rejected by the author
+  uint64 epoch_curations = 35;                           // Confirmed proposals in current reward epoch
 
   // Inactivity tracking (for accuracy decay)
   int64  last_active_epoch = 22;                         // Last epoch where sentinel had any moderation activity
@@ -2488,8 +2499,8 @@ Mark a reply as the accepted answer. For thread authors, this is immediate. For 
    - Set `proposed_by = marker`
    - Set `proposed_at = now`
    - Add to `proposal_auto_confirm_queue/{now + accept_proposal_timeout}/{thread_id}`
-   - (The `total_proposals` / `epoch_curations` counters were removed — the
-     handlers never wrote them; see SentinelActivity above.)
+   - Increment `sentinel_activity.total_proposals` (lifetime). `epoch_curations`
+     is **not** incremented here — only on confirmation (see SentinelActivity above).
    - Emit `EventAcceptProposalCreated`
    - Store updated `ThreadMetadata`
 
@@ -2518,8 +2529,9 @@ Thread author confirms a sentinel's accept proposal.
    - Set `accepted_at = now`
    - Clear `proposed_reply_id`, `proposed_by`, `proposed_at`
    - Remove from `proposal_auto_confirm_queue`
-   - Award `curation_dream_reward` to `proposed_by` sentinel
-   - (The `confirmed_proposals` counter was removed — see SentinelActivity above.)
+   - Award `curation_dream_reward` (minted DREAM) to `proposed_by` sentinel
+   - Increment `sentinel_activity.confirmed_proposals` (lifetime) and
+     `epoch_curations` (current reward epoch) on the `proposed_by` sentinel
    - Store updated `ThreadMetadata`
    - Emit `EventAcceptProposalConfirmed`
 
@@ -2547,7 +2559,7 @@ Thread author rejects a sentinel's accept proposal.
    - Record `proposed_by` for tracking
    - Clear `proposed_reply_id`, `proposed_by`, `proposed_at`
    - Remove from `proposal_auto_confirm_queue`
-   - (The `rejected_proposals` counter was removed — see SentinelActivity above.)
+   - Increment `sentinel_activity.rejected_proposals` (lifetime) on `proposed_by`
    - *No slash* - rejection is feedback, not punishment
    - Store updated `ThreadMetadata`
    - Emit `EventAcceptProposalRejected`
@@ -2558,27 +2570,29 @@ Thread author rejects a sentinel's accept proposal.
 
 Proposals auto-confirm if author doesn't respond within `accept_proposal_timeout` (default 48h).
 
-**EndBlocker Logic:**
-1. Query `proposal_auto_confirm_queue` for entries where `time <= now`
-2. For each expired entry:
-   - Load `ThreadMetadata` for `thread_id`
-   - If `proposed_reply_id != 0` (still pending):
-     - **Author Activity Check (prevents auto-confirming for inactive authors):**
-       - Load author's last activity timestamp from x/rep: `author_last_active`
-       - If `author_last_active > proposal_submitted_at`:
-         - Author was active but chose not to respond - auto-confirm proceeds
-       - Else if `author_last_active < proposal_submitted_at - inactivity_extension_threshold`:
-         - Author appears inactive - extend timeout by `accept_proposal_timeout`
-         - Re-add to queue at `now + accept_proposal_timeout`
-         - Emit `EventAcceptProposalExtended{Reason: "author_inactive"}`
-         - Continue to next entry (don't auto-confirm yet)
-         - *This extension can only happen once per proposal (track via metadata)*
+**EndBlocker Logic** (`ProcessProposalAutoConfirm`, bounded by
+`maxAutoConfirmPerBlock = 50`):
+1. Walk `proposal_auto_confirm_queue` (keyed `(fire_at, thread_id)`) for entries
+   where `fire_at <= now`.
+2. For each entry:
+   - Load `ThreadMetadata` for `thread_id`. If the proposal is gone, or
+     `proposal_fire_at != fire_at` (a superseded/stale entry), drop the queue
+     entry and continue.
+   - **Author Activity Check (prevents auto-confirming for inactive authors):**
+     - The author's last activity is forum-local: `UserRateLimit.last_post_time`
+       (their most recent post/reply). No x/rep dependency.
+     - If `proposal_extended == false` **and** `last_post_time <= proposed_at`
+       (author has shown no forum activity since the proposal), grant the
+       one-time extension: set `proposal_extended = true`, re-enqueue at
+       `now + accept_proposal_timeout`, emit
+       `EventAcceptProposalExtended{Reason: "author_inactive"}`, continue.
+     - Otherwise auto-confirm:
      - Set `accepted_reply_id = proposed_reply_id`
      - Set `accepted_by = proposed_by`
      - Set `accepted_at = now`
      - Clear proposal fields
-     - Award `curation_dream_reward` to sentinel
-     - (The `confirmed_proposals` counter was removed — see SentinelActivity above.)
+     - Award `curation_dream_reward` (minted DREAM) to sentinel
+     - Increment `sentinel_activity.confirmed_proposals` and `epoch_curations`
      - Emit `EventAcceptProposalAutoConfirmed`
    - Remove from queue
 
@@ -6281,9 +6295,9 @@ Approximate gas costs for common operations. Actual costs depend on state size a
 
 ## 15. Client Integration: Session Keys
 
-For fluid user interactions without repeated wallet popups, frontends should implement the **session key pattern** using `x/authz` and `x/feegrant`. This allows users to approve a single grant, after which all forum actions (posting, replying, voting, flagging) are auto-signed by an ephemeral session key.
+For fluid user interactions without repeated wallet popups, frontends should implement the **session key pattern** using the native **`x/session`** grant registry (a clean-room replacement for `x/authz` + `x/feegrant`, with integrated fee delegation). The user approves a single `MsgCreateSession`, after which the allowlisted forum actions (posting, replying, voting, thread subscription, accepted-reply curation) are auto-signed by an ephemeral session key via `MsgExecSession`. The sentinel-propose branch of `MsgMarkAcceptedReply` works through a session too — the granter's sentinel bond is re-checked at dispatch, so the session key holds no sentinel power of its own.
 
-See **[docs/session-keys.md](session-keys.md)** for the full specification, grant scoping recommendations, fee delegation setup, and security considerations.
+See **[docs/session-keys.md](session-keys.md)** and **[docs/x-session-spec.md](x-session-spec.md)** for the full specification, the forum allowlist, grant scoping, fee delegation setup, and security considerations.
 
 ---
 

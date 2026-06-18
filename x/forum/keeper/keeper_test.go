@@ -185,6 +185,10 @@ type mockRepKeeper struct {
 	// hooks (Tier 0 and Tier 1 from the promotion-slash plan).
 	deductCalls  []mockDeductCall
 	warningCalls []mockWarningCall
+	// mintDreamCalls observes MintDREAM invocations (curation rewards, etc.).
+	mintDreamCalls []mockMintDreamCall
+	// mintDreamErr, when set, makes MintDREAM fail (exercises reward-failure paths).
+	mintDreamErr error
 
 	// forumRepBalances tracks per-(addr, tag) forum rep credited via
 	// AddForumRep so the conviction-stake accrual test can assert exact
@@ -207,6 +211,11 @@ type mockBurnDreamCall struct {
 }
 
 type mockLockDreamCall struct {
+	Addr   string
+	Amount math.Int
+}
+
+type mockMintDreamCall struct {
 	Addr   string
 	Amount math.Int
 }
@@ -240,6 +249,14 @@ func (m *mockRepKeeper) TagExists(_ context.Context, name string) (bool, error) 
 func (m *mockRepKeeper) IsReservedTag(_ context.Context, name string) (bool, error) {
 	_, ok := m.reservedTags[name]
 	return ok, nil
+}
+
+func (m *mockRepKeeper) GetReservedTag(_ context.Context, name string) (reptypes.ReservedTag, error) {
+	rt, ok := m.reservedTags[name]
+	if !ok {
+		return reptypes.ReservedTag{}, reptypes.ErrTagNotRegistered
+	}
+	return rt, nil
 }
 
 func (m *mockRepKeeper) GetTag(_ context.Context, name string) (reptypes.Tag, error) {
@@ -288,6 +305,10 @@ func (m *mockRepKeeper) SetReservedTag(_ context.Context, rt reptypes.ReservedTa
 }
 
 func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if m.mintDreamErr != nil {
+		return m.mintDreamErr
+	}
+	m.mintDreamCalls = append(m.mintDreamCalls, mockMintDreamCall{Addr: addr.String(), Amount: amount})
 	return nil
 }
 

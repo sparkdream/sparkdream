@@ -711,17 +711,19 @@ The following message types form the genesis ceiling (`max_allowed_msg_types`) a
 | `/sparkdream.forum.v1.MsgDownvotePost` | Reacting to content |
 | `/sparkdream.forum.v1.MsgFollowThread` | Thread subscription |
 | `/sparkdream.forum.v1.MsgUnfollowThread` | Thread unsubscription |
-| `/sparkdream.forum.v1.MsgMarkAcceptedReply` | Thread author marks solution |
-| `/sparkdream.forum.v1.MsgConfirmProposedReply` | Confirming sentinel proposals |
-| `/sparkdream.forum.v1.MsgRejectProposedReply` | Rejecting sentinel proposals |
+| `/sparkdream.forum.v1.MsgMarkAcceptedReply` | Author marks a solution; a bonded sentinel may instead *propose* one (bond re-checked at dispatch) |
+| `/sparkdream.forum.v1.MsgConfirmProposedReply` | Author confirms a sentinel's accepted-reply proposal |
+| `/sparkdream.forum.v1.MsgRejectProposedReply` | Author rejects a sentinel's accepted-reply proposal |
+| `/sparkdream.forum.v1.MsgHidePost` / `MsgUnhidePost` | Sentinel moderation — admitted as an exception (msg server re-checks the granter's sentinel bond at dispatch, so the session key grants nothing the granter doesn't already hold) |
 
 > **Implementation note:** `forum.MsgCreatePost` also has an optional `author_bond` field that locks DREAM. Like the blog equivalents, this field is zeroed out at dispatch via `DreamFieldsToStrip`.
+>
+> **Sentinel-privilege exception:** `MsgMarkAcceptedReply` (sentinel-propose branch), `MsgHidePost`, and `MsgUnhidePost` are the only allowlisted forum messages that touch a bonded-role privilege. Each re-checks the granter's sentinel `BondedRole` status at dispatch, so a stolen/limited session key can never act as a sentinel unless the granter already is one, and the curation reward / moderation bond accrue to the granter.
 
 **Excluded** (financial, irreversible, or abuse-prone — require main wallet):
 - `MsgDeletePost` — permanent deletion
 - `MsgBondRole` / `MsgUnbondRole` (x/rep) — locks/unlocks DREAM against a bonded role (sentinel / curator / verifier)
 - `MsgCreateBounty` / `MsgAwardBounty` — escrows DREAM
-- `MsgHidePost` — sentinel moderation (requires bond)
 - `MsgAppealPost` / `MsgAppealThreadLock` / `MsgAppealThreadMove` — initiate dispute resolution and escrow appeal fees
 - `MsgFlagPost` — a compromised session key could mass-flag content to grief creators; flagging is deliberate enough to warrant main wallet
 - `MsgPinPost` / `MsgUnpinPost` / `MsgPinReply` / `MsgUnpinReply` — governance/sentinel-privileged

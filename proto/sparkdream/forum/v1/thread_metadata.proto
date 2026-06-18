@@ -14,6 +14,18 @@ message ThreadMetadata {
   uint64 proposed_reply_id = 5;
   string proposed_by = 6;
   int64 proposed_at = 7;
+  // proposal_extended is set true once the auto-confirm EndBlocker has granted
+  // the one-time inactivity extension to a pending proposal (author appeared
+  // inactive when the timeout first elapsed). Prevents an indefinite extension
+  // loop — the next timeout auto-confirms regardless. Cleared when the proposal
+  // resolves (confirm/reject/auto-confirm).
+  bool proposal_extended = 8;
+  // proposal_fire_at is the exact ProposalAutoConfirmQueue key (unix seconds)
+  // under which the current pending proposal is enqueued. Stored so the manual
+  // confirm/reject paths can remove the precise queue entry, and so the
+  // EndBlocker can detect-and-drop stale entries (a key whose fire_at no longer
+  // matches the live proposal). 0 = no pending proposal.
+  int64 proposal_fire_at = 9;
   repeated uint64 pinned_reply_ids = 10;
   repeated PinnedReplyRecord pinned_records = 11;
 }

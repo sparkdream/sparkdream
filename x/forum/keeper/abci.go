@@ -23,6 +23,10 @@ const maxBountyExpirations = 50
 // maxHiddenExpiry limits hidden post expiry processing per block.
 const maxHiddenExpiry = 50
 
+// maxAutoConfirmPerBlock limits sentinel accepted-reply proposals auto-confirmed
+// (or extended) per block to bound gas.
+const maxAutoConfirmPerBlock = 50
+
 // EndBlocker runs at the end of each block.
 // Phase 0: Drain the membership-driven promotion queue (eager ephemeral →
 //
@@ -59,6 +63,12 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// Phase 3: Expire bounties past their deadline
 	if err := k.ExpireBounties(ctx, now); err != nil {
 		sdkCtx.Logger().Error("error expiring bounties", "error", err)
+	}
+
+	// Phase 3b: Auto-confirm sentinel accepted-reply proposals whose timeout
+	// has elapsed (or grant the one-time inactivity extension).
+	if err := k.ProcessProposalAutoConfirm(ctx, now); err != nil {
+		sdkCtx.Logger().Error("error auto-confirming proposals", "error", err)
 	}
 
 	// Phase 4: Stream forum reputation to post authors from active

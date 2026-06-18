@@ -111,12 +111,18 @@ func TestMsgConfirmProposedReply(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Verify proposed moved to accepted
+		// Verify proposed moved to accepted, credited to the proposing sentinel.
 		updated, err := f.keeper.ThreadMetadata.Get(f.ctx, thread.PostId)
 		require.NoError(t, err)
 		require.Equal(t, uint64(100), updated.AcceptedReplyId)
-		require.Equal(t, testCreator, updated.AcceptedBy)
+		require.Equal(t, testSentinel, updated.AcceptedBy)
 		require.Equal(t, uint64(0), updated.ProposedReplyId)
 		require.Empty(t, updated.ProposedBy)
+
+		// Curation counters credited to the proposing sentinel.
+		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), act.ConfirmedProposals)
+		require.Equal(t, uint64(1), act.EpochCurations)
 	})
 }

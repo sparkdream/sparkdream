@@ -61,6 +61,11 @@ type Keeper struct {
 	EphemeralByAuthor collections.KeySet[collections.Pair[string, uint64]]
 	PromotionQueue    collections.Map[string, int64]
 
+	// ProposalAutoConfirmQueue: (fire_at, thread_id) — time-ordered queue of
+	// pending sentinel accepted-reply proposals; drained by the EndBlocker
+	// (see msg_server_mark_accepted_reply.go / abci.go).
+	ProposalAutoConfirmQueue collections.KeySet[collections.Pair[int64, uint64]]
+
 	// Post conviction-stake state (see post_conviction.go).
 	PostConvictionStake          collections.Map[uint64, types.PostConvictionStake]
 	PostConvictionStakeSeq       collections.Sequence
@@ -146,6 +151,8 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 		PromotionQueue: collections.NewMap(sb, types.PromotionQueueKey, "promotionQueue",
 			collections.StringKey, collections.Int64Value),
+		ProposalAutoConfirmQueue: collections.NewKeySet(sb, types.ProposalAutoConfirmQueueKey, "proposalAutoConfirmQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 
 		PostConvictionStake: collections.NewMap(sb, types.PostConvictionStakeKey, "postConvictionStake",
 			collections.Uint64Key, codec.CollValue[types.PostConvictionStake](cdc)),

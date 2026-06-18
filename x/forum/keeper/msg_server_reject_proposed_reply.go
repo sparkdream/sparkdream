@@ -48,13 +48,28 @@ func (k msgServer) RejectProposedReply(ctx context.Context, msg *types.MsgReject
 	rejectedReplyId := metadata.ProposedReplyId
 	proposedBy := metadata.ProposedBy
 
-	// Clear proposed
+	// Clear proposed and drain the auto-confirm queue. Rejection is feedback,
+	// not punishment — no slash, no reward.
+	k.dequeueProposalAutoConfirm(ctx, &metadata)
 	metadata.ProposedReplyId = 0
 	metadata.ProposedBy = ""
 	metadata.ProposedAt = 0
+	metadata.ProposalExtended = false
 
 	if err := k.ThreadMetadata.Set(ctx, msg.ThreadId, metadata); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
+	}
+
+	// rejected_proposals is a lifetime counter on the proposing sentinel.
+	if proposedBy != "" {
+		local, lerr := k.SentinelActivity.Get(ctx, proposedBy)
+		if lerr != nil {
+			local = types.SentinelActivity{Address: proposedBy}
+		}
+		local.RejectedProposals++
+		if err := k.SentinelActivity.Set(ctx, proposedBy, local); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
+		}
 	}
 
 	// Emit event

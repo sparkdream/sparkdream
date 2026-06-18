@@ -101,6 +101,7 @@ func (m *mockForumKeeper) ResetSentinelEpochCounters(_ context.Context, addr str
 			c.EpochLocks = 0
 			c.EpochMoves = 0
 			c.EpochPins = 0
+			c.EpochCurations = 0
 			c.EpochAppealsFiled = 0
 			c.EpochAppealsResolved = 0
 			m.counters[addr] = c

@@ -150,6 +150,10 @@ var (
 	ErrCannotPinEphemeral     = errors.Register(ModuleName, 1911, "content is ephemeral; promote with MakePostPermanent before pinning")
 	ErrInsufficientTrustLevel = errors.Register(ModuleName, 1912, "insufficient trust level")
 	ErrPostExpired            = errors.Register(ModuleName, 1913, "post has expired")
+	// Sentinel curation-proposal errors.
+	ErrCannotMarkBountyThread      = errors.Register(ModuleName, 1914, "sentinels cannot propose an accepted reply on a bounty thread")
+	ErrCannotMarkRestrictedTag     = errors.Register(ModuleName, 1915, "sentinels cannot propose an accepted reply on a thread with a members-restricted tag")
+	ErrSentinelCannotClearAccepted = errors.Register(ModuleName, 1916, "sentinels cannot clear an accepted reply; only the thread author can")
 
 	// Follow errors (1950-1999)
 	ErrAlreadyFollowing  = errors.Register(ModuleName, 1950, "already following this thread")

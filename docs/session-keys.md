@@ -77,10 +77,12 @@ The `x/authz` grant is scoped to specific message types. This means the session 
 | `MsgDownvotePost` | Reacting to content |
 | `MsgFollowThread` | Thread subscription |
 | `MsgUnfollowThread` | Thread unsubscription |
-| `MsgFlagPost` | Community moderation |
-| `MsgMarkAcceptedReply` | Thread author marks solution |
-| `MsgConfirmProposedReply` | Confirming sentinel proposals |
-| `MsgRejectProposedReply` | Rejecting sentinel proposals |
+| `MsgMarkAcceptedReply` | Author marks a solution; a bonded sentinel may instead *propose* one (sentinel bond re-checked at dispatch) |
+| `MsgConfirmProposedReply` | Author confirms a sentinel's accepted-reply proposal |
+| `MsgRejectProposedReply` | Author rejects a sentinel's accepted-reply proposal |
+| `MsgHidePost` / `MsgUnhidePost` | Sentinel moderation — admitted as an exception; the msg server re-checks the granter's sentinel bond at dispatch, so the session key grants no power the granter doesn't already hold |
+
+> **Sentinel-privilege exception.** `MsgMarkAcceptedReply` (sentinel-propose branch), `MsgHidePost`, and `MsgUnhidePost` are the only session-allowed forum messages that touch a bonded-role privilege. Each re-checks the granter's sentinel `BondedRole` status at dispatch, so a limited or stolen session key can never act as a sentinel unless the granter already is one. Curation rewards / moderation bonds accrue to the granter, not the session key.
 
 **Keep behind main wallet (financial or irreversible):**
 
@@ -91,7 +93,7 @@ The `x/authz` grant is scoped to specific message types. This means the session 
 | `MsgUnbondRole` (x/rep) | Unlocks DREAM tokens from a bonded role |
 | `MsgCreateBounty` | Escrows DREAM |
 | `MsgAwardBounty` | Transfers escrowed DREAM |
-| `MsgHidePost` | Sentinel moderation (requires bond) |
+| `MsgFlagPost` | A compromised session key could mass-flag to grief creators |
 | `MsgAppealPost` | Initiates dispute resolution |
 
 ---

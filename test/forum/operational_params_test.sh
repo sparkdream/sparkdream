@@ -181,7 +181,9 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       post_conviction_lock_seconds: (.post_conviction_lock_seconds // "1209600"),
       post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "50000000000000000"),
       max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
-      post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500")
+      post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
+      curation_dream_reward: (.curation_dream_reward // "5000000"),
+      accept_proposal_timeout: (.accept_proposal_timeout // "172800")
     }')
 
     # Modify test fields: double the ephemeral TTL and spam tax, and tune the
@@ -384,7 +386,9 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       post_conviction_lock_seconds: (.post_conviction_lock_seconds // "1209600"),
       post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "50000000000000000"),
       max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
-      post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500")
+      post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
+      curation_dream_reward: (.curation_dream_reward // "5000000"),
+      accept_proposal_timeout: (.accept_proposal_timeout // "172800")
     }')
 
     jq -n \

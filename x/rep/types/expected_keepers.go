@@ -97,6 +97,7 @@ type SentinelActivityCounters struct {
 	EpochLocks           uint64
 	EpochMoves           uint64
 	EpochPins            uint64
+	EpochCurations       uint64
 	EpochAppealsFiled    uint64
 	EpochAppealsResolved uint64
 }

@@ -323,6 +323,7 @@ func (k Keeper) GetSentinelActivityCounters(ctx context.Context, addr string) (r
 		EpochLocks:           local.EpochLocks,
 		EpochMoves:           local.EpochMoves,
 		EpochPins:            local.EpochPins,
+		EpochCurations:       local.EpochCurations,
 		EpochAppealsFiled:    local.EpochAppealsFiled,
 		EpochAppealsResolved: local.EpochAppealsResolved,
 	}, nil
@@ -340,6 +341,7 @@ func (k Keeper) ResetSentinelEpochCounters(ctx context.Context, addr string) err
 	local.EpochLocks = 0
 	local.EpochMoves = 0
 	local.EpochPins = 0
+	local.EpochCurations = 0
 	local.EpochAppealsFiled = 0
 	local.EpochAppealsResolved = 0
 	return k.SentinelActivity.Set(ctx, addr, local)

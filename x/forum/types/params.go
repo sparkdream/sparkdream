@@ -173,6 +173,12 @@ var (
 	// silently dropped (no error, no refund) per the spec — honest stakers
 	// cannot foresee saturation.
 	DefaultMaxForumRepPerTagPerEpoch = math.LegacyNewDec(5)
+
+	// DefaultCurationDreamReward is the DREAM minted to a sentinel when their
+	// accepted-reply proposal is confirmed (by the author or via auto-confirm).
+	// 5 DREAM = 5_000_000 uDREAM — a modest reward for surfacing the best answer,
+	// well below the moderation slash so curation stays a low-stakes nudge.
+	DefaultCurationDreamReward = math.NewInt(5_000_000)
 )
 
 const (
@@ -248,6 +254,8 @@ func NewParams() Params {
 		PostConvictionStreamRatePerBlock: DefaultPostConvictionRepPerDreamPerDay,
 		MaxForumRepPerTagPerEpoch:        DefaultMaxForumRepPerTagPerEpoch,
 		PostConvictionStakerSlashBps:     DefaultPostConvictionStakerSlashBps,
+		CurationDreamReward:              DefaultCurationDreamReward,
+		AcceptProposalTimeout:            DefaultAcceptProposalTimeout,
 	}
 }
 
@@ -293,6 +301,12 @@ func (p Params) Validate() error {
 	}
 	if p.PostConvictionStakerSlashBps > 10000 {
 		return fmt.Errorf("post_conviction_staker_slash_bps must be <= 10000: %d", p.PostConvictionStakerSlashBps)
+	}
+	if !p.CurationDreamReward.IsNil() && p.CurationDreamReward.IsNegative() {
+		return fmt.Errorf("curation_dream_reward cannot be negative: %s", p.CurationDreamReward)
+	}
+	if p.AcceptProposalTimeout <= 0 {
+		return fmt.Errorf("accept_proposal_timeout must be positive: %d", p.AcceptProposalTimeout)
 	}
 	if err := validateModerationCaps(p.MaxHidesPerEpoch, p.MaxSentinelLocksPerEpoch, p.MaxSentinelMovesPerEpoch); err != nil {
 		return err
@@ -428,6 +442,8 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		PostConvictionStreamRatePerBlock: DefaultPostConvictionRepPerDreamPerDay,
 		MaxForumRepPerTagPerEpoch:        DefaultMaxForumRepPerTagPerEpoch,
 		PostConvictionStakerSlashBps:     DefaultPostConvictionStakerSlashBps,
+		CurationDreamReward:              DefaultCurationDreamReward,
+		AcceptProposalTimeout:            DefaultAcceptProposalTimeout,
 	}
 }
 
@@ -473,6 +489,12 @@ func (p ForumOperationalParams) Validate() error {
 	}
 	if p.PostConvictionStakerSlashBps > 10000 {
 		return fmt.Errorf("post_conviction_staker_slash_bps must be <= 10000: %d", p.PostConvictionStakerSlashBps)
+	}
+	if !p.CurationDreamReward.IsNil() && p.CurationDreamReward.IsNegative() {
+		return fmt.Errorf("curation_dream_reward cannot be negative: %s", p.CurationDreamReward)
+	}
+	if p.AcceptProposalTimeout <= 0 {
+		return fmt.Errorf("accept_proposal_timeout must be positive: %d", p.AcceptProposalTimeout)
 	}
 	if err := validateModerationCaps(p.MaxHidesPerEpoch, p.MaxSentinelLocksPerEpoch, p.MaxSentinelMovesPerEpoch); err != nil {
 		return err
@@ -624,6 +646,8 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.PostConvictionStreamRatePerBlock = op.PostConvictionStreamRatePerBlock
 	p.MaxForumRepPerTagPerEpoch = op.MaxForumRepPerTagPerEpoch
 	p.PostConvictionStakerSlashBps = op.PostConvictionStakerSlashBps
+	p.CurationDreamReward = op.CurationDreamReward
+	p.AcceptProposalTimeout = op.AcceptProposalTimeout
 	return p
 }
 
@@ -680,6 +704,8 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		PostConvictionStreamRatePerBlock: p.PostConvictionStreamRatePerBlock,
 		MaxForumRepPerTagPerEpoch:        p.MaxForumRepPerTagPerEpoch,
 		PostConvictionStakerSlashBps:     p.PostConvictionStakerSlashBps,
+		CurationDreamReward:              p.CurationDreamReward,
+		AcceptProposalTimeout:            p.AcceptProposalTimeout,
 	}
 }
 

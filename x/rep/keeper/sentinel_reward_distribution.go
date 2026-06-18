@@ -101,7 +101,7 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 
 		// Gate 3: Epoch activity.
 		epochActivity := counters.EpochHides + counters.EpochLocks +
-			counters.EpochMoves + counters.EpochPins
+			counters.EpochMoves + counters.EpochPins + counters.EpochCurations
 		if epochActivity < params.MinEpochActivityForReward {
 			return false, nil
 		}
@@ -132,6 +132,7 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 
 		// Score = accuracy_rate * sqrt(epoch_appeals_resolved)
 		//       + epoch_hides * 0.01 + epoch_locks * 0.05 + epoch_moves * 0.03
+		//       + epoch_curations * 0.02
 		resolvedDec := math.LegacyNewDec(int64(counters.EpochAppealsResolved))
 		sqrtResolved, serr := resolvedDec.ApproxSqrt()
 		if serr != nil {
@@ -147,8 +148,10 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 			Mul(math.LegacyNewDecWithPrec(5, 2)) // 0.05
 		moveBonus := math.LegacyNewDec(int64(counters.EpochMoves)).
 			Mul(math.LegacyNewDecWithPrec(3, 2)) // 0.03
+		curationBonus := math.LegacyNewDec(int64(counters.EpochCurations)).
+			Mul(math.LegacyNewDecWithPrec(2, 2)) // 0.02
 
-		score = score.Add(hideBonus).Add(lockBonus).Add(moveBonus)
+		score = score.Add(hideBonus).Add(lockBonus).Add(moveBonus).Add(curationBonus)
 
 		if !score.IsPositive() {
 			return false, nil

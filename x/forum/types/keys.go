@@ -38,6 +38,14 @@ var ExpirationQueueKey = collections.NewPrefix("expiration_queue/")
 // with ExpirationQueue.
 var EphemeralByAuthorKey = collections.NewPrefix("ephemeral_by_author/")
 
+// ProposalAutoConfirmQueueKey holds the time-ordered queue of pending sentinel
+// accepted-reply proposals awaiting author action. Key = (fire_at unix seconds,
+// thread_id); the EndBlocker walks entries with fire_at <= now and either
+// auto-confirms the proposal or grants the one-time inactivity extension.
+// Transient/derived — rebuilt from ThreadMetadata pending proposals at genesis
+// import rather than carried as a genesis field.
+var ProposalAutoConfirmQueueKey = collections.NewPrefix("proposal_auto_confirm_queue/")
+
 // PromotionQueueKey holds the set of authors with ephemeral posts awaiting
 // eager promotion to permanent (enqueued when the author becomes a member).
 // Key = author bech32 string, value = enqueue block-height (8B big-endian) for
