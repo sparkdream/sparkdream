@@ -556,6 +556,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgSetModerationPaused,
 		forumsimulation.SimulateMsgSetModerationPaused(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgSetThreadProposalsLock          = "op_weight_msg_forum"
+		defaultWeightMsgSetThreadProposalsLock int = 100
+	)
+
+	var weightMsgSetThreadProposalsLock int
+	simState.AppParams.GetOrGenerate(opWeightMsgSetThreadProposalsLock, &weightMsgSetThreadProposalsLock, nil,
+		func(_ *rand.Rand) {
+			weightMsgSetThreadProposalsLock = defaultWeightMsgSetThreadProposalsLock
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgSetThreadProposalsLock,
+		forumsimulation.SimulateMsgSetThreadProposalsLock(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

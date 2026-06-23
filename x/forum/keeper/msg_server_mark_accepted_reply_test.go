@@ -94,13 +94,12 @@ func TestMsgMarkAcceptedReply(t *testing.T) {
 		require.Contains(t, err.Error(), "cannot accept the thread root")
 	})
 
-	t.Run("already has accepted reply", func(t *testing.T) {
+	t.Run("re-accepting the same reply is rejected", func(t *testing.T) {
 		// Create thread
 		thread := f.createTestPost(t, testCreator, 0, 0)
 
-		// Create replies
+		// Create reply
 		reply1 := f.createTestPost(t, testCreator2, thread.PostId, thread.PostId)
-		reply2 := f.createTestPost(t, testSentinel, thread.PostId, thread.PostId)
 
 		now := f.sdkCtx().BlockTime().Unix()
 
@@ -113,13 +112,74 @@ func TestMsgMarkAcceptedReply(t *testing.T) {
 		}
 		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
 
+		// Submitting the same already-accepted reply errors.
 		_, err := ms.MarkAcceptedReply(f.ctx, &types.MsgMarkAcceptedReply{
+			Creator:  testCreator,
+			ThreadId: thread.PostId,
+			ReplyId:  reply1.PostId,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "already accepted")
+	})
+
+	t.Run("author can change the accepted reply", func(t *testing.T) {
+		thread := f.createTestPost(t, testCreator, 0, 0)
+		reply1 := f.createTestPost(t, testCreator2, thread.PostId, thread.PostId)
+		reply2 := f.createTestPost(t, testSentinel, thread.PostId, thread.PostId)
+
+		// Accept reply1.
+		_, err := ms.MarkAcceptedReply(f.ctx, &types.MsgMarkAcceptedReply{
+			Creator:  testCreator,
+			ThreadId: thread.PostId,
+			ReplyId:  reply1.PostId,
+		})
+		require.NoError(t, err)
+
+		// Change to reply2 — allowed (author may change their mind).
+		_, err = ms.MarkAcceptedReply(f.ctx, &types.MsgMarkAcceptedReply{
 			Creator:  testCreator,
 			ThreadId: thread.PostId,
 			ReplyId:  reply2.PostId,
 		})
+		require.NoError(t, err)
+
+		metadata, err := f.keeper.ThreadMetadata.Get(f.ctx, thread.PostId)
+		require.NoError(t, err)
+		require.Equal(t, reply2.PostId, metadata.AcceptedReplyId)
+	})
+
+	t.Run("author can clear the accepted reply", func(t *testing.T) {
+		thread := f.createTestPost(t, testCreator, 0, 0)
+		reply := f.createTestPost(t, testCreator2, thread.PostId, thread.PostId)
+
+		_, err := ms.MarkAcceptedReply(f.ctx, &types.MsgMarkAcceptedReply{
+			Creator:  testCreator,
+			ThreadId: thread.PostId,
+			ReplyId:  reply.PostId,
+		})
+		require.NoError(t, err)
+
+		// Clear with reply_id == 0.
+		_, err = ms.MarkAcceptedReply(f.ctx, &types.MsgMarkAcceptedReply{
+			Creator:  testCreator,
+			ThreadId: thread.PostId,
+			ReplyId:  0,
+		})
+		require.NoError(t, err)
+
+		metadata, err := f.keeper.ThreadMetadata.Get(f.ctx, thread.PostId)
+		require.NoError(t, err)
+		require.Zero(t, metadata.AcceptedReplyId)
+		require.Empty(t, metadata.AcceptedBy)
+
+		// Clearing again (nothing accepted) errors.
+		_, err = ms.MarkAcceptedReply(f.ctx, &types.MsgMarkAcceptedReply{
+			Creator:  testCreator,
+			ThreadId: thread.PostId,
+			ReplyId:  0,
+		})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "already accepted")
+		require.Contains(t, err.Error(), "no accepted reply")
 	})
 
 	t.Run("success", func(t *testing.T) {

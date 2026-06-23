@@ -149,6 +149,9 @@ service Msg {
 
   // SetModerationPaused defines the SetModerationPaused RPC.
   rpc SetModerationPaused(MsgSetModerationPaused) returns (MsgSetModerationPausedResponse);
+
+  // SetThreadProposalsLock defines the SetThreadProposalsLock RPC.
+  rpc SetThreadProposalsLock(MsgSetThreadProposalsLock) returns (MsgSetThreadProposalsLockResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -205,7 +208,7 @@ message MsgCreatePost {
   string content = 4;
   repeated string tags = 5;
   sparkdream.common.v1.ContentType content_type = 6;
-  string author_bond = 7 [ // Optional DREAM amount to lock as author bond
+  string author_bond = 7 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = true
@@ -305,6 +308,7 @@ message MsgLockThread {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 root_id = 2;
   string reason = 3;
+
   // authority selects which moderation authority the caller is invoking.
   // Defaults to AUTO for backward compatibility.
   ModerationAuthority authority = 4;
@@ -332,6 +336,7 @@ message MsgMoveThread {
   uint64 root_id = 2;
   uint64 new_category_id = 3;
   string reason = 4;
+
   // authority selects which moderation authority the caller is invoking.
   // Defaults to AUTO for backward compatibility.
   ModerationAuthority authority = 5;
@@ -391,6 +396,7 @@ message MsgStakePostConviction {
   option (amino.name) = "sparkdream/x/forum/MsgStakePostConviction";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 post_id = 2;
+
   // amount is the DREAM (uDREAM) to lock for this stake. Must be at least
   // Params.min_post_conviction_stake.
   string amount = 3 [
@@ -455,9 +461,11 @@ enum ModerationAuthority {
   // the council path if council-authorized, else error. AUTO prefers the
   // accountable (bonded + author-appealable) sentinel path.
   MODERATION_AUTHORITY_AUTO = 0;
+
   // SENTINEL: force the sentinel path; error if the account is not eligible
   // for the action (no silent fallback to council).
   MODERATION_AUTHORITY_SENTINEL = 1;
+
   // COUNCIL: force the council (gov-authority) path; error if the account is
   // not council-authorized. The deliberate "act as committee" choice.
   MODERATION_AUTHORITY_COUNCIL = 2;
@@ -471,6 +479,7 @@ message MsgHidePost {
   uint64 post_id = 2;
   uint64 reason_code = 3;
   string reason_text = 4;
+
   // authority selects which moderation authority the caller is invoking.
   // Defaults to AUTO for backward compatibility.
   ModerationAuthority authority = 5;
@@ -676,3 +685,15 @@ message MsgSetModerationPaused {
 
 // MsgSetModerationPausedResponse defines the MsgSetModerationPausedResponse message.
 message MsgSetModerationPausedResponse {}
+
+// MsgSetThreadProposalsLock defines the MsgSetThreadProposalsLock message.
+message MsgSetThreadProposalsLock {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/forum/MsgSetThreadProposalsLock";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 thread_id = 2;
+  bool locked = 3;
+}
+
+// MsgSetThreadProposalsLockResponse defines the MsgSetThreadProposalsLockResponse message.
+message MsgSetThreadProposalsLockResponse {}

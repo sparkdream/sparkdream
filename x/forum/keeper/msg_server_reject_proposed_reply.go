@@ -60,13 +60,19 @@ func (k msgServer) RejectProposedReply(ctx context.Context, msg *types.MsgReject
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
 	}
 
-	// rejected_proposals is a lifetime counter on the proposing sentinel.
+	// rejected_proposals is a lifetime counter on the proposing sentinel. A
+	// rejection is also an "overturned" accuracy tick: it lowers the sentinel's
+	// rolling-window accuracy (reducing/zeroing rewards) and, on a streak, demotes
+	// the role — the same machinery used for overturned moderation actions. This
+	// is what disarms the re-propose harassment loop: rejection now costs the
+	// proposer, not just the author.
 	if proposedBy != "" {
 		local, lerr := k.SentinelActivity.Get(ctx, proposedBy)
 		if lerr != nil {
 			local = types.SentinelActivity{Address: proposedBy}
 		}
 		local.RejectedProposals++
+		k.recordCurationAccuracy(ctx, proposedBy, &local, false)
 		if err := k.SentinelActivity.Set(ctx, proposedBy, local); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 		}

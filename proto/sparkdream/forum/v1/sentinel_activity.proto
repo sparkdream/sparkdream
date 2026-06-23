@@ -9,7 +9,7 @@ option go_package = "sparkdream/x/forum/types";
 // slot from a stale one left behind by an inactive epoch.
 message AccuracyEpochBucket {
   uint64 epoch = 1;
-  uint64 upheld = 2;     // upheld_hides + upheld_locks + upheld_moves resolved this epoch
+  uint64 upheld = 2; // upheld_hides + upheld_locks + upheld_moves resolved this epoch
   uint64 overturned = 3; // overturned_* resolved this epoch
 }
 

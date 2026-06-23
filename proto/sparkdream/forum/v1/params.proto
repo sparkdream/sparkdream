@@ -323,6 +323,15 @@ message Params {
   // auto-confirm on the next block, never an intended config). Seeded by the
   // genesis defaults (48h).
   int64 accept_proposal_timeout = 66;
+
+  // max_accept_proposals_per_sentinel_per_thread caps how many accepted-reply
+  // proposals a single sentinel may make on a given thread (counting all
+  // proposals, confirmed or rejected). Once a sentinel hits the cap on a thread,
+  // proposeAcceptedReply rejects with ErrMaxProposalsReached — that sentinel is
+  // done proposing there, permanently. Per-sentinel (not a thread-global cap) so
+  // one bad actor cannot exhaust a thread's quota and lock out honest curators.
+  // 0 disables the cap. Seeded by the genesis defaults (2).
+  uint32 max_accept_proposals_per_sentinel_per_thread = 67;
 }
 
 // ForumOperationalParams defines the operational parameters that can be updated
@@ -524,4 +533,8 @@ message ForumOperationalParams {
 
   // accept_proposal_timeout — see Params.accept_proposal_timeout.
   int64 accept_proposal_timeout = 66;
+
+  // max_accept_proposals_per_sentinel_per_thread —
+  // see Params.max_accept_proposals_per_sentinel_per_thread.
+  uint32 max_accept_proposals_per_sentinel_per_thread = 67;
 }

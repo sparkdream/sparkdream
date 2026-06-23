@@ -183,7 +183,8 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
       post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
       curation_dream_reward: (.curation_dream_reward // "5000000"),
-      accept_proposal_timeout: (.accept_proposal_timeout // "172800")
+      accept_proposal_timeout: (.accept_proposal_timeout // "172800"),
+      max_accept_proposals_per_sentinel_per_thread: (.max_accept_proposals_per_sentinel_per_thread // 2)
     }')
 
     # Modify test fields: double the ephemeral TTL and spam tax, and tune the
@@ -388,7 +389,8 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
       post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
       curation_dream_reward: (.curation_dream_reward // "5000000"),
-      accept_proposal_timeout: (.accept_proposal_timeout // "172800")
+      accept_proposal_timeout: (.accept_proposal_timeout // "172800"),
+      max_accept_proposals_per_sentinel_per_thread: (.max_accept_proposals_per_sentinel_per_thread // 2)
     }')
 
     jq -n \

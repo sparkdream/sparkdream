@@ -238,6 +238,7 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 		_ = k.ThreadMoveRecord.Remove(ctx, postID)
 		_ = k.ThreadMetadata.Remove(ctx, postID)
 		_ = k.ThreadFollowCount.Remove(ctx, postID)
+		k.clearProposalCounts(ctx, postID)
 
 		// Remove from queue
 		if removeErr := k.ExpirationQueue.Remove(ctx, key); removeErr != nil {

@@ -46,6 +46,13 @@ var EphemeralByAuthorKey = collections.NewPrefix("ephemeral_by_author/")
 // import rather than carried as a genesis field.
 var ProposalAutoConfirmQueueKey = collections.NewPrefix("proposal_auto_confirm_queue/")
 
+// ProposalCountByThreadSentinelKey counts how many accepted-reply proposals a
+// sentinel has made on a given thread (counting all proposals, confirmed or
+// rejected). Key = (thread_id, sentinel bech32), value = count. Enforces the
+// per-sentinel-per-thread proposal cap so a sentinel cannot grief an author by
+// re-proposing after each rejection. GC'd when the thread resolves/prunes.
+var ProposalCountByThreadSentinelKey = collections.NewPrefix("proposal_count_by_thread_sentinel/")
+
 // PromotionQueueKey holds the set of authors with ephemeral posts awaiting
 // eager promotion to permanent (enqueued when the author becomes a member).
 // Key = author bech32 string, value = enqueue block-height (8B big-endian) for

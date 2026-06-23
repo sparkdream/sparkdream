@@ -40,6 +40,42 @@ func (k msgServer) MarkAcceptedReply(ctx context.Context, msg *types.MsgMarkAcce
 		return k.proposeAcceptedReply(ctx, msg, thread, now)
 	}
 
+	// Get or create thread metadata.
+	metadata, err := k.ThreadMetadata.Get(ctx, msg.ThreadId)
+	if err != nil {
+		metadata = types.ThreadMetadata{
+			ThreadId:       msg.ThreadId,
+			PinnedReplyIds: []uint64{},
+			PinnedRecords:  []*types.PinnedReplyRecord{},
+		}
+	}
+
+	// reply_id == 0 is the clear path: the author removes the accepted reply.
+	if msg.ReplyId == 0 {
+		if metadata.AcceptedReplyId == 0 {
+			return nil, errorsmod.Wrap(types.ErrNoAcceptedReply, "no accepted reply to clear")
+		}
+		prev := metadata.AcceptedReplyId
+		// The author's choice supersedes any pending sentinel proposal.
+		superseded := k.clearPendingProposal(ctx, &metadata)
+		metadata.AcceptedReplyId = 0
+		metadata.AcceptedBy = ""
+		metadata.AcceptedAt = 0
+		if err := k.ThreadMetadata.Set(ctx, msg.ThreadId, metadata); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update thread metadata")
+		}
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"accepted_reply_cleared",
+				sdk.NewAttribute("thread_id", fmt.Sprintf("%d", msg.ThreadId)),
+				sdk.NewAttribute("previous_reply_id", fmt.Sprintf("%d", prev)),
+				sdk.NewAttribute("cleared_by", msg.Creator),
+			),
+		)
+		k.emitProposalSuperseded(ctx, msg.ThreadId, superseded, &metadata)
+		return &types.MsgMarkAcceptedReplyResponse{}, nil
+	}
+
 	// Load reply
 	reply, err := k.Post.Get(ctx, msg.ReplyId)
 	if err != nil {
@@ -61,21 +97,15 @@ func (k msgServer) MarkAcceptedReply(ctx context.Context, msg *types.MsgMarkAcce
 		return nil, errorsmod.Wrapf(types.ErrPostStatus, "cannot accept reply with status %s", reply.Status.String())
 	}
 
-	// Get or create thread metadata
-	metadata, err := k.ThreadMetadata.Get(ctx, msg.ThreadId)
-	if err != nil {
-		// Create new metadata
-		metadata = types.ThreadMetadata{
-			ThreadId:       msg.ThreadId,
-			PinnedReplyIds: []uint64{},
-			PinnedRecords:  []*types.PinnedReplyRecord{},
-		}
+	// Re-submitting the already-accepted reply is a no-op error; a different
+	// reply replaces the current acceptance (the author may change their mind).
+	if metadata.AcceptedReplyId == msg.ReplyId {
+		return nil, errorsmod.Wrapf(types.ErrAlreadyAccepted, "reply %d is already accepted", msg.ReplyId)
 	}
 
-	// Check if there's already an accepted reply
-	if metadata.AcceptedReplyId != 0 {
-		return nil, errorsmod.Wrapf(types.ErrAlreadyAccepted, "reply %d is already accepted", metadata.AcceptedReplyId)
-	}
+	prev := metadata.AcceptedReplyId
+	// The author's choice supersedes any pending sentinel proposal.
+	superseded := k.clearPendingProposal(ctx, &metadata)
 
 	// Mark as accepted
 	metadata.AcceptedReplyId = msg.ReplyId
@@ -86,16 +116,21 @@ func (k msgServer) MarkAcceptedReply(ctx context.Context, msg *types.MsgMarkAcce
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
 	}
 
-	// Emit event
-	sdkCtx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			"accepted_reply_marked",
-			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", msg.ThreadId)),
-			sdk.NewAttribute("reply_id", fmt.Sprintf("%d", msg.ReplyId)),
-			sdk.NewAttribute("accepted_by", msg.Creator),
-			sdk.NewAttribute("reply_author", reply.Author),
-		),
-	)
+	// New acceptance emits accepted_reply_marked; replacing an existing one emits
+	// accepted_reply_changed (carrying the previous reply id).
+	eventType := "accepted_reply_marked"
+	attrs := []sdk.Attribute{
+		sdk.NewAttribute("thread_id", fmt.Sprintf("%d", msg.ThreadId)),
+		sdk.NewAttribute("reply_id", fmt.Sprintf("%d", msg.ReplyId)),
+		sdk.NewAttribute("accepted_by", msg.Creator),
+		sdk.NewAttribute("reply_author", reply.Author),
+	}
+	if prev != 0 {
+		eventType = "accepted_reply_changed"
+		attrs = append(attrs, sdk.NewAttribute("previous_reply_id", fmt.Sprintf("%d", prev)))
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(eventType, attrs...))
+	k.emitProposalSuperseded(ctx, msg.ThreadId, superseded, &metadata)
 
 	return &types.MsgMarkAcceptedReplyResponse{}, nil
 }
@@ -168,12 +203,30 @@ func (k msgServer) proposeAcceptedReply(ctx context.Context, msg *types.MsgMarkA
 	if metadata.ProposedReplyId != 0 {
 		return nil, errorsmod.Wrap(types.ErrProposalAlreadyPending, "a proposal is already pending for this thread")
 	}
+	// The author may close a thread to curation entirely (e.g. open discussion,
+	// or no good answer) so they are not forced into an irreversible acceptance.
+	if metadata.ProposalsLocked {
+		return nil, errorsmod.Wrap(types.ErrThreadProposalsLocked, "thread is closed to accepted-reply proposals")
+	}
 
 	// Record the proposal and enqueue it for auto-confirmation.
 	params, perr := k.Params.Get(ctx)
 	if perr != nil {
 		params = types.DefaultParams()
 	}
+
+	// Per-sentinel-per-thread cap. Counting all proposals (confirmed or rejected),
+	// a sentinel gets at most max_accept_proposals_per_sentinel_per_thread shots
+	// on a thread — so a rejected sentinel cannot re-propose indefinitely. 0
+	// disables the cap. Per-sentinel (not thread-global) so one griefer cannot
+	// exhaust the quota and lock out honest curators.
+	if cap := params.MaxAcceptProposalsPerSentinelPerThread; cap > 0 {
+		if k.proposalCount(ctx, msg.ThreadId, msg.Creator) >= uint64(cap) {
+			return nil, errorsmod.Wrapf(types.ErrMaxProposalsReached,
+				"sentinel has reached the %d-proposal cap on thread %d", cap, msg.ThreadId)
+		}
+	}
+
 	fireAt := now + params.AcceptProposalTimeout
 
 	metadata.ProposedReplyId = msg.ReplyId
@@ -185,6 +238,12 @@ func (k msgServer) proposeAcceptedReply(ctx context.Context, msg *types.MsgMarkA
 	}
 	if err := k.ThreadMetadata.Set(ctx, msg.ThreadId, metadata); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
+	}
+
+	// Count this proposal against the per-sentinel-per-thread cap (confirmed or
+	// rejected, every proposal counts).
+	if err := k.incrProposalCount(ctx, msg.ThreadId, msg.Creator); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update proposal count")
 	}
 
 	// total_proposals is a lifetime counter; epoch_curations is only bumped on

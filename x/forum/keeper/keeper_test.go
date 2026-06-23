@@ -187,6 +187,9 @@ type mockRepKeeper struct {
 	warningCalls []mockWarningCall
 	// mintDreamCalls observes MintDREAM invocations (curation rewards, etc.).
 	mintDreamCalls []mockMintDreamCall
+	// currentEpoch is returned by CurrentSentinelRewardEpoch; tests set it to
+	// bucket curation-accuracy ticks into a known reward epoch.
+	currentEpoch uint64
 	// mintDreamErr, when set, makes MintDREAM fail (exercises reward-failure paths).
 	mintDreamErr error
 
@@ -515,6 +518,10 @@ func (m *mockRepKeeper) RecordActivity(_ context.Context, _ reptypes.RoleType, a
 	br.ConsecutiveInactiveEpochs = 0
 	m.sentinels[addr] = br
 	return nil
+}
+
+func (m *mockRepKeeper) CurrentSentinelRewardEpoch(_ context.Context) uint64 {
+	return m.currentEpoch
 }
 
 func (m *mockRepKeeper) SetBondStatus(_ context.Context, _ reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error {

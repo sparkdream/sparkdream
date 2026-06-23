@@ -417,6 +417,13 @@ message SentinelActivity {
   // feeds the sentinel reward score (curation bonus 0.02). epoch_curations is
   // incremented on confirm (not propose) so unconfirmed proposals cannot farm
   // rewards; reset each epoch.
+  //
+  // Curation OUTCOMES also feed the shared accuracy_window ring + the
+  // consecutive_upheld/consecutive_overturns streaks: a confirm (or auto-confirm)
+  // is an upheld tick, an author rejection is an overturned tick that, on a
+  // streak, demotes the sentinel — exactly as overturned moderation actions do.
+  // So routinely-rejected curation lowers reward accuracy and can cost the role,
+  // which is what makes rejection costly and disarms re-propose harassment.
   uint64 total_proposals = 32;                           // Proposals created by this sentinel
   uint64 confirmed_proposals = 33;                       // Proposals confirmed (author or auto)
   uint64 rejected_proposals = 34;                        // Proposals rejected by the author
@@ -629,6 +636,12 @@ message ThreadMetadata {
   // Pinned replies
   repeated uint64 pinned_reply_ids = 5;                  // Replies pinned to top (max 3)
   repeated PinnedReplyRecord pinned_records = 6;         // Details of who pinned each reply
+
+  // Author-controlled lock closing the thread to sentinel accepted-reply
+  // proposals (MsgSetThreadProposalsLock). Lets the author durably decline
+  // curation without an irreversible acceptance. (proposal_extended /
+  // proposal_fire_at also exist on the live message as auto-confirm bookkeeping.)
+  bool proposals_locked = 12;                            // Thread closed to proposals (0 = open)
 }
 
 // Record of who pinned a reply and when. A sentinel pin reserves committed_amount
@@ -952,6 +965,7 @@ message Params {
   // Sentinel Curation (pins and accept proposals)
   int64  accept_proposal_timeout = 121;                  // Seconds before sentinel proposal auto-confirms (e.g., 172800 = 48h)
   int64  inactivity_extension_threshold = 138;           // Seconds since last activity to trigger timeout extension (e.g., 259200 = 3d)
+  uint32 max_accept_proposals_per_sentinel_per_thread = 139; // Per-sentinel cap on accepted-reply proposals per thread (0 = disabled; default 2). Operations-Committee tunable.
   string curation_dream_reward = 122;                    // DREAM reward per successful curation action (e.g., "5")
   string curation_slash_amount = 123;                    // DREAM slashed if curation overturned on appeal (e.g., "50")
   cosmos.base.v1beta1.Coin pin_dispute_fee = 124;        // Fee to dispute a sentinel pin (e.g., 100 SPARK)
@@ -2486,13 +2500,20 @@ Mark a reply as the accepted answer. For thread authors, this is immediate. For 
    - Load or create `ThreadMetadata` for `thread_id`
 
    **If `marker == thread.author` (immediate action):**
+   Clearing and changing apply regardless of how the current acceptance was set
+   (direct, manual confirm, or auto-confirm) — auto-confirm is a default, not a
+   ratified choice, so the author may always override it. The already-minted
+   curation reward is **not** clawed back; only the on-thread acceptance changes.
    - If `reply_id == 0` (clearing):
      - Fail with `ErrNoAcceptedReply` if `accepted_reply_id == 0`
-     - Clear any pending proposal as well
+     - Clear any pending proposal as well (emit `EventProposedReplySuperseded`)
      - Set `accepted_reply_id = 0`, clear `accepted_by` and `accepted_at`
      - Emit `EventAcceptedReplyCleared`
    - Else (marking):
-     - Clear any pending proposal (author's choice supersedes)
+     - Fail with `ErrAlreadyAccepted` if `accepted_reply_id == reply_id` (re-submitting the same reply)
+     - Clear any pending proposal — author's choice supersedes (emit `EventProposedReplySuperseded`).
+       This is also the fix for the auto-confirm overwrite hazard: a direct accept
+       drains the proposal so the EndBlocker can never later overwrite it.
      - If `accepted_reply_id != 0`: Emit `EventAcceptedReplyChanged` (replacing previous)
      - Set `accepted_reply_id = reply_id`
      - Set `accepted_by = marker`
@@ -2504,9 +2525,16 @@ Mark a reply as the accepted answer. For thread authors, this is immediate. For 
    - Fail with `ErrNotSentinel` if marker is not an active sentinel
    - Fail with `ErrCannotMarkBountyThread` if `bounty_by_thread/{thread_id}` exists
    - Fail with `ErrCannotMarkRestrictedTag` if any thread tag is in `reserved_tags` with `members_can_use == false`
+   - Fail with `ErrAlreadyAccepted` if `accepted_reply_id != 0`
    - Fail with `ErrProposalAlreadyPending` if `proposed_reply_id != 0`
-   - Fail with `ErrAlreadyAccepted` if `accepted_reply_id == reply_id` (already accepted)
    - If `reply_id == 0`: Fail with `ErrSentinelCannotClearAccepted` (only author can clear)
+   - Fail with `ErrThreadProposalsLocked` if `proposals_locked == true` (author closed the thread to curation)
+   - Fail with `ErrMaxProposalsReached` if this sentinel has already made
+     `max_accept_proposals_per_sentinel_per_thread` proposals on this thread
+     (`proposal_count_by_thread_sentinel/{thread_id}/{marker}`; counts confirmed
+     and rejected alike). 0 disables the cap. Per-sentinel, not thread-global, so
+     one griefer cannot exhaust the quota and lock out honest curators. On a
+     successful proposal, increment that counter.
    - Set `proposed_reply_id = reply_id`
    - Set `proposed_by = marker`
    - Set `proposed_at = now`
@@ -2544,6 +2572,11 @@ Thread author confirms a sentinel's accept proposal.
    - Award `curation_dream_reward` (minted DREAM) to `proposed_by` sentinel
    - Increment `sentinel_activity.confirmed_proposals` (lifetime) and
      `epoch_curations` (current reward epoch) on the `proposed_by` sentinel
+   - Record an **upheld** accuracy tick on the sentinel's rolling accuracy ring
+     (the same ring used for moderation appeal outcomes): bump the current
+     reward epoch's `upheld`, increment `consecutive_upheld`, reset
+     `consecutive_overturns`. Curation accuracy thus feeds the same reward-
+     eligibility/demotion gates as hide/lock/move/pin accuracy.
    - Store updated `ThreadMetadata`
    - Emit `EventAcceptProposalConfirmed`
 
@@ -2572,7 +2605,15 @@ Thread author rejects a sentinel's accept proposal.
    - Clear `proposed_reply_id`, `proposed_by`, `proposed_at`
    - Remove from `proposal_auto_confirm_queue`
    - Increment `sentinel_activity.rejected_proposals` (lifetime) on `proposed_by`
-   - *No slash* - rejection is feedback, not punishment
+   - Record an **overturned** accuracy tick on the sentinel (bump the current
+     reward epoch's `overturned`, increment `consecutive_overturns`, reset
+     `consecutive_upheld`, set the overturn cooldown). When `consecutive_overturns`
+     reaches `DefaultMaxConsecutiveOverturnsBeforeDemotion` the sentinel is
+     **demoted** via the rep keeper — the same ratchet as overturned moderation
+     actions. This is what gives rejection a cost and disarms the re-propose
+     harassment loop.
+   - *No DREAM slash, no clawback* - rejection lowers accuracy (reducing/zeroing
+     rewards) rather than confiscating bond.
    - Store updated `ThreadMetadata`
    - Emit `EventAcceptProposalRejected`
 
@@ -2590,6 +2631,10 @@ Proposals auto-confirm if author doesn't respond within `accept_proposal_timeout
    - Load `ThreadMetadata` for `thread_id`. If the proposal is gone, or
      `proposal_fire_at != fire_at` (a superseded/stale entry), drop the queue
      entry and continue.
+   - **Already-accepted guard:** if `accepted_reply_id != 0` (the author
+     superseded the proposal with a direct accept), drop the queue entry and
+     clear the dangling proposal fields **without** confirming or rewarding.
+     Auto-confirm must never overwrite an existing acceptance.
    - **Author Activity Check (prevents auto-confirming for inactive authors):**
      - The author's last activity is forum-local: `UserRateLimit.last_post_time`
        (their most recent post/reply). No x/rep dependency.
@@ -2604,9 +2649,40 @@ Proposals auto-confirm if author doesn't respond within `accept_proposal_timeout
      - Set `accepted_at = now`
      - Clear proposal fields
      - Award `curation_dream_reward` (minted DREAM) to sentinel
-     - Increment `sentinel_activity.confirmed_proposals` and `epoch_curations`
+     - Increment `sentinel_activity.confirmed_proposals` and `epoch_curations`,
+       and record the **upheld** accuracy tick (shared `confirmCurationProposal`
+       path with the manual confirm — auto-confirm counts as upheld since the
+       author raised no objection within the window)
      - Emit `EventAcceptProposalAutoConfirmed`
    - Remove from queue
+
+---
+
+#### `MsgSetThreadProposalsLock`
+
+Lets the thread author open or close their thread to sentinel accepted-reply
+proposals — a durable "this thread accepts no curated answer" state for an open
+discussion or a thread with no good reply, without forcing an irreversible
+acceptance.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `creator` | `string` | Thread author (signer) |
+| `thread_id` | `uint64` | Thread root post ID |
+| `locked` | `bool` | `true` to close the thread to proposals, `false` to reopen |
+
+**Authorization:** Thread author only.
+
+**Logic:**
+1. Load thread root; fail with `ErrPostNotFound`/`ErrNotRootPost` as applicable;
+   fail with `ErrNotThreadAuthor` if `creator != thread.author`.
+2. Load or create `ThreadMetadata`; set `proposals_locked = locked`.
+3. When locking, supersede any pending proposal (drain the queue, clear proposal
+   fields, emit `EventProposedReplySuperseded`).
+4. Emit `EventThreadProposalsLocked` / `EventThreadProposalsUnlocked`.
+
+While `proposals_locked == true`, `MsgMarkAcceptedReply`'s sentinel branch fails
+with `ErrThreadProposalsLocked`. The author can still accept/clear directly.
 
 ---
 

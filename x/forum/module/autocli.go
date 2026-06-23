@@ -580,6 +580,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "paused"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
+				{
+					RpcMethod:      "SetThreadProposalsLock",
+					Use:            "set-thread-proposals-lock [thread-id] [locked]",
+					Short:          "Open or close a thread to sentinel accepted-reply proposals (author only)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "thread_id"}, {ProtoField: "locked"}},
+				},
 			},
 		},
 	}

@@ -148,6 +148,12 @@ type RepKeeper interface {
 	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
 	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error
 
+	// CurrentSentinelRewardEpoch returns the current sentinel reward-epoch index.
+	// Used to bucket curation-proposal outcomes (confirm = upheld, reject =
+	// overturned) into the forum-side accuracy ring at the right epoch, so they
+	// feed the rolling-window accuracy that gates sentinel rewards/demotion.
+	CurrentSentinelRewardEpoch(ctx context.Context) uint64
+
 	// Reputation slash (per-tag). Called from ExpireHiddenPosts to deduct
 	// reputation from a post's author for each tag when an unappealed
 	// sentinel hide finalizes. Floors at zero; no-op if the member has no

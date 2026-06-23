@@ -47,4 +47,17 @@ message GenesisState {
   // "no parent"). InitGenesis floors the restored value above every
   // imported post ID, so legacy exports without this field stay safe.
   uint64 post_count = 16;
+  // proposal_count_map persists the per-(thread, sentinel) accepted-reply
+  // proposal counter that backs the per-sentinel-per-thread proposal cap. Not
+  // derivable from other state (it is a historical tally), so it must round-trip
+  // through genesis like sentinel_activity_map.
+  repeated ProposalCountEntry proposal_count_map = 17 [(gogoproto.nullable) = false];
+}
+
+// ProposalCountEntry is one (thread_id, sentinel) -> count tuple of the
+// accepted-reply proposal cap counter, flattened for genesis import/export.
+message ProposalCountEntry {
+  uint64 thread_id = 1;
+  string sentinel = 2;
+  uint64 count = 3;
 }

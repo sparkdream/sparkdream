@@ -155,6 +155,8 @@ var (
 	ErrCannotMarkBountyThread      = errors.Register(ModuleName, 1914, "sentinels cannot propose an accepted reply on a bounty thread")
 	ErrCannotMarkRestrictedTag     = errors.Register(ModuleName, 1915, "sentinels cannot propose an accepted reply on a thread with a members-restricted tag")
 	ErrSentinelCannotClearAccepted = errors.Register(ModuleName, 1916, "sentinels cannot clear an accepted reply; only the thread author can")
+	ErrMaxProposalsReached         = errors.Register(ModuleName, 1917, "sentinel has reached the accepted-reply proposal cap on this thread")
+	ErrThreadProposalsLocked       = errors.Register(ModuleName, 1918, "thread is closed to accepted-reply proposals")
 
 	// Follow errors (1950-1999)
 	ErrAlreadyFollowing  = errors.Register(ModuleName, 1950, "already following this thread")

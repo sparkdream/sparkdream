@@ -1717,61 +1717,46 @@ fi
 echo ""
 
 # ========================================================================
-# NEG 19: MARK ACCEPTED REPLY TWICE (ALREADY ACCEPTED)
+# NEG 19: RE-ACCEPT THE SAME REPLY (ALREADY ACCEPTED)
 # ========================================================================
-echo "--- NEG 19: MARK ACCEPTED REPLY TWICE ---"
+# The author may now CHANGE the accepted reply to a different one (see
+# accepted_reply_test.sh), so re-submitting a *different* reply succeeds. What
+# is still rejected is re-submitting the SAME already-accepted reply
+# (ErrAlreadyAccepted). REPLY_POST_ID was accepted in PART 13.
+echo "--- NEG 19: RE-ACCEPT THE SAME REPLY (ALREADY ACCEPTED) ---"
 
 if [ -n "$ROOT_POST_ID" ] && [ -n "$REPLY_POST_ID" ]; then
-    echo "Attempting to mark accepted reply again on thread $ROOT_POST_ID..."
+    echo "Attempting to re-accept the same reply $REPLY_POST_ID on thread $ROOT_POST_ID..."
 
-    # Create another reply to try to accept
-    TX_RES=$($BINARY tx forum create-post \
-        "$TEST_CATEGORY_ID" \
+    TX_RES=$($BINARY tx forum mark-accepted-reply \
         "$ROOT_POST_ID" \
-        "Another reply to test double-accept" \
-        --from poster2 \
+        "$REPLY_POST_ID" \
+        --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 5000${BOND_DENOM} \
         -y \
         --output json 2>&1)
 
-    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-        SECOND_REPLY_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
-        TX_RES=$($BINARY tx forum mark-accepted-reply \
-            "$ROOT_POST_ID" \
-            "$SECOND_REPLY_ID" \
-            --from poster1 \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
+    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+        echo "  Transaction rejected at submission (expected)"
+        NEG_ACCEPTED_TWICE_RESULT="PASS"
+    else
+        sleep 6
+        TX_RESULT=$(wait_for_tx "$TXHASH")
+        CODE=$(echo "$TX_RESULT" | jq -r '.code')
 
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-            echo "  Transaction rejected at submission (expected)"
+        if [ "$CODE" != "0" ]; then
+            RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
+            echo "  Transaction failed as expected (code: $CODE)"
+            echo "  Error: $RAW_LOG"
             NEG_ACCEPTED_TWICE_RESULT="PASS"
         else
-            sleep 6
-            TX_RESULT=$(wait_for_tx "$TXHASH")
-            CODE=$(echo "$TX_RESULT" | jq -r '.code')
-
-            if [ "$CODE" != "0" ]; then
-                RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
-                echo "  Transaction failed as expected (code: $CODE)"
-                echo "  Error: $RAW_LOG"
-                NEG_ACCEPTED_TWICE_RESULT="PASS"
-            else
-                echo "  ERROR: Transaction succeeded — double accepted reply!"
-                NEG_ACCEPTED_TWICE_RESULT="FAIL"
-            fi
+            echo "  ERROR: Transaction succeeded — re-accepted the same reply!"
+            NEG_ACCEPTED_TWICE_RESULT="FAIL"
         fi
-    else
-        echo "  Could not create second reply for test"
-        NEG_ACCEPTED_TWICE_RESULT="FAIL"
     fi
 else
     echo "  No thread/reply available"
@@ -1848,7 +1833,7 @@ echo "  Follow non-existent:       $NEG_FOLLOW_NONEXISTENT_RESULT"
 echo "  Double-follow:             $NEG_DOUBLE_FOLLOW_RESULT"
 echo "  Unfollow non-follower:     $NEG_UNFOLLOW_NONFOLLOWER_RESULT"
 echo "  Accepted by non-author:    $NEG_ACCEPTED_NONAUTHOR_RESULT"
-echo "  Accepted reply twice:      $NEG_ACCEPTED_TWICE_RESULT"
+echo "  Re-accept same reply:      $NEG_ACCEPTED_TWICE_RESULT"
 echo "  Query non-existent post:   $NEG_QUERY_NONEXISTENT_RESULT"
 echo ""
 

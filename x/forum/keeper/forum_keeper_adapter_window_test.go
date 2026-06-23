@@ -67,8 +67,8 @@ func TestAccuracyWindow_GapNoLeak(t *testing.T) {
 	f := initFixture(t)
 	const sentinel = "gap-sentinel"
 
-	recordUpheld(t, f, 1, 10, sentinel)      // epoch 1
-	recordOverturned(t, f, 3, 11, sentinel)  // epoch 3 (epoch 2 inactive)
+	recordUpheld(t, f, 1, 10, sentinel)     // epoch 1
+	recordOverturned(t, f, 3, 11, sentinel) // epoch 3 (epoch 2 inactive)
 
 	// Window of 2 ending at epoch 3 covers [2,3] -> epoch 1 excluded.
 	up, ov, err := f.keeper.GetSentinelWindowedAccuracy(f.ctx, sentinel, 3, 2)
@@ -85,8 +85,8 @@ func TestAccuracyWindow_StaleSlotEvicted(t *testing.T) {
 	const sentinel = "wrap-sentinel"
 	ring := uint64(types.SentinelAccuracyRingSize)
 
-	recordUpheld(t, f, 2, 10, sentinel)        // epoch 2 -> slot 2
-	recordUpheld(t, f, 2+ring, 11, sentinel)   // same slot, overwrites epoch 2
+	recordUpheld(t, f, 2, 10, sentinel)      // epoch 2 -> slot 2
+	recordUpheld(t, f, 2+ring, 11, sentinel) // same slot, overwrites epoch 2
 
 	// At the wrapped epoch, only the new bump is in range; the stale epoch-2
 	// entry must not be counted.

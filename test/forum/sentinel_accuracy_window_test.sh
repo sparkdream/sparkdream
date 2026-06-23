@@ -87,6 +87,15 @@ active_buckets() {
 win_upheld()     { active_buckets | jq '[.[].upheld] | add // 0'; }
 win_overturned() { active_buckets | jq '[.[].overturned] | add // 0'; }
 active_epochs()  { active_buckets | jq -c '[.[].epoch] | unique'; }
+# Sums restricted to buckets at epoch >= <floor>. The accuracy ring is a 24-slot
+# mod ring (slot = epoch % 24): a new epoch's tick OVERWRITES whatever older
+# same-slot bucket was there. Summing the whole ring (win_upheld/win_overturned)
+# is therefore not stable across resolves that open new epochs — an unrelated old
+# bucket can be clobbered. Restricting to epochs >= a floor captured BEFORE the
+# resolves isolates exactly the buckets this test creates (resolves only ever land
+# in epoch >= floor) and is immune to that clobber and to window sliding.
+win_upheld_since()     { active_buckets | jq --argjson e "$1" '[.[]|select(.epoch>=$e)|.upheld]     | add // 0'; }
+win_overturned_since() { active_buckets | jq --argjson e "$1" '[.[]|select(.epoch>=$e)|.overturned] | add // 0'; }
 
 # create_hide_appeal <poster-key> -> echoes "<post_id> <appeal_id>"
 create_hide_appeal() {
@@ -154,6 +163,12 @@ echo "  baseline windowed up/ov: $B_WIN_UP/$B_WIN_OV ; lifetime hides up/ov: $B_
 # ========================================================================
 echo "--- PART 2: WINDOW POPULATION (TWO UPHELD) ---"
 
+# Floor epoch captured BEFORE any resolve. Both resolves land in an epoch >= E0,
+# so deltas measured over epochs >= E0 reflect exactly these two resolves and are
+# immune to ring slot-reuse clobbering older buckets.
+E0=$(epoch_now)
+P2_PRE_UP=$(win_upheld_since "$E0"); P2_PRE_OV=$(win_overturned_since "$E0")
+
 read -r PID1 AID1 <<<"$(create_hide_appeal poster1)"
 if [ -n "$AID1" ]; then pass "appeal A filed (post $PID1, appeal $AID1)"; else fail "could not obtain appeal A id (post $PID1)"; fi
 if [ -n "$AID1" ]; then
@@ -168,11 +183,11 @@ if [ -n "$AID2" ]; then
     check_tx_success "$RES" && pass "appeal B resolved UPHELD" || { echo "  $(echo "$RES" | jq -r '.raw_log // .')"; fail "resolve B upheld"; }
 fi
 
-M_WIN_UP=$(win_upheld); M_WIN_OV=$(win_overturned)
+P2_UP=$(win_upheld_since "$E0"); P2_OV=$(win_overturned_since "$E0")
 M_LIFE_UP=$(sa_field upheld_hides); M_LIFE_OV=$(sa_field overturned_hides)
 
-[ "$M_WIN_UP" = "$((B_WIN_UP + 2))" ] && pass "windowed upheld +2 ($B_WIN_UP -> $M_WIN_UP)" || fail "windowed upheld delta wrong ($B_WIN_UP -> $M_WIN_UP)"
-[ "$M_WIN_OV" = "$B_WIN_OV" ] && pass "windowed overturned unchanged ($B_WIN_OV)" || fail "windowed overturned moved unexpectedly ($B_WIN_OV -> $M_WIN_OV)"
+[ "$P2_UP" = "$((P2_PRE_UP + 2))" ] && pass "windowed upheld +2 in epochs >= $E0 ($P2_PRE_UP -> $P2_UP)" || fail "windowed upheld delta wrong ($P2_PRE_UP -> $P2_UP)"
+[ "$P2_OV" = "$P2_PRE_OV" ] && pass "windowed overturned unchanged in epochs >= $E0 ($P2_PRE_OV)" || fail "windowed overturned moved unexpectedly ($P2_PRE_OV -> $P2_OV)"
 [ "$M_LIFE_UP" = "$((B_LIFE_UP + 2))" ] && pass "lifetime upheld_hides +2 ($B_LIFE_UP -> $M_LIFE_UP)" || fail "lifetime upheld_hides delta wrong ($B_LIFE_UP -> $M_LIFE_UP)"
 
 EPOCHS_P2=$(active_epochs)
@@ -191,6 +206,10 @@ while [ "$(height)" -lt "$TARGET_H" ] && [ $WAIT_N -lt 120 ]; do sleep 2; WAIT_N
 E_AFTER=$(epoch_now)
 [ "$E_AFTER" -gt "$E_BEFORE" ] && pass "advanced to a new reward epoch ($E_BEFORE -> $E_AFTER)" || fail "did not cross a reward-epoch boundary ($E_BEFORE -> $E_AFTER)"
 
+# Floor for PART 3 deltas: the freshly-crossed epoch. Appeal C resolves in an
+# epoch >= E_AFTER, so deltas over epochs >= E_AFTER capture exactly that resolve.
+P3_PRE_UP=$(win_upheld_since "$E_AFTER"); P3_PRE_OV=$(win_overturned_since "$E_AFTER")
+
 read -r PID3 AID3 <<<"$(create_hide_appeal poster1)"
 if [ -n "$AID3" ]; then pass "appeal C filed in new epoch (post $PID3, appeal $AID3)"; else fail "could not obtain appeal C id (post $PID3)"; fi
 if [ -n "$AID3" ]; then
@@ -198,9 +217,9 @@ if [ -n "$AID3" ]; then
     check_tx_success "$RES" && pass "appeal C resolved UPHELD" || { echo "  $(echo "$RES" | jq -r '.raw_log // .')"; fail "resolve C upheld"; }
 fi
 
-E_WIN_UP=$(win_upheld)
+P3_UP=$(win_upheld_since "$E_AFTER")
 E_LIFE_UP=$(sa_field upheld_hides)
-E_WIN_OV=$(win_overturned)
+P3_OV=$(win_overturned_since "$E_AFTER")
 EPOCHS_P3=$(active_epochs)
 echo "  active accuracy-window epochs after PART 3: $EPOCHS_P3"
 
@@ -209,10 +228,10 @@ NEW_EPOCHS=$(jq -n --argjson a "$EPOCHS_P3" --argjson b "$EPOCHS_P2" '($a - $b) 
 [ "$NEW_EPOCHS" -ge 1 ] 2>/dev/null && pass "a fresh epoch bucket was opened after the boundary" || fail "no new epoch bucket appeared ($EPOCHS_P2 -> $EPOCHS_P3)"
 
 # The new resolve added exactly one windowed upheld + one lifetime upheld;
-# overturned stays at baseline (the two counters are tracked separately).
-[ "$E_WIN_UP" = "$((M_WIN_UP + 1))" ] && pass "windowed upheld +1 in new epoch ($M_WIN_UP -> $E_WIN_UP)" || fail "windowed upheld delta wrong in PART 3 ($M_WIN_UP -> $E_WIN_UP)"
+# overturned in the new-epoch range stays put (the counters are tracked separately).
+[ "$P3_UP" = "$((P3_PRE_UP + 1))" ] && pass "windowed upheld +1 in epochs >= $E_AFTER ($P3_PRE_UP -> $P3_UP)" || fail "windowed upheld delta wrong in PART 3 ($P3_PRE_UP -> $P3_UP)"
 [ "$E_LIFE_UP" = "$((M_LIFE_UP + 1))" ] && pass "lifetime upheld_hides +1 ($M_LIFE_UP -> $E_LIFE_UP)" || fail "lifetime upheld_hides delta wrong ($M_LIFE_UP -> $E_LIFE_UP)"
-[ "$E_WIN_OV" = "$B_WIN_OV" ] && pass "windowed overturned still baseline ($B_WIN_OV)" || fail "windowed overturned changed unexpectedly ($B_WIN_OV -> $E_WIN_OV)"
+[ "$P3_OV" = "$P3_PRE_OV" ] && pass "windowed overturned unchanged in epochs >= $E_AFTER ($P3_PRE_OV)" || fail "windowed overturned changed unexpectedly ($P3_PRE_OV -> $P3_OV)"
 
 echo ""
 if [ "$FAILED" = "0" ]; then

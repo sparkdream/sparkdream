@@ -226,8 +226,9 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `MsgUnpinPost` | Unpin post | Pin creator or governance |
 | `MsgPinReply` / `MsgUnpinReply` | Pin/unpin reply (3 max per thread) | Thread author |
 | `MsgDisputePin` | Dispute a pin decision | Any member |
-| `MsgMarkAcceptedReply` | Mark reply as "accepted answer" | Thread author |
+| `MsgMarkAcceptedReply` | Mark/change/clear the "accepted answer" (reply_id 0 clears); for non-authors, a bonded sentinel proposes one | Thread author (immediate) or sentinel (proposal) |
 | `MsgConfirmProposedReply` / `MsgRejectProposedReply` | Accept or reject a proposed reply | Thread author |
+| `MsgSetThreadProposalsLock` | Open/close the thread to sentinel accepted-reply proposals | Thread author |
 | `MsgFollowThread` / `MsgUnfollowThread` | Follow or unfollow a thread | Any member |
 
 ### Appeals
@@ -403,6 +404,23 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 |-----------|------|---------|-------------|
 | `conviction_renewal_threshold` | LegacyDec | 100 | Min conviction to renew TTL |
 | `conviction_renewal_period` | int64 | 604,800 (7d) | TTL extension on renewal |
+
+#### Sentinel Curation (Accepted-Reply Proposals)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `accept_proposal_timeout` | int64 | 172,800 (48h) | Seconds before a pending sentinel proposal auto-confirms |
+| `curation_dream_reward` | math.Int | 5,000,000 (5 DREAM) | DREAM minted to the sentinel on a confirmed/auto-confirmed proposal (0 disables) |
+| `max_accept_proposals_per_sentinel_per_thread` | uint32 | 2 | Per-sentinel cap on proposals per thread (confirmed or rejected); 0 disables. Per-sentinel, not thread-global, so one griefer can't lock out honest curators |
+
+A sentinel's curation outcomes feed the **same** rolling accuracy ring as its
+moderation actions: a confirm/auto-confirm is an upheld tick, an author rejection
+is an overturned tick that, on a `consecutive_overturns` streak, demotes the
+sentinel. This gives rejection a cost (lowered reward accuracy → eventual
+demotion) and — together with the per-thread cap and the author's durable
+`MsgSetThreadProposalsLock` — disarms the re-propose harassment loop. An author's
+direct accept/clear always supersedes a pending proposal, and the auto-confirm
+EndBlocker never overwrites an existing acceptance.
 
 #### Post Conviction-Stakes & Accountability
 

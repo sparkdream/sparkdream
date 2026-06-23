@@ -66,6 +66,11 @@ type Keeper struct {
 	// (see msg_server_mark_accepted_reply.go / abci.go).
 	ProposalAutoConfirmQueue collections.KeySet[collections.Pair[int64, uint64]]
 
+	// ProposalCountByThreadSentinel: (thread_id, sentinel) -> count of
+	// accepted-reply proposals that sentinel has made on that thread. Enforces
+	// the per-sentinel-per-thread proposal cap (see proposeAcceptedReply).
+	ProposalCountByThreadSentinel collections.Map[collections.Pair[uint64, string], uint64]
+
 	// Post conviction-stake state (see post_conviction.go).
 	PostConvictionStake          collections.Map[uint64, types.PostConvictionStake]
 	PostConvictionStakeSeq       collections.Sequence
@@ -151,6 +156,8 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 		PromotionQueue: collections.NewMap(sb, types.PromotionQueueKey, "promotionQueue",
 			collections.StringKey, collections.Int64Value),
+		ProposalCountByThreadSentinel: collections.NewMap(sb, types.ProposalCountByThreadSentinelKey, "proposalCountByThreadSentinel",
+			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey), collections.Uint64Value),
 		ProposalAutoConfirmQueue: collections.NewKeySet(sb, types.ProposalAutoConfirmQueueKey, "proposalAutoConfirmQueue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 

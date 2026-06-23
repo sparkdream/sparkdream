@@ -149,6 +149,16 @@ func (gs GenesisState) Validate() error {
 		}
 		archiveMetadataIndexMap[index] = struct{}{}
 	}
+	proposalCountIndexMap := make(map[string]struct{})
+
+	for _, elem := range gs.ProposalCountMap {
+		// Unique key is (ThreadId, Sentinel).
+		index := fmt.Sprintf("%d/%s", elem.ThreadId, elem.Sentinel)
+		if _, ok := proposalCountIndexMap[index]; ok {
+			return fmt.Errorf("duplicated proposalCount: thread=%d sentinel=%s", elem.ThreadId, elem.Sentinel)
+		}
+		proposalCountIndexMap[index] = struct{}{}
+	}
 	// --- Enhanced validation: cross-references and status checks ---
 
 	// Build lookup maps for cross-referencing

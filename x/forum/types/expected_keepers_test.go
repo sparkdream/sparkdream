@@ -142,6 +142,7 @@ func (stubRepKeeper) SetBondStatus(context.Context, reptypes.RoleType, string, r
 func (stubRepKeeper) SetBondedRoleConfig(context.Context, reptypes.BondedRoleConfig) error {
 	return nil
 }
+func (stubRepKeeper) CurrentSentinelRewardEpoch(context.Context) uint64 { return 0 }
 func (stubRepKeeper) DeductReputation(context.Context, sdk.AccAddress, string, math.LegacyDec) error {
 	return nil
 }

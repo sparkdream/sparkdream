@@ -45,8 +45,8 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	// 35 = previous 34 + SimulateMsgMakePostPermanent.
-	require.Len(t, ops, 35)
+	// 36 = previous 35 + SimulateMsgSetThreadProposalsLock.
+	require.Len(t, ops, 36)
 }
 
 func TestProposalMsgs(t *testing.T) {

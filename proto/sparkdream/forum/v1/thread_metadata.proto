@@ -28,4 +28,10 @@ message ThreadMetadata {
   int64 proposal_fire_at = 9;
   repeated uint64 pinned_reply_ids = 10;
   repeated PinnedReplyRecord pinned_records = 11;
+  // proposals_locked, when true, closes the thread to sentinel accepted-reply
+  // proposals: proposeAcceptedReply rejects with ErrThreadProposalsLocked. Set
+  // by the thread author via MsgSetThreadProposalsLock so a discussion thread (or
+  // a thread with no good answer) can be definitively closed to curation without
+  // being forced into an irreversible acceptance. Author-only to set/clear.
+  bool proposals_locked = 12;
 }

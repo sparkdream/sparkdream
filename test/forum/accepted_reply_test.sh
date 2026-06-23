@@ -11,6 +11,15 @@
 # covered by unit tests; here we assert the on-chain wiring of propose / confirm
 # / reject and the SentinelActivity counters.
 #
+# Also exercises the curation-hardening surface end to end:
+#   - author change / clear of an accepted reply (MsgMarkAcceptedReply reply_id=0)
+#   - author acceptance superseding a pending sentinel proposal
+#   - the per-sentinel-per-thread proposal cap (ErrMaxProposalsReached)
+#   - the durable no-acceptance lock (MsgSetThreadProposalsLock)
+# The rejection -> overturned-accuracy-tick -> demotion-streak path is covered by
+# unit tests (it mutates the shared sentinel streak, so it is kept out of the
+# cross-test e2e flow); this script confirms its streak is reset on exit.
+#
 # Depends on sentinel_test.sh having bonded sentinel1 (run in the same phase).
 
 echo "--- TESTING: SENTINEL CURATION PROPOSAL (ACCEPTED-REPLY) ---"
@@ -286,6 +295,115 @@ PROPOSED_BY4=$(echo "$MD" | jq -r '.thread_metadata.proposed_by // ""')
 AFTER_TOTAL4=$(counter_of total_proposals)
 [ "$AFTER_TOTAL4" = "$((BEFORE_TOTAL4 + 1))" ] && pass "total_proposals incremented (session)" \
     || fail "total_proposals not incremented via session ($BEFORE_TOTAL4 -> $AFTER_TOTAL4)"
+
+# ------------------------------------------------------------------------
+# 5. AUTHOR CHANGE + CLEAR of an accepted reply
+# ------------------------------------------------------------------------
+echo "--- 5. Author changes then clears the accepted reply ---"
+read -r T5 R5A <<<"$(create_thread_and_reply)"
+RR=$(submit poster2 create-post "$TEST_CATEGORY_ID" "$T5" "Second candidate answer")
+R5B=$(post_id_from "$RR")
+
+R=$(submit poster1 mark-accepted-reply "$T5" "$R5A")
+[ "$(tx_code "$R")" = "0" ] && pass "author accepted a reply" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "author accept"; }
+
+# Re-submitting the same reply is rejected (already accepted).
+R=$(submit poster1 mark-accepted-reply "$T5" "$R5A")
+[ "$(tx_code "$R")" != "0" ] && pass "re-accepting the same reply rejected" || fail "re-accept same reply allowed"
+
+# Changing to a different reply is allowed.
+R=$(submit poster1 mark-accepted-reply "$T5" "$R5B")
+[ "$(tx_code "$R")" = "0" ] && pass "author changed the accepted reply" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "author change"; }
+MD=$($BINARY query forum get-thread-metadata "$T5" --output json 2>/dev/null)
+[ "$(echo "$MD" | jq -r '.thread_metadata.accepted_reply_id // "0"')" = "$R5B" ] && pass "accepted_reply_id updated to new reply" || fail "change did not update accepted_reply_id"
+
+# Clearing with reply_id 0.
+R=$(submit poster1 mark-accepted-reply "$T5" "0")
+[ "$(tx_code "$R")" = "0" ] && pass "author cleared the accepted reply" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "author clear"; }
+MD=$($BINARY query forum get-thread-metadata "$T5" --output json 2>/dev/null)
+[ "$(echo "$MD" | jq -r '.thread_metadata.accepted_reply_id // "0"')" = "0" ] && pass "accepted_reply_id cleared" || fail "clear did not zero accepted_reply_id"
+
+# Clearing again (nothing accepted) errors.
+R=$(submit poster1 mark-accepted-reply "$T5" "0")
+[ "$(tx_code "$R")" != "0" ] && pass "clear with nothing accepted rejected" || fail "clear-with-none should error"
+
+# ------------------------------------------------------------------------
+# 6. AUTHOR ACCEPT SUPERSEDES a pending sentinel proposal
+# ------------------------------------------------------------------------
+echo "--- 6. Author acceptance supersedes a pending proposal ---"
+read -r T6 R6A <<<"$(create_thread_and_reply)"
+RR=$(submit poster2 create-post "$TEST_CATEGORY_ID" "$T6" "Author-preferred answer")
+R6B=$(post_id_from "$RR")
+
+R=$(submit sentinel1 mark-accepted-reply "$T6" "$R6A")
+[ "$(tx_code "$R")" = "0" ] && pass "sentinel proposed (supersede case)" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "propose (supersede)"; }
+
+# Author directly accepts a DIFFERENT reply; the pending proposal must clear.
+R=$(submit poster1 mark-accepted-reply "$T6" "$R6B")
+[ "$(tx_code "$R")" = "0" ] && pass "author accepted own choice over the proposal" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "author supersede accept"; }
+MD=$($BINARY query forum get-thread-metadata "$T6" --output json 2>/dev/null)
+[ "$(echo "$MD" | jq -r '.thread_metadata.accepted_reply_id // "0"')" = "$R6B" ] && pass "author choice recorded" || fail "author choice not recorded"
+[ "$(echo "$MD" | jq -r '.thread_metadata.proposed_reply_id // "0"')" = "0" ] && pass "pending proposal superseded" || fail "proposal not superseded"
+
+# ------------------------------------------------------------------------
+# 7. THREAD PROPOSALS LOCK / UNLOCK
+# ------------------------------------------------------------------------
+echo "--- 7. Author locks the thread against proposals, then unlocks ---"
+read -r T7 R7 <<<"$(create_thread_and_reply)"
+
+# Non-author cannot lock.
+R=$(submit poster2 set-thread-proposals-lock "$T7" true)
+[ "$(tx_code "$R")" != "0" ] && pass "non-author cannot lock proposals" || fail "non-author lock allowed"
+
+# Author locks.
+R=$(submit poster1 set-thread-proposals-lock "$T7" true)
+[ "$(tx_code "$R")" = "0" ] && pass "author locked proposals" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "author lock"; }
+MD=$($BINARY query forum get-thread-metadata "$T7" --output json 2>/dev/null)
+[ "$(echo "$MD" | jq -r '.thread_metadata.proposals_locked // false')" = "true" ] && pass "proposals_locked set" || fail "proposals_locked not set"
+
+# Sentinel proposal blocked while locked.
+R=$(submit sentinel1 mark-accepted-reply "$T7" "$R7")
+[ "$(tx_code "$R")" != "0" ] && pass "proposal blocked while locked" || fail "proposal allowed while locked"
+
+# Unlock and re-allow.
+R=$(submit poster1 set-thread-proposals-lock "$T7" false)
+[ "$(tx_code "$R")" = "0" ] && pass "author unlocked proposals" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "author unlock"; }
+R=$(submit sentinel1 mark-accepted-reply "$T7" "$R7")
+[ "$(tx_code "$R")" = "0" ] && pass "proposal allowed after unlock" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "proposal after unlock"; }
+# Confirm cleans up the pending proposal AND resets the overturn streak (upheld).
+R=$(submit poster1 confirm-proposed-reply "$T7")
+[ "$(tx_code "$R")" = "0" ] && pass "confirmed proposal on unlocked thread" || fail "confirm on unlocked thread"
+
+# ------------------------------------------------------------------------
+# 8. PER-SENTINEL PER-THREAD PROPOSAL CAP
+#    Default cap is 2: a sentinel may propose twice on a thread; the third is
+#    rejected even after each prior proposal was rejected (disarms the
+#    re-propose harassment loop).
+# ------------------------------------------------------------------------
+echo "--- 8. Per-sentinel per-thread proposal cap ---"
+read -r T8 R8 <<<"$(create_thread_and_reply)"
+CAP=2
+CAP_OK=1
+i=0
+while [ $i -lt $CAP ]; do
+    R=$(submit sentinel1 mark-accepted-reply "$T8" "$R8")
+    [ "$(tx_code "$R")" = "0" ] || CAP_OK=0
+    R=$(submit poster1 reject-proposed-reply "$T8" "try again")
+    [ "$(tx_code "$R")" = "0" ] || CAP_OK=0
+    i=$((i + 1))
+done
+[ "$CAP_OK" = "1" ] && pass "sentinel proposed up to the cap ($CAP times)" || fail "propose/reject within cap failed"
+
+# One past the cap is rejected.
+R=$(submit sentinel1 mark-accepted-reply "$T8" "$R8")
+if [ "$(tx_code "$R")" != "0" ]; then pass "proposal past the per-sentinel cap rejected"; else fail "cap not enforced"; fi
+
+# Reset the sentinel's consecutive-overturn streak (bumped by the two rejects
+# above) so downstream tests see a clean baseline: a final clean confirm.
+read -r T8C R8C <<<"$(create_thread_and_reply)"
+R=$(submit sentinel1 mark-accepted-reply "$T8C" "$R8C")
+[ "$(tx_code "$R")" = "0" ] && { R=$(submit poster1 confirm-proposed-reply "$T8C"); }
+[ "$(tx_code "$R")" = "0" ] && pass "overturn streak reset via clean confirm" || fail "streak-reset confirm failed"
 
 echo ""
 if [ "$FAILED" = "0" ]; then

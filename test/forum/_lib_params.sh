@@ -100,7 +100,8 @@ bump_ephemeral_ttl() {
       max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
       post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
       accept_proposal_timeout: (.accept_proposal_timeout // "172800"),
-      curation_dream_reward: (.curation_dream_reward // "5000000")
+      curation_dream_reward: (.curation_dream_reward // "5000000"),
+      max_accept_proposals_per_sentinel_per_thread: (.max_accept_proposals_per_sentinel_per_thread // 2)
     }')
 
     jq -n \
@@ -262,7 +263,8 @@ bump_post_conviction_params() {
       max_forum_rep_per_tag_per_epoch: $cap,
       post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
       accept_proposal_timeout: (.accept_proposal_timeout // "172800"),
-      curation_dream_reward: (.curation_dream_reward // "5000000")
+      curation_dream_reward: (.curation_dream_reward // "5000000"),
+      max_accept_proposals_per_sentinel_per_thread: (.max_accept_proposals_per_sentinel_per_thread // 2)
     }')
 
     jq -n --arg policy "$policy" --argjson op_params "$op_params" \

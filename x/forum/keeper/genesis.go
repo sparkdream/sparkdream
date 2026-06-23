@@ -80,6 +80,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			}
 		}
 	}
+	for _, elem := range genState.ProposalCountMap {
+		if err := k.ProposalCountByThreadSentinel.Set(ctx, collections.Join(elem.ThreadId, elem.Sentinel), elem.Count); err != nil {
+			return err
+		}
+	}
 	for _, elem := range genState.ThreadFollowMap {
 		if err := k.ThreadFollow.Set(ctx, elem.Follower, elem); err != nil {
 			return err
@@ -215,6 +220,16 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	if err := k.ArchiveMetadata.Walk(ctx, nil, func(_ uint64, val types.ArchiveMetadata) (stop bool, err error) {
 		genesis.ArchiveMetadataMap = append(genesis.ArchiveMetadataMap, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.ProposalCountByThreadSentinel.Walk(ctx, nil, func(key collections.Pair[uint64, string], count uint64) (stop bool, err error) {
+		genesis.ProposalCountMap = append(genesis.ProposalCountMap, types.ProposalCountEntry{
+			ThreadId: key.K1(),
+			Sentinel: key.K2(),
+			Count:    count,
+		})
 		return false, nil
 	}); err != nil {
 		return nil, err
