@@ -23,6 +23,7 @@ type mockForumKeeper struct {
 	tags    map[uint64][]string
 	// Stage C hooks (populated by appeal-resolve tests):
 	actionSentinels  map[string]string // key=<actionType>:<actionTarget>
+	committedAmount  sdkmath.Int       // per-action reserved bond GetActionCommittedAmount reports (zero/unset => no slash)
 	upheldCalls      []string          // records "<actionType>:<actionTarget>"
 	overturnedCalls  []string
 	reverseCalls     []string // records ReverseSentinelAction invocations
@@ -128,7 +129,10 @@ func (m *mockForumKeeper) ResetSentinelEpochCounters(_ context.Context, addr str
 }
 
 func (m *mockForumKeeper) GetActionCommittedAmount(_ context.Context, _ types.GovActionType, _ string) (sdkmath.Int, error) {
-	return sdkmath.ZeroInt(), nil
+	if m.committedAmount.IsNil() {
+		return sdkmath.ZeroInt(), nil
+	}
+	return m.committedAmount, nil
 }
 
 func TestMsgServerAwardFromTagBudget(t *testing.T) {

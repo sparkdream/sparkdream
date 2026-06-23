@@ -50,8 +50,12 @@ func (k Keeper) GetBondedRole(ctx context.Context, roleType types.RoleType, addr
 	return br, nil
 }
 
-// GetAvailableBond returns current_bond minus total_committed_bond for the
-// given role. Returns zero (no error) if the record does not exist.
+// GetAvailableBond returns the bond that can actually back a new action:
+// current_bond minus total_committed_bond minus pending_unbond_amount. Bond
+// that is leaving (pending) must not back new reservations, otherwise an
+// action's slash could land on DREAM that has already matured and unlocked.
+// Returns zero (no error) if the record does not exist. When no unbond is in
+// flight pending is zero, so behavior is unchanged for non-unbonding roles.
 func (k Keeper) GetAvailableBond(ctx context.Context, roleType types.RoleType, addr string) (math.Int, error) {
 	if err := validateRoleType(roleType); err != nil {
 		return math.ZeroInt(), err
@@ -68,7 +72,11 @@ func (k Keeper) GetAvailableBond(ctx context.Context, roleType types.RoleType, a
 	if err != nil {
 		return math.ZeroInt(), err
 	}
-	available := current.Sub(committed)
+	pending, err := parseIntOrZero(br.PendingUnbondAmount)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	available := current.Sub(committed).Sub(pending)
 	if available.IsNegative() {
 		return math.ZeroInt(), nil
 	}
@@ -97,7 +105,14 @@ func (k Keeper) ReserveBond(ctx context.Context, roleType types.RoleType, addr s
 	if err != nil {
 		return err
 	}
-	available := current.Sub(committed)
+	// Reservations draw only on the staying bond: subtract pending_unbond_amount
+	// so a slash can never be committed against DREAM that is on its way out and
+	// will unlock at unbond maturity. Zero when no unbond is in flight.
+	pending, err := parseIntOrZero(br.PendingUnbondAmount)
+	if err != nil {
+		return err
+	}
+	available := current.Sub(committed).Sub(pending)
 	if available.LT(amount) {
 		return errorsmod.Wrapf(types.ErrInsufficientBond,
 			"need %s available, have %s", amount.String(), available.String())
@@ -454,6 +469,10 @@ func (k Keeper) matureSingleUnbond(ctx context.Context, roleType types.RoleType,
 	if err != nil {
 		return err
 	}
+	committed, err := parseIntOrZero(br.TotalCommittedBond)
+	if err != nil {
+		return err
+	}
 
 	// Cap pending at current_bond — invariant maintained by SlashBond, but
 	// double-check here so a corrupt record can't unlock more DREAM than
@@ -462,17 +481,57 @@ func (k Keeper) matureSingleUnbond(ctx context.Context, roleType types.RoleType,
 		pending = current
 	}
 
-	if pending.IsPositive() {
+	// Never release earmarked (committed) bond: maturity may only unlock bond
+	// that is staying-but-leaving, never bond reserved to back an outstanding
+	// action whose appeal window is still open. With pending-aware GetAvailableBond
+	// /ReserveBond (above) the invariant current >= committed + pending holds by
+	// construction, so release == pending in practice; this cap is the regression
+	// guard that keeps rep and forum decoupled regardless of EndBlocker ordering.
+	release := pending
+	if maxReleasable := current.Sub(committed); release.GT(maxReleasable) {
+		release = maxReleasable
+	}
+	if release.IsNegative() {
+		release = math.ZeroInt()
+	}
+
+	if release.IsPositive() {
 		roleAddr, addrErr := sdk.AccAddressFromBech32(addr)
 		if addrErr != nil {
 			return fmt.Errorf("invalid role-holder address: %w", addrErr)
 		}
-		if err := k.UnlockDREAM(ctx, roleAddr, pending); err != nil {
+		if err := k.UnlockDREAM(ctx, roleAddr, release); err != nil {
 			return fmt.Errorf("failed to unlock pending DREAM: %w", err)
 		}
 	}
 
-	newCurrent := current.Sub(pending)
+	newCurrent := current.Sub(release)
+
+	// If committed bond blocked part of the withdrawal, leave the remainder
+	// pending and keep the role UNBONDING so a later block retries once the
+	// reservation is released or slashed. Otherwise finalize the unbond.
+	remainingPending := pending.Sub(release)
+	if remainingPending.IsPositive() {
+		br.CurrentBond = newCurrent.String()
+		br.PendingUnbondAmount = remainingPending.String()
+		// Status stays UNBONDING; UnbondCompletionTime stays set so MatureUnbonds
+		// revisits this record on the next block.
+		if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+			return err
+		}
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"bonded_role_unbond_deferred",
+				sdk.NewAttribute("role_type", roleType.String()),
+				sdk.NewAttribute("address", addr),
+				sdk.NewAttribute("unlocked_amount", release.String()),
+				sdk.NewAttribute("remaining_pending", remainingPending.String()),
+			),
+		)
+		return nil
+	}
+
 	br.CurrentBond = newCurrent.String()
 	br.PendingUnbondAmount = "0"
 	br.UnbondCompletionTime = 0

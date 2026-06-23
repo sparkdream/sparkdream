@@ -183,8 +183,11 @@ setup_escalated_challenge() {
     # Bob challenges. Snapshot balances FIRST so the resolve test can
     # assert fee disposition relative to the post-challenge baseline
     # (challenge_fee already escrowed by then).
-    JR_PRE_BALANCE_ALICE=$($BINARY query bank balances "$VERIFIER_A_ADDR" --denom "$BOND_DENOM" --output json | jq -r '.balance.amount // "0"')
-    JR_PRE_BALANCE_BOB=$($BINARY query bank balances "$VERIFIER_B_ADDR" --denom "$BOND_DENOM" --output json | jq -r '.balance.amount // "0"')
+    # Use the singular `bank balance <addr> <denom>` query — the plural
+    # `bank balances ... --denom` form drops the --denom flag in this SDK
+    # version ("unknown flag: --denom") and silently snapshots 0.
+    JR_PRE_BALANCE_ALICE=$($BINARY query bank balance "$VERIFIER_A_ADDR" "$BOND_DENOM" --output json | jq -r '.balance.amount // "0"')
+    JR_PRE_BALANCE_BOB=$($BINARY query bank balance "$VERIFIER_B_ADDR" "$BOND_DENOM" --output json | jq -r '.balance.amount // "0"')
 
     TX_RES=$($BINARY tx federation challenge-verification \
         "$JR_CONTENT_ID" "Jury test $TAG challenge" \

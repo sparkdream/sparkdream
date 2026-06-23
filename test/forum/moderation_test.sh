@@ -792,6 +792,13 @@ PART19_RESULT="FAIL"
 # second sentinel must fall back to sentinel1 (see PART 25 retry logic).
 bond_sentinel $SECOND_SENTINEL_ACCOUNT "$SECOND_SENTINEL_ADDR"
 
+# Capture pending BEFORE this unbond. The second sentinel may already be
+# UNBONDING (e.g. sentinel_test.sh PART 13 queued an unbond for the same
+# account earlier in the suite). Unbonds are incremental, so this 10 DREAM
+# accumulates onto any existing pending rather than replacing it — assert the
+# delta, not an absolute value.
+PEND_BEFORE=$($BINARY q rep bonded-role forum-sentinel "$SECOND_SENTINEL_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.pending_unbond_amount // "0"')
+
 TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
     "10000000" \
     --from $SECOND_SENTINEL_ACCOUNT \
@@ -809,15 +816,16 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
 
     if check_tx_success "$TX_RESULT"; then
         # Confirm the queued-unbond state — bond stays locked, status flips
-        # to UNBONDING, pending_unbond_amount reflects the queued amount.
+        # to UNBONDING, pending_unbond_amount grows by exactly the queued amount.
         BR=$($BINARY q rep bonded-role forum-sentinel "$SECOND_SENTINEL_ADDR" --output json 2>/dev/null)
         STATUS=$(echo "$BR" | jq -r '.bonded_role.bond_status // "MISSING"')
         PENDING=$(echo "$BR" | jq -r '.bonded_role.pending_unbond_amount // "0"')
-        if [ "$STATUS" == "BONDED_ROLE_STATUS_UNBONDING" ] && [ "$PENDING" == "10000000" ]; then
-            echo "  Unbond queued: status=$STATUS, pending=$PENDING [ OK ]"
+        EXPECTED=$((${PEND_BEFORE:-0} + 10000000))
+        if [ "$STATUS" == "BONDED_ROLE_STATUS_UNBONDING" ] && [ "$PENDING" == "$EXPECTED" ]; then
+            echo "  Unbond queued: status=$STATUS, pending=$PEND_BEFORE -> $PENDING (+10000000) [ OK ]"
             PART19_RESULT="PASS"
         else
-            echo "  unexpected post-unbond state: status=$STATUS pending=$PENDING"
+            echo "  unexpected post-unbond state: status=$STATUS pending=$PENDING (expected $EXPECTED)"
         fi
     else
         echo "  Unbond failed"

@@ -48,6 +48,10 @@ func setupResolveFixture(t *testing.T, opts ...FixtureOption) *resolveFixture {
 		authors:         make(map[uint64]string),
 		tags:            make(map[uint64][]string),
 		actionSentinels: make(map[string]string),
+		// Per-action reserved bond an overturn slashes. At defaults the forum
+		// committed_amount snapshot equals DefaultSentinelOverturnSlash, so the
+		// slash matches the legacy flat amount the tests assert.
+		committedAmount: math.NewInt(types.DefaultSentinelOverturnSlash),
 	}
 	f.keeper.SetForumKeeper(fk)
 
@@ -233,6 +237,37 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 			"OVERTURNED must trigger forum-side content reversal")
 		require.Equal(t, rf.fk.overturnedCalls[0], rf.fk.reverseCalls[0],
 			"reverse call must target the same action as the counter update")
+	})
+
+	t.Run("overturn slash equals the action's reserved bond, not a flat default", func(t *testing.T) {
+		// The slash must track the per-action committed_amount so it stays
+		// correct even if the forum SentinelSlashAmount drifts from the legacy
+		// flat default. Set a committed amount different from
+		// DefaultSentinelOverturnSlash and assert the slash matches it.
+		rf := setupResolveFixture(t)
+		customCommitted := math.NewInt(40_000_000) // 40 DREAM, != the 100 default
+		rf.fk.committedAmount = customCommitted
+
+		appealID, _ := findAppeal(t, rf.f, rf.appellantStr)
+		bond := math.NewInt(1_000_000_000)
+		seedSlashableSentinel(t, rf.f, rf.sentinel, bond)
+
+		resolver := sdk.AccAddress([]byte("council_resolver"))
+		resolverStr, err := rf.f.addressCodec.BytesToString(resolver)
+		require.NoError(t, err)
+
+		_, err = rf.ms.ResolveGovActionAppeal(rf.f.ctx, &types.MsgResolveGovActionAppeal{
+			Resolver: resolverStr,
+			AppealId: appealID,
+			Verdict:  types.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED,
+			Reason:   "sentinel wrong",
+		})
+		require.NoError(t, err)
+
+		br, err := rf.f.keeper.BondedRoles.Get(rf.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), rf.sentinel))
+		require.NoError(t, err)
+		require.Equal(t, bond.Sub(customCommitted).String(), br.CurrentBond,
+			"slash must equal the reserved committed amount, not DefaultSentinelOverturnSlash")
 	})
 
 	t.Run("rejects non-council resolver", func(t *testing.T) {

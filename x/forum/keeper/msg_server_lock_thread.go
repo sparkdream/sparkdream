@@ -68,13 +68,8 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 	} else if repTier := k.GetRepTier(ctx, msg.Creator); repTier < lockMinRepTier {
 		sentinelErr = errorsmod.Wrapf(types.ErrInsufficientReputation,
 			"tier %d required for locking, have %d", lockMinRepTier, repTier)
-	} else if br, berr := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator); berr != nil {
-		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
-	} else if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
-		sentinelErr = errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
-	} else if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-		br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-		sentinelErr = types.ErrSentinelDemoted
+	} else if br, berr := k.eligibleSentinel(ctx, msg.Creator); berr != nil {
+		sentinelErr = berr
 	} else if currentBond := parseIntOrZero(br.CurrentBond); currentBond.LT(minLockBond) {
 		// Higher bond requirement for locking (2x normal bond, in DREAM micro-units).
 		sentinelErr = errorsmod.Wrapf(types.ErrInsufficientLockBond,

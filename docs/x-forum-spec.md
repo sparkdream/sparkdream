@@ -351,6 +351,18 @@ enum SentinelBondStatus {
 // > `RecordActivity(ROLE_TYPE_FORUM_SENTINEL, addr)`,
 // > `SetBondStatus(ROLE_TYPE_FORUM_SENTINEL, addr, status, cooldown_until)`.
 // >
+// > **Eligibility is a bond-quantity gate.** All five content-action handlers
+// > (`MsgHidePost` / `MsgLockThread` / `MsgMoveThread` / `MsgPinReply` /
+// > `MsgDismissFlags`) share one `eligibleSentinel` helper
+// > (`x/forum/keeper/sentinel_eligibility.go`): NORMAL/RECOVERY are eligible
+// > outright; an UNBONDING sentinel stays eligible while its staying bond
+// > (`current_bond - pending_unbond_amount`) covers `min_sentinel_bond`,
+// > returning `ErrSentinelUnbonding` only when it drops below the floor; DEMOTED
+// > is never eligible. The slash-reserving handlers then call the pending-aware
+// > `ReserveBond`, which only commits staying, uncommitted bond — so a
+// > moderation taken mid-unbond stays fully backed and slashable through its
+// > whole appeal window. There is no time / unbond-completion comparison.
+// >
 // > The legacy unified `SentinelActivity` message below (with inline
 // > `bond_status`, `current_bond`, etc.) is kept for reference; at runtime the
 // > bond fields live on `BondedRole` and the action counters live on forum's

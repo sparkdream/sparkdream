@@ -82,10 +82,9 @@ func TestMsgServerPinReply(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrSentinelDemoted)
 	})
 
-	t.Run("unbonding sentinel cannot pin", func(t *testing.T) {
-		// Once unbond is initiated the bond drains over a cooldown but the
-		// holder must not back fresh moderation with bond already pledged to
-		// leave — liability-containment side of the unbond-cooldown design.
+	t.Run("unbonding sentinel below floor cannot pin", func(t *testing.T) {
+		// Unbonding the full bond leaves zero staying bond, below the floor, so
+		// the role cannot back fresh moderation — quantity gate, not a status gate.
 		if f.repKeeper.sentinels == nil {
 			f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
 		}
@@ -107,7 +106,36 @@ func TestMsgServerPinReply(t *testing.T) {
 		}
 		_, err := f.msgServer.PinReply(f.ctx, msg)
 		require.Error(t, err)
-		require.ErrorIs(t, err, types.ErrSentinelDemoted)
+		require.ErrorIs(t, err, types.ErrSentinelUnbonding)
+	})
+
+	t.Run("partial-unbonding sentinel above floor can pin", func(t *testing.T) {
+		// 700 DREAM bonded, 100 queued to unbond → 600 staying, above the 500
+		// floor: the quantity gate keeps pin authority during a partial unbond.
+		if f.repKeeper.sentinels == nil {
+			f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
+		}
+		f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
+			Address:             testSentinel,
+			CurrentBond:         "700000000",
+			TotalCommittedBond:  "0",
+			PendingUnbondAmount: "100000000",
+			BondStatus:          reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,
+		}
+
+		rootPost := f.createTestPost(t, testCreator, 0, 0)
+		reply := f.createTestPost(t, testCreator2, rootPost.PostId, 0)
+
+		_, err := f.msgServer.PinReply(f.ctx, &types.MsgPinReply{
+			Creator:  testSentinel,
+			ThreadId: rootPost.PostId,
+			ReplyId:  reply.PostId,
+		})
+		require.NoError(t, err)
+
+		metadata, err := f.keeper.ThreadMetadata.Get(f.ctx, rootPost.PostId)
+		require.NoError(t, err)
+		require.Contains(t, metadata.PinnedReplyIds, reply.PostId)
 	})
 
 	t.Run("thread not found", func(t *testing.T) {

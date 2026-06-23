@@ -7,7 +7,6 @@ import (
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
@@ -50,9 +49,10 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 //	the sentinel reward pool). Sentinel's reserved bond released. Forum
 //	counter RecordSentinelActionUpheld.
 //
-// OVERTURNED: 100% refund to appellant. Sentinel slashed DefaultSentinelOverturnSlash
+// OVERTURNED: 100% refund to appellant. Sentinel slashed by the exact bond the
 //
-//	DREAM. Forum counter RecordSentinelActionOverturned (may trigger
+//	action reserved (forum's per-action committed_amount), so slash equals what
+//	was reserved. Forum counter RecordSentinelActionOverturned (may trigger
 //	demotion on streak) and ReverseSentinelAction (unhide/unlock/un-move/unpin).
 //
 // resolver and reason are recorded on the emitted event for audit (the manual
@@ -161,13 +161,27 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 			}
 		}
 
-		// Slash the sentinel (if resolvable). Missing sentinel is a soft
-		// error — forum's record may have been GC'd.
+		// Slash the sentinel (if resolvable) by the EXACT bond this action
+		// reserved, read back from the forum record. slash == reserved by
+		// construction, so the penalty stays correct even if the forum
+		// SentinelSlashAmount param ever drifts from a flat default — and the
+		// reservation is cleared as part of the slash (SlashBond decrements
+		// total_committed_bond too). Mirrors the UPHELD branch's committed-amount
+		// release above. Missing sentinel / committed record is a soft error
+		// (forum's record may have been GC'd) — skip the slash; the action is
+		// still reversed below.
 		if sentinelAddr != "" {
-			slashAmount := math.NewInt(types.DefaultSentinelOverturnSlash)
-			if err := k.SlashBond(ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, slashAmount, "appeal_overturned"); err != nil {
-				sdkCtx.Logger().Warn("failed to slash sentinel bond on overturn",
-					"sentinel", sentinelAddr, "appeal_id", appealID, "error", err)
+			if fk := k.late.forumKeeper; fk != nil {
+				committed, cErr := fk.GetActionCommittedAmount(ctx, appeal.ActionType, appeal.ActionTarget)
+				if cErr != nil {
+					sdkCtx.Logger().Warn("failed to read sentinel committed amount on overturn",
+						"sentinel", sentinelAddr, "appeal_id", appealID, "error", cErr)
+				} else if committed.IsPositive() {
+					if err := k.SlashBond(ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, committed, "appeal_overturned"); err != nil {
+						sdkCtx.Logger().Warn("failed to slash sentinel bond on overturn",
+							"sentinel", sentinelAddr, "appeal_id", appealID, "error", err)
+					}
+				}
 			}
 		}
 

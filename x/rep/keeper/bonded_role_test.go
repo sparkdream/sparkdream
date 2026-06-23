@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"testing"
+	"time"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -136,6 +137,76 @@ func TestBondedRole_ReserveReleaseSlash(t *testing.T) {
 	require.Equal(t, "0", br.TotalCommittedBond)
 	// 300 >= 100 (demotion_threshold) but < 400 (min_bond) → RECOVERY.
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY, br.BondStatus)
+}
+
+// TestBondedRole_ReserveExcludesPendingUnbond proves Fix 1: bond pledged to
+// leave (pending_unbond_amount) is not available to back new reservations.
+// available = current - committed - pending.
+func TestBondedRole_ReserveExcludesPendingUnbond(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	role := types.RoleType_ROLE_TYPE_FORUM_SENTINEL
+	addr := sdk.AccAddress([]byte("unbonder1"))
+
+	setMemberWithStaked(t, f, addr, math.NewInt(700), math.NewInt(700))
+	// 700 bonded, 100 leaving → 600 staying, none committed.
+	require.NoError(t, k.BondedRoles.Set(f.ctx, bondedRoleKey(role, addr.String()), types.BondedRole{
+		Address:             addr.String(),
+		RoleType:            role,
+		BondStatus:          types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,
+		CurrentBond:         "700",
+		TotalCommittedBond:  "0",
+		PendingUnbondAmount: "100",
+	}))
+
+	// Available excludes the pending withdrawal.
+	avail, err := k.GetAvailableBond(f.ctx, role, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(600), avail)
+
+	// A reservation that fits the staying bond succeeds.
+	require.NoError(t, k.ReserveBond(f.ctx, role, addr.String(), math.NewInt(600)))
+
+	// Nothing left for another reservation, even though current_bond is 700:
+	// the extra 100 is on its way out.
+	require.ErrorIs(t, k.ReserveBond(f.ctx, role, addr.String(), math.NewInt(1)), types.ErrInsufficientBond)
+}
+
+// TestBondedRole_MatureDefersCommittedBond proves Fix 2: unbond maturity never
+// unlocks earmarked (committed) bond. With committed > current - pending the
+// release is capped and the remainder stays pending for a later block.
+func TestBondedRole_MatureDefersCommittedBond(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	role := types.RoleType_ROLE_TYPE_FORUM_SENTINEL
+	addr := sdk.AccAddress([]byte("unbonder2"))
+
+	setMemberWithStaked(t, f, addr, math.NewInt(700), math.NewInt(700))
+	seedBondedRoleConfig(t, f, role, 400, 100)
+	// 700 bonded, 500 committed to an outstanding action, 300 queued to unbond.
+	// Only current - committed = 200 may be released; 100 stays pending.
+	require.NoError(t, k.BondedRoles.Set(f.ctx, bondedRoleKey(role, addr.String()), types.BondedRole{
+		Address:              addr.String(),
+		RoleType:             role,
+		BondStatus:           types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,
+		CurrentBond:          "700",
+		TotalCommittedBond:   "500",
+		PendingUnbondAmount:  "300",
+		UnbondCompletionTime: 1000,
+	}))
+
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	matured := sdkCtx.WithBlockTime(time.Unix(1001, 0))
+	require.NoError(t, k.MatureUnbonds(matured))
+
+	br, err := k.GetBondedRole(matured, role, addr.String())
+	require.NoError(t, err)
+	// Released 200, current 500, 100 still pending, never unlocked the committed.
+	require.Equal(t, "500", br.CurrentBond)
+	require.Equal(t, "100", br.PendingUnbondAmount)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
+	// Invariant: current_bond >= total_committed_bond never violated.
+	require.Equal(t, "500", br.TotalCommittedBond)
 }
 
 func TestBondedRole_SlashCapsAtCurrent(t *testing.T) {

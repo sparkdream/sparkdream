@@ -57,6 +57,9 @@ func setupJuryAppeal(t *testing.T) *juryAppealFixture {
 		authors:         make(map[uint64]string),
 		tags:            make(map[uint64][]string),
 		actionSentinels: make(map[string]string),
+		// Per-action reserved bond an overturn slashes; equals the legacy flat
+		// DefaultSentinelOverturnSlash at defaults.
+		committedAmount: math.NewInt(types.DefaultSentinelOverturnSlash),
 	}
 	f.keeper.SetForumKeeper(fk)
 

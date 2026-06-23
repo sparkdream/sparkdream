@@ -768,22 +768,20 @@ fi
 echo ""
 
 # ========================================================================
-# PART 16: BOND BELOW MINIMUM (Negative Test)
+# PART 16: SUB-MIN TOP-UP TO AN EXISTING ROLE IS ACCEPTED
 # ========================================================================
-echo "--- PART 16: BOND BELOW MINIMUM (Negative Test) ---"
+echo "--- PART 16: SUB-MIN TOP-UP TO AN EXISTING ROLE (Accepted) ---"
 
-# Use sentinel2, who has reputation but was just fully unbonded in PART 13.
-# Sentinel1 won't work here: msg_server_bond_role.go ALLOWS top-ups below
-# min_bond when a positive bond already exists (so DEMOTED holders can rebuild)
-# — sentinel1 still has 2500 DREAM bonded, so a 500-udream "top-up" succeeds
-# and the test reports a false negative.
-#
-# Sentinel2 after PART 13 has CurrentBond=0 and is in BONDED_ROLE_STATUS_DEMOTED
-# with a 7-day DemotionCooldownUntil. The keeper rejects the re-bond on the
-# cooldown gate (which fires before the min_bond gate), satisfying this test's
-# accept-any-rejection criteria. Either gate fires the same protection: junk
-# amounts can't enter the role.
-echo "Attempting to bond 500 udream (below minimum, post-unbond)..."
+# The min_bond floor applies only to a role's FIRST bond (deterministically
+# unit-tested: TestBondRole_RejectsBelowMinBondOnFirst). For an account that
+# already holds a bond record, any positive amount is a valid incremental
+# top-up — it only adds slashable collateral. sentinel2 holds a record
+# (UNBONDING after PART 13's queued unbond), and bond top-ups are allowed
+# mid-unbond, so a sub-min 500-udream top-up must be ACCEPTED and grow the bond.
+echo "Topping up sentinel2 with 500 udream (sub-min, but a top-up to an existing role)..."
+
+B4=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL2_ADDR" --output json 2>&1 | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
+[ -z "$B4" ] && B4="0"
 
 TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     "500" \
@@ -797,37 +795,25 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Transaction rejected at submission (expected)"
-    BOND_BELOW_MIN_RESULT="PASS"
+    echo "  ERROR: top-up rejected at submission: $TX_RES"
+    BOND_BELOW_MIN_RESULT="FAIL"
 else
-    echo "  Transaction submitted: $TXHASH"
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
-
-    if [ "$CODE" != "0" ]; then
-        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
-        echo "  Transaction failed as expected (code: $CODE)"
-        echo "  Error: $RAW_LOG"
-        # Either gate (cooldown OR min_bond) is acceptable — both protect
-        # against junk amounts entering the role. Note explicitly which
-        # one fired so a future maintainer reading the test output can tell
-        # whether they're looking at a cooldown reject (PART 16's actual
-        # post-PART-13 state) or a min_bond reject (the test's nominal
-        # intent). If neither term appears, downgrade to a softer pass —
-        # the rejection still happened, but for an unexpected reason.
-        if echo "$RAW_LOG" | grep -qiE "cooldown|demotion"; then
-            echo "  Gate: cooldown (DEMOTED state from PART 13)"
-            BOND_BELOW_MIN_RESULT="PASS"
-        elif echo "$RAW_LOG" | grep -qiE "min.bond|below minimum|insufficient"; then
-            echo "  Gate: min_bond (the test's nominal target)"
+    if [ "$CODE" == "0" ]; then
+        AFTER=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL2_ADDR" --output json 2>&1 | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
+        EXPECTED=$((${B4:-0} + 500))
+        echo "  Top-up accepted: current_bond $B4 -> $AFTER (expected $EXPECTED)"
+        if [ "$AFTER" == "$EXPECTED" ]; then
             BOND_BELOW_MIN_RESULT="PASS"
         else
-            echo "  WARN: rejected but error doesn't mention cooldown or min_bond"
-            BOND_BELOW_MIN_RESULT="PASS"
+            echo "  ERROR: current_bond did not grow by the top-up"
+            BOND_BELOW_MIN_RESULT="FAIL"
         fi
     else
-        echo "  ERROR: Transaction succeeded - bond below minimum was accepted!"
+        echo "  ERROR: sub-min top-up to an existing role was rejected (code: $CODE)"
+        echo "  $(echo "$TX_RESULT" | jq -r '.raw_log')"
         BOND_BELOW_MIN_RESULT="FAIL"
     fi
 fi
@@ -1241,7 +1227,7 @@ echo "    Unbond sentinel:            $UNBOND_RESULT"
 echo ""
 echo "  Negative Tests:"
 echo "    Bond without reputation:    $BOND_NO_REP_RESULT"
-echo "    Bond below minimum:         $BOND_BELOW_MIN_RESULT"
+echo "    Sub-min top-up accepted:    $BOND_BELOW_MIN_RESULT"
 echo "    Hide without sentinel:      $HIDE_NOT_SENTINEL_RESULT"
 echo "    Lock without sentinel:      $LOCK_NOT_SENTINEL_RESULT"
 echo "    Hide already-hidden:        $HIDE_ALREADY_HIDDEN_RESULT"

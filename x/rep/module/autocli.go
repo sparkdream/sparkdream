@@ -699,6 +699,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "role_type"}, {ProtoField: "amount"}},
 				},
 				{
+					RpcMethod:      "CancelUnbondRole",
+					Use:            "cancel-unbond-role [role-type] [amount]",
+					Short:          "Cancel part or all of an in-flight unbond (return it to active bond)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "role_type"}, {ProtoField: "amount"}},
+				},
+				{
 					RpcMethod:      "ReportMember",
 					Use:            "report-member [member] [reason] [recommended-action]",
 					Short:          "Send a report-member tx",

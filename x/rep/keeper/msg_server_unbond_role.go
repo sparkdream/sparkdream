@@ -23,10 +23,14 @@ import (
 // When UnbondCooldown is zero, the behavior is the legacy immediate withdrawal:
 // DREAM is unlocked immediately and status is recomputed from the new bond.
 //
-// One active unbond per role at a time: calling UnbondRole again on a role
-// that is already UNBONDING is rejected. The committed-bond invariant
-// (current_bond - total_committed_bond >= amount) is enforced so outstanding
-// liability stays fully collateralized through the cooldown.
+// Unbonds are INCREMENTAL: calling UnbondRole again on a role that is already
+// UNBONDING accumulates into pending_unbond_amount and resets the single
+// completion clock to now + cooldown, so a sentinel can correct or grow a
+// withdrawal without first waiting out the cooldown. The invariant
+// current_bond - total_committed_bond - pending_unbond_amount >= amount is
+// enforced on every increment, so committed (reserved) bond stays fully
+// collateralized and the pending total can never exceed the staying bond.
+// Resetting the clock only ever lengthens the lock, never shortens it.
 func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*types.MsgUnbondRoleResponse, error) {
 	if err := validateRoleType(msg.RoleType); err != nil {
 		return nil, err
@@ -49,13 +53,6 @@ func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*t
 			"%s:%s", msg.RoleType.String(), msg.Creator)
 	}
 
-	// Reject overlapping unbonds — one in-flight at a time keeps the state
-	// machine and the slash-accounting invariants simple.
-	if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING {
-		return nil, errorsmod.Wrap(types.ErrInvalidRequest,
-			"role is already UNBONDING; wait for completion or top-up via a fresh bond cycle")
-	}
-
 	currentBond, err := parseIntOrZero(br.CurrentBond)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid current_bond in bonded role record")
@@ -69,11 +66,17 @@ func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*t
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid total_committed_bond in bonded role record")
 	}
-	available := currentBond.Sub(committed)
+	// Any amount already queued to unbond is subtracted too: an incremental
+	// unbond can only draw on the staying, uncommitted bond.
+	existingPending, err := parseIntOrZero(br.PendingUnbondAmount)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid pending_unbond_amount in bonded role record")
+	}
+	available := currentBond.Sub(committed).Sub(existingPending)
 	if amount.GT(available) {
 		return nil, errorsmod.Wrapf(types.ErrInsufficientBond,
-			"only %s available to unbond (%s committed for pending actions)",
-			available.String(), committed.String())
+			"only %s available to unbond (%s committed for pending actions, %s already unbonding)",
+			available.String(), committed.String(), existingPending.String())
 	}
 
 	// Load config to determine cooldown + thresholds. Graceful no-config
@@ -84,10 +87,22 @@ func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*t
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// Path A: cooldown configured — queue the unbond, keep DREAM locked.
-	if cfgErr == nil && cfg.UnbondCooldown > 0 {
-		br.PendingUnbondAmount = amount.String()
-		br.UnbondCompletionTime = now + cfg.UnbondCooldown
+	// Queued path: a cooldown is configured, OR an unbond is already in flight
+	// (incremental top-down withdrawal). The unbond is queued — DREAM stays
+	// locked. Incremental unbonds ACCUMULATE into pending_unbond_amount so a
+	// sentinel can correct or grow a withdrawal without waiting out the cooldown
+	// first; the whole pending then matures on one clock reset to now + cooldown
+	// (conservative — the staying bond is locked at least the full cooldown,
+	// never less, so the liability tail can only lengthen).
+	isUnbonding := br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	if (cfgErr == nil && cfg.UnbondCooldown > 0) || isUnbonding {
+		cooldown := int64(0)
+		if cfgErr == nil {
+			cooldown = cfg.UnbondCooldown
+		}
+		newPending := existingPending.Add(amount)
+		br.PendingUnbondAmount = newPending.String()
+		br.UnbondCompletionTime = now + cooldown
 		br.BondStatus = types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
 
 		if err := k.BondedRoles.Set(ctx, key, br); err != nil {
@@ -100,6 +115,7 @@ func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*t
 				sdk.NewAttribute("role_type", msg.RoleType.String()),
 				sdk.NewAttribute("address", msg.Creator),
 				sdk.NewAttribute("amount", amount.String()),
+				sdk.NewAttribute("pending_unbond_amount", newPending.String()),
 				sdk.NewAttribute("completion_time", fmt.Sprintf("%d", br.UnbondCompletionTime)),
 				sdk.NewAttribute("bond_status", br.BondStatus.String()),
 			),

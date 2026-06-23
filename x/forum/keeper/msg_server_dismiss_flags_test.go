@@ -151,11 +151,12 @@ func TestMsgServerDismissFlags(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrUnauthorized)
 	})
 
-	t.Run("unbonding sentinel cannot dismiss flags", func(t *testing.T) {
+	t.Run("unbonding sentinel below floor cannot dismiss flags", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 
-		// Sentinel that initiated unbond — bond still locked + slashable,
-		// but no new moderation authority while it drains.
+		// Sentinel unbonding its entire bond — staying bond is zero, below the
+		// floor — so it loses dismiss authority (quantity gate). dismiss_flags
+		// surfaces ineligibility as ErrUnauthorized.
 		if f.repKeeper.sentinels == nil {
 			f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
 		}
@@ -180,5 +181,37 @@ func TestMsgServerDismissFlags(t *testing.T) {
 		_, err := f.msgServer.DismissFlags(f.ctx, msg)
 		require.Error(t, err)
 		require.ErrorIs(t, err, types.ErrUnauthorized)
+	})
+
+	t.Run("partial-unbonding sentinel above floor can dismiss flags", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+
+		// 700 DREAM bonded, 100 queued → 600 staying, above the 500 floor.
+		// dismiss_flags reserves no slash, so only the floor check applies.
+		if f.repKeeper.sentinels == nil {
+			f.repKeeper.sentinels = make(map[string]reptypes.BondedRole)
+		}
+		f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
+			Address:             testSentinel,
+			CurrentBond:         "700000000",
+			PendingUnbondAmount: "100000000",
+			BondStatus:          reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,
+		}
+
+		flag := types.PostFlag{
+			PostId:        post.PostId,
+			TotalWeight:   "100",
+			InReviewQueue: true,
+		}
+		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+
+		_, err := f.msgServer.DismissFlags(f.ctx, &types.MsgDismissFlags{
+			Creator: testSentinel,
+			PostId:  post.PostId,
+		})
+		require.NoError(t, err)
+
+		_, err = f.keeper.PostFlag.Get(f.ctx, post.PostId)
+		require.Error(t, err) // flag cleared
 	})
 }

@@ -90,6 +90,7 @@ var (
 	ErrNotAuthorized              = errors.Register(ModuleName, 1567, "not authorized for this action")
 	ErrPostStatus                 = errors.Register(ModuleName, 1568, "invalid post status for this operation")
 	ErrInvalidModerationAuthority = errors.Register(ModuleName, 1569, "invalid moderation authority")
+	ErrSentinelUnbonding          = errors.Register(ModuleName, 1570, "sentinel bond is unbonding and the staying bond cannot back this action")
 
 	// Appeal errors (1650-1699)
 	ErrAppealCooldown         = errors.Register(ModuleName, 1650, "appeal cooldown not yet passed")

@@ -9,7 +9,6 @@ import (
 	commontypes "sparkdream/x/common/types"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
@@ -45,10 +44,11 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	// less-appealable council path. See
 	// docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
 	//
-	// "Eligible sentinel" = holds a ROLE_TYPE_FORUM_SENTINEL bond in NORMAL or
-	// RECOVERY status with a valid current_bond. DEMOTED/UNBONDING are NOT
-	// eligible (UNBONDING because the bond is draining and we won't back fresh
-	// moderation with bond already pledged to leave).
+	// "Eligible sentinel" = holds a ROLE_TYPE_FORUM_SENTINEL bond that can back
+	// this action. NORMAL/RECOVERY are eligible outright; an UNBONDING role is
+	// eligible while its staying bond (current - pending) covers min_sentinel_bond
+	// — the action's ReserveBond below separately enforces the slash fits in that
+	// staying bond. DEMOTED is never eligible. See eligibleSentinel.
 	var (
 		repSentinel      reptypes.BondedRole
 		bondSnapshot     string
@@ -59,15 +59,8 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	)
 	slashAmount := params.SentinelSlashAmountInt()
 
-	if k.repKeeper == nil {
-		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
-	} else if br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator); err != nil {
-		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
-	} else if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
-		sentinelErr = errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
-	} else if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-		br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-		sentinelErr = types.ErrSentinelDemoted
+	if br, serr := k.eligibleSentinel(ctx, msg.Creator); serr != nil {
+		sentinelErr = serr
 	} else {
 		repSentinel = br
 		bondSnapshot = br.CurrentBond

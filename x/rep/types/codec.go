@@ -152,6 +152,10 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCancelUnbondRole{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgReportMember{},
 	)
 

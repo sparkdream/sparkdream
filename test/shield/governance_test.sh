@@ -437,38 +437,27 @@ echo "  Current max_execs_per_identity_per_epoch: $CURRENT_MAX_EXECS"
 NEW_MAX_GAS="750000"
 NEW_MAX_EXECS="100"
 
-# Need to include ALL params in the update (proto replaces entire Params struct)
-cat > "$PROPOSAL_DIR/update_shield_params.json" <<EOF
-{
-  "messages": [
-    {
+# MsgUpdateParams replaces the ENTIRE Params struct, so every field must be
+# present (any omitted field defaults to its zero value and Params.Validate
+# rejects zero for positive-only fields like dkg_window_blocks). Build the
+# proposal from the queried current params and override only the two fields
+# under test — this stays correct as new param fields are added to the proto.
+echo "$CURRENT_PARAMS" | jq \
+  --arg gas "$NEW_MAX_GAS" \
+  --arg execs "$NEW_MAX_EXECS" \
+  --arg auth "$GOV_ADDR" \
+  --arg denom "$BOND_DENOM" \
+  '{
+    messages: [ {
       "@type": "/sparkdream.shield.v1.MsgUpdateParams",
-      "authority": "$GOV_ADDR",
-      "params": {
-        "enabled": true,
-        "max_funding_per_day": "200000000",
-        "min_gas_reserve": "10000000",
-        "max_gas_per_exec": "$NEW_MAX_GAS",
-        "max_execs_per_identity_per_epoch": "$NEW_MAX_EXECS",
-        "encrypted_batch_enabled": false,
-        "shield_epoch_interval": "10",
-        "min_batch_size": 1,
-        "max_pending_epochs": 6,
-        "max_pending_queue_size": 100,
-        "max_encrypted_payload_size": 16384,
-        "max_ops_per_batch": 100,
-        "tle_miss_window": "20",
-        "tle_miss_tolerance": "5",
-        "tle_jail_duration": "60"
-      }
-    }
-  ],
-  "deposit": "100000000${BOND_DENOM}",
-  "expedited": true,
-  "title": "Update shield module parameters",
-  "summary": "Update max_gas_per_exec and max_execs_per_identity_per_epoch for testing"
-}
-EOF
+      authority: $auth,
+      params: (.params | .max_gas_per_exec = $gas | .max_execs_per_identity_per_epoch = $execs)
+    } ],
+    deposit: ("100000000" + $denom),
+    expedited: true,
+    title: "Update shield module parameters",
+    summary: "Update max_gas_per_exec and max_execs_per_identity_per_epoch for testing"
+  }' > "$PROPOSAL_DIR/update_shield_params.json"
 
 PART8_OK=false
 if submit_and_pass_proposal "$PROPOSAL_DIR/update_shield_params.json" "Update params"; then
@@ -515,37 +504,21 @@ record_result "Part 9:  Verify params updated" "$([ "$PARAMS_OK" = true ] && ech
 # =========================================================================
 echo "--- PART 10: Restore original params ---"
 
-cat > "$PROPOSAL_DIR/restore_shield_params.json" <<EOF
-{
-  "messages": [
-    {
+# Restore by replaying the full original params struct (all fields preserved).
+echo "$CURRENT_PARAMS" | jq \
+  --arg auth "$GOV_ADDR" \
+  --arg denom "$BOND_DENOM" \
+  '{
+    messages: [ {
       "@type": "/sparkdream.shield.v1.MsgUpdateParams",
-      "authority": "$GOV_ADDR",
-      "params": {
-        "enabled": true,
-        "max_funding_per_day": "200000000",
-        "min_gas_reserve": "10000000",
-        "max_gas_per_exec": "$CURRENT_MAX_GAS",
-        "max_execs_per_identity_per_epoch": "$CURRENT_MAX_EXECS",
-        "encrypted_batch_enabled": false,
-        "shield_epoch_interval": "10",
-        "min_batch_size": 1,
-        "max_pending_epochs": 6,
-        "max_pending_queue_size": 100,
-        "max_encrypted_payload_size": 16384,
-        "max_ops_per_batch": 100,
-        "tle_miss_window": "20",
-        "tle_miss_tolerance": "5",
-        "tle_jail_duration": "60"
-      }
-    }
-  ],
-  "deposit": "100000000${BOND_DENOM}",
-  "expedited": true,
-  "title": "Restore shield module parameters",
-  "summary": "Restore original shield parameters after testing"
-}
-EOF
+      authority: $auth,
+      params: .params
+    } ],
+    deposit: ("100000000" + $denom),
+    expedited: true,
+    title: "Restore shield module parameters",
+    summary: "Restore original shield parameters after testing"
+  }' > "$PROPOSAL_DIR/restore_shield_params.json"
 
 PART10_OK=false
 if submit_and_pass_proposal "$PROPOSAL_DIR/restore_shield_params.json" "Restore params"; then

@@ -114,9 +114,11 @@ func TestUnbondRole_FullUnbondMaturityDemotes(t *testing.T) {
 		"demotion cooldown gates re-bonding after full exit")
 }
 
-// TestUnbondRole_RejectsSecondUnbondWhileInFlight: once UNBONDING, a second
-// MsgUnbondRole is refused. State machine stays linear.
-func TestUnbondRole_RejectsSecondUnbondWhileInFlight(t *testing.T) {
+// TestUnbondRole_IncrementalUnbondAccumulates: a second MsgUnbondRole while
+// already UNBONDING accumulates into pending_unbond_amount and resets the single
+// completion clock, so a sentinel can correct/grow a withdrawal without waiting
+// out the cooldown. The committed-aware available check still bounds the total.
+func TestUnbondRole_IncrementalUnbondAccumulates(t *testing.T) {
 	f := initFixture(t)
 	srv := keeper.NewMsgServerImpl(f.keeper)
 
@@ -130,17 +132,206 @@ func TestUnbondRole_RejectsSecondUnbondWhileInFlight(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	firstCompletion := br.UnbondCompletionTime
+
+	// Advance the clock so the reset is observable, then add a second increment.
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	f.ctx = sdkCtx.WithBlockTime(sdkCtx.BlockTime().Add(time.Hour))
+
 	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
 		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
 		Amount:   "100",
 	})
+	require.NoError(t, err)
+
+	br, err = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
+	require.Equal(t, "600", br.PendingUnbondAmount, "second unbond accumulates into pending")
+	require.Equal(t, "2000", br.CurrentBond, "queued unbonds do not reduce current_bond")
+	require.Greater(t, br.UnbondCompletionTime, firstCompletion, "clock resets forward (never shortens the lock)")
+}
+
+// TestUnbondRole_InterleavedBondAndUnbond: bonds and unbonds can be freely
+// interleaved while UNBONDING. Bond top-ups grow current_bond; unbond
+// increments grow pending_unbond_amount; the role stays UNBONDING throughout
+// and the invariant current_bond >= committed + pending always holds.
+func TestUnbondRole_InterleavedBondAndUnbond(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+
+	addr := sdk.AccAddress([]byte("sentinelIL"))
+	bondSentinelForUnbond(t, f, addr, "2000") // current 2000, NORMAL
+
+	unbond := func(a string) {
+		_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
+			Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: a,
+		})
+		require.NoError(t, err)
+	}
+	bond := func(a string) {
+		_, err := srv.BondRole(f.ctx, &types.MsgBondRole{
+			Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: a,
+		})
+		require.NoError(t, err)
+	}
+	get := func() types.BondedRole {
+		br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+		require.NoError(t, err)
+		return br
+	}
+
+	unbond("500") // -> UNBONDING, pending 500, current 2000
+	bond("1000")  // top-up while UNBONDING -> current 3000, pending 500
+	unbond("800") // increment -> pending 1300, current 3000
+	bond("200")   // top-up -> current 3200, pending 1300
+
+	br := get()
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
+	require.Equal(t, "3200", br.CurrentBond)
+	require.Equal(t, "1300", br.PendingUnbondAmount)
+
+	// Invariant: staying (uncommitted, non-pending) bond is non-negative.
+	avail, err := f.keeper.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(1900), avail) // 3200 - 0 committed - 1300 pending
+}
+
+// TestCancelUnbondRole_FullCancelRestoresActive: cancelling the entire pending
+// unbond clears the clock and returns the role to active status (no DREAM moves
+// — pending was only an earmark on still-locked bond).
+func TestCancelUnbondRole_FullCancelRestoresActive(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+
+	addr := sdk.AccAddress([]byte("sentinelCF"))
+	bondSentinelForUnbond(t, f, addr, "2000")
+
+	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "500",
+	})
+	require.NoError(t, err)
+
+	_, err = srv.CancelUnbondRole(f.ctx, &types.MsgCancelUnbondRole{
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "500",
+	})
+	require.NoError(t, err)
+
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, br.BondStatus)
+	require.Equal(t, "0", br.PendingUnbondAmount)
+	require.Equal(t, int64(0), br.UnbondCompletionTime)
+	require.Equal(t, "2000", br.CurrentBond)
+
+	// Full bond is unbondable / usable again.
+	avail, err := f.keeper.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(2000), avail)
+}
+
+// TestCancelUnbondRole_PartialCancelKeepsUnbonding: cancelling part of the
+// pending leaves the role UNBONDING with the remainder still queued.
+func TestCancelUnbondRole_PartialCancelKeepsUnbonding(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+
+	addr := sdk.AccAddress([]byte("sentinelCP"))
+	bondSentinelForUnbond(t, f, addr, "2000")
+
+	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "800",
+	})
+	require.NoError(t, err)
+
+	_, err = srv.CancelUnbondRole(f.ctx, &types.MsgCancelUnbondRole{
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "300",
+	})
+	require.NoError(t, err)
+
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
+	require.Equal(t, "500", br.PendingUnbondAmount)
+	require.Greater(t, br.UnbondCompletionTime, int64(0))
+}
+
+// TestCancelUnbondRole_Rejections: cannot cancel more than pending, and cannot
+// cancel when no unbond is in flight.
+func TestCancelUnbondRole_Rejections(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+
+	addr := sdk.AccAddress([]byte("sentinelCR"))
+	bondSentinelForUnbond(t, f, addr, "2000")
+
+	// No unbond in flight yet.
+	_, err := srv.CancelUnbondRole(f.ctx, &types.MsgCancelUnbondRole{
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "100",
+	})
+	require.ErrorIs(t, err, types.ErrInvalidRequest)
+
+	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "500",
+	})
+	require.NoError(t, err)
+
+	// Cancel more than pending.
+	_, err = srv.CancelUnbondRole(f.ctx, &types.MsgCancelUnbondRole{
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "600",
+	})
 	require.ErrorIs(t, err, types.ErrInvalidRequest)
 }
 
-// TestBondRole_RejectsTopUpWhileUnbonding: cannot bond more while an unbond
-// is draining. Keeps the state machine linear.
-func TestBondRole_RejectsTopUpWhileUnbonding(t *testing.T) {
+// TestUnbondRole_IncrementalUnbondRespectsAvailable: incremental unbonds cannot
+// over-withdraw — the running pending total plus committed bond is bounded by
+// current_bond.
+func TestUnbondRole_IncrementalUnbondRespectsAvailable(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+
+	addr := sdk.AccAddress([]byte("sentinelE"))
+	bondSentinelForUnbond(t, f, addr, "2000")
+
+	// Reserve 500 of the bond so only 1500 is unbondable in total.
+	require.NoError(t, f.keeper.ReserveBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String(), math.NewInt(500)))
+
+	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
+		Creator:  addr.String(),
+		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		Amount:   "1000",
+	})
+	require.NoError(t, err)
+
+	// 1000 already pending + 500 committed leaves only 500 unbondable; 600 fails.
+	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
+		Creator:  addr.String(),
+		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		Amount:   "600",
+	})
+	require.ErrorIs(t, err, types.ErrInsufficientBond)
+
+	// 500 exactly fits.
+	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
+		Creator:  addr.String(),
+		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		Amount:   "500",
+	})
+	require.NoError(t, err)
+
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, "1500", br.PendingUnbondAmount)
+}
+
+// TestBondRole_AllowsTopUpWhileUnbonding: a bond top-up during an in-flight
+// unbond is allowed (it only adds slashable collateral). The top-up increases
+// current_bond immediately, while the queued withdrawal keeps maturing on its
+// own schedule — the role stays UNBONDING with its pending amount untouched.
+func TestBondRole_AllowsTopUpWhileUnbonding(t *testing.T) {
 	f := initFixture(t)
 	srv := keeper.NewMsgServerImpl(f.keeper)
 
@@ -154,12 +345,21 @@ func TestBondRole_RejectsTopUpWhileUnbonding(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Top-up succeeds mid-unbond.
 	_, err = srv.BondRole(f.ctx, &types.MsgBondRole{
 		Creator:  addr.String(),
 		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
 		Amount:   "1000",
 	})
-	require.ErrorIs(t, err, types.ErrInvalidRequest)
+	require.NoError(t, err)
+
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	// current_bond grew by the top-up; the unbond is still in flight unchanged.
+	require.Equal(t, "3000", br.CurrentBond)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
+	require.Equal(t, "500", br.PendingUnbondAmount)
+	require.NotZero(t, br.UnbondCompletionTime)
 }
 
 // TestSlashBond_DuringUnbondingPreservesStatusAndCapsPending: a slash during

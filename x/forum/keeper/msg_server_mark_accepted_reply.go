@@ -111,18 +111,12 @@ func (k msgServer) proposeAcceptedReply(ctx context.Context, msg *types.MsgMarkA
 		return nil, errorsmod.Wrap(types.ErrSentinelCannotClearAccepted, "use the thread author to clear an accepted reply")
 	}
 
-	// Caller must be an active (NORMAL/RECOVERY) bonded sentinel. Mirrors the
-	// hide/lock/move/pin gating so DEMOTED sentinels cannot propose.
-	if k.repKeeper == nil {
-		return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
-	}
-	br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-	if err != nil {
-		return nil, errorsmod.Wrap(types.ErrNotSentinel, "only the thread author or a qualified sentinel can mark an accepted reply")
-	}
-	if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-		br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-		return nil, types.ErrSentinelDemoted
+	// Caller must be an eligible bonded sentinel. Mirrors the hide/lock/move/pin
+	// gating so DEMOTED sentinels cannot propose; an UNBONDING sentinel whose
+	// staying bond still covers the floor may. MarkAcceptedReply reserves no
+	// slash, so only the floor check applies (no ReserveBond below).
+	if _, err := k.eligibleSentinel(ctx, msg.Creator); err != nil {
+		return nil, err
 	}
 
 	// Bounty threads pay out via MsgAwardBounty; a sentinel must not pre-empt

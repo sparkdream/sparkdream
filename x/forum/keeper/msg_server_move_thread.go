@@ -7,7 +7,6 @@ import (
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
@@ -64,13 +63,8 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 	)
 	if k.repKeeper == nil {
 		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
-	} else if br, berr := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator); berr != nil {
-		sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
-	} else if _, ok := math.NewIntFromString(br.CurrentBond); !ok || br.CurrentBond == "" {
-		sentinelErr = errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role current_bond: %q", br.CurrentBond)
-	} else if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-		br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-		sentinelErr = types.ErrSentinelDemoted
+	} else if br, berr := k.eligibleSentinel(ctx, msg.Creator); berr != nil {
+		sentinelErr = berr
 	} else if reservedTag := k.firstReservedTag(ctx, post.Tags); reservedTag != "" {
 		sentinelErr = errorsmod.Wrapf(types.ErrCannotMoveReservedTag, "thread has reserved tag '%s'", reservedTag)
 	} else {

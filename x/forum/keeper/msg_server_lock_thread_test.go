@@ -228,8 +228,8 @@ func TestLockThreadByGovAuthority(t *testing.T) {
 	require.Error(t, err) // Should not find lock record
 }
 
-// TestLockThread_UnbondingSentinelRejected: sentinel in UNBONDING state has
-// drained authority while bond drains over the cooldown.
+// TestLockThread_UnbondingSentinelRejected: a sentinel unbonding its entire
+// bond leaves zero staying bond — below the floor — so it cannot lock.
 func TestLockThread_UnbondingSentinelRejected(t *testing.T) {
 	f := initFixture(t)
 
@@ -248,7 +248,34 @@ func TestLockThread_UnbondingSentinelRejected(t *testing.T) {
 		Reason:  "Test",
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrSentinelDemoted)
+	require.ErrorIs(t, err, types.ErrSentinelUnbonding)
+}
+
+// TestLockThread_PartialUnbondingSentinelAllowed: a partial unbond that leaves
+// the staying bond above both the sentinel floor and the higher lock floor lets
+// the sentinel keep locking. 3000 bonded, 100 queued → 2900 staying.
+func TestLockThread_PartialUnbondingSentinelAllowed(t *testing.T) {
+	f := initFixture(t)
+
+	cat := f.createTestCategory(t, "General")
+	thread := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+
+	f.createTestSentinel(t, testSentinel, "3000000000")
+	br := f.repKeeper.sentinels[testSentinel]
+	br.PendingUnbondAmount = "100000000" // 2900 stays, above lock floor
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.sentinels[testSentinel] = br
+
+	_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
+		Creator: testSentinel,
+		RootId:  thread.PostId,
+		Reason:  "Test",
+	})
+	require.NoError(t, err)
+
+	locked, err := f.keeper.Post.Get(f.ctx, thread.PostId)
+	require.NoError(t, err)
+	require.True(t, locked.Locked)
 }
 
 // TestLockThread_ParamDrivenBondFloor proves the lock bond floor is read from

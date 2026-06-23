@@ -988,18 +988,19 @@ else
 fi
 
 # ========================================================================
-# TEST 19: Post-unbond state blocks re-bonding
-# Unbond bob enough to drop below VerifierRecoveryThreshold (250) so that
-# either:
-#   - the queued unbond is still in flight (status=UNBONDING) — re-bond is
-#     refused with "cannot bond while UNBONDING is in flight"
+# TEST 19: Re-bond behavior while an unbond is in flight / after demotion
+# Unbond bob enough to drop below VerifierRecoveryThreshold (250). Two states
+# can result, with DIFFERENT expected re-bond behavior:
+#   - the queued unbond is still in flight (status=UNBONDING) — a re-bond is
+#     now ALLOWED as a top-up (it only adds slashable collateral; the pending
+#     withdrawal keeps maturing independently and status stays UNBONDING).
+#     See x/rep/keeper/msg_server_bond_role.go.
 #   - the cooldown matured and the residual bond is below the demotion
-#     threshold (status=DEMOTED) — re-bond is refused with the demotion
-#     cooldown gate
-# Both states are correct rejections of an immediate re-bond.
+#     threshold (status=DEMOTED) — re-bond is refused by the demotion cooldown
+#     gate (code 2339).
 # ========================================================================
 echo ""
-echo "--- TEST 19: Post-unbond state blocks re-bonding ---"
+echo "--- TEST 19: Re-bond during UNBONDING (top-up) / DEMOTED (gated) ---"
 
 VERIFIER_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_B_ADDR --output json)
 if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
@@ -1022,8 +1023,55 @@ if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
             BOB_STATUS=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.bond_status // empty')
             echo "  After unbond: status=$BOB_STATUS"
 
-            if [ "$BOB_STATUS" == "BONDED_ROLE_STATUS_DEMOTED" ] || [ "$BOB_STATUS" == "BONDED_ROLE_STATUS_UNBONDING" ]; then
-                # Either state should refuse a re-bond.
+            if [ "$BOB_STATUS" == "BONDED_ROLE_STATUS_UNBONDING" ]; then
+                # Top-up while UNBONDING is now allowed (it only adds slashable
+                # collateral). The OLD behavior hard-rejected it with "cannot
+                # bond while UNBONDING is in flight"; the regression guard is
+                # that the re-bond is NO LONGER rejected with that error.
+                #
+                # NOTE the maturity race: the testparams unbonding period is
+                # short, so the queued unbond can MATURE between this query and
+                # the re-bond tx landing. Two correct outcomes therefore exist:
+                #   (a) still in flight  → top-up accepted (code 0), or
+                #   (b) matured to DEMOTED first → re-bond hits the demotion
+                #       cooldown gate (code 2339).
+                # Both are correct; only the old "while UNBONDING" rejection (or
+                # an unrelated error) is a failure. Don't assert bond magnitude
+                # or final status — the matured withdrawal makes them racy.
+                PRE_REBOND_BOND=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.current_bond // "0"')
+                TX_RES=$($BINARY tx rep bond-role federation-verifier \
+                    500000000 \
+                    --from $VERIFIER_B \
+                    --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
+
+                CODE=""; RAW=""
+                if submit_and_wait "$TX_RES" "re-bond during/after UNBONDING"; then
+                    CODE=$(echo "$TX_RESULT" | jq -r '.code')
+                    RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty')
+                else
+                    CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
+                    RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
+                fi
+                POST_DATA=$($BINARY query rep bonded-role federation-verifier $VERIFIER_B_ADDR --output json)
+                POST_BOND=$(echo "$POST_DATA" | jq -r '.bonded_role.current_bond // "0"')
+                POST_STATUS=$(echo "$POST_DATA" | jq -r '.bonded_role.bond_status // empty')
+                echo "  After re-bond: code=$CODE bond=$PRE_REBOND_BOND->$POST_BOND status=$POST_STATUS"
+
+                if echo "$RAW" | grep -qi "while UNBONDING\|in flight"; then
+                    echo "  Re-bond rejected with the OLD 'cannot bond while UNBONDING' error — regression"
+                    record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
+                elif [ "$CODE" == "0" ]; then
+                    echo "  Re-bond accepted while/after UNBONDING (top-up allowed)"
+                    record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
+                elif [ "$CODE" == "2339" ] || echo "$RAW" | grep -qi "cooldown\|demotion"; then
+                    echo "  Re-bond gated by demotion cooldown (unbond matured to DEMOTED first) — also correct"
+                    record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
+                else
+                    echo "  Unexpected rejection: $(echo "$RAW" | head -c 160)"
+                    record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
+                fi
+            elif [ "$BOB_STATUS" == "BONDED_ROLE_STATUS_DEMOTED" ]; then
+                # DEMOTED: re-bond is gated by the demotion cooldown (code 2339).
                 TX_RES=$($BINARY tx rep bond-role federation-verifier \
                     500000000 \
                     --from $VERIFIER_B \
@@ -1032,43 +1080,43 @@ if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
                 if submit_and_wait "$TX_RES" "re-bond during cooldown"; then
                     CODE=$(echo "$TX_RESULT" | jq -r '.code')
                     RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty')
-                    if [ "$CODE" == "2339" ] || echo "$RAW" | grep -qi "cooldown\|demotion\|UNBONDING"; then
-                        echo "  Re-bond correctly refused (code=$CODE, status was $BOB_STATUS)"
-                        record_result "Post-unbond state blocks bond" "PASS"
+                    if [ "$CODE" == "2339" ] || echo "$RAW" | grep -qi "cooldown\|demotion"; then
+                        echo "  Re-bond correctly refused by demotion cooldown (code=$CODE)"
+                        record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
                     elif [ "$CODE" != "0" ]; then
                         echo "  Rejected (code=$CODE)"
-                        record_result "Post-unbond state blocks bond" "PASS"
+                        record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
                     else
-                        echo "  Should have been rejected (status=$BOB_STATUS)"
-                        record_result "Post-unbond state blocks bond" "FAIL"
+                        echo "  Should have been refused by cooldown (status was DEMOTED)"
+                        record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
                     fi
                 else
                     CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
                     RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-                    if [ "$CODE" == "2339" ] || echo "$RAW" | grep -qi "cooldown\|demotion\|UNBONDING"; then
+                    if [ "$CODE" == "2339" ] || echo "$RAW" | grep -qi "cooldown\|demotion"; then
                         echo "  Re-bond correctly refused (code=$CODE)"
-                        record_result "Post-unbond state blocks bond" "PASS"
+                        record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
                     else
                         echo "  Rejected: $(echo "$RAW" | head -c 120)"
-                        record_result "Post-unbond state blocks bond" "PASS"
+                        record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
                     fi
                 fi
             else
                 echo "  Expected DEMOTED or UNBONDING after unbond, got $BOB_STATUS"
-                record_result "Post-unbond state blocks bond" "FAIL"
+                record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
             fi
         else
             RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
             echo "  Unbond failed: $RAW"
-            record_result "Post-unbond state blocks bond" "FAIL"
+            record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
         fi
     else
         echo "  Bond too low to test demotion (bond=$BOB_BOND)"
-        record_result "Post-unbond state blocks bond" "FAIL"
+        record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
     fi
 else
     echo "  Bob not a verifier"
-    record_result "Post-unbond state blocks bond" "FAIL"
+    record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
 fi
 
 # ========================================================================

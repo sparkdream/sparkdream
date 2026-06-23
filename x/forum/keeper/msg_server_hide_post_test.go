@@ -224,9 +224,10 @@ func TestHidePostSentinelBondCommitment(t *testing.T) {
 	require.NotEqual(t, "0", repSentinel.TotalCommittedBond)
 }
 
-// TestHidePost_UnbondingSentinelRejected exercises the UNBONDING liability gate:
-// once unbond is initiated, the bond drains over the cooldown but the holder
-// must not back fresh hides with bond that's already pledged to leave.
+// TestHidePost_UnbondingSentinelRejected exercises the UNBONDING quantity gate:
+// a sentinel unbonding its ENTIRE bond leaves zero staying bond — below the
+// min_sentinel_bond floor — so it cannot back fresh hides. The portion being
+// withdrawn is treated as already gone.
 func TestHidePost_UnbondingSentinelRejected(t *testing.T) {
 	f := initFixture(t)
 
@@ -234,7 +235,8 @@ func TestHidePost_UnbondingSentinelRejected(t *testing.T) {
 	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
 
 	f.createTestSentinel(t, testSentinel, "2000000000")
-	// Flip the sentinel into UNBONDING state directly on the mock rep keeper.
+	// Flip the sentinel into UNBONDING state directly on the mock rep keeper,
+	// withdrawing the full bond so the staying bond is zero.
 	br := f.repKeeper.sentinels[testSentinel]
 	br.PendingUnbondAmount = "2000000000"
 	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
@@ -248,7 +250,63 @@ func TestHidePost_UnbondingSentinelRejected(t *testing.T) {
 	}
 	_, err := f.msgServer.HidePost(f.ctx, msg)
 	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrSentinelDemoted)
+	require.ErrorIs(t, err, types.ErrSentinelUnbonding)
+}
+
+// TestHidePost_PartialUnbondingSentinelAllowed is the motivating case: a
+// sentinel bonded 700 DREAM queues a 100 DREAM unbond, leaving 600 staying —
+// above the 500 floor — and must still be able to hide via the sentinel path.
+func TestHidePost_PartialUnbondingSentinelAllowed(t *testing.T) {
+	f := initFixture(t)
+
+	cat := f.createTestCategory(t, "General")
+	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+
+	f.createTestSentinel(t, testSentinel, "700000000") // 700 DREAM
+	br := f.repKeeper.sentinels[testSentinel]
+	br.PendingUnbondAmount = "100000000" // withdraw 100, 600 stays
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.sentinels[testSentinel] = br
+
+	msg := &types.MsgHidePost{
+		Creator:    testSentinel,
+		PostId:     post.PostId,
+		ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+		ReasonText: "Test",
+	}
+	_, err := f.msgServer.HidePost(f.ctx, msg)
+	require.NoError(t, err)
+
+	// The hide took the sentinel path: a HideRecord crediting the sentinel
+	// exists (Sentinel != "" gov-hide marker).
+	rec, err := f.keeper.HideRecord.Get(f.ctx, post.PostId)
+	require.NoError(t, err)
+	require.Equal(t, testSentinel, rec.Sentinel)
+}
+
+// TestHidePost_PartialUnbondingBelowFloorRejected covers the boundary: a partial
+// unbond that drops the staying bond under the floor (700 bonded, 250 unbond →
+// 450 < 500) is rejected with ErrSentinelUnbonding.
+func TestHidePost_PartialUnbondingBelowFloorRejected(t *testing.T) {
+	f := initFixture(t)
+
+	cat := f.createTestCategory(t, "General")
+	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+
+	f.createTestSentinel(t, testSentinel, "700000000")
+	br := f.repKeeper.sentinels[testSentinel]
+	br.PendingUnbondAmount = "250000000" // 450 stays, below 500 floor
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.sentinels[testSentinel] = br
+
+	_, err := f.msgServer.HidePost(f.ctx, &types.MsgHidePost{
+		Creator:    testSentinel,
+		PostId:     post.PostId,
+		ReasonCode: uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+		ReasonText: "Test",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrSentinelUnbonding)
 }
 
 // TestHidePost_ParamDrivenEpochCap proves the per-epoch hide cap is read from

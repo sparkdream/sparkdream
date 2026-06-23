@@ -29,16 +29,8 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 	// Hide/lock/move use the same check; PinReply was the last bypass.
 	isSentinel := false
 	if !isGov {
-		if k.repKeeper == nil {
-			return nil, errorsmod.Wrap(types.ErrNotSentinel, "rep keeper not wired")
-		}
-		br, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-		if err != nil {
-			return nil, errorsmod.Wrap(types.ErrNotSentinel, "not a registered sentinel")
-		}
-		if br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-			br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-			return nil, types.ErrSentinelDemoted
+		if _, err := k.eligibleSentinel(ctx, msg.Creator); err != nil {
+			return nil, err
 		}
 		isSentinel = true
 	}

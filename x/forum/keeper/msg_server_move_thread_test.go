@@ -255,7 +255,8 @@ func TestMoveThreadWithReservedTag(t *testing.T) {
 	require.Contains(t, err.Error(), "reserved tag")
 }
 
-// TestMoveThread_UnbondingSentinelRejected: UNBONDING sentinel deauthorized.
+// TestMoveThread_UnbondingSentinelRejected: a sentinel unbonding its entire
+// bond leaves zero staying bond — below the floor — so it cannot move threads.
 func TestMoveThread_UnbondingSentinelRejected(t *testing.T) {
 	f := initFixture(t)
 
@@ -276,7 +277,36 @@ func TestMoveThread_UnbondingSentinelRejected(t *testing.T) {
 		Reason:        "Test",
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrSentinelDemoted)
+	require.ErrorIs(t, err, types.ErrSentinelUnbonding)
+}
+
+// TestMoveThread_PartialUnbondingSentinelAllowed: a partial unbond leaving the
+// staying bond above the floor keeps move authority. 3000 bonded, 100 queued →
+// 2900 staying ≥ 500 floor.
+func TestMoveThread_PartialUnbondingSentinelAllowed(t *testing.T) {
+	f := initFixture(t)
+
+	cat1 := f.createTestCategory(t, "Source")
+	cat2 := f.createTestCategory(t, "Destination")
+	thread := f.createTestPost(t, testCreator, 0, cat1.CategoryId)
+
+	f.createTestSentinel(t, testSentinel, "3000000000")
+	br := f.repKeeper.sentinels[testSentinel]
+	br.PendingUnbondAmount = "100000000"
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.sentinels[testSentinel] = br
+
+	_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{
+		Creator:       testSentinel,
+		RootId:        thread.PostId,
+		NewCategoryId: cat2.CategoryId,
+		Reason:        "Test",
+	})
+	require.NoError(t, err)
+
+	moved, err := f.keeper.Post.Get(f.ctx, thread.PostId)
+	require.NoError(t, err)
+	require.Equal(t, cat2.CategoryId, moved.CategoryId)
 }
 
 // TestMoveThread_AuthorityDisambiguation covers the sentinel-vs-council choice

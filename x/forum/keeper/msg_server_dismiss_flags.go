@@ -20,15 +20,15 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 	// Only sentinels or operations committee can dismiss flags
 	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
 
-	// Check if sender is an active sentinel via x/rep — only NORMAL and
-	// RECOVERY can dismiss flags; DEMOTED and UNBONDING are deauthorized.
+	// Check if sender is an eligible sentinel via x/rep. NORMAL/RECOVERY qualify;
+	// an UNBONDING sentinel whose staying bond still covers the floor also does.
+	// DismissFlags reserves no slash, so only the floor check applies. DEMOTED is
+	// deauthorized.
 	isSentinel := false
-	if !isGovAuthority && k.repKeeper != nil {
-		br, serr := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-		isSentinel = serr == nil &&
-			br.CurrentBond != "" &&
-			(br.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL ||
-				br.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY)
+	if !isGovAuthority {
+		if _, serr := k.eligibleSentinel(ctx, msg.Creator); serr == nil {
+			isSentinel = true
+		}
 	}
 
 	if !isGovAuthority && !isSentinel {

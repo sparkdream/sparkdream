@@ -310,9 +310,17 @@ fi
 # ========================================================================
 # TEST 5: ErrBondAmountTooSmall - Bond with amount below minimum
 # ========================================================================
-echo "--- TEST 5: ErrBondAmountTooSmall - Bond below minimum ---"
+echo "--- TEST 5: Sub-min top-up to an existing role is accepted ---"
 
-echo "  Attempting to bond 1 udream (below minimum 500)..."
+# The min_bond floor applies only to a role's FIRST bond (deterministically
+# unit-tested: TestBondRole_RejectsBelowMinBondOnFirst). sentinel2 already holds
+# a bond record from sentinel_test.sh (UNBONDING after its PART 13 queued
+# unbond), so a 1-udream amount is a valid incremental top-up — it only adds
+# slashable collateral, and top-ups are allowed mid-unbond. It must be ACCEPTED.
+echo "  Topping up sentinel2 with 1 udream (sub-min, but a top-up to an existing role)..."
+B4=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL2_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
+[ -z "$B4" ] && B4="0"
+
 TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     "1" \
     --from sentinel2 \
@@ -322,14 +330,20 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     -y \
     --output json 2>&1)
 
-# Accept several valid rejection paths — sentinel2's state at this point
-# depends on what earlier tests did:
-#   - DEMOTED + cooldown if a slash drained their bond → "demotion cooldown"
-#   - UNBONDING if sentinel_test.sh PART 13 queued an unbond and the
-#     cooldown hasn't matured → "cannot bond while UNBONDING"
-#   - NORMAL/RECOVERY → the below-min check fires → "bond amount too small"
-# All three are correct rejections of a 1-udream bond attempt.
-expect_tx_failure "$TX_RES" "bond amount too small\|too small\|below minimum\|insufficient\|demotion cooldown\|cannot bond until\|UNBONDING is in flight\|cannot bond while UNBONDING" "ErrBondAmountTooSmall: bond below minimum"
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    AFTER=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL2_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
+    echo "  Top-up accepted: current_bond $B4 -> $AFTER"
+    if [ "$AFTER" == "$((${B4:-0} + 1))" ]; then
+        record_result "Sub-min top-up to existing role accepted" "PASS"
+    else
+        echo "  ERROR: current_bond did not grow by the top-up"
+        record_result "Sub-min top-up to existing role accepted" "FAIL"
+    fi
+else
+    echo "  ERROR: sub-min top-up to an existing role was rejected"
+    echo "  raw_log: $(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)"
+    record_result "Sub-min top-up to existing role accepted" "FAIL"
+fi
 
 # ========================================================================
 # TEST 6: ErrPostAlreadyHidden - Hide an already-hidden post

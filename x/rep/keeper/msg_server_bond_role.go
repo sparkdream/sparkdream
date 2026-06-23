@@ -90,12 +90,40 @@ func (k msgServer) BondRole(ctx context.Context, msg *types.MsgBondRole) (*types
 		}
 	}
 
-	// Reject top-ups while an unbond is in flight — caller must wait for
-	// MatureUnbonds to drain the pending amount and flip status to DEMOTED
-	// (then the demotion_cooldown applies). Keeps the state machine linear.
+	currentBond, err := parseIntOrZero(br.CurrentBond)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid current_bond in bonded role record")
+	}
+	newBond := currentBond.Add(amount)
+
+	// Top-up while an unbond is in flight is allowed. A bond only ADDS
+	// slashable collateral, so there is no liability reason to block it — and
+	// forcing the holder to wait out the full cooldown before adding bond is a
+	// needless restriction (sentinels should be able to bond / unbond / rebond
+	// incrementally). The queued withdrawal (pending_unbond_amount /
+	// unbond_completion_time) is independent and keeps maturing on its own
+	// schedule; the role stays UNBONDING until MatureUnbonds finalizes it.
+	// Status is deliberately NOT recomputed here — flipping it to NORMAL would
+	// orphan the pending unbond (MatureUnbonds only processes UNBONDING rows).
 	if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING {
-		return nil, errorsmod.Wrap(types.ErrInvalidRequest,
-			"cannot bond while UNBONDING is in flight; wait for completion")
+		if err := k.LockDREAM(ctx, creatorAddr, amount); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to lock DREAM bond")
+		}
+		br.CurrentBond = newBond.String()
+		if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to store bonded role")
+		}
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"bonded_role_bonded",
+				sdk.NewAttribute("role_type", msg.RoleType.String()),
+				sdk.NewAttribute("address", msg.Creator),
+				sdk.NewAttribute("amount", msg.Amount),
+				sdk.NewAttribute("total_bond", br.CurrentBond),
+				sdk.NewAttribute("bond_status", br.BondStatus.String()),
+			),
+		)
+		return &types.MsgBondRoleResponse{}, nil
 	}
 
 	// Enforce demotion cooldown for re-bonding DEMOTED roles.
@@ -103,12 +131,6 @@ func (k msgServer) BondRole(ctx context.Context, msg *types.MsgBondRole) (*types
 		return nil, errorsmod.Wrapf(types.ErrDemotionCooldown,
 			"cannot bond until %d", br.DemotionCooldownUntil)
 	}
-
-	currentBond, err := parseIntOrZero(br.CurrentBond)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "invalid current_bond in bonded role record")
-	}
-	newBond := currentBond.Add(amount)
 
 	// First bond must land the record at or above min_bond (otherwise the
 	// role would start in RECOVERY / DEMOTED from the outset, which is

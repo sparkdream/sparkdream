@@ -125,6 +125,39 @@ func TestBondRole_RejectsBelowMinBondOnFirst(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrBondAmountTooSmall)
 }
 
+// TestBondRole_AllowsSubMinTopUpOnExisting: the min_bond floor only gates a
+// role's FIRST bond. Once a record exists, a sub-min top-up is accepted (it only
+// adds slashable collateral — lets a RECOVERY/DEMOTED holder rebuild). This is
+// the counterpart to TestBondRole_RejectsBelowMinBondOnFirst and the behavior
+// the forum e2e bond-below-min tests now assert.
+func TestBondRole_AllowsSubMinTopUpOnExisting(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+
+	addr := sdk.AccAddress([]byte("rebuilder1"))
+	seedRoleCandidate(t, f, addr, math.NewInt(5_000), "250.0", types.TrustLevel_TRUST_LEVEL_NEW)
+
+	// First bond at/above the seeded 1000 min.
+	_, err := srv.BondRole(f.ctx, &types.MsgBondRole{
+		Creator:  addr.String(),
+		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		Amount:   "2000",
+	})
+	require.NoError(t, err)
+
+	// Sub-min top-up to the existing record is accepted.
+	_, err = srv.BondRole(f.ctx, &types.MsgBondRole{
+		Creator:  addr.String(),
+		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		Amount:   "500", // below the 1000 min, but a top-up
+	})
+	require.NoError(t, err)
+
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, "2500", br.CurrentBond)
+}
+
 func TestBondRole_RejectsInvalidRoleType(t *testing.T) {
 	f := initFixture(t)
 	srv := keeper.NewMsgServerImpl(f.keeper)

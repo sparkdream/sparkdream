@@ -539,6 +539,11 @@ if [ "$RUN_APPEALS" = true ]; then
     # path, so it belongs in the appeals phase. Resolves are UPHELD-only so the
     # shared sentinel1 is never left in an overturn cooldown for later tests.
     run_test "Sentinel Accuracy Window Tests" "sentinel_accuracy_window_test.sh"
+    # unbond_moderation_test.sh proves the bond-quantity eligibility gate end to
+    # end: a partial-unbonding sentinel (staying bond above the floor) can still
+    # hide, and a bond top-up is accepted mid-unbond (incremental rebond). Uses
+    # the dedicated `moderator` account so it never contaminates sentinel1.
+    run_test "Unbond Moderation Tests" "unbond_moderation_test.sh"
 else
     echo "Skipping appeals tests (--no-appeals)"
     echo ""

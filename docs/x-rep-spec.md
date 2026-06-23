@@ -877,8 +877,8 @@ message BondedRoleConfig {
 |--------|-------|
 | `IsBondedRole(ctx, role_type, addr) (bool, error)` | Permission check before accepting a role-gated action |
 | `GetBondedRole(ctx, role_type, addr) (BondedRole, error)` | Fetch the rep-side record for status + bond inspection |
-| `GetAvailableBond(ctx, role_type, addr) (math.Int, error)` | `current_bond - total_committed_bond`, saturating at zero |
-| `ReserveBond(ctx, role_type, addr, amount)` | Commit bond against a pending action (hide, review, verification) |
+| `GetAvailableBond(ctx, role_type, addr) (math.Int, error)` | `current_bond - total_committed_bond - pending_unbond_amount`, saturating at zero (pending-aware: bond queued to unbond cannot back new reservations) |
+| `ReserveBond(ctx, role_type, addr, amount)` | Commit bond against a pending action (hide, review, verification); draws only on staying, uncommitted bond (pending-aware) |
 | `ReleaseBond(ctx, role_type, addr, amount)` | Release commitment on successful/expired action |
 | `SlashBond(ctx, role_type, addr, amount, reason)` | Unlock + burn DREAM; decrement both `current_bond` and `total_committed_bond` |
 | `RecordActivity(ctx, role_type, addr)` | Stamp `last_active_epoch`, reset `consecutive_inactive_epochs` |
@@ -1463,7 +1463,7 @@ All five messages (`MsgCreateTagBudget`, `MsgTopUpTagBudget`, `MsgAwardFromTagBu
 
 ### Bonded-Role Messages
 
-`MsgBondRole` / `MsgUnbondRole` are the generic bonding entry points for every DREAM-bonded role (forum sentinels, collect curators, federation verifiers, future roles). The `role_type` field selects the role; per-role eligibility is enforced against the corresponding `BondedRoleConfig`.
+`MsgBondRole` / `MsgUnbondRole` / `MsgCancelUnbondRole` are the generic bonding entry points for every DREAM-bonded role (forum sentinels, collect curators, federation verifiers, future roles). The `role_type` field selects the role; per-role eligibility is enforced against the corresponding `BondedRoleConfig`. Bond modifications are incremental and reversible (see "Queued unbond + cooldown").
 
 ```protobuf
 message MsgBondRole {
@@ -1481,6 +1481,14 @@ message MsgUnbondRole {
   string   amount    = 3;
 }
 message MsgUnbondRoleResponse {}
+
+message MsgCancelUnbondRole {
+  option (cosmos.msg.v1.signer) = "creator";
+  string   creator   = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  RoleType role_type = 2;
+  string   amount    = 3;  // amount of pending_unbond_amount to cancel
+}
+message MsgCancelUnbondRoleResponse {}
 ```
 
 #### Queued unbond + cooldown
@@ -1493,15 +1501,16 @@ When the role's `BondedRoleConfig.UnbondCooldown` is positive (the default for a
 
 While `UNBONDING`:
 
-- Owning modules must refuse role authority — `MsgRateCollection` in x/collect, `MsgHidePost` / `MsgLockThread` / `MsgMoveThread` / `MsgPinReply` / `MsgDismissFlags` in x/forum, and federation verifier actions all reject on this status. This contains new liability: the draining bond cannot back fresh moderation/curation/verification work.
-- A second `MsgUnbondRole` is rejected (`ErrInvalidRequest: already UNBONDING`) — one in-flight unbond per role at a time.
-- `MsgBondRole` is rejected (`ErrInvalidRequest: cannot bond while UNBONDING is in flight`) — top-ups and re-bonds wait for the cooldown to mature.
+- Owning modules gate role authority on a bond-**quantity** rule, not a blanket refusal. The holder may keep acting as long as its *staying* bond (`current_bond - pending_unbond_amount`) covers the role's floor; only the portion being withdrawn is treated as already gone. x/forum's `MsgHidePost` / `MsgLockThread` / `MsgMoveThread` / `MsgPinReply` / `MsgDismissFlags` route through a shared `eligibleSentinel` helper that returns `ErrSentinelUnbonding` only when the staying bond drops below `min_sentinel_bond`. The liability tail is closed not by the status flag but by `ReserveBond` being pending-aware (below): a slash reserved during an unbond draws only on staying, uncommitted bond, so any action taken mid-unbond stays fully backed (and slashable) through its whole appeal window. (`MsgRateCollection` in x/collect and federation verifier actions apply the same staying-bond logic via the same primitives.)
+- A second `MsgUnbondRole` while already `UNBONDING` is **allowed and incremental**: it adds to `PendingUnbondAmount` (bounded by `CurrentBond - TotalCommittedBond - PendingUnbondAmount`, so the pending total can never exceed the staying bond) and resets the single `UnbondCompletionTime` to `block_time + UnbondCooldown`. This lets a holder correct or grow a withdrawal without first waiting out the cooldown. Resetting the one clock only ever lengthens the lock (never shortens it), so the liability tail is preserved.
+- `MsgBondRole` top-ups are **allowed** during `UNBONDING`. A bond only adds slashable collateral, so it increases `CurrentBond` immediately while leaving the queued withdrawal (`PendingUnbondAmount` / `UnbondCompletionTime`) untouched; status stays `UNBONDING` (it is deliberately not recomputed, since flipping to NORMAL would orphan the pending unbond). Holders can bond / unbond / rebond incrementally without waiting out the cooldown for each change.
+- `MsgCancelUnbondRole` **cancels** part or all of the in-flight unbond: it reduces `PendingUnbondAmount` by `amount` (≤ the pending total). No DREAM moves — a queued unbond never unlocked any, so cancelling simply removes the earmark. Cancelling the entire pending amount clears `UnbondCompletionTime` and recomputes `BondStatus` from the unchanged `CurrentBond` (the role returns to `NORMAL` / `RECOVERY`); a partial cancel leaves the role `UNBONDING` with the remainder on its existing clock (shrinking a withdrawal never needs a longer tail). This gives holders bidirectional, cooldown-free control over an in-flight withdrawal. Rejected with `ErrInvalidRequest` if no unbond is in flight or `amount` exceeds the pending total.
 - `SlashBond` continues to operate on `CurrentBond` and caps `PendingUnbondAmount` at the new `CurrentBond`. Status stays `UNBONDING` through slashes — only `MatureUnbonds` flips it.
 
 The EndBlocker calls `MatureUnbonds` every block. For any record whose `UnbondCompletionTime <= block_time`:
 
-1. Unlock the remaining `PendingUnbondAmount` of DREAM on the member (whatever survived mid-cooldown slashes).
-2. Reduce `CurrentBond` by the same amount, zero `PendingUnbondAmount` and `UnbondCompletionTime`.
+1. Unlock the matured DREAM on the member, **capped at `CurrentBond - TotalCommittedBond`** so maturity never releases bond earmarked to back an outstanding action (whatever survived mid-cooldown slashes). With pending-aware `ReserveBond`/`GetAvailableBond` the invariant `CurrentBond ≥ TotalCommittedBond + PendingUnbondAmount` holds by construction, so the release equals the full pending in practice; the cap is the regression guard that keeps rep and forum decoupled regardless of EndBlocker ordering.
+2. Reduce `CurrentBond` by the released amount, zero `PendingUnbondAmount` and `UnbondCompletionTime`. If committed bond blocked part of the withdrawal, the remainder stays `PendingUnbondAmount` and the role stays `UNBONDING` for a later block to retry once the reservation releases or is slashed.
 3. Recompute status from the new `CurrentBond` against the role's thresholds (the same mapping as `BondRole` / immediate-unlock): `NORMAL` if `≥ MinBond`, `RECOVERY` if in `[DemotionThreshold, MinBond)`, `DEMOTED` if below. Only when the matured unbond actually drops the holder into `DEMOTED` do we set `DemotionCooldownUntil = block_time + DemotionCooldown`. **Partial unbonds that keep the bond at or above `MinBond` stay `NORMAL`** — the holder reduced their stake but did not exit the role.
 
 When `UnbondCooldown == 0` the handler falls back to the legacy immediate-unlock path: DREAM is released in the same transaction and status is recomputed from the new bond. Tests opt into this for the rare cases that want to exercise the synchronous flow.
@@ -1569,13 +1578,13 @@ Verdict effects:
 | Verdict | Appellant bond | Sentinel bond | Forum counters |
 |---|---|---|---|
 | `UPHELD` | 50% burned, 50% stays in the sentinel reward pool | unchanged | `RecordSentinelActionUpheld` increments `upheld_*`, resets `consecutive_overturns` |
-| `OVERTURNED` | 100% refunded | `SlashBond(100 DREAM, "appeal_overturned")` | `RecordSentinelActionOverturned` increments `overturned_*` and `consecutive_overturns`; at threshold (3) → `SetBondStatus(DEMOTED)` |
+| `OVERTURNED` | 100% refunded | `SlashBond(committed, "appeal_overturned")` where `committed = forumKeeper.GetActionCommittedAmount(...)` — the exact bond the action reserved, so slash == reserved (and the reservation is cleared by the same slash). Mirrors the UPHELD branch's committed-amount release. | `RecordSentinelActionOverturned` increments `overturned_*` and `consecutive_overturns`; at threshold (3) → `SetBondStatus(DEMOTED)` |
 | `TIMEOUT` | 50% refunded, 50% burned | unchanged | no counter update |
 
 These amounts/thresholds are sourced as compile-time constants (not operational params) from `x/rep/types/accountability_defaults.go`:
 
 - `DefaultAppealBondAmount` (10 SPARK, uspark)
-- `DefaultSentinelOverturnSlash` (100 DREAM, microDREAM)
+- `DefaultSentinelOverturnSlash` (100 DREAM, microDREAM) — legacy flat amount; the OVERTURNED slash now reads the per-action committed amount instead (the two coincide at defaults, since the forum `sentinel_slash_amount` an action reserves also defaults to 100 DREAM). Retained as the default the committed snapshot equals.
 - `DefaultMaxConsecutiveOverturnsBeforeDemotion` (3)
 - `DefaultSentinelDemotionCooldown` (7 days)
 

@@ -22,7 +22,7 @@ This module provides:
 - **Tag budgets** — `TagBudget` / `TagBudgetAward` reward pools per tag
 - **Sentinel accountability** — generic bond/bond-status/activity record shared across content modules; forum holds the per-action counters
 - **Sentinel reward pool** — SPARK pool funded by forum spam-tax splits and UPHELD appeal bonds; accuracy-weighted epoch distribution (see "Sentinel Accountability")
-- **Gov-action appeal resolution** — Operations-Committee `MsgResolveGovActionAppeal` + EndBlocker timeout path; verdicts drive appellant-bond burn/refund and sentinel bond slash on OVERTURNED
+- **Gov-action appeal resolution** — Operations-Committee `MsgResolveGovActionAppeal` + EndBlocker timeout path; verdicts drive appellant-bond burn/refund and, on OVERTURNED, slash the sentinel by the exact bond the action reserved (its per-action committed amount, read back from the forum record — slash == reserved)
 - **Member accountability** — `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`; salvation counters live on the Member proto
 
 ## Concepts
@@ -197,7 +197,7 @@ Award validation delegates to x/forum via `ForumKeeper.GetPostAuthor` / `GetPost
 - Generic `MsgBondRole` / `MsgUnbondRole` live in x/rep and operate on the rep record only, keyed by `(role_type, address)`.
 - `BondedRoleStatus` enum lives in x/rep: `NORMAL` / `RECOVERY` / `DEMOTED` / `UNBONDING`.
 
-**Queued unbond.** `MsgUnbondRole` does not release DREAM immediately when the role's `BondedRoleConfig.UnbondCooldown` is positive (the default for every current role: 14 days for FORUM_SENTINEL and FEDERATION_VERIFIER, 7 days for COLLECT_CURATOR). Instead it sets `pending_unbond_amount`, `unbond_completion_time = block_time + UnbondCooldown`, and flips status to `UNBONDING`. DREAM stays locked and slashable through the cooldown; the holder is deauthorized from role actions (gated by owning modules). One in-flight unbond per role — second `MsgUnbondRole` and any `MsgBondRole` top-up are rejected with `ErrInvalidRequest`. The rep EndBlocker's `MatureUnbonds` finalizes at maturity: unlocks remaining DREAM and recomputes status from the final `current_bond` against the role's thresholds (NORMAL if ≥ `min_bond`, RECOVERY between thresholds, DEMOTED with `demotion_cooldown` gating re-bonding if below `demotion_threshold`). Partial unbonds that keep the role active stay NORMAL. Setting `UnbondCooldown == 0` reverts to legacy immediate-unlock for that role.
+**Queued unbond.** `MsgUnbondRole` does not release DREAM immediately when the role's `BondedRoleConfig.UnbondCooldown` is positive (the default for every current role: 14 days for FORUM_SENTINEL and FEDERATION_VERIFIER, 7 days for COLLECT_CURATOR). Instead it sets `pending_unbond_amount`, `unbond_completion_time = block_time + UnbondCooldown`, and flips status to `UNBONDING`. DREAM stays locked and slashable through the cooldown. **Role authority during `UNBONDING` is a bond-*quantity* decision, not a blanket deauthorization**: owning modules judge the holder on its *staying* bond (`current_bond - pending_unbond_amount`), so a small partial unbond that leaves the staying bond above the role's floor keeps the role usable — only the withdrawn portion is treated as gone. This falls out for free because `GetAvailableBond` / `ReserveBond` are pending-aware (below). **Bond modifications are incremental — none of them require waiting out the cooldown first.** A `MsgUnbondRole` while already `UNBONDING` accumulates into `pending_unbond_amount` (bounded by `current_bond - total_committed_bond`) and resets the single `unbond_completion_time` to `now + cooldown` (the staying bond is locked at least the full cooldown, never less). A `MsgBondRole` top-up mid-unbond is also allowed — a bond only adds slashable collateral, so it raises `current_bond` immediately while the queued withdrawal keeps maturing. Both keep the role `UNBONDING`. A `MsgCancelUnbondRole` walks a withdrawal back: it reduces `pending_unbond_amount` (no DREAM moves — pending is only an earmark on still-locked bond), and cancelling all of it clears the clock and returns the role to active status (`NORMAL` / `RECOVERY` per the unchanged `current_bond`). So holders can bond / unbond / cancel / rebond in as many increments as they like (correct a mistyped amount, grow or shrink a withdrawal) without serializing on a 14-day wait. The rep EndBlocker's `MatureUnbonds` finalizes at maturity: unlocks remaining DREAM (**never releasing earmarked committed bond** — capped at `current_bond - total_committed_bond`, deferring any remainder to a later block) and recomputes status from the final `current_bond` against the role's thresholds (NORMAL if ≥ `min_bond`, RECOVERY between thresholds, DEMOTED with `demotion_cooldown` gating re-bonding if below `demotion_threshold`). Partial unbonds that keep the role active stay NORMAL. Setting `UnbondCooldown == 0` reverts to legacy immediate-unlock for that role.
 
 Keeper methods exposed to consumers (content modules call these):
 
@@ -205,15 +205,15 @@ Keeper methods exposed to consumers (content modules call these):
 |--------|---------|
 | `IsBondedRole(ctx, roleType, addr)` | Boolean existence check |
 | `GetBondedRole(ctx, roleType, addr)` | Fetch the rep-side record |
-| `GetAvailableBond(ctx, roleType, addr)` | Returns `current_bond - total_committed_bond` |
-| `ReserveBond(ctx, roleType, addr, amt)` | Increment committed bond; errors if available < amt |
+| `GetAvailableBond(ctx, roleType, addr)` | Returns the bond that can back a new action: `current_bond - total_committed_bond - pending_unbond_amount` (pending-aware, so bond on its way out cannot back new reservations) |
+| `ReserveBond(ctx, roleType, addr, amt)` | Increment committed bond; errors if available (pending-aware) < amt |
 | `ReleaseBond(ctx, roleType, addr, amt)` | Decrement committed bond (saturating) |
 | `SlashBond(ctx, roleType, addr, amt, reason)` | Unlock + burn DREAM, decrement current + committed; caps `pending_unbond_amount` at new `current_bond` during UNBONDING (status stays UNBONDING) |
 | `RecordActivity(ctx, roleType, addr)` | Stamp last-active-epoch, reset consecutive-inactive counter |
 | `SetBondStatus(ctx, roleType, addr, status, cooldown)` | Update bond-status and demotion cooldown |
-| `MatureUnbonds(ctx)` | EndBlocker: finalize matured pending unbonds (unlock DREAM, flip to DEMOTED, start demotion cooldown) |
+| `MatureUnbonds(ctx)` | EndBlocker: finalize matured pending unbonds (unlock DREAM up to `current_bond - total_committed_bond`, recompute status from the final bond, start demotion cooldown only if it lands DEMOTED) |
 
-Forum content-action handlers (hide / lock / move / dismiss-flags) authenticate via `GetSentinel` and manage commitment via `ReserveBond` / `ReleaseBond` / `SlashBond`; they still update their own forum-side counters locally.
+Forum content-action handlers (hide / lock / move / pin / dismiss-flags) authenticate via `GetBondedRole` behind the shared `eligibleSentinel` quantity gate (NORMAL/RECOVERY, or UNBONDING with staying bond ≥ floor) and manage commitment via `ReserveBond` / `ReleaseBond` / `SlashBond`; they still update their own forum-side counters locally. Because `ReserveBond` is pending-aware, a slash reserved during an unbond can only draw on the staying, uncommitted bond — so the action stays fully backed through its appeal window even as the unbond drains.
 
 **Reward distribution.** Active sentinels earn from an x/rep-owned SPARK reward pool (`uspark`) fed by 50% of forum non-member spam/edit fees and 50% of `UPHELD` appeal bonds (remainder burned); pool capped at `max_sentinel_reward_pool` with overflow burn per `sentinel_reward_pool_overflow_burn_ratio`. Every `sentinel_reward_epoch_blocks` the rep EndBlocker distributes the pool pro-rata on an accuracy-weighted score (`accuracy_rate * sqrt(epoch_appeals_resolved)` plus small bonuses per hide/lock/move) to sentinels that clear the eligibility gates (`min_appeals_for_accuracy`, `min_epoch_activity_for_reward`, `min_appeal_rate`, `min_sentinel_accuracy`, not `DEMOTED`). Payouts update `cumulative_rewards` + `last_reward_epoch` on the rep-side record and forum-side per-epoch counters are reset for all sentinels. See [docs/x-rep-spec.md](../../docs/x-rep-spec.md#sentinel-rewards) for the full spec.
 
@@ -392,7 +392,8 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgBondRole` | Stake DREAM to register as an accountable role-holder (`role_type` = `ROLE_TYPE_FORUM_SENTINEL` / `ROLE_TYPE_COLLECT_CURATOR` / `ROLE_TYPE_FEDERATION_VERIFIER`) | Members |
-| `MsgUnbondRole` | Withdraw role bond (subject to committed/pending constraints; respects per-role unbonding window) | Bonded role-holder |
+| `MsgUnbondRole` | Withdraw role bond (subject to committed/pending constraints; respects per-role unbonding window; incremental while UNBONDING) | Bonded role-holder |
+| `MsgCancelUnbondRole` | Cancel part or all of an in-flight unbond, returning it to active bond without waiting out the cooldown | Bonded role-holder |
 
 DREAM-bonded role primitive only. SPARK-staked roles (e.g. federation bridge operators) keep their own primitives in x/service. See [docs/bonded-role-generalization.md](../../docs/bonded-role-generalization.md).
 
