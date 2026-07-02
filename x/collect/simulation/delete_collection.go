@@ -69,7 +69,7 @@ func SimulateMsgDeleteCollection(
 
 		// Remove indexes
 		_ = k.CollectionsByOwner.Remove(ctx, collections.Join(coll.Owner, collID))
-		_ = k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), collID))
+		k.RemoveCollectionStatusIndex(ctx, coll.Status, coll.Pinned, collID)
 		if coll.ExpiresAt > 0 {
 			_ = k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, collID))
 		}

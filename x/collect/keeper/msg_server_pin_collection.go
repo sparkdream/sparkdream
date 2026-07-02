@@ -76,6 +76,10 @@ func (k msgServer) PinCollection(ctx context.Context, msg *types.MsgPinCollectio
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, err
 	}
+	// Re-point the status index so its pinned-rank reflects the new marker.
+	if err := k.MoveCollectionStatusIndex(ctx, coll.Status, false, coll.Status, true, coll.Id); err != nil {
+		return nil, err
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collect.collection.pinned",
 		sdk.NewAttribute("collection_id", fmt.Sprintf("%d", msg.CollectionId)),

@@ -42,10 +42,10 @@ func (k Keeper) OnMembershipGranted(ctx context.Context, address string) error {
 
 		// §14.20.1: PENDING → ACTIVE
 		if coll.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING {
-			// Update status index
-			k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
+			// Update status index: PENDING → ACTIVE (pinned unchanged).
+			oldStatus := coll.Status
 			coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
-			k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
+			k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, coll.Id) //nolint:errcheck
 
 			// Remove from EndorsementPending index
 			k.EndorsementPending.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
@@ -306,10 +306,10 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 		case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
 			coll, collErr := k.Collection.Get(ctx, hr.TargetId)
 			if collErr == nil && coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
-				k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
+				oldStatus := coll.Status
 				coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
-				k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
-				k.Collection.Set(ctx, coll.Id, coll)                                          //nolint:errcheck
+				k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, coll.Id) //nolint:errcheck
+				k.Collection.Set(ctx, coll.Id, coll)                                                        //nolint:errcheck
 			}
 		case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
 			item, itemErr := k.Item.Get(ctx, hr.TargetId)

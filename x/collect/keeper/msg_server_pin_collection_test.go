@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -39,6 +40,16 @@ func TestPinCollection_Success(t *testing.T) {
 	require.True(t, coll.Pinned, "Pin should set the pinned marker")
 	require.Equal(t, int64(0), coll.ExpiresAt, "Pin must not change lifecycle")
 	require.False(t, burnCalled, "Pin must not burn deposits — that's MakePermanent's job")
+
+	// Pin must re-point the status index so its pinned-rank (2nd key component)
+	// flips 1→0. The old unpinned-rank entry must be gone.
+	active := int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE)
+	hasPinnedRank, err := f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join3(active, int32(0), collID))
+	require.NoError(t, err)
+	require.True(t, hasPinnedRank, "status index entry must move to pinned-rank 0")
+	hasUnpinnedRank, err := f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join3(active, int32(1), collID))
+	require.NoError(t, err)
+	require.False(t, hasUnpinnedRank, "stale unpinned-rank entry must be removed")
 }
 
 func TestPinCollection_RejectsEphemeral(t *testing.T) {

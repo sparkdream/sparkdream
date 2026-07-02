@@ -288,8 +288,10 @@ func (k Keeper) promoteOneOwnedEphemeral(
 	// CollectionsByStatus index — if we just transitioned PENDING→ACTIVE,
 	// swap the index entry.
 	if wasPending {
-		_ = k.CollectionsByStatus.Remove(ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_PENDING), collID))
-		_ = k.CollectionsByStatus.Set(ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE), collID))
+		// A pending collection is never pinned, so rank is unchanged (false).
+		_ = k.MoveCollectionStatusIndex(ctx,
+			types.CollectionStatus_COLLECTION_STATUS_PENDING, false,
+			types.CollectionStatus_COLLECTION_STATUS_ACTIVE, false, collID)
 	}
 
 	// PENDING-specific cleanup: refund the endorsement creation fee (the

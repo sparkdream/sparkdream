@@ -122,9 +122,10 @@ func (k msgServer) EndorseCollection(ctx context.Context, msg *types.MsgEndorseC
 	expiryBlock := coll.CreatedAt + params.EndorsementExpiryBlocks
 	k.EndorsementPending.Remove(ctx, collections.Join(expiryBlock, msg.CollectionId)) //nolint:errcheck
 
-	// Update CollectionsByStatus index: remove PENDING, add ACTIVE
-	k.CollectionsByStatus.Remove(ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_PENDING), coll.Id)) //nolint:errcheck
-	if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE), coll.Id)); err != nil {
+	// Update CollectionsByStatus index: PENDING → ACTIVE (pinned unchanged).
+	if err := k.MoveCollectionStatusIndex(ctx,
+		types.CollectionStatus_COLLECTION_STATUS_PENDING, coll.Pinned,
+		types.CollectionStatus_COLLECTION_STATUS_ACTIVE, coll.Pinned, coll.Id); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update status index")
 	}
 

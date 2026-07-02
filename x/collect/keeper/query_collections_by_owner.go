@@ -17,7 +17,6 @@ func (q queryServer) CollectionsByOwner(ctx context.Context, req *types.QueryCol
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	var results []types.Collection
 	pageReq := req.Pagination
 	if pageReq == nil {
 		pageReq = &query.PageRequest{Limit: 100}
@@ -27,26 +26,22 @@ func (q queryServer) CollectionsByOwner(ctx context.Context, req *types.QueryCol
 		limit = 100
 	}
 	offset := pageReq.Offset
-	var count uint64
 
+	// CollectionsByOwner is keyed (owner, id), so a walk is ID-ordered. An owner's
+	// collection set is naturally bounded (scoped to one address), so we collect
+	// it and stable-partition pinned-first in memory rather than carrying a
+	// pinned-rank in this index — see index_collections_by_status.go for why the
+	// public, unbounded list earns a denormalized rank instead.
+	var matched []types.Collection
 	err := q.k.CollectionsByOwner.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](req.Owner),
 		func(key collections.Pair[string, uint64]) (bool, error) {
-			if count < offset {
-				count++
-				return false, nil
-			}
-			if uint64(len(results)) >= limit {
-				return true, nil
-			}
 			coll, err := q.k.Collection.Get(ctx, key.K2())
 			if err != nil {
 				// Skip entries where collection was deleted but index remains
-				count++
 				return false, nil
 			}
-			results = append(results, coll)
-			count++
+			matched = append(matched, coll)
 			return false, nil
 		},
 	)
@@ -54,8 +49,12 @@ func (q queryServer) CollectionsByOwner(ctx context.Context, req *types.QueryCol
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	ordered := pinnedFirst(matched)
+	total := uint64(len(ordered))
+	results := paginate(ordered, offset, limit)
+
 	return &types.QueryCollectionsByOwnerResponse{
 		Collections: results,
-		Pagination:  &query.PageResponse{Total: count},
+		Pagination:  &query.PageResponse{Total: total},
 	}, nil
 }

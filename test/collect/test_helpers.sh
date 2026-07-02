@@ -80,6 +80,26 @@ query() {
     $BINARY query "$@" --output json 2>&1
 }
 
+# Resolve a collection's numeric id by (owner, name), polling until the create
+# tx has committed and the collection is queryable. Guards against block-time
+# drift late in a run, where a one-shot query can race ahead of the commit and
+# return empty. Echoes the id, or empty after ~30s of polling.
+resolve_collection_id() {
+    local owner="$1" name="$2" id="" tries=0
+    while [ $tries -lt 10 ]; do
+        id=$(query collect collections-by-owner "$owner" \
+            | jq -r --arg n "$name" '.collections[] | select(.name==$n) | .id' 2>/dev/null | head -1)
+        if [ -n "$id" ] && [ "$id" != "null" ]; then
+            echo "$id"
+            return 0
+        fi
+        tries=$((tries + 1))
+        sleep 3
+    done
+    echo ""
+    return 1
+}
+
 # --- Assertion helpers ---
 
 # Assert a tx succeeds (code=0). Returns the tx result JSON via $TX_RESULT_OUT.

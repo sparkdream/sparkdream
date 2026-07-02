@@ -167,13 +167,14 @@ func StatusIndexConsistencyInvariant(k Keeper) sdk.Invariant {
 		var broken int
 		var msg string
 
-		// Walk all collections and verify their status index entry
+		// Walk all collections and verify their status index entry. The key
+		// includes the pinned-rank, so this also catches a stale pinned marker.
 		err := k.Collection.Walk(ctx, nil, func(id uint64, coll types.Collection) (bool, error) {
-			has, err := k.CollectionsByStatus.Has(ctx, collections.Join(int32(coll.Status), coll.Id))
+			has, err := k.CollectionsByStatus.Has(ctx, collectionsByStatusKey(coll.Status, coll.Pinned, coll.Id))
 			if err != nil || !has {
 				broken++
-				msg += fmt.Sprintf("  collection %d (status %s) missing from CollectionsByStatus index\n",
-					id, coll.Status.String())
+				msg += fmt.Sprintf("  collection %d (status %s, pinned %t) missing from CollectionsByStatus index\n",
+					id, coll.Status.String(), coll.Pinned)
 			}
 			return false, nil
 		})

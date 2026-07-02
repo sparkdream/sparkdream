@@ -466,11 +466,11 @@ func (k Keeper) handleAppealedHideExpiry(
 	case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
 		coll, collErr := k.Collection.Get(ctx, hr.TargetId)
 		if collErr == nil && coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
-			// Update status indexes
-			k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
+			// Update status index: HIDDEN → ACTIVE (pinned unchanged).
+			oldStatus := coll.Status
 			coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
-			k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
-			k.Collection.Set(ctx, coll.Id, coll)                                          //nolint:errcheck
+			k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, coll.Id) //nolint:errcheck
+			k.Collection.Set(ctx, coll.Id, coll)                                                        //nolint:errcheck
 		}
 
 	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:

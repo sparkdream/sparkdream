@@ -57,6 +57,10 @@ func (k msgServer) UnpinCollection(ctx context.Context, msg *types.MsgUnpinColle
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, err
 	}
+	// Re-point the status index so its pinned-rank reflects the cleared marker.
+	if err := k.MoveCollectionStatusIndex(ctx, coll.Status, true, coll.Status, false, coll.Id); err != nil {
+		return nil, err
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collect.collection.unpinned",
 		sdk.NewAttribute("collection_id", fmt.Sprintf("%d", msg.CollectionId)),

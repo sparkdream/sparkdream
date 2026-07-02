@@ -88,9 +88,10 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update collection status")
 		}
-		// Update CollectionsByStatus index: remove ACTIVE, add HIDDEN
-		k.CollectionsByStatus.Remove(ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE), coll.Id)) //nolint:errcheck
-		if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_HIDDEN), coll.Id)); err != nil {
+		// Update CollectionsByStatus index: ACTIVE → HIDDEN (pinned unchanged).
+		if err := k.MoveCollectionStatusIndex(ctx,
+			types.CollectionStatus_COLLECTION_STATUS_ACTIVE, coll.Pinned,
+			types.CollectionStatus_COLLECTION_STATUS_HIDDEN, coll.Pinned, coll.Id); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to set status index")
 		}
 	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:

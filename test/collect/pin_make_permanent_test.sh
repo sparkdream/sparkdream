@@ -202,6 +202,10 @@ assert_equal "rejected target stays ephemeral" "$FUTURE_BLOCK" "$EXP9C"
 TX_OUT=$(send_tx collect pin-collection "$COLL9A_ID" --from alice)
 assert_tx_success "Pin succeeds despite MakePermanent exhaustion (independent counters)" "$TX_OUT"
 
+# Pinned-first result ordering (public-collections, public-collections-by-type,
+# collections-by-owner) is covered comprehensively in query_test.sh Tests 8-11;
+# not duplicated here to keep this file focused on pin/make-permanent counters.
+
 # ============================================================================
 # Summary
 # ============================================================================

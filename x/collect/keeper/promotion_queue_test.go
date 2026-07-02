@@ -120,9 +120,10 @@ func TestDrainPromotionQueue_PromotesPendingCollection(t *testing.T) {
 	hasExpiry, _ := f.keeper.CollectionsByExpiry.Has(f.ctx, collections.Join(oldExpiresAt, collID))
 	require.False(t, hasExpiry)
 
-	// Status index swapped.
-	hasPending, _ := f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_PENDING), collID))
-	hasActive, _ := f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE), collID))
+	// Status index swapped. Key is (status, pinned-rank, id); the collection is
+	// unpinned throughout, so pinned-rank is 1.
+	hasPending, _ := f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join3(int32(types.CollectionStatus_COLLECTION_STATUS_PENDING), int32(1), collID))
+	hasActive, _ := f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join3(int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE), int32(1), collID))
 	require.False(t, hasPending)
 	require.True(t, hasActive)
 }

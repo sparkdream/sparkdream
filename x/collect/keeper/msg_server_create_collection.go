@@ -184,7 +184,7 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 			return nil, errorsmod.Wrap(err, "failed to set expiry index")
 		}
 	}
-	if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(status), collID)); err != nil {
+	if err := k.AddCollectionStatusIndex(ctx, status, false, collID); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set status index")
 	}
 	if err := k.addCollectionTagIndex(ctx, collID, msg.Tags); err != nil {

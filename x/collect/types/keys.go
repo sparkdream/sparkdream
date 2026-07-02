@@ -110,7 +110,8 @@ var (
 	// ReactionDedupKey: (address, targetType, targetID) → uint8 (1=upvote, 2=downvote)
 	ReactionDedupKey = collections.NewPrefix("reaction/dedup/")
 
-	// CollectionsByStatusKey: (status, collectionID) → empty - for querying by status
+	// CollectionsByStatusKey: (status, pinned-rank, collectionID) → empty - for
+	// querying by status with pinned collections ordered first within a status.
 	CollectionsByStatusKey = collections.NewPrefix("collection/by_status/")
 
 	// CollectionsByTagKey: (tag, collectionID) → empty - for ListCollectionsByTag

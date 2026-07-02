@@ -63,7 +63,10 @@ type Keeper struct {
 	EndorsementPending     collections.KeySet[collections.Pair[int64, uint64]]
 	ReactionDedup          collections.Map[string, uint32]
 	ReactionLimit          collections.Map[string, uint32]
-	CollectionsByStatus    collections.KeySet[collections.Pair[int32, uint64]]
+	// CollectionsByStatus: (status, pinned-rank, collectionID). Pinned-rank
+	// orders pinned collections first within a status so status-prefixed walks
+	// are natively pinned-first; see index_collections_by_status.go.
+	CollectionsByStatus    collections.KeySet[collections.Triple[int32, int32, uint64]]
 
 	// Secondary indexes for efficient queries
 	CollectionsByOwner  collections.KeySet[collections.Pair[string, uint64]]
@@ -174,7 +177,7 @@ func NewKeeper(
 		ReactionLimit: collections.NewMap(sb, types.ReactionLimitKey, "reactionLimit", collections.StringKey, collections.Uint32Value),
 		CollectionsByStatus: collections.NewKeySet(
 			sb, types.CollectionsByStatusKey, "collectionsByStatus",
-			collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key),
+			collections.TripleKeyCodec(collections.Int32Key, collections.Int32Key, collections.Uint64Key),
 		),
 
 		// Secondary indexes

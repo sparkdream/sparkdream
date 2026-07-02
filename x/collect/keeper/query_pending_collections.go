@@ -29,12 +29,14 @@ func (q queryServer) PendingCollections(ctx context.Context, req *types.QueryPen
 	offset := pageReq.Offset
 	var count uint64
 
-	// Walk CollectionsByStatus index for PENDING status
+	// Walk CollectionsByStatus index for PENDING status. The index key is
+	// (status, pinned-rank, id); pending collections are never pinned, so this
+	// is effectively id-ordered.
 	pendingStatus := int32(types.CollectionStatus_COLLECTION_STATUS_PENDING)
 	err := q.k.CollectionsByStatus.Walk(ctx,
-		collections.NewPrefixedPairRange[int32, uint64](pendingStatus),
-		func(key collections.Pair[int32, uint64]) (bool, error) {
-			coll, err := q.k.Collection.Get(ctx, key.K2())
+		collections.NewPrefixedTripleRange[int32, int32, uint64](pendingStatus),
+		func(key collections.Triple[int32, int32, uint64]) (bool, error) {
+			coll, err := q.k.Collection.Get(ctx, key.K3())
 			if err != nil {
 				return false, nil
 			}

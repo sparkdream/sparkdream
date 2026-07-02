@@ -70,3 +70,20 @@ func TestQueryCollectionsByOwner(t *testing.T) {
 		})
 	}
 }
+
+func TestQueryCollectionsByOwner_PinnedFirst(t *testing.T) {
+	f := initTestFixture(t)
+	// Three owned collections; pin the highest-ID one. It must come back first
+	// even though it sorts last by ID.
+	c1 := f.createCollection(t, f.owner)
+	c2 := f.createCollection(t, f.owner)
+	c3 := f.createCollection(t, f.owner)
+	f.pin(t, c3)
+
+	resp, err := f.queryServer.CollectionsByOwner(f.ctx, &types.QueryCollectionsByOwnerRequest{Owner: f.owner})
+	require.NoError(t, err)
+	require.Len(t, resp.Collections, 3)
+	require.Equal(t, c3, resp.Collections[0].Id)
+	require.Equal(t, c1, resp.Collections[1].Id)
+	require.Equal(t, c2, resp.Collections[2].Id)
+}

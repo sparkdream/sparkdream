@@ -42,7 +42,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 				return err
 			}
 		}
-		if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), coll.Id)); err != nil {
+		if err := k.AddCollectionStatusIndex(ctx, coll.Status, coll.Pinned, coll.Id); err != nil {
 			return err
 		}
 		for _, tag := range coll.Tags {

@@ -212,6 +212,28 @@ func TestStatusIndexConsistencyInvariant_Broken(t *testing.T) {
 	require.Contains(t, msg, "missing from CollectionsByStatus index")
 }
 
+// TestStatusIndexConsistencyInvariant_StalePinnedRank verifies the invariant
+// now keys on the pinned-rank too: a collection whose Pinned field was flipped
+// WITHOUT re-pointing the status index (the exact drift the index-helpers
+// prevent) must be flagged as broken.
+func TestStatusIndexConsistencyInvariant_StalePinnedRank(t *testing.T) {
+	f := initTestFixture(t)
+	f.setBlockHeight(100)
+
+	// Create an ACTIVE collection, then flip Pinned on the object but skip the
+	// index re-point — simulating a bug like the one this change fixes.
+	collID := f.createCollection(t, f.owner)
+	coll, _ := f.keeper.Collection.Get(f.ctx, collID)
+	coll.Pinned = true
+	require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
+	// Index still points at the unpinned-rank entry — stale.
+
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	msg, broken := keeper.StatusIndexConsistencyInvariant(f.keeper)(sdkCtx)
+	require.True(t, broken, "stale pinned-rank must trip the invariant")
+	require.Contains(t, msg, "missing from CollectionsByStatus index")
+}
+
 func TestEmptyStoreInvariants(t *testing.T) {
 	f := initTestFixture(t)
 

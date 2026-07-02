@@ -714,7 +714,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	if coll.ExpiresAt > 0 {
 		k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)) //nolint:errcheck
 	}
-	k.CollectionsByStatus.Remove(ctx, collections.Join(int32(coll.Status), coll.Id)) //nolint:errcheck
+	k.RemoveCollectionStatusIndex(ctx, coll.Status, coll.Pinned, coll.Id)
 	// Remove tag secondary index entries for this collection AND drop the
 	// rep-registry UsageCount for each tag — the collection is going away so
 	// it no longer "uses" them. Used by both MsgDeleteCollection and the

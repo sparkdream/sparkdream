@@ -3,7 +3,6 @@ package simulation
 import (
 	"math/rand"
 
-	"cosmossdk.io/collections"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -58,9 +57,8 @@ func SimulateMsgHideContent(
 		oldStatus := coll.Status
 		coll.Status = types.CollectionStatus_COLLECTION_STATUS_HIDDEN
 
-		// Remove old status index, add new
-		k.CollectionsByStatus.Remove(ctx, collections.Join(int32(oldStatus), collID)) //nolint:errcheck
-		if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), collID)); err != nil {
+		// Update status index: old → HIDDEN (pinned unchanged).
+		if err := k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, collID); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update status index: "+err.Error()), nil, nil
 		}
 

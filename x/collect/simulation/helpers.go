@@ -302,7 +302,7 @@ func getOrCreateCollection(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, owner
 	if err := k.CollectionsByOwner.Set(ctx, collections.Join(owner, collID)); err != nil {
 		return 0, err
 	}
-	if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(newColl.Status), collID)); err != nil {
+	if err := k.AddCollectionStatusIndex(ctx, newColl.Status, newColl.Pinned, collID); err != nil {
 		return 0, err
 	}
 
@@ -348,7 +348,7 @@ func getOrCreateTTLCollection(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, ow
 	if err := k.CollectionsByOwner.Set(ctx, collections.Join(owner, collID)); err != nil {
 		return 0, err
 	}
-	if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(newColl.Status), collID)); err != nil {
+	if err := k.AddCollectionStatusIndex(ctx, newColl.Status, newColl.Pinned, collID); err != nil {
 		return 0, err
 	}
 	if err := k.CollectionsByExpiry.Set(ctx, collections.Join(expiresAt, collID)); err != nil {
@@ -653,7 +653,7 @@ func getOrCreatePendingCollection(r *rand.Rand, ctx sdk.Context, k keeper.Keeper
 	if err := k.CollectionsByOwner.Set(ctx, collections.Join(owner, collID)); err != nil {
 		return 0, err
 	}
-	if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(newColl.Status), collID)); err != nil {
+	if err := k.AddCollectionStatusIndex(ctx, newColl.Status, newColl.Pinned, collID); err != nil {
 		return 0, err
 	}
 	if err := k.EndorsementPending.Set(ctx, collections.Join(endorsementExpiry, collID)); err != nil {

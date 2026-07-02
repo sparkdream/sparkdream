@@ -46,8 +46,9 @@ func TestCreateCollection(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, has)
 
-				// Status index set
-				has, err = f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join(int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE), resp.Id))
+				// Status index set. Key is (status, pinned-rank, id); a fresh
+				// collection is unpinned, so pinned-rank is 1.
+				has, err = f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join3(int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE), int32(1), resp.Id))
 				require.NoError(t, err)
 				require.True(t, has)
 			},

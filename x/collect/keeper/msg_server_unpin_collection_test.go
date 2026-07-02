@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -29,6 +30,16 @@ func TestUnpinCollection_Success(t *testing.T) {
 
 	coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 	require.False(t, coll.Pinned)
+
+	// Unpin must re-point the status index so its pinned-rank flips 0→1,
+	// dropping the pinned-rank entry left by the earlier Pin.
+	active := int32(types.CollectionStatus_COLLECTION_STATUS_ACTIVE)
+	hasUnpinnedRank, err := f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join3(active, int32(1), collID))
+	require.NoError(t, err)
+	require.True(t, hasUnpinnedRank, "status index entry must move back to unpinned-rank 1")
+	hasPinnedRank, err := f.keeper.CollectionsByStatus.Has(f.ctx, collections.Join3(active, int32(0), collID))
+	require.NoError(t, err)
+	require.False(t, hasPinnedRank, "stale pinned-rank entry must be removed")
 }
 
 func TestUnpinCollection_NotPinned(t *testing.T) {

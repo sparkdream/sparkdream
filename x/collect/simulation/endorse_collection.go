@@ -69,9 +69,8 @@ func SimulateMsgEndorseCollection(
 		coll.EndorsedBy = endorser.Address.String()
 		coll.SeekingEndorsement = false
 
-		// Remove old status index, add new
-		k.CollectionsByStatus.Remove(ctx, collections.Join(int32(oldStatus), collID)) //nolint:errcheck
-		if err := k.CollectionsByStatus.Set(ctx, collections.Join(int32(coll.Status), collID)); err != nil {
+		// Update status index: old → new (pinned unchanged).
+		if err := k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, collID); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update status index: "+err.Error()), nil, nil
 		}
 
