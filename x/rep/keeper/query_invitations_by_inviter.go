@@ -5,6 +5,7 @@ import (
 
 	"sparkdream/x/rep/types"
 
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -14,26 +15,20 @@ func (q queryServer) InvitationsByInviter(ctx context.Context, req *types.QueryI
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Collect first invitation from the specified inviter (proto response is singular)
-	var foundInvitation *types.Invitation
-	err := q.k.Invitation.Walk(ctx, nil, func(id uint64, invitation types.Invitation) (bool, error) {
-		if invitation.Inviter == req.Inviter {
-			foundInvitation = &invitation
-			return true, nil // stop iteration
-		}
-		return false, nil
-	})
+	invitations, pageRes, err := query.CollectionFilteredPaginate(
+		ctx,
+		q.k.Invitation,
+		req.Pagination,
+		func(_ uint64, value types.Invitation) (bool, error) {
+			return value.Inviter == req.Inviter, nil
+		},
+		func(_ uint64, value types.Invitation) (types.Invitation, error) {
+			return value, nil
+		},
+	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if foundInvitation != nil {
-		return &types.QueryInvitationsByInviterResponse{
-			InvitationId:   foundInvitation.Id,
-			InviteeAddress: foundInvitation.InviteeAddress,
-			Status:         uint64(foundInvitation.Status),
-		}, nil
-	}
-
-	return &types.QueryInvitationsByInviterResponse{}, nil
+	return &types.QueryInvitationsByInviterResponse{Invitation: invitations, Pagination: pageRes}, nil
 }

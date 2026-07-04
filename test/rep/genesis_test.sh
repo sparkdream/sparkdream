@@ -414,15 +414,15 @@ for MEMBER in "alice" "bob" "carol"; do
     INVITATIONS=$($BINARY query rep invitations-by-inviter $ADDR -o json 2>/dev/null)
 
     if [ -n "$INVITATIONS" ]; then
-        INV_COUNT=$(echo "$INVITATIONS" | jq -r '.invitations | length // 0')
+        INV_COUNT=$(echo "$INVITATIONS" | jq -r '.invitation | length')
 
         if [ "$INV_COUNT" -gt 0 ]; then
             echo "$MEMBER has sent $INV_COUNT invitation(s):"
 
             for i in $(seq 0 $((INV_COUNT - 1)) 2>/dev/null); do
-                INV_ID=$(echo "$INVITATIONS" | jq -r ".invitations[$i].id")
-                INV_STATUS=$(echo "$INVITATIONS" | jq -r ".invitations[$i].status")
-                INV_STAKE=$(echo "$INVITATIONS" | jq -r ".invitations[$i].stake_amount")
+                INV_ID=$(echo "$INVITATIONS" | jq -r ".invitation[$i].id // \"0\"")
+                INV_STATUS=$(echo "$INVITATIONS" | jq -r ".invitation[$i].status")
+                INV_STAKE=$(echo "$INVITATIONS" | jq -r ".invitation[$i].stake_amount")
 
                 echo "  Invitation $INV_ID:"
                 echo "    Status: $INV_STATUS"

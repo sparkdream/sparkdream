@@ -841,9 +841,8 @@ echo "  Assignee: $ASSIGNEE_BALANCE_AFTER"
 echo "  (Raw balance changes are unreliable due to lazy decay application)"
 echo ""
 
-# Check invitation for referral_earned using list-invitation and filter
-# Note: invitations-by-inviter returns flat fields, not an array.
-# Use list-invitation to get all invitations and filter by inviter.
+# Check invitation for referral_earned using list-invitation and filter.
+# We filter by invitee (inviter unknown here), so list-invitation is the right query.
 echo "Checking invitation records for referral tracking..."
 ALL_INVITATIONS=$($BINARY query rep list-invitation --output json 2>/dev/null)
 if [ -n "$ALL_INVITATIONS" ]; then

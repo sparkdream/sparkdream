@@ -650,10 +650,8 @@ message QueryInvitationsByInviterRequest {
 
 // QueryInvitationsByInviterResponse defines the QueryInvitationsByInviterResponse message.
 message QueryInvitationsByInviterResponse {
-  uint64 invitation_id = 1;
-  string invitee_address = 2;
-  uint64 status = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Invitation invitation = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryInterimsByAssigneeRequest defines the QueryInterimsByAssigneeRequest message.

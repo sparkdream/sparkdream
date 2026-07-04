@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,25 +34,21 @@ func createInvitationForInviter(k keeper.Keeper, ctx context.Context, id uint64,
 
 func TestInvitationsByInviter(t *testing.T) {
 	tests := []struct {
-		name             string
-		setup            func(*fixture)
-		inviter          string
-		wantInvitationID uint64
-		wantInviteeAddr  string
-		wantStatus       uint64
-		wantErr          error
+		name    string
+		setup   func(*fixture)
+		inviter string
+		wantIDs []uint64
+		wantErr error
 	}{
 		{
-			name: "ReturnsFirstInvitationForInviter",
+			name: "ReturnsAllInvitationsForInviter",
 			setup: func(f *fixture) {
 				createInvitationForInviter(f.keeper, f.ctx, 1, "inviter1", types.InvitationStatus_INVITATION_STATUS_PENDING)
 				createInvitationForInviter(f.keeper, f.ctx, 2, "inviter2", types.InvitationStatus_INVITATION_STATUS_PENDING)
 				createInvitationForInviter(f.keeper, f.ctx, 3, "inviter1", types.InvitationStatus_INVITATION_STATUS_ACCEPTED)
 			},
-			inviter:          "inviter1",
-			wantInvitationID: 1,
-			wantInviteeAddr:  "sprkdr1address",
-			wantStatus:       uint64(types.InvitationStatus_INVITATION_STATUS_PENDING),
+			inviter: "inviter1",
+			wantIDs: []uint64{1, 3},
 		},
 		{
 			name: "EmptyResponseWhenNoInvitationsForInviter",
@@ -60,24 +57,22 @@ func TestInvitationsByInviter(t *testing.T) {
 				createInvitationForInviter(f.keeper, f.ctx, 2, "inviter2", types.InvitationStatus_INVITATION_STATUS_PENDING)
 			},
 			inviter: "nonexistent",
-			wantErr: nil,
+			wantIDs: nil,
 		},
 		{
 			name:    "EmptyResponseWhenNoInvitationsExist",
 			setup:   func(f *fixture) {},
 			inviter: "inviter1",
-			wantErr: nil,
+			wantIDs: nil,
 		},
 		{
-			name: "ReturnsInvitationWithRejectedStatus",
+			name: "IncludesRevokedInvitations",
 			setup: func(f *fixture) {
 				createInvitationForInviter(f.keeper, f.ctx, 1, "inviterX", types.InvitationStatus_INVITATION_STATUS_REVOKED)
 				createInvitationForInviter(f.keeper, f.ctx, 2, "inviterX", types.InvitationStatus_INVITATION_STATUS_ACCEPTED)
 			},
-			inviter:          "inviterX",
-			wantInvitationID: 1,
-			wantInviteeAddr:  "sprkdr1address",
-			wantStatus:       uint64(types.InvitationStatus_INVITATION_STATUS_REVOKED),
+			inviter: "inviterX",
+			wantIDs: []uint64{1, 2},
 		},
 		{
 			name:    "InvalidRequestNil",
@@ -106,37 +101,49 @@ func TestInvitationsByInviter(t *testing.T) {
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tc.wantErr)
-			} else if tc.wantInvitationID > 0 {
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, tc.wantInvitationID, response.InvitationId)
-				require.Equal(t, tc.wantInviteeAddr, response.InviteeAddress)
-				require.Equal(t, tc.wantStatus, response.Status)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, uint64(0), response.InvitationId)
-				require.Equal(t, "", response.InviteeAddress)
-				require.Equal(t, uint64(0), response.Status)
+				return
 			}
+
+			require.NoError(t, err)
+			require.NotNil(t, response)
+			gotIDs := make([]uint64, 0, len(response.Invitation))
+			for _, inv := range response.Invitation {
+				require.Equal(t, tc.inviter, inv.Inviter)
+				gotIDs = append(gotIDs, inv.Id)
+			}
+			require.ElementsMatch(t, tc.wantIDs, gotIDs)
 		})
 	}
 }
 
-func TestInvitationsByInviter_MultipleInvitations(t *testing.T) {
+func TestInvitationsByInviter_Pagination(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
 
-	// Create multiple invitations for the same inviter
 	createInvitationForInviter(f.keeper, f.ctx, 1, "organizer1", types.InvitationStatus_INVITATION_STATUS_PENDING)
 	createInvitationForInviter(f.keeper, f.ctx, 2, "organizer1", types.InvitationStatus_INVITATION_STATUS_ACCEPTED)
-	createInvitationForInviter(f.keeper, f.ctx, 3, "organizer1", types.InvitationStatus_INVITATION_STATUS_PENDING)
+	createInvitationForInviter(f.keeper, f.ctx, 3, "other", types.InvitationStatus_INVITATION_STATUS_PENDING)
+	createInvitationForInviter(f.keeper, f.ctx, 4, "organizer1", types.InvitationStatus_INVITATION_STATUS_PENDING)
 
-	// Query should return first invitation (id 1)
-	response, err := qs.InvitationsByInviter(f.ctx, &types.QueryInvitationsByInviterRequest{Inviter: "organizer1"})
+	// First page of 2
+	response, err := qs.InvitationsByInviter(f.ctx, &types.QueryInvitationsByInviterRequest{
+		Inviter:    "organizer1",
+		Pagination: &query.PageRequest{Limit: 2},
+	})
 	require.NoError(t, err)
-	require.NotNil(t, response)
-	require.Equal(t, uint64(1), response.InvitationId)
-	require.Equal(t, "sprkdr1address", response.InviteeAddress)
-	require.Equal(t, uint64(types.InvitationStatus_INVITATION_STATUS_PENDING), response.Status)
+	require.Len(t, response.Invitation, 2)
+	require.Equal(t, uint64(1), response.Invitation[0].Id)
+	require.Equal(t, uint64(2), response.Invitation[1].Id)
+	require.NotNil(t, response.Pagination)
+	require.NotEmpty(t, response.Pagination.NextKey)
+
+	// Second page
+	response, err = qs.InvitationsByInviter(f.ctx, &types.QueryInvitationsByInviterRequest{
+		Inviter:    "organizer1",
+		Pagination: &query.PageRequest{Limit: 2, Key: response.Pagination.NextKey},
+	})
+	require.NoError(t, err)
+	require.Len(t, response.Invitation, 1)
+	require.Equal(t, uint64(4), response.Invitation[0].Id)
+	require.Empty(t, response.Pagination.NextKey)
 }

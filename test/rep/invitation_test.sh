@@ -644,9 +644,7 @@ fi
 echo ""
 echo "--- PART 4: QUERY ALICE'S INVITATIONS ---"
 
-# Use list-invitation and filter by inviter (invitations-by-inviter only returns first result)
-ALL_INVITATIONS=$($BINARY query rep list-invitation --output json)
-ALICE_INVITATIONS=$(echo "$ALL_INVITATIONS" | jq -r ".invitation[] | select(.inviter==\"$ALICE_ADDR\")")
+ALICE_INVITATIONS=$($BINARY query rep invitations-by-inviter "$ALICE_ADDR" --output json | jq -r '.invitation[]')
 ALICE_INV_COUNT=$(echo "$ALICE_INVITATIONS" | jq -s 'length')
 echo "Alice has created $ALICE_INV_COUNT invitations"
 

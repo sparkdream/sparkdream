@@ -283,28 +283,10 @@ echo "--- STEP 7: QUERY INVITATIONS BY INVITER (ALICE) ---"
 INVITER_INVITATIONS=$($BINARY query rep invitations-by-inviter $ALICE_ADDR -o json 2>&1)
 
 if echo "$INVITER_INVITATIONS" | grep -q "error"; then
-    echo "[WARN]  Query failed (invitations-by-inviter may return single result, not list)"
-
-    # Try list-invitation and filter
-    ALL_INVITATIONS=$($BINARY query rep list-invitation -o json 2>&1)
-    if echo "$ALL_INVITATIONS" | grep -q "error"; then
-        echo "[WARN]  list-invitation also failed"
-    else
-        ALICE_INV_COUNT=$(echo "$ALL_INVITATIONS" | jq -r "[.invitation[] | select(.inviter==\"$ALICE_ADDR\")] | length" 2>/dev/null || echo "0")
-        echo "[ OK ] Alice created $ALICE_INV_COUNT invitations (via list-invitation)"
-    fi
+    echo "[WARN]  invitations-by-inviter query failed"
 else
-    # Check if it's a single result or array
-    INV_TYPE=$(echo "$INVITER_INVITATIONS" | jq -r 'type' 2>/dev/null)
-    if [ "$INV_TYPE" == "object" ]; then
-        echo "[ OK ] Found single invitation by Alice"
-    elif [ "$INV_TYPE" == "array" ]; then
-        INV_COUNT=$(echo "$INVITER_INVITATIONS" | jq -r 'length' 2>/dev/null)
-        echo "[ OK ] Alice created $INV_COUNT invitations"
-    else
-        INV_COUNT=$(echo "$INVITER_INVITATIONS" | jq -r '.invitation | length' 2>/dev/null || echo "0")
-        echo "[ OK ] Alice created $INV_COUNT invitations"
-    fi
+    INV_COUNT=$(echo "$INVITER_INVITATIONS" | jq -r '.invitation | length' 2>/dev/null || echo "0")
+    echo "[ OK ] Alice created $INV_COUNT invitations"
 fi
 
 echo ""
