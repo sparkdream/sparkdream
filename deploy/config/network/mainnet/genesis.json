@@ -321,6 +321,7 @@
         "max_flag_reason_length": 512,
         "max_flaggers_per_target": 50,
         "max_flags_per_day": 20,
+        "max_hides_per_sentinel_per_day": 50,
         "max_items_per_collection": 500,
         "max_make_permanent_per_day": 5,
         "max_name_length": 128,
@@ -348,6 +349,7 @@
         "per_item_spam_tax": "500000",
         "pin_min_trust_level": 2,
         "sentinel_commit_amount": "100000000",
+        "sentinel_unhide_window_blocks": "14400",
         "sponsor_fee": "1000000",
         "sponsorship_request_ttl_blocks": "100800"
       },
@@ -838,7 +840,7 @@
           "min_bond": "1000",
           "min_rep_tier": "3",
           "min_trust_level": "",
-          "role_type": "ROLE_TYPE_FORUM_SENTINEL",
+          "role_type": "ROLE_TYPE_CONTENT_SENTINEL",
           "unbond_cooldown": "1209600"
         },
         {
@@ -1233,6 +1235,7 @@
       "project_list": [],
       "project_stake_info_list": [],
       "reserved_tag_map": [],
+      "role_activity_list": [],
       "stake_count": "1",
       "stake_list": [],
       "tag_budget_award_count": "1",
