@@ -1772,6 +1772,7 @@ message MsgMakeCollectionPermanentResponse {}
 | `FlaggedContent` | pagination | `[]CollectionFlag` | All content in the sentinel review queue (`in_review_queue = true`) |
 | `HideRecord` | `uint64 id` | `HideRecord` | Single hide record by ID |
 | `HideRecordsByTarget` | `uint64 target_id`, `FlagTargetType` | `[]HideRecord` | All hide records for a target |
+| `HideRecordsBySentinel` | `string sentinel`, pagination | `[]HideRecord` | Hide records created by a sentinel, most recent first |
 | `PendingCollections` | pagination | `[]Collection` | Non-member collections with `seeking_endorsement = true` (endorsement discovery feed) |
 | `Endorsement` | `uint64 collection_id` | `Endorsement` | Endorsement record for a collection |
 | `CollectionConviction` | `uint64 collection_id` | `ConvictionResponse` | Current conviction score, stake count, total staked, and author bond for any collection (delegates to x/rep) |
@@ -1797,7 +1798,7 @@ message ConvictionResponse {
 
 **Endorsement discovery:** `PendingCollections` returns non-member collections where `seeking_endorsement = true`. This is the primary feed for members looking to endorse promising non-member content. Members browse this feed voluntarily — there is no moderator obligation.
 
-**Moderation queries:** `FlaggedContent` returns content that has reached the flag review threshold. This is used by sentinels to find content requiring moderation attention. `HideRecordsByTarget` provides the full moderation history for a target.
+**Moderation queries:** `FlaggedContent` returns content that has reached the flag review threshold. This is used by sentinels to find content requiring moderation attention. `HideRecordsByTarget` provides the full moderation history for a target. `HideRecordsBySentinel` provides the moderation history of a sentinel (newest first, paginated) — useful for accountability review; council (gov) hides carry no sentinel address and never appear in it.
 
 ---
 
@@ -2862,6 +2863,7 @@ sparkdreamd query collect content-flag 1 --target-type collection
 sparkdreamd query collect flagged-content
 sparkdreamd query collect hide-record 1
 sparkdreamd query collect hide-records-by-target 1 --target-type collection
+sparkdreamd query collect hide-records-by-sentinel sprkdrm1abc...
 sparkdreamd query collect pending-collections
 sparkdreamd query collect collection-conviction 1
 sparkdreamd query collect public-collections --order-by conviction

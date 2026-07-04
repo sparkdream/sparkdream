@@ -4,6 +4,7 @@ package sparkdream.collect.v1;
 
 import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
+import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/collect/v1/curator_activity.proto";
@@ -84,6 +85,11 @@ service Query {
   // HideRecordsByTarget Queries a list of HideRecordsByTarget items.
   rpc HideRecordsByTarget(QueryHideRecordsByTargetRequest) returns (QueryHideRecordsByTargetResponse) {
     option (google.api.http).get = "/sparkdream/collect/v1/hide_records_by_target/{target_id}/{target_type}";
+  }
+
+  // HideRecordsBySentinel Queries hide records created by a given sentinel.
+  rpc HideRecordsBySentinel(QueryHideRecordsBySentinelRequest) returns (QueryHideRecordsBySentinelResponse) {
+    option (google.api.http).get = "/sparkdream/collect/v1/hide_records_by_sentinel/{sentinel}";
   }
 
   // PendingCollections Queries a list of PendingCollections items.
@@ -296,6 +302,18 @@ message QueryHideRecordsByTargetRequest {
 // QueryHideRecordsByTargetResponse defines the QueryHideRecordsByTargetResponse message.
 message QueryHideRecordsByTargetResponse {
   repeated HideRecord hide_records = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryHideRecordsBySentinelRequest defines the QueryHideRecordsBySentinelRequest message.
+message QueryHideRecordsBySentinelRequest {
+  string sentinel = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryHideRecordsBySentinelResponse defines the QueryHideRecordsBySentinelResponse message.
+message QueryHideRecordsBySentinelResponse {
+  repeated HideRecord hide_records = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryPendingCollectionsRequest defines the QueryPendingCollectionsRequest message.

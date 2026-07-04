@@ -35,7 +35,7 @@ func pinnedFirst(in []types.Collection) []types.Collection {
 // overflow-safe: offset+limit is computed in a way that cannot wrap, so even an
 // unclamped limit near math.MaxUint64 yields a valid slice rather than panicking
 // on out-of-range bounds.
-func paginate(in []types.Collection, offset, limit uint64) []types.Collection {
+func paginate[T any](in []T, offset, limit uint64) []T {
 	n := uint64(len(in))
 	if offset >= n {
 		return nil

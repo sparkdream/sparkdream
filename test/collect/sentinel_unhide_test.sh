@@ -15,7 +15,8 @@
 #           released by the EndBlocker at the original appeal deadline.
 #           Also: re-hide after self-correct works (fresh record, second
 #           commit) and can itself be self-corrected; appealing a resolved
-#           record is rejected.
+#           record is rejected. The hide-records-by-sentinel query lists
+#           bob's records newest first and is empty for a non-sentinel.
 #
 #   Test 2: Only the hiding sentinel can unhide — the owner is rejected.
 #
@@ -173,6 +174,7 @@ echo "  Test 1 collection ID: $T1_COLL_ID"
 # Hide then unhide back-to-back — the gap must stay inside the 20-block
 # window, so only one quick status probe sits between the two txs.
 hide_collection "$T1_COLL_ID" "bob hides carol's collection"
+T1_HIDE_REC_1=$HIDE_REC_ID
 echo "  Test 1 hide record ID: $HIDE_REC_ID"
 
 T1_STATUS=$(query collect collection "$T1_COLL_ID" | jq -r '.collection.status // empty')
@@ -231,6 +233,32 @@ assert_tx_success "bob self-corrects the re-hide" "$TX_OUT"
 # Appealing a resolved (self-corrected) record must be rejected.
 TX_OUT=$(send_tx collect appeal-hide "$T1_HIDE_REC_2" --from carol)
 assert_tx_failure "carol cannot appeal a self-corrected (resolved) hide" "$TX_OUT"
+
+# Sentinel moderation history: hide-records-by-sentinel returns bob's hides
+# newest first. Earlier suites may have created hides by bob too, so assert
+# containment and ordering of the two Test 1 records rather than exact count.
+# proto3 omits zero-valued uint64 ids from CLI JSON — normalize with // "0".
+BY_SENTINEL_IDS=$(query collect hide-records-by-sentinel "$BOB_ADDR" \
+    | jq -r '[.hide_records[] | (.id // "0")] | join(" ")' 2>/dev/null)
+echo "  bob's hide record ids (newest first): $BY_SENTINEL_IDS"
+FIRST_ID=${BY_SENTINEL_IDS%% *}
+assert_equal "hide-records-by-sentinel lists bob's newest hide first" \
+    "$T1_HIDE_REC_2" "$FIRST_ID"
+case " $BY_SENTINEL_IDS " in
+    *" $T1_HIDE_REC_1 "*)
+        echo "PASS: hide-records-by-sentinel includes bob's first Test 1 hide"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        ;;
+    *)
+        echo "FAIL: hide-records-by-sentinel missing record $T1_HIDE_REC_1 (got: $BY_SENTINEL_IDS)"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        ;;
+esac
+
+# carol never hid anything — her sentinel history is empty.
+CAROL_HIDE_COUNT=$(query collect hide-records-by-sentinel "$CAROL_ADDR" \
+    | jq -r '.hide_records | length' 2>/dev/null)
+assert_equal "hide-records-by-sentinel is empty for a non-sentinel" "0" "$CAROL_HIDE_COUNT"
 
 # EndBlocker releases the retained commitments at each record's ORIGINAL
 # appeal deadline (~40 blocks after its hide; ~40-80s early-run, up to ~160s

@@ -151,6 +151,13 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 
 				{
+					RpcMethod:      "HideRecordsBySentinel",
+					Use:            "hide-records-by-sentinel [sentinel]",
+					Short:          "Query HideRecordsBySentinel",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "sentinel"}},
+				},
+
+				{
 					RpcMethod:      "PendingCollections",
 					Use:            "pending-collections ",
 					Short:          "Query PendingCollections",
