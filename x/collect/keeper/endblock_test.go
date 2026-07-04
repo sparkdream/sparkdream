@@ -151,7 +151,7 @@ func TestPruneUnappealedHides(t *testing.T) {
 	require.Equal(t, types.CollectionStatus_COLLECTION_STATUS_HIDDEN, coll.Status)
 
 	// Capture pre-prune commitment so we can verify ReleaseBond fires.
-	preCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	preCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
 
 	// Advance past hide_expiry_blocks (default 100800)
 	// Hidden at block 100, appeal deadline = 100 + 100800 = 100900
@@ -170,7 +170,7 @@ func TestPruneUnappealedHides(t *testing.T) {
 	require.Error(t, err)
 
 	// Verify sentinel bond was released (TotalCommittedBond decreased).
-	postCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	postCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
 	require.NotEqual(t, preCommitted, postCommitted, "expected ReleaseBond to reduce total_committed_bond")
 }
 
@@ -509,7 +509,7 @@ func TestPruneAppealTimeouts(t *testing.T) {
 	}
 
 	// Capture pre-prune commitment so we can verify ReleaseBond fires.
-	preCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	preCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
 
 	// Advance past appeal_deadline_blocks (default 201600)
 	// Appeal was filed, new deadline = current_block + 201600
@@ -533,7 +533,7 @@ func TestPruneAppealTimeouts(t *testing.T) {
 	require.True(t, burnCalled)
 
 	// Verify sentinel bond released (TotalCommittedBond decreased).
-	postCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	postCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
 	require.NotEqual(t, preCommitted, postCommitted, "expected ReleaseBond to reduce total_committed_bond")
 }
 

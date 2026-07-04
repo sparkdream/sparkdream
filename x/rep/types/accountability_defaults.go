@@ -46,6 +46,12 @@ const (
 	// sentinel must wait before regaining sentinel privileges.
 	DefaultSentinelDemotionCooldown = int64(604800) // 7 days
 
+	// DefaultRoleOverturnCooldown is the duration (seconds) a role holder is
+	// locked out of new moderation actions (on every surface) after a lost
+	// appeal. Moved here from forum's DefaultSentinelOverturnCooldown when
+	// the shared accountability record moved to x/rep.
+	DefaultRoleOverturnCooldown = int64(86400) // 24 hours
+
 	// DefaultSentinelAccuracyWindowEpochs is the rolling window (in reward
 	// epochs) over which sentinel reward accuracy is measured.
 	DefaultSentinelAccuracyWindowEpochs = uint64(6)

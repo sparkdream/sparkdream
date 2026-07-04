@@ -25,7 +25,7 @@ func TestMsgServerPinReply(t *testing.T) {
 	})
 
 	t.Run("registered sentinel can pin", func(t *testing.T) {
-		// PinReply requires a BondedRole record (ROLE_TYPE_FORUM_SENTINEL) in
+		// PinReply requires a BondedRole record (ROLE_TYPE_CONTENT_SENTINEL) in
 		// non-DEMOTED status, matching hide/lock/move. Register the sentinel
 		// via the helper so the BondedRole lookup succeeds.
 		f.createTestSentinel(t, testCreator, "2000000000")
@@ -330,10 +330,14 @@ func TestMsgServerPinReplyCounters(t *testing.T) {
 	r1 := f.createTestPost(t, testCreator2, root.PostId, 0)
 	r2 := f.createTestPost(t, testCreator2, root.PostId, 0)
 
-	pins := func(addr string) types.SentinelActivity {
-		act, err := f.keeper.SentinelActivity.Get(f.ctx, addr)
-		require.NoError(t, err)
-		return act
+	// Pin counters live on rep's shared RoleActivity record now.
+	type pinCounts struct{ TotalPins, EpochPins uint64 }
+	pins := func(addr string) pinCounts {
+		ra := f.repKeeper.roleActivities[addr]
+		return pinCounts{
+			TotalPins: ra.TotalActions[reptypes.ActionKindForumPin],
+			EpochPins: ra.EpochActions[reptypes.ActionKindForumPin],
+		}
 	}
 
 	// First sentinel pin: total_pins and epoch_pins go 0 -> 1.

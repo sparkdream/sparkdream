@@ -13,7 +13,7 @@ This module provides:
 - **Two-tier content system** — members create permanent collections; non-members create TTL (ephemeral) collections with sponsorship pathway to permanence
 - **Quality curation** — bonded curators rate public collections with verdicts and tags; challenges via `x/rep` jury system
 - **Community reactions** — members upvote (free) or downvote (25 SPARK cost) public collections and items
-- **Sentinel moderation** — x/forum sentinels can hide inappropriate content with appeal mechanism; bond commit/release/slash flows through x/rep's `BondedRole(ROLE_TYPE_FORUM_SENTINEL)` API (no collect-local bond store)
+- **Sentinel moderation** — x/forum sentinels can hide inappropriate content with appeal mechanism; bond commit/release/slash flows through x/rep's `BondedRole(ROLE_TYPE_CONTENT_SENTINEL)` API (no collect-local bond store)
 - **Tiered collection limits** — capacity scales with `x/rep` trust level
 - **Anonymous operations** — anonymous collections and reactions via `x/shield`'s `MsgShieldedExec`
 - **Conviction renewal** — anonymous collections can be sustained if community conviction staking meets threshold
@@ -198,7 +198,7 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgFlagContent` | Report inappropriate content (builds review queue) | Any member |
-| `MsgHideContent` | Hide flagged content (auth + bond commit/release/slash via x/rep `BondedRole(ROLE_TYPE_FORUM_SENTINEL)`); slashes author bond and applies per-tag `author_rep_penalty` on collection hides | Active forum sentinel |
+| `MsgHideContent` | Hide flagged content (auth + bond commit/release/slash via x/rep `BondedRole(ROLE_TYPE_CONTENT_SENTINEL)`); slashes author bond and applies per-tag `author_rep_penalty` on collection hides | Active forum sentinel |
 | `MsgAppealHide` | Appeal hide decision; 50% fee refunded on timeout. Cannot self-delete a HIDDEN collection (`ErrCannotDeleteHidden`) — must appeal first | Content owner |
 
 ### Anonymous Operations (via x/shield)

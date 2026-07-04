@@ -7,6 +7,7 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
@@ -20,21 +21,34 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
-	if k.repKeeper == nil {
-		return nil, types.ErrNotSentinel
-	}
-
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockHeight := sdkCtx.BlockHeight()
 
-	// Creator must hold an active FORUM_SENTINEL bonded role (the shared
-	// moderation role across forum and collect — see commit c286f48).
-	role, err := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-	if err != nil {
-		return nil, types.ErrNotSentinel
+	// Sentinel eligibility: an active CONTENT_SENTINEL bonded role (the shared
+	// moderation role across forum and collect), gated
+	// through rep's shared EligibleForRole (same check forum uses, including
+	// the UNBONDING staying-bond rule — collect previously accepted UNBONDING
+	// sentinels whose staying bond no longer covered the role minimum).
+	sentinelEligible := false
+	sentinelErr := error(types.ErrNotSentinel)
+	if k.repKeeper != nil {
+		if _, roleErr := k.repKeeper.EligibleForRole(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); roleErr == nil {
+			sentinelEligible = true
+		} else {
+			sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, roleErr.Error())
+		}
 	}
-	if role.BondStatus == reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
-		return nil, types.ErrNotSentinel
+
+	// Council authorization: x/gov authority, Commons Council policy address,
+	// or Operations Committee member.
+	isCouncil := k.commonsKeeper != nil &&
+		k.commonsKeeper.IsCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
+
+	// isGovAuthority is the resolved decision: take the council path. See
+	// the authority-selection notes in docs/x-collect-spec.md (MsgHideContent).
+	isGovAuthority, err := resolveModerationAuthority(msg.Authority, sentinelEligible, sentinelErr, isCouncil)
+	if err != nil {
+		return nil, err
 	}
 
 	// Target must exist and be ACTIVE, PUBLIC
@@ -72,13 +86,33 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, errorsmod.Wrap(types.ErrInvalidFlagReason, "reason code must not be UNSPECIFIED")
 	}
 
-	// Sentinel must have available bond >= sentinel_commit_amount
-	availableBond, err := k.repKeeper.GetAvailableBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to get sentinel bond")
-	}
-	if availableBond.LT(params.SentinelCommitAmount) {
-		return nil, types.ErrInsufficientBondAvailable
+	if !isGovAuthority {
+		// Shared overturn cooldown: a sentinel who just lost an appeal (on
+		// EITHER moderation surface — the RoleActivity record is shared and
+		// rep-owned) cannot open new hides until the cooldown passes. Matches
+		// forum's own action-time gate.
+		if until := k.repKeeper.RoleOverturnCooldownUntil(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); until > sdkCtx.BlockTime().Unix() {
+			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown, "cooldown until %d", until)
+		}
+
+		// Per-sentinel daily hide cap (block-height day, same counter family
+		// as pins/flags/reactions). The bond reservation below throttles
+		// concurrent hides; this caps outright hide spam by a well-funded
+		// sentinel. A later self-correct unhide does NOT refund the day's
+		// slot. The council path skips both (matches forum's gov path) —
+		// council accountability is political, not bonded.
+		if err := k.checkDailyLimit(ctx, msg.Creator, blockHeight, "sentinel_hide", params.MaxHidesPerSentinelPerDay); err != nil {
+			return nil, errorsmod.Wrap(err, "sentinel daily hide cap")
+		}
+
+		// Sentinel must have available bond >= sentinel_commit_amount
+		availableBond, bondErr := k.repKeeper.GetAvailableBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+		if bondErr != nil {
+			return nil, errorsmod.Wrap(bondErr, "failed to get sentinel bond")
+		}
+		if availableBond.LT(params.SentinelCommitAmount) {
+			return nil, types.ErrInsufficientBondAvailable
+		}
 	}
 
 	// Set target status to HIDDEN
@@ -111,26 +145,80 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, errorsmod.Wrap(err, "failed to get next hide record ID")
 	}
 
-	// Reserve sentinel_commit_amount on the sentinel's bond record. The
-	// committed amount is mirrored on the HideRecord for later release/slash.
-	if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, params.SentinelCommitAmount); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to reserve sentinel bond")
+	// Sentinel path: reserve sentinel_commit_amount on the sentinel's bond
+	// record; the committed amount is mirrored on the HideRecord for later
+	// release/slash. Council path: no bond — Sentinel stays "" (the gov-hide
+	// marker convention shared with forum) and CommittedAmount stays zero,
+	// which the appeal/expiry handlers already skip via IsPositive() guards.
+	hiddenBy := ""
+	committedAmount := math.ZeroInt()
+	if !isGovAuthority {
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, params.SentinelCommitAmount); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to reserve sentinel bond")
+		}
+		hiddenBy = msg.Creator
+		committedAmount = params.SentinelCommitAmount
+
+		// Credit the collect hide on rep's shared RoleActivity record so
+		// reward-epoch activity sees collect moderation work. Best-effort.
+		if err := k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindCollectHide); err != nil {
+			sdkCtx.Logger().Warn("record collect hide activity failed",
+				"sentinel", msg.Creator, "error", err)
+		}
 	}
 
 	appealDeadline := blockHeight + params.HideExpiryBlocks
 
+	// Snapshot the author-side penalties BEFORE they are applied below, so a
+	// hide reversal (self-correct, jury overturn, appeal timeout) can restore
+	// exactly what this hide took, regardless of later param or tag changes.
+	// The rep snapshot records the ACTUAL per-tag deduction,
+	// min(current_score, penalty) — DeductReputation floors at zero, so
+	// restoring the raw param would mint rep from nothing on every
+	// hide/reversal cycle for authors with less rep than the penalty.
+	authorBondAmount := math.ZeroInt()
+	authorRepPenalty := math.LegacyZeroDec()
+	var repPenaltyTags []string
+	var repPenaltyAmounts []string
+	if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION && k.repKeeper != nil {
+		if bond, bondErr := k.repKeeper.GetAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, msg.TargetId); bondErr == nil {
+			authorBondAmount = bond.Amount
+		}
+		if params.AuthorRepPenalty.IsPositive() && len(coll.Tags) > 0 {
+			authorRepPenalty = params.AuthorRepPenalty
+			repPenaltyTags = coll.Tags
+			scores, scoresErr := k.repKeeper.GetReputationScores(ctx, coll.Owner)
+			for _, tag := range coll.Tags {
+				actual := math.LegacyZeroDec()
+				if scoresErr == nil {
+					if scoreStr, ok := scores[tag]; ok {
+						if current, parseErr := math.LegacyNewDecFromStr(scoreStr); parseErr == nil {
+							actual = math.LegacyMinDec(current, params.AuthorRepPenalty)
+						}
+					}
+				}
+				repPenaltyAmounts = append(repPenaltyAmounts, actual.String())
+			}
+		}
+	}
+
 	hideRecord := types.HideRecord{
-		Id:              hideRecordID,
-		TargetId:        msg.TargetId,
-		TargetType:      msg.TargetType,
-		Sentinel:        msg.Creator,
-		HiddenAt:        blockHeight,
-		CommittedAmount: params.SentinelCommitAmount,
-		ReasonCode:      msg.ReasonCode,
-		ReasonText:      msg.ReasonText,
-		AppealDeadline:  appealDeadline,
-		Appealed:        false,
-		Resolved:        false,
+		Id:               hideRecordID,
+		TargetId:         msg.TargetId,
+		TargetType:       msg.TargetType,
+		Sentinel:         hiddenBy,
+		HiddenAt:         blockHeight,
+		CommittedAmount:  committedAmount,
+		ReasonCode:       msg.ReasonCode,
+		ReasonText:       msg.ReasonText,
+		AppealDeadline:   appealDeadline,
+		Appealed:         false,
+		Resolved:         false,
+		SelfCorrected:     false,
+		AuthorBondAmount:  authorBondAmount,
+		AuthorRepPenalty:  authorRepPenalty,
+		RepPenaltyTags:    repPenaltyTags,
+		RepPenaltyAmounts: repPenaltyAmounts,
 	}
 
 	if err := k.HideRecord.Set(ctx, hideRecordID, hideRecord); err != nil {
@@ -164,9 +252,11 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 
 	// Slash author bond on collection moderation (best-effort: log if no bond exists)
 	// and apply a matching per-tag rep deduction so the author's score on the
-	// collection's topic tags reflects the moderation event. Mirrors the
-	// eager SlashAuthorBond timing — neither is restored if a later appeal is
-	// upheld; consistent with existing author-bond behavior.
+	// collection's topic tags reflects the moderation event. Every reversal
+	// that favors the author — sentinel self-correct (MsgUnhideContent),
+	// jury overturn, appeal timeout — restores both from the snapshots on
+	// the HideRecord above (restoreAuthorPenalties). Only the
+	// unappealed-expiry deletion path leaves them burned.
 	authorRepApplied := false
 	if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION && k.repKeeper != nil {
 		if err := k.repKeeper.SlashAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, msg.TargetId); err != nil {
@@ -179,10 +269,17 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		}
 	}
 
-	// Emit event
+	// Emit event. "sentinel" mirrors HideRecord.Sentinel ("" for council
+	// hides); "creator" always carries the signing account.
+	authorityLabel := "sentinel"
+	if isGovAuthority {
+		authorityLabel = "council"
+	}
 	hideAttrs := []sdk.Attribute{
 		sdk.NewAttribute("hide_record_id", strconv.FormatUint(hideRecordID, 10)),
-		sdk.NewAttribute("sentinel", msg.Creator),
+		sdk.NewAttribute("sentinel", hiddenBy),
+		sdk.NewAttribute("creator", msg.Creator),
+		sdk.NewAttribute("authority", authorityLabel),
 		sdk.NewAttribute("target_id", strconv.FormatUint(msg.TargetId, 10)),
 		sdk.NewAttribute("target_type", msg.TargetType.String()),
 		sdk.NewAttribute("reason_code", msg.ReasonCode.String()),

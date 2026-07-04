@@ -66,7 +66,7 @@ type Keeper struct {
 	// CollectionsByStatus: (status, pinned-rank, collectionID). Pinned-rank
 	// orders pinned collections first within a status so status-prefixed walks
 	// are natively pinned-first; see index_collections_by_status.go.
-	CollectionsByStatus    collections.KeySet[collections.Triple[int32, int32, uint64]]
+	CollectionsByStatus collections.KeySet[collections.Triple[int32, int32, uint64]]
 
 	// Secondary indexes for efficient queries
 	CollectionsByOwner  collections.KeySet[collections.Pair[string, uint64]]

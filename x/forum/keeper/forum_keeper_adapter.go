@@ -193,213 +193,6 @@ func (k Keeper) GetActionCommittedAmount(ctx context.Context, actionType reptype
 	}
 }
 
-// RecordSentinelActionUpheld updates forum's SentinelActivity counters when
-// an appeal is resolved in the sentinel's favor. Increments the upheld_*
-// counter (hide / lock / move) and consecutive_upheld, and resets
-// consecutive_overturns. For hide actions, also decrements pending_hide_count.
-// No-op (with log) when the sentinel cannot be resolved.
-func (k Keeper) RecordSentinelActionUpheld(ctx context.Context, epoch uint64, actionType reptypes.GovActionType, actionTarget string) error {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-
-	sentinel, err := k.GetActionSentinel(ctx, actionType, actionTarget)
-	if err != nil {
-		return err
-	}
-	if sentinel == "" {
-		sdkCtx.Logger().Warn("record sentinel upheld: action record missing",
-			"action_type", actionType.String(), "action_target", actionTarget)
-		return nil
-	}
-
-	local, err := k.SentinelActivity.Get(ctx, sentinel)
-	if err != nil {
-		local = types.SentinelActivity{Address: sentinel}
-	}
-
-	switch actionType {
-	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:
-		local.UpheldLocks++
-	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
-		local.UpheldMoves++
-	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
-		local.UpheldPins++
-	default:
-		local.UpheldHides++
-		if local.PendingHideCount > 0 {
-			local.PendingHideCount--
-		}
-	}
-
-	local.ConsecutiveUpheld++
-	local.ConsecutiveOverturns = 0
-	local.EpochAppealsResolved++
-	bumpAccuracyWindow(&local, epoch, true)
-
-	if err := k.SentinelActivity.Set(ctx, sentinel, local); err != nil {
-		return fmt.Errorf("persist sentinel activity (upheld): %w", err)
-	}
-	return nil
-}
-
-// RecordSentinelActionOverturned updates forum's SentinelActivity counters
-// when an appeal is resolved against the sentinel. Increments overturned_*,
-// increments consecutive_overturns, resets consecutive_upheld. If
-// consecutive_overturns crosses DefaultMaxConsecutiveOverturnsBeforeDemotion,
-// demotes the sentinel via the rep keeper. No-op (with log) when the sentinel
-// cannot be resolved.
-func (k Keeper) RecordSentinelActionOverturned(ctx context.Context, epoch uint64, actionType reptypes.GovActionType, actionTarget string) error {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-
-	sentinel, err := k.GetActionSentinel(ctx, actionType, actionTarget)
-	if err != nil {
-		return err
-	}
-	if sentinel == "" {
-		sdkCtx.Logger().Warn("record sentinel overturned: action record missing",
-			"action_type", actionType.String(), "action_target", actionTarget)
-		return nil
-	}
-
-	local, err := k.SentinelActivity.Get(ctx, sentinel)
-	if err != nil {
-		local = types.SentinelActivity{Address: sentinel}
-	}
-
-	switch actionType {
-	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:
-		local.OverturnedLocks++
-	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
-		local.OverturnedMoves++
-	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
-		local.OverturnedPins++
-	default:
-		local.OverturnedHides++
-		if local.PendingHideCount > 0 {
-			local.PendingHideCount--
-		}
-	}
-
-	local.ConsecutiveOverturns++
-	local.ConsecutiveUpheld = 0
-	local.EpochAppealsResolved++
-	bumpAccuracyWindow(&local, epoch, false)
-	local.OverturnCooldownUntil = sdkCtx.BlockTime().Unix() + types.DefaultSentinelOverturnCooldown
-
-	if err := k.SentinelActivity.Set(ctx, sentinel, local); err != nil {
-		return fmt.Errorf("persist sentinel activity (overturned): %w", err)
-	}
-
-	if local.ConsecutiveOverturns >= reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion {
-		if k.repKeeper == nil {
-			sdkCtx.Logger().Warn("cannot demote sentinel: rep keeper not wired",
-				"sentinel", sentinel)
-			return nil
-		}
-		cooldownUntil := sdkCtx.BlockTime().Unix() + reptypes.DefaultSentinelDemotionCooldown
-		if err := k.repKeeper.SetBondStatus(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinel,
-			reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, cooldownUntil); err != nil {
-			sdkCtx.Logger().Error("failed to demote sentinel after overturn streak",
-				"sentinel", sentinel, "consecutive_overturns", local.ConsecutiveOverturns,
-				"error", err)
-		}
-	}
-	return nil
-}
-
-// bumpAccuracyWindow records one resolved appeal in the sentinel's rolling
-// accuracy ring at the slot for `epoch` (slot index = epoch % ring size). The
-// ring is lazily allocated to its fixed size on first write. A slot whose
-// stamp does not match `epoch` is stale (left by an earlier epoch that mapped
-// to the same index) and is reset before counting — because the ring size is
-// >= the read window, any slot being overwritten is necessarily older than the
-// window, so the overwrite never drops in-window data.
-func bumpAccuracyWindow(local *types.SentinelActivity, epoch uint64, upheld bool) {
-	if len(local.AccuracyWindow) != types.SentinelAccuracyRingSize {
-		local.AccuracyWindow = make([]*types.AccuracyEpochBucket, types.SentinelAccuracyRingSize)
-		for i := range local.AccuracyWindow {
-			local.AccuracyWindow[i] = &types.AccuracyEpochBucket{}
-		}
-	}
-	slot := local.AccuracyWindow[epoch%uint64(types.SentinelAccuracyRingSize)]
-	if slot.Epoch != epoch {
-		slot.Epoch, slot.Upheld, slot.Overturned = epoch, 0, 0
-	}
-	if upheld {
-		slot.Upheld++
-	} else {
-		slot.Overturned++
-	}
-}
-
-// GetSentinelWindowedAccuracy returns (upheld, overturned) resolved-appeal
-// counts summed over the last `window` reward epochs ending at currentEpoch
-// (inclusive). Slots stamped outside that range — stale entries or epochs
-// older than the window — are ignored. Missing record or window 0 -> (0, 0).
-func (k Keeper) GetSentinelWindowedAccuracy(ctx context.Context, addr string, currentEpoch, window uint64) (uint64, uint64, error) {
-	if window == 0 {
-		return 0, 0, nil
-	}
-	local, err := k.SentinelActivity.Get(ctx, addr)
-	if err != nil {
-		return 0, 0, nil
-	}
-	var lo uint64
-	if currentEpoch+1 > window {
-		lo = currentEpoch - window + 1
-	}
-	var up, ov uint64
-	for _, b := range local.AccuracyWindow {
-		if b != nil && b.Epoch >= lo && b.Epoch <= currentEpoch {
-			up += b.Upheld
-			ov += b.Overturned
-		}
-	}
-	return up, ov, nil
-}
-
-// GetSentinelActivityCounters loads forum's per-sentinel counter record and
-// returns the subset needed by x/rep's reward distribution logic.
-// Missing record -> zero-valued struct with no error.
-func (k Keeper) GetSentinelActivityCounters(ctx context.Context, addr string) (reptypes.SentinelActivityCounters, error) {
-	local, err := k.SentinelActivity.Get(ctx, addr)
-	if err != nil {
-		return reptypes.SentinelActivityCounters{}, nil
-	}
-	return reptypes.SentinelActivityCounters{
-		UpheldHides:          local.UpheldHides,
-		OverturnedHides:      local.OverturnedHides,
-		UpheldLocks:          local.UpheldLocks,
-		OverturnedLocks:      local.OverturnedLocks,
-		UpheldMoves:          local.UpheldMoves,
-		OverturnedMoves:      local.OverturnedMoves,
-		EpochHides:           local.EpochHides,
-		EpochLocks:           local.EpochLocks,
-		EpochMoves:           local.EpochMoves,
-		EpochPins:            local.EpochPins,
-		EpochCurations:       local.EpochCurations,
-		EpochAppealsFiled:    local.EpochAppealsFiled,
-		EpochAppealsResolved: local.EpochAppealsResolved,
-	}, nil
-}
-
-// ResetSentinelEpochCounters zeros the per-epoch counters on the forum-side
-// SentinelActivity record, preserving cumulative counters. Called by x/rep at
-// sentinel-reward epoch boundaries. Missing record -> no-op.
-func (k Keeper) ResetSentinelEpochCounters(ctx context.Context, addr string) error {
-	local, err := k.SentinelActivity.Get(ctx, addr)
-	if err != nil {
-		return nil
-	}
-	local.EpochHides = 0
-	local.EpochLocks = 0
-	local.EpochMoves = 0
-	local.EpochPins = 0
-	local.EpochCurations = 0
-	local.EpochAppealsFiled = 0
-	local.EpochAppealsResolved = 0
-	return k.SentinelActivity.Set(ctx, addr, local)
-}
-
 // ReverseSentinelAction reverses the content-state effects of a sentinel
 // moderation action when an appeal is resolved against the sentinel
 // (OVERTURNED) or when the council otherwise overrides the action through
@@ -609,4 +402,32 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 		))
 		return nil
 	}
+}
+
+// OnSentinelActionResolved applies forum-LOCAL bookkeeping when a jury
+// verdict lands on a sentinel action. The SHARED accountability
+// consequences (streaks, accuracy ring, overturn cooldown, streak
+// demotion) are applied by x/rep itself via RecordRoleOutcome — the only
+// forum-local effect today is the pending-hide count decrement for hide
+// verdicts. Missing records are a soft no-op.
+func (k Keeper) OnSentinelActionResolved(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) error {
+	switch actionType {
+	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK,
+		reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE,
+		reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+		return nil // only hides track a pending count
+	}
+	sentinel, err := k.GetActionSentinel(ctx, actionType, actionTarget)
+	if err != nil || sentinel == "" {
+		return nil
+	}
+	local, err := k.SentinelActivity.Get(ctx, sentinel)
+	if err != nil {
+		return nil
+	}
+	if local.PendingHideCount > 0 {
+		local.PendingHideCount--
+		return k.SentinelActivity.Set(ctx, sentinel, local)
+	}
+	return nil
 }

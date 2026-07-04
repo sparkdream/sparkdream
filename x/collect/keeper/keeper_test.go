@@ -133,6 +133,15 @@ type repDeductionCall struct {
 	amount math.LegacyDec
 }
 
+// restoreAuthorBondCall records a RestoreAuthorBond invocation so tests can
+// assert the sentinel self-correct path restored the snapshotted bond.
+type restoreAuthorBondCall struct {
+	author     sdk.AccAddress
+	targetType reptypes.StakeTargetType
+	targetID   uint64
+	amount     math.Int
+}
+
 type mockRepKeeper struct {
 	isMemberFn         func(ctx context.Context, addr sdk.AccAddress) bool
 	getTrustLevelFn    func(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
@@ -147,6 +156,27 @@ type mockRepKeeper struct {
 	unlockCalls           []dreamCall
 	burnCalls             []dreamCall
 	deductReputationCalls []repDeductionCall
+
+	// Author-bond restore path (MsgUnhideContent). getAuthorBondFn lets a
+	// test simulate an existing bond so HideContent snapshots its amount;
+	// the call recorders capture the restore side.
+	getAuthorBondFn        func(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error)
+	restoreAuthorBondCalls []restoreAuthorBondCall
+	addReputationCalls     []repDeductionCall
+
+	// Per-tag score map used at hide time to snapshot the ACTUAL rep
+	// deduction (min(score, penalty)). Default: empty map — every
+	// deduction floors at zero, so nothing is restorable unless a test
+	// seeds scores here.
+	getReputationScoresFn func(ctx context.Context, addr string) (map[string]string, error)
+
+	// RoleActivity surface recorders (shared content-sentinel accountability,
+	// owned by x/rep). Tests read these to assert collect reports actions,
+	// appeal filings, and outcomes; overturnCooldownUntil simulates the
+	// shared cooldown gate (0 = none).
+	roleActionCalls       []roleActionCall
+	roleOutcomeCalls      []roleOutcomeCall
+	overturnCooldownUntil map[string]int64
 
 	// Tag registry behavior. KnownTags: tag names that exist in the registry
 	// (nil map means permissive — any tag accepted, so existing non-tag tests
@@ -241,7 +271,54 @@ func (m *mockRepKeeper) SlashAuthorBond(ctx context.Context, targetType reptypes
 }
 
 func (m *mockRepKeeper) GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error) {
+	if m.getAuthorBondFn != nil {
+		return m.getAuthorBondFn(ctx, targetType, targetID)
+	}
 	return reptypes.Stake{}, reptypes.ErrAuthorBondNotFound
+}
+
+func (m *mockRepKeeper) RestoreAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) error {
+	m.restoreAuthorBondCalls = append(m.restoreAuthorBondCalls, restoreAuthorBondCall{
+		author: author, targetType: targetType, targetID: targetID, amount: amount,
+	})
+	return nil
+}
+
+func (m *mockRepKeeper) AddReputation(ctx context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	m.addReputationCalls = append(m.addReputationCalls, repDeductionCall{addr: addr, tag: tag, amount: amount})
+	return nil
+}
+
+type roleActionCall struct {
+	addr string
+	kind string
+}
+
+type roleOutcomeCall struct {
+	addr   string
+	kind   string
+	upheld bool
+}
+
+func (m *mockRepKeeper) RecordRoleAction(_ context.Context, _ reptypes.RoleType, addr, kind string) error {
+	m.roleActionCalls = append(m.roleActionCalls, roleActionCall{addr: addr, kind: kind})
+	return nil
+}
+
+func (m *mockRepKeeper) RecordRoleOutcome(_ context.Context, _ reptypes.RoleType, addr, kind string, upheld bool) error {
+	m.roleOutcomeCalls = append(m.roleOutcomeCalls, roleOutcomeCall{addr: addr, kind: kind, upheld: upheld})
+	return nil
+}
+
+func (m *mockRepKeeper) RoleOverturnCooldownUntil(_ context.Context, _ reptypes.RoleType, addr string) int64 {
+	return m.overturnCooldownUntil[addr]
+}
+
+func (m *mockRepKeeper) GetReputationScores(ctx context.Context, addr string) (map[string]string, error) {
+	if m.getReputationScoresFn != nil {
+		return m.getReputationScoresFn(ctx, addr)
+	}
+	return map[string]string{}, nil
 }
 
 func (m *mockRepKeeper) ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error {
@@ -284,6 +361,45 @@ func (m *mockRepKeeper) GetBondedRole(_ context.Context, roleType reptypes.RoleT
 		return br, nil
 	}
 	return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
+}
+
+// EligibleForRole mirrors x/rep's Keeper.EligibleForRole against the mock's
+// bondedRoles map. The UNBONDING staying-bond threshold comes from the
+// mock's bondedRoleConfigs (missing config = zero minimum, matching the real
+// keeper's lenient fallback).
+func (m *mockRepKeeper) EligibleForRole(_ context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error) {
+	br, ok := m.bondedRoles[mockBondedRoleKey(roleType, addr)]
+	if !ok {
+		return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
+	}
+	switch br.BondStatus {
+	case reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+		reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY:
+		return br, nil
+	case reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING:
+		current, _ := math.NewIntFromString(br.CurrentBond)
+		if current.IsNil() {
+			current = math.ZeroInt()
+		}
+		pending := math.ZeroInt()
+		if br.PendingUnbondAmount != "" {
+			if p, pok := math.NewIntFromString(br.PendingUnbondAmount); pok {
+				pending = p
+			}
+		}
+		minBond := math.ZeroInt()
+		if cfg, cok := m.bondedRoleConfigs[roleType]; cok {
+			if mb, mok := math.NewIntFromString(cfg.MinBond); mok {
+				minBond = mb
+			}
+		}
+		if current.Sub(pending).LT(minBond) {
+			return br, reptypes.ErrRoleUnbondingBelowMin
+		}
+		return br, nil
+	default:
+		return br, reptypes.ErrRoleDemoted
+	}
 }
 
 func (m *mockRepKeeper) GetAvailableBond(_ context.Context, roleType reptypes.RoleType, addr string) (math.Int, error) {
@@ -435,9 +551,9 @@ func (m *mockForumKeeper) HasCategory(_ context.Context, _ uint64) bool {
 // check passes. Use in tests that exercise the sentinel-moderation path.
 func seedActiveSentinel(t *testing.T, rk *mockRepKeeper, addr string, currentBond math.Int) {
 	t.Helper()
-	rk.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr)] = reptypes.BondedRole{
+	rk.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr)] = reptypes.BondedRole{
 		Address:            addr,
-		RoleType:           reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType:           reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		CurrentBond:        currentBond.String(),
 		TotalCommittedBond: "0",
 		BondStatus:         reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,

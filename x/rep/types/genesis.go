@@ -49,7 +49,7 @@ func DefaultGenesis() *GenesisState {
 func DefaultBondedRoleConfigs() []BondedRoleConfig {
 	return []BondedRoleConfig{
 		{
-			RoleType:          RoleType_ROLE_TYPE_FORUM_SENTINEL,
+			RoleType:          RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 			MinBond:           "1000",
 			MinRepTier:        3,
 			MinTrustLevel:     "",
@@ -301,6 +301,18 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated bonded role for %s", key)
 		}
 		bondedRoleIndex[key] = struct{}{}
+	}
+
+	roleActivityIndex := make(map[string]struct{})
+	for _, ra := range gs.RoleActivityList {
+		if ra.RoleType == RoleType_ROLE_TYPE_UNSPECIFIED {
+			return fmt.Errorf("role activity has unspecified role_type")
+		}
+		key := fmt.Sprintf("%d/%s", int32(ra.RoleType), ra.Address)
+		if _, ok := roleActivityIndex[key]; ok {
+			return fmt.Errorf("duplicated role activity for %s", key)
+		}
+		roleActivityIndex[key] = struct{}{}
 	}
 
 	return gs.Params.Validate()

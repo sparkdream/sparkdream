@@ -149,7 +149,7 @@ SENTINEL_BONDED=false
 SENTINEL_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
 if echo "$SENTINEL_ACTIVITY" | grep -q "not found"; then
     echo "  Sentinel1 not bonded, attempting to bond..."
-    TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+    TX_RES=$($BINARY tx rep bond-role content-sentinel \
         "100000000" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \
@@ -183,12 +183,12 @@ echo ""
 echo "--- TEST 1: Re-bond adds to existing commitment (top-up) ---"
 
 if [ "$SENTINEL_BONDED" = true ]; then
-    BEFORE_BOND=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null \
+    BEFORE_BOND=$($BINARY query rep bonded-role content-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null \
         | jq -r '.bonded_role.current_bond // "0"')
     echo "  Sentinel1 bond before top-up: $BEFORE_BOND"
 
     TOPUP_AMOUNT="100000000"
-    TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+    TX_RES=$($BINARY tx rep bond-role content-sentinel \
         "$TOPUP_AMOUNT" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \
@@ -198,7 +198,7 @@ if [ "$SENTINEL_BONDED" = true ]; then
         --output json 2>&1)
 
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-        AFTER_BOND=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null \
+        AFTER_BOND=$($BINARY query rep bonded-role content-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null \
             | jq -r '.bonded_role.current_bond // "0"')
         echo "  Sentinel1 bond after top-up:  $AFTER_BOND"
         if [ "$AFTER_BOND" -gt "$BEFORE_BOND" ] 2>/dev/null; then
@@ -318,10 +318,10 @@ echo "--- TEST 5: Sub-min top-up to an existing role is accepted ---"
 # unbond), so a 1-udream amount is a valid incremental top-up — it only adds
 # slashable collateral, and top-ups are allowed mid-unbond. It must be ACCEPTED.
 echo "  Topping up sentinel2 with 1 udream (sub-min, but a top-up to an existing role)..."
-B4=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL2_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
+B4=$($BINARY query rep bonded-role content-sentinel "$SENTINEL2_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
 [ -z "$B4" ] && B4="0"
 
-TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+TX_RES=$($BINARY tx rep bond-role content-sentinel \
     "1" \
     --from sentinel2 \
     --chain-id $CHAIN_ID \
@@ -331,7 +331,7 @@ TX_RES=$($BINARY tx rep bond-role forum-sentinel \
     --output json 2>&1)
 
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-    AFTER=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL2_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
+    AFTER=$($BINARY query rep bonded-role content-sentinel "$SENTINEL2_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
     echo "  Top-up accepted: current_bond $B4 -> $AFTER"
     if [ "$AFTER" == "$((${B4:-0} + 1))" ]; then
         record_result "Sub-min top-up to existing role accepted" "PASS"
@@ -652,7 +652,7 @@ fi
 echo "--- TEST 11: ErrNotSentinel - Unbond when not a sentinel ---"
 
 echo "  Attempting to unbond as poster1 (not a sentinel)..."
-TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
+TX_RES=$($BINARY tx rep unbond-role content-sentinel \
     "50000000" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -717,7 +717,7 @@ echo "--- TEST 14: Sentinel bond status query verification ---"
 
 if [ "$SENTINEL_BONDED" = true ]; then
     echo "  Querying sentinel bond commitment for sentinel1..."
-    BOND_COMMIT=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
+    BOND_COMMIT=$($BINARY query rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>&1)
 
     if echo "$BOND_COMMIT" | grep -q "error"; then
         echo "  Failed to query bond commitment"

@@ -123,6 +123,7 @@ type Keeper struct {
 	// hold multiple roles; prefix scan on role_type yields list-by-type.
 	BondedRoles       collections.Map[collections.Pair[int32, string], types.BondedRole]
 	BondedRoleConfigs collections.Map[int32, types.BondedRoleConfig]
+	RoleActivities    collections.Map[collections.Pair[int32, string], types.RoleActivity]
 
 	// Accountability
 	JuryParticipation  collections.Map[string, types.JuryParticipation]
@@ -274,6 +275,11 @@ func NewKeeper(
 			sb, types.BondedRoleConfigKey, "bondedRoleConfigs",
 			collections.Int32Key,
 			codec.CollValue[types.BondedRoleConfig](cdc),
+		),
+		RoleActivities: collections.NewMap(
+			sb, types.RoleActivityKey, "roleActivities",
+			collections.PairKeyCodec(collections.Int32Key, collections.StringKey),
+			codec.CollValue[types.RoleActivity](cdc),
 		),
 
 		// Accountability

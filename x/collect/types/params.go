@@ -77,6 +77,11 @@ var (
 	DefaultAppealCooldownBlocks int64 = 600                      // ~1 hour
 	DefaultAppealDeadlineBlocks int64 = 201600                   // ~14 days
 
+	DefaultSentinelUnhideWindowBlocks int64 = 14400 // ~24 hours
+
+	// Forum parity: forum's max_hides_per_epoch defaults to 50/UTC-day.
+	DefaultMaxHidesPerSentinelPerDay uint32 = 50
+
 	// Endorsement defaults
 	DefaultEndorsementCreationFee                = math.NewInt(10000000)            // 10 SPARK
 	DefaultEndorsementDreamStake                 = math.NewInt(100_000_000)         // 100 DREAM (in udream)
@@ -178,6 +183,8 @@ func DefaultParams() Params {
 		AppealFee:                       DefaultAppealFee,
 		AppealCooldownBlocks:            DefaultAppealCooldownBlocks,
 		AppealDeadlineBlocks:            DefaultAppealDeadlineBlocks,
+		SentinelUnhideWindowBlocks:      DefaultSentinelUnhideWindowBlocks,
+		MaxHidesPerSentinelPerDay:       DefaultMaxHidesPerSentinelPerDay,
 		EndorsementCreationFee:          DefaultEndorsementCreationFee,
 		EndorsementDreamStake:           DefaultEndorsementDreamStake,
 		EndorsementStakeDuration:        DefaultEndorsementStakeDuration,
@@ -352,6 +359,16 @@ func (p Params) Validate() error {
 	}
 	if p.AppealDeadlineBlocks <= 0 {
 		return fmt.Errorf("appeal_deadline_blocks must be positive: %d", p.AppealDeadlineBlocks)
+	}
+	if p.SentinelUnhideWindowBlocks <= 0 {
+		return fmt.Errorf("sentinel_unhide_window_blocks must be positive: %d", p.SentinelUnhideWindowBlocks)
+	}
+	if p.SentinelUnhideWindowBlocks >= p.HideExpiryBlocks {
+		return fmt.Errorf("sentinel_unhide_window_blocks (%d) must be less than hide_expiry_blocks (%d)",
+			p.SentinelUnhideWindowBlocks, p.HideExpiryBlocks)
+	}
+	if p.MaxHidesPerSentinelPerDay == 0 {
+		return fmt.Errorf("max_hides_per_sentinel_per_day must be positive")
 	}
 	if p.EndorsementCreationFee.IsNil() || !p.EndorsementCreationFee.IsPositive() {
 		return fmt.Errorf("endorsement_creation_fee must be positive: %s", p.EndorsementCreationFee)
@@ -573,6 +590,12 @@ func (p Params) ApplyOperationalParams(op CollectOperationalParams) Params {
 	}
 	if op.AppealDeadlineBlocks > 0 {
 		p.AppealDeadlineBlocks = op.AppealDeadlineBlocks
+	}
+	if op.SentinelUnhideWindowBlocks > 0 {
+		p.SentinelUnhideWindowBlocks = op.SentinelUnhideWindowBlocks
+	}
+	if op.MaxHidesPerSentinelPerDay > 0 {
+		p.MaxHidesPerSentinelPerDay = op.MaxHidesPerSentinelPerDay
 	}
 	if !op.EndorsementCreationFee.IsNil() {
 		p.EndorsementCreationFee = op.EndorsementCreationFee

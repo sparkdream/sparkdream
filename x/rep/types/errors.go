@@ -131,6 +131,8 @@ var (
 	ErrBondedRoleNotFound      = errors.Register(ModuleName, 1938, "bonded role not found")
 	ErrBondedRoleConfigMissing = errors.Register(ModuleName, 1953, "bonded role config missing")
 	ErrInsufficientBond        = errors.Register(ModuleName, 1954, "insufficient bond")
+	ErrRoleDemoted             = errors.Register(ModuleName, 1955, "bonded role is demoted")
+	ErrRoleUnbondingBelowMin   = errors.Register(ModuleName, 1956, "bonded role is unbonding and the staying bond is below the role minimum")
 
 	// Accountability errors
 	ErrReportNotFound          = errors.Register(ModuleName, 1939, "report not found")

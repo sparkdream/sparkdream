@@ -310,7 +310,7 @@ func TestResolveHideAppeal_Upheld(t *testing.T) {
 	}
 
 	// Capture sentinel's pre-resolve bond so we can verify SlashBond fired.
-	preSentinelBond := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].CurrentBond
+	preSentinelBond := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].CurrentBond
 
 	// Track burn (20% of appeal fee)
 	var burnCalled bool
@@ -340,7 +340,7 @@ func TestResolveHideAppeal_Upheld(t *testing.T) {
 	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", expectedRefund)), refundAmount)
 
 	// Verify sentinel bond was slashed (CurrentBond decreased).
-	postSentinelBond := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].CurrentBond
+	postSentinelBond := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].CurrentBond
 	require.NotEqual(t, preSentinelBond, postSentinelBond, "expected SlashBond to reduce current_bond")
 
 	// Verify 20% was burned
@@ -376,7 +376,7 @@ func TestResolveHideAppeal_Rejected(t *testing.T) {
 
 	// Capture sentinel's pre-resolve bond commitment so we can verify
 	// ReleaseBond fired (TotalCommittedBond decreases on release).
-	preSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	preSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
 
 	// Track sentinel reward
 	var sentinelRewarded bool
@@ -408,7 +408,7 @@ func TestResolveHideAppeal_Rejected(t *testing.T) {
 	require.Error(t, err)
 
 	// Verify sentinel bond was released (TotalCommittedBond decreased).
-	postSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)].TotalCommittedBond
+	postSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
 	require.NotEqual(t, preSentinelCommitted, postSentinelCommitted, "expected ReleaseBond to reduce total_committed_bond")
 
 	// Verify sentinel was rewarded (50% of appeal fee)

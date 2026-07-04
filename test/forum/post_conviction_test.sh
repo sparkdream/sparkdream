@@ -110,7 +110,7 @@ extract_event_value() {
 }
 
 # Build COUNT EPIC interims for $ACCOUNT to push it past the ESTABLISHED trust
-# gate that bonding a forum-sentinel requires. Mirrors bootstrap_reputation in
+# gate that bonding a content-sentinel requires. Mirrors bootstrap_reputation in
 # unhide_post_test.sh — 3 EPICs reliably reach ESTABLISHED under default params.
 bootstrap_reputation() {
     local ACCOUNT=$1
@@ -488,23 +488,23 @@ if [ -n "$HAPPY_STAKE_ID" ]; then
 fi
 
 # ============================================================================
-# SETUP FOR TEST 7: ensure sentinel1 is a bonded forum-sentinel.
+# SETUP FOR TEST 7: ensure sentinel1 is a bonded content-sentinel.
 # ============================================================================
 # The slash path is driven by a sentinel hiding the post, and MsgHidePost
-# requires the caller to hold a non-DEMOTED ROLE_TYPE_FORUM_SENTINEL bond at
+# requires the caller to hold a non-DEMOTED ROLE_TYPE_CONTENT_SENTINEL bond at
 # ESTABLISHED+ trust. In the full suite sentinel_test.sh bonds sentinel1 in an
 # earlier PART, but this test must also pass standalone — so bond it here if no
 # preceding test already did. Idempotent: skipped when sentinel1 is bonded.
-echo "--- SETUP: ensure sentinel1 is a bonded forum-sentinel ---"
+echo "--- SETUP: ensure sentinel1 is a bonded content-sentinel ---"
 SENTINEL_READY=true
-SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep bonded-role content-sentinel "$SENTINEL1_ADDR" --output json 2>&1)
 if echo "$SENTINEL_STATUS" | grep -qi "error\|not found"; then
     if ! bootstrap_reputation sentinel1 3; then
         echo "  Failed to bootstrap sentinel1 reputation; skipping slash test."
         SENTINEL_READY=false
     else
         echo "  Bonding sentinel1 (500 DREAM = DefaultMinSentinelBond)..."
-        TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+        TX_RES=$($BINARY tx rep bond-role content-sentinel \
             "500000000" \
             --from sentinel1 \
             --chain-id $CHAIN_ID \

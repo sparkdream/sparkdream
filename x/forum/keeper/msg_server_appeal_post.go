@@ -97,13 +97,10 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 		return nil, errorsmod.Wrap(err, "failed to mark hide record appealed")
 	}
 
-	// Update sentinel activity to track pending appeal
-	sentinelActivity, err := k.SentinelActivity.Get(ctx, hideRecord.Sentinel)
-	if err == nil {
-		sentinelActivity.EpochAppealsFiled++
-		if err := k.SentinelActivity.Set(ctx, hideRecord.Sentinel, sentinelActivity); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
-		}
+	// Count the appeal against the sentinel on rep's shared RoleActivity
+	// record (feeds the reward Gate 4 appeal-rate check).
+	if k.repKeeper != nil {
+		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hideRecord.Sentinel, reptypes.ActionKindForumAppealFiled)
 	}
 
 	// Emit event

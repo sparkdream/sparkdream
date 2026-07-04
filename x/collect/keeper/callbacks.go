@@ -337,7 +337,22 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 
 		// Slash sentinel's reserved bond (appeal upheld → sentinel was wrong)
 		if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-			k.repKeeper.SlashBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount, "collect_hide_appeal_upheld") //nolint:errcheck
+			k.repKeeper.SlashBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount, "collect_hide_appeal_upheld") //nolint:errcheck
+		}
+
+		// The jury found the hide wrong — restore the author bond and
+		// per-tag rep penalty snapshotted on the HideRecord at hide time,
+		// same as a sentinel self-correct.
+		authorBondRestored, repPenaltyRestored := k.restoreAuthorPenalties(ctx, hr)
+
+		// Report the overturn to rep's shared RoleActivity record (streaks,
+		// cooldown, accuracy ring, streak demotion). Council hides
+		// (Sentinel == "") carry no sentinel accountability. Best-effort.
+		if hr.Sentinel != "" && k.repKeeper != nil {
+			if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, reptypes.ActionKindCollectHide, false); err != nil {
+				sdkCtx.Logger().Warn("record collect hide overturn failed",
+					"sentinel", hr.Sentinel, "hide_record_id", hr.Id, "error", err)
+			}
 		}
 
 		hr.Resolved = true
@@ -350,6 +365,8 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 			sdk.NewAttribute("target_type", hr.TargetType.String()),
 			sdk.NewAttribute("sentinel_slashed", hr.CommittedAmount.String()),
 			sdk.NewAttribute("appellant_refund", appellantRefund.String()),
+			sdk.NewAttribute("author_bond_restored", strconv.FormatBool(authorBondRestored)),
+			sdk.NewAttribute("rep_penalty_restored", strconv.FormatBool(repPenaltyRestored)),
 		))
 	} else {
 		// Sentinel wins — content should be deleted.
@@ -363,6 +380,16 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 		// to move up.
 		hr.Resolved = true
 		k.HideRecord.Set(ctx, hr.Id, hr) //nolint:errcheck
+
+		// Report the upheld verdict to rep's shared RoleActivity record
+		// (accuracy ring + streak reset). Council hides (Sentinel == "")
+		// carry no sentinel accountability.
+		if hr.Sentinel != "" && k.repKeeper != nil {
+			if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, reptypes.ActionKindCollectHide, true); err != nil {
+				sdkCtx.Logger().Warn("record collect hide upheld failed",
+					"sentinel", hr.Sentinel, "hide_record_id", hr.Id, "error", err)
+			}
+		}
 
 		// Delete target
 		switch hr.TargetType {
@@ -404,7 +431,7 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 
 		// Sentinel won the appeal — release the reserved bond and reward.
 		if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-			k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+			k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 		}
 		if sentinelReward.IsPositive() {
 			sentinelAddr, addrErr := k.addressCodec.StringToBytes(hr.Sentinel)

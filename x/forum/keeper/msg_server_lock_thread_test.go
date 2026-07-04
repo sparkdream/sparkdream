@@ -316,7 +316,7 @@ func TestLockThread_ParamDrivenBondFloor(t *testing.T) {
 // for MsgLockThread when one account holds both roles. AUTO must prefer the
 // accountable sentinel path (writes a ThreadLockRecord) over the council path
 // (no record, unlockable only by the council). See
-// docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+// docs/x-forum-spec.md (Shared ModerationAuthority).
 func TestLockThread_AuthorityDisambiguation(t *testing.T) {
 	// Lock-eligible sentinel that is ALSO council.
 	setup := func(t *testing.T, bond string) (*fixture, uint64) {

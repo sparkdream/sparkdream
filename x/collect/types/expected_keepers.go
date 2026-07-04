@@ -58,6 +58,24 @@ type RepKeeper interface {
 	SlashAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) error
 	GetAuthorBond(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (reptypes.Stake, error)
 
+	// RestoreAuthorBond is the inverse of SlashAuthorBond, used by the
+	// sentinel self-correct path (MsgUnhideContent). Mints the snapshotted
+	// amount back to the author and re-locks it as a fresh bond. Idempotent
+	// when a bond already exists for the target.
+	RestoreAuthorBond(ctx context.Context, author sdk.AccAddress, targetType reptypes.StakeTargetType, targetID uint64, amount math.Int) error
+
+	// AddReputation is the inverse of DeductReputation, used by hide
+	// reversal paths (self-correct, jury overturn, appeal timeout) to
+	// restore the per-tag rep penalty applied at hide time.
+	AddReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error
+
+	// GetReputationScores returns the member's per-tag reputation map
+	// (LegacyDec strings). Used at hide time to snapshot the ACTUAL
+	// deducted amount per tag — DeductReputation floors at zero, so
+	// restoring the raw penalty param would mint reputation from nothing
+	// for authors with less rep than the penalty.
+	GetReputationScores(ctx context.Context, addr string) (map[string]string, error)
+
 	// Cross-module conviction propagation
 	ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
@@ -75,8 +93,22 @@ type RepKeeper interface {
 
 	// Bonded-role accountability (owned by x/rep). Curators are keyed as
 	// ROLE_TYPE_COLLECT_CURATOR; the moderation sentinel role for hide-content
-	// is the shared ROLE_TYPE_FORUM_SENTINEL.
+	// is the shared ROLE_TYPE_CONTENT_SENTINEL.
 	GetBondedRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
+	// EligibleForRole is the shared action-time eligibility gate
+	// (NORMAL/RECOVERY; UNBONDING while the staying bond covers the role's
+	// configured min_bond; DEMOTED never). Hoisted from forum's
+	// eligibleSentinel so collect enforces the same gate on hide actions.
+	// Typed errors: ErrBondedRoleNotFound, ErrRoleDemoted,
+	// ErrRoleUnbondingBelowMin.
+	EligibleForRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
+
+	// Shared RoleActivity surface (owned by x/rep): collect reports hide
+	// actions, appeal filings, and jury outcomes, and consumes the shared
+	// overturn cooldown. See docs/x-rep-spec.md (RoleActivity).
+	RecordRoleAction(ctx context.Context, roleType reptypes.RoleType, addr, kind string) error
+	RecordRoleOutcome(ctx context.Context, roleType reptypes.RoleType, addr, kind string, upheld bool) error
+	RoleOverturnCooldownUntil(ctx context.Context, roleType reptypes.RoleType, addr string) int64
 	GetAvailableBond(ctx context.Context, roleType reptypes.RoleType, addr string) (math.Int, error)
 	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	ReleaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
@@ -106,8 +138,9 @@ type BlogKeeper interface {
 // Used solely for OnChainReference validation against forum posts/replies.
 // Optional — if nil, forum-typed references are accepted without validation.
 //
-// Sentinel-bond operations live on RepKeeper now (BondedRole API): the
-// FORUM_SENTINEL role is shared across moderation surfaces (forum + collect).
+// Sentinel accountability does NOT flow through this interface: the shared
+// CONTENT_SENTINEL bond, eligibility, cooldown, and activity/outcome
+// reporting all live on RepKeeper (RoleActivity API).
 type ForumKeeper interface {
 	// HasPost reports whether a forum post (or reply, since replies are posts
 	// with ParentId > 0) exists under the given id.

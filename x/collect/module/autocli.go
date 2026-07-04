@@ -312,7 +312,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{
 					RpcMethod:      "HideContent",
 					Use:            "hide-content [target-id] [target-type] [reason-code] [reason-text]",
-					Short:          "Send a HideContent tx",
+					Short:          "Hide public content (sentinel or council; select with --authority)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_id"}, {ProtoField: "target_type"}, {ProtoField: "reason_code"}, {ProtoField: "reason_text"}},
 				},
 				{
@@ -352,6 +352,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
+				{
+					RpcMethod:      "UnhideContent",
+					Use:            "unhide-content [hide-record-id]",
+					Short:          "Reverse your own hide (sentinel self-correct, pre-appeal, within window)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "hide_record_id"}},
+				},
 			},
 		},
 	}

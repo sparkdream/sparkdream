@@ -126,14 +126,14 @@ T10_QUERY_UNSPECIFIED_FAILS="FAIL"
 # setup; pick the amount delta so we're definitely above zero here).
 # ========================================================================
 echo "--- PART 1: BOND SENTINEL (happy path) ---"
-PRE_BOND=$(bonded_current_bond forum-sentinel $SENTINEL1_ADDR)
+PRE_BOND=$(bonded_current_bond content-sentinel $SENTINEL1_ADDR)
 echo "  sentinel1 pre-bond current_bond: $PRE_BOND"
 
 # Add 50 DREAM (50_000_000 micro-DREAM) to whatever's already there.
 DELTA_AMOUNT="50000000"
-RES=$(send_tx $BINARY tx rep bond-role forum-sentinel $DELTA_AMOUNT --from sentinel1)
+RES=$(send_tx $BINARY tx rep bond-role content-sentinel $DELTA_AMOUNT --from sentinel1)
 if [ "$RES" == "ok" ]; then
-    POST_BOND=$(bonded_current_bond forum-sentinel $SENTINEL1_ADDR)
+    POST_BOND=$(bonded_current_bond content-sentinel $SENTINEL1_ADDR)
     echo "  sentinel1 post-bond current_bond: $POST_BOND"
     EXPECTED=$((${PRE_BOND:-0} + DELTA_AMOUNT))
     if [ "$POST_BOND" == "$EXPECTED" ]; then
@@ -141,7 +141,7 @@ if [ "$RES" == "ok" ]; then
         # sentinel reward distribution and federation Phase 10 verifier
         # rewards) must be queryable on the BondedRole. Default values
         # are "0" / "0" until a reward distribution stamps them.
-        FULL_BR=$($BINARY q rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>/dev/null)
+        FULL_BR=$($BINARY q rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>/dev/null)
         # Proto3 JSON omits zero-value fields — last_reward_epoch=0 won't
         # appear so use jq's // operator to surface 0 as the default.
         LRE=$(echo "$FULL_BR" | jq -r '.bonded_role.last_reward_epoch // 0')
@@ -164,13 +164,13 @@ echo ""
 # stays locked and slashable through the cooldown window.
 # ========================================================================
 echo "--- PART 2: UNBOND PARTIAL (queued) ---"
-BEFORE=$(bonded_current_bond forum-sentinel $SENTINEL1_ADDR)
+BEFORE=$(bonded_current_bond content-sentinel $SENTINEL1_ADDR)
 UNBOND_AMOUNT="25000000"  # half of the 50 DREAM we just added
-RES=$(send_tx $BINARY tx rep unbond-role forum-sentinel $UNBOND_AMOUNT --from sentinel1)
+RES=$(send_tx $BINARY tx rep unbond-role content-sentinel $UNBOND_AMOUNT --from sentinel1)
 if [ "$RES" == "ok" ]; then
-    AFTER=$(bonded_current_bond forum-sentinel $SENTINEL1_ADDR)
-    STATUS=$(bonded_status forum-sentinel $SENTINEL1_ADDR)
-    PENDING=$(bonded_pending_unbond forum-sentinel $SENTINEL1_ADDR)
+    AFTER=$(bonded_current_bond content-sentinel $SENTINEL1_ADDR)
+    STATUS=$(bonded_status content-sentinel $SENTINEL1_ADDR)
+    PENDING=$(bonded_pending_unbond content-sentinel $SENTINEL1_ADDR)
     # Three queued-path invariants: current_bond unchanged, status UNBONDING,
     # pending equals the requested amount.
     if [ "$AFTER" == "$BEFORE" ] && \
@@ -198,10 +198,10 @@ echo ""
 # ========================================================================
 echo "--- PART 3: REJECT BELOW-MIN FIRST BOND ---"
 # Verify this is a fresh address (no existing role record).
-EXISTING=$(bonded_current_bond forum-sentinel $POSTER1_ADDR)
+EXISTING=$(bonded_current_bond content-sentinel $POSTER1_ADDR)
 if [ "$EXISTING" == "0" ] || [ "$EXISTING" == "null" ]; then
     # Intentionally below the 1000-DREAM (1_000_000 uDREAM) default min_bond.
-    RES=$(send_tx $BINARY tx rep bond-role forum-sentinel 500000 --from poster1)
+    RES=$(send_tx $BINARY tx rep bond-role content-sentinel 500000 --from poster1)
     if [[ "$RES" == err:* ]]; then
         # Either "bond amount below minimum" or "insufficient reputation" —
         # both are valid rejections for a brand-new low-bond attempt.
@@ -240,9 +240,9 @@ echo ""
 # state machine linear (one in-flight unbond per role).
 # ========================================================================
 echo "--- PART 5: REJECT UNBOND WHILE UNBONDING ---"
-CUR=$(bonded_current_bond forum-sentinel $SENTINEL1_ADDR)
+CUR=$(bonded_current_bond content-sentinel $SENTINEL1_ADDR)
 OVER=$((${CUR:-0} + 1000000000))  # any amount triggers the status gate first
-RES=$(send_tx $BINARY tx rep unbond-role forum-sentinel $OVER --from sentinel1)
+RES=$(send_tx $BINARY tx rep unbond-role content-sentinel $OVER --from sentinel1)
 if [[ "$RES" == err:* ]] && echo "$RES" | grep -qE "already UNBONDING|insufficient bond|cannot unbond"; then
     T5_UNBOND_OVER_AVAILABLE="PASS"
     echo "  rejected as expected: $(echo "$RES" | head -c 120)"
@@ -257,7 +257,7 @@ echo ""
 echo "--- PART 6: QUERY bonded-role-config FOR EACH ROLE TYPE ---"
 PASS=0
 TOTAL=0
-for role in forum-sentinel collect-curator federation-verifier; do
+for role in content-sentinel collect-curator federation-verifier; do
     TOTAL=$((TOTAL + 1))
     OUT=$($BINARY q rep bonded-role-config $role --output json 2>/dev/null)
     MINBOND=$(echo "$OUT" | jq -r '.bonded_role_config.min_bond // "MISSING"')
@@ -276,8 +276,8 @@ echo ""
 # ========================================================================
 # Part 7: LIST-BY-TYPE — sentinel1 must appear in the FORUM_SENTINEL list.
 # ========================================================================
-echo "--- PART 7: QUERY bonded-roles-by-type forum-sentinel ---"
-LIST=$($BINARY q rep bonded-roles-by-type forum-sentinel --output json 2>/dev/null)
+echo "--- PART 7: QUERY bonded-roles-by-type content-sentinel ---"
+LIST=$($BINARY q rep bonded-roles-by-type content-sentinel --output json 2>/dev/null)
 # When no records exist the query response omits the bonded_roles field
 # entirely (returns just {"pagination":{}}). Coalesce to an empty array so
 # `length` and the iteration both work.
@@ -294,10 +294,10 @@ echo ""
 # ErrBondedRoleNotFound on unbond.
 # ========================================================================
 echo "--- PART 8: REJECT UNBOND WITH NO BONDED ROLE ---"
-# bounty_creator has no forum-sentinel bond.
-EXISTING=$(bonded_current_bond forum-sentinel $BOUNTY_CREATOR_ADDR)
+# bounty_creator has no content-sentinel bond.
+EXISTING=$(bonded_current_bond content-sentinel $BOUNTY_CREATOR_ADDR)
 if [ "$EXISTING" == "0" ] || [ "$EXISTING" == "null" ]; then
-    RES=$(send_tx $BINARY tx rep unbond-role forum-sentinel 100000 --from bounty_creator)
+    RES=$(send_tx $BINARY tx rep unbond-role content-sentinel 100000 --from bounty_creator)
     if [[ "$RES" == err:* ]] && echo "$RES" | grep -qE "bonded role not found|sentinel not found"; then
         T8_UNBOND_NOT_BONDED="PASS"
         echo "  rejected as expected: $(echo "$RES" | head -c 120)"

@@ -114,7 +114,7 @@ func (k msgServer) UnhidePost(ctx context.Context, msg *types.MsgUnhidePost) (*t
 	if haveRecord {
 		sentinelAddr := hideRecord.Sentinel
 		if committed, ok := math.NewIntFromString(hideRecord.CommittedAmount); ok && committed.IsPositive() && k.repKeeper != nil {
-			if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, committed); err != nil {
+			if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr, committed); err != nil {
 				sdkCtx.Logger().Warn("release sentinel bond on unhide failed",
 					"sentinel", sentinelAddr, "post_id", msg.PostId, "error", err)
 			}

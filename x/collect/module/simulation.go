@@ -437,6 +437,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgMakeCollectionPermanent,
 		collectsimulation.SimulateMsgMakeCollectionPermanent(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgUnhideContent          = "op_weight_msg_collect"
+		defaultWeightMsgUnhideContent int = 100
+	)
+
+	var weightMsgUnhideContent int
+	simState.AppParams.GetOrGenerate(opWeightMsgUnhideContent, &weightMsgUnhideContent, nil,
+		func(_ *rand.Rand) {
+			weightMsgUnhideContent = defaultWeightMsgUnhideContent
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUnhideContent,
+		collectsimulation.SimulateMsgUnhideContent(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

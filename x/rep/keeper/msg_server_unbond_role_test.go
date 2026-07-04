@@ -22,7 +22,7 @@ func bondSentinelForUnbond(t *testing.T, f *fixture, addr sdk.AccAddress, amount
 	seedRoleCandidate(t, f, addr, math.NewInt(5_000), "250.0", types.TrustLevel_TRUST_LEVEL_NEW)
 	_, err := srv.BondRole(f.ctx, &types.MsgBondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   amount,
 	})
 	require.NoError(t, err)
@@ -51,12 +51,12 @@ func TestUnbondRole_QueuesAndMatures(t *testing.T) {
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500",
 	})
 	require.NoError(t, err)
 
-	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
 	require.Equal(t, "500", br.PendingUnbondAmount)
 	require.Equal(t, "2000", br.CurrentBond, "DREAM stays locked during cooldown")
@@ -71,7 +71,7 @@ func TestUnbondRole_QueuesAndMatures(t *testing.T) {
 	matured := sdkCtx.WithBlockTime(time.Unix(br.UnbondCompletionTime+1, 0))
 	require.NoError(t, f.keeper.MatureUnbonds(matured))
 
-	br, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	// Partial unbond: remaining 1500 >= min_bond=1000, so maturity keeps the
 	// holder NORMAL — they reduced their stake but stayed an active role.
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, br.BondStatus)
@@ -96,17 +96,17 @@ func TestUnbondRole_FullUnbondMaturityDemotes(t *testing.T) {
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "2000",
 	})
 	require.NoError(t, err)
 
-	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 	matured := sdkCtx.WithBlockTime(time.Unix(br.UnbondCompletionTime+1, 0))
 	require.NoError(t, f.keeper.MatureUnbonds(matured))
 
-	br, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus,
 		"full unbond drops bond below demotion_threshold → DEMOTED")
 	require.Equal(t, "0", br.CurrentBond)
@@ -127,12 +127,12 @@ func TestUnbondRole_IncrementalUnbondAccumulates(t *testing.T) {
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500",
 	})
 	require.NoError(t, err)
 
-	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	firstCompletion := br.UnbondCompletionTime
 
@@ -142,12 +142,12 @@ func TestUnbondRole_IncrementalUnbondAccumulates(t *testing.T) {
 
 	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "100",
 	})
 	require.NoError(t, err)
 
-	br, err = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, err = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
 	require.Equal(t, "600", br.PendingUnbondAmount, "second unbond accumulates into pending")
@@ -168,18 +168,18 @@ func TestUnbondRole_InterleavedBondAndUnbond(t *testing.T) {
 
 	unbond := func(a string) {
 		_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
-			Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: a,
+			Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: a,
 		})
 		require.NoError(t, err)
 	}
 	bond := func(a string) {
 		_, err := srv.BondRole(f.ctx, &types.MsgBondRole{
-			Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: a,
+			Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: a,
 		})
 		require.NoError(t, err)
 	}
 	get := func() types.BondedRole {
-		br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+		br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 		require.NoError(t, err)
 		return br
 	}
@@ -195,7 +195,7 @@ func TestUnbondRole_InterleavedBondAndUnbond(t *testing.T) {
 	require.Equal(t, "1300", br.PendingUnbondAmount)
 
 	// Invariant: staying (uncommitted, non-pending) bond is non-negative.
-	avail, err := f.keeper.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	avail, err := f.keeper.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, math.NewInt(1900), avail) // 3200 - 0 committed - 1300 pending
 }
@@ -211,16 +211,16 @@ func TestCancelUnbondRole_FullCancelRestoresActive(t *testing.T) {
 	bondSentinelForUnbond(t, f, addr, "2000")
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
-		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "500",
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "500",
 	})
 	require.NoError(t, err)
 
 	_, err = srv.CancelUnbondRole(f.ctx, &types.MsgCancelUnbondRole{
-		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "500",
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "500",
 	})
 	require.NoError(t, err)
 
-	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, br.BondStatus)
 	require.Equal(t, "0", br.PendingUnbondAmount)
@@ -228,7 +228,7 @@ func TestCancelUnbondRole_FullCancelRestoresActive(t *testing.T) {
 	require.Equal(t, "2000", br.CurrentBond)
 
 	// Full bond is unbondable / usable again.
-	avail, err := f.keeper.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	avail, err := f.keeper.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, math.NewInt(2000), avail)
 }
@@ -243,16 +243,16 @@ func TestCancelUnbondRole_PartialCancelKeepsUnbonding(t *testing.T) {
 	bondSentinelForUnbond(t, f, addr, "2000")
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
-		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "800",
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "800",
 	})
 	require.NoError(t, err)
 
 	_, err = srv.CancelUnbondRole(f.ctx, &types.MsgCancelUnbondRole{
-		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "300",
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "300",
 	})
 	require.NoError(t, err)
 
-	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
 	require.Equal(t, "500", br.PendingUnbondAmount)
@@ -270,18 +270,18 @@ func TestCancelUnbondRole_Rejections(t *testing.T) {
 
 	// No unbond in flight yet.
 	_, err := srv.CancelUnbondRole(f.ctx, &types.MsgCancelUnbondRole{
-		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "100",
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "100",
 	})
 	require.ErrorIs(t, err, types.ErrInvalidRequest)
 
 	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
-		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "500",
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "500",
 	})
 	require.NoError(t, err)
 
 	// Cancel more than pending.
 	_, err = srv.CancelUnbondRole(f.ctx, &types.MsgCancelUnbondRole{
-		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "600",
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "600",
 	})
 	require.ErrorIs(t, err, types.ErrInvalidRequest)
 }
@@ -297,11 +297,11 @@ func TestUnbondRole_IncrementalUnbondRespectsAvailable(t *testing.T) {
 	bondSentinelForUnbond(t, f, addr, "2000")
 
 	// Reserve 500 of the bond so only 1500 is unbondable in total.
-	require.NoError(t, f.keeper.ReserveBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String(), math.NewInt(500)))
+	require.NoError(t, f.keeper.ReserveBond(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String(), math.NewInt(500)))
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "1000",
 	})
 	require.NoError(t, err)
@@ -309,7 +309,7 @@ func TestUnbondRole_IncrementalUnbondRespectsAvailable(t *testing.T) {
 	// 1000 already pending + 500 committed leaves only 500 unbondable; 600 fails.
 	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "600",
 	})
 	require.ErrorIs(t, err, types.ErrInsufficientBond)
@@ -317,12 +317,12 @@ func TestUnbondRole_IncrementalUnbondRespectsAvailable(t *testing.T) {
 	// 500 exactly fits.
 	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500",
 	})
 	require.NoError(t, err)
 
-	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, "1500", br.PendingUnbondAmount)
 }
@@ -340,7 +340,7 @@ func TestBondRole_AllowsTopUpWhileUnbonding(t *testing.T) {
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500",
 	})
 	require.NoError(t, err)
@@ -348,12 +348,12 @@ func TestBondRole_AllowsTopUpWhileUnbonding(t *testing.T) {
 	// Top-up succeeds mid-unbond.
 	_, err = srv.BondRole(f.ctx, &types.MsgBondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "1000",
 	})
 	require.NoError(t, err)
 
-	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	// current_bond grew by the top-up; the unbond is still in flight unchanged.
 	require.Equal(t, "3000", br.CurrentBond)
@@ -375,19 +375,19 @@ func TestSlashBond_DuringUnbondingPreservesStatusAndCapsPending(t *testing.T) {
 	// Unbond all 2000.
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "2000",
 	})
 	require.NoError(t, err)
 
-	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, "2000", br.PendingUnbondAmount)
 
 	// Slash 500 mid-cooldown. current_bond drops, pending caps to 1500.
-	require.NoError(t, f.keeper.SlashBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+	require.NoError(t, f.keeper.SlashBond(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		addr.String(), math.NewInt(500), "test slash during unbond"))
 
-	br, _ = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus,
 		"status stays UNBONDING through slashes — only MatureUnbonds flips")
 	require.Equal(t, "1500", br.CurrentBond)
@@ -398,7 +398,7 @@ func TestSlashBond_DuringUnbondingPreservesStatusAndCapsPending(t *testing.T) {
 	matured := sdkCtx.WithBlockTime(time.Unix(br.UnbondCompletionTime+1, 0))
 	require.NoError(t, f.keeper.MatureUnbonds(matured))
 
-	br, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus)
 	require.Equal(t, "0", br.CurrentBond)
 	require.Equal(t, "0", br.PendingUnbondAmount)
@@ -415,17 +415,17 @@ func TestUnbondRole_LegacyImmediateUnlock(t *testing.T) {
 	bondSentinelForUnbond(t, f, addr, "2000")
 
 	// Disable cooldown to opt into legacy immediate-unlock path.
-	setUnbondCooldown(t, f, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, 0)
+	setUnbondCooldown(t, f, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, 0)
 
 	// Partial unbond: 2000 → 1500.
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500",
 	})
 	require.NoError(t, err)
 
-	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, "1500", br.CurrentBond)
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, br.BondStatus)
 
@@ -442,26 +442,26 @@ func TestUnbondRole_LegacyTransitionsToRecoveryThenDemoted(t *testing.T) {
 
 	addr := sdk.AccAddress([]byte("sentinelLD"))
 	bondSentinelForUnbond(t, f, addr, "2000")
-	setUnbondCooldown(t, f, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, 0)
+	setUnbondCooldown(t, f, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, 0)
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "1100",
 	})
 	require.NoError(t, err)
-	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, "900", br.CurrentBond)
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY, br.BondStatus)
 	require.Zero(t, br.DemotionCooldownUntil)
 
 	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500",
 	})
 	require.NoError(t, err)
-	br, _ = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, "400", br.CurrentBond)
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus)
 	require.Greater(t, br.DemotionCooldownUntil, int64(0))
@@ -474,11 +474,11 @@ func TestUnbondRole_CannotExceedAvailable(t *testing.T) {
 	addr := sdk.AccAddress([]byte("sentinelC"))
 	bondSentinelForUnbond(t, f, addr, "2000")
 
-	require.NoError(t, f.keeper.ReserveBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String(), math.NewInt(1200)))
+	require.NoError(t, f.keeper.ReserveBond(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String(), math.NewInt(1200)))
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "1500",
 	})
 	require.ErrorIs(t, err, types.ErrInsufficientBond)
@@ -491,7 +491,7 @@ func TestUnbondRole_MissingRecord(t *testing.T) {
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "100",
 	})
 	require.ErrorIs(t, err, types.ErrBondedRoleNotFound)
@@ -523,18 +523,18 @@ func TestMatureUnbonds_NoOpBeforeCompletionTime(t *testing.T) {
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500",
 	})
 	require.NoError(t, err)
 
-	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
 
 	// Run maturity at current block time (still before completion).
 	require.NoError(t, f.keeper.MatureUnbonds(f.ctx))
 
-	br, _ = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ = f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus, "still UNBONDING — cooldown not elapsed")
 	require.Equal(t, "500", br.PendingUnbondAmount)
 	require.Equal(t, "2000", br.CurrentBond)
@@ -552,22 +552,22 @@ func TestMatureUnbonds_HandlesMultipleRecords(t *testing.T) {
 	bondSentinelForUnbond(t, f, addr2, "2000")
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
-		Creator: addr1.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "500",
+		Creator: addr1.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "500",
 	})
 	require.NoError(t, err)
 	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
-		Creator: addr2.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "1000",
+		Creator: addr2.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "1000",
 	})
 	require.NoError(t, err)
 
-	br1, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr1.String())
+	br1, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr1.String())
 
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 	matured := sdkCtx.WithBlockTime(time.Unix(br1.UnbondCompletionTime+1, 0))
 	require.NoError(t, f.keeper.MatureUnbonds(matured))
 
-	br1, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr1.String())
-	br2, _ := f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr2.String())
+	br1, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr1.String())
+	br2, _ := f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr2.String())
 	// Both records are matured in the same pass. Both partial unbonds leave
 	// current_bond ≥ min_bond=1000, so status stays NORMAL.
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, br1.BondStatus)
@@ -589,15 +589,15 @@ func TestMatureUnbonds_FullySlashed(t *testing.T) {
 	bondSentinelForUnbond(t, f, addr, "2000")
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
-		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, Amount: "2000",
+		Creator: addr.String(), RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Amount: "2000",
 	})
 	require.NoError(t, err)
 
 	// Slash everything during cooldown.
-	require.NoError(t, f.keeper.SlashBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+	require.NoError(t, f.keeper.SlashBond(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		addr.String(), math.NewInt(2000), "full slash"))
 
-	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
 	require.Equal(t, "0", br.CurrentBond)
 	require.Equal(t, "0", br.PendingUnbondAmount)
@@ -606,7 +606,7 @@ func TestMatureUnbonds_FullySlashed(t *testing.T) {
 	matured := sdkCtx.WithBlockTime(time.Unix(br.UnbondCompletionTime+1, 0))
 	require.NoError(t, f.keeper.MatureUnbonds(matured))
 
-	br, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, _ = f.keeper.GetBondedRole(matured, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus)
 	require.Equal(t, "0", br.CurrentBond)
 	require.Greater(t, br.DemotionCooldownUntil, int64(0), "demotion cooldown starts even on zero payout")
@@ -619,14 +619,14 @@ func TestUnbondRole_InvalidAmount(t *testing.T) {
 
 	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "not-a-number",
 	})
 	require.ErrorIs(t, err, types.ErrInvalidAmount)
 
 	_, err = srv.UnbondRole(f.ctx, &types.MsgUnbondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "0",
 	})
 	require.ErrorIs(t, err, types.ErrInvalidAmount)

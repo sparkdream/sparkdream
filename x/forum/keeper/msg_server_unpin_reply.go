@@ -78,7 +78,7 @@ func (k msgServer) UnpinReply(ctx context.Context, msg *types.MsgUnpinReply) (*t
 	// but does not block the unpin. Gov pins reserve nothing (empty amount).
 	if foundRecord.CommittedAmount != "" && k.repKeeper != nil {
 		if committed, ok := math.NewIntFromString(foundRecord.CommittedAmount); ok && committed.IsPositive() {
-			if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, foundRecord.PinnedBy, committed); err != nil {
+			if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, foundRecord.PinnedBy, committed); err != nil {
 				sdkCtx.Logger().Warn("unpin reply: failed to release sentinel pin bond",
 					"sentinel", foundRecord.PinnedBy, "reply_id", msg.ReplyId, "error", err)
 			}

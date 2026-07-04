@@ -144,7 +144,7 @@ message Params {
   // Sentinel bonded-role config (flattened).
   //
   // Forum owns the sentinel role; these fields are the source of truth and are
-  // written through to x/rep's BondedRoleConfig for ROLE_TYPE_FORUM_SENTINEL on
+  // written through to x/rep's BondedRoleConfig for ROLE_TYPE_CONTENT_SENTINEL on
   // change.
   // ---------------------------------------------------------------------------
 
@@ -418,7 +418,7 @@ message ForumOperationalParams {
   //
   // Forum owns the sentinel role; these fields are the source of truth. Any
   // update here is written through to x/rep's BondedRoleConfig for
-  // ROLE_TYPE_FORUM_SENTINEL so rep can enforce the same thresholds at
+  // ROLE_TYPE_CONTENT_SENTINEL so rep can enforce the same thresholds at
   // MsgBondRole time.
   // ---------------------------------------------------------------------------
 

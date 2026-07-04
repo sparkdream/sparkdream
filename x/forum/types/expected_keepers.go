@@ -140,8 +140,25 @@ type RepKeeper interface {
 	UpdateSalvationCounters(ctx context.Context, addr string, epochSalvations uint32, lastEpoch int64) error
 
 	// Bonded-role accountability (owned by x/rep).
-	// Sentinel is the forum role keyed as ROLE_TYPE_FORUM_SENTINEL.
+	// Sentinel is the forum role keyed as ROLE_TYPE_CONTENT_SENTINEL.
 	GetBondedRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
+	// RecordRoleAction / RecordRoleOutcome / RoleOverturnCooldownUntil /
+	// RoleEpochActionCount / GetRoleActivity are the shared RoleActivity
+	// surface (owned by x/rep): forum reports actions and verdicts, and
+	// reads back the shared cooldown + its own per-epoch caps (single
+	// source of truth — no forum-local copies). See docs/x-rep-spec.md (RoleActivity).
+	RecordRoleAction(ctx context.Context, roleType reptypes.RoleType, addr, kind string) error
+	RecordRoleOutcome(ctx context.Context, roleType reptypes.RoleType, addr, kind string, upheld bool) error
+	RoleOverturnCooldownUntil(ctx context.Context, roleType reptypes.RoleType, addr string) int64
+	RoleEpochActionCount(ctx context.Context, roleType reptypes.RoleType, addr, kind string) uint64
+	GetRoleActivity(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.RoleActivity, error)
+	BumpRoleEpochAppealsResolved(ctx context.Context, roleType reptypes.RoleType, addr string) error
+
+	// EligibleForRole is the shared action-time eligibility gate
+	// (NORMAL/RECOVERY; UNBONDING while the staying bond covers the role's
+	// configured min_bond; DEMOTED never). Typed errors:
+	// ErrBondedRoleNotFound, ErrRoleDemoted, ErrRoleUnbondingBelowMin.
+	EligibleForRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
 	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	ReleaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error

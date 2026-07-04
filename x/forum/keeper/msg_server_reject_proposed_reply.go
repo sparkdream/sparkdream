@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -72,9 +73,14 @@ func (k msgServer) RejectProposedReply(ctx context.Context, msg *types.MsgReject
 			local = types.SentinelActivity{Address: proposedBy}
 		}
 		local.RejectedProposals++
-		k.recordCurationAccuracy(ctx, proposedBy, &local, false)
 		if err := k.SentinelActivity.Set(ctx, proposedBy, local); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
+		}
+		// Rep applies the accuracy tick + demotion ratchet; the curation kind
+		// policy deliberately starts NO overturn cooldown (a rejected proposal
+		// must not lock the sentinel out of moderation).
+		if k.repKeeper != nil {
+			_ = k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, proposedBy, reptypes.ActionKindForumCuration, false)
 		}
 	}
 

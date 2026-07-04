@@ -1,0 +1,66 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "sparkdream/rep/v1/bonded_role.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// RoleAccuracyBucket is one reward-epoch slot in a RoleActivity's rolling
+// accuracy ring (slot index = epoch % ring size); the `epoch` stamp
+// disambiguates a live slot from a stale one left by an earlier epoch that
+// mapped to the same index.
+message RoleAccuracyBucket {
+  uint64 epoch = 1;
+  uint64 upheld = 2;
+  uint64 overturned = 3;
+}
+
+// RoleActivity is the SHARED accountability record for a bonded role,
+// keyed by (role_type, address) and owned by x/rep. It holds everything
+// that is a property of the role rather than of any one module surface:
+// verdict streaks, the overturn cooldown, the rolling accuracy ring, and
+// generic per-action-kind counters. Owning modules REPORT actions
+// (RecordRoleAction) and jury verdicts (RecordRoleOutcome); x/rep applies
+// the consequences, including streak demotion (it owns the bond).
+//
+// Module-local bookkeeping that is not shared (e.g. forum's
+// pending_hide_count, curation-proposal lifecycle counts) stays in the
+// owning module. There are deliberately NO duplicate counters: forum's
+// per-epoch moderation caps read these maps too.
+//
+// See docs/x-rep-spec.md (RoleActivity).
+message RoleActivity {
+  RoleType role_type = 1;
+  string address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // Verdict streaks, shared across every surface the role acts on. An
+  // overturn streak crossing the demotion threshold demotes the role.
+  uint64 consecutive_upheld = 3;
+  uint64 consecutive_overturns = 4;
+
+  // overturn_cooldown_until is the unix timestamp until which the role
+  // holder may not take new moderation actions (on ANY surface) after a
+  // lost appeal. Not set by curation-proposal rejections (see the kind
+  // policy table in x/rep/types/role_activity_kinds.go).
+  int64 overturn_cooldown_until = 5;
+
+  // epoch_appeals_resolved counts jury verdicts (either way) in the
+  // current reward epoch; feeds the reward score's sqrt term. Reset each
+  // reward epoch.
+  uint64 epoch_appeals_resolved = 6;
+
+  // Rolling accuracy ring (see RoleAccuracyBucket). Fixed length
+  // RoleAccuracyRingSize once first written. The reward distribution
+  // computes windowed accuracy over the last
+  // SentinelAccuracyWindowEpochs slots.
+  repeated RoleAccuracyBucket accuracy_window = 7;
+
+  // Per-action-kind counters. Keys are the rep-owned kind constants
+  // ("forum_hide", "collect_hide", "forum_appeal_filed", ...).
+  // epoch_actions resets each reward epoch; the others are lifetime.
+  map<string, uint64> epoch_actions = 8;
+  map<string, uint64> total_actions = 9;
+  map<string, uint64> upheld_actions = 10;
+  map<string, uint64> overturned_actions = 11;
+}

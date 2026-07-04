@@ -134,4 +134,14 @@ var (
 
 	// Hide / appeal lifecycle errors (1260+)
 	ErrCannotDeleteHidden = errors.Register(ModuleName, 1260, "cannot delete a collection while it is HIDDEN; appeal the hide first")
+
+	// Unhide (sentinel self-correct) errors
+	ErrHideAppealed        = errors.Register(ModuleName, 1261, "hide has been appealed; resolution is owned by the jury")
+	ErrUnhideWindowExpired = errors.Register(ModuleName, 1262, "sentinel unhide window has expired")
+
+	// Council moderation errors
+	ErrInvalidModerationAuthority = errors.Register(ModuleName, 1263, "invalid moderation authority")
+
+	// Shared content-sentinel accountability
+	ErrSentinelCooldown = errors.Register(ModuleName, 1264, "sentinel is in overturn cooldown")
 )

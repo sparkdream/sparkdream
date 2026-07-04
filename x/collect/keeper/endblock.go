@@ -334,8 +334,24 @@ func (k Keeper) pruneExpiredHideRecords(
 			continue
 		}
 
-		// Skip already resolved records
+		// Skip already resolved records — except self-corrected ones, whose
+		// expiry entry was deliberately retained by MsgUnhideContent so the
+		// sentinel's committed bond stays reserved until the original
+		// appeal_deadline (anti hide/unhide cycling). Release it now.
 		if hr.Resolved {
+			if hr.SelfCorrected {
+				if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+					k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+				}
+				k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
+				pruned++
+
+				sdkCtx.EventManager().EmitEvent(sdk.NewEvent("self_corrected_hide_bond_released",
+					sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
+					sdk.NewAttribute("sentinel", hr.Sentinel),
+					sdk.NewAttribute("released", hr.CommittedAmount.String()),
+				))
+			}
 			continue
 		}
 
@@ -432,7 +448,7 @@ func (k Keeper) handleUnappealedHideExpiry(
 
 	// Release sentinel's reserved bond (no penalty — content was not appealed)
 	if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-		k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+		k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 	}
 
 	// Mark HideRecord resolved
@@ -521,8 +537,12 @@ func (k Keeper) handleAppealedHideExpiry(
 
 	// Release sentinel's reserved bond (no penalty — jury timed out)
 	if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-		k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+		k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 	}
+
+	// Timeout favors the appellant — restore the author bond and per-tag
+	// rep penalty snapshotted on the HideRecord, same as a jury overturn.
+	authorBondRestored, repPenaltyRestored := k.restoreAuthorPenalties(ctx, hr)
 
 	// Mark HideRecord resolved
 	hr.Resolved = true
@@ -534,6 +554,8 @@ func (k Keeper) handleAppealedHideExpiry(
 		sdk.NewAttribute("target_id", strconv.FormatUint(hr.TargetId, 10)),
 		sdk.NewAttribute("target_type", fmt.Sprintf("%d", int32(hr.TargetType))),
 		sdk.NewAttribute("appellant_refund", appellantRefund.String()),
+		sdk.NewAttribute("author_bond_restored", strconv.FormatBool(authorBondRestored)),
+		sdk.NewAttribute("rep_penalty_restored", strconv.FormatBool(repPenaltyRestored)),
 	))
 
 	return pruned + 1

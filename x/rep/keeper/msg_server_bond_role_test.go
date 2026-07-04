@@ -41,16 +41,16 @@ func TestBondRole_HappyPath_Sentinel(t *testing.T) {
 
 	_, err := srv.BondRole(f.ctx, &types.MsgBondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "2000",
 	})
 	require.NoError(t, err)
 
-	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, "2000", br.CurrentBond)
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL, br.BondStatus)
-	require.Equal(t, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, br.RoleType)
+	require.Equal(t, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, br.RoleType)
 
 	mem, err := f.keeper.Member.Get(f.ctx, addr.String())
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestBondRole_RejectsInsufficientRepTier(t *testing.T) {
 
 	_, err := srv.BondRole(f.ctx, &types.MsgBondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "2000",
 	})
 	require.ErrorIs(t, err, types.ErrInsufficientReputation)
@@ -119,7 +119,7 @@ func TestBondRole_RejectsBelowMinBondOnFirst(t *testing.T) {
 
 	_, err := srv.BondRole(f.ctx, &types.MsgBondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500", // below seeded min_bond of 1000
 	})
 	require.ErrorIs(t, err, types.ErrBondAmountTooSmall)
@@ -140,7 +140,7 @@ func TestBondRole_AllowsSubMinTopUpOnExisting(t *testing.T) {
 	// First bond at/above the seeded 1000 min.
 	_, err := srv.BondRole(f.ctx, &types.MsgBondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "2000",
 	})
 	require.NoError(t, err)
@@ -148,12 +148,12 @@ func TestBondRole_AllowsSubMinTopUpOnExisting(t *testing.T) {
 	// Sub-min top-up to the existing record is accepted.
 	_, err = srv.BondRole(f.ctx, &types.MsgBondRole{
 		Creator:  addr.String(),
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Amount:   "500", // below the 1000 min, but a top-up
 	})
 	require.NoError(t, err)
 
-	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr.String())
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr.String())
 	require.NoError(t, err)
 	require.Equal(t, "2500", br.CurrentBond)
 }

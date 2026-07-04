@@ -190,6 +190,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
+	for _, ra := range genState.RoleActivityList {
+		if err := k.RoleActivities.Set(ctx, collections.Join(int32(ra.RoleType), ra.Address), ra); err != nil {
+			return err
+		}
+	}
 
 	// If there are members, trigger a full trust tree rebuild on next EndBlock.
 	// The tree is derived state (not exported in genesis) and will be populated
@@ -423,6 +428,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	if err := k.BondedRoles.Walk(ctx, nil, func(_ collections.Pair[int32, string], val types.BondedRole) (stop bool, err error) {
 		genesis.BondedRoleList = append(genesis.BondedRoleList, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.RoleActivities.Walk(ctx, nil, func(_ collections.Pair[int32, string], val types.RoleActivity) (stop bool, err error) {
+		genesis.RoleActivityList = append(genesis.RoleActivityList, val)
 		return false, nil
 	}); err != nil {
 		return nil, err

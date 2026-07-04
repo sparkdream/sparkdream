@@ -38,7 +38,7 @@
 #                in-test so its tiered collection cap is never a factor
 #   nonmember1 — (no longer used here; superseded by collect_slash_owner)
 #   alice      — endorser (CORE genesis trust, satisfies min_sponsor_trust)
-#   bob        — bonded forum-sentinel (ESTABLISHED genesis trust + 25k DREAM,
+#   bob        — bonded content-sentinel (ESTABLISHED genesis trust + 25k DREAM,
 #                bondable without rep bootstrap)
 #
 # Requires config.yml params overrides (at ~1s/block these are ~40s/~2s/~60s):
@@ -132,23 +132,23 @@ poll_collection_deleted() {
 #
 # Bonding is the gate that lets bob call hide-content. 2500 micro-DREAM bond
 # is the same amount forum/sentinel_test.sh uses — comfortably above the
-# 500 DREAM forum-sentinel minimum. Skipped if bob is already bonded from a
+# 500 DREAM content-sentinel minimum. Skipped if bob is already bonded from a
 # prior test run.
 # ----------------------------------------------------------------------------
 echo ""
-echo "--- Setup: Bond bob as forum-sentinel ---"
-EXISTING_BOND=$($BINARY query rep bonded-role forum-sentinel "$BOB_ADDR" -o json 2>/dev/null \
+echo "--- Setup: Bond bob as content-sentinel ---"
+EXISTING_BOND=$($BINARY query rep bonded-role content-sentinel "$BOB_ADDR" -o json 2>/dev/null \
     | jq -r '.bonded_role.current_bond // "0"')
 if [ "$EXISTING_BOND" -gt 0 ] 2>/dev/null; then
     echo "  bob already bonded (current_bond=$EXISTING_BOND), reusing"
 else
     BOND_AMOUNT="2500000000"  # 2500 DREAM
-    TX_OUT=$(send_tx rep bond-role forum-sentinel "$BOND_AMOUNT" --from bob)
-    assert_tx_success "Bond bob as forum-sentinel" "$TX_OUT"
+    TX_OUT=$(send_tx rep bond-role content-sentinel "$BOND_AMOUNT" --from bob)
+    assert_tx_success "Bond bob as content-sentinel" "$TX_OUT"
 fi
 
 # Confirm the bonded-role status — hide-content will reject if not NORMAL.
-BOND_STATUS=$($BINARY query rep bonded-role forum-sentinel "$BOB_ADDR" -o json 2>/dev/null \
+BOND_STATUS=$($BINARY query rep bonded-role content-sentinel "$BOB_ADDR" -o json 2>/dev/null \
     | jq -r '.bonded_role.bond_status // "unknown"')
 assert_equal "bob's bonded-role status is NORMAL" "BONDED_ROLE_STATUS_NORMAL" "$BOND_STATUS"
 

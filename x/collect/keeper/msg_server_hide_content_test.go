@@ -54,7 +54,7 @@ func TestHideContent(t *testing.T) {
 			name: "error not active sentinel (DEMOTED)",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				key := mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)
+				key := mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)
 				br := f.repKeeper.bondedRoles[key]
 				br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
 				f.repKeeper.bondedRoles[key] = br
@@ -69,7 +69,7 @@ func TestHideContent(t *testing.T) {
 			name: "error insufficient bond",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
-				key := mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, f.sentinel)
+				key := mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)
 				br := f.repKeeper.bondedRoles[key]
 				br.CurrentBond = "0"
 				f.repKeeper.bondedRoles[key] = br
@@ -98,6 +98,7 @@ func TestHideContent(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := initTestFixture(t)
+			denyCouncil(f)
 
 			var targetID uint64
 			if tc.setup != nil {

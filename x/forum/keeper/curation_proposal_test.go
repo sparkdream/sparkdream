@@ -48,11 +48,13 @@ func TestSentinelProposeAcceptedReply(t *testing.T) {
 		require.Equal(t, testSentinel, md.ProposedBy)
 		require.Equal(t, uint64(0), md.AcceptedReplyId)
 
-		// total_proposals incremented; epoch_curations NOT (only on confirm).
+		// total_proposals incremented; the curation action kind NOT (only on
+		// confirm — recorded on rep's shared RoleActivity).
 		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
 		require.NoError(t, err)
 		require.Equal(t, uint64(1), act.TotalProposals)
-		require.Equal(t, uint64(0), act.EpochCurations)
+		require.Equal(t, uint64(0),
+			f.repKeeper.roleActivities[testSentinel].EpochActions[reptypes.ActionKindForumCuration])
 
 		// Queue entry exists at the stamped fire_at.
 		require.NotZero(t, md.ProposalFireAt)
@@ -208,7 +210,8 @@ func TestProposalQueueStaleEntryNoOp(t *testing.T) {
 	act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), act.ConfirmedProposals)
-	require.Equal(t, uint64(1), act.EpochCurations)
+	require.Equal(t, uint64(1),
+		f.repKeeper.roleActivities[testSentinel].EpochActions[reptypes.ActionKindForumCuration])
 }
 
 // TestAutoConfirmRewardFailureFreesThread verifies that if the curation reward
@@ -397,7 +400,8 @@ func TestProposalAutoConfirm(t *testing.T) {
 		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
 		require.NoError(t, err)
 		require.Equal(t, uint64(1), act.ConfirmedProposals)
-		require.Equal(t, uint64(1), act.EpochCurations)
+		require.Equal(t, uint64(1),
+			f.repKeeper.roleActivities[testSentinel].EpochActions[reptypes.ActionKindForumCuration])
 		require.Len(t, f.repKeeper.mintDreamCalls, 1)
 	})
 

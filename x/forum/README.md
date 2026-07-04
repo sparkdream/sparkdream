@@ -86,7 +86,7 @@ ACTIVE ◄─── MsgUnhidePost ─── HIDDEN ◄── MsgHidePost (sentin
 
 ### Sentinel System
 
-Sentinels are reputation-bearing members who stake DREAM bonds to moderate content. Bond, bond status, activity stamps, and the role-typed `MsgBondRole` / `MsgUnbondRole` (with `role_type = ROLE_TYPE_FORUM_SENTINEL`) are owned by **x/rep**. Forum keeps the per-sentinel forum-side counters in `sparkdream.forum.v1.SentinelActivity` (29 counters). See [docs/bonded-role-generalization.md](../../docs/bonded-role-generalization.md) and [x/rep spec — Sentinel Accountability](../../docs/x-rep-spec.md).
+Sentinels are reputation-bearing members who stake DREAM bonds to moderate content. Bond, bond status, activity stamps, and the role-typed `MsgBondRole` / `MsgUnbondRole` (with `role_type = ROLE_TYPE_CONTENT_SENTINEL`) are owned by **x/rep**. Forum keeps the per-sentinel forum-side counters in `sparkdream.forum.v1.SentinelActivity` (29 counters). See [docs/bonded-role-generalization.md](../../docs/bonded-role-generalization.md) and [x/rep spec — Sentinel Accountability](../../docs/x-rep-spec.md).
 
 Forum owns only the per-action counters (`sparkdream.forum.v1.SentinelActivity`): hides, locks, moves, pins, proposals, per-epoch tallies, and local cooldowns. Content-action handlers (hide / lock / move / dismiss-flags) auth-check via `repKeeper.GetSentinel`, reserve bond via `repKeeper.ReserveBond`, record activity via `repKeeper.RecordActivity`, and release/slash on appeal outcomes.
 
@@ -209,7 +209,7 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 |---------|-------------|--------|
 | `MsgHidePost` | Hide post (requires reason) | Active sentinel (bond auth via x/rep) |
 
-> Sentinel bond/unbond flows through x/rep's generic `MsgBondRole` / `MsgUnbondRole` with `role_type = ROLE_TYPE_FORUM_SENTINEL`. Unbond is **queued** for `sentinel_unbond_cooldown` (default 14 days): DREAM stays locked and slashable and `bond_status` flips to `UNBONDING`.
+> Sentinel bond/unbond flows through x/rep's generic `MsgBondRole` / `MsgUnbondRole` with `role_type = ROLE_TYPE_CONTENT_SENTINEL`. Unbond is **queued** for `sentinel_unbond_cooldown` (default 14 days): DREAM stays locked and slashable and `bond_status` flips to `UNBONDING`.
 >
 > **Eligibility during `UNBONDING` is a bond-*quantity* gate, not a binary status gate.** All sentinel actions (`MsgHidePost`, `MsgLockThread`, `MsgMoveThread`, `MsgPinReply`, `MsgDismissFlags`) authenticate through the shared `eligibleSentinel` helper ([`x/forum/keeper/sentinel_eligibility.go`](keeper/sentinel_eligibility.go)): `NORMAL`/`RECOVERY` are eligible outright; an `UNBONDING` sentinel is **still eligible while its staying bond (`current_bond - pending_unbond_amount`) covers `min_sentinel_bond`** — only the portion being withdrawn is treated as gone. A partial unbond that leaves enough bond keeps moderating (returns `ErrSentinelUnbonding` only when the staying bond falls below the floor); `DEMOTED` is never eligible. The slash-reserving actions additionally rely on x/rep's now pending-aware `ReserveBond` to guarantee the action's slash fits in the staying, uncommitted bond, so a moderation taken mid-unbond stays fully backed (and slashable) through its whole appeal window. Safety comes from earmarked (committed) bond surviving the unbond, not from the status flag.
 >
@@ -514,7 +514,7 @@ sparkdreamd tx forum follow-thread 1 --from alice
 sparkdreamd tx forum unfollow-thread 1 --from alice
 
 # Moderation (role bonding lives under `tx rep`)
-sparkdreamd tx rep bond-role ROLE_TYPE_FORUM_SENTINEL 1000udream --from bob
+sparkdreamd tx rep bond-role ROLE_TYPE_CONTENT_SENTINEL 1000udream --from bob
 sparkdreamd tx forum hide-post 1 --reason-code SPAM --from sentinel
 
 # Bounties

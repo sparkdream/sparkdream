@@ -14,7 +14,7 @@ import (
 )
 
 // SyncSentinelBondedRoleConfig pushes forum's sentinel config fields through
-// to x/rep's BondedRoleConfig for ROLE_TYPE_FORUM_SENTINEL. Called from
+// to x/rep's BondedRoleConfig for ROLE_TYPE_CONTENT_SENTINEL. Called from
 // MsgUpdateOperationalParams and InitGenesis so rep's enforcement state
 // tracks forum's source-of-truth params. No-op when the rep keeper is not
 // wired (tests may construct the forum keeper standalone).
@@ -24,7 +24,7 @@ func (k Keeper) SyncSentinelBondedRoleConfig(ctx context.Context, p types.Params
 	}
 	minBond, trustLevel, demotionThreshold, repTier, ageBlocks, demotionCooldown, unbondCooldown := p.SentinelBondedRoleConfigFields()
 	return k.repKeeper.SetBondedRoleConfig(ctx, reptypes.BondedRoleConfig{
-		RoleType:          reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType:          reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		MinBond:           minBond,
 		MinRepTier:        repTier,
 		MinTrustLevel:     trustLevel,

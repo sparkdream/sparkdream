@@ -177,7 +177,7 @@ fi
 # ========================================================================
 echo "--- PART 1: CHECK SENTINEL STATUS ---"
 
-SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
     echo "  Sentinel1 is not yet a sentinel"
@@ -207,7 +207,7 @@ BOND_AMOUNT="2500000000"  # 2500 DREAM
 
 echo "Bonding $BOND_AMOUNT micro-DREAM as sentinel1..."
 
-TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+TX_RES=$($BINARY tx rep bond-role content-sentinel \
     "$BOND_AMOUNT" \
     --from sentinel1 \
     --chain-id $CHAIN_ID \
@@ -230,7 +230,7 @@ else
         echo "  Sentinel bonded successfully"
 
         # Verify sentinel status
-        SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
+        SENTINEL_STATUS=$($BINARY query rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>&1)
         echo "  New sentinel status:"
         echo "    Bond: $(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.current_bond // "unknown"')"
         echo "    Bond Status: $(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.bond_status // "unknown"')"
@@ -247,7 +247,7 @@ echo ""
 # ========================================================================
 echo "--- PART 3: QUERY SENTINEL BOND COMMITMENT ---"
 
-BOND_COMMITMENT=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
+BOND_COMMITMENT=$($BINARY query rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$BOND_COMMITMENT" | grep -q "error"; then
     echo "  Failed to query bond commitment"
@@ -643,7 +643,7 @@ echo "Bonding sentinel2 to test unbonding..."
 
 UNBOND_TEST_AMOUNT="500000000"  # 500 DREAM
 
-TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+TX_RES=$($BINARY tx rep bond-role content-sentinel \
     "$UNBOND_TEST_AMOUNT" \
     --from sentinel2 \
     --chain-id $CHAIN_ID \
@@ -661,7 +661,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     if check_tx_success "$TX_RESULT"; then
         echo "  Sentinel2 bonded, now unbonding..."
 
-        TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
+        TX_RES=$($BINARY tx rep unbond-role content-sentinel \
             "$UNBOND_TEST_AMOUNT" \
             --from sentinel2 \
             --chain-id $CHAIN_ID \
@@ -699,7 +699,7 @@ echo "Querying sentinel activity for sentinel1..."
 # x/forum (SentinelActivity). Each query owns its slice — querying both and
 # expecting `.bonded_role.*` from the forum query (as the original code did)
 # returns nulls because that field doesn't exist on the forum response.
-REP_BOND=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
+REP_BOND=$($BINARY query rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>&1)
 FORUM_ACTIVITY=$($BINARY query forum get-sentinel-activity $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$FORUM_ACTIVITY" | grep -q "error"; then
@@ -734,7 +734,7 @@ echo "--- PART 15: BOND WITHOUT REPUTATION (Negative Test) ---"
 
 echo "Attempting to bond as poster1 (no reputation)..."
 
-TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+TX_RES=$($BINARY tx rep bond-role content-sentinel \
     "100000000" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -780,10 +780,10 @@ echo "--- PART 16: SUB-MIN TOP-UP TO AN EXISTING ROLE (Accepted) ---"
 # mid-unbond, so a sub-min 500-udream top-up must be ACCEPTED and grow the bond.
 echo "Topping up sentinel2 with 500 udream (sub-min, but a top-up to an existing role)..."
 
-B4=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL2_ADDR" --output json 2>&1 | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
+B4=$($BINARY query rep bonded-role content-sentinel "$SENTINEL2_ADDR" --output json 2>&1 | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
 [ -z "$B4" ] && B4="0"
 
-TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+TX_RES=$($BINARY tx rep bond-role content-sentinel \
     "500" \
     --from sentinel2 \
     --chain-id $CHAIN_ID \
@@ -802,7 +802,7 @@ else
     TX_RESULT=$(wait_for_tx $TXHASH)
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
     if [ "$CODE" == "0" ]; then
-        AFTER=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL2_ADDR" --output json 2>&1 | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
+        AFTER=$($BINARY query rep bonded-role content-sentinel "$SENTINEL2_ADDR" --output json 2>&1 | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
         EXPECTED=$((${B4:-0} + 500))
         echo "  Top-up accepted: current_bond $B4 -> $AFTER (expected $EXPECTED)"
         if [ "$AFTER" == "$EXPECTED" ]; then
@@ -1125,7 +1125,7 @@ echo "--- PART 22: UNBOND WHEN NOT SENTINEL (Negative Test) ---"
 
 echo "Attempting to unbond as poster1 (not a sentinel)..."
 
-TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
+TX_RES=$($BINARY tx rep unbond-role content-sentinel \
     "50000000" \
     --from poster1 \
     --chain-id $CHAIN_ID \

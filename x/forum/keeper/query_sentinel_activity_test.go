@@ -1,7 +1,6 @@
 package keeper_test
 
 import (
-	"context"
 	"strconv"
 	"testing"
 
@@ -12,35 +11,83 @@ import (
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
-func createNSentinelActivity(keeper keeper.Keeper, ctx context.Context, n int) []types.SentinelActivity {
+// createNSentinelActivity seeds n sentinels across BOTH state owners the
+// projection query composes: forum's slim store gets the forum-local fields
+// (pending_hide_count here) and the mock rep keeper gets a RoleActivity
+// carrying everything that migrated. The returned records are the EXPECTED
+// projection outputs.
+func createNSentinelActivity(f *fixture, n int) []types.SentinelActivity {
 	items := make([]types.SentinelActivity, n)
 	for i := range items {
-		items[i].Address = strconv.Itoa(i)
-		items[i].TotalHides = uint64(i)
-		items[i].UpheldHides = uint64(i)
-		items[i].OverturnedHides = uint64(i)
-		items[i].EpochHides = uint64(i)
-		items[i].EpochAppealsResolved = uint64(i)
-		items[i].OverturnCooldownUntil = int64(i)
-		items[i].ConsecutiveOverturns = uint64(i)
-		items[i].PendingHideCount = uint64(i)
-		items[i].ConsecutiveUpheld = uint64(i)
-		items[i].EpochAppealsFiled = uint64(i)
-		items[i].TotalLocks = uint64(i)
-		items[i].UpheldLocks = uint64(i)
-		items[i].OverturnedLocks = uint64(i)
-		items[i].EpochLocks = uint64(i)
-		items[i].TotalMoves = uint64(i)
-		items[i].UpheldMoves = uint64(i)
-		items[i].OverturnedMoves = uint64(i)
-		items[i].EpochMoves = uint64(i)
-		items[i].TotalPins = uint64(i)
-		items[i].UpheldPins = uint64(i)
-		items[i].OverturnedPins = uint64(i)
-		items[i].EpochPins = uint64(i)
-		_ = keeper.SentinelActivity.Set(ctx, items[i].Address, items[i])
+		addr := strconv.Itoa(i)
+		v := uint64(i)
+
+		// Forum-local slice.
+		_ = f.keeper.SentinelActivity.Set(f.ctx, addr, types.SentinelActivity{
+			Address:          addr,
+			PendingHideCount: v,
+		})
+
+		// Rep-side shared slice (mock).
+		if f.repKeeper.roleActivities == nil {
+			f.repKeeper.roleActivities = map[string]reptypes.RoleActivity{}
+		}
+		f.repKeeper.roleActivities[addr] = reptypes.RoleActivity{
+			RoleType:              reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
+			Address:               addr,
+			ConsecutiveUpheld:     v,
+			ConsecutiveOverturns:  v,
+			OverturnCooldownUntil: int64(i),
+			EpochAppealsResolved:  v,
+			TotalActions: map[string]uint64{
+				reptypes.ActionKindForumHide: v, reptypes.ActionKindForumLock: v,
+				reptypes.ActionKindForumMove: v, reptypes.ActionKindForumPin: v,
+			},
+			UpheldActions: map[string]uint64{
+				reptypes.ActionKindForumHide: v, reptypes.ActionKindForumLock: v,
+				reptypes.ActionKindForumMove: v, reptypes.ActionKindForumPin: v,
+			},
+			OverturnedActions: map[string]uint64{
+				reptypes.ActionKindForumHide: v, reptypes.ActionKindForumLock: v,
+				reptypes.ActionKindForumMove: v, reptypes.ActionKindForumPin: v,
+			},
+			EpochActions: map[string]uint64{
+				reptypes.ActionKindForumHide: v, reptypes.ActionKindForumLock: v,
+				reptypes.ActionKindForumMove: v, reptypes.ActionKindForumPin: v,
+				reptypes.ActionKindForumAppealFiled: v,
+			},
+		}
+
+		// Expected projection output.
+		items[i] = types.SentinelActivity{
+			Address:               addr,
+			PendingHideCount:      v,
+			TotalHides:            v,
+			UpheldHides:           v,
+			OverturnedHides:       v,
+			EpochHides:            v,
+			TotalLocks:            v,
+			UpheldLocks:           v,
+			OverturnedLocks:       v,
+			EpochLocks:            v,
+			TotalMoves:            v,
+			UpheldMoves:           v,
+			OverturnedMoves:       v,
+			EpochMoves:            v,
+			TotalPins:             v,
+			UpheldPins:            v,
+			OverturnedPins:        v,
+			EpochPins:             v,
+			EpochAppealsFiled:     v,
+			EpochAppealsResolved:  v,
+			ConsecutiveUpheld:     v,
+			ConsecutiveOverturns:  v,
+			OverturnCooldownUntil: int64(i),
+			AccuracyWindow:        []*types.AccuracyEpochBucket{},
+		}
 	}
 	return items
 }
@@ -48,7 +95,7 @@ func createNSentinelActivity(keeper keeper.Keeper, ctx context.Context, n int) [
 func TestSentinelActivityQuerySingle(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
-	msgs := createNSentinelActivity(f.keeper, f.ctx, 2)
+	msgs := createNSentinelActivity(f, 2)
 	tests := []struct {
 		desc     string
 		request  *types.QueryGetSentinelActivityRequest
@@ -97,7 +144,7 @@ func TestSentinelActivityQuerySingle(t *testing.T) {
 func TestSentinelActivityQueryPaginated(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
-	msgs := createNSentinelActivity(f.keeper, f.ctx, 5)
+	msgs := createNSentinelActivity(f, 5)
 
 	request := func(next []byte, offset, limit uint64, total bool) *types.QueryAllSentinelActivityRequest {
 		return &types.QueryAllSentinelActivityRequest{
@@ -139,4 +186,35 @@ func TestSentinelActivityQueryPaginated(t *testing.T) {
 		_, err := qs.ListSentinelActivity(f.ctx, nil)
 		require.ErrorIs(t, err, status.Error(codes.InvalidArgument, "invalid request"))
 	})
+}
+
+// TestSentinelActivityQuery_CollectOnlySentinel: a sentinel who has only
+// moderated on other surfaces (collect) has no forum-local record; the Get
+// projection must still surface the shared rep-side data instead of
+// returning NotFound.
+func TestSentinelActivityQuery_CollectOnlySentinel(t *testing.T) {
+	f := initFixture(t)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+	const addr = "collect-only-sentinel"
+
+	if f.repKeeper.roleActivities == nil {
+		f.repKeeper.roleActivities = map[string]reptypes.RoleActivity{}
+	}
+	f.repKeeper.roleActivities[addr] = reptypes.RoleActivity{
+		RoleType:             reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
+		Address:              addr,
+		ConsecutiveUpheld:    2,
+		EpochAppealsResolved: 2,
+		TotalActions:         map[string]uint64{reptypes.ActionKindCollectHide: 4},
+		UpheldActions:        map[string]uint64{reptypes.ActionKindCollectHide: 2},
+		EpochActions:         map[string]uint64{reptypes.ActionKindCollectHide: 1},
+	}
+
+	resp, err := qs.GetSentinelActivity(f.ctx, &types.QueryGetSentinelActivityRequest{Address: addr})
+	require.NoError(t, err, "rep-side activity alone must satisfy the query")
+	require.Equal(t, uint64(4), resp.SentinelActivity.TotalCollectHides)
+	require.Equal(t, uint64(2), resp.SentinelActivity.UpheldCollectHides)
+	require.Equal(t, uint64(1), resp.SentinelActivity.EpochCollectHides)
+	require.Equal(t, uint64(2), resp.SentinelActivity.ConsecutiveUpheld)
+	require.Equal(t, uint64(0), resp.SentinelActivity.PendingHideCount, "no forum-local record")
 }

@@ -174,6 +174,7 @@ type mockRepKeeper struct {
 	tags                            map[string]reptypes.Tag
 	reservedTags                    map[string]reptypes.ReservedTag
 	sentinels                       map[string]reptypes.BondedRole
+	roleActivities                  map[string]reptypes.RoleActivity
 	// authorBonds keyed by "<targetType>:<targetID>" -> stake snapshot. Tests
 	// pre-seed entries to exercise the slash/restore lifecycle. Empty / nil
 	// map disables tracking (treat as "no bond exists").
@@ -477,6 +478,125 @@ func (m *mockRepKeeper) GetBondedRole(_ context.Context, _ reptypes.RoleType, ad
 		return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
 	}
 	return br, nil
+}
+
+// EligibleForRole mirrors x/rep's Keeper.EligibleForRole against the mock's
+// sentinels map. The UNBONDING staying-bond threshold uses the forum default
+// min sentinel bond (the real keeper reads rep's BondedRoleConfig, which
+// forum writes through from params.MinSentinelBond).
+func (m *mockRepKeeper) EligibleForRole(_ context.Context, _ reptypes.RoleType, addr string) (reptypes.BondedRole, error) {
+	br, ok := m.sentinels[addr]
+	if !ok {
+		return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
+	}
+	switch br.BondStatus {
+	case reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+		reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY:
+		return br, nil
+	case reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING:
+		current, _ := math.NewIntFromString(br.CurrentBond)
+		if current.IsNil() {
+			current = math.ZeroInt()
+		}
+		pending := math.ZeroInt()
+		if br.PendingUnbondAmount != "" {
+			if p, pok := math.NewIntFromString(br.PendingUnbondAmount); pok {
+				pending = p
+			}
+		}
+		if current.Sub(pending).LT(types.DefaultMinSentinelBond) {
+			return br, reptypes.ErrRoleUnbondingBelowMin
+		}
+		return br, nil
+	default:
+		return br, reptypes.ErrRoleDemoted
+	}
+}
+
+// --- RoleActivity surface (shared accountability, owned by x/rep). The
+// mock keeps a functional in-memory record so forum's cap/cooldown/counter
+// behavior tests exercise the real read-back paths.
+
+type mockRoleActivity = reptypes.RoleActivity
+
+func (m *mockRepKeeper) roleActivity(addr string) reptypes.RoleActivity {
+	if m.roleActivities == nil {
+		m.roleActivities = map[string]reptypes.RoleActivity{}
+	}
+	ra, ok := m.roleActivities[addr]
+	if !ok {
+		ra = reptypes.RoleActivity{RoleType: reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, Address: addr}
+	}
+	if ra.EpochActions == nil {
+		ra.EpochActions = map[string]uint64{}
+	}
+	if ra.TotalActions == nil {
+		ra.TotalActions = map[string]uint64{}
+	}
+	if ra.UpheldActions == nil {
+		ra.UpheldActions = map[string]uint64{}
+	}
+	if ra.OverturnedActions == nil {
+		ra.OverturnedActions = map[string]uint64{}
+	}
+	return ra
+}
+
+func (m *mockRepKeeper) RecordRoleAction(_ context.Context, _ reptypes.RoleType, addr, kind string) error {
+	ra := m.roleActivity(addr)
+	ra.EpochActions[kind]++
+	ra.TotalActions[kind]++
+	m.roleActivities[addr] = ra
+	return nil
+}
+
+func (m *mockRepKeeper) RecordRoleOutcome(ctx context.Context, _ reptypes.RoleType, addr, kind string, upheld bool) error {
+	ra := m.roleActivity(addr)
+	ra.EpochAppealsResolved++
+	if upheld {
+		ra.UpheldActions[kind]++
+		ra.ConsecutiveUpheld++
+		ra.ConsecutiveOverturns = 0
+	} else {
+		ra.OverturnedActions[kind]++
+		ra.ConsecutiveOverturns++
+		ra.ConsecutiveUpheld = 0
+		if reptypes.CooldownOnOverturn[kind] {
+			ra.OverturnCooldownUntil = sdk.UnwrapSDKContext(ctx).BlockTime().Unix() + reptypes.DefaultRoleOverturnCooldown
+		}
+	}
+	m.roleActivities[addr] = ra
+	if !upheld && ra.ConsecutiveOverturns >= reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion {
+		_ = m.SetBondStatus(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr,
+			reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED,
+			sdk.UnwrapSDKContext(ctx).BlockTime().Unix()+reptypes.DefaultSentinelDemotionCooldown)
+	}
+	return nil
+}
+
+func (m *mockRepKeeper) RoleOverturnCooldownUntil(_ context.Context, _ reptypes.RoleType, addr string) int64 {
+	if m.roleActivities == nil {
+		return 0
+	}
+	return m.roleActivities[addr].OverturnCooldownUntil
+}
+
+func (m *mockRepKeeper) RoleEpochActionCount(_ context.Context, _ reptypes.RoleType, addr, kind string) uint64 {
+	if m.roleActivities == nil {
+		return 0
+	}
+	return m.roleActivities[addr].EpochActions[kind]
+}
+
+func (m *mockRepKeeper) GetRoleActivity(_ context.Context, _ reptypes.RoleType, addr string) (reptypes.RoleActivity, error) {
+	return m.roleActivity(addr), nil
+}
+
+func (m *mockRepKeeper) BumpRoleEpochAppealsResolved(_ context.Context, _ reptypes.RoleType, addr string) error {
+	ra := m.roleActivity(addr)
+	ra.EpochAppealsResolved++
+	m.roleActivities[addr] = ra
+	return nil
 }
 
 func (m *mockRepKeeper) ReserveBond(_ context.Context, _ reptypes.RoleType, addr string, amount math.Int) error {

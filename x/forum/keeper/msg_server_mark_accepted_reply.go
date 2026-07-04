@@ -256,7 +256,7 @@ func (k msgServer) proposeAcceptedReply(ctx context.Context, msg *types.MsgMarkA
 	if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 	}
-	_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
+	_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
 
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(

@@ -65,7 +65,7 @@ func (k msgServer) UnlockThread(ctx context.Context, msg *types.MsgUnlockThread)
 		// Best-effort: a release failure is logged but does not block the unlock.
 		if lockRecord.CommittedAmount != "" && k.repKeeper != nil {
 			if committed, ok := math.NewIntFromString(lockRecord.CommittedAmount); ok && committed.IsPositive() {
-				if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, lockRecord.Sentinel, committed); err != nil {
+				if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, lockRecord.Sentinel, committed); err != nil {
 					sdkCtx.Logger().Warn("unlock thread: failed to release sentinel lock bond",
 						"sentinel", lockRecord.Sentinel, "root_id", msg.RootId, "error", err)
 				}

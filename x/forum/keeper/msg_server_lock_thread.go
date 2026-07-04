@@ -46,7 +46,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 	// BOTH a bonded sentinel and a Commons Operations Committee member, so the
 	// choice must be explicit rather than an implicit upgrade to the council
 	// path (which writes no lock record and is unlockable only by the council).
-	// See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+	// See docs/x-forum-spec.md (Shared ModerationAuthority).
 	//
 	// Lock eligibility = bonded sentinel in NORMAL/RECOVERY with a valid bond,
 	// meeting the lock rep-tier and the 2x (2000 DREAM) bond floor. The backing
@@ -91,15 +91,13 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 			return nil, types.ErrModerationPaused
 		}
 
-		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
-		if err != nil {
-			local = types.SentinelActivity{Address: msg.Creator}
-		}
-		if local.OverturnCooldownUntil > now {
+		// Shared cooldown + per-epoch lock cap — both read from rep's
+		// RoleActivity record (single source of truth).
+		if until := k.repKeeper.RoleOverturnCooldownUntil(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); until > now {
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
-				"cooldown until %d", local.OverturnCooldownUntil)
+				"cooldown until %d", until)
 		}
-		if local.EpochLocks >= params.MaxSentinelLocksPerEpoch {
+		if k.repKeeper.RoleEpochActionCount(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumLock) >= params.MaxSentinelLocksPerEpoch {
 			return nil, types.ErrLockLimitExceeded
 		}
 
@@ -117,7 +115,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 		// Reserve slash amount against the sentinel's bond so overturned
 		// appeals have funds to slash. Mirrors the HidePost reservation path.
 		slashAmount := params.SentinelSlashAmountInt()
-		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to lock")
 		}
 
@@ -136,13 +134,8 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 			return nil, errorsmod.Wrap(err, "failed to store lock record")
 		}
 
-		local.TotalLocks++
-		local.EpochLocks++
-		if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
-		}
-
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
+		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumLock)
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
 	}
 
 	post.Locked = true

@@ -25,7 +25,7 @@ Key principles:
 - **Ordered**: Items have explicit positions for deliberate curation
 - **Quality-rated**: Bonded curators rate public collections (up/down + descriptive tags), with challenge/appeals via x/rep jury
 - **Community reactions**: Members can upvote (free) or downvote (25 SPARK burned) public collections and items, providing lightweight sentiment signals separate from expert curation. Owners can opt out via `community_feedback_enabled`
-- **Sentinel-moderated**: x/forum sentinels can flag and hide inappropriate public collections and items, with the same bond-commitment and appeal system used in x/forum. Sentinel moderation applies to all public collections regardless of owner preferences
+- **Sentinel- and council-moderated**: x/forum sentinels (bonded, rate-limited, appealable) and the Commons Operations Committee / governance (no bond, no rate limit, still appealable) can hide inappropriate public collections and items via one shared lifecycle — a collect hide is a staged deletion (unappealed hides are permanently deleted at the deadline), reversible by the hiding sentinel's self-correct window, a council unhide (any unresolved, unappealed hide), the owner's appeal to the x/rep jury, or jury timeout. Unlike forum's gov hides, council hides ARE appealable — in a deleting lifecycle an unappealable council hide would be an irreversible deletion with no check. See §3.21 for the full lifecycle and §5.25/§5.26a for the authority model. Moderation applies to all public collections regardless of owner preferences
 
 ---
 
@@ -530,15 +530,25 @@ message HideRecord {
   string reason_text = 8;
   int64 appeal_deadline = 9;        // Block height after which auto-deleted if no appeal
   bool appealed = 10;
-  bool resolved = 11;               // True after appeal verdict or auto-deletion
+  bool resolved = 11;               // True after appeal verdict, self-correct, or auto-deletion
+  bool self_corrected = 12;         // True when the hiding sentinel reversed via MsgUnhideContent
+  string author_bond_amount = 13 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];       // Snapshot of the author bond slashed at hide time
+  string author_rep_penalty = 14 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // Snapshot of the per-tag rep penalty applied at hide time
+  repeated string rep_penalty_tags = 15;                                                    // Tags the penalty was applied to (tags are owner-editable)
+  repeated string rep_penalty_amounts = 16;                                                 // ACTUAL per-tag deductions (min(score, penalty) — deduction floors at zero), aligned with rep_penalty_tags; restore paths use these, never the raw param, so hide/reversal cycles cannot mint rep
 }
 ```
 
-**Lifecycle:**
-1. Sentinel calls `MsgHideContent` — target set to HIDDEN, `committed_amount` (100 DREAM) locked from sentinel's x/forum sentinel bond (shared sentinel identity across modules), HideRecord created.
-2. **Auto-deletion**: If no appeal within `hide_expiry_blocks` (~7 days), the EndBlocker deletes the target (collection or item) with deposit refunds and marks the HideRecord as resolved. For collections, this triggers full cleanup (items, collaborators, curation, sponsorship).
-3. **Appeal**: Owner calls `MsgAppealHide` within the window. Routed to x/rep jury. HideRecord marked `appealed = true`. Auto-deletion paused.
-4. **Resolution**: Jury verdict via callback — upheld (content restored, sentinel slashed) or rejected (content deleted, sentinel vindicated).
+**Lifecycle.** A collect hide is a *staged deletion with an appeal window*,
+not a reversible visibility flag like x/forum's (whose hides stay hidden
+indefinitely unless acted on). Every HideRecord terminates through exactly
+one of the exits below:
+
+1. A sentinel or the council calls `MsgHideContent` (the `authority` field selects the path — AUTO prefers sentinel; see §5.25). Target set to HIDDEN, HideRecord created. Sentinel path: `committed_amount` (100 DREAM) locked from the shared x/forum sentinel bond and a `max_hides_per_sentinel_per_day` slot consumed. Council path: no bond, no rate limit, `sentinel = ""` (the gov-hide marker convention), `committed_amount = 0`. Both paths apply the author bond slash and per-tag rep penalty, snapshotted onto the record (fields 13-16) so reversal paths can restore exactly what was taken.
+2. **Pre-appeal reversal** (`MsgUnhideContent`): the hiding sentinel within `sentinel_unhide_window_blocks` (~24h), or the council at any time — for council hides AND as an override of sentinel hides. Content restored to ACTIVE; author bond + rep penalty restored from the snapshots. Sentinel self-correct retains the committed bond until the original `appeal_deadline` and does NOT refund the day's rate-limit slot (anti-cycling); a council unhide of a sentinel hide releases the bond immediately (not self-serve).
+3. **Auto-deletion**: If no appeal within `hide_expiry_blocks` (~7 days), the EndBlocker deletes the target (collection or item) with deposit refunds and marks the HideRecord as resolved. For collections, this triggers full cleanup (items, collaborators, curation, sponsorship). Author penalties stay burned — this is the only exit that does not restore them.
+4. **Appeal**: Owner calls `MsgAppealHide` within the window. Routed to x/rep jury. HideRecord marked `appealed = true`. Auto-deletion paused. Once appealed, self-correct is no longer possible — the jury owns the outcome.
+5. **Resolution**: Jury verdict via callback — upheld (content restored, sentinel slashed, author penalties restored) or rejected (content deleted, sentinel vindicated). If the jury never resolves by the deadline, timeout favors the appellant: content restored, 50% appeal fee refunded, author penalties restored, sentinel bond released without slash.
 
 ### 3.22. Endorsement
 
@@ -634,6 +644,8 @@ message Params {
   string appeal_fee = 47 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // SPARK fee to appeal a hide (default 5 SPARK)
   int64 appeal_cooldown_blocks = 48;  // Blocks after hide before appeal allowed (default ~1 hour)
   int64 appeal_deadline_blocks = 49;  // Max blocks for jury to resolve appeal (default ~14 days)
+  int64 sentinel_unhide_window_blocks = 76;  // Blocks after hide during which the hiding sentinel may self-correct via MsgUnhideContent (default ~24h; must be < hide_expiry_blocks)
+  uint32 max_hides_per_sentinel_per_day = 77;  // Max MsgHideContent actions per sentinel per block-height day (default 50, forum parity); self-correct does not refund the slot
 
   // --- Endorsement parameters — OPERATIONAL ---
   string endorsement_creation_fee = 50 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // SPARK fee for non-member collection creation (default 10 SPARK)
@@ -726,6 +738,8 @@ message CollectOperationalParams {
   string appeal_fee = 29 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   int64 appeal_cooldown_blocks = 30;
   int64 appeal_deadline_blocks = 31;
+  int64 sentinel_unhide_window_blocks = 56;
+  uint32 max_hides_per_sentinel_per_day = 57;
 
   // --- Endorsement parameters ---
   string endorsement_creation_fee = 32 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
@@ -1478,28 +1492,39 @@ message MsgHideContentResponse {
 }
 ```
 
-**Validation:**
-- `creator` must be an active x/forum sentinel (bond status NOT DEMOTED, meets min rep tier, has qualified backing)
-- `creator` must not be in overturn cooldown
+**Authority selection** (the `authority` field, mirroring forum — see
+the Shared ModerationAuthority section of docs/x-forum-spec.md):
+- `AUTO` (default): sentinel path if `creator` is an eligible bonded sentinel, else council path if council-authorized, else error
+- `SENTINEL`: force the sentinel path; no silent fallback to council
+- `COUNCIL`: force the council path (x/gov authority, Commons Council policy address, or Operations Committee member via `IsCouncilAuthorized`); the deliberate "act as committee" choice
+
+**Validation (both paths):**
 - Target must exist and have status = ACTIVE
 - Target must not already be hidden (prevents duplicate hide records for the same target)
 - Target must be a public, active collection (`visibility = PUBLIC`, `status = ACTIVE`) or an item within such a collection
 - If `reason_code = OTHER`: `reason_text` must be non-empty and ≤ `max_flag_reason_length`
 - If `reason_code != OTHER`: `reason_text` must be empty (structured reasons don't allow free text)
+
+**Validation (sentinel path only):**
+- `creator` must pass x/rep's shared `EligibleForRole` gate (same check forum uses): NORMAL/RECOVERY eligible; UNBONDING eligible only while the staying bond (current - pending_unbond) covers the role's configured `min_bond`; DEMOTED never. Rep tier / trust gates were already enforced at bond time by `MsgBondRole`.
+- `creator` must not be in the shared overturn cooldown (`RoleActivity.overturn_cooldown_until` on x/rep's shared content-sentinel record — a lost appeal on EITHER moderation surface starts it)
+- Every successful sentinel-path hide is credited to x/rep's shared `RoleActivity` record (action kind `collect_hide`) for reward-epoch activity; collect appeals record `collect_appeal_filed` (cross-surface Gate 4 appeal rate) and jury verdicts feed the shared streaks, accuracy ring, and streak demotion via `RecordRoleOutcome`
 - Sentinel must have available bond ≥ `sentinel_commit_amount` (available = current bond - total committed across x/forum + x/collect)
+- Sentinel must be under `max_hides_per_sentinel_per_day` for the current block-height day (same daily-counter family as pins/flags/reactions); a later self-correct unhide does not refund the slot
+- The council path skips the bond and rate limit (matches forum's gov path — council accountability is political, not bonded)
 
 **Logic:**
 1. Set target status to HIDDEN
-2. Commit `sentinel_commit_amount` (100 DREAM) from sentinel's bond via x/forum keeper (cross-module bond commitment)
+2. Sentinel path: commit `sentinel_commit_amount` (100 DREAM) from the sentinel's bond (cross-module bond commitment). Council path: `Sentinel = ""`, `CommittedAmount = 0` — the appeal/expiry handlers skip all bond operations via `IsPositive()` guards
 3. Create `HideRecord` with `appeal_deadline = current_block + hide_expiry_blocks`
-4. Clear any existing `CollectionFlag` for this target (sentinel action supersedes flags)
-5. When hiding a **collection**: slash the author's bond (`SlashAuthorBond`) and apply a per-tag `author_rep_penalty` deduction across the collection's tags (best-effort; skipped if no tags or zero penalty). This is eager, mirroring the bond-slash timing — neither is restored if a later appeal is upheld.
+4. Clear any existing `CollectionFlag` for this target (moderation action supersedes flags)
+5. When hiding a **collection**: slash the author's bond (`SlashAuthorBond`) and apply a per-tag `author_rep_penalty` deduction across the collection's tags (best-effort; skipped if no tags or zero penalty). Applies on BOTH paths (a hide is a hide from the author's perspective); snapshotted for restore by author-favoring reversals.
 6. If hiding a collection: all items within are implicitly hidden (excluded from queries)
-7. Emit `content_hidden` event (carries `author`, `rep_penalty`, `rep_penalty_tags` attributes when the author penalty was applied)
+7. Emit `content_hidden` event (carries `authority` = sentinel|council, `creator`, and `author`/`rep_penalty`/`rep_penalty_tags` attributes when the author penalty was applied)
 
 ### 5.26. MsgAppealHide
 
-Collection or item owner appeals a sentinel hide action. Routed to x/rep jury for resolution.
+Collection or item owner appeals a hide action — sentinel or council alike (council hides are appealable in collect, unlike forum's gov hides, because collect's lifecycle deletes at the deadline). Routed to x/rep jury for resolution.
 
 ```protobuf
 message MsgAppealHide {
@@ -1531,6 +1556,7 @@ message MsgAppealHideResponse {}
   - Appellant receives 80% of `appeal_fee` (4 SPARK)
   - 20% burned (1 SPARK)
   - Sentinel slashed `sentinel_commit_amount` (100 DREAM) via x/forum keeper
+  - Author bond + per-tag rep penalty restored from the HideRecord snapshots (mint-back; net-zero supply across slash → restore)
   - If endorsed non-member collection: endorser's DREAM stake is NOT slashed (sentinel was wrong)
   - HideRecord marked `resolved = true`
   - Emit `hide_appeal_upheld` event
@@ -1549,8 +1575,42 @@ message MsgAppealHideResponse {}
   - Appellant refunded 50% of `appeal_fee` (2.5 SPARK)
   - 50% burned (2.5 SPARK)
   - Sentinel committed bond released (no penalty)
+  - Author bond + per-tag rep penalty restored from the HideRecord snapshots (favor appellant)
   - HideRecord marked `resolved = true`
   - Emit `hide_appeal_timeout` event
+
+### 5.26a. MsgUnhideContent
+
+Reverses a hide before an appeal is filed. Two authorization paths:
+sentinel self-correction (the hiding sentinel fixing an honest mistake at
+zero cost to the innocent owner) and council unhide (reversing council
+hides and overriding sentinel hides — closes the "nobody noticed the bad
+hide before the deletion deadline" gap).
+
+```protobuf
+message MsgUnhideContent {
+  string creator = 1;
+  uint64 hide_record_id = 2;
+}
+
+message MsgUnhideContentResponse {}
+```
+
+**Validation:**
+- `HideRecord` must exist, not resolved, not appealed — for BOTH paths (once appealed, the jury owns the outcome; deliberate deviation from forum, whose council unhide ignores appeal state — collect's appeal escrows a SPARK fee and opens a jury case)
+- Council path (`IsCouncilAuthorized`): any unresolved, unappealed hide — council hides and sentinel hides alike — at any time before resolution; no window
+- Sentinel path: `creator` must be the sentinel who created the hide, within `sentinel_unhide_window_blocks` of `hidden_at` (boundary inclusive); no owner self-unhide
+- No bonded-role status check on the sentinel path: a since-demoted or unbonded sentinel can still walk back their own hide (unhide undoes harm)
+- Target must still exist (deleted-while-hidden fails without resolving the record; expiry cleanup handles it)
+
+**Logic:**
+1. Target restored to ACTIVE (collections also move in the `CollectionsByStatus` index)
+2. Author bond + per-tag rep penalty restored from the HideRecord snapshots (best-effort, mirroring the hide-side slash) — both paths
+3. HideRecord marked `resolved = true`; `self_corrected = true` only on the sentinel path
+4. Bond handling differs by path:
+   - **Sentinel self-correct**: the `HideRecord/expiry/` entry is retained and the committed bond stays reserved until the original `appeal_deadline`; the EndBlocker releases it there. Combined with the unrefunded daily-cap slot, hide/unhide cycling costs a `max_hides_per_sentinel_per_day` slot AND a second `sentinel_commit_amount` reservation per cycle
+   - **Council unhide**: any committed bond (i.e. when overriding a sentinel hide) is released immediately and the expiry entry removed — the override is not the sentinel's doing, so no anti-cycling retention; the sentinel's daily slot stays consumed
+5. Emit `content_unhidden` event (`unhidden_by`, `is_council`, `is_self_correct`, restore attributes)
 
 ### 5.27. MsgEndorseCollection
 
@@ -2121,11 +2181,27 @@ Each block, processes the hide expiry index for hide records where `appeal_deadl
 1. Restore hidden content to ACTIVE (favor appellant — jury failed to resolve in time)
 2. Refund 50% of `appeal_fee` to appellant (2.5 SPARK)
 3. Burn 50% of `appeal_fee` (2.5 SPARK)
-5. Release sentinel's committed bond (no penalty — jury timed out, not a verdict against sentinel)
+4. Release sentinel's committed bond (no penalty — jury timed out, not a verdict against sentinel)
+5. Restore author bond + per-tag rep penalty from the HideRecord snapshots (favor appellant)
 6. Mark HideRecord `resolved = true`
 7. Emit `hide_appeal_timeout` event
 
 Respects `max_prune_per_block` cap shared with other EndBlocker tasks.
+
+### 10.3b. EndBlocker: Self-Corrected Hide Bond Release
+
+Hide records that were self-corrected via `MsgUnhideContent` are already
+`resolved = true` but deliberately keep their `HideRecord/expiry/` entry:
+the sentinel's committed bond stays reserved until the original
+`appeal_deadline` (the anti hide/unhide-cycling throttle). When the same
+expiry walk reaches such an entry:
+
+1. Release the sentinel's committed bond (no penalty)
+2. Remove the expiry index entry
+3. Emit `self_corrected_hide_bond_released` event
+
+The content itself was already restored to ACTIVE at unhide time and is
+not touched.
 
 ### 10.4. EndBlocker: Flag Expiry
 
@@ -2226,11 +2302,13 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `content_upvoted` | `target_id`, `target_type`, `voter` | MsgUpvoteContent |
 | `content_downvoted` | `target_id`, `target_type`, `voter`, `cost_burned` | MsgDownvoteContent |
 | `content_flagged` | `target_id`, `target_type`, `flagger`, `reason`, `total_weight`, `in_review_queue` | MsgFlagContent |
-| `content_hidden` | `hide_record_id`, `sentinel`, `target_id`, `target_type`, `reason_code`, `appeal_deadline` (+ `author`, `rep_penalty`, `rep_penalty_tags` when an author rep penalty is applied) | MsgHideContent |
+| `content_hidden` | `hide_record_id`, `sentinel` ("" for council hides), `creator`, `authority` (sentinel\|council), `target_id`, `target_type`, `reason_code`, `appeal_deadline` (+ `author`, `rep_penalty`, `rep_penalty_tags` when an author rep penalty is applied) | MsgHideContent |
 | `hide_appealed` | `hide_record_id`, `appellant`, `appeal_fee` | MsgAppealHide |
-| `hide_appeal_upheld` | `hide_record_id`, `target_id`, `target_type`, `sentinel_slashed`, `appellant_refund` | x/rep jury callback |
+| `hide_appeal_upheld` | `hide_record_id`, `target_id`, `target_type`, `sentinel_slashed`, `appellant_refund`, `author_bond_restored`, `rep_penalty_restored` | x/rep jury callback |
+| `content_unhidden` | `hide_record_id`, `target_id`, `target_type`, `unhidden_by`, `is_council`, `is_self_correct`, `author_bond_restored`, `rep_penalty_restored` | MsgUnhideContent |
+| `self_corrected_hide_bond_released` | `hide_record_id`, `sentinel`, `released` | EndBlocker |
 | `hide_appeal_rejected` | `hide_record_id`, `target_id`, `target_type`, `sentinel_reward`, `target_deleted` | x/rep jury callback |
-| `hide_appeal_timeout` | `hide_record_id`, `target_id`, `target_type`, `appellant_refund` | EndBlocker |
+| `hide_appeal_timeout` | `hide_record_id`, `target_id`, `target_type`, `appellant_refund`, `author_bond_restored`, `rep_penalty_restored` | EndBlocker |
 | `unappealed_hide_expired` | `hide_record_id`, `target_id`, `target_type`, `target_deleted` | EndBlocker |
 | `collection_endorsed` | `collection_id`, `endorser`, `dream_staked`, `endorser_reward` | MsgEndorseCollection |
 | `seeking_endorsement_updated` | `collection_id`, `seeking` | MsgSetSeekingEndorsement |

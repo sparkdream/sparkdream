@@ -139,7 +139,7 @@ bond_sentinel() {
     local ADDR=$2
     local BOND_AMOUNT=${3:-100000000}
 
-    SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel $ADDR --output json 2>&1)
+    SENTINEL_STATUS=$($BINARY query rep bonded-role content-sentinel $ADDR --output json 2>&1)
     CURRENT_BOND=$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
 
     if echo "$SENTINEL_STATUS" | grep -q "error\|not found" \
@@ -147,7 +147,7 @@ bond_sentinel() {
        || [ "$CURRENT_BOND" = "0" ] || [ "$CURRENT_BOND" = "null" ] || [ -z "$CURRENT_BOND" ]; then
         echo "  Bonding $ACCOUNT (amount: $BOND_AMOUNT)..."
 
-        TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+        TX_RES=$($BINARY tx rep bond-role content-sentinel \
             "$BOND_AMOUNT" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \

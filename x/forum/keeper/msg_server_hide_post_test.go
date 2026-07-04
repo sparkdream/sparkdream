@@ -212,11 +212,10 @@ func TestHidePostSentinelBondCommitment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify forum-local counter was updated.
-	local, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), local.TotalHides)
-	require.Equal(t, uint64(1), local.EpochHides)
+	// Verify the shared RoleActivity counters were updated (rep-owned).
+	ra := f.repKeeper.roleActivities[testSentinel]
+	require.Equal(t, uint64(1), ra.TotalActions[reptypes.ActionKindForumHide])
+	require.Equal(t, uint64(1), ra.EpochActions[reptypes.ActionKindForumHide])
 
 	// Committed bond (now on the rep sentinel record) should be increased.
 	repSentinel, ok := f.repKeeper.sentinels[testSentinel]
@@ -344,7 +343,7 @@ func TestHidePost_ParamDrivenEpochCap(t *testing.T) {
 // a bonded forum sentinel AND a Commons Operations Committee member. Without an
 // explicit authority the hide must default to the accountable sentinel path
 // (bonded, author-appealable) rather than silently upgrading to the council
-// (gov) path. See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+// (gov) path. See docs/x-forum-spec.md (Shared ModerationAuthority).
 func TestHidePost_AuthorityDisambiguation(t *testing.T) {
 	makeSentinelAndCouncil := func(t *testing.T) (*fixture, uint64) {
 		t.Helper()
@@ -380,9 +379,8 @@ func TestHidePost_AuthorityDisambiguation(t *testing.T) {
 		require.Equal(t, testSentinel, hr.Sentinel, "AUTO must default to the sentinel path")
 		require.NotEmpty(t, hr.SentinelBondSnapshot, "sentinel hide must snapshot bond")
 		require.NotEmpty(t, hr.CommittedAmount, "sentinel hide must commit slash amount")
-		local, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-		require.NoError(t, err)
-		require.Equal(t, uint64(1), local.TotalHides)
+		require.Equal(t, uint64(1),
+			f.repKeeper.roleActivities[testSentinel].TotalActions[reptypes.ActionKindForumHide])
 	})
 
 	// Explicit COUNCIL by the same account is the deliberate "act as committee"
@@ -401,10 +399,10 @@ func TestHidePost_AuthorityDisambiguation(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, hr.Sentinel, "explicit COUNCIL must write the gov-hide marker")
 		require.Empty(t, hr.CommittedAmount, "gov hide must not commit slash amount")
-		// Forum-local sentinel counters must NOT be bumped by a council hide.
-		local, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-		require.NoError(t, err)
-		require.Equal(t, uint64(0), local.TotalHides, "council hide must not bump sentinel counters")
+		// Shared sentinel counters must NOT be bumped by a council hide.
+		require.Equal(t, uint64(0),
+			f.repKeeper.roleActivities[testSentinel].TotalActions[reptypes.ActionKindForumHide],
+			"council hide must not bump sentinel counters")
 	})
 
 	// Explicit SENTINEL by the same account takes the sentinel path.

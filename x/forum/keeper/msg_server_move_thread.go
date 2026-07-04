@@ -50,7 +50,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 	// Resolve which moderation authority this move invokes. An account can be
 	// BOTH a bonded sentinel and a Commons Operations Committee member, so the
 	// choice must be explicit rather than an implicit upgrade to the council
-	// path. See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+	// path. See docs/x-forum-spec.md (Shared ModerationAuthority).
 	//
 	// Move eligibility = bonded sentinel in NORMAL/RECOVERY with a valid bond
 	// AND the thread carries no reserved tag (only the council may move a
@@ -84,15 +84,13 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 			return nil, types.ErrModerationPaused
 		}
 
-		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
-		if err != nil {
-			local = types.SentinelActivity{Address: msg.Creator}
-		}
-		if local.OverturnCooldownUntil > now {
+		// Shared cooldown + per-epoch move cap — both read from rep's
+		// RoleActivity record (single source of truth).
+		if until := k.repKeeper.RoleOverturnCooldownUntil(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); until > now {
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
-				"cooldown until %d", local.OverturnCooldownUntil)
+				"cooldown until %d", until)
 		}
-		if local.EpochMoves >= params.MaxSentinelMovesPerEpoch {
+		if k.repKeeper.RoleEpochActionCount(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumMove) >= params.MaxSentinelMovesPerEpoch {
 			return nil, types.ErrMoveLimitExceeded
 		}
 
@@ -105,7 +103,7 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		// Reserve slash amount against the sentinel's bond so overturned
 		// appeals have funds to slash. Mirrors the HidePost reservation path.
 		slashAmount := params.SentinelSlashAmountInt()
-		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to move")
 		}
 
@@ -127,13 +125,9 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 			return nil, errorsmod.Wrap(err, "failed to store move record")
 		}
 
-		local.TotalMoves++
-		local.EpochMoves++
-		if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
-		}
+		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumMove)
 
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
 	}
 
 	post.CategoryId = msg.NewCategoryId

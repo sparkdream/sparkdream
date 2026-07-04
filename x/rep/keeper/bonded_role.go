@@ -50,6 +50,70 @@ func (k Keeper) GetBondedRole(ctx context.Context, roleType types.RoleType, addr
 	return br, nil
 }
 
+// EligibleForRole returns the caller's BondedRole if it may take a
+// role-gated action right now, or a typed error explaining why not. This is
+// the SHARED action-time eligibility check for every module consuming a
+// bonded role (forum + collect for the sentinel role today) — the logic
+// originated as forum's eligibleSentinel and was hoisted here so consuming
+// modules cannot drift (collect previously accepted UNBONDING sentinels
+// whose staying bond no longer covered the role minimum).
+//
+// NORMAL and RECOVERY are eligible outright. UNBONDING is eligible while
+// the *staying* bond (current_bond - pending_unbond_amount) stays at or
+// above the role's configured min_bond; the portion being withdrawn is
+// treated as already gone. The action's own ReserveBond call (pending-aware)
+// separately enforces that any reserved slash fits in the staying,
+// uncommitted bond. DEMOTED (and any future ineligible status) is never
+// eligible.
+//
+// There is deliberately no time / unbond-completion comparison: eligibility
+// is a pure bond-quantity question. Safety comes from earmarked (committed)
+// bond surviving the unbond — not from timing.
+//
+// Missing BondedRoleConfig mirrors computeBondStatus's lenient fallback:
+// the min bond is treated as zero, so an UNBONDING role stays eligible
+// while any bond stays behind.
+//
+// Errors: ErrBondedRoleNotFound (no role), ErrRoleDemoted,
+// ErrRoleUnbondingBelowMin. Module-local caps (overturn cooldowns,
+// per-epoch limits, age gates) remain the owning module's job.
+func (k Keeper) EligibleForRole(ctx context.Context, roleType types.RoleType, addr string) (types.BondedRole, error) {
+	br, err := k.GetBondedRole(ctx, roleType, addr)
+	if err != nil {
+		return br, err
+	}
+
+	switch br.BondStatus {
+	case types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY:
+		return br, nil
+
+	case types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING:
+		current, cerr := parseIntOrZero(br.CurrentBond)
+		if cerr != nil {
+			return br, errorsmod.Wrapf(types.ErrInvalidAmount,
+				"invalid bonded role current_bond: %q", br.CurrentBond)
+		}
+		pending, perr := parseIntOrZero(br.PendingUnbondAmount)
+		if perr != nil {
+			return br, errorsmod.Wrapf(types.ErrInvalidAmount,
+				"invalid bonded role pending_unbond_amount: %q", br.PendingUnbondAmount)
+		}
+		minBond := math.ZeroInt()
+		if cfg, cfgErr := k.BondedRoleConfigs.Get(ctx, int32(roleType)); cfgErr == nil {
+			minBond = mustParseIntOrZero(cfg.MinBond)
+		}
+		if current.Sub(pending).LT(minBond) {
+			return br, errorsmod.Wrap(types.ErrRoleUnbondingBelowMin,
+				"staying bond below role minimum during unbond")
+		}
+		return br, nil
+
+	default: // DEMOTED and any future ineligible status
+		return br, errorsmod.Wrapf(types.ErrRoleDemoted, "status %s", br.BondStatus.String())
+	}
+}
+
 // GetAvailableBond returns the bond that can actually back a new action:
 // current_bond minus total_committed_bond minus pending_unbond_amount. Bond
 // that is leaving (pending) must not back new reservations, otherwise an

@@ -165,11 +165,13 @@ func TestJuryDrivenGovActionAppeal(t *testing.T) {
 			math.NewInt(types.DefaultAppealBondAmount).String(),
 			ja.refundedCoins.AmountOf("uspark").String())
 		require.True(t, ja.burnedCoins.IsZero())
-		require.Len(t, ja.fk.overturnedCalls, 1)
+		up, ov := sumRoleVerdicts(t, ja.f, ja.sentinel)
+		require.Zero(t, up)
+		require.Equal(t, uint64(1), ov)
+		require.Len(t, ja.fk.resolvedCalls, 1)
 		require.Len(t, ja.fk.reverseCalls, 1)
-		require.Empty(t, ja.fk.upheldCalls)
 
-		br, err := ja.f.keeper.BondedRoles.Get(ja.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), ja.sentinel))
+		br, err := ja.f.keeper.BondedRoles.Get(ja.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL), ja.sentinel))
 		require.NoError(t, err)
 		require.Equal(t,
 			math.NewInt(1_000_000_000).SubRaw(types.DefaultSentinelOverturnSlash).String(),
@@ -189,8 +191,10 @@ func TestJuryDrivenGovActionAppeal(t *testing.T) {
 			math.NewInt(types.DefaultAppealBondAmount).QuoRaw(2).String(),
 			ja.burnedCoins.AmountOf("uspark").String())
 		require.True(t, ja.refundedCoins.IsZero())
-		require.Len(t, ja.fk.upheldCalls, 1)
-		require.Empty(t, ja.fk.overturnedCalls)
+		up, ov := sumRoleVerdicts(t, ja.f, ja.sentinel)
+		require.Equal(t, uint64(1), up)
+		require.Zero(t, ov)
+		require.Len(t, ja.fk.resolvedCalls, 1)
 		require.Empty(t, ja.fk.reverseCalls)
 	})
 
@@ -205,7 +209,6 @@ func TestJuryDrivenGovActionAppeal(t *testing.T) {
 		require.Equal(t, types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING, updated.Status)
 		require.True(t, ja.refundedCoins.IsZero())
 		require.True(t, ja.burnedCoins.IsZero())
-		require.Empty(t, ja.fk.overturnedCalls)
-		require.Empty(t, ja.fk.upheldCalls)
+		require.Empty(t, ja.fk.resolvedCalls)
 	})
 }

@@ -62,30 +62,30 @@ func TestBondedRole_IsAndGet(t *testing.T) {
 	k := f.keeper
 	addr := sdk.AccAddress([]byte("sentinel1")).String()
 
-	yes, err := k.IsBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr)
+	yes, err := k.IsBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr)
 	require.NoError(t, err)
 	require.False(t, yes)
 
-	_, err = k.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr)
+	_, err = k.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr)
 	require.ErrorIs(t, err, types.ErrBondedRoleNotFound)
 
 	// Seed a record directly.
-	require.NoError(t, k.BondedRoles.Set(f.ctx, bondedRoleKey(types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr), types.BondedRole{
+	require.NoError(t, k.BondedRoles.Set(f.ctx, bondedRoleKey(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr), types.BondedRole{
 		Address:            addr,
-		RoleType:           types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType:           types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		BondStatus:         types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 		CurrentBond:        "1000",
 		TotalCommittedBond: "0",
 	}))
 
-	yes, err = k.IsBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr)
+	yes, err = k.IsBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr)
 	require.NoError(t, err)
 	require.True(t, yes)
 
-	br, err := k.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr)
+	br, err := k.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr)
 	require.NoError(t, err)
 	require.Equal(t, addr, br.Address)
-	require.Equal(t, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, br.RoleType)
+	require.Equal(t, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, br.RoleType)
 }
 
 func TestBondedRole_ReserveReleaseSlash(t *testing.T) {
@@ -145,7 +145,7 @@ func TestBondedRole_ReserveReleaseSlash(t *testing.T) {
 func TestBondedRole_ReserveExcludesPendingUnbond(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
-	role := types.RoleType_ROLE_TYPE_FORUM_SENTINEL
+	role := types.RoleType_ROLE_TYPE_CONTENT_SENTINEL
 	addr := sdk.AccAddress([]byte("unbonder1"))
 
 	setMemberWithStaked(t, f, addr, math.NewInt(700), math.NewInt(700))
@@ -178,7 +178,7 @@ func TestBondedRole_ReserveExcludesPendingUnbond(t *testing.T) {
 func TestBondedRole_MatureDefersCommittedBond(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
-	role := types.RoleType_ROLE_TYPE_FORUM_SENTINEL
+	role := types.RoleType_ROLE_TYPE_CONTENT_SENTINEL
 	addr := sdk.AccAddress([]byte("unbonder2"))
 
 	setMemberWithStaked(t, f, addr, math.NewInt(700), math.NewInt(700))
@@ -212,7 +212,7 @@ func TestBondedRole_MatureDefersCommittedBond(t *testing.T) {
 func TestBondedRole_SlashCapsAtCurrent(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
-	role := types.RoleType_ROLE_TYPE_FORUM_SENTINEL
+	role := types.RoleType_ROLE_TYPE_CONTENT_SENTINEL
 	addr := sdk.AccAddress([]byte("guard1"))
 
 	setMemberWithStaked(t, f, addr, math.NewInt(200), math.NewInt(200))
@@ -235,15 +235,15 @@ func TestBondedRole_MultiRoleSameAddress(t *testing.T) {
 	addr := sdk.AccAddress([]byte("multi1")).String()
 
 	// Seed same address under both role types with different bonds.
-	require.NoError(t, k.BondedRoles.Set(f.ctx, bondedRoleKey(types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr), types.BondedRole{
-		Address: addr, RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, CurrentBond: "1000", TotalCommittedBond: "0",
+	require.NoError(t, k.BondedRoles.Set(f.ctx, bondedRoleKey(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr), types.BondedRole{
+		Address: addr, RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, CurrentBond: "1000", TotalCommittedBond: "0",
 	}))
 	require.NoError(t, k.BondedRoles.Set(f.ctx, bondedRoleKey(types.RoleType_ROLE_TYPE_COLLECT_CURATOR, addr), types.BondedRole{
 		Address: addr, RoleType: types.RoleType_ROLE_TYPE_COLLECT_CURATOR, CurrentBond: "500", TotalCommittedBond: "0",
 	}))
 
 	// Each role sees its own record.
-	s, err := k.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr)
+	s, err := k.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr)
 	require.NoError(t, err)
 	require.Equal(t, "1000", s.CurrentBond)
 
@@ -252,7 +252,7 @@ func TestBondedRole_MultiRoleSameAddress(t *testing.T) {
 	require.Equal(t, "500", c.CurrentBond)
 
 	// Available bond computed independently.
-	avail, _ := k.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, addr)
+	avail, _ := k.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr)
 	require.Equal(t, math.NewInt(1000), avail)
 	avail, _ = k.GetAvailableBond(f.ctx, types.RoleType_ROLE_TYPE_COLLECT_CURATOR, addr)
 	require.Equal(t, math.NewInt(500), avail)
@@ -263,13 +263,13 @@ func TestBondedRole_SetAndGetConfig(t *testing.T) {
 	k := f.keeper
 
 	// Defaults from DefaultBondedRoleConfigs are seeded by InitGenesis.
-	got, err := k.GetBondedRoleConfig(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL)
+	got, err := k.GetBondedRoleConfig(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL)
 	require.NoError(t, err)
 	require.Equal(t, "1000", got.MinBond)
 
 	// Overwrite the default via SetBondedRoleConfig (module write-through path).
 	cfg := types.BondedRoleConfig{
-		RoleType:          types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType:          types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		MinBond:           "2500",
 		MinRepTier:        4,
 		MinTrustLevel:     "",
@@ -277,7 +277,7 @@ func TestBondedRole_SetAndGetConfig(t *testing.T) {
 		DemotionThreshold: "700",
 	}
 	require.NoError(t, k.SetBondedRoleConfig(f.ctx, cfg))
-	got, err = k.GetBondedRoleConfig(f.ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL)
+	got, err = k.GetBondedRoleConfig(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL)
 	require.NoError(t, err)
 	require.Equal(t, cfg.MinBond, got.MinBond)
 	require.Equal(t, cfg.MinRepTier, got.MinRepTier)
@@ -296,14 +296,14 @@ func TestBondedRole_SetAndGetConfig(t *testing.T) {
 
 	// Unparseable numeric fields rejected.
 	require.ErrorIs(t, k.SetBondedRoleConfig(f.ctx, types.BondedRoleConfig{
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL, MinBond: "not-a-number",
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, MinBond: "not-a-number",
 	}), types.ErrInvalidAmount)
 }
 
 func TestBondedRole_SetBondStatus(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
-	role := types.RoleType_ROLE_TYPE_FORUM_SENTINEL
+	role := types.RoleType_ROLE_TYPE_CONTENT_SENTINEL
 	addr := sdk.AccAddress([]byte("demo1")).String()
 
 	// Missing record rejected.
@@ -327,7 +327,7 @@ func TestBondedRole_RecordActivity(t *testing.T) {
 	params.EpochBlocks = 10
 	f := initFixture(t, WithCustomParams(params))
 	k := f.keeper
-	role := types.RoleType_ROLE_TYPE_FORUM_SENTINEL
+	role := types.RoleType_ROLE_TYPE_CONTENT_SENTINEL
 	addr := sdk.AccAddress([]byte("active1")).String()
 
 	// No-op on missing record.

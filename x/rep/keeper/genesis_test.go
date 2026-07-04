@@ -63,7 +63,7 @@ func TestGenesis_BondedRoleUnbondingRoundtrip(t *testing.T) {
 		Params: types.DefaultParams(),
 		BondedRoleConfigList: []types.BondedRoleConfig{
 			{
-				RoleType:          types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+				RoleType:          types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 				MinBond:           "1000",
 				MinRepTier:        0,
 				MinTrustLevel:     "TRUST_LEVEL_ESTABLISHED",
@@ -76,7 +76,7 @@ func TestGenesis_BondedRoleUnbondingRoundtrip(t *testing.T) {
 		BondedRoleList: []types.BondedRole{
 			{
 				Address:              roleAddr,
-				RoleType:             types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+				RoleType:             types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 				BondStatus:           types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,
 				CurrentBond:          "1500",
 				TotalCommittedBond:   "0",
@@ -107,7 +107,7 @@ func TestGenesis_BondedRoleUnbondingRoundtrip(t *testing.T) {
 
 	var gotSentinelCfg *types.BondedRoleConfig
 	for i := range out.BondedRoleConfigList {
-		if out.BondedRoleConfigList[i].RoleType == types.RoleType_ROLE_TYPE_FORUM_SENTINEL {
+		if out.BondedRoleConfigList[i].RoleType == types.RoleType_ROLE_TYPE_CONTENT_SENTINEL {
 			gotSentinelCfg = &out.BondedRoleConfigList[i]
 			break
 		}
@@ -115,4 +115,84 @@ func TestGenesis_BondedRoleUnbondingRoundtrip(t *testing.T) {
 	require.NotNil(t, gotSentinelCfg, "FORUM_SENTINEL config survives roundtrip")
 	require.Equal(t, int64(1209600), gotSentinelCfg.UnbondCooldown)
 	require.Equal(t, "TRUST_LEVEL_ESTABLISHED", gotSentinelCfg.MinTrustLevel)
+}
+
+// TestGenesis_RoleActivityRoundtrip: the shared accountability record
+// (streaks, cooldown, accuracy ring, per-kind counter maps) survives a
+// genesis export/import cycle intact. Rings and maps are the fields most at
+// risk from lossy encode/decode.
+func TestGenesis_RoleActivityRoundtrip(t *testing.T) {
+	roleAddr := "sprkdrm1ghosthhmidactivity000000000000000000"
+	ring := make([]*types.RoleAccuracyBucket, types.RoleAccuracyRingSize)
+	for i := range ring {
+		ring[i] = &types.RoleAccuracyBucket{}
+	}
+	ring[3] = &types.RoleAccuracyBucket{Epoch: 3, Upheld: 5, Overturned: 2}
+
+	in := types.GenesisState{
+		Params: types.DefaultParams(),
+		RoleActivityList: []types.RoleActivity{
+			{
+				RoleType:              types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
+				Address:               roleAddr,
+				ConsecutiveUpheld:     4,
+				ConsecutiveOverturns:  0,
+				OverturnCooldownUntil: 12345,
+				EpochAppealsResolved:  7,
+				AccuracyWindow:        ring,
+				EpochActions: map[string]uint64{
+					types.ActionKindForumHide:   3,
+					types.ActionKindCollectHide: 2,
+				},
+				TotalActions: map[string]uint64{
+					types.ActionKindForumHide:   30,
+					types.ActionKindCollectHide: 20,
+				},
+				UpheldActions:     map[string]uint64{types.ActionKindForumHide: 5},
+				OverturnedActions: map[string]uint64{types.ActionKindCollectHide: 2},
+			},
+		},
+	}
+	require.NoError(t, in.Validate())
+
+	f := initFixture(t)
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, in))
+
+	out, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.Len(t, out.RoleActivityList, 1)
+	got := out.RoleActivityList[0]
+	require.Equal(t, in.RoleActivityList[0], got)
+
+	// The imported record is live: the keeper reads flow through it.
+	require.Equal(t, int64(12345),
+		f.keeper.RoleOverturnCooldownUntil(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, roleAddr))
+	require.Equal(t, uint64(3),
+		f.keeper.RoleEpochActionCount(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, roleAddr, types.ActionKindForumHide))
+	up, ov := f.keeper.GetRoleWindowedAccuracy(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, roleAddr, 3, 4)
+	require.Equal(t, uint64(5), up)
+	require.Equal(t, uint64(2), ov)
+}
+
+// TestGenesis_RoleActivityValidation: duplicate (role_type, address) pairs
+// and unspecified role types are rejected at genesis validation.
+func TestGenesis_RoleActivityValidation(t *testing.T) {
+	base := types.RoleActivity{
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
+		Address:  "sprkdrm1ghosthhmidactivity000000000000000000",
+	}
+
+	dup := types.GenesisState{
+		Params:           types.DefaultParams(),
+		RoleActivityList: []types.RoleActivity{base, base},
+	}
+	require.ErrorContains(t, dup.Validate(), "duplicated role activity")
+
+	unspec := types.GenesisState{
+		Params: types.DefaultParams(),
+		RoleActivityList: []types.RoleActivity{
+			{RoleType: types.RoleType_ROLE_TYPE_UNSPECIFIED, Address: "x"},
+		},
+	}
+	require.ErrorContains(t, unspec.Validate(), "unspecified role_type")
 }

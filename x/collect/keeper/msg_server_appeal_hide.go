@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*types.MsgAppealHideResponse, error) {
@@ -98,6 +99,13 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 	// Re-index in HideRecordExpiry with new deadline
 	if err := k.HideRecordExpiry.Set(ctx, collections.Join(newDeadline, hideRecord.Id)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set hide record expiry")
+	}
+
+	// Count the appeal against the sentinel on rep's shared RoleActivity
+	// record (feeds the cross-surface reward Gate 4 appeal-rate check).
+	// Council hides (Sentinel == "") carry no sentinel accountability.
+	if hideRecord.Sentinel != "" && k.repKeeper != nil {
+		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hideRecord.Sentinel, reptypes.ActionKindCollectAppealFiled)
 	}
 
 	// Emit event

@@ -124,13 +124,13 @@ echo "  Reward-epoch cadence: $EPOCH_BLOCKS blocks"
 
 # Bond sentinel1 to a healthy level so a single overturn slash (100 DREAM) never
 # drops it below the 500-DREAM min and demotes it mid-test.
-CUR_BOND=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
+CUR_BOND=$($BINARY query rep bonded-role content-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
 [ -z "$CUR_BOND" ] || [ "$CUR_BOND" = "null" ] && CUR_BOND=0
 if [ "$CUR_BOND" -lt 1000000000 ]; then
     echo "  Bonding sentinel1 (current bond: $CUR_BOND)..."
-    run_tx sentinel1 rep bond-role forum-sentinel 2500000000 >/dev/null
+    run_tx sentinel1 rep bond-role content-sentinel 2500000000 >/dev/null
 fi
-CUR_BOND=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
+CUR_BOND=$($BINARY query rep bonded-role content-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
 echo "  sentinel1 bond: $CUR_BOND"
 [ "$CUR_BOND" -ge 1000000000 ] && pass "sentinel1 bonded with headroom" || fail "sentinel1 bond too low ($CUR_BOND)"
 

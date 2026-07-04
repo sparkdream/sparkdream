@@ -84,7 +84,6 @@ const (
 	// sizing the ring generously lets the window be tuned upward with no
 	// migration. Kept in sync with reptypes.MaxSentinelAccuracyWindowEpochs.
 	SentinelAccuracyRingSize        = 24
-	DefaultSentinelOverturnCooldown = int64(86400)       // 24 hours
 	DefaultSentinelDemotionCooldown = int64(604800)      // 7 days
 	DefaultMinSentinelBondAmount    = int64(500_000_000) // 500 DREAM (in udream)
 	DefaultSentinelSlashAmount      = int64(100_000_000) // 100 DREAM per overturned appeal (in udream)

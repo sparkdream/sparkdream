@@ -125,7 +125,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 					sdkCtx.Logger().Warn("failed to read sentinel committed amount on uphold",
 						"sentinel", sentinelAddr, "appeal_id", appealID, "error", cErr)
 				} else if committed.IsPositive() {
-					if err := k.ReleaseBond(ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, committed); err != nil {
+					if err := k.ReleaseBond(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr, committed); err != nil {
 						sdkCtx.Logger().Warn("failed to release sentinel bond on uphold",
 							"sentinel", sentinelAddr, "appeal_id", appealID, "error", err)
 					}
@@ -133,10 +133,18 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 			}
 		}
 
-		// Forum counter update (best-effort — logs warning on missing record).
+		// Shared accountability record (rep-local: streaks + ring) plus
+		// forum-local bookkeeping (pending-hide count). Best-effort.
 		if fk := k.late.forumKeeper; fk != nil {
-			if err := fk.RecordSentinelActionUpheld(ctx, k.CurrentSentinelRewardEpoch(ctx), appeal.ActionType, appeal.ActionTarget); err != nil {
-				sdkCtx.Logger().Warn("failed to record sentinel action upheld",
+			if sentinelAddr, sErr := fk.GetActionSentinel(ctx, appeal.ActionType, appeal.ActionTarget); sErr == nil && sentinelAddr != "" {
+				if err := k.RecordRoleOutcome(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr,
+					types.ActionKindForGovAction(appeal.ActionType), true); err != nil {
+					sdkCtx.Logger().Warn("failed to record upheld role outcome",
+						"appeal_id", appealID, "error", err)
+				}
+			}
+			if err := fk.OnSentinelActionResolved(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
+				sdkCtx.Logger().Warn("failed forum-local resolution bookkeeping (upheld)",
 					"appeal_id", appealID, "error", err)
 			}
 		}
@@ -177,7 +185,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 					sdkCtx.Logger().Warn("failed to read sentinel committed amount on overturn",
 						"sentinel", sentinelAddr, "appeal_id", appealID, "error", cErr)
 				} else if committed.IsPositive() {
-					if err := k.SlashBond(ctx, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinelAddr, committed, "appeal_overturned"); err != nil {
+					if err := k.SlashBond(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr, committed, "appeal_overturned"); err != nil {
 						sdkCtx.Logger().Warn("failed to slash sentinel bond on overturn",
 							"sentinel", sentinelAddr, "appeal_id", appealID, "error", err)
 					}
@@ -185,10 +193,18 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 			}
 		}
 
-		// Forum counter update (handles demotion-on-streak internally).
+		// Shared accountability record (rep-local: streaks, ring, cooldown,
+		// streak demotion) plus forum-local bookkeeping (pending-hide count).
+		if sentinelAddr != "" {
+			if err := k.RecordRoleOutcome(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr,
+				types.ActionKindForGovAction(appeal.ActionType), false); err != nil {
+				sdkCtx.Logger().Warn("failed to record overturned role outcome",
+					"appeal_id", appealID, "error", err)
+			}
+		}
 		if fk := k.late.forumKeeper; fk != nil {
-			if err := fk.RecordSentinelActionOverturned(ctx, k.CurrentSentinelRewardEpoch(ctx), appeal.ActionType, appeal.ActionTarget); err != nil {
-				sdkCtx.Logger().Warn("failed to record sentinel action overturned",
+			if err := fk.OnSentinelActionResolved(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
+				sdkCtx.Logger().Warn("failed forum-local resolution bookkeeping (overturned)",
 					"appeal_id", appealID, "error", err)
 			}
 

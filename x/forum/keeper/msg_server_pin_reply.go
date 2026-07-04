@@ -105,7 +105,7 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 			params = types.DefaultParams()
 		}
 		slashAmount := params.SentinelSlashAmountInt()
-		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to pin")
 		}
 		committedAmount = slashAmount.String()
@@ -129,21 +129,12 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
 	}
 
-	// Forum-local counters for sentinel pins only. Gov pins are not sentinel
-	// activity and must not count toward epoch curation rewards. Mirrors the
-	// lock/move/hide counter convention.
+	// Pin counters for sentinel pins only, on rep's shared RoleActivity
+	// record. Gov pins are not sentinel activity and must not count toward
+	// epoch rewards. Mirrors the lock/move/hide counter convention.
 	if isSentinel {
-		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
-		if err != nil {
-			local = types.SentinelActivity{Address: msg.Creator}
-		}
-		local.TotalPins++
-		local.EpochPins++
-		if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
-		}
-
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
+		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumPin)
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
 	}
 
 	// Emit event

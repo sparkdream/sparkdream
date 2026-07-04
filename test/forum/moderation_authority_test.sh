@@ -10,7 +10,7 @@ echo "--- TESTING: MODERATION AUTHORITY DISAMBIGUATION (SENTINEL vs COUNCIL) ---
 # and we additionally bond her as a forum sentinel so the two roles overlap on a
 # single key.
 #
-# Contract under test (docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md):
+# Contract under test (docs/x-forum-spec.md (Shared ModerationAuthority)):
 #   - AUTO (default) by a sentinel-and-council account that is ELIGIBLE for the
 #     action -> SENTINEL path (writes the sentinel record; is_gov_authority=false).
 #   - explicit --authority council by the same account -> GOV path (no/empty
@@ -221,11 +221,11 @@ move_record_sentinel() {
 # $TEST_CATEGORY_ID, so move to the first category id that differs.
 MOVE_DEST_CATEGORY=$([ "$TEST_CATEGORY_ID" = "2" ] && echo "1" || echo "2")
 
-# Returns the bond_status of a forum-sentinel bonded role, or "" if unbonded.
+# Returns the bond_status of a content-sentinel bonded role, or "" if unbonded.
 sentinel_bond_status() {
     local ADDR="$1"
     local OUT
-    OUT=$($BINARY query rep bonded-role forum-sentinel "$ADDR" --output json 2>&1)
+    OUT=$($BINARY query rep bonded-role content-sentinel "$ADDR" --output json 2>&1)
     if echo "$OUT" | grep -q "error\|not found"; then
         echo ""
     else
@@ -253,7 +253,7 @@ echo "--- PART 0: PROVISION ALICE (council) AND SENTINEL1 (lock-eligible) ---"
 if [ -z "$(sentinel_bond_status "$ALICE_ADDR")" ] || [ "$(sentinel_bond_status "$ALICE_ADDR")" = "0" ]; then
     bootstrap_reputation alice 3 || { echo "FATAL: failed to bootstrap alice reputation"; exit 1; }
     echo "Bonding alice as forum sentinel (500 DREAM, sub-lock-floor)..."
-    TX_RES=$($BINARY tx rep bond-role forum-sentinel "500000000" \
+    TX_RES=$($BINARY tx rep bond-role content-sentinel "500000000" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json 2>&1)
     if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
@@ -277,7 +277,7 @@ fi
 if [ "$S1_BOND_OK" = "0" ]; then
     echo "Provisioning sentinel1 to lock-eligibility (tier 4 + 2500 DREAM bond)..."
     bootstrap_reputation sentinel1 6 || { echo "FATAL: failed to bootstrap sentinel1 reputation"; exit 1; }
-    TX_RES=$($BINARY tx rep bond-role forum-sentinel "2500000000" \
+    TX_RES=$($BINARY tx rep bond-role content-sentinel "2500000000" \
         --from sentinel1 --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json 2>&1)
     if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then

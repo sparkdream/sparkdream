@@ -70,7 +70,7 @@ run_tx() {
 # and silently skip the bond setup).
 role_field() {
     local out
-    out=$($BINARY query rep bonded-role forum-sentinel "$1" --output json 2>/dev/null | jq -r ".bonded_role.$2 // \"$3\"" 2>/dev/null)
+    out=$($BINARY query rep bonded-role content-sentinel "$1" --output json 2>/dev/null | jq -r ".bonded_role.$2 // \"$3\"" 2>/dev/null)
     [ -z "$out" ] && out="$3"
     echo "$out"
 }
@@ -125,7 +125,7 @@ if [ "$CUR" -lt "$BOND_AMT" ] 2>/dev/null; then
     GUARD=0
     while [ "$(current_bond "$MODERATOR_ADDR")" -lt "$BOND_AMT" ] 2>/dev/null && [ $GUARD -lt 5 ]; do
         bootstrap_reputation moderator 3 || break
-        RES=$(run_tx moderator rep bond-role forum-sentinel "$BOND_AMT")
+        RES=$(run_tx moderator rep bond-role content-sentinel "$BOND_AMT")
         if check_tx_success "$RES"; then
             pass "moderator bonded $BOND_AMT"
             break
@@ -144,7 +144,7 @@ echo "  moderator current_bond=$CUR status=$(bond_status "$MODERATOR_ADDR")"
 echo "--- PART 1: PARTIAL UNBOND (staying bond stays above the floor) ---"
 
 if [ "$(bond_status "$MODERATOR_ADDR")" != "BONDED_ROLE_STATUS_UNBONDING" ]; then
-    RES=$(run_tx moderator rep unbond-role forum-sentinel "$UNBOND_AMT")
+    RES=$(run_tx moderator rep unbond-role content-sentinel "$UNBOND_AMT")
     check_tx_success "$RES" && pass "queued partial unbond" || { echo "  $(echo "$RES" | jq -r '.raw_log // .')"; fail "unbond-role"; }
 fi
 ST=$(bond_status "$MODERATOR_ADDR"); PEND=$(pending_unbond "$MODERATOR_ADDR")
@@ -183,7 +183,7 @@ echo "--- PART 3: BOND TOP-UP WHILE UNBONDING ---"
 
 # moderator was funded with enough DREAM in PART 0 to cover this top-up.
 BOND_BEFORE=$(current_bond "$MODERATOR_ADDR")
-RES=$(run_tx moderator rep bond-role forum-sentinel "$TOPUP_AMT")
+RES=$(run_tx moderator rep bond-role content-sentinel "$TOPUP_AMT")
 if check_tx_success "$RES"; then
     pass "bond top-up accepted while UNBONDING"
     BOND_AFTER=$(current_bond "$MODERATOR_ADDR")
@@ -207,7 +207,7 @@ echo "--- PART 4: INCREMENTAL UNBOND (accumulates pending) ---"
 
 INCR_AMT=50000000   # add 50 more to the withdrawal
 PEND_BEFORE=$(pending_unbond "$MODERATOR_ADDR")
-RES=$(run_tx moderator rep unbond-role forum-sentinel "$INCR_AMT")
+RES=$(run_tx moderator rep unbond-role content-sentinel "$INCR_AMT")
 if check_tx_success "$RES"; then
     pass "second unbond accepted while already UNBONDING"
     PEND_AFTER=$(pending_unbond "$MODERATOR_ADDR")
@@ -232,7 +232,7 @@ PEND=$(pending_unbond "$MODERATOR_ADDR")
 if [ "$PEND" -gt 0 ] 2>/dev/null; then
     # Partial cancel: give back half (rounded down), still UNBONDING.
     HALF=$((PEND / 2))
-    RES=$(run_tx moderator rep cancel-unbond-role forum-sentinel "$HALF")
+    RES=$(run_tx moderator rep cancel-unbond-role content-sentinel "$HALF")
     if check_tx_success "$RES"; then
         pass "partial cancel accepted"
         AFTER=$(pending_unbond "$MODERATOR_ADDR")
@@ -242,7 +242,7 @@ if [ "$PEND" -gt 0 ] 2>/dev/null; then
 
         # Full cancel of the remainder: role returns to active (NORMAL).
         REM=$(pending_unbond "$MODERATOR_ADDR")
-        RES=$(run_tx moderator rep cancel-unbond-role forum-sentinel "$REM")
+        RES=$(run_tx moderator rep cancel-unbond-role content-sentinel "$REM")
         if check_tx_success "$RES"; then
             pass "full cancel of remainder accepted"
             ST=$(bond_status "$MODERATOR_ADDR"); P=$(pending_unbond "$MODERATOR_ADDR")

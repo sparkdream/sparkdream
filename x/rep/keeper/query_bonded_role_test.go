@@ -21,30 +21,30 @@ func TestQueryBondedRole_Basic(t *testing.T) {
 
 	// Missing record → NotFound.
 	_, err := qs.BondedRole(f.ctx, &types.QueryBondedRoleRequest{
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Address:  addr,
 	})
 	require.Equal(t, codes.NotFound, status.Code(err))
 
 	// Seed and fetch.
 	require.NoError(t, f.keeper.BondedRoles.Set(f.ctx,
-		collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), addr),
+		collections.Join(int32(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL), addr),
 		types.BondedRole{
 			Address:     addr,
-			RoleType:    types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+			RoleType:    types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 			CurrentBond: "1000",
 			BondStatus:  types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 		},
 	))
 
 	resp, err := qs.BondedRole(f.ctx, &types.QueryBondedRoleRequest{
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Address:  addr,
 	})
 	require.NoError(t, err)
 	require.Equal(t, addr, resp.BondedRole.Address)
 	require.Equal(t, "1000", resp.BondedRole.CurrentBond)
-	require.Equal(t, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, resp.BondedRole.RoleType)
+	require.Equal(t, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, resp.BondedRole.RoleType)
 }
 
 func TestQueryBondedRole_Validation(t *testing.T) {
@@ -64,7 +64,7 @@ func TestQueryBondedRole_Validation(t *testing.T) {
 
 	// Empty address.
 	_, err = qs.BondedRole(f.ctx, &types.QueryBondedRoleRequest{
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		Address:  "",
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
@@ -82,19 +82,19 @@ func TestQueryBondedRolesByType_PrefixIteration(t *testing.T) {
 			types.BondedRole{Address: addr, RoleType: role, CurrentBond: "100"},
 		))
 	}
-	seed(types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sdk.AccAddress([]byte("s1")).String())
-	seed(types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sdk.AccAddress([]byte("s2")).String())
-	seed(types.RoleType_ROLE_TYPE_FORUM_SENTINEL, sdk.AccAddress([]byte("s3")).String())
+	seed(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sdk.AccAddress([]byte("s1")).String())
+	seed(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sdk.AccAddress([]byte("s2")).String())
+	seed(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sdk.AccAddress([]byte("s3")).String())
 	seed(types.RoleType_ROLE_TYPE_COLLECT_CURATOR, sdk.AccAddress([]byte("c1")).String())
 	seed(types.RoleType_ROLE_TYPE_COLLECT_CURATOR, sdk.AccAddress([]byte("c2")).String())
 
 	resp, err := qs.BondedRolesByType(f.ctx, &types.QueryBondedRolesByTypeRequest{
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.BondedRoles, 3)
 	for _, br := range resp.BondedRoles {
-		require.Equal(t, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, br.RoleType)
+		require.Equal(t, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, br.RoleType)
 	}
 
 	resp, err = qs.BondedRolesByType(f.ctx, &types.QueryBondedRolesByTypeRequest{
@@ -124,10 +124,10 @@ func TestQueryBondedRoleConfig_Basic(t *testing.T) {
 	// initFixture seeds FORUM_SENTINEL + COLLECT_CURATOR + FEDERATION_VERIFIER
 	// configs from DefaultGenesis, so these should be found.
 	resp, err := qs.BondedRoleConfig(f.ctx, &types.QueryBondedRoleConfigRequest{
-		RoleType: types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType: types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 	})
 	require.NoError(t, err)
-	require.Equal(t, types.RoleType_ROLE_TYPE_FORUM_SENTINEL, resp.BondedRoleConfig.RoleType)
+	require.Equal(t, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, resp.BondedRoleConfig.RoleType)
 	require.NotEmpty(t, resp.BondedRoleConfig.MinBond)
 
 	resp, err = qs.BondedRoleConfig(f.ctx, &types.QueryBondedRoleConfigRequest{

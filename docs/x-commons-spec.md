@@ -670,7 +670,7 @@ proposals accumulate.
 
 The amino type names follow the pattern `sparkdream/x/commons/Msg<Name>`,
 declared on every signer message via `option (amino.name)` so Keplr+Ledger
-amino-JSON signing works (see `docs/HANDOFF_LEDGER_AMINO_NAMES.md`).
+amino-JSON signing works (see the amino-names section of `docs/development-conventions.md`).
 
 #### 7.1. Recurring-spend flow (post-migration)
 

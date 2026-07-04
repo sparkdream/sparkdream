@@ -156,7 +156,7 @@ bootstrap_reputation() {
 # ========================================================================
 # PART 0: BOOTSTRAP SENTINEL1 (rep + bonded role)
 # ========================================================================
-# MsgHidePost requires the caller to hold a non-DEMOTED ROLE_TYPE_FORUM_SENTINEL
+# MsgHidePost requires the caller to hold a non-DEMOTED ROLE_TYPE_CONTENT_SENTINEL
 # bond in x/rep. The setup script funds sentinel1 with enough DREAM to bond
 # but does NOT register the role — that's a per-test concern because not
 # every test needs a sentinel. Two-step setup: (1) bootstrap reputation past
@@ -164,7 +164,7 @@ bootstrap_reputation() {
 # is already bonded (e.g. appeals_test.sh ran first in the suite), skip them.
 echo "--- PART 0: BOOTSTRAP SENTINEL1 ---"
 
-SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel "$SENTINEL1_ADDR" --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep bonded-role content-sentinel "$SENTINEL1_ADDR" --output json 2>&1)
 if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
     # 3 EPIC interims → 300 rep gross, well above tier-3 (200+) floor.
     bootstrap_reputation sentinel1 3 || {
@@ -174,7 +174,7 @@ if echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
 
     echo "Bonding sentinel1..."
     BOND_AMOUNT="500000000"  # 500 DREAM matches DefaultMinSentinelBond
-    TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+    TX_RES=$($BINARY tx rep bond-role content-sentinel \
         "$BOND_AMOUNT" \
         --from sentinel1 \
         --chain-id $CHAIN_ID \

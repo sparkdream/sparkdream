@@ -42,9 +42,9 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	// BOTH a bonded sentinel and a Commons Operations Committee member, so the
 	// choice must be explicit rather than an implicit upgrade to the cheaper,
 	// less-appealable council path. See
-	// docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+	// docs/x-forum-spec.md (Shared ModerationAuthority).
 	//
-	// "Eligible sentinel" = holds a ROLE_TYPE_FORUM_SENTINEL bond that can back
+	// "Eligible sentinel" = holds a ROLE_TYPE_CONTENT_SENTINEL bond that can back
 	// this action. NORMAL/RECOVERY are eligible outright; an UNBONDING role is
 	// eligible while its staying bond (current - pending) covers min_sentinel_bond
 	// — the action's ReserveBond below separately enforces the slash fits in that
@@ -76,21 +76,18 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	}
 
 	if !isGovAuthority {
-		// Forum-local cooldown + hide counter.
-		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
-		if err != nil {
-			local = types.SentinelActivity{Address: msg.Creator}
-		}
-		if local.OverturnCooldownUntil > now {
+		// Shared cooldown + per-epoch hide cap — both read from rep's
+		// RoleActivity record (single source of truth).
+		if until := k.repKeeper.RoleOverturnCooldownUntil(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); until > now {
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown,
-				"cooldown until %d", local.OverturnCooldownUntil)
+				"cooldown until %d", until)
 		}
-		if local.EpochHides >= params.MaxHidesPerEpoch {
+		if k.repKeeper.RoleEpochActionCount(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumHide) >= params.MaxHidesPerEpoch {
 			return nil, types.ErrHideLimitExceeded
 		}
 
 		// Reserve the slash amount out of available bond before committing.
-		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator, slashAmount); err != nil {
+		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to hide")
 		}
 	}
@@ -151,19 +148,19 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 			return nil, errorsmod.Wrap(err, "failed to store hide record")
 		}
 
-		// Forum-local counters + pending-hide tracking.
+		// Forum-local pending-hide tracking; the hide-action counters live on
+		// rep's shared RoleActivity record.
 		local, err := k.SentinelActivity.Get(ctx, msg.Creator)
 		if err != nil {
 			local = types.SentinelActivity{Address: msg.Creator}
 		}
 		local.PendingHideCount++
-		local.TotalHides++
-		local.EpochHides++
 		if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 		}
 
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
+		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumHide)
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
 	} else {
 		// Gov-authority hide: write a minimal HideRecord with Sentinel == ""
 		// as the gov-hide marker. The empty Sentinel field is what

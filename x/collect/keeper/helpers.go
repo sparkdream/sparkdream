@@ -116,6 +116,63 @@ func (k Keeper) deductRepPerTag(ctx context.Context, addr sdk.AccAddress, tags [
 	}
 }
 
+// restoreAuthorPenalties restores the author bond and per-tag rep penalty
+// snapshotted on a HideRecord at hide time. Called from every hide
+// reversal that favors the author: sentinel self-correct
+// (MsgUnhideContent), jury overturn (ResolveHideAppeal upheld), and
+// appeal timeout (handleAppealedHideExpiry). The unappealed-expiry path
+// deletes the content and deliberately does NOT restore.
+//
+// Collection targets only — items carry neither penalty. Best-effort
+// with logged warnings, mirroring the hide-side slash semantics; each
+// caller resolves the record exactly once, and RestoreAuthorBond is
+// additionally idempotent on the rep side.
+func (k Keeper) restoreAuthorPenalties(ctx context.Context, hr types.HideRecord) (bondRestored, repRestored bool) {
+	if hr.TargetType != types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION || k.repKeeper == nil {
+		return false, false
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	coll, err := k.Collection.Get(ctx, hr.TargetId)
+	if err != nil {
+		return false, false
+	}
+	ownerBytes, err := k.addressCodec.StringToBytes(coll.Owner)
+	if err != nil {
+		sdkCtx.Logger().Warn("restore author penalties: bad owner address",
+			"collection_id", hr.TargetId, "owner", coll.Owner, "error", err)
+		return false, false
+	}
+	ownerAddr := sdk.AccAddress(ownerBytes)
+
+	if !hr.AuthorBondAmount.IsNil() && hr.AuthorBondAmount.IsPositive() {
+		if err := k.repKeeper.RestoreAuthorBond(ctx, ownerAddr,
+			reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, hr.TargetId, hr.AuthorBondAmount); err != nil {
+			sdkCtx.Logger().Warn("restore author penalties: restore author bond failed",
+				"collection_id", hr.TargetId, "error", err)
+		} else {
+			bondRestored = true
+		}
+	}
+	// Restore the ACTUAL per-tag deductions snapshotted at hide time
+	// (min(score-at-hide, penalty) — see MsgHideContent). Restoring the raw
+	// penalty param would mint rep from nothing for authors whose deduction
+	// was floored at zero.
+	for i, tag := range hr.RepPenaltyTags {
+		if i >= len(hr.RepPenaltyAmounts) {
+			break
+		}
+		amount, parseErr := math.LegacyNewDecFromStr(hr.RepPenaltyAmounts[i])
+		if parseErr != nil || !amount.IsPositive() {
+			continue
+		}
+		if err := k.repKeeper.AddReputation(ctx, ownerAddr, tag, amount); err == nil {
+			repRestored = true
+		}
+	}
+	return bondRestored, repRestored
+}
+
 // releaseOrSlashCollabStake settles a non-member collaborator's locked DREAM
 // stake when their record is being removed (via MsgRemoveCollaborator or as
 // part of collection deletion). Returns (burned, refunded) DREAM amounts.
@@ -566,7 +623,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 				k.BurnSPARK(ctx, params.AppealFee) //nolint:errcheck
 			}
 			if !hr.Resolved && k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 			}
 			hr.Resolved = true
 			k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
@@ -758,7 +815,7 @@ func (k Keeper) cleanupItemHideRecords(ctx context.Context, item types.Item, par
 				k.BurnSPARK(ctx, params.AppealFee) //nolint:errcheck
 			}
 			if !hr.Resolved && k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
 			}
 			hr.Resolved = true
 			k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck

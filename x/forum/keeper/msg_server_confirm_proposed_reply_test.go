@@ -7,6 +7,7 @@ import (
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestMsgConfirmProposedReply(t *testing.T) {
@@ -119,10 +120,12 @@ func TestMsgConfirmProposedReply(t *testing.T) {
 		require.Equal(t, uint64(0), updated.ProposedReplyId)
 		require.Empty(t, updated.ProposedBy)
 
-		// Curation counters credited to the proposing sentinel.
+		// Curation counters credited to the proposing sentinel (action kind on
+		// rep's shared RoleActivity; confirmed_proposals stays forum-local).
 		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
 		require.NoError(t, err)
 		require.Equal(t, uint64(1), act.ConfirmedProposals)
-		require.Equal(t, uint64(1), act.EpochCurations)
+		require.Equal(t, uint64(1),
+			f.repKeeper.roleActivities[testSentinel].EpochActions[reptypes.ActionKindForumCuration])
 	})
 }

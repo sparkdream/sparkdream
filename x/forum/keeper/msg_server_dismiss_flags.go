@@ -54,13 +54,8 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 	// Non-gov sentinel dismissals count as an appeals-resolved action for
 	// rep activity tracking and the sentinel's epoch counter.
 	if !isGovAuthority && k.repKeeper != nil {
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, msg.Creator)
-		local, serr := k.SentinelActivity.Get(ctx, msg.Creator)
-		if serr != nil {
-			local = types.SentinelActivity{Address: msg.Creator}
-		}
-		local.EpochAppealsResolved++
-		_ = k.SentinelActivity.Set(ctx, msg.Creator, local)
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+		_ = k.repKeeper.BumpRoleEpochAppealsResolved(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
 	}
 
 	// Emit event

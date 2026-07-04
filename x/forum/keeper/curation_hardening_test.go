@@ -130,13 +130,12 @@ func TestCurationAccuracyAndDemotion(t *testing.T) {
 	_, err := ms.ConfirmProposedReply(f.ctx, &types.MsgConfirmProposedReply{Creator: testCreator, ThreadId: thread0.PostId})
 	require.NoError(t, err)
 
-	up, ov, err := f.keeper.GetSentinelWindowedAccuracy(f.ctx, testSentinel, 0, 24)
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), up)
-	require.Equal(t, uint64(0), ov)
-	act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), act.ConsecutiveUpheld)
+	// Streaks + verdict tallies live on rep's shared RoleActivity record now
+	// (the mock rep keeper keeps a functional copy).
+	ra := f.repKeeper.roleActivities[testSentinel]
+	require.Equal(t, uint64(1), ra.UpheldActions[reptypes.ActionKindForumCuration])
+	require.Equal(t, uint64(0), ra.OverturnedActions[reptypes.ActionKindForumCuration])
+	require.Equal(t, uint64(1), ra.ConsecutiveUpheld)
 
 	// Three rejections on separate threads (per-thread cap stays clear) -> three
 	// overturned ticks + demotion at DefaultMaxConsecutiveOverturnsBeforeDemotion.
@@ -148,15 +147,12 @@ func TestCurationAccuracyAndDemotion(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	up, ov, err = f.keeper.GetSentinelWindowedAccuracy(f.ctx, testSentinel, 0, 24)
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), up)
-	require.Equal(t, uint64(reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion), ov)
-
-	act, err = f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-	require.NoError(t, err)
-	require.Equal(t, reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion, act.ConsecutiveOverturns)
-	require.Equal(t, uint64(0), act.ConsecutiveUpheld)
+	ra = f.repKeeper.roleActivities[testSentinel]
+	require.Equal(t, uint64(1), ra.UpheldActions[reptypes.ActionKindForumCuration])
+	require.Equal(t, uint64(reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion),
+		ra.OverturnedActions[reptypes.ActionKindForumCuration])
+	require.Equal(t, reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion, ra.ConsecutiveOverturns)
+	require.Equal(t, uint64(0), ra.ConsecutiveUpheld)
 	require.Equal(t, reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED,
 		f.repKeeper.sentinels[testSentinel].BondStatus, "demoted after rejection streak")
 }

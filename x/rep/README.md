@@ -391,7 +391,7 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgBondRole` | Stake DREAM to register as an accountable role-holder (`role_type` = `ROLE_TYPE_FORUM_SENTINEL` / `ROLE_TYPE_COLLECT_CURATOR` / `ROLE_TYPE_FEDERATION_VERIFIER`) | Members |
+| `MsgBondRole` | Stake DREAM to register as an accountable role-holder (`role_type` = `ROLE_TYPE_CONTENT_SENTINEL` / `ROLE_TYPE_COLLECT_CURATOR` / `ROLE_TYPE_FEDERATION_VERIFIER`) | Members |
 | `MsgUnbondRole` | Withdraw role bond (subject to committed/pending constraints; respects per-role unbonding window; incremental while UNBONDING) | Bonded role-holder |
 | `MsgCancelUnbondRole` | Cancel part or all of an in-flight unbond, returning it to active bond without waiting out the cooldown | Bonded role-holder |
 

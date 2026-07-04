@@ -313,7 +313,7 @@ func TestMoveThread_PartialUnbondingSentinelAllowed(t *testing.T) {
 // for MsgMoveThread when one account holds both roles. Move eligibility is
 // bonded NORMAL/RECOVERY + no reserved tag (no extra bond/tier floor), so a
 // plain bonded sentinel that is also council defaults to the sentinel path.
-// See docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+// See docs/x-forum-spec.md (Shared ModerationAuthority).
 func TestMoveThread_AuthorityDisambiguation(t *testing.T) {
 	setup := func(t *testing.T) (*fixture, uint64, uint64) {
 		t.Helper()

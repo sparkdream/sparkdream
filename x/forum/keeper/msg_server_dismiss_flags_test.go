@@ -98,6 +98,13 @@ func TestMsgServerDismissFlags(t *testing.T) {
 		// Verify flag was removed
 		_, err = f.keeper.PostFlag.Get(f.ctx, post.PostId)
 		require.Error(t, err)
+
+		// A sentinel dismissal counts as a resolved appeal for the reward
+		// score's sqrt term, recorded on rep's shared RoleActivity (no
+		// accuracy tick — nobody won or lost).
+		require.Equal(t, uint64(1),
+			f.repKeeper.roleActivities[testSentinel].EpochAppealsResolved,
+			"sentinel dismissal must bump epoch appeals-resolved on rep")
 	})
 
 	t.Run("sentinel cannot dismiss flags not in review queue", func(t *testing.T) {

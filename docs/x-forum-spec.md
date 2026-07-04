@@ -2,7 +2,7 @@
 
 > **Scope**
 >
-> `x/forum` owns content storage, moderation, bounties, appeals, and thread operations. Tag registry/moderation/budgets, bonded-role accountability (sentinel bond/status/slash), and member-level accountability (reports, warnings, gov-action appeals) live in `x/rep` — consult [`docs/x-rep-spec.md`](x-rep-spec.md) and [`docs/bonded-role-generalization.md`](bonded-role-generalization.md) for those primitives. Forum's `SentinelActivity` holds only per-action counters (hides/locks/moves/pins/proposals, per-epoch tallies, local cooldowns); sentinel auth/bond mechanics go through the rep keeper's role-typed API (`IsBondedRole(ROLE_TYPE_FORUM_SENTINEL, …)`, `GetBondedRole`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`).
+> `x/forum` owns content storage, moderation, bounties, appeals, and thread operations. Tag registry/moderation/budgets, bonded-role accountability (sentinel bond/status/slash), and member-level accountability (reports, warnings, gov-action appeals) live in `x/rep` — consult [`docs/x-rep-spec.md`](x-rep-spec.md) and [`docs/bonded-role-generalization.md`](bonded-role-generalization.md) for those primitives. Forum's `SentinelActivity` holds only per-action counters (hides/locks/moves/pins/proposals, per-epoch tallies, local cooldowns); sentinel auth/bond mechanics go through the rep keeper's role-typed API (`IsBondedRole(ROLE_TYPE_CONTENT_SENTINEL, …)`, `GetBondedRole`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`).
 >
 > Sections that diverge from the current implementation are annotated with `> **Implementation status:**` or `> **Implementation note:**` callouts.
 >
@@ -330,7 +330,7 @@ enum SentinelBondStatus {
 // > state is split between x/rep and x/forum:
 // >
 // > - `sparkdream.rep.v1.BondedRole` (keyed by `(role_type, address)`) — generic
-// >   accountability: `address`, `role_type = ROLE_TYPE_FORUM_SENTINEL`,
+// >   accountability: `address`, `role_type = ROLE_TYPE_CONTENT_SENTINEL`,
 // >   `bond_status`, `current_bond`, `total_committed_bond`, `registered_at`,
 // >   `last_active_epoch`, `consecutive_inactive_epochs`,
 // >   `demotion_cooldown_until`, `cumulative_rewards`, `last_reward_epoch`.
@@ -342,14 +342,14 @@ enum SentinelBondStatus {
 // > Bonding flows through x/rep's generic `MsgBondRole` / `MsgUnbondRole`.
 // > Forum content-action handlers authenticate and reserve bond via the rep
 // > keeper using the role-typed API:
-// > `IsBondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)`,
-// > `GetBondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)`,
-// > `GetAvailableBond(ROLE_TYPE_FORUM_SENTINEL, addr)`,
-// > `ReserveBond(ROLE_TYPE_FORUM_SENTINEL, addr, amount)`,
-// > `ReleaseBond(ROLE_TYPE_FORUM_SENTINEL, addr, amount)`,
-// > `SlashBond(ROLE_TYPE_FORUM_SENTINEL, addr, amount, reason)`,
-// > `RecordActivity(ROLE_TYPE_FORUM_SENTINEL, addr)`,
-// > `SetBondStatus(ROLE_TYPE_FORUM_SENTINEL, addr, status, cooldown_until)`.
+// > `IsBondedRole(ROLE_TYPE_CONTENT_SENTINEL, addr)`,
+// > `GetBondedRole(ROLE_TYPE_CONTENT_SENTINEL, addr)`,
+// > `GetAvailableBond(ROLE_TYPE_CONTENT_SENTINEL, addr)`,
+// > `ReserveBond(ROLE_TYPE_CONTENT_SENTINEL, addr, amount)`,
+// > `ReleaseBond(ROLE_TYPE_CONTENT_SENTINEL, addr, amount)`,
+// > `SlashBond(ROLE_TYPE_CONTENT_SENTINEL, addr, amount, reason)`,
+// > `RecordActivity(ROLE_TYPE_CONTENT_SENTINEL, addr)`,
+// > `SetBondStatus(ROLE_TYPE_CONTENT_SENTINEL, addr, status, cooldown_until)`.
 // >
 // > **Eligibility is a bond-quantity gate.** All five content-action handlers
 // > (`MsgHidePost` / `MsgLockThread` / `MsgMoveThread` / `MsgPinReply` /
@@ -3014,7 +3014,10 @@ Allows post author to soft-delete their own post. Content is replaced with "[del
 moderation messages. Each carries a `ModerationAuthority authority` field (proto
 enum, default `AUTO`) so that an account which is BOTH a bonded sentinel AND a
 Commons Operations Committee member chooses its authority **explicitly** rather
-than silently defaulting to the more powerful, less-accountable council path.
+than silently defaulting to the more powerful, less-accountable council path
+(a council action commits no slashable bond, removes the author's appeal path,
+is reversible only by council action, and — carrying `Sentinel == ""` — never
+appears in the actor's own moderation history).
 
 | Value | Behavior |
 |-------|----------|
@@ -3027,7 +3030,7 @@ sentinel):
 
 | Action | Sentinel eligibility |
 |--------|----------------------|
-| Hide | bonded `ROLE_TYPE_FORUM_SENTINEL` in `NORMAL`/`RECOVERY` |
+| Hide | bonded `ROLE_TYPE_CONTENT_SENTINEL` in `NORMAL`/`RECOVERY` |
 | Lock | the above **plus** lock rep-tier **and** the 2× (2000 DREAM) bond floor |
 | Move | the above **plus** the thread carries no reserved tag |
 
@@ -3092,11 +3095,10 @@ bonded sentinel AND a committee member. The `authority` field makes the choice
 explicit instead of letting the handler silently pick the more powerful, less
 accountable council path. The same enum is shared by every sentinel/council
 moderation message — hide, lock, move (see
-[Shared `ModerationAuthority`](#shared-moderationauthority)). See
-`docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md`.
+[Shared `ModerationAuthority`](#shared-moderationauthority)).
 
 - `MODERATION_AUTHORITY_AUTO` (0, default, back-compat): if the account is an
-  **eligible sentinel** (holds a `ROLE_TYPE_FORUM_SENTINEL` bond in
+  **eligible sentinel** (holds a `ROLE_TYPE_CONTENT_SENTINEL` bond in
   `NORMAL`/`RECOVERY`), take the sentinel path; else if council-authorized, take
   the council path; else fail with the specific sentinel reason (`ErrNotSentinel`
   / `ErrSentinelDemoted`). AUTO **prefers the accountable sentinel path** even
@@ -4076,26 +4078,26 @@ HR Committee resolves a tag report.
 
 ---
 
-#### `MsgBondRole` (role_type = `ROLE_TYPE_FORUM_SENTINEL`)
+#### `MsgBondRole` (role_type = `ROLE_TYPE_CONTENT_SENTINEL`)
 
 > **Phase 1–4 bonded-role generalization:** the former forum-local `MsgBondSentinel` has been subsumed by x/rep's generic `MsgBondRole`. Forum no longer owns a bonding message; bonding flows through rep's role-typed endpoint.
 
-Sentinel bonds DREAM to become a forum moderator (or adds to existing bond). Invoked as a standard `tx rep bond-role ROLE_TYPE_FORUM_SENTINEL <amount>`.
+Sentinel bonds DREAM to become a forum moderator (or adds to existing bond). Invoked as a standard `tx rep bond-role ROLE_TYPE_CONTENT_SENTINEL <amount>`.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `creator` | `string` | Sentinel address (signer) |
-| `role_type` | `RoleType` | `ROLE_TYPE_FORUM_SENTINEL` |
+| `role_type` | `RoleType` | `ROLE_TYPE_CONTENT_SENTINEL` |
 | `amount` | `string` | DREAM amount to bond |
 
-**Logic** (implemented in rep, enforced against the forum-owned `BondedRoleConfig(ROLE_TYPE_FORUM_SENTINEL)`):
+**Logic** (implemented in rep, enforced against the forum-owned `BondedRoleConfig(ROLE_TYPE_CONTENT_SENTINEL)`):
 1. Verify caller meets reputation tier requirement (`min_rep_tier` on the role config, seeded from forum's `min_sentinel_rep_tier` via write-through).
 2. **Check demotion cooldown (prevents accuracy reset attack):**
-   - Load existing `BondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)` if present.
+   - Load existing `BondedRole(ROLE_TYPE_CONTENT_SENTINEL, addr)` if present.
    - If `demotion_cooldown_until > now`: Fail with `ErrDemotionCooldown`.
    - *This prevents: get slashed to DEMOTED → unbond all → immediately re-bond with fresh stats.*
 3. Lock DREAM via rep's `LockDREAM` (author-bond pattern: moves from available balance to staked).
-4. Load or create `BondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)` record.
+4. Load or create `BondedRole(ROLE_TYPE_CONTENT_SENTINEL, addr)` record.
 5. Add amount to `current_bond`.
 6. Update `bond_status` based on thresholds (computed from the role's `BondedRoleConfig`):
    - If `current_bond >= min_bond`: `BONDED_ROLE_STATUS_NORMAL`.
@@ -4107,20 +4109,20 @@ Sentinel bonds DREAM to become a forum moderator (or adds to existing bond). Inv
 
 ---
 
-#### `MsgUnbondRole` (role_type = `ROLE_TYPE_FORUM_SENTINEL`)
+#### `MsgUnbondRole` (role_type = `ROLE_TYPE_CONTENT_SENTINEL`)
 
 > **Phase 1–4 bonded-role generalization:** the former forum-local `MsgUnbondSentinel` has been subsumed by x/rep's generic `MsgUnbondRole`.
 
-Sentinel withdraws bonded DREAM (exits the sentinel role or reduces bond at loss). Invoked as `tx rep unbond-role ROLE_TYPE_FORUM_SENTINEL <amount>`.
+Sentinel withdraws bonded DREAM (exits the sentinel role or reduces bond at loss). Invoked as `tx rep unbond-role ROLE_TYPE_CONTENT_SENTINEL <amount>`.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `creator` | `string` | Sentinel address (signer) |
-| `role_type` | `RoleType` | `ROLE_TYPE_FORUM_SENTINEL` |
+| `role_type` | `RoleType` | `ROLE_TYPE_CONTENT_SENTINEL` |
 | `amount` | `string` | DREAM amount to unbond |
 
 **Logic** (implemented in rep, with forum-side active-appeal checks enforced via the `total_committed_bond` reservation model):
-1. Load `BondedRole(ROLE_TYPE_FORUM_SENTINEL, addr)`.
+1. Load `BondedRole(ROLE_TYPE_CONTENT_SENTINEL, addr)`.
 2. Fail with `ErrBondedRoleNotFound` if not a sentinel.
 3. Fail with `ErrInvalidRequest` if `bond_status == BONDED_ROLE_STATUS_UNBONDING` (one in-flight unbond per role).
 4. **Extended Appeal Window Check (prevents bounty sniping):**
@@ -6072,7 +6074,7 @@ The x/forum module should be implemented in phases to manage complexity and allo
 - MsgAppealHide (post author → x/rep initiative)
 - MsgLockThread, MsgUnlockThread (sentinel/HR)
 - MsgAppealThreadLock
-- Sentinel bonding: `MsgBondRole` / `MsgUnbondRole` (x/rep, with `role_type = ROLE_TYPE_FORUM_SENTINEL`)
+- Sentinel bonding: `MsgBondRole` / `MsgUnbondRole` (x/rep, with `role_type = ROLE_TYPE_CONTENT_SENTINEL`)
 
 **Integration:**
 - x/rep: Sentinel bond/backing checks

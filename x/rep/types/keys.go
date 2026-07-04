@@ -151,6 +151,11 @@ var (
 	// the list-all-of-role-type query for free.
 	BondedRoleKey = collections.NewPrefix("bondedrole/value/")
 
+	// RoleActivityKey: (role_type, address) -> RoleActivity. Shared
+	// accountability record (streaks, cooldown, accuracy ring, per-kind
+	// action counters) reported into by the role's surfaces.
+	RoleActivityKey = collections.NewPrefix("bondedrole/activity/")
+
 	// BondedRoleConfigKey: role_type -> BondedRoleConfig. Policy snapshot
 	// written through by the owning module on operational-params update.
 	BondedRoleConfigKey = collections.NewPrefix("bondedrole/config/")

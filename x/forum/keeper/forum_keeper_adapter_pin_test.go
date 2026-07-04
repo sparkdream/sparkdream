@@ -66,14 +66,14 @@ func TestReplyPinAppealResolution(t *testing.T) {
 		require.True(t, amt.IsZero())
 	})
 
-	t.Run("upheld bumps upheld_pins and keeps the pin", func(t *testing.T) {
-		thread, reply := setup(t)
+	t.Run("resolution hook is a no-op for pins (no pending count) and keeps the pin", func(t *testing.T) {
+		// Verdict counters/streaks live on rep's RoleActivity now (recorded by
+		// x/rep's appeal resolver, not the forum adapter). Forum's remaining
+		// resolution bookkeeping — the pending-hide decrement — does not apply
+		// to pins, so the hook is a pure no-op here.
+		thread, _ := setup(t)
 
-		require.NoError(t, f.keeper.RecordSentinelActionUpheld(f.ctx, 1, pinType, target(reply.PostId)))
-
-		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-		require.NoError(t, err)
-		require.Equal(t, uint64(1), act.UpheldPins)
+		require.NoError(t, f.keeper.OnSentinelActionResolved(f.ctx, pinType, target(thread.PostId)))
 
 		md, err := f.keeper.ThreadMetadata.Get(f.ctx, thread.PostId)
 		require.NoError(t, err)
@@ -81,15 +81,8 @@ func TestReplyPinAppealResolution(t *testing.T) {
 		require.Len(t, md.PinnedReplyIds, 1)
 	})
 
-	t.Run("overturned bumps overturned_pins, consecutive_overturns, and unpins", func(t *testing.T) {
+	t.Run("overturned pin is removed by ReverseSentinelAction", func(t *testing.T) {
 		thread, reply := setup(t)
-
-		require.NoError(t, f.keeper.RecordSentinelActionOverturned(f.ctx, 1, pinType, target(reply.PostId)))
-
-		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-		require.NoError(t, err)
-		require.Equal(t, uint64(1), act.OverturnedPins)
-		require.Equal(t, uint64(1), act.ConsecutiveOverturns)
 
 		// ReverseSentinelAction removes the pin from both lists.
 		require.NoError(t, f.keeper.ReverseSentinelAction(f.ctx, pinType, target(reply.PostId)))

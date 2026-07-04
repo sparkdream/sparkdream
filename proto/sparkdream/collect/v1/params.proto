@@ -110,6 +110,16 @@ message Params {
   ];
   int64 appeal_cooldown_blocks = 48;
   int64 appeal_deadline_blocks = 49;
+  // Blocks after HiddenAt during which the hiding sentinel may
+  // self-correct via MsgUnhideContent. Must be < hide_expiry_blocks.
+  // Default 14400 (~24h at 6s blocks).
+  int64 sentinel_unhide_window_blocks = 76;
+  // Max MsgHideContent actions per sentinel per day (block-height day,
+  // BlocksPerDay = 14400). Collect's other hide throttle is the per-hide
+  // bond reservation; this caps outright hide spam by a well-funded
+  // sentinel. Default 50 (parity with forum's max_hides_per_epoch).
+  // A self-correct unhide does NOT refund the day's slot.
+  uint32 max_hides_per_sentinel_per_day = 77;
 
   // --- Endorsement parameters — OPERATIONAL ---
   string endorsement_creation_fee = 50 [

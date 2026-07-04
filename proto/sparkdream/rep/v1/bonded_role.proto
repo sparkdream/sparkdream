@@ -12,9 +12,21 @@ option go_package = "sparkdream/x/rep/types";
 // BondedRoleConfig. Independent bond pools, configs, and slashing surfaces per
 // role; cross-role coupling (if ever needed) belongs in the gaining module, not
 // in this primitive.
+//
+// CONTENT_SENTINEL is the deliberate exception to the owning-module naming
+// convention: one moderation corps (one bond, one accountability record)
+// spans every content surface — forum posts/threads AND collect
+// collections/items. x/forum is the role's CONFIG STEWARD: it is the sole
+// writer of the role's BondedRoleConfig (via its sentinel operational
+// params). The shared accountability record (RoleActivity: per-kind action
+// counters, verdict streaks, overturn cooldown, accuracy ring) is owned by
+// x/rep itself; forum and collect report actions and verdicts into it.
+// Formerly named ROLE_TYPE_FORUM_SENTINEL (renamed pre-launch; see the
+// docs/bonded-role-generalization.md addendum and docs/x-rep-spec.md,
+// RoleActivity).
 enum RoleType {
   ROLE_TYPE_UNSPECIFIED = 0;
-  ROLE_TYPE_FORUM_SENTINEL = 1;
+  ROLE_TYPE_CONTENT_SENTINEL = 1;
   ROLE_TYPE_COLLECT_CURATOR = 2;
   ROLE_TYPE_FEDERATION_VERIFIER = 3;
 }

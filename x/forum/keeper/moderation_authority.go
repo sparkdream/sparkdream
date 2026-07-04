@@ -11,7 +11,7 @@ import (
 // disambiguation shared by every moderation message so an account that is BOTH
 // a bonded sentinel AND a committee member never silently upgrades to the
 // cheaper, less-accountable council path. See
-// docs/HANDOFF_HIDE_AUTHORITY_DISAMBIGUATION.md.
+// docs/x-forum-spec.md (Shared ModerationAuthority).
 //
 //   - sentinelEligible reports whether the caller satisfies the action's own
 //     sentinel requirements (bonded NORMAL/RECOVERY plus, e.g., the lock

@@ -129,6 +129,27 @@ func (stubRepKeeper) UpdateSalvationCounters(context.Context, string, uint32, in
 func (stubRepKeeper) GetBondedRole(context.Context, reptypes.RoleType, string) (reptypes.BondedRole, error) {
 	return reptypes.BondedRole{}, nil
 }
+func (stubRepKeeper) EligibleForRole(context.Context, reptypes.RoleType, string) (reptypes.BondedRole, error) {
+	return reptypes.BondedRole{}, nil
+}
+func (stubRepKeeper) RecordRoleAction(context.Context, reptypes.RoleType, string, string) error {
+	return nil
+}
+func (stubRepKeeper) RecordRoleOutcome(context.Context, reptypes.RoleType, string, string, bool) error {
+	return nil
+}
+func (stubRepKeeper) RoleOverturnCooldownUntil(context.Context, reptypes.RoleType, string) int64 {
+	return 0
+}
+func (stubRepKeeper) RoleEpochActionCount(context.Context, reptypes.RoleType, string, string) uint64 {
+	return 0
+}
+func (stubRepKeeper) GetRoleActivity(context.Context, reptypes.RoleType, string) (reptypes.RoleActivity, error) {
+	return reptypes.RoleActivity{}, nil
+}
+func (stubRepKeeper) BumpRoleEpochAppealsResolved(context.Context, reptypes.RoleType, string) error {
+	return nil
+}
 func (stubRepKeeper) ReserveBond(context.Context, reptypes.RoleType, string, math.Int) error {
 	return nil
 }

@@ -820,7 +820,7 @@ message TagBudget {
 // proto/sparkdream/rep/v1/bonded_role.proto
 enum RoleType {
   ROLE_TYPE_UNSPECIFIED         = 0;
-  ROLE_TYPE_FORUM_SENTINEL      = 1;
+  ROLE_TYPE_CONTENT_SENTINEL      = 1;
   ROLE_TYPE_COLLECT_CURATOR     = 2;
   ROLE_TYPE_FEDERATION_VERIFIER = 3;
 }
@@ -865,7 +865,7 @@ message BondedRoleConfig {
 
 | Role | Module | Owning-module activity proto |
 |------|--------|------------------------------|
-| `ROLE_TYPE_FORUM_SENTINEL` | x/forum | `sparkdream.forum.v1.SentinelActivity` (hides, locks, moves, pins, epoch tallies) |
+| `ROLE_TYPE_CONTENT_SENTINEL` | x/forum | `sparkdream.forum.v1.SentinelActivity` (hides, locks, moves, pins, epoch tallies) |
 | `ROLE_TYPE_COLLECT_CURATOR` | x/collect | `sparkdream.collect.v1.CuratorActivity` (total/challenged/upheld/overturned reviews, streak counters) |
 | `ROLE_TYPE_FEDERATION_VERIFIER` | x/federation | `sparkdream.federation.v1.VerifierActivity` (verifications, upheld/overturned/unchallenged, slash count, overturn cooldown) |
 
@@ -887,6 +887,47 @@ message BondedRoleConfig {
 | `GetBondedRoleConfig(ctx, role_type) (BondedRoleConfig, error)` | Read the per-role policy snapshot |
 
 **Scope (non-goals).** BondedRole is DREAM-bond only and reputation-gated. SPARK-staked economic actors (cosmos-sdk validators via x/staking, federation bridge operators) use their own primitives — different unbonding semantics, different slash destinations, different eligibility signals.
+
+### RoleActivity (shared per-role accountability record)
+
+`RoleActivity(role_type, address)` is the rep-owned companion to `BondedRole`: everything that is a property of the *role holder* rather than of any one module surface. Owning modules REPORT actions and jury verdicts; x/rep applies the consequences — including streak demotion, which is internal since rep owns the bond being demoted.
+
+```protobuf
+// proto/sparkdream/rep/v1/role_activity.proto
+message RoleActivity {
+  RoleType role_type = 1;
+  string address = 2;
+  uint64 consecutive_upheld = 3;      // verdict streaks, shared across surfaces
+  uint64 consecutive_overturns = 4;   // crossing the threshold demotes the bond
+  int64 overturn_cooldown_until = 5;  // moderation-action circuit breaker
+  uint64 epoch_appeals_resolved = 6;  // reward score sqrt term; reset each epoch
+  repeated RoleAccuracyBucket accuracy_window = 7;  // rolling ring, RoleAccuracyRingSize slots
+  map<string, uint64> epoch_actions = 8;      // per-kind, reset each reward epoch
+  map<string, uint64> total_actions = 9;      // per-kind lifetime
+  map<string, uint64> upheld_actions = 10;
+  map<string, uint64> overturned_actions = 11;
+}
+```
+
+**Action kinds** are rep-owned string constants with policy tables ([x/rep/types/role_activity_kinds.go](../x/rep/types/role_activity_kinds.go)):
+
+| kind | reported by | activity gate | score weight | cooldown on overturn |
+|---|---|---|---|---|
+| `forum_hide` | forum MsgHidePost | yes | 0.01 | yes |
+| `forum_lock` | forum MsgLockThread | yes | 0.05 | yes |
+| `forum_move` | forum MsgMoveThread | yes | 0.03 | yes |
+| `forum_pin` | forum MsgPinReply | yes | 0 | yes |
+| `forum_curation` | forum proposal confirm/reject | yes | 0.02 | **no** — a rejected curation proposal must not lock the sentinel out of moderation |
+| `collect_hide` | collect MsgHideContent | yes | 0.01 | yes |
+| `forum_appeal_filed` / `collect_appeal_filed` | appeal messages | no (appeals against the holder are not their work) | — | — |
+
+**Keeper surface**: `RecordRoleAction(role_type, addr, kind)`; `RecordRoleOutcome(role_type, addr, kind, upheld)` (verdict maps + streaks + ring at the current reward epoch + cooldown per the kind table + internal streak demotion); `RoleOverturnCooldownUntil`; `RoleEpochActionCount` (forum's `max_*_per_epoch` caps read this — single source of truth, no module-local counter copies); `GetRoleWindowedAccuracy`; `ResetRoleEpochCounters` (reward-epoch boundaries); `BumpRoleEpochAppealsResolved` (forum flag-dismissals feed the score's sqrt term without an accuracy tick); `GetRoleActivity`.
+
+**Consequences of the shared record**:
+- The sentinel reward distribution is fully rep-internal: eligibility gates, cross-surface activity, the Gate 4 appeal rate (`(forum_appeal_filed + collect_appeal_filed) / (forum_hide + collect_hide)`), and windowed accuracy all read RoleActivity. A collect-only moderator is reward-eligible.
+- Overturn streaks and the cooldown span surfaces: losing appeals in collect demotes the same as in forum, and the cooldown blocks new hides on both.
+- Module-local bookkeeping stays home: forum keeps `pending_hide_count`, `unchallenged_hides`, and curation-proposal lifecycle counters in a slim `sparkdream.forum.v1.SentinelActivity`; forum's `get-sentinel-activity` query serves a read-through projection composing both records into the legacy response shape (the projected fields are never persisted in forum state). A role holder who has only acted on other surfaces (no forum-local record) is still served by the single-address `get-sentinel-activity` query via the projection, but does not appear in `list-sentinel-activity`, which paginates forum-local records only.
+- Jury resolution (`MsgResolveGovActionAppeal`) records the verdict on RoleActivity directly and calls forum's narrow `OnSentinelActionResolved` hook for the one forum-local effect (pending-hide decrement).
 
 ### MemberReport, MemberWarning, GovActionAppeal, JuryParticipation
 
@@ -1590,7 +1631,7 @@ These amounts/thresholds are sourced as compile-time constants (not operational 
 
 ## Sentinel Rewards
 
-Sentinels (forum moderators registered via `MsgBondRole` with `role_type = ROLE_TYPE_FORUM_SENTINEL`) receive SPARK payouts for accurate, active moderation work. Implemented across Stages A/B/D of the sentinel-accountability feature.
+Sentinels (forum moderators registered via `MsgBondRole` with `role_type = ROLE_TYPE_CONTENT_SENTINEL`) receive SPARK payouts for accurate, active moderation work. Implemented across Stages A/B/D of the sentinel-accountability feature.
 
 ### Reward Pool (SPARK)
 
@@ -1626,7 +1667,7 @@ score = accuracy_rate * sqrt(epoch_appeals_resolved)
 
 **Payout side-effects:**
 
-- Rep-side `BondedRole.cumulative_rewards` (for the sentinel's `ROLE_TYPE_FORUM_SENTINEL` record) is incremented and `last_reward_epoch` is updated.
+- Rep-side `BondedRole.cumulative_rewards` (for the sentinel's `ROLE_TYPE_CONTENT_SENTINEL` record) is incremented and `last_reward_epoch` is updated.
 - A `sentinel_reward_distributed` event is emitted.
 
 **Per-epoch counter reset:** Regardless of distribution outcome (pool empty, no eligible sentinels, or normal payout), the forum-side per-epoch counters (`epoch_hides`, `epoch_locks`, `epoch_moves`, `epoch_pins`, `epoch_appeals_filed`, `epoch_appeals_resolved`) are reset for every sentinel in the registry.

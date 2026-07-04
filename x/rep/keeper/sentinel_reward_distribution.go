@@ -56,7 +56,9 @@ type sentinelRewardCandidate struct {
 
 // DistributeSentinelRewards distributes the rep module's uspark reward pool
 // pro-rata on an accuracy-weighted score to eligible sentinels, then resets
-// forum-side per-epoch counters on ALL sentinels (regardless of eligibility).
+// the rep-local RoleActivity per-epoch counters on ALL sentinels (regardless
+// of eligibility). Fully rep-internal: eligibility, accuracy, and activity
+// all read the shared RoleActivity record — no forum-keeper counter pull.
 //
 // Runs only on sentinel-reward epoch boundaries (see IsSentinelRewardEpoch).
 // Eligibility gates (evaluated in order) and the score formula are documented
@@ -85,26 +87,22 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 		totalScore   = math.LegacyZeroDec()
 	)
 
-	sentinelPrefix := collections.NewPrefixedPairRange[int32, string](int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL))
+	sentinelPrefix := collections.NewPrefixedPairRange[int32, string](int32(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL))
 	err = k.BondedRoles.Walk(ctx, sentinelPrefix, func(key collections.Pair[int32, string], br types.BondedRole) (bool, error) {
 		addr := key.K2()
 		allSentinels = append(allSentinels, addr)
 
-		// Forum-side counters (decoupled snapshot).
-		if k.late.forumKeeper == nil {
-			// No forum keeper wired -> cannot evaluate eligibility, but we still
-			// want to proceed with other phases (caller can fix wiring later).
-			return false, nil
-		}
-		counters, cerr := k.late.forumKeeper.GetSentinelActivityCounters(ctx, addr)
-		if cerr != nil {
-			sdkCtx.Logger().Warn("sentinel reward: counters lookup failed",
-				"sentinel", addr, "error", cerr)
+		// Shared accountability record — rep-local now (RoleActivity); the
+		// forum-keeper counter pull is retired.
+		ra, raErr := k.GetRoleActivity(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr)
+		if raErr != nil {
+			sdkCtx.Logger().Warn("sentinel reward: role activity lookup failed",
+				"sentinel", addr, "error", raErr)
 			return false, nil
 		}
 
-		// Gate 1: Counter availability — if all zero (no forum record), skip.
-		if counters == (types.SentinelActivityCounters{}) {
+		// Gate 1: Activity-record availability — no reported actions, skip.
+		if len(ra.TotalActions) == 0 && ra.EpochAppealsResolved == 0 {
 			return false, nil
 		}
 
@@ -114,31 +112,38 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 		// huge lifetime denominator no longer dilutes recent overturns, and a
 		// sentinel who goes inactive ages out of eligibility as their in-window
 		// resolved appeals fall off.
-		windowUpheld, windowOverturned, werr := k.late.forumKeeper.GetSentinelWindowedAccuracy(
-			ctx, addr, epochNum, params.SentinelAccuracyWindowEpochs)
-		if werr != nil {
-			sdkCtx.Logger().Warn("sentinel reward: windowed accuracy lookup failed",
-				"sentinel", addr, "error", werr)
-			return false, nil
-		}
+		windowUpheld, windowOverturned := k.GetRoleWindowedAccuracy(
+			ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr, epochNum, params.SentinelAccuracyWindowEpochs)
 		totalDecided := windowUpheld + windowOverturned
 		if totalDecided < params.MinAppealsForAccuracy {
 			return false, nil
 		}
 
-		// Gate 3: Epoch activity.
-		epochActivity := counters.EpochHides + counters.EpochLocks +
-			counters.EpochMoves + counters.EpochPins + counters.EpochCurations
+		// Gate 3: Epoch activity — the role holder's own moderation work
+		// across every surface (forum actions + collect hides). Appeal-filed
+		// kinds are excluded: appeals against the sentinel are not activity.
+		var epochActivity uint64
+		for _, kind := range types.ActivityKinds {
+			epochActivity += ra.EpochActions[kind]
+		}
 		if epochActivity < params.MinEpochActivityForReward {
 			return false, nil
 		}
 
 		// Gate 4: Appeal rate on hides (anti-gaming) — skip when appeal_rate
-		// is below the floor. Only hide actions are checked here; locks and
-		// moves are separately rate-limited.
-		if counters.EpochHides > 0 {
-			appealRate := math.LegacyNewDec(int64(counters.EpochAppealsFiled)).
-				Quo(math.LegacyNewDec(int64(counters.EpochHides)))
+		// is below the floor. Cross-surface now that both surfaces report
+		// hides AND appeals-filed: (forum+collect appeals)/(forum+collect
+		// hides). Locks and moves are separately rate-limited.
+		var epochHides, epochAppealsFiled uint64
+		for _, kind := range types.HideKinds {
+			epochHides += ra.EpochActions[kind]
+		}
+		for _, kind := range types.AppealFiledKinds {
+			epochAppealsFiled += ra.EpochActions[kind]
+		}
+		if epochHides > 0 {
+			appealRate := math.LegacyNewDec(int64(epochAppealsFiled)).
+				Quo(math.LegacyNewDec(int64(epochHides)))
 			if appealRate.LT(params.MinAppealRate) {
 				return false, nil
 			}
@@ -157,9 +162,10 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 		}
 
 		// Score = accuracy_rate * sqrt(epoch_appeals_resolved)
-		//       + epoch_hides * 0.01 + epoch_locks * 0.05 + epoch_moves * 0.03
-		//       + epoch_curations * 0.02
-		resolvedDec := math.LegacyNewDec(int64(counters.EpochAppealsResolved))
+		//       + sum(epoch_actions[kind] * ScoreWeights[kind])
+		// (weights preserved from the pre-migration formula; kinds without a
+		// weight — pins, appeal-filed — contribute no bonus).
+		resolvedDec := math.LegacyNewDec(int64(ra.EpochAppealsResolved))
 		sqrtResolved, serr := resolvedDec.ApproxSqrt()
 		if serr != nil {
 			sdkCtx.Logger().Warn("sentinel reward: sqrt failed",
@@ -168,16 +174,11 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 		}
 		score := accuracyRate.Mul(sqrtResolved)
 
-		hideBonus := math.LegacyNewDec(int64(counters.EpochHides)).
-			Mul(math.LegacyNewDecWithPrec(1, 2)) // 0.01
-		lockBonus := math.LegacyNewDec(int64(counters.EpochLocks)).
-			Mul(math.LegacyNewDecWithPrec(5, 2)) // 0.05
-		moveBonus := math.LegacyNewDec(int64(counters.EpochMoves)).
-			Mul(math.LegacyNewDecWithPrec(3, 2)) // 0.03
-		curationBonus := math.LegacyNewDec(int64(counters.EpochCurations)).
-			Mul(math.LegacyNewDecWithPrec(2, 2)) // 0.02
-
-		score = score.Add(hideBonus).Add(lockBonus).Add(moveBonus).Add(curationBonus)
+		for kind, weight := range types.ScoreWeights {
+			if n := ra.EpochActions[kind]; n > 0 {
+				score = score.Add(math.LegacyNewDec(int64(n)).Mul(weight))
+			}
+		}
 
 		if !score.IsPositive() {
 			return false, nil
@@ -224,14 +225,12 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 		}
 	}
 
-	// Reset forum-side epoch counters on EVERY sentinel regardless of
+	// Reset the rep-local per-epoch counters on EVERY sentinel regardless of
 	// eligibility/distribution outcome.
-	if k.late.forumKeeper != nil {
-		for _, addr := range allSentinels {
-			if err := k.late.forumKeeper.ResetSentinelEpochCounters(ctx, addr); err != nil {
-				sdkCtx.Logger().Warn("sentinel reward: reset epoch counters failed",
-					"sentinel", addr, "error", err)
-			}
+	for _, addr := range allSentinels {
+		if err := k.ResetRoleEpochCounters(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr); err != nil {
+			sdkCtx.Logger().Warn("sentinel reward: reset epoch counters failed",
+				"sentinel", addr, "error", err)
 		}
 	}
 
@@ -240,7 +239,7 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 
 // payoutSentinelReward transfers `amount` uspark from the rep module account
 // to the sentinel, updates CumulativeRewards + LastRewardEpoch on the
-// BondedRole (ROLE_TYPE_FORUM_SENTINEL) record, and emits a
+// BondedRole (ROLE_TYPE_CONTENT_SENTINEL) record, and emits a
 // `sentinel_reward_distributed` event.
 func (k Keeper) payoutSentinelReward(
 	ctx context.Context,
@@ -260,7 +259,7 @@ func (k Keeper) payoutSentinelReward(
 		return fmt.Errorf("send coins: %w", err)
 	}
 
-	key := collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), c.addr)
+	key := collections.Join(int32(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL), c.addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
 		return fmt.Errorf("load bonded role: %w", err)

@@ -16,6 +16,15 @@ message AccuracyEpochBucket {
 // SentinelActivity holds forum-specific action counters and local cooldowns
 // for a sentinel. The accountability record (bond, bond status, activity
 // stamps) lives in sparkdream.rep.v1.SentinelActivity.
+// STORAGE vs PROJECTION: the shared accountability record lives on
+// x/rep's RoleActivity (see docs/x-rep-spec.md); forum PERSISTS only the
+// forum-local fields — pending_hide_count, unchallenged_hides, and the
+// curation-proposal lifecycle counters (total/confirmed/rejected_proposals).
+// Every other field (per-action totals/upheld/overturned/epoch counters,
+// streaks, overturn_cooldown_until, accuracy_window, collect counters) is
+// PROJECTION-ONLY: sourced from x/rep's shared RoleActivity record at query
+// time by get-sentinel-activity so client field paths stay stable. Those
+// fields are zero in stored records and must not be written.
 message SentinelActivity {
   string address = 1;
   uint64 total_hides = 2;
@@ -71,4 +80,16 @@ message SentinelActivity {
   // written before this field existed (no migration needed; an empty ring reads
   // as zero decided appeals).
   repeated AccuracyEpochBucket accuracy_window = 29;
+
+  // Cross-module (x/collect) hide counters. Collect moderation is performed
+  // by the same shared CONTENT_SENTINEL corps; collect reports hide actions
+  // and jury outcomes into this record so streak demotion, the overturn
+  // cooldown, the accuracy ring (outcomes land in accuracy_window like forum
+  // ones), and reward-epoch activity all see collect behavior. Kept as
+  // separate counters (not folded into total/epoch_hides) so forum's own
+  // max_hides_per_epoch budget is not consumed by collect actions.
+  uint64 total_collect_hides = 30;
+  uint64 upheld_collect_hides = 31;
+  uint64 overturned_collect_hides = 32;
+  uint64 epoch_collect_hides = 33;
 }

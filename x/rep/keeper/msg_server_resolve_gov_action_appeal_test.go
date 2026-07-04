@@ -126,9 +126,9 @@ func seedSlashableSentinel(t *testing.T, f *fixture, sentinel string, bond math.
 	require.NoError(t, err)
 	_ = saAddr
 
-	err = f.keeper.BondedRoles.Set(f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), sentinel), types.BondedRole{
+	err = f.keeper.BondedRoles.Set(f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL), sentinel), types.BondedRole{
 		Address:            sentinel,
-		RoleType:           types.RoleType_ROLE_TYPE_FORUM_SENTINEL,
+		RoleType:           types.RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 		CurrentBond:        bond.String(),
 		TotalCommittedBond: "0",
 		BondStatus:         types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
@@ -150,6 +150,23 @@ func findAppeal(t *testing.T, f *fixture, appellant string) (uint64, types.GovAc
 	}
 	t.Fatalf("no appeal found for appellant %s", appellant)
 	return 0, types.GovActionAppeal{}
+}
+
+
+// sumRoleVerdicts totals the upheld/overturned verdict counters across all
+// action kinds on the sentinel's rep-side RoleActivity record.
+func sumRoleVerdicts(t *testing.T, f *fixture, sentinel string) (uint64, uint64) {
+	t.Helper()
+	ra, err := f.keeper.GetRoleActivity(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel)
+	require.NoError(t, err)
+	var up, ov uint64
+	for _, n := range ra.UpheldActions {
+		up += n
+	}
+	for _, n := range ra.OverturnedActions {
+		ov += n
+	}
+	return up, ov
 }
 
 func TestMsgServerResolveGovActionAppeal(t *testing.T) {
@@ -180,9 +197,12 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 			"expected %s burned, got %s", expectedHalf, rf.burnedCoins.AmountOf("uspark"))
 		require.True(t, rf.refundedCoins.IsZero(), "no refund should occur on UPHELD")
 
-		// Upheld forum hook invoked exactly once.
-		require.Len(t, rf.fk.upheldCalls, 1)
-		require.Empty(t, rf.fk.overturnedCalls)
+		// Rep recorded exactly one upheld verdict; forum-local resolution
+		// bookkeeping hook invoked once.
+		up, ov := sumRoleVerdicts(t, rf.f, rf.sentinel)
+		require.Equal(t, uint64(1), up)
+		require.Zero(t, ov)
+		require.Len(t, rf.fk.resolvedCalls, 1)
 
 		// Content reversal MUST NOT fire on UPHELD — the sentinel was correct,
 		// the user's content should stay hidden / locked / moved.
@@ -220,14 +240,17 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		require.True(t, rf.burnedCoins.AmountOf("uspark").IsZero())
 
 		// Sentinel's bond was reduced by DefaultSentinelOverturnSlash.
-		br, err := rf.f.keeper.BondedRoles.Get(rf.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), rf.sentinel))
+		br, err := rf.f.keeper.BondedRoles.Get(rf.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL), rf.sentinel))
 		require.NoError(t, err)
 		expectedRemaining := bond.SubRaw(types.DefaultSentinelOverturnSlash)
 		require.Equal(t, expectedRemaining.String(), br.CurrentBond)
 
-		// Overturned forum hook invoked.
-		require.Len(t, rf.fk.overturnedCalls, 1)
-		require.Empty(t, rf.fk.upheldCalls)
+		// Rep recorded exactly one overturned verdict; forum-local resolution
+		// bookkeeping hook invoked once.
+		up, ov := sumRoleVerdicts(t, rf.f, rf.sentinel)
+		require.Zero(t, up)
+		require.Equal(t, uint64(1), ov)
+		require.Len(t, rf.fk.resolvedCalls, 1)
 
 		// Content reversal (ReverseSentinelAction) invoked exactly once with
 		// the same action type+target the counter hook saw. Without this,
@@ -235,8 +258,8 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		// locked / moved — the appeal loop would be incomplete.
 		require.Len(t, rf.fk.reverseCalls, 1,
 			"OVERTURNED must trigger forum-side content reversal")
-		require.Equal(t, rf.fk.overturnedCalls[0], rf.fk.reverseCalls[0],
-			"reverse call must target the same action as the counter update")
+		require.Equal(t, rf.fk.resolvedCalls[0], rf.fk.reverseCalls[0],
+			"reverse call must target the same action the resolution hook saw")
 	})
 
 	t.Run("overturn slash equals the action's reserved bond, not a flat default", func(t *testing.T) {
@@ -264,7 +287,7 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		br, err := rf.f.keeper.BondedRoles.Get(rf.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_FORUM_SENTINEL), rf.sentinel))
+		br, err := rf.f.keeper.BondedRoles.Get(rf.f.ctx, collections.Join(int32(types.RoleType_ROLE_TYPE_CONTENT_SENTINEL), rf.sentinel))
 		require.NoError(t, err)
 		require.Equal(t, bond.Sub(customCommitted).String(), br.CurrentBond,
 			"slash must equal the reserved committed amount, not DefaultSentinelOverturnSlash")

@@ -52,6 +52,8 @@ RUN_TAG_TEST=true
 RUN_PIN_MAKE_PERMANENT_TEST=true
 RUN_ENDORSEMENT_SLASH_TEST=true
 RUN_PROMOTION_QUEUE_TEST=true
+RUN_SENTINEL_UNHIDE_TEST=true
+RUN_COUNCIL_MODERATION_TEST=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -115,6 +117,12 @@ for arg in "$@"; do
         --no-promotion-queue)
             RUN_PROMOTION_QUEUE_TEST=false
             ;;
+        --no-sentinel-unhide)
+            RUN_SENTINEL_UNHIDE_TEST=false
+            ;;
+        --no-council-moderation)
+            RUN_COUNCIL_MODERATION_TEST=false
+            ;;
         --only-setup)
             RUN_COLLECTION_TEST=false
             RUN_ITEM_TEST=false
@@ -134,6 +142,8 @@ for arg in "$@"; do
             RUN_PIN_MAKE_PERMANENT_TEST=false
             RUN_ENDORSEMENT_SLASH_TEST=false
             RUN_PROMOTION_QUEUE_TEST=false
+            RUN_SENTINEL_UNHIDE_TEST=false
+            RUN_COUNCIL_MODERATION_TEST=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -156,6 +166,8 @@ for arg in "$@"; do
             RUN_PIN_MAKE_PERMANENT_TEST=false
             RUN_ENDORSEMENT_SLASH_TEST=false
             RUN_PROMOTION_QUEUE_TEST=false
+            RUN_SENTINEL_UNHIDE_TEST=false
+            RUN_COUNCIL_MODERATION_TEST=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -180,6 +192,8 @@ for arg in "$@"; do
             RUN_PIN_MAKE_PERMANENT_TEST=false
             RUN_ENDORSEMENT_SLASH_TEST=false
             RUN_PROMOTION_QUEUE_TEST=false
+            RUN_SENTINEL_UNHIDE_TEST=false
+            RUN_COUNCIL_MODERATION_TEST=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -204,6 +218,8 @@ for arg in "$@"; do
             echo "  --no-pin-make-permanent Skip pin/unpin/make-permanent tests"
             echo "  --no-endorsement-slash  Skip unappealed-hide endorser-slash regression"
             echo "  --no-promotion-queue    Skip membership-driven promotion-queue tests"
+            echo "  --no-sentinel-unhide    Skip sentinel self-correct unhide tests"
+            echo "  --no-council-moderation Skip council hide/unhide + shared accountability tests"
             echo "  --only-setup       Run only setup (skip all tests)"
             echo "  --save-setup       Run setup, save chain state, then exit"
             echo "  --restore-setup    Restore saved setup state, then run tests"
@@ -628,6 +644,24 @@ if [ "$RUN_PROMOTION_QUEUE_TEST" = true ]; then
     run_test "Promotion Queue Tests" "promotion_queue_test.sh"
 else
     echo "Skipping promotion-queue tests (--no-promotion-queue)"
+    echo ""
+fi
+
+# Sentinel self-correct unhide (MsgUnhideContent: window, guards, bond
+# retention, rep no-mint)
+if [ "$RUN_SENTINEL_UNHIDE_TEST" = true ]; then
+    run_test "Sentinel Unhide Tests" "sentinel_unhide_test.sh"
+else
+    echo "Skipping sentinel-unhide tests (--no-sentinel-unhide)"
+    echo ""
+fi
+
+# Council moderation pair (--authority council hide, council unhide override,
+# appealability) + cross-module RoleActivity projection
+if [ "$RUN_COUNCIL_MODERATION_TEST" = true ]; then
+    run_test "Council Moderation Tests" "council_moderation_test.sh"
+else
+    echo "Skipping council-moderation tests (--no-council-moderation)"
     echo ""
 fi
 

@@ -411,6 +411,12 @@ message CollectOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+
+  // sentinel_unhide_window_blocks — see Params.sentinel_unhide_window_blocks.
+  int64 sentinel_unhide_window_blocks = 56;
+
+  // max_hides_per_sentinel_per_day — see Params.max_hides_per_sentinel_per_day.
+  uint32 max_hides_per_sentinel_per_day = 57;
 }
 
 // CollectionFlag aggregates all flags on a single piece of content.
@@ -443,6 +449,36 @@ message HideRecord {
   int64 appeal_deadline = 9;
   bool appealed = 10;
   bool resolved = 11;
+
+  // Set true when the hiding sentinel self-corrected via MsgUnhideContent.
+  // The record is Resolved at that point, but the HideRecordExpiry entry
+  // is retained so the EndBlocker releases the committed bond at the
+  // original appeal_deadline (anti hide/unhide cycling).
+  bool self_corrected = 12;
+
+  // Snapshot of the author bond amount slashed by MsgHideContent
+  // (SlashAuthorBond), so a self-correct can mint it back. Zero if no
+  // bond existed or the target is an item.
+  string author_bond_amount = 13 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Snapshot of the per-tag rep penalty PARAM at hide time (params may
+  // change before unhide) and the tags it was applied to (collection tags
+  // are owner-editable). Zero/empty when no deduction ran.
+  string author_rep_penalty = 14 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  repeated string rep_penalty_tags = 15;
+
+  // Per-tag ACTUAL deducted amounts (LegacyDec strings), aligned with
+  // rep_penalty_tags. DeductReputation floors at zero, so the actual
+  // deduction is min(current_score, author_rep_penalty) — restoring the
+  // raw param instead would mint reputation from nothing on every
+  // hide/reversal cycle for authors with less rep than the penalty.
+  repeated string rep_penalty_amounts = 16;
 }
 
 // Endorsement records a member's endorsement of a non-member's collection.

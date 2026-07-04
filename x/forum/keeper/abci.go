@@ -391,7 +391,7 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 		// reservation must be freed so the sentinel's available bond recovers.
 		if k.repKeeper != nil && hr.Sentinel != "" && hr.CommittedAmount != "" {
 			if committed, ok := sdkmath.NewIntFromString(hr.CommittedAmount); ok && committed.IsPositive() {
-				if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, hr.Sentinel, committed); err != nil {
+				if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, committed); err != nil {
 					sdkCtx.Logger().Warn("failed to release sentinel bond on hide expiry",
 						"post_id", postID, "sentinel", hr.Sentinel, "error", err)
 				}

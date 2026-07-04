@@ -100,46 +100,6 @@ func (k Keeper) clearProposalCounts(ctx context.Context, threadID uint64) {
 	_ = k.ProposalCountByThreadSentinel.Clear(ctx, rng)
 }
 
-// recordCurationAccuracy records one curation-proposal resolution in the
-// sentinel's rolling accuracy ring at the current reward epoch and updates the
-// consecutive-streak counters. A confirmed/auto-confirmed proposal is an
-// "upheld" tick; an author rejection is an "overturned" tick. On a rejection
-// streak crossing DefaultMaxConsecutiveOverturnsBeforeDemotion the sentinel is
-// demoted, mirroring the appeal-resolution path (RecordSentinelActionOverturned).
-// Curation proposals are not jury-adjudicated, so there is no GovAction record —
-// the sentinel address is passed directly. Mutates `local` in place; the caller
-// persists it. Demotion side effects go through the rep keeper immediately.
-func (k Keeper) recordCurationAccuracy(ctx context.Context, sentinel string, local *types.SentinelActivity, upheld bool) {
-	epoch := uint64(0)
-	if k.repKeeper != nil {
-		epoch = k.repKeeper.CurrentSentinelRewardEpoch(ctx)
-	}
-	bumpAccuracyWindow(local, epoch, upheld)
-	if upheld {
-		local.ConsecutiveUpheld++
-		local.ConsecutiveOverturns = 0
-		return
-	}
-
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	local.ConsecutiveOverturns++
-	local.ConsecutiveUpheld = 0
-	// NOTE: deliberately do NOT set OverturnCooldownUntil here. That field is the
-	// *moderation-action* circuit breaker (gates hide/lock/move/pin via
-	// ErrSentinelCooldown); a rejected curation proposal must not lock the
-	// sentinel out of moderation. The accuracy hit + the demotion ratchet below
-	// are the cost of a rejected proposal.
-
-	if local.ConsecutiveOverturns >= reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion && k.repKeeper != nil {
-		cooldownUntil := sdkCtx.BlockTime().Unix() + reptypes.DefaultSentinelDemotionCooldown
-		if err := k.repKeeper.SetBondStatus(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinel,
-			reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, cooldownUntil); err != nil {
-			sdkCtx.Logger().Error("failed to demote sentinel after curation-rejection streak",
-				"sentinel", sentinel, "consecutive_overturns", local.ConsecutiveOverturns, "error", err)
-		}
-	}
-}
-
 // confirmCurationProposal applies a pending sentinel accepted-reply proposal:
 // promotes the proposed reply to accepted (credited to the proposing sentinel),
 // increments the sentinel's confirmed_proposals + epoch_curations counters,
@@ -165,23 +125,23 @@ func (k Keeper) confirmCurationProposal(ctx context.Context, metadata *types.Thr
 	metadata.ProposedAt = 0
 	metadata.ProposalExtended = false
 
-	// Sentinel curation counters: confirmed_proposals is lifetime,
-	// epoch_curations feeds the per-epoch reward score (reset each epoch).
+	// confirmed_proposals is forum-local lifetime bookkeeping; the shared
+	// accountability lives in x/rep: the curation action (feeds the per-epoch
+	// reward score) and an "upheld" accuracy tick on the same rolling window
+	// that gates sentinel rewards/demotion as other moderation types.
+	// Rep's kind policy keeps curation outcomes cooldown-free.
 	local, err := k.SentinelActivity.Get(ctx, sentinel)
 	if err != nil {
 		local = types.SentinelActivity{Address: sentinel}
 	}
 	local.ConfirmedProposals++
-	local.EpochCurations++
-	// A confirmed/auto-confirmed curation is an "upheld" accuracy tick — it feeds
-	// the same rolling-window accuracy that gates sentinel rewards/demotion as
-	// other moderation types do.
-	k.recordCurationAccuracy(ctx, sentinel, &local, true)
 	if err := k.SentinelActivity.Set(ctx, sentinel, local); err != nil {
 		return errorsmod.Wrap(err, "failed to update sentinel activity")
 	}
 	if k.repKeeper != nil {
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FORUM_SENTINEL, sentinel)
+		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, reptypes.ActionKindForumCuration)
+		_ = k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, reptypes.ActionKindForumCuration, true)
+		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel)
 	}
 
 	// Mint the curation DREAM reward to the proposing sentinel.

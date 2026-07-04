@@ -155,10 +155,9 @@ func TestAppealPost(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, resp)
 
-				// Verify sentinel activity was updated
-				sentinel, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-				require.NoError(t, err)
-				require.Equal(t, uint64(1), sentinel.EpochAppealsFiled)
+				// Verify the appeal was counted on the shared RoleActivity record
+				require.Equal(t, uint64(1),
+					f.repKeeper.roleActivities[testSentinel].EpochActions[reptypes.ActionKindForumAppealFiled])
 			}
 		})
 	}

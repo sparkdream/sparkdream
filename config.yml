@@ -464,6 +464,12 @@ genesis:
         # still in flight, then the subsequent 75s wait outlasts the deadline so
         # the timeout-restore + delete completes.
         appeal_deadline_blocks: "60"
+        # Sentinel self-correct window - SHORT for testing (production: 14400
+        # ~24 hours). MUST stay below hide_expiry_blocks (=40 here) or Params
+        # validation rejects genesis. sentinel_unhide_test.sh unhides right
+        # after a hide (needs only a few blocks of window) and separately
+        # asserts the expired-window rejection after ~20 blocks.
+        sentinel_unhide_window_blocks: "20"
     name:
       params:
         # Bumped from 5 → 10 for E2E. Alice now auto-claims `alice` at

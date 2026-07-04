@@ -3,7 +3,6 @@
 Project-wide engineering conventions that are referenced from code comments, test scripts, and other spec docs. Keep this doc authoritative — when a section here is referenced elsewhere by name (e.g. "AppModule Value-Copy Bug"), update the cross-references if you rename a section.
 
 Related references:
-- [HANDOFF_LEDGER_AMINO_NAMES.md](HANDOFF_LEDGER_AMINO_NAMES.md) — amino-name requirement for signer Msgs (Ledger compatibility).
 - [security-hardening.md](security-hardening.md) — immutable parameters (mint inflation authority, committee constraints, Three Pillars hierarchy).
 - [tokenomics.md](tokenomics.md) — SPARK / DREAM economics; the burn-address authority pattern on mint params is referenced by the [x/guardian](../x/guardian/) module.
 
@@ -112,9 +111,14 @@ option (amino.name) = "sparkdream/x/<module>/Msg<Name>";
 
 The SDK's `cosmossdk.io/x/tx/signing/aminojson` handler reads this option to build `SIGN_MODE_LEGACY_AMINO_JSON` sign-docs. **Without it, Ledger users get "signature verification failed"** because Keplr+Ledger only supports amino-JSON signing.
 
-The regression guard at [x/commons/types/amino_name_test.go](../x/commons/types/amino_name_test.go) catches missing/wrong amino names for commons messages — extend it (or add a sibling test) when adding signer Msgs to other modules.
+The regression guard at [x/commons/types/amino_name_test.go](../x/commons/types/amino_name_test.go) catches missing/wrong amino names for commons messages — extend it (or add a sibling test) when adding signer Msgs to other modules. (x/collect has a service-walking sibling at [x/collect/types/amino_name_test.go](../x/collect/types/amino_name_test.go) that covers new messages automatically — prefer that pattern.)
 
-Full rationale: [HANDOFF_LEDGER_AMINO_NAMES.md](HANDOFF_LEDGER_AMINO_NAMES.md).
+Additional rationale worth knowing:
+
+- The other failure symptom besides "signature verification failed" is Ledger rejecting the sign-doc outright with "JSON Dictionaries are not sorted".
+- Amino names are part of the signing contract with wallets — never rename one once clients depend on it; the regression test pins the exact strings.
+- Client side: `@sparkdreamnft/sparkdreamjs` must be regenerated/republished after amino-name additions so its amino converters emit the same `type` strings the chain produces.
+- Messages that nest `repeated google.protobuf.Any` (e.g. `MsgSubmitProposal`, `MsgSubmitAnonymousProposal`) need CUSTOM client-side amino converters: the default `Any` encoder base64-dumps proto bytes, which Ledger's strict validator rejects. Each inner message must be recursively amino-encoded as `{type: <amino.name>, value: <amino-form>}` with alphabetically sorted keys at every nesting level.
 
 ---
 

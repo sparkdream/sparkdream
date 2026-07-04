@@ -28,6 +28,7 @@ service Msg {
   rpc AddCollaborator(MsgAddCollaborator) returns (MsgAddCollaboratorResponse);
   rpc RemoveCollaborator(MsgRemoveCollaborator) returns (MsgRemoveCollaboratorResponse);
   rpc UpdateCollaboratorRole(MsgUpdateCollaboratorRole) returns (MsgUpdateCollaboratorRoleResponse);
+
   // RateCollection submits a curation review. The creator must hold a bonded
   // ROLE_TYPE_COLLECT_CURATOR in x/rep (created via MsgBondRole there).
   rpc RateCollection(MsgRateCollection) returns (MsgRateCollectionResponse);
@@ -69,6 +70,13 @@ service Msg {
   // burning its escrowed collection + item deposits. Gated on
   // params.make_permanent_min_trust_level. Idempotent on permanent collections.
   rpc MakeCollectionPermanent(MsgMakeCollectionPermanent) returns (MsgMakeCollectionPermanentResponse);
+
+  // UnhideContent reverses MsgHideContent. Original sentinel only, within
+  // params.sentinel_unhide_window_blocks, and only before an appeal is
+  // filed. Restores the author bond and rep penalty slashed at hide time.
+  // The sentinel's committed bond stays reserved until the original
+  // appeal_deadline (anti hide/unhide cycling).
+  rpc UnhideContent(MsgUnhideContent) returns (MsgUnhideContentResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -97,7 +105,7 @@ message MsgCreateCollection {
   string cover_uri = 8;
   repeated string tags = 9;
   bytes encrypted_data = 10;
-  string author_bond = 11 [ // Optional DREAM amount to lock as author bond
+  string author_bond = 11 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = true
@@ -359,11 +367,35 @@ message MsgHideContent {
   FlagTargetType target_type = 3;
   sparkdream.common.v1.ModerationReason reason_code = 4;
   string reason_text = 5;
+  // Which authority the caller is invoking — see the enum docs. AUTO
+  // (zero value) preserves pre-council wire behavior for sentinels.
+  ModerationAuthority authority = 6;
 }
 
 // MsgHideContentResponse defines the MsgHideContentResponse message.
 message MsgHideContentResponse {
   uint64 hide_record_id = 1;
+}
+
+// ModerationAuthority selects which authority the caller of MsgHideContent
+// is invoking. Mirrors x/forum's enum: it disambiguates the case where an
+// account is BOTH a bonded content sentinel and a Commons Operations
+// Committee member — without it the handler would have to silently pick one
+// path. See the authority-selection notes in docs/x-collect-spec.md
+// (MsgHideContent).
+enum ModerationAuthority {
+  // AUTO (default, back-compat): sentinel path whenever the account is an
+  // eligible bonded sentinel, else the council path if council-authorized,
+  // else error. Prefers the accountable (bonded) sentinel path.
+  MODERATION_AUTHORITY_AUTO = 0;
+
+  // SENTINEL: force the sentinel path; error if not an eligible sentinel
+  // (no silent fallback to council).
+  MODERATION_AUTHORITY_SENTINEL = 1;
+
+  // COUNCIL: force the council (gov-authority) path; error if not
+  // council-authorized. The deliberate "act as committee" choice.
+  MODERATION_AUTHORITY_COUNCIL = 2;
 }
 
 // MsgAppealHide defines the MsgAppealHide message.
@@ -435,3 +467,14 @@ message MsgMakeCollectionPermanent {
 }
 
 message MsgMakeCollectionPermanentResponse {}
+
+// MsgUnhideContent defines the MsgUnhideContent message.
+message MsgUnhideContent {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/collect/MsgUnhideContent";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 hide_record_id = 2;
+}
+
+// MsgUnhideContentResponse defines the MsgUnhideContentResponse message.
+message MsgUnhideContentResponse {}

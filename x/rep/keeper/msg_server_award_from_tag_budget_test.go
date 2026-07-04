@@ -24,23 +24,11 @@ type mockForumKeeper struct {
 	// Stage C hooks (populated by appeal-resolve tests):
 	actionSentinels  map[string]string // key=<actionType>:<actionTarget>
 	committedAmount  sdkmath.Int       // per-action reserved bond GetActionCommittedAmount reports (zero/unset => no slash)
-	upheldCalls      []string          // records "<actionType>:<actionTarget>"
-	overturnedCalls  []string
+	resolvedCalls    []string // records OnSentinelActionResolved "<actionType>:<actionTarget>"
 	reverseCalls     []string // records ReverseSentinelAction invocations
-	upheldError      error
-	overturnedError  error
+	resolvedError    error
 	reverseError     error
 	getSentinelError error
-	// Stage D hooks (populated by sentinel-reward distribution tests):
-	counters   map[string]types.SentinelActivityCounters
-	resetAddrs []string
-	// Rolling accuracy window: keyed by sentinel address -> (upheld, overturned)
-	// returned regardless of currentEpoch/window (tests set the effective view
-	// directly). lastUpheldEpoch / lastOverturnedEpoch capture the epoch passed
-	// to the most recent record call for assertions.
-	windowedAccuracy    map[string][2]uint64
-	lastUpheldEpoch     uint64
-	lastOverturnedEpoch uint64
 }
 
 func mockForumKey(actionType types.GovActionType, target string) string {
@@ -75,24 +63,9 @@ func (m *mockForumKeeper) GetActionSentinel(_ context.Context, actionType types.
 	return m.actionSentinels[mockForumKey(actionType, actionTarget)], nil
 }
 
-func (m *mockForumKeeper) RecordSentinelActionUpheld(_ context.Context, epoch uint64, actionType types.GovActionType, actionTarget string) error {
-	m.upheldCalls = append(m.upheldCalls, mockForumKey(actionType, actionTarget))
-	m.lastUpheldEpoch = epoch
-	return m.upheldError
-}
-
-func (m *mockForumKeeper) RecordSentinelActionOverturned(_ context.Context, epoch uint64, actionType types.GovActionType, actionTarget string) error {
-	m.overturnedCalls = append(m.overturnedCalls, mockForumKey(actionType, actionTarget))
-	m.lastOverturnedEpoch = epoch
-	return m.overturnedError
-}
-
-func (m *mockForumKeeper) GetSentinelWindowedAccuracy(_ context.Context, addr string, _, _ uint64) (uint64, uint64, error) {
-	if m.windowedAccuracy == nil {
-		return 0, 0, nil
-	}
-	v := m.windowedAccuracy[addr]
-	return v[0], v[1], nil
+func (m *mockForumKeeper) OnSentinelActionResolved(_ context.Context, actionType types.GovActionType, actionTarget string) error {
+	m.resolvedCalls = append(m.resolvedCalls, mockForumKey(actionType, actionTarget))
+	return m.resolvedError
 }
 
 func (m *mockForumKeeper) ReverseSentinelAction(_ context.Context, actionType types.GovActionType, actionTarget string) error {
@@ -100,33 +73,7 @@ func (m *mockForumKeeper) ReverseSentinelAction(_ context.Context, actionType ty
 	return m.reverseError
 }
 
-func (m *mockForumKeeper) GetSentinelActivityCounters(_ context.Context, addr string) (types.SentinelActivityCounters, error) {
-	if m.counters == nil {
-		return types.SentinelActivityCounters{}, nil
-	}
-	c, ok := m.counters[addr]
-	if !ok {
-		return types.SentinelActivityCounters{}, nil
-	}
-	return c, nil
-}
 
-func (m *mockForumKeeper) ResetSentinelEpochCounters(_ context.Context, addr string) error {
-	m.resetAddrs = append(m.resetAddrs, addr)
-	if m.counters != nil {
-		if c, ok := m.counters[addr]; ok {
-			c.EpochHides = 0
-			c.EpochLocks = 0
-			c.EpochMoves = 0
-			c.EpochPins = 0
-			c.EpochCurations = 0
-			c.EpochAppealsFiled = 0
-			c.EpochAppealsResolved = 0
-			m.counters[addr] = c
-		}
-	}
-	return nil
-}
 
 func (m *mockForumKeeper) GetActionCommittedAmount(_ context.Context, _ types.GovActionType, _ string) (sdkmath.Int, error) {
 	if m.committedAmount.IsNil() {

@@ -157,7 +157,7 @@ bond_sentinel() {
     # locking (msg_server_lock_thread.go) and meets the 500 DREAM min bond.
     local BOND_AMOUNT=${3:-2500000000}
 
-    SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel $ADDR --output json 2>&1)
+    SENTINEL_STATUS=$($BINARY query rep bonded-role content-sentinel $ADDR --output json 2>&1)
     CURRENT_BOND=$(echo "$SENTINEL_STATUS" | jq -r '.bonded_role.current_bond // "0"' 2>/dev/null)
     [ -z "$CURRENT_BOND" ] || [ "$CURRENT_BOND" = "null" ] && CURRENT_BOND="0"
 
@@ -179,7 +179,7 @@ bond_sentinel() {
     fi
 
     echo "  $ACTION $ACCOUNT (amount: $TX_AMOUNT)..."
-    TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+    TX_RES=$($BINARY tx rep bond-role content-sentinel \
         "$TX_AMOUNT" \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
@@ -722,7 +722,7 @@ echo ""
 echo "--- PART 16: QUERY SENTINEL STATUS ---"
 PART16_RESULT="FAIL"
 
-SENTINEL_STATUS=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
+SENTINEL_STATUS=$($BINARY query rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>&1)
 
 # Response wraps the record under `.bonded_role`; read fields from that path.
 if echo "$SENTINEL_STATUS" | jq -e '.bonded_role.address' > /dev/null 2>&1 && ! echo "$SENTINEL_STATUS" | grep -q "error\|not found"; then
@@ -764,7 +764,7 @@ echo ""
 echo "--- PART 18: QUERY SENTINEL BOND COMMITMENT ---"
 PART18_RESULT="FAIL"
 
-BOND_COMMITMENT=$($BINARY query rep bonded-role forum-sentinel $SENTINEL1_ADDR --output json 2>&1)
+BOND_COMMITMENT=$($BINARY query rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>&1)
 
 if echo "$BOND_COMMITMENT" | jq -e '.' > /dev/null 2>&1 && ! echo "$BOND_COMMITMENT" | grep -q "error\|not found"; then
     echo "  Bond commitment response received"
@@ -797,9 +797,9 @@ bond_sentinel $SECOND_SENTINEL_ACCOUNT "$SECOND_SENTINEL_ADDR"
 # account earlier in the suite). Unbonds are incremental, so this 10 DREAM
 # accumulates onto any existing pending rather than replacing it — assert the
 # delta, not an absolute value.
-PEND_BEFORE=$($BINARY q rep bonded-role forum-sentinel "$SECOND_SENTINEL_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.pending_unbond_amount // "0"')
+PEND_BEFORE=$($BINARY q rep bonded-role content-sentinel "$SECOND_SENTINEL_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.pending_unbond_amount // "0"')
 
-TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
+TX_RES=$($BINARY tx rep unbond-role content-sentinel \
     "10000000" \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \
@@ -817,7 +817,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     if check_tx_success "$TX_RESULT"; then
         # Confirm the queued-unbond state — bond stays locked, status flips
         # to UNBONDING, pending_unbond_amount grows by exactly the queued amount.
-        BR=$($BINARY q rep bonded-role forum-sentinel "$SECOND_SENTINEL_ADDR" --output json 2>/dev/null)
+        BR=$($BINARY q rep bonded-role content-sentinel "$SECOND_SENTINEL_ADDR" --output json 2>/dev/null)
         STATUS=$(echo "$BR" | jq -r '.bonded_role.bond_status // "MISSING"')
         PENDING=$(echo "$BR" | jq -r '.bonded_role.pending_unbond_amount // "0"')
         EXPECTED=$((${PEND_BEFORE:-0} + 10000000))
@@ -1444,7 +1444,7 @@ echo ""
 echo "--- PART 34: ERROR - BondSentinel ErrBondAmountTooSmall ---"
 PART34_RESULT="FAIL"
 
-TX_RES=$($BINARY tx rep bond-role forum-sentinel \
+TX_RES=$($BINARY tx rep bond-role content-sentinel \
     "1" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -1482,7 +1482,7 @@ echo ""
 echo "--- PART 35: ERROR - UnbondSentinel ErrSentinelNotFound ---"
 PART35_RESULT="FAIL"
 
-TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
+TX_RES=$($BINARY tx rep unbond-role content-sentinel \
     "1000" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -1527,7 +1527,7 @@ PART36_RESULT="FAIL"
 # SECOND_SENTINEL_ACCOUNT is in UNBONDING since PART 19's queued unbond, so this
 # call hits the "already UNBONDING" state-machine gate before the amount check.
 # Either rejection path satisfies the intent (unbond is correctly refused).
-TX_RES=$($BINARY tx rep unbond-role forum-sentinel \
+TX_RES=$($BINARY tx rep unbond-role content-sentinel \
     "999999999999" \
     --from $SECOND_SENTINEL_ACCOUNT \
     --chain-id $CHAIN_ID \
