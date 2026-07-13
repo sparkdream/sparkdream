@@ -69,6 +69,69 @@ func TestGenesisState_Validate(t *testing.T) {
 			},
 			valid: false,
 		},
+		{
+			desc: "valid founding members override",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				FoundingMembers: []types.FoundingMember{
+					{Address: sampleAddr, DisplayName: "Alice", Handles: []string{"alice"}, Founder: true},
+					{Address: sampleAddr2, DisplayName: "Bob"},
+				},
+			},
+			valid: true,
+		},
+		{
+			desc: "founding members without a founder",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				FoundingMembers: []types.FoundingMember{
+					{Address: sampleAddr, DisplayName: "Alice"},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "founding members with two founders",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				FoundingMembers: []types.FoundingMember{
+					{Address: sampleAddr, DisplayName: "Alice", Founder: true},
+					{Address: sampleAddr2, DisplayName: "Bob", Founder: true},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "founding member with invalid address",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				FoundingMembers: []types.FoundingMember{
+					{Address: "sprkdrm1notanaddress", DisplayName: "Alice", Founder: true},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "duplicate founding member address",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				FoundingMembers: []types.FoundingMember{
+					{Address: sampleAddr, DisplayName: "Alice", Founder: true},
+					{Address: sampleAddr, DisplayName: "Bob"},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "founding member with empty display name",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				FoundingMembers: []types.FoundingMember{
+					{Address: sampleAddr, DisplayName: "", Founder: true},
+				},
+			},
+			valid: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {

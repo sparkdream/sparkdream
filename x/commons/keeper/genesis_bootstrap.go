@@ -31,19 +31,53 @@ type MemberRequest struct {
 	Metadata string
 }
 
-func (k Keeper) BootstrapGovernance(ctx context.Context) {
+// genesisFounders resolves the founder set the bootstrap runs on. The
+// compiled-in GenesisNames / GenesisHandles / FounderName (per build tag) are
+// the immutable defaults for the canonical networks; a genesis that provides
+// founding_members overrides all three at once, so a chain launched from a
+// shared build bootstraps governance around its own accounts. The founder is
+// identified by address, which sidesteps the display-name collision the
+// name-based FounderName match would otherwise allow.
+func genesisFounders(overrides []types.FoundingMember) (names map[string]string, handles map[string][]string, founderAddr string) {
+	if len(overrides) == 0 {
+		names = GenesisNames
+		handles = GenesisHandles
+		for addr, name := range GenesisNames {
+			if name == FounderName {
+				founderAddr = addr
+			}
+		}
+		return names, handles, founderAddr
+	}
+	names = make(map[string]string, len(overrides))
+	handles = make(map[string][]string, len(overrides))
+	for _, m := range overrides {
+		names[m.Address] = m.DisplayName
+		if len(m.Handles) > 0 {
+			handles[m.Address] = m.Handles
+		}
+		if m.Founder {
+			founderAddr = m.Address
+		}
+	}
+	return names, handles, founderAddr
+}
+
+func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.FoundingMember) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	logger := sdkCtx.Logger().With("module", "x/commons")
 	logger.Info("Bootstrapping 'Three Pillars' Governance...")
 
+	genesisNames, genesisHandles, founderAddr := genesisFounders(founders)
+
 	// 1. Gather Founding Members
-	// Look up each GenesisNames address directly via GetAccount.
+	// Look up each address directly via GetAccount.
 	// IterateAccounts may return empty results during InitGenesis in SDK v0.53
 	// because the account iterator index is not yet flushed at that point.
 	var foundingMembers []MemberRequest
 	var founderMembers []MemberRequest
 
-	for addr, name := range GenesisNames {
+	for addr, name := range genesisNames {
 		accAddr, err := sdk.AccAddressFromBech32(addr)
 		if err != nil {
 			logger.Error("Invalid address in GenesisNames", "address", addr, "error", err)
@@ -62,7 +96,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 		// resolves; this metadata is just bookkeeping for the membership row.
 		foundingMembers = append(foundingMembers, MemberRequest{Address: addr, Weight: "1", Metadata: name})
 
-		if name == FounderName {
+		if addr == founderAddr {
 			founderMembers = append(founderMembers, MemberRequest{Address: addr, Weight: "1", Metadata: "Founder"})
 		}
 	}
@@ -75,31 +109,31 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	// depinject; if the keeper is missing (e.g. tests that don't wire it) we
 	// skip silently and log.
 	if k.late.nameKeeper != nil {
-		// Iterate GenesisNames in sorted order so the seeded display-name
+		// Iterate the names in sorted order so the seeded display-name
 		// state is deterministic across nodes.
-		nameAddrs := make([]string, 0, len(GenesisNames))
-		for addr := range GenesisNames {
+		nameAddrs := make([]string, 0, len(genesisNames))
+		for addr := range genesisNames {
 			nameAddrs = append(nameAddrs, addr)
 		}
 		sort.Strings(nameAddrs)
 		for _, addr := range nameAddrs {
-			displayName := GenesisNames[addr]
+			displayName := genesisNames[addr]
 			if err := k.late.nameKeeper.SetDisplayName(ctx, addr, displayName); err != nil {
 				logger.Warn("failed to seed display name for genesis member", "address", addr, "name", displayName, "error", err)
 			}
 		}
 
-		// Claim canonical handles. Iterate GenesisHandles in sorted order so
+		// Claim canonical handles. Iterate the handle map in sorted order so
 		// that, if two addresses ever request the same handle (a misconfig),
 		// the earliest bech32 wins deterministically. The first handle in
 		// each address's slice is set as that address's primary.
-		handleAddrs := make([]string, 0, len(GenesisHandles))
-		for addr := range GenesisHandles {
+		handleAddrs := make([]string, 0, len(genesisHandles))
+		for addr := range genesisHandles {
 			handleAddrs = append(handleAddrs, addr)
 		}
 		sort.Strings(handleAddrs)
 		for _, addr := range handleAddrs {
-			handles := GenesisHandles[addr]
+			handles := genesisHandles[addr]
 			if len(handles) == 0 {
 				continue
 			}
@@ -129,7 +163,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context) {
 	}
 
 	if len(foundingMembers) == 0 {
-		logger.Error("No founding members found in GenesisNames!")
+		logger.Error("No founding member accounts found in genesis!")
 		return
 	}
 	if len(founderMembers) == 0 {

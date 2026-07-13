@@ -44,6 +44,34 @@ message GenesisState {
   repeated RecurringSpend recurring_spends = 13 [(gogoproto.nullable) = false];
   // next_recurring_spend_id is the next auto-increment recurring spend ID.
   uint64 next_recurring_spend_id = 14;
+  // founding_members overrides the build's compiled-in genesis founders
+  // (GenesisNames / GenesisHandles / FounderName) when non-empty, so a chain
+  // launched from a shared build can bootstrap governance around its own
+  // accounts. Empty means: use the build's founders. Consumed by the
+  // governance bootstrap at InitGenesis and intentionally not exported: an
+  // exported chain already carries its bootstrapped councils in group_map /
+  // council_members, and the bootstrap's early return (no founder accounts
+  // in the auth store) keeps a re-import from re-running it.
+  repeated FoundingMember founding_members = 15 [(gogoproto.nullable) = false];
+}
+
+// FoundingMember is one governance founding member for the InitGenesis
+// bootstrap: a seat on the founding councils, a seeded x/name display name,
+// and optionally pre-claimed x/name handles (first handle becomes primary).
+// Exactly one entry must set founder=true; that account additionally anchors
+// the Technical and Ecosystem councils and their committees.
+message FoundingMember {
+  // address is the member's bech32 account address. The account must exist
+  // in the auth genesis state or the bootstrap skips it.
+  string address = 1;
+  // display_name is seeded as the x/name OwnerInfo display name and recorded
+  // as membership metadata.
+  string display_name = 2;
+  // handles are x/name handles claimed for this address at genesis; the
+  // first one becomes the primary handle.
+  repeated string handles = 3;
+  // founder marks the single founder account.
+  bool founder = 4;
 }
 
 // CouncilMembers groups members by council name for genesis export.

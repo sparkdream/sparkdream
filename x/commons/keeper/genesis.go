@@ -15,8 +15,9 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		panic(err)
 	}
 
-	// 2. Bootstrap the governance groups
-	k.BootstrapGovernance(ctx)
+	// 2. Bootstrap the governance groups (genesis founding_members override
+	// the build's compiled-in founders when present)
+	k.BootstrapGovernance(ctx, genState.FoundingMembers)
 
 	// 3. Restore existing collections
 	for _, elem := range genState.PolicyPermissionsMap {
