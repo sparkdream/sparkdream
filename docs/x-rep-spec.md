@@ -292,6 +292,13 @@ Initiatives are project work that any qualified member can claim. Completion is 
 
 Under **permissionless projects**, initiatives are capped at STANDARD tier (max 500 DREAM). The creator burns an `InitiativeCreationFee` (scaled by tier) and the budget represents DREAM minted on conviction completion — no pre-allocated project budget is consumed. Under **budget-backed projects**, the existing flow applies: initiative budgets are allocated from the project's approved budget.
 
+**Creator self-assignment.** The project creator MAY be the assignee of their own project's initiatives (solo builders are the common legitimate case). Conflict-of-interest is handled at the judging layer, not the assignment layer (mirroring x/reveal's contributor exclusion — conflicted parties may do the work, never judge it). Four safeguards apply to creator-assigned initiatives:
+
+- **Full external conviction**: when `assignee == project.creator`, the external-conviction requirement rises from `external_conviction_ratio` (default 50%) to `self_assigned_external_conviction_ratio` (default 100%) of `required_conviction` — the community alone must vouch for the work. (Creator and assignee stakes were never counted as external; see `IsStakerExternal`.)
+- **Extended challenge window**: `TransitionToChallengePeriod` multiplies the challenge duration by `self_assigned_challenge_multiplier` (default 2) for creator-assigned initiatives.
+- **Approval exclusion**: neither the assignee nor the project creator may sign `MsgApproveInitiative` for the initiative, regardless of stake or Operations Committee membership (`ErrConflictOfInterest`, code 1404).
+- **DREAM bond** (budget-backed projects only): at assignment, `self_assigned_bond_rate` (default 10%) of the initiative budget is locked from the creator's DREAM via `LockDREAM` and recorded in `initiative.self_assign_bond`. The bond is returned on completion, voluntary abandonment, or staker disapproval, and **burned** when a challenge is upheld. Permissionless projects are exempt — the creator already burned a creation fee and no treasury budget is at stake.
+
 ```protobuf
 message Initiative {
   uint64 id = 1;
@@ -326,6 +333,10 @@ message Initiative {
   int64 completed_at = 24;
 
   string propagated_conviction = 25 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // Conviction propagated from linked content
+
+  // DREAM locked by a self-assigning project creator (budget-backed projects
+  // only). Returned on completion/abandonment, burned on upheld challenge.
+  string self_assign_bond = 26 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 enum InitiativeTier {
@@ -2203,6 +2214,11 @@ var DefaultParams = Params{
     DefaultReviewPeriodEpochs:    7,  // ~1 week
     DefaultChallengePeriodEpochs: 7,  // ~1 week
 
+    // Self-assignment safeguards (creator-assigned initiatives)
+    SelfAssignedBondRate:                math.LegacyNewDecWithPrec(10, 2), // 10% of budget
+    SelfAssignedExternalConvictionRatio: math.LegacyOneDec(),              // 100% external
+    SelfAssignedChallengeMultiplier:     2,                                // 2x challenge window
+
     // Invitations
     MinInvitationStake:             math.NewInt(100),
     InvitationAccountabilityEpochs: 150,                                // 1 season
@@ -2324,7 +2340,7 @@ The `RepOperationalParams` message mirrors most `Params` fields except governanc
 | 1401 | `ErrInitiativeNotFound` | Initiative not found |
 | 1402 | `ErrInvalidInitiativeStatus` | Invalid initiative status |
 | 1403 | `ErrInsufficientReputation` | Insufficient reputation for tier |
-| 1404 | `ErrSelfAssignment` | Cannot self-assign initiative |
+| 1404 | `ErrConflictOfInterest` | Assignee and project creator cannot judge their own initiative |
 | 1405 | `ErrNotAssignee` | Not the assignee of this initiative |
 | 1501 | `ErrStakeNotFound` | Stake not found |
 | 1502 | `ErrNotStakeOwner` | Not the owner of this stake |

@@ -64,22 +64,63 @@ func SimulateMsgAssignInitiative(
 			signerAddr = project.Creator
 		}
 
-		// Get or create an assignee with appropriate reputation for the initiative tier
-		// Try a few times to ensure we don't get the project creator
+		// Occasionally exercise the creator self-assignment path (allowed —
+		// conflict-of-interest is handled at the judging layer, and a DREAM
+		// bond is locked at assignment on budget-backed projects). Only
+		// attempted when the keeper's preconditions provably hold, so the
+		// delivered tx cannot fail: APPRENTICE tier (no reputation floor),
+		// creator can afford the bond, and the active-initiative cap allows it.
+		if initiative.Tier == types.InitiativeTier_INITIATIVE_TIER_APPRENTICE && r.Intn(4) == 0 {
+			params, perr := k.Params.Get(ctx)
+			creatorMember, merr := k.Member.Get(ctx, project.Creator)
+			if perr == nil && merr == nil {
+				bond := keeper.DerefInt(initiative.Budget).ToLegacyDec().Mul(params.SelfAssignedBondRate).TruncateInt()
+				unlocked := keeper.DerefInt(creatorMember.DreamBalance).Sub(keeper.DerefInt(creatorMember.StakedDream))
+				underCap := true
+				if params.MaxActiveInitiativesPerMember > 0 {
+					active, cerr := k.CountActiveInitiativesForAssignee(ctx, project.Creator)
+					underCap = cerr == nil && active < params.MaxActiveInitiativesPerMember
+				}
+				if unlocked.GTE(bond) && underCap {
+					msg := &types.MsgAssignInitiative{
+						Creator:      signerAddr,
+						InitiativeId: initID,
+						Assignee:     project.Creator,
+					}
+					return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
+						R:               r,
+						App:             app,
+						TxGen:           txGen,
+						Cdc:             nil,
+						Msg:             msg,
+						CoinsSpentInMsg: sdk.NewCoins(),
+						Context:         ctx,
+						SimAccount:      signerAcc,
+						AccountKeeper:   ak,
+						Bankkeeper:      bk,
+						ModuleName:      types.ModuleName,
+					})
+				}
+			}
+		}
+
+		// Get or create an assignee with appropriate reputation for the initiative tier.
+		// Retry to avoid the project creator: self-assignment is legal but locks
+		// a DREAM bond the random member may not afford, so the general path
+		// sticks to non-creator assignees (the branch above covers self-assign).
 		var assignee *types.Member
 		for i := 0; i < 5; i++ {
 			assignee, _, err = getOrCreateMemberWithReputation(r, ctx, k, accs, initiative.Tier, initiative.Tags)
 			if err != nil {
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get/create assignee with reputation"), nil, nil
 			}
-			// Make sure assignee is not the project creator
 			if assignee.Address != project.Creator {
 				break
 			}
 		}
 		// If we still got the project creator after 5 tries, skip this operation
 		if assignee.Address == project.Creator {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "assignee cannot be project creator"), nil, nil
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "could not pick a non-creator assignee"), nil, nil
 		}
 
 		msg := &types.MsgAssignInitiative{

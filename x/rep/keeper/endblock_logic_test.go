@@ -428,6 +428,67 @@ func TestTransitionToChallengePeriod_PeriodCalculation(t *testing.T) {
 	require.Equal(t, int64(1500), updatedInitiative.ChallengePeriodEnd)
 }
 
+// TestTransitionToChallengePeriod_SelfAssignedExtendedWindow tests that
+// initiatives whose assignee is the project creator get a doubled
+// challenge window.
+func TestTransitionToChallengePeriod_SelfAssignedExtendedWindow(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	// Set custom period values
+	params, _ := k.Params.Get(ctx)
+	params.DefaultReviewPeriodEpochs = 2
+	params.DefaultChallengePeriodEpochs = 3
+	params.EpochBlocks = 100
+	k.Params.Set(ctx, params)
+
+	// Create member with enough reputation for EXPERT tier (min 100)
+	member := sdk.AccAddress([]byte("member"))
+	k.Member.Set(ctx, member.String(), types.Member{
+		Address:          member.String(),
+		DreamBalance:     PtrInt(math.ZeroInt()),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"technical": "150.0"},
+	})
+
+	// Create and approve project owned by the same member
+	projectID, _ := k.CreateProject(ctx, member, "Test", "Test", []string{"tag"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.ZeroInt(), false)
+	project, _ := k.GetProject(ctx, projectID)
+	project.Status = types.ProjectStatus_PROJECT_STATUS_ACTIVE
+	project.ApprovedBudget = PtrInt(math.NewInt(10000))
+	k.UpdateProject(ctx, project)
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx = sdkCtx.WithBlockHeight(1000)
+	ctx = sdkCtx
+
+	initiativeID, err := k.CreateInitiative(ctx, member, projectID, "Test", "Test", []string{"tag"},
+		types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
+		"", math.NewInt(1000))
+	require.NoError(t, err)
+
+	// Self-assigned: assignee is the project creator
+	initiative, _ := k.GetInitiative(ctx, initiativeID)
+	initiative.Assignee = member.String()
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
+	k.UpdateInitiative(ctx, initiative)
+
+	err = k.TransitionToChallengePeriod(ctx, initiativeID)
+	require.NoError(t, err)
+
+	updatedInitiative, _ := k.GetInitiative(ctx, initiativeID)
+
+	// ReviewPeriodEnd = 1000 + (2 epochs * 100 blocks) = 1200 (unchanged)
+	require.Equal(t, int64(1200), updatedInitiative.ReviewPeriodEnd)
+
+	// ChallengePeriodEnd = 1200 + (3 epochs * 100 blocks * 2) = 1800 (doubled)
+	require.Equal(t, int64(1800), updatedInitiative.ChallengePeriodEnd)
+}
+
 // TestApplyDecay_PreservesOtherFields tests that decay doesn't corrupt other fields
 func TestApplyDecay_PreservesOtherFields(t *testing.T) {
 	fixture := initFixture(t)

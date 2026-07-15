@@ -439,6 +439,32 @@ message Params {
   // the EndBlocker transitions it to PROJECT_STATUS_EXPIRED. Prevents state
   // pollution by stale unapproved proposals. Must be positive.
   int64 proposed_project_expiry_blocks = 90;
+
+  // Self-assignment safeguards. A project creator MAY be the assignee of their
+  // own project's initiatives; conflict-of-interest is handled at the judging
+  // layer instead of an assignment-time ban (mirrors x/reveal's contributor
+  // exclusion). These three knobs harden the creator-assigned path.
+
+  // Fraction of the initiative budget locked as a DREAM bond when the project
+  // creator self-assigns on a budget-backed project (permissionless projects
+  // are exempt — no treasury exposure). Bond is returned on completion or
+  // abandonment and burned when a challenge is upheld. Range [0, 1]; 0 disables.
+  string self_assigned_bond_rate = 92 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // External-conviction ratio applied instead of external_conviction_ratio when
+  // the assignee is the project creator. Must be >= external_conviction_ratio
+  // and <= 1. Default 1.0: the community alone vouches for self-assigned work.
+  string self_assigned_external_conviction_ratio = 93 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Multiplier applied to the challenge window for creator-assigned
+  // initiatives. Must be >= 1. Default 2.
+  int64 self_assigned_challenge_multiplier = 94;
 }
 
 // RepOperationalParams defines the operational parameters that can be updated

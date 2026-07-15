@@ -391,4 +391,50 @@ func TestCanCompleteInitiative(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, canComplete, "resolved challenge should not block completion")
 	})
+
+	t.Run("self-assigned requires full external conviction", func(t *testing.T) {
+		f := initFixture(t)
+		k := f.keeper
+		ctx := f.ctx
+		initID := setupInitiative(t, f)
+
+		// Assignee == project creator: the 50% external ratio is not enough;
+		// the ENTIRE required conviction must come from external stakers.
+		creator := sdk.AccAddress([]byte("creator"))
+		initiative, err := k.GetInitiative(ctx, initID)
+		require.NoError(t, err)
+		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
+		initiative.Assignee = creator.String()
+		initiative.RequiredConviction = keeper.PtrDec(math.LegacyNewDec(1000))
+		initiative.CurrentConviction = keeper.PtrDec(math.LegacyNewDec(1500))
+		initiative.ExternalConviction = keeper.PtrDec(math.LegacyNewDec(600)) // >= 50%, < 100%
+		err = k.Initiative.Set(ctx, initID, initiative)
+		require.NoError(t, err)
+
+		canComplete, err := k.CanCompleteInitiative(ctx, initID)
+		require.NoError(t, err)
+		require.False(t, canComplete, "self-assigned initiative should not complete below 100% external conviction")
+	})
+
+	t.Run("self-assigned completes at full external conviction", func(t *testing.T) {
+		f := initFixture(t)
+		k := f.keeper
+		ctx := f.ctx
+		initID := setupInitiative(t, f)
+
+		creator := sdk.AccAddress([]byte("creator"))
+		initiative, err := k.GetInitiative(ctx, initID)
+		require.NoError(t, err)
+		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
+		initiative.Assignee = creator.String()
+		initiative.RequiredConviction = keeper.PtrDec(math.LegacyNewDec(1000))
+		initiative.CurrentConviction = keeper.PtrDec(math.LegacyNewDec(1500))
+		initiative.ExternalConviction = keeper.PtrDec(math.LegacyNewDec(1000)) // exactly 100%
+		err = k.Initiative.Set(ctx, initID, initiative)
+		require.NoError(t, err)
+
+		canComplete, err := k.CanCompleteInitiative(ctx, initID)
+		require.NoError(t, err)
+		require.True(t, canComplete, "self-assigned initiative should complete once external conviction covers the full threshold")
+	})
 }

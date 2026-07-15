@@ -330,13 +330,22 @@ func (k Keeper) AssignInitiativeToMember(
 		return fmt.Errorf("insufficient reputation for tier: have %s, need %s", avgRep.String(), tierConfig.MinReputation.String())
 	}
 
-	// Prevent self-assignment if member created the project
+	// Self-assignment bond: a creator taking their own budget-backed
+	// initiative locks a fraction of the budget as a DREAM bond — returned
+	// on completion/abandonment, burned on upheld challenge. Permissionless
+	// projects are exempt (no treasury exposure).
 	project, err := k.GetProject(ctx, initiative.ProjectId)
 	if err != nil {
 		return err
 	}
-	if project.Creator == assignee.String() {
-		return fmt.Errorf("project creator cannot self-assign initiatives")
+	if assignee.String() == project.Creator && !project.Permissionless && params.SelfAssignedBondRate.IsPositive() {
+		bond := DerefInt(initiative.Budget).ToLegacyDec().Mul(params.SelfAssignedBondRate).TruncateInt()
+		if bond.IsPositive() {
+			if err := k.LockDREAM(ctx, assignee, bond); err != nil {
+				return fmt.Errorf("failed to lock self-assign bond of %s DREAM: %w", bond, err)
+			}
+			initiative.SelfAssignBond = PtrInt(bond)
+		}
 	}
 
 	// Update initiative
@@ -416,6 +425,47 @@ func (k Keeper) SubmitInitiativeWork(
 	return nil
 }
 
+// ReleaseSelfAssignBond unlocks a held self-assign bond back to the assignee
+// and clears it on the passed initiative. No-op when no bond is held. The
+// caller is responsible for persisting the initiative afterwards.
+func (k Keeper) ReleaseSelfAssignBond(ctx context.Context, initiative *types.Initiative) error {
+	bond := DerefInt(initiative.SelfAssignBond)
+	if !bond.IsPositive() {
+		return nil
+	}
+	assigneeAddr, err := sdk.AccAddressFromBech32(initiative.Assignee)
+	if err != nil {
+		return fmt.Errorf("invalid assignee address: %w", err)
+	}
+	if err := k.UnlockDREAM(ctx, assigneeAddr, bond); err != nil {
+		return fmt.Errorf("failed to unlock self-assign bond: %w", err)
+	}
+	initiative.SelfAssignBond = PtrInt(math.ZeroInt())
+	return nil
+}
+
+// BurnSelfAssignBond burns a held self-assign bond (upheld-challenge slash)
+// and clears it on the passed initiative. No-op when no bond is held. The
+// caller is responsible for persisting the initiative afterwards.
+func (k Keeper) BurnSelfAssignBond(ctx context.Context, initiative *types.Initiative) error {
+	bond := DerefInt(initiative.SelfAssignBond)
+	if !bond.IsPositive() {
+		return nil
+	}
+	assigneeAddr, err := sdk.AccAddressFromBech32(initiative.Assignee)
+	if err != nil {
+		return fmt.Errorf("invalid assignee address: %w", err)
+	}
+	if err := k.UnlockDREAM(ctx, assigneeAddr, bond); err != nil {
+		return fmt.Errorf("failed to unlock self-assign bond: %w", err)
+	}
+	if err := k.BurnDREAM(ctx, assigneeAddr, bond); err != nil {
+		return fmt.Errorf("failed to burn self-assign bond: %w", err)
+	}
+	initiative.SelfAssignBond = PtrInt(math.ZeroInt())
+	return nil
+}
+
 // AbandonInitiative allows assignee to abandon an initiative
 func (k Keeper) AbandonInitiative(
 	ctx context.Context,
@@ -440,6 +490,12 @@ func (k Keeper) AbandonInitiative(
 		if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
 			return fmt.Errorf("failed to return budget: %w", err)
 		}
+	}
+
+	// Return any self-assign bond — the bond guards against upheld
+	// challenges, not voluntary abandonment (no payout occurred).
+	if err := k.ReleaseSelfAssignBond(ctx, &initiative); err != nil {
+		return err
 	}
 
 	// Update initiative
@@ -683,6 +739,11 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		if err := k.SpendBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
 			return fmt.Errorf("failed to mark budget as spent: %w", err)
 		}
+	}
+
+	// Return any self-assign bond to the assignee
+	if err := k.ReleaseSelfAssignBond(ctx, &initiative); err != nil {
+		return err
 	}
 
 	// Update initiative

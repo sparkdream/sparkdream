@@ -356,8 +356,20 @@ func (k Keeper) CanCompleteInitiative(ctx context.Context, initiativeID uint64) 
 		return false, nil
 	}
 
-	// Check external conviction ratio (must be at least 50%)
-	minExternalConviction := DerefDec(initiative.RequiredConviction).Mul(params.ExternalConvictionRatio)
+	// Check external conviction ratio (must be at least 50%).
+	// When the assignee is also the project creator, the two "internal"
+	// roles collapse into one party, so the ENTIRE conviction threshold
+	// must be met by external (non-affiliated) stakers — the community
+	// alone vouches for self-assigned work.
+	project, err := k.GetProject(ctx, initiative.ProjectId)
+	if err != nil {
+		return false, err
+	}
+	externalRatio := params.ExternalConvictionRatio
+	if initiative.Assignee == project.Creator {
+		externalRatio = params.SelfAssignedExternalConvictionRatio
+	}
+	minExternalConviction := DerefDec(initiative.RequiredConviction).Mul(externalRatio)
 	if DerefDec(initiative.ExternalConviction).LT(minExternalConviction) {
 		return false, nil
 	}

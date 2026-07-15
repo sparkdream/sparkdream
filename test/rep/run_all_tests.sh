@@ -1021,6 +1021,28 @@ fi
 if [ "$RUN_TESTS" = true ]; then
 
 # ========================================================================
+# Step 15c: Run Self-Assignment Test (creator self-assign safeguards)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/self_assign_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 15c: SELF-ASSIGNMENT TEST (bond, approval exclusion, challenge window)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/self_assign_test.sh"
+    SELF_ASSIGN_EXIT_CODE=$?
+
+    echo ""
+    if [ $SELF_ASSIGN_EXIT_CODE -eq 0 ]; then
+        echo "[ OK ] Self-assignment test completed"
+    else
+        echo "[FAIL] Self-assignment test exited with code: $SELF_ASSIGN_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
 # Step 16: Run Staking Errors Test (P1)
 # ========================================================================
 echo "========================================================================="

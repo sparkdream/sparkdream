@@ -26,6 +26,18 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 		return nil, errorsmod.Wrap(types.ErrInvalidInitiativeStatus, "initiative must be in SUBMITTED status")
 	}
 
+	// Conflict-of-interest exclusion: neither the assignee nor the parent
+	// project's creator may approve/disapprove the initiative, regardless of
+	// stake or committee membership (mirrors x/reveal's contributor
+	// exclusion — conflicted parties may do the work, never judge it).
+	project, err := k.Keeper.GetProject(ctx, initiative.ProjectId)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to get parent project")
+	}
+	if msg.Creator == initiative.Assignee || msg.Creator == project.Creator {
+		return nil, errorsmod.Wrap(types.ErrConflictOfInterest, "initiative assignee and project creator cannot approve their own initiative")
+	}
+
 	// Authorization: caller must have an active stake on this initiative OR be on the Commons Operations Committee.
 	stakes, err := k.Keeper.GetInitiativeStakes(ctx, msg.InitiativeId)
 	if err != nil {
@@ -56,9 +68,14 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 	if !msg.Approved {
 		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED
 
+		// Return any self-assign bond — disapproval is not an upheld
+		// challenge; the assignee simply doesn't get paid.
+		if err := k.Keeper.ReleaseSelfAssignBond(ctx, &initiative); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to release self-assign bond")
+		}
+
 		// Return budget to project (skip for permissionless — no pre-allocated budget)
-		project, projErr := k.Keeper.GetProject(ctx, initiative.ProjectId)
-		if projErr == nil && !project.Permissionless {
+		if !project.Permissionless {
 			if err := k.Keeper.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to return budget")
 			}

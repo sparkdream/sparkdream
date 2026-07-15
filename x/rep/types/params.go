@@ -200,6 +200,11 @@ func DefaultParams() Params {
 		// (200,000 blocks ≈ 13.9 days). Tunable; tests can shorten via the
 		// operational params if a faster e2e cycle is needed.
 		ProposedProjectExpiryBlocks: 200000,
+
+		// Self-assignment safeguards (creator-assigned initiatives)
+		SelfAssignedBondRate:                math.LegacyNewDecWithPrec(10, 2), // 10% of budget
+		SelfAssignedExternalConvictionRatio: math.LegacyOneDec(),              // 100% external
+		SelfAssignedChallengeMultiplier:     2,
 	}
 }
 
@@ -269,6 +274,19 @@ func (p Params) Validate() error {
 	// Conviction parameters.
 	if p.ExternalConvictionRatio.IsNegative() || p.ExternalConvictionRatio.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("external conviction ratio must be in [0,1]: %s", p.ExternalConvictionRatio)
+	}
+
+	// Self-assignment safeguards.
+	if p.SelfAssignedBondRate.IsNil() || p.SelfAssignedBondRate.IsNegative() || p.SelfAssignedBondRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("self-assigned bond rate must be in [0,1]: %s", p.SelfAssignedBondRate)
+	}
+	if p.SelfAssignedExternalConvictionRatio.IsNil() ||
+		p.SelfAssignedExternalConvictionRatio.LT(p.ExternalConvictionRatio) ||
+		p.SelfAssignedExternalConvictionRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("self-assigned external conviction ratio must be in [external_conviction_ratio, 1]: %s", p.SelfAssignedExternalConvictionRatio)
+	}
+	if p.SelfAssignedChallengeMultiplier < 1 {
+		return fmt.Errorf("self-assigned challenge multiplier must be >= 1: %d", p.SelfAssignedChallengeMultiplier)
 	}
 	if p.ConvictionPerDream.IsNil() || !p.ConvictionPerDream.IsPositive() {
 		return fmt.Errorf("conviction per dream must be positive: %s", p.ConvictionPerDream)

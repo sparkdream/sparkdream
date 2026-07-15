@@ -430,6 +430,45 @@ func getOrCreateMemberWithDream(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, 
 	return &newMember, simAccount, nil
 }
 
+// getOrCreateDistinctMemberWithDream returns a member with sufficient DREAM
+// whose address differs from exclude. Bounded random retries over the sim
+// accounts; errors if no distinct account can be found.
+func getOrCreateDistinctMemberWithDream(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, accs []simtypes.Account, exclude string, minAmount math.Int) (*types.Member, simtypes.Account, error) {
+	for i := 0; i < 10; i++ {
+		simAccount, _ := simtypes.RandomAcc(r, accs)
+		addr := simAccount.Address.String()
+		if addr == exclude {
+			continue
+		}
+
+		if member, err := k.Member.Get(ctx, addr); err == nil {
+			if keeper.DerefInt(member.DreamBalance).LT(minAmount) {
+				member.DreamBalance = PtrInt(keeper.DerefInt(member.DreamBalance).Add(minAmount))
+				if err := k.Member.Set(ctx, addr, member); err != nil {
+					return nil, simtypes.Account{}, err
+				}
+			}
+			return &member, simAccount, nil
+		}
+
+		newMember := types.Member{
+			Address:           addr,
+			DreamBalance:      PtrInt(minAmount.MulRaw(int64(r.Intn(10) + 2))), // 2x-12x minimum
+			StakedDream:       PtrInt(math.ZeroInt()),
+			TrustLevel:        types.TrustLevel_TRUST_LEVEL_PROVISIONAL,
+			InvitationCredits: uint32(r.Intn(5) + 2),
+			ReputationScores:  make(map[string]string),
+			LifetimeEarned:    PtrInt(math.ZeroInt()),
+			LifetimeBurned:    PtrInt(math.ZeroInt()),
+		}
+		if err := k.Member.Set(ctx, addr, newMember); err != nil {
+			return nil, simtypes.Account{}, err
+		}
+		return &newMember, simAccount, nil
+	}
+	return nil, simtypes.Account{}, errors.New("no distinct sim account available")
+}
+
 // getOrCreateMemberWithReputation returns a member with sufficient reputation for a tier or creates one
 func getOrCreateMemberWithReputation(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, accs []simtypes.Account, tier types.InitiativeTier, tags []string) (*types.Member, simtypes.Account, error) {
 	// Get params to determine reputation requirement

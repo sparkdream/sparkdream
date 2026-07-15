@@ -45,7 +45,7 @@ var (
 	ErrInitiativeNotFound      = errors.Register(ModuleName, 1401, "initiative not found")
 	ErrInvalidInitiativeStatus = errors.Register(ModuleName, 1402, "invalid initiative status")
 	ErrInsufficientReputation  = errors.Register(ModuleName, 1403, "insufficient reputation for tier")
-	ErrSelfAssignment          = errors.Register(ModuleName, 1404, "cannot self-assign initiative")
+	ErrConflictOfInterest      = errors.Register(ModuleName, 1404, "assignee and project creator cannot judge their own initiative")
 	ErrNotAssignee             = errors.Register(ModuleName, 1405, "not the assignee of this initiative")
 	ErrTagNotRegistered        = errors.Register(ModuleName, 1406, "tag not registered in forum tag registry")
 	ErrTooManyTags             = errors.Register(ModuleName, 1407, "too many tags on initiative")

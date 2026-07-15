@@ -295,6 +295,12 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 	// Update status index
 	_ = k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id)
 
+	// Burn any self-assign bond — the upheld challenge is exactly the
+	// failure mode the bond guards against.
+	if err := k.BurnSelfAssignBond(ctx, &initiative); err != nil {
+		return err
+	}
+
 	// Update initiative status to rejected (failed challenge)
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_REJECTED
 	if err := k.Initiative.Set(ctx, initiative.Id, initiative); err != nil {
@@ -335,12 +341,17 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
-	// Slash challenger's stake (burn the staked DREAM)
+	// Slash challenger's stake: unlock first, then burn. Burning without
+	// unlocking would leave StakedDream overstated relative to DreamBalance
+	// after the burn reduces the total balance.
 	challengerAddr, err := sdk.AccAddressFromBech32(challenge.Challenger)
 	if err != nil {
 		return err
 	}
 	stakedAmount := DerefInt(challenge.StakedDream)
+	if err := k.UnlockDREAM(ctx, challengerAddr, stakedAmount); err != nil {
+		return err
+	}
 	if err := k.BurnDREAM(ctx, challengerAddr, stakedAmount); err != nil {
 		return err
 	}

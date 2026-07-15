@@ -30,10 +30,31 @@ func SimulateMsgApproveInitiative(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get/create approver"), nil, nil
 		}
 
-		// Find or create a submitted initiative
-		initID, err := getOrCreateInitiative(r, ctx, k, approver, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
+		// Find or create a submitted initiative. The initiative must be
+		// built by a member DISTINCT from the approver: the handler's
+		// conflict-of-interest exclusion rejects approvals signed by the
+		// initiative's assignee or the parent project's creator.
+		builder, _, err := getOrCreateDistinctMemberWithDream(r, ctx, k, accs, approver.Address, math.NewInt(100))
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get/create builder"), nil, nil
+		}
+		initID, err := getOrCreateInitiative(r, ctx, k, builder, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get/create initiative"), nil, nil
+		}
+
+		// A pre-existing initiative found by getOrCreateInitiative may still
+		// conflict with this approver — skip instead of failing delivery.
+		initiative, err := k.Initiative.Get(ctx, initID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get initiative"), nil, nil
+		}
+		project, err := k.Project.Get(ctx, initiative.ProjectId)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get project"), nil, nil
+		}
+		if approver.Address == initiative.Assignee || approver.Address == project.Creator {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "approver conflicts with assignee/project creator"), nil, nil
 		}
 
 		// Ensure the approver has a stake on this initiative so the handler's

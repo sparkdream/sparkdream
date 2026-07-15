@@ -653,6 +653,14 @@ func TestHasActiveChallenges(t *testing.T) {
 		hasActive, err := k.HasActiveChallenges(ctx, initID)
 		require.NoError(t, err)
 		require.False(t, hasActive)
+
+		// Slash accounting: the burned stake must be unlocked before burning,
+		// so StakedDream returns to zero and never exceeds DreamBalance.
+		member, err := k.GetMember(ctx, challenger)
+		require.NoError(t, err)
+		require.Equal(t, "0", member.StakedDream.String(), "slashed stake must be unlocked, not left as phantom staked balance")
+		require.Equal(t, math.NewInt(950000000).String(), member.DreamBalance.String(), "50 DREAM stake burned from balance")
+		require.True(t, member.StakedDream.LTE(*member.DreamBalance), "staked can never exceed total balance")
 	})
 
 	t.Run("in jury review challenge returns true", func(t *testing.T) {

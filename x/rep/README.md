@@ -327,11 +327,13 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgCreateInitiative` | Create initiative under project | Any member |
-| `MsgAssignInitiative` | Assign to worker (can't self-assign) | Project authority |
+| `MsgAssignInitiative` | Assign to worker (creator self-assign allowed; stricter completion gates apply) | Project authority |
 | `MsgSubmitInitiativeWork` | Submit deliverable | Assignee |
-| `MsgApproveInitiative` | Confirm completion | Approver |
+| `MsgApproveInitiative` | Confirm completion | Approver (never the assignee or project creator) |
 | `MsgAbandonInitiative` | Abandon work | Assignee |
 | `MsgCompleteInitiative` | Finalize after challenge period, mint rewards | Authority |
+
+Creator self-assignment is allowed but hardened: full external conviction required, extended challenge window, DREAM bond on budget-backed projects (returned on completion/abandon, burned on upheld challenge), and neither creator nor assignee may approve. See the self-assignment section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 ### Staking
 
@@ -520,6 +522,14 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `conviction_half_life_epochs` | uint64 | 7 | Exponential decay rate |
 | `external_conviction_ratio` | LegacyDec | 50% | Required from non-affiliated stakers |
 | `max_conviction_share_per_member` | LegacyDec | 33% | Prevents single-member dominance |
+
+#### Self-Assignment Safeguards (creator-assigned initiatives)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `self_assigned_bond_rate` | LegacyDec | 10% | Of budget, locked as DREAM bond on budget-backed projects; burned on upheld challenge |
+| `self_assigned_external_conviction_ratio` | LegacyDec | 100% | Replaces `external_conviction_ratio` when assignee == project creator |
+| `self_assigned_challenge_multiplier` | int64 | 2 | Challenge-window multiplier for creator-assigned initiatives |
 
 #### Challenges
 

@@ -132,6 +132,184 @@ func TestAssignInitiative(t *testing.T) {
 	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED, initiative.Status)
 }
 
+func TestAssignInitiativeProjectCreatorCanSelfAssign(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	// Setup: creator owns the project AND takes the work themselves.
+	// Accountability comes from the completion gate (full external
+	// conviction), the extended challenge window, and the DREAM bond,
+	// not from an assignment-time ban.
+	creator := sdk.AccAddress([]byte("creator"))
+	k.Member.Set(ctx, creator.String(), types.Member{
+		Address:          creator.String(),
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+
+	initID, _ := k.CreateInitiative(
+		ctx,
+		creator,
+		projectID,
+		"Task",
+		"Description",
+		[]string{"tag"},
+		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
+		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
+		"",
+		math.NewInt(100),
+	)
+
+	err := k.AssignInitiativeToMember(ctx, initID, creator)
+	require.NoError(t, err)
+
+	initiative, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.Equal(t, creator.String(), initiative.Assignee)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED, initiative.Status)
+
+	// Bond locked: default SelfAssignedBondRate 10% of the 100 DREAM budget
+	require.Equal(t, "10", initiative.SelfAssignBond.String())
+	member, err := k.GetMember(ctx, creator)
+	require.NoError(t, err)
+	require.Equal(t, "10", member.StakedDream.String())
+	require.Equal(t, "1000", member.DreamBalance.String(), "lock must not reduce total balance")
+}
+
+func TestSelfAssignBondInsufficientBalanceRejected(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+	k.Member.Set(ctx, creator.String(), types.Member{
+		Address:          creator.String(),
+		DreamBalance:     PtrInt(math.ZeroInt()), // cannot cover the 10 DREAM bond
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+
+	err := k.AssignInitiativeToMember(ctx, initID, creator)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "self-assign bond")
+}
+
+func TestSelfAssignBondNotLockedForNonCreator(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+
+	assignee := sdk.AccAddress([]byte("assignee"))
+	k.Member.Set(ctx, assignee.String(), types.Member{
+		Address:          assignee.String(),
+		DreamBalance:     PtrInt(math.ZeroInt()),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+
+	// Non-creator assignee needs no bond even with zero DREAM
+	err := k.AssignInitiativeToMember(ctx, initID, assignee)
+	require.NoError(t, err)
+
+	initiative, _ := k.GetInitiative(ctx, initID)
+	require.True(t, initiative.SelfAssignBond == nil || initiative.SelfAssignBond.IsZero())
+}
+
+func TestSelfAssignBondReleasedOnAbandon(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+	k.Member.Set(ctx, creator.String(), types.Member{
+		Address:          creator.String(),
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, creator))
+
+	err := k.AbandonInitiative(ctx, initID, creator, "changed my mind")
+	require.NoError(t, err)
+
+	initiative, _ := k.GetInitiative(ctx, initID)
+	require.True(t, initiative.SelfAssignBond.IsZero(), "bond should be cleared")
+	member, err := k.GetMember(ctx, creator)
+	require.NoError(t, err)
+	require.Equal(t, "0", member.StakedDream.String(), "bond should be unlocked")
+	require.Equal(t, "1000", member.DreamBalance.String(), "no DREAM lost on voluntary abandon")
+}
+
+func TestBurnSelfAssignBond(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+	k.Member.Set(ctx, creator.String(), types.Member{
+		Address:          creator.String(),
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, creator))
+
+	initiative, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.NoError(t, k.BurnSelfAssignBond(ctx, &initiative))
+	require.NoError(t, k.UpdateInitiative(ctx, initiative))
+
+	require.True(t, initiative.SelfAssignBond.IsZero(), "bond should be cleared")
+	member, err := k.GetMember(ctx, creator)
+	require.NoError(t, err)
+	require.Equal(t, "0", member.StakedDream.String())
+	require.Equal(t, "990", member.DreamBalance.String(), "10 DREAM bond burned")
+	require.Equal(t, "10", member.LifetimeBurned.String())
+}
+
 func TestSubmitInitiativeWork(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
