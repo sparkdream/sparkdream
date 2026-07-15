@@ -109,9 +109,6 @@ genesis:
         chain_domain: "gno.land"
         default_deposit: "100000uspark.sparkdream"
         storage_price: "1uspark.sparkdream"
-    crisis:
-      constant_fee:
-        denom: uspark.sparkdream
     distribution:
       fee_pool:
         community_pool:

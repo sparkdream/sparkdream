@@ -311,9 +311,6 @@ func wireSDKSentinels(as map[string]json.RawMessage) error {
 	if err := rewriteSubpath(as, "mint", "params", "mint_denom", types.BondDenomSentinel); err != nil {
 		return err
 	}
-	if err := rewriteSubpath(as, "crisis", "constant_fee", "denom", types.BondDenomSentinel); err != nil {
-		return err
-	}
 	if err := rewriteCoinSlice(as, "gov", "params", "min_deposit", types.BondDenomSentinel); err != nil {
 		return err
 	}

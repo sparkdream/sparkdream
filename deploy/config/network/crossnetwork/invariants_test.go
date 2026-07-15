@@ -275,7 +275,6 @@ var allowedVariations = map[string]string{
 	"gov.params.expedited_min_deposit": "embeds chain-specific bond denom",
 	"mint.params.mint_denom":           "chain's bond denom (from x/identity)",
 	"staking.params.bond_denom":        "chain's bond denom (from x/identity)",
-	"crisis.constant_fee.denom":        "chain's bond denom (from x/identity)",
 	"bank.denom_metadata":              "denom_units[].denom and base differ per chain (uspark.sparkdream vs uspark.sparkdreamtest etc.)",
 }
 
@@ -289,7 +288,6 @@ var uniformAppStatePaths = []string{
 	"bank.denom_metadata",
 	"commons.category_map",
 	"commons.next_category_id",
-	"crisis.constant_fee",
 }
 
 // TestParamsEqualAcrossNetworks recursively walks every module's `params`
