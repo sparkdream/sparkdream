@@ -345,6 +345,15 @@ sed -i 's|^priv_validator_laddr.*|priv_validator_laddr = "tcp://127.0.0.1:26660"
    tmkms continues to dial the validator's tailnet IP on `26659` (the keepalive proxy's
    public-facing port); only the validator's *internal* bind moves.
 
+   The entrypoint also runs a small watchdog (section 5d of `entrypoint_ssh.sh`)
+   supervising the two background helpers the node cannot sign without: it
+   restarts the socat proxy if its parent dies, restarts tailscaled when its
+   socket stops answering, and re-runs `tailscale up` when the mesh session is
+   broken (control session not `Running`, or no DERP relay answering). A wedged
+   tailscaled or a dead proxy otherwise looks identical in the node logs (a
+   healthy privval listener with zero inbound connections) and previously took
+   a container restart to recover.
+
 2. Allow duplicate IPs. Because sentries connect through socat tunnels, the validator sees
    all inbound sentry connections as coming from `127.0.0.1`. CometBFT deduplicates by
    remote IP by default, so only the first sentry can connect. This setting allows multiple

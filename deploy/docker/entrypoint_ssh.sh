@@ -142,6 +142,110 @@ if [ -n "$HEADSCALE_URL" ] && [ -n "$TS_AUTHKEY" ]; then
         SOCAT_PID=$!
         echo "  socat pid=${SOCAT_PID} (logs at /var/log/socat-privval.log)"
     fi
+
+    # 5d. Watchdog: supervise the two helpers the node cannot sign without.
+    #
+    # sparkdreamd is PID 1's exec target and gets container restarts, but
+    # tailscaled and the privval socat are background jobs with no supervisor.
+    # When one of them wedges — tailscaled loses the control session or its
+    # DERP path and stops delivering inbound connections, or the socat parent
+    # dies — the privval listener sees zero dials and the signer can never
+    # reconnect: observed live as minutes of "SignerListener: Error accepting
+    # connection: i/o timeout" against a perfectly healthy listener, fixed
+    # only by a container restart.
+    #
+    # This loop is the supervisor. It restarts a dead socat, restarts an
+    # unreachable tailscaled, and re-runs `tailscale up` when tailscaled's
+    # OWN health signals are broken (control session not Running, no DERP
+    # relay reachable). It never keys on "no signer session": a healthy mesh
+    # with no signer connected is a valid state (await-signer, signer stopped
+    # on purpose), and the signer machine cannot be probed anyway (its
+    # firewall drops inbound). Sentry p2p tunnels (TS_TUNNEL_*) are not
+    # supervised here on purpose: their targets are rewired over SSH after
+    # boot, so restarting env-defined ones could resurrect stale targets.
+    (
+        TS_SOCKET="${TS_STATE_DIR}/tailscaled.sock"
+        REUP_COOLDOWN=300    # seconds between tailscale re-up attempts
+        NETCHECK_EVERY=10    # DERP probe every Nth cycle (it is slow and chatty)
+        cycle=0
+        netcheck_fails=0
+        last_reup=0
+        tailscale_up() {
+            tailscale --socket="$TS_SOCKET" up \
+                --login-server="$HEADSCALE_URL" \
+                --authkey="$TS_AUTHKEY" \
+                --hostname="$TS_HOSTNAME" \
+                --accept-dns=false
+        }
+        while true; do
+            sleep 30
+            cycle=$((cycle + 1))
+
+            # tailscaled unreachable: the socket answering `status` is the
+            # only liveness signal that survives PID games (a zombie still
+            # passes kill -0, and PID 1 is sparkdreamd, not an init)
+            if ! tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1; then
+                echo "watchdog: tailscaled not answering, restarting it"
+                rm -f "$TS_SOCKET"
+                tailscaled \
+                    --tun=userspace-networking \
+                    --state="${TS_STATE_DIR}/tailscaled.state" \
+                    --socket="${TS_SOCKET}" \
+                    >>/var/log/tailscaled.log 2>&1 &
+                sleep 5
+                tailscale_up && echo "watchdog: tailscale rejoined the mesh" \
+                    || echo "watchdog: tailscale up failed after daemon restart"
+                last_reup=$(date +%s)
+                continue
+            fi
+
+            now=$(date +%s)
+
+            # control session broken (e.g. headscale rotated its noise key
+            # under us): the fix is the one applied by hand, re-run tailscale up
+            state=$(tailscale --socket="$TS_SOCKET" status --json 2>/dev/null \
+                | sed -n 's/.*"BackendState"[^A-Za-z]*\([A-Za-z]*\).*/\1/p' | head -1)
+            if [ "$state" != "Running" ] && [ $((now - last_reup)) -ge "$REUP_COOLDOWN" ]; then
+                echo "watchdog: tailscale session state '${state:-unknown}', re-running tailscale up"
+                tailscale_up && echo "watchdog: tailscale rejoined the mesh" \
+                    || echo "watchdog: tailscale up failed, retrying in ${REUP_COOLDOWN}s"
+                last_reup=$now
+                continue
+            fi
+
+            # data plane: every Nth cycle confirm a DERP relay answers (every
+            # mesh flow here relays, so no relay = no signer path). Two
+            # consecutive failures trigger the same re-up.
+            if [ $((cycle % NETCHECK_EVERY)) -eq 0 ]; then
+                if tailscale --socket="$TS_SOCKET" netcheck 2>/dev/null \
+                    | grep -Eq '^[[:space:]]*-[[:space:]]*[a-z0-9-]+:[[:space:]]*[0-9.]+ms'; then
+                    netcheck_fails=0
+                else
+                    netcheck_fails=$((netcheck_fails + 1))
+                    echo "watchdog: no DERP relay answered (failure $netcheck_fails)"
+                    if [ "$netcheck_fails" -ge 2 ] && [ $((now - last_reup)) -ge "$REUP_COOLDOWN" ]; then
+                        echo "watchdog: relay unreachable across $netcheck_fails probes, re-running tailscale up"
+                        tailscale_up && echo "watchdog: tailscale rejoined the mesh" \
+                            || echo "watchdog: tailscale up failed, retrying in ${REUP_COOLDOWN}s"
+                        last_reup=$now
+                        netcheck_fails=0
+                    fi
+                fi
+            fi
+
+            # privval socat parent dead: nothing logs that anywhere visible;
+            # the only symptom is zero inbound dials on the privval listener
+            if [ -n "$PRIVVAL_KEEPALIVE_PORT" ] \
+                && ! pgrep -f "^socat (-d )?TCP-LISTEN:${PRIVVAL_KEEPALIVE_PORT}," >/dev/null 2>&1; then
+                echo "watchdog: privval proxy (port ${PRIVVAL_KEEPALIVE_PORT}) not running, restarting it"
+                socat -d \
+                    TCP-LISTEN:${PRIVVAL_KEEPALIVE_PORT},fork,reuseaddr,${SOCAT_OPTS} \
+                    TCP:127.0.0.1:${PRIVVAL_BACKEND_PORT},${SOCAT_OPTS} \
+                    >>/var/log/socat-privval.log 2>&1 &
+            fi
+        done
+    ) &
+    echo "watchdog: supervising tailscaled and the privval proxy (30s cycle)"
 elif [ -n "$HEADSCALE_URL" ] || [ -n "$TS_AUTHKEY" ]; then
     echo "WARNING: Both HEADSCALE_URL and TS_AUTHKEY must be set for Tailscale. Skipping."
 else
