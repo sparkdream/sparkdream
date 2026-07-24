@@ -18,6 +18,25 @@ func (q queryServer) ListInitiative(ctx context.Context, req *types.QueryAllInit
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
+	// A sorted list can't page by store key (the sort order isn't the store
+	// order), so sort_by switches to collect-sort-offset pagination. The
+	// key-paginated path stays as-is for unsorted queries.
+	if req.SortBy != "" {
+		all, err := q.collectInitiatives(ctx, nil)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		reverse := req.Pagination != nil && req.Pagination.Reverse
+		if err := sortInitiatives(all, req.SortBy, reverse); err != nil {
+			return nil, err
+		}
+		page, pageRes, err := paginateSorted(all, req.Pagination)
+		if err != nil {
+			return nil, err
+		}
+		return &types.QueryAllInitiativeResponse{Initiative: page, Pagination: pageRes}, nil
+	}
+
 	initiatives, pageRes, err := query.CollectionPaginate(
 		ctx,
 		q.k.Initiative,

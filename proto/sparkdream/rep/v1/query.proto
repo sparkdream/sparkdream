@@ -496,6 +496,11 @@ message QueryGetProjectResponse {
 // QueryAllProjectRequest defines the QueryAllProjectRequest message.
 message QueryAllProjectRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
+  // sort_by orders the full project set before pagination is applied.
+  // Supported keys: "id" (default), "name", "budget" (approved budget),
+  // "status". Direction follows pagination.reverse. When set, pagination is
+  // offset-based (next_key is an offset, not a store key).
+  string sort_by = 2;
 }
 
 // QueryAllProjectResponse defines the QueryAllProjectResponse message.
@@ -517,6 +522,13 @@ message QueryGetInitiativeResponse {
 // QueryAllInitiativeRequest defines the QueryAllInitiativeRequest message.
 message QueryAllInitiativeRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
+  // sort_by orders the full initiative set before pagination is applied.
+  // Supported keys: "id" (default), "title", "status", "budget", "tier",
+  // "conviction" (current/required completion ratio; initiatives with no
+  // required conviction sort last). Direction follows pagination.reverse.
+  // When set, pagination is offset-based (next_key is an offset, not a
+  // store key).
+  string sort_by = 2;
 }
 
 // QueryAllInitiativeResponse defines the QueryAllInitiativeResponse message.
@@ -701,20 +713,25 @@ message QueryInterimsByReferenceResponse {
 message QueryProjectsByCouncilRequest {
   string council = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+  // Same keys and semantics as QueryAllProjectRequest.sort_by.
+  string sort_by = 3;
 }
 
 // QueryProjectsByCouncilResponse defines the QueryProjectsByCouncilResponse message.
+// Prior versions declared singular project_id/name/status fields, which could
+// never carry more than one match; the fields were replaced (not extended)
+// because no client could have used them meaningfully.
 message QueryProjectsByCouncilResponse {
-  uint64 project_id = 1;
-  string name = 2;
-  uint64 status = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Project projects = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryInitiativesByProjectRequest defines the QueryInitiativesByProjectRequest message.
 message QueryInitiativesByProjectRequest {
   uint64 project_id = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+  // Same keys and semantics as QueryAllInitiativeRequest.sort_by.
+  string sort_by = 3;
 }
 
 // QueryInitiativesByProjectResponse defines the QueryInitiativesByProjectResponse message.
@@ -727,28 +744,33 @@ message QueryInitiativesByProjectResponse {
 message QueryInitiativesByAssigneeRequest {
   string assignee = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+  // Same keys and semantics as QueryAllInitiativeRequest.sort_by.
+  string sort_by = 3;
 }
 
 // QueryInitiativesByAssigneeResponse defines the QueryInitiativesByAssigneeResponse message.
+// Prior versions declared singular initiative_id/title/status fields, which
+// could never carry more than one match; the fields were replaced (not
+// extended) because no client could have used them meaningfully.
 message QueryInitiativesByAssigneeResponse {
-  uint64 initiative_id = 1;
-  string title = 2;
-  uint64 status = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Initiative initiatives = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryAvailableInitiativesRequest defines the QueryAvailableInitiativesRequest message.
 message QueryAvailableInitiativesRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
+  // Same keys and semantics as QueryAllInitiativeRequest.sort_by.
+  string sort_by = 2;
 }
 
 // QueryAvailableInitiativesResponse defines the QueryAvailableInitiativesResponse message.
+// Prior versions declared singular initiative_id/title/tier/budget fields,
+// which could never carry more than one match; the fields were replaced (not
+// extended) because no client could have used them meaningfully.
 message QueryAvailableInitiativesResponse {
-  uint64 initiative_id = 1;
-  string title = 2;
-  uint64 tier = 3;
-  string budget = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+  repeated Initiative initiatives = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryStakesByStakerRequest defines the QueryStakesByStakerRequest message.

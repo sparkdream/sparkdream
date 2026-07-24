@@ -13,27 +13,28 @@ func (q queryServer) ProjectsByCouncil(ctx context.Context, req *types.QueryProj
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
+	if req.Council == "" {
+		return nil, status.Error(codes.InvalidArgument, "council cannot be empty")
+	}
 
-	// Collect first project matching the council (proto response is singular)
-	var foundProject *types.Project
-	err := q.k.Project.Walk(ctx, nil, func(id uint64, project types.Project) (bool, error) {
-		if project.Council == req.Council {
-			foundProject = &project
-			return true, nil // stop iteration
-		}
-		return false, nil
+	projects, err := q.collectProjects(ctx, func(p types.Project) bool {
+		return p.Council == req.Council
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if foundProject != nil {
-		return &types.QueryProjectsByCouncilResponse{
-			ProjectId: foundProject.Id,
-			Name:      foundProject.Name,
-			Status:    uint64(foundProject.Status),
-		}, nil
+	reverse := req.Pagination != nil && req.Pagination.Reverse
+	if err := sortProjects(projects, req.SortBy, reverse); err != nil {
+		return nil, err
+	}
+	page, pageRes, err := paginateSorted(projects, req.Pagination)
+	if err != nil {
+		return nil, err
 	}
 
-	return &types.QueryProjectsByCouncilResponse{}, nil
+	return &types.QueryProjectsByCouncilResponse{
+		Projects:   page,
+		Pagination: pageRes,
+	}, nil
 }

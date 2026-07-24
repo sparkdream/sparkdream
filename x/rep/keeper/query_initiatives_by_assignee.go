@@ -13,27 +13,28 @@ func (q queryServer) InitiativesByAssignee(ctx context.Context, req *types.Query
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
+	if req.Assignee == "" {
+		return nil, status.Error(codes.InvalidArgument, "assignee cannot be empty")
+	}
 
-	// Collect first initiative assigned to the specified assignee (proto response is singular)
-	var foundInitiative *types.Initiative
-	err := q.k.Initiative.Walk(ctx, nil, func(id uint64, initiative types.Initiative) (bool, error) {
-		if initiative.Assignee == req.Assignee {
-			foundInitiative = &initiative
-			return true, nil // stop iteration
-		}
-		return false, nil
+	initiatives, err := q.collectInitiatives(ctx, func(ini types.Initiative) bool {
+		return ini.Assignee == req.Assignee
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if foundInitiative != nil {
-		return &types.QueryInitiativesByAssigneeResponse{
-			InitiativeId: foundInitiative.Id,
-			Title:        foundInitiative.Title,
-			Status:       uint64(foundInitiative.Status),
-		}, nil
+	reverse := req.Pagination != nil && req.Pagination.Reverse
+	if err := sortInitiatives(initiatives, req.SortBy, reverse); err != nil {
+		return nil, err
+	}
+	page, pageRes, err := paginateSorted(initiatives, req.Pagination)
+	if err != nil {
+		return nil, err
 	}
 
-	return &types.QueryInitiativesByAssigneeResponse{}, nil
+	return &types.QueryInitiativesByAssigneeResponse{
+		Initiatives: page,
+		Pagination:  pageRes,
+	}, nil
 }

@@ -14,29 +14,25 @@ func (q queryServer) AvailableInitiatives(ctx context.Context, req *types.QueryA
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Collect all initiatives with status OPEN (not yet assigned)
-	var initiatives []types.Initiative
-	err := q.k.Initiative.Walk(ctx, nil, func(id uint64, initiative types.Initiative) (bool, error) {
-		if initiative.Status == types.InitiativeStatus_INITIATIVE_STATUS_OPEN {
-			initiatives = append(initiatives, initiative)
-		}
-		return false, nil
+	// Available = status OPEN: exactly the set that can still be assigned.
+	initiatives, err := q.collectInitiatives(ctx, func(ini types.Initiative) bool {
+		return ini.Status == types.InitiativeStatus_INITIATIVE_STATUS_OPEN
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// For now return the first available initiative (proto response is singular)
-	// This matches the proto definition which has singular fields, not repeated
-	if len(initiatives) > 0 {
-		first := initiatives[0]
-		return &types.QueryAvailableInitiativesResponse{
-			InitiativeId: first.Id,
-			Title:        first.Title,
-			Tier:         uint64(first.Tier),
-			Budget:       first.Budget,
-		}, nil
+	reverse := req.Pagination != nil && req.Pagination.Reverse
+	if err := sortInitiatives(initiatives, req.SortBy, reverse); err != nil {
+		return nil, err
+	}
+	page, pageRes, err := paginateSorted(initiatives, req.Pagination)
+	if err != nil {
+		return nil, err
 	}
 
-	return &types.QueryAvailableInitiativesResponse{}, nil
+	return &types.QueryAvailableInitiativesResponse{
+		Initiatives: page,
+		Pagination:  pageRes,
+	}, nil
 }

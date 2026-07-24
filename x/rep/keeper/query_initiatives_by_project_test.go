@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,7 +16,8 @@ import (
 )
 
 func createInitiativeForProject(k keeper.Keeper, ctx context.Context, id uint64, projectID uint64, status types.InitiativeStatus) types.Initiative {
-	amount := math.NewInt(1000000)
+	// Budget scales with id so sort-by-budget order is predictable.
+	amount := math.NewInt(int64(id) * 1000000)
 	initiative := types.Initiative{
 		Id:          id,
 		ProjectId:   projectID,
@@ -142,4 +144,53 @@ func TestInitiativesByProject_MultipleInitiatives(t *testing.T) {
 	require.Equal(t, uint64(1), response.Initiatives[0].Id)
 	require.Equal(t, "Initiative 1", response.Initiatives[0].Title)
 	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED, response.Initiatives[0].Status)
+}
+
+func TestInitiativesByProject_SortAndPaginate(t *testing.T) {
+	f := initFixture(t)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+
+	// Three initiatives in project 100 (budget scales with id), one outside.
+	createInitiativeForProject(f.keeper, f.ctx, 1, 100, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
+	createInitiativeForProject(f.keeper, f.ctx, 2, 100, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
+	createInitiativeForProject(f.keeper, f.ctx, 3, 100, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
+	createInitiativeForProject(f.keeper, f.ctx, 4, 200, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
+
+	// Budget descending = id descending; the project filter still applies.
+	res, err := qs.InitiativesByProject(f.ctx, &types.QueryInitiativesByProjectRequest{
+		ProjectId:  100,
+		SortBy:     "budget",
+		Pagination: &query.PageRequest{Reverse: true},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Initiatives, 3)
+	require.Equal(t, uint64(3), res.Initiatives[0].Id)
+	require.Equal(t, uint64(2), res.Initiatives[1].Id)
+	require.Equal(t, uint64(1), res.Initiatives[2].Id)
+	require.Equal(t, uint64(3), res.Pagination.Total)
+
+	// Offset pagination: page of 2, then echo next_key for the remainder.
+	first, err := qs.InitiativesByProject(f.ctx, &types.QueryInitiativesByProjectRequest{
+		ProjectId:  100,
+		Pagination: &query.PageRequest{Limit: 2},
+	})
+	require.NoError(t, err)
+	require.Len(t, first.Initiatives, 2)
+	require.NotEmpty(t, first.Pagination.NextKey)
+
+	second, err := qs.InitiativesByProject(f.ctx, &types.QueryInitiativesByProjectRequest{
+		ProjectId:  100,
+		Pagination: &query.PageRequest{Limit: 2, Key: first.Pagination.NextKey},
+	})
+	require.NoError(t, err)
+	require.Len(t, second.Initiatives, 1)
+	require.Equal(t, uint64(3), second.Initiatives[0].Id)
+	require.Empty(t, second.Pagination.NextKey)
+
+	// Unknown sort key is rejected.
+	_, err = qs.InitiativesByProject(f.ctx, &types.QueryInitiativesByProjectRequest{
+		ProjectId: 100,
+		SortBy:    "bogus",
+	})
+	require.ErrorIs(t, err, status.Error(codes.InvalidArgument, `unknown sort_by "bogus" (want id, title, status, budget, tier or conviction)`))
 }

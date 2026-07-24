@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,7 +17,7 @@ import (
 
 // createInitiativeWithStatus creates a single initiative with the specified status
 func createInitiativeWithStatus(k keeper.Keeper, ctx context.Context, id uint64, status types.InitiativeStatus) types.Initiative {
-	amount := math.NewInt(1000000)
+	amount := math.NewInt(int64(id) * 1000000)
 	initiative := types.Initiative{
 		Id:          id,
 		ProjectId:   id,
@@ -34,69 +35,79 @@ func createInitiativeWithStatus(k keeper.Keeper, ctx context.Context, id uint64,
 	return initiative
 }
 
+func initiativeIDs(list []types.Initiative) []uint64 {
+	ids := make([]uint64, len(list))
+	for i, ini := range list {
+		ids[i] = ini.Id
+	}
+	return ids
+}
+
 func TestAvailableInitiatives(t *testing.T) {
 	tests := []struct {
-		name      string
-		setup     func(*fixture)
-		request   *types.QueryAvailableInitiativesRequest
-		wantId    uint64
-		wantTitle string
-		wantTier  uint64
-		wantErr   error
+		name    string
+		setup   func(*fixture)
+		request *types.QueryAvailableInitiativesRequest
+		wantIDs []uint64
+		wantErr error
 	}{
 		{
-			name: "ReturnsFirstAvailableInitiative",
+			name: "ReturnsAllOpenInitiatives",
 			setup: func(f *fixture) {
-				// Create multiple initiatives with different statuses
 				createInitiativeWithStatus(f.keeper, f.ctx, 1, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 				createInitiativeWithStatus(f.keeper, f.ctx, 2, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
 				createInitiativeWithStatus(f.keeper, f.ctx, 3, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
 				createInitiativeWithStatus(f.keeper, f.ctx, 4, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
 			},
-			request:   &types.QueryAvailableInitiativesRequest{},
-			wantId:    2,
-			wantTitle: "Initiative 2",
-			wantTier:  uint64(types.InitiativeTier_INITIATIVE_TIER_STANDARD),
+			request: &types.QueryAvailableInitiativesRequest{},
+			wantIDs: []uint64{2, 3},
 		},
 		{
-			name: "EmptyResponseWhenNoOpenInitiatives",
+			name: "EmptyWhenNoOpenInitiatives",
 			setup: func(f *fixture) {
-				// Only create non-OPEN initiatives
 				createInitiativeWithStatus(f.keeper, f.ctx, 1, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 				createInitiativeWithStatus(f.keeper, f.ctx, 2, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
 			},
 			request: &types.QueryAvailableInitiativesRequest{},
-			wantErr: nil,
+			wantIDs: nil,
 		},
 		{
-			name:    "EmptyResponseWhenNoInitiativesExist",
+			name:    "EmptyWhenNoInitiativesExist",
 			setup:   func(f *fixture) {},
 			request: &types.QueryAvailableInitiativesRequest{},
-			wantErr: nil,
+			wantIDs: nil,
 		},
 		{
-			name: "ReturnsSingleOpenInitiative",
+			name: "NewestFirstWithReverse",
 			setup: func(f *fixture) {
-				amount := math.NewInt(5000000)
-				initiative := types.Initiative{
-					Id:          1,
-					ProjectId:   1,
-					Title:       "Test Initiative",
-					Description: "A test initiative",
-					Tier:        types.InitiativeTier_INITIATIVE_TIER_EXPERT,
-					Category:    types.InitiativeCategory_INITIATIVE_CATEGORY_DESIGN,
-					TemplateId:  "template-1",
-					Budget:      &amount,
-					Status:      types.InitiativeStatus_INITIATIVE_STATUS_OPEN,
-					CreatedAt:   1000,
-				}
-				_ = f.keeper.Initiative.Set(f.ctx, 1, initiative)
-				_ = f.keeper.InitiativeSeq.Set(f.ctx, 1)
+				createInitiativeWithStatus(f.keeper, f.ctx, 1, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
+				createInitiativeWithStatus(f.keeper, f.ctx, 2, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
+				createInitiativeWithStatus(f.keeper, f.ctx, 3, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
 			},
-			request:   &types.QueryAvailableInitiativesRequest{},
-			wantId:    1,
-			wantTitle: "Test Initiative",
-			wantTier:  uint64(types.InitiativeTier_INITIATIVE_TIER_EXPERT),
+			request: &types.QueryAvailableInitiativesRequest{
+				Pagination: &query.PageRequest{Reverse: true},
+			},
+			wantIDs: []uint64{3, 2, 1},
+		},
+		{
+			name: "SortByBudgetDescending",
+			setup: func(f *fixture) {
+				// Budget scales with id, so budget-descending is id-descending.
+				createInitiativeWithStatus(f.keeper, f.ctx, 1, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
+				createInitiativeWithStatus(f.keeper, f.ctx, 2, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
+				createInitiativeWithStatus(f.keeper, f.ctx, 3, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
+			},
+			request: &types.QueryAvailableInitiativesRequest{
+				SortBy:     "budget",
+				Pagination: &query.PageRequest{Reverse: true},
+			},
+			wantIDs: []uint64{3, 2, 1},
+		},
+		{
+			name:    "UnknownSortKeyRejected",
+			setup:   func(f *fixture) {},
+			request: &types.QueryAvailableInitiativesRequest{SortBy: "bogus"},
+			wantErr: status.Error(codes.InvalidArgument, `unknown sort_by "bogus" (want id, title, status, budget, tier or conviction)`),
 		},
 		{
 			name:    "InvalidRequestNil",
@@ -111,75 +122,58 @@ func TestAvailableInitiatives(t *testing.T) {
 			f := initFixture(t)
 			qs := keeper.NewQueryServerImpl(f.keeper)
 
-			// Setup test data
 			if tc.setup != nil {
 				tc.setup(f)
 			}
 
-			// Execute query
 			response, err := qs.AvailableInitiatives(f.ctx, tc.request)
 
-			// Check results
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tc.wantErr)
-			} else if tc.wantId > 0 {
-				// Should return an initiative
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, tc.wantId, response.InitiativeId)
-				require.Equal(t, tc.wantTitle, response.Title)
-				require.Equal(t, tc.wantTier, response.Tier)
-			} else {
-				// Should return empty response
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, uint64(0), response.InitiativeId)
-				require.Equal(t, "", response.Title)
-				require.Equal(t, uint64(0), response.Tier)
+				return
 			}
+			require.NoError(t, err)
+			require.NotNil(t, response)
+			if len(tc.wantIDs) == 0 {
+				require.Empty(t, response.Initiatives)
+			} else {
+				require.Equal(t, tc.wantIDs, initiativeIDs(response.Initiatives))
+			}
+			require.NotNil(t, response.Pagination)
+			require.Equal(t, uint64(len(tc.wantIDs)), response.Pagination.Total)
 		})
 	}
 }
 
-func TestAvailableInitiatives_MultipleOpenInitiatives(t *testing.T) {
+func TestAvailableInitiatives_OffsetPagination(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
 
-	// Create multiple OPEN initiatives in a specific order
-	initiatives := []struct {
-		id    uint64
-		title string
-		tier  types.InitiativeTier
-	}{
-		{1, "First Open Initiative", types.InitiativeTier_INITIATIVE_TIER_STANDARD},
-		{2, "Second Open Initiative", types.InitiativeTier_INITIATIVE_TIER_EXPERT},
-		{3, "Third Open Initiative", types.InitiativeTier_INITIATIVE_TIER_EPIC},
+	for id := uint64(1); id <= 5; id++ {
+		createInitiativeWithStatus(f.keeper, f.ctx, id, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
 	}
 
-	for _, init := range initiatives {
-		amount := math.NewInt(int64(init.id * 1000000))
-		initiative := types.Initiative{
-			Id:          init.id,
-			ProjectId:   init.id,
-			Title:       init.title,
-			Description: "Description for " + init.title,
-			Tier:        init.tier,
-			Category:    types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-			TemplateId:  "template-" + strconv.FormatUint(init.id, 10),
-			Budget:      &amount,
-			Status:      types.InitiativeStatus_INITIATIVE_STATUS_OPEN,
-			CreatedAt:   int64(init.id * 1000),
-		}
-		_ = f.keeper.Initiative.Set(f.ctx, init.id, initiative)
-		_ = f.keeper.InitiativeSeq.Set(f.ctx, init.id)
-	}
-
-	// Query should return the first available initiative (id 1)
-	response, err := qs.AvailableInitiatives(f.ctx, &types.QueryAvailableInitiativesRequest{})
+	first, err := qs.AvailableInitiatives(f.ctx, &types.QueryAvailableInitiativesRequest{
+		Pagination: &query.PageRequest{Limit: 2, Reverse: true},
+	})
 	require.NoError(t, err)
-	require.NotNil(t, response)
-	require.Equal(t, uint64(1), response.InitiativeId)
-	require.Equal(t, "First Open Initiative", response.Title)
-	require.Equal(t, uint64(types.InitiativeTier_INITIATIVE_TIER_STANDARD), response.Tier)
+	require.Equal(t, []uint64{5, 4}, initiativeIDs(first.Initiatives))
+	require.Equal(t, uint64(5), first.Pagination.Total)
+	require.NotEmpty(t, first.Pagination.NextKey)
+
+	// Echoing next_key back continues from the same sorted position.
+	second, err := qs.AvailableInitiatives(f.ctx, &types.QueryAvailableInitiativesRequest{
+		Pagination: &query.PageRequest{Limit: 2, Reverse: true, Key: first.Pagination.NextKey},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{3, 2}, initiativeIDs(second.Initiatives))
+	require.NotEmpty(t, second.Pagination.NextKey)
+
+	third, err := qs.AvailableInitiatives(f.ctx, &types.QueryAvailableInitiativesRequest{
+		Pagination: &query.PageRequest{Limit: 2, Reverse: true, Key: second.Pagination.NextKey},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1}, initiativeIDs(third.Initiatives))
+	require.Empty(t, third.Pagination.NextKey)
 }

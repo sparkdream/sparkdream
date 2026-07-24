@@ -1225,9 +1225,9 @@ sleep 1
 
 # Check worker1's assigned initiatives
 WORKER1_INITS=$($BINARY query rep initiatives-by-assignee "${WORKER_ADDRS[0]}" --output json)
-# Note: initiatives-by-assignee returns flat fields (initiative_id, title, status),
-# not an .initiatives array. Check for initiative_id to verify assignment.
-WORKER1_INIT_ID=$(echo "$WORKER1_INITS" | jq -r '.initiative_id // "0"')
+# initiatives-by-assignee returns {initiatives: [...], pagination: {...}};
+# proto3 omits zero-valued uint64 fields, so normalize id with // "0".
+WORKER1_INIT_ID=$(echo "$WORKER1_INITS" | jq -r '.initiatives[0].id // "0"')
 
 echo ""
 if [ "$WORKER1_INIT_ID" != "0" ] && [ -n "$WORKER1_INIT_ID" ]; then

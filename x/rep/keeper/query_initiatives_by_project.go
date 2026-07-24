@@ -14,20 +14,31 @@ func (q queryServer) InitiativesByProject(ctx context.Context, req *types.QueryI
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Collect all initiatives for the specified project
-	var initiatives []*types.Initiative
-	err := q.k.Initiative.Walk(ctx, nil, func(id uint64, initiative types.Initiative) (bool, error) {
-		if initiative.ProjectId == req.ProjectId {
-			initiativeCopy := initiative
-			initiatives = append(initiatives, &initiativeCopy)
-		}
-		return false, nil // continue iteration
+	initiatives, err := q.collectInitiatives(ctx, func(ini types.Initiative) bool {
+		return ini.ProjectId == req.ProjectId
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	reverse := req.Pagination != nil && req.Pagination.Reverse
+	if err := sortInitiatives(initiatives, req.SortBy, reverse); err != nil {
+		return nil, err
+	}
+	page, pageRes, err := paginateSorted(initiatives, req.Pagination)
+	if err != nil {
+		return nil, err
+	}
+
+	// The response predates the repeated-value convention and declares
+	// pointers; earlier revisions also ignored pagination entirely, so
+	// honoring it here only trims what clients previously got in one shot.
+	out := make([]*types.Initiative, len(page))
+	for i := range page {
+		out[i] = &page[i]
+	}
 	return &types.QueryInitiativesByProjectResponse{
-		Initiatives: initiatives,
+		Initiatives: out,
+		Pagination:  pageRes,
 	}, nil
 }

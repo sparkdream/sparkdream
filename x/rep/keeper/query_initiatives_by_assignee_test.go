@@ -36,57 +36,57 @@ func createInitiativeForAssignee(k keeper.Keeper, ctx context.Context, id uint64
 
 func TestInitiativesByAssignee(t *testing.T) {
 	tests := []struct {
-		name       string
-		setup      func(*fixture)
-		assignee   string
-		wantID     uint64
-		wantTitle  string
-		wantStatus uint64
-		wantErr    error
+		name    string
+		setup   func(*fixture)
+		request *types.QueryInitiativesByAssigneeRequest
+		wantIDs []uint64
+		wantErr error
 	}{
 		{
-			name: "ReturnsFirstInitiativeForAssignee",
+			name: "ReturnsEveryInitiativeForAssignee",
 			setup: func(f *fixture) {
 				createInitiativeForAssignee(f.keeper, f.ctx, 1, "assignee1", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 				createInitiativeForAssignee(f.keeper, f.ctx, 2, "assignee2", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 				createInitiativeForAssignee(f.keeper, f.ctx, 3, "assignee1", types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
 			},
-			assignee:   "assignee1",
-			wantID:     1,
-			wantTitle:  "Initiative 1",
-			wantStatus: uint64(types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED),
+			request: &types.QueryInitiativesByAssigneeRequest{Assignee: "assignee1"},
+			wantIDs: []uint64{1, 3},
 		},
 		{
-			name: "EmptyResponseWhenNoInitiativesForAssignee",
+			name: "EmptyWhenNoInitiativesForAssignee",
 			setup: func(f *fixture) {
 				createInitiativeForAssignee(f.keeper, f.ctx, 1, "assignee1", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 				createInitiativeForAssignee(f.keeper, f.ctx, 2, "assignee2", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 			},
-			assignee: "nonexistent",
-			wantErr:  nil,
+			request: &types.QueryInitiativesByAssigneeRequest{Assignee: "nonexistent"},
+			wantIDs: nil,
 		},
 		{
-			name:     "EmptyResponseWhenNoInitiativesExist",
-			setup:    func(f *fixture) {},
-			assignee: "assignee1",
-			wantErr:  nil,
+			name:    "EmptyWhenNoInitiativesExist",
+			setup:   func(f *fixture) {},
+			request: &types.QueryInitiativesByAssigneeRequest{Assignee: "assignee1"},
+			wantIDs: nil,
 		},
 		{
-			name: "ReturnsInitiativeWithSubmittedStatus",
+			name: "SortByStatus",
 			setup: func(f *fixture) {
 				createInitiativeForAssignee(f.keeper, f.ctx, 1, "assigneeX", types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
 				createInitiativeForAssignee(f.keeper, f.ctx, 2, "assigneeX", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 			},
-			assignee:   "assigneeX",
-			wantID:     1,
-			wantTitle:  "Initiative 1",
-			wantStatus: uint64(types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED),
+			request: &types.QueryInitiativesByAssigneeRequest{Assignee: "assigneeX", SortBy: "status"},
+			wantIDs: []uint64{2, 1},
 		},
 		{
-			name:     "InvalidRequestNil",
-			setup:    func(f *fixture) {},
-			assignee: "",
-			wantErr:  status.Error(codes.InvalidArgument, "invalid request"),
+			name:    "EmptyAssigneeRejected",
+			setup:   func(f *fixture) {},
+			request: &types.QueryInitiativesByAssigneeRequest{Assignee: ""},
+			wantErr: status.Error(codes.InvalidArgument, "assignee cannot be empty"),
+		},
+		{
+			name:    "InvalidRequestNil",
+			setup:   func(f *fixture) {},
+			request: nil,
+			wantErr: status.Error(codes.InvalidArgument, "invalid request"),
 		},
 	}
 
@@ -99,29 +99,22 @@ func TestInitiativesByAssignee(t *testing.T) {
 				tc.setup(f)
 			}
 
-			var req *types.QueryInitiativesByAssigneeRequest
-			if tc.assignee != "" || tc.wantErr == nil {
-				req = &types.QueryInitiativesByAssigneeRequest{Assignee: tc.assignee}
-			}
-
-			response, err := qs.InitiativesByAssignee(f.ctx, req)
+			response, err := qs.InitiativesByAssignee(f.ctx, tc.request)
 
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tc.wantErr)
-			} else if tc.wantID > 0 {
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, tc.wantID, response.InitiativeId)
-				require.Equal(t, tc.wantTitle, response.Title)
-				require.Equal(t, tc.wantStatus, response.Status)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, uint64(0), response.InitiativeId)
-				require.Equal(t, "", response.Title)
-				require.Equal(t, uint64(0), response.Status)
+				return
 			}
+			require.NoError(t, err)
+			require.NotNil(t, response)
+			if len(tc.wantIDs) == 0 {
+				require.Empty(t, response.Initiatives)
+			} else {
+				require.Equal(t, tc.wantIDs, initiativeIDs(response.Initiatives))
+			}
+			require.NotNil(t, response.Pagination)
+			require.Equal(t, uint64(len(tc.wantIDs)), response.Pagination.Total)
 		})
 	}
 }
@@ -130,16 +123,14 @@ func TestInitiativesByAssignee_MultipleInitiatives(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
 
-	// Create multiple initiatives for the same assignee
 	createInitiativeForAssignee(f.keeper, f.ctx, 1, "worker1", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 	createInitiativeForAssignee(f.keeper, f.ctx, 2, "worker1", types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
 	createInitiativeForAssignee(f.keeper, f.ctx, 3, "worker1", types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED)
+	createInitiativeForAssignee(f.keeper, f.ctx, 4, "worker2", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 
-	// Query should return first initiative (id 1)
 	response, err := qs.InitiativesByAssignee(f.ctx, &types.QueryInitiativesByAssigneeRequest{Assignee: "worker1"})
 	require.NoError(t, err)
 	require.NotNil(t, response)
-	require.Equal(t, uint64(1), response.InitiativeId)
-	require.Equal(t, "Initiative 1", response.Title)
-	require.Equal(t, uint64(types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED), response.Status)
+	require.Equal(t, []uint64{1, 2, 3}, initiativeIDs(response.Initiatives))
+	require.Equal(t, uint64(3), response.Pagination.Total)
 }

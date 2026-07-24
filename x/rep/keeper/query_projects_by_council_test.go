@@ -30,58 +30,72 @@ func createProjectForCouncil(k keeper.Keeper, ctx context.Context, id uint64, co
 	return project
 }
 
+func projectIDs(list []types.Project) []uint64 {
+	ids := make([]uint64, len(list))
+	for i, p := range list {
+		ids[i] = p.Id
+	}
+	return ids
+}
+
 func TestProjectsByCouncil(t *testing.T) {
 	tests := []struct {
-		name       string
-		setup      func(*fixture)
-		council    string
-		wantID     uint64
-		wantName   string
-		wantStatus uint64
-		wantErr    error
+		name    string
+		setup   func(*fixture)
+		request *types.QueryProjectsByCouncilRequest
+		wantIDs []uint64
+		wantErr error
 	}{
 		{
-			name: "ReturnsFirstProjectForCouncil",
+			name: "ReturnsEveryProjectForCouncil",
 			setup: func(f *fixture) {
 				createProjectForCouncil(f.keeper, f.ctx, 1, "commons", types.ProjectStatus_PROJECT_STATUS_PROPOSED)
 				createProjectForCouncil(f.keeper, f.ctx, 2, "technical", types.ProjectStatus_PROJECT_STATUS_PROPOSED)
 				createProjectForCouncil(f.keeper, f.ctx, 3, "commons", types.ProjectStatus_PROJECT_STATUS_ACTIVE)
 			},
-			council:    "commons",
-			wantID:     1,
-			wantName:   "Project B1",
-			wantStatus: uint64(types.ProjectStatus_PROJECT_STATUS_PROPOSED),
+			request: &types.QueryProjectsByCouncilRequest{Council: "commons"},
+			wantIDs: []uint64{1, 3},
 		},
 		{
-			name: "EmptyResponseWhenNoProjectsForCouncil",
+			name: "EmptyWhenNoProjectsForCouncil",
 			setup: func(f *fixture) {
 				createProjectForCouncil(f.keeper, f.ctx, 1, "commons", types.ProjectStatus_PROJECT_STATUS_PROPOSED)
 				createProjectForCouncil(f.keeper, f.ctx, 2, "technical", types.ProjectStatus_PROJECT_STATUS_PROPOSED)
 			},
-			council: "nonexistent",
-			wantErr: nil,
+			request: &types.QueryProjectsByCouncilRequest{Council: "nonexistent"},
+			wantIDs: nil,
 		},
 		{
-			name:    "EmptyResponseWhenNoProjectsExist",
+			name:    "EmptyWhenNoProjectsExist",
 			setup:   func(f *fixture) {},
-			council: "commons",
-			wantErr: nil,
+			request: &types.QueryProjectsByCouncilRequest{Council: "commons"},
+			wantIDs: nil,
 		},
 		{
-			name: "ReturnsProjectForTechnicalCouncil",
+			name: "SortByStatus",
 			setup: func(f *fixture) {
 				createProjectForCouncil(f.keeper, f.ctx, 1, "technical", types.ProjectStatus_PROJECT_STATUS_ACTIVE)
 				createProjectForCouncil(f.keeper, f.ctx, 2, "technical", types.ProjectStatus_PROJECT_STATUS_PROPOSED)
 			},
-			council:    "technical",
-			wantID:     1,
-			wantName:   "Project B1",
-			wantStatus: uint64(types.ProjectStatus_PROJECT_STATUS_ACTIVE),
+			request: &types.QueryProjectsByCouncilRequest{Council: "technical", SortBy: "status"},
+			wantIDs: []uint64{2, 1},
+		},
+		{
+			name:    "UnknownSortKeyRejected",
+			setup:   func(f *fixture) {},
+			request: &types.QueryProjectsByCouncilRequest{Council: "commons", SortBy: "bogus"},
+			wantErr: status.Error(codes.InvalidArgument, `unknown sort_by "bogus" (want id, name, budget or status)`),
+		},
+		{
+			name:    "EmptyCouncilRejected",
+			setup:   func(f *fixture) {},
+			request: &types.QueryProjectsByCouncilRequest{Council: ""},
+			wantErr: status.Error(codes.InvalidArgument, "council cannot be empty"),
 		},
 		{
 			name:    "InvalidRequestNil",
 			setup:   func(f *fixture) {},
-			council: "",
+			request: nil,
 			wantErr: status.Error(codes.InvalidArgument, "invalid request"),
 		},
 	}
@@ -95,29 +109,22 @@ func TestProjectsByCouncil(t *testing.T) {
 				tc.setup(f)
 			}
 
-			var req *types.QueryProjectsByCouncilRequest
-			if tc.council != "" || tc.wantErr == nil {
-				req = &types.QueryProjectsByCouncilRequest{Council: tc.council}
-			}
-
-			response, err := qs.ProjectsByCouncil(f.ctx, req)
+			response, err := qs.ProjectsByCouncil(f.ctx, tc.request)
 
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tc.wantErr)
-			} else if tc.wantID > 0 {
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, tc.wantID, response.ProjectId)
-				require.Equal(t, tc.wantName, response.Name)
-				require.Equal(t, tc.wantStatus, response.Status)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, response)
-				require.Equal(t, uint64(0), response.ProjectId)
-				require.Equal(t, "", response.Name)
-				require.Equal(t, uint64(0), response.Status)
+				return
 			}
+			require.NoError(t, err)
+			require.NotNil(t, response)
+			if len(tc.wantIDs) == 0 {
+				require.Empty(t, response.Projects)
+			} else {
+				require.Equal(t, tc.wantIDs, projectIDs(response.Projects))
+			}
+			require.NotNil(t, response.Pagination)
+			require.Equal(t, uint64(len(tc.wantIDs)), response.Pagination.Total)
 		})
 	}
 }
@@ -126,16 +133,14 @@ func TestProjectsByCouncil_MultipleProjects(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
 
-	// Create multiple projects for the same council
 	createProjectForCouncil(f.keeper, f.ctx, 1, "commons", types.ProjectStatus_PROJECT_STATUS_PROPOSED)
 	createProjectForCouncil(f.keeper, f.ctx, 2, "commons", types.ProjectStatus_PROJECT_STATUS_ACTIVE)
 	createProjectForCouncil(f.keeper, f.ctx, 3, "commons", types.ProjectStatus_PROJECT_STATUS_COMPLETED)
+	createProjectForCouncil(f.keeper, f.ctx, 4, "other", types.ProjectStatus_PROJECT_STATUS_ACTIVE)
 
-	// Query should return first project (id 1)
 	response, err := qs.ProjectsByCouncil(f.ctx, &types.QueryProjectsByCouncilRequest{Council: "commons"})
 	require.NoError(t, err)
 	require.NotNil(t, response)
-	require.Equal(t, uint64(1), response.ProjectId)
-	require.Equal(t, "Project B1", response.Name)
-	require.Equal(t, uint64(types.ProjectStatus_PROJECT_STATUS_PROPOSED), response.Status)
+	require.Equal(t, []uint64{1, 2, 3}, projectIDs(response.Projects))
+	require.Equal(t, uint64(3), response.Pagination.Total)
 }

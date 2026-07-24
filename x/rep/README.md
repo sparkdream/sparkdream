@@ -461,6 +461,13 @@ DREAM-bonded role primitive only. SPARK-staked roles (e.g. federation bridge ope
 | `AvailableInitiatives` | Open initiatives to claim |
 | `InitiativeConviction` | Current conviction score (time-weighted) |
 
+The list queries above accept an optional `sort_by` field (`--sort-by` on
+the CLI). Project keys: `id`, `name`, `budget`, `status`. Initiative keys:
+`id`, `title`, `status`, `budget`, `tier`, `conviction`. Direction follows
+`pagination.reverse`; sorted results are offset-paginated (`next_key` is a
+decimal offset, not a store key). See the Sorted List Pagination section of
+[docs/x-rep-spec.md](../../docs/x-rep-spec.md) for details.
+
 ### Staking
 
 | Query | Description |

@@ -1807,6 +1807,35 @@ All seven live on `Params` and `RepOperationalParams` (council-tunable via `MsgU
 
 ## Queries
 
+### Sorted List Pagination
+
+The project/initiative list queries (`ListProject`, `ListInitiative`,
+`ProjectsByCouncil`, `InitiativesByProject`, `InitiativesByAssignee`,
+`AvailableInitiatives`) accept an optional `sort_by` request field that
+orders the full (filtered) set before pagination is applied:
+
+| Query family | Sort keys |
+|---|---|
+| Projects | `id` (default), `name` (case-insensitive), `budget` (approved budget), `status` |
+| Initiatives | `id` (default), `title` (case-insensitive), `status`, `budget`, `tier`, `conviction` (current/required completion ratio; initiatives with no required conviction sort last regardless of direction) |
+
+Direction follows `pagination.reverse` for every key; ties fall back to id
+in the same direction so pages stay deterministic. An unknown key is
+rejected with `InvalidArgument`.
+
+A sorted query cannot page by store key (the sort order isn't the store
+order), so when `sort_by` is set — and always, for the filtered queries —
+pagination is offset-based: `next_key` carries the next offset as a decimal
+string, and clients either echo it back via `pagination.key` or set
+`pagination.offset` directly. `ListProject`/`ListInitiative` keep the
+efficient key-paginated store walk when `sort_by` is empty.
+
+The `ProjectsByCouncil`, `InitiativesByAssignee`, and
+`AvailableInitiatives` responses return `repeated` full objects plus a
+`PageResponse`. Prior revisions declared singular id/title/status fields
+that could never carry more than one match; the fields were replaced (not
+extended) because no client could have used them meaningfully.
+
 ```protobuf
 service Query {
   // Params

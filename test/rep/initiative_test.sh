@@ -260,13 +260,15 @@ echo ""
 echo "--- PART 6: QUERY INITIATIVES BY ASSIGNEE ---"
 
 WORKER_INITIATIVES=$($BINARY query rep initiatives-by-assignee $WORKER_ADDR -o json)
-# Note: Query returns single object {initiative_id, title, status}, not array
-WORKER_INIT_ID=$(echo "$WORKER_INITIATIVES" | jq -r '.initiative_id // ""')
+# Query returns {initiatives: [...], pagination: {...}}. proto3 omits
+# zero-valued uint64 fields, so normalize id with // "0".
+WORKER_INIT_COUNT=$(echo "$WORKER_INITIATIVES" | jq -r '.initiatives | length')
 
-if [ -n "$WORKER_INIT_ID" ] && [ "$WORKER_INIT_ID" != "null" ] && [ "$WORKER_INIT_ID" != "" ]; then
-    WORKER_INIT_TITLE=$(echo "$WORKER_INITIATIVES" | jq -r '.title // ""')
-    WORKER_INIT_STATUS=$(echo "$WORKER_INITIATIVES" | jq -r '.status // "0"')
-    echo "Worker has 1 assigned initiative:"
+if [ "$WORKER_INIT_COUNT" -gt 0 ]; then
+    WORKER_INIT_ID=$(echo "$WORKER_INITIATIVES" | jq -r '.initiatives[0].id // "0"')
+    WORKER_INIT_TITLE=$(echo "$WORKER_INITIATIVES" | jq -r '.initiatives[0].title // ""')
+    WORKER_INIT_STATUS=$(echo "$WORKER_INITIATIVES" | jq -r '.initiatives[0].status // ""')
+    echo "Worker has $WORKER_INIT_COUNT assigned initiative(s):"
     echo "  ID: $WORKER_INIT_ID"
     echo "  Title: $WORKER_INIT_TITLE"
     echo "  Status: $WORKER_INIT_STATUS"
@@ -274,6 +276,24 @@ if [ -n "$WORKER_INIT_ID" ] && [ "$WORKER_INIT_ID" != "null" ] && [ "$WORKER_INI
 else
     echo "Worker has 0 assigned initiatives"
     echo "[WARN]  Query may not have found the assigned initiative"
+fi
+
+# Sorted listing: --sort-by orders the set before offset pagination; an
+# unknown key must be rejected.
+SORTED_AVAILABLE=$($BINARY query rep available-initiatives --sort-by budget --page-reverse -o json 2>/dev/null)
+SORTED_COUNT=$(echo "$SORTED_AVAILABLE" | jq -r '.initiatives | length')
+if [ -n "$SORTED_COUNT" ] && [ "$SORTED_COUNT" != "null" ]; then
+    echo "[ OK ] available-initiatives --sort-by budget returned $SORTED_COUNT initiative(s)"
+else
+    echo "[FAIL] available-initiatives --sort-by budget did not return an initiatives array"
+    exit 1
+fi
+
+if $BINARY query rep available-initiatives --sort-by bogus -o json > /dev/null 2>&1; then
+    echo "[FAIL] --sort-by bogus was unexpectedly accepted"
+    exit 1
+else
+    echo "[ OK ] --sort-by bogus rejected"
 fi
 
 # ========================================================================
