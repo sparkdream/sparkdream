@@ -20,7 +20,7 @@ Two `collections.Item[ChainIdentity]`:
 ### `ChainIdentity` Fields
 
 - `bond_denom` (e.g. `uspark.sparkdream`)
-- `dream_denom` (e.g. `udream.sparkdream`)
+- `dream_denom` (e.g. `udream.sparkdream`; same `u<2-5 letters>.<chain suffix>` shape rule as `bond_denom` — `udream.<chainname>` is only the conventional default derived by the genesis CLI, so a chain can fully brand its internal token, e.g. `uwish.aurora`)
 - `bond_symbol` / `dream_symbol` (display tickers; e.g. `SPARK` / `DREAM`)
 - `bond_display` / `dream_display` (display denom names)
 - `bond_decimals` / `dream_decimals` (typically `6`)

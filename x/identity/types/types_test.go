@@ -50,7 +50,15 @@ func TestChainIdentityValidateRejectsBadDenoms(t *testing.T) {
 			require.ErrorIs(t, err, types.ErrInvalidBondDenom)
 		})
 	}
-	dreamBad := []string{"dream", "DREAM.phoenix", "dream.phoenix", "%DREAM_DENOM%"}
+	dreamBad := []string{
+		"dream",            // missing u prefix and dot
+		"DREAM.phoenix",    // uppercase
+		"dream.phoenix",    // missing u prefix
+		"udream",           // missing dot suffix
+		"u.phoenix",        // missing 2-5 letters between u and dot
+		"uwishesx.phoenix", // more than 5 letters between u and dot
+		"%DREAM_DENOM%",
+	}
 	for _, d := range dreamBad {
 		t.Run("dream="+d, func(t *testing.T) {
 			id := cloneValid()
@@ -58,6 +66,19 @@ func TestChainIdentityValidateRejectsBadDenoms(t *testing.T) {
 			err := id.Validate()
 			require.Error(t, err)
 			require.ErrorIs(t, err, types.ErrInvalidDreamDenom)
+		})
+	}
+}
+
+// The dream denom follows the same shape rule as the bond denom; the udream
+// prefix is a convention, not a requirement, so a federated chain can brand
+// its internal token (e.g., Aurora's uwish.aurora).
+func TestValidateAcceptsCustomDreamPrefix(t *testing.T) {
+	for _, d := range []string{"uwish.phoenix", "udrmz.phoenix", "uab.phoenix"} {
+		t.Run(d, func(t *testing.T) {
+			id := cloneValid()
+			id.DreamDenom = d
+			require.NoError(t, id.Validate())
 		})
 	}
 }
@@ -81,16 +102,12 @@ func TestValidateRejectsWhitespaceAndNonASCII(t *testing.T) {
 }
 
 func TestValidateRejectsCollisions(t *testing.T) {
+	// Bond and dream denoms share one shape rule, so an equal pair passes
+	// both regexes and must be caught by the explicit collision check.
 	id := cloneValid()
-	id.DreamDenom = "upspk.phoenix" // same as bond — but dream regex won't match, so this is actually ErrInvalidDreamDenom not ErrDenomCollision. Test the explicit denom-collision case below.
-	require.Error(t, id.Validate())
+	id.DreamDenom = "upspk.phoenix" // same as bond
+	require.ErrorIs(t, id.Validate(), types.ErrDenomCollision)
 
-	// Make both regex-passing but equal: pick a value that matches both regexes.
-	// Bond regex: u[a-z]{2,4}\.[a-z][a-z0-9-]{2,15}
-	// Dream regex: dream\.[a-z][a-z0-9-]{2,15}
-	// No overlap by design, so to trigger ErrDenomCollision we have to bypass
-	// the regex. The validator runs denom-regex checks first then collision.
-	// We assert the explicit symbol-collision branch instead.
 	id = cloneValid()
 	id.DreamDisplaySymbol = "PSPK" // same as BondDisplaySymbol
 	require.ErrorIs(t, id.Validate(), types.ErrSymbolCollision)

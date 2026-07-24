@@ -134,7 +134,7 @@ A single record per chain, set at genesis, immutable thereafter. Fields:
 | `bond_display_symbol` | `PSPK` | `ASPK` | 3-8 uppercase ASCII letters/digits |
 | `bond_display_name` | `Phoenix Spark` | `Aurora Spark` | 1-64 chars; printable ASCII |
 | `bond_display_decimals` | `6` | `6` | typically 6 (micro-units); allowed range `[0, 18]` |
-| `dream_denom` | `udream.phoenix` | `udream.aurora` | matches `udream\.[a-z][a-z0-9-]{2,15}` |
+| `dream_denom` | `udream.phoenix` | `uwish.aurora` | matches `u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}` (same shape as `bond_denom`; `udream.<chainname>` is the conventional default) |
 | `dream_display_symbol` | `PDRM` | `ADRM` | 3-8 uppercase ASCII letters/digits |
 | `dream_display_name` | `Phoenix Dream` | `Aurora Dream` | 1-64 chars |
 | `dream_display_decimals` | `6` | `6` | `[0, 18]` |
@@ -161,6 +161,8 @@ If both chains used bare `uspark`, the trace would be ambiguous without joining 
 ### 3.3. Why DREAM Also Gets a Per-Chain Denom
 
 DREAM is non-IBC-transferable (enforced in [x/rep](x-rep-spec.md)), so cross-chain confusion in production is impossible. But developers running multiple federated chains side-by-side (testnet, mainnet, peer chain in dev, simulator) constantly confuse them. The cost of giving DREAM the same per-chain treatment as SPARK is small (mostly the same migration), and the dev-ergonomics gain is real.
+
+The dream denom follows the *same* shape rule as the bond denom (`u<2-5 letters>.<chain suffix>`) rather than a fixed `udream.` prefix: a sovereign chain can fully brand its internal token (Aurora's `uwish.aurora` with display symbol `WISH`), exactly as it brands its bond token. `udream.<chainname>` remains the conventional default derived by the genesis CLI and tooling when no explicit dream denom is given. Nothing at runtime pattern-matches the prefix; every consumer resolves the denom via `IdentityKeeper.DreamDenom(ctx)` (§3.5), and the reputation module's non-transferability is what marks the token as internal, not its name.
 
 ### 3.4. Genesis-Only Immutability
 
@@ -918,7 +920,7 @@ Intrinsic rules, enforced by `Validate()` and called from both the sentinel-rewr
 | `bond_display_symbol` | regex `^[A-Z0-9]{3,8}$`; must start with a letter | `ErrInvalidBondSymbol` |
 | `bond_display_name` | 1-64 chars, printable ASCII; `s == strings.TrimSpace(s)` enforced | `ErrInvalidBondDisplayName` |
 | `bond_display_decimals` | `[0, 18]` | `ErrInvalidDecimals` |
-| `dream_denom` | matches SDK denom regex AND `^udream\.[a-z][a-z0-9-]{2,15}$` | `ErrInvalidDreamDenom` |
+| `dream_denom` | matches SDK denom regex AND `^u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}$` (same shape rule as `bond_denom`) | `ErrInvalidDreamDenom` |
 | `dream_display_symbol` | regex `^[A-Z0-9]{3,8}$`; must start with a letter | `ErrInvalidDreamSymbol` |
 | `dream_display_name` | 1-64 chars, printable ASCII; `s == strings.TrimSpace(s)` enforced | `ErrInvalidDreamDisplayName` |
 | `dream_display_decimals` | `[0, 18]` | `ErrInvalidDecimals` |
@@ -926,7 +928,7 @@ Intrinsic rules, enforced by `Validate()` and called from both the sentinel-rewr
 | `bond_display_symbol != dream_display_symbol` | distinct symbols | `ErrSymbolCollision` |
 | `founded_at` | `> 0` | `ErrInvalidFoundedAt` |
 
-The bond-denom regex is **deliberately strict**: it requires the `u` prefix (signals micro-unit base denom) and a dot-prefixed chain suffix. This prevents bare `uspark` and other ambiguous-with-Cosmos-defaults values from being accepted. A chain that genuinely wants a different base format (e.g., no `u` prefix) must update this spec and the validation regex in the same PR; they should not slip in by lax validation.
+The denom regexes (bond and dream share one shape rule) are **deliberately strict**: they require the `u` prefix (signals micro-unit base denom) and a dot-prefixed chain suffix. This prevents bare `uspark`/`udream` and other ambiguous-with-Cosmos-defaults values from being accepted. A chain that genuinely wants a different base format (e.g., no `u` prefix) must update this spec and the validation regex in the same PR; they should not slip in by lax validation.
 
 "Printable ASCII" for `chain_human_name`, `bond_display_name`, and `dream_display_name` is enforced byte-by-byte (not rune-by-rune): a `for i := 0; i < len(s); i++ { c := s[i]; if c < 0x20 || c > 0x7e { reject } }` loop. This explicitly rejects multi-byte UTF-8 sequences, control characters, and DEL (0x7f). The byte-loop rather than rune-loop is deliberate: it matches what wallet/explorer display layers tend to assume about identity strings.
 
@@ -1477,6 +1479,7 @@ Tests are scattered through the spec by feature; this section is the central ind
 | Test | Asserts | Spec ref |
 |---|---|---|
 | `TestChainIdentityValidateRejectsBadDenoms` | Table-driven: `uspark`, `spark`, `SPARK`, `uatom`, `dream`, missing dot, missing `u` prefix all rejected with `ErrInvalidBondDenom` | §11 |
+| `TestValidateAcceptsCustomDreamPrefix` | Dream denoms with a non-`udream` prefix but the shared shape (`uwish.phoenix`, `udrmz.phoenix`, `uab.phoenix`) validate cleanly | §3.3 / §11 |
 | `TestChainIdentityValidateRejectsWhitespace` | `chain_human_name = " Phoenix "` fails with `ErrInvalidChainName` | §11 |
 | `TestChainIdentityValidateRejectsCollisions` | `bond_denom == dream_denom` fails with `ErrDenomCollision`; symbol collision fails with `ErrSymbolCollision` | §11 |
 | `TestValidateAgainstChainIDAcceptsCommonShapes` | `(phoenix-1, Phoenix)`, `(aurora-mainnet-1, Aurora)` pass | §11.1 |

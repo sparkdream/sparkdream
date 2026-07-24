@@ -134,7 +134,7 @@ func initCmd() *cobra.Command {
 	cmd.Flags().String("bond-symbol", "", "Wallet ticker for the bond token (e.g., PSPK)")
 	cmd.Flags().String("dream-symbol", "", "Wallet ticker for the DREAM token (e.g., PDRM)")
 	cmd.Flags().String("bond-denom", "", "Override derived bond denom; default u<lowercase-bond-symbol>.<chainname>; required if bond-symbol is longer than 5 chars")
-	cmd.Flags().String("dream-denom", "", "Override derived dream denom; default udream.<chainname>")
+	cmd.Flags().String("dream-denom", "", "Override derived dream denom; default udream.<chainname>; same u<2-5 letters>.<suffix> shape as the bond denom")
 	cmd.Flags().Uint32("decimals", 6, "Display decimals for both tokens (6 is the Cosmos convention)")
 	cmd.Flags().Bool("confirm-non-default-decimals", false, "Required when --decimals is not 6")
 	cmd.Flags().Int64("founded-at", 0, "Founding unix seconds; defaults to current time")

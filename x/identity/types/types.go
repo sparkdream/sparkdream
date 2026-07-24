@@ -13,7 +13,7 @@ import (
 var (
 	tickerPrefixRE = regexp.MustCompile(`^[A-Z]{2,5}$`)
 	bondDenomRE    = regexp.MustCompile(`^u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}$`)
-	dreamDenomRE   = regexp.MustCompile(`^udream\.[a-z][a-z0-9-]{2,15}$`)
+	dreamDenomRE   = regexp.MustCompile(`^u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}$`)
 	displaySymRE   = regexp.MustCompile(`^[A-Z][A-Z0-9]{2,7}$`)
 
 	// chainIDStripRE captures common Cosmos chain-id suffix patterns. Group 1
@@ -52,7 +52,7 @@ func (c ChainIdentity) Validate() error {
 		return errorsmod.Wrapf(ErrInvalidDreamDenom, "%q: %s", c.DreamDenom, err.Error())
 	}
 	if !dreamDenomRE.MatchString(c.DreamDenom) {
-		return errorsmod.Wrapf(ErrInvalidDreamDenom, "%q does not match ^udream\\.[a-z][a-z0-9-]{2,15}$", c.DreamDenom)
+		return errorsmod.Wrapf(ErrInvalidDreamDenom, "%q does not match ^u[a-z]{2,5}\\.[a-z][a-z0-9-]{2,15}$", c.DreamDenom)
 	}
 	if !displaySymRE.MatchString(c.DreamDisplaySymbol) {
 		return errorsmod.Wrapf(ErrInvalidDreamSymbol, "%q does not match ^[A-Z][A-Z0-9]{2,7}$", c.DreamDisplaySymbol)

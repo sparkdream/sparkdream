@@ -73,7 +73,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 	} else if currentBond := parseIntOrZero(br.CurrentBond); currentBond.LT(minLockBond) {
 		// Higher bond requirement for locking (2x normal bond, in DREAM micro-units).
 		sentinelErr = errorsmod.Wrapf(types.ErrInsufficientLockBond,
-			"need %s udream bonded for locking, have %s", minLockBond.String(), currentBond.String())
+			"need %s (dream base units) bonded for locking, have %s", minLockBond.String(), currentBond.String())
 	} else {
 		bondSnapshot = br.CurrentBond
 		sentinelEligible = true
@@ -105,7 +105,7 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 		minLockBacking := params.LockBackingAmountInt()
 		if backing.LT(minLockBacking) {
 			return nil, errorsmod.Wrapf(types.ErrInsufficientLockBacking,
-				"need %s udream backing for locking, have %s", minLockBacking.String(), backing.String())
+				"need %s (dream base units) backing for locking, have %s", minLockBacking.String(), backing.String())
 		}
 
 		if msg.Reason == "" {

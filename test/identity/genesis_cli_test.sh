@@ -142,6 +142,63 @@ grep -qi "irreversibility\|confirm-non-default-decimals" /tmp/identity-init-deci
 echo "PASS: non-default decimals required explicit acknowledgement"
 echo ""
 
+# ----------------------------------------------------------------------
+# 7. Custom dream-denom prefix. The dream denom follows the same
+# u<2-5 letters>.<suffix> shape rule as the bond denom (spec section 3.3);
+# udream.<chainname> is only the derived default, so an explicit
+# --dream-denom with a different prefix must be accepted. Chain name stays
+# Phoenix so `validate` (which also runs the soft chain_human_name vs
+# chain_id=phoenix-1 check, unlike init) passes — the point under test is
+# the dream-denom prefix, not the chain name.
+# ----------------------------------------------------------------------
+echo "custom --dream-denom prefix accepted (shared shape rule)"
+$BINARY genesis identity init \
+    --chain-name Phoenix \
+    --ticker-prefix PHX \
+    --bond-symbol PSPK \
+    --dream-symbol WISH \
+    --dream-denom uwish.phoenix \
+    --home "$TEST_HOME" \
+    --force --i-mean-it
+
+CUSTOM=$($BINARY genesis identity show --home "$TEST_HOME")
+GOT_CUSTOM_DREAM=$(echo "$CUSTOM" | jq -r '.identity.dream_denom')
+if [ "$GOT_CUSTOM_DREAM" != "uwish.phoenix" ]; then
+    echo "FAIL: custom dream_denom = $GOT_CUSTOM_DREAM, want uwish.phoenix"
+    exit 1
+fi
+$BINARY genesis identity validate --home "$TEST_HOME"
+echo "PASS: custom dream-denom prefix accepted and validates"
+echo ""
+
+# ----------------------------------------------------------------------
+# 8. Dream denom violating the shared shape rule (more than 5 letters
+# between u and the dot) must be rejected at init.
+# ----------------------------------------------------------------------
+echo "malformed --dream-denom rejected"
+set +e
+$BINARY genesis identity init \
+    --chain-name Phoenix \
+    --ticker-prefix PHX \
+    --bond-symbol PSPK \
+    --dream-symbol WISH \
+    --dream-denom uwishesx.phoenix \
+    --home "$TEST_HOME" \
+    --force --i-mean-it 2>/tmp/identity-init-baddream.log
+RC=$?
+set -e
+if [ $RC -eq 0 ]; then
+    echo "FAIL: malformed dream denom uwishesx.aurora unexpectedly accepted"
+    exit 1
+fi
+grep -qi "dream" /tmp/identity-init-baddream.log || (
+    echo "FAIL: rejection message did not mention the dream denom"
+    cat /tmp/identity-init-baddream.log
+    exit 1
+)
+echo "PASS: malformed dream denom rejected"
+echo ""
+
 echo "=================================================="
 echo "TEST PASSED: sparkdreamd genesis identity"
 echo "=================================================="
